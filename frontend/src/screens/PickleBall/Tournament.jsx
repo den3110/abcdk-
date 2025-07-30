@@ -1,152 +1,244 @@
-// src/pages/TournamentDashboard.jsx – “Đăng ký” chuyển route /tournament/:id/register
-import { useState } from "react";
-import { useSearchParams, Link } from "react-router-dom";
+// src/pages/TournamentDashboard.jsx – Material UI version
+import { useState, Fragment } from "react";
+import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import {
-  Card,
-  Table,
-  Image,
+  Box,
   Container,
-  Spinner,
-  Alert,
-  Modal,
-  Button,
+  Typography,
   Tabs,
   Tab,
-} from "react-bootstrap";
+  Paper,
+  TableContainer,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  Avatar,
+  Dialog,
+  DialogContent,
+  IconButton,
+  Button,
+  CircularProgress,
+  Alert,
+  Chip,
+} from "@mui/material";
+import PreviewIcon from "@mui/icons-material/Preview";
+import HowToRegIcon from "@mui/icons-material/HowToReg";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import CloseIcon from "@mui/icons-material/Close";
 import { useGetTournamentsQuery } from "../../slices/tournamentsApiSlice";
+import { Stack } from "@mui/material";
+const THUMB_SIZE = 78;
 
-const THUMB_SIZE = 120;
+const statusColor = {
+  "Sắp diễn ra": "info",
+  "Đang diễn ra": "success",
+  "Đã diễn ra": "default",
+};
 
-const TournamentDashboard = () => {
+const columns = [
+  { label: "Ảnh", minWidth: THUMB_SIZE },
+  { label: "Tên giải" },
+  { label: "Hạn đăng ký" },
+  { label: "Đăng ký / Dự kiến", align: "center" },
+  { label: "Số trận", align: "center" },
+  { label: "Thời gian" },
+  { label: "Địa điểm" },
+  { label: "Trạng thái", align: "center" },
+  { label: "Hành động", align: "center" },
+];
+
+export default function TournamentDashboard() {
   const [params] = useSearchParams();
   const sportType = params.get("sportType") || 2;
   const groupId = params.get("groupId") || 0;
 
+  const [tab, setTab] = useState("Sắp diễn ra");
   const [previewSrc, setPreviewSrc] = useState(null);
-  const [key, setKey] = useState("Sắp diễn ra");
 
   const {
     data: tournaments,
     isLoading,
     error,
-  } = useGetTournamentsQuery({
-    sportType,
-    groupId,
-  });
+  } = useGetTournamentsQuery({ sportType, groupId });
 
-  const openPreview = (src) => setPreviewSrc(src);
-  const closePreview = () => setPreviewSrc(null);
+  const handleChangeTab = (_, v) => setTab(v);
 
-  const renderRows = (list) =>
-    list.map((t) => (
-      <tr key={t._id}>
-        <td>
-          <Image
+  // === helpers
+  const formatDate = (d) =>
+    new Date(d).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+
+  const rows = (tList) =>
+    tList.map((t) => (
+      <TableRow hover key={t._id}>
+        {/* Thumb */}
+        <TableCell sx={{ py: 1.5 }}>
+          <Box
+            component="img"
             src={t.image}
             alt={t.name}
-            thumbnail
-            fluid
-            style={{ cursor: "pointer", width: THUMB_SIZE, height: "auto" }}
-            onClick={() => openPreview(t.image)}
+            sx={{
+              width: THUMB_SIZE,
+              height: THUMB_SIZE,
+              objectFit: "cover",
+              borderRadius: 1,
+              cursor: "zoom-in",
+              transition: "transform 0.2s",
+              "&:hover": { transform: "scale(1.1)" },
+            }}
+            onClick={() => setPreviewSrc(t.image)}
           />
-        </td>
-        <td>{t.name}</td>
-        <td>{new Date(t.registrationDeadline).toLocaleDateString()}</td>
-        <td>
+        </TableCell>
+
+        <TableCell>{t.name}</TableCell>
+        <TableCell>{formatDate(t.registrationDeadline)}</TableCell>
+        <TableCell align="center">
           {t.registered}/{t.expected}
-        </td>
-        <td>{t.matchesCount}</td>
-        <td>
-          {new Date(t.startDate).toLocaleDateString()} –{" "}
-          {new Date(t.endDate).toLocaleDateString()}
-        </td>
-        <td>{t.location}</td>
-        <td>{t.status}</td>
-        <td>
-          <Button
-            as={Link}
-            to={`/tournament/${t._id}/register`}
-            size="sm"
-            variant="primary"
-            className="me-1"
-          >
-            Đăng ký
-          </Button>
-          <Button
-            as={Link}
-            to={`/tournament/${t._id}/checkin`}
-            size="sm"
-            variant="success"
-            className="me-1"
-          >
-            Check‑in
-          </Button>
-          <Button
-            as={Link}
-            to={`/tournament/${t._id}/bracket`}
-            size="sm"
-            variant="info"
-          >
-            Sơ đồ
-          </Button>
-        </td>
-      </tr>
+        </TableCell>
+        <TableCell align="center">{t.matchesCount}</TableCell>
+        <TableCell>
+          {formatDate(t.startDate)} – {formatDate(t.endDate)}
+        </TableCell>
+        <TableCell>{t.location}</TableCell>
+        <TableCell align="center">
+          <Chip label={t.status} color={statusColor[t.status]} size="small" />
+        </TableCell>
+        {/* ACTIONS */}
+        <TableCell align="center">
+          <Box display="flex" flexWrap="wrap" justifyContent="center" gap={1.5}>
+            <Button
+              component={RouterLink}
+              to={`/tournament/${t._id}/register`}
+              size="small"
+              variant="contained"
+              color="primary"
+              startIcon={<HowToRegIcon />}
+            >
+              Đăng ký
+            </Button>
+
+            <Button
+              component={RouterLink}
+              to={`/tournament/${t._id}/checkin`}
+              size="small"
+              variant="contained"
+              color="success"
+              startIcon={<CheckCircleIcon />}
+            >
+              Check‑in
+            </Button>
+
+            <Button
+              component={RouterLink}
+              to={`/tournament/${t._id}/bracket`}
+              size="small"
+              variant="outlined"
+              color="info"
+              startIcon={<AccountTreeIcon />}
+            >
+              Sơ đồ
+            </Button>
+          </Box>
+        </TableCell>
+      </TableRow>
     ));
 
-  const tableHead = (
-    <thead className="table-dark">
-      <tr>
-        <th style={{ width: THUMB_SIZE }}>Ảnh</th>
-        <th>Tên giải</th>
-        <th>Hạn đăng ký</th>
-        <th>Đăng ký / Dự kiến</th>
-        <th>Số trận</th>
-        <th>Thời gian</th>
-        <th>Địa điểm</th>
-        <th>Trạng thái</th>
-        <th>Hành động</th>
-      </tr>
-    </thead>
-  );
-
   return (
-    <Container className="py-4">
-      <h3 className="mb-3">Dashboard Giải đấu</h3>
+    <Container sx={{ py: 4 }}>
+      <Typography variant="h5" mb={3} fontWeight={600}>
+        Dashboard Giải đấu
+      </Typography>
 
-      {isLoading && <Spinner animation="border" />}
+      {/* Loading / Error */}
+      {isLoading && (
+        <Box textAlign="center" my={5}>
+          <CircularProgress />
+        </Box>
+      )}
       {error && (
-        <Alert variant="danger">{error?.data?.message || error.error}</Alert>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error?.data?.message || error.error}
+        </Alert>
       )}
 
+      {/* Tabs + Table */}
       {tournaments && (
-        <Tabs activeKey={key} onSelect={(k) => setKey(k)} className="mb-3">
-          {["Sắp diễn ra", "Đang diễn ra", "Đã diễn ra"].map((tab) => (
-            <Tab eventKey={tab} title={tab} key={tab}>
-              <Card body className="p-0 overflow-auto">
-                <Table hover responsive className="mb-0 align-middle">
-                  {tableHead}
-                  <tbody>
-                    {renderRows(tournaments.filter((t) => t.status === tab))}
-                  </tbody>
-                </Table>
-              </Card>
-            </Tab>
-          ))}
-        </Tabs>
+        <Fragment>
+          <Tabs
+            value={tab}
+            onChange={handleChangeTab}
+            sx={{ mb: 2 }}
+            variant="scrollable"
+          >
+            {["Sắp diễn ra", "Đang diễn ra", "Đã diễn ra"].map((label) => (
+              <Tab
+                key={label}
+                value={label}
+                label={label}
+                icon={<PreviewIcon fontSize="small" sx={{ ml: -0.5 }} />}
+                iconPosition="start"
+              />
+            ))}
+          </Tabs>
+
+          <Paper elevation={2}>
+            <TableContainer sx={{ maxHeight: { xs: 480, md: 640 } }}>
+              <Table stickyHeader size="small">
+                <TableHead>
+                  <TableRow>
+                    {columns.map((col) => (
+                      <TableCell
+                        key={col.label}
+                        align={col.align || "left"}
+                        sx={{
+                          minWidth: col.minWidth,
+                          fontWeight: 600,
+                          backgroundColor: "background.default",
+                        }}
+                      >
+                        {col.label}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+
+                <TableBody>
+                  {rows(tournaments.filter((t) => t.status === tab))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        </Fragment>
       )}
 
-      <Modal show={!!previewSrc} onHide={closePreview} centered size="lg">
-        <Modal.Body className="p-0 text-center">
-          {previewSrc && <Image src={previewSrc} alt="Preview" fluid />}
-        </Modal.Body>
-        <Modal.Footer className="justify-content-center border-0 pt-0">
-          <Button variant="secondary" onClick={closePreview}>
-            Đóng
-          </Button>
-        </Modal.Footer>
-      </Modal>
+      {/* Image preview */}
+      <Dialog
+        open={Boolean(previewSrc)}
+        onClose={() => setPreviewSrc(null)}
+        maxWidth="md"
+      >
+        <IconButton
+          aria-label="close"
+          onClick={() => setPreviewSrc(null)}
+          sx={{ position: "absolute", right: 8, top: 8 }}
+        >
+          <CloseIcon />
+        </IconButton>
+        <DialogContent sx={{ p: 0 }}>
+          <Box
+            component="img"
+            src={previewSrc}
+            alt="Preview"
+            sx={{ width: "100%", height: "auto" }}
+          />
+        </DialogContent>
+      </Dialog>
     </Container>
   );
-};
-
-export default TournamentDashboard;
+}

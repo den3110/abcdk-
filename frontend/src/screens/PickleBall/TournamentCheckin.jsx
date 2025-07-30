@@ -1,19 +1,24 @@
 // src/pages/TournamentCheckin.jsx
 import { useState, useMemo } from "react";
-import { useParams, Link } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
+import { Container, Row, Col } from "react-bootstrap"; // vẫn Bootstrap grid
 import {
-  Container,
-  Row,
-  Col,
+  TextField,
+  Button as MuiButton,
+  InputAdornment,
   Table,
-  Button,
-  Form,
-  Badge,
-  Spinner,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  Chip,
+  Avatar,
+  CircularProgress,
   Alert,
-  InputGroup,
-  Image,
-} from "react-bootstrap";
+  Stack,
+  Typography,
+} from "@mui/material";
+import SearchIcon from "@mui/icons-material/Search";
 import {
   useGetRegistrationsQuery,
   useCheckinMutation,
@@ -23,16 +28,12 @@ import {
 import { toast } from "react-toastify";
 
 const PLACE = "https://dummyimage.com/70x70/cccccc/ffffff&text=Avatar";
-
-const Avatar = ({ src, alt }) => (
-  <Image
+const AvatarMini = ({ src, alt }) => (
+  <Avatar
     src={src || PLACE}
-    onError={(e) => (e.currentTarget.src = PLACE)}
-    roundedCircle
-    width={30}
-    height={30}
-    className="me-2"
     alt={alt}
+    sx={{ width: 30, height: 30, mr: 1 }}
+    imgProps={{ onError: (e) => (e.currentTarget.src = PLACE) }}
   />
 );
 
@@ -49,7 +50,7 @@ export default function TournamentCheckin() {
   const [busyId, setBusy] = useState(null);
   const [checkin] = useCheckinMutation();
 
-  /** check‑in theo SĐT */
+  /* --- Check‑in theo SĐT --- */
   const handlePhone = async () => {
     const reg = regs.find(
       (r) => r.player1.phone === phone || r.player2.phone === phone
@@ -67,7 +68,7 @@ export default function TournamentCheckin() {
     }
   };
 
-  /** filter search list */
+  /* --- Lọc danh sách trận --- */
   const filtered = useMemo(() => {
     const key = search.trim().toLowerCase();
     if (!key) return matches;
@@ -81,92 +82,141 @@ export default function TournamentCheckin() {
   }, [matches, search]);
 
   return (
-    <Container fluid className="py-3">
-      {/* HEADER + buttons */}
-      <h4 className="fw-bold mb-3">
+    <Container fluid className="py-4">
+      {/* HEADER */}
+      <Typography variant="h5" fontWeight={700} mb={3}>
         Chào mừng bạn đến với giải đấu:&nbsp;
-        <span className="text-uppercase">{tour?.name}</span>
-      </h4>
+        <span style={{ textTransform: "uppercase", color: "#1976d2" }}>
+          {tour?.name}
+        </span>
+      </Typography>
 
-      <div className="d-flex flex-wrap align-items-center gap-2 mb-3">
-        <InputGroup style={{ maxWidth: 220 }}>
-          <Form.Control
+      {/* ACTION BAR */}
+      <Stack
+        direction="row"
+        spacing={2}
+        flexWrap="wrap"
+        alignItems="center"
+        mb={3}
+      >
+        <Stack direction="row" spacing={1} alignItems="center">
+          <TextField
+            size="small"
             placeholder="Nhập SĐT VĐV đăng ký"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
+            sx={{ maxWidth: 220 }}
           />
-          <Button variant="primary" onClick={handlePhone}>
+          <MuiButton
+            variant="contained"
+            size="small"
+            onClick={handlePhone}
+            disabled={busyId !== null}
+          >
             Check‑in
-          </Button>
-        </InputGroup>
+          </MuiButton>
+        </Stack>
 
-        <Button variant="warning" as={Link} to={`/tournament/${id}/bracket`}>
-          Xem sơ đồ giải đấu
-        </Button>
-        <Button variant="info" as={Link} to={`/tournament/${id}/register`}>
+        <MuiButton
+          component={Link}
+          to={`/tournament/${id}/bracket`}
+          variant="contained"
+          color="warning"
+          size="small"
+        >
+          Sơ đồ giải đấu
+        </MuiButton>
+
+        <MuiButton
+          component={Link}
+          to={`/tournament/${id}/register`}
+          variant="contained"
+          color="info"
+          size="small"
+        >
           Danh sách đăng ký
-        </Button>
-      </div>
+        </MuiButton>
+      </Stack>
 
-      {/* SEARCH */}
+      {/* SEARCH BOX */}
       <Row className="mb-3">
         <Col md={4}>
-          <Form.Control
-            placeholder="Tìm: Tên VĐV, mã trận hoặc tình trạng"
+          <TextField
+            fullWidth
+            size="small"
+            placeholder="Tìm: Tên VĐV, mã trận, tình trạng…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
           />
         </Col>
       </Row>
 
+      {/* BẢNG TRẬN */}
       {isLoading ? (
-        <Spinner animation="border" />
+        <CircularProgress />
       ) : error ? (
-        <Alert variant="danger">{error?.data?.message || error.error}</Alert>
+        <Alert severity="error">{error?.data?.message || error.error}</Alert>
       ) : (
-        <Table striped bordered hover responsive>
-          <thead className="table-dark">
-            <tr>
-              <th>Mã trận</th>
-              <th>Ngày</th>
-              <th>Giờ</th>
-              <th>Đội 1</th>
-              <th>Tỷ số</th>
-              <th>Đội 2</th>
-              <th>Sân</th>
-              <th>Trọng tài</th>
-              <th>Tình trạng</th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table
+          size="small"
+          sx={{
+            "& thead th": { fontWeight: 600 },
+            "& tbody td": { whiteSpace: "nowrap" },
+          }}
+          stickyHeader
+        >
+          <TableHead>
+            <TableRow>
+              <TableCell>Mã trận</TableCell>
+              <TableCell>Ngày</TableCell>
+              <TableCell>Giờ</TableCell>
+              <TableCell>Đội&nbsp;1</TableCell>
+              <TableCell>Tỷ số</TableCell>
+              <TableCell>Đội&nbsp;2</TableCell>
+              <TableCell>Sân</TableCell>
+              <TableCell>Trọng tài</TableCell>
+              <TableCell>Tình trạng</TableCell>
+            </TableRow>
+          </TableHead>
+
+          <TableBody>
             {filtered.map((m) => (
-              <tr key={m._id}>
-                <td>{m.code}</td>
-                <td>{new Date(m.date).toLocaleDateString()}</td>
-                <td>{m.time}</td>
-                <td>{m.team1}</td>
-                <td>
-                  {m.score1} ‑ {m.score2}
-                </td>
-                <td>{m.team2}</td>
-                <td>{m.field}</td>
-                <td>{m.referee}</td>
-                <td>
-                  <Badge
-                    bg={
+              <TableRow key={m._id} hover>
+                <TableCell>{m.code}</TableCell>
+                <TableCell>{new Date(m.date).toLocaleDateString()}</TableCell>
+                <TableCell>{m.time}</TableCell>
+                <TableCell>{m.team1}</TableCell>
+                <TableCell align="center">
+                  <strong>
+                    {m.score1} ‑ {m.score2}
+                  </strong>
+                </TableCell>
+                <TableCell>{m.team2}</TableCell>
+                <TableCell>{m.field}</TableCell>
+                <TableCell>{m.referee}</TableCell>
+                <TableCell>
+                  <Chip
+                    label={m.status}
+                    size="small"
+                    color={
                       m.status === "Hoàn thành"
                         ? "success"
                         : m.status === "Đang chơi"
                         ? "warning"
-                        : "secondary"
+                        : "default"
                     }
-                  >
-                    {m.status}
-                  </Badge>
-                </td>
-              </tr>
+                  />
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
+          </TableBody>
         </Table>
       )}
     </Container>

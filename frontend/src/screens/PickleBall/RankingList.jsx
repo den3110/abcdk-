@@ -1,76 +1,130 @@
+// src/pages/RankingList.jsx
 import { useState, useEffect } from 'react';
 import {
-  Container, Table, Spinner, Alert, Form, Button, Image
-} from 'react-bootstrap';
+  Container,
+  Typography,
+  Box,
+  TextField,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Button,
+  Avatar,
+  CircularProgress,
+  Alert,
+  Stack,
+  Chip,
+} from '@mui/material';
 import { useGetRankingsQuery } from '../../slices/rankingsApiSlice';
+import { Link } from 'react-router-dom';
 
 const PLACEHOLDER = 'https://dummyimage.com/40x40/cccccc/ffffff&text=?';
-const colorByGames = (g) => g < 1 ? '#f00' : g < 7 ? '#ffc107' : '#212529';
+const colorByGames = (g) => g < 1 ? '#f44336' : g < 7 ? '#ff9800' : '#212121';
 
 export default function RankingList() {
   const [keyword, setKeyword] = useState('');
   const { data: list = [], isLoading, error, refetch } = useGetRankingsQuery(keyword);
 
-  useEffect(() => { const t = setTimeout(refetch, 300); return () => clearTimeout(t); }, [keyword]);
+  useEffect(() => {
+    const t = setTimeout(refetch, 300);
+    return () => clearTimeout(t);
+  }, [keyword]);
 
   return (
-    <Container fluid className="py-3">
-      <div className="d-flex justify-content-between align-items-center mb-2">
-        <h4 className="mb-0">PLAYER RANKING</h4>
-        <Button size="sm" variant="primary">Tự chấm trình</Button>
-      </div>
+    <Container maxWidth="xl" sx={{ py: 3 }}>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+        <Typography variant="h5" fontWeight={600}>PLAYER RANKING</Typography>
+        <Button as={Link}
+                        to="/levelpoint" variant="contained" size="small">Tự chấm trình</Button>
+      </Box>
 
-      {/* chú thích màu */}
-      <p className="mb-2">
-        <b>Đỏ</b>: tự chấm&nbsp;&nbsp;
-        <b>Vàng</b>: &lt; 7 trận&nbsp;&nbsp;
-        <b>Đen</b>: ≥ 7 trận
-      </p>
+      {/* Chú thích */}
+      <Stack direction="row" spacing={2} mb={2}>
+        <Chip label="Đỏ: tự chấm" sx={{ bgcolor: '#f44336', color: '#fff' }} />
+        <Chip label="Vàng: < 7 trận" sx={{ bgcolor: '#ff9800', color: '#fff' }} />
+        <Chip label="Đen: ≥ 7 trận" sx={{ bgcolor: '#212121', color: '#fff' }} />
+      </Stack>
 
-      <Form.Control
-        placeholder="Search"
+      {/* Ô tìm kiếm */}
+      <TextField
+        label="Tìm kiếm"
+        variant="outlined"
+        size="small"
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
-        style={{ maxWidth: 300 }} className="mb-2"
+        sx={{ mb: 2, width: 300 }}
       />
 
+      {/* Hiển thị bảng */}
       {isLoading ? (
-        <Spinner animation="border" />
+        <CircularProgress />
       ) : error ? (
-        <Alert variant="danger">{error?.data?.message || error.error}</Alert>
+        <Alert severity="error">{error?.data?.message || error.error}</Alert>
       ) : (
-        <Table striped bordered hover responsive size="sm">
-          <thead>
-            <tr>
-              <th>#</th><th>ID</th><th>Ảnh</th><th>Nick</th><th>Giới&nbsp;tính</th>
-              <th>Tỉnh</th><th>Điểm&nbsp;đôi</th><th>Điểm&nbsp;đơn</th>
-              <th>Cập nhật</th><th>Tham gia</th><th>Xác thực</th><th></th><th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((r, idx) => {
-              const u = r.user || {};
-              const c = colorByGames(r.games);
-              return (
-                <tr key={r._id}>
-                  <td>{idx + 1}</td>
-                  <td>{u._id?.toString().slice(-5)}</td>
-                  <td><Image src={u.avatar || PLACEHOLDER} roundedCircle width={32} height={32} /></td>
-                  <td>{u.nickname}</td>
-                  <td>{u.gender || '--'}</td>
-                  <td>{u.province || '--'}</td>
-                  <td style={{ color: c }}>{r.ratingDouble.toFixed(3)}</td>
-                  <td style={{ color: c }}>{r.ratingSingle.toFixed(3)}</td>
-                  <td>{new Date(r.updatedAt).toLocaleDateString()}</td>
-                  <td>{new Date(u.createdAt).toLocaleDateString()}</td>
-                  <td>{u.verified ? 'Xác thực' : 'Chờ'}</td>
-                  <td><Button size="sm">Chấm</Button></td>
-                  <td><Button size="sm" variant="success">Hồ sơ</Button></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </Table>
+        <TableContainer component={Paper}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>#</TableCell>
+                <TableCell>ID</TableCell>
+                <TableCell>Ảnh</TableCell>
+                <TableCell>Nick</TableCell>
+                <TableCell>Giới&nbsp;tính</TableCell>
+                <TableCell>Tỉnh</TableCell>
+                <TableCell>Điểm&nbsp;đôi</TableCell>
+                <TableCell>Điểm&nbsp;đơn</TableCell>
+                <TableCell>Cập nhật</TableCell>
+                <TableCell>Tham gia</TableCell>
+                <TableCell>Xác thực</TableCell>
+                <TableCell></TableCell>
+                <TableCell></TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {list.map((r, idx) => {
+                const u = r.user || {};
+                const color = colorByGames(r.games);
+                return (
+                  <TableRow key={r._id}>
+                    <TableCell>{idx + 1}</TableCell>
+                    <TableCell>{u._id?.toString().slice(-5)}</TableCell>
+                    <TableCell>
+                      <Avatar
+                        src={u.avatar || PLACEHOLDER}
+                        sx={{ width: 32, height: 32 }}
+                        alt={u.nickname || '?'}
+                      />
+                    </TableCell>
+                    <TableCell>{u.nickname}</TableCell>
+                    <TableCell>{u.gender || '--'}</TableCell>
+                    <TableCell>{u.province || '--'}</TableCell>
+                    <TableCell sx={{ color }}>{r.ratingDouble.toFixed(3)}</TableCell>
+                    <TableCell sx={{ color }}>{r.ratingSingle.toFixed(3)}</TableCell>
+                    <TableCell>{new Date(r.updatedAt).toLocaleDateString()}</TableCell>
+                    <TableCell>{new Date(u.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      <Chip
+                        label={u.verified ? 'Xác thực' : 'Chờ'}
+                        size="small"
+                        color={u.verified ? 'success' : 'default'}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Button size="small" variant="outlined">Chấm</Button>
+                    </TableCell>
+                    <TableCell>
+                      <Button size="small" variant="contained" color="success">Hồ sơ</Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </TableContainer>
       )}
     </Container>
   );

@@ -8,8 +8,8 @@ import userRoutes from './routes/userRoutes.js';
 import tournamentRoute from "./routes/tournamentRoutes.js"
 import registrationRoutes from './routes/registrationRoutes.js';
 import rankingRoutes from './routes/rankingRoutes.js';
+import uploadRoutes from "./routes/uploadRoutes.js";
 import cors from "cors"
-
 import dotenv from 'dotenv';
 dotenv.config();
 const port = process.env.PORT || 5000;
@@ -17,6 +17,7 @@ const port = process.env.PORT || 5000;
 connectDB();
 
 const app = express();
+app.use("/uploads", express.static("uploads"));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -25,11 +26,11 @@ app.use(cors({
   credentials: true,               // ✅ Phải bật
 }))
 app.use(cookieParser());
-
 app.use('/api/users', userRoutes);
 app.use("/api/tournaments", tournamentRoute)
 app.use('/api/registrations', registrationRoutes);
 app.use('/api/rankings', rankingRoutes);
+app.use("/api/upload", uploadRoutes);
 
 if (process.env.NODE_ENV === 'production') {
   const __dirname = path.resolve();

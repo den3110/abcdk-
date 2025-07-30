@@ -8,13 +8,19 @@ import {
   Row,
   Col,
   Form,
-  Button,
-  Table,
   Spinner,
   Alert,
   Badge,
   Image,
 } from "react-bootstrap";
+import {
+  TextField,
+  Button,
+  Avatar,
+  Typography,
+  MenuItem,
+  Box,
+} from "@mui/material";
 import {
   useGetRegistrationsQuery,
   useCreateRegistrationMutation,
@@ -23,6 +29,17 @@ import {
   useGetTournamentQuery,
 } from "../../slices/tournamentsApiSlice";
 import { toast } from "react-toastify";
+import {
+  Table,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+  Chip,
+} from "@mui/material";
+import { Stack } from "@mui/system";
+import { Button as ButtonMui } from "@mui/material";
+import { useUploadAvatarMutation } from "../../slices/uploadApiSlice";
 
 const PROVINCES = [
   "An Giang",
@@ -109,19 +126,21 @@ const TournamentRegistration = () => {
   const [createReg, { isLoading: saving }] = useCreateRegistrationMutation();
   const [updatePayment] = useUpdatePaymentMutation();
   const [checkin] = useCheckinMutation();
-
+  const [uploadAvatar] = useUploadAvatarMutation();
   const onChange = (setter) => (e) =>
     setter((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
   const submit = async (e) => {
     e.preventDefault();
     try {
-      await createReg({
+      const body = {
         tourId: id,
+        message,
         player1,
         player2,
-        message,
-      }).unwrap();
+      };
+
+      await createReg(body).unwrap();
       toast.success("Đăng ký thành công");
       setP1(emptyPlayer);
       setP2(emptyPlayer);
@@ -240,41 +259,152 @@ const TournamentRegistration = () => {
       <Row>
         {/* Left form */}
         <Col lg={4}>
-          <Form onSubmit={submit}>
-            {playerForm(player1, setP1, "VĐV 1")}
-            {playerForm(player2, setP2, "VĐV 2")}
+          <form onSubmit={submit}>
+            {[
+              { label: "VĐV 1", state: player1, setState: setP1 },
+              { label: "VĐV 2", state: player2, setState: setP2 },
+            ].map(({ label, state, setState }) => (
+              <Box key={label} mb={3}>
+                <Typography fontWeight="bold" mb={1}>
+                  {label}
+                </Typography>
+                <TextField
+                  label="Họ tên"
+                  name="fullName"
+                  value={state.fullName}
+                  onChange={(e) =>
+                    setState((p) => ({ ...p, fullName: e.target.value }))
+                  }
+                  fullWidth
+                  required
+                  margin="dense"
+                />
+                <TextField
+                  label="Số điện thoại"
+                  name="phone"
+                  value={state.phone}
+                  onChange={(e) =>
+                    setState((p) => ({ ...p, phone: e.target.value }))
+                  }
+                  fullWidth
+                  required
+                  margin="dense"
+                  inputProps={{ pattern: "[0-9]{10,11}" }}
+                />
+                <Stack direction="row" alignItems="center" spacing={2} mt={1}>
+                  <Avatar
+                    src={state.avatar || ""}
+                    sx={{ width: 56, height: 56 }}
+                  />
+                  <Button variant="outlined" component="label">
+                    Chọn ảnh
+                    <input
+                      hidden
+                      type="file"
+                      accept="image/*"
+                      onChange={async (e) => {
+                        const file = e.target.files[0];
+                        if (!file) return;
 
-            <Form.Group className="mb-3" controlId="message">
-              <Form.Label>Lời nhắn</Form.Label>
-              <Form.Control
-                as="textarea"
-                rows={2}
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-              />
-            </Form.Group>
+                        try {
+                          const res = await uploadAvatar(file).unwrap(); // trả về { url: 'http://...' }
+                          setState((prev) => ({
+                            ...prev,
+                            avatar: res.url, // dùng luôn url BE trả về
+                            avatarFile: file, // optional nếu bạn muốn lưu file gốc
+                          }));
+                        } catch (err) {
+                          toast.error("Lỗi upload ảnh");
+                        }
+                      }}
+                    />
+                  </Button>
+                </Stack>
+                <TextField
+                  label="Điểm tự chấm (0–10)"
+                  name="selfScore"
+                  type="number"
+                  value={state.selfScore}
+                  onChange={(e) =>
+                    setState((p) => ({ ...p, selfScore: e.target.value }))
+                  }
+                  inputProps={{ min: 0, max: 10 }}
+                  fullWidth
+                  required
+                  margin="dense"
+                />
+                <TextField
+                  label="Tỉnh/Thành"
+                  name="province"
+                  select
+                  value={state.province}
+                  onChange={(e) =>
+                    setState((p) => ({ ...p, province: e.target.value }))
+                  }
+                  fullWidth
+                  required
+                  margin="dense"
+                >
+                  {PROVINCES.map((prov) => (
+                    <MenuItem key={prov} value={prov}>
+                      {prov}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  label="Ghi chú"
+                  name="note"
+                  value={state.note}
+                  onChange={(e) =>
+                    setState((p) => ({ ...p, note: e.target.value }))
+                  }
+                  fullWidth
+                  margin="dense"
+                />
+              </Box>
+            ))}
 
-            <Button type="submit" variant="primary" disabled={saving}>
-              {saving ? "Đang lưu…" : "Đăng ký"}
-            </Button>
-            <Button
-              as={Link}
-              to={`/tournament/${id}/checkin`}
-              variant="success"
-              className="me-2"
-              size="sm"
-            >
-              Check‑in
-            </Button>
-            <Button
-              as={Link}
-              to={`/tournament/${id}/bracket`}
-              variant="info"
-              size="sm"
-            >
-              Sơ đồ
-            </Button>
-          </Form>
+            <TextField
+              label="Lời nhắn"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              fullWidth
+              multiline
+              rows={2}
+              margin="normal"
+            />
+
+            <Stack direction="row" spacing={2} mt={2}>
+              <Button
+                type="submit"
+                variant="contained"
+                color="primary"
+                disabled={saving}
+              >
+                {saving ? "Đang lưu…" : "Đăng ký"}
+              </Button>
+
+              <Button
+                component={Link}
+                to={`/tournament/${id}/checkin`}
+                variant="contained"
+                color="success"
+                size="small"
+              >
+                Check‑in
+              </Button>
+
+              <Button
+                component={Link}
+                to={`/tournament/${id}/bracket`}
+                variant="contained"
+                color="info"
+                size="small"
+              >
+                Sơ đồ
+              </Button>
+            </Stack>
+          </form>
         </Col>
 
         {/* Right table list */}
@@ -286,95 +416,122 @@ const TournamentRegistration = () => {
             <Alert variant="danger">
               {error?.data?.message || error.error}
             </Alert>
+          ) : regs.length === 0 ? (
+            <div className="text-center py-4">
+              <Typography variant="h6" color="text.secondary">
+                Hiện chưa có đăng ký nào!
+              </Typography>
+            </div>
           ) : (
             <Table
-              striped
-              bordered
-              hover
-              responsive
-              size="sm"
-              className="align-middle"
+              size="small"
+              sx={{
+                "& thead th": { fontWeight: 600 },
+                "& tbody td": { verticalAlign: "middle" },
+              }}
             >
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>VĐV 1</th>
-                  <th>VĐV 2</th>
-                  <th>Đăng lúc</th>
-                  <th>Lệ phí</th>
-                  <th>Check‑in</th>
-                  <th>Thao tác</th>
-                </tr>
-              </thead>
-              <tbody>
+              <TableHead>
+                <TableRow>
+                  <TableCell>#</TableCell>
+                  <TableCell>VĐV 1</TableCell>
+                  <TableCell>VĐV 2</TableCell>
+                  <TableCell>Đăng lúc</TableCell>
+                  <TableCell>Lệ phí</TableCell>
+                  <TableCell>Check‑in</TableCell>
+                  <TableCell>Thao tác</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {regs.map((r, idx) => (
-                  <tr key={r._id}>
-                    <td>{idx + 1}</td>
-                    <td>
-                      <Avatar
-                        src={r.player1.avatar}
-                        name={r.player1.fullName}
-                      />
-                      {r.player1.fullName}
-                      <br />
-                      <small>{r.player1.phone}</small>
-                    </td>
-                    <td>
-                      <Avatar
-                        src={r.player2.avatar}
-                        name={r.player2.fullName}
-                      />
-                      {r.player2.fullName}
-                      <br />
-                      <small>{r.player2.phone}</small>
-                    </td>
-                    <td>{new Date(r.createdAt).toLocaleString()}</td>
-                    <td>
+                  <TableRow key={r._id} hover>
+                    <TableCell>{idx + 1}</TableCell>
+
+                    <TableCell>
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <Avatar src={r.player1.avatar} />
+                        <div>
+                          <Typography variant="body2">
+                            {r.player1.fullName}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {r.player1.phone}
+                          </Typography>
+                        </div>
+                      </Stack>
+                    </TableCell>
+
+                    <TableCell>
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <Avatar src={r.player2.avatar} />
+                        <div>
+                          <Typography variant="body2">
+                            {r.player2.fullName}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {r.player2.phone}
+                          </Typography>
+                        </div>
+                      </Stack>
+                    </TableCell>
+
+                    <TableCell>
+                      {new Date(r.createdAt).toLocaleString()}
+                    </TableCell>
+
+                    <TableCell>
                       {r.payment.status === "Đã nộp" ? (
-                        <Badge bg="success">
-                          Đã nộp
-                          <br />
-                          {new Date(r.payment.paidAt).toLocaleDateString()}
-                        </Badge>
+                        <Chip
+                          label={`Đã nộp\n${new Date(
+                            r.payment.paidAt
+                          ).toLocaleDateString()}`}
+                          color="success"
+                          size="small"
+                          sx={{ whiteSpace: "pre-line" }}
+                        />
                       ) : (
-                        <Badge bg="secondary">Chưa nộp</Badge>
+                        <Chip label="Chưa nộp" color="default" size="small" />
                       )}
-                    </td>
-                    <td>
+                    </TableCell>
+
+                    <TableCell>
                       {r.checkinAt ? (
-                        <Badge bg="info">
-                          {new Date(r.checkinAt).toLocaleTimeString()}
-                        </Badge>
+                        <Chip
+                          label={new Date(r.checkinAt).toLocaleTimeString()}
+                          color="info"
+                          size="small"
+                        />
                       ) : (
-                        <Badge bg="secondary">Chưa</Badge>
+                        <Chip label="Chưa" color="default" size="small" />
                       )}
-                    </td>
-                    <td>
-                      <Button
-                        size="sm"
-                        variant={
-                          r.payment.status === "Đã nộp"
-                            ? "outline-danger"
-                            : "outline-success"
-                        }
-                        className="me-1"
-                        onClick={() => togglePayment(r)}
-                      >
-                        {r.payment.status === "Đã nộp"
-                          ? "Huỷ phí"
-                          : "Xác nhận phí"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline-primary"
-                        onClick={() => handleCheckin(r)}
-                      >
-                        Check‑in
-                      </Button>
-                    </td>
-                  </tr>
+                    </TableCell>
+
+                    <TableCell>
+                      <Stack direction="row" spacing={1}>
+                        <Button
+                          variant="outlined"
+                          color={
+                            r.payment.status === "Đã nộp" ? "error" : "success"
+                          }
+                          size="small"
+                          onClick={() => togglePayment(r)}
+                        >
+                          {r.payment.status === "Đã nộp"
+                            ? "Huỷ phí"
+                            : "Xác nhận phí"}
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          color="primary"
+                          size="small"
+                          onClick={() => handleCheckin(r)}
+                        >
+                          Check‑in
+                        </Button>
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
+              </TableBody>
             </Table>
           )}
           {tour && (

@@ -15,17 +15,19 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
 
     /* ---------------------------- CREATE REGISTRATION ----------------------------- */
     createRegistration: builder.mutation({
-      query: ({ tourId, ...body }) => ({
+      query: ({ tourId, ...payload }) => ({
         url: `/api/tournaments/${tourId}/registrations`,
         method: "POST",
-        body,
+        body: payload,
+        headers: {
+          "Content-Type": "application/json",
+        },
       }),
-      invalidatesTags: (r, e, arg) => [
-        { type: "Registrations", id: arg.tourId },
-        { type: "Tournaments", id: arg.tourId },
+      invalidatesTags: (result, error, { tourId }) => [
+        { type: "Registrations", id: tourId },
+        { type: "Tournaments", id: tourId },
       ],
     }),
-
     /* --------------------------- UPDATE PAYMENT STATUS --------------------------- */
     updatePayment: builder.mutation({
       query: ({ regId, status }) => ({
@@ -55,7 +57,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
     // ✨ LẤY DANH SÁCH TRẬN ĐẤU (bracket + check‑in page)
     getMatches: builder.query({
       query: (tourId) => `/api/tournaments/${tourId}/matches`,
-      providesTags: (r,e,id) => [{ type: 'Matches', id }],
+      providesTags: (r, e, id) => [{ type: "Matches", id }],
     }),
   }),
 });
@@ -66,6 +68,6 @@ export const {
   useCreateRegistrationMutation,
   useUpdatePaymentMutation,
   useCheckinMutation,
-   useGetTournamentQuery,
-     useGetMatchesQuery,      
+  useGetTournamentQuery,
+  useGetMatchesQuery,
 } = tournamentsApiSlice;
