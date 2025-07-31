@@ -22,6 +22,7 @@ import TournamentCheckin from "./screens/PickleBall/TournamentCheckin.jsx";
 import TournamentBracket from "./screens/PickleBall/TournamentBracket.jsx";
 import RankingList from "./screens/PickleBall/RankingList.jsx";
 import LevelPointPage from "./screens/PickleBall/LevelPoint.jsx";
+import ContactPage from "./screens/Contact.jsx";
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -40,10 +41,11 @@ const router = createBrowserRouter(
       <Route path="/tournament/:id/checkin" element={<TournamentCheckin />} />
       <Route path="/tournament/:id/bracket" element={<TournamentBracket />} />
       <Route path="/pickle-ball/rankings" element={<RankingList />} />
+      <Route path="/contact" element={<ContactPage />} />
       <Route path="" element={<PrivateRoute />}>
         <Route path="/profile" element={<ProfileScreen />} />
       <Route path="/levelpoint" element={<LevelPointPage />} />
-
+      
       </Route>
     </Route>
   )

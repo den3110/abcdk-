@@ -1,37 +1,38 @@
-// src/components/Header.jsx – MUI version with responsive menus and polished UX
-import React, { useState } from 'react';
-import { useSelector, useDispatch } from 'react-redux';
-import { Link, useNavigate } from 'react-router-dom';
-import AppBar from '@mui/material/AppBar';
-import Toolbar from '@mui/material/Toolbar';
-import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
-import Button from '@mui/material/Button';
-import IconButton from '@mui/material/IconButton';
-import Menu from '@mui/material/Menu';
-import MenuItem from '@mui/material/MenuItem';
-import Avatar from '@mui/material/Avatar';
-import Tooltip from '@mui/material/Tooltip';
-import MenuIcon from '@mui/icons-material/Menu';
-import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import LoginIcon from '@mui/icons-material/Login';
-import HowToRegIcon from '@mui/icons-material/HowToReg';
-import { useLogoutMutation } from '../slices/usersApiSlice';
-import { logout } from '../slices/authSlice';
+// src/components/Header.jsx – Pickleball + Liên hệ
+import React, { useState } from "react";
+import { useSelector, useDispatch } from "react-redux";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  AppBar,
+  Toolbar,
+  Typography,
+  Box,
+  Button,
+  IconButton,
+  Menu,
+  MenuItem,
+  Avatar,
+  Tooltip,
+  useTheme,
+  useMediaQuery,
+  Divider,
+} from "@mui/material";
+import {
+  Menu as MenuIcon,
+  KeyboardArrowDown as ArrowDownIcon,
+  Login as LoginIcon,
+  HowToReg as HowToRegIcon,
+} from "@mui/icons-material";
+import { useLogoutMutation } from "../slices/usersApiSlice";
+import { logout } from "../slices/authSlice";
 
+// Chỉ Pickleball
 const navConfig = [
   {
-    label: 'Pickle Ball',
+    label: "Pickle Ball",
     submenu: [
-      { label: 'Giải đấu', path: '/pickle-ball/tournaments' },
-      { label: 'Điểm trình', path: '/pickle-ball/rankings' },
-    ],
-  },
-  {
-    label: 'Tennis',
-    submenu: [
-      { label: 'Giải đấu', path: '/tennis/tournaments' },
-      { label: 'Điểm trình', path: '/tennis/rankings' },
+      { label: "Giải đấu", path: "/pickle-ball/tournaments" },
+      { label: "Điểm trình", path: "/pickle-ball/rankings" },
     ],
   },
 ];
@@ -42,13 +43,14 @@ const Header = () => {
   const navigate = useNavigate();
   const [logoutApiCall] = useLogoutMutation();
 
-  // * Menu anchors *
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
   const [mobileAnchor, setMobileAnchor] = useState(null);
   const [desktopAnchor, setDesktopAnchor] = useState(null);
   const [desktopIdx, setDesktopIdx] = useState(null);
   const [userAnchor, setUserAnchor] = useState(null);
 
-  // * Handlers *
   const openMobileMenu = (e) => setMobileAnchor(e.currentTarget);
   const closeMobileMenu = () => setMobileAnchor(null);
 
@@ -68,7 +70,7 @@ const Header = () => {
     try {
       await logoutApiCall().unwrap();
       dispatch(logout());
-      navigate('/login');
+      navigate("/login");
     } catch (err) {
       console.error(err);
     }
@@ -76,108 +78,106 @@ const Header = () => {
 
   return (
     <AppBar position="static" color="primary" elevation={2}>
-      <Toolbar>
-        {/* Brand */}
-        <Typography
-          variant="h6"
-          component={Link}
-          to="/"
-          sx={{
-            mr: 2,
-            textDecoration: 'none',
-            color: 'inherit',
-            fontWeight: 700,
-            letterSpacing: '.08rem',
-          }}
-        >
-          SportConnect
-        </Typography>
+      <Toolbar sx={{ px: { xs: 2, sm: 3 }, justifyContent: "space-between" }}>
+        {/* Logo + Nav */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+          <Typography
+            variant="h6"
+            component={Link}
+            to="/"
+            sx={{ textDecoration: "none", color: "inherit", fontWeight: 700 }}
+          >
+            SportConnect
+          </Typography>
 
-        {/* Desktop nav */}
-        <Box sx={{ flexGrow: 1, display: { xs: 'none', md: 'flex' } }}>
-          {navConfig.map((item, idx) => (
+          <Box sx={{ display: { xs: "none", md: "flex" }, gap: 1 }}>
+            {navConfig.map((item, idx) => (
+              <Button
+                key={item.label}
+                onClick={(e) => openDesktopMenu(e, idx)}
+                endIcon={<ArrowDownIcon />}
+                sx={{ color: "white", textTransform: "none" }}
+              >
+                {item.label}
+              </Button>
+            ))}
             <Button
-              key={item.label}
-              onClick={(e) => openDesktopMenu(e, idx)}
-              endIcon={<KeyboardArrowDownIcon />}
-              sx={{ my: 2, color: 'white', textTransform: 'none' }}
+              component={Link}
+              to="/contact"
+              sx={{ color: "white", textTransform: "none" }}
             >
-              {item.label}
+              Liên hệ
             </Button>
-          ))}
+          </Box>
         </Box>
 
-        {/* Auth buttons / avatar */}
-        {userInfo ? (
-          <Box sx={{ flexGrow: 0 }}>
-            <Tooltip title="Tài khoản">
-              <IconButton onClick={openUserMenu} sx={{ p: 0 }}>
-                <Avatar alt={userInfo.name} src={userInfo.avatar || ''}>
-                  {userInfo.name?.charAt(0).toUpperCase()}
-                </Avatar>
-              </IconButton>
-            </Tooltip>
-            <Menu
-              anchorEl={userAnchor}
-              open={Boolean(userAnchor)}
-              onClose={closeUserMenu}
-              transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-              anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-            >
-              <MenuItem component={Link} to="/profile" onClick={closeUserMenu}>
-                Profile
-              </MenuItem>
-              <MenuItem onClick={logoutHandler}>Logout</MenuItem>
-            </Menu>
-          </Box>
-        ) : (
-          <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 1 }}>
-            <Button
-              component={Link}
-              to="/login"
-              startIcon={<LoginIcon />}
-              variant="outlined"
-              color="inherit"
-            >
-              Sign In
-            </Button>
-            <Button
-              component={Link}
-              to="/register"
-              startIcon={<HowToRegIcon />}
-              variant="contained"
-              color="secondary"
-            >
-              Sign Up
-            </Button>
-          </Box>
-        )}
+        {/* User controls */}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          {userInfo ? (
+            <>
+              <Tooltip title="Tài khoản">
+                <IconButton onClick={openUserMenu} sx={{ p: 0 }}>
+                  <Avatar alt={userInfo.name} src={userInfo.avatar || ""}>
+                    {userInfo.name?.charAt(0).toUpperCase()}
+                  </Avatar>
+                </IconButton>
+              </Tooltip>
+              <Menu
+                anchorEl={userAnchor}
+                open={Boolean(userAnchor)}
+                onClose={closeUserMenu}
+                anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+                transformOrigin={{ vertical: "top", horizontal: "right" }}
+              >
+                <MenuItem
+                  component={Link}
+                  to="/profile"
+                  onClick={closeUserMenu}
+                >
+                  Profile
+                </MenuItem>
+                <MenuItem onClick={logoutHandler}>Logout</MenuItem>
+              </Menu>
+            </>
+          ) : (
+            <Box sx={{ display: { xs: "none", md: "flex" }, gap: 1 }}>
+              <Button
+                component={Link}
+                to="/login"
+                startIcon={<LoginIcon />}
+                variant="outlined"
+                color="inherit"
+              >
+                Sign In
+              </Button>
+              <Button
+                component={Link}
+                to="/register"
+                startIcon={<HowToRegIcon />}
+                variant="contained"
+                color="secondary"
+              >
+                Sign Up
+              </Button>
+            </Box>
+          )}
 
-        {/* Mobile hamburger */}
-        <Box sx={{ display: { xs: 'flex', md: 'none' } }}>
-          <IconButton
-            size="large"
-            aria-label="navigation menu"
-            aria-controls="mobile-menu"
-            aria-haspopup="true"
-            onClick={openMobileMenu}
-            color="inherit"
-          >
-            <MenuIcon />
-          </IconButton>
+          {isMobile && (
+            <IconButton size="large" onClick={openMobileMenu} color="inherit">
+              <MenuIcon />
+            </IconButton>
+          )}
         </Box>
       </Toolbar>
 
-      {/* Mobile nav menu */}
+      {/* Mobile menu */}
       <Menu
-        id="mobile-menu"
         anchorEl={mobileAnchor}
         open={Boolean(mobileAnchor)}
         onClose={closeMobileMenu}
-        keepMounted
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-        sx={{ display: { xs: 'block', md: 'none' } }}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
+        sx={{ display: { xs: "block", md: "none" } }}
       >
         {navConfig.map((item) => (
           <Box key={item.label}>
@@ -195,25 +195,32 @@ const Header = () => {
             ))}
           </Box>
         ))}
+        <Divider />
+        <MenuItem component={Link} to="/contact" onClick={closeMobileMenu}>
+          Liên hệ
+        </MenuItem>
+
         {!userInfo && (
           <>
             <MenuItem component={Link} to="/login" onClick={closeMobileMenu}>
-              <LoginIcon fontSize="small" sx={{ mr: 1 }} /> Sign In
+              <LoginIcon fontSize="small" sx={{ mr: 1 }} />
+              Sign In
             </MenuItem>
             <MenuItem component={Link} to="/register" onClick={closeMobileMenu}>
-              <HowToRegIcon fontSize="small" sx={{ mr: 1 }} /> Sign Up
+              <HowToRegIcon fontSize="small" sx={{ mr: 1 }} />
+              Sign Up
             </MenuItem>
           </>
         )}
       </Menu>
 
-      {/* Desktop dropdown submenu */}
+      {/* Submenu (desktop dropdown) */}
       <Menu
         anchorEl={desktopAnchor}
         open={Boolean(desktopAnchor)}
         onClose={closeDesktopMenu}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
       >
         {desktopIdx !== null &&
           navConfig[desktopIdx].submenu.map((sub) => (

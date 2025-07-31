@@ -28,12 +28,36 @@ const authUser = asyncHandler(async (req, res) => {
 // @route   POST /api/users
 // @access  Public
 const registerUser = asyncHandler(async (req, res) => {
-  const { name, nickname, phone, dob, email, password } = req.body;
+  const { name, nickname, phone, dob, email, password, cccd, avatar } =
+    req.body;
 
-  // check duplicates
-  if (await User.findOne({ $or: [{ email }, { phone }] })) {
-    res.status(400);
-    throw new Error("Email hoặc SĐT đã tồn tại");
+  // Check trùng email, phone, nickname
+  const duplicate = await User.findOne({
+    $or: [{ email }, { phone }, { nickname }],
+  });
+
+  if (duplicate) {
+    if (duplicate.email === email) {
+      res.status(400);
+      throw new Error("Email đã tồn tại");
+    }
+    if (duplicate.phone === phone) {
+      res.status(400);
+      throw new Error("Số điện thoại đã tồn tại");
+    }
+    if (duplicate.nickname === nickname) {
+      res.status(400);
+      throw new Error("Nickname đã tồn tại");
+    }
+  }
+
+  // Check CCCD nếu có nhập
+  if (cccd) {
+    const existing = await User.findOne({ cccd });
+    if (existing) {
+      res.status(400);
+      throw new Error("CCCD đã được sử dụng cho tài khoản khác");
+    }
   }
 
   const user = await User.create({
@@ -43,10 +67,13 @@ const registerUser = asyncHandler(async (req, res) => {
     dob,
     email,
     password,
+    avatar: avatar || "",
+    cccd: cccd || null,
+    cccdStatus: cccd ? "Chưa xác minh" : undefined,
   });
 
   if (user) {
-    generateToken(res, user._id); // httpOnly cookie
+    generateToken(res, user._id);
     res.status(201).json({
       _id: user._id,
       name: user.name,
@@ -54,6 +81,9 @@ const registerUser = asyncHandler(async (req, res) => {
       phone: user.phone,
       dob: user.dob,
       email: user.email,
+      avatar: user.avatar,
+      cccd: user.cccd,
+      cccdStatus: user.cccdStatus,
     });
   } else {
     res.status(400);

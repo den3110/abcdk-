@@ -1,5 +1,5 @@
-// src/pages/RankingList.jsx
-import { useState, useEffect } from 'react';
+// src/pages/RankingList.jsx – Responsive with mobile card view
+import { useState, useEffect } from "react";
 import {
   Container,
   Typography,
@@ -18,16 +18,28 @@ import {
   Alert,
   Stack,
   Chip,
-} from '@mui/material';
-import { useGetRankingsQuery } from '../../slices/rankingsApiSlice';
-import { Link } from 'react-router-dom';
+  Card,
+  CardContent,
+  useTheme,
+  useMediaQuery,
+  Divider,
+} from "@mui/material";
+import { useGetRankingsQuery } from "../../slices/rankingsApiSlice";
+import { Link } from "react-router-dom";
 
-const PLACEHOLDER = 'https://dummyimage.com/40x40/cccccc/ffffff&text=?';
-const colorByGames = (g) => g < 1 ? '#f44336' : g < 7 ? '#ff9800' : '#212121';
+const PLACEHOLDER = "https://dummyimage.com/40x40/cccccc/ffffff&text=?";
+const colorByGames = (g) => (g < 1 ? "#f44336" : g < 7 ? "#ff9800" : "#212121");
 
 export default function RankingList() {
-  const [keyword, setKeyword] = useState('');
-  const { data: list = [], isLoading, error, refetch } = useGetRankingsQuery(keyword);
+  const [keyword, setKeyword] = useState("");
+  const {
+    data: list = [],
+    isLoading,
+    error,
+    refetch,
+  } = useGetRankingsQuery(keyword);
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   useEffect(() => {
     const t = setTimeout(refetch, 300);
@@ -36,17 +48,36 @@ export default function RankingList() {
 
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
-        <Typography variant="h5" fontWeight={600}>PLAYER RANKING</Typography>
-        <Button as={Link}
-                        to="/levelpoint" variant="contained" size="small">Tự chấm trình</Button>
+      <Box
+        display="flex"
+        justifyContent="space-between"
+        alignItems="center"
+        mb={2}
+      >
+        <Typography variant="h5" fontWeight={600}>
+          PLAYER RANKING
+        </Typography>
+        <Button
+          component={Link}
+          to="/levelpoint"
+          variant="contained"
+          size="small"
+        >
+          Tự chấm trình
+        </Button>
       </Box>
 
       {/* Chú thích */}
-      <Stack direction="row" spacing={2} mb={2}>
-        <Chip label="Đỏ: tự chấm" sx={{ bgcolor: '#f44336', color: '#fff' }} />
-        <Chip label="Vàng: < 7 trận" sx={{ bgcolor: '#ff9800', color: '#fff' }} />
-        <Chip label="Đen: ≥ 7 trận" sx={{ bgcolor: '#212121', color: '#fff' }} />
+      <Stack direction="row" spacing={2} mb={2} flexWrap="wrap">
+        <Chip label="Đỏ: tự chấm" sx={{ bgcolor: "#f44336", color: "#fff" }} />
+        <Chip
+          label="Vàng: < 7 trận"
+          sx={{ bgcolor: "#ff9800", color: "#fff" }}
+        />
+        <Chip
+          label="Đen: ≥ 7 trận"
+          sx={{ bgcolor: "#212121", color: "#fff" }}
+        />
       </Stack>
 
       {/* Ô tìm kiếm */}
@@ -59,11 +90,76 @@ export default function RankingList() {
         sx={{ mb: 2, width: 300 }}
       />
 
-      {/* Hiển thị bảng */}
       {isLoading ? (
         <CircularProgress />
       ) : error ? (
         <Alert severity="error">{error?.data?.message || error.error}</Alert>
+      ) : isMobile ? (
+        <Stack spacing={2}>
+          {list.map((r, idx) => {
+            const u = r.user || {};
+            const color = colorByGames(r.games);
+            return (
+              <Card key={r._id} variant="outlined">
+                <CardContent>
+                  <Box display="flex" alignItems="center" mb={1} gap={2}>
+                    <Avatar
+                      src={u.avatar || PLACEHOLDER}
+                      alt={u.nickname || "?"}
+                    />
+                    <Box>
+                      <Typography fontWeight={600}>
+                        {u.nickname || "---"}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        ID: {u._id?.toString().slice(-5) || "---"}
+                      </Typography>
+                    </Box>
+                    <Box ml="auto">
+                      <Chip
+                        label={u.verified ? "Xác thực" : "Chờ"}
+                        size="small"
+                        color={u.verified ? "success" : "default"}
+                      />
+                    </Box>
+                  </Box>
+
+                  <Stack direction="row" spacing={2} flexWrap="wrap" mb={1}>
+                    <Chip label={`Giới tính: ${u.gender || "--"}`} />
+                    <Chip label={`Tỉnh: ${u.province || "--"}`} />
+                  </Stack>
+
+                  <Divider sx={{ mb: 1 }} />
+
+                  <Stack direction="row" spacing={2} mb={1}>
+                    <Typography variant="body2" sx={{ color }}>
+                      Đôi: {r.ratingDouble.toFixed(3)}
+                    </Typography>
+                    <Typography variant="body2" sx={{ color }}>
+                      Đơn: {r.ratingSingle.toFixed(3)}
+                    </Typography>
+                  </Stack>
+
+                  <Typography variant="caption" color="text.secondary">
+                    Cập nhật: {new Date(r.updatedAt).toLocaleDateString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Tham gia: {new Date(u.createdAt).toLocaleDateString()}
+                  </Typography>
+
+                  <Stack direction="row" spacing={1} mt={2}>
+                    <Button size="small" variant="outlined">
+                      Chấm
+                    </Button>
+                    <Button size="small" variant="contained" color="success">
+                      Hồ sơ
+                    </Button>
+                  </Stack>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </Stack>
       ) : (
         <TableContainer component={Paper}>
           <Table size="small">
@@ -96,28 +192,40 @@ export default function RankingList() {
                       <Avatar
                         src={u.avatar || PLACEHOLDER}
                         sx={{ width: 32, height: 32 }}
-                        alt={u.nickname || '?'}
+                        alt={u.nickname || "?"}
                       />
                     </TableCell>
                     <TableCell>{u.nickname}</TableCell>
-                    <TableCell>{u.gender || '--'}</TableCell>
-                    <TableCell>{u.province || '--'}</TableCell>
-                    <TableCell sx={{ color }}>{r.ratingDouble.toFixed(3)}</TableCell>
-                    <TableCell sx={{ color }}>{r.ratingSingle.toFixed(3)}</TableCell>
-                    <TableCell>{new Date(r.updatedAt).toLocaleDateString()}</TableCell>
-                    <TableCell>{new Date(u.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell>{u.gender || "--"}</TableCell>
+                    <TableCell>{u.province || "--"}</TableCell>
+                    <TableCell sx={{ color }}>
+                      {r.ratingDouble.toFixed(3)}
+                    </TableCell>
+                    <TableCell sx={{ color }}>
+                      {r.ratingSingle.toFixed(3)}
+                    </TableCell>
+                    <TableCell>
+                      {new Date(r.updatedAt).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      {new Date(u.createdAt).toLocaleDateString()}
+                    </TableCell>
                     <TableCell>
                       <Chip
-                        label={u.verified ? 'Xác thực' : 'Chờ'}
+                        label={u.verified ? "Xác thực" : "Chờ"}
                         size="small"
-                        color={u.verified ? 'success' : 'default'}
+                        color={u.verified ? "success" : "default"}
                       />
                     </TableCell>
                     <TableCell>
-                      <Button size="small" variant="outlined">Chấm</Button>
+                      <Button size="small" variant="outlined">
+                        Chấm
+                      </Button>
                     </TableCell>
                     <TableCell>
-                      <Button size="small" variant="contained" color="success">Hồ sơ</Button>
+                      <Button size="small" variant="contained" color="success">
+                        Hồ sơ
+                      </Button>
                     </TableCell>
                   </TableRow>
                 );

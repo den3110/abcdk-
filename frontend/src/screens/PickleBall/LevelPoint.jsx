@@ -17,11 +17,13 @@ import {
   Select,
   FormControl,
   Button,
-  Tooltip,
   Chip,
   Stack,
   Card,
   CardContent,
+  CardHeader,
+  useTheme,
+  useMediaQuery,
 } from "@mui/material";
 import MoreVertIcon from "@mui/icons-material/MoreVert";
 
@@ -114,8 +116,8 @@ export default function LevelPointPage() {
   /**
    * Tính điểm weighted
    * Công thức gốc trên SportConnect không public; sử dụng
-   *   Level  ≈  (Σ value × weight) / 1.9  (empirical)  
-   * Có thể điều chỉnh `MAP_FACTOR` theo yêu cầu backend sau này.
+   *   Level  ≈  (Σ value × weight) / 1.9  (empirical)
+   * Có thể điều chỉnh MAP_FACTOR theo yêu cầu backend sau này.
    */
   const MAP_FACTOR = 1.9;
 
@@ -135,12 +137,6 @@ export default function LevelPointPage() {
       doubleLevel: (sumDouble / MAP_FACTOR).toFixed(1),
     };
   }, [values]);
-
-  /** Menu Avatar */
-  const [anchorEl, setAnchorEl] = useState(null);
-  const open = Boolean(anchorEl);
-  const handleMenu = (e) => setAnchorEl(e.currentTarget);
-  const handleClose = () => setAnchorEl(null);
 
   /** Cập nhật 1 ô select */
   const handleSelect = (rowIdx, field) => (e) => {
@@ -163,32 +159,35 @@ export default function LevelPointPage() {
     alert("Đã gửi dữ liệu (console) – nối API thật tại handleSubmit()");
   };
 
+  /* ---------- Responsive ---------- */
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
   return (
     <Box className="min-h-screen bg-gray-50">
-      {/* HEADER */}
-      {/* BODY */}
-      <Container maxWidth="lg" className="py-8">
+      {/* HEADER – bạn có thể tùy chỉnh thêm */}
+
+      <Container maxWidth="lg" sx={{ py: 4 }}>
         <Typography variant="h4" gutterBottom>
           Bảng chấm điểm trình môn Pickleball
         </Typography>
 
-        {/* TABLE */}
-        <Box overflow="auto">
-          <Table size="small" sx={{ minWidth: 720 }}>
-            <TableHead>
-              <TableRow>
-                <TableCell>Kỹ năng</TableCell>
-                <TableCell>Tiêu chí đánh giá</TableCell>
-                <TableCell align="center">Điểm đơn</TableCell>
-                <TableCell align="center">Điểm đôi</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {SKILLS.map((s, idx) => (
-                <TableRow key={s.id} hover>
-                  <TableCell>{s.name}</TableCell>
-                  <TableCell sx={{ whiteSpace: "pre-line" }}>{s.explain}</TableCell>
-                  <TableCell align="center">
+        {/* BODY – hiển thị bảng trên desktop & card list trên mobile */}
+
+        {isMobile ? (
+          <Stack spacing={2}>
+            {SKILLS.map((s, idx) => (
+              <Card key={s.id} variant="outlined">
+                <CardHeader title={s.name} sx={{ pb: 0 }} />
+                <CardContent>
+                  <Typography
+                    variant="body2"
+                    sx={{ whiteSpace: "pre-line" }}
+                    gutterBottom
+                  >
+                    {s.explain}
+                  </Typography>
+                  <Stack direction="row" spacing={2}>
                     <FormControl fullWidth size="small">
                       <Select
                         value={values[idx].single}
@@ -205,9 +204,14 @@ export default function LevelPointPage() {
                           </MenuItem>
                         ))}
                       </Select>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        mt={0.5}
+                      >
+                        Điểm đơn
+                      </Typography>
                     </FormControl>
-                  </TableCell>
-                  <TableCell align="center">
                     <FormControl fullWidth size="small">
                       <Select
                         value={values[idx].double}
@@ -224,52 +228,143 @@ export default function LevelPointPage() {
                           </MenuItem>
                         ))}
                       </Select>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        mt={0.5}
+                      >
+                        Điểm đôi
+                      </Typography>
                     </FormControl>
-                  </TableCell>
+                  </Stack>
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
+        ) : (
+          <Box sx={{ overflowX: "auto" }}>
+            <Table size="small" sx={{ minWidth: 720 }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Kỹ năng</TableCell>
+                  <TableCell>Tiêu chí đánh giá</TableCell>
+                  <TableCell align="center">Điểm đơn</TableCell>
+                  <TableCell align="center">Điểm đôi</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHead>
+              <TableBody>
+                {SKILLS.map((s, idx) => (
+                  <TableRow key={s.id} hover>
+                    <TableCell>{s.name}</TableCell>
+                    <TableCell sx={{ whiteSpace: "pre-line" }}>
+                      {s.explain}
+                    </TableCell>
+                    <TableCell align="center">
+                      <FormControl fullWidth size="small">
+                        <Select
+                          value={values[idx].single}
+                          onChange={handleSelect(idx, "single")}
+                        >
+                          {(s.id === 8
+                            ? FREQ_OPTIONS
+                            : s.id === 9
+                            ? YES_NO_OPTIONS
+                            : SCORE_OPTIONS
+                          ).map((n) => (
+                            <MenuItem key={n} value={n}>
+                              {n}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </TableCell>
+                    <TableCell align="center">
+                      <FormControl fullWidth size="small">
+                        <Select
+                          value={values[idx].double}
+                          onChange={handleSelect(idx, "double")}
+                        >
+                          {(s.id === 8
+                            ? FREQ_OPTIONS
+                            : s.id === 9
+                            ? YES_NO_OPTIONS
+                            : SCORE_OPTIONS
+                          ).map((n) => (
+                            <MenuItem key={n} value={n}>
+                              {n}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </Box>
+        )}
+
+        {/* FOOTER – hiển thị điểm & nút gửi */}
+        <Box mt={4}>
+          <Card
+            elevation={3}
+            sx={{ px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 3 }, borderRadius: 3 }}
+          >
+            <CardContent>
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={3}
+                justifyContent={{ xs: "center", sm: "space-between" }}
+                alignItems={{ xs: "stretch", sm: "center" }}
+              >
+                <Box textAlign={{ xs: "center", sm: "left" }}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    fullWidth={true}
+                    onClick={handleSubmit}
+                    sx={{ minWidth: { sm: 160 } }}
+                  >
+                    Cập nhật
+                  </Button>
+                </Box>
+
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  justifyContent={{ xs: "center", sm: "flex-end" }}
+                  flexWrap="wrap"
+                  rowGap={1} 
+                >
+                  <Chip
+                    label={`Trình đơn: ${singleLevel}`}
+                    color="primary"
+                    sx={{
+                      fontSize: "1rem",
+                      px: 2,
+                      py: 1,
+                      mb: { xs: 1, sm: 0 },
+                    }}
+                  />
+                  <Chip
+                    label={`Trình đôi: ${doubleLevel}`}
+                    color="success"
+                    sx={{ fontSize: "1rem", px: 2, py: 1 }}
+                  />
+                </Stack>
+              </Stack>
+            </CardContent>
+          </Card>
         </Box>
 
-       {/* FOOTER – hiển thị điểm */}
-        {/* bottom action / result */}
-      <Box elevation={4} sx={{ px: 3, py: 2, borderRadius: 3 }}>
-        <CardContent>
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={3}
-            justifyContent="space-between"
-            alignItems={{ xs: "stretch", sm: "center" }}
-          >
-            <Button
-              variant="contained"
-              size="large"
-              onClick={handleSubmit}
-              sx={{ minWidth: 160 }}
-            >
-              Cập nhật
-            </Button>
-
-            <Stack direction="row" spacing={2} flexWrap="wrap">
-              <Chip
-                label={`Trình đơn: ${singleLevel}`}
-                color="primary"
-                sx={{ fontSize: "1rem", px: 2, py: 1 }}
-              />
-              <Chip
-                label={`Trình đôi: ${doubleLevel}`}
-                color="success"
-                sx={{ fontSize: "1rem", px: 2, py: 1 }}
-              />
-            </Stack>
-          </Stack>
-        </CardContent>
-      </Box>
-
-        <Typography variant="caption" color="text.secondary" display="block" mt={4}>
-          * Công thức quy đổi trình có thể cần đồng bộ với backend. Tuỳ chỉnh lại
-          ở hằng số <code>MAP_FACTOR</code>.
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          display="block"
+          mt={4}
+        >
+          * Công thức quy đổi trình có thể cần đồng bộ với backend. Tuỳ chỉnh
+          lại ở hằng số <code>MAP_FACTOR</code>.
         </Typography>
       </Container>
     </Box>

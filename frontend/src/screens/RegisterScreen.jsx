@@ -1,148 +1,267 @@
-// src/screens/RegisterScreen.jsx
-import { useState, useEffect } from 'react';
-import { Form, Button, Row, Col } from 'react-bootstrap';
-import { Link, useNavigate } from 'react-router-dom';
-import { useDispatch, useSelector } from 'react-redux';
-import { useRegisterMutation } from '../slices/usersApiSlice';
-import { setCredentials } from '../slices/authSlice';
-import { toast } from 'react-toastify';
-import FormContainer from '../components/FormContainer';
-import Loader from '../components/Loader';
+import { useState, useEffect } from "react";
+import {
+  Box,
+  Button,
+  Container,
+  TextField,
+  Typography,
+  CircularProgress,
+  Avatar,
+  Link as MuiLink,
+} from "@mui/material";
+import { Link, useNavigate } from "react-router-dom";
+import { useDispatch, useSelector } from "react-redux";
+import { useRegisterMutation } from "../slices/usersApiSlice";
+import { useUploadAvatarMutation } from "../slices/uploadApiSlice";
+import { setCredentials } from "../slices/authSlice";
+import { toast } from "react-toastify";
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 const RegisterScreen = () => {
-  // ✨ thêm các state mới
-  const [name, setName] = useState('');
-  const [nickname, setNickname] = useState('');
-  const [phone, setPhone] = useState('');
-  const [dob, setDob] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [form, setForm] = useState({
+    name: "",
+    nickname: "",
+    phone: "",
+    dob: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+    cccd: "",
+  });
 
-  const dispatch   = useDispatch();
-  const navigate   = useNavigate();
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
   const [register, { isLoading }] = useRegisterMutation();
+  const [uploadAvatar] = useUploadAvatarMutation();
   const { userInfo } = useSelector((state) => state.auth);
 
   useEffect(() => {
-    if (userInfo) navigate('/');
+    if (userInfo) navigate("/");
   }, [userInfo, navigate]);
+
+  const handleChange = (e) => {
+    const { id, value } = e.target;
+    setForm((prev) => ({ ...prev, [id]: value }));
+  };
+
+  const validate = ({
+    name,
+    nickname,
+    phone,
+    dob,
+    email,
+    password,
+    confirmPassword,
+    cccd,
+  }) => {
+    const errors = [];
+    if (!name.trim()) errors.push("Họ tên không được để trống.");
+    if (!nickname.trim()) errors.push("Biệt danh không được để trống.");
+    if (!/^0\d{9}$/.test(phone.trim()))
+      errors.push("Số điện thoại phải bắt đầu bằng 0 và đủ 10 chữ số.");
+    if (!dob) errors.push("Vui lòng chọn ngày sinh.");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
+      errors.push("Email không hợp lệ.");
+    if (password.length < 6) errors.push("Mật khẩu phải có ít nhất 6 ký tự.");
+    if (password !== confirmPassword)
+      errors.push("Mật khẩu và xác nhận mật khẩu không khớp.");
+    if (!/^\d{12}$/.test(cccd.trim()))
+      errors.push("CCCD phải bao gồm đúng 12 chữ số.");
+    return errors;
+  };
 
   const submitHandler = async (e) => {
     e.preventDefault();
-    if (password !== confirmPassword) return toast.error('Passwords do not match');
+
+    const cleaned = Object.fromEntries(
+      Object.entries(form).map(([k, v]) => [
+        k,
+        typeof v === "string" ? v.trim() : v,
+      ])
+    );
+
+    const errors = validate(cleaned);
+    if (errors.length > 0) {
+      errors.forEach((msg) => toast.error(msg));
+      return;
+    }
 
     try {
-      const res = await register({
-        name,
-        nickname,
-        phone,
-        dob,
-        email,
-        password,
-      }).unwrap();
+      let uploadedUrl = avatarUrl;
 
-      dispatch(setCredentials({ ...res }));
-      navigate('/');
+      if (avatarFile && !uploadedUrl) {
+        if (avatarFile.size > MAX_FILE_SIZE) {
+          toast.error("Ảnh không được vượt quá 5MB.");
+          return;
+        }
+
+        const res = await uploadAvatar(avatarFile).unwrap();
+        uploadedUrl = res.url;
+        setAvatarUrl(res.url);
+      }
+
+      const payload = { ...cleaned, avatar: uploadedUrl };
+      const res = await register(payload).unwrap();
+
+      dispatch(setCredentials(res));
+      toast.success("Đăng ký thành công!");
+      navigate("/");
     } catch (err) {
-      toast.error(err?.data?.message || err.error);
+      const msg = err?.data?.message || err.message || "Đăng ký thất bại";
+
+      // Hiển thị lỗi trùng CCCD hoặc nickname rõ ràng
+      if (msg.includes("Email")) toast.error("Email đã được sử dụng");
+      if (msg.includes("Số điện thoại"))
+        toast.error("Số điện thoại đã được sử dụng");
+      if (msg.includes("CCCD")) toast.error("CCCD đã được sử dụng");
+      else if (msg.includes("nickname")) toast.error("Nickname đã tồn tại");
+      else toast.error(msg);
     }
   };
 
   return (
-    <FormContainer>
-      <h1>Đăng ký</h1>
-      <Form onSubmit={submitHandler}>
-        <Form.Group className="my-2" controlId="name">
-          <Form.Label>Họ và tên</Form.Label>
-          <Form.Control
-            type="text"
-            placeholder="Nhập họ tên"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </Form.Group>
+    <Container maxWidth="sm" sx={{ mt: 6 }}>
+      <Typography variant="h4" gutterBottom>
+        Đăng ký
+      </Typography>
 
-        <Form.Group className="my-2" controlId="nickname">
-          <Form.Label>Nickname</Form.Label>
-          <Form.Control
-            type="text"
-            placeholder="Biệt danh"
-            value={nickname}
-            onChange={(e) => setNickname(e.target.value)}
-            required
-          />
-        </Form.Group>
+      <Box component="form" noValidate onSubmit={submitHandler}>
+        <TextField
+          fullWidth
+          required
+          id="name"
+          label="Họ và tên"
+          margin="normal"
+          value={form.name}
+          onChange={handleChange}
+        />
+        <TextField
+          fullWidth
+          required
+          id="nickname"
+          label="Nickname"
+          margin="normal"
+          value={form.nickname}
+          onChange={handleChange}
+        />
+        <TextField
+          fullWidth
+          required
+          id="phone"
+          label="Số điện thoại"
+          margin="normal"
+          value={form.phone}
+          onChange={handleChange}
+        />
+        <TextField
+          fullWidth
+          required
+          id="dob"
+          label="Ngày sinh"
+          type="date"
+          InputLabelProps={{ shrink: true }}
+          margin="normal"
+          value={form.dob}
+          onChange={handleChange}
+        />
+        <TextField
+          fullWidth
+          required
+          id="email"
+          label="Email"
+          type="email"
+          margin="normal"
+          value={form.email}
+          onChange={handleChange}
+        />
+        <TextField
+          fullWidth
+          required
+          id="cccd"
+          label="Mã định danh CCCD"
+          margin="normal"
+          value={form.cccd}
+          onChange={handleChange}
+        />
+        <TextField
+          fullWidth
+          required
+          id="password"
+          label="Mật khẩu"
+          type="password"
+          margin="normal"
+          value={form.password}
+          onChange={handleChange}
+        />
+        <TextField
+          fullWidth
+          required
+          id="confirmPassword"
+          label="Xác nhận mật khẩu"
+          type="password"
+          margin="normal"
+          value={form.confirmPassword}
+          onChange={handleChange}
+        />
 
-        <Form.Group className="my-2" controlId="phone">
-          <Form.Label>Số điện thoại</Form.Label>
-          <Form.Control
-            type="tel"
-            placeholder="09xx..."
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            pattern="^0[0-9]{9}$"
-            required
+        <Box mt={2} display="flex" alignItems="center" gap={2}>
+          <Avatar
+            src={
+              avatarPreview ||
+              "https://dummyimage.com/80x80/cccccc/ffffff&text=?"
+            }
+            sx={{ width: 80, height: 80 }}
           />
-        </Form.Group>
+          <Button variant="outlined" component="label">
+            Chọn ảnh đại diện
+            <input
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files[0];
+                if (file) {
+                  if (file.size > MAX_FILE_SIZE) {
+                    toast.error("Ảnh không được vượt quá 5MB.");
+                    return;
+                  }
+                  setAvatarFile(file);
+                  setAvatarPreview(URL.createObjectURL(file));
+                  setAvatarUrl(""); // reset nếu đổi file
+                }
+              }}
+            />
+          </Button>
+        </Box>
 
-        <Form.Group className="my-2" controlId="dob">
-          <Form.Label>Ngày sinh</Form.Label>
-          <Form.Control
-            type="date"
-            value={dob}
-            onChange={(e) => setDob(e.target.value)}
-            required
-          />
-        </Form.Group>
-
-        <Form.Group className="my-2" controlId="email">
-          <Form.Label>Email</Form.Label>
-          <Form.Control
-            type="email"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
-        </Form.Group>
-
-        <Form.Group className="my-2" controlId="password">
-          <Form.Label>Mật khẩu</Form.Label>
-          <Form.Control
-            type="password"
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            minLength={6}
-            required
-          />
-        </Form.Group>
-
-        <Form.Group className="my-2" controlId="confirmPassword">
-          <Form.Label>Xác nhận mật khẩu</Form.Label>
-          <Form.Control
-            type="password"
-            placeholder="Nhập lại mật khẩu"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            required
-          />
-        </Form.Group>
-
-        <Button type="submit" variant="primary" className="mt-3" disabled={isLoading}>
-          Đăng ký
+        <Button
+          type="submit"
+          fullWidth
+          variant="contained"
+          color="primary"
+          sx={{ mt: 3, mb: 2 }}
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <CircularProgress size={24} color="inherit" />
+          ) : (
+            "Đăng ký"
+          )}
         </Button>
-        {isLoading && <Loader />}
-      </Form>
+      </Box>
 
-      <Row className="py-3">
-        <Col>
-          Đã có tài khoản? <Link to="/login">Đăng nhập</Link>
-        </Col>
-      </Row>
-    </FormContainer>
+      <Typography variant="body2" align="center">
+        Đã có tài khoản?{" "}
+        <MuiLink component={Link} to="/login" underline="hover">
+          Đăng nhập
+        </MuiLink>
+      </Typography>
+    </Container>
   );
 };
 
