@@ -1,17 +1,14 @@
 // src/components/Hero.jsx
-// Hero banner styled similar to SportConnect Home.
-// Uses React‑Bootstrap. Replace image paths with your own assets.
-
-import React from 'react';
-import { Container, Row, Col, Button, Image } from 'react-bootstrap';
-import { Link } from 'react-router-dom';
+import React from "react";
+import { Container, Row, Col, Button } from "react-bootstrap";
+import { Link } from "react-router-dom";
 
 const Hero = () => {
   return (
     <section className="bg-light py-5 text-center text-lg-start">
       <Container>
         <Row className="align-items-center g-5">
-          {/* LEFT: Copy */}
+          {/* LEFT: Nội dung */} 
           <Col lg={6}>
             <h1 className="display-5 fw-bold mb-4">
               Kết nối cộng đồng &amp; <br className="d-none d-lg-block" />
@@ -44,13 +41,16 @@ const Hero = () => {
             </div>
           </Col>
 
-          {/* RIGHT: Phone mockup */}
-          <Col lg={6} className="text-center">
-            <Image
-              alt="SportConnect App"
-              fluid
-              className="shadow rounded"
-            />
+          {/* RIGHT: Video embedded responsive */}
+          <Col lg={6}>
+            <div className="ratio ratio-16x9 shadow rounded">
+              <iframe
+                src="https://www.youtube.com/embed/IzSYlr3VI1A"
+                title="Giới thiệu SportConnect"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              ></iframe>
+            </div>
           </Col>
         </Row>
       </Container>
