@@ -9,7 +9,7 @@ import { toast } from 'react-toastify';
 import Loader from '../components/Loader';
 
 const LoginScreen = () => {
-  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
 
   const dispatch = useDispatch();
@@ -27,7 +27,7 @@ const LoginScreen = () => {
   const submitHandler = async (e) => {
     e.preventDefault();
     try {
-      const res = await login({ email, password }).unwrap();
+      const res = await login({ phone, password }).unwrap();
       dispatch(setCredentials({ ...res }));
       navigate('/');
     } catch (err) {
@@ -40,13 +40,13 @@ const LoginScreen = () => {
       <h1>Đăng nhập</h1>
 
       <Form onSubmit={submitHandler}>
-        <Form.Group className='my-2' controlId='email'>
-          <Form.Label>Địa chỉ Email</Form.Label>
+        <Form.Group className='my-2' controlId='phone'>
+          <Form.Label>Số điện thoại</Form.Label>
           <Form.Control
-            type='email'
-            placeholder='Nhập email'
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            type='text'
+            placeholder='Nhập số điện thoại'
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
           />
         </Form.Group>
 

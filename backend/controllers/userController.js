@@ -6,9 +6,9 @@ import generateToken from "../utils/generateToken.js";
 // @route   POST /api/users/auth
 // @access  Public
 const authUser = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
+  const { phone, password } = req.body;
 
-  const user = await User.findOne({ email });
+  const user = await User.findOne({ phone });
 
   if (user && (await user.matchPassword(password))) {
     generateToken(res, user._id);
@@ -16,13 +16,14 @@ const authUser = asyncHandler(async (req, res) => {
     res.json({
       _id: user._id,
       name: user.name,
-      email: user.email,
+      phone: user.phone,
     });
   } else {
     res.status(401);
-    throw new Error("Invalid email or password");
+    throw new Error("Số điện thoại hoặc mật khẩu không đúng");
   }
 });
+
 
 // @desc    Register a new user
 // @route   POST /api/users
