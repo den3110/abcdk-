@@ -115,7 +115,6 @@ export default function LevelPointPage() {
 
   /**
    * Tính điểm weighted
-   * Công thức gốc trên SportConnect không public; sử dụng
    *   Level  ≈  (Σ value × weight) / 1.9  (empirical)
    * Có thể điều chỉnh MAP_FACTOR theo yêu cầu backend sau này.
    */

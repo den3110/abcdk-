@@ -1,5 +1,4 @@
 // src/pages/TournamentRegistration.jsx
-// Trang đăng ký 2 VĐV + bảng danh sách (phong cách SportConnect)
 
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
@@ -20,6 +19,9 @@ import {
   Typography,
   MenuItem,
   Box,
+  useMediaQuery,
+  useTheme,
+  Paper,
 } from "@mui/material";
 import {
   useGetRegistrationsQuery,
@@ -117,6 +119,8 @@ const emptyPlayer = {
 };
 const PLACEHOLDER = "https://dummyimage.com/80x80/cccccc/ffffff&text=Avatar";
 const TournamentRegistration = () => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const { id } = useParams();
   const [player1, setP1] = useState(emptyPlayer);
   const [player2, setP2] = useState(emptyPlayer);
@@ -408,6 +412,7 @@ const TournamentRegistration = () => {
         </Col>
 
         {/* Right table list */}
+
         <Col lg={8}>
           <h5 className="mb-2">Danh sách đăng ký</h5>
           {isLoading ? (
@@ -422,7 +427,106 @@ const TournamentRegistration = () => {
                 Hiện chưa có đăng ký nào!
               </Typography>
             </div>
+          ) : isMobile ? (
+            // MOBILE: Thẻ Paper xếp dọc
+            <Stack spacing={2}>
+              {regs.map((r, idx) => (
+                <Paper key={r._id} sx={{ p: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    #{idx + 1}
+                  </Typography>
+
+                  {/* VĐV 1 */}
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Avatar src={r.player1.avatar} />
+                    <Box>
+                      <Typography variant="body2">
+                        {r.player1.fullName}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {r.player1.phone}
+                      </Typography>
+                    </Box>
+                  </Stack>
+
+                  {/* VĐV 2 */}
+                  <Stack direction="row" alignItems="center" spacing={1} mt={1}>
+                    <Avatar src={r.player2.avatar} />
+                    <Box>
+                      <Typography variant="body2">
+                        {r.player2.fullName}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {r.player2.phone}
+                      </Typography>
+                    </Box>
+                  </Stack>
+
+                  {/* Thông tin khác */}
+                  <Box mt={1}>
+                    <Typography variant="caption" color="text.secondary">
+                      Đăng lúc: {new Date(r.createdAt).toLocaleString()}
+                    </Typography>
+                  </Box>
+
+                  <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
+                    {/* Lệ phí */}
+                    {r.payment.status === "Đã nộp" ? (
+                      <Chip
+                        label={`Đã nộp\n${new Date(
+                          r.payment.paidAt
+                        ).toLocaleDateString()}`}
+                        color="success"
+                        size="small"
+                        sx={{ whiteSpace: "pre-line" }}
+                      />
+                    ) : (
+                      <Chip label="Chưa nộp" size="small" />
+                    )}
+
+                    {/* Checkin */}
+                    {r.checkinAt ? (
+                      <Chip
+                        label={`Đã check-in\n${new Date(
+                          r.checkinAt
+                        ).toLocaleTimeString()}`}
+                        color="info"
+                        size="small"
+                        sx={{ whiteSpace: "pre-line" }}
+                      />
+                    ) : (
+                      <Chip label="Chưa check-in" size="small" />
+                    )}
+                  </Stack>
+
+                  {/* Nút thao tác */}
+                  <Stack direction="row" spacing={1} mt={2} flexWrap="wrap">
+                    <Button
+                      variant="outlined"
+                      color={
+                        r.payment.status === "Đã nộp" ? "error" : "success"
+                      }
+                      size="small"
+                      onClick={() => togglePayment(r)}
+                    >
+                      {r.payment.status === "Đã nộp"
+                        ? "Huỷ phí"
+                        : "Xác nhận phí"}
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      color="primary"
+                      size="small"
+                      onClick={() => handleCheckin(r)}
+                    >
+                      Check‑in
+                    </Button>
+                  </Stack>
+                </Paper>
+              ))}
+            </Stack>
           ) : (
+            // DESKTOP: Bảng table như cũ
             <Table
               size="small"
               sx={{
@@ -445,7 +549,6 @@ const TournamentRegistration = () => {
                 {regs.map((r, idx) => (
                   <TableRow key={r._id} hover>
                     <TableCell>{idx + 1}</TableCell>
-
                     <TableCell>
                       <Stack direction="row" alignItems="center" spacing={1}>
                         <Avatar src={r.player1.avatar} />
@@ -459,7 +562,6 @@ const TournamentRegistration = () => {
                         </div>
                       </Stack>
                     </TableCell>
-
                     <TableCell>
                       <Stack direction="row" alignItems="center" spacing={1}>
                         <Avatar src={r.player2.avatar} />
@@ -473,11 +575,9 @@ const TournamentRegistration = () => {
                         </div>
                       </Stack>
                     </TableCell>
-
                     <TableCell>
                       {new Date(r.createdAt).toLocaleString()}
                     </TableCell>
-
                     <TableCell>
                       {r.payment.status === "Đã nộp" ? (
                         <Chip
@@ -492,7 +592,6 @@ const TournamentRegistration = () => {
                         <Chip label="Chưa nộp" color="default" size="small" />
                       )}
                     </TableCell>
-
                     <TableCell>
                       {r.checkinAt ? (
                         <Chip
@@ -504,7 +603,6 @@ const TournamentRegistration = () => {
                         <Chip label="Chưa" color="default" size="small" />
                       )}
                     </TableCell>
-
                     <TableCell>
                       <Stack direction="row" spacing={1}>
                         <Button
@@ -534,6 +632,7 @@ const TournamentRegistration = () => {
               </TableBody>
             </Table>
           )}
+
           {tour && (
             <Row className="mt-4">
               <Col md={6}>

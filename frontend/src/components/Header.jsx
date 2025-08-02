@@ -1,4 +1,4 @@
-// src/components/Header.jsx – Pickleball + Liên hệ
+// src/components/Header.jsx – Pickleball + Liên hệ (ĐÃ DỊCH)
 import React, { useState } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { Link, useNavigate } from "react-router-dom";
@@ -29,7 +29,7 @@ import { logout } from "../slices/authSlice";
 // Chỉ Pickleball
 const navConfig = [
   {
-    label: "Pickle Ball",
+    label: "Pickle Ball",
     submenu: [
       { label: "Giải đấu", path: "/pickle-ball/tournaments" },
       { label: "Điểm trình", path: "/pickle-ball/rankings" },
@@ -87,7 +87,7 @@ const Header = () => {
             to="/"
             sx={{ textDecoration: "none", color: "inherit", fontWeight: 700 }}
           >
-            SportConnect
+            PickleTour
           </Typography>
 
           <Box sx={{ display: { xs: "none", md: "flex" }, gap: 1 }}>
@@ -134,9 +134,9 @@ const Header = () => {
                   to="/profile"
                   onClick={closeUserMenu}
                 >
-                  Profile
+                  Tài khoản của tôi
                 </MenuItem>
-                <MenuItem onClick={logoutHandler}>Logout</MenuItem>
+                <MenuItem onClick={logoutHandler}>Đăng xuất</MenuItem>
               </Menu>
             </>
           ) : (
@@ -148,7 +148,7 @@ const Header = () => {
                 variant="outlined"
                 color="inherit"
               >
-                Sign In
+                Đăng nhập
               </Button>
               <Button
                 component={Link}
@@ -157,7 +157,7 @@ const Header = () => {
                 variant="contained"
                 color="secondary"
               >
-                Sign Up
+                Đăng ký
               </Button>
             </Box>
           )}
@@ -204,11 +204,15 @@ const Header = () => {
           <>
             <MenuItem component={Link} to="/login" onClick={closeMobileMenu}>
               <LoginIcon fontSize="small" sx={{ mr: 1 }} />
-              Sign In
+              Đăng nhập
             </MenuItem>
-            <MenuItem component={Link} to="/register" onClick={closeMobileMenu}>
+            <MenuItem
+              component={Link}
+              to="/register"
+              onClick={closeMobileMenu}
+            >
               <HowToRegIcon fontSize="small" sx={{ mr: 1 }} />
-              Sign Up
+              Đăng ký
             </MenuItem>
           </>
         )}

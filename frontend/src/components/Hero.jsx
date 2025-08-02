@@ -15,7 +15,7 @@ const Hero = () => {
               quản lý giải đấu thể thao
             </h1>
             <p className="lead mb-4">
-              SportConnect giúp bạn đăng ký, tổ chức, theo dõi điểm trình và
+              PickleTour giúp bạn đăng ký, tổ chức, theo dõi điểm trình và
               cập nhật bảng xếp hạng cho mọi môn thể thao – ngay trên điện
               thoại.
             </p>
@@ -46,7 +46,7 @@ const Hero = () => {
             <div className="ratio ratio-16x9 shadow rounded">
               <iframe
                 src="https://www.youtube.com/embed/IzSYlr3VI1A"
-                title="Giới thiệu SportConnect"
+                title="Giới thiệu PickleTour"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                 allowFullScreen
               ></iframe>

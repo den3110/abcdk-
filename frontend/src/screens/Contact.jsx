@@ -25,14 +25,14 @@ export default function ContactPage() {
         <Stack direction="row" alignItems="center" spacing={1}>
           <LocationOnIcon color="action" />
           <Typography>
-            <strong>Địa chỉ:</strong> 36 Thạch Bàn, P. Thạch Bàn, Q. Long Biên, HN
+            <strong>Địa chỉ:</strong> Abcd, abcd, abcd
           </Typography>
         </Stack>
 
         <Stack direction="row" alignItems="center" spacing={1}>
           <PhoneIcon color="action" />
           <Typography>
-            <strong>Điện thoại:</strong> 0943336998
+            <strong>Điện thoại:</strong> 012345678
           </Typography>
         </Stack>
 
@@ -40,8 +40,8 @@ export default function ContactPage() {
           <EmailIcon color="action" />
           <Typography>
             <strong>Email:</strong>{" "}
-            <Link href="mailto:support@sportconnect.vn">
-              support@sportconnect.vn
+            <Link href="mailto:support@pickletour.vn">
+              support@pickletour.vn
             </Link>
           </Typography>
         </Stack>
@@ -61,17 +61,17 @@ export default function ContactPage() {
         <Box mt={2}>
           <Typography>
             <strong>Hỗ trợ:</strong>{" "}
-            <Link href="mailto:support@sportconnect.vn">support@sportconnect.vn</Link>{" "}
+            <Link href="mailto:support@pickletour.vn">support@pickletour.vn</Link>{" "}
             – 0943336998
           </Typography>
           <Typography>
             <strong>Hỗ trợ điểm trình:</strong>{" "}
-            <Link href="mailto:support@sportconnect.vn">support@sportconnect.vn</Link>{" "}
+            <Link href="mailto:support@pickletour.vn">support@pickletour.vn</Link>{" "}
             – 0962182308
           </Typography>
           <Typography>
             <strong>Bán hàng:</strong>{" "}
-            <Link href="mailto:support@sportconnect.vn">support@sportconnect.vn</Link>
+            <Link href="mailto:support@pickletour.vn">support@pickletour.vn</Link>
           </Typography>
         </Box>
       </Stack>

@@ -16,7 +16,6 @@ const LoginScreen = () => {
   const navigate = useNavigate();
 
   const [login, { isLoading }] = useLoginMutation();
-
   const { userInfo } = useSelector((state) => state.auth);
 
   useEffect(() => {
@@ -38,27 +37,27 @@ const LoginScreen = () => {
 
   return (
     <FormContainer>
-      <h1>Sign In</h1>
+      <h1>Đăng nhập</h1>
 
       <Form onSubmit={submitHandler}>
         <Form.Group className='my-2' controlId='email'>
-          <Form.Label>Email Address</Form.Label>
+          <Form.Label>Địa chỉ Email</Form.Label>
           <Form.Control
             type='email'
-            placeholder='Enter email'
+            placeholder='Nhập email'
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-          ></Form.Control>
+          />
         </Form.Group>
 
         <Form.Group className='my-2' controlId='password'>
-          <Form.Label>Password</Form.Label>
+          <Form.Label>Mật khẩu</Form.Label>
           <Form.Control
             type='password'
-            placeholder='Enter password'
+            placeholder='Nhập mật khẩu'
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-          ></Form.Control>
+          />
         </Form.Group>
 
         <Button
@@ -67,7 +66,7 @@ const LoginScreen = () => {
           variant='primary'
           className='mt-3'
         >
-          Sign In
+          Đăng nhập
         </Button>
       </Form>
 
@@ -75,7 +74,7 @@ const LoginScreen = () => {
 
       <Row className='py-3'>
         <Col>
-          New Customer? <Link to='/register'>Register</Link>
+          Chưa có tài khoản? <Link to='/register'>Đăng ký ngay</Link>
         </Col>
       </Row>
     </FormContainer>
