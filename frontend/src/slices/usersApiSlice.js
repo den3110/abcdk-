@@ -30,6 +30,15 @@ export const userApiSlice = apiSlice.injectEndpoints({
         body: data,
       }),
     }),
+    getPublicProfile: builder.query({
+      query: (id) => `${USERS_URL}/${id}/public`,
+    }),
+    getRatingHistory: builder.query({
+      query: (id) => `/api/users/${id}/ratings`,
+    }),
+    getMatchHistory: builder.query({
+      query: (id) => `/api/users/${id}/matches`,
+    }),
   }),
 });
 
@@ -38,4 +47,8 @@ export const {
   useLogoutMutation,
   useRegisterMutation,
   useUpdateUserMutation,
+  useGetPublicProfileQuery,
+  useGetRatingHistoryQuery,
+  useGetMatchHistoryQuery,
+  
 } = userApiSlice;

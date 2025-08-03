@@ -26,6 +26,7 @@ import {
 } from "@mui/material";
 import { useGetRankingsQuery } from "../../slices/rankingsApiSlice";
 import { Link } from "react-router-dom";
+import PublicProfileDialog from "../../components/PublicProfileDialog";
 
 const PLACEHOLDER = "https://dummyimage.com/40x40/cccccc/ffffff&text=?";
 const colorByGames = (g) => (g < 1 ? "#f44336" : g < 7 ? "#ff9800" : "#212121");
@@ -40,7 +41,13 @@ export default function RankingList() {
   } = useGetRankingsQuery(keyword);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-
+  const [openProfile, setOpenProfile] = useState(false);
+  const [selectedId, setSelectedId] = useState(null);
+  const handleOpen = (id) => {
+    setSelectedId(id);
+    setOpenProfile(true);
+  };
+  const handleClose = () => setOpenProfile(false);
   useEffect(() => {
     const t = setTimeout(refetch, 300);
     return () => clearTimeout(t);
@@ -151,7 +158,12 @@ export default function RankingList() {
                     <Button size="small" variant="outlined">
                       Chấm
                     </Button>
-                    <Button size="small" variant="contained" color="success">
+                    <Button
+                      size="small"
+                      variant="contained"
+                      color="success"
+                      onClick={() => handleOpen(u._id)}
+                    >
                       Hồ sơ
                     </Button>
                   </Stack>
@@ -176,7 +188,7 @@ export default function RankingList() {
                 <TableCell>Cập nhật</TableCell>
                 <TableCell>Tham gia</TableCell>
                 <TableCell>Xác thực</TableCell>
-                <TableCell></TableCell>
+                {/* <TableCell></TableCell> */}
                 <TableCell></TableCell>
               </TableRow>
             </TableHead>
@@ -217,13 +229,14 @@ export default function RankingList() {
                         color={u.verified ? "success" : "default"}
                       />
                     </TableCell>
+                   
                     <TableCell>
-                      <Button size="small" variant="outlined">
-                        Chấm
-                      </Button>
-                    </TableCell>
-                    <TableCell>
-                      <Button size="small" variant="contained" color="success">
+                      <Button
+                        size="small"
+                        variant="contained"
+                        color="success"
+                        onClick={() => handleOpen(u._id)}
+                      >
                         Hồ sơ
                       </Button>
                     </TableCell>
@@ -234,6 +247,11 @@ export default function RankingList() {
           </Table>
         </TableContainer>
       )}
+      <PublicProfileDialog
+        open={openProfile}
+        onClose={handleClose}
+        userId={selectedId}
+      />
     </Container>
   );
 }
