@@ -1,44 +1,53 @@
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 
-const userSchema = mongoose.Schema(
+const userSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true },
+    /* ------- Thông tin cơ bản ------- */
+    name: { type: String, required: true, trim: true },
     nickname: { type: String, required: true, trim: true },
-    phone: { type: String, required: true, unique: true },
-    dob: { type: Date, required: true },
-    email: { type: String, required: true, unique: true },
+    phone: { type: String, required: true, unique: true, trim: true },
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      lowercase: true,
+    },
     password: { type: String, required: true },
+    dob: { type: Date, required: true },
 
-    avatar: { type: String, default: "" }, // ✅ thêm dòng này
+    /* ------- Avatar + giới thiệu ------- */
+    avatar: { type: String, default: "" },
+    bio: { type: String, default: "" },
 
+    /* ------- Thông tin phụ ------- */
     gender: { type: String, enum: ["Nam", "Nữ", "--"], default: "--" },
-    joinedAt: { type: Date, default: Date.now },
+    province: { type: String, default: "" },
+
+    /* ------- Xác thực & điểm ------- */
     verified: {
       type: String,
       enum: ["Chờ xác thực", "Xác thực"],
       default: "Chờ xác thực",
     },
-    ratingSingle: { type: Number, default: 0 },
-    ratingDouble: { type: Number, default: 0 },
-    cccd: {
-      type: String,
-      unique: true,
-      sparse: true,
-      match: /^\d{12}$/,
-    },
+    cccd: { type: String, unique: true, sparse: true, match: /^\d{12}$/ },
     cccdStatus: {
       type: String,
       enum: ["Chưa xác minh", "Đã xác minh"],
       default: "Chưa xác minh",
     },
+    ratingSingle: { type: Number, default: 0 },
+    ratingDouble: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
 
+/* ---------- Index giúp tìm nhanh nickname (không unique) ---------- */
+userSchema.index({ nickname: 1 });
 
-/* bcrypt helpers */
-userSchema.methods.matchPassword = async function (entered) {
+/* ---------- Bcrypt helpers ---------- */
+userSchema.methods.matchPassword = function (entered) {
   return bcrypt.compare(entered, this.password);
 };
 
