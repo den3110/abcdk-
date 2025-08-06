@@ -1,16 +1,23 @@
-import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Form, Button, Row, Col } from 'react-bootstrap';
-import FormContainer from '../components/FormContainer';
-import { useDispatch, useSelector } from 'react-redux';
-import { useLoginMutation } from '../slices/usersApiSlice';
-import { setCredentials } from '../slices/authSlice';
-import { toast } from 'react-toastify';
-import Loader from '../components/Loader';
+import { useState, useEffect } from "react";
+import { Link as RouterLink, useNavigate } from "react-router-dom";
+import {
+  Container,
+  Box,
+  TextField,
+  Typography,
+  Button,
+  Grid,
+  CircularProgress,
+  Paper,
+} from "@mui/material";
+import { useDispatch, useSelector } from "react-redux";
+import { useLoginMutation } from "../slices/usersApiSlice";
+import { setCredentials } from "../slices/authSlice";
+import { toast } from "react-toastify";
 
-const LoginScreen = () => {
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
+export default function LoginScreen() {
+  const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
 
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -19,66 +26,84 @@ const LoginScreen = () => {
   const { userInfo } = useSelector((state) => state.auth);
 
   useEffect(() => {
-    if (userInfo) {
-      navigate('/');
-    }
-  }, [navigate, userInfo]);
+    if (userInfo) navigate("/");
+  }, [userInfo, navigate]);
 
   const submitHandler = async (e) => {
     e.preventDefault();
     try {
       const res = await login({ phone, password }).unwrap();
       dispatch(setCredentials({ ...res }));
-      navigate('/');
+      navigate("/");
     } catch (err) {
       toast.error(err?.data?.message || err.error);
     }
   };
 
   return (
-    <FormContainer>
-      <h1>Đăng nhập</h1>
+    <Container component="main" maxWidth="xs">
+      <Box
+        component={Paper}
+        elevation={3}
+        sx={{
+          p: 4,
+          mt: 8,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+        }}
+      >
+        <Typography component="h1" variant="h5" fontWeight={600} mb={2}>
+          Đăng nhập
+        </Typography>
 
-      <Form onSubmit={submitHandler}>
-        <Form.Group className='my-2' controlId='phone'>
-          <Form.Label>Số điện thoại</Form.Label>
-          <Form.Control
-            type='text'
-            placeholder='Nhập số điện thoại'
+        <Box component="form" onSubmit={submitHandler} sx={{ width: "100%" }}>
+          <TextField
+            margin="normal"
+            required
+            fullWidth
+            id="phone"
+            label="Số điện thoại"
+            name="phone"
+            autoComplete="tel"
+            autoFocus
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
           />
-        </Form.Group>
 
-        <Form.Group className='my-2' controlId='password'>
-          <Form.Label>Mật khẩu</Form.Label>
-          <Form.Control
-            type='password'
-            placeholder='Nhập mật khẩu'
+          <TextField
+            margin="normal"
+            required
+            fullWidth
+            name="password"
+            label="Mật khẩu"
+            type="password"
+            id="password"
+            autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-        </Form.Group>
 
-        <Button
-          disabled={isLoading}
-          type='submit'
-          variant='primary'
-          className='mt-3'
-        >
-          Đăng nhập
-        </Button>
-      </Form>
+          <Button
+            type="submit"
+            fullWidth
+            variant="contained"
+            size="large"
+            sx={{ mt: 3, mb: 2 }}
+            disabled={isLoading}
+          >
+            {isLoading ? <CircularProgress size={24} /> : "Đăng nhập"}
+          </Button>
+        </Box>
 
-      {isLoading && <Loader />}
-
-      <Row className='py-3'>
-        <Col>
-          Chưa có tài khoản? <Link to='/register'>Đăng ký ngay</Link>
-        </Col>
-      </Row>
-    </FormContainer>
+        <Grid container justifyContent="flex-end">
+          <Grid item>
+            <RouterLink to="/register" style={{ textDecoration: "none" }}>
+              Chưa có tài khoản? Đăng ký ngay
+            </RouterLink>
+          </Grid>
+        </Grid>
+      </Box>
+    </Container>
   );
-};
-
-export default LoginScreen;
+}

@@ -4,15 +4,42 @@ import User from "../models/userModel.js";
 import mongoose from "mongoose";
 
 export const getRankings = asyncHandler(async (req, res) => {
-  const keyword = req.query.keyword
+  const page = parseInt(req.query.page ?? 0, 10) || 0;
+  const limit = parseInt(req.query.limit ?? 10, 10) || 10;
+
+  /*— 1. Lọc user theo keyword (nếu có) —*/
+  const userFilter = req.query.keyword
     ? { nickname: { $regex: req.query.keyword, $options: "i" } }
     : {};
 
-  const list = await Ranking.find(keyword)
-    .populate("user", "nickname gender province avatar verified createdAt")
-    .sort({ double: -1 });
+  /*— 2. Lấy toàn bộ _id rồi chỉ giữ ObjectId hợp lệ —*/
+  const rawIds = await User.find(userFilter).distinct("_id"); // có thể lẫn UUID
+  const objIds = rawIds.filter((id) => mongoose.isValidObjectId(id));
 
-  res.json(list);
+  /*— 3. Xây filter ranking chính xác —*/
+  let rankingFilter = {};
+  if (req.query.keyword) {
+    // có tìm keyword nhưng không trúng ai ⇒ trả list rỗng
+    if (objIds.length === 0) {
+      return res.json({ docs: [], totalPages: 0, page });
+    }
+    rankingFilter = { user: { $in: objIds } };
+  }
+
+  /*— 4. Paginate & trả kết quả —*/
+  const total = await Ranking.countDocuments(rankingFilter);
+
+  const docs = await Ranking.find(rankingFilter)
+    .populate("user", "nickname gender province avatar verified createdAt")
+    .sort({ double: -1 })
+    .skip(page * limit)
+    .limit(limit);
+
+  res.json({
+    docs,
+    totalPages: Math.ceil(total / limit),
+    page,
+  });
 });
 
 /* GET điểm kèm user  (dùng trong danh sách) */

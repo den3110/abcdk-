@@ -1,4 +1,4 @@
-// src/components/Header.jsx – Pickleball + Liên hệ (ĐÃ DỊCH)
+// src/components/Header.jsx
 import React, { useState } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { Link, useNavigate } from "react-router-dom";
@@ -19,7 +19,6 @@ import {
 } from "@mui/material";
 import {
   Menu as MenuIcon,
-  KeyboardArrowDown as ArrowDownIcon,
   Login as LoginIcon,
   HowToReg as HowToRegIcon,
 } from "@mui/icons-material";
@@ -47,21 +46,10 @@ const Header = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const [mobileAnchor, setMobileAnchor] = useState(null);
-  const [desktopAnchor, setDesktopAnchor] = useState(null);
-  const [desktopIdx, setDesktopIdx] = useState(null);
   const [userAnchor, setUserAnchor] = useState(null);
 
   const openMobileMenu = (e) => setMobileAnchor(e.currentTarget);
   const closeMobileMenu = () => setMobileAnchor(null);
-
-  const openDesktopMenu = (e, idx) => {
-    setDesktopAnchor(e.currentTarget);
-    setDesktopIdx(idx);
-  };
-  const closeDesktopMenu = () => {
-    setDesktopAnchor(null);
-    setDesktopIdx(null);
-  };
 
   const openUserMenu = (e) => setUserAnchor(e.currentTarget);
   const closeUserMenu = () => setUserAnchor(null);
@@ -90,17 +78,21 @@ const Header = () => {
             PickleTour
           </Typography>
 
+          {/* Nav links hiển thị trực tiếp (desktop) */}
           <Box sx={{ display: { xs: "none", md: "flex" }, gap: 1 }}>
-            {navConfig.map((item, idx) => (
-              <Button
-                key={item.label}
-                onClick={(e) => openDesktopMenu(e, idx)}
-                endIcon={<ArrowDownIcon />}
-                sx={{ color: "white", textTransform: "none" }}
-              >
-                {item.label}
-              </Button>
-            ))}
+            {navConfig
+              .flatMap((item) => item.submenu)
+              .map((sub) => (
+                <Button
+                  key={sub.path}
+                  component={Link}
+                  to={sub.path}
+                  sx={{ color: "white", textTransform: "none" }}
+                >
+                  {sub.label}
+                </Button>
+              ))}
+
             <Button
               component={Link}
               to="/contact"
@@ -162,11 +154,8 @@ const Header = () => {
             </Box>
           )}
 
-          {isMobile && (
-            <IconButton size="large" onClick={openMobileMenu} color="inherit">
-              <MenuIcon />
-            </IconButton>
-          )}
+          {/* Hamburger menu (mobile) */}
+         
         </Box>
       </Toolbar>
 
@@ -206,37 +195,12 @@ const Header = () => {
               <LoginIcon fontSize="small" sx={{ mr: 1 }} />
               Đăng nhập
             </MenuItem>
-            <MenuItem
-              component={Link}
-              to="/register"
-              onClick={closeMobileMenu}
-            >
+            <MenuItem component={Link} to="/register" onClick={closeMobileMenu}>
               <HowToRegIcon fontSize="small" sx={{ mr: 1 }} />
               Đăng ký
             </MenuItem>
           </>
         )}
-      </Menu>
-
-      {/* Submenu (desktop dropdown) */}
-      <Menu
-        anchorEl={desktopAnchor}
-        open={Boolean(desktopAnchor)}
-        onClose={closeDesktopMenu}
-        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-        transformOrigin={{ vertical: "top", horizontal: "left" }}
-      >
-        {desktopIdx !== null &&
-          navConfig[desktopIdx].submenu.map((sub) => (
-            <MenuItem
-              key={sub.path}
-              component={Link}
-              to={sub.path}
-              onClick={closeDesktopMenu}
-            >
-              {sub.label}
-            </MenuItem>
-          ))}
       </Menu>
     </AppBar>
   );

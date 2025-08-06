@@ -1,5 +1,4 @@
-// src/pages/RankingList.jsx – Responsive with mobile card view
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   Container,
   Typography,
@@ -23,24 +22,43 @@ import {
   useTheme,
   useMediaQuery,
   Divider,
+  Pagination,
 } from "@mui/material";
-import { useGetRankingsQuery } from "../../slices/rankingsApiSlice";
 import { Link } from "react-router-dom";
+import { useDispatch, useSelector } from "react-redux";
+import { setKeyword, setPage } from "../../slices/rankingUiSlice";
+import { useGetRankingsQuery } from "../../slices/rankingsApiSlice";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 
-const PLACEHOLDER = "https://dummyimage.com/40x40/cccccc/ffffff&text=?";
+const PLACE = "https://dummyimage.com/40x40/cccccc/ffffff&text=?";
 const colorByGames = (g) => (g < 1 ? "#f44336" : g < 7 ? "#ff9800" : "#212121");
 
 export default function RankingList() {
-  const [keyword, setKeyword] = useState("");
+  /* redux ui */
+  const dispatch = useDispatch();
+  const { keyword, page } = useSelector((s) => s.rankingUi);
+
+  /* fetch */
   const {
-    data: list = [],
+    data = { docs: [], totalPages: 0 },
     isLoading,
     error,
     refetch,
-  } = useGetRankingsQuery(keyword);
+  } = useGetRankingsQuery({ keyword, page });
+
+  const { docs: list, totalPages } = data;
+
+  /* responsive */
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
+  /* debounce refetch khi đổi keyword */
+  useEffect(() => {
+    const t = setTimeout(refetch, 300);
+    return () => clearTimeout(t);
+  }, [keyword, refetch]);
+
+  /* dialog */
   const [openProfile, setOpenProfile] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const handleOpen = (id) => {
@@ -48,13 +66,10 @@ export default function RankingList() {
     setOpenProfile(true);
   };
   const handleClose = () => setOpenProfile(false);
-  useEffect(() => {
-    const t = setTimeout(refetch, 300);
-    return () => clearTimeout(t);
-  }, [keyword]);
 
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
+      {/* header */}
       <Box
         display="flex"
         justifyContent="space-between"
@@ -74,11 +89,11 @@ export default function RankingList() {
         </Button>
       </Box>
 
-      {/* Chú thích */}
+      {/* legend */}
       <Stack direction="row" spacing={2} mb={2} flexWrap="wrap">
         <Chip label="Đỏ: tự chấm" sx={{ bgcolor: "#f44336", color: "#fff" }} />
         <Chip
-          label="Vàng: < 7 trận"
+          label="Vàng: &lt; 7 trận"
           sx={{ bgcolor: "#ff9800", color: "#fff" }}
         />
         <Chip
@@ -87,33 +102,32 @@ export default function RankingList() {
         />
       </Stack>
 
-      {/* Ô tìm kiếm */}
+      {/* search */}
       <TextField
         label="Tìm kiếm"
         variant="outlined"
         size="small"
         value={keyword}
-        onChange={(e) => setKeyword(e.target.value)}
+        onChange={(e) => dispatch(setKeyword(e.target.value))}
         sx={{ mb: 2, width: 300 }}
       />
 
+      {/* list */}
       {isLoading ? (
         <CircularProgress />
       ) : error ? (
         <Alert severity="error">{error?.data?.message || error.error}</Alert>
       ) : isMobile ? (
+        /* mobile cards */
         <Stack spacing={2}>
-          {list.map((r, idx) => {
+          {list.map((r) => {
             const u = r.user || {};
             const color = colorByGames(r.games);
             return (
               <Card key={r._id} variant="outlined">
                 <CardContent>
                   <Box display="flex" alignItems="center" mb={1} gap={2}>
-                    <Avatar
-                      src={u.avatar || PLACEHOLDER}
-                      alt={u.nickname || "?"}
-                    />
+                    <Avatar src={u.avatar || PLACE} alt={u.nickname || "?"} />
                     <Box>
                       <Typography fontWeight={600}>
                         {u.nickname || "---"}
@@ -130,14 +144,11 @@ export default function RankingList() {
                       />
                     </Box>
                   </Box>
-
                   <Stack direction="row" spacing={2} flexWrap="wrap" mb={1}>
                     <Chip label={`Giới tính: ${u.gender || "--"}`} />
                     <Chip label={`Tỉnh: ${u.province || "--"}`} />
                   </Stack>
-
                   <Divider sx={{ mb: 1 }} />
-
                   <Stack direction="row" spacing={2} mb={1}>
                     <Typography variant="body2" sx={{ color }}>
                       Đôi: {r.ratingDouble.toFixed(3)}
@@ -146,14 +157,12 @@ export default function RankingList() {
                       Đơn: {r.ratingSingle.toFixed(3)}
                     </Typography>
                   </Stack>
-
                   <Typography variant="caption" color="text.secondary">
                     Cập nhật: {new Date(r.updatedAt).toLocaleDateString()}
-                  </Typography>
+                  </Typography>{" "}
                   <Typography variant="caption" color="text.secondary">
                     Tham gia: {new Date(u.createdAt).toLocaleDateString()}
                   </Typography>
-
                   <Stack direction="row" spacing={1} mt={2}>
                     <Button size="small" variant="outlined">
                       Chấm
@@ -173,6 +182,7 @@ export default function RankingList() {
           })}
         </Stack>
       ) : (
+        /* desktop table */
         <TableContainer component={Paper}>
           <Table size="small">
             <TableHead>
@@ -188,7 +198,6 @@ export default function RankingList() {
                 <TableCell>Cập nhật</TableCell>
                 <TableCell>Tham gia</TableCell>
                 <TableCell>Xác thực</TableCell>
-                {/* <TableCell></TableCell> */}
                 <TableCell></TableCell>
               </TableRow>
             </TableHead>
@@ -198,11 +207,11 @@ export default function RankingList() {
                 const color = colorByGames(r.games);
                 return (
                   <TableRow key={r._id}>
-                    <TableCell>{idx + 1}</TableCell>
+                    <TableCell>{page * 10 + idx + 1}</TableCell>
                     <TableCell>{u._id?.toString().slice(-5)}</TableCell>
                     <TableCell>
                       <Avatar
-                        src={u.avatar || PLACEHOLDER}
+                        src={u.avatar || PLACE}
                         sx={{ width: 32, height: 32 }}
                         alt={u.nickname || "?"}
                       />
@@ -229,7 +238,6 @@ export default function RankingList() {
                         color={u.verified ? "success" : "default"}
                       />
                     </TableCell>
-                   
                     <TableCell>
                       <Button
                         size="small"
@@ -247,6 +255,19 @@ export default function RankingList() {
           </Table>
         </TableContainer>
       )}
+
+      {/* pagination */}
+      {totalPages > 1 && (
+        <Box mt={2} display="flex" justifyContent="center">
+          <Pagination
+            count={totalPages}
+            page={page + 1}
+            onChange={(_, v) => dispatch(setPage(v - 1))}
+            color="primary"
+          />
+        </Box>
+      )}
+
       <PublicProfileDialog
         open={openProfile}
         onClose={handleClose}

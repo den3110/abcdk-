@@ -1,5 +1,5 @@
-// src/pages/TournamentDashboard.jsx – Fully responsive redesign with card view for mobile
-import { useState, Fragment } from "react";
+// src/pages/TournamentDashboard.jsx – thêm tìm kiếm + giữ responsive
+import { useState, useEffect, Fragment } from "react";
 import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import {
   Box,
@@ -29,6 +29,7 @@ import {
   useMediaQuery,
   useTheme,
   Divider,
+  TextField, // ⬅️ NEW
 } from "@mui/material";
 import PreviewIcon from "@mui/icons-material/Preview";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
@@ -38,7 +39,6 @@ import CloseIcon from "@mui/icons-material/Close";
 import { useGetTournamentsQuery } from "../../slices/tournamentsApiSlice";
 
 const THUMB_SIZE = 78;
-
 const statusColor = {
   "Sắp diễn ra": "info",
   "Đang diễn ra": "success",
@@ -61,8 +61,20 @@ export default function TournamentDashboard() {
   const [params] = useSearchParams();
   const sportType = params.get("sportType") || 2;
   const groupId = params.get("groupId") || 0;
+
   const [tab, setTab] = useState("Sắp diễn ra");
   const [previewSrc, setPreviewSrc] = useState(null);
+
+  /* 🔍 state tìm kiếm */
+  const [keyword, setKeyword] = useState("");
+  const [search, setSearch] = useState(""); // keyword sau debounce
+
+  /* debounce 300 ms */
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(keyword.trim().toLowerCase()), 300);
+    return () => clearTimeout(t);
+  }, [keyword]);
+
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
@@ -81,7 +93,11 @@ export default function TournamentDashboard() {
       day: "2-digit",
     });
 
-  const filtered = tournaments?.filter((t) => t.status === tab) || [];
+  /* 1️⃣ lọc theo trạng thái, 2️⃣ lọc theo keyword */
+  const filtered =
+    tournaments
+      ?.filter((t) => t.status === tab)
+      .filter((t) => t.name.toLowerCase().includes(search)) || [];
 
   return (
     <Container sx={{ py: 4 }}>
@@ -102,6 +118,7 @@ export default function TournamentDashboard() {
 
       {tournaments && (
         <Fragment>
+          {/* Tabs trạng thái */}
           <Tabs
             value={tab}
             onChange={handleChangeTab}
@@ -119,7 +136,18 @@ export default function TournamentDashboard() {
             ))}
           </Tabs>
 
+          {/* Ô tìm kiếm */}
+          <TextField
+            label="Tìm kiếm tên giải"
+            size="small"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            sx={{ mb: 3, width: 320 }}
+          />
+
+          {/* ===== LIST ===== */}
           {isMobile ? (
+            /* ----- CARD (MOBILE) ----- */
             <Stack spacing={2}>
               {filtered.map((t) => (
                 <Card key={t._id} variant="outlined">
@@ -152,7 +180,6 @@ export default function TournamentDashboard() {
                     </Stack>
 
                     <Divider sx={{ mb: 1 }} />
-
                     <Typography variant="body2" mb={0.5}>
                       Thời gian: {formatDate(t.startDate)} –{" "}
                       {formatDate(t.endDate)}
@@ -193,7 +220,7 @@ export default function TournamentDashboard() {
                       color="success"
                       startIcon={<CheckCircleIcon />}
                     >
-                      Check‑in
+                      Check-in
                     </Button>
                     <Button
                       component={RouterLink}
@@ -210,6 +237,7 @@ export default function TournamentDashboard() {
               ))}
             </Stack>
           ) : (
+            /* ----- TABLE (DESKTOP) ----- */
             <Paper elevation={2}>
               <TableContainer sx={{ maxHeight: 640 }}>
                 <Table stickyHeader size="small">
@@ -294,7 +322,7 @@ export default function TournamentDashboard() {
                               color="success"
                               startIcon={<CheckCircleIcon />}
                             >
-                              Check‑in
+                              Check-in
                             </Button>
                             <Button
                               component={RouterLink}
@@ -318,6 +346,7 @@ export default function TournamentDashboard() {
         </Fragment>
       )}
 
+      {/* Dialog preview ảnh */}
       <Dialog
         open={Boolean(previewSrc)}
         onClose={() => setPreviewSrc(null)}
