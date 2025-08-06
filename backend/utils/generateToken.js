@@ -8,7 +8,6 @@ import jwt from "jsonwebtoken";
  */
 const generateToken = (res, user) => {
   const isProd = process.env.NODE_ENV === "production";
-  const rootDomain = process.env.COOKIE_DOMAIN; 
   //  🔑  payload gồm cả userId & role
   const token = jwt.sign(
     { userId: user._id, role: user.role },
@@ -18,12 +17,10 @@ const generateToken = (res, user) => {
 
   // cookie 30 ngày – secure ngoài dev
   res.cookie("jwt", token, {
-    httpOnly: true,
-    secure: isProd, // bắt buộc https ở prod
-    sameSite: isProd ? "None" : "Lax", // "None" để chấp nhận cross-site khi cần
-    domain: rootDomain, // bỏ trống => host-only
-    path: "/", // mọi route đều nhận
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 ngày
+    httpOnly : true,
+    secure   : process.env.NODE_ENV !== "development",
+    sameSite : "strict",
+    maxAge   : 30 * 24 * 60 * 60 * 1000,
   });
 };
 
