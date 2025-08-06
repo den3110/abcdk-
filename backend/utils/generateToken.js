@@ -7,7 +7,6 @@ import jwt from "jsonwebtoken";
  * @param {Object}  user   mongoose doc (đã có _id, role)
  */
 const generateToken = (res, user) => {
-  const isProd = process.env.NODE_ENV === "production";
   //  🔑  payload gồm cả userId & role
   const token = jwt.sign(
     { userId: user._id, role: user.role },

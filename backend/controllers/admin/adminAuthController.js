@@ -3,6 +3,7 @@ import asyncHandler from "express-async-handler";
 import bcrypt from "bcryptjs";
 import User from "../../models/userModel.js";
 import generateToken from "../../utils/generateToken.js";
+import jwt from "jsonwebtoken";
 
 export const adminLogin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
@@ -18,12 +19,20 @@ export const adminLogin = asyncHandler(async (req, res) => {
     throw new Error("Bạn không có quyền truy cập admin");
   }
 
-  generateToken(res, user);           // set cookie jwt (id + role)
-
+  generateToken(res, user); // set cookie jwt (id + role)
+  const token = jwt.sign(
+    { userId: user._id, role: user.role },
+    process.env.JWT_SECRET,
+    { expiresIn: "30d" }
+  );
   res.json({
-    _id: user._id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
+    // ➜ FE nhận cả hai
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+    },
+    token,
   });
 });
