@@ -8,7 +8,8 @@
     "start": "node backend/server.js",
     "server": "nodemon backend/server.js",
     "client": "npm run dev --prefix frontend",
-    "dev": "concurrently \"npm run server\" \"npm run client\""
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "create-admin": "node scripts/createAdmin.js"
   },
   "author": "Brad Traversy",
   "license": "MIT",
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "concurrently": "^8.0.1",
-    "nodemon": "^2.0.22"
+    "nodemon": "^2.0.22",
+    "prompt-sync": "^4.2.0"
   }
 }

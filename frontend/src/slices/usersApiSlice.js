@@ -39,6 +39,10 @@ export const userApiSlice = apiSlice.injectEndpoints({
     getMatchHistory: builder.query({
       query: (id) => `/api/users/${id}/matches`,
     }),
+    getProfile: builder.query({
+      query: () => "/api/users/profile",
+      providesTags: ["User"],
+    }),
   }),
 });
 
@@ -50,5 +54,7 @@ export const {
   useGetPublicProfileQuery,
   useGetRatingHistoryQuery,
   useGetMatchHistoryQuery,
+  useGetProfileQuery,          
+  useLazyGetProfileQuery,   
   
 } = userApiSlice;

@@ -5,8 +5,25 @@ const userSchema = new mongoose.Schema(
   {
     /* ------- Thông tin cơ bản ------- */
     name: { type: String, required: true, trim: true },
-    nickname: { type: String, required: true, trim: true },
-    phone: { type: String, required: true, unique: true, trim: true },
+
+    nickname: {
+      type: String,
+      trim: true,
+      required() {
+        return this.role === "user"; // chỉ user thường mới bắt buộc
+      },
+    },
+
+    phone: {
+      type: String,
+      unique: true,
+      sparse: true, // cho phép null trùng nhau
+      trim: true,
+      required() {
+        return this.role === "user";
+      },
+    },
+
     email: {
       type: String,
       required: true,
@@ -14,8 +31,15 @@ const userSchema = new mongoose.Schema(
       trim: true,
       lowercase: true,
     },
+
     password: { type: String, required: true },
-    dob: { type: Date, required: true },
+
+    dob: {
+      type: Date,
+      required() {
+        return this.role === "user";
+      },
+    },
 
     /* ------- Avatar + giới thiệu ------- */
     avatar: { type: String, default: "" },
@@ -31,19 +55,33 @@ const userSchema = new mongoose.Schema(
       enum: ["Chờ xác thực", "Xác thực"],
       default: "Chờ xác thực",
     },
-    cccd: { type: String, unique: true, sparse: true, match: /^\d{12}$/ },
+    cccd: {
+      type: String,
+      unique: true,
+      sparse: true,
+      match: /^\d{12}$/,
+      trim: true,
+    },
+    cccdImages: {
+      front: { type: String, default: "" },
+      back: { type: String, default: "" },
+    },
     cccdStatus: {
       type: String,
-      enum: ["Chưa xác minh", "Đã xác minh"],
-      default: "Chưa xác minh",
+      enum: ["unverified", "pending", "verified", "rejected"],
+      default: "unverified",
     },
-    ratingSingle: { type: Number, default: 0 },
-    ratingDouble: { type: Number, default: 0 },
+    /* ------- Quyền ------- */
+    role: {
+      type: String,
+      enum: ["user", "referee", "admin"],
+      default: "user",
+    },
   },
-  { timestamps: true }
+  { timestamps: true, strict: true }
 );
 
-/* ---------- Index giúp tìm nhanh nickname (không unique) ---------- */
+/* ---------- Index ---------- */
 userSchema.index({ nickname: 1 });
 
 /* ---------- Bcrypt helpers ---------- */
@@ -57,5 +95,4 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
-const User = mongoose.model("User", userSchema);
-export default User;
+export default mongoose.model("User", userSchema);

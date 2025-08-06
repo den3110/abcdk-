@@ -1,26 +1,29 @@
-import { createSlice } from '@reduxjs/toolkit';
+import { createSlice } from "@reduxjs/toolkit";
 
 const initialState = {
-  userInfo: localStorage.getItem('userInfo')
-    ? JSON.parse(localStorage.getItem('userInfo'))
+  userInfo: localStorage.getItem("userInfo")
+    ? JSON.parse(localStorage.getItem("userInfo"))
     : null,
 };
 
 const authSlice = createSlice({
-  name: 'auth',
+  name: "auth",
   initialState,
   reducers: {
-    setCredentials: (state, action) => {
-      state.userInfo = action.payload;
-      localStorage.setItem('userInfo', JSON.stringify(action.payload));
+    /* Lưu / cập nhật hồ sơ sau login hoặc refetch profile */
+    setCredentials: (state, { payload }) => {
+      state.userInfo = payload;
+      localStorage.setItem("userInfo", JSON.stringify(payload));
     },
-    logout: (state, action) => {
+
+    /* Đăng xuất – dọn sạch mọi thứ trong storage */
+    logout: (state) => {
       state.userInfo = null;
-      localStorage.removeItem('userInfo');
+      localStorage.clear(); // xoá toàn bộ key app đã lưu
+      sessionStorage.clear(); // (nếu có dùng)
     },
   },
 });
 
 export const { setCredentials, logout } = authSlice.actions;
-
 export default authSlice.reducer;

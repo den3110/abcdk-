@@ -8,7 +8,7 @@ const rankingSchema = new mongoose.Schema(
     games  : { type: Number, default: 0 },
     updatedAt: { type: Date, default: Date.now },
   },
-  { timestamps: true }
+  { timestamps: true , strict: true}
 );
 
 export default mongoose.model('Ranking', rankingSchema);

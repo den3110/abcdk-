@@ -15,7 +15,14 @@ export const uploadApiSlice = apiSlice.injectEndpoints({
         };
       },
     }),
+    uploadCccd: builder.mutation({
+      query: (formData) => ({
+        url   : "/api/upload/cccd",
+        method: "POST",
+        body  : formData,
+      }),
+    }),
   }),
 });
 
-export const { useUploadAvatarMutation } = uploadApiSlice;
+export const { useUploadAvatarMutation, useUploadCccdMutation  } = uploadApiSlice;

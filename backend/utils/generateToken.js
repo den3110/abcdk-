@@ -1,15 +1,25 @@
-import jwt from 'jsonwebtoken';
+// utils/generateToken.js
+import jwt from "jsonwebtoken";
 
-const generateToken = (res, userId) => {
-  const token = jwt.sign({ userId }, process.env.JWT_SECRET, {
-    expiresIn: '30d',
-  });
+/**
+ * Ghi token vào cookie `jwt`.
+ * @param {Response} res    express response
+ * @param {Object}  user   mongoose doc (đã có _id, role)
+ */
+const generateToken = (res, user) => {
+  //  🔑  payload gồm cả userId & role
+  const token = jwt.sign(
+    { userId: user._id, role: user.role },
+    process.env.JWT_SECRET,
+    { expiresIn: "30d" }
+  );
 
-  res.cookie('jwt', token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV !== 'development', // Use secure cookies in production
-    sameSite: 'strict', // Prevent CSRF attacks
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+  // cookie 30 ngày – secure ngoài dev
+  res.cookie("jwt", token, {
+    httpOnly : true,
+    secure   : process.env.NODE_ENV !== "development",
+    sameSite : "strict",
+    maxAge   : 30 * 24 * 60 * 60 * 1000,
   });
 };
 

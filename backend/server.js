@@ -9,6 +9,10 @@ import tournamentRoute from "./routes/tournamentRoutes.js"
 import registrationRoutes from './routes/registrationRoutes.js';
 import rankingRoutes from './routes/rankingRoutes.js';
 import uploadRoutes from "./routes/uploadRoutes.js";
+import adminRoutes from "./routes/adminRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
+
+
 import cors from "cors"
 import dotenv from 'dotenv';
 dotenv.config();
@@ -31,6 +35,8 @@ app.use("/api/tournaments", tournamentRoute)
 app.use('/api/registrations', registrationRoutes);
 app.use('/api/rankings', rankingRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/auth", authRoutes);
 
 if (process.env.NODE_ENV === 'production') {
   const __dirname = path.resolve();

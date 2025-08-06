@@ -17,7 +17,7 @@ const authUser = asyncHandler(async (req, res) => {
   }
 
   // ✅ Tạo cookie JWT
-  generateToken(res, user._id);
+  generateToken(res, user);
 
   // ✅ Trả thêm các field cần dùng ở client
   res.json({
@@ -29,22 +29,30 @@ const authUser = asyncHandler(async (req, res) => {
     avatar: user.avatar,
     province: user.province,
     dob: user.dob,
-    verified: user.verified,          // "Chờ xác thực" / "Xác thực"
-    cccdStatus: user.cccdStatus,      // "Chưa xác minh" / "Đã xác minh"
+    verified: user.verified, // "Chờ xác thực" / "Xác thực"
+    cccdStatus: user.cccdStatus, // "Chưa xác minh" / "Đã xác minh"
     ratingSingle: user.ratingSingle,
     ratingDouble: user.ratingDouble,
     createdAt: user.createdAt,
-    cccd: user.cccd
+    cccd: user.cccd,
   });
 });
-
-
 
 // @desc    Register a new user
 // @route   POST /api/users
 // @access  Public
 const registerUser = asyncHandler(async (req, res) => {
-  const { name, nickname, phone, dob, email, password, cccd, avatar, province } = req.body;
+  const {
+    name,
+    nickname,
+    phone,
+    dob,
+    email,
+    password,
+    cccd,
+    avatar,
+    province,
+  } = req.body;
 
   // Check trùng email, phone, nickname
   const duplicate = await User.findOne({
@@ -86,7 +94,6 @@ const registerUser = asyncHandler(async (req, res) => {
     cccd: cccd || null,
     cccdStatus: cccd ? "Chưa xác minh" : undefined,
     province,
-
   });
 
   if (user) {
@@ -101,7 +108,7 @@ const registerUser = asyncHandler(async (req, res) => {
       avatar: user.avatar,
       cccd: user.cccd,
       cccdStatus: user.cccdStatus,
-      province: user.province
+      province: user.province,
     });
   } else {
     res.status(400);
@@ -124,18 +131,24 @@ const logoutUser = (req, res) => {
 // @route   GET /api/users/profile
 // @access  Private
 const getUserProfile = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id);
+  const user = await User.findById(req.user._id).select("-password -__v");
 
-  if (user) {
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-    });
-  } else {
+  if (!user) {
     res.status(404);
     throw new Error("User not found");
   }
+
+  // (tuỳ thích) ghép URL tuyệt đối cho ảnh
+  const toUrl = (p) =>
+    p && !p.startsWith("http") ? `${req.protocol}://${req.get("host")}${p}` : p;
+
+  const userObj = user.toObject();
+  if (userObj.cccdImages) {
+    userObj.cccdImages.front = toUrl(userObj.cccdImages.front);
+    userObj.cccdImages.back = toUrl(userObj.cccdImages.back);
+  }
+
+  res.json(userObj);
 });
 
 // @desc    Update user profile
@@ -148,16 +161,8 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy người dùng");
   }
 
-  const {
-    name,
-    nickname,
-    phone,
-    dob,
-    province,
-    cccd,
-    email,
-    password,
-  } = req.body;
+  const { name, nickname, phone, dob, province, cccd, email, password } =
+    req.body;
 
   /* --------------------- Kiểm tra trùng lặp --------------------- */
   const checks = [];
@@ -219,7 +224,6 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     updatedAt: updatedUser.updatedAt,
   });
 });
-
 
 export const getPublicProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id).select(

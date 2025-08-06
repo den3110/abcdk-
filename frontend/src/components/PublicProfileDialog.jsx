@@ -1,4 +1,6 @@
 // src/components/PublicProfileDialog.jsx
+/* eslint-disable react/prop-types */
+import { useState } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -25,19 +27,19 @@ import {
   Box,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
+
 import {
   useGetPublicProfileQuery,
   useGetRatingHistoryQuery,
   useGetMatchHistoryQuery,
 } from "../slices/usersApiSlice";
-import { useState } from "react";
 
 const PLACE = "https://dummyimage.com/80x80/cccccc/ffffff&text=?";
 
 export default function PublicProfileDialog({ open, onClose, userId }) {
-  /* queries */
+  /* --- queries --- */
   const baseQ = useGetPublicProfileQuery(userId, { skip: !open });
-  const rateQ = useGetRatingHistoryQuery(userId, { skip: !open });
+  const rateQ = useGetRatingHistoryQuery(userId, { skip: !open }); // trả {history:[], ...}
   const matchQ = useGetMatchHistoryQuery(userId, { skip: !open });
 
   const fmtDate = (iso) =>
@@ -48,12 +50,12 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   const loading = baseQ.isLoading || rateQ.isLoading || matchQ.isLoading;
   const error = baseQ.error || rateQ.error || matchQ.error;
 
-  /* responsive */
+  /* --- responsive --- */
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [tab, setTab] = useState(0);
 
-  /* ------------- UI section render helpers ------------- */
+  /* --- helpers render --- */
   const InfoSection = () => (
     <Stack spacing={2} alignItems="center">
       <Avatar src={baseQ.data.avatar || PLACE} sx={{ width: 80, height: 80 }} />
@@ -78,45 +80,48 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     </Stack>
   );
 
-  const RatingTable = () => (
-    <>
-      <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-        Lịch sử điểm trình
-      </Typography>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Ngày</TableCell>
-            <TableCell align="right">Điểm đơn</TableCell>
-            <TableCell align="right">Điểm đôi</TableCell>
-            <TableCell>Ghi chú</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {rateQ.data.length ? (
-            rateQ.data.map((h) => (
-              <TableRow key={h._id}>
-                <TableCell>{fmtDate(h.date)}</TableCell>
-                <TableCell align="right">{h.ratingSingle}</TableCell>
-                <TableCell align="right">{h.ratingDouble}</TableCell>
-                <TableCell>{h.note}</TableCell>
-              </TableRow>
-            ))
-          ) : (
+  const RatingTable = () => {
+    const list = rateQ.data?.history || [];
+    return (
+      <>
+        <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+          Lịch sử điểm trình
+        </Typography>
+        <Table size="small">
+          <TableHead>
             <TableRow>
-              <TableCell
-                colSpan={4}
-                align="center"
-                sx={{ fontStyle: "italic" }}
-              >
-                Không có dữ liệu
-              </TableCell>
+              <TableCell>Ngày</TableCell>
+              <TableCell align="right">Điểm đơn</TableCell>
+              <TableCell align="right">Điểm đôi</TableCell>
+              <TableCell>Ghi chú</TableCell>
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
-    </>
-  );
+          </TableHead>
+          <TableBody>
+            {list.length ? (
+              list.map((h) => (
+                <TableRow key={h._id}>
+                  <TableCell>{fmtDate(h.scoredAt)}</TableCell>
+                  <TableCell align="right">{h.single}</TableCell>
+                  <TableCell align="right">{h.double}</TableCell>
+                  <TableCell>{h.note || "--"}</TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell
+                  colSpan={4}
+                  align="center"
+                  sx={{ fontStyle: "italic" }}
+                >
+                  Không có dữ liệu
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </>
+    );
+  };
 
   const MatchTable = () => (
     <>
@@ -136,7 +141,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           </TableRow>
         </TableHead>
         <TableBody>
-          {matchQ.data.length ? (
+          {matchQ?.data?.length ? (
             matchQ.data.map((m) => (
               <TableRow key={m._id}>
                 <TableCell>{m._id.slice(-5)}</TableCell>
@@ -172,7 +177,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     </>
   );
 
-  /* ------------- Render for mobile = Drawer ------------- */
+  /* --- Mobile: Drawer --- */
   if (isMobile) {
     return (
       <Drawer
@@ -205,7 +210,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           </Alert>
         ) : (
           <>
-            {/* Tabs */}
             <Tabs
               value={tab}
               onChange={(_, v) => setTab(v)}
@@ -235,7 +239,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     );
   }
 
-  /* ------------- Desktop Dialog ------------- */
+  /* --- Desktop Dialog --- */
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>Hồ sơ công khai</DialogTitle>
