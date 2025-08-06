@@ -17,12 +17,10 @@ const generateToken = (res, user) => {
 
   // cookie 30 ngày – secure ngoài dev
   res.cookie("jwt", token, {
-    httpOnly: true,
-    secure: isProd, // phải TRUE khi SameSite=None
-    sameSite: isProd ? "none" : "lax", // dev vẫn dùng Lax để khỏi cần https
-    domain: isProd ? ".example.com" : undefined, // bao phủ cả app & api
-    path: "/", // mặc định "/" cho an toàn
-    maxAge: 30 * 24 * 60 * 60 * 1000,
+    httpOnly : true,
+    secure   : process.env.NODE_ENV !== "development",
+    sameSite : "strict",
+    maxAge   : 30 * 24 * 60 * 60 * 1000,
   });
 };
 
