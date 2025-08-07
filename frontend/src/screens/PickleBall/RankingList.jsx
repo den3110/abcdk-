@@ -34,11 +34,9 @@ const PLACE = "https://dummyimage.com/40x40/cccccc/ffffff&text=?";
 const colorByGames = (g) => (g < 1 ? "#f44336" : g < 7 ? "#ff9800" : "#212121");
 
 export default function RankingList() {
-  /* redux ui */
   const dispatch = useDispatch();
-  const { keyword, page } = useSelector((s) => s.rankingUi);
+  const { keyword, page } = useSelector((s) => s?.rankingUi);
 
-  /* fetch */
   const {
     data = { docs: [], totalPages: 0 },
     isLoading,
@@ -48,28 +46,26 @@ export default function RankingList() {
 
   const { docs: list, totalPages } = data;
 
-  /* responsive */
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const isMobile = useMediaQuery(theme?.breakpoints?.down("sm"));
 
-  /* debounce refetch khi đổi keyword */
   useEffect(() => {
     const t = setTimeout(refetch, 300);
     return () => clearTimeout(t);
   }, [keyword, refetch]);
 
-  /* dialog */
   const [openProfile, setOpenProfile] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
+
   const handleOpen = (id) => {
     setSelectedId(id);
     setOpenProfile(true);
   };
+
   const handleClose = () => setOpenProfile(false);
 
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
-      {/* header */}
       <Box
         display="flex"
         justifyContent="space-between"
@@ -89,11 +85,10 @@ export default function RankingList() {
         </Button>
       </Box>
 
-      {/* legend */}
       <Stack direction="row" spacing={2} mb={2} flexWrap="wrap">
         <Chip label="Đỏ: tự chấm" sx={{ bgcolor: "#f44336", color: "#fff" }} />
         <Chip
-          label="Vàng: &lt; 7 trận"
+          label="Vàng: < 7 trận"
           sx={{ bgcolor: "#ff9800", color: "#fff" }}
         />
         <Chip
@@ -102,51 +97,48 @@ export default function RankingList() {
         />
       </Stack>
 
-      {/* search */}
       <TextField
         label="Tìm kiếm"
         variant="outlined"
         size="small"
         value={keyword}
-        onChange={(e) => dispatch(setKeyword(e.target.value))}
+        onChange={(e) => dispatch(setKeyword(e?.target?.value))}
         sx={{ mb: 2, width: 300 }}
       />
 
-      {/* list */}
       {isLoading ? (
         <CircularProgress />
       ) : error ? (
-        <Alert severity="error">{error?.data?.message || error.error}</Alert>
+        <Alert severity="error">{error?.data?.message || error?.error}</Alert>
       ) : isMobile ? (
-        /* mobile cards */
         <Stack spacing={2}>
-          {list.map((r) => {
-            const u = r.user || {};
-            const color = colorByGames(r.games);
+          {list?.map((r) => {
+            const u = r?.user || {};
+            const color = colorByGames(r?.games);
             return (
-              <Card key={r._id} variant="outlined">
+              <Card key={r?._id} variant="outlined">
                 <CardContent>
                   <Box display="flex" alignItems="center" mb={1} gap={2}>
-                    <Avatar src={u.avatar || PLACE} alt={u.nickname || "?"} />
+                    <Avatar src={u?.avatar || PLACE} alt={u?.nickname || "?"} />
                     <Box>
                       <Typography fontWeight={600}>
-                        {u.nickname || "---"}
+                        {u?.nickname || "---"}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        ID: {u._id?.toString().slice(-5) || "---"}
+                        ID: {u?._id?.toString()?.slice(-5) || "---"}
                       </Typography>
                     </Box>
                     <Box ml="auto">
                       <Chip
-                        label={u.verified ? "Xác thực" : "Chờ"}
+                        label={u?.verified ? "Xác thực" : "Chờ"}
                         size="small"
-                        color={u.verified ? "success" : "default"}
+                        color={u?.verified ? "success" : "default"}
                       />
                     </Box>
                   </Box>
                   <Stack direction="row" spacing={2} flexWrap="wrap" mb={1}>
-                    <Chip label={`Giới tính: ${u.gender || "--"}`} />
-                    <Chip label={`Tỉnh: ${u.province || "--"}`} />
+                    <Chip label={`Giới tính: ${u?.gender || "--"}`} />
+                    <Chip label={`Tỉnh: ${u?.province || "--"}`} />
                   </Stack>
                   <Divider sx={{ mb: 1 }} />
                   <Stack direction="row" spacing={2} mb={1}>
@@ -158,10 +150,10 @@ export default function RankingList() {
                     </Typography>
                   </Stack>
                   <Typography variant="caption" color="text.secondary">
-                    Cập nhật: {new Date(r?.updatedAt).toLocaleDateString()}
+                    Cập nhật: {new Date(r?.updatedAt)?.toLocaleDateString()}
                   </Typography>{" "}
                   <Typography variant="caption" color="text.secondary">
-                    Tham gia: {new Date(u?.createdAt).toLocaleDateString()}
+                    Tham gia: {new Date(u?.createdAt)?.toLocaleDateString()}
                   </Typography>
                   <Stack direction="row" spacing={1} mt={2}>
                     <Button size="small" variant="outlined">
@@ -171,7 +163,7 @@ export default function RankingList() {
                       size="small"
                       variant="contained"
                       color="success"
-                      onClick={() => handleOpen(u._id)}
+                      onClick={() => handleOpen(u?._id)}
                     >
                       Hồ sơ
                     </Button>
@@ -182,7 +174,6 @@ export default function RankingList() {
           })}
         </Stack>
       ) : (
-        /* desktop table */
         <TableContainer component={Paper}>
           <Table size="small">
             <TableHead>
@@ -202,40 +193,40 @@ export default function RankingList() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {list.map((r, idx) => {
-                const u = r.user || {};
-                const color = colorByGames(r.games);
+              {list?.map((r, idx) => {
+                const u = r?.user || {};
+                const color = colorByGames(r?.games);
                 return (
-                  <TableRow key={r._id}>
+                  <TableRow key={r?._id}>
                     <TableCell>{page * 10 + idx + 1}</TableCell>
-                    <TableCell>{u._id?.toString().slice(-5)}</TableCell>
+                    <TableCell>{u?._id?.toString()?.slice(-5)}</TableCell>
                     <TableCell>
                       <Avatar
-                        src={u.avatar || PLACE}
+                        src={u?.avatar || PLACE}
                         sx={{ width: 32, height: 32 }}
-                        alt={u.nickname || "?"}
+                        alt={u?.nickname || "?"}
                       />
                     </TableCell>
-                    <TableCell>{u.nickname}</TableCell>
-                    <TableCell>{u.gender || "--"}</TableCell>
-                    <TableCell>{u.province || "--"}</TableCell>
+                    <TableCell>{u?.nickname}</TableCell>
+                    <TableCell>{u?.gender || "--"}</TableCell>
+                    <TableCell>{u?.province || "--"}</TableCell>
                     <TableCell sx={{ color }}>
-                      {r.ratingDouble.toFixed(3)}
+                      {r?.ratingDouble?.toFixed(3)}
                     </TableCell>
                     <TableCell sx={{ color }}>
-                      {r.ratingSingle.toFixed(3)}
+                      {r?.ratingSingle?.toFixed(3)}
                     </TableCell>
                     <TableCell>
-                      {new Date(r.updatedAt).toLocaleDateString()}
+                      {new Date(r?.updatedAt)?.toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      {new Date(u.createdAt).toLocaleDateString()}
+                      {new Date(u?.createdAt)?.toLocaleDateString()}
                     </TableCell>
                     <TableCell>
                       <Chip
-                        label={u.verified ? "Xác thực" : "Chờ"}
+                        label={u?.verified ? "Xác thực" : "Chờ"}
                         size="small"
-                        color={u.verified ? "success" : "default"}
+                        color={u?.verified ? "success" : "default"}
                       />
                     </TableCell>
                     <TableCell>
@@ -243,7 +234,7 @@ export default function RankingList() {
                         size="small"
                         variant="contained"
                         color="success"
-                        onClick={() => handleOpen(u._id)}
+                        onClick={() => handleOpen(u?._id)}
                       >
                         Hồ sơ
                       </Button>
@@ -256,7 +247,6 @@ export default function RankingList() {
         </TableContainer>
       )}
 
-      {/* pagination */}
       {totalPages > 1 && (
         <Box mt={2} display="flex" justifyContent="center">
           <Pagination
