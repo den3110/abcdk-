@@ -151,17 +151,17 @@ export default function RankingList() {
                   <Divider sx={{ mb: 1 }} />
                   <Stack direction="row" spacing={2} mb={1}>
                     <Typography variant="body2" sx={{ color }}>
-                      Đôi: {r.ratingDouble.toFixed(3)}
+                      Đôi: {r?.ratingDouble?.toFixed(3)}
                     </Typography>
                     <Typography variant="body2" sx={{ color }}>
-                      Đơn: {r.ratingSingle.toFixed(3)}
+                      Đơn: {r?.ratingSingle?.toFixed(3)}
                     </Typography>
                   </Stack>
                   <Typography variant="caption" color="text.secondary">
-                    Cập nhật: {new Date(r.updatedAt).toLocaleDateString()}
+                    Cập nhật: {new Date(r?.updatedAt).toLocaleDateString()}
                   </Typography>{" "}
                   <Typography variant="caption" color="text.secondary">
-                    Tham gia: {new Date(u.createdAt).toLocaleDateString()}
+                    Tham gia: {new Date(u?.createdAt).toLocaleDateString()}
                   </Typography>
                   <Stack direction="row" spacing={1} mt={2}>
                     <Button size="small" variant="outlined">
