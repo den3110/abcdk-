@@ -92,7 +92,7 @@ const registerUser = asyncHandler(async (req, res) => {
     password,
     avatar: avatar || "",
     cccd: cccd || null,
-    cccdStatus: cccd ? "Chưa xác minh" : undefined,
+    cccdStatus: cccd ? "unverified" : undefined,
     province,
   });
 
