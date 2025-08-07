@@ -1,6 +1,7 @@
 import asyncHandler from "express-async-handler";
 import User from "../models/userModel.js";
 import generateToken from "../utils/generateToken.js";
+import ScoreHistory from "../models/scoreHistoryModel.js";
 
 // @desc    Auth user & get token
 // @route   POST /api/users/auth
@@ -124,6 +125,7 @@ const logoutUser = (req, res) => {
     httpOnly: true,
     expires: new Date(0),
   });
+  res.clearCookie("jwt", { path: "/" });
   res.status(200).json({ message: "Logged out successfully" });
 };
 
@@ -241,6 +243,24 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
     bio: user.bio || "",
     avatar: user.avatar || "",
   });
+});
+
+export const searchUser = asyncHandler(async (req, res) => {
+  const q = (req.query.q || "").trim();
+  if (!q) return res.json([]);
+
+  // Khớp tuyệt đối (không lấy fuzzy để tránh sai)
+  const user = await User.findOne({
+    $or: [{ phone: q }, { nickname: q }],
+  }).select("name phone nickname avatar province");
+
+  if (!user) return res.json([]);
+
+  // lấy điểm trình mới nhất
+  const last = await ScoreHistory.findOne({ user: user._id })
+    .sort({ scoredAt: -1 })
+    .select("single double");
+  res.json([{ ...user.toObject(), score: last || { single: 0, double: 0 } }]);
 });
 
 export {

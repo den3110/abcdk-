@@ -4,6 +4,8 @@ import tournamentModel from "../models/tournamentModel.js";
 // @desc    Lấy danh sách giải đấu (lọc theo sportType & groupId)
 // @route   GET /api/tournaments?sportType=&groupId=
 // @access  Public
+
+
 const getTournaments = asyncHandler(async (req, res) => {
   const { sportType, groupId } = req.query;
 

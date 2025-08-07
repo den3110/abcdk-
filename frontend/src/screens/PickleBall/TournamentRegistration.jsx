@@ -1,154 +1,74 @@
 // src/pages/TournamentRegistration.jsx
-
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
-  Container,
-  Row,
-  Col,
-  Form,
-  Spinner,
-  Alert,
-  Badge,
-  Image,
-} from "react-bootstrap";
-import {
-  TextField,
-  Button,
   Avatar,
-  Typography,
-  MenuItem,
   Box,
+  Button,
+  Chip,
+  CircularProgress,
+  Grid,
+  Paper,
+  Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
   useMediaQuery,
   useTheme,
-  Paper,
 } from "@mui/material";
+import { Container, Row, Col } from "react-bootstrap";
+import { toast } from "react-toastify";
+
 import {
+  useGetTournamentQuery,
   useGetRegistrationsQuery,
   useCreateRegistrationMutation,
   useUpdatePaymentMutation,
   useCheckinMutation,
-  useGetTournamentQuery,
 } from "../../slices/tournamentsApiSlice";
-import { toast } from "react-toastify";
-import {
-  Table,
-  TableHead,
-  TableBody,
-  TableRow,
-  TableCell,
-  Chip,
-} from "@mui/material";
-import { Stack } from "@mui/system";
-import { Button as ButtonMui } from "@mui/material";
-import { useUploadAvatarMutation } from "../../slices/uploadApiSlice";
+import PlayerSelector from "../../components/PlayerSelector";
 
-const PROVINCES = [
-  "An Giang",
-  "Bà Rịa‑Vũng Tàu",
-  "Bắc Giang",
-  "Bắc Kạn",
-  "Bạc Liêu",
-  "Bắc Ninh",
-  "Bến Tre",
-  "Bình Định",
-  "Bình Dương",
-  "Bình Phước",
-  "Bình Thuận",
-  "Cà Mau",
-  "Cần Thơ",
-  "Cao Bằng",
-  "Đà Nẵng",
-  "Đắk Lắk",
-  "Đắk Nông",
-  "Điện Biên",
-  "Đồng Nai",
-  "Đồng Tháp",
-  "Gia Lai",
-  "Hà Giang",
-  "Hà Nam",
-  "Hà Nội",
-  "Hà Tĩnh",
-  "Hải Dương",
-  "Hải Phòng",
-  "Hậu Giang",
-  "Hòa Bình",
-  "Hưng Yên",
-  "Khánh Hòa",
-  "Kiên Giang",
-  "Kon Tum",
-  "Lai Châu",
-  "Lâm Đồng",
-  "Lạng Sơn",
-  "Lào Cai",
-  "Long An",
-  "Nam Định",
-  "Nghệ An",
-  "Ninh Bình",
-  "Ninh Thuận",
-  "Phú Thọ",
-  "Phú Yên",
-  "Quảng Bình",
-  "Quảng Nam",
-  "Quảng Ngãi",
-  "Quảng Ninh",
-  "Quảng Trị",
-  "Sóc Trăng",
-  "Sơn La",
-  "Tây Ninh",
-  "Thái Bình",
-  "Thái Nguyên",
-  "Thanh Hóa",
-  "Thừa Thiên‑Huế",
-  "Tiền Giang",
-  "TP. Hồ Chí Minh",
-  "Trà Vinh",
-  "Tuyên Quang",
-  "Vĩnh Long",
-  "Vĩnh Phúc",
-  "Yên Bái",
-];
+export default function TournamentRegistration() {
+  const { id } = useParams();
 
-const emptyPlayer = {
-  fullName: "",
-  phone: "",
-  avatar: "",
-  selfScore: "",
-  province: "",
-  note: "",
-};
-const PLACEHOLDER = "https://dummyimage.com/80x80/cccccc/ffffff&text=Avatar";
-const TournamentRegistration = () => {
+  /* ───────── queries ───────── */
+  const { data: tour } = useGetTournamentQuery(id);
+  const { data: regs = [], isLoading, error } = useGetRegistrationsQuery(id);
+
+  const [createReg, { isLoading: saving }] = useCreateRegistrationMutation();
+  const [updatePay] = useUpdatePaymentMutation();
+  const [checkin] = useCheckinMutation();
+
+  /* ───────── local state ───────── */
+  const [p1, setP1] = useState(null);
+  const [p2, setP2] = useState(null);
+
+  const [msg, setMsg] = useState("");
+
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
-  const { id } = useParams();
-  const [player1, setP1] = useState(emptyPlayer);
-  const [player2, setP2] = useState(emptyPlayer);
-  const [message, setMessage] = useState("");
-  const { data: tour } = useGetTournamentQuery(id);
-  const { data: regs, isLoading, error } = useGetRegistrationsQuery(id);
-  const [createReg, { isLoading: saving }] = useCreateRegistrationMutation();
-  const [updatePayment] = useUpdatePaymentMutation();
-  const [checkin] = useCheckinMutation();
-  const [uploadAvatar] = useUploadAvatarMutation();
-  const onChange = (setter) => (e) =>
-    setter((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
+  if (!tour) return null;
+
+  /* ───────── actions ───────── */
   const submit = async (e) => {
     e.preventDefault();
+    if (!p1 || !p2) return toast.error("Chọn đủ 2 VĐV");
     try {
-      const body = {
+      await createReg({
         tourId: id,
-        message,
-        player1,
-        player2,
-      };
-
-      await createReg(body).unwrap();
+        message: msg,
+        player1Id: p1._id,
+        player2Id: p2._id,
+      }).unwrap();
       toast.success("Đăng ký thành công");
-      setP1(emptyPlayer);
-      setP2(emptyPlayer);
-      setMessage("");
+      setP1(null);
+      setP2(null);
+      setMsg("");
     } catch (err) {
       toast.error(err?.data?.message || err.error);
     }
@@ -156,222 +76,51 @@ const TournamentRegistration = () => {
 
   const togglePayment = async (reg) => {
     try {
-      await updatePayment({
+      await updatePay({
         regId: reg._id,
-        status: reg.payment.status === "Đã nộp" ? "Chưa nộp" : "Đã nộp",
+        status: reg.payment.status === "Paid" ? "Unpaid" : "Paid",
       }).unwrap();
-    } catch (err) {
-      toast.error("Lỗi cập nhật lệ phí");
+    } catch {
+      toast.error("Failed to update fee status");
     }
   };
 
   const handleCheckin = async (reg) => {
     try {
       await checkin({ regId: reg._id }).unwrap();
-    } catch (err) {
-      toast.error("Lỗi check‑in");
+    } catch {
+      toast.error("Failed to check-in");
     }
   };
 
-  const playerForm = (p, setP, label) => (
-    <>
-      <h6 className="mt-3">{label}</h6>
-      <Form.Group className="mb-2" controlId={`${label}-name`}>
-        <Form.Label>Họ tên</Form.Label>
-        <Form.Control
-          name="fullName"
-          value={p.fullName}
-          onChange={onChange(setP)}
-          required
-        />
-      </Form.Group>
-      <Form.Group className="mb-2" controlId={`${label}-phone`}>
-        <Form.Label>Số ĐT</Form.Label>
-        <Form.Control
-          name="phone"
-          value={p.phone}
-          onChange={onChange(setP)}
-          required
-        />
-      </Form.Group>
-      <Form.Group className="mb-2" controlId={`${label}-avatar`}>
-        <Form.Label>Ảnh (URL)</Form.Label>
-        <Form.Control
-          name="avatar"
-          value={p.avatar}
-          onChange={onChange(setP)}
-        />
-      </Form.Group>
-      <Row>
-        <Col>
-          <Form.Group className="mb-2" controlId={`${label}-score`}>
-            <Form.Label>Điểm tự chấm</Form.Label>
-            <Form.Control
-              type="number"
-              min="0"
-              max="10"
-              name="selfScore"
-              value={p.selfScore}
-              onChange={onChange(setP)}
-              required
-            />
-          </Form.Group>
-        </Col>
-        <Col>
-          <Form.Group className="mb-2" controlId={`${label}-province`}>
-            <Form.Label>Khu vực</Form.Label>
-            <Form.Select
-              name="province"
-              value={p.province}
-              onChange={onChange(setP)}
-              required
-            >
-              <option value="">Chọn tỉnh</option>
-              {PROVINCES.map((pr) => (
-                <option key={pr} value={pr}>
-                  {pr}
-                </option>
-              ))}
-            </Form.Select>
-          </Form.Group>
-        </Col>
-      </Row>
-      <Form.Group className="mb-3" controlId={`${label}-note`}>
-        <Form.Label>Ghi chú</Form.Label>
-        <Form.Control name="note" value={p.note} onChange={onChange(setP)} />
-      </Form.Group>
-    </>
-  );
-
-  const Avatar = ({ src, name }) => (
-    <Image
-      src={src || PLACEHOLDER}
-      onError={(e) => {
-        e.currentTarget.src = PLACEHOLDER;
-      }}
-      roundedCircle
-      width={40}
-      height={40}
-      className="me-2 mb-1"
-      alt={name}
-    />
-  );
-
+  /* ───────── UI ───────── */
   return (
     <Container className="py-4">
-      <h3 className="mb-4">Đăng ký Giải đấu</h3>
-      <Row>
-        {/* Left form */}
-        <Col lg={4}>
-          <form onSubmit={submit}>
-            {[
-              { label: "VĐV 1", state: player1, setState: setP1 },
-              { label: "VĐV 2", state: player2, setState: setP2 },
-            ].map(({ label, state, setState }) => (
-              <Box key={label} mb={3}>
-                <Typography fontWeight="bold" mb={1}>
-                  {label}
-                </Typography>
-                <TextField
-                  label="Họ tên"
-                  name="fullName"
-                  value={state.fullName}
-                  onChange={(e) =>
-                    setState((p) => ({ ...p, fullName: e.target.value }))
-                  }
-                  fullWidth
-                  required
-                  margin="dense"
-                />
-                <TextField
-                  label="Số điện thoại"
-                  name="phone"
-                  value={state.phone}
-                  onChange={(e) =>
-                    setState((p) => ({ ...p, phone: e.target.value }))
-                  }
-                  fullWidth
-                  required
-                  margin="dense"
-                  inputProps={{ pattern: "[0-9]{10,11}" }}
-                />
-                <Stack direction="row" alignItems="center" spacing={2} mt={1}>
-                  <Avatar
-                    src={state.avatar || ""}
-                    sx={{ width: 56, height: 56 }}
-                  />
-                  <Button variant="outlined" component="label">
-                    Chọn ảnh
-                    <input
-                      hidden
-                      type="file"
-                      accept="image/*"
-                      onChange={async (e) => {
-                        const file = e.target.files[0];
-                        if (!file) return;
+      <Typography variant="h4" className="mb-3">
+        Đăng ký giải đấu
+      </Typography>
 
-                        try {
-                          const res = await uploadAvatar(file).unwrap(); // trả về { url: 'http://...' }
-                          setState((prev) => ({
-                            ...prev,
-                            avatar: res.url, // dùng luôn url BE trả về
-                            avatarFile: file, // optional nếu bạn muốn lưu file gốc
-                          }));
-                        } catch (err) {
-                          toast.error("Lỗi upload ảnh");
-                        }
-                      }}
-                    />
-                  </Button>
-                </Stack>
-                <TextField
-                  label="Điểm tự chấm (0–10)"
-                  name="selfScore"
-                  type="number"
-                  value={state.selfScore}
-                  onChange={(e) =>
-                    setState((p) => ({ ...p, selfScore: e.target.value }))
-                  }
-                  inputProps={{ min: 0, max: 10 }}
-                  fullWidth
-                  required
-                  margin="dense"
-                />
-                <TextField
-                  label="Tỉnh/Thành"
-                  name="province"
-                  select
-                  value={state.province}
-                  onChange={(e) =>
-                    setState((p) => ({ ...p, province: e.target.value }))
-                  }
-                  fullWidth
-                  required
-                  margin="dense"
-                >
-                  {PROVINCES.map((prov) => (
-                    <MenuItem key={prov} value={prov}>
-                      {prov}
-                    </MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  label="Ghi chú"
-                  name="note"
-                  value={state.note}
-                  onChange={(e) =>
-                    setState((p) => ({ ...p, note: e.target.value }))
-                  }
-                  fullWidth
-                  margin="dense"
-                />
-              </Box>
-            ))}
+      <Row>
+        {/* ──────── FORM ──────── */}
+        <Col lg={4}>
+          <Grid item xs={12} lg={4} component="form" onSubmit={submit}>
+            <PlayerSelector
+              label="VĐV 1"
+              eventType={tour.eventType}
+              onChange={setP1}
+            />
+            <Box mt={3}>
+              <PlayerSelector
+                label="VĐV 2"
+                eventType={tour.eventType}
+                onChange={setP2}
+              />
+            </Box>
 
             <TextField
               label="Lời nhắn"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              value={msg}
+              onChange={(e) => setMsg(e.target.value)}
               fullWidth
               multiline
               rows={2}
@@ -382,248 +131,215 @@ const TournamentRegistration = () => {
               <Button
                 type="submit"
                 variant="contained"
-                color="primary"
-                disabled={saving}
+                disabled={saving || !p1 || !p2}
               >
                 {saving ? "Đang lưu…" : "Đăng ký"}
               </Button>
-
               <Button
                 component={Link}
                 to={`/tournament/${id}/checkin`}
-                variant="contained"
-                color="success"
-                size="small"
+                variant="outlined"
               >
-                Check‑in
+                Check-in
               </Button>
-
               <Button
                 component={Link}
                 to={`/tournament/${id}/bracket`}
-                variant="contained"
-                color="info"
-                size="small"
+                variant="outlined"
               >
                 Sơ đồ
               </Button>
             </Stack>
-          </form>
+          </Grid>
         </Col>
 
-        {/* Right table list */}
-
+        {/* ──────── LIST ──────── */}
         <Col lg={8}>
-          <h5 className="mb-2">Danh sách đăng ký</h5>
+          <Typography variant="h6" className="mb-1">
+            Registration List
+          </Typography>
+
           {isLoading ? (
-            <Spinner animation="border" />
+            <CircularProgress />
           ) : error ? (
-            <Alert variant="danger">
+            <Typography color="error">
               {error?.data?.message || error.error}
-            </Alert>
+            </Typography>
           ) : regs.length === 0 ? (
-            <div className="text-center py-4">
-              <Typography variant="h6" color="text.secondary">
-                Hiện chưa có đăng ký nào!
-              </Typography>
-            </div>
+            <Typography color="text.secondary">
+              No registrations yet!
+            </Typography>
           ) : isMobile ? (
-            // MOBILE: Thẻ Paper xếp dọc
+            /* mobile cards */
             <Stack spacing={2}>
-              {regs.map((r, idx) => (
+              {regs.map((r, i) => (
                 <Paper key={r._id} sx={{ p: 2 }}>
-                  <Typography variant="subtitle2" gutterBottom>
-                    #{idx + 1}
+                  <Typography variant="subtitle2">#{i + 1}</Typography>
+
+                  {[r.player1, r.player2].map((pl) => (
+                    <Stack
+                      key={pl.phone}
+                      direction="row"
+                      spacing={1}
+                      alignItems="center"
+                      mt={1}
+                    >
+                      <Avatar src={pl.avatar} />
+                      <Box>
+                        <Typography variant="body2">{pl.fullName}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {pl.phone}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  ))}
+
+                  <Typography variant="caption" color="text.secondary" mt={1}>
+                    Created: {new Date(r.createdAt).toLocaleString()}
                   </Typography>
 
-                  {/* VĐV 1 */}
-                  <Stack direction="row" alignItems="center" spacing={1}>
-                    <Avatar src={r.player1.avatar} />
-                    <Box>
-                      <Typography variant="body2">
-                        {r.player1.fullName}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {r.player1.phone}
-                      </Typography>
-                    </Box>
-                  </Stack>
-
-                  {/* VĐV 2 */}
-                  <Stack direction="row" alignItems="center" spacing={1} mt={1}>
-                    <Avatar src={r.player2.avatar} />
-                    <Box>
-                      <Typography variant="body2">
-                        {r.player2.fullName}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {r.player2.phone}
-                      </Typography>
-                    </Box>
-                  </Stack>
-
-                  {/* Thông tin khác */}
-                  <Box mt={1}>
-                    <Typography variant="caption" color="text.secondary">
-                      Đăng lúc: {new Date(r.createdAt).toLocaleString()}
-                    </Typography>
-                  </Box>
-
                   <Stack direction="row" spacing={1} mt={1} flexWrap="wrap">
-                    {/* Lệ phí */}
-                    {r.payment.status === "Đã nộp" ? (
-                      <Chip
-                        label={`Đã nộp\n${new Date(
-                          r.payment.paidAt
-                        ).toLocaleDateString()}`}
-                        color="success"
-                        size="small"
-                        sx={{ whiteSpace: "pre-line" }}
-                      />
-                    ) : (
-                      <Chip label="Chưa nộp" size="small" />
-                    )}
-
-                    {/* Checkin */}
-                    {r.checkinAt ? (
-                      <Chip
-                        label={`Đã check-in\n${new Date(
-                          r.checkinAt
-                        ).toLocaleTimeString()}`}
-                        color="info"
-                        size="small"
-                        sx={{ whiteSpace: "pre-line" }}
-                      />
-                    ) : (
-                      <Chip label="Chưa check-in" size="small" />
-                    )}
+                    <Chip
+                      size="small"
+                      color={
+                        r.payment.status === "Paid" ? "success" : "default"
+                      }
+                      label={
+                        r.payment.status === "Paid"
+                          ? `Thanh toán\n${new Date(
+                              r.payment.paidAt
+                            ).toLocaleDateString()}`
+                          : "Chờ thanh toán"
+                      }
+                      sx={{ whiteSpace: "pre-line" }}
+                    />
+                    <Chip
+                      size="small"
+                      color={r.checkinAt ? "info" : "default"}
+                      label={
+                        r.checkinAt
+                          ? `Checked-in\n${new Date(
+                              r.checkinAt
+                            ).toLocaleTimeString()}`
+                          : "Not checked-in"
+                      }
+                      sx={{ whiteSpace: "pre-line" }}
+                    />
                   </Stack>
 
-                  {/* Nút thao tác */}
-                  <Stack direction="row" spacing={1} mt={2} flexWrap="wrap">
+                  <Stack direction="row" spacing={1} mt={2}>
                     <Button
                       variant="outlined"
-                      color={
-                        r.payment.status === "Đã nộp" ? "error" : "success"
-                      }
                       size="small"
+                      color={r.payment.status === "Paid" ? "error" : "success"}
                       onClick={() => togglePayment(r)}
                     >
-                      {r.payment.status === "Đã nộp"
-                        ? "Huỷ phí"
-                        : "Xác nhận phí"}
+                      {r.payment.status === "Paid"
+                        ? "Cancel fee"
+                        : "Confirm fee"}
                     </Button>
                     <Button
                       variant="outlined"
-                      color="primary"
                       size="small"
                       onClick={() => handleCheckin(r)}
                     >
-                      Check‑in
+                      Check-in
                     </Button>
                   </Stack>
                 </Paper>
               ))}
             </Stack>
           ) : (
-            // DESKTOP: Bảng table như cũ
-            <Table
-              size="small"
-              sx={{
-                "& thead th": { fontWeight: 600 },
-                "& tbody td": { verticalAlign: "middle" },
-              }}
-            >
+            /* desktop table */
+            <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell>#</TableCell>
-                  <TableCell>VĐV 1</TableCell>
-                  <TableCell>VĐV 2</TableCell>
-                  <TableCell>Đăng lúc</TableCell>
-                  <TableCell>Lệ phí</TableCell>
-                  <TableCell>Check‑in</TableCell>
-                  <TableCell>Thao tác</TableCell>
+                  <TableCell>Athlete 1</TableCell>
+                  <TableCell>Athlete 2</TableCell>
+                  <TableCell>Created</TableCell>
+                  <TableCell>Fee</TableCell>
+                  <TableCell>Check-in</TableCell>
+                  <TableCell>Actions</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {regs.map((r, idx) => (
+                {regs.map((r, i) => (
                   <TableRow key={r._id} hover>
-                    <TableCell>{idx + 1}</TableCell>
-                    <TableCell>
-                      <Stack direction="row" alignItems="center" spacing={1}>
-                        <Avatar src={r.player1.avatar} />
-                        <div>
-                          <Typography variant="body2">
-                            {r.player1.fullName}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {r.player1.phone}
-                          </Typography>
-                        </div>
-                      </Stack>
-                    </TableCell>
-                    <TableCell>
-                      <Stack direction="row" alignItems="center" spacing={1}>
-                        <Avatar src={r.player2.avatar} />
-                        <div>
-                          <Typography variant="body2">
-                            {r.player2.fullName}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {r.player2.phone}
-                          </Typography>
-                        </div>
-                      </Stack>
-                    </TableCell>
+                    <TableCell>{i + 1}</TableCell>
+
+                    {[r.player1, r.player2].map((pl) => (
+                      <TableCell key={pl.phone}>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Avatar src={pl.avatar} />
+                          <Box>
+                            <Typography variant="body2">
+                              {pl.fullName}
+                            </Typography>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                            >
+                              {pl.phone}
+                            </Typography>
+                          </Box>
+                        </Stack>
+                      </TableCell>
+                    ))}
+
                     <TableCell>
                       {new Date(r.createdAt).toLocaleString()}
                     </TableCell>
+
                     <TableCell>
-                      {r.payment.status === "Đã nộp" ? (
-                        <Chip
-                          label={`Đã nộp\n${new Date(
-                            r.payment.paidAt
-                          ).toLocaleDateString()}`}
-                          color="success"
-                          size="small"
-                          sx={{ whiteSpace: "pre-line" }}
-                        />
-                      ) : (
-                        <Chip label="Chưa nộp" color="default" size="small" />
-                      )}
+                      <Chip
+                        size="small"
+                        color={
+                          r.payment.status === "Paid" ? "success" : "default"
+                        }
+                        label={
+                          r.payment.status === "Paid"
+                            ? `Thanh toán\n${new Date(
+                                r.payment.paidAt
+                              ).toLocaleDateString()}`
+                            : "Chờ thanh toán"
+                        }
+                        sx={{ whiteSpace: "pre-line" }}
+                      />
                     </TableCell>
+
                     <TableCell>
-                      {r.checkinAt ? (
-                        <Chip
-                          label={new Date(r.checkinAt).toLocaleTimeString()}
-                          color="info"
-                          size="small"
-                        />
-                      ) : (
-                        <Chip label="Chưa" color="default" size="small" />
-                      )}
+                      <Chip
+                        size="small"
+                        color={r.checkinAt ? "info" : "default"}
+                        label={
+                          r.checkinAt
+                            ? new Date(r.checkinAt).toLocaleTimeString()
+                            : "No"
+                        }
+                      />
                     </TableCell>
+
                     <TableCell>
                       <Stack direction="row" spacing={1}>
                         <Button
                           variant="outlined"
-                          color={
-                            r.payment.status === "Đã nộp" ? "error" : "success"
-                          }
                           size="small"
+                          color={
+                            r.payment.status === "Paid" ? "error" : "success"
+                          }
                           onClick={() => togglePayment(r)}
                         >
-                          {r.payment.status === "Đã nộp"
-                            ? "Huỷ phí"
-                            : "Xác nhận phí"}
+                          {r.payment.status === "Paid"
+                            ? "Cancel fee"
+                            : "Confirm fee"}
                         </Button>
                         <Button
                           variant="outlined"
-                          color="primary"
                           size="small"
                           onClick={() => handleCheckin(r)}
                         >
-                          Check‑in
+                          Check-in
                         </Button>
                       </Stack>
                     </TableCell>
@@ -632,21 +348,8 @@ const TournamentRegistration = () => {
               </TableBody>
             </Table>
           )}
-
-          {tour && (
-            <Row className="mt-4">
-              <Col md={6}>
-                <div dangerouslySetInnerHTML={{ __html: tour.contactHtml }} />
-              </Col>
-              <Col md={6}>
-                <div dangerouslySetInnerHTML={{ __html: tour.contentHtml }} />
-              </Col>
-            </Row>
-          )}
         </Col>
       </Row>
     </Container>
   );
-};
-
-export default TournamentRegistration;
+}

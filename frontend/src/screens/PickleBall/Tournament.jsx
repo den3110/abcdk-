@@ -39,12 +39,16 @@ import CloseIcon from "@mui/icons-material/Close";
 import { useGetTournamentsQuery } from "../../slices/tournamentsApiSlice";
 
 const THUMB_SIZE = 78;
-const statusColor = {
-  "Sắp diễn ra": "info",
-  "Đang diễn ra": "success",
-  "Đã diễn ra": "default",
+const STATUS_LABEL = {
+  upcoming: "Sắp diễn ra",
+  ongoing: "Đang diễn ra",
+  finished: "Đã diễn ra",
 };
-
+const STATUS_COLOR = {
+  upcoming: "info",
+  ongoing: "success",
+  finished: "default",
+};
 const columns = [
   { label: "Ảnh", minWidth: THUMB_SIZE },
   { label: "Tên giải" },
@@ -62,7 +66,7 @@ export default function TournamentDashboard() {
   const sportType = params.get("sportType") || 2;
   const groupId = params.get("groupId") || 0;
 
-  const [tab, setTab] = useState("Sắp diễn ra");
+  const [tab, setTab] = useState("upcoming");
   const [previewSrc, setPreviewSrc] = useState(null);
 
   /* 🔍 state tìm kiếm */
@@ -121,21 +125,20 @@ export default function TournamentDashboard() {
           {/* Tabs trạng thái */}
           <Tabs
             value={tab}
-            onChange={handleChangeTab}
+            onChange={(_, v) => setTab(v)}
             sx={{ mb: 2 }}
             variant="scrollable"
           >
-            {["Sắp diễn ra", "Đang diễn ra", "Đã diễn ra"].map((label) => (
+            {["upcoming", "ongoing", "finished"].map((v) => (
               <Tab
-                key={label}
-                value={label}
-                label={label}
+                key={v}
+                value={v}
+                label={STATUS_LABEL[v]}
                 icon={<PreviewIcon fontSize="small" sx={{ ml: -0.5 }} />}
                 iconPosition="start"
               />
             ))}
           </Tabs>
-
           {/* Ô tìm kiếm */}
           <TextField
             label="Tìm kiếm tên giải"
@@ -144,7 +147,6 @@ export default function TournamentDashboard() {
             onChange={(e) => setKeyword(e.target.value)}
             sx={{ mb: 3, width: 320 }}
           />
-
           {/* ===== LIST ===== */}
           {isMobile ? (
             /* ----- CARD (MOBILE) ----- */
@@ -172,10 +174,9 @@ export default function TournamentDashboard() {
                         </Typography>
                       </Box>
                       <Chip
-                        label={t.status}
-                        color={statusColor[t.status]}
+                        label={STATUS_LABEL[t.status]}
+                        color={STATUS_COLOR[t.status]}
                         size="small"
-                        sx={{ ml: "auto" }}
                       />
                     </Stack>
 
@@ -292,8 +293,8 @@ export default function TournamentDashboard() {
                         <TableCell>{t.location}</TableCell>
                         <TableCell align="center">
                           <Chip
-                            label={t.status}
-                            color={statusColor[t.status]}
+                            label={STATUS_LABEL[t.status]}
+                            color={STATUS_COLOR[t.status]}
                             size="small"
                           />
                         </TableCell>

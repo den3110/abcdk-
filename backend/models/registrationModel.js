@@ -1,28 +1,33 @@
-import mongoose from 'mongoose';
-
-const PROVINCES = [/* đủ 63 tỉnh thành */];
+import mongoose from "mongoose";
 
 const playerSchema = new mongoose.Schema(
   {
-    phone:     { type: String, required: true },
-    fullName:  { type: String, required: true },
-    avatar:    { type: String },
-    selfScore: { type: Number, min: 0, max: 10 },
-    province:  { type: String, enum: PROVINCES, required: true },
-    note:      { type: String },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    phone: { type: String, required: true },
+    fullName: { type: String, required: true },
+    avatar: { type: String },
+    score: { type: Number, required: true, default: 0 }, // Skill score locked at registration time
   },
   { _id: false }
 );
 
 const registrationSchema = new mongoose.Schema(
   {
-    tournament: { type: mongoose.Schema.Types.ObjectId, ref: 'Tournament', required: true },
-    player1:    { type: playerSchema, required: true },
-    player2:    { type: playerSchema, required: true },
-    message:    { type: String },
+    tournament: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Tournament",
+      required: true,
+    },
+    player1: { type: playerSchema, required: true },
+    player2: { type: playerSchema, required: true },
+    message: { type: String },
 
     payment: {
-      status: { type: String, enum: ['Chưa nộp', 'Đã nộp'], default: 'Chưa nộp' },
+      status: {
+        type: String,
+        enum: ["Unpaid", "Paid"],
+        default: "Unpaid",
+      },
       paidAt: { type: Date },
     },
 
@@ -31,4 +36,4 @@ const registrationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-export default mongoose.model('Registration', registrationSchema);
+export default mongoose.model("Registration", registrationSchema);

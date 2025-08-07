@@ -1,43 +1,68 @@
-import mongoose from 'mongoose';
+import mongoose from "mongoose";
 
 const tournamentSchema = new mongoose.Schema(
   {
-    name:   { type: String, required: true },
-
-    // 🆕 Ảnh đại diện giải
-    image:  {
+    /* Thông tin cơ bản */
+    name: { type: String, required: true },
+    image: {
       type: String,
       default:
-        'https://vnss.sportconnect.vn/images/giai_dau/TOU-880-1753536611434-811505.jpeg',
+        "https://vnss.sportconnect.vn/images/giai_dau/TOU-880-1753536611434-811505.jpeg",
     },
+    sportType: { type: Number, required: true }, // 1 Pickleball, 2 Tennis …
+    groupId: { type: Number, default: 0 },
 
-    sportType: { type: Number, required: true }, // 1=Pickle Ball, 2=Tennis
-    groupId:   { type: Number, default: 0 },
+    /* Cấu hình đăng ký & giới hạn điểm */
+    regOpenDate: {
+      type: Date,
+      required: true,
+      default: Date.now, // ✅ mặc định hôm nay
+    },
+    registrationDeadline: {
+      type: Date,
+      required: true,
+      default: Date.now, // ✅
+    },
+    startDate: {
+      type: Date,
+      required: true,
+      default: Date.now, // ✅
+    },
+    endDate: {
+      type: Date,
+      required: true,
+      default: Date.now, // ✅
+    },
+    eventType: {
+      type: String,
+      enum: ["single", "double"],
+      default: "double",
+    },
+    scoreCap: { type: Number, required: true, default: 0 }, // Tổng điểm đôi
+    scoreGap: { type: Number, required: true, default: 0 }, // Chênh lệch đôi
+    singleCap: { type: Number, required: true, default: 0 }, // Điểm tối đa 1 VĐV
 
-    // Đăng ký
-    registrationDeadline: { type: Date, required: true },
-    registered:           { type: Number, default: 0 },
-    expected:             { type: Number, default: 0 },
-
-    // Match info
+    /* Thống kê */
+    registered: { type: Number, default: 0 },
+    expected: { type: Number, default: 0 },
     matchesCount: { type: Number, default: 0 },
 
-    // Thời gian diễn ra
-    startDate: { type: Date, required: true },
-    endDate:   { type: Date, required: true },
-
-    // Trạng thái
+    /* Trạng thái & mô tả */
     status: {
       type: String,
-      enum: ['Sắp diễn ra', 'Đang diễn ra', 'Đã diễn ra'],
-      default: 'Sắp diễn ra',
+      enum: ["upcoming", "ongoing", "finished"], // ✅ EN values
+      default: "upcoming",
     },
-
-    location:  { type: String, required: true },
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    contactHtml: { type: String, default: '' },   // 👉  Thông tin liên hệ (HTML)
-    contentHtml: { type: String, default: '' },   // 👉  Nội dung giải (HTML)
+    location: { type: String, required: true },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    contactHtml: { type: String, default: "" },
+    contentHtml: { type: String, default: "" },
   },
   { timestamps: true }
 );
-export default mongoose.model('Tournament', tournamentSchema);
+
+export default mongoose.model("Tournament", tournamentSchema);

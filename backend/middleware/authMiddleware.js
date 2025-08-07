@@ -46,6 +46,42 @@ export const protect = asyncHandler(async (req, res, next) => {
   }
 });
 
+export const protectJwt = asyncHandler(async (req, res, next) => {
+  let token;
+
+  // 1. Extract Bearer token from Authorization header
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith("Bearer ")
+  ) {
+    token = req.headers.authorization.split(" ")[1];
+  }
+
+  if (!token) {
+    res.status(401);
+    throw new Error("Not authorized — no token provided");
+  }
+
+  try {
+    // 2. Verify & decode
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // 3. Lookup user in DB (exclude password)
+    const user = await User.findById(decoded.userId).select("-password");
+    if (!user) {
+      res.status(401);
+      throw new Error("Not authorized — user not found");
+    }
+
+    // 4. Attach to request
+    req.user = user;
+    next();
+  } catch (err) {
+    console.error("JWT verification failed:", err.message);
+    res.status(401);
+    throw new Error("Not authorized — token invalid or expired");
+  }
+});
+
 /* --------- Middleware kiểm tra quyền (role) --------- */
 export const authorize =
   (...allowedRoles) =>
