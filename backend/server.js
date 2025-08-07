@@ -26,7 +26,7 @@ app.use("/uploads", express.static("uploads"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors({
-  origin: ['https://abcdk.vercel.app', "https://abcde-xi.vercel.app"], // ✅ KHÔNG dùng '*'
+  origin: ['https://abcdk.vercel.app', "https://abcde-xi.vercel.app", "https://admin.pickletour.vn"], // ✅ KHÔNG dùng '*'
   credentials: true,               // ✅ Phải bật
 }))
 app.use(cookieParser());
