@@ -35,6 +35,7 @@ app.use("/api/tournaments", tournamentRoute)
 app.use('/api/registrations', registrationRoutes);
 app.use('/api/rankings', rankingRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/upload", uploadRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/auth", authRoutes);
 
