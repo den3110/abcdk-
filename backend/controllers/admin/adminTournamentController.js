@@ -1,24 +1,24 @@
+// controllers/tournamentController.js (hoặc nơi bạn đang để file này)
 import Tournament from "../../models/tournamentModel.js";
 import mongoose from "mongoose";
 import Joi from "joi";
 
-/* -------------------------------------------------------------------------- */
-/*  1. Joi schemas                                                            */
-/* -------------------------------------------------------------------------- */
+/* -------------------------- Schemas nới lỏng -------------------------- */
 
 const dateISO = Joi.date().iso();
 
-const baseSchema = Joi.object({
+const createSchema = Joi.object({
   name: Joi.string().trim().min(2).max(120).required(),
   image: Joi.string().uri().allow(""),
-  sportType: Joi.number().valid(1, 2).required(), // 1 = Pickle, 2 = Tennis
+  sportType: Joi.number().valid(1, 2).required(),
   groupId: Joi.number().integer().min(0).default(0),
   eventType: Joi.string().valid("single", "double").default("double"),
 
   regOpenDate: dateISO.required(),
   registrationDeadline: dateISO.required(),
   startDate: dateISO.required(),
-  endDate: dateISO.required(),
+  // CHỈ giữ ràng buộc tối thiểu: end >= start
+  endDate: dateISO.min(Joi.ref("startDate")).required(),
 
   scoreCap: Joi.number().min(0).default(0),
   scoreGap: Joi.number().min(0).default(0),
@@ -27,39 +27,36 @@ const baseSchema = Joi.object({
   location: Joi.string().trim().min(2).required(),
   contactHtml: Joi.string().allow(""),
   contentHtml: Joi.string().allow(""),
-}).custom((obj, helpers) => {
-  // logic: regOpen ≤ deadline ≤ start ≤ end
-  if (
-    obj.regOpenDate > obj.registrationDeadline ||
-    obj.registrationDeadline > obj.startDate ||
-    obj.startDate > obj.endDate
-  ) {
-    return helpers.error("any.invalid");
-  }
-  return obj;
-}, "date order validation");
+}).messages({
+  "date.min": "{{#label}} phải ≥ {{#limit.key}}",
+});
 
-const createSchema = baseSchema;
-const updateSchema = baseSchema.fork(
-  [
-    "name",
-    "sportType",
-    "regOpenDate",
-    "registrationDeadline",
-    "startDate",
-    "endDate",
-    "location",
-  ],
-  (s) => s.optional() // make everything optional for PATCH/PUT
-);
+const updateSchema = Joi.object({
+  name: Joi.string().trim().min(2).max(120),
+  image: Joi.string().uri().allow(""),
+  sportType: Joi.number().valid(1, 2),
+  groupId: Joi.number().integer().min(0),
+  eventType: Joi.string().valid("single", "double"),
 
-/* -------------------------------------------------------------------------- */
-/*  2. Helpers                                                                */
-/* -------------------------------------------------------------------------- */
+  regOpenDate: dateISO,
+  registrationDeadline: dateISO,
+  startDate: dateISO,
+  endDate: dateISO, // không ràng buộc chéo
+
+  scoreCap: Joi.number().min(0),
+  scoreGap: Joi.number().min(0),
+  singleCap: Joi.number().min(0),
+
+  location: Joi.string().trim().min(2),
+  contactHtml: Joi.string().allow(""),
+  contentHtml: Joi.string().allow(""),
+});
+/* --------------------------------------------------------------------- */
 
 const validate = (schema, payload) => {
   const { error, value } = schema.validate(payload, {
-    stripUnknown: true,
+    convert: true, // nhận 'YYYY-MM-DD'
+    stripUnknown: true, // loại field thừa
     abortEarly: false,
   });
   if (error) {
@@ -74,35 +71,23 @@ const validate = (schema, payload) => {
 const isObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 /* -------------------------------------------------------------------------- */
-/*  3. Controllers                                                             */
+/*  3. Controllers                                                            */
 /* -------------------------------------------------------------------------- */
-
 
 export const getTournaments = async (req, res, next) => {
   try {
-    /* ----------- pagination & sort ----------- */
-    const page  = Math.max(+req.query.page  || 1, 1);
+    const page = Math.max(+req.query.page || 1, 1);
     const limit = Math.min(+req.query.limit || 50, 100);
-    const sort  = req.query.sort || "-createdAt";
+    const sort = req.query.sort || "-createdAt";
 
-    /* ----------- filters ----------- */
-    const {
-      keyword  = "",          // tìm theo tên
-      status   = "",          // upcoming | ongoing | finished
-      sportType,              // 1 | 2
-      groupId,                // số nguyên
-    } = req.query;
+    const { keyword = "", status = "", sportType, groupId } = req.query;
 
     const filter = {};
+    if (keyword.trim()) filter.name = { $regex: keyword.trim(), $options: "i" };
+    if (status) filter.status = status;
+    if (sportType) filter.sportType = Number(sportType);
+    if (groupId) filter.groupId = Number(groupId);
 
-    if (keyword.trim())
-      filter.name = { $regex: keyword.trim(), $options: "i" };
-
-    if (status)     filter.status    = status;          // ✅ thêm lọc status
-    if (sportType)  filter.sportType = Number(sportType);
-    if (groupId)    filter.groupId   = Number(groupId);
-
-    /* ----------- DB query ----------- */
     const [list, total] = await Promise.all([
       Tournament.find(filter)
         .sort(sort)
@@ -117,12 +102,9 @@ export const getTournaments = async (req, res, next) => {
   }
 };
 
-
 export const createTournament = async (req, res, next) => {
   try {
     const body = validate(createSchema, req.body);
-
-    // fall-back ngày hôm nay nếu FE bỏ trống (đã default trong schema)
     const t = await Tournament.create(body);
     res.status(201).json(t);
   } catch (err) {
@@ -149,7 +131,13 @@ export const updateTournament = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid ID" });
     }
 
+    // Validate phần payload gửi lên (optional + check thứ tự ngày nếu có)
     const payload = validate(updateSchema, req.body);
+
+    // Nếu payload rỗng không có gì để update
+    if (!Object.keys(payload).length) {
+      return res.status(400).json({ message: "Không có dữ liệu để cập nhật" });
+    }
 
     const t = await Tournament.findByIdAndUpdate(
       req.params.id,
@@ -169,10 +157,8 @@ export const deleteTournament = async (req, res, next) => {
     if (!isObjectId(req.params.id)) {
       return res.status(400).json({ message: "Invalid ID" });
     }
-
     const t = await Tournament.findByIdAndDelete(req.params.id);
     if (!t) return res.status(404).json({ message: "Tournament not found" });
-
     res.json({ message: "Tournament removed" });
   } catch (err) {
     next(err);

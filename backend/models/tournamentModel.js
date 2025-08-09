@@ -6,8 +6,8 @@ const tournamentSchema = new mongoose.Schema(
     name: { type: String, required: true },
     image: {
       type: String,
-      default:
-        "https://vnss.sportconnect.vn/images/giai_dau/TOU-880-1753536611434-811505.jpeg",
+      default: null,
+      required: true,
     },
     sportType: { type: Number, required: true }, // 1 Pickleball, 2 Tennis …
     groupId: { type: Number, default: 0 },

@@ -24,7 +24,27 @@ import {
   getTournaments,
   updateTournament,
 } from "../controllers/admin/adminTournamentController.js";
-import { adminCheckin, adminDeleteRegistration, adminUpdatePayment } from "../controllers/admin/adminRegistrationController.js";
+import {
+  adminCheckin,
+  adminDeleteRegistration,
+  adminUpdatePayment,
+} from "../controllers/admin/adminRegistrationController.js";
+import {
+  adminCreateBracket,
+  adminUpdateBracket,
+  deleteBracketCascade,
+  getBracketsWithMatches,
+} from "../controllers/admin/bracketController.js";
+import {
+  adminAssignReferee,
+  adminCreateMatch,
+  adminDeleteMatch,
+  adminGetAllMatches,
+  adminGetMatchById,
+  adminUpdateMatch,
+  getMatchesByBracket,
+  refereeUpdateScore,
+} from "../controllers/admin/matchController.js";
 
 const router = express.Router();
 
@@ -60,12 +80,77 @@ router
   .route("/tournaments/registrations/:regId/payment")
   .put(adminUpdatePayment);
 
-router
-  .route("/tournaments/registrations/:regId/checkin")
-  .put(adminCheckin);
+router.route("/tournaments/registrations/:regId/checkin").put(adminCheckin);
 
 router
   .route("/tournaments/registrations/:regId")
   .delete(adminDeleteRegistration);
+
+// create bracket for a tournament
+router.post(
+  "/tournaments/:id/brackets",
+  protect,
+  authorize("admin"),
+  adminCreateBracket
+);
+router.get(
+  "/tournaments/:id/brackets",
+  protect,
+  authorize("admin", "referee", "user"),
+  getBracketsWithMatches
+);
+
+// Admin: list all matches
+router.get("/matches", protect, authorize("admin"), adminGetAllMatches);
+
+router.get("/matches/:id", protect, authorize("admin"), adminGetMatchById);
+
+router.post(
+  "/brackets/:bracketId/matches",
+  protect,
+  authorize("admin"),
+  adminCreateMatch
+);
+router.get(
+  "/brackets/:bracketId/matches",
+  protect,
+  authorize("admin", "referee", "user"),
+  getMatchesByBracket
+);
+
+router.patch(
+  "/matches/:matchId/score",
+  protect,
+  authorize("admin", "referee"),
+  refereeUpdateScore
+);
+router.patch(
+  "/matches/:matchId/referee",
+  protect,
+  authorize("admin"),
+  adminAssignReferee
+);
+
+router.delete(
+  "/tournaments/:tourId/brackets/:bracketId",
+  protect,
+  authorize("admin"),
+  deleteBracketCascade
+);
+
+router.delete(
+  "/matches/:matchId",
+  protect,
+  authorize("admin"),
+  adminDeleteMatch
+);
+router.patch(
+  "/tournaments/:tournamentId/brackets/:bracketId",
+  protect,
+  authorize("admin"),
+  adminUpdateBracket
+);
+
+router.patch("/matches/:matchId", protect, adminUpdateMatch);
 
 export default router;
