@@ -14,7 +14,7 @@ export const adminLogin = asyncHandler(async (req, res) => {
     throw new Error("Email hoặc mật khẩu không đúng");
   }
 
-  if (user.role !== "admin") {
+  if (user.role !== "admin" && user.role !== "referee") {
     res.status(403);
     throw new Error("Bạn không có quyền truy cập admin");
   }

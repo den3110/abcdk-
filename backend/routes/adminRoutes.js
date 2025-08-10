@@ -53,6 +53,8 @@ const router = express.Router();
 
 router.post("/login", adminLogin);
 
+router.get("/matches/:id([0-9a-fA-F]{24})", protect, authorize("admin", "referee"), adminGetMatchById);
+
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
 
 // router.get("/users", getUsers);
@@ -119,7 +121,7 @@ router.get(
   adminListMatchGroups
 );
 
-router.get("/matches/:id", protect, authorize("admin"), adminGetMatchById);
+
 
 router.post(
   "/brackets/:bracketId/matches",

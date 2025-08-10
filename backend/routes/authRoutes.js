@@ -9,7 +9,7 @@ import {
 const router = express.Router();
 
 // GET /api/auth/verify  → 200 + user, hoặc 401
-router.get("/verify", protectJwt, authorize("admin"), (req, res) => {
+router.get("/verify", protectJwt, authorize("admin", "referee"), (req, res) => {
   // chỉ trả vài field cần thiết
   const { _id, name, email, role } = req.user;
   res.json({ _id, name, email, role });

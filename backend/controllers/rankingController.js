@@ -106,7 +106,7 @@ export const getRankings = asyncHandler(async (req, res) => {
   });
 });
 
-/* GET điểm kèm user  (dùng trong danh sách) */
+/* GET điểm kèm user (dùng trong danh sách) */
 export const getUsersWithRank = asyncHandler(async (req, res) => {
   const pageSize = 10;
   const page = Number(req.query.page) || 1;
@@ -124,32 +124,59 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
     .skip(pageSize * (page - 1))
     .lean();
 
-  /* gắn điểm từ Ranking */
+  // map điểm từ Ranking
   const ids = users
     .map((u) => u._id)
-    .filter((id) => mongoose.isValidObjectId(id)); // ✅ chỉ lấy ObjectId hợp lệ
+    .filter((id) => mongoose.isValidObjectId(id));
 
   let map = {};
   if (ids.length > 0) {
     const ranks = await Ranking.find({ user: { $in: ids } })
       .select("user single double")
       .lean();
-
     map = ranks.reduce((acc, r) => {
       acc[r.user.toString()] = r;
       return acc;
     }, {});
   }
 
-  const list = users.map((u) => ({
-    ...u,
-    single: map[u._id?.toString()]?.single ?? 0,
-    double: map[u._id?.toString()]?.double ?? 0,
-  }));
+  const isProd = process.env.NODE_ENV === "production";
+
+  // Prefer headers từ reverse proxy để lấy scheme/host chuẩn
+  const proto =
+    (req.headers["x-forwarded-proto"] &&
+      String(req.headers["x-forwarded-proto"]).split(",")[0]) ||
+    req.protocol ||
+    "http";
+  const host = req.headers["x-forwarded-host"] || req.get("host"); // ví dụ: admin.pickletour.vn
+  const origin = `${proto}://${host}`;
+
+  const isAbsUrl = (s) => /^https?:\/\//i.test(s || "");
+  const toAbsUrl = (p) => {
+    if (!p) return p;
+    if (isAbsUrl(p)) return p;
+    return `${origin}${p.startsWith("/") ? "" : "/"}${p}`;
+  };
+
+  const list = users.map((u) => {
+    // chỉ chạm vào cccdImages trong môi trường production
+    const cccdImages = isProd
+      ? {
+          front: toAbsUrl(u?.cccdImages?.front || ""),
+          back: toAbsUrl(u?.cccdImages?.back || ""),
+        }
+      : u?.cccdImages || { front: "", back: "" };
+
+    return {
+      ...u,
+      cccdImages,
+      single: map[u._id?.toString()]?.single ?? 0,
+      double: map[u._id?.toString()]?.double ?? 0,
+    };
+  });
 
   res.json({ users: list, total, pageSize });
 });
-
 export const updateRanking = asyncHandler(async (req, res) => {
   const { single, double } = req.body;
   const { id: userId } = req.params;

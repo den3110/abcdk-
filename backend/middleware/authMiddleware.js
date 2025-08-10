@@ -98,3 +98,11 @@ export const authorize =
 
     return next();
   };
+
+/* Chỉ referee hoặc admin */
+export const refereeOnly = (req, res, next) => {
+  const role = req.user?.role;
+  if (role === "referee" || role === "admin") return next();
+  res.status(403);
+  throw new Error("Referee-only endpoint");
+};

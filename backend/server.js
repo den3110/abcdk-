@@ -11,17 +11,31 @@ import rankingRoutes from "./routes/rankingRoutes.js";
 import uploadRoutes from "./routes/uploadRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
+import refereeRoutes from "./routes/refereeRoutes.js";
 import { initSocket } from "./socket/index.js";
 
 import cors from "cors";
 import dotenv from "dotenv";
 dotenv.config();
 const port = process.env.PORT || 5000;
+const WHITELIST = [
+  "https://abcdk.vercel.app",
+  "https://abcde-xi.vercel.app",
+  "https://admin.pickletour.vn",
+  "http://localhost:3001"
+];
 
 connectDB();
 
 const app = express();
+// HTTP + Socket.IO
+const server = http.createServer(app);
 
+// 👇 Khởi tạo socket tách riêng
+const io = initSocket(server, { whitelist: WHITELIST, path: "/socket.io" });
+
+// Cho controllers dùng io: req.app.get('io')
+app.set("io", io);
 // app.set("trust proxy", true);
 
 // body limit rộng hơn cho HTML/JSON dài
@@ -29,11 +43,6 @@ app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cookieParser());
 // CORS whitelist
-export const WHITELIST = [
-  "https://abcdk.vercel.app",
-  "https://abcde-xi.vercel.app",
-  "https://admin.pickletour.vn",
-];
 
 app.use(
   cors({
@@ -51,6 +60,7 @@ app.use("/api/upload", uploadRoutes);
 app.use("/upload", uploadRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/referee", refereeRoutes);
 
 if (process.env.NODE_ENV === "production") {
   const __dirname = path.resolve();
@@ -68,14 +78,7 @@ if (process.env.NODE_ENV === "production") {
 app.use(notFound);
 app.use(errorHandler);
 
-// HTTP + Socket.IO
-const server = http.createServer(app);
 
-// 👇 Khởi tạo socket tách riêng
-const io = initSocket(server, { whitelist: WHITELIST, path: "/socket.io" });
-
-// Cho controllers dùng io: req.app.get('io')
-app.set("io", io);
 
 server.listen(port, () => {
   try {
