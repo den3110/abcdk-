@@ -23,6 +23,7 @@ import TournamentBracket from "./screens/PickleBall/TournamentBracket.jsx";
 import RankingList from "./screens/PickleBall/RankingList.jsx";
 import LevelPointPage from "./screens/PickleBall/LevelPoint.jsx";
 import ContactPage from "./screens/Contact.jsx";
+import { SocketProvider } from "./context/SocketContext.jsx";
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -44,8 +45,7 @@ const router = createBrowserRouter(
       <Route path="/contact" element={<ContactPage />} />
       <Route path="" element={<PrivateRoute />}>
         <Route path="/profile" element={<ProfileScreen />} />
-      <Route path="/levelpoint" element={<LevelPointPage />} />
-      
+        <Route path="/levelpoint" element={<LevelPointPage />} />
       </Route>
     </Route>
   )
@@ -54,7 +54,9 @@ const router = createBrowserRouter(
 ReactDOM.createRoot(document.getElementById("root")).render(
   <Provider store={store}>
     <React.StrictMode>
-      <RouterProvider router={router} />
+      <SocketProvider>
+        <RouterProvider router={router} />
+      </SocketProvider>
     </React.StrictMode>
   </Provider>
 );

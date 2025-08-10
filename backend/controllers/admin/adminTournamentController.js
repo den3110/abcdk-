@@ -213,8 +213,13 @@ export const getTournaments = async (req, res, next) => {
 
 export const createTournament = async (req, res, next) => {
   try {
-    const body = validate(createSchema, req.body);
-    const t = await Tournament.create(body);
+    const data = validate(createSchema, req.body);
+    if (!req.user?._id)
+      return res.status(401).json({ message: "Unauthenticated" });
+    const t = await Tournament.create({
+      ...data,
+      createdBy: req.user._id, // gán từ user đăng nhập
+    });
     res.status(201).json(t);
   } catch (err) {
     next(err);

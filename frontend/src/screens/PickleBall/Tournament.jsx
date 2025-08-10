@@ -1,5 +1,5 @@
-// src/pages/TournamentDashboard.jsx – thêm tìm kiếm + giữ responsive
-import { useState, useEffect, Fragment } from "react";
+// src/pages/TournamentDashboard.jsx
+import { useState, useEffect, useMemo, Fragment } from "react";
 import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import {
   Box,
@@ -29,7 +29,7 @@ import {
   useMediaQuery,
   useTheme,
   Divider,
-  TextField, // ⬅️ NEW
+  TextField,
 } from "@mui/material";
 import PreviewIcon from "@mui/icons-material/Preview";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
@@ -49,12 +49,13 @@ const STATUS_COLOR = {
   ongoing: "success",
   finished: "default",
 };
+const TABS = ["upcoming", "ongoing", "finished"];
+
 const columns = [
   { label: "Ảnh", minWidth: THUMB_SIZE },
   { label: "Tên giải" },
   { label: "Hạn đăng ký" },
   { label: "Đăng ký / Dự kiến", align: "center" },
-  // { label: "Số trận", align: "center" },
   { label: "Thời gian" },
   { label: "Địa điểm" },
   { label: "Trạng thái", align: "center" },
@@ -62,22 +63,64 @@ const columns = [
 ];
 
 export default function TournamentDashboard() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
+
+  // giữ nguyên cách lấy 2 tham số này từ URL
   const sportType = params.get("sportType") || 2;
   const groupId = params.get("groupId") || 0;
 
-  const [tab, setTab] = useState("upcoming");
-  const [previewSrc, setPreviewSrc] = useState(null);
+  // ===== URL <-> state: status (tab) =====
+  const initialTab = TABS.includes(params.get("status"))
+    ? params.get("status")
+    : "upcoming";
+  const [tab, setTab] = useState(initialTab);
 
-  /* 🔍 state tìm kiếm */
-  const [keyword, setKeyword] = useState("");
-  const [search, setSearch] = useState(""); // keyword sau debounce
-
-  /* debounce 300 ms */
+  // Đồng bộ khi back/forward hoặc có nơi khác đổi query
   useEffect(() => {
-    const t = setTimeout(() => setSearch(keyword.trim().toLowerCase()), 300);
+    const urlTab = params.get("status");
+    if (urlTab && TABS.includes(urlTab) && urlTab !== tab) {
+      setTab(urlTab);
+    }
+  }, [params, tab]);
+
+  // Nếu thiếu/invalid status trên URL, set mặc định
+  useEffect(() => {
+    const urlTab = params.get("status");
+    if (!urlTab || !TABS.includes(urlTab)) {
+      setParams(
+        (prev) => {
+          const p = new URLSearchParams(prev);
+          p.set("status", initialTab);
+          return p;
+        },
+        { replace: true }
+      );
+    }
+  }, []); // run once
+
+  // ===== URL <-> state: q (keyword) =====
+  const [keyword, setKeyword] = useState(params.get("q") || "");
+  const [search, setSearch] = useState(params.get("q")?.toLowerCase() || "");
+
+  // debounce & push lên URL
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const val = keyword.trim().toLowerCase();
+      setSearch(val);
+      setParams(
+        (prev) => {
+          const p = new URLSearchParams(prev);
+          if (val) p.set("q", val);
+          else p.delete("q");
+          return p;
+        },
+        { replace: true }
+      );
+    }, 300);
     return () => clearTimeout(t);
-  }, [keyword]);
+  }, [keyword, setParams]);
+
+  const [previewSrc, setPreviewSrc] = useState(null);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -86,9 +129,22 @@ export default function TournamentDashboard() {
     data: tournaments,
     isLoading,
     error,
-  } = useGetTournamentsQuery({ sportType, groupId });
+  } = useGetTournamentsQuery({
+    sportType,
+    groupId,
+  });
 
-  const handleChangeTab = (_, v) => setTab(v);
+  const handleChangeTab = (_, v) => {
+    setTab(v);
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.set("status", v);
+        return p;
+      },
+      { replace: true }
+    ); // đổi thành false nếu muốn mỗi lần đổi tab có 1 entry trong history
+  };
 
   const formatDate = (d) =>
     new Date(d).toLocaleDateString(undefined, {
@@ -97,11 +153,13 @@ export default function TournamentDashboard() {
       day: "2-digit",
     });
 
-  /* 1️⃣ lọc theo trạng thái, 2️⃣ lọc theo keyword */
-  const filtered =
-    tournaments
-      ?.filter((t) => t.status === tab)
-      .filter((t) => t.name.toLowerCase().includes(search)) || [];
+  // 1) lọc theo trạng thái, 2) lọc theo keyword
+  const filtered = useMemo(() => {
+    if (!tournaments) return [];
+    return tournaments
+      .filter((t) => t.status === tab)
+      .filter((t) => (search ? t.name?.toLowerCase().includes(search) : true));
+  }, [tournaments, tab, search]);
 
   return (
     <Container sx={{ py: 4 }}>
@@ -114,6 +172,7 @@ export default function TournamentDashboard() {
           <CircularProgress />
         </Box>
       )}
+
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
           {error?.data?.message || error.error}
@@ -125,11 +184,11 @@ export default function TournamentDashboard() {
           {/* Tabs trạng thái */}
           <Tabs
             value={tab}
-            onChange={(_, v) => setTab(v)}
+            onChange={handleChangeTab}
             sx={{ mb: 2 }}
             variant="scrollable"
           >
-            {["upcoming", "ongoing", "finished"].map((v) => (
+            {TABS.map((v) => (
               <Tab
                 key={v}
                 value={v}
@@ -139,6 +198,7 @@ export default function TournamentDashboard() {
               />
             ))}
           </Tabs>
+
           {/* Ô tìm kiếm */}
           <TextField
             label="Tìm kiếm tên giải"
@@ -147,6 +207,7 @@ export default function TournamentDashboard() {
             onChange={(e) => setKeyword(e.target.value)}
             sx={{ mb: 3, width: 320 }}
           />
+
           {/* ===== LIST ===== */}
           {isMobile ? (
             /* ----- CARD (MOBILE) ----- */
@@ -167,8 +228,10 @@ export default function TournamentDashboard() {
                         sx={{ width: 72, height: 72, cursor: "zoom-in" }}
                         onClick={() => setPreviewSrc(t.image)}
                       />
-                      <Box>
-                        <Typography fontWeight={600}>{t.name}</Typography>
+                      <Box flex={1} minWidth={0}>
+                        <Typography fontWeight={600} noWrap>
+                          {t.name}
+                        </Typography>
                         <Typography variant="caption" color="text.secondary">
                           Đăng ký đến {formatDate(t.registrationDeadline)}
                         </Typography>
@@ -189,7 +252,7 @@ export default function TournamentDashboard() {
                       Địa điểm: {t.location}
                     </Typography>
                     <Typography variant="body2" mb={0.5}>
-                      Đăng ký: {t.registered}/{t.expected} – Trận:{" "}
+                      Đăng ký: {t.registered}/{t.maxPairs} – Trận:{" "}
                       {t.matchesCount}
                     </Typography>
                   </CardContent>
@@ -286,7 +349,6 @@ export default function TournamentDashboard() {
                         <TableCell align="center">
                           {t.registered}/{t.maxPairs}
                         </TableCell>
-                        {/* <TableCell align="center">{t.matchesCount}</TableCell> */}
                         <TableCell>
                           {formatDate(t.startDate)} – {formatDate(t.endDate)}
                         </TableCell>
@@ -363,7 +425,7 @@ export default function TournamentDashboard() {
         <DialogContent sx={{ p: 0 }}>
           <Box
             component="img"
-            src={previewSrc}
+            src={previewSrc || ""}
             alt="Preview"
             sx={{ width: "100%", height: "auto" }}
           />

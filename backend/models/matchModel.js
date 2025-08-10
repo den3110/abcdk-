@@ -17,6 +17,9 @@ const matchSchema = new mongoose.Schema(
     round: { type: Number, default: 1 },
     order: { type: Number, default: 0 },
 
+    // Optional: mã trận tuỳ ý (nếu không có, FE có thể tự hiển thị M-{round}-{order})
+    code: { type: String, default: "" },
+
     // ❗ Bỏ required để cho phép dùng previousA/previousB
     pairA: {
       type: mongoose.Schema.Types.ObjectId,
@@ -41,16 +44,19 @@ const matchSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Luật thi đấu
     rules: {
       bestOf: { type: Number, enum: [1, 3, 5], default: 3 },
       pointsToWin: { type: Number, enum: [11, 15, 21], default: 11 },
       winByTwo: { type: Boolean, default: true },
     },
 
+    // Điểm từng ván
     gameScores: [
       { a: { type: Number, default: 0 }, b: { type: Number, default: 0 } },
     ],
 
+    // Trạng thái cơ bản
     status: {
       type: String,
       enum: ["scheduled", "live", "finished"],
@@ -61,13 +67,45 @@ const matchSchema = new mongoose.Schema(
     referee: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     note: { type: String, default: "" },
 
-    // Link đi lên
+    // Liên kết sang trận tiếp theo
     nextMatch: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Match",
       default: null,
     },
     nextSlot: { type: String, enum: ["A", "B", null], default: null },
+
+    /* ---------- Lịch & sân (đã dùng ở các pipeline BE/FE) ---------- */
+    scheduledAt: { type: Date, default: null }, // ngày/giờ dự kiến
+    court: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Court",
+      default: null,
+    },
+    courtLabel: { type: String, default: "" }, // fallback text khi chưa có court
+
+    /* ---------- Trường phục vụ LIVE realtime (referee chấm) ---------- */
+    currentGame: { type: Number, default: 0 }, // index ván hiện tại
+    startedAt: { type: Date, default: null },
+    finishedAt: { type: Date, default: null },
+    liveBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    liveVersion: { type: Number, default: 0 }, // tăng mỗi lần cập nhật live
+    liveLog: [
+      {
+        type: {
+          type: String,
+          enum: ["point", "undo", "start", "finish", "forfeit"],
+          required: true,
+        },
+        by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        payload: { type: mongoose.Schema.Types.Mixed },
+        at: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true }
 );
@@ -109,24 +147,33 @@ matchSchema.post("save", async function (doc, next) {
   }
 });
 
-// pseudo mongoose hook
+/* Sau khi update xong: nếu đã finished + có winner thì feed winner cho các trận phụ thuộc previousA/B */
 matchSchema.post("findOneAndUpdate", async function (doc) {
   if (!doc) return;
-  if (doc.status === "finished" && doc.winner) {
-    const winnerReg = doc.winner === "A" ? doc.pairA : doc.pairB;
-    await Match.updateMany(
-      { previousA: doc._id },
-      { $set: { pairA: winnerReg }, $unset: { previousA: "" } }
-    );
-    await Match.updateMany(
-      { previousB: doc._id },
-      { $set: { pairB: winnerReg }, $unset: { previousB: "" } }
-    );
+  try {
+    if (doc.status === "finished" && doc.winner) {
+      const MatchModel = doc.model("Match"); // ✅ Lấy model đúng cách
+      const winnerReg = doc.winner === "A" ? doc.pairA : doc.pairB;
+
+      await MatchModel.updateMany(
+        { previousA: doc._id },
+        { $set: { pairA: winnerReg }, $unset: { previousA: "" } }
+      );
+      await MatchModel.updateMany(
+        { previousB: doc._id },
+        { $set: { pairB: winnerReg }, $unset: { previousB: "" } }
+      );
+    }
+  } catch (err) {
+    console.error("[Match post(findOneAndUpdate)] propagate error:", err);
   }
 });
 
+/* ---------- Indexes ---------- */
 matchSchema.index({ tournament: 1, bracket: 1, status: 1, createdAt: -1 });
 matchSchema.index({ bracket: 1, createdAt: -1 });
 matchSchema.index({ tournament: 1, createdAt: -1 });
+matchSchema.index({ scheduledAt: 1 });
+matchSchema.index({ court: 1 });
 
 export default mongoose.model("Match", matchSchema);

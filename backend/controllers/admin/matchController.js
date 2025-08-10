@@ -3,6 +3,7 @@ import Bracket from "../../models/bracketModel.js";
 import Registration from "../../models/registrationModel.js";
 import expressAsyncHandler from "express-async-handler";
 import mongoose from "mongoose";
+import { softResetChainFrom } from "../../service/matchChainReset.js";
 
 /* Tạo 1 trận trong 1 bảng */
 export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
@@ -572,9 +573,28 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
 
   await mt.save();
 
+  // ✨ NEW: Khi đã finished + có winner → feed winner sang tất cả trận có previousA/B trỏ về trận này
+  if (mt.status === "finished" && mt.winner) {
+    const winnerReg = mt.winner === "A" ? mt.pairA : mt.pairB;
+    if (winnerReg) {
+      await Match.updateMany(
+        { previousA: mt._id },
+        { $set: { pairA: winnerReg }, $unset: { previousA: "" } }
+      );
+      await Match.updateMany(
+        { previousB: mt._id },
+        { $set: { pairB: winnerReg }, $unset: { previousB: "" } }
+      );
+    }
+  }
+  // Lưu ý: KHÔNG reset downstream nếu đổi sang 'live'/'scheduled'.
+  // Trường hợp đó bạn dùng endpoint POST /api/matches/:matchId/reset-chain nhé.
+
   const populated = await Match.findById(mt._id)
     .populate({ path: "pairA", select: "player1 player2" })
-    .populate({ path: "pairB", select: "player1 player2" });
+    .populate({ path: "pairB", select: "player1 player2" })
+    .populate({ path: "previousA", select: "round order" })
+    .populate({ path: "previousB", select: "round order" });
 
   res.json(populated);
 });
@@ -967,3 +987,53 @@ export const userCheckinRegistration = expressAsyncHandler(async (req, res) => {
     checkinAt: updated.checkinAt,
   });
 });
+
+export const updateMatch = async (req, res, next) => {
+  const { matchId } = req.params;
+  const body = req.body || {};
+  const cascade = Boolean(body.cascade || req.query.cascade); // <- mặc định false
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const oldDoc = await Match.findById(matchId).session(session);
+    if (!oldDoc) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: "Match not found" });
+    }
+
+    const wasFinished = oldDoc.status === "finished";
+    const willBeFinished = body.status === "finished";
+    const winnerChanged =
+      wasFinished && body.winner && body.winner !== oldDoc.winner;
+
+    // Cập nhật tối thiểu, giữ nguyên logic cũ
+    oldDoc.round = body.round ?? oldDoc.round;
+    oldDoc.order = body.order ?? oldDoc.order;
+    oldDoc.pairA = body.pairA ?? oldDoc.pairA;
+    oldDoc.pairB = body.pairB ?? oldDoc.pairB;
+    oldDoc.rules = body.rules ?? oldDoc.rules;
+    oldDoc.status = body.status ?? oldDoc.status;
+    oldDoc.winner = willBeFinished ? body.winner || "" : "";
+
+    // (tuỳ chọn) nếu bạn muốn: khi không finished nữa thì xoá điểm set
+    if (!willBeFinished && wasFinished) {
+      oldDoc.gameScores = [];
+    }
+
+    await oldDoc.save({ session });
+
+    // ✅ Chỉ khi BẬT cascade mới reset chuỗi
+    if (cascade && ((wasFinished && !willBeFinished) || winnerChanged)) {
+      await softResetChainFrom(oldDoc._id, session);
+    }
+
+    await session.commitTransaction();
+    res.json(oldDoc);
+  } catch (err) {
+    await session.abortTransaction();
+    next(err);
+  } finally {
+    session.endSession();
+  }
+};

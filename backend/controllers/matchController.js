@@ -334,4 +334,36 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
   res.json(rows);
 });
 
+/**
+ * GET /api/matches/:id
+ * Public: trả về match đã populate những phần FE cần
+ */
+export const getMatchPublic = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ message: "Invalid match id" });
+  }
+
+  const match = await Match.findById(id)
+    .populate({ path: "pairA", select: "player1 player2" })
+    .populate({ path: "pairB", select: "player1 player2" })
+    .populate({ path: "referee", select: "name fullName" })
+    .populate({ path: "previousA", select: "round order" })
+    .populate({ path: "previousB", select: "round order" })
+    // nextMatch chỉ cần _id để FE nhận biết “trận cuối”
+    .populate({ path: "nextMatch", select: "_id" })
+    .lean();
+
+  if (!match) {
+    return res.status(404).json({ message: "Match not found" });
+  }
+
+  // có thể bổ sung “streams” từ meta nếu BE đang lưu như vậy
+  if (!match.streams && match.meta?.streams) {
+    match.streams = match.meta.streams;
+  }
+
+  res.json(match);
+});
+
 export { getMatchesByTournament };

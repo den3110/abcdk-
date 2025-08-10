@@ -76,6 +76,51 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         body, // { tournamentId, q, regId }
       }),
     }),
+    // GET /api/tournaments/:id/brackets  (user route)
+    listTournamentBrackets: builder.query({
+      query: (tournamentId) => ({
+        url: `/api/tournaments/${tournamentId}/brackets`,
+        method: "GET",
+      }),
+      transformResponse: (res) => {
+        if (Array.isArray(res)) return res;
+        if (res?.list && Array.isArray(res.list)) return res.list;
+        return [];
+      },
+      // tránh cache đè giữa các giải
+      serializeQueryArgs: ({ endpointName, queryArgs }) =>
+        `${endpointName}:${queryArgs}`,
+    }),
+
+    // GET /api/tournaments/:id/matches  (user route)
+    // Bạn có thể hỗ trợ ?stage=&type=&page=&limit=&sort= ở BE nếu muốn
+    listTournamentMatches: builder.query({
+      query: ({ tournamentId, ...params }) => ({
+        url: `/api/tournaments/${tournamentId}/matches`,
+        method: "GET",
+        params,
+      }),
+      transformResponse: (res) => {
+        if (Array.isArray(res)) return res; // mảng thuần
+        if (res?.list && Array.isArray(res.list)) return res.list; // phân trang
+        return [];
+      },
+      serializeQueryArgs: ({ endpointName, queryArgs }) =>
+        `${endpointName}:${JSON.stringify(queryArgs || {})}`,
+    }),
+    getMatchPublic: builder.query({
+      query: (matchId) => `/api/tournaments/matches/${matchId}`, // GET /api/matches/:id
+      providesTags: (res, err, id) => [{ type: "Match", id }],
+    }),
+    cancelRegistration: builder.mutation({
+      query: (regId) => ({
+        url: `/api/registrations/${regId}/cancel`,
+        method: "POST",
+      }),
+      invalidatesTags: () => [
+        { type: "Registrations", id: "LIST" },
+      ],
+    }),
   }),
 });
 
@@ -90,4 +135,8 @@ export const {
   useGetTournamentMatchesForCheckinQuery,
   useSearchUserMatchesQuery,
   useUserCheckinRegistrationMutation,
+  useListTournamentBracketsQuery,
+  useListTournamentMatchesQuery,
+  useGetMatchPublicQuery,
+  useCancelRegistrationMutation,
 } = tournamentsApiSlice;

@@ -12,7 +12,6 @@ import {
   TableCell,
   TableBody,
   Chip,
-  Avatar,
   CircularProgress,
   Alert,
   Stack,
@@ -24,36 +23,34 @@ import {
   useMediaQuery,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
+import { toast } from "react-toastify";
+
 import {
   useGetRegistrationsQuery,
   useCheckinMutation,
   useGetTournamentQuery,
   useGetTournamentMatchesForCheckinQuery,
-  // 👇 2 hook mới cho user check-in (tìm theo SĐT/nickname)
+  // Tìm & check-in theo SĐT / nickname
   useSearchUserMatchesQuery,
   useUserCheckinRegistrationMutation,
 } from "../../slices/tournamentsApiSlice";
-import { toast } from "react-toastify";
 
-const PLACE = "https://dummyimage.com/70x70/cccccc/ffffff&text=Avatar";
-const AvatarMini = ({ src, alt }) => (
-  <Avatar
-    src={src || PLACE}
-    alt={alt}
-    sx={{ width: 30, height: 30, mr: 1 }}
-    imgProps={{ onError: (e) => (e.currentTarget.src = PLACE) }}
-  />
-);
-
+/* ---------- Utils ---------- */
 const fmtDate = (s) => (s ? new Date(s).toLocaleDateString() : "—");
 const fmtTime = (s) => (s && s.length ? s : "—");
+const normType = (t) => {
+  const s = String(t || "").toLowerCase();
+  if (s === "single" || s === "singles") return "single";
+  if (s === "double" || s === "doubles") return "double";
+  return s || "double";
+};
 
 export default function TournamentCheckin() {
   const { id } = useParams();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
-  /* fetch */
+  /* fetch tournament / registrations / matches */
   const { data: tour } = useGetTournamentQuery(id);
   const {
     data: regs = [],
@@ -63,14 +60,28 @@ export default function TournamentCheckin() {
   } = useGetRegistrationsQuery(id);
   const { data: matches = [] } = useGetTournamentMatchesForCheckinQuery(id);
 
-  // ----- phần cũ: check-in theo SĐT có sẵn -----
+  const evType = normType(tour?.eventType);
+  const isSingles = evType === "single";
+
+  /* ----- format tên đội/ VĐV: đơn thì bỏ phần sau && hoặc & ----- */
+  const fmtSide = useCallback(
+    (label) => {
+      if (!label) return "—";
+      const s = String(label).trim();
+      if (!isSingles) return s; // đôi: giữ nguyên
+      return s.split(/\s*&&\s*|\s*&\s*/)[0].trim();
+    },
+    [isSingles]
+  );
+
+  /* --------- (Cũ) Check-in theo số ĐT trong danh sách đăng ký --------- */
   const [phone, setPhone] = useState("");
   const [busyId, setBusy] = useState(null);
   const [checkin] = useCheckinMutation();
 
   const handlePhone = async () => {
     const reg = regs.find(
-      (r) => r.player1.phone === phone || r.player2.phone === phone
+      (r) => r.player1?.phone === phone || r.player2?.phone === phone
     );
     if (!reg)
       return toast.error("Không tìm thấy số ĐT trong danh sách đăng ký");
@@ -91,7 +102,7 @@ export default function TournamentCheckin() {
     }
   };
 
-  // ----- MỚI THÊM: tìm & check-in theo SĐT/Nickname -----
+  /* --------- (Mới) Tìm & check-in theo SĐT/Nickname --------- */
   const [q, setQ] = useState("");
   const [submittedQ, setSubmittedQ] = useState("");
   const {
@@ -118,6 +129,7 @@ export default function TournamentCheckin() {
   };
 
   const results = searchRes?.results || [];
+
   const handleUserCheckin = async (regId) => {
     try {
       const res = await userCheckin({
@@ -133,39 +145,61 @@ export default function TournamentCheckin() {
     }
   };
 
-  // ----- filter danh sách TRẬN của GIẢI (phần cũ) -----
+  /* --------- Filter danh sách TRẬN của GIẢI (phần cũ) --------- */
   const [search, setSearch] = useState("");
   const filtered = useMemo(() => {
     const key = search.trim().toLowerCase();
     if (!key) return matches;
-    return matches.filter(
-      (m) =>
-        m.code.toLowerCase().includes(key) ||
-        (m.team1 && m.team1.toLowerCase().includes(key)) ||
-        (m.team2 && m.team2.toLowerCase().includes(key)) ||
-        (m.status || "").toLowerCase().includes(key)
-    );
+    return matches.filter((m) => {
+      const t1 = (m.team1 || "").toLowerCase();
+      const t2 = (m.team2 || "").toLowerCase();
+      const code = (m.code || "").toLowerCase();
+      const stt = (m.status || "").toLowerCase();
+      return (
+        code.includes(key) ||
+        t1.includes(key) ||
+        t2.includes(key) ||
+        stt.includes(key)
+      );
+    });
   }, [matches, search]);
 
   /* ---------- RENDER ---------- */
   return (
     <Container fluid className="py-4">
       {/* HEADER */}
-      <Typography variant="h5" fontWeight={700} mb={3}>
-        Chào mừng bạn đến với giải đấu:&nbsp;
-        <span style={{ textTransform: "uppercase", color: "#1976d2" }}>
-          {tour?.name}
-        </span>
-      </Typography>
+      <Stack
+        direction={isMobile ? "column" : "row"}
+        justifyContent="space-between"
+        alignItems={isMobile ? "flex-start" : "center"}
+        spacing={1}
+        mb={2}
+      >
+        <Typography variant="h5" fontWeight={700}>
+          Chào mừng đến với giải đấu:&nbsp;
+          <span style={{ textTransform: "uppercase", color: "#1976d2" }}>
+            {tour?.name || "—"}
+          </span>
+        </Typography>
+        {tour?.eventType && (
+          <Chip
+            size="small"
+            label={isSingles ? "Giải đơn" : "Giải đôi"}
+            color={isSingles ? "default" : "primary"}
+            variant="outlined"
+          />
+        )}
+      </Stack>
 
-      {/* ACTION BAR (cũ): check-in theo SĐT trong danh sách đăng ký */}
+      {/* ACTIONS */}
       <Stack
         direction={isMobile ? "column" : "row"}
         spacing={2}
         alignItems={isMobile ? "stretch" : "center"}
         mb={3}
       >
-        {/* <Stack
+        {/* (giữ API check-in theo SĐT trong danh sách, có thể ẩn nếu không dùng) */}
+        <Stack
           direction={isMobile ? "column" : "row"}
           spacing={1}
           alignItems={isMobile ? "stretch" : "center"}
@@ -173,7 +207,7 @@ export default function TournamentCheckin() {
           <TextField
             size="small"
             fullWidth={isMobile}
-            placeholder="Nhập SĐT VĐV đăng ký"
+            placeholder="Nhập SĐT VĐV đã đăng ký"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             sx={{ maxWidth: isMobile ? "100%" : 220 }}
@@ -185,9 +219,9 @@ export default function TournamentCheckin() {
             disabled={busyId !== null}
             fullWidth={isMobile}
           >
-            Check-in
+            {busyId ? "Đang check-in…" : "Check-in (theo SĐT đã đăng ký)"}
           </MuiButton>
-        </Stack> */}
+        </Stack>
 
         <MuiButton
           component={Link}
@@ -212,10 +246,10 @@ export default function TournamentCheckin() {
         </MuiButton>
       </Stack>
 
-      {/* ====== MỚI THÊM: Tìm & check-in theo SĐT/Nickname (KHÔNG xoá phần cũ) ====== */}
+      {/* ====== Tìm & check-in theo SĐT/Nickname ====== */}
       <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
         <Typography variant="subtitle1" fontWeight={700} mb={1}>
-          Check-in theo SĐT/Nickname
+          Check-in theo SĐT / Nickname
         </Typography>
         <Stack
           direction={isMobile ? "column" : "row"}
@@ -242,7 +276,7 @@ export default function TournamentCheckin() {
             onClick={onSubmitSearch}
             disabled={searching}
           >
-            Tìm
+            {searching ? "Đang tìm…" : "Tìm"}
           </MuiButton>
         </Stack>
 
@@ -265,12 +299,25 @@ export default function TournamentCheckin() {
           </Alert>
         )}
 
-        {/* Render các registration khớp */}
+        {/* Danh sách registration khớp */}
         <Stack spacing={2} mt={results.length ? 2 : 0}>
           {results.map((reg) => {
             const canCheckin = reg.paid && !reg.checkinAt;
+            const disabledReason = !reg.paid
+              ? "Chưa thanh toán lệ phí"
+              : reg.checkinAt
+              ? "Đã check-in"
+              : "";
+            const teamLabel = isSingles
+              ? fmtSide(reg.teamLabel)
+              : reg.teamLabel;
+
             return (
-              <Paper key={reg.regId} variant="outlined" sx={{ p: 2 }}>
+              <Paper
+                key={reg.regId || reg._id}
+                variant="outlined"
+                sx={{ p: 2 }}
+              >
                 <Stack
                   direction="row"
                   justifyContent="space-between"
@@ -280,7 +327,7 @@ export default function TournamentCheckin() {
                 >
                   <Box>
                     <Typography variant="subtitle1" fontWeight={700}>
-                      {reg.teamLabel}
+                      {teamLabel || "—"}
                     </Typography>
                     <Stack direction="row" spacing={1} mt={0.5} flexWrap="wrap">
                       <Chip
@@ -306,18 +353,25 @@ export default function TournamentCheckin() {
                       )}
                     </Stack>
                   </Box>
-                  <MuiButton
-                    variant="contained"
-                    disabled={!canCheckin || checkingUser}
-                    onClick={() => handleUserCheckin(reg.regId)}
-                  >
-                    Check-in
-                  </MuiButton>
+                  <Stack alignItems="flex-end" spacing={0.5}>
+                    <MuiButton
+                      variant="contained"
+                      disabled={!canCheckin || checkingUser}
+                      onClick={() => handleUserCheckin(reg.regId || reg._id)}
+                    >
+                      {checkingUser ? "Đang check-in…" : "Check-in"}
+                    </MuiButton>
+                    {!canCheckin && disabledReason && (
+                      <Typography variant="caption" color="text.secondary">
+                        * {disabledReason}
+                      </Typography>
+                    )}
+                  </Stack>
                 </Stack>
 
-                {/* danh sách trận của registration này */}
+                {/* Danh sách trận của registration này */}
                 <Divider sx={{ my: 1.5 }} />
-                {reg.matches?.length ? (
+                {Array.isArray(reg.matches) && reg.matches.length ? (
                   <Box sx={{ width: "100%", overflowX: "auto" }}>
                     <Table size="small" stickyHeader>
                       <TableHead>
@@ -333,7 +387,7 @@ export default function TournamentCheckin() {
                       </TableHead>
                       <TableBody>
                         {reg.matches.map((m) => (
-                          <TableRow key={m._id}>
+                          <TableRow key={m._id || m.code}>
                             <TableCell>{m.code}</TableCell>
                             <TableCell>{fmtDate(m.date)}</TableCell>
                             <TableCell>{fmtTime(m.time)}</TableCell>
@@ -358,7 +412,8 @@ export default function TournamentCheckin() {
                   </Box>
                 ) : (
                   <Typography variant="body2" color="text.secondary">
-                    Chưa có trận nào được xếp cho đôi này.
+                    Chưa có trận nào được xếp cho {isSingles ? "VĐV" : "đôi"}{" "}
+                    này.
                   </Typography>
                 )}
               </Paper>
@@ -366,15 +421,14 @@ export default function TournamentCheckin() {
           })}
         </Stack>
       </Paper>
-      {/* ====== HẾT phần mới, phần dưới GIỮ NGUYÊN ====== */}
 
-      {/* SEARCH BOX cho danh sách TRẬN của GIẢI (cũ) */}
+      {/* ====== (Cũ) SEARCH BOX cho danh sách TRẬN của GIẢI ====== */}
       <Row className="mb-3">
         <Col md={4}>
           <TextField
             fullWidth
             size="small"
-            placeholder="Tìm: Tên VĐV, mã trận, tình trạng…"
+            placeholder="Tìm: Tên VĐV/đội, mã trận, tình trạng…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             InputProps={{
@@ -388,13 +442,13 @@ export default function TournamentCheckin() {
         </Col>
       </Row>
 
-      {/* DANH SÁCH TRẬN CỦA GIẢI (cũ) */}
+      {/* ====== (Cũ) DANH SÁCH TRẬN CỦA GIẢI ====== */}
       {isLoading ? (
         <CircularProgress />
       ) : error ? (
         <Alert severity="error">{error?.data?.message || error.error}</Alert>
       ) : isMobile ? (
-        /* ---------- MOBILE: Thẻ xếp dọc ---------- */
+        /* MOBILE cards */
         <Stack spacing={2}>
           {filtered.map((m) => (
             <Paper key={m._id} elevation={1} sx={{ p: 2 }}>
@@ -414,7 +468,7 @@ export default function TournamentCheckin() {
               </Stack>
 
               <Typography variant="caption" color="text.secondary">
-                {fmtDate(m.date)} • {fmtTime(m.time)} • {m.field}
+                {fmtDate(m.date)} • {fmtTime(m.time)} • {m.field || "—"}
               </Typography>
 
               <Divider sx={{ my: 1 }} />
@@ -425,7 +479,7 @@ export default function TournamentCheckin() {
                 alignItems="center"
               >
                 <Typography variant="body2" fontWeight={500}>
-                  {m.team1}
+                  {fmtSide(m.team1)}
                 </Typography>
                 <Typography variant="subtitle1" fontWeight={700}>
                   {m.score1}-{m.score2}
@@ -436,7 +490,7 @@ export default function TournamentCheckin() {
                   textAlign="right"
                   sx={{ minWidth: 80 }}
                 >
-                  {m.team2}
+                  {fmtSide(m.team2)}
                 </Typography>
               </Stack>
 
@@ -454,7 +508,7 @@ export default function TournamentCheckin() {
           ))}
         </Stack>
       ) : (
-        /* ---------- DESKTOP: Bảng cũ ---------- */
+        /* DESKTOP table */
         <Box sx={{ width: "100%", overflowX: "auto" }}>
           <Table
             size="small"
@@ -483,13 +537,13 @@ export default function TournamentCheckin() {
                   <TableCell>{m.code}</TableCell>
                   <TableCell>{fmtDate(m.date)}</TableCell>
                   <TableCell>{fmtTime(m.time)}</TableCell>
-                  <TableCell>{m.team1}</TableCell>
+                  <TableCell>{fmtSide(m.team1)}</TableCell>
                   <TableCell align="center">
                     <strong>
                       {m.score1} - {m.score2}
                     </strong>
                   </TableCell>
-                  <TableCell>{m.team2}</TableCell>
+                  <TableCell>{fmtSide(m.team2)}</TableCell>
                   <TableCell>{m.field}</TableCell>
                   <TableCell>{m.referee}</TableCell>
                   <TableCell>

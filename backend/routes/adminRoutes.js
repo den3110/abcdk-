@@ -47,6 +47,7 @@ import {
   getMatchesByBracket,
   refereeUpdateScore,
 } from "../controllers/admin/matchController.js";
+import { softResetChainFrom } from "../service/matchChainReset.js";
 
 const router = express.Router();
 
@@ -103,10 +104,20 @@ router.get(
 );
 
 // Admin: list all matches
-router.get("/matches", protect, authorize("admin"), adminGetAllMatchesPagination);
+router.get(
+  "/matches",
+  protect,
+  authorize("admin"),
+  adminGetAllMatchesPagination
+);
 router.get("/matches/all", protect, authorize("admin"), adminGetAllMatches);
 
-router.get("/matches/groups", protect, authorize("admin"), adminListMatchGroups);
+router.get(
+  "/matches/groups",
+  protect,
+  authorize("admin"),
+  adminListMatchGroups
+);
 
 router.get("/matches/:id", protect, authorize("admin"), adminGetMatchById);
 
@@ -157,5 +168,17 @@ router.patch(
 );
 
 router.patch("/matches/:matchId", protect, adminUpdateMatch);
+
+router.post(
+  "/matches/:matchId/reset-chain",
+  /*protect, admin,*/ async (req, res, next) => {
+    try {
+      await softResetChainFrom(req.params.matchId);
+      res.json({ ok: true });
+    } catch (e) {
+      next(e);
+    }
+  }
+);
 
 export default router;
