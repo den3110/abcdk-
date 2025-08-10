@@ -63,7 +63,33 @@ export default function RankingList() {
   };
 
   const handleClose = () => setOpenProfile(false);
+  const cccdBadge = (status) => {
+    switch (status) {
+      case "verified":
+        return { text: "Xác thực", color: "success" };
+      case "pending":
+        return { text: "Chờ", color: "warning" };
+      case "rejected":
+      case "unverified":
+      default:
+        return { text: "Chưa xác thực", color: "default" };
+    }
+  };
 
+  const genderLabel = (g) => {
+    switch (g) {
+      case "male":
+        return "Nam";
+      case "female":
+        return "Nữ";
+      case "other":
+        return "Khác";
+      case "unspecified":
+        return "Chưa xác định";
+      default:
+        return "--";
+    }
+  };
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
       <Box
@@ -115,6 +141,7 @@ export default function RankingList() {
           {list?.map((r) => {
             const u = r?.user || {};
             const color = colorByGames(r?.games);
+            const badge = cccdBadge(u?.cccdStatus);
             return (
               <Card key={r?._id} variant="outlined">
                 <CardContent>
@@ -130,23 +157,23 @@ export default function RankingList() {
                     </Box>
                     <Box ml="auto">
                       <Chip
-                        label={u?.verified ? "Xác thực" : "Chờ"}
+                        label={badge.text}
                         size="small"
-                        color={u?.verified ? "success" : "default"}
+                        color={badge.color}
                       />
                     </Box>
                   </Box>
                   <Stack direction="row" spacing={2} flexWrap="wrap" mb={1}>
-                    <Chip label={`Giới tính: ${u?.gender || "--"}`} />
+                    <Chip label={`Giới tính: ${genderLabel(u?.gender)}`} />
                     <Chip label={`Tỉnh: ${u?.province || "--"}`} />
                   </Stack>
                   <Divider sx={{ mb: 1 }} />
                   <Stack direction="row" spacing={2} mb={1}>
                     <Typography variant="body2" sx={{ color }}>
-                      Đôi: {r?.ratingDouble?.toFixed(3)}
+                      Đôi: {r?.double?.toFixed(3)}
                     </Typography>
                     <Typography variant="body2" sx={{ color }}>
-                      Đơn: {r?.ratingSingle?.toFixed(3)}
+                      Đơn: {r?.single?.toFixed(3)}
                     </Typography>
                   </Stack>
                   <Typography variant="caption" color="text.secondary">
@@ -196,6 +223,7 @@ export default function RankingList() {
               {list?.map((r, idx) => {
                 const u = r?.user || {};
                 const color = colorByGames(r?.games);
+                const badge = cccdBadge(u?.cccdStatus);
                 return (
                   <TableRow key={r?._id}>
                     <TableCell>{page * 10 + idx + 1}</TableCell>
@@ -208,13 +236,13 @@ export default function RankingList() {
                       />
                     </TableCell>
                     <TableCell>{u?.nickname}</TableCell>
-                    <TableCell>{u?.gender || "--"}</TableCell>
+                    <TableCell>{genderLabel(u?.gender)}</TableCell>
                     <TableCell>{u?.province || "--"}</TableCell>
                     <TableCell sx={{ color }}>
-                      {r?.ratingDouble?.toFixed(3)}
+                      {r?.double?.toFixed(3)}
                     </TableCell>
                     <TableCell sx={{ color }}>
-                      {r?.ratingSingle?.toFixed(3)}
+                      {r?.single?.toFixed(3)}
                     </TableCell>
                     <TableCell>
                       {new Date(r?.updatedAt)?.toLocaleDateString()}
@@ -224,9 +252,9 @@ export default function RankingList() {
                     </TableCell>
                     <TableCell>
                       <Chip
-                        label={u?.verified ? "Xác thực" : "Chờ"}
+                        label={badge.text}
                         size="small"
-                        color={u?.verified ? "success" : "default"}
+                        color={badge.color}
                       />
                     </TableCell>
                     <TableCell>

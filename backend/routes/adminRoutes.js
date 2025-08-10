@@ -40,7 +40,9 @@ import {
   adminCreateMatch,
   adminDeleteMatch,
   adminGetAllMatches,
+  adminGetAllMatchesPagination,
   adminGetMatchById,
+  adminListMatchGroups,
   adminUpdateMatch,
   getMatchesByBracket,
   refereeUpdateScore,
@@ -101,7 +103,10 @@ router.get(
 );
 
 // Admin: list all matches
-router.get("/matches", protect, authorize("admin"), adminGetAllMatches);
+router.get("/matches", protect, authorize("admin"), adminGetAllMatchesPagination);
+router.get("/matches/all", protect, authorize("admin"), adminGetAllMatches);
+
+router.get("/matches/groups", protect, authorize("admin"), adminListMatchGroups);
 
 router.get("/matches/:id", protect, authorize("admin"), adminGetMatchById);
 

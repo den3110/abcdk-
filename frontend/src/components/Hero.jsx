@@ -8,7 +8,7 @@ const Hero = () => {
     <section className="bg-light py-5 text-center text-lg-start">
       <Container>
         <Row className="align-items-center g-5">
-          {/* LEFT: Nội dung */} 
+          {/* LEFT: Nội dung */}
           <Col lg={6}>
             <h1 className="display-5 fw-bold mb-4">
               Kết nối cộng đồng &amp; <br className="d-none d-lg-block" />
@@ -30,13 +30,12 @@ const Hero = () => {
                 Bắt đầu ngay
               </Button>
               <Button
-                href="https://play.google.com/store/apps/details?id=com.ericdev.vnss"
+                as={Link}
                 variant="outline-secondary"
                 className="px-4 py-2"
-                target="_blank"
-                rel="noopener noreferrer"
+                to="/login"
               >
-                Tải trên Google Play
+                Đăng nhập
               </Button>
             </div>
           </Col>

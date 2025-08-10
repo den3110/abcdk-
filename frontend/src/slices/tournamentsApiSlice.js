@@ -59,6 +59,23 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       query: (tourId) => `/api/tournaments/${tourId}/matches`,
       providesTags: (r, e, id) => [{ type: "Matches", id }],
     }),
+    getTournamentMatchesForCheckin: builder.query({
+      query: (tournamentId) =>
+        `/api/tournaments/${tournamentId}/checkin-matches`,
+    }),
+    searchUserMatches: builder.query({
+      query: ({ tournamentId, q }) => ({
+        url: `/api/tournaments/checkin/search`,
+        params: { tournamentId, q },
+      }),
+    }),
+    userCheckinRegistration: builder.mutation({
+      query: (body) => ({
+        url: `/api/tournaments/checkin`,
+        method: "POST",
+        body, // { tournamentId, q, regId }
+      }),
+    }),
   }),
 });
 
@@ -70,4 +87,7 @@ export const {
   useCheckinMutation,
   useGetTournamentQuery,
   useGetMatchesQuery,
+  useGetTournamentMatchesForCheckinQuery,
+  useSearchUserMatchesQuery,
+  useUserCheckinRegistrationMutation,
 } = tournamentsApiSlice;

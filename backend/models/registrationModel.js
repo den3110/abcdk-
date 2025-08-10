@@ -36,4 +36,9 @@ const registrationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+registrationSchema.index({ tournament: 1 });
+registrationSchema.index({ "player1.phone": 1 });
+registrationSchema.index({ "player2.phone": 1 });
+
+
 export default mongoose.model("Registration", registrationSchema);

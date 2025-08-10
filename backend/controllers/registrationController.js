@@ -17,6 +17,15 @@ export const createRegistration = asyncHandler(async (req, res) => {
     throw new Error("Tournament not found");
   }
 
+  // ⬇️ NEW: chặn khi đủ cặp
+  if (tour.maxPairs && tour.maxPairs > 0) {
+    const currentCount = await Registration.countDocuments({ tournament: id });
+    if (currentCount >= tour.maxPairs) {
+      res.status(400);
+      throw new Error("Giải đã đủ số cặp đăng ký");
+    }
+  }
+
   /* ───── 2. Kiểm tra khung thời gian ───── */
   const now = Date.now();
   if (now < tour.regOpenDate || now > tour.registrationDeadline) {
@@ -147,5 +156,3 @@ export const checkinRegistration = asyncHandler(async (req, res) => {
 
   res.json(reg);
 });
-
-

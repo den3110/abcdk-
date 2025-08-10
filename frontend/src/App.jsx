@@ -10,7 +10,7 @@ const App = () => {
     <>
       <Header />
       <ToastContainer />
-      <Container className='my-2'>
+      <Container className='' style={{ marginBottom: '80px' }}>
         <Outlet />
          <MobileBottomNav /> 
       </Container>

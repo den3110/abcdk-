@@ -21,7 +21,7 @@ import { useUploadAvatarMutation } from "../slices/uploadApiSlice";
 import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 5 MB
 const PROVINCES = [
   "An Giang",
   "Bà Rịa-Vũng Tàu",
@@ -172,7 +172,7 @@ export default function RegisterScreen() {
 
       if (avatarFile && !uploadedUrl) {
         if (avatarFile.size > MAX_FILE_SIZE) {
-          toast.error("Ảnh không được vượt quá 5 MB.");
+          toast.error("Ảnh không được vượt quá 10 MB.");
           return;
         }
         const resUpload = await uploadAvatar(avatarFile).unwrap();

@@ -1,5 +1,6 @@
 import Registration from "../../models/registrationModel.js";
 import asyncHandler from "express-async-handler";
+import Tournament from "../../models/tournamentModel.js";
 
 /**
  * @desc    Approve or undo a registration’s payment (Admin)

@@ -125,4 +125,8 @@ matchSchema.post("findOneAndUpdate", async function (doc) {
   }
 });
 
+matchSchema.index({ tournament: 1, bracket: 1, status: 1, createdAt: -1 });
+matchSchema.index({ bracket: 1, createdAt: -1 });
+matchSchema.index({ tournament: 1, createdAt: -1 });
+
 export default mongoose.model("Match", matchSchema);

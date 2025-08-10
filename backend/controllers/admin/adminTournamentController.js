@@ -23,6 +23,7 @@ const createSchema = Joi.object({
   scoreCap: Joi.number().min(0).default(0),
   scoreGap: Joi.number().min(0).default(0),
   singleCap: Joi.number().min(0).default(0),
+  maxPairs: Joi.number().integer().min(0).default(0), // <-- NEW
 
   location: Joi.string().trim().min(2).required(),
   contactHtml: Joi.string().allow(""),
@@ -46,11 +47,13 @@ const updateSchema = Joi.object({
   scoreCap: Joi.number().min(0),
   scoreGap: Joi.number().min(0),
   singleCap: Joi.number().min(0),
+  maxPairs: Joi.number().integer().min(0), // <-- NEW
 
   location: Joi.string().trim().min(2),
   contactHtml: Joi.string().allow(""),
   contentHtml: Joi.string().allow(""),
 });
+
 /* --------------------------------------------------------------------- */
 
 const validate = (schema, payload) => {
@@ -76,25 +79,131 @@ const isObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
 export const getTournaments = async (req, res, next) => {
   try {
-    const page = Math.max(+req.query.page || 1, 1);
-    const limit = Math.min(+req.query.limit || 50, 100);
-    const sort = req.query.sort || "-createdAt";
+    const page = Math.max(parseInt(req.query.page ?? 1, 10), 1);
+    const limit = Math.min(parseInt(req.query.limit ?? 50, 10), 100);
+    const sort = (req.query.sort || "-createdAt").toString();
 
     const { keyword = "", status = "", sportType, groupId } = req.query;
 
-    const filter = {};
-    if (keyword.trim()) filter.name = { $regex: keyword.trim(), $options: "i" };
-    if (status) filter.status = status;
-    if (sportType) filter.sportType = Number(sportType);
-    if (groupId) filter.groupId = Number(groupId);
+    // Filter cơ bản (KHÔNG dùng status ở model)
+    const match = {};
+    if (keyword.trim()) match.name = { $regex: keyword.trim(), $options: "i" };
+    if (sportType) match.sportType = Number(sportType);
+    if (groupId) match.groupId = Number(groupId);
 
-    const [list, total] = await Promise.all([
-      Tournament.find(filter)
-        .sort(sort)
-        .skip((page - 1) * limit)
-        .limit(limit),
-      Tournament.countDocuments(filter),
-    ]);
+    // parse sort: "-createdAt,name" -> { createdAt: -1, name: 1 }
+    const parseSort = (s) =>
+      s.split(",").reduce((acc, token) => {
+        const key = token.trim();
+        if (!key) return acc;
+        if (key.startsWith("-")) acc[key.slice(1)] = -1;
+        else acc[key] = 1;
+        return acc;
+      }, {});
+    const sortSpec = Object.keys(parseSort(sort)).length
+      ? parseSort(sort)
+      : { createdAt: -1, _id: -1 };
+
+    const skip = (page - 1) * limit;
+    const TZ = "Asia/Bangkok";
+
+    // Chuẩn hoá tham số status (dùng status theo thời gian)
+    const statusNorm = String(status || "").toLowerCase();
+    const mapStatus = {
+      upcoming: "upcoming",
+      sắp: "upcoming",
+      sap: "upcoming",
+      ongoing: "ongoing",
+      live: "ongoing",
+      đang: "ongoing",
+      dang: "ongoing",
+      finished: "finished",
+      done: "finished",
+      past: "finished",
+      đã: "finished",
+      da: "finished",
+    };
+    const wantedStatus = mapStatus[statusNorm] || null;
+
+    const pipeline = [
+      { $match: match },
+
+      // Tính status theo NGÀY (bao gồm cả ngày bắt đầu/kết thúc) theo TZ
+      {
+        $addFields: {
+          _nowDay: {
+            $dateToString: { date: "$$NOW", format: "%Y-%m-%d", timezone: TZ },
+          },
+          _startDay: {
+            $dateToString: {
+              date: "$startDate",
+              format: "%Y-%m-%d",
+              timezone: TZ,
+            },
+          },
+          _endDay: {
+            $dateToString: {
+              date: "$endDate",
+              format: "%Y-%m-%d",
+              timezone: TZ,
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          status: {
+            $switch: {
+              branches: [
+                { case: { $lt: ["$_nowDay", "$_startDay"] }, then: "upcoming" },
+                { case: { $gt: ["$_nowDay", "$_endDay"] }, then: "finished" },
+              ],
+              default: "ongoing",
+            },
+          },
+        },
+      },
+    ];
+
+    // Lọc theo status mới nếu có
+    if (wantedStatus) {
+      pipeline.push({ $match: { status: wantedStatus } });
+    }
+
+    // Facet: data (sort/skip/limit + lookup registered) & total
+    pipeline.push({
+      $facet: {
+        data: [
+          { $sort: sortSpec },
+          { $skip: skip },
+          { $limit: limit },
+
+          // Đếm số registration thật
+          {
+            $lookup: {
+              from: "registrations",
+              let: { tid: "$_id" },
+              pipeline: [
+                { $match: { $expr: { $eq: ["$tournament", "$$tid"] } } },
+                { $group: { _id: null, c: { $sum: 1 } } },
+              ],
+              as: "_rc",
+            },
+          },
+          {
+            $addFields: {
+              registered: { $ifNull: [{ $arrayElemAt: ["$_rc.c", 0] }, 0] },
+            },
+          },
+          { $project: { _rc: 0, _nowDay: 0, _startDay: 0, _endDay: 0 } },
+        ],
+        total: [{ $count: "count" }],
+      },
+    });
+
+    const agg = await Tournament.aggregate(pipeline);
+    const list = agg?.[0]?.data || [];
+    const total = agg?.[0]?.total?.[0]?.count || 0;
 
     res.json({ total, page, limit, list });
   } catch (err) {
@@ -134,9 +243,23 @@ export const updateTournament = async (req, res, next) => {
     // Validate phần payload gửi lên (optional + check thứ tự ngày nếu có)
     const payload = validate(updateSchema, req.body);
 
-    // Nếu payload rỗng không có gì để update
     if (!Object.keys(payload).length) {
       return res.status(400).json({ message: "Không có dữ liệu để cập nhật" });
+    }
+
+    // Check thứ tự ngày nếu cả 2 mốc đều có trong payload
+    const toDate = (v) => (v instanceof Date ? v : new Date(v));
+    if (payload.startDate && payload.endDate) {
+      if (toDate(payload.endDate) < toDate(payload.startDate)) {
+        return res.status(400).json({ message: "endDate phải ≥ startDate" });
+      }
+    }
+    if (payload.regOpenDate && payload.registrationDeadline) {
+      if (toDate(payload.registrationDeadline) < toDate(payload.regOpenDate)) {
+        return res
+          .status(400)
+          .json({ message: "registrationDeadline phải ≥ regOpenDate" });
+      }
     }
 
     const t = await Tournament.findByIdAndUpdate(

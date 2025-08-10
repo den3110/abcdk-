@@ -46,14 +46,18 @@ const userSchema = new mongoose.Schema(
     bio: { type: String, default: "" },
 
     /* ------- Thông tin phụ ------- */
-    gender: { type: String, enum: ["Nam", "Nữ", "--"], default: "--" },
+    gender: {
+      type: String,
+      enum: ["male", "female", "unspecified", "other"],
+      default: "unspecified",
+    },
     province: { type: String, default: "" },
 
     /* ------- Xác thực & điểm ------- */
     verified: {
       type: String,
-      enum: ["Chờ xác thực", "Xác thực"],
-      default: "Chờ xác thực",
+      enum: ["pending", "verified"],
+      default: "pending",
     },
     cccd: {
       type: String,

@@ -2,6 +2,7 @@ import Match from "../../models/matchModel.js";
 import Bracket from "../../models/bracketModel.js";
 import Registration from "../../models/registrationModel.js";
 import expressAsyncHandler from "express-async-handler";
+import mongoose from "mongoose";
 
 /* Tạo 1 trận trong 1 bảng */
 export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
@@ -275,6 +276,63 @@ export const adminAssignReferee = expressAsyncHandler(async (req, res) => {
  */
 // controllers/admin/matchController.js
 
+export const adminGetAllMatchesPagination = expressAsyncHandler(
+  async (req, res) => {
+    const {
+      tournament, // optional
+      bracket, // optional
+      status, // optional
+      page = 1,
+      limit = 10,
+      sort = "round,order,-createdAt", // mặc định: round↑, order↑, createdAt↓
+    } = req.query;
+
+    const pg = Math.max(parseInt(page, 10) || 1, 1);
+    const lm = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 200); // cap 200/trang
+
+    const filter = {};
+    if (tournament) filter.tournament = tournament;
+    if (bracket) filter.bracket = bracket;
+    if (status) filter.status = status;
+
+    const parseSort = (s) =>
+      s
+        .toString()
+        .split(",")
+        .reduce((acc, token) => {
+          const key = token.trim();
+          if (!key) return acc;
+          if (key.startsWith("-")) acc[key.slice(1)] = -1;
+          else acc[key] = 1;
+          return acc;
+        }, {});
+
+    const sortSpec = Object.keys(parseSort(sort)).length
+      ? parseSort(sort)
+      : { round: 1, order: 1, createdAt: -1, _id: -1 };
+
+    const skip = (pg - 1) * lm;
+
+    const [list, total] = await Promise.all([
+      Match.find(filter)
+        .populate({ path: "tournament", select: "name" })
+        .populate({ path: "bracket", select: "name" })
+        .populate({ path: "pairA", select: "player1 player2" })
+        .populate({ path: "pairB", select: "player1 player2" })
+        .populate({ path: "referee", select: "name nickname" })
+        .populate({ path: "previousA", select: "round order" })
+        .populate({ path: "previousB", select: "round order" })
+        .sort(sortSpec)
+        .skip(skip)
+        .limit(lm)
+        .lean(), // giảm overhead
+      Match.countDocuments(filter),
+    ]);
+
+    res.json({ total, page: pg, limit: lm, list });
+  }
+);
+
 export const adminGetAllMatches = expressAsyncHandler(async (req, res) => {
   const { tournament, bracket, status } = req.query;
   const filter = {};
@@ -297,6 +355,60 @@ export const adminGetAllMatches = expressAsyncHandler(async (req, res) => {
     .sort({ createdAt: -1 });
 
   res.json(matches);
+});
+
+export const adminListMatchGroups = expressAsyncHandler(async (req, res) => {
+  const { status } = req.query;
+  const match = {};
+  if (status) match.status = status;
+
+  const groups = await Match.aggregate([
+    { $match: match },
+    { $group: { _id: { t: "$tournament", b: "$bracket" } } },
+    {
+      $lookup: {
+        from: "tournaments",
+        localField: "_id.t",
+        foreignField: "_id",
+        as: "t",
+      },
+    },
+    {
+      $lookup: {
+        from: "brackets",
+        localField: "_id.b",
+        foreignField: "_id",
+        as: "b",
+      },
+    },
+    {
+      $project: {
+        tournamentId: "$_id.t",
+        bracketId: "$_id.b",
+        tournamentName: { $ifNull: [{ $first: "$t.name" }, "—"] },
+        bracketName: { $ifNull: [{ $first: "$b.name" }, "—"] },
+      },
+    },
+    { $sort: { tournamentName: 1, bracketName: 1 } },
+  ]);
+
+  // gộp theo tournament
+  const map = {};
+  for (const g of groups) {
+    const tId = g.tournamentId.toString();
+    if (!map[tId])
+      map[tId] = {
+        tournamentId: tId,
+        tournamentName: g.tournamentName,
+        brackets: [],
+      };
+    map[tId].brackets.push({
+      bracketId: g.bracketId.toString(),
+      bracketName: g.bracketName,
+    });
+  }
+
+  res.json(Object.values(map));
 });
 
 export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
@@ -465,4 +577,393 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     .populate({ path: "pairB", select: "player1 player2" });
 
   res.json(populated);
+});
+
+export const searchUserMatches = expressAsyncHandler(async (req, res) => {
+  const tournamentId = req.query.tournamentId;
+  // q có thể là array nếu params trùng; ép về string
+  const qRaw = Array.isArray(req.query.q) ? req.query.q[0] : req.query.q;
+  const q = (qRaw || "").trim();
+  if (!q)
+    return res.status(400).json({ message: "Vui lòng nhập SĐT hoặc nickname" });
+  if (!mongoose.Types.ObjectId.isValid(tournamentId)) {
+    return res.status(400).json({ message: "Invalid tournament id" });
+  }
+
+  const TZ = "Asia/Bangkok";
+  const qLower = q.toLowerCase();
+
+  // 1) Tìm registrations khớp SĐT hoặc nickname (case-insensitive)
+  const regs = await Registration.aggregate([
+    { $match: { tournament: new mongoose.Types.ObjectId(tournamentId) } },
+
+    // lookup users để lấy nickname (mảng)
+    {
+      $lookup: {
+        from: "users",
+        localField: "player1.user",
+        foreignField: "_id",
+        as: "_u1",
+      },
+    },
+    {
+      $lookup: {
+        from: "users",
+        localField: "player2.user",
+        foreignField: "_id",
+        as: "_u2",
+      },
+    },
+
+    // ✅ Stage 1: ép mảng -> object
+    {
+      $addFields: {
+        _u1: { $arrayElemAt: ["$_u1", 0] },
+        _u2: { $arrayElemAt: ["$_u2", 0] },
+      },
+    },
+
+    // ✅ Stage 2: mới dùng nickname/phone để match (tránh BSON array -> string)
+    {
+      $addFields: {
+        _matchPhone: {
+          $or: [{ $eq: ["$player1.phone", q] }, { $eq: ["$player2.phone", q] }],
+        },
+        _matchNick: {
+          $or: [
+            { $eq: [{ $toLower: { $ifNull: ["$_u1.nickname", ""] } }, qLower] },
+            { $eq: [{ $toLower: { $ifNull: ["$_u2.nickname", ""] } }, qLower] },
+          ],
+        },
+      },
+    },
+
+    { $match: { $or: [{ _matchPhone: true }, { _matchNick: true }] } },
+
+    {
+      $project: {
+        _id: 1,
+        tournament: 1,
+        player1: 1,
+        player2: 1,
+        checkinAt: 1,
+        payment: 1,
+        nickname1: { $ifNull: ["$_u1.nickname", ""] },
+        nickname2: { $ifNull: ["$_u2.nickname", ""] },
+      },
+    },
+  ]);
+
+  if (!regs.length) {
+    return res.json({ query: q, results: [] });
+  }
+
+  // 2) Lấy tất cả matches chứa các registration này
+  const regIds = regs.map((r) => r._id);
+  const matches = await Match.aggregate([
+    {
+      $match: {
+        tournament: new mongoose.Types.ObjectId(tournamentId),
+        $or: [{ pairA: { $in: regIds } }, { pairB: { $in: regIds } }],
+      },
+    },
+
+    // court / referee
+    {
+      $lookup: {
+        from: "courts",
+        localField: "court",
+        foreignField: "_id",
+        as: "_court",
+      },
+    },
+    { $addFields: { _court: { $arrayElemAt: ["$_court", 0] } } },
+    {
+      $lookup: {
+        from: "users",
+        localField: "referee",
+        foreignField: "_id",
+        as: "_ref",
+      },
+    },
+    { $addFields: { _ref: { $arrayElemAt: ["$_ref", 0] } } },
+
+    // tách ngày / giờ từ scheduledAt
+    {
+      $addFields: {
+        _todayStr: {
+          $dateToString: { date: "$$NOW", format: "%Y-%m-%d", timezone: TZ },
+        },
+        _schedDate: {
+          $cond: [
+            { $ifNull: ["$scheduledAt", false] },
+            {
+              $dateToString: {
+                date: "$scheduledAt",
+                format: "%Y-%m-%d",
+                timezone: TZ,
+              },
+            },
+            null,
+          ],
+        },
+        _schedTime: {
+          $cond: [
+            { $ifNull: ["$scheduledAt", false] },
+            {
+              $dateToString: {
+                date: "$scheduledAt",
+                format: "%H:%M",
+                timezone: TZ,
+              },
+            },
+            null,
+          ],
+        },
+      },
+    },
+
+    // set cuối (mặc định 0-0)
+    {
+      $addFields: {
+        _lastSet: {
+          $cond: [
+            { $gt: [{ $size: "$gameScores" }, 0] },
+            { $arrayElemAt: ["$gameScores", -1] },
+            { a: 0, b: 0 },
+          ],
+        },
+      },
+    },
+
+    // map status -> nhãn + màu
+    {
+      $addFields: {
+        _statusVN: {
+          $cond: [
+            { $eq: ["$status", "finished"] },
+            "Hoàn thành",
+            {
+              $cond: [
+                { $eq: ["$status", "live"] },
+                "Đang thi đấu",
+                {
+                  $cond: [
+                    {
+                      $and: [
+                        { $ifNull: ["$scheduledAt", false] },
+                        { $eq: ["$_todayStr", "$_schedDate"] },
+                      ],
+                    },
+                    "Chuẩn bị",
+                    "Dự kiến",
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+        _statusColor: {
+          $cond: [
+            { $eq: ["$status", "finished"] },
+            "success",
+            {
+              $cond: [
+                { $eq: ["$status", "live"] },
+                "warning",
+                {
+                  $cond: [
+                    {
+                      $and: [
+                        { $ifNull: ["$scheduledAt", false] },
+                        { $eq: ["$_todayStr", "$_schedDate"] },
+                      ],
+                    },
+                    "info",
+                    "default",
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    },
+
+    // regOwner: trận này thuộc reg nào (A/B)
+    {
+      $addFields: {
+        regOwner: { $cond: [{ $in: ["$pairA", regIds] }, "$pairA", "$pairB"] },
+      },
+    },
+
+    // shape FE
+    {
+      $project: {
+        _id: 1,
+        code: {
+          $ifNull: [
+            "$code",
+            {
+              $concat: [
+                "M-",
+                { $toString: "$round" },
+                "-",
+                { $toString: "$order" },
+              ],
+            },
+          ],
+        },
+        date: "$_schedDate",
+        time: "$_schedTime",
+        score1: { $ifNull: ["$_lastSet.a", 0] },
+        score2: { $ifNull: ["$_lastSet.b", 0] },
+        field: {
+          $let: {
+            vars: {
+              label: {
+                $ifNull: ["$_court.name", { $ifNull: ["$courtLabel", ""] }],
+              },
+            },
+            in: {
+              $cond: [
+                { $gt: [{ $strLenCP: "$$label" }, 0] },
+                "$$label",
+                "Chưa xác định",
+              ],
+            },
+          },
+        },
+        referee: { $ifNull: ["$_ref.name", ""] },
+        status: "$_statusVN",
+        statusColor: "$_statusColor",
+        pairA: 1,
+        pairB: 1,
+        regOwner: 1,
+      },
+    },
+
+    { $sort: { date: 1, time: 1, code: 1 } },
+  ]);
+
+  // 3) Gom matches theo registration
+  const resultMap = new Map(
+    regs.map((r) => [
+      String(r._id),
+      {
+        regId: r._id,
+        teamLabel: `${r.player1.fullName} & ${r.player2.fullName}`,
+        paid: r.payment?.status === "Paid",
+        checkinAt: r.checkinAt || null,
+        matches: [],
+      },
+    ])
+  );
+
+  for (const m of matches) {
+    const rid = String(m.regOwner);
+    if (resultMap.has(rid)) resultMap.get(rid).matches.push(m);
+  }
+
+  res.json({
+    query: q,
+    results: Array.from(resultMap.values()),
+  });
+});
+
+export const userCheckinRegistration = expressAsyncHandler(async (req, res) => {
+  let { tournamentId, q, regId } = req.body || {};
+
+  // q có thể là array khi client gửi trùng key, ép về string
+  q = Array.isArray(q) ? q[0] : q;
+  if (!q || !String(q).trim()) {
+    return res.status(400).json({ message: "Vui lòng nhập SĐT hoặc nickname" });
+  }
+  q = String(q).trim();
+
+  if (
+    !mongoose.Types.ObjectId.isValid(tournamentId) ||
+    !mongoose.Types.ObjectId.isValid(regId)
+  ) {
+    return res.status(400).json({ message: "Dữ liệu không hợp lệ" });
+  }
+
+  // Chuẩn hoá SĐT: chỉ giữ số, đổi 84xxxx -> 0xxxx
+  const normalizePhone = (raw) => {
+    if (!raw) return "";
+    const digits = String(raw).replace(/\D+/g, "");
+    if (!digits) return "";
+    if (digits.startsWith("84")) return "0" + digits.slice(2);
+    return digits.startsWith("0") ? digits : digits; // giữ nguyên nếu đã bắt đầu bằng 0
+  };
+  const qPhone = normalizePhone(q);
+  const isQPhone = qPhone.length >= 9; // phỏng đoán: người dùng nhập SĐT
+
+  // Lấy registration + nickname để so khớp
+  const reg = await Registration.findOne({
+    _id: regId,
+    tournament: tournamentId,
+  })
+    .populate({ path: "player1.user", select: "nickname" })
+    .populate({ path: "player2.user", select: "nickname" });
+
+  if (!reg) return res.status(404).json({ message: "Không tìm thấy đăng ký" });
+
+  // So khớp theo phone (sau chuẩn hoá) hoặc nickname (case-insensitive)
+  const p1 = normalizePhone(reg.player1?.phone);
+  const p2 = normalizePhone(reg.player2?.phone);
+  const okByPhone = isQPhone && (qPhone === p1 || qPhone === p2);
+
+  const qLower = q.toLowerCase();
+  const n1 = (reg.player1?.user?.nickname || "").toLowerCase();
+  const n2 = (reg.player2?.user?.nickname || "").toLowerCase();
+  const okByNick = !isQPhone && (qLower === n1 || qLower === n2);
+
+  if (!okByPhone && !okByNick) {
+    return res
+      .status(403)
+      .json({ message: "SĐT/Nickname không khớp với đăng ký này" });
+  }
+
+  const paid = (reg.payment?.status || "").toLowerCase() === "paid";
+  if (!paid) {
+    return res.status(400).json({ message: "Chưa thanh toán lệ phí" });
+  }
+
+  // Nếu đã check-in trước đó -> trả 200 idempotent
+  if (reg.checkinAt) {
+    return res.status(200).json({
+      ok: true,
+      message: "Đã check-in trước đó",
+      checkinAt: reg.checkinAt,
+    });
+  }
+
+  // Atomic update: chỉ set khi chưa có checkinAt (tránh double click/race)
+  const now = new Date();
+  const updated = await Registration.findOneAndUpdate(
+    {
+      _id: regId,
+      tournament: tournamentId,
+      $or: [{ checkinAt: null }, { checkinAt: { $exists: false } }],
+    },
+    { $set: { checkinAt: now } },
+    { new: true }
+  );
+
+  if (!updated) {
+    // Có thể vừa được check-in bởi request khác
+    const fresh = await Registration.findById(regId).select("checkinAt");
+    return res.status(200).json({
+      ok: true,
+      message: "Đã check-in trước đó",
+      checkinAt: fresh?.checkinAt || now,
+    });
+  }
+
+  return res.status(200).json({
+    ok: true,
+    message: "Check-in thành công",
+    checkinAt: updated.checkinAt,
+  });
 });

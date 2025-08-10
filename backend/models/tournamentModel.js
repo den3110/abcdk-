@@ -18,6 +18,7 @@ const tournamentSchema = new mongoose.Schema(
       required: true,
       default: Date.now, // ✅ mặc định hôm nay
     },
+    maxPairs: { type: Number, default: 0, min: 0 },
     registrationDeadline: {
       type: Date,
       required: true,
@@ -43,7 +44,7 @@ const tournamentSchema = new mongoose.Schema(
     singleCap: { type: Number, required: true, default: 0 }, // Điểm tối đa 1 VĐV
 
     /* Thống kê */
-    registered: { type: Number, default: 0 },
+    // registered: { type: Number, default: 0 },
     expected: { type: Number, default: 0 },
     matchesCount: { type: Number, default: 0 },
 

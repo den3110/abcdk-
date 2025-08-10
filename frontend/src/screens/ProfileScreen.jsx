@@ -16,10 +16,12 @@ import {
   Typography,
   Chip,
 } from "@mui/material";
-import { useDispatch, useSelector } from "react-redux";
-import { useGetProfileQuery, useUpdateUserMutation } from "../slices/usersApiSlice";
+// import { useDispatch, useSelector } from "react-redux";
+import {
+  useGetProfileQuery,
+  useUpdateUserMutation,
+} from "../slices/usersApiSlice";
 import { useUploadCccdMutation } from "../slices/uploadApiSlice";
-import { setCredentials } from "../slices/authSlice";
 import CccdDropzone from "../components/CccdDropzone";
 
 /* ---------- Danh sách tỉnh ---------- */
@@ -89,6 +91,14 @@ const PROVINCES = [
   "Yên Bái",
 ];
 
+/* ---------- Gender options (enum mới) ---------- */
+const GENDER_OPTIONS = [
+  { value: "unspecified", label: "--" },
+  { value: "male", label: "Nam" },
+  { value: "female", label: "Nữ" },
+  { value: "other", label: "Khác" },
+];
+
 /* ---------- Form gốc ---------- */
 const EMPTY = {
   name: "",
@@ -100,14 +110,12 @@ const EMPTY = {
   email: "",
   password: "",
   confirmPassword: "",
+  gender: "unspecified", // ⬅️ thêm
 };
 
 export default function ProfileScreen() {
-  /* ---- Fetch profile trực tiếp ---- */
   const { data: user, isLoading: fetching, refetch } = useGetProfileQuery();
-  const dispatch = useDispatch();
 
-  /* ---- Local state form ---- */
   const [form, setForm] = useState(EMPTY);
   const [touched, setTouched] = useState({});
   const [errors, setErrors] = useState({});
@@ -133,20 +141,20 @@ export default function ProfileScreen() {
       email: user.email || "",
       password: "",
       confirmPassword: "",
+      gender: user.gender || "unspecified", // ⬅️ thêm
     };
     initialRef.current = init;
     setForm(init);
   }, [user]);
 
-  /* Validate (giữ nguyên) */
+  /* Validate */
   const validate = (d) => {
     const e = {};
     if (!d.name.trim()) e.name = "Không được bỏ trống";
     else if (d.name.trim().length < 2) e.name = "Tối thiểu 2 ký tự";
     if (!d.nickname.trim()) e.nickname = "Không được bỏ trống";
     else if (d.nickname.trim().length < 2) e.nickname = "Tối thiểu 2 ký tự";
-    if (!/^0\d{9}$/.test(d.phone.trim())) 
-      e.phone = "Sai định dạng (10 chữ số)";
+    if (!/^0\d{9}$/.test(d.phone.trim())) e.phone = "Sai định dạng (10 chữ số)";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email.trim()))
       e.email = "Email không hợp lệ";
     if (d.dob) {
@@ -160,6 +168,10 @@ export default function ProfileScreen() {
     if (d.password) {
       if (d.password.length < 6) e.password = "Tối thiểu 6 ký tự";
       if (d.password !== d.confirmPassword) e.confirmPassword = "Không khớp";
+    }
+    // ✅ validate gender theo enum
+    if (!["male", "female", "unspecified", "other"].includes(d.gender)) {
+      e.gender = "Giới tính không hợp lệ";
     }
     return e;
   };
@@ -185,7 +197,7 @@ export default function ProfileScreen() {
     const out = { _id: user._id };
     for (const k in form) {
       if (k === "confirmPassword") continue;
-      if (form[k] && form[k] !== initialRef.current[k]) out[k] = form[k];
+      if (form[k] !== initialRef.current[k]) out[k] = form[k];
     }
     return out;
   };
@@ -203,14 +215,14 @@ export default function ProfileScreen() {
 
     try {
       await updateProfile(diff()).unwrap();
-      await refetch(); // reload profile mới nhất
+      await refetch();
       setTouched({});
       setSnack({ open: true, type: "success", msg: "Đã lưu thành công" });
     } catch (err) {
       setSnack({
         open: true,
         type: "error",
-        msg: err?.data?.message || err.error || "Cập nhật thất bại",
+        msg: err?.data?.message || err?.error || "Cập nhật thất bại",
       });
     }
   };
@@ -225,7 +237,7 @@ export default function ProfileScreen() {
       await uploadCccd(fd).unwrap();
       setFrontImg(null);
       setBackImg(null);
-      await refetch(); // lấy trạng thái mới & url ảnh
+      await refetch();
       setSnack({ open: true, type: "success", msg: "Đã gửi, chờ xác minh" });
     } catch (err) {
       setSnack({
@@ -236,7 +248,6 @@ export default function ProfileScreen() {
     }
   };
 
-  /* Nếu đang fetch profile */
   if (fetching || !user)
     return (
       <Box sx={{ display: "flex", justifyContent: "center", mt: 10 }}>
@@ -244,13 +255,11 @@ export default function ProfileScreen() {
       </Box>
     );
 
-  /* Logic hiển thị CCCD */
   const status = user.cccdStatus || "unverified";
   const showUpload = status === "unverified" || status === "rejected";
   const frontUrl = user.cccdImages?.front || "";
   const backUrl = user.cccdImages?.back || "";
 
-  /* ---------------- UI ---------------- */
   return (
     <Container maxWidth="sm" sx={{ py: 4 }}>
       <Paper elevation={2} sx={{ p: 3 }}>
@@ -258,7 +267,6 @@ export default function ProfileScreen() {
           Cập nhật hồ sơ
         </Typography>
 
-        {/* Form */}
         <Box component="form" onSubmit={submit} noValidate>
           <Stack spacing={2}>
             {/* ------ Thông tin cá nhân ------ */}
@@ -296,6 +304,34 @@ export default function ProfileScreen() {
               error={showErr("phone")}
               helperText={showErr("phone") ? errors.phone : " "}
             />
+
+            {/* 🔹 Giới tính */}
+            <FormControl fullWidth error={showErr("gender")}>
+              <InputLabel id="gender-lbl" shrink>
+                Giới tính
+              </InputLabel>
+              <Select
+                labelId="gender-lbl"
+                label="Giới tính"
+                name="gender"
+                value={form.gender}
+                onChange={onChange}
+                onBlur={onBlur}
+                displayEmpty
+              >
+                {GENDER_OPTIONS.map((opt) => (
+                  <MenuItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </MenuItem>
+                ))}
+              </Select>
+              {showErr("gender") && (
+                <Typography variant="caption" color="error">
+                  {errors.gender}
+                </Typography>
+              )}
+            </FormControl>
+
             <TextField
               label="Ngày sinh"
               type="date"

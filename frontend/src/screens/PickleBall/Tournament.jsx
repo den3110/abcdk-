@@ -54,7 +54,7 @@ const columns = [
   { label: "Tên giải" },
   { label: "Hạn đăng ký" },
   { label: "Đăng ký / Dự kiến", align: "center" },
-  { label: "Số trận", align: "center" },
+  // { label: "Số trận", align: "center" },
   { label: "Thời gian" },
   { label: "Địa điểm" },
   { label: "Trạng thái", align: "center" },
@@ -284,9 +284,9 @@ export default function TournamentDashboard() {
                           {formatDate(t.registrationDeadline)}
                         </TableCell>
                         <TableCell align="center">
-                          {t.registered}/{t.expected}
+                          {t.registered}/{t.maxPairs}
                         </TableCell>
-                        <TableCell align="center">{t.matchesCount}</TableCell>
+                        {/* <TableCell align="center">{t.matchesCount}</TableCell> */}
                         <TableCell>
                           {formatDate(t.startDate)} – {formatDate(t.endDate)}
                         </TableCell>

@@ -59,7 +59,6 @@ const registerUser = asyncHandler(async (req, res) => {
   const duplicate = await User.findOne({
     $or: [{ email }, { phone }, { nickname }],
   });
-
   if (duplicate) {
     if (duplicate.email === email) {
       res.status(400);
@@ -97,24 +96,49 @@ const registerUser = asyncHandler(async (req, res) => {
     province,
   });
 
-  if (user) {
-    generateToken(res, user._id);
-    res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      nickname: user.nickname,
-      phone: user.phone,
-      dob: user.dob,
-      email: user.email,
-      avatar: user.avatar,
-      cccd: user.cccd,
-      cccdStatus: user.cccdStatus,
-      province: user.province,
-    });
-  } else {
+  if (!user) {
     res.status(400);
     throw new Error("Dữ liệu không hợp lệ");
   }
+
+  // 🔽 Upsert Ranking ngay sau khi tạo user
+  try {
+    await Ranking.updateOne(
+      { user: user._id },
+      {
+        $setOnInsert: {
+          user: user._id,
+          single: 0,
+          double: 0,
+          mix: 0,
+          points: 0,
+          lastUpdated: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+  } catch (err) {
+    // Nếu unique index đã có và có race => 11000: có thể bỏ qua an toàn
+    if (err?.code !== 11000) {
+      console.error("Create ranking failed:", err);
+      // tuỳ chính sách: không nên chặn đăng ký, nên chỉ log
+    }
+  }
+
+  // Trả response
+  generateToken(res, user._id);
+  res.status(201).json({
+    _id: user._id,
+    name: user.name,
+    nickname: user.nickname,
+    phone: user.phone,
+    dob: user.dob,
+    email: user.email,
+    avatar: user.avatar,
+    cccd: user.cccd,
+    cccdStatus: user.cccdStatus,
+    province: user.province,
+  });
 });
 
 // @desc    Logout user / clear cookie
@@ -163,7 +187,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy người dùng");
   }
 
-  const { name, nickname, phone, dob, province, cccd, email, password } =
+  const { name, nickname, phone, dob, province, cccd, email, password, gender } =
     req.body;
 
   /* --------------------- Kiểm tra trùng lặp --------------------- */
@@ -207,6 +231,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (province !== undefined) user.province = province;
   if (cccd !== undefined) user.cccd = cccd;
   if (email !== undefined) user.email = email;
+  if (gender !== undefined) user.gender= gender
   if (password) user.password = password;
 
   const updatedUser = await user.save();
@@ -224,6 +249,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     verified: updatedUser.verified,
     createdAt: updatedUser.createdAt,
     updatedAt: updatedUser.updatedAt,
+    gender: updatedUser.gender
   });
 });
 
