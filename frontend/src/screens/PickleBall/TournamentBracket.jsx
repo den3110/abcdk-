@@ -42,11 +42,22 @@ import { useSelector } from "react-redux";
 import { useLiveMatch } from "../../hook/useLiveMatch";
 
 /* ===================== Helpers ===================== */
-function safePairName(pair) {
+// 🔧 thêm eventType để biết single/double
+function safePairName(pair, eventType = "double") {
   if (!pair) return "—";
-  const p1 = pair.player1?.fullName || "N/A";
-  const p2 = pair.player2?.fullName || "N/A";
-  return `${p1} & ${p2}`;
+  const p1 =
+    pair.player1?.fullName ||
+    pair.player1?.name ||
+    pair.player1?.nickname ||
+    "N/A";
+  const p2 =
+    pair.player2?.fullName ||
+    pair.player2?.name ||
+    pair.player2?.nickname ||
+    "";
+  const isSingle = String(eventType).toLowerCase() === "single";
+  if (isSingle) return p1; // single: chỉ hiện player1
+  return p2 ? `${p1} & ${p2}` : p1; // double: có p2 thì hiện "p1 & p2"
 }
 function depLabel(prev) {
   if (!prev) return "TBD";
@@ -57,7 +68,8 @@ function depLabel(prev) {
 function matchSideLabel(m, side) {
   const pair = side === "A" ? m.pairA : m.pairB;
   const prev = side === "A" ? m.previousA : m.previousB;
-  if (pair) return safePairName(pair);
+  // 🔧 truyền eventType từ match.tournament
+  if (pair) return safePairName(pair, m?.tournament?.eventType);
   if (prev) return depLabel(prev);
   return "Chưa có đội";
 }
@@ -301,11 +313,16 @@ function MatchDialog({ open, matchId, onClose }) {
     token
   );
 
-  const m = live?.match || base; // ưu tiên snapshot realtime nếu có
+  const m = live || base; // ưu tiên snapshot realtime nếu có
   const streams = extractStreams(m);
 
-  const teamA = m?.pairA ? safePairName(m.pairA) : depLabel(m?.previousA);
-  const teamB = m?.pairB ? safePairName(m.pairB) : depLabel(m?.previousB);
+  // 🔧 dùng m.tournament.eventType để render tên cặp
+  const teamA = m?.pairA
+    ? safePairName(m.pairA, m?.tournament?.eventType)
+    : depLabel(m?.previousA);
+  const teamB = m?.pairB
+    ? safePairName(m.pairB, m?.tournament?.eventType)
+    : depLabel(m?.previousB);
   const status = m?.status || "scheduled";
   const winnerSide = m?.status === "finished" ? m?.winner : "";
   const gamesWon = countGamesWon(m?.gameScores);
@@ -440,6 +457,7 @@ function MatchDialog({ open, matchId, onClose }) {
                       Ván hiện tại
                     </Typography>
                   )}
+                  {/* Tí số */}
                   <Typography variant="h4" fontWeight={800}>
                     {curr.a} – {curr.b}
                   </Typography>
@@ -516,7 +534,8 @@ function MatchDialog({ open, matchId, onClose }) {
 }
 
 /* ===================== BXH group ===================== */
-function GroupStandingsTable({ rows, onOpenMatch }) {
+// 🔧 thêm eventType để render tên đúng
+function GroupStandingsTable({ rows, onOpenMatch, eventType }) {
   return (
     <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
       <Table size="small" sx={{ tableLayout: "fixed", minWidth: 480 }}>
@@ -537,7 +556,8 @@ function GroupStandingsTable({ rows, onOpenMatch }) {
             rows.map((row, idx) => (
               <TableRow key={row.pair?._id || idx}>
                 <TableCell>{idx + 1}</TableCell>
-                <TableCell>{safePairName(row.pair)}</TableCell>
+                {/* 🔧 dùng eventType để ẩn player2 nếu single */}
+                <TableCell>{safePairName(row.pair, eventType)}</TableCell>
                 <TableCell align="center">{row.win}</TableCell>
                 <TableCell align="center">{row.loss}</TableCell>
               </TableRow>
@@ -744,7 +764,12 @@ export default function DemoTournamentStages() {
           <Typography variant="subtitle1" gutterBottom>
             Bảng xếp hạng
           </Typography>
-          <GroupStandingsTable rows={groupStandings[current._id] || []} />
+          {/* 🔧 truyền eventType của giải để hiển thị tên đúng */}
+          <GroupStandingsTable
+            rows={groupStandings[current._id] || []}
+            onOpenMatch={undefined}
+            eventType={tour?.eventType}
+          />
 
           <Typography variant="subtitle1" gutterBottom>
             Các trận trong bảng
@@ -822,7 +847,8 @@ export default function DemoTournamentStages() {
               <>
                 {champion && (
                   <Alert severity="success" sx={{ mb: 1 }}>
-                    Vô địch: <b>{safePairName(champion)}</b>
+                    {/* 🔧 hiển thị theo eventType của giải */}
+                    Vô địch: <b>{safePairName(champion, tour?.eventType)}</b>
                   </Alert>
                 )}
 

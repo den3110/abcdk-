@@ -100,6 +100,18 @@ export function initSocket(
         await forfeitMatch(matchId, winner, reason, socket.user?._id, io);
       }
     );
+    socket.on("score:inc", async (data) => {
+      const { matchId, side, delta } = data || {};
+
+      // TODO: xử lý cập nhật điểm ở đây (gọi service hoặc mutation DB)
+      // ví dụ:
+      // await MatchService.incrementScore(matchId, side, delta);
+      const m = await Match.findById(matchId).populate(
+        "pairA pairB referee previousA previousB nextMatch tournament bracket"
+      );
+      // Gửi thông báo cho tất cả client khác cùng phòng match
+      if (m) io.to(`match:${matchId}`).emit("score:updated", toDTO(m));
+    });
   });
 
   return io; // ✅ trả instance ngay lập tức

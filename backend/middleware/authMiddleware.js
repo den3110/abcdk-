@@ -106,3 +106,12 @@ export const refereeOnly = (req, res, next) => {
   res.status(403);
   throw new Error("Referee-only endpoint");
 };
+
+export function canScore(req, res, next) {
+  // Admin/Referee chấm bất kỳ; user chỉ chấm chính mình
+  const targetUserId = req.params.userId || req.body.userId;
+  const isSelf = String(req.user._id) === String(targetUserId);
+  const role = req.user.role;
+  if (isSelf || role === "admin" || role === "referee") return next();
+  return res.status(403).json({ message: "Forbidden" });
+}

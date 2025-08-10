@@ -12,6 +12,7 @@ import uploadRoutes from "./routes/uploadRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import refereeRoutes from "./routes/refereeRoutes.js";
+import assessmentRoutes from "./routes/assessmentRoutes.js";
 import { initSocket } from "./socket/index.js";
 
 import cors from "cors";
@@ -61,6 +62,7 @@ app.use("/upload", uploadRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/referee", refereeRoutes);
+app.use("/api/assessments", assessmentRoutes);
 
 if (process.env.NODE_ENV === "production") {
   const __dirname = path.resolve();

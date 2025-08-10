@@ -11,6 +11,7 @@ export const toDTO = (m) => ({
   pairA: m.pairA,
   pairB: m.pairB,
   referee: m.referee,
+  tournament: m.tournament,
   scheduledAt: m.scheduledAt,
   startedAt: m.startedAt,
   finishedAt: m.finishedAt,

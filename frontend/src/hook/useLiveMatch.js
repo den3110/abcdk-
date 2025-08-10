@@ -52,10 +52,17 @@ export function useLiveMatch(matchId, token) {
       });
     };
 
+    // 🔥 CHỈNH SỬA: nhận sự kiện tăng/giảm điểm nhẹ từ server và cập nhật ngay UI
+    const onScoreUpdated = (evt) => {
+      console.log("evt", evt);
+      setState({loading: false, data: evt})
+    };
+
     // Join phòng và lắng nghe sự kiện
     socket.emit("match:join", { matchId });
     socket.on("match:snapshot", onSnapshot);
     socket.on("match:update", onUpdate);
+    socket.on("score:updated", onScoreUpdated);
 
     // Optionally xin snapshot ngay (nếu server hỗ trợ)
     socket.emit?.("match:snapshot:request", { matchId });
@@ -65,6 +72,7 @@ export function useLiveMatch(matchId, token) {
       socket.emit("match:leave", { matchId });
       socket.off("match:snapshot", onSnapshot);
       socket.off("match:update", onUpdate);
+      socket.off("score:updated", onScoreUpdated);
     };
   }, [socket, matchId]);
 
