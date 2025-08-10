@@ -1,8 +1,8 @@
 // scripts/seedRankings.js
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-import User from "../backend/models/userModel.js";
-import Ranking from "../backend/models/rankingModel.js";
+import User from "./backend/models/userModel.js";
+import Ranking from "./backend/models/rankingModel.js";
 
 dotenv.config();
 
