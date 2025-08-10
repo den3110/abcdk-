@@ -1,22 +1,26 @@
 // scripts/seedRankings.js
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-import User from "./backend/models/userModel.js";
-import Ranking from "./backend/models/rankingModel.js";
+import User from "../backend/models/userModel.js";
+import Ranking from "../backend/models/rankingModel.js";
 
 dotenv.config();
 
-const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
+const MONGO_URI =
+  process.env.NODE_ENV === "production"
+    ? process.env.MONGO_URI_PROD || process.env.MONGODB_URI_PROD
+    : process.env.MONGO_URI || process.env.MONGODB_URI;
+
 const BATCH_SIZE = 500;
 
 async function main() {
   if (!MONGO_URI) {
-    console.error("❌ Missing MONGO_URI in .env");
+    console.error(`❌ Missing MongoDB URI for ${process.env.NODE_ENV || "development"}`);
     process.exit(1);
   }
 
   await mongoose.connect(MONGO_URI);
-  console.log("✅ Connected to MongoDB");
+  console.log(`✅ Connected to MongoDB (${process.env.NODE_ENV || "development"})`);
 
   // Đảm bảo unique index cho { user: 1 }
   await Ranking.syncIndexes();
@@ -67,11 +71,9 @@ async function main() {
   async function flush(bulkOps) {
     try {
       const res = await Ranking.bulkWrite(bulkOps, { ordered: false });
-      // upsertedCount = số bản ghi mới tạo
       return res.upsertedCount || 0;
     } catch (err) {
-      // Duplicate key (11000) có thể phát sinh khi race condition — bỏ qua
-      if (err?.code === 11000) return 0;
+      if (err?.code === 11000) return 0; // Duplicate key
       console.error("Bulk error:", err?.message || err);
       failed += bulkOps.length;
       return 0;
