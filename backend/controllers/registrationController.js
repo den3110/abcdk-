@@ -4,6 +4,7 @@ import Tournament from "../models/tournamentModel.js";
 import User from "../models/userModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import mongoose from "mongoose";
+import Match from "../models/matchModel.js";
 
 /* Tạo đăng ký */
 // POST /api/tournaments/:id/registrations
