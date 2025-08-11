@@ -13,6 +13,6 @@ const router = express.Router();
 router.post("/:userId", protect, canScore, createAssessment);
 router.get("/:userId/latest", protect, getLatestAssessment);
 router.get("/:userId/history", protect, getAssessmentHistory);
-router.put("/:id", protect, updateAssessment); // bạn có thể thêm check role
+router.put("/:id", protect, updateAssessment);
 
 export default router;

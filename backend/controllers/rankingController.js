@@ -8,7 +8,7 @@ export const getRankings = asyncHandler(async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit ?? 10, 10) || 10, 100);
   const keyword = (req.query.keyword || "").trim();
 
-  // 1) Nếu có keyword, chỉ lấy _id các user có role='user' khớp nickname
+  // 1) Nếu có keyword, lấy _id user role='user' khớp nickname
   let userIdsFilter = null;
   if (keyword) {
     const rawIds = await User.find(
@@ -26,12 +26,12 @@ export const getRankings = asyncHandler(async (req, res) => {
     userIdsFilter = ids;
   }
 
-  // 2) Match cơ bản cho bảng ranking
+  // 2) Match cơ bản cho Ranking
   const matchStage = {
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
   };
 
-  // 3) Đếm số user hợp lệ (role='user') để tính totalPages
+  // 3) Đếm số user hợp lệ để tính totalPages
   const countAgg = await Ranking.aggregate([
     { $match: matchStage },
     { $match: { user: { $type: "objectId" } } },
@@ -41,32 +41,46 @@ export const getRankings = asyncHandler(async (req, res) => {
         localField: "user",
         foreignField: "_id",
         as: "userDoc",
-        pipeline: [
-          { $match: { role: "user" } }, // chỉ lấy user role='user'
-          { $project: { _id: 1 } },
-        ],
+        pipeline: [{ $match: { role: "user" } }, { $project: { _id: 1 } }],
       },
     },
     { $unwind: { path: "$userDoc", preserveNullAndEmptyArrays: false } },
     { $group: { _id: "$user" } },
     { $count: "n" },
   ]);
-
   const totalUniqueUsers = countAgg[0]?.n || 0;
 
-  // 4) Lấy dữ liệu trang hiện tại (mỗi user 1 ranking)
+  // 4) Sắp xếp ưu tiên uy tín -> points -> double -> single
+  const sortPref = {
+    reputation: -1,
+    points: -1,
+    double: -1,
+    single: -1,
+    updatedAt: -1,
+    _id: 1,
+  };
+
+  // 5) Lấy docs trang hiện tại
   const docsAgg = await Ranking.aggregate([
     { $match: matchStage },
     { $match: { user: { $type: "objectId" } } },
 
-    // sắp xếp trước để chọn bản ghi "đẹp" nhất cho mỗi user
-    { $sort: { double: -1, updatedAt: -1, _id: 1 } },
+    // đảm bảo có giá trị để sort
+    {
+      $addFields: {
+        reputation: { $ifNull: ["$reputation", 0] },
+        points: { $ifNull: ["$points", 0] },
+        single: { $ifNull: ["$single", 0] },
+        double: { $ifNull: ["$double", 0] },
+      },
+    },
 
-    // gom theo user -> mỗi user lấy 1 doc
+    // nếu (lý thuyết) có nhiều bản/1 user, chọn bản "đẹp" nhất theo sortPref
+    { $sort: sortPref },
     { $group: { _id: "$user", doc: { $first: "$$ROOT" } } },
     { $replaceRoot: { newRoot: "$doc" } },
 
-    // join sang users và CHỈ giữ user có role='user'
+    // join sang users và CHỈ giữ role='user'
     {
       $lookup: {
         from: "users",
@@ -91,12 +105,58 @@ export const getRankings = asyncHandler(async (req, res) => {
     },
     { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
 
-    // sort hiển thị cuối
-    { $sort: { double: -1, updatedAt: -1, _id: 1 } },
+    // lấy lần chấm gần nhất để biết tự chấm hay không
+    {
+      $lookup: {
+        from: "assessments",
+        let: { uid: "$user._id" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
+          { $sort: { scoredAt: -1 } },
+          { $limit: 1 },
+          { $project: { scorer: 1, "meta.selfScored": 1, scoredAt: 1 } },
+        ],
+        as: "latest",
+      },
+    },
+    { $addFields: { latest: { $arrayElemAt: ["$latest", 0] } } },
+    {
+      $addFields: {
+        isSelfScoredLatest: {
+          $cond: [
+            {
+              $or: [
+                { $eq: ["$latest.meta.selfScored", true] },
+                { $eq: ["$latest.scorer", "$user._id"] },
+              ],
+            },
+            true,
+            false,
+          ],
+        },
+      },
+    },
+
+    // sort hiển thị cuối cùng đúng ưu tiên
+    { $sort: sortPref },
 
     // paginate
     { $skip: page * limit },
     { $limit: limit },
+
+    // project bớt field
+    {
+      $project: {
+        user: 1,
+        single: 1,
+        double: 1,
+        mix: 1,
+        points: 1,
+        reputation: 1,
+        isSelfScoredLatest: 1,
+        updatedAt: 1,
+      },
+    },
   ]);
 
   res.json({
@@ -220,3 +280,60 @@ export const updateRanking = asyncHandler(async (req, res) => {
     double: rank.double,
   });
 });
+
+export async function getLeaderboard(req, res) {
+  const list = await Ranking.aggregate([
+    {
+      $lookup: {
+        from: "assessments",
+        let: { uid: "$user" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
+          { $sort: { scoredAt: -1 } },
+          { $limit: 1 },
+          { $project: { scorer: 1, "meta.selfScored": 1 } },
+        ],
+        as: "latest",
+      },
+    },
+    { $addFields: { latest: { $arrayElemAt: ["$latest", 0] } } },
+    {
+      $addFields: {
+        isSelfScoredLatest: {
+          $cond: [
+            {
+              $or: [
+                { $eq: ["$latest.meta.selfScored", true] },
+                { $eq: ["$latest.scorer", "$user"] },
+              ],
+            },
+            true,
+            false,
+          ],
+        },
+      },
+    },
+    // sort theo yêu cầu: reputation trước, rồi points, rồi điểm
+    {
+      $sort: {
+        reputation: -1,
+        points: -1,
+        double: -1,
+        single: -1,
+        lastUpdated: -1,
+      },
+    },
+    {
+      $project: {
+        user: 1,
+        single: 1,
+        double: 1,
+        points: 1,
+        reputation: 1,
+        isSelfScoredLatest: 1,
+        lastUpdated: 1,
+      },
+    },
+  ]);
+  res.json(list);
+}

@@ -23,7 +23,7 @@ export async function createAssessment(req, res) {
   try {
     const { singleScore, doubleScore, singleLevel, doubleLevel, meta } =
       computeLevels(items);
-
+    const selfScored = String(req.user?._id || "") === String(userId);
     // Lưu bản chấm
     const assessment = await Assessment.create(
       [
@@ -35,7 +35,7 @@ export async function createAssessment(req, res) {
           doubleScore,
           singleLevel,
           doubleLevel,
-          meta,
+          meta: { ...meta, selfScored },
           note,
         },
       ],

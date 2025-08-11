@@ -3,7 +3,7 @@ import Bracket from "../../models/bracketModel.js";
 import Registration from "../../models/registrationModel.js";
 import expressAsyncHandler from "express-async-handler";
 import mongoose from "mongoose";
-import { softResetChainFrom } from "../../service/matchChainReset.js";
+import { softResetChainFrom } from "../../services/matchChainReset.js";
 
 /* Tạo 1 trận trong 1 bảng */
 export const adminCreateMatch = expressAsyncHandler(async (req, res) => {

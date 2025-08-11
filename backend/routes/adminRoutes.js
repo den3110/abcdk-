@@ -20,6 +20,8 @@ import {
 import {
   createTournament,
   deleteTournament,
+  finishExpiredTournaments,
+  finishTournament,
   getTournamentById,
   getTournaments,
   updateTournament,
@@ -47,7 +49,8 @@ import {
   getMatchesByBracket,
   refereeUpdateScore,
 } from "../controllers/admin/matchController.js";
-import { softResetChainFrom } from "../service/matchChainReset.js";
+import { softResetChainFrom } from "../services/matchChainReset.js";
+import { finalizeExpiredTournaments } from "../services/tournamentLifecycle.js";
 
 const router = express.Router();
 
@@ -182,5 +185,8 @@ router.post(
     }
   }
 );
+
+router.post("/tournaments/finish-expired", protect, authorize("admin"), finishExpiredTournaments);
+router.put("/tournament/:id/finish", protect, authorize("admin"), finishTournament);
 
 export default router;

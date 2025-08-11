@@ -32,6 +32,7 @@ const assessmentSchema = new mongoose.Schema(
       freq: { type: Number, default: 0 }, // 0..5
       competed: { type: Boolean, default: false },
       external: { type: Number, default: 0 }, // 0..10
+      selfScored: { type: Boolean, default: false },
     },
 
     note: { type: String, default: "" },

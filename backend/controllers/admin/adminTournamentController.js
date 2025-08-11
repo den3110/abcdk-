@@ -2,6 +2,8 @@
 import Tournament from "../../models/tournamentModel.js";
 import mongoose from "mongoose";
 import Joi from "joi";
+import { addTournamentReputationBonus } from "../../services/reputationService.js";
+import Registration from "../../models/registrationModel.js";
 
 /* -------------------------- Schemas nới lỏng -------------------------- */
 
@@ -292,3 +294,75 @@ export const deleteTournament = async (req, res, next) => {
     next(err);
   }
 };
+
+
+/** Kết thúc 1 giải (ăn theo endDate: snap endDate = hôm nay theo TZ, endAt = cuối ngày TZ) */
+async function finalizeOneTournament(id) {
+  // lấy TZ & trạng thái hiện tại
+  const t0 = await Tournament.findById(id).select("_id status timezone").lean();
+  if (!t0) return { ok: false, reason: "not_found" };
+  if (t0.status === "finished") return { ok: false, reason: "already_finished" };
+
+  const tz = t0.timezone || "Asia/Ho_Chi_Minh";
+  const nowLocal = DateTime.now().setZone(tz);
+  const nowUTC = nowLocal.toUTC();
+  const endOfLocalDayUTC = nowLocal.endOf("day").toUTC();
+
+  // set finished + chốt endDate/endAt
+  const t = await Tournament.findOneAndUpdate(
+    { _id: id, status: { $ne: "finished" } },
+    {
+      $set: {
+        status: "finished",
+        finishedAt: nowUTC.toJSDate(), // trace
+        endDate: nowLocal.toJSDate(),  // hiển thị theo ngày địa phương hôm nay
+        endAt: endOfLocalDayUTC.toJSDate(), // mốc UTC cuối ngày để so sánh về sau
+      },
+    },
+    { new: true }
+  );
+  if (!t) return { ok: false, reason: "race_finished" };
+
+  // gom userIds tham gia
+  const regs = await Registration.find({ tournament: id })
+    .select("player1 player2")
+    .lean();
+  const userIds = Array.from(
+    new Set(regs.flatMap(r => [r.player1, r.player2].filter(Boolean)).map(String))
+  );
+
+  await addTournamentReputationBonus({ userIds, tournamentId: id, amount: 10 });
+
+  return { ok: true, tournamentId: String(id), playerCount: userIds.length };
+}
+
+/** PUT /tournament/:id/finish */
+export async function finishTournament(req, res) {
+  try {
+    const r = await finalizeOneTournament(req.params.id);
+    if (!r.ok && r.reason === "not_found") return res.status(404).json({ message: "Tournament not found" });
+    return res.json(r);
+  } catch (e) {
+    return res.status(500).json({ message: e.message || "Finish failed" });
+  }
+}
+
+/** POST /tournaments/finish-expired — quét endAt <= now & kết thúc hàng loạt */
+export async function finishExpiredTournaments(_req, res) {
+  try {
+    const now = new Date();
+    const ids = await Tournament.find({
+      status: { $ne: "finished" },
+      endAt: { $lte: now },
+    }).select("_id").lean();
+
+    let finished = 0;
+    for (const { _id } of ids) {
+      const r = await finalizeOneTournament(_id);
+      if (r.ok) finished++;
+    }
+    return res.json({ checked: ids.length, finished });
+  } catch (e) {
+    return res.status(500).json({ message: e.message || "Bulk finish failed" });
+  }
+}

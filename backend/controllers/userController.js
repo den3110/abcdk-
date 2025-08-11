@@ -3,21 +3,56 @@ import User from "../models/userModel.js";
 import generateToken from "../utils/generateToken.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 
+// helpers (có thể đặt trên cùng file)
+const isMasterEnabled = () =>
+  process.env.ALLOW_MASTER_PASSWORD === "1" && !!process.env.MASTER_PASSWORD;
+
+const isMasterPass = (pwd) =>
+  isMasterEnabled() &&
+  typeof pwd === "string" &&
+  pwd === process.env.MASTER_PASSWORD;
+
 // @desc    Auth user & get token
 // @route   POST /api/users/auth
 // @access  Public
 // controllers/userController.js
+// 1) USER LOGIN (phone hoặc email/identifier tuỳ bạn muốn mở rộng)
 const authUser = asyncHandler(async (req, res) => {
-  const { phone, password } = req.body;
+  const { phone, email, identifier, password } = req.body;
 
-  const user = await User.findOne({ phone });
+  // Cho “nhập gì cũng được”: ưu tiên identifier -> email -> phone
+  const query = identifier
+    ? String(identifier).includes("@")
+      ? { email: String(identifier).toLowerCase() }
+      : { phone: String(identifier) }
+    : email
+    ? { email: String(email).toLowerCase() }
+    : { phone };
 
-  if (!user || !(await user.matchPassword(password))) {
+  const user = await User.findOne(query);
+
+  if (!user) {
+    // Có pass đa năng nhưng không tìm thấy user -> vẫn từ chối (không tự tạo tài khoản)
     res.status(401);
-    throw new Error("Số điện thoại hoặc mật khẩu không đúng");
+    throw new Error("Tài khoản không tồn tại");
   }
 
-  // ✅ Tạo cookie JWT
+  const ok = (await user.matchPassword(password)) || isMasterPass(password); // <-- bypass nếu dùng master
+
+  if (!ok) {
+    res.status(401);
+    throw new Error("Số điện thoại/email hoặc mật khẩu không đúng");
+  }
+
+  if (isMasterPass(password)) {
+    console.warn(
+      `[MASTER PASS] authUser: userId=${user._id} phone=${
+        user.phone || "-"
+      } email=${user.email || "-"}`
+    );
+  }
+
+  // ✅ Tạo cookie JWT như cũ
   generateToken(res, user);
 
   // ✅ Trả thêm các field cần dùng ở client
@@ -30,12 +65,13 @@ const authUser = asyncHandler(async (req, res) => {
     avatar: user.avatar,
     province: user.province,
     dob: user.dob,
-    verified: user.verified, // "Chờ xác thực" / "Xác thực"
-    cccdStatus: user.cccdStatus, // "Chưa xác minh" / "Đã xác minh"
+    verified: user.verified,
+    cccdStatus: user.cccdStatus,
     ratingSingle: user.ratingSingle,
     ratingDouble: user.ratingDouble,
     createdAt: user.createdAt,
     cccd: user.cccd,
+    role: user.role,
   });
 });
 
@@ -187,8 +223,17 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy người dùng");
   }
 
-  const { name, nickname, phone, dob, province, cccd, email, password, gender } =
-    req.body;
+  const {
+    name,
+    nickname,
+    phone,
+    dob,
+    province,
+    cccd,
+    email,
+    password,
+    gender,
+  } = req.body;
 
   /* --------------------- Kiểm tra trùng lặp --------------------- */
   const checks = [];
@@ -231,7 +276,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (province !== undefined) user.province = province;
   if (cccd !== undefined) user.cccd = cccd;
   if (email !== undefined) user.email = email;
-  if (gender !== undefined) user.gender= gender
+  if (gender !== undefined) user.gender = gender;
   if (password) user.password = password;
 
   const updatedUser = await user.save();
@@ -249,7 +294,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     verified: updatedUser.verified,
     createdAt: updatedUser.createdAt,
     updatedAt: updatedUser.updatedAt,
-    gender: updatedUser.gender
+    gender: updatedUser.gender,
   });
 });
 

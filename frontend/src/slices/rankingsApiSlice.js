@@ -9,7 +9,6 @@ export const rankingsApiSlice = apiSlice.injectEndpoints({
           keyword
         )}&page=${page}&limit=${LIMIT}`,
       keepUnusedDataFor: 30,
-      
     }),
   }),
 });

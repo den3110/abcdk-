@@ -38,6 +38,7 @@ export const assessmentsApiSlice = apiSlice.injectEndpoints({
     getRankingByUser: builder.query({
       query: (userId) => `/api/rankings/${userId}`,
     }),
+ 
   }),
 });
 

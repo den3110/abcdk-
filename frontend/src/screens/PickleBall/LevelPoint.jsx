@@ -1,5 +1,5 @@
 // src/pages/LevelPointPage.jsx
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Container,
   Box,
@@ -23,11 +23,14 @@ import {
 } from "@mui/material";
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
-import { useCreateAssessmentMutation } from "../../slices/assessmentsApiSlice";
+import {
+  useCreateAssessmentMutation,
+  useGetLatestAssessmentQuery,
+} from "../../slices/assessmentsApiSlice";
 
 /**
  * Bảng cấu hình kỹ năng & trọng số – tổng weight = 1.0
- * (Bạn có thể điều chỉnh cho khớp backend)
+ * (đồng bộ công thức backend)
  */
 const SKILLS = [
   {
@@ -79,7 +82,7 @@ const SKILLS = [
       "• Di chuyển & phối hợp với đồng đội\n• Khai thác điểm yếu đối thủ\n• Ra quyết định hợp lý",
     weight: 0.1,
   },
-  // Các yếu tố thông tin thêm, weight = 0 để không ảnh hưởng Level
+  // weight = 0 không ảnh hưởng Level, vẫn lưu để tham khảo/meta
   {
     id: 8,
     name: "Tần suất chơi",
@@ -102,24 +105,58 @@ const SKILLS = [
 ];
 
 const SCORE_OPTIONS = Array.from({ length: 11 }).map((_, i) => i); // 0..10
-const FREQ_OPTIONS = [0, 1, 2, 3, 4, 5];
+const FREQ_OPTIONS = [0, 1, 2, 3, 4, 5]; // theo mô tả
 const YES_NO_OPTIONS = [0, 1];
 
-// Hệ số quy đổi -> Level ~ (Σ value*weight)/MAP_FACTOR
+// Hệ số quy đổi hiển thị Level ~ (Σ value*weight)/MAP_FACTOR
 const MAP_FACTOR = 1.9;
 
 export default function LevelPointPage({ userId: userIdProp }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const authedId = useSelector((s) => s?.auth?.userInfo?._id);
-  const userId = userIdProp || authedId; // ưu tiên prop, fallback lấy từ auth
+  const userId = userIdProp || authedId;
 
-  const [createAssessment, { isLoading }] = useCreateAssessmentMutation();
+  const [createAssessment, { isLoading: saving }] =
+    useCreateAssessmentMutation();
 
-  // [{ single, double }]
+  // map skillId -> index để fill nhanh
+  const skillIndexMap = useMemo(() => {
+    const m = new Map();
+    SKILLS.forEach((s, idx) => m.set(s.id, idx));
+    return m;
+  }, []);
+
+  // điểm [{ single, double }] theo thứ tự SKILLS
   const [values, setValues] = useState(
     SKILLS.map(() => ({ single: 0, double: 0 }))
   );
+
+  // lấy lần chấm gần nhất (nếu có)
+  const {
+    data: latest,
+    isLoading: loadingLatest,
+    isFetching: fetchingLatest,
+    error: latestError,
+  } = useGetLatestAssessmentQuery(userId, { skip: !userId });
+
+  // tự map điểm khi có latest
+  useEffect(() => {
+    if (!latest?.items?.length) return;
+    setValues((prev) => {
+      const next = [...prev];
+      for (const it of latest.items) {
+        const idx = skillIndexMap.get(it.skillId);
+        if (idx !== undefined) {
+          next[idx] = {
+            single: Number(it.single ?? 0),
+            double: Number(it.double ?? 0),
+          };
+        }
+      }
+      return next;
+    });
+  }, [latest, skillIndexMap]);
 
   const weightsSum = useMemo(
     () => SKILLS.reduce((acc, s) => acc + (s.weight || 0), 0),
@@ -164,13 +201,6 @@ export default function LevelPointPage({ userId: userIdProp }) {
       );
       return false;
     }
-    const allZero = values.every((v) => v.single === 0 && v.double === 0);
-    if (allZero) {
-      toast("Bạn chưa nhập điểm nào, vẫn tiếp tục gửi?", {
-        icon: "🤔",
-      });
-      // Không chặn gửi, chỉ cảnh báo.
-    }
     return true;
   };
 
@@ -181,28 +211,12 @@ export default function LevelPointPage({ userId: userIdProp }) {
       skillId: SKILLS[i].id,
       single: v.single,
       double: v.double,
-      weight: SKILLS[i].weight, // để backend dễ kiểm chứng
+      // weight có thể gửi kèm để backend kiểm
+      weight: SKILLS[i].weight,
     }));
 
-    const payload = {
-      items,
-      metrics: {
-        sumSingle,
-        sumDouble,
-        singleLevel: Number(singleLevel),
-        doubleLevel: Number(doubleLevel),
-        mapFactor: MAP_FACTOR,
-      },
-      note: "", // có thể cho người chấm nhập ghi chú riêng
-    };
-
-    // const tId = toast.loading("Đang lưu đánh giá…", {});
     try {
-      await createAssessment({
-        userId,
-        items: payload.items,
-        note: payload.note,
-      }).unwrap();
+      await createAssessment({ userId, items, note: "" }).unwrap();
       toast.success("Đã lưu đánh giá & cập nhật ranking!");
     } catch (err) {
       const msg =
@@ -231,6 +245,25 @@ export default function LevelPointPage({ userId: userIdProp }) {
     );
   };
 
+  const handleReset = () => {
+    setValues(SKILLS.map(() => ({ single: 0, double: 0 })));
+  };
+
+  const handleRefillFromLatest = () => {
+    if (!latest?.items?.length) return;
+    const next = SKILLS.map(() => ({ single: 0, double: 0 }));
+    for (const it of latest.items) {
+      const idx = skillIndexMap.get(it.skillId);
+      if (idx !== undefined) {
+        next[idx] = {
+          single: Number(it.single ?? 0),
+          double: Number(it.double ?? 0),
+        };
+      }
+    }
+    setValues(next);
+  };
+
   return (
     <Box className="min-h-screen bg-gray-50">
       <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -244,11 +277,49 @@ export default function LevelPointPage({ userId: userIdProp }) {
           <Typography variant="h4">
             Bảng chấm điểm trình môn Pickleball
           </Typography>
-          <Chip
-            label={`Tổng trọng số: ${weightsSum.toFixed(2)}`}
-            color={Math.abs(weightsSum - 1) < 1e-6 ? "success" : "warning"}
-            variant="outlined"
-          />
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            useFlexGap
+            gap={{ xs: 1, sm: 1.5 }}
+            alignItems={{ xs: "stretch", sm: "center" }}
+            sx={{ flexWrap: "wrap" }}
+          >
+            <Chip
+              label={`Tổng trọng số: ${weightsSum.toFixed(2)}`}
+              color={Math.abs(weightsSum - 1) < 1e-6 ? "success" : "warning"}
+              variant="outlined"
+              sx={{ width: { xs: "100%", sm: "auto" } }}
+            />
+
+            {!!userId &&
+              (loadingLatest || fetchingLatest ? (
+                <Chip
+                  size="small"
+                  label="Đang tải lần chấm gần nhất…"
+                  sx={{ width: { xs: "100%", sm: "auto" } }}
+                />
+              ) : latestError ? (
+                <Chip
+                  size="small"
+                  color="error"
+                  variant="outlined"
+                  label="Không tải được lần chấm gần nhất"
+                  sx={{ width: { xs: "100%", sm: "auto" } }}
+                />
+              ) : latest?.items?.length ? (
+                <Chip
+                  size="small"
+                  color="info"
+                  variant="outlined"
+                  label={`Đã tự điền từ lần gần nhất${
+                    latest?.scoredAt
+                      ? " • " + new Date(latest.scoredAt).toLocaleDateString()
+                      : ""
+                  }`}
+                  sx={{ width: { xs: "100%", sm: "auto" } }}
+                />
+              ) : null)}
+          </Stack>
         </Stack>
 
         {/* BODY – Bảng (desktop) hoặc Card list (mobile) */}
@@ -350,7 +421,7 @@ export default function LevelPointPage({ userId: userIdProp }) {
           </Box>
         )}
 
-        {/* FOOTER – hiển thị điểm & nút gửi */}
+        {/* FOOTER – điểm & hành động */}
         <Box mt={4}>
           <Card
             elevation={3}
@@ -363,17 +434,30 @@ export default function LevelPointPage({ userId: userIdProp }) {
                 justifyContent={{ xs: "center", sm: "space-between" }}
                 alignItems={{ xs: "stretch", sm: "center" }}
               >
-                <Stack spacing={1} sx={{ minWidth: 220 }}>
+                <Stack spacing={1} sx={{ minWidth: 240 }}>
                   <Button
                     variant="contained"
                     size="large"
                     fullWidth
                     onClick={handleSubmit}
-                    disabled={isLoading}
+                    disabled={saving || !userId}
                     sx={{ minWidth: { sm: 160 } }}
                   >
-                    {isLoading ? "Đang cập nhật…" : "Cập nhật"}
+                    {saving ? "Đang cập nhật…" : "Cập nhật"}
                   </Button>
+                  <Stack direction="row" spacing={1}>
+                    <Button size="small" variant="text" onClick={handleReset}>
+                      Xoá tất cả
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={handleRefillFromLatest}
+                      disabled={!latest?.items?.length}
+                    >
+                      Lấy lại từ lần gần nhất
+                    </Button>
+                  </Stack>
                   {!userId && (
                     <Typography variant="caption" color="error.main">
                       * Chưa xác định người dùng – không thể lưu
@@ -415,10 +499,11 @@ export default function LevelPointPage({ userId: userIdProp }) {
           display="block"
           mt={4}
         >
-          * Công thức quy đổi trình có thể cần đồng bộ với backend. Điều chỉnh ở{" "}
-          <code>MAP_FACTOR</code>. Các yếu tố “Tần suất chơi / Đấu giải / Điểm
-          hệ thống khác” hiện không ảnh hưởng Level (weight = 0) – vẫn được lưu
-          trong items để tham khảo.
+          * Công thức quy đổi trình hiển thị ở client: Level ≈ (Σ điểm×weight) /{" "}
+          <code>MAP_FACTOR</code>. Hệ thống backend sẽ tính lại & ghi nhận chính
+          thức khi lưu. Các yếu tố “Tần suất chơi / Đấu giải / Điểm hệ thống
+          khác” có weight = 0 (không làm thay đổi Level) nhưng vẫn được lưu để
+          tổng hợp meta.
         </Typography>
       </Container>
     </Box>

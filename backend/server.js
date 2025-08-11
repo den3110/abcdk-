@@ -14,16 +14,16 @@ import authRoutes from "./routes/authRoutes.js";
 import refereeRoutes from "./routes/refereeRoutes.js";
 import assessmentRoutes from "./routes/assessmentRoutes.js";
 import { initSocket } from "./socket/index.js";
-
 import cors from "cors";
 import dotenv from "dotenv";
+import { startTournamentCrons } from "./jobs/tournamentCron.js";
 dotenv.config();
 const port = process.env.PORT || 5000;
 const WHITELIST = [
   "https://abcdk.vercel.app",
   "https://abcde-xi.vercel.app",
   "https://admin.pickletour.vn",
-  "http://localhost:3001"
+  "http://localhost:3001",
 ];
 
 connectDB();
@@ -80,11 +80,10 @@ if (process.env.NODE_ENV === "production") {
 app.use(notFound);
 app.use(errorHandler);
 
-
-
 server.listen(port, () => {
   try {
     console.log(`✅ Server started on port ${port}`);
+    startTournamentCrons();
   } catch (error) {
     console.error(`❌ Error starting server: ${error.message}`);
   }

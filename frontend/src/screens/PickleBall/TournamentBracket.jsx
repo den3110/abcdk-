@@ -17,12 +17,12 @@ import {
   CircularProgress,
   Chip,
   Stack,
-  Dialog,
-  DialogTitle,
-  DialogContent,
   IconButton,
   Button,
   Link as MuiLink,
+  useMediaQuery,
+  useTheme,
+  Drawer,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -42,7 +42,6 @@ import { useSelector } from "react-redux";
 import { useLiveMatch } from "../../hook/useLiveMatch";
 
 /* ===================== Helpers ===================== */
-// 🔧 thêm eventType để biết single/double
 function safePairName(pair, eventType = "double") {
   if (!pair) return "—";
   const p1 =
@@ -56,8 +55,8 @@ function safePairName(pair, eventType = "double") {
     pair.player2?.nickname ||
     "";
   const isSingle = String(eventType).toLowerCase() === "single";
-  if (isSingle) return p1; // single: chỉ hiện player1
-  return p2 ? `${p1} & ${p2}` : p1; // double: có p2 thì hiện "p1 & p2"
+  if (isSingle) return p1;
+  return p2 ? `${p1} & ${p2}` : p1;
 }
 function depLabel(prev) {
   if (!prev) return "TBD";
@@ -68,15 +67,14 @@ function depLabel(prev) {
 function matchSideLabel(m, side) {
   const pair = side === "A" ? m.pairA : m.pairB;
   const prev = side === "A" ? m.previousA : m.previousB;
-  // 🔧 truyền eventType từ match.tournament
   if (pair) return safePairName(pair, m?.tournament?.eventType);
   if (prev) return depLabel(prev);
   return "Chưa có đội";
 }
 function resultLabel(m) {
   if (m?.status === "finished") {
-    if (m?.winner === "A") return "Đôi A thắng";
-    if (m?.winner === "B") return "Đôi B thắng";
+    if (m?.winner === "A") return "Đội A thắng";
+    if (m?.winner === "B") return "Đội B thắng";
     return "Hoà/Không xác định";
   }
   if (m?.status === "live") return "Đang diễn ra";
@@ -259,12 +257,11 @@ CustomSeed.propTypes = {
   onOpen: PropTypes.func,
 };
 
-/* ===================== Popup xem trận (realtime) ===================== */
+/* ===================== Bottom Drawer xem trận (realtime) ===================== */
 function ytEmbed(url) {
   if (!url) return null;
   try {
     const u = new URL(url);
-    // youtube watch?v= → embed/
     if (u.hostname.includes("youtube.com") && u.searchParams.get("v")) {
       return `https://www.youtube.com/embed/${u.searchParams.get("v")}`;
     }
@@ -275,7 +272,6 @@ function ytEmbed(url) {
   return null;
 }
 function extractStreams(m) {
-  // linh hoạt nhiều field: m.streams: [{label, url}], hoặc m.videoUrl, hoặc m.meta.streams
   const arr = [];
   const raw =
     m?.streams ||
@@ -300,8 +296,8 @@ function countGamesWon(gameScores) {
   return { A, B };
 }
 
-function MatchDialog({ open, matchId, onClose }) {
-  // token (nếu có) để referee thao tác; khán giả không cần
+function MatchSheet({ open, matchId, onClose }) {
+  const theme = useTheme();
   const { userInfo } = useSelector((s) => s.auth || {});
   const token = userInfo?.token;
 
@@ -313,10 +309,9 @@ function MatchDialog({ open, matchId, onClose }) {
     token
   );
 
-  const m = live || base; // ưu tiên snapshot realtime nếu có
+  const m = live || base;
   const streams = extractStreams(m);
 
-  // 🔧 dùng m.tournament.eventType để render tên cặp
   const teamA = m?.pairA
     ? safePairName(m.pairA, m?.tournament?.eventType)
     : depLabel(m?.previousA);
@@ -342,203 +337,280 @@ function MatchDialog({ open, matchId, onClose }) {
   const ytSrc = ytEmbed(yt?.url);
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
-      <DialogTitle sx={{ pr: 5 }}>
-        Trận đấu • {m ? `R${m.round || 1} #${m.order ?? 0}` : ""}
-        <Chip
-          size="small"
-          sx={{ ml: 1 }}
-          label={
-            status === "live"
-              ? "Đang diễn ra"
-              : status === "finished"
-              ? "Hoàn thành"
-              : "Dự kiến"
-          }
-          color={
-            status === "live"
-              ? "warning"
-              : status === "finished"
-              ? "success"
-              : "default"
-          }
+    <Drawer
+      anchor="bottom"
+      open={open}
+      onClose={onClose}
+      keepMounted
+      PaperProps={{
+        sx: {
+          borderTopLeftRadius: 16,
+          borderTopRightRadius: 16,
+          // Cao hơn: gần full screen trên mobile
+          height: { xs: "90vh", sm: "90vh" },
+          maxHeight: "100vh",
+          minHeight: { xs: "80vh", sm: "70vh" },
+        },
+      }}
+    >
+      <Box sx={{ p: 2, pt: 1.25, maxWidth: 1000, mx: "auto", width: "100%" }}>
+        {/* drag handle */}
+        <Box
+          sx={{
+            width: 36,
+            height: 4,
+            bgcolor: "text.disabled",
+            borderRadius: 2,
+            mx: "auto",
+            mb: 1.25,
+          }}
         />
-        <IconButton
-          onClick={onClose}
-          sx={{ position: "absolute", right: 8, top: 8 }}
-        >
-          <CloseIcon />
-        </IconButton>
-      </DialogTitle>
-      <DialogContent dividers>
-        {isLoading || liveLoading ? (
-          <Box py={4} textAlign="center">
-            <CircularProgress />
-          </Box>
-        ) : !m ? (
-          <Alert severity="error">Không tải được dữ liệu trận.</Alert>
-        ) : (
-          <Stack spacing={2}>
-            {/* STREAM AREA */}
-            {status === "live" ? (
-              ytSrc ? (
-                <Box sx={{ position: "relative", pt: "56.25%" }}>
-                  <iframe
-                    src={ytSrc}
-                    title="Live"
-                    allow="autoplay; encrypted-media; picture-in-picture"
-                    allowFullScreen
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      border: 0,
-                      width: "100%",
-                      height: "100%",
-                    }}
-                  />
-                </Box>
+        {/* header */}
+        <Box sx={{ position: "relative", pb: 1 }}>
+          <Typography variant="h6">
+            Trận đấu • {m ? `R${m.round || 1} #${m.order ?? 0}` : ""}
+            <Chip
+              size="small"
+              sx={{ ml: 1 }}
+              label={
+                status === "live"
+                  ? "Đang diễn ra"
+                  : status === "finished"
+                  ? "Hoàn thành"
+                  : "Dự kiến"
+              }
+              color={
+                status === "live"
+                  ? "warning"
+                  : status === "finished"
+                  ? "success"
+                  : "default"
+              }
+            />
+          </Typography>
+          <IconButton
+            onClick={onClose}
+            sx={{ position: "absolute", right: -6, top: -6 }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </Box>
+
+        <Box sx={{ overflowY: "auto", pr: { md: 1 }, pb: 1 }}>
+          {isLoading || liveLoading ? (
+            <Box py={4} textAlign="center">
+              <CircularProgress />
+            </Box>
+          ) : !m ? (
+            <Alert severity="error">Không tải được dữ liệu trận.</Alert>
+          ) : (
+            <Stack spacing={2}>
+              {/* STREAM AREA */}
+              {status === "live" ? (
+                ytSrc ? (
+                  <Box sx={{ position: "relative", pt: "56.25%" }}>
+                    <iframe
+                      src={ytSrc}
+                      title="Live"
+                      allow="autoplay; encrypted-media; picture-in-picture"
+                      allowFullScreen
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        border: 0,
+                        width: "100%",
+                        height: "100%",
+                      }}
+                    />
+                  </Box>
+                ) : (
+                  <Alert icon={<PlayIcon />} severity="info">
+                    Trận đang live.{" "}
+                    {streams.length
+                      ? "Chọn link bên dưới để xem trực tiếp."
+                      : "Chưa có link phát trực tiếp."}
+                  </Alert>
+                )
               ) : (
                 <Alert icon={<PlayIcon />} severity="info">
-                  Trận đang live.{" "}
+                  {status === "scheduled"
+                    ? "Trận chưa diễn ra. "
+                    : "Trận đã kết thúc. "}
                   {streams.length
-                    ? "Chọn link bên dưới để xem trực tiếp."
-                    : "Chưa có link phát trực tiếp."}
+                    ? "Bạn có thể mở liên kết xem video:"
+                    : "Chưa có liên kết video."}
                 </Alert>
-              )
-            ) : (
-              <Alert icon={<PlayIcon />} severity="info">
-                {status === "scheduled"
-                  ? "Trận chưa diễn ra. "
-                  : "Trận đã kết thúc. "}
-                {streams.length
-                  ? "Bạn có thể mở liên kết xem video:"
-                  : "Chưa có liên kết video."}
-              </Alert>
-            )}
+              )}
 
-            {/* LINKS */}
-            {streams.length > 0 && (
-              <Stack direction="row" spacing={1} flexWrap="wrap">
-                {streams.map((s, i) => (
-                  <Button
-                    key={i}
-                    variant="outlined"
-                    size="small"
-                    component={MuiLink}
-                    href={s.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {s.label}
-                  </Button>
-                ))}
-              </Stack>
-            )}
-
-            {/* SCOREBOARD */}
-            <Paper variant="outlined" sx={{ p: 2 }}>
-              <Typography fontWeight={700} gutterBottom>
-                Điểm số
-              </Typography>
-              <Stack
-                direction={{ xs: "column", sm: "row" }}
-                spacing={2}
-                alignItems="center"
-              >
-                <Box flex={1}>
-                  <Typography variant="body2" color="text.secondary">
-                    Đội A
-                  </Typography>
-                  <Typography variant="h6">{teamA}</Typography>
-                </Box>
-                <Box textAlign="center" minWidth={140}>
-                  {status === "live" && (
-                    <Typography variant="caption" color="text.secondary">
-                      Ván hiện tại
-                    </Typography>
-                  )}
-                  {/* Tí số */}
-                  <Typography variant="h4" fontWeight={800}>
-                    {curr.a} – {curr.b}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Sets: {gamesWon.A} – {gamesWon.B}
-                  </Typography>
-                  {leading && (
-                    <Chip
+              {/* LINKS */}
+              {streams.length > 0 && (
+                <Stack direction="row" spacing={1} flexWrap="wrap">
+                  {streams.map((s, i) => (
+                    <Button
+                      key={i}
+                      variant="outlined"
                       size="small"
-                      color="primary"
-                      sx={{ mt: 0.5 }}
-                      label={leading === "A" ? "A đang dẫn" : "B đang dẫn"}
-                    />
-                  )}
-                </Box>
-                <Box flex={1} textAlign={{ xs: "left", sm: "right" }}>
-                  <Typography variant="body2" color="text.secondary">
-                    Đội B
-                  </Typography>
-                  <Typography variant="h6">{teamB}</Typography>
-                </Box>
-              </Stack>
+                      component={MuiLink}
+                      href={s.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      underline="none"
+                    >
+                      {s.label}
+                    </Button>
+                  ))}
+                </Stack>
+              )}
 
-              {/* lịch sử set */}
-              {!!m?.gameScores?.length && (
-                <Table size="small" sx={{ mt: 2 }}>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Set</TableCell>
-                      <TableCell align="center">A</TableCell>
-                      <TableCell align="center">B</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {m.gameScores.map((g, idx) => (
-                      <TableRow key={idx}>
-                        <TableCell>{idx + 1}</TableCell>
-                        <TableCell align="center">{g.a ?? 0}</TableCell>
-                        <TableCell align="center">{g.b ?? 0}</TableCell>
+              {/* SCOREBOARD */}
+              <Paper variant="outlined" sx={{ p: 2 }}>
+                <Typography fontWeight={700} gutterBottom>
+                  Điểm số
+                </Typography>
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={2}
+                  alignItems="center"
+                >
+                  <Box flex={1}>
+                    <Typography variant="body2" color="text.secondary">
+                      Đội A
+                    </Typography>
+                    <Typography variant="h6">{teamA}</Typography>
+                  </Box>
+                  <Box textAlign="center" minWidth={140}>
+                    {status === "live" && (
+                      <Typography variant="caption" color="text.secondary">
+                        Ván hiện tại
+                      </Typography>
+                    )}
+                    <Typography variant="h4" fontWeight={800}>
+                      {curr.a} – {curr.b}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Sets: {gamesWon.A} – {gamesWon.B}
+                    </Typography>
+                    {!!leading && (
+                      <Chip
+                        size="small"
+                        color="primary"
+                        sx={{ mt: 0.5 }}
+                        label={leading === "A" ? "A đang dẫn" : "B đang dẫn"}
+                      />
+                    )}
+                  </Box>
+                  <Box flex={1} textAlign={{ xs: "left", sm: "right" }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Đội B
+                    </Typography>
+                    <Typography variant="h6">{teamB}</Typography>
+                  </Box>
+                </Stack>
+
+                {!!m?.gameScores?.length && (
+                  <Table size="small" sx={{ mt: 2 }}>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Set</TableCell>
+                        <TableCell align="center">A</TableCell>
+                        <TableCell align="center">B</TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-
-              {/* Winner khi finished */}
-              {status === "finished" && winnerSide && (
-                <Alert severity="success" sx={{ mt: 2 }}>
-                  Đội thắng: <b>{winnerSide === "A" ? teamA : teamB}</b>
-                </Alert>
-              )}
-
-              {/* Thông tin khác */}
-              <Divider sx={{ my: 2 }} />
-              <Stack direction="row" spacing={2} flexWrap="wrap">
-                <Chip size="small" label={`Best of: ${m.rules?.bestOf ?? 3}`} />
-                <Chip
-                  size="small"
-                  label={`Điểm thắng: ${m.rules?.pointsToWin ?? 11}`}
-                />
-                {m.rules?.winByTwo && (
-                  <Chip size="small" label="Phải chênh 2" />
+                    </TableHead>
+                    <TableBody>
+                      {m.gameScores.map((g, idx) => (
+                        <TableRow key={idx}>
+                          <TableCell>{idx + 1}</TableCell>
+                          <TableCell align="center">{g.a ?? 0}</TableCell>
+                          <TableCell align="center">{g.b ?? 0}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 )}
-                {m.referee?.name && (
-                  <Chip size="small" label={`Trọng tài: ${m.referee.name}`} />
+
+                {status === "finished" && winnerSide && (
+                  <Alert severity="success" sx={{ mt: 2 }}>
+                    Đội thắng: <b>{winnerSide === "A" ? teamA : teamB}</b>
+                  </Alert>
                 )}
-              </Stack>
-            </Paper>
-          </Stack>
-        )}
-      </DialogContent>
-    </Dialog>
+
+                <Divider sx={{ my: 2 }} />
+                <Stack direction="row" spacing={2} flexWrap="wrap">
+                  <Chip
+                    size="small"
+                    label={`Best of: ${m.rules?.bestOf ?? 3}`}
+                  />
+                  <Chip
+                    size="small"
+                    label={`Điểm thắng: ${m.rules?.pointsToWin ?? 11}`}
+                  />
+                  {m.rules?.winByTwo && (
+                    <Chip size="small" label="Phải chênh 2" />
+                  )}
+                  {m.referee?.name && (
+                    <Chip size="small" label={`Trọng tài: ${m.referee.name}`} />
+                  )}
+                </Stack>
+              </Paper>
+            </Stack>
+          )}
+        </Box>
+      </Box>
+    </Drawer>
   );
 }
 
 /* ===================== BXH group ===================== */
-// 🔧 thêm eventType để render tên đúng
-function GroupStandingsTable({ rows, onOpenMatch, eventType }) {
+function GroupStandingsTable({ rows, eventType }) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
+  if (isMobile) {
+    return (
+      <Stack spacing={1} sx={{ mb: 2 }}>
+        {rows.length ? (
+          rows.map((row, idx) => (
+            <Paper
+              key={row.pair?._id || idx}
+              variant="outlined"
+              sx={{ p: 1.25 }}
+            >
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <Chip
+                  size="small"
+                  label={`#${idx + 1}`}
+                  sx={{ minWidth: 40 }}
+                />
+                <Typography
+                  sx={{ fontWeight: 600, flex: 1 }}
+                  title={safePairName(row.pair, eventType)}
+                >
+                  {safePairName(row.pair, eventType)}
+                </Typography>
+                <Chip
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  label={`${row.win}-${row.loss}`}
+                />
+              </Stack>
+            </Paper>
+          ))
+        ) : (
+          <Paper variant="outlined" sx={{ p: 2, textAlign: "center" }}>
+            Chưa có dữ liệu BXH.
+          </Paper>
+        )}
+      </Stack>
+    );
+  }
+
   return (
     <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
-      <Table size="small" sx={{ tableLayout: "fixed", minWidth: 480 }}>
+      <Table
+        size="small"
+        sx={{ tableLayout: "fixed", minWidth: { xs: "auto", sm: 480 } }}
+      >
         <TableHead style={{ display: "table-header-group" }}>
           <TableRow>
             <TableCell sx={{ width: 56, fontWeight: 700 }}>#</TableCell>
@@ -556,7 +628,6 @@ function GroupStandingsTable({ rows, onOpenMatch, eventType }) {
             rows.map((row, idx) => (
               <TableRow key={row.pair?._id || idx}>
                 <TableCell>{idx + 1}</TableCell>
-                {/* 🔧 dùng eventType để ẩn player2 nếu single */}
                 <TableCell>{safePairName(row.pair, eventType)}</TableCell>
                 <TableCell align="center">{row.win}</TableCell>
                 <TableCell align="center">{row.loss}</TableCell>
@@ -575,8 +646,11 @@ function GroupStandingsTable({ rows, onOpenMatch, eventType }) {
   );
 }
 
-/* ===================== Component chính: Tabs = từng bracket ===================== */
+/* ===================== Component chính ===================== */
 export default function DemoTournamentStages() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
   const { id: tourId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -599,7 +673,6 @@ export default function DemoTournamentStages() {
   const loading = l1 || l2 || l3;
   const error = e1 || e2 || e3;
 
-  // chỉ match thuộc giải này
   const matches = useMemo(
     () =>
       (allMatches || []).filter(
@@ -608,7 +681,6 @@ export default function DemoTournamentStages() {
     [allMatches, tourId]
   );
 
-  // group theo bracket
   const byBracket = useMemo(() => {
     const m = {};
     (brackets || []).forEach((b) => (m[b._id] = []));
@@ -619,7 +691,6 @@ export default function DemoTournamentStages() {
     return m;
   }, [brackets, matches]);
 
-  // BXH vòng bảng cho từng bracket
   const groupStandings = useMemo(() => {
     const map = {};
     (brackets || [])
@@ -652,13 +723,12 @@ export default function DemoTournamentStages() {
     return map;
   }, [brackets, byBracket]);
 
-  // ====== Tab <-> URL sync (tab = index của bracket) ======
+  // Tab <-> URL sync
   const readTabFromUrl = (count) => {
     const v = Number(searchParams.get("tab"));
     return Number.isFinite(v) && v >= 0 && v < count ? v : 0;
   };
   const [tab, setTab] = useState(0);
-
   useEffect(() => {
     const v = readTabFromUrl(brackets.length || 0);
     if (v !== tab) setTab(v);
@@ -672,7 +742,7 @@ export default function DemoTournamentStages() {
     setSearchParams(next, { replace: true });
   };
 
-  // ===== Popup state =====
+  // Popup state
   const [open, setOpen] = useState(false);
   const [activeMatchId, setActiveMatchId] = useState(null);
   const openMatch = (m) => {
@@ -726,9 +796,10 @@ export default function DemoTournamentStages() {
     );
   }
 
+  // Label không ellipsis
   const tabLabels = brackets.map((b) => (
     <Stack key={b._id} direction="row" spacing={1} alignItems="center">
-      <span>{b.name}</span>
+      <Typography>{b.name}</Typography>
       <Chip
         size="small"
         label={b.type === "group" ? "Group" : "Knockout"}
@@ -744,13 +815,23 @@ export default function DemoTournamentStages() {
 
   return (
     <Box sx={{ width: "100%" }}>
-      <Typography variant="h5" sx={{ mb: 2, mt: 2 }} fontWeight={"bold"}>
+      <Typography variant="h5" sx={{ mb: 2, mt: 2 }} fontWeight="bold">
         Sơ đồ giải: {tour?.name}
       </Typography>
 
-      <Tabs value={tab} onChange={onTabChange} sx={{ mb: 2 }}>
+      <Tabs
+        value={tab}
+        onChange={onTabChange}
+        variant="scrollable"
+        scrollButtons="auto"
+        sx={{ mb: 2 }}
+      >
         {tabLabels.map((node, i) => (
-          <Tab key={brackets[i]._id} label={node} />
+          <Tab
+            key={brackets[i]._id}
+            label={node}
+            sx={{ maxWidth: "none", minHeight: 44, px: 1.5 }}
+          />
         ))}
       </Tabs>
 
@@ -764,69 +845,119 @@ export default function DemoTournamentStages() {
           <Typography variant="subtitle1" gutterBottom>
             Bảng xếp hạng
           </Typography>
-          {/* 🔧 truyền eventType của giải để hiển thị tên đúng */}
           <GroupStandingsTable
             rows={groupStandings[current._id] || []}
-            onOpenMatch={undefined}
             eventType={tour?.eventType}
           />
 
           <Typography variant="subtitle1" gutterBottom>
             Các trận trong bảng
           </Typography>
-          <TableContainer component={Paper} variant="outlined">
-            <Table size="small" sx={{ tableLayout: "fixed", minWidth: 640 }}>
-              <TableHead style={{ display: "table-header-group" }}>
-                <TableRow>
-                  <TableCell sx={{ width: 80, fontWeight: 700 }}>
-                    Vòng
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Đôi A</TableCell>
-                  <TableCell align="center" sx={{ width: 72, fontWeight: 700 }}>
-                    vs
-                  </TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Đôi B</TableCell>
-                  <TableCell
-                    align="center"
-                    sx={{ width: 180, fontWeight: 700 }}
-                  >
-                    Kết quả
-                  </TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {currentMatches.length ? (
-                  currentMatches
-                    .slice()
-                    .sort(
-                      (a, b) =>
-                        (a.round || 1) - (b.round || 1) ||
-                        (a.order || 0) - (b.order || 0)
-                    )
-                    .map((m) => (
-                      <TableRow
-                        key={m._id}
-                        hover
-                        onClick={() => openMatch(m)}
-                        sx={{ cursor: "pointer" }}
-                      >
-                        <TableCell>R{m.round || 1}</TableCell>
-                        <TableCell>{matchSideLabel(m, "A")}</TableCell>
-                        <TableCell align="center">vs</TableCell>
-                        <TableCell>{matchSideLabel(m, "B")}</TableCell>
-                        <TableCell align="center">{resultLabel(m)}</TableCell>
-                      </TableRow>
-                    ))
-                ) : (
+
+          {/* MOBILE: list dọc; DESKTOP: bảng như cũ */}
+          {isMobile ? (
+            <Stack spacing={1}>
+              {currentMatches.length ? (
+                currentMatches
+                  .slice()
+                  .sort(
+                    (a, b) =>
+                      (a.round || 1) - (b.round || 1) ||
+                      (a.order || 0) - (b.order || 0)
+                  )
+                  .map((m) => (
+                    <Paper
+                      key={m._id}
+                      variant="outlined"
+                      onClick={() => openMatch(m)}
+                      sx={{
+                        p: 1.25,
+                        cursor: "pointer",
+                        "&:hover": { bgcolor: "action.hover" },
+                      }}
+                    >
+                      <Stack direction="row" alignItems="center" spacing={1}>
+                        <Chip size="small" label={`R${m.round || 1}`} />
+                        <Box flex={1} minWidth={0}>
+                          <Typography title={matchSideLabel(m, "A")}>
+                            {matchSideLabel(m, "A")}
+                          </Typography>
+                          <Typography title={matchSideLabel(m, "B")}>
+                            {matchSideLabel(m, "B")}
+                          </Typography>
+                        </Box>
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={resultLabel(m)}
+                        />
+                      </Stack>
+                    </Paper>
+                  ))
+              ) : (
+                <Paper variant="outlined" sx={{ p: 2, textAlign: "center" }}>
+                  Chưa có trận nào.
+                </Paper>
+              )}
+            </Stack>
+          ) : (
+            <TableContainer component={Paper} variant="outlined">
+              <Table size="small" sx={{ tableLayout: "fixed", minWidth: 640 }}>
+                <TableHead style={{ display: "table-header-group" }}>
                   <TableRow>
-                    <TableCell colSpan={5} align="center">
-                      Chưa có trận nào.
+                    <TableCell sx={{ width: 80, fontWeight: 700 }}>
+                      Vòng
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Đội A</TableCell>
+                    <TableCell
+                      align="center"
+                      sx={{ width: 72, fontWeight: 700 }}
+                    >
+                      vs
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>Đội B</TableCell>
+                    <TableCell
+                      align="center"
+                      sx={{ width: 180, fontWeight: 700 }}
+                    >
+                      Kết quả
                     </TableCell>
                   </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                </TableHead>
+                <TableBody>
+                  {currentMatches.length ? (
+                    currentMatches
+                      .slice()
+                      .sort(
+                        (a, b) =>
+                          (a.round || 1) - (b.round || 1) ||
+                          (a.order || 0) - (b.order || 0)
+                      )
+                      .map((m) => (
+                        <TableRow
+                          key={m._id}
+                          hover
+                          onClick={() => openMatch(m)}
+                          sx={{ cursor: "pointer" }}
+                        >
+                          <TableCell>R{m.round || 1}</TableCell>
+                          <TableCell>{matchSideLabel(m, "A")}</TableCell>
+                          <TableCell align="center">vs</TableCell>
+                          <TableCell>{matchSideLabel(m, "B")}</TableCell>
+                          <TableCell align="center">{resultLabel(m)}</TableCell>
+                        </TableRow>
+                      ))
+                  ) : (
+                    <TableRow>
+                      <TableCell colSpan={5} align="center">
+                        Chưa có trận nào.
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
         </Paper>
       ) : (
         <Paper sx={{ p: 2 }}>
@@ -847,7 +978,6 @@ export default function DemoTournamentStages() {
               <>
                 {champion && (
                   <Alert severity="success" sx={{ mb: 1 }}>
-                    {/* 🔧 hiển thị theo eventType của giải */}
                     Vô địch: <b>{safePairName(champion, tour?.eventType)}</b>
                   </Alert>
                 )}
@@ -855,13 +985,16 @@ export default function DemoTournamentStages() {
                 {currentMatches.length === 0 ? (
                   <Alert severity="info">Chưa có trận nào.</Alert>
                 ) : (
-                  <Bracket
-                    rounds={buildRoundsForKnockout(current._id)}
-                    renderSeedComponent={(props) => (
-                      <CustomSeed {...props} onOpen={openMatch} />
-                    )}
-                    mobileBreakpoint={0}
-                  />
+                  // Cho vuốt ngang trên mobile
+                  <Box sx={{ overflowX: { xs: "auto", sm: "visible" }, pb: 1 }}>
+                    <Bracket
+                      rounds={buildRoundsForKnockout(current._id)}
+                      renderSeedComponent={(props) => (
+                        <CustomSeed {...props} onOpen={openMatch} />
+                      )}
+                      mobileBreakpoint={0}
+                    />
+                  </Box>
                 )}
               </>
             );
@@ -869,8 +1002,8 @@ export default function DemoTournamentStages() {
         </Paper>
       )}
 
-      {/* ====== MATCH POPUP ====== */}
-      <MatchDialog open={open} matchId={activeMatchId} onClose={closeMatch} />
+      {/* Bottom Sheet */}
+      <MatchSheet open={open} matchId={activeMatchId} onClose={closeMatch} />
     </Box>
   );
 }

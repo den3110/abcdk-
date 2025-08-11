@@ -15,6 +15,12 @@ const rankingSchema = new mongoose.Schema(
     double: { type: Number, default: 0 },
     mix: { type: Number, default: 0 },
     points: { type: Number, default: 0 },
+    // Điểm uy tín 0..100 (%)
+    reputation: { type: Number, default: 0, min: 0, max: 100 },
+    repMeta: {
+      tournamentsFinished: { type: Number, default: 0 },
+      lastBonusAt: { type: Date },
+    },
     lastUpdated: { type: Date, default: Date.now },
   },
   { timestamps: true }
