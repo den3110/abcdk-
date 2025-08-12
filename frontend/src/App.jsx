@@ -4,6 +4,7 @@ import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import Header from './components/Header';
 import MobileBottomNav from './components/MenuMobile';
+import RegInvitesModal from './components/RegInvitesModal';
 
 const App = () => {
   return (
@@ -13,6 +14,7 @@ const App = () => {
       <Container className='' style={{ marginBottom: '80px' }}>
         <Outlet />
          <MobileBottomNav /> 
+         <RegInvitesModal />
       </Container>
     </>
   );

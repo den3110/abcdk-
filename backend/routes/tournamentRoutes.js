@@ -20,6 +20,16 @@ import {
   userCheckinRegistration,
 } from "../controllers/admin/matchController.js";
 import { protect } from "../middleware/authMiddleware.js";
+import {
+  addManager,
+  listManagers,
+  removeManager,
+} from "../controllers/tournamentManagerController.js";
+import {
+  createRegistrationInvite,
+  listMyInvites,
+  respondInvite,
+} from "../controllers/regInvitesController.js";
 
 const router = express.Router();
 
@@ -48,5 +58,17 @@ router.get("/:id/matches", listTournamentMatches);
 // router.get("/:id/matches", getMatchesByTournament);
 
 router.get("/matches/:id", getMatchPublic);
+
+router.get("/:id/managers", protect, listManagers);
+router.post("/:id/managers", protect, addManager);
+router.delete("/:id/managers/:userId", protect, removeManager);
+
+router.post(
+  "/:id/registration-invites",
+  protect,
+  createRegistrationInvite
+);
+router.get("/get/registration-invites", protect, listMyInvites); // GLOBAL
+router.post("/registration-invites/:id/respond", protect, respondInvite);
 
 export default router;

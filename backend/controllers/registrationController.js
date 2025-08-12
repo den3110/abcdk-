@@ -5,6 +5,7 @@ import User from "../models/userModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
+import { canManageTournament } from "../utils/tournamentAuth.js";
 
 /* Tạo đăng ký */
 // POST /api/tournaments/:id/registrations
@@ -54,7 +55,6 @@ export const createRegistration = asyncHandler(async (req, res) => {
     throw new Error("Thiếu VĐV 1");
   }
   if (isSingles) {
-    // giải đơn: không cho gửi player2Id
     if (player2Id) {
       res.status(400);
       throw new Error("Giải đơn chỉ cho phép 1 VĐV");
@@ -131,21 +131,28 @@ export const createRegistration = asyncHandler(async (req, res) => {
   const s2 = isDoubles ? map[String(player2Id)]?.[key] ?? 0 : 0;
 
   /* ─ 8) Validate điểm trình ─ */
-  // cap cá nhân
-  if (typeof tour.singleCap === "number" && tour.singleCap > 0) {
-    if (s1 > tour.singleCap || (isDoubles && s2 > tour.singleCap)) {
-      res.status(400);
-      throw new Error("Điểm của 1 VĐV vượt giới hạn");
+  // UPDATE: nếu scoreCap === 0 => KHÔNG giới hạn theo điểm (bỏ qua mọi check điểm)
+  const noPointCap = Number(tour.scoreCap) === 0;
+
+  if (!noPointCap) {
+    // cap cá nhân (nếu được set > 0)
+    if (typeof tour.singleCap === "number" && tour.singleCap > 0) {
+      if (s1 > tour.singleCap || (isDoubles && s2 > tour.singleCap)) {
+        res.status(400);
+        throw new Error("Điểm của 1 VĐV vượt giới hạn");
+      }
+    }
+
+    // cap tổng đôi (chỉ áp dụng cho đôi và khi scoreCap > 0)
+    if (isDoubles && Number(tour.scoreCap) > 0) {
+      const gap = Number(tour.scoreGap) || 0;
+      if (s1 + s2 > Number(tour.scoreCap) + gap) {
+        res.status(400);
+        throw new Error("Tổng điểm đôi vượt giới hạn của giải");
+      }
     }
   }
-  // cap tổng đôi (chỉ áp dụng cho đôi)
-  if (isDoubles && typeof tour.scoreCap === "number") {
-    const gap = Number(tour.scoreGap) || 0;
-    if (s1 + s2 > Number(tour.scoreCap) + gap) {
-      res.status(400);
-      throw new Error("Tổng điểm đôi vượt giới hạn của giải");
-    }
-  }
+  // END UPDATE
 
   /* ─ 9) Chuẩn hoá player object & lưu ─ */
   const player1 = {
@@ -175,8 +182,11 @@ export const createRegistration = asyncHandler(async (req, res) => {
     createdBy: req.user._id,
   });
 
-  tour.registered = (tour.registered || 0) + 1;
-  await tour.save();
+  // có thể dùng $inc để tránh race condition khi load nặng
+  await Tournament.updateOne(
+    { _id: id },
+    { $inc: { registered: 1 }, $set: { updatedAt: new Date() } }
+  );
 
   res.status(201).json(reg);
 });
@@ -304,4 +314,67 @@ export const cancelRegistration = asyncHandler(async (req, res) => {
   }
 
   res.json({ ok: true, message: "Đã huỷ đăng ký" });
+});
+
+/**
+ * PATCH /api/registrations/:id/payment
+ * body: { status: 'Paid' | 'Unpaid' }
+ */
+export const updateRegistrationPayment = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+
+  if (!["Paid", "Unpaid"].includes(status)) {
+    res.status(400);
+    throw new Error("Invalid status");
+  }
+
+  const reg = await Registration.findById(id).lean();
+  if (!reg) {
+    res.status(404);
+    throw new Error("Registration not found");
+  }
+
+  const allowed = await canManageTournament(req.user, reg.tournament);
+  if (!allowed) {
+    res.status(403);
+    throw new Error("Forbidden");
+  }
+
+  const update = {
+    "payment.status": status,
+    "payment.paidAt": status === "Paid" ? new Date() : null,
+  };
+
+  await Registration.updateOne({ _id: id }, { $set: update });
+  res.json({
+    message: "Payment updated",
+    status,
+    paidAt: update["payment.paidAt"],
+  });
+});
+
+/**
+ * DELETE /api/registrations/:id
+ * - Chủ sở hữu (createdBy) được xoá đăng ký của mình
+ * - Admin hoặc Manager của giải có thể xoá bất kỳ đăng ký nào
+ */
+export const deleteRegistration = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const reg = await Registration.findById(id);
+  if (!reg) {
+    res.status(404);
+    throw new Error("Registration not found");
+  }
+
+  const isOwner = String(reg.createdBy || "") === String(req.user?._id || "");
+  const allowedManager = await canManageTournament(req.user, reg.tournament);
+
+  if (!isOwner && !allowedManager) {
+    res.status(403);
+    throw new Error("Forbidden");
+  }
+
+  await reg.deleteOne();
+  res.json({ message: "Registration deleted" });
 });

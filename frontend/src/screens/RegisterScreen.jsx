@@ -21,7 +21,13 @@ import { useUploadAvatarMutation } from "../slices/uploadApiSlice";
 import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 5 MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const GENDER_OPTIONS = [
+  { value: "unspecified", label: "--" },
+  { value: "male", label: "Nam" },
+  { value: "female", label: "Nữ" },
+  { value: "other", label: "Khác" },
+];
 const PROVINCES = [
   "An Giang",
   "Bà Rịa-Vũng Tàu",
@@ -99,6 +105,7 @@ export default function RegisterScreen() {
     confirmPassword: "",
     cccd: "",
     province: "",
+    gender: "unspecified", // 👈 thêm
   });
 
   const [avatarFile, setAvatarFile] = useState(null);
@@ -111,12 +118,10 @@ export default function RegisterScreen() {
   const [uploadAvatar] = useUploadAvatarMutation();
   const { userInfo } = useSelector((state) => state.auth);
 
-  /** -------- LIFECYCLE -------- */
   useEffect(() => {
     if (userInfo) navigate("/");
   }, [userInfo, navigate]);
 
-  /** -------- HANDLERS -------- */
   const handleChange = (e) => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -132,6 +137,7 @@ export default function RegisterScreen() {
     confirmPassword,
     cccd,
     province,
+    gender, // 👈 thêm
   }) => {
     const errors = [];
     if (!name.trim()) errors.push("Họ tên không được để trống.");
@@ -147,13 +153,15 @@ export default function RegisterScreen() {
       errors.push("Mật khẩu và xác nhận mật khẩu không khớp.");
     if (!/^\d{12}$/.test(cccd.trim()))
       errors.push("CCCD phải bao gồm đúng 12 chữ số.");
+    // 👇 hợp lệ theo enum; không bắt buộc khác 'unspecified'
+    if (!["male", "female", "unspecified", "other"].includes(gender))
+      errors.push("Giới tính không hợp lệ.");
     return errors;
   };
 
   const submitHandler = async (e) => {
     e.preventDefault();
 
-    // trim mọi string
     const cleaned = Object.fromEntries(
       Object.entries(form).map(([k, v]) => [
         k,
@@ -197,7 +205,6 @@ export default function RegisterScreen() {
     }
   };
 
-  /** -------- UI -------- */
   return (
     <Container maxWidth="sm" sx={{ mt: 6 }}>
       <Typography variant="h4" gutterBottom>
@@ -237,6 +244,24 @@ export default function RegisterScreen() {
           />
         ))}
 
+        {/* 👇 Gender Select */}
+        <FormControl fullWidth margin="normal">
+          <InputLabel id="gender-label">Giới tính</InputLabel>
+          <Select
+            labelId="gender-label"
+            name="gender"
+            value={form.gender}
+            label="Giới tính"
+            onChange={handleChange}
+          >
+            {GENDER_OPTIONS.map((opt) => (
+              <MenuItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
         {/* Province Select */}
         <FormControl fullWidth required margin="normal">
           <InputLabel id="province-label">Tỉnh / Thành phố</InputLabel>
@@ -274,12 +299,12 @@ export default function RegisterScreen() {
                 const file = e.target.files[0];
                 if (!file) return;
                 if (file.size > MAX_FILE_SIZE) {
-                  toast.error("Ảnh không được vượt quá 5 MB.");
+                  toast.error("Ảnh không được vượt quá 10 MB.");
                   return;
                 }
                 setAvatarFile(file);
                 setAvatarPreview(URL.createObjectURL(file));
-                setAvatarUrl(""); // reset nếu đổi file
+                setAvatarUrl("");
               }}
             />
           </Button>

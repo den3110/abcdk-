@@ -14,7 +14,21 @@ const canScoreMatch = asyncHandler(async (req, res, next) => {
   }
   if (m.status === "finished") {
     res.status(400);
-    throw new Error("Match already finished");
+    throw new Error("Trận đấu đã kết thúc");
+  }
+  req._match = m;
+  next();
+});
+
+export const ownOrAdmin = asyncHandler(async (req, res, next) => {
+  const m = await Match.findById(req.params.id).select("_id referee status");
+  if (!m) {
+    res.status(404);
+    throw new Error("Match not found");
+  }
+  if (String(m.referee) !== String(req.user._id) && req.user.role !== "admin") {
+    res.status(403);
+    throw new Error("Not allowed");
   }
   req._match = m;
   next();

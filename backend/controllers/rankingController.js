@@ -53,9 +53,9 @@ export const getRankings = asyncHandler(async (req, res) => {
   // 4) Sắp xếp ưu tiên uy tín -> points -> double -> single
   const sortPref = {
     reputation: -1,
-    points: -1,
     double: -1,
     single: -1,
+    points: -1,
     updatedAt: -1,
     _id: 1,
   };
@@ -166,49 +166,65 @@ export const getRankings = asyncHandler(async (req, res) => {
   });
 });
 
-/* GET điểm kèm user (dùng trong danh sách) */
+/* GET điểm kèm user (dùng trong danh sách) */ // Admin
 export const getUsersWithRank = asyncHandler(async (req, res) => {
   const pageSize = 10;
-  const page = Number(req.query.page) || 1;
+  const page = Math.max(Number(req.query.page) || 1, 1);
 
-  const keyword = req.query.keyword
-    ? { name: { $regex: req.query.keyword, $options: "i" } }
+  // ── Build keyword filter: name + nickname + phone
+  const kw = (req.query.keyword || "").trim();
+  const escapeRegex = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rx = kw ? new RegExp(escapeRegex(kw), "i") : null;
+
+  const keyword = kw
+    ? {
+        $or: [
+          { name: rx }, // họ tên
+          { nickname: rx }, // nickname
+          { phone: rx }, // số điện thoại
+        ],
+      }
     : {};
+
+  // ── role filter (nếu có)
   const role = req.query.role ? { role: req.query.role } : {};
 
   const filter = { ...keyword, ...role };
 
+  // ── tổng số user theo filter
   const total = await User.countDocuments(filter);
+
+  // ── danh sách user trang hiện tại
   const users = await User.find(filter)
     .limit(pageSize)
     .skip(pageSize * (page - 1))
     .lean();
 
-  // map điểm từ Ranking
+  // ── map điểm từ Ranking
   const ids = users
-    .map((u) => u._id)
+    .map((u) => u?._id)
     .filter((id) => mongoose.isValidObjectId(id));
 
-  let map = {};
-  if (ids.length > 0) {
+  let rankMap = {};
+  if (ids.length) {
     const ranks = await Ranking.find({ user: { $in: ids } })
       .select("user single double")
       .lean();
-    map = ranks.reduce((acc, r) => {
-      acc[r.user.toString()] = r;
+
+    rankMap = ranks.reduce((acc, r) => {
+      acc[String(r.user)] = r;
       return acc;
     }, {});
   }
 
+  // ── build absolute URL cho cccdImages ở production
   const isProd = process.env.NODE_ENV === "production";
-
-  // Prefer headers từ reverse proxy để lấy scheme/host chuẩn
   const proto =
     (req.headers["x-forwarded-proto"] &&
       String(req.headers["x-forwarded-proto"]).split(",")[0]) ||
     req.protocol ||
     "http";
-  const host = req.headers["x-forwarded-host"] || req.get("host"); // ví dụ: admin.pickletour.vn
+  const host = req.headers["x-forwarded-host"] || req.get("host");
   const origin = `${proto}://${host}`;
 
   const isAbsUrl = (s) => /^https?:\/\//i.test(s || "");
@@ -219,7 +235,6 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
   };
 
   const list = users.map((u) => {
-    // chỉ chạm vào cccdImages trong môi trường production
     const cccdImages = isProd
       ? {
           front: toAbsUrl(u?.cccdImages?.front || ""),
@@ -230,13 +245,14 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
     return {
       ...u,
       cccdImages,
-      single: map[u._id?.toString()]?.single ?? 0,
-      double: map[u._id?.toString()]?.double ?? 0,
+      single: rankMap[String(u._id)]?.single ?? 0,
+      double: rankMap[String(u._id)]?.double ?? 0,
     };
   });
 
   res.json({ users: list, total, pageSize });
 });
+
 export const updateRanking = asyncHandler(async (req, res) => {
   const { single, double } = req.body;
   const { id: userId } = req.params;
@@ -317,9 +333,9 @@ export async function getLeaderboard(req, res) {
     {
       $sort: {
         reputation: -1,
-        points: -1,
         double: -1,
         single: -1,
+        points: -1,
         lastUpdated: -1,
       },
     },

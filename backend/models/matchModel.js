@@ -86,6 +86,11 @@ const matchSchema = new mongoose.Schema(
 
     /* ---------- Trường phục vụ LIVE realtime (referee chấm) ---------- */
     currentGame: { type: Number, default: 0 }, // index ván hiện tại
+    // ✅ pickleball serving state
+    serve: {
+      side: { type: String, enum: ["A", "B"], default: "A" }, // đội đang giao
+      server: { type: Number, enum: [1, 2], default: 2 }, // người thứ mấy trong đội đang giao
+    },
     startedAt: { type: Date, default: null },
     finishedAt: { type: Date, default: null },
     liveBy: {
@@ -94,11 +99,21 @@ const matchSchema = new mongoose.Schema(
       default: null,
     },
     liveVersion: { type: Number, default: 0 }, // tăng mỗi lần cập nhật live
+    video: { type: String, default: "" },
     liveLog: [
       {
         type: {
           type: String,
-          enum: ["point", "undo", "start", "finish", "forfeit"],
+          enum: [
+            "point",
+            "undo",
+            "start",
+            "finish",
+            "forfeit",
+            "serve", // 👈 thêm
+            "sideout", // 👈 nếu bạn có log side-out
+            "rotate", // 👈 nếu bạn có log đổi ô/đổi người giao
+          ],
           required: true,
         },
         by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -116,6 +131,15 @@ matchSchema.pre("validate", function (next) {
   const okB = !!this.pairB || !!this.previousB;
   if (!okA) return next(new Error("Either pairA or previousA is required"));
   if (!okB) return next(new Error("Either pairB or previousB is required"));
+  next();
+});
+
+matchSchema.pre("save", function(next) {
+  if (!this.code) {
+    const r = this.round ?? "";
+    const o = this.order ?? "";
+    this.code = `R${r}#${o}`; // giống ảnh mẫu: V{round}-B{order}
+  }
   next();
 });
 
@@ -175,5 +199,8 @@ matchSchema.index({ bracket: 1, createdAt: -1 });
 matchSchema.index({ tournament: 1, createdAt: -1 });
 matchSchema.index({ scheduledAt: 1 });
 matchSchema.index({ court: 1 });
+matchSchema.index({ status: 1, finishedAt: -1 });
+matchSchema.index({ pairA: 1, status: 1 });
+matchSchema.index({ pairB: 1, status: 1 });
 
 export default mongoose.model("Match", matchSchema);

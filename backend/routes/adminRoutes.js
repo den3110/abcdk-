@@ -30,6 +30,7 @@ import {
   adminCheckin,
   adminDeleteRegistration,
   adminUpdatePayment,
+  getRegistrationsAdmin,
 } from "../controllers/admin/adminRegistrationController.js";
 import {
   adminCreateBracket,
@@ -61,12 +62,13 @@ router.get("/matches/:id([0-9a-fA-F]{24})", protect, authorize("admin", "referee
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
 
 // router.get("/users", getUsers);
+router.get("/users", getUsersWithRank);
 router.put("/users/:id/role", updateUserRole);
 router.delete("/users/:id", deleteUser);
 router.put("/users/:id", updateUserInfo);
 router.put("/users/:id/kyc", reviewUserKyc); // approve / reject
 
-router.get("/users", getUsersWithRank);
+
 router.put("/rankings/:id", updateRanking);
 
 router.get("/score-history", listScoreHistory); // ?user=&page=
@@ -107,6 +109,8 @@ router.get(
   authorize("admin", "referee", "user"),
   getBracketsWithMatches
 );
+
+router.get("/tournaments/:id/registrations", protect, authorize("admin"), getRegistrationsAdmin);
 
 // Admin: list all matches
 router.get(
@@ -188,5 +192,7 @@ router.post(
 
 router.post("/tournaments/finish-expired", protect, authorize("admin"), finishExpiredTournaments);
 router.put("/tournament/:id/finish", protect, authorize("admin"), finishTournament);
+
+
 
 export default router;

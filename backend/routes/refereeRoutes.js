@@ -1,8 +1,8 @@
 import { Router } from "express";
 import { protect, refereeOnly } from "../middleware/authMiddleware.js";
-import canScoreMatch from "../middleware/canScoreMatch.js";
+import canScoreMatch, { ownOrAdmin } from "../middleware/canScoreMatch.js";
 import {
-    getAssignedMatches,
+  getAssignedMatches,
   patchScore,
   patchStatus,
   patchWinner,
@@ -14,9 +14,20 @@ const router = Router();
 router.get("/matches/assigned-to-me", protect, refereeOnly, getAssignedMatches);
 
 // PATCH
-router.patch("/matches/:id/score", protect, refereeOnly, canScoreMatch, patchScore);
-router.patch("/matches/:id/status", protect, refereeOnly, canScoreMatch, patchStatus);
-router.patch("/matches/:id/winner", protect, refereeOnly, canScoreMatch, patchWinner);
-
+router.patch(
+  "/matches/:id/score",
+  protect,
+  refereeOnly,
+  canScoreMatch,
+  patchScore
+);
+router.patch(
+  "/matches/:id/status",
+  protect,
+  refereeOnly,
+  canScoreMatch,
+  patchStatus
+);
+router.patch("/matches/:id/winner", protect, refereeOnly, ownOrAdmin, patchWinner);
 
 export default router;

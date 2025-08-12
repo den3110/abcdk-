@@ -117,9 +117,53 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         url: `/api/registrations/${regId}/cancel`,
         method: "POST",
       }),
-      invalidatesTags: () => [
-        { type: "Registrations", id: "LIST" },
-      ],
+      invalidatesTags: () => [{ type: "Registrations", id: "LIST" }],
+    }),
+    //
+    // NEW: tạo lời mời đăng ký
+    createRegInvite: builder.mutation({
+      query: ({ tourId, message, player1Id, player2Id }) => ({
+        url: `/api/tournaments/${tourId}/registration-invites`,
+        method: "POST",
+        body: { message, player1Id, player2Id },
+      }),
+      invalidatesTags: (res) =>
+        res?.invite?.status === "finalized" ? ["Registrations"] : [],
+    }),
+
+    // NEW: list lời mời mình còn pending (theo từng giải)
+    listMyRegInvites: builder.query({
+      query: () => `/api/tournaments/get/registration-invites`,
+      providesTags: ["RegInvites"],
+    }),
+
+    // NEW: phản hồi lời mời
+    respondRegInvite: builder.mutation({
+      query: ({ inviteId, action }) => ({
+        url: `/api/tournaments/registration-invites/${inviteId}/respond`,
+        method: "POST",
+        body: { action },
+      }),
+      invalidatesTags: ["RegInvites"],
+    }),
+    // ✅ Manager toggle trạng thái thanh toán
+    managerSetRegPaymentStatus: builder.mutation({
+      query: ({ regId, status }) => ({
+        url: `/api/registrations/${regId}/payment`,
+        method: "PATCH",
+        body: { status }, // "Paid" | "Unpaid"
+      }),
+      // tùy hệ thống tags của bạn, có thể là ["Registrations"] hoặc ["Registration"]
+      invalidatesTags: ["Registrations"],
+    }),
+
+    // ✅ Manager huỷ (xoá) đăng ký
+    managerDeleteRegistration: builder.mutation({
+      query: (regId) => ({
+        url: `/api/registrations/${regId}/admin`,
+        method: "DELETE",
+      }),
+      invalidatesTags: ["Registrations"],
     }),
   }),
 });
@@ -139,4 +183,9 @@ export const {
   useListTournamentMatchesQuery,
   useGetMatchPublicQuery,
   useCancelRegistrationMutation,
+  useCreateRegInviteMutation,
+  useListMyRegInvitesQuery,
+  useRespondRegInviteMutation,
+  useManagerSetRegPaymentStatusMutation,
+  useManagerDeleteRegistrationMutation,
 } = tournamentsApiSlice;

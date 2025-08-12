@@ -3,6 +3,7 @@ import Tournament from "../models/tournamentModel.js";
 import mongoose from "mongoose";
 import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
+import TournamentManager from "../models/tournamentManagerModel.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 // @desc    Lấy danh sách giải đấu (lọc theo sportType & groupId)
@@ -142,12 +143,42 @@ const getTournaments = asyncHandler(async (req, res) => {
 });
 
 const getTournamentById = asyncHandler(async (req, res) => {
-  const tour = await Tournament.findById(req.params.id);
+  const { id } = req.params;
+
+  // lấy tournament
+  const tour = await Tournament.findById(id)
+    // .populate('createdBy', 'name avatar') // nếu muốn kèm info chủ giải
+    .lean();
+
   if (!tour) {
     res.status(404);
     throw new Error("Tournament not found");
   }
-  res.json(tour); // trả toàn bộ, gồm contactHtml & contentHtml
+
+  const meId = req.user?._id ? String(req.user._id) : null;
+
+  // load managers
+  const managerRows = await TournamentManager.find({ tournament: id })
+    .select("user role")
+    // .populate('user', 'name avatar') // nếu muốn kèm info user
+    .lean();
+
+  const managers = managerRows.map((r) => ({
+    user: r.user, // hoặc r.user._id nếu populate
+    role: r.role,
+  }));
+
+  const amOwner = !!(meId && String(tour.createdBy) === meId);
+  const amManager =
+    amOwner || (!!meId && managerRows.some((r) => String(r.user) === meId));
+
+  // trả về đầy đủ tour + flags tiện dụng
+  res.json({
+    ...tour,
+    managers,
+    amOwner,
+    amManager,
+  });
 });
 
 /**

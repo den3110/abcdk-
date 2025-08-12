@@ -414,7 +414,7 @@ export const adminListMatchGroups = expressAsyncHandler(async (req, res) => {
 
 export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
   const match = await Match.findById(req.params.id)
-    .populate({ path: "tournament", select: "name" })
+    .populate({ path: "tournament", select: "name eventType" })
     .populate({ path: "bracket", select: "name" })
     .populate({ path: "pairA" }) // có đủ player1, player2, score…
     .populate({ path: "pairB" })

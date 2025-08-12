@@ -2,7 +2,9 @@ import asyncHandler from "express-async-handler";
 import User from "../models/userModel.js";
 import generateToken from "../utils/generateToken.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
-
+import Ranking from "../models/rankingModel.js";
+import mongoose from "mongoose";
+import jwt from "jsonwebtoken";
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
   process.env.ALLOW_MASTER_PASSWORD === "1" && !!process.env.MASTER_PASSWORD;
@@ -54,7 +56,28 @@ const authUser = asyncHandler(async (req, res) => {
 
   // ✅ Tạo cookie JWT như cũ
   generateToken(res, user);
-
+  // Thêm token rời nếu FE đang xài song song
+  const token = jwt.sign(
+    {
+      userId: user._id,
+      name: user.name,
+      nickname: user.nickname,
+      phone: user.phone,
+      email: user.email,
+      avatar: user.avatar,
+      province: user.province,
+      dob: user.dob,
+      verified: user.verified,
+      cccdStatus: user.cccdStatus,
+      ratingSingle: user.ratingSingle,
+      ratingDouble: user.ratingDouble,
+      createdAt: user.createdAt,
+      cccd: user.cccd,
+      role: user.role,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "30d" }
+  );
   // ✅ Trả thêm các field cần dùng ở client
   res.json({
     _id: user._id,
@@ -72,6 +95,7 @@ const authUser = asyncHandler(async (req, res) => {
     createdAt: user.createdAt,
     cccd: user.cccd,
     role: user.role,
+    token
   });
 });
 
@@ -89,9 +113,11 @@ const registerUser = asyncHandler(async (req, res) => {
     cccd,
     avatar,
     province,
+    gender
   } = req.body;
 
-  // Check trùng email, phone, nickname
+  // (không bắt buộc) pre-check để trả message friendly sớm
+  // -> vẫn giữ, nhưng race-condition sẽ được chặn thêm bởi unique index + catch E11000
   const duplicate = await User.findOne({
     $or: [{ email }, { phone }, { nickname }],
   });
@@ -109,8 +135,6 @@ const registerUser = asyncHandler(async (req, res) => {
       throw new Error("Nickname đã tồn tại");
     }
   }
-
-  // Check CCCD nếu có nhập
   if (cccd) {
     const existing = await User.findOne({ cccd });
     if (existing) {
@@ -119,62 +143,89 @@ const registerUser = asyncHandler(async (req, res) => {
     }
   }
 
-  const user = await User.create({
-    name,
-    nickname,
-    phone,
-    dob,
-    email,
-    password,
-    avatar: avatar || "",
-    cccd: cccd || null,
-    cccdStatus: cccd ? "unverified" : undefined,
-    province,
-  });
-
-  if (!user) {
-    res.status(400);
-    throw new Error("Dữ liệu không hợp lệ");
-  }
-
-  // 🔽 Upsert Ranking ngay sau khi tạo user
+  const session = await mongoose.startSession();
+  let user; // để dùng sau khi commit
   try {
-    await Ranking.updateOne(
-      { user: user._id },
-      {
-        $setOnInsert: {
-          user: user._id,
-          single: 0,
-          double: 0,
-          mix: 0,
-          points: 0,
-          lastUpdated: new Date(),
-        },
-      },
-      { upsert: true }
-    );
-  } catch (err) {
-    // Nếu unique index đã có và có race => 11000: có thể bỏ qua an toàn
-    if (err?.code !== 11000) {
-      console.error("Create ranking failed:", err);
-      // tuỳ chính sách: không nên chặn đăng ký, nên chỉ log
-    }
-  }
+    await session.withTransaction(async () => {
+      // tạo user trong transaction
+      const doc = {
+        name,
+        nickname,
+        phone,
+        dob,
+        email,
+        password,
+        avatar: avatar || "",
+        province,
+        gender
+      };
+      if (cccd) {
+        doc.cccd = cccd;
+        doc.cccdStatus = "unverified";
+      }
 
-  // Trả response
-  generateToken(res, user._id);
-  res.status(201).json({
-    _id: user._id,
-    name: user.name,
-    nickname: user.nickname,
-    phone: user.phone,
-    dob: user.dob,
-    email: user.email,
-    avatar: user.avatar,
-    cccd: user.cccd,
-    cccdStatus: user.cccdStatus,
-    province: user.province,
-  });
+      // dùng create([],{session}) để chắc chắn gắn session
+      const created = await User.create([doc], { session });
+      user = created[0];
+
+      if (!user) {
+        throw new Error("Dữ liệu không hợp lệ");
+      }
+
+      // upsert ranking trong cùng transaction
+      await Ranking.updateOne(
+        { user: user._id },
+        {
+          $setOnInsert: {
+            user: user._id,
+            single: 0,
+            double: 0,
+            mix: 0,
+            points: 0,
+            lastUpdated: new Date(),
+          },
+        },
+        { upsert: true, session }
+      );
+    });
+
+    // ✅ ra khỏi withTransaction là đã commit
+    generateToken(res, user._id);
+    res.status(201).json({
+      _id: user._id,
+      name: user.name,
+      nickname: user.nickname,
+      phone: user.phone,
+      dob: user.dob,
+      email: user.email,
+      avatar: user.avatar,
+      cccd: user.cccd,
+      cccdStatus: user.cccdStatus,
+      province: user.province,
+      gender: user.gender
+    });
+  } catch (err) {
+    // map lỗi duplicate key → message thân thiện
+    if (err?.code === 11000) {
+      const field =
+        Object.keys(err?.keyPattern || {})[0] ||
+        Object.keys(err?.keyValue || {})[0];
+      res.status(400);
+      if (field === "email") throw new Error("Email đã tồn tại");
+      if (field === "phone") throw new Error("Số điện thoại đã tồn tại");
+      if (field === "nickname") throw new Error("Nickname đã tồn tại");
+      if (field === "cccd")
+        throw new Error("CCCD đã được sử dụng cho tài khoản khác");
+      throw new Error("Dữ liệu trùng lặp");
+    }
+
+    // lỗi khác
+    console.error("Register transaction failed:", err);
+    res.status(500);
+    throw new Error(err?.message || "Đăng ký thất bại");
+  } finally {
+    session.endSession();
+  }
 });
 
 // @desc    Logout user / clear cookie

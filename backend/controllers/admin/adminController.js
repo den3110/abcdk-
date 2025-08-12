@@ -90,6 +90,7 @@ export const updateUserInfo = asyncHandler(async (req, res) => {
     "dob",
     "gender",
     "province",
+    "cccd"
   ];
 
   fields.forEach((f) => {
@@ -112,6 +113,14 @@ export const updateUserInfo = asyncHandler(async (req, res) => {
     }
   }
 
+  if (req.body.cccd && req.body.cccd !== user.cccd) {
+    const dupe = await User.findOne({ cccd: req.body.cccd });
+    if (dupe) {
+      res.status(400);
+      throw new Error("CCCD đã tồn tại");
+    }
+  }
+
   await user.save();
   res.json({ message: "User updated", user });
 });
@@ -129,3 +138,4 @@ export const reviewUserKyc = asyncHandler(async (req, res) => {
   await user.save();
   res.json({ message: "KYC updated", status: user.cccdStatus });
 });
+

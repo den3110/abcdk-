@@ -23,6 +23,9 @@ import {
   useMediaQuery,
   useTheme,
   Drawer,
+  Dialog,
+  DialogTitle,
+  DialogContent,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -67,7 +70,11 @@ function depLabel(prev) {
 function matchSideLabel(m, side) {
   const pair = side === "A" ? m.pairA : m.pairB;
   const prev = side === "A" ? m.previousA : m.previousB;
-  if (pair) return safePairName(pair, m?.tournament?.eventType);
+  if (pair)
+    return safePairName(
+      m[side === "A" ? "pairA" : "pairB"],
+      m?.tournament?.eventType
+    );
   if (prev) return depLabel(prev);
   return "Chưa có đội";
 }
@@ -162,7 +169,7 @@ function buildRoundsWithPlaceholders(brMatches, { minRounds = 3 } = {}) {
   });
 }
 
-/* ========== Custom seed (click mở popup) ========== */
+/* ========== Custom seed (click mở viewer) ========== */
 const RED = "#F44336";
 const CustomSeed = ({ seed, breakpoint, onOpen }) => {
   const m = seed.__match || null;
@@ -257,7 +264,7 @@ CustomSeed.propTypes = {
   onOpen: PropTypes.func,
 };
 
-/* ===================== Bottom Drawer xem trận (realtime) ===================== */
+/* ===================== Match viewer shared utils ===================== */
 function ytEmbed(url) {
   if (!url) return null;
   try {
@@ -296,22 +303,9 @@ function countGamesWon(gameScores) {
   return { A, B };
 }
 
-function MatchSheet({ open, matchId, onClose }) {
-  const theme = useTheme();
-  const { userInfo } = useSelector((s) => s.auth || {});
-  const token = userInfo?.token;
-
-  const { data: base, isLoading } = useGetMatchPublicQuery(matchId, {
-    skip: !matchId || !open,
-  });
-  const { loading: liveLoading, data: live } = useLiveMatch(
-    open ? matchId : null,
-    token
-  );
-
-  const m = live || base;
+/* ===== Shared content to reuse in Drawer/Dialog ===== */
+function MatchContent({ m, isLoading, liveLoading, onClose }) {
   const streams = extractStreams(m);
-
   const teamA = m?.pairA
     ? safePairName(m.pairA, m?.tournament?.eventType)
     : depLabel(m?.previousA);
@@ -336,227 +330,302 @@ function MatchSheet({ open, matchId, onClose }) {
   const yt = streams.find((s) => ytEmbed(s.url));
   const ytSrc = ytEmbed(yt?.url);
 
+  if (isLoading || liveLoading) {
+    return (
+      <Box py={4} textAlign="center">
+        <CircularProgress />
+      </Box>
+    );
+  }
+  if (!m) return <Alert severity="error">Không tải được dữ liệu trận.</Alert>;
+
   return (
-    <Drawer
-      anchor="bottom"
-      open={open}
-      onClose={onClose}
-      keepMounted
-      PaperProps={{
-        sx: {
-          borderTopLeftRadius: 16,
-          borderTopRightRadius: 16,
-          // Cao hơn: gần full screen trên mobile
-          height: { xs: "90vh", sm: "90vh" },
-          maxHeight: "100vh",
-          minHeight: { xs: "80vh", sm: "70vh" },
-        },
-      }}
-    >
-      <Box sx={{ p: 2, pt: 1.25, maxWidth: 1000, mx: "auto", width: "100%" }}>
-        {/* drag handle */}
+    <Stack spacing={2}>
+      {/* STREAM AREA */}
+      {status === "live" ? (
+        ytSrc ? (
+          <Box sx={{ position: "relative", pt: "56.25%" }}>
+            <iframe
+              src={ytSrc}
+              title="Live"
+              allow="autoplay; encrypted-media; picture-in-picture"
+              allowFullScreen
+              style={{
+                position: "absolute",
+                inset: 0,
+                border: 0,
+                width: "100%",
+                height: "100%",
+              }}
+            />
+          </Box>
+        ) : (
+          <Alert icon={<PlayIcon />} severity="info">
+            Trận đang live.{" "}
+            {streams.length
+              ? "Chọn link bên dưới để xem trực tiếp."
+              : "Chưa có link phát trực tiếp."}
+          </Alert>
+        )
+      ) : (
+        <Alert icon={<PlayIcon />} severity="info">
+          {status === "scheduled"
+            ? "Trận chưa diễn ra. "
+            : "Trận đã kết thúc. "}
+          {streams.length
+            ? "Bạn có thể mở liên kết xem video:"
+            : "Chưa có liên kết video."}
+        </Alert>
+      )}
+
+      {/* LINKS */}
+      {streams.length > 0 && (
+        <Stack direction="row" spacing={1} flexWrap="wrap">
+          {streams.map((s, i) => (
+            <Button
+              key={i}
+              variant="outlined"
+              size="small"
+              component={MuiLink}
+              href={s.url}
+              target="_blank"
+              rel="noreferrer"
+              underline="none"
+            >
+              {s.label}
+            </Button>
+          ))}
+        </Stack>
+      )}
+
+      {/* SCOREBOARD */}
+      <Paper variant="outlined" sx={{ p: 2 }}>
+        <Typography fontWeight={700} gutterBottom>
+          Điểm số
+        </Typography>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={2}
+          alignItems="center"
+        >
+          <Box flex={1}>
+            <Typography variant="body2" color="text.secondary">
+              Đội A
+            </Typography>
+            <Typography variant="h6">{teamA}</Typography>
+          </Box>
+          <Box textAlign="center" minWidth={140}>
+            {status === "live" && (
+              <Typography variant="caption" color="text.secondary">
+                Ván hiện tại
+              </Typography>
+            )}
+            <Typography variant="h4" fontWeight={800}>
+              {curr.a} – {curr.b}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Sets: {gamesWon.A} – {gamesWon.B}
+            </Typography>
+            {!!leading && (
+              <Chip
+                size="small"
+                color="primary"
+                sx={{ mt: 0.5 }}
+                label={leading === "A" ? "A đang dẫn" : "B đang dẫn"}
+              />
+            )}
+          </Box>
+          <Box flex={1} textAlign={{ xs: "left", sm: "right" }}>
+            <Typography variant="body2" color="text.secondary">
+              Đội B
+            </Typography>
+            <Typography variant="h6">{teamB}</Typography>
+          </Box>
+        </Stack>
+
+        {!!m?.gameScores?.length && (
+          <Table size="small" sx={{ mt: 2 }}>
+            <TableHead>
+              <TableRow>
+                <TableCell>Set</TableCell>
+                <TableCell align="center">A</TableCell>
+                <TableCell align="center">B</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {m.gameScores.map((g, idx) => (
+                <TableRow key={idx}>
+                  <TableCell>{idx + 1}</TableCell>
+                  <TableCell align="center">{g.a ?? 0}</TableCell>
+                  <TableCell align="center">{g.b ?? 0}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+
+        {status === "finished" && winnerSide && (
+          <Alert severity="success" sx={{ mt: 2 }}>
+            Đội thắng: <b>{winnerSide === "A" ? teamA : teamB}</b>
+          </Alert>
+        )}
+
+        <Divider sx={{ my: 2 }} />
+        <Stack direction="row" spacing={2} flexWrap="wrap">
+          <Chip size="small" label={`Best of: ${m.rules?.bestOf ?? 3}`} />
+          <Chip
+            size="small"
+            label={`Điểm thắng: ${m.rules?.pointsToWin ?? 11}`}
+          />
+          {m.rules?.winByTwo && <Chip size="small" label="Phải chênh 2" />}
+          {m.referee?.name && (
+            <Chip size="small" label={`Trọng tài: ${m.referee.name}`} />
+          )}
+        </Stack>
+      </Paper>
+    </Stack>
+  );
+}
+
+/* ===== Responsive viewer: Drawer (mobile) / Dialog (desktop) ===== */
+function ResponsiveMatchViewer({ open, matchId, onClose }) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const { userInfo } = useSelector((s) => s.auth || {});
+  const token = userInfo?.token;
+
+  const { data: base, isLoading } = useGetMatchPublicQuery(matchId, {
+    skip: !matchId || !open,
+  });
+  const { loading: liveLoading, data: live } = useLiveMatch(
+    open ? matchId : null,
+    token
+  );
+  const m = live || base;
+  const status = m?.status || "scheduled";
+
+  if (isMobile) {
+    // Bottom sheet on mobile
+    return (
+      <Drawer
+        anchor="bottom"
+        open={open}
+        onClose={onClose}
+        keepMounted
+        PaperProps={{
+          sx: {
+            borderTopLeftRadius: 16,
+            borderTopRightRadius: 16,
+            height: "92vh",
+            maxHeight: "100vh",
+            minHeight: "80vh",
+          },
+        }}
+      >
         <Box
           sx={{
-            width: 36,
-            height: 4,
-            bgcolor: "text.disabled",
-            borderRadius: 2,
+            p: 2,
+            pt: 1.25,
+            maxWidth: 1000,
             mx: "auto",
-            mb: 1.25,
+            width: "100%",
+            pb: 6,
           }}
-        />
-        {/* header */}
-        <Box sx={{ position: "relative", pb: 1 }}>
-          <Typography variant="h6">
-            Trận đấu • {m ? `R${m.round || 1} #${m.order ?? 0}` : ""}
-            <Chip
-              size="small"
-              sx={{ ml: 1 }}
-              label={
-                status === "live"
-                  ? "Đang diễn ra"
-                  : status === "finished"
-                  ? "Hoàn thành"
-                  : "Dự kiến"
-              }
-              color={
-                status === "live"
-                  ? "warning"
-                  : status === "finished"
-                  ? "success"
-                  : "default"
-              }
+        >
+          {/* drag handle */}
+          <Box
+            sx={{
+              width: 36,
+              height: 4,
+              bgcolor: "text.disabled",
+              borderRadius: 2,
+              mx: "auto",
+              mb: 1.25,
+            }}
+          />
+          {/* header */}
+          <Box sx={{ position: "relative", pb: 1 }}>
+            <Typography variant="h6">
+              Trận đấu • {m ? `R${m.round || 1} #${m.order ?? 0}` : ""}
+              <Chip
+                size="small"
+                sx={{ ml: 1 }}
+                label={
+                  status === "live"
+                    ? "Đang diễn ra"
+                    : status === "finished"
+                    ? "Hoàn thành"
+                    : "Dự kiến"
+                }
+                color={
+                  status === "live"
+                    ? "warning"
+                    : status === "finished"
+                    ? "success"
+                    : "default"
+                }
+              />
+            </Typography>
+            <IconButton
+              onClick={onClose}
+              sx={{ position: "absolute", right: -6, top: -6 }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+
+          <Box sx={{ overflowY: "auto", pr: { md: 1 }, pb: 1 }}>
+            <MatchContent
+              m={m}
+              isLoading={isLoading}
+              liveLoading={liveLoading}
+              onClose={onClose}
             />
-          </Typography>
-          <IconButton
-            onClick={onClose}
-            sx={{ position: "absolute", right: -6, top: -6 }}
-          >
-            <CloseIcon />
-          </IconButton>
+          </Box>
         </Box>
+      </Drawer>
+    );
+  }
 
-        <Box sx={{ overflowY: "auto", pr: { md: 1 }, pb: 1 }}>
-          {isLoading || liveLoading ? (
-            <Box py={4} textAlign="center">
-              <CircularProgress />
-            </Box>
-          ) : !m ? (
-            <Alert severity="error">Không tải được dữ liệu trận.</Alert>
-          ) : (
-            <Stack spacing={2}>
-              {/* STREAM AREA */}
-              {status === "live" ? (
-                ytSrc ? (
-                  <Box sx={{ position: "relative", pt: "56.25%" }}>
-                    <iframe
-                      src={ytSrc}
-                      title="Live"
-                      allow="autoplay; encrypted-media; picture-in-picture"
-                      allowFullScreen
-                      style={{
-                        position: "absolute",
-                        inset: 0,
-                        border: 0,
-                        width: "100%",
-                        height: "100%",
-                      }}
-                    />
-                  </Box>
-                ) : (
-                  <Alert icon={<PlayIcon />} severity="info">
-                    Trận đang live.{" "}
-                    {streams.length
-                      ? "Chọn link bên dưới để xem trực tiếp."
-                      : "Chưa có link phát trực tiếp."}
-                  </Alert>
-                )
-              ) : (
-                <Alert icon={<PlayIcon />} severity="info">
-                  {status === "scheduled"
-                    ? "Trận chưa diễn ra. "
-                    : "Trận đã kết thúc. "}
-                  {streams.length
-                    ? "Bạn có thể mở liên kết xem video:"
-                    : "Chưa có liên kết video."}
-                </Alert>
-              )}
-
-              {/* LINKS */}
-              {streams.length > 0 && (
-                <Stack direction="row" spacing={1} flexWrap="wrap">
-                  {streams.map((s, i) => (
-                    <Button
-                      key={i}
-                      variant="outlined"
-                      size="small"
-                      component={MuiLink}
-                      href={s.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      underline="none"
-                    >
-                      {s.label}
-                    </Button>
-                  ))}
-                </Stack>
-              )}
-
-              {/* SCOREBOARD */}
-              <Paper variant="outlined" sx={{ p: 2 }}>
-                <Typography fontWeight={700} gutterBottom>
-                  Điểm số
-                </Typography>
-                <Stack
-                  direction={{ xs: "column", sm: "row" }}
-                  spacing={2}
-                  alignItems="center"
-                >
-                  <Box flex={1}>
-                    <Typography variant="body2" color="text.secondary">
-                      Đội A
-                    </Typography>
-                    <Typography variant="h6">{teamA}</Typography>
-                  </Box>
-                  <Box textAlign="center" minWidth={140}>
-                    {status === "live" && (
-                      <Typography variant="caption" color="text.secondary">
-                        Ván hiện tại
-                      </Typography>
-                    )}
-                    <Typography variant="h4" fontWeight={800}>
-                      {curr.a} – {curr.b}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      Sets: {gamesWon.A} – {gamesWon.B}
-                    </Typography>
-                    {!!leading && (
-                      <Chip
-                        size="small"
-                        color="primary"
-                        sx={{ mt: 0.5 }}
-                        label={leading === "A" ? "A đang dẫn" : "B đang dẫn"}
-                      />
-                    )}
-                  </Box>
-                  <Box flex={1} textAlign={{ xs: "left", sm: "right" }}>
-                    <Typography variant="body2" color="text.secondary">
-                      Đội B
-                    </Typography>
-                    <Typography variant="h6">{teamB}</Typography>
-                  </Box>
-                </Stack>
-
-                {!!m?.gameScores?.length && (
-                  <Table size="small" sx={{ mt: 2 }}>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Set</TableCell>
-                        <TableCell align="center">A</TableCell>
-                        <TableCell align="center">B</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {m.gameScores.map((g, idx) => (
-                        <TableRow key={idx}>
-                          <TableCell>{idx + 1}</TableCell>
-                          <TableCell align="center">{g.a ?? 0}</TableCell>
-                          <TableCell align="center">{g.b ?? 0}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-
-                {status === "finished" && winnerSide && (
-                  <Alert severity="success" sx={{ mt: 2 }}>
-                    Đội thắng: <b>{winnerSide === "A" ? teamA : teamB}</b>
-                  </Alert>
-                )}
-
-                <Divider sx={{ my: 2 }} />
-                <Stack direction="row" spacing={2} flexWrap="wrap">
-                  <Chip
-                    size="small"
-                    label={`Best of: ${m.rules?.bestOf ?? 3}`}
-                  />
-                  <Chip
-                    size="small"
-                    label={`Điểm thắng: ${m.rules?.pointsToWin ?? 11}`}
-                  />
-                  {m.rules?.winByTwo && (
-                    <Chip size="small" label="Phải chênh 2" />
-                  )}
-                  {m.referee?.name && (
-                    <Chip size="small" label={`Trọng tài: ${m.referee.name}`} />
-                  )}
-                </Stack>
-              </Paper>
-            </Stack>
-          )}
-        </Box>
-      </Box>
-    </Drawer>
+  // Dialog on desktop
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+      <DialogTitle sx={{ pr: 6 }}>
+        Trận đấu • {m ? `R${m.round || 1} #${m.order ?? 0}` : ""}
+        <Chip
+          size="small"
+          sx={{ ml: 1 }}
+          label={
+            status === "live"
+              ? "Đang diễn ra"
+              : status === "finished"
+              ? "Hoàn thành"
+              : "Dự kiến"
+          }
+          color={
+            status === "live"
+              ? "warning"
+              : status === "finished"
+              ? "success"
+              : "default"
+          }
+        />
+        <IconButton
+          onClick={onClose}
+          sx={{ position: "absolute", right: 12, top: 10 }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent dividers>
+        <MatchContent
+          m={m}
+          isLoading={isLoading}
+          liveLoading={liveLoading}
+          onClose={onClose}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -647,7 +716,7 @@ function GroupStandingsTable({ rows, eventType }) {
 }
 
 /* ===================== Component chính ===================== */
-export default function DemoTournamentStages() {
+export default function TournamentBracket() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
@@ -742,7 +811,7 @@ export default function DemoTournamentStages() {
     setSearchParams(next, { replace: true });
   };
 
-  // Popup state
+  // Viewer state
   const [open, setOpen] = useState(false);
   const [activeMatchId, setActiveMatchId] = useState(null);
   const openMatch = (m) => {
@@ -814,7 +883,7 @@ export default function DemoTournamentStages() {
   const currentMatches = byBracket[current._id] || [];
 
   return (
-    <Box sx={{ width: "100%" }}>
+    <Box sx={{ width: "100%", pb: { xs: 6, sm: 0 } }}>
       <Typography variant="h5" sx={{ mb: 2, mt: 2 }} fontWeight="bold">
         Sơ đồ giải: {tour?.name}
       </Typography>
@@ -854,7 +923,7 @@ export default function DemoTournamentStages() {
             Các trận trong bảng
           </Typography>
 
-          {/* MOBILE: list dọc; DESKTOP: bảng như cũ */}
+          {/* MOBILE: list dọc; DESKTOP: bảng */}
           {isMobile ? (
             <Stack spacing={1}>
               {currentMatches.length ? (
@@ -985,10 +1054,14 @@ export default function DemoTournamentStages() {
                 {currentMatches.length === 0 ? (
                   <Alert severity="info">Chưa có trận nào.</Alert>
                 ) : (
-                  // Cho vuốt ngang trên mobile
                   <Box sx={{ overflowX: { xs: "auto", sm: "visible" }, pb: 1 }}>
                     <Bracket
-                      rounds={buildRoundsForKnockout(current._id)}
+                      rounds={buildRoundsWithPlaceholders(currentMatches, {
+                        minRounds: Math.max(
+                          3,
+                          new Set(currentMatches.map((m) => m.round ?? 1)).size
+                        ),
+                      })}
                       renderSeedComponent={(props) => (
                         <CustomSeed {...props} onOpen={openMatch} />
                       )}
@@ -1002,8 +1075,12 @@ export default function DemoTournamentStages() {
         </Paper>
       )}
 
-      {/* Bottom Sheet */}
-      <MatchSheet open={open} matchId={activeMatchId} onClose={closeMatch} />
+      {/* Viewer: Drawer (mobile) / Dialog (desktop) */}
+      <ResponsiveMatchViewer
+        open={open}
+        matchId={activeMatchId}
+        onClose={closeMatch}
+      />
     </Box>
   );
 }

@@ -10,6 +10,7 @@ import {
   finishMatch,
   forfeitMatch,
   toDTO,
+  setServe,
 } from "./liveHandlers.js";
 import Match from "../models/matchModel.js";
 
@@ -45,12 +46,12 @@ export function initSocket(
   // auth nhẹ: lấy user từ token (nếu có)
   io.use((socket, next) => {
     const token =
-      socket.handshake.auth?.token ||
+      socket.handshake.auth?.token?.replace("Bearer ", "") ||
       socket.handshake.headers?.authorization?.replace("Bearer ", "");
     try {
       if (token) {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        socket.user = { _id: decoded.id, role: decoded.role };
+        socket.user = { _id: decoded.userId, role: decoded.role };
       }
     } catch {
       socket.user = null; // guest
@@ -91,6 +92,13 @@ export function initSocket(
     socket.on("match:finish", async ({ matchId, winner, reason }) => {
       if (!ensureReferee()) return;
       await finishMatch(matchId, winner, reason, socket.user?._id, io);
+    });
+
+    socket.on("serve:set", async ({ matchId, side, server }) => {
+      const ok =
+        socket.user?.role === "referee" || socket.user?.role === "admin";
+      if (!ok) return;
+      await setServe(matchId, side, server, socket.user?._id, io);
     });
 
     socket.on(

@@ -1,4 +1,6 @@
 import { apiSlice } from "./apiSlice";
+import { setCredentials } from "./authSlice";
+
 const USERS_URL = "/api/users";
 
 export const userApiSlice = apiSlice.injectEndpoints({
@@ -42,6 +44,18 @@ export const userApiSlice = apiSlice.injectEndpoints({
     getProfile: builder.query({
       query: () => "/api/users/profile",
       providesTags: ["User"],
+      async onQueryStarted(arg, { dispatch, getState, queryFulfilled }) {
+        try {
+          const { data } = await queryFulfilled; // profile từ server
+          const prev = getState().auth?.userInfo || {};
+          // gộp profile mới vào auth, giữ token cũ nếu response không có token
+          const next = { ...prev, ...data };
+          if (!data?.token && prev?.token) next.token = prev.token;
+          dispatch(setCredentials(next));
+        } catch {
+          // ignore lỗi để không đụng state auth
+        }
+      },
     }),
     searchUser: builder.query({
       query: (q) => `/api/users/search?q=${encodeURIComponent(q)}`,
@@ -59,5 +73,5 @@ export const {
   useGetMatchHistoryQuery,
   useGetProfileQuery,
   useLazyGetProfileQuery,
-  useLazySearchUserQuery
+  useLazySearchUserQuery,
 } = userApiSlice;

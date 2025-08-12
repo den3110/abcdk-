@@ -1,6 +1,9 @@
 // controllers/refereeController.js
 import asyncHandler from "express-async-handler";
 import Match from "../models/matchModel.js";
+import {
+  addPoint /* optional: nextGame helper nếu bạn tách riêng */,
+} from "../socket/liveHandlers.js";
 
 /* ───────── helpers ───────── */
 function isGameWin(a = 0, b = 0, rules) {
@@ -59,56 +62,87 @@ export const getAssignedMatches = asyncHandler(async (req, res) => {
     - setGame: { op:"setGame", gameIndex: number, a: number, b: number }
     - nextGame: { op:"nextGame" }
 */
+
+// helpers cục bộ phòng khi chưa tách utils
+const gameWon = (x, y, pts, byTwo) =>
+  x >= pts && (byTwo ? x - y >= 2 : x - y >= 1);
+
 export const patchScore = asyncHandler(async (req, res) => {
+  const winsCount = (gs = [], rules = { pointsToWin: 11, winByTwo: true }) => {
+    let aWins = 0,
+      bWins = 0;
+    for (const g of gs) {
+      if (gameWon(g?.a ?? 0, g?.b ?? 0, rules.pointsToWin, rules.winByTwo))
+        aWins++;
+      if (gameWon(g?.b ?? 0, g?.a ?? 0, rules.pointsToWin, rules.winByTwo))
+        bWins++;
+    }
+    return { aWins, bWins };
+  };
   const { id } = req.params;
   const { op } = req.body || {};
+  const io = req.app.get("io");
+
   const match = await Match.findById(id);
   if (!match) return res.status(404).json({ message: "Match not found" });
 
-  const rules = match.rules || { bestOf: 3, pointsToWin: 11, winByTwo: true };
-  const io = req.app.get("io");
+  // bảo vệ rules mặc định
+  const rules = {
+    bestOf: Number(match.rules?.bestOf ?? 3),
+    pointsToWin: Number(match.rules?.pointsToWin ?? 11),
+    winByTwo: Boolean(match.rules?.winByTwo ?? true),
+  };
 
+  // ===== 1) TĂNG/GIẢM ĐIỂM -> delegate ra liveHandlers để dùng chung luật + serve =====
   if (op === "inc") {
     const { side, delta } = req.body;
-    if (!["A", "B"].includes(side)) {
+    const d = Number(delta);
+    if (!["A", "B"].includes(side))
       return res.status(400).json({ message: "Invalid side" });
-    }
-    if (!Number.isFinite(+delta)) {
+    if (!Number.isFinite(d) || d === 0)
       return res.status(400).json({ message: "Invalid delta" });
-    }
-    // nếu chưa có ván đầu tiên thì tạo
-    if (!Array.isArray(match.gameScores) || match.gameScores.length === 0) {
-      match.gameScores = [{ a: 0, b: 0 }];
-    }
-    const cur = match.gameScores[match.gameScores.length - 1] || { a: 0, b: 0 };
-    if (side === "A") cur.a = Math.max(0, (cur.a ?? 0) + Number(delta));
-    if (side === "B") cur.b = Math.max(0, (cur.b ?? 0) + Number(delta));
-    match.gameScores[match.gameScores.length - 1] = cur;
 
-    await match.save();
-    io?.to(String(match._id)).emit("score:updated", { matchId: match._id });
-    return res.json({ message: "Score updated", gameScores: match.gameScores });
+    // Dùng service chung để: cập nhật điểm, xét kết thúc ván/trận, xoay giao bóng (nếu bạn đã thêm).
+    await addPoint(id, side, d, req.user?._id, io);
+
+    // Trả snapshot mới nhất
+    const fresh = await Match.findById(id).lean();
+    io?.to(`match:${id}`).emit("score:updated", { matchId: id }); // đúng room
+    return res.json({
+      message: "Score updated",
+      gameScores: fresh?.gameScores ?? [],
+    });
   }
 
+  // ===== 2) SET GAME TẠI CHỈ SỐ CỤ THỂ =====
   if (op === "setGame") {
     let { gameIndex, a = 0, b = 0 } = req.body;
     if (!Number.isInteger(gameIndex) || gameIndex < 0) {
       return res.status(400).json({ message: "Invalid gameIndex" });
     }
     if (!Array.isArray(match.gameScores)) match.gameScores = [];
+
+    // chèn/ghi đè
     if (gameIndex > match.gameScores.length) {
       return res.status(400).json({ message: "gameIndex out of range" });
     }
-    if (gameIndex === match.gameScores.length) {
-      match.gameScores.push({ a: Number(a) || 0, b: Number(b) || 0 });
-    } else {
-      match.gameScores[gameIndex] = { a: Number(a) || 0, b: Number(b) || 0 };
-    }
+    const nextScore = { a: Number(a) || 0, b: Number(b) || 0 };
+    if (gameIndex === match.gameScores.length) match.gameScores.push(nextScore);
+    else match.gameScores[gameIndex] = nextScore;
+
+    // cập nhật currentGame = gameIndex
+    match.currentGame = gameIndex;
+
     await match.save();
-    io?.to(String(match._id)).emit("score:updated", { matchId: match._id });
-    return res.json({ message: "Game set", gameScores: match.gameScores });
+    io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+    return res.json({
+      message: "Game set",
+      gameScores: match.gameScores,
+      currentGame: match.currentGame,
+    });
   }
 
+  // ===== 3) MỞ VÁN MỚI (sau khi ván hiện tại đã kết thúc & trận chưa đủ set thắng) =====
   if (op === "nextGame") {
     if (!Array.isArray(match.gameScores) || match.gameScores.length === 0) {
       return res
@@ -116,24 +150,46 @@ export const patchScore = asyncHandler(async (req, res) => {
         .json({ message: "Chưa có ván hiện tại để kiểm tra" });
     }
     const last = match.gameScores[match.gameScores.length - 1];
-    if (!isGameWin(last?.a, last?.b, rules)) {
+    if (
+      !gameWon(last?.a ?? 0, last?.b ?? 0, rules.pointsToWin, rules.winByTwo)
+    ) {
       return res
         .status(400)
         .json({ message: "Ván hiện tại chưa đủ điều kiện kết thúc" });
     }
+
     const { aWins, bWins } = winsCount(match.gameScores, rules);
-    const needWins = Math.floor((rules.bestOf || 3) / 2) + 1;
-    if (aWins >= needWins || bWins >= needWins) {
+    const need = Math.floor(rules.bestOf / 2) + 1;
+    if (aWins >= need || bWins >= need) {
       return res
         .status(400)
         .json({ message: "Trận đã đủ số ván thắng. Không thể tạo ván mới" });
     }
+
+    // thêm ván mới + cập nhật currentGame
     match.gameScores.push({ a: 0, b: 0 });
+    match.currentGame = match.gameScores.length - 1;
+
+    // reset giao bóng đầu ván theo luật truyền thống: 0-0-2
+    match.serving = match.serving || { team: "A", server: 2 }; // tuỳ bạn có field này chưa
+    match.serving.team = match.serving.team || "A";
+    match.serving.server = 2;
+
+    // log (nếu dùng liveLog)
+    match.liveLog = match.liveLog || [];
+    match.liveLog.push({
+      type: "serve",
+      by: req.user?._id || null,
+      payload: { team: match.serving.team, server: 2 },
+      at: new Date(),
+    });
+
     await match.save();
-    io?.to(String(match._id)).emit("score:updated", { matchId: match._id });
+    io?.to(`match:${id}`).emit("score:updated", { matchId: id });
     return res.json({
       message: "Đã tạo ván tiếp theo",
       gameScores: match.gameScores,
+      currentGame: match.currentGame,
     });
   }
 
