@@ -30,38 +30,93 @@ function winsCount(gameScores = [], rules) {
   GET /api/referee/matches/assigned-to-me
   → trả về các trận có referee == req.user._id (đã populate)
 */
+// GET /api/matches/assigned?page=1&pageSize=10
 export const getAssignedMatches = asyncHandler(async (req, res) => {
   const me = req.user?._id;
 
-  const list = await Match.find({ referee: me })
-    .populate({ path: "tournament", select: "name eventType" })
-    .populate({ path: "bracket", select: "name type stage" })
-    .populate({
-      path: "pairA",
-      populate: [
-        { path: "player1", select: "fullName name phone avatar score" },
-        { path: "player2", select: "fullName name phone avatar score" },
-      ],
-    })
-    .populate({
-      path: "pairB",
-      populate: [
-        { path: "player1", select: "fullName name phone avatar score" },
-        { path: "player2", select: "fullName name phone avatar score" },
-      ],
-    })
-    .sort({ "bracket.stage": 1, round: 1, order: 1, createdAt: 1 });
+  const page = Math.max(parseInt(req.query.page) || 1, 1);
+  const pageSize = Math.min(
+    Math.max(parseInt(req.query.pageSize) || 10, 1),
+    50
+  );
+  const skip = (page - 1) * pageSize;
 
-  // Sắp xếp lại theo trạng thái
-  const statusOrder = { scheduled: 0, live: 1, finished: 2 };
-  const sortedList = list.sort((a, b) => {
-    const sa = statusOrder[a.status] ?? 99;
-    const sb = statusOrder[b.status] ?? 99;
-    if (sa !== sb) return sa - sb;
-    return 0; // nếu cùng status thì giữ nguyên sort cũ
+  // 1) Lấy danh sách _id đã sort theo custom status + stage/round/order/createdAt
+  const agg = await Match.aggregate([
+    { $match: { referee: me } },
+    {
+      $lookup: {
+        from: "brackets",
+        localField: "bracket",
+        foreignField: "_id",
+        as: "bracket",
+      },
+    },
+    { $unwind: { path: "$bracket", preserveNullAndEmptyArrays: true } },
+    {
+      $addFields: {
+        _statusOrder: {
+          $indexOfArray: [["scheduled", "live", "finished"], "$status"],
+        },
+      },
+    },
+    {
+      $sort: {
+        _statusOrder: 1,
+        "bracket.stage": 1,
+        round: 1,
+        order: 1,
+        createdAt: 1,
+      },
+    },
+    {
+      $facet: {
+        pageIds: [
+          { $project: { _id: 1 } },
+          { $skip: skip },
+          { $limit: pageSize },
+        ],
+        total: [{ $count: "count" }],
+      },
+    },
+  ]);
+
+  const ids = (agg?.[0]?.pageIds || []).map((d) => d._id);
+  const total = agg?.[0]?.total?.[0]?.count || 0;
+
+  // 2) Lấy đầy đủ document theo ids và populate như cũ
+  let items = [];
+  if (ids.length) {
+    items = await Match.find({ _id: { $in: ids } })
+      .populate({ path: "tournament", select: "name eventType" })
+      .populate({ path: "bracket", select: "name type stage" })
+      .populate({
+        path: "pairA",
+        populate: [
+          { path: "player1", select: "fullName name phone avatar score" },
+          { path: "player2", select: "fullName name phone avatar score" },
+        ],
+      })
+      .populate({
+        path: "pairB",
+        populate: [
+          { path: "player1", select: "fullName name phone avatar score" },
+          { path: "player2", select: "fullName name phone avatar score" },
+        ],
+      })
+      .lean();
+    // giữ đúng thứ tự theo ids
+    const order = new Map(ids.map((id, i) => [String(id), i]));
+    items.sort((a, b) => order.get(String(a._id)) - order.get(String(b._id)));
+  }
+
+  res.json({
+    items,
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
   });
-
-  res.json(sortedList);
 });
 
 /*

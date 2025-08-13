@@ -81,7 +81,7 @@ export const getRankings = asyncHandler(async (req, res) => {
               avatar: 1,
               verified: 1,
               createdAt: 1,
-              // cccdStatus: 1,
+              cccdStatus: 1,
             },
           },
         ],

@@ -145,10 +145,12 @@ matchSchema.pre("validate", function (next) {
 });
 
 matchSchema.pre("save", function (next) {
-  if (!this.code) {
+  const needRegen =
+    !this.code || this.isModified("round") || this.isModified("order");
+  if (needRegen) {
     const r = this.round ?? "";
     const o = this.order ?? "";
-    this.code = `R${r}#${o}`; // giống ảnh mẫu: V{round}-B{order}
+    this.code = `R${r}#${o}`;
   }
   next();
 });
@@ -201,6 +203,36 @@ matchSchema.post("findOneAndUpdate", async function (doc) {
   } catch (err) {
     console.error("[Match post(findOneAndUpdate)] propagate error:", err);
   }
+});
+
+matchSchema.pre("findOneAndUpdate", async function () {
+  const update = this.getUpdate() || {};
+  const $set = update.$set ?? update;
+
+  // Nếu người gọi đã set code thủ công thì không can thiệp
+  if (Object.prototype.hasOwnProperty.call($set, "code")) return;
+
+  const touchesRound = Object.prototype.hasOwnProperty.call($set, "round");
+  const touchesOrder = Object.prototype.hasOwnProperty.call($set, "order");
+  if (!(touchesRound || touchesOrder)) return;
+
+  // Lấy giá trị hiện tại để ghép với giá trị mới (nếu chỉ đổi 1 trong 2)
+  const current = await this.model
+    .findOne(this.getQuery())
+    .select("round order")
+    .lean();
+
+  const round = touchesRound ? $set.round : current?.round;
+  const order = touchesOrder ? $set.order : current?.order;
+
+  const r = round ?? "";
+  const o = order ?? "";
+  const code = `R${r}#${o}`;
+
+  if (update.$set) update.$set.code = code;
+  else update.code = code;
+
+  this.setUpdate(update);
 });
 
 /* ---------- Indexes ---------- */

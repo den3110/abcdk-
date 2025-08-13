@@ -445,18 +445,35 @@ export const adminListMatchGroups = expressAsyncHandler(async (req, res) => {
 export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
   const match = await Match.findById(req.params.id)
     .populate({ path: "tournament", select: "name eventType" })
-    .populate({ path: "bracket", select: "name" })
-    .populate({ path: "pairA" }) // có đủ player1, player2, score…
+    // 👉 lấy thêm bracket (chọn vài field hay dùng; có thể bỏ select để lấy full)
+    .populate({
+      path: "bracket",
+      select: "name type stage round rules format eventType",
+    })
+    .populate({ path: "pairA" }) // đã có player1, player2, score…
     .populate({ path: "pairB" })
-    .populate({ path: "referee", select: "name nickname" });
+    .populate({ path: "referee", select: "name nickname" })
+    // Nếu muốn xem 2 match nguồn từ vòng trước (tuỳ schema):
+    // .populate({ path: "previousA", select: "code round order winner" })
+    // .populate({ path: "previousB", select: "code round order winner" })
+    .lean();
 
   if (!match) {
     res.status(404);
     throw new Error("Match không tồn tại");
   }
-  res.json(match);
-});
 
+  // ✅ Fallback rules: ưu tiên rules của match, rồi đến rules của bracket
+  const mergedRules = {
+    bestOf: match?.rules?.bestOf ?? match?.bracket?.rules?.bestOf ?? 3,
+    pointsToWin:
+      match?.rules?.pointsToWin ?? match?.bracket?.rules?.pointsToWin ?? 11,
+    winByTwo: match?.rules?.winByTwo ?? match?.bracket?.rules?.winByTwo ?? true,
+  };
+
+  // trả về match + rules đã merge
+  res.json({ ...match, rules: mergedRules });
+});
 /**
  * DELETE /api/matches/:matchId
  * Xoá 1 match:
