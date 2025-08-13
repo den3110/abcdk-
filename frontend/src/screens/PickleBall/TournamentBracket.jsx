@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback, useEffect } from "react";
 import PropTypes from "prop-types";
 import {
   Box,
+  TextField,
   Tabs,
   Tab,
   Paper,
@@ -31,6 +32,8 @@ import {
   Close as CloseIcon,
   EmojiEvents as TrophyIcon,
   PlayCircle as PlayIcon,
+  ContentCopy as ContentCopyIcon,
+  OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import { Bracket, Seed, SeedItem, SeedTeam } from "react-brackets";
 import { useParams, useSearchParams } from "react-router-dom";
@@ -326,7 +329,11 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
       : m?.status === "finished"
       ? winnerSide
       : "";
-
+  // >>> NEW: link Overlay tỉ số live
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const overlayUrl = m?._id
+    ? `${origin}/overlay/score?matchId=${m._id}&theme=dark&size=md&showSets=1`
+    : "";
   const yt = streams.find((s) => ytEmbed(s.url));
   const ytSrc = ytEmbed(yt?.url);
 
@@ -396,6 +403,57 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
             </Button>
           ))}
         </Stack>
+      )}
+
+      {/* >>> NEW: OVERLAY LINK (dùng cho OBS/Stream) */}
+      {overlayUrl && (
+        <Paper variant="outlined" sx={{ p: 1.5 }}>
+          <Stack spacing={1}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+              Overlay tỉ số trực tiếp
+            </Typography>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1}
+              alignItems={{ xs: "stretch", sm: "center" }}
+            >
+              <TextField
+                size="small"
+                fullWidth
+                value={overlayUrl}
+                InputProps={{ readOnly: true }}
+              />
+              <Stack direction="row" spacing={1}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<ContentCopyIcon />}
+                  onClick={() => navigator.clipboard.writeText(overlayUrl)}
+                >
+                  Copy link
+                </Button>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="primary"
+                  startIcon={<OpenInNewIcon />}
+                  component={MuiLink}
+                  href={overlayUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  underline="none"
+                  sx={{ color: "white !important" }}
+                >
+                  Mở overlay
+                </Button>
+              </Stack>
+            </Stack>
+            <Typography variant="caption" color="text.secondary">
+              Mẹo: dán link này vào OBS/StreamYard (Browser Source) để hiển thị
+              tỉ số ở góc màn hình.
+            </Typography>
+          </Stack>
+        </Paper>
       )}
 
       {/* SCOREBOARD */}

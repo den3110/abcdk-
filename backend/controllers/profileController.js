@@ -54,7 +54,14 @@ function decoratePlayer(p, histMap, when, key /* 'single' | 'double' */) {
     post = undefined;
   for (let i = 0; i < hist.length; i++) {
     const h = hist[i];
-    if (h.t <= when) pre = h[key];
+    // if (h.t <= when) pre = h[key];
+    // if (h.t >= when) {
+    //   post = h[key];
+    //   break;
+    // }
+    // pre: chỉ lấy record trước thời điểm trận kết thúc
+    if (h.t < when) pre = h[key];
+    // post: lấy record tại hoặc sau thời điểm trận kết thúc (record apply điểm)
     if (h.t >= when) {
       post = h[key];
       break;
@@ -144,7 +151,7 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
   }
 
   const histRows = await ScoreHistory.find({ user: { $in: [...allUserIds] } })
-    .sort({ scoredAt: 1 }) // tăng dần để tìm pre/post theo thời điểm
+    .sort({ scoredAt: 1, _id: 1 }) // tăng dần để tìm pre/post theo thời điểm
     .select("user single double scoredAt")
     .lean();
 

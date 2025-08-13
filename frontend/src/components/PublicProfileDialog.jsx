@@ -127,6 +127,77 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     setDetailOpen(true);
   };
 
+  /* --- ZOOM image state & dialog --- */
+  const [zoom, setZoom] = useState({ open: false, src: "", title: "" });
+  const openZoom = (src, title = "") =>
+    setZoom({ open: true, src: src || AVA_PLACE, title });
+  const closeZoom = () => setZoom((z) => ({ ...z, open: false }));
+
+  function ImageZoomDialog({ open, src, title, onClose }) {
+    const t = useTheme();
+    const fullScreen = useMediaQuery(t.breakpoints.down("sm"));
+    return (
+      <Dialog
+        open={open}
+        onClose={onClose}
+        fullScreen={fullScreen}
+        maxWidth="lg"
+        PaperProps={{
+          sx: {
+            bgcolor: "transparent",
+            boxShadow: "none",
+          },
+        }}
+      >
+        <Box
+          sx={{
+            position: "relative",
+            p: { xs: 1, sm: 2 },
+          }}
+        >
+          <IconButton
+            onClick={onClose}
+            aria-label="close"
+            sx={{
+              position: "absolute",
+              right: 8,
+              top: 8,
+              color: "#fff",
+              zIndex: 2,
+            }}
+          >
+            <CloseIcon />
+          </IconButton>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: fullScreen ? "100vh" : "80vh",
+              p: { xs: 2, sm: 3 },
+            }}
+            onClick={onClose}
+          >
+            <img
+              src={src || AVA_PLACE}
+              alt={title || "Avatar"}
+              style={{
+                maxWidth: fullScreen ? "100vw" : "90vw",
+                maxHeight: fullScreen ? "100vh" : "85vh",
+                objectFit: "contain",
+                borderRadius: 8,
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onError={(e) => {
+                e.currentTarget.src = AVA_PLACE;
+              }}
+            />
+          </Box>
+        </Box>
+      </Dialog>
+    );
+  }
+
   /* ---------- header & info ---------- */
   const Header = () => (
     <Stack
@@ -136,7 +207,16 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     >
       <Avatar
         src={base.avatar || AVA_PLACE}
-        sx={{ width: 96, height: 96, boxShadow: 2 }}
+        sx={{
+          width: 96,
+          height: 96,
+          boxShadow: 2,
+          cursor: "zoom-in",
+        }}
+        onClick={() => openZoom(base.avatar || AVA_PLACE, base.nickname)}
+        imgProps={{
+          onError: (e) => (e.currentTarget.src = AVA_PLACE),
+        }}
       />
       <Stack spacing={1} sx={{ flex: 1, minWidth: 0 }}>
         <Typography variant="h5" noWrap>
@@ -256,8 +336,12 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
 
   /* ---------- player cell ---------- */
   function PlayerCell({ players = [], highlight = false }) {
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
     if (!players.length)
       return <Typography color="text.secondary">—</Typography>;
+
     return (
       <Stack spacing={0.75}>
         {players.map((p, idx) => {
@@ -265,6 +349,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           const down = (p?.delta ?? 0) < 0;
           const hasScore =
             Number.isFinite(p?.preScore) || Number.isFinite(p?.postScore);
+
           return (
             <Stack
               key={`${p?._id || p?.name || idx}`}
@@ -283,17 +368,43 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             >
               <Avatar
                 src={p?.avatar || AVA_PLACE}
-                sx={{ width: 24, height: 24 }}
+                sx={{ width: 24, height: 24, cursor: "zoom-in" }}
+                onClick={(e) => {
+                  e.stopPropagation(); // không mở modal trận khi zoom ảnh
+                  openZoom(p?.avatar || AVA_PLACE, p?.name);
+                }}
+                imgProps={{
+                  onError: (e) => (e.currentTarget.src = AVA_PLACE),
+                }}
               />
-              <Stack sx={{ minWidth: 0 }}>
-                <Typography variant="body2" noWrap>
+
+              <Stack sx={{ minWidth: 0, flex: 1 }}>
+                <Typography variant="body2" noWrap title={safe(p?.name)}>
                   {safe(p?.name)}
                 </Typography>
+
                 {hasScore ? (
-                  <Stack direction="row" spacing={0.5} alignItems="center">
-                    <Typography variant="caption" color="text.secondary">
+                  <Stack
+                    direction="row"
+                    spacing={0.5}
+                    alignItems="center"
+                    sx={{
+                      // 👇 chỉ mobile mới cho wrap để không tràn
+                      flexWrap: isMobile ? "wrap" : "nowrap",
+                      rowGap: isMobile ? 0.25 : 0,
+                      columnGap: 0.5,
+                      maxWidth: "100%",
+                      minWidth: 0,
+                    }}
+                  >
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ lineHeight: 1.2, wordBreak: "break-word" }}
+                    >
                       {num(p?.preScore)}
                     </Typography>
+
                     <Typography
                       variant="caption"
                       sx={{
@@ -303,12 +414,23 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                           : down
                           ? "error.main"
                           : "text.primary",
+                        lineHeight: 1.2,
                       }}
                     >
                       {num(p?.postScore)}
                     </Typography>
+
                     {Number.isFinite(p?.delta) && p?.delta !== 0 && (
-                      <>
+                      // 👇 gói icon + số delta vào 1 cụm inline-flex để không bị tách rời khi xuống dòng
+                      <Box
+                        component="span"
+                        sx={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          lineHeight: 1,
+                          mt: isMobile ? 0.25 : 0,
+                        }}
+                      >
                         {p.delta > 0 ? (
                           <ArrowDropUpIcon
                             fontSize="small"
@@ -328,7 +450,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                         >
                           {Math.abs(p.delta).toFixed(3)}
                         </Typography>
-                      </>
+                      </Box>
                     )}
                   </Stack>
                 ) : (
@@ -346,12 +468,54 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
 
   /* ---------- match detail modal ---------- */
   function MatchDetailDialog({ open, onClose, row }) {
+    const theme = useTheme();
+    const fullScreen = useMediaQuery(theme.breakpoints.down("sm")); // ✅ mobile: full-screen
     const scoreLines = toScoreLines(row);
     const winnerA = row?.winner === "A";
     const winnerB = row?.winner === "B";
+
+    const CodeChip = (
+      <Chip
+        size="small"
+        color="primary"
+        label={safe(row?.code, String(row?._id || "").slice(-5))}
+        sx={{ fontWeight: 700 }}
+      />
+    );
+
+    const TimeChip = (
+      <Chip
+        size="small"
+        color="info"
+        label={fmtDT(row?.dateTime)}
+        sx={{ whiteSpace: "nowrap" }}
+      />
+    );
+
     return (
-      <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-        <DialogTitle>
+      <Dialog
+        open={open}
+        onClose={onClose}
+        fullScreen={fullScreen} // ✅ xs/sm: full-screen
+        maxWidth="sm"
+        fullWidth={!fullScreen}
+        PaperProps={{
+          sx: fullScreen
+            ? { m: 0, borderRadius: 0 } // sát mép, không bo trên mobile
+            : { borderRadius: 3 },
+        }}
+      >
+        <DialogTitle
+          sx={{
+            pr: 7,
+            position: "sticky",
+            top: 0,
+            zIndex: 2,
+            bgcolor: "background.paper",
+            borderBottom: "1px solid",
+            borderColor: "divider",
+          }}
+        >
           Chi tiết trận đấu
           <IconButton
             onClick={onClose}
@@ -361,48 +525,84 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             <CloseIcon />
           </IconButton>
         </DialogTitle>
-        <DialogContent dividers>
+
+        <DialogContent dividers sx={{ p: { xs: 2, md: 3 } }}>
           <Stack spacing={1.5}>
-            <Stack direction="row" justifyContent="space-between">
-              <Typography fontWeight={700}>
-                {safe(row?.code, String(row?._id || "").slice(-5))}
-              </Typography>
-              <Chip size="small" color="info" label={fmtDT(row?.dateTime)} />
+            {/* Header chips: code + time */}
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              flexWrap="wrap"
+              rowGap={1}
+            >
+              {CodeChip}
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  color={row?.winner ? "success" : "default"}
+                  label={`Kết quả: ${row?.winner || "—"}`}
+                />
+                {TimeChip}
+              </Stack>
             </Stack>
 
-            <Typography color="text.secondary">
+            {/* Tournament name */}
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              noWrap={!fullScreen}
+              title={safe(row?.tournament?.name, "—")}
+              sx={{ wordBreak: "break-word" }}
+            >
               {safe(row?.tournament?.name, "—")}
             </Typography>
 
             <Divider />
 
-            <Stack direction="row" spacing={2} alignItems="flex-start">
-              <Box flex={1}>
+            {/* Teams + score: MOBILE dọc, DESKTOP ngang */}
+            <Stack
+              direction={fullScreen ? "column" : "row"}
+              spacing={fullScreen ? 2 : 3}
+              alignItems={fullScreen ? "stretch" : "flex-start"}
+            >
+              {/* Team A */}
+              <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="caption" color="text.secondary">
                   Đội 1
                 </Typography>
                 <PlayerCell players={row?.team1} highlight={winnerA} />
               </Box>
 
-              <Stack alignItems="center" minWidth={96}>
+              {/* Score block (mỗi game 1 dòng) */}
+              <Stack
+                alignItems="center"
+                sx={{
+                  minWidth: fullScreen ? "auto" : 120,
+                  alignSelf: "center",
+                }}
+              >
                 <Typography variant="overline" color="text.secondary">
                   Tỷ số
                 </Typography>
-                {/* mỗi game 1 dòng */}
                 {scoreLines.length ? (
                   <Stack spacing={0.25} alignItems="center">
                     {scoreLines.map((s, i) => (
-                      <Typography key={i} fontWeight={700}>
+                      <Typography key={i} fontWeight={800}>
                         {s}
                       </Typography>
                     ))}
                   </Stack>
                 ) : (
-                  <Typography>{safe(row?.scoreText)}</Typography>
+                  <Typography fontWeight={800}>
+                    {safe(row?.scoreText)}
+                  </Typography>
                 )}
               </Stack>
 
-              <Box flex={1}>
+              {/* Team B */}
+              <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="caption" color="text.secondary">
                   Đội 2
                 </Typography>
@@ -410,9 +610,11 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
               </Box>
             </Stack>
 
+            {/* Video */}
             <Stack direction="row" justifyContent="flex-end">
               {row?.video ? (
                 <Button
+                  size="small"
                   startIcon={<PlayCircleOutlineIcon />}
                   component="a"
                   href={row.video}
@@ -432,8 +634,11 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             </Stack>
           </Stack>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={onClose}>Đóng</Button>
+
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={onClose} variant="contained" fullWidth={fullScreen}>
+            Đóng
+          </Button>
         </DialogActions>
       </Dialog>
     );
@@ -716,134 +921,158 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   /* ---------- Mobile: Drawer (to hơn + chips không dính) ---------- */
   if (isMobile) {
     return (
-      <Drawer
-        anchor="bottom"
-        open={open}
-        onClose={onClose}
-        PaperProps={{
-          sx: {
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            height: "94vh",
-            p: 2,
-          },
-        }}
-      >
-        <Box display="flex" justifyContent="space-between" alignItems="center">
-          <Typography variant="h6">Hồ sơ</Typography>
-          <IconButton onClick={onClose}>
-            <CloseIcon />
-          </IconButton>
-        </Box>
-
-        {loading ? (
-          <Box mt={3} textAlign="center">
-            <CircularProgress />
+      <>
+        <Drawer
+          anchor="bottom"
+          open={open}
+          onClose={onClose}
+          PaperProps={{
+            sx: {
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              height: "94vh",
+              p: 2,
+            },
+          }}
+        >
+          <Box
+            display="flex"
+            justifyContent="space-between"
+            alignItems="center"
+          >
+            <Typography variant="h6">Hồ sơ</Typography>
+            <IconButton onClick={onClose}>
+              <CloseIcon />
+            </IconButton>
           </Box>
-        ) : error ? (
-          <Alert severity="error" sx={{ mt: 3 }}>
-            {error?.data?.message || error.error || "Lỗi tải dữ liệu"}
-          </Alert>
-        ) : (
-          <>
-            <Tabs
-              value={tab}
-              onChange={(_, v) => setTab(v)}
-              variant="fullWidth"
-              sx={{ mb: 1 }}
-            >
-              <Tab label="Thông tin" />
-              <Tab label="Điểm trình" />
-              <Tab label="Thi đấu" />
-            </Tabs>
 
-            {/* không cần vuốt ngang; nội dung cuộn dọc thoải mái */}
-            <Box
-              sx={{
-                overflowY: "auto",
-                pb: 6,
-                px: 1,
-                height: "calc(94vh - 120px)",
-              }}
-            >
-              {tab === 0 && <InfoSection />}
-              {tab === 1 && <RatingTable />}
-              {tab === 2 && <MatchSection isMobileView />}
+          {loading ? (
+            <Box mt={3} textAlign="center">
+              <CircularProgress />
             </Box>
-          </>
-        )}
-      </Drawer>
+          ) : error ? (
+            <Alert severity="error" sx={{ mt: 3 }}>
+              {error?.data?.message || error.error || "Lỗi tải dữ liệu"}
+            </Alert>
+          ) : (
+            <>
+              <Tabs
+                value={tab}
+                onChange={(_, v) => setTab(v)}
+                variant="fullWidth"
+                sx={{ mb: 1 }}
+              >
+                <Tab label="Thông tin" />
+                <Tab label="Điểm trình" />
+                <Tab label="Thi đấu" />
+              </Tabs>
+
+              {/* không cần vuốt ngang; nội dung cuộn dọc thoải mái */}
+              <Box
+                sx={{
+                  overflowY: "auto",
+                  pb: 6,
+                  px: 1,
+                  height: "calc(94vh - 120px)",
+                }}
+              >
+                {tab === 0 && <InfoSection />}
+                {tab === 1 && <RatingTable />}
+                {tab === 2 && <MatchSection isMobileView />}
+              </Box>
+            </>
+          )}
+        </Drawer>
+
+        {/* Zoom dialog (mobile) */}
+        <ImageZoomDialog
+          open={zoom.open}
+          src={zoom.src}
+          title={zoom.title}
+          onClose={closeZoom}
+        />
+      </>
     );
   }
 
   /* ---------- Desktop: Dialog to bự ---------- */
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      maxWidth={false}
-      PaperProps={{
-        sx: {
-          width: { xs: "100%", md: "96vw" },
-          maxWidth: 1400,
-          borderRadius: 3,
-        },
-      }}
-    >
-      <DialogTitle
-        sx={{
-          position: "sticky",
-          top: 0,
-          zIndex: 2,
-          bgcolor: "background.paper",
-          borderBottom: "1px solid",
-          borderColor: "divider",
-          pr: 7,
+    <>
+      <Dialog
+        open={open}
+        onClose={onClose}
+        maxWidth={false}
+        PaperProps={{
+          sx: {
+            width: { xs: "100%", md: "96vw" },
+            maxWidth: 1400,
+            borderRadius: 3,
+          },
         }}
       >
-        Hồ sơ công khai
-        <IconButton
-          onClick={onClose}
-          sx={{ position: "absolute", right: 8, top: 8 }}
-          aria-label="close"
+        <DialogTitle
+          sx={{
+            position: "sticky",
+            top: 0,
+            zIndex: 2,
+            bgcolor: "background.paper",
+            borderBottom: "1px solid",
+            borderColor: "divider",
+            pr: 7,
+          }}
         >
-          <CloseIcon />
-        </IconButton>
-      </DialogTitle>
+          Hồ sơ công khai
+          <IconButton
+            onClick={onClose}
+            sx={{ position: "absolute", right: 8, top: 8 }}
+            aria-label="close"
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
 
-      <DialogContent
-        dividers
-        sx={{
-          p: { xs: 2, md: 3 },
-          bgcolor: "background.default",
-        }}
-      >
-        {loading ? (
-          <Stack spacing={2}>
-            <Skeleton variant="circular" width={96} height={96} />
-            <Skeleton variant="rectangular" height={220} />
-            <Skeleton variant="rectangular" height={320} />
-          </Stack>
-        ) : error ? (
-          <Alert severity="error">
-            {error?.data?.message || error.error || "Lỗi tải dữ liệu"}
-          </Alert>
-        ) : (
-          <>
-            <InfoSection />
-            <Divider sx={{ my: 3 }} />
-            <RatingTable />
-            <Divider sx={{ my: 3 }} />
-            <MatchSection isMobileView={false} />
-          </>
-        )}
-      </DialogContent>
+        <DialogContent
+          dividers
+          sx={{
+            p: { xs: 2, md: 3 },
+            bgcolor: "background.default",
+          }}
+        >
+          {loading ? (
+            <Stack spacing={2}>
+              <Skeleton variant="circular" width={96} height={96} />
+              <Skeleton variant="rectangular" height={220} />
+              <Skeleton variant="rectangular" height={320} />
+            </Stack>
+          ) : error ? (
+            <Alert severity="error">
+              {error?.data?.message || error.error || "Lỗi tải dữ liệu"}
+            </Alert>
+          ) : (
+            <>
+              <InfoSection />
+              <Divider sx={{ my: 3 }} />
+              <RatingTable />
+              <Divider sx={{ my: 3 }} />
+              <MatchSection isMobileView={false} />
+            </>
+          )}
+        </DialogContent>
 
-      <DialogActions sx={{ p: 2 }}>
-        <Button onClick={onClose} variant="contained">
-          Đóng
-        </Button>
-      </DialogActions>
-    </Dialog>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={onClose} variant="contained">
+            Đóng
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Zoom dialog (desktop) */}
+      <ImageZoomDialog
+        open={zoom.open}
+        src={zoom.src}
+        title={zoom.title}
+        onClose={closeZoom}
+      />
+    </>
   );
 }

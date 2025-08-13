@@ -70,6 +70,10 @@ export function initSocket(
       );
       if (m) socket.emit("match:snapshot", toDTO(m));
     });
+    socket.on("overlay:join", ({ matchId }) => {
+      if (!matchId) return;
+      socket.join(`match:${String(matchId)}`);
+    });
 
     const ensureReferee = () =>
       socket.user?.role === "referee" || socket.user?.role === "admin";
@@ -108,6 +112,7 @@ export function initSocket(
         await forfeitMatch(matchId, winner, reason, socket.user?._id, io);
       }
     );
+
     socket.on("score:inc", async (data) => {
       const { matchId, side, delta } = data || {};
 

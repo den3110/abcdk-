@@ -24,30 +24,35 @@ import RankingList from "./screens/PickleBall/RankingList.jsx";
 import LevelPointPage from "./screens/PickleBall/LevelPoint.jsx";
 import ContactPage from "./screens/Contact.jsx";
 import { SocketProvider } from "./context/SocketContext.jsx";
+import ScoreOverlay from "./screens/PickleBall/ScoreOverlay.jsx";
 
 const router = createBrowserRouter(
   createRoutesFromElements(
-    <Route path="/" element={<App />}>
-      <Route index={true} path="/" element={<HomeScreen />} />
-      <Route path="/login" element={<LoginScreen />} />
-      <Route path="/register" element={<RegisterScreen />} />
-      <Route
-        path="/pickle-ball/tournaments"
-        element={<TournamentDashboard />}
-      />
-      <Route
-        path="/tournament/:id/register"
-        element={<TournamentRegistration />}
-      />
-      <Route path="/tournament/:id/checkin" element={<TournamentCheckin />} />
-      <Route path="/tournament/:id/bracket" element={<TournamentBracket />} />
-      <Route path="/pickle-ball/rankings" element={<RankingList />} />
-      <Route path="/contact" element={<ContactPage />} />
-      <Route path="" element={<PrivateRoute />}>
-        <Route path="/profile" element={<ProfileScreen />} />
-        <Route path="/levelpoint" element={<LevelPointPage />} />
+    <>
+      <Route path="/" element={<App />}>
+        <Route index={true} path="/" element={<HomeScreen />} />
+        <Route path="/login" element={<LoginScreen />} />
+        <Route path="/register" element={<RegisterScreen />} />
+        <Route
+          path="/pickle-ball/tournaments"
+          element={<TournamentDashboard />}
+        />
+        <Route
+          path="/tournament/:id/register"
+          element={<TournamentRegistration />}
+        />
+        <Route path="/tournament/:id/checkin" element={<TournamentCheckin />} />
+        <Route path="/tournament/:id/bracket" element={<TournamentBracket />} />
+        <Route path="/pickle-ball/rankings" element={<RankingList />} />
+        <Route path="/contact" element={<ContactPage />} />
+
+        <Route path="" element={<PrivateRoute />}>
+          <Route path="/profile" element={<ProfileScreen />} />
+          <Route path="/levelpoint" element={<LevelPointPage />} />
+        </Route>
       </Route>
-    </Route>
+      <Route path="/overlay/score" element={<ScoreOverlay />} />
+    </>
   )
 );
 

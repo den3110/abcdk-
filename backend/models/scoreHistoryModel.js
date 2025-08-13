@@ -8,8 +8,8 @@ const scoreHistorySchema = new mongoose.Schema(
       ref: "User",
       required: false,
     }, // người chấm (admin / referee)
-    single: { type: Number, required: true },
-    double: { type: Number, required: true },
+    single: { type: Number, required: false },
+    double: { type: Number, required: false },
     note: { type: String, default: "" },
     scoredAt: { type: Date, default: Date.now }, // ngày chấm (hiển thị)
   },

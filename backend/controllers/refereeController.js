@@ -32,6 +32,7 @@ function winsCount(gameScores = [], rules) {
 */
 export const getAssignedMatches = asyncHandler(async (req, res) => {
   const me = req.user?._id;
+
   const list = await Match.find({ referee: me })
     .populate({ path: "tournament", select: "name eventType" })
     .populate({ path: "bracket", select: "name type stage" })
@@ -51,7 +52,16 @@ export const getAssignedMatches = asyncHandler(async (req, res) => {
     })
     .sort({ "bracket.stage": 1, round: 1, order: 1, createdAt: 1 });
 
-  res.json(list);
+  // Sắp xếp lại theo trạng thái
+  const statusOrder = { scheduled: 0, live: 1, finished: 2 };
+  const sortedList = list.sort((a, b) => {
+    const sa = statusOrder[a.status] ?? 99;
+    const sb = statusOrder[b.status] ?? 99;
+    if (sa !== sb) return sa - sb;
+    return 0; // nếu cùng status thì giữ nguyên sort cũ
+  });
+
+  res.json(sortedList);
 });
 
 /*
@@ -111,6 +121,9 @@ export const patchScore = asyncHandler(async (req, res) => {
     return res.json({
       message: "Score updated",
       gameScores: fresh?.gameScores ?? [],
+      status: fresh?.status, // NEW
+      winner: fresh?.winner, // NEW
+      ratingApplied: fresh?.ratingApplied, // NEW
     });
   }
 

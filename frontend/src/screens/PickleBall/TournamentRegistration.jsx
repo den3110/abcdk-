@@ -499,7 +499,7 @@ export default function TournamentRegistration() {
           {error?.data?.message || error.error}
         </Typography>
       ) : regs.length === 0 ? (
-        <Typography color="text.secondary">No registrations yet!</Typography>
+        <Typography color="text.secondary">Danh sách đăng ký trống!</Typography>
       ) : isMobile ? (
         // mobile cards
         <Stack spacing={2}>

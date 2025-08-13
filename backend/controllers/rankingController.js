@@ -2,17 +2,21 @@ import Ranking from "../models/rankingModel.js";
 import asyncHandler from "express-async-handler";
 import User from "../models/userModel.js";
 import mongoose from "mongoose";
+import Registration from "../models/registrationModel.js"; // (không dùng trực tiếp trong pipeline, chỉ để tham khảo)
+import Match from "../models/matchModel.js"; // (không dùng trực tiếp)
+import Tournament from "../models/tournamentModel.js"; // (không dùng trực tiếp)
+import Assessment from "../models/assessmentModel.js";
 
 export const getRankings = asyncHandler(async (req, res) => {
-  const page = Math.max(parseInt(req.query.page ?? 0, 10) || 0, 0);
-  const limit = Math.min(parseInt(req.query.limit ?? 10, 10) || 10, 100);
-  const keyword = (req.query.keyword || "").trim();
+  const page = Math.max(0, parseInt(req.query.page ?? 0, 10));
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 10, 10)));
+  const keyword = String(req.query.keyword ?? "").trim();
 
-  // 1) Nếu có keyword, lấy _id user role='user' khớp nickname
+  // 1) Nếu có keyword, lấy danh sách _id user khớp nickname (không lọc role)
   let userIdsFilter = null;
   if (keyword) {
     const rawIds = await User.find(
-      { role: "user", nickname: { $regex: keyword, $options: "i" } },
+      { nickname: { $regex: keyword, $options: "i" } },
       { _id: 1 }
     ).lean();
 
@@ -31,41 +35,21 @@ export const getRankings = asyncHandler(async (req, res) => {
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
   };
 
-  // 3) Đếm số user hợp lệ để tính totalPages
+  // 3) Đếm số user duy nhất để tính totalPages
   const countAgg = await Ranking.aggregate([
     { $match: matchStage },
     { $match: { user: { $type: "objectId" } } },
-    {
-      $lookup: {
-        from: "users",
-        localField: "user",
-        foreignField: "_id",
-        as: "userDoc",
-        pipeline: [{ $match: { role: "user" } }, { $project: { _id: 1 } }],
-      },
-    },
-    { $unwind: { path: "$userDoc", preserveNullAndEmptyArrays: false } },
     { $group: { _id: "$user" } },
     { $count: "n" },
   ]);
-  const totalUniqueUsers = countAgg[0]?.n || 0;
+  const totalUniqueUsers = countAgg[0]?.n ?? 0;
 
-  // 4) Sắp xếp ưu tiên uy tín -> points -> double -> single
-  const sortPref = {
-    reputation: -1,
-    double: -1,
-    single: -1,
-    points: -1,
-    updatedAt: -1,
-    _id: 1,
-  };
-
-  // 5) Lấy docs trang hiện tại
+  // 4) Lấy docs theo trang với các tính toán tier
   const docsAgg = await Ranking.aggregate([
     { $match: matchStage },
     { $match: { user: { $type: "objectId" } } },
 
-    // đảm bảo có giá trị để sort
+    // Chuẩn hoá giá trị để sort an toàn
     {
       $addFields: {
         reputation: { $ifNull: ["$reputation", 0] },
@@ -75,12 +59,12 @@ export const getRankings = asyncHandler(async (req, res) => {
       },
     },
 
-    // nếu (lý thuyết) có nhiều bản/1 user, chọn bản "đẹp" nhất theo sortPref
-    { $sort: sortPref },
+    // Nếu (giả định) có nhiều bản / user, chọn bản "đẹp" nhất theo điểm (để ổn định)
+    { $sort: { updatedAt: -1, double: -1, single: -1, points: -1, _id: 1 } },
     { $group: { _id: "$user", doc: { $first: "$$ROOT" } } },
     { $replaceRoot: { newRoot: "$doc" } },
 
-    // join sang users và CHỈ giữ role='user'
+    // Join sang users (FULL ROLE, không lọc)
     {
       $lookup: {
         from: "users",
@@ -88,16 +72,16 @@ export const getRankings = asyncHandler(async (req, res) => {
         foreignField: "_id",
         as: "user",
         pipeline: [
-          { $match: { role: "user" } },
           {
             $project: {
               nickname: 1,
+              // role: 1,
               gender: 1,
               province: 1,
               avatar: 1,
               verified: 1,
               createdAt: 1,
-              cccdStatus: 1,
+              // cccdStatus: 1,
             },
           },
         ],
@@ -105,29 +89,29 @@ export const getRankings = asyncHandler(async (req, res) => {
     },
     { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
 
-    // lấy lần chấm gần nhất để biết tự chấm hay không
+    // Lấy lần chấm gần nhất (để biết tự chấm hay không)
     {
       $lookup: {
         from: "assessments",
         let: { uid: "$user._id" },
         pipeline: [
           { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
-          { $sort: { scoredAt: -1 } },
+          { $sort: { scoredAt: -1, _id: -1 } },
           { $limit: 1 },
-          { $project: { scorer: 1, "meta.selfScored": 1, scoredAt: 1 } },
+          { $project: { scorer: 1, scoredAt: 1, meta: 1 } },
         ],
-        as: "latest",
+        as: "latestAssess",
       },
     },
-    { $addFields: { latest: { $arrayElemAt: ["$latest", 0] } } },
+    { $addFields: { latestAssess: { $arrayElemAt: ["$latestAssess", 0] } } },
     {
       $addFields: {
         isSelfScoredLatest: {
           $cond: [
             {
               $or: [
-                { $eq: ["$latest.meta.selfScored", true] },
-                { $eq: ["$latest.scorer", "$user._id"] },
+                { $eq: ["$latestAssess.meta.selfScored", true] },
+                { $eq: ["$latestAssess.scorer", "$user._id"] },
               ],
             },
             true,
@@ -137,24 +121,254 @@ export const getRankings = asyncHandler(async (req, res) => {
       },
     },
 
-    // sort hiển thị cuối cùng đúng ưu tiên
-    { $sort: sortPref },
+    // --- Tính số trận ĐÔI/ĐƠN đã KẾT THÚC cho user ---
 
-    // paginate
+    // Lấy tất cả registrations của user + phân loại theo eventType (single/double)
+    {
+      $lookup: {
+        from: "registrations",
+        let: { uid: "$user._id" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $or: [
+                  { $eq: ["$player1.user", "$$uid"] },
+                  { $eq: ["$player2.user", "$$uid"] },
+                ],
+              },
+            },
+          },
+          {
+            $lookup: {
+              from: "tournaments",
+              localField: "tournament",
+              foreignField: "_id",
+              as: "tour",
+              pipeline: [{ $project: { eventType: 1 } }],
+            },
+          },
+          {
+            $addFields: {
+              eventType: {
+                $ifNull: [{ $arrayElemAt: ["$tour.eventType", 0] }, "double"],
+              },
+            },
+          },
+          { $group: { _id: "$eventType", ids: { $push: "$_id" } } },
+        ],
+        as: "regsByType",
+      },
+    },
+
+    // Rút 2 mảng regIds: regsDoubleIds & regsSingleIds
+    {
+      $addFields: {
+        regsDoubleIds: {
+          $let: {
+            vars: {
+              arr: {
+                $filter: {
+                  input: "$regsByType",
+                  as: "r",
+                  cond: { $eq: ["$$r._id", "double"] },
+                },
+              },
+            },
+            in: { $ifNull: [{ $arrayElemAt: ["$$arr.ids", 0] }, []] },
+          },
+        },
+        regsSingleIds: {
+          $let: {
+            vars: {
+              arr: {
+                $filter: {
+                  input: "$regsByType",
+                  as: "r",
+                  cond: { $eq: ["$$r._id", "single"] },
+                },
+              },
+            },
+            in: { $ifNull: [{ $arrayElemAt: ["$$arr.ids", 0] }, []] },
+          },
+        },
+      },
+    },
+
+    // Đếm trận ĐÔI đã finished
+    {
+      $lookup: {
+        from: "matches",
+        let: { rids: "$regsDoubleIds" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$status", "finished"] },
+                  {
+                    $or: [
+                      { $in: ["$pairA", "$$rids"] },
+                      { $in: ["$pairB", "$$rids"] },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          { $count: "n" },
+        ],
+        as: "doubleCnt",
+      },
+    },
+    {
+      $addFields: {
+        doubleMatches: { $ifNull: [{ $arrayElemAt: ["$doubleCnt.n", 0] }, 0] },
+      },
+    },
+
+    // Đếm trận ĐƠN đã finished
+    {
+      $lookup: {
+        from: "matches",
+        let: { rids: "$regsSingleIds" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$status", "finished"] },
+                  {
+                    $or: [
+                      { $in: ["$pairA", "$$rids"] },
+                      { $in: ["$pairB", "$$rids"] },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          { $count: "n" },
+        ],
+        as: "singleCnt",
+      },
+    },
+    {
+      $addFields: {
+        singleMatches: { $ifNull: [{ $arrayElemAt: ["$singleCnt.n", 0] }, 0] },
+      },
+    },
+
+    // Tính tier cho đôi/đơn
+    {
+      $addFields: {
+        doubleTier: {
+          $switch: {
+            branches: [
+              { case: { $gte: ["$doubleMatches", 10] }, then: 0 },
+              { case: { $gte: ["$doubleMatches", 5] }, then: 1 },
+              { case: { $gte: ["$doubleMatches", 1] }, then: 2 },
+            ],
+            default: 4,
+          },
+        },
+        singleTier: {
+          $switch: {
+            branches: [
+              { case: { $gte: ["$singleMatches", 10] }, then: 0 },
+              { case: { $gte: ["$singleMatches", 5] }, then: 1 },
+              { case: { $gte: ["$singleMatches", 1] }, then: 2 },
+            ],
+            default: 4,
+          },
+        },
+        selfTier: { $cond: [{ $eq: ["$isSelfScoredLatest", true] }, 3, 4] },
+      },
+    },
+
+    // Badge hiệu lực (ưu tiên đôi → đơn → tự chấm → chưa đấu)
+    {
+      $addFields: {
+        effectiveTier: {
+          $cond: [
+            { $ne: ["$doubleTier", 4] },
+            "$doubleTier",
+            {
+              $cond: [{ $ne: ["$singleTier", 4] }, "$singleTier", "$selfTier"],
+            },
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        tierColor: {
+          $switch: {
+            branches: [
+              { case: { $eq: ["$effectiveTier", 0] }, then: "green" },
+              { case: { $eq: ["$effectiveTier", 1] }, then: "blue" },
+              { case: { $eq: ["$effectiveTier", 2] }, then: "yellow" },
+              { case: { $eq: ["$effectiveTier", 3] }, then: "red" },
+            ],
+            default: "grey",
+          },
+        },
+        tierLabel: {
+          $switch: {
+            branches: [
+              { case: { $eq: ["$effectiveTier", 0] }, then: "≥10 trận" },
+              { case: { $eq: ["$effectiveTier", 1] }, then: "5–9 trận" },
+              { case: { $eq: ["$effectiveTier", 2] }, then: "1–4 trận" },
+              { case: { $eq: ["$effectiveTier", 3] }, then: "Tự chấm" },
+            ],
+            default: "Chưa đấu",
+          },
+        },
+      },
+    },
+
+    // === SORT theo ưu tiên mới ===
+    {
+      $sort: {
+        doubleTier: 1, // Ưu tiên ĐÔI
+        singleTier: 1, // rồi tới ĐƠN
+        selfTier: 1, // rồi tới TỰ CHẤM
+        double: -1, // sau đó theo điểm rank
+        single: -1,
+        points: -1,
+        updatedAt: -1,
+        _id: 1,
+      },
+    },
+
+    // Paginate
     { $skip: page * limit },
     { $limit: limit },
 
-    // project bớt field
+    // Project gọn
     {
       $project: {
-        user: 1,
+        user: 1, // đầy đủ role + info cơ bản
         single: 1,
         double: 1,
         mix: 1,
         points: 1,
         reputation: 1,
-        isSelfScoredLatest: 1,
         updatedAt: 1,
+
+        // trận/tiers tách đôi & đơn
+        doubleMatches: 1,
+        singleMatches: 1,
+        doubleTier: 1,
+        singleTier: 1,
+
+        // badge hiệu lực (ưu tiên đôi)
+        effectiveTier: 1,
+        tierColor: 1,
+        tierLabel: 1,
+
+        // cờ tự chấm gần nhất
+        isSelfScoredLatest: 1,
       },
     },
   ]);

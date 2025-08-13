@@ -121,6 +121,16 @@ const matchSchema = new mongoose.Schema(
         at: { type: Date, default: Date.now },
       },
     ],
+    /* ---------- NEW: rating delta lưu ngay trên match ---------- */
+    ratingDelta: { type: Number, default: 0 }, // số điểm +/- mỗi VĐV đội thắng/thua
+    ratingApplied: { type: Boolean, default: false }, // đã áp vào ScoreHistory chưa
+    ratingAppliedAt: { type: Date, default: null }, // thời điểm áp
+    ratingAppliedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    }, // ai áp
+    ratingType: { type: String, enum: ["single", "double", ""], default: "" }, // loại điểm áp theo eventType
   },
   { timestamps: true }
 );
@@ -134,7 +144,7 @@ matchSchema.pre("validate", function (next) {
   next();
 });
 
-matchSchema.pre("save", function(next) {
+matchSchema.pre("save", function (next) {
   if (!this.code) {
     const r = this.round ?? "";
     const o = this.order ?? "";

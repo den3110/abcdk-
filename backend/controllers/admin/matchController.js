@@ -1,9 +1,11 @@
 import Match from "../../models/matchModel.js";
 import Bracket from "../../models/bracketModel.js";
 import Registration from "../../models/registrationModel.js";
+import User from "../../models/userModel.js";
 import expressAsyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import { softResetChainFrom } from "../../services/matchChainReset.js";
+import applyRatingsForMatch from "../../utils/applyRatingsForMatch.js";
 
 /* Tạo 1 trận trong 1 bảng */
 export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
@@ -16,6 +18,8 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     round = 1,
     order = 0,
     rules,
+    ratingDelta, // giữ như cũ
+    referee, // 👈 NEW: userId trọng tài (optional)
   } = req.body;
 
   const bracket = await Bracket.findById(bracketId);
@@ -24,7 +28,7 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     throw new Error("Bracket not found");
   }
 
-  // ---- Validate nguồn đội mỗi bên ----
+  // Validate nguồn đội
   if (pairA && previousA) {
     res.status(400);
     throw new Error("Provide either pairA or previousA for side A (not both)");
@@ -46,7 +50,7 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     throw new Error("Two teams must be different");
   }
 
-  // ---- Chuẩn hoá rules ----
+  // Chuẩn hoá rules
   const finalRules = {
     bestOf: [1, 3, 5].includes(Number(rules?.bestOf))
       ? Number(rules.bestOf)
@@ -57,7 +61,7 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     winByTwo: typeof rules?.winByTwo === "boolean" ? rules.winByTwo : true,
   };
 
-  // ---- Nếu tạo theo Registration: kiểm tra tính hợp lệ ----
+  // Nếu theo Registration: kiểm tra tính hợp lệ
   let rA = null,
     rB = null;
   if (pairA) {
@@ -83,7 +87,7 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  // ---- Nếu tạo theo Winner-of: kiểm tra trận nguồn ----
+  // Nếu theo Winner-of: kiểm tra trận nguồn
   let prevMatchA = null,
     prevMatchB = null;
   if (previousA) {
@@ -127,7 +131,7 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  // ---- Validate mềm cho knockout khi round > 1 và dùng chọn tay (pairA/pairB) ----
+  // Validate mềm cho knockout khi round > 1 và chọn tay
   if (Number(round) > 1 && (pairA || pairB)) {
     const prevRoundMatches = await Match.find({
       bracket: bracketId,
@@ -154,7 +158,6 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
       );
     }
 
-    // Không lấy cả 2 đội đến từ cùng 1 trận vòng trước
     const samePrevMatch = prevRoundMatches.some(
       (m) =>
         (String(m.pairA) === String(pairA) &&
@@ -164,12 +167,31 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     if (samePrevMatch) {
       res.status(400);
       throw new Error(
-        "Both teams come from the same previous match; pick winners from two different matches"
+        "Both teams come from the same previous match; pick two different matches"
       );
     }
   }
 
-  // ---- Tạo match ----
+  // 👇 NEW: validate & chuẩn hoá referee (nếu có)
+  let refId = undefined;
+  if (referee !== undefined && referee !== null && referee !== "") {
+    if (!mongoose.isValidObjectId(referee)) {
+      res.status(400);
+      throw new Error("referee không hợp lệ");
+    }
+    const refUser = await User.findById(referee).select("_id role");
+    if (!refUser) {
+      res.status(404);
+      throw new Error("Không tìm thấy người dùng để gán làm trọng tài");
+    }
+    if (!["referee", "admin"].includes(refUser.role)) {
+      res.status(400);
+      throw new Error("Người này không có quyền trọng tài");
+    }
+    refId = refUser._id;
+  }
+
+  // Tạo match
   const match = await Match.create({
     tournament: bracket.tournament,
     bracket: bracketId,
@@ -182,9 +204,13 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     rules: finalRules,
     gameScores: [],
     status: "scheduled",
+    ratingDelta: Math.max(0, Number(ratingDelta) || 0),
+    ratingApplied: false,
+    ratingAppliedAt: null,
+    referee: refId, // 👈 NEW
   });
 
-  // Nếu có previousA/B: gắn link đi lên (để sau này nếu dùng auto-feed winner)
+  // Link ngược từ trận nguồn (nếu có)
   if (prevMatchA) {
     prevMatchA.nextMatch = match._id;
     prevMatchA.nextSlot = "A";
@@ -196,13 +222,17 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     await prevMatchB.save();
   }
 
-  // Cập nhật đếm
+  // tăng đếm
   bracket.matchesCount = (bracket.matchesCount || 0) + 1;
   await bracket.save();
 
   const populated = await Match.findById(match._id)
     .populate({ path: "pairA", select: "player1 player2" })
-    .populate({ path: "pairB", select: "player1 player2" });
+    .populate({ path: "pairB", select: "player1 player2" })
+    .populate({
+      path: "referee",
+      select: "name nickname email phone avatar role",
+    }); // 👈 NEW
 
   res.status(201).json(populated);
 });
@@ -482,6 +512,7 @@ export const adminDeleteMatch = expressAsyncHandler(async (req, res) => {
   res.json({ message: "Match deleted", deletedId: matchId });
 });
 
+// update match
 export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
   const { matchId } = req.params;
   const {
@@ -492,24 +523,54 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     rules,
     status, // 'scheduled' | 'live' | 'finished'
     winner, // 'A' | 'B' | ''
+    ratingDelta, // số điểm cộng/trừ cho trận
+    referee, // 👈 NEW: userId trọng tài (string) | null | ''
   } = req.body;
 
   const mt = await Match.findById(matchId);
   if (!mt) {
     res.status(404);
-    throw new Error("Match not found");
+    throw new Error("Không tìm thấy trận đấu");
   }
 
-  // Lấy bracket để đối chiếu tournament
   const br = await Bracket.findById(mt.bracket);
   if (!br) {
     res.status(400);
-    throw new Error("Bracket of this match not found");
+    throw new Error("Không tìm thấy nhánh thi đấu của trận này");
   }
 
   // round/order
   if (Number.isFinite(Number(round))) mt.round = Math.max(1, Number(round));
   if (Number.isFinite(Number(order))) mt.order = Math.max(0, Number(order));
+
+  // cập nhật ratingDelta nếu có truyền
+  if (ratingDelta !== undefined) {
+    const v = Number(ratingDelta);
+    mt.ratingDelta = Number.isFinite(v) && v >= 0 ? v : 0; // không âm
+  }
+
+  // 👇 NEW: gán / bỏ gán trọng tài
+  if (referee !== undefined) {
+    // cho phép bỏ gán nếu null/""/0-like
+    if (referee === null || referee === "") {
+      mt.referee = undefined;
+    } else {
+      if (!mongoose.isValidObjectId(referee)) {
+        res.status(400);
+        throw new Error("referee không hợp lệ");
+      }
+      const refUser = await User.findById(referee).select("_id role");
+      if (!refUser) {
+        res.status(404);
+        throw new Error("Không tìm thấy người dùng để gán làm trọng tài");
+      }
+      if (!["referee", "admin"].includes(refUser.role)) {
+        res.status(400);
+        throw new Error("Người này không có quyền trọng tài");
+      }
+      mt.referee = refUser._id;
+    }
+  }
 
   // pairA/pairB (nếu cập nhật, phải hợp lệ & cùng tournament)
   const setRegIfProvided = async (sideKey, regId) => {
@@ -567,13 +628,12 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     }
     mt.winner = winner;
   } else {
-    // Nếu chưa kết thúc thì không lưu winner
     mt.winner = "";
   }
 
   await mt.save();
 
-  // ✨ NEW: Khi đã finished + có winner → feed winner sang tất cả trận có previousA/B trỏ về trận này
+  // GIỮ LOGIC CŨ: feed winner cho các trận phụ thuộc previousA/B
   if (mt.status === "finished" && mt.winner) {
     const winnerReg = mt.winner === "A" ? mt.pairA : mt.pairB;
     if (winnerReg) {
@@ -587,14 +647,25 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
       );
     }
   }
-  // Lưu ý: KHÔNG reset downstream nếu đổi sang 'live'/'scheduled'.
-  // Trường hợp đó bạn dùng endpoint POST /api/matches/:matchId/reset-chain nhé.
+
+  try {
+    if (mt.status === "finished" && !mt.ratingApplied) {
+      await applyRatingForFinishedMatch(mt._id);
+    }
+  } catch (e) {
+    console.error("[adminUpdateMatch] applyRatingForFinishedMatch error:", e);
+  }
 
   const populated = await Match.findById(mt._id)
     .populate({ path: "pairA", select: "player1 player2" })
     .populate({ path: "pairB", select: "player1 player2" })
     .populate({ path: "previousA", select: "round order" })
-    .populate({ path: "previousB", select: "round order" });
+    .populate({ path: "previousB", select: "round order" })
+    .populate({
+      // 👇 NEW: trả về thông tin trọng tài
+      path: "referee",
+      select: "name nickname email phone avatar role",
+    });
 
   res.json(populated);
 });

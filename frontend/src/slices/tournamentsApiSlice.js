@@ -165,6 +165,12 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ["Registrations"],
     }),
+    getOverlaySnapshot: builder.query({
+      // dùng API snapshot mình đã gợi ý ở BE: GET /api/overlay/match/:id
+      // nếu bạn chưa có route này thì tạm thay bằng /api/matches/:id cũng được
+      query: (matchId) => `/api/overlay/match/${matchId}`,
+      providesTags: (res, err, id) => [{ type: "Match", id }],
+    }),
   }),
 });
 
@@ -188,4 +194,5 @@ export const {
   useRespondRegInviteMutation,
   useManagerSetRegPaymentStatusMutation,
   useManagerDeleteRegistrationMutation,
+  useGetOverlaySnapshotQuery
 } = tournamentsApiSlice;
