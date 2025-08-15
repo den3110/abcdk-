@@ -8,22 +8,26 @@ import Tournament from "../../models/tournamentModel.js";
  */
 export const adminUpdatePayment = asyncHandler(async (req, res) => {
   const { regId } = req.params;
-  const { status } = req.body; // expect "Paid" or "Unpaid"
-
-  const reg = await Registration.findById(regId);
-  if (!reg) {
-    res.status(404);
-    throw new Error("Registration not found");
-  }
+  const { status } = req.body; // "Paid" | "Unpaid"
 
   if (!["Paid", "Unpaid"].includes(status)) {
-    res.status(400);
-    throw new Error("Invalid payment status");
+    return res.status(400).json({ message: "Invalid payment status" });
   }
 
-  reg.payment.status = status;
-  reg.payment.paidAt = status === "Paid" ? new Date() : null;
-  await reg.save();
+  const update = {
+    "payment.status": status,
+    "payment.paidAt": status === "Paid" ? new Date() : null,
+  };
+
+  const reg = await Registration.findByIdAndUpdate(
+    regId,
+    { $set: update },
+    { new: true, runValidators: true, context: "query" } // chỉ validate các path được update
+  );
+
+  if (!reg) {
+    return res.status(404).json({ message: "Registration not found" });
+  }
 
   res.json(reg);
 });

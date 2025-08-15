@@ -308,6 +308,75 @@ function countGamesWon(gameScores) {
 
 /* ===== Shared content to reuse in Drawer/Dialog ===== */
 function MatchContent({ m, isLoading, liveLoading, onClose }) {
+  // ====== PHÂN QUYỀN OVERLAY ======
+  const { userInfo } = useSelector((s) => s.auth || {});
+  const userId =
+    userInfo?._id || userInfo?.id || userInfo?.userId || userInfo?.uid;
+
+  const roleStr = String(userInfo?.role || "").toLowerCase();
+  const roles = new Set(
+    [...(userInfo?.roles || []), ...(userInfo?.permissions || [])]
+      .filter(Boolean)
+      .map((x) => String(x).toLowerCase())
+  );
+
+  const isAdmin = !!(
+    userInfo?.isAdmin ||
+    roleStr === "admin" ||
+    roles.has("admin") ||
+    roles.has("superadmin") ||
+    roles.has("tournament:admin")
+  );
+
+  // tournament có thể là object hoặc id
+  const tour =
+    m?.tournament && typeof m.tournament === "object" ? m.tournament : null;
+
+  const ownerId =
+    (tour?.owner &&
+      (tour.owner._id || tour.owner.id || tour.owner.userId || tour.owner)) ||
+    (tour?.createdBy &&
+      (tour.createdBy._id ||
+        tour.createdBy.id ||
+        tour.createdBy.userId ||
+        tour.createdBy)) ||
+    (tour?.organizer &&
+      (tour.organizer._id ||
+        tour.organizer.id ||
+        tour.organizer.userId ||
+        tour.organizer)) ||
+    null;
+
+  const managerIds = new Set(
+    [
+      ...(tour?.managers || []),
+      ...(tour?.organizers || []),
+      ...(tour?.staff || []),
+      ...(tour?.moderators || []),
+    ]
+      .map((u) =>
+        typeof u === "string"
+          ? u
+          : u?._id || u?.id || u?.userId || u?.uid || u?.email
+      )
+      .filter(Boolean)
+  );
+
+  // nếu BE có flag sẵn, ưu tiên dùng
+  const canManageFlag =
+    m?.permissions?.canManage ||
+    tour?.permissions?.canManage ||
+    userInfo?.permissions?.includes?.("tournament:manage");
+
+  const isManager = !!(
+    tour &&
+    userId &&
+    (managerIds.has(userId) || ownerId === userId || canManageFlag)
+  );
+
+  const canSeeOverlay = isAdmin || isManager;
+
+  // ====== DỮ LIỆU MATCH / STREAM ======
   const streams = extractStreams(m);
   const teamA = m?.pairA
     ? safePairName(m.pairA, m?.tournament?.eventType)
@@ -315,10 +384,12 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
   const teamB = m?.pairB
     ? safePairName(m.pairB, m?.tournament?.eventType)
     : depLabel(m?.previousB);
+
   const status = m?.status || "scheduled";
   const winnerSide = m?.status === "finished" ? m?.winner : "";
   const gamesWon = countGamesWon(m?.gameScores);
   const curr = lastGameScore(m?.gameScores);
+
   const leading =
     status === "live"
       ? curr.a > curr.b
@@ -329,14 +400,20 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
       : m?.status === "finished"
       ? winnerSide
       : "";
-  // >>> NEW: link Overlay tỉ số live
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const overlayUrl = m?._id
-    ? `${origin}/overlay/score?matchId=${m._id}&theme=dark&size=md&showSets=1`
-    : "";
+
+  const origin =
+    typeof window !== "undefined" && window?.location?.origin
+      ? window.location.origin
+      : "";
+  const overlayUrl =
+    m?._id && origin
+      ? `${origin}/overlay/score?matchId=${m._id}&theme=dark&size=md&showSets=1`
+      : "";
+
   const yt = streams.find((s) => ytEmbed(s.url));
   const ytSrc = ytEmbed(yt?.url);
 
+  // ====== LOADING / ERROR ======
   if (isLoading || liveLoading) {
     return (
       <Box py={4} textAlign="center">
@@ -346,6 +423,7 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
   }
   if (!m) return <Alert severity="error">Không tải được dữ liệu trận.</Alert>;
 
+  // ====== RENDER ======
   return (
     <Stack spacing={2}>
       {/* STREAM AREA */}
@@ -385,7 +463,7 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
         </Alert>
       )}
 
-      {/* LINKS */}
+      {/* STREAM LINKS */}
       {streams.length > 0 && (
         <Stack direction="row" spacing={1} flexWrap="wrap">
           {streams.map((s, i) => (
@@ -405,8 +483,8 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
         </Stack>
       )}
 
-      {/* >>> NEW: OVERLAY LINK (dùng cho OBS/Stream) */}
-      {overlayUrl && (
+      {/* OVERLAY LINK — chỉ admin/manager thấy */}
+      {overlayUrl && canSeeOverlay && (
         <Paper variant="outlined" sx={{ p: 1.5 }}>
           <Stack spacing={1}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>

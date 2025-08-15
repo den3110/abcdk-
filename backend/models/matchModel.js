@@ -1,48 +1,71 @@
-// models/Match.js
+// models/matchModel.js
 import mongoose from "mongoose";
 
-const matchSchema = new mongoose.Schema(
+const { Schema } = mongoose;
+
+const matchSchema = new Schema(
   {
     tournament: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "Tournament",
       required: true,
     },
     bracket: {
-      type: mongoose.Schema.Types.ObjectId,
+      type: Schema.Types.ObjectId,
       ref: "Bracket",
       required: true,
+      index: true,
     },
 
-    round: { type: Number, default: 1 },
+    // ======= MỚI: thông tin phụ thuộc thể thức =======
+    // Copy từ bracket.type để dễ query; không bắt buộc, sẽ auto fill nếu thiếu
+    format: {
+      type: String,
+      enum: ["knockout", "group", "double_elim", "round_robin", "swiss", "gsl"],
+      default: "knockout",
+      index: true,
+    },
+
+    // Double Elimination: nhánh
+    branch: {
+      type: String,
+      enum: ["main", "wb", "lb", "gf", "consol"],
+      default: "main", // "wb"=winners, "lb"=losers, "gf"=grand final
+      index: true,
+    },
+
+    // Round-robin/GSL: thuộc pool/nhóm nào
+    pool: {
+      id: { type: Schema.Types.ObjectId, default: null }, // trỏ tới groups[i]._id trong Bracket
+      name: { type: String, default: "" }, // ví dụ "A","B"
+    },
+
+    // GSL phase tagging (để FE hiển thị)
+    phase: {
+      type: String,
+      enum: ["group", "winners", "losers", "decider", "grand_final", null],
+      default: null,
+      index: true,
+    },
+
+    // Swiss/round-robin ordinal
+    swissRound: { type: Number, default: null, index: true },
+    rrRound: { type: Number, default: null, index: true },
+
+    // ======= CŨ: thứ tự logic/hiển thị =======
+    round: { type: Number, default: 1, index: true },
     order: { type: Number, default: 0 },
 
-    // Optional: mã trận tuỳ ý (nếu không có, FE có thể tự hiển thị M-{round}-{order})
+    // Optional code cho UI
     code: { type: String, default: "" },
 
-    // ❗ Bỏ required để cho phép dùng previousA/previousB
-    pairA: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Registration",
-      default: null,
-    },
-    pairB: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Registration",
-      default: null,
-    },
+    // Nguồn đội
+    pairA: { type: Schema.Types.ObjectId, ref: "Registration", default: null },
+    pairB: { type: Schema.Types.ObjectId, ref: "Registration", default: null },
 
-    // Winner feed-in từ trận trước
-    previousA: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Match",
-      default: null,
-    },
-    previousB: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Match",
-      default: null,
-    },
+    // Winner feed-in từ trận trước (knockout/double_elim/GSL)
+    previousA: { type: Schema.Types.ObjectId, ref: "Match", default: null },
+    previousB: { type: Schema.Types.ObjectId, ref: "Match", default: null },
 
     // Luật thi đấu
     rules: {
@@ -56,49 +79,38 @@ const matchSchema = new mongoose.Schema(
       { a: { type: Number, default: 0 }, b: { type: Number, default: 0 } },
     ],
 
-    // Trạng thái cơ bản
+    // Trạng thái & kết quả
     status: {
       type: String,
       enum: ["scheduled", "live", "finished"],
       default: "scheduled",
+      index: true,
     },
     winner: { type: String, enum: ["A", "B", ""], default: "" },
 
-    referee: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    // Điều phối
+    referee: { type: Schema.Types.ObjectId, ref: "User" },
     note: { type: String, default: "" },
 
-    // Liên kết sang trận tiếp theo
-    nextMatch: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Match",
-      default: null,
-    },
+    // Liên kết sang trận tiếp theo (knockout/double_elim/GSL)
+    nextMatch: { type: Schema.Types.ObjectId, ref: "Match", default: null },
     nextSlot: { type: String, enum: ["A", "B", null], default: null },
 
-    /* ---------- Lịch & sân (đã dùng ở các pipeline BE/FE) ---------- */
-    scheduledAt: { type: Date, default: null }, // ngày/giờ dự kiến
-    court: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Court",
-      default: null,
-    },
-    courtLabel: { type: String, default: "" }, // fallback text khi chưa có court
+    // Lịch & sân
+    scheduledAt: { type: Date, default: null },
+    court: { type: Schema.Types.ObjectId, ref: "Court", default: null },
+    courtLabel: { type: String, default: "" },
 
-    /* ---------- Trường phục vụ LIVE realtime (referee chấm) ---------- */
-    currentGame: { type: Number, default: 0 }, // index ván hiện tại
-    // ✅ pickleball serving state
+    // LIVE
+    currentGame: { type: Number, default: 0 },
     serve: {
-      side: { type: String, enum: ["A", "B"], default: "A" }, // đội đang giao
-      server: { type: Number, enum: [1, 2], default: 2 }, // người thứ mấy trong đội đang giao
+      side: { type: String, enum: ["A", "B"], default: "A" },
+      server: { type: Number, enum: [1, 2], default: 2 },
     },
     startedAt: { type: Date, default: null },
     finishedAt: { type: Date, default: null },
-    liveBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
-    },
-    liveVersion: { type: Number, default: 0 }, // tăng mỗi lần cập nhật live
+    liveBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    liveVersion: { type: Number, default: 0 },
     video: { type: String, default: "" },
     liveLog: [
       {
@@ -110,32 +122,27 @@ const matchSchema = new mongoose.Schema(
             "start",
             "finish",
             "forfeit",
-            "serve", // 👈 thêm
-            "sideout", // 👈 nếu bạn có log side-out
-            "rotate", // 👈 nếu bạn có log đổi ô/đổi người giao
+            "serve",
+            "sideout",
+            "rotate",
           ],
           required: true,
         },
-        by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-        payload: { type: mongoose.Schema.Types.Mixed },
+        by: { type: Schema.Types.ObjectId, ref: "User" },
+        payload: { type: Schema.Types.Mixed },
         at: { type: Date, default: Date.now },
       },
     ],
-    /* ---------- NEW: rating delta lưu ngay trên match ---------- */
-    ratingDelta: { type: Number, default: 0 }, // số điểm +/- mỗi VĐV đội thắng/thua
-    ratingApplied: { type: Boolean, default: false }, // đã áp vào ScoreHistory chưa
-    ratingAppliedAt: { type: Date, default: null }, // thời điểm áp
-    ratingAppliedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
-    }, // ai áp
-    ratingType: { type: String, enum: ["single", "double", ""], default: "" }, // loại điểm áp theo eventType
+
+    // ✅ Rating áp dụng sau khi kết thúc (đã nói trước đó)
+    ratingDelta: { type: Number, default: 0.01 },
+    ratingApplied: { type: Boolean, default: false },
+    ratingAppliedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
-/* Yêu cầu logic: Mỗi bên phải có pair hoặc previous */
+/* GIỮ LOGIC: Mỗi bên phải có pair hoặc previous */
 matchSchema.pre("validate", function (next) {
   const okA = !!this.pairA || !!this.previousA;
   const okB = !!this.pairB || !!this.previousB;
@@ -144,18 +151,27 @@ matchSchema.pre("validate", function (next) {
   next();
 });
 
-matchSchema.pre("save", function (next) {
-  const needRegen =
-    !this.code || this.isModified("round") || this.isModified("order");
-  if (needRegen) {
-    const r = this.round ?? "";
-    const o = this.order ?? "";
-    this.code = `R${r}#${o}`;
+/* Auto code nếu thiếu */
+matchSchema.pre("save", async function (next) {
+  try {
+    if (!this.code) {
+      const r = this.round ?? "";
+      const o = this.order ?? "";
+      this.code = `R${r}#${o}`;
+    }
+    // Nếu chưa set format, lấy theo Bracket.type
+    if (!this.format) {
+      const Bracket = this.model("Bracket");
+      const br = await Bracket.findById(this.bracket).select("type").lean();
+      if (br?.type) this.format = br.type;
+    }
+    next();
+  } catch (e) {
+    next(e);
   }
-  next();
 });
 
-/* Khi trận kết thúc: đổ đội thắng sang nextMatch[nextSlot] nếu trống */
+/* Kết thúc -> feed winner sang nextMatch nếu trống (GIỮ NGUYÊN) */
 matchSchema.post("save", async function (doc, next) {
   try {
     if (
@@ -183,12 +199,12 @@ matchSchema.post("save", async function (doc, next) {
   }
 });
 
-/* Sau khi update xong: nếu đã finished + có winner thì feed winner cho các trận phụ thuộc previousA/B */
+/* Sau update -> propagate winner cho các trận previousA/B (GIỮ NGUYÊN) */
 matchSchema.post("findOneAndUpdate", async function (doc) {
   if (!doc) return;
   try {
     if (doc.status === "finished" && doc.winner) {
-      const MatchModel = doc.model("Match"); // ✅ Lấy model đúng cách
+      const MatchModel = doc.model("Match");
       const winnerReg = doc.winner === "A" ? doc.pairA : doc.pairB;
 
       await MatchModel.updateMany(
@@ -205,36 +221,6 @@ matchSchema.post("findOneAndUpdate", async function (doc) {
   }
 });
 
-matchSchema.pre("findOneAndUpdate", async function () {
-  const update = this.getUpdate() || {};
-  const $set = update.$set ?? update;
-
-  // Nếu người gọi đã set code thủ công thì không can thiệp
-  if (Object.prototype.hasOwnProperty.call($set, "code")) return;
-
-  const touchesRound = Object.prototype.hasOwnProperty.call($set, "round");
-  const touchesOrder = Object.prototype.hasOwnProperty.call($set, "order");
-  if (!(touchesRound || touchesOrder)) return;
-
-  // Lấy giá trị hiện tại để ghép với giá trị mới (nếu chỉ đổi 1 trong 2)
-  const current = await this.model
-    .findOne(this.getQuery())
-    .select("round order")
-    .lean();
-
-  const round = touchesRound ? $set.round : current?.round;
-  const order = touchesOrder ? $set.order : current?.order;
-
-  const r = round ?? "";
-  const o = order ?? "";
-  const code = `R${r}#${o}`;
-
-  if (update.$set) update.$set.code = code;
-  else update.code = code;
-
-  this.setUpdate(update);
-});
-
 /* ---------- Indexes ---------- */
 matchSchema.index({ tournament: 1, bracket: 1, status: 1, createdAt: -1 });
 matchSchema.index({ bracket: 1, createdAt: -1 });
@@ -244,5 +230,11 @@ matchSchema.index({ court: 1 });
 matchSchema.index({ status: 1, finishedAt: -1 });
 matchSchema.index({ pairA: 1, status: 1 });
 matchSchema.index({ pairB: 1, status: 1 });
+
+// NEW for formats
+matchSchema.index({ bracket: 1, branch: 1, round: 1, order: 1 }); // double-elim
+matchSchema.index({ bracket: 1, "pool.id": 1, rrRound: 1, order: 1 }); // RR/GSL
+matchSchema.index({ bracket: 1, swissRound: 1, order: 1 }); // Swiss
+matchSchema.index({ format: 1 });
 
 export default mongoose.model("Match", matchSchema);

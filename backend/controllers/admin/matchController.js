@@ -383,6 +383,7 @@ export const adminGetAllMatches = expressAsyncHandler(async (req, res) => {
     .populate({ path: "referee", select: "name nickname" })
     .populate({ path: "previousA", select: "round order" })
     .populate({ path: "previousB", select: "round order" })
+    
     .sort({ createdAt: -1 });
 
   res.json(matches);

@@ -14,7 +14,9 @@ import authRoutes from "./routes/authRoutes.js";
 import refereeRoutes from "./routes/refereeRoutes.js";
 import assessmentRoutes from "./routes/assessmentRoutes.js";
 import overlayApiRoutes from "./routes/overlayApiRoutes.js";
-
+import drawRoutes from "./routes/drawRoutes.js";
+import bracketRoutes from "./routes/bracketRoutes.js";
+import drawSettingsRoutes from "./routes/drawSettingsRoutes.js";
 import { initSocket } from "./socket/index.js";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -57,6 +59,7 @@ app.use(
 app.use("/uploads", express.static("uploads"));
 app.use("/api/users", userRoutes);
 app.use("/api/tournaments", tournamentRoute);
+app.use("/api/brackets", bracketRoutes);
 app.use("/api/registrations", registrationRoutes);
 app.use("/api/rankings", rankingRoutes);
 app.use("/api/upload", uploadRoutes);
@@ -66,6 +69,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/referee", refereeRoutes);
 app.use("/api/assessments", assessmentRoutes);
 app.use("/api/overlay", overlayApiRoutes);
+app.use("/api/draw", drawRoutes);
+app.use("/api/d", drawSettingsRoutes);
 
 if (process.env.NODE_ENV === "production") {
   const __dirname = path.resolve();

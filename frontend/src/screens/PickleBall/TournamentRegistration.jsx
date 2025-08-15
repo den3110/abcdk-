@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useLocation } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
   Avatar,
@@ -22,6 +22,10 @@ import {
   Tooltip,
   IconButton,
   TableContainer,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
   Divider,
 } from "@mui/material";
 import { Container as RBContainer } from "react-bootstrap";
@@ -30,6 +34,8 @@ import {
   MonetizationOn, // mark as Paid
   MoneyOff, // mark as Unpaid
   DeleteOutline, // delete/cancel
+  EditOutlined, // replace player
+  Close as CloseIcon, // close preview
 } from "@mui/icons-material";
 
 import {
@@ -42,6 +48,8 @@ import {
   // quản lý
   useManagerSetRegPaymentStatusMutation,
   useManagerDeleteRegistrationMutation,
+  // NEW
+  useManagerReplaceRegPlayerMutation,
 } from "../../slices/tournamentsApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
 
@@ -52,7 +60,14 @@ function normType(t) {
   if (s === "double" || s === "doubles") return "double";
   return s || "double";
 }
-const PLACE = "";
+const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";
+
+const displayName = (pl) => {
+  if (!pl) return "—";
+  const fn = pl.fullName || "";
+  const nn = pl.nickName || pl.nickname || "";
+  return nn ? `${fn} (${nn})` : fn || "—";
+};
 
 /* Chip gọn, 1 dòng + tooltip chi tiết */
 function PaymentChip({ status, paidAt }) {
@@ -182,19 +197,35 @@ export default function TournamentRegistration() {
   const [respondInvite, { isLoading: responding }] =
     useRespondRegInviteMutation();
 
-  const [cancelReg, { isLoading: canceling }] = useCancelRegistrationMutation();
+  const [cancelReg] = useCancelRegistrationMutation();
 
   // quản lý
   const [setPaymentStatus, { isLoading: settingPayment }] =
     useManagerSetRegPaymentStatusMutation();
-  const [adminDeleteReg, { isLoading: adminDeleting }] =
-    useManagerDeleteRegistrationMutation();
+  const [adminDeleteReg] = useManagerDeleteRegistrationMutation();
+  const [replacePlayer, { isLoading: replacing }] =
+    useManagerReplaceRegPlayerMutation();
 
   /* ───────── local state ───────── */
   const [p1, setP1] = useState(null);
   const [p2, setP2] = useState(null);
   const [msg, setMsg] = useState("");
   const [cancelingId, setCancelingId] = useState(null);
+
+  // preview ảnh
+  const [imgPreview, setImgPreview] = useState({
+    open: false,
+    src: "",
+    name: "",
+  });
+
+  // dialog thay VĐV (manager)
+  const [replaceDlg, setReplaceDlg] = useState({
+    open: false,
+    reg: null,
+    slot: "p1",
+  });
+  const [newPlayer, setNewPlayer] = useState(null);
 
   const evType = useMemo(() => normType(tour?.eventType), [tour]);
   const isSingles = evType === "single";
@@ -210,10 +241,31 @@ export default function TournamentRegistration() {
     return !!tour.isManager;
   }, [me, tour]);
 
+  // admin toàn hệ thống
+  const isAdmin = !!(
+    me?.isAdmin ||
+    me?.role === "admin" ||
+    (Array.isArray(me?.roles) && me.roles.includes("admin"))
+  );
+  const canManage = isManager || isAdmin;
+
   // lời mời thuộc giải hiện tại
   const pendingInvitesHere = (myInvites || []).filter(
     (it) => String(it?.tournament?._id || it?.tournament) === String(id)
   );
+
+  // build path bốc thăm: thay segment cuối bằng 'draw'
+  const location = useLocation();
+  const drawPath = useMemo(() => {
+    try {
+      const parts = (location?.pathname || "").split("/").filter(Boolean);
+      if (parts.length === 0) return `/tournament/${id}/draw`;
+      parts[parts.length - 1] = "draw";
+      return "/" + parts.join("/");
+    } catch {
+      return `/tournament/${id}/draw`;
+    }
+  }, [location?.pathname, id]);
 
   /* ───────── actions ───────── */
   const submit = async (e) => {
@@ -244,14 +296,12 @@ export default function TournamentRegistration() {
   };
 
   const handleCancel = async (r) => {
-    // user thường: nếu đã thanh toán → chỉ cảnh báo, không huỷ
     if (!isManager && r?.payment?.status === "Paid") {
       toast.info(
-        "Không thể huỷ khi đã nộp lệ phí, vui lòng liên hệ với BTC giải để hỗ trợ nhé"
+        "Không thể huỷ khi đã nộp lệ phí, vui lòng liên hệ BTC để hỗ trợ"
       );
       return;
     }
-    // user thường: phải là chủ sở hữu
     if (!isManager) {
       const isOwner = me && String(r?.createdBy) === String(me?._id);
       if (!isOwner) return toast.error("Bạn không có quyền huỷ đăng ký này");
@@ -266,11 +316,8 @@ export default function TournamentRegistration() {
 
     try {
       setCancelingId(r._id);
-      if (isManager) {
-        await adminDeleteReg(r._id).unwrap();
-      } else {
-        await cancelReg(r._id).unwrap();
-      }
+      if (isManager) await adminDeleteReg(r._id).unwrap();
+      else await cancelReg(r._id).unwrap();
       toast.success("Đã huỷ đăng ký");
       refetchRegs();
     } catch (e) {
@@ -306,6 +353,36 @@ export default function TournamentRegistration() {
       toast.error(
         e?.data?.message || e.error || "Cập nhật thanh toán thất bại"
       );
+    }
+  };
+
+  // mở preview ảnh
+  const openPreview = (src, name) =>
+    setImgPreview({ open: true, src, name: name || "" });
+  const closePreview = () => setImgPreview({ open: false, src: "", name: "" });
+
+  // thay VĐV
+  const openReplace = (reg, slot) => {
+    setReplaceDlg({ open: true, reg, slot });
+    setNewPlayer(null);
+  };
+  const closeReplace = () =>
+    setReplaceDlg({ open: false, reg: null, slot: "p1" });
+
+  const submitReplace = async () => {
+    if (!replaceDlg?.reg?._id) return;
+    if (!newPlayer?._id) return toast.error("Chọn VĐV mới");
+    try {
+      await replacePlayer({
+        regId: replaceDlg.reg._id,
+        slot: replaceDlg.slot, // 'p1' | 'p2'
+        userId: newPlayer._id, // gửi userId vì player là subdoc snapshot
+      }).unwrap();
+      toast.success("Đã thay VĐV");
+      closeReplace();
+      refetchRegs();
+    } catch (e) {
+      toast.error(e?.data?.message || e.error || "Không thể thay VĐV");
     }
   };
 
@@ -358,17 +435,59 @@ export default function TournamentRegistration() {
   }
   if (!tour) return null;
 
+  const PlayerCell = ({ player, onEdit }) => (
+    <Stack direction="row" spacing={1} alignItems="center">
+      <Box
+        onClick={() =>
+          openPreview(player?.avatar || PLACE, displayName(player))
+        }
+        sx={{
+          borderRadius: "50%",
+          overflow: "hidden",
+          lineHeight: 0,
+          cursor: "zoom-in",
+        }}
+      >
+        <Avatar src={player?.avatar || PLACE} />
+      </Box>
+      <Box sx={{ maxWidth: 300, overflow: "hidden" }}>
+        <Typography variant="body2" noWrap>
+          {displayName(player)}
+        </Typography>
+        <Typography variant="caption" color="text.secondary" noWrap>
+          {player?.phone}
+        </Typography>
+      </Box>
+      {isManager && (
+        <Tooltip arrow title="Thay VĐV">
+          <span>
+            <IconButton size="small" onClick={onEdit}>
+              <EditOutlined fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      )}
+    </Stack>
+  );
+
   return (
     <RBContainer fluid="xl" className="py-4">
       {/* Header */}
-      <Stack direction="row" alignItems="center" spacing={2} className="mb-3">
-        <Typography variant="h4">Đăng ký giải đấu</Typography>
-        <Chip
-          size="small"
-          label={isSingles ? "Giải đơn" : "Giải đôi"}
-          color={isSingles ? "default" : "primary"}
-          variant="outlined"
-        />
+      <Stack
+        direction="row"
+        alignItems="center"
+        justifyContent="space-between"
+        className="mb-3"
+      >
+        <Stack direction="row" alignItems="center" spacing={2}>
+          <Typography variant="h4">Đăng ký giải đấu</Typography>
+          <Chip
+            size="small"
+            label={isSingles ? "Giải đơn" : "Giải đôi"}
+            color={isSingles ? "default" : "primary"}
+            variant="outlined"
+          />
+        </Stack>
       </Stack>
 
       {/* Lời mời đang chờ xác nhận */}
@@ -486,7 +605,26 @@ export default function TournamentRegistration() {
           </Stack>
         </Grid>
       </Paper>
-
+      <Box sx={{ mb: 3 }}>
+        {canManage && (
+          <>
+            <Typography variant="h5" className="mb-1">
+              Quản lý giải đấu
+            </Typography>
+            <Stack direction="row" spacing={1}>
+              <Button
+                component={Link}
+                to={drawPath}
+                variant="contained"
+                size="small"
+              >
+                Bốc thăm
+              </Button>
+              {/* <Button variant="outlined" size="small">Nút khác</Button>  // để trống cho sau này */}
+            </Stack>
+          </>
+        )}
+      </Box>
       {/* LIST (dưới) */}
       <Typography variant="h5" className="mb-1">
         Danh sách đăng ký
@@ -517,10 +655,22 @@ export default function TournamentRegistration() {
                     alignItems="center"
                     mt={1}
                   >
-                    <Avatar src={pl?.avatar || PLACE} />
-                    <Box>
+                    <Box
+                      onClick={() =>
+                        openPreview(pl?.avatar || PLACE, displayName(pl))
+                      }
+                      sx={{
+                        borderRadius: "50%",
+                        overflow: "hidden",
+                        lineHeight: 0,
+                        cursor: "zoom-in",
+                      }}
+                    >
+                      <Avatar src={pl?.avatar || PLACE} />
+                    </Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
                       <Typography variant="body2" noWrap>
-                        {pl?.fullName || "—"}
+                        {displayName(pl)}
                       </Typography>
                       <Typography
                         variant="caption"
@@ -530,6 +680,23 @@ export default function TournamentRegistration() {
                         {pl?.phone || ""}
                       </Typography>
                     </Box>
+                    {isManager && (
+                      <Tooltip
+                        arrow
+                        title={`Thay ${idx === 0 ? "VĐV 1" : "VĐV 2"}`}
+                      >
+                        <span>
+                          <IconButton
+                            size="small"
+                            onClick={() =>
+                              openReplace(r, idx === 0 ? "p1" : "p2")
+                            }
+                          >
+                            <EditOutlined fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    )}
                   </Stack>
                 ))}
 
@@ -588,46 +755,20 @@ export default function TournamentRegistration() {
 
                     {/* Athlete 1 */}
                     <TableCell>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Avatar src={r.player1?.avatar || PLACE} />
-                        <Box sx={{ maxWidth: 300, overflow: "hidden" }}>
-                          <Typography variant="body2" noWrap>
-                            {r.player1?.fullName}
-                          </Typography>
-                          <Typography
-                            variant="caption"
-                            color="text.secondary"
-                            noWrap
-                          >
-                            {r.player1?.phone}
-                          </Typography>
-                        </Box>
-                      </Stack>
+                      <PlayerCell
+                        player={r.player1}
+                        onEdit={() => openReplace(r, "p1")}
+                      />
                     </TableCell>
 
                     {/* Athlete 2 */}
                     {!isSingles && (
                       <TableCell>
                         {r.player2 ? (
-                          <Stack
-                            direction="row"
-                            spacing={1}
-                            alignItems="center"
-                          >
-                            <Avatar src={r.player2?.avatar || PLACE} />
-                            <Box sx={{ maxWidth: 300, overflow: "hidden" }}>
-                              <Typography variant="body2" noWrap>
-                                {r.player2?.fullName}
-                              </Typography>
-                              <Typography
-                                variant="caption"
-                                color="text.secondary"
-                                noWrap
-                              >
-                                {r.player2?.phone}
-                              </Typography>
-                            </Box>
-                          </Stack>
+                          <PlayerCell
+                            player={r.player2}
+                            onEdit={() => openReplace(r, "p2")}
+                          />
                         ) : (
                           <Typography color="text.secondary">—</Typography>
                         )}
@@ -666,6 +807,34 @@ export default function TournamentRegistration() {
           </Table>
         </TableContainer>
       )}
+
+      {/* Preview ảnh (zoom) */}
+      <Dialog
+        open={imgPreview.open}
+        onClose={closePreview}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Ảnh VĐV</DialogTitle>
+        <DialogContent
+          dividers
+          sx={{ display: "flex", justifyContent: "center" }}
+        >
+          <img
+            src={imgPreview.src || PLACE}
+            alt={imgPreview.name || "player"}
+            style={{
+              width: "100%",
+              maxHeight: "80vh",
+              objectFit: "contain",
+              borderRadius: 8,
+            }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closePreview}>Đóng</Button>
+        </DialogActions>
+      </Dialog>
     </RBContainer>
   );
 }

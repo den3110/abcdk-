@@ -171,6 +171,128 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       query: (matchId) => `/api/overlay/match/${matchId}`,
       providesTags: (res, err, id) => [{ type: "Match", id }],
     }),
+    // ✅ DRAW API (ADD)
+    getDrawStatus: builder.query({
+      query: (bracketId) => ({
+        url: `/api/draw/brackets/${bracketId}/draw/status`,
+        method: "GET",
+      }),
+      serializeQueryArgs: ({ endpointName, queryArgs }) =>
+        `${endpointName}:${String(queryArgs || "")}`,
+      providesTags: (_res, _err, bracketId) => [
+        { type: "Draw", id: bracketId },
+      ],
+    }),
+
+    initDraw: builder.mutation({
+      query: ({ bracketId, mode, config }) => ({
+        url: `/api/brackets/${bracketId}/draw/init`,
+        method: "POST",
+        body: { mode, config },
+      }),
+      invalidatesTags: (_res, _err, { bracketId }) => [
+        { type: "Draw", id: bracketId },
+      ],
+    }),
+
+    revealDraw: builder.mutation({
+      query: (bracketId) => ({
+        url: `/api/brackets/${bracketId}/draw/reveal`,
+        method: "POST",
+      }),
+      invalidatesTags: (_res, _err, bracketId) => [
+        { type: "Draw", id: bracketId },
+      ],
+    }),
+
+    undoDraw: builder.mutation({
+      query: (bracketId) => ({
+        url: `/api/brackets/${bracketId}/draw/undo`,
+        method: "POST",
+      }),
+      invalidatesTags: (_res, _err, bracketId) => [
+        { type: "Draw", id: bracketId },
+      ],
+    }),
+
+    finalizeKo: builder.mutation({
+      query: (bracketId) => ({
+        url: `/api/brackets/${bracketId}/draw/finalize-ko`,
+        method: "POST",
+      }),
+      invalidatesTags: (_res, _err, bracketId) => [
+        { type: "Draw", id: bracketId },
+      ],
+    }),
+    startDraw: builder.mutation({
+      // body: { mode: "group" } | { mode: "knockout", round: "R16"|... }
+      query: ({ bracketId, body }) => ({
+        url: `/api/draw/${bracketId}/start`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (_res, _err, arg) => [
+        { type: "Draw", id: arg.bracketId },
+      ],
+    }),
+
+    drawNext: builder.mutation({
+      // body optional
+      query: ({ drawId, body }) => ({
+        url: `/api/draw/${drawId}/next`,
+        method: "POST",
+        body,
+      }),
+      invalidatesTags: (_res, _err, arg) => [{ type: "Draw", id: arg.drawId }],
+    }),
+
+    drawCommit: builder.mutation({
+      query: ({ drawId }) => ({
+        url: `/api/draw/${drawId}/commit`,
+        method: "POST",
+      }),
+      invalidatesTags: (_res, _err, arg) => [{ type: "Draw", id: arg.drawId }],
+    }),
+    cancelDraw: builder.mutation({
+      query: (bracketId) => ({
+        url: `/api/brackets/${bracketId}/draw/cancel`,
+        method: "POST",
+      }),
+      invalidatesTags: (_res, _err, bracketId) => [
+        { type: "Draw", id: bracketId },
+      ],
+    }),
+
+    drawCancel: builder.mutation({
+      query: ({ drawId }) => ({
+        url: `/api/draw/${drawId}/cancel`,
+        method: "POST",
+      }),
+      invalidatesTags: (_res, _err, arg) => [{ type: "Draw", id: arg.drawId }],
+    }),
+    getBracket: builder.query({
+      query: (bracketId) => `/api/brackets/${bracketId}`,
+    }),
+
+    generateGroupMatches: builder.mutation({
+      query: ({ bracketId, mode, matches, rules }) => ({
+        url: `/api/draw/brackets/${bracketId}/group/generate-matches`,
+        method: "POST",
+        body: { mode, matches, rules },
+      }),
+      invalidatesTags: (r, e, arg) => [{ type: "Matches", id: arg.bracketId }],
+    }),
+    managerReplaceRegPlayer: builder.mutation({
+      query: ({ regId, slot, userId }) => ({
+        url: `/api/registrations/${regId}/manager/replace-player`,
+        method: "PATCH",
+        body: { slot, userId },
+      }),
+      invalidatesTags: (r, e, { regId }) => [
+        { type: "Registration", id: regId },
+        { type: "Registrations", id: "LIST" },
+      ],
+    }),
   }),
 });
 
@@ -194,5 +316,18 @@ export const {
   useRespondRegInviteMutation,
   useManagerSetRegPaymentStatusMutation,
   useManagerDeleteRegistrationMutation,
-  useGetOverlaySnapshotQuery
+  useGetOverlaySnapshotQuery,
+  useGetDrawStatusQuery,
+  useInitDrawMutation,
+  useRevealDrawMutation,
+  useUndoDrawMutation,
+  useCancelDrawMutation,
+  useFinalizeKoMutation,
+  useDrawCancelMutation,
+  useDrawCommitMutation,
+  useDrawNextMutation,
+  useStartDrawMutation,
+  useGetBracketQuery,
+  useGenerateGroupMatchesMutation,
+  useManagerReplaceRegPlayerMutation,
 } = tournamentsApiSlice;

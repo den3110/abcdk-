@@ -103,7 +103,6 @@ export function initSocket(
         socket.user?.role === "referee" || socket.user?.role === "admin";
       if (!ok) return;
       await setServe(matchId, side, server, socket.user?._id, io);
-      
     });
 
     socket.on(
@@ -125,6 +124,35 @@ export function initSocket(
       );
       // Gửi thông báo cho tất cả client khác cùng phòng match
       if (m) io.to(`match:${matchId}`).emit("score:updated", toDTO(m));
+    });
+
+    // ... trong io.on('connection', (socket) => { ... })
+    socket.on("draw:join", ({ bracketId }) => {
+      if (!bracketId) return;
+      socket.join(`draw:${String(bracketId)}`);
+    });
+
+    // (tuỳ chọn) rời phòng
+    socket.on("draw:leave", ({ bracketId }) => {
+      if (!bracketId) return;
+      socket.leave(`draw:${String(bracketId)}`);
+    });
+    // ✅ tương thích FE cũ
+    socket.on("draw:subscribe", ({ bracketId }) => {
+      if (bracketId) socket.join(`draw:${String(bracketId)}`);
+    });
+    socket.on("draw:unsubscribe", ({ bracketId }) => {
+      if (bracketId) socket.leave(`draw:${String(bracketId)}`);
+    });
+
+    // ✅ hỗ trợ join theo bracketId hoặc drawId
+    socket.on("draw:join", ({ bracketId, drawId }) => {
+      if (bracketId) socket.join(`draw:${String(bracketId)}`);
+      if (drawId) socket.join(`drawsess:${String(drawId)}`);
+    });
+    socket.on("draw:leave", ({ bracketId, drawId }) => {
+      if (bracketId) socket.leave(`draw:${String(bracketId)}`);
+      if (drawId) socket.leave(`drawsess:${String(drawId)}`);
     });
   });
 

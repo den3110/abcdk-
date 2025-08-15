@@ -6,6 +6,7 @@ import Registration from "../models/registrationModel.js"; // (không dùng tr�
 import Match from "../models/matchModel.js"; // (không dùng trực tiếp)
 import Tournament from "../models/tournamentModel.js"; // (không dùng trực tiếp)
 import Assessment from "../models/assessmentModel.js";
+import ScoreHistory from "../models/scoreHistoryModel.js";
 
 export const getRankings = asyncHandler(async (req, res) => {
   const page = Math.max(0, parseInt(req.query.page ?? 0, 10));
@@ -470,7 +471,7 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
 export const updateRanking = asyncHandler(async (req, res) => {
   const { single, double } = req.body;
   const { id: userId } = req.params;
-
+  const note= "Admin chấm điểm trình"
   // 1️⃣ Validate dữ liệu
   if (single == null || double == null) {
     res.status(400);

@@ -6,6 +6,8 @@ import ScoreHistory from "../models/scoreHistoryModel.js";
 import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import { canManageTournament } from "../utils/tournamentAuth.js";
+import expressAsyncHandler from "express-async-handler";
+import TournamentManager from "../models/tournamentManagerModel.js";
 
 /* Tạo đăng ký */
 // POST /api/tournaments/:id/registrations
@@ -194,15 +196,30 @@ export const createRegistration = asyncHandler(async (req, res) => {
 /* Lấy danh sách đăng ký */
 // controllers/registrationController.js
 export const getRegistrations = asyncHandler(async (req, res) => {
+  // 1) lấy registrations (lean để mutate nhẹ)
   const regs = await Registration.find({ tournament: req.params.id })
     .sort({ createdAt: -1 })
-    .lean(); // lấy plain objects để dễ sửa
+    .lean();
 
+  // 2) gom userId từ player1/2 để query 1 lần
+  const uids = new Set();
+  for (const r of regs) {
+    if (r?.player1?.user) uids.add(String(r.player1.user));
+    if (r?.player2?.user) uids.add(String(r.player2.user));
+  }
+
+  // 3) query User, chỉ lấy field cần thiết
+  const users = await User.find({ _id: { $in: [...uids] } })
+    .select("nickName nickname phone avatar fullName") // nickName/nickname là field có thể có
+    .lean();
+
+  const userById = new Map(users.map((u) => [String(u._id), u]));
+
+  // 4) helper ẩn số
   const maskPhone = (val) => {
     if (!val) return val;
     const s = String(val);
     if (s.length <= 6) {
-      // Trường hợp ngắn bất thường: che gần hết cho an toàn
       const keepHead = Math.min(1, s.length);
       const keepTail = s.length > 2 ? 1 : 0;
       const head = s.slice(0, keepHead);
@@ -213,14 +230,23 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     return `${s.slice(0, 3)}****${s.slice(-3)}`;
   };
 
+  // 5) hợp nhất nickName (chỉ bổ sung nếu thiếu)
+  const enrichPlayer = (pl) => {
+    if (!pl) return pl;
+    const u = userById.get(String(pl.user));
+    const nick = pl.nickName || pl.nickname || u?.nickName || u?.nickname || "";
+    // Không đụng fullName/phone nếu snapshot đã có; chỉ mask phone để trả về FE
+    return {
+      ...pl,
+      nickName: nick,
+      phone: maskPhone(pl.phone),
+    };
+  };
+
   const out = regs.map((r) => ({
     ...r,
-    player1: r.player1
-      ? { ...r.player1, phone: maskPhone(r.player1.phone) }
-      : r.player1,
-    player2: r.player2
-      ? { ...r.player2, phone: maskPhone(r.player2.phone) }
-      : r.player2,
+    player1: enrichPlayer(r.player1),
+    player2: enrichPlayer(r.player2),
   }));
 
   res.json(out);
@@ -377,4 +403,130 @@ export const deleteRegistration = asyncHandler(async (req, res) => {
 
   await reg.deleteOne();
   res.json({ message: "Registration deleted" });
+});
+
+/* Check quyền: owner → legacy managers (nếu có) → TournamentManager */
+async function isTourManager(userId, tour) {
+  if (!tour || !userId) return false;
+
+  // 1) Chủ giải
+  if (String(tour.createdBy) === String(userId)) return true;
+
+  // 2) Legacy: nếu doc có mảng managers (để tương thích dữ liệu cũ)
+  if (Array.isArray(tour.managers) && tour.managers.length) {
+    const ok = tour.managers.some((m) => {
+      const mid =
+        typeof m === "object" && m !== null ? m.user ?? m._id ?? m : m;
+      return String(mid) === String(userId);
+    });
+    if (ok) return true;
+  }
+
+  // 3) Bảng liên kết TournamentManager (hiện tại)
+  const exists = await TournamentManager.exists({
+    tournament: tour._id,
+    user: userId,
+  });
+  return !!exists;
+}
+
+/* Snapshot user → subdoc player */
+function toPlayerSubdoc(u) {
+  const score =
+    typeof u.score === "number"
+      ? u.score
+      : typeof u.skillScore === "number"
+      ? u.skillScore
+      : 0;
+
+  return {
+    user: u._id,
+    phone: u.phone || "",
+    fullName: u.fullName || u.name || u.displayName || "",
+    nickName: u.nickName || u.nickname || "",
+    avatar: u.avatar || u.photo || u.photoURL || "",
+    score, // snapshot tại thời điểm thay
+  };
+}
+
+/**
+ * PATCH /api/registrations/:regId/manager/replace-player
+ * body: { slot: 'p1'|'p2', userId }
+ */
+export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
+  const { regId } = req.params;
+  const { slot, userId } = req.body || {};
+
+  if (!["p1", "p2"].includes(slot)) {
+    res.status(400);
+    throw new Error("slot phải là 'p1' hoặc 'p2'");
+  }
+  if (!userId) {
+    res.status(400);
+    throw new Error("Thiếu userId");
+  }
+
+  const reg = await Registration.findById(regId);
+  if (!reg) {
+    res.status(404);
+    throw new Error("Không tìm thấy đăng ký");
+  }
+
+  const tour = await Tournament.findById(reg.tournament).select(
+    "eventType createdBy managers"
+  );
+  if (!tour) {
+    res.status(404);
+    throw new Error("Không tìm thấy giải đấu");
+  }
+
+  // Lưu ý: middleware auth có thể set req.user._id hoặc req.user.id
+  const authedUserId = req.user?._id || req.user?.id;
+  if (!(await isTourManager(authedUserId, tour))) {
+    res.status(403);
+    throw new Error("Bạn không có quyền thay VĐV cho đăng ký này");
+  }
+
+  // Validate theo loại giải
+  const evType = String(tour.eventType || "").toLowerCase();
+  const isSingles = evType === "single" || evType === "singles";
+  if (isSingles && slot === "p2") {
+    res.status(400);
+    throw new Error("Giải đơn chỉ có VĐV 1 (p1)");
+  }
+
+  const user = await User.findById(userId).select(
+    "fullName nickName nickname phone avatar score skillScore name displayName photo photoURL"
+  );
+  if (!user) {
+    res.status(404);
+    throw new Error("Không tìm thấy User");
+  }
+
+  // Không cho 2 VĐV trùng nhau theo userId
+  const otherUserId =
+    slot === "p1"
+      ? reg.player2?.user?.toString?.()
+      : reg.player1?.user?.toString?.();
+  if (otherUserId && String(otherUserId) === String(user._id)) {
+    res.status(400);
+    throw new Error("Hai VĐV trong cùng 1 cặp không thể là cùng một người");
+  }
+
+  // Nếu không đổi gì thì thôi
+  const currentUserId =
+    slot === "p1"
+      ? reg.player1?.user?.toString?.()
+      : reg.player2?.user?.toString?.();
+  if (currentUserId && String(currentUserId) === String(user._id)) {
+    return res.json({ message: "Không có thay đổi", registration: reg });
+  }
+
+  // Thay thế snapshot subdoc
+  const newSubdoc = toPlayerSubdoc(user);
+  if (slot === "p1") reg.player1 = newSubdoc;
+  else reg.player2 = newSubdoc;
+
+  await reg.save();
+  res.json({ message: "Đã thay VĐV", registration: reg });
 });

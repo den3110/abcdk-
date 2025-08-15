@@ -6,6 +6,7 @@ const playerSchema = new mongoose.Schema(
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     phone: { type: String, required: true },
     fullName: { type: String, required: true },
+    nickName: { type: String },
     avatar: { type: String },
     score: { type: Number, required: true, default: 0 }, // Skill score locked at registration time
   },
@@ -33,7 +34,11 @@ const registrationSchema = new mongoose.Schema(
     },
 
     checkinAt: { type: Date },
-    createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: false },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: false,
+    },
   },
   { timestamps: true }
 );
