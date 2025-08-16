@@ -105,12 +105,13 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         if (res?.list && Array.isArray(res.list)) return res.list; // phân trang
         return [];
       },
-      serializeQueryArgs: ({ endpointName, queryArgs }) =>
-        `${endpointName}:${JSON.stringify(queryArgs || {})}`,
+      
+      keepUnusedDataFor: 0
     }),
     getMatchPublic: builder.query({
       query: (matchId) => `/api/tournaments/matches/${matchId}`, // GET /api/matches/:id
       providesTags: (res, err, id) => [{ type: "Match", id }],
+
     }),
     cancelRegistration: builder.mutation({
       query: (regId) => ({

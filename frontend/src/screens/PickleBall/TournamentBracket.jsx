@@ -873,7 +873,17 @@ export default function TournamentBracket() {
     data: allMatches = [],
     isLoading: l3,
     error: e3,
-  } = useListTournamentMatchesQuery({ tournamentId: tourId });
+   
+  } = useListTournamentMatchesQuery(
+    { tournamentId: tourId },
+    {
+      // luôn gọi lại khi mount hoặc args thay đổi
+      refetchOnMountOrArgChange: true,
+      // gọi lại khi tab focus / mạng reconnect (tiện cho realtime nhẹ)
+      refetchOnFocus: true,
+      refetchOnReconnect: true,
+    }
+  );
 
   const loading = l1 || l2 || l3;
   const error = e1 || e2 || e3;

@@ -82,17 +82,33 @@ const safePairName = (reg, evType = "double") => {
   if (evType === "single") return nameFromPlayer(reg?.player1);
   const p1 = nameFromPlayer(reg?.player1);
   const p2 = nameFromPlayer(reg?.player2);
-  return p2 ? `${p1} & ${p2}` : p1;
+  return p2 ? `${p1} & ${p2}` : p1 || "—";
 };
 const idOf = (x) => String(x?._id ?? x);
+
+// NEW: ép mọi kiểu id (object/string) về string id
+const asId = (x) => {
+  if (!x) return null;
+  if (typeof x === "string") return x;
+  if (typeof x === "object")
+    return x._id || x.id || x.value?._id || x.value?.id || null;
+  return null;
+};
+
+// NEW: chuẩn hoá mã bảng
+const norm = (s) =>
+  String(s ?? "")
+    .trim()
+    .toUpperCase();
 
 /* Round code helpers */
 const sizeFromRoundCode = (code) => {
   if (!code) return 2;
-  if (code === "F") return 2;
-  if (code === "SF") return 4;
-  if (code === "QF") return 8;
-  if (/^R\d+$/i.test(code)) return parseInt(code.slice(1), 10);
+  const up = String(code).toUpperCase();
+  if (up === "F") return 2;
+  if (up === "SF") return 4;
+  if (up === "QF") return 8;
+  if (/^R\d+$/i.test(up)) return parseInt(up.slice(1), 10);
   return 2;
 };
 function nextPow2(n) {
@@ -103,12 +119,9 @@ function nextPow2(n) {
 }
 
 function codeLabelForSize(size) {
-  // size = số đội tham gia ở round này (2,4,8,16,32,...)
   if (size === 2) return { code: "F", label: "Chung kết (F)" };
   if (size === 4) return { code: "SF", label: "Bán kết (SF)" };
   if (size === 8) return { code: "QF", label: "Tứ kết (QF)" };
-
-  // Từ 16 trở lên dùng cách gọi "Vòng 1/n", với n = size/2
   const denom = Math.max(2, size / 2);
   return { code: `R${size}`, label: `Vòng 1/${denom} (R${size})` };
 }
@@ -129,9 +142,10 @@ function buildKnockoutOptions(teamCount) {
 /* -------------------- Group seating board -------------------- */
 /**
  * Render lưới bảng (A, B, C,...) với Slot 1..N.
- * Cách fill:
- * - Nếu reveal có `group/bucket` → đẩy vào nhóm đó, slot trống kế tiếp.
- * - Nếu reveal không nói rõ → dùng thứ tự lần lượt theo bảng (A→B→C→...), theo slot (1..N).
+ * Fill theo thứ tự:
+ *  - Nếu reveal có group/groupKey/groupCode → đẩy vào đúng group đó, slot trống kế tiếp.
+ *  - Nếu reveal chỉ có groupIndex (1-based) → map sang index group tương ứng.
+ *  - Nếu không xác định được → fallback quét A:1..N, B:1..N…
  */
 function GroupSeatingBoard({
   planned,
@@ -140,20 +154,67 @@ function GroupSeatingBoard({
   regIndex,
   eventType,
 }) {
-  // chuẩn hóa danh sách bảng
-  const groups = useMemo(() => {
-    // groupsMeta: [{code:'A', size:4}, ...] — đã được tính bên ngoài
-    return (groupsMeta || []).map((g) => ({
-      code: g.code,
-      size: g.size,
-      slots: Array.from({ length: g.size }, () => null),
-    }));
-  }, [groupsMeta]);
+  // Đếm số reveal mỗi bảng để đảm bảo đủ slot ngay cả khi size=0
+  const needByGroup = useMemo(() => {
+    const m = new Map();
+    (reveals || []).forEach((rv) => {
+      const key =
+        norm(rv.groupCode) ||
+        norm(rv.groupKey) ||
+        (typeof rv.group === "string" ? norm(rv.group) : "") ||
+        "";
+      if (key) m.set(key, (m.get(key) || 0) + 1);
+    });
+    return m;
+  }, [reveals]);
 
-  // build map code -> group index
+  // chuẩn hóa danh sách bảng
+  const baseGroups = useMemo(() => {
+    if (Array.isArray(groupsMeta) && groupsMeta.length) {
+      return groupsMeta.map((g, idx) => ({
+        code: g.code ?? g.name ?? g.label ?? String.fromCharCode(65 + idx),
+        size: Number(g.size) || (Array.isArray(g.regIds) ? g.regIds.length : 0),
+        regIds: Array.isArray(g.regIds) ? g.regIds : [],
+      }));
+    }
+    // fallback theo planned.groupSizes (nếu có)
+    const gs = planned?.planned?.groupSizes;
+    if (gs && typeof gs === "object") {
+      return Object.entries(gs).map(([k, v]) => ({
+        code: k,
+        size: Number(v) || 0,
+        regIds: [],
+      }));
+    }
+    // fallback cuối: dựng từ reveals
+    if (needByGroup.size) {
+      return Array.from(needByGroup.entries()).map(([k, v]) => ({
+        code: k,
+        size: v,
+        regIds: [],
+      }));
+    }
+    return [];
+  }, [groupsMeta, planned, needByGroup]);
+
+  // Tạo groups với size = max(config, reveals count)
+  const groups = useMemo(() => {
+    return (baseGroups || []).map((g, idx) => {
+      const code = g.code ?? String.fromCharCode(65 + idx);
+      const need = needByGroup.get(norm(code)) || 0;
+      const size = Math.max(Number(g.size) || 0, need);
+      return {
+        code,
+        size,
+        slots: Array.from({ length: size }, () => null),
+      };
+    });
+  }, [baseGroups, needByGroup]);
+
+  // Map mã → index
   const code2idx = useMemo(() => {
     const m = new Map();
-    groups.forEach((g, i) => m.set(String(g.code), i));
+    groups.forEach((g, i) => m.set(norm(g.code), i));
     return m;
   }, [groups]);
 
@@ -175,7 +236,7 @@ function GroupSeatingBoard({
   // pointer cho fallback order
   let fallbackPtr = 0;
 
-  // helper to get display name from reveal item
+  // Lấy tên từ reveal / regIndex
   const getRevealName = (rv) => {
     if (!rv) return "—";
     const fromReveal =
@@ -184,29 +245,43 @@ function GroupSeatingBoard({
       rv.team ||
       rv.displayName ||
       rv.AName ||
-      rv.BName ||
-      rv.id;
+      rv.BName;
     if (fromReveal) return String(fromReveal);
-    // nếu BE gửi regId
-    const rid = rv.regId || rv.reg || rv.id || rv._id;
-    if (rid && regIndex) {
-      const reg = regIndex.get(String(rid));
+
+    const raw = rv.regId ?? rv.reg ?? rv.id ?? rv._id;
+    const key = asId(raw);
+    if (key && regIndex) {
+      const reg = regIndex.get(String(key));
       if (reg) return safePairName(reg, eventType);
+      return `#${String(key).slice(-6)}`;
     }
     return "—";
   };
 
-  // điền lần lượt
+  // Điền lần lượt
   (reveals || []).forEach((rv) => {
-    const targetCode = rv.group || rv.bucket || rv.groupCode;
-    let gi = -1;
-    if (targetCode && code2idx.has(String(targetCode))) {
-      gi = code2idx.get(String(targetCode));
-      // tìm slot trống đầu tiên trong group này
+    // Ưu tiên theo mã bảng
+    const key =
+      rv.groupCode ||
+      rv.groupKey ||
+      (typeof rv.group === "string" ? rv.group : null);
+    if (key && code2idx.has(norm(key))) {
+      const gi = code2idx.get(norm(key));
       const slot = seats[gi].slots.findIndex((x) => !x);
       if (slot >= 0) {
         seats[gi].slots[slot] = getRevealName(rv);
         return;
+      }
+    }
+    // Nếu reveal đưa group là số thứ tự (1-based)
+    if (typeof rv.group === "number" && Number.isFinite(rv.group)) {
+      const idx = rv.group - 1;
+      if (idx >= 0 && idx < seats.length) {
+        const slot = seats[idx].slots.findIndex((x) => !x);
+        if (slot >= 0) {
+          seats[idx].slots[slot] = getRevealName(rv);
+          return;
+        }
       }
     }
     // fallback: theo fillOrder (A:1..N, B:1..N,…)
@@ -256,7 +331,6 @@ function GroupSeatingBoard({
 
 /* -------------------- Round-robin preview (auto) -------------------- */
 function buildRR(teams) {
-  // Circle method
   const N = teams.length;
   const isOdd = N % 2 === 1;
   const arr = isOdd ? teams.concat(["(BYE)"]) : teams.slice();
@@ -279,7 +353,6 @@ function buildRR(teams) {
       if (A !== "(BYE)" && B !== "(BYE)") pairs.push({ A, B });
     }
     schedule.push(pairs);
-    // rotate
     rot = [rot[rot.length - 1]].concat(rot.slice(0, rot.length - 1));
   }
   return schedule;
@@ -289,7 +362,6 @@ function RoundRobinPreview({ groupsMeta, regIndex }) {
   return (
     <Stack spacing={2}>
       {groupsMeta.map((g) => {
-        // lấy tên team từ regIndex nếu có, nếu không hiển thị id ngắn
         const teamNames = (g.regIds || []).map((rid) => {
           const reg = regIndex?.get(String(rid));
           return reg
@@ -330,71 +402,8 @@ function RoundRobinPreview({ groupsMeta, regIndex }) {
 }
 
 /* -------------------- Knockout bracket view -------------------- */
-function KnockoutBracketView({ roundCode, reveals }) {
-  const size = sizeFromRoundCode(roundCode); // số team ở Round 1
-  const rounds = Math.log2(size); // số vòng (QF=3,SF=2,F=1)
-  const matchesPerRound = Array.from(
-    { length: rounds },
-    (_, i) => size >> (i + 1)
-  ); // [size/2, size/4, ... 1]
-
-  // chuẩn hóa dữ liệu round 1 từ reveals
-  const r1Pairs = Array.from({ length: matchesPerRound[0] }, (_, i) => {
-    const rv = reveals?.[i] || null;
-    return {
-      A: rv?.A?.name || rv?.AName || rv?.A || "—",
-      B: rv?.B?.name || rv?.BName || rv?.B || "—",
-    };
-  });
-
-  return (
-    <Box sx={{ overflowX: "auto" }}>
-      <Stack direction="row" spacing={2} sx={{ minWidth: 560 }}>
-        {/* Round columns */}
-        {matchesPerRound.map((mCount, rIdx) => (
-          <Box key={rIdx} sx={{ minWidth: 200 }}>
-            <Typography fontWeight={700} sx={{ mb: 1 }}>
-              {rIdx === rounds - 1
-                ? "Chung kết"
-                : rIdx === rounds - 2
-                ? "Bán kết"
-                : rIdx === rounds - 3
-                ? "Tứ kết"
-                : `Round ${rIdx + 1}`}
-            </Typography>
-            <Stack spacing={1.5}>
-              {Array.from({ length: mCount }).map((_, i) => {
-                const showPair = rIdx === 0 ? r1Pairs[i] : null;
-                return (
-                  <Paper key={i} variant="outlined" sx={{ p: 1.25 }}>
-                    <Typography variant="body2">
-                      <b>{rIdx === 0 ? `#${i + 1}` : "TBD"}</b>
-                    </Typography>
-                    <Box sx={{ mt: 0.5 }}>
-                      <Typography variant="body2">
-                        {showPair ? showPair.A : "—"}
-                      </Typography>
-                      <Typography variant="body2">vs</Typography>
-                      <Typography variant="body2">
-                        {showPair ? showPair.B : "—"}
-                      </Typography>
-                    </Box>
-                  </Paper>
-                );
-              })}
-            </Stack>
-          </Box>
-        ))}
-      </Stack>
-    </Box>
-  );
-}
-
-/* ========== KO helpers for react-brackets ========== */
-// Lấy tên từ reveal
 function getRevealTeamName(sideObj) {
   if (!sideObj) return "Chưa có đội";
-  // Ưu tiên các field tên quen thuộc
   return (
     sideObj.name ||
     sideObj.teamName ||
@@ -406,8 +415,6 @@ function getRevealTeamName(sideObj) {
     "Chưa có đội"
   );
 }
-
-// Tiêu đề round theo số trận trong round đó
 function koRoundTitleByMatchCount(cnt) {
   if (cnt === 1) return "Chung kết";
   if (cnt === 2) return "Bán kết";
@@ -416,17 +423,13 @@ function koRoundTitleByMatchCount(cnt) {
   if (cnt === 16) return "Vòng 1/16";
   return `Vòng (${cnt} trận)`;
 }
-
-// Tạo rounds cho Bracket từ roundCode + reveals hiện có
 function buildRoundsFromReveals(roundCode, reveals = []) {
-  const size = sizeFromRoundCode(roundCode); // số đội ở round đầu
-  const rCount = Math.max(1, Math.log2(size) | 0); // số cột (F=1, SF=2, QF=3,…)
+  const size = sizeFromRoundCode(roundCode);
+  const rCount = Math.max(1, Math.log2(size) | 0);
   const matchesPerRound = Array.from(
     { length: rCount },
     (_, i) => size >> (i + 1)
-  ); // [size/2, size/4, ..., 1]
-
-  // Round 1: lấy từ reveals (mỗi reveal = 1 cặp)
+  );
   const r1Seeds = Array.from({ length: matchesPerRound[0] }, (_, i) => {
     const rv = reveals[i] || null;
     const A = rv
@@ -435,13 +438,9 @@ function buildRoundsFromReveals(roundCode, reveals = []) {
     const B = rv
       ? getRevealTeamName(rv.B || { name: rv.BName })
       : "Chưa có đội";
-    return {
-      id: `R1-${i}`,
-      teams: [{ name: A }, { name: B }],
-    };
+    return { id: `R1-${i}`, teams: [{ name: A }, { name: B }] };
   });
 
-  // Các round sau: placeholder “Winner of …”
   const rounds = [];
   rounds.push({
     title: koRoundTitleByMatchCount(matchesPerRound[0]),
@@ -449,11 +448,10 @@ function buildRoundsFromReveals(roundCode, reveals = []) {
   });
 
   for (let r = 2; r <= rCount; r++) {
-    const prevCnt = matchesPerRound[r - 2]; // số trận round trước
     const thisCnt = matchesPerRound[r - 1];
     const seeds = Array.from({ length: thisCnt }, (_, i) => {
-      const aFrom = 2 * i + 1; // Winner of R{r-1} #{aFrom}
-      const bFrom = 2 * i + 2; // Winner of R{r-1} #{bFrom}
+      const aFrom = 2 * i + 1;
+      const bFrom = 2 * i + 2;
       return {
         id: `R${r}-${i}`,
         teams: [
@@ -462,21 +460,15 @@ function buildRoundsFromReveals(roundCode, reveals = []) {
         ],
       };
     });
-    rounds.push({
-      title: koRoundTitleByMatchCount(thisCnt),
-      seeds,
-    });
+    rounds.push({ title: koRoundTitleByMatchCount(thisCnt), seeds });
   }
-
   return rounds;
 }
 
-/* ========== Seed UI giống trang mẫu (nhưng phiên bốc nên không click) ========== */
 const DrawCustomSeed = ({ seed, breakpoint }) => {
   const nameA = seed?.teams?.[0]?.name || "Chưa có đội";
   const nameB = seed?.teams?.[1]?.name || "Chưa có đội";
   const isPlaceholder = nameA === "Chưa có đội" && nameB === "Chưa có đội";
-
   return (
     <Seed mobileBreakpoint={breakpoint} style={{ fontSize: 13 }}>
       <SeedItem style={{ cursor: "default" }}>
@@ -523,19 +515,17 @@ const CustomSeed = ({ seed, breakpoint }) => {
   );
 };
 
-// View knockout dùng react-brackets
 function KnockoutRevealBracket({ roundCode, reveals }) {
   const rounds = useMemo(
     () => buildRoundsFromReveals(roundCode, reveals),
     [roundCode, reveals]
   );
-
   return (
     <Box sx={{ overflowX: "auto", pb: 1 }}>
       <Bracket
         rounds={rounds}
         renderSeedComponent={(props) => <DrawCustomSeed {...props} />}
-        mobileBreakpoint={0} // luôn dùng layout desktop
+        mobileBreakpoint={0}
       />
     </Box>
   );
@@ -601,7 +591,9 @@ export default function DrawPage() {
 
   const { data: drawStatus, isLoading: ls } = useGetDrawStatusQuery(
     selBracketId,
-    { skip: !selBracketId }
+    {
+      skip: !selBracketId,
+    }
   );
 
   const drawType = useMemo(() => {
@@ -610,12 +602,21 @@ export default function DrawPage() {
     return "knockout";
   }, [bracket]);
 
-  const [roundCode, setRoundCode] = useState("R16");
+  const [roundCode, setRoundCode] = useState(null);
+  const [roundTouched, setRoundTouched] = useState(false);
   const [usePrevWinners, setUsePrevWinners] = useState(false);
-
-  const { data: bracketDetail } = useGetBracketQuery(selBracketId, {
-    skip: !selBracketId,
-  });
+  useEffect(() => {
+    // đổi bracket hoặc đổi sang knockout → cho phép auto-chọn lại
+    setRoundTouched(false);
+    setRoundCode(null);
+  }, [selBracketId, drawType]);
+  // NEW: lấy refetch để tự kéo groups mới sau commit
+  const { data: bracketDetail, refetch: refetchBracket } = useGetBracketQuery(
+    selBracketId,
+    {
+      skip: !selBracketId,
+    }
+  );
 
   const hasGroups = useMemo(() => {
     const g = bracketDetail?.groups || bracket?.groups || [];
@@ -644,26 +645,33 @@ export default function DrawPage() {
   const [manualPairs, setManualPairs] = useState({}); // { groupId: [{a,b}] }
   const [generateGroupMatches, { isLoading: genLoading }] =
     useGenerateGroupMatchesMutation();
+
+  // Chuẩn hoá groupsMeta (nhận mọi shape từ planned hoặc bracket)
   const groupsMeta = useMemo(() => {
-    // 1) Ưu tiên kế hoạch từ socket (planned.groups)
+    // 1) Ưu tiên planned.groups (từ socket 'draw:planned'), nhận các shape: {code/name/label/key,size,regIds/ids}
     const plist = planned?.groups;
     if (Array.isArray(plist) && plist.length) {
       return plist.map((g, idx) => {
         const code =
-          g.code || g.name || g.label || String.fromCharCode(65 + idx);
+          g.code || g.key || g.name || g.label || String.fromCharCode(65 + idx);
+        const regIds = Array.isArray(g.regIds)
+          ? g.regIds
+          : Array.isArray(g.ids)
+          ? g.ids
+          : [];
         const sizeFromPlanned =
           g.size ??
-          planned?.planned?.groupSizes?.[g.code || g.name] ??
-          (Array.isArray(g.regIds) ? g.regIds.length : 0);
+          planned?.planned?.groupSizes?.[g.code || g.key || g.name] ??
+          (Array.isArray(regIds) ? regIds.length : 0);
         return {
           code,
           size: Number(sizeFromPlanned) || 0,
-          regIds: Array.isArray(g.regIds) ? g.regIds : [],
+          regIds,
         };
       });
     }
 
-    // 2) Fallback: từ bracketDetail/groups của bracket
+    // 2) Fallback: từ bracketDetail/groups của bracket (sau commit)
     if (groupsRaw.length) {
       const sorted = groupsRaw
         .slice()
@@ -686,14 +694,15 @@ export default function DrawPage() {
         };
       });
     }
-
     return [];
   }, [planned, groupsRaw]);
 
   // Registrations (để map regId -> tên)
   const { data: regsData, isLoading: lRegs } = useGetRegistrationsQuery(
     tournamentId,
-    { skip: !tournamentId }
+    {
+      skip: !tournamentId,
+    }
   );
 
   const regIndex = useMemo(() => {
@@ -762,12 +771,29 @@ export default function DrawPage() {
           "—",
     }));
   }, [koMatchesThisBracket, selectedRoundNumber, tournament?.eventType]);
+
   const revealsForKO = useMemo(() => {
     if (state === "running" && Array.isArray(reveals) && reveals.length) {
       return reveals;
     }
     return koPairsPersisted;
   }, [state, reveals, koPairsPersisted]);
+
+  // NEW: reveals cho group – khi không running, derive từ groupsMeta.regIds
+  const revealsForGroup = useMemo(() => {
+    if (state === "running" && Array.isArray(reveals) && reveals.length) {
+      return reveals;
+    }
+    const out = [];
+    (groupsMeta || []).forEach((g) => {
+      const ids = Array.isArray(g.regIds) ? g.regIds : [];
+      ids.forEach((ridRaw) => {
+        const rid = asId(ridRaw);
+        out.push({ group: g.code, groupCode: g.code, regId: rid });
+      });
+    });
+    return out;
+  }, [state, reveals, groupsMeta]);
 
   function buildRoundsForKO({
     roundCode,
@@ -776,12 +802,10 @@ export default function DrawPage() {
     eventType,
     selectedRoundNumber,
   }) {
-    // size & số vòng dự kiến kể từ round đang bốc
     const size = sizeFromRoundCode(roundCode);
     const roundsFromSize = Math.max(1, Math.log2(size) | 0);
     const lastRoundBySize = selectedRoundNumber + roundsFromSize - 1;
 
-    // matches thật của nhánh này (mọi round >= round đang xem)
     const real = (matches || [])
       .filter((m) => (m.round || 1) >= selectedRoundNumber)
       .sort(
@@ -796,14 +820,12 @@ export default function DrawPage() {
     const firstRound = selectedRoundNumber;
     const lastRound = Math.max(lastRoundBySize, maxRoundReal);
 
-    // đếm số trận thật mỗi round
     const countByRoundReal = {};
     real.forEach((m) => {
       const r = m.round || 1;
       countByRoundReal[r] = (countByRoundReal[r] || 0) + 1;
     });
 
-    // số trận "nên có" mỗi round: đi xuôi từ firstRound
     const revealsPairs = (reveals || []).map((rv) => ({
       A: rv?.A?.name || rv?.AName || rv?.A || "Chưa có đội",
       B: rv?.B?.name || rv?.BName || rv?.B || "Chưa có đội",
@@ -820,7 +842,6 @@ export default function DrawPage() {
       seedsCount[r] = countByRoundReal[r] || half;
     }
 
-    // tạo rounds cho react-brackets
     const rounds = [];
     for (let r = firstRound; r <= lastRound; r++) {
       const need = seedsCount[r] || 1;
@@ -862,7 +883,6 @@ export default function DrawPage() {
 
       rounds.push({ title: roundTitleByCount(need), seeds });
     }
-
     return rounds;
   }
 
@@ -885,7 +905,9 @@ export default function DrawPage() {
     setPlanned(null);
     setLog([]);
   }, [roundCode, drawType]);
+
   // Helper: tìm code của vòng đầu tiên (nhiều đội nhất)
+  // tính vòng đầu tiên từ options hiện tại
   const firstRoundCode = useMemo(() => {
     if (!knockoutOptions?.length) return "F";
     return knockoutOptions.reduce((best, cur) => {
@@ -895,21 +917,32 @@ export default function DrawPage() {
     }).code;
   }, [knockoutOptions]);
 
-  // roundCode hợp lệ -> nếu không thì set về vòng đầu tiên
+  // luôn đồng bộ về firstRoundCode nếu user chưa chọn tay
   useEffect(() => {
     if (drawType !== "knockout") return;
-    const valid = knockoutOptions.some((o) => o.code === roundCode);
-    if (!valid) {
-      setRoundCode(firstRoundCode);
-    }
-  }, [drawType, knockoutOptions, roundCode, firstRoundCode]);
-
+    if (roundTouched) return; // đã chọn tay → đừng auto
+    if (!firstRoundCode) return;
+    if (roundCode !== firstRoundCode) setRoundCode(firstRoundCode);
+  }, [drawType, firstRoundCode, roundTouched, roundCode]);
   // Đồng bộ trạng thái draw từ server
   useEffect(() => {
     if (!drawStatus) return;
-    setDrawId(drawStatus.drawId || null);
-    setState(drawStatus.state || "idle");
-    setReveals(Array.isArray(drawStatus.reveals) ? drawStatus.reveals : []);
+    const s = drawStatus.state || "idle";
+
+    if (s === "running") {
+      setDrawId(drawStatus.drawId || null);
+      setState("running");
+      setReveals(Array.isArray(drawStatus.reveals) ? drawStatus.reveals : []);
+    } else if (s === "canceled") {
+      setDrawId(null);
+      setState("idle");
+      setReveals([]);
+    } else {
+      // committed hoặc idle
+      setDrawId(null);
+      setState(s);
+      setReveals([]);
+    }
   }, [drawStatus]);
 
   // auto chọn bracket đầu tiên
@@ -922,11 +955,10 @@ export default function DrawPage() {
   // Socket: subscribe theo BRACKET (planned)
   useEffect(() => {
     if (!socket || !selBracketId) return;
-    socket.emit("draw:subscribe", { bracketId: selBracketId });
-    socket.emit("draw:join", { bracketId: selBracketId });
+    socket.emit("draw:join", { bracketId: selBracketId }); // join room bracket
 
     const onPlanned = (payload) => {
-      setPlanned(payload); // { planned: { groupSizes?, byes? }, groups? }
+      setPlanned(payload); // { planned:{...}, groups:[{code/size/regIds?}] }
       setLog((lg) => lg.concat([{ t: Date.now(), type: "planned" }]));
     };
 
@@ -934,7 +966,6 @@ export default function DrawPage() {
 
     return () => {
       socket.off("draw:planned", onPlanned);
-      socket.emit("draw:unsubscribe", { bracketId: selBracketId });
       socket.emit("draw:leave", { bracketId: selBracketId });
     };
   }, [socket, selBracketId]);
@@ -956,9 +987,13 @@ export default function DrawPage() {
     const onCommitted = () => {
       setState("committed");
       setLog((lg) => lg.concat([{ t: Date.now(), type: "commit" }]));
+      // NEW: sau commit group, kéo lại bracket để có br.groups mới (khỏi reload trang)
+      refetchBracket?.();
     };
     const onCanceled = () => {
       setState("canceled");
+      setReveals([]);
+      setDrawId(null);
       setLog((lg) => lg.concat([{ t: Date.now(), type: "cancel" }]));
     };
 
@@ -974,7 +1009,7 @@ export default function DrawPage() {
       socket.off("draw:canceled", onCanceled);
       socket.emit("draw:leave", { drawId });
     };
-  }, [socket, drawId]);
+  }, [socket, drawId, refetchBracket]);
 
   if (!isAdmin) {
     return (
@@ -1044,6 +1079,7 @@ export default function DrawPage() {
     if (!canOperate) return;
     try {
       await drawCommit({ drawId }).unwrap();
+      // socket sẽ bắn 'draw:committed' → refetchBracket
     } catch (e) {
       toast.error(e?.data?.message || e?.error);
       setLog((lg) => lg.concat([{ t: Date.now(), type: "error:commit" }]));
@@ -1054,15 +1090,20 @@ export default function DrawPage() {
     if (!drawId) return;
     try {
       await drawCancel({ drawId }).unwrap();
+      setDrawId(null);
+      setState("idle");
+      setReveals([]);
+      toast.success("Đã huỷ phiên bốc. Bạn có thể bắt đầu phiên mới.");
+      setLog((lg) => lg.concat([{ t: Date.now(), type: "cancel" }]));
     } catch (e) {
       toast.error(e?.data?.message || e?.error);
       setLog((lg) => lg.concat([{ t: Date.now(), type: "error:cancel" }]));
     }
   };
 
-  /* ---------- chuẩn hóa dữ liệu groupsMeta cho GroupSeatingBoard & RR preview ---------- */
-  // Ưu tiên: planned.groups (nếu có) → [{code,size,regIds?}], fallback: bracketDetail.groups
-  // ⚠️ Đặt ở TOP-LEVEL, trước mọi early return
+  const eventType = tournament?.eventType?.toLowerCase()?.includes("single")
+    ? "single"
+    : "double";
 
   return (
     <RBContainer fluid="xl" className="py-4">
@@ -1122,7 +1163,10 @@ export default function DrawPage() {
                 <Select
                   label="Vòng cần bốc"
                   value={roundCode}
-                  onChange={(e) => setRoundCode(e.target.value)}
+                  onChange={(e) => {
+                    setRoundTouched(true); // <- quan trọng
+                    setRoundCode(e.target.value);
+                  }}
                 >
                   {knockoutOptions.map((r) => (
                     <MenuItem key={r.code} value={r.code}>
@@ -1200,13 +1244,9 @@ export default function DrawPage() {
               <GroupSeatingBoard
                 planned={planned}
                 groupsMeta={groupsMeta}
-                reveals={reveals}
+                reveals={revealsForGroup}
                 regIndex={regIndex}
-                eventType={
-                  tournament?.eventType?.toLowerCase()?.includes("single")
-                    ? "single"
-                    : "double"
-                }
+                eventType={eventType}
               />
             ) : (
               <Typography color="text.secondary">
@@ -1218,14 +1258,9 @@ export default function DrawPage() {
               <Bracket
                 rounds={buildRoundsForKO({
                   roundCode,
-                  // chỉ dùng reveals khi đang bốc; đã commit thì rely on matches đã lưu
                   reveals: state === "running" ? reveals : [],
                   matches: koMatchesThisBracket,
-                  eventType: tournament?.eventType
-                    ?.toLowerCase()
-                    ?.includes("single")
-                    ? "single"
-                    : "double",
+                  eventType,
                   selectedRoundNumber,
                 })}
                 renderSeedComponent={CustomSeed}
@@ -1352,9 +1387,13 @@ export default function DrawPage() {
                 {(groupsRaw || []).map((g) => {
                   const teamIds = (g.regIds || []).map(String);
                   return (
-                    <Paper key={String(g._id)} variant="outlined" sx={{ p: 2 }}>
+                    <Paper
+                      key={String(g._id || g.name || g.code)}
+                      variant="outlined"
+                      sx={{ p: 2 }}
+                    >
                       <Typography fontWeight={700} gutterBottom>
-                        Bảng {g.name}
+                        Bảng {g.name || g.code}
                       </Typography>
                       <Stack
                         direction="row"
@@ -1378,26 +1417,26 @@ export default function DrawPage() {
                           size="small"
                           label="RegId A"
                           placeholder="Nhập ObjectId A"
-                          id={`a-${g._id}`}
+                          id={`a-${g._id || g.name || g.code}`}
                         />
                         <TextField
                           size="small"
                           label="RegId B"
                           placeholder="Nhập ObjectId B"
-                          id={`b-${g._id}`}
+                          id={`b-${g._id || g.name || g.code}`}
                         />
                         <Button
                           variant="outlined"
                           onClick={() => {
+                            const gid = g._id || g.name || g.code;
                             const a = document
-                              .getElementById(`a-${g._id}`)
+                              .getElementById(`a-${gid}`)
                               ?.value.trim();
                             const b = document
-                              .getElementById(`b-${g._id}`)
+                              .getElementById(`b-${gid}`)
                               ?.value.trim();
                             if (!a || !b || a === b) return;
-                            // local state add
-                            // (giữ nguyên như bản của bạn – bạn sẽ xử lý sau)
+                            // TODO: lưu vào manualPairs[gid] nếu cần
                           }}
                         >
                           Thêm cặp
@@ -1405,8 +1444,7 @@ export default function DrawPage() {
                       </Stack>
 
                       <Typography variant="body2" color="text.secondary">
-                        Bạn sẽ hoàn thiện phần thủ công sau (UI giữ nguyên như
-                        yêu cầu).
+                        Bạn sẽ hoàn thiện phần thủ công sau (UI giữ nguyên).
                       </Typography>
                     </Paper>
                   );
@@ -1426,7 +1464,6 @@ export default function DrawPage() {
                       mode: "auto",
                     }).unwrap();
                   } else {
-                    // giữ nguyên như cũ (bạn sẽ hoàn thiện sau)
                     await generateGroupMatches({
                       bracketId: selBracketId,
                       mode: "manual",
