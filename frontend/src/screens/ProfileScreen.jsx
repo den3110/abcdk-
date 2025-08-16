@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
+  Avatar,
   Box,
   Button,
   CircularProgress,
@@ -21,8 +22,14 @@ import {
   useGetProfileQuery,
   useUpdateUserMutation,
 } from "../slices/usersApiSlice";
-import { useUploadCccdMutation } from "../slices/uploadApiSlice";
+import {
+  useUploadCccdMutation,
+  useUploadAvatarMutation,
+} from "../slices/uploadApiSlice";
 import CccdDropzone from "../components/CccdDropzone";
+
+/* ---------- Config ---------- */
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 /* ---------- Danh sách tỉnh ---------- */
 const PROVINCES = [
@@ -111,6 +118,7 @@ const EMPTY = {
   password: "",
   confirmPassword: "",
   gender: "unspecified", // ⬅️ thêm
+  avatar: "", // ⬅️ thêm avatar vào form để diff
 };
 
 export default function ProfileScreen() {
@@ -124,9 +132,16 @@ export default function ProfileScreen() {
 
   const [updateProfile, { isLoading }] = useUpdateUserMutation();
   const [uploadCccd, { isLoading: upLoad }] = useUploadCccdMutation();
+  const [uploadAvatar, { isLoading: uploadingAvatar }] =
+    useUploadAvatarMutation();
 
   const [frontImg, setFrontImg] = useState(null);
   const [backImg, setBackImg] = useState(null);
+
+  // ⬇️ state cho avatar
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState("");
+  const [uploadedAvatarUrl, setUploadedAvatarUrl] = useState("");
 
   /* Prefill khi user đến */
   useEffect(() => {
@@ -142,9 +157,13 @@ export default function ProfileScreen() {
       password: "",
       confirmPassword: "",
       gender: user.gender || "unspecified", // ⬅️ thêm
+      avatar: user.avatar || "",
     };
     initialRef.current = init;
     setForm(init);
+    setAvatarPreview("");
+    setAvatarFile(null);
+    setUploadedAvatarUrl("");
   }, [user]);
 
   /* Validate */
@@ -177,13 +196,14 @@ export default function ProfileScreen() {
   };
   useEffect(() => setErrors(validate(form)), [form]);
 
-  const isDirty = useMemo(
-    () =>
-      Object.keys(form).some(
-        (k) => k !== "confirmPassword" && form[k] !== initialRef.current[k]
-      ),
-    [form]
-  );
+  const isDirty = useMemo(() => {
+    const changed = Object.keys(form).some(
+      (k) => k !== "confirmPassword" && form[k] !== initialRef.current[k]
+    );
+    // nếu chỉ đổi avatarFile mà chưa upload -> vẫn coi là dirty
+    return changed || !!avatarFile;
+  }, [form, avatarFile]);
+
   const isValid = useMemo(() => !Object.keys(errors).length, [errors]);
 
   /* Helpers */
@@ -214,7 +234,34 @@ export default function ProfileScreen() {
       return setSnack({ open: true, type: "info", msg: "Chưa thay đổi" });
 
     try {
-      await updateProfile(diff()).unwrap();
+      // Nếu user đã chọn file avatar mới và chưa có uploaded URL thì upload trước
+      let finalAvatarUrl = uploadedAvatarUrl || form.avatar || "";
+      if (avatarFile && !uploadedAvatarUrl) {
+        if (avatarFile.size > MAX_FILE_SIZE) {
+          setSnack({
+            open: true,
+            type: "error",
+            msg: "Ảnh không được vượt quá 10 MB.",
+          });
+          return;
+        }
+        const resUpload = await uploadAvatar(avatarFile).unwrap();
+        finalAvatarUrl = resUpload.url;
+        setUploadedAvatarUrl(resUpload.url);
+        // cập nhật ngay vào form để lần sau diff đúng
+        setForm((p) => ({ ...p, avatar: resUpload.url }));
+      }
+
+      const payload = diff();
+      if (finalAvatarUrl && finalAvatarUrl !== initialRef.current.avatar) {
+        payload.avatar = finalAvatarUrl;
+      }
+      // Cho phép xóa avatar (đặt rỗng)
+      if (!finalAvatarUrl && initialRef.current.avatar) {
+        payload.avatar = "";
+      }
+
+      await updateProfile(payload).unwrap();
       await refetch();
       setTouched({});
       setSnack({ open: true, type: "success", msg: "Đã lưu thành công" });
@@ -269,6 +316,61 @@ export default function ProfileScreen() {
 
         <Box component="form" onSubmit={submit} noValidate>
           <Stack spacing={2}>
+            {/* ------ Avatar ------ */}
+            <Box display="flex" alignItems="center" gap={2}>
+              <Avatar
+                src={
+                  avatarPreview ||
+                  form.avatar ||
+                  "https://dummyimage.com/80x80/cccccc/ffffff&text=?"
+                }
+                sx={{ width: 80, height: 80 }}
+              />
+              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                <Button
+                  variant="outlined"
+                  component="label"
+                  disabled={uploadingAvatar || isLoading}
+                >
+                  Chọn ảnh đại diện
+                  <input
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > MAX_FILE_SIZE) {
+                        setSnack({
+                          open: true,
+                          type: "error",
+                          msg: "Ảnh không được vượt quá 10 MB.",
+                        });
+                        return;
+                      }
+                      setAvatarFile(file);
+                      setAvatarPreview(URL.createObjectURL(file));
+                      setUploadedAvatarUrl(""); // reset để upload lại khi submit
+                    }}
+                  />
+                </Button>
+                {form.avatar || avatarPreview ? (
+                  <Button
+                    variant="text"
+                    color="error"
+                    onClick={() => {
+                      setAvatarFile(null);
+                      setAvatarPreview("");
+                      setUploadedAvatarUrl("");
+                      setForm((p) => ({ ...p, avatar: "" }));
+                    }}
+                  >
+                    Xóa ảnh
+                  </Button>
+                ) : null}
+              </Stack>
+            </Box>
+
             {/* ------ Thông tin cá nhân ------ */}
             <TextField
               label="Họ và tên"
@@ -513,10 +615,12 @@ export default function ProfileScreen() {
             <Button
               type="submit"
               variant="contained"
-              disabled={!isDirty || !isValid || isLoading}
-              startIcon={isLoading && <CircularProgress size={20} />}
+              disabled={!isDirty || !isValid || isLoading || uploadingAvatar}
+              startIcon={
+                (isLoading || uploadingAvatar) && <CircularProgress size={20} />
+              }
             >
-              {isLoading ? "Đang lưu..." : "Lưu thay đổi"}
+              {isLoading || uploadingAvatar ? "Đang lưu..." : "Lưu thay đổi"}
             </Button>
           </Stack>
         </Box>

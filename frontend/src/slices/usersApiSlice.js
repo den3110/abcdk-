@@ -44,11 +44,15 @@ export const userApiSlice = apiSlice.injectEndpoints({
     getProfile: builder.query({
       query: () => "/api/users/profile",
       providesTags: ["User"],
+      keepUnusedDataFor: 0, // bỏ cache ngay khi không còn subscriber
+      // Luôn refetch khi có subscriber mới (VD: vào lại ProfileScreen)
+      forceRefetch() {
+        return true;
+      },
       async onQueryStarted(arg, { dispatch, getState, queryFulfilled }) {
         try {
           const { data } = await queryFulfilled; // profile từ server
           const prev = getState().auth?.userInfo || {};
-          // gộp profile mới vào auth, giữ token cũ nếu response không có token
           const next = { ...prev, ...data };
           if (!data?.token && prev?.token) next.token = prev.token;
           dispatch(setCredentials(next));

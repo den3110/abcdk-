@@ -274,7 +274,8 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy người dùng");
   }
 
-  const {
+  // Destructure including avatar
+  let {
     name,
     nickname,
     phone,
@@ -284,7 +285,60 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     email,
     password,
     gender,
+    avatar,
   } = req.body;
+
+  // Normalize strings
+  const norm = (v) => (typeof v === "string" ? v.trim() : v);
+  name = norm(name);
+  nickname = norm(nickname);
+  phone = norm(phone);
+  dob = norm(dob);
+  province = norm(province);
+  cccd = norm(cccd);
+  email = norm(email);
+  gender = norm(gender);
+  avatar = typeof avatar === "string" ? avatar.trim() : avatar;
+
+  /* ----------------------- Server-side validate ----------------------- */
+  // gender
+  const ALLOWED_GENDERS = ["male", "female", "unspecified", "other"];
+  if (gender !== undefined && !ALLOWED_GENDERS.includes(gender)) {
+    res.status(400);
+    throw new Error("Giới tính không hợp lệ");
+  }
+  // phone
+  if (phone !== undefined && phone && !/^0\d{9}$/.test(phone)) {
+    res.status(400);
+    throw new Error("Số điện thoại phải bắt đầu bằng 0 và đủ 10 chữ số.");
+  }
+  // cccd
+  if (cccd !== undefined && cccd && !/^\d{12}$/.test(cccd)) {
+    res.status(400);
+    throw new Error("CCCD phải bao gồm đúng 12 chữ số.");
+  }
+  // email
+  if (email !== undefined && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400);
+    throw new Error("Email không hợp lệ.");
+  }
+  // password
+  if (password !== undefined && password && String(password).length < 6) {
+    res.status(400);
+    throw new Error("Mật khẩu phải có ít nhất 6 ký tự.");
+  }
+  // dob
+  if (dob !== undefined && dob) {
+    const d = new Date(dob);
+    if (Number.isNaN(d.getTime())) {
+      res.status(400);
+      throw new Error("Ngày sinh không hợp lệ");
+    }
+    if (d > new Date()) {
+      res.status(400);
+      throw new Error("Ngày sinh không được ở tương lai");
+    }
+  }
 
   /* --------------------- Kiểm tra trùng lặp --------------------- */
   const checks = [];
@@ -323,11 +377,15 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (name !== undefined) user.name = name;
   if (nickname !== undefined) user.nickname = nickname;
   if (phone !== undefined) user.phone = phone;
-  if (dob !== undefined) user.dob = dob;
+  if (dob !== undefined) user.dob = dob ? new Date(dob) : null;
   if (province !== undefined) user.province = province;
   if (cccd !== undefined) user.cccd = cccd;
   if (email !== undefined) user.email = email;
   if (gender !== undefined) user.gender = gender;
+  // Avatar: allow set/clear explicitly by sending avatar in body
+  if (Object.prototype.hasOwnProperty.call(req.body, "avatar")) {
+    user.avatar = avatar || ""; // empty string to clear
+  }
   if (password) user.password = password;
 
   const updatedUser = await user.save();
@@ -348,6 +406,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     gender: updatedUser.gender,
   });
 });
+
 
 export const getPublicProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id).select(
