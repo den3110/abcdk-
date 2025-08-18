@@ -24,7 +24,6 @@ import {
   DialogActions,
   Tab,
   Tabs,
-  TextField,
   Grid,
   Card,
 } from "@mui/material";
@@ -56,8 +55,7 @@ import {
   useGetBracketQuery,
   useGenerateGroupMatchesMutation,
   useListTournamentMatchesQuery,
-  // (nếu muốn dùng resetApiState khi đổi bracket):
-  // tournamentsApi
+  // tournamentsApi // nếu muốn resetApiState khi đổi bracket
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
 
@@ -134,7 +132,7 @@ function buildKnockoutOptions(teamCount) {
   return out;
 }
 
-/* -------------------- Group seating board (giữ đơn giản) -------------------- */
+/* -------------------- Group seating board -------------------- */
 function GroupSeatingBoard({ groupsMeta, reveals, regIndex, eventType }) {
   const seats = useMemo(() => {
     const map = new Map();
@@ -294,7 +292,7 @@ const labelDep = (prev) => {
 const matchSideName = (m, side, eventType) => {
   const pair = side === "A" ? m?.pairA : m?.pairB;
   const prev = side === "A" ? m?.previousA : m?.previousB;
-  if (pair) return safePairName(pair, eventType);
+  if (pair) return safePairName(m[side === "A" ? "pairA" : "pairB"], eventType);
   if (prev) return labelDep(prev);
   return "Chưa có đội";
 };
@@ -330,6 +328,9 @@ export default function DrawPage() {
 
   const { userInfo } = useSelector((s) => s.auth || {});
   const isAdmin = String(userInfo?.role || "").toLowerCase() === "admin";
+
+  // ===== NEW: state dialog controlled
+  const [openGroupDlg, setOpenGroupDlg] = useState(false);
 
   /* ===== Queries: ép refetch, bỏ cache reuse ===== */
   const { data: allMatches = [], isLoading: lMatches } =
@@ -511,7 +512,6 @@ export default function DrawPage() {
     setReveals([]);
     setPlanned(null);
     setLog([]);
-    // Nếu muốn mạnh tay clear mọi cache của slice:
     // dispatch(tournamentsApi.util.resetApiState());
   }, [selBracketId]); // eslint-disable-line
 
@@ -596,7 +596,7 @@ export default function DrawPage() {
     };
   }, [socket, drawId, refetchBracket]);
 
-  // Groups meta (đơn giản hoá)
+  // Groups meta
   const groupsRaw = useMemo(
     () => bracketDetail?.groups || bracket?.groups || [],
     [bracketDetail, bracket]
@@ -912,7 +912,6 @@ export default function DrawPage() {
         )}
       </Stack>
 
-      {/* key ở Paper vẫn giữ để reset layout theo bracket/round */}
       <Paper
         key={`${selBracketId}-${
           drawType === "knockout" ? roundCode || firstRoundCode : "group"
@@ -935,7 +934,6 @@ export default function DrawPage() {
                 onChange={(e) => {
                   const id = e.target.value;
                   setSelBracketId(id);
-                  // URL sync sẽ chạy qua useEffect
                 }}
               >
                 {brackets.map((b) => (
@@ -955,7 +953,6 @@ export default function DrawPage() {
                   onChange={(e) => {
                     setRoundTouched(true);
                     setRoundCode(e.target.value);
-                    // URL sync chạy qua useEffect
                   }}
                 >
                   {knockoutOptions.map((r) => (
@@ -1147,9 +1144,10 @@ export default function DrawPage() {
         </Paper>
       </Stack>
 
-      {/* Dialog: Group matches (giữ tối giản) */}
+      {/* Dialog: Group matches (controlled) */}
       <GroupMatchesDialog
-        openGroupDlgState={{}}
+        open={openGroupDlg}
+        onClose={() => setOpenGroupDlg(false)}
         groupsMeta={groupsMeta}
         regIndex={regIndex}
         selBracketId={selBracketId}
@@ -1158,25 +1156,20 @@ export default function DrawPage() {
   );
 }
 
-/* ====== Nhét dialog nhóm (tối giản để biên dịch) ====== */
+/* ====== Dialog bốc thăm trận trong bảng (controlled) ====== */
 function GroupMatchesDialog({
-  openGroupDlgState,
+  open,
+  onClose,
   groupsMeta,
   regIndex,
   selBracketId,
 }) {
-  const [open, setOpen] = useState(false);
   const [tabMode, setTabMode] = useState("auto");
   const [generateGroupMatches, { isLoading: genLoading }] =
     useGenerateGroupMatchesMutation();
 
-  useEffect(() => {
-    // giữ nguyên API mở dialog từ nút
-    openGroupDlgState.setOpen = setOpen;
-  }, [openGroupDlgState]);
-
   return (
-    <Dialog open={open} onClose={() => setOpen(false)} maxWidth="md" fullWidth>
+    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
       <DialogTitle>Bốc thăm trận trong bảng</DialogTitle>
       <DialogContent dividers>
         <Tabs value={tabMode} onChange={(_, v) => setTabMode(v)} sx={{ mb: 2 }}>
@@ -1196,7 +1189,7 @@ function GroupMatchesDialog({
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={() => setOpen(false)}>Đóng</Button>
+        <Button onClick={onClose}>Đóng</Button>
         <Button
           onClick={async () => {
             try {
@@ -1213,8 +1206,8 @@ function GroupMatchesDialog({
                   matches: [],
                 }).unwrap();
               }
-              setOpen(false);
               toast.success("Đã tạo trận trong bảng.");
+              onClose();
             } catch (e) {
               toast.error(e?.data?.message || e?.error || "Tạo trận thất bại.");
             }

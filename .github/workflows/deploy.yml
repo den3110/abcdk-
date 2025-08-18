@@ -1,0 +1,70 @@
+name: Deploy fe
+
+on:
+  push:
+    branches: [ "master" ]   # đổi nếu bạn deploy nhánh khác
+
+jobs:
+  deploy:
+    runs-on: self-hosted    # runner bạn đã cài trên VPS
+
+    env:
+      TARGET_BE_DIR: /abcdk-/backend   # đúng path BE của bạn
+      TARGET_FE_DIR: /var/www          # đúng path FE public của bạn
+      PM2_APP_NAME: abcdk-api
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json   # Nếu thư mục FE của bạn tên khác, sửa "frontend" cho đúng
+
+      # ===== Backend =====
+      - name: Install & build backend
+        working-directory: backend      # Nếu BE của bạn đúng là thư mục "backend" trong repo
+        run: |
+          npm ci --omit=dev
+          npm run build || true         # Nếu BE không có bước build thì vẫn ok
+
+      - name: Deploy backend files
+        run: |
+          mkdir -p "$TARGET_BE_DIR"
+          rsync -a --delete \
+            --exclude ".git" \
+            --exclude "node_modules" \
+            --exclude ".env" \
+            backend/ "$TARGET_BE_DIR"/
+
+      - name: Install backend prod deps on server
+        run: |
+          cd "$TARGET_BE_DIR"
+          npm ci --omit=dev
+
+      - name: Reload PM2 (zero-downtime)
+        run: |
+          cd "$TARGET_BE_DIR"
+          if [ -f ecosystem.config.js ]; then
+            pm2 startOrReload ecosystem.config.js --env production
+          else
+            pm2 restart "$PM2_APP_NAME" || pm2 start ./dist/server.js --name "$PM2_APP_NAME"
+          fi
+          pm2 save
+
+      # ===== Frontend =====
+      - name: Install & build frontend
+        working-directory: frontend      # Nếu thư mục FE của bạn tên "frontend". Nếu là "fe", đổi lại.
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy frontend build to Nginx root
+        run: |
+          mkdir -p "$TARGET_FE_DIR"
+          rsync -a --delete frontend/build/ "$TARGET_FE_DIR"/
