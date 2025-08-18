@@ -10,7 +10,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
     /* ---------------------------------- REG LIST ---------------------------------- */
     getRegistrations: builder.query({
       query: (tourId) => `/api/tournaments/${tourId}/registrations`,
-      providesTags: (r, e, id) => [{ type: "Registrations", id }],
+      keepUnusedDataFor: 0,
     }),
 
     /* ---------------------------- CREATE REGISTRATION ----------------------------- */
@@ -52,7 +52,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
     }),
     getTournament: builder.query({
       query: (id) => `/api/tournaments/${id}`,
-      providesTags: (r, e, id) => [{ type: "Tournaments", id }],
+      keepUnusedDataFor: 0,
     }),
     // ✨ LẤY DANH SÁCH TRẬN ĐẤU (bracket + check‑in page)
     getMatches: builder.query({
@@ -88,8 +88,8 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         return [];
       },
       // tránh cache đè giữa các giải
-      serializeQueryArgs: ({ endpointName, queryArgs }) =>
-        `${endpointName}:${queryArgs}`,
+
+      keepUnusedDataFor: 0,
     }),
 
     // GET /api/tournaments/:id/matches  (user route)
@@ -105,13 +105,12 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         if (res?.list && Array.isArray(res.list)) return res.list; // phân trang
         return [];
       },
-      
-      keepUnusedDataFor: 0
+
+      keepUnusedDataFor: 0,
     }),
     getMatchPublic: builder.query({
       query: (matchId) => `/api/tournaments/matches/${matchId}`, // GET /api/matches/:id
       providesTags: (res, err, id) => [{ type: "Match", id }],
-
     }),
     cancelRegistration: builder.mutation({
       query: (regId) => ({
@@ -178,11 +177,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         url: `/api/draw/brackets/${bracketId}/draw/status`,
         method: "GET",
       }),
-      serializeQueryArgs: ({ endpointName, queryArgs }) =>
-        `${endpointName}:${String(queryArgs || "")}`,
-      providesTags: (_res, _err, bracketId) => [
-        { type: "Draw", id: bracketId },
-      ],
+      keepUnusedDataFor: 0,
     }),
 
     initDraw: builder.mutation({
@@ -273,6 +268,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
     }),
     getBracket: builder.query({
       query: (bracketId) => `/api/brackets/${bracketId}`,
+      keepUnusedDataFor: 0,
     }),
 
     generateGroupMatches: builder.mutation({

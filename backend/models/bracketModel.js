@@ -119,9 +119,31 @@ const bracketSchema = new Schema(
     teamsCount: { type: Number, default: 0 },
     // === NEW: override theo từng giải ===
     drawSettings: { type: DrawSettingsSchema, default: () => ({}) },
+    /** ⭐ NEW: Quy mô main draw (số đội = 2^n). 0 = chưa đặt */
+    drawRounds: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
+
+// // ====== Helpers cho drawScale ======
+// function ceilPow2(n) {
+//   if (!n || n < 1) return 0;
+//   return 1 << Math.ceil(Math.log2(n));
+// }
+
+// // Validate: đảm bảo drawScale là lũy thừa của 2 (hoặc 0)
+// bracketSchema.pre("save", function (next) {
+//   if (typeof this.drawScale === "number" && this.drawScale > 0) {
+//     this.drawScale = ceilPow2(this.drawScale);
+//   }
+//   next();
+// });
+
+// // Virtual: số vòng tối đa = log2(drawScale)
+// bracketSchema.virtual("maxRounds").get(function () {
+//   const n = this.drawScale || 0;
+//   return n > 0 ? Math.round(Math.log2(n)) : 0;
+// });
 
 bracketSchema.index({ tournament: 1, order: 1 });
 bracketSchema.index({ tournament: 1, type: 1 });

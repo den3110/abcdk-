@@ -39,13 +39,90 @@ const PLACE = "https://dummyimage.com/40x40/cccccc/ffffff&text=?";
 // map từ tierColor BE → màu hex hiển thị
 const HEX = {
   green: "#2e7d32", // ≥10 trận
-  blue: "#1976d2", // 5–9
-  yellow: "#ff9800", // 1–4
-  red: "#f44336", // tự chấm
-  grey: "#616161", // chưa đấu
+  blue: "#1976d2",  // 5–9
+  yellow: "#ff9800",// 1–4
+  red: "#f44336",   // tự chấm
+  grey: "#616161",  // chưa đấu
 };
 const textOn = (hex) => (hex === HEX.yellow ? "#000" : "#fff");
 const fmt3 = (x) => (Number.isFinite(x) ? Number(x).toFixed(3) : "0.000");
+
+// Tính tuổi: ưu tiên ngày sinh; fallback theo năm sinh
+const calcAge = (u) => {
+  if (!u) return null;
+  const today = new Date();
+
+  // Ưu tiên ngày sinh đầy đủ
+  const dateStr =
+    u.dob || u.dateOfBirth || u.birthday || u.birthdate || u.birth_date;
+  if (dateStr) {
+    const d = new Date(dateStr);
+    if (!isNaN(d)) {
+      let age = today.getFullYear() - d.getFullYear();
+      const m = today.getMonth() - d.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age--;
+      return age;
+    }
+  }
+
+  // Fallback: năm sinh (có thể là string)
+  const yearRaw = u.birthYear ?? u.birth_year ?? u.yob;
+  const year = Number(yearRaw);
+  if (Number.isFinite(year) && year > 1900 && year <= today.getFullYear()) {
+    return today.getFullYear() - year;
+  }
+
+  // Nếu chỉ có dateStr dạng năm (ví dụ "1995")
+  if (dateStr && /^\d{4}$/.test(String(dateStr))) {
+    const y = Number(dateStr);
+    if (Number.isFinite(y)) return today.getFullYear() - y;
+  }
+
+  return null;
+};
+
+const cccdBadge = (status) => {
+  switch (status) {
+    case "verified":
+      return { text: "Xác thực", color: "success" };
+    case "pending":
+      return { text: "Chờ", color: "warning" };
+    case "rejected":
+    case "unverified":
+    default:
+      return { text: "Chưa xác thực", color: "default" };
+  }
+};
+
+const genderLabel = (g) => {
+  switch (g) {
+    case "male":
+      return "Nam";
+    case "female":
+      return "Nữ";
+    case "other":
+      return "Khác";
+    case "unspecified":
+      return "Chưa xác định";
+    default:
+      return "--";
+  }
+};
+
+// Legend theo tier
+const Legend = () => (
+  <Stack
+    direction="row"
+    flexWrap="wrap"
+    useFlexGap
+    sx={{ columnGap: 1.5, rowGap: 1, mb: 2 }}
+  >
+    <Chip label="Xanh lá: ≥ 10 trận" sx={{ bgcolor: HEX.green, color: "#fff" }} />
+    <Chip label="Xanh dương: 5–9 trận" sx={{ bgcolor: HEX.blue, color: "#fff" }} />
+    <Chip label="Vàng: 1–4 trận" sx={{ bgcolor: HEX.yellow, color: "#000" }} />
+    <Chip label="Đỏ: tự chấm" sx={{ bgcolor: HEX.red, color: "#fff" }} />
+  </Stack>
+);
 
 export default function RankingList() {
   const dispatch = useDispatch();
@@ -63,6 +140,7 @@ export default function RankingList() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme?.breakpoints?.down("sm"));
 
+  // nhẹ nhàng debounce refetch khi keyword đổi
   useEffect(() => {
     const t = setTimeout(refetch, 300);
     return () => clearTimeout(t);
@@ -78,6 +156,7 @@ export default function RankingList() {
 
   // Zoom avatar
   const [zoomSrc, setZoomSrc] = useState("");
+  
   const [zoomOpen, setZoomOpen] = useState(false);
   const openZoom = (src) => {
     setZoomSrc(src || PLACE);
@@ -85,78 +164,15 @@ export default function RankingList() {
   };
   const closeZoom = () => setZoomOpen(false);
 
-  const cccdBadge = (status) => {
-    switch (status) {
-      case "verified":
-        return { text: "Xác thực", color: "success" };
-      case "pending":
-        return { text: "Chờ", color: "warning" };
-      case "rejected":
-      case "unverified":
-      default:
-        return { text: "Chưa xác thực", color: "default" };
-    }
-  };
-
-  const genderLabel = (g) => {
-    switch (g) {
-      case "male":
-        return "Nam";
-      case "female":
-        return "Nữ";
-      case "other":
-        return "Khác";
-      case "unspecified":
-        return "Chưa xác định";
-      default:
-        return "--";
-    }
-  };
-
-  // Legend theo tier (giữ nguyên)
-  const Legend = () => (
-    <Stack
-      direction="row"
-      flexWrap="wrap"
-      useFlexGap
-      sx={{ columnGap: 1.5, rowGap: 1, mb: 2 }}
-    >
-      <Chip
-        label="Xanh lá: ≥ 10 trận"
-        sx={{ bgcolor: HEX.green, color: "#fff" }}
-      />
-      <Chip
-        label="Xanh dương: 5–9 trận"
-        sx={{ bgcolor: HEX.blue, color: "#fff" }}
-      />
-      <Chip
-        label="Vàng: 1–4 trận"
-        sx={{ bgcolor: HEX.yellow, color: "#000" }}
-      />
-      <Chip label="Đỏ: tự chấm" sx={{ bgcolor: HEX.red, color: "#fff" }} />
-    </Stack>
-  );
-
-  // margin cho Chip chỉ áp dụng trên mobile
   const chipMobileSx = { mr: { xs: 0.75, sm: 0 }, mb: { xs: 0.75, sm: 0 } };
 
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
-      <Box
-        display="flex"
-        justifyContent="space-between"
-        alignItems="center"
-        mb={2}
-      >
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
         <Typography variant="h5" fontWeight={600}>
           Bảng xếp hạng
         </Typography>
-        <Button
-          component={Link}
-          to="/levelpoint"
-          variant="contained"
-          size="small"
-        >
+        <Button component={Link} to="/levelpoint" variant="contained" size="small">
           Tự chấm trình
         </Button>
       </Box>
@@ -184,6 +200,7 @@ export default function RankingList() {
             const badge = cccdBadge(u?.cccdStatus);
             const avatarSrc = u?.avatar || PLACE;
             const tierHex = HEX[r?.tierColor] || HEX.grey;
+            const age = calcAge(u);
 
             return (
               <Card key={r?._id || u?._id} variant="outlined">
@@ -195,29 +212,22 @@ export default function RankingList() {
                       onClick={() => openZoom(avatarSrc)}
                       sx={{ cursor: "zoom-in" }}
                     />
-                    <Box sx={{ minWidth: 0 }}>
+                    <Box sx={{ minWidth: 0, flex: 1 }}>
                       <Typography fontWeight={600} noWrap>
                         {u?.nickname || "---"}
                       </Typography>
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        noWrap
-                      >
-                        ID: {u?._id?.toString()?.slice(-5) || "---"} • Role:{" "}
-                        {u?.role || "--"}
+                      <Typography variant="caption" color="text.secondary" noWrap>
+                        Role: {u?.role || "--"}
                       </Typography>
                     </Box>
-                    <Box ml="auto">
-                      <Chip
-                        label={badge.text}
-                        size="small"
-                        color={badge.color}
-                      />
-                    </Box>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      {Number.isFinite(age) && (
+                        <Chip size="small" label={age} sx={chipMobileSx} />
+                      )}
+                      <Chip label={badge.text} size="small" color={badge.color} />
+                    </Stack>
                   </Box>
 
-                  {/* Chips: chỉ giữ Giới tính + Tỉnh, bỏ Tier / trận đôi / trận đơn */}
                   <Stack
                     direction="row"
                     flexWrap="wrap"
@@ -234,11 +244,6 @@ export default function RankingList() {
                       label={`Tỉnh: ${u?.province || "--"}`}
                       sx={chipMobileSx}
                     />
-                    {/* BỎ:
-                    <Chip size="small" label={r?.tierLabel || "Chưa đấu"} />
-                    <Chip size="small" label={`Đôi: ${r?.doubleMatches ?? 0} tr`} />
-                    <Chip size="small" label={`Đơn: ${r?.singleMatches ?? 0} tr`} />
-                    */}
                   </Stack>
 
                   <Divider sx={{ mb: 1 }} />
@@ -257,21 +262,13 @@ export default function RankingList() {
                     </Typography>
                   </Stack>
 
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    display="block"
-                  >
+                  <Typography variant="caption" color="text.secondary" display="block">
                     Cập nhật:{" "}
                     {r?.updatedAt
                       ? new Date(r.updatedAt).toLocaleDateString()
                       : "--"}
                   </Typography>
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    display="block"
-                  >
+                  <Typography variant="caption" color="text.secondary" display="block">
                     Tham gia:{" "}
                     {u?.createdAt
                       ? new Date(u.createdAt).toLocaleDateString()
@@ -303,16 +300,14 @@ export default function RankingList() {
             <TableHead>
               <TableRow>
                 <TableCell>#</TableCell>
-                <TableCell>ID</TableCell>
+                {/* <TableCell>ID</TableCell>  // XOÁ */}
                 <TableCell>Ảnh</TableCell>
                 <TableCell>Nick</TableCell>
+                <TableCell>Tuổi</TableCell> {/* THÊM */}
                 <TableCell>Giới&nbsp;tính</TableCell>
                 <TableCell>Tỉnh</TableCell>
                 <TableCell>Điểm&nbsp;đôi</TableCell>
                 <TableCell>Điểm&nbsp;đơn</TableCell>
-                {/* <TableCell>Trận&nbsp;đôi</TableCell> */}
-                {/* <TableCell>Trận&nbsp;đơn</TableCell> */}
-                {/* <TableCell>Tier</TableCell> */}
                 <TableCell>Cập nhật</TableCell>
                 <TableCell>Tham gia</TableCell>
                 <TableCell>Xác thực</TableCell>
@@ -325,11 +320,12 @@ export default function RankingList() {
                 const badge = cccdBadge(u?.cccdStatus);
                 const avatarSrc = u?.avatar || PLACE;
                 const tierHex = HEX[r?.tierColor] || HEX.grey;
+                const age = calcAge(u);
 
                 return (
                   <TableRow key={r?._id || u?._id} hover>
                     <TableCell>{page * 10 + idx + 1}</TableCell>
-                    <TableCell>{u?._id?.toString()?.slice(-5)}</TableCell>
+                    {/* <TableCell>{u?._id?.toString()?.slice(-5)}</TableCell> // XOÁ */}
                     <TableCell>
                       <Avatar
                         src={avatarSrc}
@@ -338,7 +334,8 @@ export default function RankingList() {
                         onClick={() => openZoom(avatarSrc)}
                       />
                     </TableCell>
-                    <TableCell>{u?.nickname}</TableCell>
+                    <TableCell>{u?.nickname || "--"}</TableCell>
+                    <TableCell>{Number.isFinite(age) ? age : "--"}</TableCell> {/* số thuần */}
                     <TableCell>{genderLabel(u?.gender)}</TableCell>
                     <TableCell>{u?.province || "--"}</TableCell>
                     <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
@@ -347,15 +344,6 @@ export default function RankingList() {
                     <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
                       {fmt3(r?.single)}
                     </TableCell>
-                    {/* <TableCell>{r?.doubleMatches ?? 0}</TableCell> */}
-                    {/* <TableCell>{r?.singleMatches ?? 0}</TableCell> */}
-                    {/* <TableCell>
-                      <Chip
-                        size="small"
-                        label={r?.tierLabel || "Chưa đấu"}
-                        sx={{ bgcolor: tierHex, color: textOn(tierHex) }}
-                      />
-                    </TableCell> */}
                     <TableCell>
                       {r?.updatedAt
                         ? new Date(r.updatedAt).toLocaleDateString()
@@ -367,11 +355,7 @@ export default function RankingList() {
                         : "--"}
                     </TableCell>
                     <TableCell>
-                      <Chip
-                        label={badge.text}
-                        size="small"
-                        color={badge.color}
-                      />
+                      <Chip label={badge.text} size="small" color={badge.color} />
                     </TableCell>
                     <TableCell>
                       <Button
@@ -402,19 +386,12 @@ export default function RankingList() {
         </Box>
       )}
 
-      <PublicProfileDialog
-        open={openProfile}
-        onClose={handleClose}
-        userId={selectedId}
-      />
+      <PublicProfileDialog open={openProfile} onClose={handleClose} userId={selectedId} />
 
       {/* Zoom dialog */}
       <Dialog open={zoomOpen} onClose={closeZoom} maxWidth="sm" fullWidth>
         <DialogTitle>Ảnh đại diện</DialogTitle>
-        <DialogContent
-          dividers
-          sx={{ display: "flex", justifyContent: "center" }}
-        >
+        <DialogContent dividers sx={{ display: "flex", justifyContent: "center" }}>
           <img
             src={zoomSrc}
             alt="avatar"

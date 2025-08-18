@@ -83,6 +83,7 @@ export const getRankings = asyncHandler(async (req, res) => {
               verified: 1,
               createdAt: 1,
               cccdStatus: 1,
+              dob: 1
             },
           },
         ],

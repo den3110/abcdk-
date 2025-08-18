@@ -1,3 +1,4 @@
+// src/layouts/tournament/TournamentBracket.jsx
 import { useMemo, useState, useCallback, useEffect } from "react";
 import PropTypes from "prop-types";
 import {
@@ -99,6 +100,38 @@ function roundTitleByCount(cnt) {
   return `Vòng (${cnt} trận)`;
 }
 
+// ========== extra helpers cho KO placeholder theo quy mô ==========
+const ceilPow2 = (n) => Math.pow(2, Math.ceil(Math.log2(Math.max(1, n || 1))));
+const UNGROUPED = "__UNGROUPED__";
+const getGroupKey = (m) => {
+  const g = m.group ?? m.groupName ?? m.pool ?? m.table ?? m.groupLabel ?? null;
+  if (typeof g === "string" && g.trim()) return g.trim();
+  if (g && typeof g === "object")
+    return g.name || g.code || g.label || g._id || UNGROUPED;
+  if (typeof m.groupIndex === "number")
+    return String.fromCharCode(65 + m.groupIndex);
+  return UNGROUPED;
+};
+
+// ⭐ Lấy “quy mô” từ chính bracket (ưu tiên), hỗ trợ nhiều tên field
+const readBracketScale = (br) => {
+  const cands = [
+    br?.drawScale,
+    br?.targetScale,
+    br?.maxSlots,
+    br?.capacity,
+    br?.size,
+    br?.scale,
+    br?.meta?.drawSize,
+    br?.meta?.scale,
+  ]
+    .map((x) => Number(x))
+    .filter((x) => Number.isFinite(x) && x >= 2);
+  if (!cands.length) return 0;
+  // dùng giá trị lớn nhất rồi làm tròn lên 2^n
+  return ceilPow2(Math.max(...cands));
+};
+
 /* ======== Build rounds (có placeholder) cho react-brackets ======== */
 function placeholderSeed(r, idx) {
   return {
@@ -107,7 +140,26 @@ function placeholderSeed(r, idx) {
     teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
   };
 }
-function buildRoundsWithPlaceholders(brMatches, { minRounds = 3 } = {}) {
+function buildEmptyRoundsByScale(scale /* 2^n */) {
+  const rounds = [];
+  let matches = Math.max(1, Math.floor(scale / 2));
+  let r = 1;
+  while (matches >= 1) {
+    const seeds = Array.from({ length: matches }, (_, i) =>
+      placeholderSeed(r, i)
+    );
+    rounds.push({ title: roundTitleByCount(matches), seeds });
+    matches = Math.floor(matches / 2);
+    r += 1;
+  }
+  return rounds;
+}
+
+// Xây rounds + placeholder, có thể ép số cột tối thiểu = minRounds và mở rộng tới chung kết
+function buildRoundsWithPlaceholders(
+  brMatches,
+  { minRounds = 0, extendForward = true } = {}
+) {
   const real = (brMatches || [])
     .slice()
     .sort(
@@ -120,51 +172,79 @@ function buildRoundsWithPlaceholders(brMatches, { minRounds = 3 } = {}) {
   );
   const lastRound = roundsHave.length ? Math.max(...roundsHave) : 1;
 
+  // đảm bảo có đủ cột bên trái (nếu muốn ép tối thiểu minRounds)
   let firstRound = roundsHave.length ? Math.min(...roundsHave) : 1;
-  if (minRounds != null) {
-    const haveCols = lastRound - firstRound + 1;
-    if (haveCols < minRounds)
-      firstRound = Math.max(1, lastRound - (minRounds - 1));
+  const haveColsInitial = roundsHave.length ? lastRound - firstRound + 1 : 1;
+  if (minRounds && haveColsInitial < minRounds) {
+    firstRound = Math.max(1, lastRound - (minRounds - 1));
   }
 
+  // đếm số trận thật theo round
   const countByRoundReal = {};
   real.forEach((m) => {
     const r = m.round || 1;
     countByRoundReal[r] = (countByRoundReal[r] || 0) + 1;
   });
 
+  // seedsCount cho các round đang có
   const seedsCount = {};
   seedsCount[lastRound] = countByRoundReal[lastRound] || 1;
   for (let r = lastRound - 1; r >= firstRound; r--) {
     seedsCount[r] = countByRoundReal[r] || seedsCount[r + 1] * 2;
   }
 
+  // ⭐ NEW: mở rộng VỀ SAU cho tới khi còn 1 trận (tức là có final)
+  if (extendForward) {
+    let cur = lastRound;
+    while ((seedsCount[cur] || 1) > 1) {
+      const nxt = cur + 1;
+      seedsCount[nxt] = Math.ceil((seedsCount[cur] || 1) / 2);
+      cur = nxt;
+    }
+  }
+
   const roundNums = Object.keys(seedsCount)
     .map(Number)
     .sort((a, b) => a - b);
 
+  // build data cho react-brackets (điền trận thật nếu có, còn lại placeholder)
   return roundNums.map((r) => {
     const need = seedsCount[r];
-    const seeds = Array.from({ length: need }, (_, i) => placeholderSeed(r, i));
+    const seeds = Array.from({ length: need }, (_, i) => ({
+      id: `placeholder-${r}-${i}`,
+      __match: null,
+      teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
+    }));
 
     const ms = real
       .filter((m) => (m.round || 1) === r)
       .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
+
     ms.forEach((m, idx) => {
       let i = Number.isInteger(m.order)
         ? m.order
         : seeds.findIndex((s) => s.__match === null);
       if (i < 0 || i >= seeds.length) i = Math.min(idx, seeds.length - 1);
+
+      const sideLabel = (side) => {
+        const pair = side === "A" ? m.pairA : m.pairB;
+        const prev = side === "A" ? m.previousA : m.previousB;
+        if (pair)
+          return safePairName(
+            side === "A" ? m.pairA : m.pairB,
+            m?.tournament?.eventType
+          );
+        if (prev) return depLabel(prev);
+        return "Chưa có đội";
+      };
+
       seeds[i] = {
         id: m._id || `${r}-${i}`,
         date: m?.scheduledAt
           ? new Date(m.scheduledAt).toDateString()
           : undefined,
         __match: m,
-        teams: [
-          { name: matchSideLabel(m, "A") },
-          { name: matchSideLabel(m, "B") },
-        ],
+        teams: [{ name: sideLabel("A") }, { name: sideLabel("B") }],
       };
     });
 
@@ -308,7 +388,6 @@ function countGamesWon(gameScores) {
 
 /* ===== Shared content to reuse in Drawer/Dialog ===== */
 function MatchContent({ m, isLoading, liveLoading, onClose }) {
-  // ====== PHÂN QUYỀN OVERLAY ======
   const { userInfo } = useSelector((s) => s.auth || {});
   const userId =
     userInfo?._id || userInfo?.id || userInfo?.userId || userInfo?.uid;
@@ -328,7 +407,6 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
     roles.has("tournament:admin")
   );
 
-  // tournament có thể là object hoặc id
   const tour =
     m?.tournament && typeof m.tournament === "object" ? m.tournament : null;
 
@@ -362,7 +440,6 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
       .filter(Boolean)
   );
 
-  // nếu BE có flag sẵn, ưu tiên dùng
   const canManageFlag =
     m?.permissions?.canManage ||
     tour?.permissions?.canManage ||
@@ -376,7 +453,6 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
 
   const canSeeOverlay = isAdmin || isManager;
 
-  // ====== DỮ LIỆU MATCH / STREAM ======
   const streams = extractStreams(m);
   const teamA = m?.pairA
     ? safePairName(m.pairA, m?.tournament?.eventType)
@@ -413,7 +489,6 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
   const yt = streams.find((s) => ytEmbed(s.url));
   const ytSrc = ytEmbed(yt?.url);
 
-  // ====== LOADING / ERROR ======
   if (isLoading || liveLoading) {
     return (
       <Box py={4} textAlign="center">
@@ -423,10 +498,8 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
   }
   if (!m) return <Alert severity="error">Không tải được dữ liệu trận.</Alert>;
 
-  // ====== RENDER ======
   return (
     <Stack spacing={2}>
-      {/* STREAM AREA */}
       {status === "live" ? (
         ytSrc ? (
           <Box sx={{ position: "relative", pt: "56.25%" }}>
@@ -463,7 +536,6 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
         </Alert>
       )}
 
-      {/* STREAM LINKS */}
       {streams.length > 0 && (
         <Stack direction="row" spacing={1} flexWrap="wrap">
           {streams.map((s, i) => (
@@ -483,7 +555,6 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
         </Stack>
       )}
 
-      {/* OVERLAY LINK — chỉ admin/manager thấy */}
       {overlayUrl && canSeeOverlay && (
         <Paper variant="outlined" sx={{ p: 1.5 }}>
           <Stack spacing={1}>
@@ -534,7 +605,6 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
         </Paper>
       )}
 
-      {/* SCOREBOARD */}
       <Paper variant="outlined" sx={{ p: 2 }}>
         <Typography fontWeight={700} gutterBottom>
           Điểm số
@@ -641,7 +711,6 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
   const status = m?.status || "scheduled";
 
   if (isMobile) {
-    // Bottom sheet on mobile
     return (
       <Drawer
         anchor="bottom"
@@ -668,7 +737,6 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
             pb: 6,
           }}
         >
-          {/* drag handle */}
           <Box
             sx={{
               width: 36,
@@ -679,7 +747,6 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
               mb: 1.25,
             }}
           />
-          {/* header */}
           <Box sx={{ position: "relative", pb: 1 }}>
             <Typography variant="h6">
               Trận đấu • {m ? `R${m.round || 1} #${m.order ?? 0}` : ""}
@@ -723,7 +790,6 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
     );
   }
 
-  // Dialog on desktop
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
       <DialogTitle sx={{ pr: 6 }}>
@@ -850,6 +916,10 @@ function GroupStandingsTable({ rows, eventType }) {
     </TableContainer>
   );
 }
+GroupStandingsTable.propTypes = {
+  rows: PropTypes.array.isRequired,
+  eventType: PropTypes.string,
+};
 
 /* ===================== Component chính ===================== */
 export default function TournamentBracket() {
@@ -873,13 +943,10 @@ export default function TournamentBracket() {
     data: allMatches = [],
     isLoading: l3,
     error: e3,
-   
   } = useListTournamentMatchesQuery(
     { tournamentId: tourId },
     {
-      // luôn gọi lại khi mount hoặc args thay đổi
       refetchOnMountOrArgChange: true,
-      // gọi lại khi tab focus / mạng reconnect (tiện cho realtime nhẹ)
       refetchOnFocus: true,
       refetchOnReconnect: true,
     }
@@ -966,20 +1033,41 @@ export default function TournamentBracket() {
   };
   const closeMatch = () => setOpen(false);
 
-  const buildRoundsForKnockout = useCallback(
-    (bracketId) => {
-      const brMatches = (byBracket[bracketId] || [])
-        .slice()
-        .sort(
-          (a, c) =>
-            (a.round || 1) - (c.round || 1) || (a.order || 0) - (c.order || 0)
+  // Nếu KO chưa có trận → dựng khung trống theo QUY MÔ (nếu có), nếu không có thì ước lượng từ group-top2
+  const buildEmptyRoundsForKO = useCallback(
+    (koBracket) => {
+      // 1) thử đọc quy mô từ chính bracket
+      const scaleFromBracket = readBracketScale(koBracket);
+      if (scaleFromBracket) return buildEmptyRoundsByScale(scaleFromBracket);
+
+      // 2) không có quy mô → ước lượng từ stage trước (group) * 2 top
+      const groupBrs = (brackets || []).filter((b) => b.type === "group");
+      let source = null;
+      if (groupBrs.length) {
+        const cand = groupBrs.filter((g) =>
+          Number.isFinite(g.stage) && Number.isFinite(koBracket?.stage)
+            ? g.stage < koBracket.stage
+            : true
         );
-      const uniqueRounds = new Set(brMatches.map((m) => m.round ?? 1));
-      return buildRoundsWithPlaceholders(brMatches, {
-        minRounds: Math.max(3, uniqueRounds.size),
-      });
+        source =
+          cand.sort((a, b) => (b.stage ?? 0) - (a.stage ?? 0))[0] ||
+          groupBrs[0];
+      }
+
+      let entrants = 0;
+      if (source) {
+        const gMatches = byBracket[source._id] || [];
+        const groups = new Set(
+          gMatches.map(getGroupKey).filter((k) => k && k !== UNGROUPED)
+        );
+        entrants = groups.size * 2; // mặc định Top 2 mỗi bảng
+      }
+
+      const fallback = 4; // nếu không biết gì, hiển thị bán kết
+      const scale = ceilPow2(Math.max(entrants, fallback));
+      return buildEmptyRoundsByScale(scale);
     },
-    [byBracket]
+    [brackets, byBracket]
   );
 
   const winnerPair = (m) => {
@@ -1027,6 +1115,15 @@ export default function TournamentBracket() {
 
   const current = brackets[tab];
   const currentMatches = byBracket[current._id] || [];
+  const uniqueRoundsCount = new Set(currentMatches.map((m) => m.round ?? 1))
+    .size;
+
+  // ★ minRounds từ QUY MÔ nếu có (không còn mặc định 3)
+  const scaleForCurrent = readBracketScale(current);
+  const roundsFromScale = scaleForCurrent
+    ? Math.ceil(Math.log2(scaleForCurrent))
+    : 0;
+  const minRoundsForCurrent = Math.max(uniqueRoundsCount, roundsFromScale);
 
   return (
     <Box sx={{ width: "100%", pb: { xs: 6, sm: 0 } }}>
@@ -1069,7 +1166,6 @@ export default function TournamentBracket() {
             Các trận trong bảng
           </Typography>
 
-          {/* MOBILE: list dọc; DESKTOP: bảng */}
           {isMobile ? (
             <Stack spacing={1}>
               {currentMatches.length ? (
@@ -1189,6 +1285,18 @@ export default function TournamentBracket() {
               null;
             const champion = winnerPair(finalLike);
 
+            // rounds để render:
+            // - có trận thật => fill + placeholder cho đủ cột (minRounds theo quy mô nếu có)
+            // - chưa có trận => dựng khung trống theo QUY MÔ
+            const roundsToRender =
+              currentMatches.length > 0
+                ? buildRoundsWithPlaceholders(currentMatches, {
+                    /* ... */
+                  })
+                : current.drawRounds && current.drawRounds > 0
+                ? buildEmptyRoundsByScale(2 ** current.drawRounds)
+                : buildEmptyRoundsForKO(current); // fallback cũ
+
             return (
               <>
                 {champion && (
@@ -1197,23 +1305,22 @@ export default function TournamentBracket() {
                   </Alert>
                 )}
 
-                {currentMatches.length === 0 ? (
-                  <Alert severity="info">Chưa có trận nào.</Alert>
-                ) : (
-                  <Box sx={{ overflowX: { xs: "auto", sm: "visible" }, pb: 1 }}>
-                    <Bracket
-                      rounds={buildRoundsWithPlaceholders(currentMatches, {
-                        minRounds: Math.max(
-                          3,
-                          new Set(currentMatches.map((m) => m.round ?? 1)).size
-                        ),
-                      })}
-                      renderSeedComponent={(props) => (
-                        <CustomSeed {...props} onOpen={openMatch} />
-                      )}
-                      mobileBreakpoint={0}
-                    />
-                  </Box>
+                <Box sx={{ overflowX: { xs: "auto", sm: "visible" }, pb: 1 }}>
+                  <Bracket
+                    rounds={roundsToRender}
+                    renderSeedComponent={(props) => (
+                      <CustomSeed {...props} onOpen={openMatch} />
+                    )}
+                    mobileBreakpoint={0}
+                  />
+                </Box>
+
+                {currentMatches.length === 0 && (
+                  <Typography variant="caption" color="text.secondary">
+                    * Chưa bốc thăm / chưa lấy đội từ vòng trước — tạm hiển thị
+                    khung theo <b>quy mô</b> (hoặc ước lượng top2 mỗi bảng). Khi
+                    có trận thật, nhánh sẽ tự cập nhật.
+                  </Typography>
                 )}
               </>
             );
@@ -1221,7 +1328,6 @@ export default function TournamentBracket() {
         </Paper>
       )}
 
-      {/* Viewer: Drawer (mobile) / Dialog (desktop) */}
       <ResponsiveMatchViewer
         open={open}
         matchId={activeMatchId}
