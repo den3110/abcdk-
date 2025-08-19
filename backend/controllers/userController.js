@@ -427,22 +427,213 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
 });
 
 export const searchUser = asyncHandler(async (req, res) => {
-  const q = (req.query.q || "").trim();
-  if (!q) return res.json([]);
+  const rawQ = String(req.query.q || "").trim();
+  const limit = clampInt(req.query.limit, 1, 50, 10);
+  if (!rawQ) return res.json([]);
 
-  // Khớp tuyệt đối (không lấy fuzzy để tránh sai)
-  const user = await User.findOne({
-    $or: [{ phone: q }, { nickname: q }],
-  }).select("name phone nickname avatar province");
+  const qNorm = vnNorm(rawQ);
+  const qCompact = qNorm.replace(/\s+/g, "");
+  const qDigits = rawQ.replace(/\D/g, "");
 
-  if (!user) return res.json([]);
+  // === NHẬN DIỆN TRUY VẤN SỐ ĐIỆN THOẠI ===
+  // coi là sđt khi toàn bộ ký tự là số/dấu +-(). và có >= 8 chữ số
+  const isPhoneQuery =
+    /^\+?\d[\d\s().-]*$/.test(rawQ) && qDigits.length >= 8;
 
-  // lấy điểm trình mới nhất
-  const last = await ScoreHistory.findOne({ user: user._id })
-    .sort({ scoredAt: -1 })
-    .select("single double");
-  res.json([{ ...user.toObject(), score: last || { single: 0, double: 0 } }]);
+  // ===== PHONE MODE: exact only (0xxx / 84xxx / +84xxx) =====
+  if (isPhoneQuery) {
+    const pv = phoneVariants(qDigits); // { arr: [...], set: Set(...) }
+
+    const users = await User.find({ phone: { $in: pv.arr } })
+      .select("_id name nickname phone avatar province")
+      .limit(10)
+      .lean();
+
+    if (!users.length) return res.json([]);
+
+    // lấy điểm trình mới nhất (1 query)
+    const idList = users.map((u) => u._id);
+    const lastScores = await ScoreHistory.aggregate([
+      { $match: { user: { $in: idList } } },
+      { $sort: { user: 1, scoredAt: -1 } },
+      { $group: { _id: "$user", single: { $first: "$single" }, double: { $first: "$double" } } },
+    ]);
+    const scoreMap = new Map(
+      lastScores.map((s) => [String(s._id), { single: s.single || 0, double: s.double || 0 }])
+    );
+
+    return res.json(
+      users.map((u) => ({
+        _id: u._id,
+        name: u.name,
+        nickname: u.nickname,
+        phone: u.phone,
+        avatar: u.avatar,
+        province: u.province,
+        score: scoreMap.get(String(u._id)) || { single: 0, double: 0 },
+      }))
+    );
+  }
+
+  // ===== TEXT MODE: fuzzy cho name/nickname/province (như trước) =====
+  const orConds = [
+    { nickname: rawQ },
+    { name: rawQ },
+    { nickname: { $regex: "^" + escapeReg(rawQ), $options: "i" } },
+    { name: { $regex: "^" + escapeReg(rawQ), $options: "i" } },
+    { province: rawQ },
+    { province: { $regex: "^" + escapeReg(rawQ), $options: "i" } },
+  ];
+
+  const users = await User.find({ $or: orConds })
+    .select("_id name nickname phone avatar province")
+    .limit(200)
+    .collation({ locale: "vi", strength: 1 }) // case-insensitive + bỏ dấu
+    .lean();
+
+  if (!users.length) return res.json([]);
+
+  // chấm điểm tuyến tính như trước
+  const scored = users.map((u) => {
+    const fields = {
+      name: String(u.name || ""),
+      nick: String(u.nickname || ""),
+      province: String(u.province || ""),
+    };
+    const norm = {
+      name: vnNorm(fields.name),
+      nick: vnNorm(fields.nick),
+      province: vnNorm(fields.province),
+    };
+
+    let score = 0;
+    // EXACT (không dấu)
+    if (qNorm === norm.nick) score += 900;
+    if (qNorm === norm.name) score += 800;
+
+    // PREFIX
+    if (isPrefix(qNorm, norm.nick)) score += 700;
+    if (isPrefix(qNorm, norm.name)) score += 600;
+
+    // SUBSTRING
+    if (norm.nick.includes(qNorm)) score += 300;
+    if (norm.name.includes(qNorm)) score += 250;
+
+    // SUBSEQUENCE
+    if (isSubsequence(qCompact, norm.nick.replace(/\s+/g, ""))) score += 220;
+    if (isSubsequence(qCompact, norm.name.replace(/\s+/g, ""))) score += 200;
+
+    // PROVINCE
+    if (qNorm === norm.province) score += 60;
+    else if (isPrefix(qNorm, norm.province)) score += 30;
+
+    // tie-break
+    score -= Math.abs(norm.nick.length - qNorm.length) * 0.2;
+    score -= Math.abs(norm.name.length - qNorm.length) * 0.1;
+
+    return { user: u, score };
+  });
+
+  // bucket sort đơn giản
+  const buckets = new Map();
+  let maxB = -Infinity,
+    minB = Infinity;
+  for (const it of scored) {
+    const b = Math.floor(it.score / 10);
+    maxB = Math.max(maxB, b);
+    minB = Math.min(minB, b);
+    if (!buckets.has(b)) buckets.set(b, []);
+    buckets.get(b).push(it);
+  }
+  const ranked = [];
+  for (let b = maxB; b >= minB && ranked.length < limit * 3; b--) {
+    const arr = buckets.get(b);
+    if (!arr) continue;
+    // ưu tiên có phone & độ dài gần
+    arr.sort((a, b) => {
+      const ap = a.user.phone ? 1 : 0;
+      const bp = b.user.phone ? 1 : 0;
+      if (ap !== bp) return bp - ap;
+      const ad =
+        Math.abs(vnNorm(String(a.user.nickname || "")).length - qNorm.length) +
+        Math.abs(vnNorm(String(a.user.name || "")).length - qNorm.length);
+      const bd =
+        Math.abs(vnNorm(String(b.user.nickname || "")).length - qNorm.length) +
+        Math.abs(vnNorm(String(b.user.name || "")).length - qNorm.length);
+      return ad - bd;
+    });
+    ranked.push(...arr);
+  }
+
+  const topUsers = ranked.slice(0, limit).map((x) => x.user);
+  const idList = topUsers.map((u) => u._id);
+
+  const lastScores = await ScoreHistory.aggregate([
+    { $match: { user: { $in: idList } } },
+    { $sort: { user: 1, scoredAt: -1 } },
+    { $group: { _id: "$user", single: { $first: "$single" }, double: { $first: "$double" } } },
+  ]);
+  const scoreMap = new Map(
+    lastScores.map((s) => [String(s._id), { single: s.single || 0, double: s.double || 0 }])
+  );
+
+  return res.json(
+    ranked.slice(0, limit).map(({ user }) => ({
+      _id: user._id,
+      name: user.name,
+      nickname: user.nickname,
+      phone: user.phone,
+      avatar: user.avatar,
+      province: user.province,
+      score: scoreMap.get(String(user._id)) || { single: 0, double: 0 },
+    }))
+  );
 });
+
+/* ========= helpers ========= */
+function clampInt(v, min, max, dflt) {
+  const n = parseInt(v, 10);
+  if (Number.isFinite(n)) return Math.min(max, Math.max(min, n));
+  return dflt;
+}
+function escapeReg(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function vnNorm(s) {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .trim();
+}
+function isPrefix(q, s) {
+  return q && s ? s.startsWith(q) : false;
+}
+function isSubsequence(q, s) {
+  if (!q) return false;
+  let i = 0;
+  for (let c of s) if (c === q[i]) i++;
+  return i === q.length;
+}
+function phoneVariants(rawDigits) {
+  const d = String(rawDigits).replace(/\D/g, "");
+  // chuẩn local 0xxxxxxxxx
+  let local = d;
+  if (d.startsWith("84")) local = "0" + d.slice(2);
+  if (d.startsWith("084")) local = "0" + d.slice(3);
+  if (!local.startsWith("0")) local = "0" + local;
+
+  const core = local.startsWith("0") ? local.slice(1) : local;
+  const intl84 = "84" + core;
+  const plus84 = "+84" + core;
+
+  const arr = [local, intl84, plus84]; // <-- dùng array cho $in
+  const set = new Set(arr);
+  return { local, intl84, plus84, arr, set };
+}
+
 
 export {
   authUser,
