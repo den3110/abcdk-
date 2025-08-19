@@ -19,7 +19,7 @@ import {
   searchUserMatches,
   userCheckinRegistration,
 } from "../controllers/admin/matchController.js";
-import { protect } from "../middleware/authMiddleware.js";
+import { optionalAuth, protect } from "../middleware/authMiddleware.js";
 import {
   addManager,
   listManagers,
@@ -39,7 +39,7 @@ router.route("/:id").get(getTournamentById); // 💡  chi tiết
 router
   .route("/:id/registrations")
   .post(protect, createRegistration)
-  .get(getRegistrations);
+  .get(optionalAuth, getRegistrations);
 
 // routes/tournamentRoutes.js
 router.get("/:id/checkin-matches", getTournamentMatchesForCheckin);

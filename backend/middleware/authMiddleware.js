@@ -115,3 +115,37 @@ export function canScore(req, res, next) {
   if (isSelf || role === "admin" || role === "referee") return next();
   return res.status(403).json({ message: "Forbidden" });
 }
+
+export async function optionalAuth(req, res, next) {
+  try {
+    let token = null;
+
+    if (req.headers.authorization?.startsWith("Bearer ")) {
+      token = req.headers.authorization.split(" ")[1];
+    } else if (req.cookies?.jwt) {
+      token = req.cookies.jwt;
+    }
+
+    if (!token) return next(); // khách vãng lai
+
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const uid = payload.userId || payload.id || payload._id;
+
+    if (uid) {
+      const u = await User.findById(uid)
+        .select("_id roles role isAdmin")
+        .lean();
+      if (u) {
+        req.user = {
+          _id: String(u._id),
+          roles: Array.isArray(u.roles) ? u.roles : (u.role ? [u.role] : []),
+          role: u.role,
+          isAdmin: !!u.isAdmin,
+        };
+      }
+    }
+  } catch (e) {
+    // token hỏng/expire → coi như khách, không 401
+  }
+  next();
+}

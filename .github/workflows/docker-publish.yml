@@ -56,8 +56,8 @@ jobs:
       - name: Build & Push BE
         uses: docker/build-push-action@v6
         with:
-            context: . # ✅ build context là root repo
-            file: ./backend/Dockerfile # ✅ Dockerfile vẫn nằm trong backend/
+            context: .                  # ✅ vì Dockerfile dùng package.json ở root
+            file: ./backend/Dockerfile  # ✅ Dockerfile nằm trong backend/
             push: true
             tags: ${{ steps.meta_be.outputs.tags }}
             labels: ${{ steps.meta_be.outputs.labels }}
