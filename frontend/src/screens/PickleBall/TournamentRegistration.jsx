@@ -31,11 +31,10 @@ import {
 import { Container as RBContainer } from "react-bootstrap";
 import { toast } from "react-toastify";
 import {
-  MonetizationOn, // mark as Paid
-  MoneyOff, // mark as Unpaid
-  DeleteOutline, // delete/cancel
-  EditOutlined, // replace player
-  Close as CloseIcon, // close preview
+  MonetizationOn,
+  MoneyOff,
+  DeleteOutline,
+  EditOutlined,
 } from "@mui/icons-material";
 
 import {
@@ -48,7 +47,6 @@ import {
   // quản lý
   useManagerSetRegPaymentStatusMutation,
   useManagerDeleteRegistrationMutation,
-  // NEW
   useManagerReplaceRegPlayerMutation,
 } from "../../slices/tournamentsApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
@@ -274,24 +272,38 @@ export default function TournamentRegistration() {
     if (isDoubles && !p2) return toast.error("Giải đôi cần 2 VĐV");
 
     try {
-      await createInvite({
+      const res = await createInvite({
         tourId: id,
         message: msg,
         player1Id: p1._id,
         ...(isDoubles ? { player2Id: p2._id } : {}),
       }).unwrap();
-      toast.success(
-        isSingles
-          ? "Đã gửi lời mời (single). Nếu bạn chính là VĐV, đăng ký sẽ tự xác nhận."
-          : "Đã gửi lời mời (double). Chờ người còn lại chấp nhận."
-      );
+
+      // Nhận biết case admin auto-approve (server trả mode/registration)
+      if (res?.mode === "direct_by_admin" || res?.registration) {
+        toast.success("Đã tạo đăng ký (admin — auto approve)");
+        setP1(null);
+        setP2(null);
+        setMsg("");
+        await refetchRegs();
+        // admin không có invite chờ → không cần refetchInvites
+        return;
+      }
+
+      // Luồng thường với invite
+      if (isSingles) {
+        toast.success(
+          "Đã gửi lời mời (single). Nếu bạn là VĐV được mời/chính mình, có thể đã tự xác nhận."
+        );
+      } else {
+        toast.success("Đã gửi lời mời (double). Chờ người còn lại chấp nhận.");
+      }
       setP1(null);
       setP2(null);
       setMsg("");
-      refetchInvites();
-      refetchRegs();
+      await Promise.all([refetchInvites(), refetchRegs()]);
     } catch (err) {
-      toast.error(err?.data?.message || err.error);
+      toast.error(err?.data?.message || err.error || "Gửi lời mời thất bại");
     }
   };
 
@@ -375,8 +387,8 @@ export default function TournamentRegistration() {
     try {
       await replacePlayer({
         regId: replaceDlg.reg._id,
-        slot: replaceDlg.slot, // 'p1' | 'p2'
-        userId: newPlayer._id, // gửi userId vì player là subdoc snapshot
+        slot: replaceDlg.slot,
+        userId: newPlayer._id,
       }).unwrap();
       toast.success("Đã thay VĐV");
       closeReplace();
@@ -548,7 +560,7 @@ export default function TournamentRegistration() {
       {/* FORM (trên) */}
       <Paper variant="outlined" sx={{ p: 2, mb: 3, maxWidth: 760 }}>
         <Typography variant="h6" gutterBottom>
-          Gửi lời mời đăng ký
+          {isAdmin ? "Tạo đăng ký (admin)" : "Gửi lời mời đăng ký"}
         </Typography>
         <Grid item xs={12} component="form" onSubmit={submit}>
           <PlayerSelector
@@ -579,14 +591,16 @@ export default function TournamentRegistration() {
           />
 
           <Typography variant="caption" color="text.secondary">
-            {isSingles
+            {isAdmin
+              ? "Quyền admin: tạo đăng ký và duyệt ngay, không cần xác nhận từ VĐV."
+              : isSingles
               ? "Giải đơn: nếu bạn chính là VĐV mời chính mình, đăng ký sẽ tự xác nhận."
               : "Giải đôi: cần cả hai VĐV chấp nhận lời mời thì mới tạo đăng ký."}
           </Typography>
 
           <Stack direction="row" spacing={2} mt={2}>
             <Button type="submit" variant="contained" disabled={disableSubmit}>
-              {saving ? "Đang gửi lời mời…" : "Gửi lời mời"}
+              {isAdmin ? (saving ? "Đang tạo…" : "Tạo đăng ký") : saving ? "Đang gửi lời mời…" : "Gửi lời mời"}
             </Button>
             <Button
               component={Link}
@@ -605,6 +619,7 @@ export default function TournamentRegistration() {
           </Stack>
         </Grid>
       </Paper>
+
       <Box sx={{ mb: 3 }}>
         {canManage && (
           <>
@@ -620,11 +635,11 @@ export default function TournamentRegistration() {
               >
                 Bốc thăm
               </Button>
-              {/* <Button variant="outlined" size="small">Nút khác</Button>  // để trống cho sau này */}
             </Stack>
           </>
         )}
       </Box>
+
       {/* LIST (dưới) */}
       <Typography variant="h5" className="mb-1">
         Danh sách đăng ký
@@ -728,7 +743,7 @@ export default function TournamentRegistration() {
           })}
         </Stack>
       ) : (
-        // desktop table (luôn nằm dưới)
+        // desktop table
         <TableContainer component={Paper} variant="outlined" sx={{ mt: 1 }}>
           <Table size="small">
             <TableHead>

@@ -62,12 +62,12 @@ export default function ContactPage() {
           <Typography>
             <strong>Hỗ trợ:</strong>{" "}
             <Link href="mailto:support@pickletour.vn">support@pickletour.vn</Link>{" "}
-            – 0943336998
+            – 0123456789
           </Typography>
           <Typography>
             <strong>Hỗ trợ điểm trình:</strong>{" "}
             <Link href="mailto:support@pickletour.vn">support@pickletour.vn</Link>{" "}
-            – 0962182308
+            – 0123456789
           </Typography>
           <Typography>
             <strong>Bán hàng:</strong>{" "}

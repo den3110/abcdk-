@@ -206,9 +206,17 @@ async function finalizeIfReady(invite) {
 export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const { id } = req.params; // tournamentId
   const { player1Id, player2Id, message = "" } = req.body || {};
+
+  // lấy thông tin người gửi (để so phone/nickname auto-accept khi không phải admin)
   const me = await User.findById(req.user._id)
     .select("_id phone nickname")
     .lean();
+
+  // check quyền admin từ token
+  const isAdmin =
+    !!req.user?.isAdmin ||
+    req.user?.role === "admin" ||
+    (Array.isArray(req.user?.roles) && req.user.roles.includes("admin"));
 
   const tour = await Tournament.findById(id);
   if (!tour) {
@@ -235,7 +243,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   // lấy user snapshots
   const ids = isDouble ? [player1Id, player2Id] : [player1Id];
   const users = await User.find({ _id: { $in: ids } })
-    .select("_id name phone avatar nickname")
+    .select("_id name phone avatar nickname score")
     .lean();
   if (users.length !== ids.length) {
     res.status(400);
@@ -245,7 +253,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const u1 = byId.get(String(player1Id));
   const u2 = isDouble ? byId.get(String(player2Id)) : null;
 
-  // preflight sớm để tránh gửi lời mời “chắc chắn fail”
+  // preflight để tránh case chắc chắn fail (đã đăng ký, full slot, v.v.)
   const pf = await preflightChecks({
     tour,
     eventType,
@@ -257,7 +265,34 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     throw new Error(pf.message || "Không thể tạo lời mời");
   }
 
-  // auto-accept phía NGƯỜI GỬI nếu khớp p1/p2 theo _id/phone/nickname
+  // ====== ⛳ ADMIN: tạo Registration trực tiếp (auto-approve) ======
+  if (isAdmin) {
+    const snap = (u, score) => ({
+      user: u._id,
+      phone: u.phone || "",
+      fullName: u.name || "",
+      nickName: u.nickname || "",
+      avatar: u.avatar || "",
+      score: pf?.noPointCap ? 0 : Number(score ?? u.score ?? 0),
+    });
+
+    const reg = await Registration.create({
+      tournament: tour._id,
+      player1: snap(u1, pf?.s1),
+      player2: isSingle ? null : snap(u2, pf?.s2),
+      message,
+      createdBy: me._id,
+      payment: { status: "Unpaid" },
+    });
+
+    return res.status(201).json({
+      mode: "direct_by_admin",
+      registration: reg,
+      message: "Đã tạo đăng ký (admin — auto approve)",
+    });
+  }
+
+  // ====== 👤 USER THƯỜNG: flow invite như cũ (auto-accept cho người gửi nếu trùng) ======
   const creatorIsP1 =
     String(me._id) === String(u1._id) ||
     (!!me.phone && me.phone === (u1.phone || "")) ||
@@ -277,7 +312,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       nickname: u1.nickname || "",
       fullName: u1.name || "",
       avatar: u1.avatar || "",
-      score: pf.noPointCap ? 0 : pf.s1, // snapshot để hiển thị
+      score: pf.noPointCap ? 0 : pf.s1,
     },
     player2: isSingle
       ? null

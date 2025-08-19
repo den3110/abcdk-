@@ -39,10 +39,10 @@ const PLACE = "https://dummyimage.com/40x40/cccccc/ffffff&text=?";
 // map từ tierColor BE → màu hex hiển thị
 const HEX = {
   green: "#2e7d32", // ≥10 trận
-  blue: "#1976d2",  // 5–9
-  yellow: "#ff9800",// 1–4
-  red: "#f44336",   // tự chấm
-  grey: "#616161",  // chưa đấu
+  blue: "#1976d2", // 5–9
+  yellow: "#ff9800", // 1–4
+  red: "#f44336", // tự chấm
+  grey: "#616161", // chưa đấu
 };
 const textOn = (hex) => (hex === HEX.yellow ? "#000" : "#fff");
 const fmt3 = (x) => (Number.isFinite(x) ? Number(x).toFixed(3) : "0.000");
@@ -117,8 +117,14 @@ const Legend = () => (
     useFlexGap
     sx={{ columnGap: 1.5, rowGap: 1, mb: 2 }}
   >
-    <Chip label="Xanh lá: ≥ 10 trận" sx={{ bgcolor: HEX.green, color: "#fff" }} />
-    <Chip label="Xanh dương: 5–9 trận" sx={{ bgcolor: HEX.blue, color: "#fff" }} />
+    <Chip
+      label="Xanh lá: ≥ 10 trận"
+      sx={{ bgcolor: HEX.green, color: "#fff" }}
+    />
+    <Chip
+      label="Xanh dương: 5–9 trận"
+      sx={{ bgcolor: HEX.blue, color: "#fff" }}
+    />
     <Chip label="Vàng: 1–4 trận" sx={{ bgcolor: HEX.yellow, color: "#000" }} />
     <Chip label="Đỏ: tự chấm" sx={{ bgcolor: HEX.red, color: "#fff" }} />
   </Stack>
@@ -156,7 +162,6 @@ export default function RankingList() {
 
   // Zoom avatar
   const [zoomSrc, setZoomSrc] = useState("");
-  
   const [zoomOpen, setZoomOpen] = useState(false);
   const openZoom = (src) => {
     setZoomSrc(src || PLACE);
@@ -168,11 +173,21 @@ export default function RankingList() {
 
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+      <Box
+        display="flex"
+        justifyContent="space-between"
+        alignItems="center"
+        mb={2}
+      >
         <Typography variant="h5" fontWeight={600}>
           Bảng xếp hạng
         </Typography>
-        <Button component={Link} to="/levelpoint" variant="contained" size="small">
+        <Button
+          component={Link}
+          to="/levelpoint"
+          variant="contained"
+          size="small"
+        >
           Tự chấm trình
         </Button>
       </Box>
@@ -216,15 +231,21 @@ export default function RankingList() {
                       <Typography fontWeight={600} noWrap>
                         {u?.nickname || "---"}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary" noWrap>
-                        Role: {u?.role || "--"}
-                      </Typography>
+                      {/* BỎ ROLE TRÊN MOBILE */}
                     </Box>
                     <Stack direction="row" spacing={1} alignItems="center">
                       {Number.isFinite(age) && (
-                        <Chip size="small" label={age} sx={chipMobileSx} />
+                        <Chip
+                          size="small"
+                          label={`${age} tuổi`}
+                          sx={chipMobileSx}
+                        />
                       )}
-                      <Chip label={badge.text} size="small" color={badge.color} />
+                      <Chip
+                        label={badge.text}
+                        size="small"
+                        color={badge.color}
+                      />
                     </Stack>
                   </Box>
 
@@ -262,13 +283,21 @@ export default function RankingList() {
                     </Typography>
                   </Stack>
 
-                  <Typography variant="caption" color="text.secondary" display="block">
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    display="block"
+                  >
                     Cập nhật:{" "}
                     {r?.updatedAt
                       ? new Date(r.updatedAt).toLocaleDateString()
                       : "--"}
                   </Typography>
-                  <Typography variant="caption" color="text.secondary" display="block">
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    display="block"
+                  >
                     Tham gia:{" "}
                     {u?.createdAt
                       ? new Date(u.createdAt).toLocaleDateString()
@@ -276,9 +305,7 @@ export default function RankingList() {
                   </Typography>
 
                   <Stack direction="row" spacing={1} mt={2}>
-                    <Button size="small" variant="outlined">
-                      Chấm
-                    </Button>
+                    {/* BỎ NÚT CHẤM TRÊN MOBILE */}
                     <Button
                       size="small"
                       variant="contained"
@@ -335,7 +362,10 @@ export default function RankingList() {
                       />
                     </TableCell>
                     <TableCell>{u?.nickname || "--"}</TableCell>
-                    <TableCell>{Number.isFinite(age) ? age : "--"}</TableCell> {/* số thuần */}
+                    <TableCell>
+                      {Number.isFinite(age) ? age : "--"}
+                    </TableCell>{" "}
+                    {/* số thuần */}
                     <TableCell>{genderLabel(u?.gender)}</TableCell>
                     <TableCell>{u?.province || "--"}</TableCell>
                     <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
@@ -355,7 +385,11 @@ export default function RankingList() {
                         : "--"}
                     </TableCell>
                     <TableCell>
-                      <Chip label={badge.text} size="small" color={badge.color} />
+                      <Chip
+                        label={badge.text}
+                        size="small"
+                        color={badge.color}
+                      />
                     </TableCell>
                     <TableCell>
                       <Button
@@ -386,12 +420,19 @@ export default function RankingList() {
         </Box>
       )}
 
-      <PublicProfileDialog open={openProfile} onClose={handleClose} userId={selectedId} />
+      <PublicProfileDialog
+        open={openProfile}
+        onClose={handleClose}
+        userId={selectedId}
+      />
 
       {/* Zoom dialog */}
       <Dialog open={zoomOpen} onClose={closeZoom} maxWidth="sm" fullWidth>
         <DialogTitle>Ảnh đại diện</DialogTitle>
-        <DialogContent dividers sx={{ display: "flex", justifyContent: "center" }}>
+        <DialogContent
+          dividers
+          sx={{ display: "flex", justifyContent: "center" }}
+        >
           <img
             src={zoomSrc}
             alt="avatar"

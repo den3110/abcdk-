@@ -55,7 +55,6 @@ import {
   useGetBracketQuery,
   useGenerateGroupMatchesMutation,
   useListTournamentMatchesQuery,
-  // tournamentsApi // nếu muốn resetApiState khi đổi bracket
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
 
@@ -144,6 +143,7 @@ function GroupSeatingBoard({ groupsMeta, reveals, regIndex, eventType }) {
         slots: Array.from({ length: Number(g.size) || 0 }, () => null),
       });
     });
+
     (reveals || []).forEach((rv) => {
       const key =
         rv.groupCode ||
@@ -169,6 +169,7 @@ function GroupSeatingBoard({ groupsMeta, reveals, regIndex, eventType }) {
         if (slot >= 0) g.slots[slot] = nm;
       }
     });
+
     return Array.from(map.values());
   }, [groupsMeta, reveals, regIndex, eventType]);
 
@@ -216,10 +217,7 @@ function buildRR(teams) {
   const schedule = [];
   for (let r = 0; r < rounds; r++) {
     const left = [fixed].concat(rot.slice(0, (n - 1) / 2));
-    const right = rot
-      .slice((n - 1) / 2)
-      .slice()
-      .reverse();
+    const right = rot.slice((n - 1) / 2).slice().reverse();
     const pairs = [];
     for (let i = 0; i < left.length; i++) {
       const A = left[i];
@@ -231,24 +229,42 @@ function buildRR(teams) {
   }
   return schedule;
 }
-function RoundRobinPreview({ groupsMeta, regIndex }) {
+
+
+// ⬇️ Cập nhật: nhận doubleRound và nhân đôi lịch khi cần
+function RoundRobinPreview({ groupsMeta, regIndex, doubleRound = false }) {
   return (
     <Stack spacing={2}>
       {groupsMeta.map((g) => {
         const teamNames = (g.regIds || []).map((rid) => {
           const reg = regIndex?.get(String(rid));
           return reg
-            ? safePairName(reg)
+            ? (reg.player2 ? `${reg.player1?.fullName || reg.player1?.name || reg.player1?.nickname} & ${reg.player2?.fullName || reg.player2?.name || reg.player2?.nickname}` : (reg.player1?.fullName || reg.player1?.name || reg.player1?.nickname))
             : typeof rid === "string"
             ? `#${rid.slice(-6)}`
             : "—";
         });
-        const schedule = buildRR(teamNames);
+
+        const schedule1 = buildRR(teamNames);
+        const schedule = doubleRound
+          ? schedule1.concat(
+              schedule1.map((roundPairs) =>
+                roundPairs.map((p) => ({ A: p.B, B: p.A }))
+              )
+            )
+          : schedule1;
+
+        const totalMatches = (teamNames.length * (teamNames.length - 1)) / 2 * (doubleRound ? 2 : 1);
+
         return (
           <Paper key={String(g.code)} variant="outlined" sx={{ p: 2 }}>
-            <Typography fontWeight={700} sx={{ mb: 1 }}>
-              Lịch thi đấu — Bảng {g.code}
-            </Typography>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+              <Typography fontWeight={700}>
+                Lịch thi đấu — Bảng {g.code} {doubleRound ? "(2 lượt)" : "(1 lượt)"}
+              </Typography>
+              <Chip size="small" label={`Tổng: ${totalMatches} trận`} />
+            </Stack>
+
             {!teamNames.length ? (
               <Typography color="text.secondary">Chưa có đội.</Typography>
             ) : (
@@ -512,7 +528,6 @@ export default function DrawPage() {
     setReveals([]);
     setPlanned(null);
     setLog([]);
-    // dispatch(tournamentsApi.util.resetApiState());
   }, [selBracketId]); // eslint-disable-line
 
   // Reset khi đổi vòng KO
@@ -596,30 +611,52 @@ export default function DrawPage() {
     };
   }, [socket, drawId, refetchBracket]);
 
-  // Groups meta
+  // Groups raw (persisted)
   const groupsRaw = useMemo(
     () => bracketDetail?.groups || bracket?.groups || [],
     [bracketDetail, bracket]
   );
+
+  // ===== NEW: meta nhóm theo planned khi đang chạy nhưng chưa có persisted
+  const plannedGroupsMeta = useMemo(() => {
+    if (drawType !== "group") return [];
+    const sizes =
+      planned?.planned?.groupSizes ||
+      planned?.groupSizes ||
+      (Array.isArray(planned?.groups) ? planned.groups.map((g) => g.size) : []);
+    if (!Array.isArray(sizes) || sizes.length === 0) return [];
+    return sizes.map((size, idx) => ({
+      code: String.fromCharCode(65 + idx),
+      size: Number(size) || 0,
+      regIds: [],
+    }));
+  }, [drawType, planned]);
+
+  // ===== UPDATED: groupsMeta ưu tiên persisted; fallback planned khi running
   const groupsMeta = useMemo(() => {
-    if (groupsRaw.length) {
-      const sorted = groupsRaw
-        .slice()
-        .sort((a, b) =>
-          String(a.name || a.code || "").localeCompare(
-            String(b.name || b.code || ""),
-            "vi",
-            { numeric: true, sensitivity: "base" }
-          )
-        );
-      return sorted.map((g, idx) => ({
+    const persisted = (groupsRaw || [])
+      .slice()
+      .sort((a, b) =>
+        String(a.name || a.code || "").localeCompare(
+          String(b.name || b.code || ""),
+          "vi",
+          { numeric: true, sensitivity: "base" }
+        )
+      )
+      .map((g, idx) => ({
         code: g.name || g.code || String.fromCharCode(65 + idx),
         size: Array.isArray(g.regIds) ? g.regIds.length : Number(g.size) || 0,
         regIds: Array.isArray(g.regIds) ? g.regIds : [],
       }));
+
+    if (persisted.some((g) => g.size > 0 || (g.regIds && g.regIds.length))) {
+      return persisted;
     }
-    return [];
-  }, [groupsRaw]);
+    if (state === "running" && plannedGroupsMeta.length) {
+      return plannedGroupsMeta;
+    }
+    return persisted;
+  }, [groupsRaw, state, plannedGroupsMeta]);
 
   const hasGroups = useMemo(() => (groupsMeta?.length || 0) > 0, [groupsMeta]);
 
@@ -683,7 +720,7 @@ export default function DrawPage() {
     return out;
   }, [state, reveals, groupsMeta]);
 
-  /* ====== Unique key để ép remount chart, tránh chồng ====== */
+  /* ====== Unique keys to force remounts ====== */
   const brChartKey = useMemo(
     () =>
       `br-${selBracketId}-${roundCode}-${selectedRoundNumber}-${state}-${
@@ -699,7 +736,15 @@ export default function DrawPage() {
     ]
   );
 
-  /* ====== Build rounds for KO với id seed unique theo bracket ====== */
+  // NEW: force remount group board when planned/reveals change
+  const groupBoardKey = useMemo(() => {
+    const sizes = planned?.planned?.groupSizes || planned?.groupSizes || [];
+    const sig = Array.isArray(sizes) ? sizes.join("-") : "none";
+    const rv = Array.isArray(reveals) ? reveals.length : 0;
+    return `grp-${selBracketId}-${state}-${sig}-${rv}`;
+  }, [selBracketId, state, planned, reveals]);
+
+  /* ====== Build rounds for KO ====== */
   function buildRoundsForKO({
     roundCode,
     reveals,
@@ -809,6 +854,8 @@ export default function DrawPage() {
       setDrawId(resp?.drawId);
       setState(resp?.state || "running");
       setReveals(Array.isArray(resp?.reveals) ? resp.reveals : []);
+      // NEW: nếu backend trả planned thì set luôn, không cần đợi socket
+      if (resp?.planned) setPlanned(resp);
       setLog((lg) => lg.concat([{ t: Date.now(), type: "start" }]));
     } catch (e) {
       const msg =
@@ -1030,6 +1077,7 @@ export default function DrawPage() {
           {drawType === "group" ? (
             groupsMeta.length ? (
               <GroupSeatingBoard
+                key={groupBoardKey}
                 groupsMeta={groupsMeta}
                 reveals={revealsForGroup}
                 regIndex={regIndex}
@@ -1165,6 +1213,7 @@ function GroupMatchesDialog({
   selBracketId,
 }) {
   const [tabMode, setTabMode] = useState("auto");
+  const [doubleRound, setDoubleRound] = useState(false); // ⬅️ NEW
   const [generateGroupMatches, { isLoading: genLoading }] =
     useGenerateGroupMatchesMutation();
 
@@ -1176,9 +1225,27 @@ function GroupMatchesDialog({
           <Tab value="auto" label="Tự động (vòng tròn)" />
           <Tab value="manual" label="Thủ công (ghép cặp)" />
         </Tabs>
+
+        {tabMode === "auto" && (
+          <FormControlLabel
+            sx={{ mb: 2 }}
+            control={
+              <Checkbox
+                checked={doubleRound}
+                onChange={(e) => setDoubleRound(e.target.checked)}
+              />
+            }
+            label="Đánh 2 lượt (home–away)"
+          />
+        )}
+
         {tabMode === "auto" ? (
           groupsMeta.length ? (
-            <RoundRobinPreview groupsMeta={groupsMeta} regIndex={regIndex} />
+            <RoundRobinPreview
+              groupsMeta={groupsMeta}
+              regIndex={regIndex}
+              doubleRound={doubleRound} // ⬅️ NEW
+            />
           ) : (
             <Alert severity="info">
               Chưa có dữ liệu bảng để tạo preview vòng tròn.
@@ -1188,6 +1255,7 @@ function GroupMatchesDialog({
           <Alert severity="info">UI thủ công sẽ thêm sau.</Alert>
         )}
       </DialogContent>
+
       <DialogActions>
         <Button onClick={onClose}>Đóng</Button>
         <Button
@@ -1198,6 +1266,7 @@ function GroupMatchesDialog({
                 await generateGroupMatches({
                   bracketId: selBracketId,
                   mode: "auto",
+                  doubleRound, // ⬅️ NEW: gửi xuống BE
                 }).unwrap();
               } else {
                 await generateGroupMatches({

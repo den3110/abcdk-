@@ -27,6 +27,7 @@ import { SocketProvider } from "./context/SocketContext.jsx";
 import ScoreOverlay from "./screens/PickleBall/ScoreOverlay.jsx";
 import AdminDrawPage from "./screens/PickleBall/AdminDrawPage.jsx";
 import DrawPage from "./screens/draw/DrawPage.jsx";
+import NotFound from "./screens/NotFound.jsx";
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -47,9 +48,12 @@ const router = createBrowserRouter(
         <Route path="/tournament/:id/bracket" element={<TournamentBracket />} />
         <Route path="/pickle-ball/rankings" element={<RankingList />} />
         <Route path="/contact" element={<ContactPage />} />
-        <Route path="/tournament/:id/brackets/:bracketId/draw" element={<AdminDrawPage />} />
+        <Route
+          path="/tournament/:id/brackets/:bracketId/draw"
+          element={<AdminDrawPage />}
+        />
         <Route path="/tournament/:id/draw" element={<DrawPage />} />
-
+        <Route path="/404" element={<NotFound />} />
         <Route path="" element={<PrivateRoute />}>
           <Route path="/profile" element={<ProfileScreen />} />
           <Route path="/levelpoint" element={<LevelPointPage />} />

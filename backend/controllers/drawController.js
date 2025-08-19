@@ -802,7 +802,12 @@ export const getDrawStatusByBracket = expressAsyncHandler(async (req, res) => {
 
 export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
   const { bracketId } = req.params;
-  const { mode = "auto", matches = [], rules = {} } = req.body || {};
+  const {
+    mode = "auto",
+    matches = [],
+    rules = {},
+    doubleRound = false, // ⬅️ NEW
+  } = req.body || {};
 
   const br = await Bracket.findById(bracketId).lean();
   if (!br) {
@@ -819,14 +824,13 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
     winByTwo: true,
   };
 
-  // Map groupId -> { name, regIds }
   const groupMap = new Map((br.groups || []).map((g) => [String(g._id), g]));
 
   let created = 0;
   const createdIds = [];
 
   if (mode === "manual") {
-    // matches: [{ groupId, pairA, pairB }]
+    // giữ nguyên như cũ
     for (const m of matches) {
       const g = groupMap.get(String(m.groupId));
       if (!g) {
@@ -865,7 +869,17 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
   for (const g of br.groups || []) {
     const ids = (g.regIds || []).map(String);
     if (ids.length < 2) continue;
-    const rounds = buildRoundRobin(ids);
+
+    // buildRoundRobin(ids) trả về mảng rounds: mỗi round là list các [A,B]
+    const rounds1 = buildRoundRobin(ids);
+
+    // Nếu doubleRound, tạo lượt về bằng cách đảo A<->B, rrRound tiếp nối
+    const rounds = doubleRound
+      ? rounds1.concat(
+          rounds1.map((roundPairs) => roundPairs.map(([A, B]) => [B, A]))
+        )
+      : rounds1;
+
     let order = 0;
     for (let r = 0; r < rounds.length; r++) {
       for (const [A, B] of rounds[r]) {
@@ -874,7 +888,7 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
           bracket: br._id,
           format: "group",
           pool: { id: g._id, name: g.name },
-          rrRound: r + 1,
+          rrRound: r + 1, // lượt về sẽ tiếp nối số vòng
           round: 1,
           order: order++,
           pairA: A,
@@ -888,5 +902,12 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
       }
     }
   }
-  res.json({ ok: true, mode: "auto", created, matchIds: createdIds });
+
+  res.json({
+    ok: true,
+    mode: "auto",
+    created,
+    matchIds: createdIds,
+    doubleRound,
+  });
 });

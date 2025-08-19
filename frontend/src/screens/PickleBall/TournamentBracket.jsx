@@ -103,15 +103,6 @@ function roundTitleByCount(cnt) {
 // ========== extra helpers cho KO placeholder theo quy mô ==========
 const ceilPow2 = (n) => Math.pow(2, Math.ceil(Math.log2(Math.max(1, n || 1))));
 const UNGROUPED = "__UNGROUPED__";
-const getGroupKey = (m) => {
-  const g = m.group ?? m.groupName ?? m.pool ?? m.table ?? m.groupLabel ?? null;
-  if (typeof g === "string" && g.trim()) return g.trim();
-  if (g && typeof g === "object")
-    return g.name || g.code || g.label || g._id || UNGROUPED;
-  if (typeof m.groupIndex === "number")
-    return String.fromCharCode(65 + m.groupIndex);
-  return UNGROUPED;
-};
 
 // ⭐ Lấy “quy mô” từ chính bracket (ưu tiên), hỗ trợ nhiều tên field
 const readBracketScale = (br) => {
@@ -128,7 +119,6 @@ const readBracketScale = (br) => {
     .map((x) => Number(x))
     .filter((x) => Number.isFinite(x) && x >= 2);
   if (!cands.length) return 0;
-  // dùng giá trị lớn nhất rồi làm tròn lên 2^n
   return ceilPow2(Math.max(...cands));
 };
 
@@ -172,28 +162,24 @@ function buildRoundsWithPlaceholders(
   );
   const lastRound = roundsHave.length ? Math.max(...roundsHave) : 1;
 
-  // đảm bảo có đủ cột bên trái (nếu muốn ép tối thiểu minRounds)
   let firstRound = roundsHave.length ? Math.min(...roundsHave) : 1;
   const haveColsInitial = roundsHave.length ? lastRound - firstRound + 1 : 1;
   if (minRounds && haveColsInitial < minRounds) {
     firstRound = Math.max(1, lastRound - (minRounds - 1));
   }
 
-  // đếm số trận thật theo round
   const countByRoundReal = {};
   real.forEach((m) => {
     const r = m.round || 1;
     countByRoundReal[r] = (countByRoundReal[r] || 0) + 1;
   });
 
-  // seedsCount cho các round đang có
   const seedsCount = {};
   seedsCount[lastRound] = countByRoundReal[lastRound] || 1;
   for (let r = lastRound - 1; r >= firstRound; r--) {
     seedsCount[r] = countByRoundReal[r] || seedsCount[r + 1] * 2;
   }
 
-  // ⭐ NEW: mở rộng VỀ SAU cho tới khi còn 1 trận (tức là có final)
   if (extendForward) {
     let cur = lastRound;
     while ((seedsCount[cur] || 1) > 1) {
@@ -207,7 +193,6 @@ function buildRoundsWithPlaceholders(
     .map(Number)
     .sort((a, b) => a - b);
 
-  // build data cho react-brackets (điền trận thật nếu có, còn lại placeholder)
   return roundNums.map((r) => {
     const need = seedsCount[r];
     const seeds = Array.from({ length: need }, (_, i) => ({
@@ -384,6 +369,15 @@ function countGamesWon(gameScores) {
     else if ((g?.b ?? 0) > (g?.a ?? 0)) B++;
   }
   return { A, B };
+}
+function sumPoints(gameScores) {
+  let a = 0,
+    b = 0;
+  for (const g of gameScores || []) {
+    a += Number(g?.a ?? 0);
+    b += Number(g?.b ?? 0);
+  }
+  return { a, b };
 }
 
 /* ===== Shared content to reuse in Drawer/Dialog ===== */
@@ -670,12 +664,6 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
           </Table>
         )}
 
-        {status === "finished" && winnerSide && (
-          <Alert severity="success" sx={{ mt: 2 }}>
-            Đội thắng: <b>{winnerSide === "A" ? teamA : teamB}</b>
-          </Alert>
-        )}
-
         <Divider sx={{ my: 2 }} />
         <Stack direction="row" spacing={2} flexWrap="wrap">
           <Chip size="small" label={`Best of: ${m.rules?.bestOf ?? 3}`} />
@@ -831,94 +819,699 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
   );
 }
 
-/* ===================== BXH group ===================== */
-function GroupStandingsTable({ rows, eventType }) {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-
-  if (isMobile) {
-    return (
-      <Stack spacing={1} sx={{ mb: 2 }}>
-        {rows.length ? (
-          rows.map((row, idx) => (
-            <Paper
-              key={row.pair?._id || idx}
-              variant="outlined"
-              sx={{ p: 1.25 }}
-            >
-              <Stack direction="row" alignItems="center" spacing={1}>
-                <Chip
-                  size="small"
-                  label={`#${idx + 1}`}
-                  sx={{ minWidth: 40 }}
-                />
-                <Typography
-                  sx={{ fontWeight: 600, flex: 1 }}
-                  title={safePairName(row.pair, eventType)}
-                >
-                  {safePairName(row.pair, eventType)}
-                </Typography>
-                <Chip
-                  size="small"
-                  color="primary"
-                  variant="outlined"
-                  label={`${row.win}-${row.loss}`}
-                />
-              </Stack>
-            </Paper>
-          ))
-        ) : (
-          <Paper variant="outlined" sx={{ p: 2, textAlign: "center" }}>
-            Chưa có dữ liệu BXH.
-          </Paper>
+/* ===================== Legend BXH ===================== */
+const TIEBREAK_LABELS = {
+  h2h: "đối đầu",
+  setsDiff: "hiệu số set",
+  pointsDiff: "hiệu số điểm",
+  pointsFor: "tổng điểm ghi được",
+};
+function StandingsLegend({ points, tiebreakers }) {
+  const tb = (tiebreakers || [])
+    .map((k) => TIEBREAK_LABELS[k] || k)
+    .join(" → ");
+  return (
+    <Alert severity="info" sx={{ mb: 2 }}>
+      <Stack spacing={0.5}>
+        <Typography variant="subtitle2" fontWeight={700}>
+          Chú thích
+        </Typography>
+        <Typography variant="body2">
+          <b>P</b> = trận đã đấu,&nbsp; <b>W</b> = thắng,&nbsp; <b>D</b> =
+          hòa,&nbsp; <b>L</b> = thua.
+        </Typography>
+        <Typography variant="body2">
+          <b>Set (+/−)</b> = set ghi được − set thua;&nbsp; <b>Điểm (+/−)</b> =
+          điểm ghi được − điểm thua.
+        </Typography>
+        <Typography variant="body2">
+          <b>Pts</b> = W×{points.win} + D×{points.draw} + L×{points.loss}.
+        </Typography>
+        {!!tb && (
+          <Typography variant="body2">
+            Xếp hạng theo: <b>Pts</b> {tb ? `→ ${tb}` : ""} → tên.
+          </Typography>
         )}
       </Stack>
+    </Alert>
+  );
+}
+
+// ⬇️ NEW: Popup lịch sử đấu của 1 đội trong 1 bảng
+function TeamHistoryDialog({
+  open,
+  onClose,
+  teamRow, // { id, pair, ... }
+  groupKey, // "A" | "B" | ...
+  bracket, // bracket hiện tại (type=group)
+  matches, // tất cả matches của bracket hiện tại
+  points, // {win, draw, loss}
+  eventType,
+  onOpenMatch, // function(m) => void
+}) {
+  const titleName = safePairName(teamRow?.pair, eventType) || "—";
+  const groupLabel =
+    bracket?.groups?.find?.(
+      (g) => String(g.name || g.code || g._id || "") === String(groupKey)
+    )?.name ||
+    groupKey ||
+    "—";
+
+  // Map regId -> groupKey để chắc chắn lọc đúng bảng
+  const { byRegId } = useMemo(() => buildGroupIndex(bracket || {}), [bracket]);
+  const teamId = teamRow?.id && String(teamRow.id);
+
+  // Gom các trận trong đúng bảng có đội này tham gia
+  const list = useMemo(() => {
+    if (!teamId) return [];
+    const arr = (matches || []).filter((m) => {
+      const aId = m.pairA?._id && String(m.pairA._id);
+      const bId = m.pairB?._id && String(m.pairB._id);
+      if (!aId || !bId) return false;
+      const ga = byRegId.get(aId);
+      const gb = byRegId.get(bId);
+      // chỉ lấy trận 2 đội cùng bảng và có teamId
+      return (
+        ga === groupKey && gb === groupKey && (aId === teamId || bId === teamId)
+      );
+    });
+
+    // Chuẩn hoá theo góc nhìn của team được chọn
+    const normed = arr.map((m) => {
+      const side = String(m.pairA?._id) === teamId ? "A" : "B";
+      const opp = side === "A" ? m.pairB : m.pairA;
+
+      const gw = countGamesWon(m.gameScores || []);
+      const pt = sumPoints(m.gameScores || []);
+      const setsSelf = side === "A" ? gw.A : gw.B;
+      const setsOpp = side === "A" ? gw.B : gw.A;
+      const ptsSelf = side === "A" ? pt.a : pt.b;
+      const ptsOpp = side === "A" ? pt.b : pt.a;
+
+      const finished = String(m.status || "").toLowerCase() === "finished";
+      let outcome = "—";
+      if (finished) {
+        if (m.winner === side) outcome = "Thắng";
+        else if (m.winner && m.winner !== side) outcome = "Thua";
+        else outcome = "Hòa";
+      } else if (String(m.status || "").toLowerCase() === "live") {
+        outcome = "Đang diễn ra";
+      } else {
+        outcome = "Chưa diễn ra";
+      }
+
+      return {
+        match: m,
+        round: m.round || 1,
+        order: m.order ?? 0,
+        opponentName: safePairName(opp, eventType),
+        status: m.status,
+        outcome,
+        setsSelf,
+        setsOpp,
+        ptsSelf,
+        ptsOpp,
+      };
+    });
+
+    return normed.sort((a, b) => a.round - b.round || a.order - b.order);
+  }, [matches, byRegId, groupKey, teamId, eventType]);
+
+  // Tổng kết W/D/L/Set/Điểm/Pts (chỉ tính trận finished)
+  const summary = useMemo(() => {
+    const S = {
+      played: 0,
+      win: 0,
+      draw: 0,
+      loss: 0,
+      sf: 0,
+      sa: 0,
+      pf: 0,
+      pa: 0,
+      pts: 0,
+    };
+    for (const r of list) {
+      const finished = String(r.status || "").toLowerCase() === "finished";
+      if (!finished) continue;
+      S.played += 1;
+      S.sf += r.setsSelf;
+      S.sa += r.setsOpp;
+      S.pf += r.ptsSelf;
+      S.pa += r.ptsOpp;
+      if (r.outcome === "Thắng") {
+        S.win += 1;
+        S.pts += points?.win ?? 3;
+      } else if (r.outcome === "Thua") {
+        S.loss += 1;
+        S.pts += points?.loss ?? 0;
+      } else {
+        S.draw += 1;
+        S.pts += points?.draw ?? 1;
+      }
+    }
+    S.setDiff = S.sf - S.sa;
+    S.pointDiff = S.pf - S.pa;
+    return S;
+  }, [list, points]);
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
+      <DialogTitle sx={{ pr: 6 }}>
+        Lịch sử đấu • {titleName} — Bảng {groupLabel}
+        <IconButton
+          onClick={onClose}
+          sx={{ position: "absolute", right: 12, top: 10 }}
+        >
+          <CloseIcon />
+        </IconButton>
+      </DialogTitle>
+      <DialogContent dividers>
+        {/* Tổng kết nhỏ */}
+        <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 2 }}>
+          <Chip size="small" label={`P:${summary.played}`} />
+          <Chip size="small" label={`W:${summary.win}`} />
+          {!!summary.draw && <Chip size="small" label={`D:${summary.draw}`} />}
+          <Chip size="small" label={`L:${summary.loss}`} />
+          <Chip
+            size="small"
+            label={`Set:+${summary.sf}/-${summary.sa} (${
+              summary.setDiff >= 0 ? "+" : ""
+            }${summary.setDiff})`}
+          />
+          <Chip
+            size="small"
+            label={`Điểm:+${summary.pf}/-${summary.pa} (${
+              summary.pointDiff >= 0 ? "+" : ""
+            }${summary.pointDiff})`}
+          />
+          <Chip
+            size="small"
+            color="primary"
+            variant="outlined"
+            label={`Pts:${summary.pts}`}
+          />
+        </Stack>
+
+        {/* Danh sách trận */}
+        {list.length ? (
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ width: 72, fontWeight: 700 }}>Vòng</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Đối thủ</TableCell>
+                <TableCell align="center" sx={{ width: 160, fontWeight: 700 }}>
+                  Trạng thái/KQ
+                </TableCell>
+                <TableCell align="center" sx={{ width: 110, fontWeight: 700 }}>
+                  Sets
+                </TableCell>
+                <TableCell align="center" sx={{ width: 130, fontWeight: 700 }}>
+                  Điểm
+                </TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {list.map((r) => (
+                <TableRow
+                  key={r.match._id}
+                  hover
+                  onClick={() => onOpenMatch?.(r.match)}
+                  sx={{ cursor: onOpenMatch ? "pointer" : "default" }}
+                >
+                  <TableCell>R{r.round}</TableCell>
+                  <TableCell>{r.opponentName}</TableCell>
+                  <TableCell align="center">{r.outcome}</TableCell>
+                  <TableCell align="center">
+                    {r.setsSelf}–{r.setsOpp}
+                  </TableCell>
+                  <TableCell align="center">
+                    {r.ptsSelf}–{r.ptsOpp}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <Alert severity="info">Chưa có trận nào trong bảng.</Alert>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ===================== BXH group (đúng nhóm + tiebreak) ===================== */
+// Build index nhóm theo bracket.groups[].regIds
+function buildGroupIndex(bracket) {
+  const byKey = new Map(); // key -> {label, regSet:Set}
+  const byRegId = new Map(); // regId -> key
+  for (const g of bracket?.groups || []) {
+    const key = String(g.name || g.code || g._id || "").trim() || "—";
+    const label = key;
+    const regSet = new Set(g.regIds?.map(String) || []);
+    byKey.set(key, { label, regSet });
+    regSet.forEach((rid) => byRegId.set(String(rid), key));
+  }
+  return { byKey, byRegId };
+}
+
+// Gom BXH theo đúng nhóm trong 1 bracket (chỉ nhận trận có CẢ HAI đội thuộc cùng 1 nhóm)
+function computeGroupTablesForBracket(bracket, matches, eventType) {
+  const { byKey, byRegId } = buildGroupIndex(bracket);
+
+  // luật điểm của bracket
+  const PWIN = bracket?.config?.roundRobin?.points?.win ?? 3;
+  const PDRAW = bracket?.config?.roundRobin?.points?.draw ?? 1;
+  const PLOSS = bracket?.config?.roundRobin?.points?.loss ?? 0;
+  const tiebreakers = bracket?.config?.roundRobin?.tiebreakers || [];
+
+  // stats per group
+  const stats = new Map(); // key -> Map(regId -> row)
+  const h2h = new Map(); // key -> Map(aId -> Map(bId -> {pts, sf, sa, pf, pa}))
+
+  const ensureRow = (key, regId, pairObj) => {
+    if (!stats.has(key)) stats.set(key, new Map());
+    const g = stats.get(key);
+    if (!g.has(regId)) {
+      g.set(regId, {
+        id: regId,
+        pair: pairObj || null,
+        played: 0,
+        win: 0,
+        draw: 0,
+        loss: 0,
+        sf: 0,
+        sa: 0,
+        pf: 0,
+        pa: 0,
+        setDiff: 0,
+        pointDiff: 0,
+        pts: 0,
+      });
+    } else if (pairObj && !g.get(regId).pair) {
+      g.get(regId).pair = pairObj;
+    }
+    return g.get(regId);
+  };
+
+  const addH2H = (key, aId, bId, delta) => {
+    if (!h2h.has(key)) h2h.set(key, new Map());
+    const G = h2h.get(key);
+    if (!G.has(aId)) G.set(aId, new Map());
+    const row = G.get(aId).get(bId) || {
+      pts: 0,
+      sf: 0,
+      sa: 0,
+      pf: 0,
+      pa: 0,
+    };
+    row.pts += delta.pts || 0;
+    row.sf += delta.sf || 0;
+    row.sa += delta.sa || 0;
+    row.pf += delta.pf || 0;
+    row.pa += delta.pa || 0;
+    G.get(aId).set(bId, row);
+  };
+
+  // Duyệt các trận của bracket hiện tại
+  (matches || []).forEach((m) => {
+    const aId = m.pairA?._id && String(m.pairA._id);
+    const bId = m.pairB?._id && String(m.pairB._id);
+    if (!aId || !bId) return;
+
+    const ga = byRegId.get(aId);
+    const gb = byRegId.get(bId);
+    if (!ga || !gb || ga !== gb) return; // chỉ nhận khi 2 đội cùng 1 bảng
+
+    // đảm bảo tồn tại row (dù chưa kết thúc)
+    const rowA = ensureRow(ga, aId, m.pairA);
+    const rowB = ensureRow(gb, bId, m.pairB);
+
+    // chỉ tính vào BXH khi đã kết thúc
+    const finished = String(m.status || "").toLowerCase() === "finished";
+    if (!finished) return;
+
+    const winner = String(m.winner || "").toUpperCase();
+    const gw = countGamesWon(m.gameScores || []);
+    const pt = sumPoints(m.gameScores || []);
+
+    rowA.played += 1;
+    rowB.played += 1;
+
+    rowA.sf += gw.A;
+    rowA.sa += gw.B;
+    rowB.sf += gw.B;
+    rowB.sa += gw.A;
+
+    rowA.pf += pt.a;
+    rowA.pa += pt.b;
+    rowB.pf += pt.b;
+    rowB.pa += pt.a;
+
+    if (winner === "A") {
+      rowA.win += 1;
+      rowB.loss += 1;
+      rowA.pts += PWIN;
+      rowB.pts += PLOSS;
+
+      addH2H(ga, aId, bId, {
+        pts: PWIN,
+        sf: gw.A,
+        sa: gw.B,
+        pf: pt.a,
+        pa: pt.b,
+      });
+      addH2H(gb, bId, aId, {
+        pts: PLOSS,
+        sf: gw.B,
+        sa: gw.A,
+        pf: pt.b,
+        pa: pt.a,
+      });
+    } else if (winner === "B") {
+      rowB.win += 1;
+      rowA.loss += 1;
+      rowB.pts += PWIN;
+      rowA.pts += PLOSS;
+
+      addH2H(gb, bId, aId, {
+        pts: PWIN,
+        sf: gw.B,
+        sa: gw.A,
+        pf: pt.b,
+        pa: pt.a,
+      });
+      addH2H(ga, aId, bId, {
+        pts: PLOSS,
+        sf: gw.A,
+        sa: gw.B,
+        pf: pt.a,
+        pa: pt.b,
+      });
+    } else {
+      rowA.draw += 1;
+      rowB.draw += 1;
+      rowA.pts += PDRAW;
+      rowB.pts += PDRAW;
+
+      addH2H(ga, aId, bId, {
+        pts: PDRAW,
+        sf: gw.A,
+        sa: gw.B,
+        pf: pt.a,
+        pa: pt.b,
+      });
+      addH2H(gb, bId, aId, {
+        pts: PDRAW,
+        sf: gw.B,
+        sa: gw.A,
+        pf: pt.b,
+        pa: pt.a,
+      });
+    }
+
+    rowA.setDiff = rowA.sf - rowA.sa;
+    rowB.setDiff = rowB.sf - rowB.sa;
+    rowA.pointDiff = rowA.pf - rowA.pa;
+    rowB.pointDiff = rowB.pf - rowB.pa;
+  });
+
+  // comparator theo Pts -> tiebreakers -> tên
+  const cmpForGroup = (key) => (x, y) => {
+    // 1) Pts
+    if (y.pts !== x.pts) return y.pts - x.pts;
+
+    // 2) theo tiebreakers cấu hình
+    for (const tb of tiebreakers) {
+      if (tb === "h2h") {
+        const G = h2h.get(key);
+        const a = G?.get(x.id)?.get(y.id)?.pts ?? 0;
+        const b = G?.get(y.id)?.get(x.id)?.pts ?? 0;
+        if (a !== b) return b - a; // bên có nhiều điểm H2H hơn đứng trước
+        continue;
+      }
+      if (tb === "setsDiff") {
+        if (y.setDiff !== x.setDiff) return y.setDiff - x.setDiff;
+        continue;
+      }
+      if (tb === "pointsDiff") {
+        if (y.pointDiff !== x.pointDiff) return y.pointDiff - x.pointDiff;
+        continue;
+      }
+      if (tb === "pointsFor") {
+        if (y.pf !== x.pf) return y.pf - x.pf;
+        continue;
+      }
+    }
+
+    // 3) fallback: tên
+    const nx = safePairName(x.pair, eventType) || "";
+    const ny = safePairName(y.pair, eventType) || "";
+    return nx.localeCompare(ny);
+  };
+
+  // Xuất mảng group
+  const out = [];
+  for (const [key, { label, regSet }] of byKey.entries()) {
+    // rows có thể rỗng nếu chưa có trận finished; vẫn hiển thị bảng nhưng trống
+    const rowsMap = stats.get(key) || new Map();
+    // chỉ giữ tối đa những id thuộc regSet để không vượt quá 4 đội
+    const filteredRows = Array.from(rowsMap.values()).filter((r) =>
+      regSet.has(String(r.id))
+    );
+    filteredRows.forEach((r) => {
+      r.setDiff = r.sf - r.sa;
+      r.pointDiff = r.pf - r.pa;
+    });
+    const rows = filteredRows.sort(cmpForGroup(key));
+    out.push({ key, label, rows });
+  }
+
+  return {
+    groups: out,
+    points: { win: PWIN, draw: PDRAW, loss: PLOSS },
+    tiebreakers,
+  };
+}
+
+/* ===================== UI BXH theo nhóm ===================== */
+// ⬇️ Đổi signature và thêm state
+function GroupStandings({ data, eventType, bracket, matches, onOpenMatch }) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const { groups, points, tiebreakers } = data || { groups: [] };
+
+  const [histOpen, setHistOpen] = useState(false);
+  const [histTeam, setHistTeam] = useState(null); // row của team
+  const [histGroupKey, setHistGroupKey] = useState(null);
+
+  const openHistory = (gKey, row) => {
+    setHistGroupKey(gKey);
+    setHistTeam(row);
+    setHistOpen(true);
+  };
+  const closeHistory = () => setHistOpen(false);
+
+  if (!groups?.length) {
+    return (
+      <Paper variant="outlined" sx={{ p: 2, textAlign: "center", mb: 2 }}>
+        Chưa có dữ liệu BXH.
+      </Paper>
     );
   }
 
   return (
-    <TableContainer component={Paper} variant="outlined" sx={{ mb: 2 }}>
-      <Table
-        size="small"
-        sx={{ tableLayout: "fixed", minWidth: { xs: "auto", sm: 480 } }}
-      >
-        <TableHead style={{ display: "table-header-group" }}>
-          <TableRow>
-            <TableCell sx={{ width: 56, fontWeight: 700 }}>#</TableCell>
-            <TableCell sx={{ fontWeight: 700 }}>Cặp</TableCell>
-            <TableCell align="center" sx={{ width: 90, fontWeight: 700 }}>
-              Thắng
-            </TableCell>
-            <TableCell align="center" sx={{ width: 90, fontWeight: 700 }}>
-              Thua
-            </TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {rows.length ? (
-            rows.map((row, idx) => (
-              <TableRow key={row.pair?._id || idx}>
-                <TableCell>{idx + 1}</TableCell>
-                <TableCell>{safePairName(row.pair, eventType)}</TableCell>
-                <TableCell align="center">{row.win}</TableCell>
-                <TableCell align="center">{row.loss}</TableCell>
-              </TableRow>
-            ))
-          ) : (
-            <TableRow>
-              <TableCell colSpan={4} align="center">
-                Chưa có dữ liệu BXH.
-              </TableCell>
-            </TableRow>
-          )}
-        </TableBody>
-      </Table>
-    </TableContainer>
+    <Stack spacing={2} sx={{ mb: 2 }}>
+      {/* Legend */}
+      <StandingsLegend points={points} tiebreakers={tiebreakers} />
+
+      {groups.map((g) => {
+        const rows = g.rows || [];
+
+        if (isMobile) {
+          return (
+            <Paper key={g.key} variant="outlined" sx={{ p: 1.25 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1 }}>
+                Bảng {g.label}
+              </Typography>
+              <Stack spacing={1}>
+                {rows.length ? (
+                  rows.map((row, idx) => (
+                    <Paper
+                      key={row.id || idx}
+                      variant="outlined"
+                      sx={{
+                        p: 1,
+                        display: "grid",
+                        gridTemplateColumns: "48px 1fr auto",
+                        gap: 8,
+                      }}
+                    >
+                      <Chip size="small" label={`#${idx + 1}`} />
+                      <MuiLink
+                        component="button"
+                        underline="hover"
+                        onClick={() => openHistory(g.key, row)}
+                        sx={{ fontWeight: 600, textAlign: "left" }}
+                        title={safePairName(row.pair, eventType)}
+                      >
+                        {safePairName(row.pair, eventType)}
+                      </MuiLink>
+                      <Chip
+                        size="small"
+                        color="primary"
+                        variant="outlined"
+                        label={`${row.pts} pts`}
+                      />
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        sx={{ gridColumn: "1 / -1" }}
+                      >
+                        <Chip size="small" label={`P:${row.played}`} />
+                        <Chip size="small" label={`W:${row.win}`} />
+                        {!!row.draw && (
+                          <Chip size="small" label={`D:${row.draw}`} />
+                        )}
+                        <Chip size="small" label={`L:${row.loss}`} />
+                        <Chip
+                          size="small"
+                          label={`Set:+${row.sf}/-${row.sa} (${
+                            row.setDiff >= 0 ? "+" : ""
+                          }${row.setDiff})`}
+                        />
+                        <Chip
+                          size="small"
+                          label={`Điểm:+${row.pf}/-${row.pa} (${
+                            row.pointDiff >= 0 ? "+" : ""
+                          }${row.pointDiff})`}
+                        />
+                      </Stack>
+                    </Paper>
+                  ))
+                ) : (
+                  <Paper variant="outlined" sx={{ p: 2, textAlign: "center" }}>
+                    Chưa có dữ liệu BXH.
+                  </Paper>
+                )}
+              </Stack>
+            </Paper>
+          );
+        }
+
+        return (
+          <TableContainer key={g.key} component={Paper} variant="outlined">
+            <Typography
+              variant="subtitle1"
+              sx={{ fontWeight: 700, px: 2, pt: 1.25 }}
+            >
+              Bảng {g.label}
+            </Typography>
+            <Table size="small" sx={{ tableLayout: "fixed", minWidth: 760 }}>
+              <TableHead style={{ display: "table-header-group" }}>
+                <TableRow>
+                  <TableCell sx={{ width: 48, fontWeight: 700 }}>#</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Cặp</TableCell>
+                  <TableCell align="center" sx={{ width: 52, fontWeight: 700 }}>
+                    P
+                  </TableCell>
+                  <TableCell align="center" sx={{ width: 52, fontWeight: 700 }}>
+                    W
+                  </TableCell>
+                  <TableCell align="center" sx={{ width: 52, fontWeight: 700 }}>
+                    D
+                  </TableCell>
+                  <TableCell align="center" sx={{ width: 52, fontWeight: 700 }}>
+                    L
+                  </TableCell>
+                  <TableCell
+                    align="center"
+                    sx={{ width: 120, fontWeight: 700 }}
+                  >
+                    Set (+/-)
+                  </TableCell>
+                  <TableCell
+                    align="center"
+                    sx={{ width: 140, fontWeight: 700 }}
+                  >
+                    Điểm (+/-)
+                  </TableCell>
+                  <TableCell align="center" sx={{ width: 70, fontWeight: 700 }}>
+                    Pts
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {rows.length ? (
+                  rows.map((row, idx) => (
+                    <TableRow key={row.id || idx}>
+                      <TableCell>{idx + 1}</TableCell>
+                      <TableCell>
+                        <MuiLink
+                          component="button"
+                          underline="hover"
+                          onClick={() => openHistory(g.key, row)}
+                          title={safePairName(row.pair, eventType)}
+                          sx={{ fontWeight: 600 }}
+                        >
+                          {safePairName(row.pair, eventType)}
+                        </MuiLink>
+                      </TableCell>
+                      <TableCell align="center">{row.played}</TableCell>
+                      <TableCell align="center">{row.win}</TableCell>
+                      <TableCell align="center">{row.draw}</TableCell>
+                      <TableCell align="center">{row.loss}</TableCell>
+                      <TableCell align="center">
+                        {row.sf}-{row.sa} ({row.setDiff >= 0 ? "+" : ""}
+                        {row.setDiff})
+                      </TableCell>
+                      <TableCell align="center">
+                        {row.pf}-{row.pa} ({row.pointDiff >= 0 ? "+" : ""}
+                        {row.pointDiff})
+                      </TableCell>
+                      <TableCell align="center" style={{ fontWeight: 700 }}>
+                        {row.pts}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={9} align="center">
+                      Chưa có dữ liệu BXH.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        );
+      })}
+
+      {/* ⬇️ NEW: dialog */}
+      <TeamHistoryDialog
+        open={histOpen}
+        onClose={closeHistory}
+        teamRow={histTeam}
+        groupKey={histGroupKey}
+        bracket={bracket}
+        matches={matches}
+        points={points}
+        eventType={eventType}
+        onOpenMatch={onOpenMatch}
+      />
+    </Stack>
   );
 }
-GroupStandingsTable.propTypes = {
-  rows: PropTypes.array.isRequired,
+
+GroupStandings.propTypes = {
+  data: PropTypes.shape({
+    groups: PropTypes.array,
+    points: PropTypes.object,
+    tiebreakers: PropTypes.array,
+  }),
   eventType: PropTypes.string,
+  bracket: PropTypes.object,
+  matches: PropTypes.array,
+  onOpenMatch: PropTypes.func,
 };
 
 /* ===================== Component chính ===================== */
@@ -973,38 +1566,6 @@ export default function TournamentBracket() {
     return m;
   }, [brackets, matches]);
 
-  const groupStandings = useMemo(() => {
-    const map = {};
-    (brackets || [])
-      .filter((b) => b.type === "group")
-      .forEach((b) => {
-        const rows = {};
-        (byBracket[b._id] || []).forEach((m) => {
-          const aId = m.pairA?._id;
-          const bId = m.pairB?._id;
-          if (!aId || !bId) return;
-          rows[aId] ||= { pair: m.pairA, win: 0, loss: 0 };
-          rows[bId] ||= { pair: m.pairB, win: 0, loss: 0 };
-          if (m.winner === "A") {
-            rows[aId].win += 1;
-            rows[bId].loss += 1;
-          } else if (m.winner === "B") {
-            rows[bId].win += 1;
-            rows[aId].loss += 1;
-          }
-        });
-        map[b._id] = Object.values(rows).sort(
-          (x, y) =>
-            y.win - x.win ||
-            x.loss - y.loss ||
-            (x.pair?.player1?.fullName || "").localeCompare(
-              y.pair?.player1?.fullName || ""
-            )
-        );
-      });
-    return map;
-  }, [brackets, byBracket]);
-
   // Tab <-> URL sync
   const readTabFromUrl = (count) => {
     const v = Number(searchParams.get("tab"));
@@ -1024,7 +1585,7 @@ export default function TournamentBracket() {
     setSearchParams(next, { replace: true });
   };
 
-  // Viewer state
+  // Viewer state (hooks phải trước mọi early return)
   const [open, setOpen] = useState(false);
   const [activeMatchId, setActiveMatchId] = useState(null);
   const openMatch = (m) => {
@@ -1033,48 +1594,54 @@ export default function TournamentBracket() {
   };
   const closeMatch = () => setOpen(false);
 
-  // Nếu KO chưa có trận → dựng khung trống theo QUY MÔ (nếu có), nếu không có thì ước lượng từ group-top2
-  const buildEmptyRoundsForKO = useCallback(
-    (koBracket) => {
-      // 1) thử đọc quy mô từ chính bracket
-      const scaleFromBracket = readBracketScale(koBracket);
-      if (scaleFromBracket) return buildEmptyRoundsByScale(scaleFromBracket);
+  // KO placeholder khi chưa có trận: đọc từ quy mô, hoặc ước lượng
+  const buildEmptyRoundsForKO = useCallback((koBracket) => {
+    const scaleFromBracket = readBracketScale(koBracket);
+    if (scaleFromBracket) return buildEmptyRoundsByScale(scaleFromBracket);
+    // fallback nhẹ: 4 (bán kết)
+    const fallback = 4;
+    const scale = ceilPow2(fallback);
+    return buildEmptyRoundsByScale(scale);
+  }, []);
 
-      // 2) không có quy mô → ước lượng từ stage trước (group) * 2 top
-      const groupBrs = (brackets || []).filter((b) => b.type === "group");
-      let source = null;
-      if (groupBrs.length) {
-        const cand = groupBrs.filter((g) =>
-          Number.isFinite(g.stage) && Number.isFinite(koBracket?.stage)
-            ? g.stage < koBracket.stage
-            : true
-        );
-        source =
-          cand.sort((a, b) => (b.stage ?? 0) - (a.stage ?? 0))[0] ||
-          groupBrs[0];
-      }
+  // === Các useMemo phụ thuộc tab/brackets/matches: ĐẶT TRƯỚC CÁC EARLY RETURN
+  const current = brackets?.[tab] || null;
 
-      let entrants = 0;
-      if (source) {
-        const gMatches = byBracket[source._id] || [];
-        const groups = new Set(
-          gMatches.map(getGroupKey).filter((k) => k && k !== UNGROUPED)
-        );
-        entrants = groups.size * 2; // mặc định Top 2 mỗi bảng
-      }
-
-      const fallback = 4; // nếu không biết gì, hiển thị bán kết
-      const scale = ceilPow2(Math.max(entrants, fallback));
-      return buildEmptyRoundsByScale(scale);
-    },
-    [brackets, byBracket]
+  const currentMatches = useMemo(
+    () => (current ? byBracket[current._id] || [] : []),
+    [byBracket, current]
   );
 
+  // Với bracket group: tính BXH theo ĐÚNG nhóm từ bracket.groups
+  const groupData = useMemo(() => {
+    if (current?.type !== "group") return null;
+    return computeGroupTablesForBracket(
+      current,
+      currentMatches,
+      tour?.eventType
+    );
+  }, [current, currentMatches, tour?.eventType]);
+
+  // Helper hiển thị bảng của 1 match theo bracket.groups
+  const { byRegId: groupIndex } = useMemo(
+    () => buildGroupIndex(current || {}),
+    [current]
+  );
+  const matchGroupLabel = (m) => {
+    const aId = m.pairA?._id && String(m.pairA._id);
+    const bId = m.pairB?._id && String(m.pairB._id);
+    const ga = aId && groupIndex.get(aId);
+    const gb = bId && groupIndex.get(bId);
+    return ga && gb && ga === gb ? ga : "—";
+  };
+
+  // Utility non-hook
   const winnerPair = (m) => {
     if (!m || m.status !== "finished" || !m.winner) return null;
     return m.winner === "A" ? m.pairA : m.pairB;
   };
 
+  // ===== Early returns (không còn hook nào bên dưới) =====
   if (loading) {
     return (
       <Box p={3} textAlign="center">
@@ -1113,12 +1680,9 @@ export default function TournamentBracket() {
     </Stack>
   ));
 
-  const current = brackets[tab];
-  const currentMatches = byBracket[current._id] || [];
+  // KO: minRounds theo quy mô nếu có
   const uniqueRoundsCount = new Set(currentMatches.map((m) => m.round ?? 1))
     .size;
-
-  // ★ minRounds từ QUY MÔ nếu có (không còn mặc định 3)
   const scaleForCurrent = readBracketScale(current);
   const roundsFromScale = scaleForCurrent
     ? Math.ceil(Math.log2(scaleForCurrent))
@@ -1151,15 +1715,20 @@ export default function TournamentBracket() {
       {current.type === "group" ? (
         <Paper sx={{ p: 2 }}>
           <Typography variant="h6" gutterBottom>
-            Bảng: {current.name}
+            Vòng bảng: {current.name}
           </Typography>
 
           <Typography variant="subtitle1" gutterBottom>
             Bảng xếp hạng
           </Typography>
-          <GroupStandingsTable
-            rows={groupStandings[current._id] || []}
+
+          {/* ⭐ Hiển thị tất cả các bảng (A, B, ...) với legend + xếp hạng đúng nhóm */}
+          <GroupStandings
+            data={groupData}
             eventType={tour?.eventType}
+            bracket={current}
+            matches={currentMatches}
+            onOpenMatch={openMatch}
           />
 
           <Typography variant="subtitle1" gutterBottom>
@@ -1173,6 +1742,9 @@ export default function TournamentBracket() {
                   .slice()
                   .sort(
                     (a, b) =>
+                      String(matchGroupLabel(a)).localeCompare(
+                        String(matchGroupLabel(b))
+                      ) ||
                       (a.round || 1) - (b.round || 1) ||
                       (a.order || 0) - (b.order || 0)
                   )
@@ -1188,6 +1760,10 @@ export default function TournamentBracket() {
                       }}
                     >
                       <Stack direction="row" alignItems="center" spacing={1}>
+                        <Chip
+                          size="small"
+                          label={`Bảng ${matchGroupLabel(m)}`}
+                        />
                         <Chip size="small" label={`R${m.round || 1}`} />
                         <Box flex={1} minWidth={0}>
                           <Typography title={matchSideLabel(m, "A")}>
@@ -1213,9 +1789,12 @@ export default function TournamentBracket() {
             </Stack>
           ) : (
             <TableContainer component={Paper} variant="outlined">
-              <Table size="small" sx={{ tableLayout: "fixed", minWidth: 640 }}>
+              <Table size="small" sx={{ tableLayout: "fixed", minWidth: 780 }}>
                 <TableHead style={{ display: "table-header-group" }}>
                   <TableRow>
+                    <TableCell sx={{ width: 120, fontWeight: 700 }}>
+                      Bảng
+                    </TableCell>
                     <TableCell sx={{ width: 80, fontWeight: 700 }}>
                       Vòng
                     </TableCell>
@@ -1229,7 +1808,7 @@ export default function TournamentBracket() {
                     <TableCell sx={{ fontWeight: 700 }}>Đội B</TableCell>
                     <TableCell
                       align="center"
-                      sx={{ width: 180, fontWeight: 700 }}
+                      sx={{ width: 200, fontWeight: 700 }}
                     >
                       Kết quả
                     </TableCell>
@@ -1241,6 +1820,9 @@ export default function TournamentBracket() {
                       .slice()
                       .sort(
                         (a, b) =>
+                          String(matchGroupLabel(a)).localeCompare(
+                            String(matchGroupLabel(b))
+                          ) ||
                           (a.round || 1) - (b.round || 1) ||
                           (a.order || 0) - (b.order || 0)
                       )
@@ -1251,6 +1833,7 @@ export default function TournamentBracket() {
                           onClick={() => openMatch(m)}
                           sx={{ cursor: "pointer" }}
                         >
+                          <TableCell>Bảng {matchGroupLabel(m)}</TableCell>
                           <TableCell>R{m.round || 1}</TableCell>
                           <TableCell>{matchSideLabel(m, "A")}</TableCell>
                           <TableCell align="center">vs</TableCell>
@@ -1260,7 +1843,7 @@ export default function TournamentBracket() {
                       ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={5} align="center">
+                      <TableCell colSpan={6} align="center">
                         Chưa có trận nào.
                       </TableCell>
                     </TableRow>
@@ -1285,17 +1868,15 @@ export default function TournamentBracket() {
               null;
             const champion = winnerPair(finalLike);
 
-            // rounds để render:
-            // - có trận thật => fill + placeholder cho đủ cột (minRounds theo quy mô nếu có)
-            // - chưa có trận => dựng khung trống theo QUY MÔ
             const roundsToRender =
               currentMatches.length > 0
                 ? buildRoundsWithPlaceholders(currentMatches, {
-                    /* ... */
+                    minRounds: minRoundsForCurrent,
+                    extendForward: true,
                   })
                 : current.drawRounds && current.drawRounds > 0
                 ? buildEmptyRoundsByScale(2 ** current.drawRounds)
-                : buildEmptyRoundsForKO(current); // fallback cũ
+                : buildEmptyRoundsForKO(current);
 
             return (
               <>
@@ -1318,8 +1899,8 @@ export default function TournamentBracket() {
                 {currentMatches.length === 0 && (
                   <Typography variant="caption" color="text.secondary">
                     * Chưa bốc thăm / chưa lấy đội từ vòng trước — tạm hiển thị
-                    khung theo <b>quy mô</b> (hoặc ước lượng top2 mỗi bảng). Khi
-                    có trận thật, nhánh sẽ tự cập nhật.
+                    khung theo <b>quy mô</b>. Khi có trận thật, nhánh sẽ tự cập
+                    nhật.
                   </Typography>
                 )}
               </>

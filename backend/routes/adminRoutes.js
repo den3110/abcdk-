@@ -52,6 +52,7 @@ import {
 } from "../controllers/admin/matchController.js";
 import { softResetChainFrom } from "../services/matchChainReset.js";
 import { finalizeExpiredTournaments } from "../services/tournamentLifecycle.js";
+import { createAutoUsers, previewAutoUsers } from "../controllers/admin/adminUserController.js";
 
 const router = express.Router();
 
@@ -194,5 +195,10 @@ router.post("/tournaments/finish-expired", protect, authorize("admin"), finishEx
 router.put("/tournament/:id/finish", protect, authorize("admin"), finishTournament);
 
 
+// Xem trước (không ghi DB)
+router.post("/users/auto/preview", protect, authorize("admin"), previewAutoUsers);
+
+// Tạo thật (ghi DB)
+router.post("/users/auto/create", protect, authorize("admin"), createAutoUsers);
 
 export default router;
