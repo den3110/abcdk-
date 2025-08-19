@@ -1,30 +1,34 @@
-# ---------- build stage ----------
-FROM node:20-alpine AS build
+# ---------- build deps ----------
+FROM node:20-alpine AS deps
 WORKDIR /app
 
-# toolchain phòng khi có native deps
-RUN apk add --no-cache python3 make g++
+# Toolchain cho native deps + compat glibc (một số lib cần)
+RUN apk add --no-cache python3 make g++ libc6-compat
 
-# copy manifest để cache layer cài deps
-COPY package.json package-lock.json* yarn.lock* ./
+# Copy manifest (kéo .npmrc nếu dùng private registry)
+COPY package.json package-lock.json* yarn.lock* .npmrc* ./
 
-# cài deps: ưu tiên npm ci nếu có lock, fallback yarn hoặc npm install
-RUN if [ -f package-lock.json ]; then \
-      npm ci; \
-    elif [ -f yarn.lock ]; then \
+# Cài deps:
+# - Nếu có yarn.lock → dùng yarn (Corepack)
+# - Nếu có package-lock.json → ưu tiên npm ci, nếu fail fallback npm install
+# - Nếu không có lock → npm install
+RUN if [ -f yarn.lock ]; then \
       corepack enable && yarn install --frozen-lockfile; \
+    elif [ -f package-lock.json ]; then \
+      npm ci || npm install; \
     else \
       npm install; \
     fi
 
-# copy source & build (Vite -> dist/)
+# ---------- build ----------
+FROM deps AS build
+# Copy source & build (Vite -> dist/)
 COPY . .
 ENV NODE_OPTIONS=--max_old_space_size=2048
-# tự động chọn npm run build hoặc yarn build
-RUN if [ -f package-lock.json ]; then \
-      npm run build; \
-    else \
+RUN if [ -f yarn.lock ]; then \
       corepack enable && yarn build; \
+    else \
+      npm run build; \
     fi
 
 # ---------- artifact stage ----------
