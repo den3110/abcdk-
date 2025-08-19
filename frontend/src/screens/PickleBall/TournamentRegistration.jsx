@@ -49,6 +49,7 @@ import {
   useManagerReplaceRegPlayerMutation,
 } from "../../slices/tournamentsApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
+import PublicProfileDialog from "../../components/PublicProfileDialog";
 
 /* ---------------- helpers ---------------- */
 const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";
@@ -65,6 +66,14 @@ const displayName = (pl) => {
   const fn = pl.fullName || "";
   const nn = pl.nickName || pl.nickname || "";
   return nn ? `${fn} (${nn})` : fn || "—";
+};
+
+const getUserId = (pl) => {
+  const u = pl?.user;
+  if (!u) return null;
+  if (typeof u === "string") return u.trim() || null;
+  if (typeof u === "object" && u._id) return String(u._id);
+  return null;
 };
 
 function PaymentChip({ status, paidAt }) {
@@ -225,6 +234,15 @@ export default function TournamentRegistration() {
     slot: "p1",
   });
   const [newPlayer, setNewPlayer] = useState(null);
+
+  // NEW: Public profile dialog
+  const [profileDlg, setProfileDlg] = useState({ open: false, userId: null });
+  const openProfileByPlayer = (pl) => {
+    const uid = getUserId(pl);
+    if (uid) setProfileDlg({ open: true, userId: uid });
+    else toast.info("Không tìm thấy userId của VĐV này.");
+  };
+  const closeProfileDlg = () => setProfileDlg({ open: false, userId: null });
 
   const evType = useMemo(() => normType(tour?.eventType), [tour]);
   const isSingles = evType === "single";
@@ -452,6 +470,7 @@ export default function TournamentRegistration() {
 
   const PlayerCell = ({ player, onEdit, canEdit }) => (
     <Stack direction="row" spacing={1} alignItems="center">
+      {/* Avatar: chỉ phóng to ảnh */}
       <Box
         onClick={() =>
           openPreview(player?.avatar || PLACE, displayName(player))
@@ -465,7 +484,17 @@ export default function TournamentRegistration() {
       >
         <Avatar src={player?.avatar || PLACE} />
       </Box>
-      <Box sx={{ maxWidth: 300, overflow: "hidden" }}>
+
+      {/* Tên + phone: mở hồ sơ */}
+      <Box
+        sx={{
+          maxWidth: 300,
+          overflow: "hidden",
+          cursor: getUserId(player) ? "pointer" : "default",
+        }}
+        onClick={() => openProfileByPlayer(player)}
+        title="Xem hồ sơ"
+      >
         <Typography variant="body2" noWrap>
           {displayName(player)}
         </Typography>
@@ -473,6 +502,7 @@ export default function TournamentRegistration() {
           {player?.phone}
         </Typography>
       </Box>
+
       {canEdit && (
         <Tooltip arrow title="Thay VĐV">
           <span>
@@ -698,6 +728,7 @@ export default function TournamentRegistration() {
                     alignItems="center"
                     mt={1}
                   >
+                    {/* Avatar: zoom ảnh */}
                     <Box
                       onClick={() =>
                         openPreview(pl?.avatar || PLACE, displayName(pl))
@@ -711,7 +742,17 @@ export default function TournamentRegistration() {
                     >
                       <Avatar src={pl?.avatar || PLACE} />
                     </Box>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
+
+                    {/* Tên/phone: mở hồ sơ */}
+                    <Box
+                      sx={{
+                        flex: 1,
+                        minWidth: 0,
+                        cursor: getUserId(pl) ? "pointer" : "default",
+                      }}
+                      onClick={() => openProfileByPlayer(pl)}
+                      title="Xem hồ sơ"
+                    >
                       <Typography variant="body2" noWrap>
                         {displayName(pl)}
                       </Typography>
@@ -723,6 +764,7 @@ export default function TournamentRegistration() {
                         {pl?.phone || ""}
                       </Typography>
                     </Box>
+
                     {canManage && (
                       <Tooltip
                         arrow
@@ -932,6 +974,13 @@ export default function TournamentRegistration() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Dialog hồ sơ công khai */}
+      <PublicProfileDialog
+        open={profileDlg.open}
+        onClose={closeProfileDlg}
+        userId={profileDlg.userId}
+      />
     </RBContainer>
   );
 }
