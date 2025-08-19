@@ -24,7 +24,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { startTournamentCrons } from "./jobs/tournamentCron.js";
 dotenv.config();
-const port = process.env.PORT || 5000;
+const port = process.env.PORT;
 const WHITELIST = [
   "https://abcdk.vercel.app",
   "https://abcde-xi.vercel.app",
