@@ -1,52 +1,48 @@
-# ---------- base ----------
+# ---------- base (có toolchain) ----------
 FROM node:20-alpine AS base
 WORKDIR /app
-# Toolchain cho native deps (bcrypt, sharp, canvas, …) + compat
 RUN apk add --no-cache python3 make g++ libc6-compat
-ENV NODE_ENV=development
 
-# ---------- deps (cài đủ để build) ----------
+# ---------- deps: cài full deps để build nếu cần ----------
 FROM base AS deps
-WORKDIR /app
-# Kéo .npmrc nếu bạn dùng private registry
+# manifest ở ROOT của repo vì context là "."
 COPY package.json package-lock.json* yarn.lock* .npmrc* ./
-# npm/yarn linh hoạt + fallback nếu thiếu lockfile
+# cài deps linh hoạt + fallback
 RUN if [ -f yarn.lock ]; then \
-      corepack enable && yarn install --frozen-lockfile; \
+    corepack enable && yarn install --frozen-lockfile; \
     elif [ -f package-lock.json ]; then \
-      npm ci || npm install; \
+    npm ci || npm install; \
     else \
-      npm install; \
+    npm install; \
     fi
 
-# ---------- build (nếu có) ----------
-FROM deps AS build
-WORKDIR /app
-COPY . .
-# Nếu có script build (Nest/TS) thì chạy, không có thì bỏ qua
+# copy code backend vào /app/backend
+COPY backend/ ./backend
+
+# build nếu có script "build" (Nest/TS), không có thì bỏ qua
 RUN if npm run | grep -q "build"; then npm run build; else echo "no build step"; fi
 
-# ---------- runtime (chỉ prod deps) ----------
+# ---------- runtime: chỉ prod deps ----------
 FROM node:20-alpine AS runner
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
 ENV NODE_ENV=production
 
-# Cài **prod deps** gọn nhẹ
+# cài prod deps gọn
 COPY package.json package-lock.json* yarn.lock* .npmrc* ./
 RUN if [ -f yarn.lock ]; then \
-      corepack enable && yarn install --production --frozen-lockfile; \
+    corepack enable && yarn install --production --frozen-lockfile; \
     elif [ -f package-lock.json ]; then \
-      npm ci --omit=dev || npm install --omit=dev; \
+    npm ci --omit=dev || npm install --omit=dev; \
     else \
-      npm install --omit=dev; \
+    npm install --omit=dev; \
     fi
 
-# Copy artifact build (nếu có) và các file cần để chạy
-COPY --from=build /app/dist ./dist
-COPY . .  # nếu app chạy từ dist thì phần src không ảnh hưởng
+# copy artifact đã build (nếu có) + mã nguồn backend
+# nếu app chạy từ dist (Nest), ưu tiên dist
+COPY --from=deps /app/dist ./dist  2>/dev/null || true
+COPY backend/ ./backend
 
-# ⚠️ GIỮ cổng 3000 trong container để khớp compose (map ra 5000 cho Nginx)
 EXPOSE 3000
-# Đổi theo script thực tế của bạn: "start:prod" / "start" / "server"
-CMD ["npm","run","start:prod"]
+# ⚠️ Đổi theo script thật trong package.json (server/start/start:prod)
+CMD ["npm","run","server"]

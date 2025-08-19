@@ -196,8 +196,29 @@ export const createRegistration = asyncHandler(async (req, res) => {
 /* Lấy danh sách đăng ký */
 // controllers/registrationController.js
 export const getRegistrations = asyncHandler(async (req, res) => {
+  const tourId = req.params.id;
+  const meId = req.user?._id ? String(req.user._id) : "";
+
+  // 0) Quyền xem full số: admin hoặc quản lý giải
+  const isAdmin =
+    Boolean(req.user?.isAdmin) ||
+    req.user?.role === "admin" ||
+    (Array.isArray(req.user?.roles) && req.user.roles.includes("admin"));
+
+  let canSeeFullPhone = false;
+  if (isAdmin) {
+    canSeeFullPhone = true;
+  } else if (tourId && meId) {
+    const [t, isMgr] = await Promise.all([
+      Tournament.findById(tourId).select("_id createdBy").lean(),
+      TournamentManager.exists({ tournament: tourId, user: meId }),
+    ]);
+    if (t && String(t.createdBy) === meId) canSeeFullPhone = true;
+    if (isMgr) canSeeFullPhone = true;
+  }
+
   // 1) lấy registrations (lean để mutate nhẹ)
-  const regs = await Registration.find({ tournament: req.params.id })
+  const regs = await Registration.find({ tournament: tourId })
     .sort({ createdAt: -1 })
     .lean();
 
@@ -210,15 +231,16 @@ export const getRegistrations = asyncHandler(async (req, res) => {
 
   // 3) query User, chỉ lấy field cần thiết
   const users = await User.find({ _id: { $in: [...uids] } })
-    .select("nickName nickname phone avatar fullName") // nickName/nickname là field có thể có
+    .select("nickName nickname phone avatar fullName")
     .lean();
-
   const userById = new Map(users.map((u) => [String(u._id), u]));
 
-  // 4) helper ẩn số
+  // 4) helper ẩn số (tùy quyền)
   const maskPhone = (val) => {
     if (!val) return val;
     const s = String(val);
+    if (canSeeFullPhone) return s; // <-- KHÔNG mask nếu có quyền
+
     if (s.length <= 6) {
       const keepHead = Math.min(1, s.length);
       const keepTail = s.length > 2 ? 1 : 0;
@@ -235,7 +257,6 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     if (!pl) return pl;
     const u = userById.get(String(pl.user));
     const nick = pl.nickName || pl.nickname || u?.nickName || u?.nickname || "";
-    // Không đụng fullName/phone nếu snapshot đã có; chỉ mask phone để trả về FE
     return {
       ...pl,
       nickName: nick,

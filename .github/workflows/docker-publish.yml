@@ -56,10 +56,8 @@ jobs:
       - name: Build & Push BE
         uses: docker/build-push-action@v6
         with:
-          context: ./backend # ✅ sửa path
-          file: ./backend/Dockerfile # ✅ sửa path
-          push: true
-          tags: ${{ steps.meta_be.outputs.tags }}
-          labels: ${{ steps.meta_be.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.IMAGE_BE }}:buildcache
-          cache-to: type=registry,ref=${{ env.IMAGE_BE }}:buildcache,mode=max
+            context: . # ✅ build context là root repo
+            file: ./backend/Dockerfile # ✅ Dockerfile vẫn nằm trong backend/
+            push: true
+            tags: ${{ steps.meta_be.outputs.tags }}
+            labels: ${{ steps.meta_be.outputs.labels }}
