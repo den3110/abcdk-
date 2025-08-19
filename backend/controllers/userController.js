@@ -432,6 +432,49 @@ function clampInt(v, min, max, dflt) {
   return dflt;
 }
 
+/* ========= helpers chung (normalize/regex/phone) ========= */
+function vnNorm(s) {
+  return String(s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // bỏ dấu
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .trim();
+}
+
+function escapeReg(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isPrefix(q, s) {
+  return q && s ? s.startsWith(q) : false;
+}
+
+function isSubsequence(q, s) {
+  if (!q) return false;
+  let i = 0;
+  for (const c of s) if (c === q[i]) i++;
+  return i === q.length;
+}
+
+function phoneVariants(rawDigits) {
+  const d = String(rawDigits).replace(/\D/g, "");
+  // chuẩn local 0xxxxxxxxx
+  let local = d;
+  if (d.startsWith("84")) local = "0" + d.slice(2);
+  if (d.startsWith("084")) local = "0" + d.slice(3);
+  if (!local.startsWith("0")) local = "0" + local;
+
+  const core = local.slice(1);
+  const intl84 = "84" + core;
+  const plus84 = "+84" + core;
+
+  const arr = [local, intl84, plus84];
+  const set = new Set(arr);
+  return { local, intl84, plus84, arr, set };
+}
+
 export const searchUser = asyncHandler(async (req, res) => {
   const rawQ = String(req.query.q || "").trim();
   const limit = clampInt(req.query.limit, 1, 50, 10);
