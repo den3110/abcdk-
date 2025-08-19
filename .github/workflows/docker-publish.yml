@@ -6,8 +6,8 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_FE: ${{ secrets.DOCKERHUB_USERNAME }}/frontend
-  IMAGE_BE: ${{ secrets.DOCKERHUB_USERNAME }}/backend
+  IMAGE_FE: 060802/frontend
+  IMAGE_BE: 060802/backend
 
 jobs:
   build-and-push:
