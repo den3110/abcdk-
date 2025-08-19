@@ -426,6 +426,12 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
   });
 });
 
+function clampInt(v, min, max, dflt) {
+  const n = parseInt(v, 10);
+  if (Number.isFinite(n)) return Math.min(max, Math.max(min, n));
+  return dflt;
+}
+
 export const searchUser = asyncHandler(async (req, res) => {
   const rawQ = String(req.query.q || "").trim();
   const limit = clampInt(req.query.limit, 1, 50, 10);
