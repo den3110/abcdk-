@@ -65,6 +65,34 @@ function safePairName(pair, eventType = "double") {
   if (isSingle) return p1;
   return p2 ? `${p1} & ${p2}` : p1;
 }
+
+// === Tên có kèm (biệt danh) cho từng VĐV — dùng ở mọi nơi LIÊN QUAN TRẬN
+const preferName = (p) =>
+  (p?.fullName && String(p.fullName).trim()) ||
+  (p?.name && String(p.name).trim()) ||
+  (p?.nickname && String(p.nickname).trim()) ||
+  "N/A";
+const preferNick = (p) =>
+  (p?.nickname && String(p.nickname).trim()) ||
+  (p?.nickName && String(p.nickName).trim()) ||
+  (p?.nick && String(p.nick).trim()) ||
+  "";
+const nameWithNick = (p) => {
+  if (!p) return "—";
+  const nm = preferName(p);
+  const nk = preferNick(p);
+  if (!nk) return nm;
+  return nm.toLowerCase() === nk.toLowerCase() ? nm : `${nm} (${nk})`;
+};
+function pairLabelWithNick(pair, eventType = "double") {
+  if (!pair) return "—";
+  const isSingle = String(eventType).toLowerCase() === "single";
+  const a = nameWithNick(pair.player1);
+  if (isSingle) return a;
+  const b = pair.player2 ? nameWithNick(pair.player2) : "";
+  return b ? `${a} & ${b}` : a;
+}
+
 function depLabel(prev) {
   if (!prev) return "TBD";
   const r = prev.round ?? "?";
@@ -75,8 +103,8 @@ function matchSideLabel(m, side) {
   const pair = side === "A" ? m.pairA : m.pairB;
   const prev = side === "A" ? m.previousA : m.previousB;
   if (pair)
-    return safePairName(
-      m[side === "A" ? "pairA" : "pairB"],
+    return pairLabelWithNick(
+      side === "A" ? m.pairA : m.pairB,
       m?.tournament?.eventType
     );
   if (prev) return depLabel(prev);
@@ -100,11 +128,8 @@ function roundTitleByCount(cnt) {
   return `Vòng (${cnt} trận)`;
 }
 
-// ========== extra helpers cho KO placeholder theo quy mô ==========
+// ========== KO helpers / placeholder ==========
 const ceilPow2 = (n) => Math.pow(2, Math.ceil(Math.log2(Math.max(1, n || 1))));
-const UNGROUPED = "__UNGROUPED__";
-
-// ⭐ Lấy “quy mô” từ chính bracket (ưu tiên), hỗ trợ nhiều tên field
 const readBracketScale = (br) => {
   const cands = [
     br?.drawScale,
@@ -122,22 +147,16 @@ const readBracketScale = (br) => {
   return ceilPow2(Math.max(...cands));
 };
 
-/* ======== Build rounds (có placeholder) cho react-brackets ======== */
-function placeholderSeed(r, idx) {
-  return {
-    id: `placeholder-${r}-${idx}`,
-    __match: null,
-    teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
-  };
-}
 function buildEmptyRoundsByScale(scale /* 2^n */) {
   const rounds = [];
   let matches = Math.max(1, Math.floor(scale / 2));
   let r = 1;
   while (matches >= 1) {
-    const seeds = Array.from({ length: matches }, (_, i) =>
-      placeholderSeed(r, i)
-    );
+    const seeds = Array.from({ length: matches }, (_, i) => ({
+      id: `placeholder-${r}-${i}`,
+      __match: null,
+      teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
+    }));
     rounds.push({ title: roundTitleByCount(matches), seeds });
     matches = Math.floor(matches / 2);
     r += 1;
@@ -145,7 +164,7 @@ function buildEmptyRoundsByScale(scale /* 2^n */) {
   return rounds;
 }
 
-// Xây rounds + placeholder, có thể ép số cột tối thiểu = minRounds và mở rộng tới chung kết
+// Xây rounds có placeholder, đảm bảo trải dài tới chung kết
 function buildRoundsWithPlaceholders(
   brMatches,
   { minRounds = 0, extendForward = true } = {}
@@ -215,7 +234,7 @@ function buildRoundsWithPlaceholders(
         const pair = side === "A" ? m.pairA : m.pairB;
         const prev = side === "A" ? m.previousA : m.previousB;
         if (pair)
-          return safePairName(
+          return pairLabelWithNick(
             side === "A" ? m.pairA : m.pairB,
             m?.tournament?.eventType
           );
@@ -237,9 +256,9 @@ function buildRoundsWithPlaceholders(
   });
 }
 
-/* ========== Custom seed (click mở viewer) ========== */
+/* ========== Custom seed (cúp chỉ ở trận vô địch) ========== */
 const RED = "#F44336";
-const CustomSeed = ({ seed, breakpoint, onOpen }) => {
+const CustomSeed = ({ seed, breakpoint, onOpen, championMatchId }) => {
   const m = seed.__match || null;
   const nameA = seed.teams?.[0]?.name || "Chưa có đội";
   const nameB = seed.teams?.[1]?.name || "Chưa có đội";
@@ -247,7 +266,12 @@ const CustomSeed = ({ seed, breakpoint, onOpen }) => {
   const winB = m?.status === "finished" && m?.winner === "B";
   const isPlaceholder =
     !m && nameA === "Chưa có đội" && nameB === "Chưa có đội";
-  const isFinal = Boolean(m && !m?.nextMatch);
+
+  const isChampion =
+    !!m &&
+    !!championMatchId &&
+    String(m._id) === String(championMatchId) &&
+    (winA || winB);
 
   const RightTick = (props) => (
     <span
@@ -272,7 +296,7 @@ const CustomSeed = ({ seed, breakpoint, onOpen }) => {
         style={{ cursor: m ? "pointer" : "default" }}
       >
         <div style={{ position: "relative", display: "grid", gap: 4 }}>
-          {isFinal && (winA || winB) && (
+          {isChampion && (
             <TrophyIcon
               sx={{
                 position: "absolute",
@@ -323,16 +347,19 @@ const CustomSeed = ({ seed, breakpoint, onOpen }) => {
 CustomSeed.propTypes = {
   seed: PropTypes.shape({
     __match: PropTypes.shape({
+      _id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
       status: PropTypes.string,
       winner: PropTypes.string,
+      round: PropTypes.number,
     }),
     teams: PropTypes.arrayOf(PropTypes.shape({ name: PropTypes.string })),
   }).isRequired,
   breakpoint: PropTypes.number,
   onOpen: PropTypes.func,
+  championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
 };
 
-/* ===================== Match viewer shared utils ===================== */
+/* ===================== Match viewer utils ===================== */
 function ytEmbed(url) {
   if (!url) return null;
   try {
@@ -380,8 +407,8 @@ function sumPoints(gameScores) {
   return { a, b };
 }
 
-/* ===== Shared content to reuse in Drawer/Dialog ===== */
-function MatchContent({ m, isLoading, liveLoading, onClose }) {
+/* ===== Shared content for Match viewer ===== */
+function MatchContent({ m, isLoading, liveLoading }) {
   const { userInfo } = useSelector((s) => s.auth || {});
   const userId =
     userInfo?._id || userInfo?.id || userInfo?.userId || userInfo?.uid;
@@ -449,10 +476,10 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
 
   const streams = extractStreams(m);
   const teamA = m?.pairA
-    ? safePairName(m.pairA, m?.tournament?.eventType)
+    ? pairLabelWithNick(m.pairA, m?.tournament?.eventType)
     : depLabel(m?.previousA);
   const teamB = m?.pairB
-    ? safePairName(m.pairB, m?.tournament?.eventType)
+    ? pairLabelWithNick(m.pairB, m?.tournament?.eventType)
     : depLabel(m?.previousB);
 
   const status = m?.status || "scheduled";
@@ -681,7 +708,7 @@ function MatchContent({ m, isLoading, liveLoading, onClose }) {
   );
 }
 
-/* ===== Responsive viewer: Drawer (mobile) / Dialog (desktop) ===== */
+/* ===== Responsive viewer: Drawer/Dialog ===== */
 function ResponsiveMatchViewer({ open, matchId, onClose }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -770,7 +797,6 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
               m={m}
               isLoading={isLoading}
               liveLoading={liveLoading}
-              onClose={onClose}
             />
           </Box>
         </Box>
@@ -808,12 +834,7 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
         </IconButton>
       </DialogTitle>
       <DialogContent dividers>
-        <MatchContent
-          m={m}
-          isLoading={isLoading}
-          liveLoading={liveLoading}
-          onClose={onClose}
-        />
+        <MatchContent m={m} isLoading={isLoading} liveLoading={liveLoading} />
       </DialogContent>
     </Dialog>
   );
@@ -857,17 +878,52 @@ function StandingsLegend({ points, tiebreakers }) {
   );
 }
 
-// ⬇️ NEW: Popup lịch sử đấu của 1 đội trong 1 bảng
+/* ========== Team history dialog (trong bảng) ========== */
+function buildGroupIndex(bracket) {
+  const byKey = new Map();
+  const byRegId = new Map();
+  for (const g of bracket?.groups || []) {
+    const key = String(g.name || g.code || g._id || "").trim() || "—";
+    const label = key;
+    const regSet = new Set(g.regIds?.map(String) || []);
+    byKey.set(key, { label, regSet });
+    regSet.forEach((rid) => byRegId.set(String(rid), key));
+  }
+  return { byKey, byRegId };
+}
+function lastGameScoreLocal(gameScores) {
+  if (!Array.isArray(gameScores) || !gameScores.length) return { a: 0, b: 0 };
+  return gameScores[gameScores.length - 1] || { a: 0, b: 0 };
+}
+function countGamesWonLocal(gameScores) {
+  let A = 0,
+    B = 0;
+  for (const g of gameScores || []) {
+    if ((g?.a ?? 0) > (g?.b ?? 0)) A++;
+    else if ((g?.b ?? 0) > (g?.a ?? 0)) B++;
+  }
+  return { A, B };
+}
+function sumPointsLocal(gameScores) {
+  let a = 0,
+    b = 0;
+  for (const g of gameScores || []) {
+    a += Number(g?.a ?? 0);
+    b += Number(g?.b ?? 0);
+  }
+  return { a, b };
+}
+
 function TeamHistoryDialog({
   open,
   onClose,
-  teamRow, // { id, pair, ... }
-  groupKey, // "A" | "B" | ...
-  bracket, // bracket hiện tại (type=group)
-  matches, // tất cả matches của bracket hiện tại
-  points, // {win, draw, loss}
+  teamRow,
+  groupKey,
+  bracket,
+  matches,
+  points,
   eventType,
-  onOpenMatch, // function(m) => void
+  onOpenMatch,
 }) {
   const titleName = safePairName(teamRow?.pair, eventType) || "—";
   const groupLabel =
@@ -877,11 +933,9 @@ function TeamHistoryDialog({
     groupKey ||
     "—";
 
-  // Map regId -> groupKey để chắc chắn lọc đúng bảng
   const { byRegId } = useMemo(() => buildGroupIndex(bracket || {}), [bracket]);
   const teamId = teamRow?.id && String(teamRow.id);
 
-  // Gom các trận trong đúng bảng có đội này tham gia
   const list = useMemo(() => {
     if (!teamId) return [];
     const arr = (matches || []).filter((m) => {
@@ -890,19 +944,17 @@ function TeamHistoryDialog({
       if (!aId || !bId) return false;
       const ga = byRegId.get(aId);
       const gb = byRegId.get(bId);
-      // chỉ lấy trận 2 đội cùng bảng và có teamId
       return (
         ga === groupKey && gb === groupKey && (aId === teamId || bId === teamId)
       );
     });
 
-    // Chuẩn hoá theo góc nhìn của team được chọn
     const normed = arr.map((m) => {
       const side = String(m.pairA?._id) === teamId ? "A" : "B";
       const opp = side === "A" ? m.pairB : m.pairA;
 
-      const gw = countGamesWon(m.gameScores || []);
-      const pt = sumPoints(m.gameScores || []);
+      const gw = countGamesWonLocal(m.gameScores || []);
+      const pt = sumPointsLocal(m.gameScores || []);
       const setsSelf = side === "A" ? gw.A : gw.B;
       const setsOpp = side === "A" ? gw.B : gw.A;
       const ptsSelf = side === "A" ? pt.a : pt.b;
@@ -924,7 +976,7 @@ function TeamHistoryDialog({
         match: m,
         round: m.round || 1,
         order: m.order ?? 0,
-        opponentName: safePairName(opp, eventType),
+        opponentName: pairLabelWithNick(opp, eventType),
         status: m.status,
         outcome,
         setsSelf,
@@ -937,7 +989,6 @@ function TeamHistoryDialog({
     return normed.sort((a, b) => a.round - b.round || a.order - b.order);
   }, [matches, byRegId, groupKey, teamId, eventType]);
 
-  // Tổng kết W/D/L/Set/Điểm/Pts (chỉ tính trận finished)
   const summary = useMemo(() => {
     const S = {
       played: 0,
@@ -986,7 +1037,6 @@ function TeamHistoryDialog({
         </IconButton>
       </DialogTitle>
       <DialogContent dividers>
-        {/* Tổng kết nhỏ */}
         <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 2 }}>
           <Chip size="small" label={`P:${summary.played}`} />
           <Chip size="small" label={`W:${summary.win}`} />
@@ -1012,7 +1062,6 @@ function TeamHistoryDialog({
           />
         </Stack>
 
-        {/* Danh sách trận */}
         {list.length ? (
           <Table size="small">
             <TableHead>
@@ -1059,34 +1108,17 @@ function TeamHistoryDialog({
   );
 }
 
-/* ===================== BXH group (đúng nhóm + tiebreak) ===================== */
-// Build index nhóm theo bracket.groups[].regIds
-function buildGroupIndex(bracket) {
-  const byKey = new Map(); // key -> {label, regSet:Set}
-  const byRegId = new Map(); // regId -> key
-  for (const g of bracket?.groups || []) {
-    const key = String(g.name || g.code || g._id || "").trim() || "—";
-    const label = key;
-    const regSet = new Set(g.regIds?.map(String) || []);
-    byKey.set(key, { label, regSet });
-    regSet.forEach((rid) => byRegId.set(String(rid), key));
-  }
-  return { byKey, byRegId };
-}
-
-// Gom BXH theo đúng nhóm trong 1 bracket (chỉ nhận trận có CẢ HAI đội thuộc cùng 1 nhóm)
+/* ===================== BXH theo nhóm ===================== */
 function computeGroupTablesForBracket(bracket, matches, eventType) {
   const { byKey, byRegId } = buildGroupIndex(bracket);
 
-  // luật điểm của bracket
   const PWIN = bracket?.config?.roundRobin?.points?.win ?? 3;
   const PDRAW = bracket?.config?.roundRobin?.points?.draw ?? 1;
   const PLOSS = bracket?.config?.roundRobin?.points?.loss ?? 0;
   const tiebreakers = bracket?.config?.roundRobin?.tiebreakers || [];
 
-  // stats per group
-  const stats = new Map(); // key -> Map(regId -> row)
-  const h2h = new Map(); // key -> Map(aId -> Map(bId -> {pts, sf, sa, pf, pa}))
+  const stats = new Map();
+  const h2h = new Map();
 
   const ensureRow = (key, regId, pairObj) => {
     if (!stats.has(key)) stats.set(key, new Map());
@@ -1132,7 +1164,6 @@ function computeGroupTablesForBracket(bracket, matches, eventType) {
     G.get(aId).set(bId, row);
   };
 
-  // Duyệt các trận của bracket hiện tại
   (matches || []).forEach((m) => {
     const aId = m.pairA?._id && String(m.pairA._id);
     const bId = m.pairB?._id && String(m.pairB._id);
@@ -1140,19 +1171,17 @@ function computeGroupTablesForBracket(bracket, matches, eventType) {
 
     const ga = byRegId.get(aId);
     const gb = byRegId.get(bId);
-    if (!ga || !gb || ga !== gb) return; // chỉ nhận khi 2 đội cùng 1 bảng
+    if (!ga || !gb || ga !== gb) return;
 
-    // đảm bảo tồn tại row (dù chưa kết thúc)
     const rowA = ensureRow(ga, aId, m.pairA);
     const rowB = ensureRow(gb, bId, m.pairB);
 
-    // chỉ tính vào BXH khi đã kết thúc
     const finished = String(m.status || "").toLowerCase() === "finished";
     if (!finished) return;
 
     const winner = String(m.winner || "").toUpperCase();
-    const gw = countGamesWon(m.gameScores || []);
-    const pt = sumPoints(m.gameScores || []);
+    const gw = countGamesWonLocal(m.gameScores || []);
+    const pt = sumPointsLocal(m.gameScores || []);
 
     rowA.played += 1;
     rowB.played += 1;
@@ -1235,18 +1264,14 @@ function computeGroupTablesForBracket(bracket, matches, eventType) {
     rowB.pointDiff = rowB.pf - rowB.pa;
   });
 
-  // comparator theo Pts -> tiebreakers -> tên
   const cmpForGroup = (key) => (x, y) => {
-    // 1) Pts
     if (y.pts !== x.pts) return y.pts - x.pts;
-
-    // 2) theo tiebreakers cấu hình
     for (const tb of tiebreakers) {
       if (tb === "h2h") {
         const G = h2h.get(key);
         const a = G?.get(x.id)?.get(y.id)?.pts ?? 0;
         const b = G?.get(y.id)?.get(x.id)?.pts ?? 0;
-        if (a !== b) return b - a; // bên có nhiều điểm H2H hơn đứng trước
+        if (a !== b) return b - a;
         continue;
       }
       if (tb === "setsDiff") {
@@ -1262,19 +1287,14 @@ function computeGroupTablesForBracket(bracket, matches, eventType) {
         continue;
       }
     }
-
-    // 3) fallback: tên
     const nx = safePairName(x.pair, eventType) || "";
     const ny = safePairName(y.pair, eventType) || "";
     return nx.localeCompare(ny);
   };
 
-  // Xuất mảng group
   const out = [];
   for (const [key, { label, regSet }] of byKey.entries()) {
-    // rows có thể rỗng nếu chưa có trận finished; vẫn hiển thị bảng nhưng trống
     const rowsMap = stats.get(key) || new Map();
-    // chỉ giữ tối đa những id thuộc regSet để không vượt quá 4 đội
     const filteredRows = Array.from(rowsMap.values()).filter((r) =>
       regSet.has(String(r.id))
     );
@@ -1293,15 +1313,13 @@ function computeGroupTablesForBracket(bracket, matches, eventType) {
   };
 }
 
-/* ===================== UI BXH theo nhóm ===================== */
-// ⬇️ Đổi signature và thêm state
 function GroupStandings({ data, eventType, bracket, matches, onOpenMatch }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const { groups, points, tiebreakers } = data || { groups: [] };
 
   const [histOpen, setHistOpen] = useState(false);
-  const [histTeam, setHistTeam] = useState(null); // row của team
+  const [histTeam, setHistTeam] = useState(null);
   const [histGroupKey, setHistGroupKey] = useState(null);
 
   const openHistory = (gKey, row) => {
@@ -1321,7 +1339,6 @@ function GroupStandings({ data, eventType, bracket, matches, onOpenMatch }) {
 
   return (
     <Stack spacing={2} sx={{ mb: 2 }}>
-      {/* Legend */}
       <StandingsLegend points={points} tiebreakers={tiebreakers} />
 
       {groups.map((g) => {
@@ -1486,7 +1503,6 @@ function GroupStandings({ data, eventType, bracket, matches, onOpenMatch }) {
         );
       })}
 
-      {/* ⬇️ NEW: dialog */}
       <TeamHistoryDialog
         open={histOpen}
         onClose={closeHistory}
@@ -1585,7 +1601,7 @@ export default function TournamentBracket() {
     setSearchParams(next, { replace: true });
   };
 
-  // Viewer state (hooks phải trước mọi early return)
+  // Viewer state
   const [open, setOpen] = useState(false);
   const [activeMatchId, setActiveMatchId] = useState(null);
   const openMatch = (m) => {
@@ -1594,25 +1610,22 @@ export default function TournamentBracket() {
   };
   const closeMatch = () => setOpen(false);
 
-  // KO placeholder khi chưa có trận: đọc từ quy mô, hoặc ước lượng
+  // KO placeholder khi chưa có trận
   const buildEmptyRoundsForKO = useCallback((koBracket) => {
     const scaleFromBracket = readBracketScale(koBracket);
     if (scaleFromBracket) return buildEmptyRoundsByScale(scaleFromBracket);
-    // fallback nhẹ: 4 (bán kết)
-    const fallback = 4;
+    const fallback = 4; // bán kết
     const scale = ceilPow2(fallback);
     return buildEmptyRoundsByScale(scale);
   }, []);
 
-  // === Các useMemo phụ thuộc tab/brackets/matches: ĐẶT TRƯỚC CÁC EARLY RETURN
+  // === Memo phụ thuộc tab/brackets/matches
   const current = brackets?.[tab] || null;
-
   const currentMatches = useMemo(
     () => (current ? byBracket[current._id] || [] : []),
     [byBracket, current]
   );
 
-  // Với bracket group: tính BXH theo ĐÚNG nhóm từ bracket.groups
   const groupData = useMemo(() => {
     if (current?.type !== "group") return null;
     return computeGroupTablesForBracket(
@@ -1622,7 +1635,6 @@ export default function TournamentBracket() {
     );
   }, [current, currentMatches, tour?.eventType]);
 
-  // Helper hiển thị bảng của 1 match theo bracket.groups
   const { byRegId: groupIndex } = useMemo(
     () => buildGroupIndex(current || {}),
     [current]
@@ -1635,13 +1647,11 @@ export default function TournamentBracket() {
     return ga && gb && ga === gb ? ga : "—";
   };
 
-  // Utility non-hook
   const winnerPair = (m) => {
     if (!m || m.status !== "finished" || !m.winner) return null;
     return m.winner === "A" ? m.pairA : m.pairB;
   };
 
-  // ===== Early returns (không còn hook nào bên dưới) =====
   if (loading) {
     return (
       <Box p={3} textAlign="center">
@@ -1666,7 +1676,6 @@ export default function TournamentBracket() {
     );
   }
 
-  // Label không ellipsis
   const tabLabels = brackets.map((b) => (
     <Stack key={b._id} direction="row" spacing={1} alignItems="center">
       <Typography>{b.name}</Typography>
@@ -1680,7 +1689,6 @@ export default function TournamentBracket() {
     </Stack>
   ));
 
-  // KO: minRounds theo quy mô nếu có
   const uniqueRoundsCount = new Set(currentMatches.map((m) => m.round ?? 1))
     .size;
   const scaleForCurrent = readBracketScale(current);
@@ -1711,7 +1719,6 @@ export default function TournamentBracket() {
         ))}
       </Tabs>
 
-      {/* ===== Nội dung mỗi tab = đúng bracket ===== */}
       {current.type === "group" ? (
         <Paper sx={{ p: 2 }}>
           <Typography variant="h6" gutterBottom>
@@ -1722,7 +1729,6 @@ export default function TournamentBracket() {
             Bảng xếp hạng
           </Typography>
 
-          {/* ⭐ Hiển thị tất cả các bảng (A, B, ...) với legend + xếp hạng đúng nhóm */}
           <GroupStandings
             data={groupData}
             eventType={tour?.eventType}
@@ -1860,13 +1866,20 @@ export default function TournamentBracket() {
           </Typography>
 
           {(() => {
-            const finalLike =
-              currentMatches.find((m) => !m?.nextMatch) ||
-              currentMatches
-                .slice()
-                .sort((a, c) => (c.round || 1) - (a.round || 1))[0] ||
-              null;
-            const champion = winnerPair(finalLike);
+            // Xác định trận vô địch: chỉ công nhận khi CHUNG KẾT đã kết thúc & có winner
+            const finalRoundNumber = currentMatches.length
+              ? Math.max(...currentMatches.map((m) => Number(m.round || 1)))
+              : 0;
+            const finals = currentMatches.filter(
+              (m) => Number(m.round || 1) === finalRoundNumber
+            );
+            const finalMatch =
+              finals.length === 1 &&
+              String(finals[0]?.status || "").toLowerCase() === "finished" &&
+              finals[0]?.winner
+                ? finals[0]
+                : null;
+            const champion = finalMatch ? winnerPair(finalMatch) : null;
 
             const roundsToRender =
               currentMatches.length > 0
@@ -1882,7 +1895,8 @@ export default function TournamentBracket() {
               <>
                 {champion && (
                   <Alert severity="success" sx={{ mb: 1 }}>
-                    Vô địch: <b>{safePairName(champion, tour?.eventType)}</b>
+                    Vô địch:{" "}
+                    <b>{pairLabelWithNick(champion, tour?.eventType)}</b>
                   </Alert>
                 )}
 
@@ -1890,7 +1904,11 @@ export default function TournamentBracket() {
                   <Bracket
                     rounds={roundsToRender}
                     renderSeedComponent={(props) => (
-                      <CustomSeed {...props} onOpen={openMatch} />
+                      <CustomSeed
+                        {...props}
+                        onOpen={openMatch}
+                        championMatchId={finalMatch?._id || null}
+                      />
                     )}
                     mobileBreakpoint={0}
                   />

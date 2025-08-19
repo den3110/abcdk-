@@ -53,6 +53,7 @@ import {
 import { softResetChainFrom } from "../services/matchChainReset.js";
 import { finalizeExpiredTournaments } from "../services/tournamentLifecycle.js";
 import { createAutoUsers, previewAutoUsers } from "../controllers/admin/adminUserController.js";
+import { getDashboardMetrics, getDashboardSeries } from "../controllers/admin/adminDashboardController.js";
 
 const router = express.Router();
 
@@ -200,5 +201,8 @@ router.post("/users/auto/preview", protect, authorize("admin"), previewAutoUsers
 
 // Tạo thật (ghi DB)
 router.post("/users/auto/create", protect, authorize("admin"), createAutoUsers);
+
+router.get("/dashboard/metrics", protect, authorize("admin"), getDashboardMetrics);
+router.get("/dashboard/series", protect, authorize("admin"), getDashboardSeries);
 
 export default router;

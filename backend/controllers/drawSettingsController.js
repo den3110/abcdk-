@@ -144,7 +144,7 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "planner.groupSize",
             label: "Số đội mỗi bảng (groupSize)",
-            help: "0 = tự động.",
+            help: "Số đội MONG MUỐN trong 1 bảng. 0 = để hệ thống tự tính. Nếu cả groupSize và groupCount đều 0 → hệ thống chọn cách chia đều nhất trong [minSize..maxSize]. Ví dụ: 18 đội, groupSize=4, groupCount=0 → khoảng 5 bảng với 3–4 đội/bảng (nếu bật lệch ±1).",
             type: "number",
             min: 0,
             max: 64,
@@ -153,7 +153,7 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "planner.groupCount",
             label: "Số bảng (groupCount)",
-            help: "0 = tự động.",
+            help: "Số bảng MONG MUỐN. 0 = tự tính dựa vào tổng đội và groupSize. Nếu bạn cố định cả groupSize và groupCount mà tổng slot > tổng đội → xem mục Thiếu slot để xử lý.",
             type: "number",
             min: 0,
             max: 64,
@@ -162,34 +162,34 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "planner.allowUneven",
             label: "Cho phép bảng lệch ±1",
-            help: "Co giãn vài bảng để hạn chế BYE.",
+            help: "Cho phép một vài bảng có nhiều/ít hơn 1 đội so với groupSize để chia đều hơn và giảm BYE. Ví dụ: 20 đội, groupSize=5 → 4 bảng x 5; nếu 18 đội, bật lệch → có thể ra 2 bảng 5 và 2 bảng 4.",
             type: "boolean",
           },
           {
             path: "planner.underflowPolicy",
             label: "Thiếu slot",
-            help: "'shrink' co nhóm; 'byes' sinh BYE.",
+            help: "Xảy ra khi slot (groupSize×groupCount) > số đội. 'shrink' = tự co bớt cỡ bảng trong phạm vi [minSize..maxSize]; 'byes' = giữ cỡ bảng và chèn BYE cho slot trống.",
             type: "select",
             options: ["shrink", "byes"],
           },
           {
             path: "planner.byePolicy",
             label: "BYE policy",
-            help: "'pad' = nhét BYE thay vì co nhóm.",
+            help: "'none' = chỉ tạo BYE khi BẮT BUỘC (do underflow). 'pad' = chủ động chèn BYE để giữ các bảng bằng nhau thay vì co nhóm. Dùng 'pad' khi muốn kích thước bảng đồng nhất.",
             type: "select",
             options: ["none", "pad"],
           },
           {
             path: "planner.overflowPolicy",
             label: "Dư đội",
-            help: "'grow' tăng 1 vài bảng +1; 'extraGroup' tạo bảng mới.",
+            help: "Xảy ra khi slot < số đội. 'grow' = tăng thêm 1 người cho một vài bảng (tôn trọng maxSize) để đủ chỗ; 'extraGroup' = tạo thêm 1 bảng mới nếu còn trong giới hạn groupCount=0 (tự tính) hoặc cho phép nở.",
             type: "select",
             options: ["grow", "extraGroup"],
           },
           {
             path: "planner.minSize",
             label: "Kích thước bảng nhỏ nhất",
-            help: "Giới hạn co nhóm.",
+            help: "Sàn kích thước khi hệ thống cần CO bảng (shrink). Nên đặt ≥3 nếu muốn hạn chế bảng quá nhỏ; tối thiểu 2 để còn đấu lượt về.",
             type: "number",
             min: 2,
             max: 64,
@@ -198,7 +198,7 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "planner.maxSize",
             label: "Kích thước bảng lớn nhất",
-            help: "Giới hạn nở nhóm.",
+            help: "Trần kích thước khi hệ thống cần NỞ bảng (grow). Đặt nhỏ lại nếu muốn nhiều bảng hơn và ít trận/bảng hơn.",
             type: "number",
             min: 2,
             max: 128,
@@ -213,7 +213,7 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "scorer.randomness",
             label: "Randomness",
-            help: "Độ ngẫu nhiên 0..0.2.",
+            help: "Độ ngẫu nhiên thêm vào điểm xếp chỗ (0..0.2). 0 = hoàn toàn theo thuật toán (ổn định); 0.05–0.1 = hợp lý để có nhiều phương án mà vẫn tôn trọng ràng buộc.",
             type: "number",
             min: 0,
             max: 0.2,
@@ -222,28 +222,30 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "scorer.lookahead.enabled",
             label: "Bật Lookahead",
-            help: "Chấm điểm nhiều bước để tránh kẹt.",
+            help: "Thử trước nhiều bước khi xếp đội để tránh kịch bản ‘hết chỗ hợp lệ’ về cuối. Bật = kết quả chất lượng hơn nhưng chậm hơn.",
             type: "boolean",
           },
           {
             path: "scorer.lookahead.width",
             label: "Lookahead width",
-            help: "1..20 ứng viên/ bước.",
+            help: "Số ứng viên tốt nhất giữ lại ở MỖI bước (1..20). Rộng hơn = ít kẹt hơn nhưng tốn thời gian hơn. 5–8 thường đủ.",
             type: "number",
             min: 1,
             max: 20,
             step: 1,
           },
+
+          /* --- RÀNG BUỘC (bật/tắt hoặc đặt mục tiêu) --- */
           {
             path: "scorer.constraints.balanceSkillAcrossGroups",
             label: "Cân bằng skill giữa bảng",
-            help: "Giữ avg skill tiệm cận nhau.",
+            help: "Khi bật, thuật toán cố làm trung bình skill các bảng gần nhau. Dùng cùng các trọng số skill* bên dưới để kiểm soát độ ‘gắt’.",
             type: "boolean",
           },
           {
             path: "scorer.constraints.targetGroupAvgSkill",
             label: "Mục tiêu avg skill",
-            help: "0..1 (0.5 trung tính).",
+            help: "Mức trung bình skill mong muốn cho MỖI bảng (0..1; 0.5 ~ trung tính). Để trống/0.5 nếu chỉ cần các bảng gần nhau chứ không nhắm một mức cố định.",
             type: "number",
             min: 0,
             max: 1,
@@ -252,19 +254,19 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "scorer.constraints.usePots",
             label: "Bốc theo Pot",
-            help: "Chia đội theo skill thành các Pot.",
+            help: "Chia danh sách đội vào các ‘Pot’ theo tiêu chí (thường là skill) rồi rải mỗi bảng 1–2 đội từ từng Pot để đều trình.",
             type: "boolean",
           },
           {
             path: "scorer.constraints.potBy",
             label: "Tiêu chí Pot",
-            help: "Thường là 'skill'.",
+            help: "Thuộc tính dùng để chia Pot (vd: 'skill', 'elo', 'rank'). Không có cột đó → bỏ qua.",
             type: "text",
           },
           {
             path: "scorer.constraints.potCount",
             label: "Số Pot",
-            help: "Ví dụ 4~8.",
+            help: "Số rổ để chia đều trình. 4–8 là phổ biến. Pot quá nhiều với ít đội sẽ kém hiệu quả.",
             type: "number",
             min: 2,
             max: 16,
@@ -273,7 +275,7 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "scorer.constraints.protectTopSeeds",
             label: "Bảo vệ top-seed",
-            help: "Số đội đầu tránh va sớm.",
+            help: "Số đội hạt giống cao cần TÁCH nhau (không cùng bảng / cùng nhánh sớm). Ví dụ: 4 → 4 đội top rải vào các bảng/nhánh khác nhau.",
             type: "number",
             min: 0,
             max: 64,
@@ -282,7 +284,7 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "scorer.constraints.avoidRematchWithinDays",
             label: "Tránh tái đấu (ngày)",
-            help: "Không ghép lại cặp từng gặp gần đây.",
+            help: "Không ghép lại 2 đội đã gặp trong N ngày gần đây (nếu có dữ liệu lịch sử). 0 = tắt. Dùng hữu ích ở vòng bảng nhiều sự kiện liên tiếp.",
             type: "number",
             min: 0,
             max: 365,
@@ -291,13 +293,13 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "scorer.constraints.balanceSkillInPair",
             label: "Cân skill trong cặp KO",
-            help: "Ghép đối thủ gần trình độ.",
+            help: "Ưu tiên ghép đối thủ ngang trình ở VÒNG LOẠI TRỰC TIẾP (knockout). Dùng cùng pairTargetSkillDiff để đặt ngưỡng mong muốn.",
             type: "boolean",
           },
           {
             path: "scorer.constraints.pairTargetSkillDiff",
             label: "Mục tiêu chênh skill KO",
-            help: "0..1, càng nhỏ càng cân bằng.",
+            help: "Chênh lệch skill mong muốn giữa 2 đội trong 1 cặp KO (0..1). Càng nhỏ càng cân bằng (vd 0.1–0.2).",
             type: "number",
             min: 0,
             max: 1,
@@ -306,16 +308,18 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "scorer.constraints.maxRoundsSeedSeparation",
             label: "Cách vòng cho top-seed",
-            help: "Top gặp nhau ở vòng sâu.",
+            help: "Ép các top-seed chỉ có thể gặp nhau từ VÒNG SAU. 0 = tắt; 1 ≈ khác nhánh đến tứ kết; 2 ≈ chỉ gặp từ bán kết; 3–4 ≈ chỉ gặp ở chung kết (tùy quy mô nhánh).",
             type: "number",
             min: 0,
             max: 4,
             step: 1,
           },
+
+          /* --- TRỌNG SỐ (weight = 0 để bỏ qua tiêu chí) --- */
           {
             path: "scorer.weights.skillAvgVariance",
             label: "Trọng số chênh avg skill",
-            help: "Ưu tiên cân bảng.",
+            help: "Phạt khi trung bình skill giữa các bảng chênh nhau. Tăng số này để các bảng ‘đều’ hơn về tổng thể.",
             type: "number",
             min: 0,
             max: 3,
@@ -324,7 +328,7 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "scorer.weights.skillStd",
             label: "Trọng số độ lệch chuẩn",
-            help: "Ưu tiên đồng đều trong bảng.",
+            help: "Phạt khi trong CÙNG một bảng có độ phân tán skill quá lớn. Tăng số này để mỗi bảng ít ‘vênh’ trình nội bộ.",
             type: "number",
             min: 0,
             max: 3,
@@ -333,7 +337,7 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "scorer.weights.potClash",
             label: "Trọng số va chạm Pot",
-            help: "Phạt khi rơi sai mong muốn.",
+            help: "Phạt khi rơi vào cấu hình trái mong muốn theo Pot (vd: 2 đội cùng Pot rơi chung bảng). Đặt 0 nếu không dùng Pot.",
             type: "number",
             min: 0,
             max: 3,
@@ -342,7 +346,7 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "scorer.weights.seedClash",
             label: "Trọng số va chạm seed",
-            help: "Phạt top-seed gặp sớm.",
+            help: "Phạt khi các top-seed đụng nhau quá sớm. Tăng số này nếu muốn bảo vệ hạt giống mạnh mẽ hơn.",
             type: "number",
             min: 0,
             max: 3,
@@ -351,7 +355,7 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "scorer.weights.rematch",
             label: "Trọng số tái đấu",
-            help: "Phạt cặp từng gặp nhau.",
+            help: "Phạt cặp từng gặp nhau trong ‘avoidRematchWithinDays’. Tăng số này nếu muốn tránh lặp cặp tuyệt đối.",
             type: "number",
             min: 0,
             max: 3,
@@ -360,7 +364,7 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "scorer.weights.koSkillDiff",
             label: "Trọng số chênh KO",
-            help: "Phạt cặp KO chênh lớn.",
+            help: "Phạt cặp KO có chênh lệch skill lớn. Dùng cùng 'balanceSkillInPair' và 'pairTargetSkillDiff'.",
             type: "number",
             min: 0,
             max: 3,
@@ -375,7 +379,7 @@ export const getDrawSchema = expressAsyncHandler(async (_req, res) => {
           {
             path: "seed",
             label: "Seed ngẫu nhiên",
-            help: "0 = dùng thời điểm hiện tại; >0 để tái lập kết quả.",
+            help: "0 = sinh theo thời điểm hiện tại (mỗi lần chạy ra kết quả khác). >0 = cố định để tái lập kết quả bốc/chia như cũ.",
             type: "number",
             min: 0,
             max: 2147483647,
@@ -399,7 +403,7 @@ export const getGlobalDrawSettings = expressAsyncHandler(async (_req, res) => {
 export const updateGlobalDrawSettings = expressAsyncHandler(
   async (req, res) => {
     const patch = req.body?.drawSettings || req.body || {};
-    console.log("patch", patch)
+    console.log("patch", patch);
     const cur =
       (await AppSetting.findOne({ key: "drawSettings" }).lean())?.value || {};
     const merged = normalize(mergeAllowed(cur, patch)); // loại field lạ, chuẩn hoá số
@@ -485,7 +489,7 @@ export const updateBracketDrawSettings = expressAsyncHandler(
   async (req, res) => {
     const { bracketId } = req.params;
     const patch = req.body?.drawSettings || req.body || {};
-    console.log("patch", patch)
+    console.log("patch", patch);
     const cur =
       (await Bracket.findById(bracketId).select("drawSettings").lean())
         ?.drawSettings || {};

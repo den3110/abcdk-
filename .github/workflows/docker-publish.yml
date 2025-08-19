@@ -1,0 +1,65 @@
+name: Build & Push Docker Images
+
+on:
+  push:
+    branches: ["master"]
+
+env:
+  REGISTRY: docker.io
+  IMAGE_FE: ${{ secrets.DOCKERHUB_USERNAME }}/frontend
+  IMAGE_BE: ${{ secrets.DOCKERHUB_USERNAME }}/backend
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: FE metadata
+        id: meta_fe
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_FE }}
+          tags: |
+            type=raw,value=latest
+            type=sha
+
+      - name: Build & Push FE
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend # ✅ sửa path
+          file: ./frontend/Dockerfile # ✅ sửa path
+          push: true
+          tags: ${{ steps.meta_fe.outputs.tags }}
+          labels: ${{ steps.meta_fe.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.IMAGE_FE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_FE }}:buildcache,mode=max
+
+      - name: BE metadata
+        id: meta_be
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_BE }}
+          tags: |
+            type=raw,value=latest
+            type=sha
+
+      - name: Build & Push BE
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend # ✅ sửa path
+          file: ./backend/Dockerfile # ✅ sửa path
+          push: true
+          tags: ${{ steps.meta_be.outputs.tags }}
+          labels: ${{ steps.meta_be.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.IMAGE_BE }}:buildcache
+          cache-to: type=registry,ref=${{ env.IMAGE_BE }}:buildcache,mode=max

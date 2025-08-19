@@ -86,7 +86,19 @@ const userSchema = new mongoose.Schema(
 );
 
 /* ---------- Index ---------- */
-userSchema.index({ nickname: 1 });
+// Prefix/equality trên các trường hay tìm kiếm
+userSchema.index(
+  { nickname: 1 },
+  { name: "idx_nickname_vi", collation: { locale: "vi", strength: 1 } }
+);
+userSchema.index(
+  { name: 1 },
+  { name: "idx_name_vi", collation: { locale: "vi", strength: 1 } }
+);
+userSchema.index(
+  { province: 1 },
+  { name: "idx_province_vi", collation: { locale: "vi", strength: 1 } }
+);
 
 /* ---------- Bcrypt helpers ---------- */
 userSchema.methods.matchPassword = function (entered) {

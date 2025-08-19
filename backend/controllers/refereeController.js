@@ -4,6 +4,7 @@ import Match from "../models/matchModel.js";
 import {
   addPoint /* optional: nextGame helper nếu bạn tách riêng */,
 } from "../socket/liveHandlers.js";
+import mongoose from "mongoose";
 
 /* ───────── helpers ───────── */
 function isGameWin(a = 0, b = 0, rules) {
@@ -30,20 +31,81 @@ function winsCount(gameScores = [], rules) {
   GET /api/referee/matches/assigned-to-me
   → trả về các trận có referee == req.user._id (đã populate)
 */
+
+const { Types } = mongoose;
+const isValidId = (v) => Types.ObjectId.isValid(String(v || ""));
+const asBool = (v) => v === true || v === "true" || v === "1" || v === 1;
+const esc = (s) => String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 // GET /api/matches/assigned?page=1&pageSize=10
 export const getAssignedMatches = asyncHandler(async (req, res) => {
   const me = req.user?._id;
+  const roles = new Set(
+    [
+      ...(Array.isArray(req.user?.roles) ? req.user.roles : []),
+      ...(req.user?.role ? [req.user.role] : []),
+      req.user?.isAdmin ? "admin" : null,
+    ]
+      .filter(Boolean)
+      .map((r) => String(r).toLowerCase())
+  );
+  const isAdmin = roles.has("admin");
 
   const page = Math.max(parseInt(req.query.page) || 1, 1);
   const pageSize = Math.min(
-    Math.max(parseInt(req.query.pageSize) || 10, 1),
+    Math.max(parseInt(req.query.pageSize || req.query.limit) || 10, 1),
     50
   );
   const skip = (page - 1) * pageSize;
 
-  // 1) Lấy danh sách _id đã sort theo custom status + stage/round/order/createdAt
-  const agg = await Match.aggregate([
-    { $match: { referee: me } },
+  const q = (req.query.q || "").trim();
+  const matchId = (req.query.matchId || "").trim();
+  const status = (req.query.status || "").trim().toLowerCase();
+  const tournament = req.query.tournament;
+  const bracket = req.query.bracket;
+  const refQuery = req.query.referee;
+  const hasRefereeFlag =
+    asBool(req.query.hasReferee) || asBool(req.query.assigned);
+
+  // ===== Base $match theo role =====
+  const pipeline = [];
+
+  if (isAdmin) {
+    if (refQuery && isValidId(refQuery)) {
+      pipeline.push({ $match: { referee: new Types.ObjectId(refQuery) } });
+    } else {
+      // Mặc định admin xem toàn bộ "đã gán trọng tài"
+      // (hoặc khi ?hasReferee=true / ?assigned=1)
+      if (hasRefereeFlag || !refQuery) {
+        pipeline.push({
+          $match: { $expr: { $eq: [{ $type: "$referee" }, "objectId"] } }, // tránh cast lỗi
+        });
+      }
+    }
+  } else {
+    if (!isValidId(me))
+      return res.status(400).json({ message: "Invalid user" });
+    pipeline.push({ $match: { referee: new Types.ObjectId(me) } });
+  }
+
+  // ===== Lọc theo tournament/bracket/status =====
+  if (tournament && isValidId(tournament)) {
+    pipeline.push({ $match: { tournament: new Types.ObjectId(tournament) } });
+  }
+  if (bracket && isValidId(bracket)) {
+    pipeline.push({ $match: { bracket: new Types.ObjectId(bracket) } });
+  }
+  if (["scheduled", "live", "finished"].includes(status)) {
+    pipeline.push({ $match: { status } });
+  }
+
+  // ===== Ưu tiên matchId (exact _id) nếu hợp lệ =====
+  if (isValidId(matchId)) {
+    pipeline.push({ $match: { _id: new Types.ObjectId(matchId) } });
+  }
+
+  // ===== Lookup để filter theo tên giải/nhánh và để sort theo stage =====
+  pipeline.push(
     {
       $lookup: {
         from: "brackets",
@@ -53,6 +115,33 @@ export const getAssignedMatches = asyncHandler(async (req, res) => {
       },
     },
     { $unwind: { path: "$bracket", preserveNullAndEmptyArrays: true } },
+    {
+      $lookup: {
+        from: "tournaments",
+        localField: "tournament",
+        foreignField: "_id",
+        as: "tournament",
+      },
+    },
+    { $unwind: { path: "$tournament", preserveNullAndEmptyArrays: true } }
+  );
+
+  // ===== Tìm kiếm "q" (code, tên giải, tên nhánh) nếu không dùng matchId =====
+  if (!isValidId(matchId) && q) {
+    const rx = new RegExp(esc(q), "i");
+    pipeline.push({
+      $match: {
+        $or: [
+          { code: { $regex: rx } },
+          { "tournament.name": { $regex: rx } },
+          { "bracket.name": { $regex: rx } },
+        ],
+      },
+    });
+  }
+
+  // ===== Sort phức hợp =====
+  pipeline.push(
     {
       $addFields: {
         _statusOrder: {
@@ -78,13 +167,14 @@ export const getAssignedMatches = asyncHandler(async (req, res) => {
         ],
         total: [{ $count: "count" }],
       },
-    },
-  ]);
+    }
+  );
 
+  const agg = await Match.aggregate(pipeline);
   const ids = (agg?.[0]?.pageIds || []).map((d) => d._id);
   const total = agg?.[0]?.total?.[0]?.count || 0;
 
-  // 2) Lấy đầy đủ document theo ids và populate như cũ
+  // ===== Fetch đầy đủ doc + populate, giữ đúng thứ tự =====
   let items = [];
   if (ids.length) {
     items = await Match.find({ _id: { $in: ids } })
@@ -104,8 +194,9 @@ export const getAssignedMatches = asyncHandler(async (req, res) => {
           { path: "player2", select: "fullName name phone avatar score" },
         ],
       })
+      .populate({ path: "referee", select: "name email nickname" }) // ⬅️ để admin hiển thị TT
       .lean();
-    // giữ đúng thứ tự theo ids
+
     const order = new Map(ids.map((id, i) => [String(id), i]));
     items.sort((a, b) => order.get(String(a._id)) - order.get(String(b._id)));
   }

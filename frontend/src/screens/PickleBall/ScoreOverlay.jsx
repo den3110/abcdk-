@@ -18,6 +18,16 @@ const readStr = (...cands) => {
   return "";
 };
 
+const preferNick = (p) =>
+  readStr(
+    p?.nickname,
+    p?.nickName,
+    p?.nick,
+    p?.shortName,
+    p?.name,
+    p?.fullName
+  );
+
 function codeToRoundLabel(code) {
   if (!code) return "";
   const rc = String(code).toUpperCase();
@@ -36,13 +46,13 @@ function codeToRoundLabel(code) {
   return rc;
 }
 
-function regDisplayName(reg, evType) {
+function regDisplayNick(reg, evType) {
   if (!reg) return "—";
   if (evType === "single") {
-    return readStr(reg?.player1?.fullName, reg?.player1?.name, "N/A");
+    return preferNick(reg?.player1) || "N/A";
   }
-  const a = readStr(reg?.player1?.fullName, reg?.player1?.name, "N/A");
-  const b = readStr(reg?.player2?.fullName, reg?.player2?.name, "");
+  const a = preferNick(reg?.player1) || "N/A";
+  const b = preferNick(reg?.player2) || "";
   return b ? `${a} & ${b}` : a;
 }
 
@@ -68,54 +78,83 @@ function normalizePayload(p) {
     (p?.round_size ? `R${p.round_size}` : "");
   const roundName =
     p?.roundName || p?.round_name || codeToRoundLabel(roundCode) || "";
-  const roundNumber = Number.isFinite(+p?.round) ? +p.round : undefined;
+  const roundNumber = Number.isFinite(+p?.round) ? +p?.round : undefined;
 
   let teams = { A: {}, B: {} };
+
+  // Nếu server đã gửi sẵn teams
   if (p?.teams?.A || p?.teams?.B) {
-    teams.A.name = readStr(p?.teams?.A?.name);
-    teams.B.name = readStr(p?.teams?.B?.name);
-    teams.A.players =
+    const playersA =
       Array.isArray(p?.teams?.A?.players) && p.teams.A.players.length
         ? p.teams.A.players
         : [];
-    teams.B.players =
+    const playersB =
       Array.isArray(p?.teams?.B?.players) && p.teams.B.players.length
         ? p.teams.B.players
         : [];
+
+    // Ưu tiên hiển thị nickname ghép từ players; nếu không có thì fallback name do server gửi
+    const nameA = playersA.length
+      ? playersA
+          .map((pl) => preferNick(pl))
+          .filter(Boolean)
+          .join(" & ")
+      : readStr(p?.teams?.A?.name);
+    const nameB = playersB.length
+      ? playersB
+          .map((pl) => preferNick(pl))
+          .filter(Boolean)
+          .join(" & ")
+      : readStr(p?.teams?.B?.name);
+
+    teams.A = { name: nameA || "—", players: playersA };
+    teams.B = { name: nameB || "—", players: playersB };
   } else {
+    // Tự build từ pairA/pairB (ưu tiên nickname)
+    const a1 = p?.pairA?.player1
+      ? {
+          nickname: preferNick(p?.pairA?.player1),
+          name: readStr(p?.pairA?.player1?.name, p?.pairA?.player1?.fullName),
+        }
+      : null;
+    const a2 = p?.pairA?.player2
+      ? {
+          nickname: preferNick(p?.pairA?.player2),
+          name: readStr(p?.pairA?.player2?.name, p?.pairA?.player2?.fullName),
+        }
+      : null;
+
+    const b1 = p?.pairB?.player1
+      ? {
+          nickname: preferNick(p?.pairB?.player1),
+          name: readStr(p?.pairB?.player1?.name, p?.pairB?.player1?.fullName),
+        }
+      : null;
+    const b2 = p?.pairB?.player2
+      ? {
+          nickname: preferNick(p?.pairB?.player2),
+          name: readStr(p?.pairB?.player2?.name, p?.pairB?.player2?.fullName),
+        }
+      : null;
+
+    const listA = [a1, a2].filter(Boolean);
+    const listB = [b1, b2].filter(Boolean);
+
     teams.A = {
-      name: regDisplayName(p?.pairA, eventType),
-      players: [
-        p?.pairA?.player1 && {
-          fullName: readStr(
-            p?.pairA?.player1?.fullName,
-            p?.pairA?.player1?.name
-          ),
-        },
-        p?.pairA?.player2 && {
-          fullName: readStr(
-            p?.pairA?.player2?.fullName,
-            p?.pairA?.player2?.name
-          ),
-        },
-      ].filter(Boolean),
+      name:
+        listA
+          .map((x) => preferNick(x))
+          .filter(Boolean)
+          .join(" & ") || regDisplayNick(p?.pairA, eventType),
+      players: listA,
     };
     teams.B = {
-      name: regDisplayName(p?.pairB, eventType),
-      players: [
-        p?.pairB?.player1 && {
-          fullName: readStr(
-            p?.pairB?.player1?.fullName,
-            p?.pairB?.player1?.name
-          ),
-        },
-        p?.pairB?.player2 && {
-          fullName: readStr(
-            p?.pairB?.player2?.fullName,
-            p?.pairB?.player2?.name
-          ),
-        },
-      ].filter(Boolean),
+      name:
+        listB
+          .map((x) => preferNick(x))
+          .filter(Boolean)
+          .join(" & ") || regDisplayNick(p?.pairB, eventType),
+      players: listB,
     };
   }
 
@@ -130,6 +169,7 @@ function normalizePayload(p) {
     },
     teams,
     rules,
+    // lưu ý: server có thể gửi "server" hoặc "playerIndex"
     serve: p?.serve || { side: "A", server: 1 },
     currentGame: Number.isInteger(p?.currentGame) ? p.currentGame : 0,
     gameScores:
@@ -144,45 +184,32 @@ function normalizePayload(p) {
 }
 
 function teamNameFull(team) {
+  // Ưu tiên nickname từ players
+  if (Array.isArray(team?.players) && team.players.length) {
+    const nicks = team.players.map((p) => preferNick(p)).filter(Boolean);
+    if (nicks.length) return nicks.join(" & ");
+  }
   return readStr(team?.name, "—");
-}
-
-function currentServerName(data) {
-  if (!data?.serve?.side) return "";
-  const side = String(data.serve.side).toUpperCase() === "B" ? "B" : "A";
-  const team = data?.teams?.[side];
-  if (!team) return "";
-
-  let idx =
-    Number(
-      data?.serve?.playerIndex ??
-        data?.serve?.server ??
-        (data?.tournament?.eventType === "single" ? 1 : 1)
-    ) || 1;
-  if (idx >= 1) idx = idx - 1;
-
-  const list =
-    Array.isArray(team.players) && team.players.length
-      ? team.players.map((p) => readStr(p?.fullName, p?.name))
-      : null;
-
-  const splitFromName = () =>
-    String(team.name || "")
-      .split(/\s*(?:&|\/|,| và | and )\s*/i)
-      .filter(Boolean);
-
-  const names = list && list.length ? list : splitFromName();
-  if (!names || !names.length) return teamNameFull(team);
-
-  const safeIdx =
-    idx >= 0 && idx < names.length ? idx : Math.min(0, names.length - 1);
-  return names[safeIdx] || names[0] || "";
 }
 
 function knockoutRoundLabel(data) {
   const t = (data?.bracketType || "").toLowerCase();
   if (!t || t === "group") return "";
   return readStr(data?.roundName, codeToRoundLabel(data?.roundCode));
+}
+
+/* ---------------- small UI pieces ---------------- */
+function ServeBalls({ count = 1 }) {
+  const n = Math.max(1, Math.min(2, Number(count) || 1)); // chỉ 1 hoặc 2 bóng
+  return (
+    <span style={styles.serve}>
+      <span style={styles.ballsWrap}>
+        {Array.from({ length: n }).map((_, i) => (
+          <span key={i} style={styles.ball} />
+        ))}
+      </span>
+    </span>
+  );
 }
 
 /* ---------------- Component ---------------- */
@@ -313,7 +340,14 @@ export default function ScoreOverlay() {
 
   const serveSide =
     (data?.serve?.side || "A").toUpperCase() === "B" ? "B" : "A";
-  const serverName = currentServerName(data);
+  const serveCount = Math.max(
+    1,
+    Math.min(
+      2,
+      Number(data?.serve?.playerIndex ?? data?.serve?.server ?? 1) || 1
+    )
+  ); // tay 1 = 1 bóng, tay 2 = 2 bóng
+
   const roundLabel = knockoutRoundLabel(data); // rỗng nếu group
 
   const wrapStyle = {
@@ -367,9 +401,7 @@ export default function ScoreOverlay() {
             <span style={styles.name} title={nameA}>
               {nameA}
             </span>
-            {serveSide === "A" && (
-              <span style={styles.serve}>Giao: {serverName || nameA}</span>
-            )}
+            {serveSide === "A" && <ServeBalls count={serveCount} />}
           </div>
           <div style={styles.score}>{scoreA}</div>
         </div>
@@ -381,9 +413,7 @@ export default function ScoreOverlay() {
             <span style={styles.name} title={nameB}>
               {nameB}
             </span>
-            {serveSide === "B" && (
-              <span style={styles.serve}>Giao: {serverName || nameB}</span>
-            )}
+            {serveSide === "B" && <ServeBalls count={serveCount} />}
           </div>
           <div style={styles.score}>{scoreB}</div>
         </div>
@@ -391,7 +421,7 @@ export default function ScoreOverlay() {
         {/* Bảng set */}
         {showSets && (
           <div style={styles.tableWrap}>
-            {/* Header: có ô đầu nhưng ẩn, để giữ căn lề */}
+            {/* Header */}
             <div style={styles.tableRowHeader}>
               <div style={{ ...styles.th, ...styles.thHidden }} />
               {setSummary.map((s, i) => (
@@ -531,6 +561,16 @@ const styles = {
     borderRadius: 6,
     padding: "1px 6px",
     marginLeft: 6,
+    display: "inline-flex",
+    alignItems: "center",
+  },
+  ballsWrap: { display: "inline-flex", gap: 4, alignItems: "center" },
+  ball: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    background: "currentColor",
+    display: "inline-block",
   },
   score: {
     fontWeight: 800,
@@ -568,14 +608,8 @@ const styles = {
     textAlign: "center",
     color: "var(--muted)",
   },
-  // 👇 ẩn ô đầu header nhưng vẫn giữ chỗ để không lệch
-  thHidden: {
-    visibility: "hidden",
-  },
-  thActive: {
-    borderColor: "#94a3b8",
-    background: "#0ea5e933",
-  },
+  thHidden: { visibility: "hidden" },
+  thActive: { borderColor: "#94a3b8", background: "#0ea5e933" },
   tdTeam: {
     padding: "4px 6px",
     borderRadius: 6,
@@ -590,10 +624,7 @@ const styles = {
     textAlign: "center",
     minWidth: 24,
   },
-  cellActive: {
-    borderColor: "#94a3b8",
-    background: "#64748b22",
-  },
+  cellActive: { borderColor: "#94a3b8", background: "#64748b22" },
 
   badge: {
     fontWeight: 700,

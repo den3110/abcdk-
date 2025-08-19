@@ -433,16 +433,15 @@ export const searchUser = asyncHandler(async (req, res) => {
 
   const qNorm = vnNorm(rawQ);
   const qCompact = qNorm.replace(/\s+/g, "");
+  const qTokensRaw = rawQ.split(/\s+/).filter(Boolean);       // giữ dấu để regex trực tiếp
+  const qTokensNorm = qNorm.split(/\s+/).filter(Boolean);     // cho scoring
+
   const qDigits = rawQ.replace(/\D/g, "");
 
-  // === NHẬN DIỆN TRUY VẤN SỐ ĐIỆN THOẠI ===
-  // coi là sđt khi toàn bộ ký tự là số/dấu +-(). và có >= 8 chữ số
-  const isPhoneQuery =
-    /^\+?\d[\d\s().-]*$/.test(rawQ) && qDigits.length >= 8;
-
-  // ===== PHONE MODE: exact only (0xxx / 84xxx / +84xxx) =====
+  // === PHONE MODE (y như cũ) ===
+  const isPhoneQuery = /^\+?\d[\d\s().-]*$/.test(rawQ) && qDigits.length >= 8;
   if (isPhoneQuery) {
-    const pv = phoneVariants(qDigits); // { arr: [...], set: Set(...) }
+    const pv = phoneVariants(qDigits);
 
     const users = await User.find({ phone: { $in: pv.arr } })
       .select("_id name nickname phone avatar province")
@@ -451,7 +450,6 @@ export const searchUser = asyncHandler(async (req, res) => {
 
     if (!users.length) return res.json([]);
 
-    // lấy điểm trình mới nhất (1 query)
     const idList = users.map((u) => u._id);
     const lastScores = await ScoreHistory.aggregate([
       { $match: { user: { $in: idList } } },
@@ -475,25 +473,47 @@ export const searchUser = asyncHandler(async (req, res) => {
     );
   }
 
-  // ===== TEXT MODE: fuzzy cho name/nickname/province (như trước) =====
-  const orConds = [
+  // ===== TEXT MODE (3 pha) =====
+  // PHA 1: prefix & exact (nhanh, dùng index nếu có)
+  const orPrefix = [
     { nickname: rawQ },
     { name: rawQ },
+    { province: rawQ },
     { nickname: { $regex: "^" + escapeReg(rawQ), $options: "i" } },
     { name: { $regex: "^" + escapeReg(rawQ), $options: "i" } },
-    { province: rawQ },
     { province: { $regex: "^" + escapeReg(rawQ), $options: "i" } },
   ];
 
-  const users = await User.find({ $or: orConds })
+  let users = await User.find({ $or: orPrefix })
     .select("_id name nickname phone avatar province")
     .limit(200)
-    .collation({ locale: "vi", strength: 1 }) // case-insensitive + bỏ dấu
+    // collation hỗ trợ so sánh/equality bỏ dấu; regex thì Mongo không áp dụng collation,
+    // nhưng vẫn giữ để sort ổn định hơn:
+    .collation({ locale: "vi", strength: 1 })
     .lean();
+
+  // PHA 2: token substring (AND-of-OR) — chạy khi chưa đủ
+  if (users.length < limit * 2 && qTokensRaw.length) {
+    const andConds = qTokensRaw.map((tk) => ({
+      $or: [
+        { nickname: { $regex: escapeReg(tk), $options: "i" } },
+        { name: { $regex: escapeReg(tk), $options: "i" } },
+        // province thường cần prefix là đủ; nhưng nếu muốn substring luôn thì đổi thành escapeReg(tk)
+        { province: { $regex: "^" + escapeReg(tk), $options: "i" } },
+      ],
+    }));
+
+    const more = await User.find({ $and: andConds })
+      .select("_id name nickname phone avatar province")
+      .limit(200)
+      .lean();
+
+    users = dedupById([...users, ...more]);
+  }
 
   if (!users.length) return res.json([]);
 
-  // chấm điểm tuyến tính như trước
+  // ===== SCORING (cải tiến để ưu tiên đủ token & đúng cụm) =====
   const scored = users.map((u) => {
     const fields = {
       name: String(u.name || ""),
@@ -507,37 +527,61 @@ export const searchUser = asyncHandler(async (req, res) => {
     };
 
     let score = 0;
+
     // EXACT (không dấu)
     if (qNorm === norm.nick) score += 900;
     if (qNorm === norm.name) score += 800;
 
-    // PREFIX
+    // PREFIX (không dấu)
     if (isPrefix(qNorm, norm.nick)) score += 700;
     if (isPrefix(qNorm, norm.name)) score += 600;
 
-    // SUBSTRING
+    // SUBSTRING thô (giữ cụm gốc có dấu để ưu tiên "mạnh linh" liền nhau)
+    if (fields.nick.toLowerCase().includes(rawQ.toLowerCase())) score += 550;
+    if (fields.name.toLowerCase().includes(rawQ.toLowerCase())) score += 500;
+
+    // SUBSTRING (không dấu)
     if (norm.nick.includes(qNorm)) score += 300;
     if (norm.name.includes(qNorm)) score += 250;
 
-    // SUBSEQUENCE
+    // SUBSEQUENCE (không dấu, compact)
     if (isSubsequence(qCompact, norm.nick.replace(/\s+/g, ""))) score += 220;
     if (isSubsequence(qCompact, norm.name.replace(/\s+/g, ""))) score += 200;
+
+    // TOKEN COVERAGE: đủ các token trong cùng field sẽ cộng nhiều điểm
+    if (qTokensNorm.length) {
+      const nickHits = countTokenHits(qTokensNorm, norm.nick);
+      const nameHits = countTokenHits(qTokensNorm, norm.name);
+
+      score += nickHits * 110; // mỗi token match trong nickname
+      score += nameHits * 90;  // mỗi token match trong name
+
+      if (nickHits === qTokensNorm.length) score += 220; // đủ token trong nickname
+      if (nameHits === qTokensNorm.length) score += 180; // đủ token trong name
+
+      // Đúng thứ tự & sát nhau (ví dụ "mạnh linh" xuất hiện liền)
+      if (qTokensRaw.length >= 2) {
+        const phrase = qTokensRaw.join("\\s+");
+        const rePhrase = new RegExp(phrase, "i");
+        if (rePhrase.test(fields.nick)) score += 160;
+        if (rePhrase.test(fields.name)) score += 140;
+      }
+    }
 
     // PROVINCE
     if (qNorm === norm.province) score += 60;
     else if (isPrefix(qNorm, norm.province)) score += 30;
 
-    // tie-break
+    // tie-break theo độ dài gần
     score -= Math.abs(norm.nick.length - qNorm.length) * 0.2;
     score -= Math.abs(norm.name.length - qNorm.length) * 0.1;
 
     return { user: u, score };
   });
 
-  // bucket sort đơn giản
+  // bucket sort + ưu tiên có phone & gần độ dài
   const buckets = new Map();
-  let maxB = -Infinity,
-    minB = Infinity;
+  let maxB = -Infinity, minB = Infinity;
   for (const it of scored) {
     const b = Math.floor(it.score / 10);
     maxB = Math.max(maxB, b);
@@ -545,15 +589,16 @@ export const searchUser = asyncHandler(async (req, res) => {
     if (!buckets.has(b)) buckets.set(b, []);
     buckets.get(b).push(it);
   }
+
   const ranked = [];
   for (let b = maxB; b >= minB && ranked.length < limit * 3; b--) {
     const arr = buckets.get(b);
     if (!arr) continue;
-    // ưu tiên có phone & độ dài gần
     arr.sort((a, b) => {
       const ap = a.user.phone ? 1 : 0;
       const bp = b.user.phone ? 1 : 0;
       if (ap !== bp) return bp - ap;
+
       const ad =
         Math.abs(vnNorm(String(a.user.nickname || "")).length - qNorm.length) +
         Math.abs(vnNorm(String(a.user.name || "")).length - qNorm.length);
@@ -590,50 +635,21 @@ export const searchUser = asyncHandler(async (req, res) => {
   );
 });
 
-/* ========= helpers ========= */
-function clampInt(v, min, max, dflt) {
-  const n = parseInt(v, 10);
-  if (Number.isFinite(n)) return Math.min(max, Math.max(min, n));
-  return dflt;
+/* ===== helpers mới ===== */
+function dedupById(arr) {
+  const seen = new Set();
+  const out = [];
+  for (const u of arr) {
+    const k = String(u._id);
+    if (!seen.has(k)) { seen.add(k); out.push(u); }
+  }
+  return out;
 }
-function escapeReg(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function countTokenHits(tokensNorm, targetNorm) {
+  let hits = 0;
+  for (const tk of tokensNorm) if (targetNorm.includes(tk)) hits++;
+  return hits;
 }
-function vnNorm(s) {
-  return String(s || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D")
-    .toLowerCase()
-    .trim();
-}
-function isPrefix(q, s) {
-  return q && s ? s.startsWith(q) : false;
-}
-function isSubsequence(q, s) {
-  if (!q) return false;
-  let i = 0;
-  for (let c of s) if (c === q[i]) i++;
-  return i === q.length;
-}
-function phoneVariants(rawDigits) {
-  const d = String(rawDigits).replace(/\D/g, "");
-  // chuẩn local 0xxxxxxxxx
-  let local = d;
-  if (d.startsWith("84")) local = "0" + d.slice(2);
-  if (d.startsWith("084")) local = "0" + d.slice(3);
-  if (!local.startsWith("0")) local = "0" + local;
-
-  const core = local.startsWith("0") ? local.slice(1) : local;
-  const intl84 = "84" + core;
-  const plus84 = "+84" + core;
-
-  const arr = [local, intl84, plus84]; // <-- dùng array cho $in
-  const set = new Set(arr);
-  return { local, intl84, plus84, arr, set };
-}
-
 
 export {
   authUser,
