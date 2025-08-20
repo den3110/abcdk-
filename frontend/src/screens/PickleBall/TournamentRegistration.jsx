@@ -27,6 +27,8 @@ import {
   DialogContent,
   DialogActions,
   Alert,
+  MenuItem,
+  Pagination,
 } from "@mui/material";
 import { Container as RBContainer } from "react-bootstrap";
 import { toast } from "react-toastify";
@@ -35,6 +37,8 @@ import {
   MoneyOff,
   DeleteOutline,
   EditOutlined,
+  Equalizer,
+  Groups,
 } from "@mui/icons-material";
 
 import {
@@ -75,6 +79,9 @@ const getUserId = (pl) => {
   if (typeof u === "object" && u._id) return String(u._id);
   return null;
 };
+
+const totalScoreOf = (r, isSingles) =>
+  (r?.player1?.score || 0) + (isSingles ? 0 : r?.player2?.score || 0);
 
 function PaymentChip({ status, paidAt }) {
   const isPaid = status === "Paid";
@@ -183,6 +190,10 @@ export default function TournamentRegistration() {
   const me = useSelector((s) => s.auth?.userInfo || null);
   const isLoggedIn = !!me?._id;
 
+  // Pagination (client-side)
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
   /* ───────── queries ───────── */
   const {
     data: tour,
@@ -235,7 +246,7 @@ export default function TournamentRegistration() {
   });
   const [newPlayer, setNewPlayer] = useState(null);
 
-  // NEW: Public profile dialog
+  // Public profile dialog
   const [profileDlg, setProfileDlg] = useState({ open: false, userId: null });
   const openProfileByPlayer = (pl) => {
     const uid = getUserId(pl);
@@ -265,7 +276,7 @@ export default function TournamentRegistration() {
   );
   const canManage = isLoggedIn && (isManager || isAdmin);
 
-  // invites của giải hiện tại (memo để ổn định)
+  // invites của giải hiện tại (memo)
   const pendingInvitesHere = useMemo(() => {
     if (!isLoggedIn) return [];
     return (myInvites || []).filter(
@@ -422,6 +433,13 @@ export default function TournamentRegistration() {
   /* ───────── helpers ───────── */
   const playersOfReg = (r) => [r?.player1, r?.player2].filter(Boolean);
   const disableSubmit = saving || !p1 || (isDoubles && !p2);
+  const regCount = regs?.length ?? 0;
+  const totalPages = Math.max(1, Math.ceil(regCount / pageSize));
+  const baseIndex = (page - 1) * pageSize;
+  const paginatedRegs = useMemo(
+    () => regs.slice(baseIndex, baseIndex + pageSize),
+    [regs, baseIndex, pageSize]
+  );
 
   const renderInviteConfirmState = (inv) => {
     const { confirmations = {}, eventType } = inv || {};
@@ -502,6 +520,17 @@ export default function TournamentRegistration() {
           {player?.phone}
         </Typography>
       </Box>
+
+      {/* Điểm trình (chốt lúc đăng ký) */}
+      <Tooltip arrow title="Điểm trình (chốt lúc đăng ký)">
+        <Chip
+          size="small"
+          variant="outlined"
+          icon={<Equalizer fontSize="small" />}
+          label={player?.score ?? 0}
+          sx={{ whiteSpace: "nowrap" }}
+        />
+      </Tooltip>
 
       {canEdit && (
         <Tooltip arrow title="Thay VĐV">
@@ -698,9 +727,17 @@ export default function TournamentRegistration() {
       )}
 
       {/* LIST (dưới) */}
-      <Typography variant="h5" className="mb-1">
-        Danh sách đăng ký
-      </Typography>
+      <Stack direction="row" alignItems="center" spacing={1} className="mb-1">
+        <Typography variant="h5">Danh sách đăng ký ({regCount})</Typography>
+        <Chip
+          size="small"
+          color="primary"
+          variant="outlined"
+          icon={<Groups fontSize="small" />}
+          label={`${regCount} ${isSingles ? "VĐV" : "đội"}`}
+          sx={{ ml: 0.5 }}
+        />
+      </Stack>
 
       {regsLoading ? (
         <CircularProgress />
@@ -713,12 +750,14 @@ export default function TournamentRegistration() {
       ) : isMobile ? (
         // mobile cards
         <Stack spacing={2}>
-          {regs.map((r, i) => {
+          {paginatedRegs.map((r, i0) => {
             const isOwner =
               isLoggedIn && String(r?.createdBy) === String(me?._id);
             return (
               <Paper key={r._id} sx={{ p: 2 }}>
-                <Typography variant="subtitle2">#{i + 1}</Typography>
+                <Typography variant="subtitle2">
+                  #{baseIndex + i0 + 1}
+                </Typography>
 
                 {playersOfReg(r).map((pl, idx) => (
                   <Stack
@@ -765,6 +804,17 @@ export default function TournamentRegistration() {
                       </Typography>
                     </Box>
 
+                    {/* Điểm trình */}
+                    <Tooltip arrow title="Điểm trình (chốt lúc đăng ký)">
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        icon={<Equalizer fontSize="small" />}
+                        label={pl?.score ?? 0}
+                        sx={{ whiteSpace: "nowrap" }}
+                      />
+                    </Tooltip>
+
                     {canManage && (
                       <Tooltip
                         arrow
@@ -810,6 +860,16 @@ export default function TournamentRegistration() {
                   <CheckinChip checkinAt={r.checkinAt} />
                 </Stack>
 
+                {/* Tổng điểm */}
+                <Stack direction="row" spacing={1} mt={1} alignItems="center">
+                  <Typography variant="body2">Tổng điểm:</Typography>
+                  <Chip
+                    size="small"
+                    icon={<Equalizer fontSize="small" />}
+                    label={totalScoreOf(r, isSingles)}
+                  />
+                </Stack>
+
                 <Box mt={1}>
                   <ActionCell
                     r={r}
@@ -833,6 +893,7 @@ export default function TournamentRegistration() {
                 <TableCell sx={{ whiteSpace: "nowrap" }}>#</TableCell>
                 <TableCell>{isSingles ? "VĐV" : "VĐV 1"}</TableCell>
                 {!isSingles && <TableCell>VĐV 2</TableCell>}
+                <TableCell sx={{ whiteSpace: "nowrap" }}>Tổng điểm</TableCell>
                 <TableCell sx={{ whiteSpace: "nowrap" }}>
                   Thời gian tạo
                 </TableCell>
@@ -844,12 +905,14 @@ export default function TournamentRegistration() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {regs.map((r, i) => {
+              {paginatedRegs.map((r, i0) => {
                 const isOwner =
                   isLoggedIn && String(r?.createdBy) === String(me?._id);
                 return (
                   <TableRow key={r._id} hover>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>{i + 1}</TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>
+                      {baseIndex + i0 + 1}
+                    </TableCell>
 
                     <TableCell>
                       <PlayerCell
@@ -882,6 +945,16 @@ export default function TournamentRegistration() {
                     )}
 
                     <TableCell sx={{ whiteSpace: "nowrap" }}>
+                      <Tooltip arrow title="Tổng điểm trình (chốt lúc đăng ký)">
+                        <Chip
+                          size="small"
+                          icon={<Equalizer fontSize="small" />}
+                          label={totalScoreOf(r, isSingles)}
+                        />
+                      </Tooltip>
+                    </TableCell>
+
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>
                       {new Date(r.createdAt).toLocaleString()}
                     </TableCell>
 
@@ -912,6 +985,26 @@ export default function TournamentRegistration() {
             </TableBody>
           </Table>
         </TableContainer>
+      )}
+
+      {/* Pagination controls */}
+      {!regsLoading && !regsErr && regCount > 0 && (
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={1.5}
+          alignItems={{ xs: "center", md: "center" }}
+          justifyContent="center"
+          sx={{ mt: 2 }}
+        >
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Pagination
+              color="primary"
+              page={page}
+              count={totalPages}
+              onChange={(_, p) => setPage(p)}
+            />
+          </Stack>
+        </Stack>
       )}
 
       {/* Preview ảnh */}

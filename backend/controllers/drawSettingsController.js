@@ -403,7 +403,7 @@ export const getGlobalDrawSettings = expressAsyncHandler(async (_req, res) => {
 export const updateGlobalDrawSettings = expressAsyncHandler(
   async (req, res) => {
     const patch = req.body?.drawSettings || req.body || {};
-    console.log("patch", patch);
+    // console.log("patch", patch);
     const cur =
       (await AppSetting.findOne({ key: "drawSettings" }).lean())?.value || {};
     const merged = normalize(mergeAllowed(cur, patch)); // loại field lạ, chuẩn hoá số
@@ -489,7 +489,7 @@ export const updateBracketDrawSettings = expressAsyncHandler(
   async (req, res) => {
     const { bracketId } = req.params;
     const patch = req.body?.drawSettings || req.body || {};
-    console.log("patch", patch);
+    // console.log("patch", patch);
     const cur =
       (await Bracket.findById(bracketId).select("drawSettings").lean())
         ?.drawSettings || {};

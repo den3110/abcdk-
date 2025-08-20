@@ -178,12 +178,14 @@ function codeToTeams(k) {
   }
   return null;
 }
+
 function nextPow2(n) {
   let p = 1;
   const need = Math.max(2, n | 0);
   while (p < need) p <<= 1;
   return p;
 }
+
 async function calcRoundNumberForCode(tournamentId, code) {
   const totalTeams = await Registration.countDocuments({
     tournament: tournamentId,
@@ -264,6 +266,34 @@ async function purgePreviousDrawResults(
   return purgeMatchesByIds(matchIds);
 }
 
+// ==== THÊM VÀO PHẦN HELPERS Ở TRÊN FILE ==================================
+// Lấy số dương đầu tiên trong danh sách, nếu không có thì trả null
+const pickPositive = (...vals) => {
+  for (const x of vals) {
+    const v = Number(x);
+    if (Number.isFinite(v) && v > 0) return v;
+  }
+  return null;
+};
+// Lấy theo thứ tự ưu tiên (coalesce) cho boolean/string/number (không ép >0)
+const coalesce = (...vals) => {
+  for (const v of vals) {
+    if (v !== undefined && v !== null) return v;
+  }
+  return undefined;
+};
+// Đọc preset drawSettings từ nhiều vị trí có thể có (tuỳ bạn lưu ở đâu)
+function getDrawPreset(bracket, tournament) {
+  // tuỳ codebase của bạn, thử vài chỗ phổ biến:
+  return (
+    bracket?.config?.drawSettings ||
+    bracket?.drawSettings ||
+    tournament?.config?.drawSettings ||
+    tournament?.drawSettings ||
+    null
+  );
+}
+
 // (giữ lại helpers khác bạn đã có: normalizeRoundKey, roundKeyToPairs, calc roundNumber..., v.v.)
 
 // ─────────────────────────────────────────────────────────────
@@ -320,35 +350,69 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
 
   if (mode === "group") {
     await purgePreviousDrawResults(bracket._id, "group", null);
-    // 1) Lập plan nhóm
+
+    // === NEW: Lấy preset từ Bracket/Tournament (DrawSettingsSchema) ===
+    const preset = getDrawPreset(bracket, bracket.tournament); // có thể null
+    const plannerPreset = preset?.planner || {};
+
+    // groupSize/groupCount: ưu tiên body → preset (>0) → auto(null)
+    const effGroupSize = pickPositive(groupSize, plannerPreset.groupSize);
+    const effGroupCount = pickPositive(groupCount, plannerPreset.groupCount);
+
+    // Các policy khác: ưu tiên body → preset → fallback mặc định
+    const plannerOpts = {
+      autoFit: coalesce(settings?.autoFit, plannerPreset.autoFit, true),
+      allowUneven: coalesce(
+        settings?.allowUneven,
+        plannerPreset.allowUneven,
+        true
+      ),
+      byePolicy: coalesce(settings?.byePolicy, plannerPreset.byePolicy, "none"),
+      overflowPolicy: coalesce(
+        settings?.overflowPolicy,
+        plannerPreset.overflowPolicy,
+        "grow"
+      ),
+      underflowPolicy: coalesce(
+        settings?.underflowPolicy,
+        plannerPreset.underflowPolicy,
+        "shrink"
+      ),
+      minSize: Number(coalesce(settings?.minSize, plannerPreset.minSize, 3)),
+      maxSize: Number(coalesce(settings?.maxSize, plannerPreset.maxSize, 16)),
+    };
+
+    // 1) Lập plan nhóm với "eff" đã merge
     const { groupSizes, byes } = planGroups(regs.length, {
-      groupSize,
-      groupCount,
-      autoFit: settings?.autoFit !== false,
-      allowUneven: settings?.allowUneven !== false,
-      byePolicy: settings?.byePolicy || "none",
-      overflowPolicy: settings?.overflowPolicy || "grow",
-      underflowPolicy: settings?.underflowPolicy || "shrink",
-      minSize: Number(settings?.minSize ?? 3),
-      maxSize: Number(settings?.maxSize ?? 16),
+      groupSize: effGroupSize, // null ⇒ auto
+      groupCount: effGroupCount, // null ⇒ auto
+      ...plannerOpts,
     });
+
     if (!groupSizes?.length) {
       res.status(400);
       throw new Error("Cannot plan groups with provided parameters.");
     }
 
-    // 2) Khởi tạo board rỗng theo plan (Có type + key để pass schema)
+    // 2) Khởi tạo board rỗng theo plan (cũ)
     const keys = groupKeys(groupSizes.length);
     const board = {
-      type: "group", // REQUIRED BY SCHEMA
+      type: "group",
       groups: groupSizes.map((sz, i) => ({
-        key: keys[i], // REQUIRED: tránh lỗi "board.groups.#.key is required"
+        key: keys[i],
         size: sz,
-        slots: Array(sz).fill(null), // danh sách regId hoặc null
+        slots: Array(sz).fill(null),
       })),
     };
 
-    // 3) Tạo session
+    // === NEW: seed ưu tiên body → preset.seed (>0) → để default trong model ===
+    const presetSeed = pickPositive(seed, preset?.seed);
+    const sessionSettings = {
+      ...settings, // body override
+      ...(presetSeed ? { seed: presetSeed } : {}), // chỉ set khi có số > 0
+    };
+
+    // 3) Tạo session (giữ nguyên các field cũ)
     const sess = await DrawSession.create({
       tournament: bracket.tournament._id,
       bracket: bracket._id,
@@ -358,19 +422,16 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       taken: [],
       cursor: { gIndex: 0, slotIndex: 0 },
       status: "active",
-      settings: { ...settings, seed },
+      settings: sessionSettings, // <— đã merge seed
       history: [{ action: "start", by: req.user?._id || null }],
     });
 
-    // 4) Emit planned cho mọi người đang xem bracket
     emitPlanned(
       io,
       bracketId,
       { groupSizes, byes },
       board.groups.map((g, i) => ({ index: i, key: g.key, ids: [] }))
     );
-
-    // 5) Emit update rỗng cho room session
     await emitUpdate(io, sess);
 
     return res.json({

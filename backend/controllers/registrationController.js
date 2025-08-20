@@ -204,7 +204,6 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     Boolean(req.user?.isAdmin) ||
     req.user?.role === "admin" ||
     (Array.isArray(req.user?.roles) && req.user.roles.includes("admin"));
-  console.log("admin")
   let canSeeFullPhone = false;
   if (isAdmin) {
     canSeeFullPhone = true;

@@ -217,7 +217,10 @@ function buildRR(teams) {
   const schedule = [];
   for (let r = 0; r < rounds; r++) {
     const left = [fixed].concat(rot.slice(0, (n - 1) / 2));
-    const right = rot.slice((n - 1) / 2).slice().reverse();
+    const right = rot
+      .slice((n - 1) / 2)
+      .slice()
+      .reverse();
     const pairs = [];
     for (let i = 0; i < left.length; i++) {
       const A = left[i];
@@ -230,7 +233,6 @@ function buildRR(teams) {
   return schedule;
 }
 
-
 // ⬇️ Cập nhật: nhận doubleRound và nhân đôi lịch khi cần
 function RoundRobinPreview({ groupsMeta, regIndex, doubleRound = false }) {
   return (
@@ -239,7 +241,19 @@ function RoundRobinPreview({ groupsMeta, regIndex, doubleRound = false }) {
         const teamNames = (g.regIds || []).map((rid) => {
           const reg = regIndex?.get(String(rid));
           return reg
-            ? (reg.player2 ? `${reg.player1?.fullName || reg.player1?.name || reg.player1?.nickname} & ${reg.player2?.fullName || reg.player2?.name || reg.player2?.nickname}` : (reg.player1?.fullName || reg.player1?.name || reg.player1?.nickname))
+            ? reg.player2
+              ? `${
+                  reg.player1?.fullName ||
+                  reg.player1?.name ||
+                  reg.player1?.nickname
+                } & ${
+                  reg.player2?.fullName ||
+                  reg.player2?.name ||
+                  reg.player2?.nickname
+                }`
+              : reg.player1?.fullName ||
+                reg.player1?.name ||
+                reg.player1?.nickname
             : typeof rid === "string"
             ? `#${rid.slice(-6)}`
             : "—";
@@ -254,13 +268,21 @@ function RoundRobinPreview({ groupsMeta, regIndex, doubleRound = false }) {
             )
           : schedule1;
 
-        const totalMatches = (teamNames.length * (teamNames.length - 1)) / 2 * (doubleRound ? 2 : 1);
+        const totalMatches =
+          ((teamNames.length * (teamNames.length - 1)) / 2) *
+          (doubleRound ? 2 : 1);
 
         return (
           <Paper key={String(g.code)} variant="outlined" sx={{ p: 2 }}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+            <Stack
+              direction="row"
+              justifyContent="space-between"
+              alignItems="center"
+              sx={{ mb: 1 }}
+            >
               <Typography fontWeight={700}>
-                Lịch thi đấu — Bảng {g.code} {doubleRound ? "(2 lượt)" : "(1 lượt)"}
+                Lịch thi đấu — Bảng {g.code}{" "}
+                {doubleRound ? "(2 lượt)" : "(1 lượt)"}
               </Typography>
               <Chip size="small" label={`Tổng: ${totalMatches} trận`} />
             </Stack>
@@ -649,13 +671,22 @@ export default function DrawPage() {
         regIds: Array.isArray(g.regIds) ? g.regIds : [],
       }));
 
-    if (persisted.some((g) => g.size > 0 || (g.regIds && g.regIds.length))) {
-      return persisted;
-    }
+    const persistedFilled = persisted.some(
+      (g) => g.size > 0 || (g.regIds && g.regIds.length)
+    );
+
+    // 👇 ƯU TIÊN planned khi đang chạy (chưa commit)
     if (state === "running" && plannedGroupsMeta.length) {
       return plannedGroupsMeta;
     }
-    return persisted;
+
+    // Sau khi commit/idle: nếu đã có dữ liệu lưu trên bracket thì dùng persisted
+    if (persistedFilled) return persisted;
+
+    // Fallback: nếu chưa có gì trên bracket mà đã có planned (ví dụ vừa start xong)
+    if (plannedGroupsMeta.length) return plannedGroupsMeta;
+
+    return persisted; // cuối cùng: có thể là mảng rỗng
   }, [groupsRaw, state, plannedGroupsMeta]);
 
   const hasGroups = useMemo(() => (groupsMeta?.length || 0) > 0, [groupsMeta]);
