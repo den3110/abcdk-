@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
+import Registration from "../models/registrationModel.js"
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 // @desc    Lấy danh sách giải đấu (lọc theo sportType & groupId)
@@ -186,26 +187,230 @@ const getTournamentById = asyncHandler(async (req, res) => {
  * User route: trả về các bracket của giải, sort theo stage -> order -> createdAt
  * Thêm matchesCount (tính qua $lookup, không tốn populate).
  */
+// helper
+
+/* ========== Helpers ========== */
+function buildKoLabels(B) {
+  const labels = [];
+  for (let s = B; s >= 2; s >>= 1) {
+    if (s === 8) labels.push("QF");
+    else if (s === 4) labels.push("SF");
+    else if (s === 2) labels.push("F");
+    else labels.push(`R${s}`);
+  }
+  return labels;
+}
+
+function sanitizeKoMeta(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const ko = { ...raw };
+  if (!ko.entrants || ko.entrants <= 1) {
+    if (ko.bracketSize && ko.bracketSize >= 2) {
+      const labels = buildKoLabels(ko.bracketSize);
+      ko.labels = labels;
+      ko.rounds = Math.log2(ko.bracketSize) | 0;
+      ko.startKey = labels[0];
+    } else return null;
+  } else {
+    const B =
+      ko.bracketSize && ko.bracketSize >= 2
+        ? ko.bracketSize
+        : 1 << Math.ceil(Math.log2(ko.entrants));
+    ko.bracketSize = B;
+    ko.rounds = Math.log2(B) | 0;
+    ko.byes = typeof ko.byes === "number" ? ko.byes : B - ko.entrants;
+    ko.labels =
+      Array.isArray(ko.labels) && ko.labels.length
+        ? ko.labels
+        : buildKoLabels(B);
+    ko.startKey = ko.startKey || ko.labels[0];
+  }
+  return ko;
+}
+
+/* ========== Controller ========== */
 export const listTournamentBrackets = asyncHandler(async (req, res, next) => {
   try {
     const { id } = req.params;
-    if (!isId(id))
+    if (!isId(id)) {
       return res.status(400).json({ message: "Invalid tournament id" });
+    }
 
-    const list = await Bracket.aggregate([
+    const rows = await Bracket.aggregate([
       { $match: { tournament: new mongoose.Types.ObjectId(id) } },
       { $sort: { stage: 1, order: 1, createdAt: 1 } },
+
+      // fallback theo matches (nếu cần)
       {
         $lookup: {
           from: "matches",
-          localField: "_id",
-          foreignField: "bracket",
-          as: "_m",
+          let: { bid: "$_id" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$bracket", "$$bid"] } } },
+            { $group: { _id: "$roundKey", matches: { $sum: 1 } } },
+            { $project: { _id: 0, roundKey: "$_id", matches: 1 } },
+          ],
+          as: "_rounds",
         },
       },
-      { $addFields: { matchesCount: { $size: "$_m" } } },
-      { $project: { _m: 0 } },
+
+      // DrawSession KO mới nhất: LẤY CẢ source & board để FE vẽ sơ đồ prefill
+      {
+        $lookup: {
+          from: "drawsessions",
+          let: { bid: "$_id" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    { $eq: ["$bracket", "$$bid"] },
+                    { $eq: ["$mode", "knockout"] },
+                  ],
+                },
+              },
+            },
+            { $sort: { createdAt: -1 } },
+            { $limit: 1 },
+            { $project: { _id: 1, board: 1, computedMeta: 1, source: 1 } }, // 👈 lấy thêm source
+          ],
+          as: "_draw",
+        },
+      },
+
+      // Giữ matchesCount như cũ
+      {
+        $addFields: {
+          matchesCount: { $sum: "$_rounds.matches" },
+        },
+      },
     ]);
+
+    // === Thu thập mọi regId trong board prefill để map tên ===
+    const allIds = new Set();
+    for (const b of rows) {
+      const ds = Array.isArray(b._draw) ? b._draw[0] : null;
+      const pairs = ds?.board?.pairs || [];
+      for (const p of pairs) {
+        if (p?.a) allIds.add(String(p.a));
+        if (p?.b) allIds.add(String(p.b));
+      }
+    }
+    const regIds = [...allIds].map((s) => new mongoose.Types.ObjectId(s));
+    let regMap = new Map();
+    if (regIds.length) {
+      const regs = await Registration.find({ _id: { $in: regIds } })
+        .select("_id name displayName team shortName")
+        .lean();
+      regMap = new Map(
+        regs.map((r) => [
+          String(r._id),
+          {
+            name:
+              r.displayName ||
+              r.shortName ||
+              r.name ||
+              (r.team ? r.team.name : "Unnamed"),
+          },
+        ])
+      );
+    }
+
+    // === Hậu xử lý: build ko + prefill (để FE render sơ đồ ngay cả khi chưa có match) ===
+    const list = rows.map((b) => {
+      let ko = null;
+      let prefill = null;
+
+      if (b.type === "knockout") {
+        const ds = Array.isArray(b._draw) ? b._draw[0] : null;
+
+        // 1) ƯU TIÊN: ko meta từ DrawSession
+        if (ds?.computedMeta?.ko) {
+          const sanitized = sanitizeKoMeta(ds.computedMeta.ko);
+          if (sanitized) {
+            ko = sanitized;
+            if (ds.computedMeta.flags) {
+              ko.flags = ds.computedMeta.flags;
+            }
+          }
+        }
+
+        // 2) prefill board để vẽ sơ đồ (kể cả khi entrants null/ BYE)
+        if (ds?.board?.pairs?.length) {
+          const pairs = ds.board.pairs.map((p) => ({
+            index: p.index,
+            a: p.a
+              ? {
+                  id: String(p.a),
+                  name: regMap.get(String(p.a))?.name || null,
+                }
+              : null, // null = BYE
+            b: p.b
+              ? {
+                  id: String(p.b),
+                  name: regMap.get(String(p.b))?.name || null,
+                }
+              : null,
+          }));
+          prefill = {
+            drawId: String(ds._id),
+            roundKey: ds.board.roundKey || (ko ? ko.startKey : null),
+            isVirtual: !!ds?.computedMeta?.flags?.virtual,
+            source: ds?.source
+              ? {
+                  fromBracket: ds.source.fromBracket
+                    ? String(ds.source.fromBracket)
+                    : null,
+                  fromName: ds.source.fromName || null,
+                  fromType: ds.source.fromType || null,
+                  mode: ds.source.mode || null,
+                  params: ds.source.params || null,
+                }
+              : null,
+            pairs,
+          };
+
+          // nếu chưa có ko, suy B từ board
+          if (!ko) {
+            const B = pairs.length * 2;
+            if (B >= 2) {
+              const labels = buildKoLabels(B);
+              ko = {
+                bracketSize: B,
+                rounds: Math.log2(B) | 0,
+                startKey: labels[0],
+                labels,
+              };
+            }
+          }
+        }
+
+        // 3) Cuối: nếu vẫn chưa có ko thì fallback từ matches
+        if (!ko && Array.isArray(b._rounds) && b._rounds.length) {
+          const maxMatches = b._rounds.reduce(
+            (m, r) => Math.max(m, r?.matches || 0),
+            0
+          );
+          const B = maxMatches * 2;
+          if (B >= 2) {
+            const labels = buildKoLabels(B);
+            ko = {
+              bracketSize: B,
+              rounds: Math.log2(B) | 0,
+              startKey: labels[0],
+              labels,
+            };
+          }
+        }
+      }
+
+      // loại bỏ field tạm
+      const { _rounds, _draw, ...rest } = b;
+      const out = { ...rest };
+      if (ko) out.ko = ko;
+      if (prefill) out.prefill = prefill;
+      return out;
+    });
 
     res.json(list);
   } catch (err) {

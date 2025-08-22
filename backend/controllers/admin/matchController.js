@@ -6,6 +6,7 @@ import expressAsyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import { softResetChainFrom } from "../../services/matchChainReset.js";
 import applyRatingsForMatch from "../../utils/applyRatingsForMatch.js";
+import { applyRatingForFinishedMatch } from "../../utils/applyRatingForFinishedMatch.js";
 
 /* Tạo 1 trận trong 1 bảng */
 export const adminCreateMatch = expressAsyncHandler(async (req, res) => {

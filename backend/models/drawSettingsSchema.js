@@ -1,4 +1,4 @@
-// models/schemas/drawSettingsSchema.js
+// models/drawSettingsSchema.js
 import mongoose from "mongoose";
 
 const DrawSettingsSchema = new mongoose.Schema(

@@ -1,6 +1,5 @@
 // controllers/progressionController.js
 // =====================================
-import mongoose from "mongoose";
 import expressAsyncHandler from "express-async-handler";
 import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
@@ -13,6 +12,7 @@ import {
   buildSeeding,
   createRound1Matches,
 } from "../services/progressionService.js";
+import mongoose from "mongoose";
 
 export const listTournamentStages = expressAsyncHandler(async (req, res) => {
   const { tid } = req.params;
@@ -249,10 +249,126 @@ export const commitAdvancement = expressAsyncHandler(async (req, res) => {
 });
 
 // --- NEW: Prefill a DrawSession for the target bracket using qualifiers from a previous stage ---
+/* ===== Helpers ===== */
+
+/* ================= Helpers (tối thiểu) ================= */
+
+function buildKoLabels(B) {
+  const labels = [];
+  for (let s = B; s >= 2; s >>= 1) {
+    if (s === 8) labels.push("QF");
+    else if (s === 4) labels.push("SF");
+    else if (s === 2) labels.push("F");
+    else labels.push(`R${s}`);
+  }
+  return labels;
+}
+
+function buildKoMeta(n) {
+  const entrants = Number(n) || 0;
+  if (entrants <= 0) {
+    return {
+      entrants: 0,
+      bracketSize: 0,
+      rounds: 0,
+      labels: [],
+      startKey: null,
+      byes: 0,
+    };
+  }
+  if (entrants === 1) {
+    return {
+      entrants: 1,
+      bracketSize: 1,
+      rounds: 0,
+      labels: [],
+      startKey: null,
+      byes: 0,
+    };
+  }
+  const B = 1 << Math.ceil(Math.log2(entrants));
+  const byes = B - entrants;
+  const labels = buildKoLabels(B);
+  return {
+    entrants,
+    bracketSize: B,
+    rounds: Math.log2(B),
+    labels,
+    startKey: labels[0],
+    byes,
+  };
+}
+
+function expectedWinnersCount(drawSize, round) {
+  const r = Math.max(1, round | 0);
+  if (!drawSize || drawSize < 2) return 0;
+  return Math.max(1, Math.floor(drawSize / Math.pow(2, r)));
+}
+
+// Lấy danh sách regId đang ở bracket nguồn (PO)
+async function getSourceEntrantRegIds(source) {
+  if (Array.isArray(source.groups) && source.groups.length) {
+    const ids = [];
+    for (const g of source.groups)
+      if (Array.isArray(g.regIds)) ids.push(...g.regIds);
+    if (ids.length) return ids.map((x) => new mongoose.Types.ObjectId(x));
+  }
+  // tuỳ schema của bạn: ví dụ Registration có field brackets: [bracketId]
+  const regs = await Registration.find({
+    tournament: source.tournament,
+    brackets: source._id,
+  })
+    .select("_id")
+    .lean();
+  return regs.map((r) => r._id);
+}
+
+// Winner của round r (roundIndex = r-1)
+async function getWinnersOfRound(sourceBracketId, round) {
+  const idx = Math.max(0, (round | 0) - 1);
+  const matches = await Match.find({
+    bracket: sourceBracketId,
+    roundIndex: idx,
+  })
+    .select("winner.regId")
+    .lean();
+  return matches.map((m) => m?.winner?.regId).filter(Boolean);
+}
+
+function mkPairsFromEntrants(arr, pairing = "standard") {
+  const N = arr.length;
+  const out = [];
+  if (pairing === "standard") {
+    for (let i = 0; i < Math.floor(N / 2); i++) {
+      const A = arr[i];
+      const B = arr[N - 1 - i];
+      out.push({ a: A?.regId ?? null, b: B?.regId ?? null });
+    }
+  } else if (pairing === "snake") {
+    const left = arr.slice(0, Math.floor(N / 2));
+    const right = arr.slice(Math.floor(N / 2)).reverse();
+    for (let i = 0; i < left.length; i++)
+      out.push({ a: left[i]?.regId ?? null, b: right[i]?.regId ?? null });
+  } else {
+    throw new Error(`Unsupported pairing: ${pairing}`);
+  }
+  return out;
+}
+
+function padWithByesBySeededOrder(seeded, bracketSize) {
+  const arr = [...seeded];
+  while (arr.length < bracketSize)
+    arr.push({ regId: null, seed: null, bye: true });
+  return arr;
+}
+
+/* ================= Controller ================= */
+
 export const prefillAdvancement = expressAsyncHandler(async (req, res) => {
   const { targetId } = req.params;
+
   const target = await Bracket.findById(targetId).select(
-    "_id tournament type name order config"
+    "_id tournament type name config groups"
   );
   if (!target) {
     res.status(404);
@@ -266,12 +382,14 @@ export const prefillAdvancement = expressAsyncHandler(async (req, res) => {
   const {
     fromBracket,
     mode, // "KO_ROUND_WINNERS" | "GROUP_TOP"
-    round,
+    round, // round=1 => lấy winners sau round 1
     topPerGroup = 1,
     limit = 0,
     seedMethod = "rating",
-    fillMode = "pool", // "pool" = put entrants into pool for manual draw; "pairs" = pre-seat into pairs
-    pairing = "standard", // only used when fillMode = "pairs"
+    fillMode = "pairs", // mặc định vẽ sẵn cặp
+    pairing = "standard",
+    padPairsToBracketSize = true,
+    virtualIfEmpty = true,
   } = req.body || {};
 
   if (!fromBracket || !mode) {
@@ -291,110 +409,192 @@ export const prefillAdvancement = expressAsyncHandler(async (req, res) => {
 
   let qualifiers = [];
   let meta = {};
+  let flags = { virtual: false };
 
   if (mode === "KO_ROUND_WINNERS") {
     if (!round || typeof round !== "number") {
       res.status(400);
       throw new Error("round (Number) is required for KO_ROUND_WINNERS");
     }
-    ({ qualifiers, meta } = await computeQualifiersFromKO({
-      sourceBracketId: source._id,
-      round,
-      limit,
-    }));
+
+    // 1) Winners thực tế (nếu đã có)
+    const realWinnerRegIds = await getWinnersOfRound(source._id, round);
+
+    if (realWinnerRegIds.length > 0) {
+      qualifiers = realWinnerRegIds.map((regId) => ({ regId }));
+      meta = {
+        sourceRound: round,
+        expected: realWinnerRegIds.length,
+        actual: realWinnerRegIds.length,
+        virtual: false,
+      };
+    } else if (virtualIfEmpty) {
+      // 2) Prefill ảo theo seeding của PO
+      const drawSize =
+        source?.meta?.drawSize || source?.config?.roundElim?.drawSize || 0;
+      const expect = expectedWinnersCount(drawSize, round); // ví dụ 16/2=8
+
+      const entrantRegIds = await getSourceEntrantRegIds(source);
+      if (!entrantRegIds.length) {
+        qualifiers = [];
+        meta = {
+          sourceRound: round,
+          expected: expect,
+          actual: 0,
+          virtual: true,
+        };
+      } else {
+        const seededAll = await buildSeeding({
+          qualifiers: entrantRegIds.map((id) => ({ regId: id })),
+          seedMethod,
+          tournamentId: target.tournament,
+        });
+        const take = limit > 0 ? Math.min(expect, limit) : expect;
+        qualifiers = seededAll.slice(0, take).map((s) => ({ regId: s.regId }));
+        meta = {
+          sourceRound: round,
+          expected: expect,
+          actual: 0,
+          virtual: true,
+        };
+        flags.virtual = true;
+      }
+    } else {
+      qualifiers = [];
+      meta = { sourceRound: round, expected: 0, actual: 0, virtual: false };
+    }
   } else if (mode === "GROUP_TOP") {
-    ({ qualifiers, meta } = await computeQualifiersFromGroups({
-      sourceBracketId: source._id,
-      topPerGroup,
-      limit,
-    }));
+    res.status(400);
+    throw new Error("Use KO_ROUND_WINNERS for PO → KO prefill");
   } else {
     res.status(400);
     throw new Error(`Unsupported mode: ${mode}`);
   }
 
+  // Seed lại qualifiers (thực/ảo) để xếp vào KO
   const seeded = await buildSeeding({
     qualifiers,
     seedMethod,
     tournamentId: target.tournament,
   });
-
-  // Build board
   const entrants = seeded.map((s) => ({ regId: s.regId, seed: s.seed }));
 
-  const mkPairsFromEntrants = (arr) => {
-    const N = arr.length;
-    const out = [];
-    if (pairing === "standard") {
-      for (let i = 0; i < N / 2; i++) {
-        const A = arr[i];
-        const B = arr[N - 1 - i];
-        out.push({ a: A.regId, b: B.regId });
-      }
-    } else if (pairing === "snake") {
-      const left = arr.slice(0, N / 2);
-      const right = arr.slice(N / 2).reverse();
-      for (let i = 0; i < left.length; i++)
-        out.push({ a: left[i].regId, b: right[i].regId });
-    } else {
-      throw new Error(`Unsupported pairing: ${pairing}`);
+  // Tính meta KO từ entrants hiện có
+  let koMeta = buildKoMeta(entrants.length);
+
+  // ===== Skeleton fallback: vẫn vẽ bracket khi entrants=0 =====
+  let board, pool;
+  if (virtualIfEmpty && entrants.length === 0) {
+    const drawSize =
+      source?.meta?.drawSize || source?.config?.roundElim?.drawSize || 0;
+    const expect = expectedWinnersCount(drawSize, round); // ví dụ 16/2=8
+    if (expect >= 2) {
+      const B = 1 << Math.ceil(Math.log2(expect));
+      const labels = buildKoLabels(B);
+      koMeta = {
+        entrants: 0,
+        bracketSize: B,
+        rounds: Math.log2(B),
+        labels,
+        startKey: labels[0],
+        byes: B,
+      };
+
+      // pairs skeleton (toàn null) để FE vẽ khung
+      const blankSeeded = Array.from({ length: B }, () => ({
+        regId: null,
+        seed: null,
+      }));
+      const pairs = mkPairsFromEntrants(blankSeeded, pairing);
+
+      board = {
+        type: "knockout",
+        roundKey: koMeta.startKey,
+        pairs: pairs.map((p, i) => ({ index: i, a: p.a, b: p.b })), // đều null = BYE
+      };
+      pool = []; // không có pool trong skeleton
     }
-    return out;
-  };
-
-  const pairsNeeded = Math.floor(entrants.length / 2);
-
-  let board;
-  let pool;
-
-  const roundKeyFromTeams = (t) => {
-    const pow2 = (x) => (x & (x - 1)) === 0;
-    if (t === 2) return "F";
-    if (t === 4) return "SF";
-    if (t === 8) return "QF";
-    if (t >= 16 && pow2(t)) return `R${t}`;
-    return null; // non power of two, leave null
-  };
-
-  if (fillMode === "pairs") {
-    if (entrants.length % 2 !== 0) {
-      res.status(400);
-      throw new Error("fillMode 'pairs' requires an even number of entrants");
-    }
-    const pairs = mkPairsFromEntrants(entrants);
-    board = {
-      type: "knockout",
-      roundKey: roundKeyFromTeams(entrants.length),
-      pairs: pairs.map((p, i) => ({ index: i, a: p.a, b: p.b })),
-    };
-    pool = [];
-  } else {
-    board = {
-      type: "knockout",
-      roundKey: roundKeyFromTeams(entrants.length),
-      pairs: Array.from({ length: Math.max(1, pairsNeeded) }, (_, i) => ({
-        index: i,
-        a: null,
-        b: null,
-      })),
-    };
-    pool = entrants.map((e) => e.regId);
   }
 
+  // Nếu chưa có board (có entrants hoặc không dùng skeleton) → build bình thường
+  if (!board) {
+    if (fillMode === "pairs") {
+      let entrantsForPairs = entrants;
+      if (padPairsToBracketSize && koMeta.bracketSize >= 2) {
+        entrantsForPairs = padWithByesBySeededOrder(seeded, koMeta.bracketSize);
+      } else if (entrants.length % 2 !== 0) {
+        res.status(400);
+        throw new Error(
+          "fillMode 'pairs' requires an even number of entrants when padPairsToBracketSize=false"
+        );
+      }
+      const pairs = mkPairsFromEntrants(entrantsForPairs, pairing);
+      board = {
+        type: "knockout",
+        roundKey: koMeta.startKey,
+        pairs: pairs.map((p, i) => ({ index: i, a: p.a, b: p.b })),
+      };
+      pool = [];
+    } else {
+      // pool: cũng có thể vẽ khung đủ B/2 nếu đã biết bracketSize
+      const nPairs =
+        koMeta.bracketSize >= 2
+          ? koMeta.bracketSize / 2
+          : Math.max(1, Math.floor(entrants.length / 2));
+      board = {
+        type: "knockout",
+        roundKey: koMeta.startKey,
+        pairs: Array.from({ length: nPairs }, (_, i) => ({
+          index: i,
+          a: null,
+          b: null,
+        })),
+      };
+      pool = entrants.map((e) => e.regId);
+    }
+  }
+
+  // ===== Lưu DrawSession (NHỚ: source tách riêng, không nhét vào computedMeta) =====
   const sess = await DrawSession.create({
     tournament: target.tournament,
     bracket: target._id,
     mode: "knockout",
+
     board,
     pool,
     taken: [],
     targetRound: board.roundKey || null,
     cursor: { pairIndex: 0, side: "A" },
     status: "active",
-    settings: { seedMethod, pairing },
+
+    settings: { seedMethod, pairing, padPairsToBracketSize, virtualIfEmpty },
+
+    source: {
+      fromBracket: source._id,
+      fromName: source.name,
+      fromType: source.type,
+      mode, // "KO_ROUND_WINNERS"
+      params: { round, topPerGroup, limit },
+      seedMethod,
+      fillMode,
+      pairing,
+      virtualIfEmpty,
+      resolved: {
+        entrants: koMeta.entrants,
+        byes: koMeta.byes,
+        expected: meta?.expected ?? null,
+        actual: meta?.actual ?? null,
+        virtual: !!flags.virtual,
+      },
+      sampleQualifiers: seeded.slice(0, 32).map((s) => s.regId),
+    },
+
+    computedMeta: { ko: koMeta, flags },
+
     history: [{ action: "start", by: req.user?._id || null }],
   });
 
+  // ===== Response =====
   return res.json({
     ok: true,
     drawId: String(sess._id),
@@ -402,6 +602,11 @@ export const prefillAdvancement = expressAsyncHandler(async (req, res) => {
     source: { _id: source._id, name: source.name, type: source.type },
     fillMode,
     count: entrants.length,
-    seeded,
+    seeded, // [{ regId, seed }]
+    meta: {
+      source: meta, // info lấy từ PO (expected/actual/virtual)
+      ko: koMeta, // labels/startKey/bracketSize/byes…
+      flags, // { virtual: true/false }
+    },
   });
 });

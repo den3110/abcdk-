@@ -142,6 +142,23 @@ const DrawSessionSchema = new mongoose.Schema(
         },
       },
     ],
+    board: {
+      type: { type: String },
+      roundKey: String,
+      pairs: [
+        { index: Number, a: mongoose.Schema.Types.ObjectId, b: mongoose.Schema.Types.ObjectId },
+      ],
+    },
+    computedMeta: {
+      ko: {
+        entrants: Number,
+        bracketSize: Number,
+        rounds: Number,
+        labels: [String],
+        startKey: String,
+        byes: Number,
+      },
+    },
 
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,

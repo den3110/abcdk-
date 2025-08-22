@@ -8,7 +8,7 @@ import Match from "../models/matchModel.js";
 import { canManageTournament } from "../utils/tournamentAuth.js";
 import expressAsyncHandler from "express-async-handler";
 import TournamentManager from "../models/tournamentManagerModel.js";
-
+import Ranking from "../models/rankingModel.js";
 /* Tạo đăng ký */
 // POST /api/tournaments/:id/registrations
 export const createRegistration = asyncHandler(async (req, res) => {
@@ -472,6 +472,55 @@ function toPlayerSubdoc(u) {
  * PATCH /api/registrations/:regId/manager/replace-player
  * body: { slot: 'p1'|'p2', userId }
  */
+
+// Helper: lấy rank cho list userId -> Map(userIdStr -> snapshot)
+async function getRanksMap(userIds = []) {
+  const ids = userIds.filter(Boolean).map(String);
+  if (!ids.length) return new Map();
+
+  const rows = await Ranking.find({ user: { $in: ids } })
+    .select("user single double points reputation updatedAt")
+    .lean();
+
+  const m = new Map();
+  for (const r of rows) {
+    m.set(String(r.user), {
+      single: Number(r?.single ?? 0),
+      double: Number(r?.double ?? 0),
+      points: Number(r?.points ?? 0),
+      reputation: Number(r?.reputation ?? 0),
+      updatedAt: r?.updatedAt || null,
+    });
+  }
+  return m;
+}
+
+// Lấy score hiện tại cho user theo loại giải (single/double).
+async function getCurrentScore(userId, eventType) {
+  const isSingles =
+    String(eventType || "").toLowerCase() === "single" ||
+    String(eventType || "").toLowerCase() === "singles";
+  const field = isSingles ? "single" : "double";
+
+  // 1) Ưu tiên lịch sử chấm điểm mới nhất
+  const sh = await ScoreHistory.findOne({
+    user: userId,
+    [field]: { $ne: null },
+  })
+    .sort({ scoredAt: -1, createdAt: -1, _id: -1 })
+    .select(field)
+    .lean();
+
+  if (sh && typeof sh[field] === "number") return sh[field];
+
+  // 2) Fallback sang Ranking nếu không có lịch sử
+  const r = await Ranking.findOne({ user: userId }).select(field).lean();
+  if (r && typeof r[field] === "number") return r[field];
+
+  // 3) Không có gì cả → 0
+  return 0;
+}
+
 export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
   const { regId } = req.params;
   const { slot, userId } = req.body || {};
@@ -499,9 +548,21 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy giải đấu");
   }
 
-  // Lưu ý: middleware auth có thể set req.user._id hoặc req.user.id
+  // --- Quyền: admin hoặc manager của giải ---
   const authedUserId = req.user?._id || req.user?.id;
-  if (!(await isTourManager(authedUserId, tour))) {
+  if (!authedUserId) {
+    res.status(401);
+    throw new Error("Chưa đăng nhập");
+  }
+
+  const isAdmin =
+    req.user?.isAdmin === true ||
+    req.user?.role === "admin" ||
+    (Array.isArray(req.user?.roles) &&
+      (req.user.roles.includes("admin") ||
+        req.user.roles.includes("superadmin")));
+
+  if (!(isAdmin || (await isTourManager(authedUserId, tour)))) {
     res.status(403);
     throw new Error("Bạn không có quyền thay VĐV cho đăng ký này");
   }
@@ -514,13 +575,16 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
     throw new Error("Giải đơn chỉ có VĐV 1 (p1)");
   }
 
-  const user = await User.findById(userId).select(
-    "fullName nickName nickname phone avatar score skillScore name displayName photo photoURL"
-  );
+  // Lấy user và tính score hiện tại
+  const user = await User.findById(userId)
+    .select("name nickname phone avatar")
+    .lean();
   if (!user) {
     res.status(404);
     throw new Error("Không tìm thấy User");
   }
+
+  const newScore = await getCurrentScore(user._id, tour.eventType);
 
   // Không cho 2 VĐV trùng nhau theo userId
   const otherUserId =
@@ -532,19 +596,31 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
     throw new Error("Hai VĐV trong cùng 1 cặp không thể là cùng một người");
   }
 
-  // Nếu không đổi gì thì thôi
+  // Nếu không đổi người: (tuỳ chọn) bạn có muốn refresh score luôn không?
   const currentUserId =
     slot === "p1"
       ? reg.player1?.user?.toString?.()
       : reg.player2?.user?.toString?.();
   if (currentUserId && String(currentUserId) === String(user._id)) {
+    // 👉 Nếu muốn cập nhật score cả khi không đổi người, uncomment khối sau:
+    if (slot === "p1") reg.player1.score = newScore;
+    else reg.player2.score = newScore;
+    await reg.save();
     return res.json({ message: "Không có thay đổi", registration: reg });
   }
 
-  // Thay thế snapshot subdoc
-  const newSubdoc = toPlayerSubdoc(user);
-  if (slot === "p1") reg.player1 = newSubdoc;
-  else reg.player2 = newSubdoc;
+  // --- Tạo subdoc đúng playerSchema và GÁN SCORE MỚI ---
+  const subdoc = {
+    user: user._id,
+    phone: user.phone || "", // playerSchema.required
+    fullName: user.name || user.nickname || "", // playerSchema.required
+    nickName: user.nickname || "",
+    avatar: user.avatar || "",
+    score: newScore, // ⬅️ CẬP NHẬT SCORE TẠI ĐÂY
+  };
+
+  if (slot === "p1") reg.player1 = subdoc;
+  else reg.player2 = subdoc;
 
   await reg.save();
   res.json({ message: "Đã thay VĐV", registration: reg });

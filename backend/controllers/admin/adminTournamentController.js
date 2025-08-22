@@ -1,12 +1,42 @@
-// controllers/tournamentController.js (hoặc nơi bạn đang để file này)
-import Tournament from "../../models/tournamentModel.js";
+// controllers/tournamentController.js
 import mongoose from "mongoose";
 import Joi from "joi";
-import { addTournamentReputationBonus } from "../../services/reputationService.js";
+import sanitizeHtml from "sanitize-html";
+import { DateTime } from "luxon";
+
+import Tournament from "../../models/tournamentModel.js";
 import Registration from "../../models/registrationModel.js";
+import { addTournamentReputationBonus } from "../../services/reputationService.js";
 
-/* -------------------------- Schemas nới lỏng -------------------------- */
+/* -------------------------- Sanitize cấu hình -------------------------- */
+const SAFE_HTML = {
+  allowedTags: sanitizeHtml.defaults.allowedTags.concat([
+    "h1",
+    "h2",
+    "h3",
+    "img",
+    "span",
+    "blockquote",
+    "code",
+  ]),
+  allowedAttributes: {
+    ...sanitizeHtml.defaults.allowedAttributes,
+    a: ["href", "name", "target", "rel"],
+    img: ["src", "alt", "title", "width", "height"],
+    "*": ["class", "style"],
+  },
+  allowedSchemes: ["http", "https", "mailto", "tel"],
+  allowProtocolRelative: false,
+  transformTags: {
+    a: sanitizeHtml.simpleTransform("a", {
+      rel: "noopener noreferrer nofollow",
+    }),
+  },
+};
 
+const cleanHTML = (html = "") => sanitizeHtml(html, SAFE_HTML);
+
+/* ------------------------------ Joi schemas --------------------------- */
 const dateISO = Joi.date().iso();
 
 const createSchema = Joi.object({
@@ -19,17 +49,17 @@ const createSchema = Joi.object({
   regOpenDate: dateISO.required(),
   registrationDeadline: dateISO.required(),
   startDate: dateISO.required(),
-  // CHỈ giữ ràng buộc tối thiểu: end >= start
+  // end >= start
   endDate: dateISO.min(Joi.ref("startDate")).required(),
 
   scoreCap: Joi.number().min(0).default(0),
   scoreGap: Joi.number().min(0).default(0),
   singleCap: Joi.number().min(0).default(0),
-  maxPairs: Joi.number().integer().min(0).default(0), // <-- NEW
+  maxPairs: Joi.number().integer().min(0).default(0),
 
   location: Joi.string().trim().min(2).required(),
-  contactHtml: Joi.string().allow(""),
-  contentHtml: Joi.string().allow(""),
+  contactHtml: Joi.string().allow("").max(20_000).default(""),
+  contentHtml: Joi.string().allow("").max(100_000).default(""),
 }).messages({
   "date.min": "{{#label}} phải ≥ {{#limit.key}}",
 });
@@ -44,24 +74,23 @@ const updateSchema = Joi.object({
   regOpenDate: dateISO,
   registrationDeadline: dateISO,
   startDate: dateISO,
-  endDate: dateISO, // không ràng buộc chéo
+  endDate: dateISO, // kiểm tra chéo phía dưới
 
   scoreCap: Joi.number().min(0),
   scoreGap: Joi.number().min(0),
   singleCap: Joi.number().min(0),
-  maxPairs: Joi.number().integer().min(0), // <-- NEW
+  maxPairs: Joi.number().integer().min(0),
 
   location: Joi.string().trim().min(2),
   contactHtml: Joi.string().allow(""),
   contentHtml: Joi.string().allow(""),
 });
 
-/* --------------------------------------------------------------------- */
-
+/* ------------------------------- Helpers ------------------------------ */
 const validate = (schema, payload) => {
   const { error, value } = schema.validate(payload, {
     convert: true, // nhận 'YYYY-MM-DD'
-    stripUnknown: true, // loại field thừa
+    stripUnknown: true,
     abortEarly: false,
   });
   if (error) {
@@ -75,41 +104,55 @@ const validate = (schema, payload) => {
 
 const isObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 
+const parseSort = (s) =>
+  String(s || "")
+    .split(",")
+    .reduce((acc, token) => {
+      const key = token.trim();
+      if (!key) return acc;
+      if (key.startsWith("-")) acc[key.slice(1)] = -1;
+      else acc[key] = 1;
+      return acc;
+    }, {});
+
+const isValidTZ = (tz) => {
+  if (!tz) return false;
+  const dt = DateTime.now().setZone(tz);
+  return dt.isValid;
+};
+
 /* -------------------------------------------------------------------------- */
-/*  3. Controllers                                                            */
+/*  Controllers                                                               */
 /* -------------------------------------------------------------------------- */
 
 export const getTournaments = async (req, res, next) => {
   try {
     const page = Math.max(parseInt(req.query.page ?? 1, 10), 1);
     const limit = Math.min(parseInt(req.query.limit ?? 50, 10), 100);
-    const sort = (req.query.sort || "-createdAt").toString();
+    const sortRaw = (req.query.sort || "-createdAt").toString();
+    const sortSpecRaw = parseSort(sortRaw);
+    const sortSpec = Object.keys(sortSpecRaw).length
+      ? sortSpecRaw
+      : { createdAt: -1, _id: -1 };
 
     const { keyword = "", status = "", sportType, groupId } = req.query;
 
-    // Filter cơ bản (KHÔNG dùng status ở model)
+    // Cho phép truyền tz từ client: ?tz=Asia/Ho_Chi_Minh (fallback VN)
+    const TZ =
+      (typeof req.query.tz === "string" &&
+        isValidTZ(req.query.tz) &&
+        req.query.tz) ||
+      "Asia/Ho_Chi_Minh";
+
+    // Filter cơ bản
     const match = {};
     if (keyword.trim()) match.name = { $regex: keyword.trim(), $options: "i" };
     if (sportType) match.sportType = Number(sportType);
     if (groupId) match.groupId = Number(groupId);
 
-    // parse sort: "-createdAt,name" -> { createdAt: -1, name: 1 }
-    const parseSort = (s) =>
-      s.split(",").reduce((acc, token) => {
-        const key = token.trim();
-        if (!key) return acc;
-        if (key.startsWith("-")) acc[key.slice(1)] = -1;
-        else acc[key] = 1;
-        return acc;
-      }, {});
-    const sortSpec = Object.keys(parseSort(sort)).length
-      ? parseSort(sort)
-      : { createdAt: -1, _id: -1 };
-
     const skip = (page - 1) * limit;
-    const TZ = "Asia/Bangkok";
 
-    // Chuẩn hoá tham số status (dùng status theo thời gian)
+    // Chuẩn hoá status theo ngôn ngữ
     const statusNorm = String(status || "").toLowerCase();
     const mapStatus = {
       upcoming: "upcoming",
@@ -129,8 +172,7 @@ export const getTournaments = async (req, res, next) => {
 
     const pipeline = [
       { $match: match },
-
-      // Tính status theo NGÀY (bao gồm cả ngày bắt đầu/kết thúc) theo TZ
+      // Tính status theo ngày local TZ (bao gồm ngày bắt & kết thúc)
       {
         $addFields: {
           _nowDay: {
@@ -167,20 +209,15 @@ export const getTournaments = async (req, res, next) => {
       },
     ];
 
-    // Lọc theo status mới nếu có
-    if (wantedStatus) {
-      pipeline.push({ $match: { status: wantedStatus } });
-    }
+    if (wantedStatus) pipeline.push({ $match: { status: wantedStatus } });
 
-    // Facet: data (sort/skip/limit + lookup registered) & total
     pipeline.push({
       $facet: {
         data: [
           { $sort: sortSpec },
           { $skip: skip },
           { $limit: limit },
-
-          // Đếm số registration thật
+          // Đếm số registration
           {
             $lookup: {
               from: "registrations",
@@ -216,11 +253,17 @@ export const getTournaments = async (req, res, next) => {
 export const createTournament = async (req, res, next) => {
   try {
     const data = validate(createSchema, req.body);
+
+    // sanitize HTML trước khi lưu
+    data.contactHtml = cleanHTML(data.contactHtml);
+    data.contentHtml = cleanHTML(data.contentHtml);
+
     if (!req.user?._id)
       return res.status(401).json({ message: "Unauthenticated" });
+
     const t = await Tournament.create({
       ...data,
-      createdBy: req.user._id, // gán từ user đăng nhập
+      createdBy: req.user._id,
     });
     res.status(201).json(t);
   } catch (err) {
@@ -247,14 +290,12 @@ export const updateTournament = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid ID" });
     }
 
-    // Validate phần payload gửi lên (optional + check thứ tự ngày nếu có)
     const payload = validate(updateSchema, req.body);
-
     if (!Object.keys(payload).length) {
       return res.status(400).json({ message: "Không có dữ liệu để cập nhật" });
     }
 
-    // Check thứ tự ngày nếu cả 2 mốc đều có trong payload
+    // kiểm tra chéo ngày khi có cả 2 đầu mốc
     const toDate = (v) => (v instanceof Date ? v : new Date(v));
     if (payload.startDate && payload.endDate) {
       if (toDate(payload.endDate) < toDate(payload.startDate)) {
@@ -263,10 +304,26 @@ export const updateTournament = async (req, res, next) => {
     }
     if (payload.regOpenDate && payload.registrationDeadline) {
       if (toDate(payload.registrationDeadline) < toDate(payload.regOpenDate)) {
-        return res
-          .status(400)
-          .json({ message: "registrationDeadline phải ≥ regOpenDate" });
+        return res.status(400).json({
+          message: "registrationDeadline phải ≥ regOpenDate",
+        });
       }
+    }
+    // (khuyên) đảm bảo hạn đăng ký không sau ngày bắt đầu, nếu có cả 2
+    if (payload.registrationDeadline && payload.startDate) {
+      if (toDate(payload.registrationDeadline) > toDate(payload.startDate)) {
+        return res.status(400).json({
+          message: "registrationDeadline không được sau startDate",
+        });
+      }
+    }
+
+    // sanitize HTML nếu có cập nhật
+    if (typeof payload.contactHtml === "string") {
+      payload.contactHtml = cleanHTML(payload.contactHtml);
+    }
+    if (typeof payload.contentHtml === "string") {
+      payload.contentHtml = cleanHTML(payload.contentHtml);
     }
 
     const t = await Tournament.findByIdAndUpdate(
@@ -295,28 +352,26 @@ export const deleteTournament = async (req, res, next) => {
   }
 };
 
-
-/** Kết thúc 1 giải (ăn theo endDate: snap endDate = hôm nay theo TZ, endAt = cuối ngày TZ) */
+/** Kết thúc 1 giải (snap endDate = hôm nay theo TZ, endAt = cuối ngày TZ) */
 async function finalizeOneTournament(id) {
-  // lấy TZ & trạng thái hiện tại
   const t0 = await Tournament.findById(id).select("_id status timezone").lean();
   if (!t0) return { ok: false, reason: "not_found" };
-  if (t0.status === "finished") return { ok: false, reason: "already_finished" };
+  if (t0.status === "finished")
+    return { ok: false, reason: "already_finished" };
 
-  const tz = t0.timezone || "Asia/Ho_Chi_Minh";
+  const tz = isValidTZ(t0.timezone) ? t0.timezone : "Asia/Ho_Chi_Minh";
   const nowLocal = DateTime.now().setZone(tz);
   const nowUTC = nowLocal.toUTC();
   const endOfLocalDayUTC = nowLocal.endOf("day").toUTC();
 
-  // set finished + chốt endDate/endAt
   const t = await Tournament.findOneAndUpdate(
     { _id: id, status: { $ne: "finished" } },
     {
       $set: {
         status: "finished",
-        finishedAt: nowUTC.toJSDate(), // trace
-        endDate: nowLocal.toJSDate(),  // hiển thị theo ngày địa phương hôm nay
-        endAt: endOfLocalDayUTC.toJSDate(), // mốc UTC cuối ngày để so sánh về sau
+        finishedAt: nowUTC.toJSDate(),
+        endDate: nowLocal.toJSDate(), // ngày địa phương hôm nay
+        endAt: endOfLocalDayUTC.toJSDate(), // mốc UTC cuối ngày
       },
     },
     { new: true }
@@ -328,7 +383,9 @@ async function finalizeOneTournament(id) {
     .select("player1 player2")
     .lean();
   const userIds = Array.from(
-    new Set(regs.flatMap(r => [r.player1, r.player2].filter(Boolean)).map(String))
+    new Set(
+      regs.flatMap((r) => [r.player1, r.player2].filter(Boolean)).map(String)
+    )
   );
 
   await addTournamentReputationBonus({ userIds, tournamentId: id, amount: 10 });
@@ -340,7 +397,8 @@ async function finalizeOneTournament(id) {
 export async function finishTournament(req, res) {
   try {
     const r = await finalizeOneTournament(req.params.id);
-    if (!r.ok && r.reason === "not_found") return res.status(404).json({ message: "Tournament not found" });
+    if (!r.ok && r.reason === "not_found")
+      return res.status(404).json({ message: "Tournament not found" });
     return res.json(r);
   } catch (e) {
     return res.status(500).json({ message: e.message || "Finish failed" });
@@ -354,7 +412,9 @@ export async function finishExpiredTournaments(_req, res) {
     const ids = await Tournament.find({
       status: { $ne: "finished" },
       endAt: { $lte: now },
-    }).select("_id").lean();
+    })
+      .select("_id")
+      .lean();
 
     let finished = 0;
     for (const { _id } of ids) {

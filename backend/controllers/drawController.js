@@ -459,8 +459,9 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
     let poolIds = regs.map((r) => r._id); // mặc định: tất cả đội đã Paid
     const stageTeams = codeToTeams(target) || pairCount * 2;
     const roundNumber = await calcRoundNumberForCode(
-      bracket.tournament._id,
-      target
+      bracket,
+      target,
+      pairCount
     );
 
     if (usePrevWinners) {
@@ -664,23 +665,53 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
     }
     return null;
   };
-  const calcRoundNumberForCode = async (
-    tournamentId,
-    code,
-    fallbackPairsLen
-  ) => {
-    // tổng đội đã thanh toán
-    const totalPaidTeams = await Registration.countDocuments({
-      tournament: tournamentId,
-      "payment.status": "Paid",
-    });
-    const full = nextPow2(totalPaidTeams);
-    const totalRounds = Math.max(1, Math.log2(full));
+  async function calcRoundNumberForCode(bracket, code, fallbackPairsLen) {
     const stageTeams =
       codeToTeams(code) ||
       (Number.isFinite(fallbackPairsLen) ? fallbackPairsLen * 2 : 2);
-    return Math.max(1, Math.round(totalRounds - Math.log2(stageTeams) + 1));
-  };
+
+    // Ưu tiên đọc “quy mô xuất phát” của bracket
+    const candFromKeys = codeToTeams(
+      bracket?.ko?.startKey || bracket?.prefill?.roundKey
+    );
+
+    const numericCands = [
+      bracket?.meta?.firstRoundSize,
+      bracket?.meta?.drawSize,
+      bracket?.drawScale,
+      bracket?.maxSlots,
+      bracket?.capacity,
+      bracket?.size,
+      bracket?.meta?.qualifiers,
+      bracket?.qualifiers,
+    ]
+      .map((x) => Number(x))
+      .filter((n) => Number.isFinite(n) && n >= 2);
+
+    // entryTeams = quy mô xuất phát của bracket (ít nhất bằng stageTeams)
+    let entryTeams =
+      candFromKeys ||
+      (numericCands.length ? Math.max(stageTeams, numericCands[0]) : null);
+
+    // Fallback: lấy luôn quy mô của vòng đang bốc (đảm bảo round đầu = 1)
+    if (!entryTeams && Number.isFinite(fallbackPairsLen)) {
+      entryTeams = Math.max(stageTeams, fallbackPairsLen * 2);
+    }
+
+    // Cuối cùng: rơi về tổng đăng ký đã thanh toán của cả giải (giống code cũ)
+    if (!entryTeams) {
+      const totalPaidTeams = await Registration.countDocuments({
+        tournament: bracket.tournament,
+        "payment.status": "Paid",
+      });
+      entryTeams = Math.max(stageTeams, totalPaidTeams || 2);
+    }
+
+    const full = nextPow2(entryTeams);
+    const totalRounds = Math.max(1, Math.log2(full));
+    const r = Math.max(1, Math.round(totalRounds - Math.log2(stageTeams) + 1));
+    return r;
+  }
 
   if (sess.mode === "group") {
     // 4A) GROUP: Xoá đúng các trận do lần commit group trước tạo (nếu có lưu matchIds),
@@ -709,7 +740,7 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
 
     const pairs = sess.board?.pairs || [];
     const roundNumber = await calcRoundNumberForCode(
-      tour._id,
+      br,
       target,
       pairs.length
     );

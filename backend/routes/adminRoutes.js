@@ -54,6 +54,7 @@ import { softResetChainFrom } from "../services/matchChainReset.js";
 import { finalizeExpiredTournaments } from "../services/tournamentLifecycle.js";
 import { createAutoUsers, previewAutoUsers } from "../controllers/admin/adminUserController.js";
 import { getDashboardMetrics, getDashboardSeries } from "../controllers/admin/adminDashboardController.js";
+import { batchAssignReferee, batchDeleteMatches, buildRoundElimSkeleton } from "../controllers/matchBatchController.js";
 
 const router = express.Router();
 
@@ -204,5 +205,13 @@ router.post("/users/auto/create", protect, authorize("admin"), createAutoUsers);
 
 router.get("/dashboard/metrics", protect, authorize("admin"), getDashboardMetrics);
 router.get("/dashboard/series", protect, authorize("admin"), getDashboardSeries);
+
+
+// Batch matches
+router.post("/matches/batch/update-referee", protect, authorize("admin"), batchAssignReferee);
+router.post("/brackets/:bracketId/matches/batch-delete", protect, authorize("admin"), batchDeleteMatches);
+
+// RoundElim helper
+router.post("/brackets/:bracketId/round-elim/skeleton", protect, authorize("admin"), buildRoundElimSkeleton);
 
 export default router;

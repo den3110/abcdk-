@@ -1,5 +1,14 @@
 // src/layouts/tournament/TournamentBracket.jsx
-import { useMemo, useState, useCallback, useEffect } from "react";
+import {
+  useMemo,
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  useLayoutEffect,
+  useContext,
+  createContext,
+} from "react";
 import PropTypes from "prop-types";
 import {
   Box,
@@ -28,6 +37,7 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  GlobalStyles,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -38,7 +48,6 @@ import {
 } from "@mui/icons-material";
 import { Bracket, Seed, SeedItem, SeedTeam } from "react-brackets";
 import { useParams, useSearchParams } from "react-router-dom";
-
 import {
   useGetTournamentQuery,
   useListTournamentBracketsQuery,
@@ -65,8 +74,6 @@ function safePairName(pair, eventType = "double") {
   if (isSingle) return p1;
   return p2 ? `${p1} & ${p2}` : p1;
 }
-
-// === Tên có kèm (biệt danh) cho từng VĐV — dùng ở mọi nơi LIÊN QUAN TRẬN
 const preferName = (p) =>
   (p?.fullName && String(p.fullName).trim()) ||
   (p?.name && String(p.name).trim()) ||
@@ -127,10 +134,29 @@ function roundTitleByCount(cnt) {
   if (cnt === 16) return "Vòng 1/16";
   return `Vòng (${cnt} trận)`;
 }
-
-// ========== KO helpers / placeholder ==========
 const ceilPow2 = (n) => Math.pow(2, Math.ceil(Math.log2(Math.max(1, n || 1))));
+const isPow2 = (n) => Number.isInteger(n) && n >= 1 && (n & (n - 1)) === 0;
+
+/** Đọc quy mô KO từ nhiều field cũ (fallback) */
 const readBracketScale = (br) => {
+  const teamsFromRoundKey = (k) => {
+    if (!k) return 0;
+    const up = String(k).toUpperCase();
+    if (up === "F") return 2;
+    if (up === "SF") return 4;
+    if (up === "QF") return 8;
+    if (/^R\d+$/i.test(up)) return parseInt(up.slice(1), 10);
+    return 0;
+  };
+
+  const fromKey =
+    teamsFromRoundKey(br?.ko?.startKey) ||
+    teamsFromRoundKey(br?.prefill?.roundKey);
+
+  const fromPrefillPairs = Array.isArray(br?.prefill?.pairs)
+    ? br.prefill.pairs.length * 2
+    : 0;
+
   const cands = [
     br?.drawScale,
     br?.targetScale,
@@ -140,138 +166,161 @@ const readBracketScale = (br) => {
     br?.scale,
     br?.meta?.drawSize,
     br?.meta?.scale,
+    fromKey,
+    fromPrefillPairs,
   ]
     .map((x) => Number(x))
     .filter((x) => Number.isFinite(x) && x >= 2);
+
   if (!cands.length) return 0;
   return ceilPow2(Math.max(...cands));
 };
 
-function buildEmptyRoundsByScale(scale /* 2^n */) {
-  const rounds = [];
-  let matches = Math.max(1, Math.floor(scale / 2));
-  let r = 1;
-  while (matches >= 1) {
-    const seeds = Array.from({ length: matches }, (_, i) => ({
-      id: `placeholder-${r}-${i}`,
-      __match: null,
-      teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
-    }));
-    rounds.push({ title: roundTitleByCount(matches), seeds });
-    matches = Math.floor(matches / 2);
-    r += 1;
+/* ===================== 🆕 Gate: chỉ hiện cúp/nhà vô địch khi bracket KO đầy đủ ===================== */
+/**
+ * Luật:
+ * - Các round phải LIÊN TIẾP (rmin..rmax đều có).
+ * - Nếu CHỈ có 1 round và có đúng 1 trận → coi như chung kết hợp lệ (nếu đã kết thúc và có winner).
+ * - Nếu có ≥2 round:
+ *    + round đầu quan sát được phải có ≥2 trận (chặn case chỉ có 1 trận ở "tứ kết").
+ *    + Mỗi round sau có số trận 1..ceil(trước/2).
+ *    + Round cuối phải có đúng 1 trận.
+ * - Trận round cuối phải finished + có winner.
+ */
+function computeChampionGate(allMatches) {
+  const M = (allMatches || []).slice();
+  if (!M.length) return { allowed: false, matchId: null, pair: null };
+
+  const byR = new Map();
+  for (const m of M) {
+    const r = Number(m.round || 1);
+    byR.set(r, (byR.get(r) || 0) + 1);
   }
-  return rounds;
-}
+  const rounds = Array.from(byR.keys()).sort((a, b) => a - b);
+  if (!rounds.length) return { allowed: false, matchId: null, pair: null };
 
-// Xây rounds có placeholder, đảm bảo trải dài tới chung kết
-function buildRoundsWithPlaceholders(
-  brMatches,
-  { minRounds = 0, extendForward = true } = {}
-) {
-  const real = (brMatches || [])
-    .slice()
-    .sort(
-      (a, b) =>
-        (a.round || 1) - (b.round || 1) || (a.order || 0) - (b.order || 0)
-    );
+  const rmin = rounds[0];
+  const rmax = rounds[rounds.length - 1];
 
-  const roundsHave = Array.from(new Set(real.map((m) => m.round || 1))).sort(
-    (a, b) => a - b
-  );
-  const lastRound = roundsHave.length ? Math.max(...roundsHave) : 1;
+  // phải liên tiếp
+  for (let r = rmin; r <= rmax; r++)
+    if (!byR.get(r)) return { allowed: false, matchId: null, pair: null };
 
-  let firstRound = roundsHave.length ? Math.min(...roundsHave) : 1;
-  const haveColsInitial = roundsHave.length ? lastRound - firstRound + 1 : 1;
-  if (minRounds && haveColsInitial < minRounds) {
-    firstRound = Math.max(1, lastRound - (minRounds - 1));
-  }
+  const c0 = byR.get(rmin) || 0;
 
-  const countByRoundReal = {};
-  real.forEach((m) => {
-    const r = m.round || 1;
-    countByRoundReal[r] = (countByRoundReal[r] || 0) + 1;
-  });
-
-  const seedsCount = {};
-  seedsCount[lastRound] = countByRoundReal[lastRound] || 1;
-  for (let r = lastRound - 1; r >= firstRound; r--) {
-    seedsCount[r] = countByRoundReal[r] || seedsCount[r + 1] * 2;
+  // Case chỉ có 1 round
+  if (rounds.length === 1) {
+    if (c0 !== 1) return { allowed: false, matchId: null, pair: null };
+    const finals = M.filter((m) => Number(m.round || 1) === rmax);
+    const fm = finals.length === 1 ? finals[0] : null;
+    const done =
+      fm &&
+      String(fm.status || "").toLowerCase() === "finished" &&
+      (fm.winner === "A" || fm.winner === "B");
+    const champion = done ? (fm.winner === "A" ? fm.pairA : fm.pairB) : null;
+    return {
+      allowed: !!done,
+      matchId: done ? fm._id || null : null,
+      pair: champion,
+    };
   }
 
-  if (extendForward) {
-    let cur = lastRound;
-    while ((seedsCount[cur] || 1) > 1) {
-      const nxt = cur + 1;
-      seedsCount[nxt] = Math.ceil((seedsCount[cur] || 1) / 2);
-      cur = nxt;
+  // Có >= 2 round: rmin phải >=2 trận
+  if (c0 < 2) return { allowed: false, matchId: null, pair: null };
+
+  // Giảm hợp lệ và cuối = 1
+  let exp = c0;
+  for (let r = rmin + 1; r <= rmax; r++) {
+    const cr = byR.get(r);
+    const maxAllowed = Math.ceil(exp / 2);
+    if (!Number.isFinite(cr) || cr < 1 || cr > maxAllowed) {
+      return { allowed: false, matchId: null, pair: null };
     }
+    exp = cr;
   }
+  if (byR.get(rmax) !== 1) return { allowed: false, matchId: null, pair: null };
 
-  const roundNums = Object.keys(seedsCount)
-    .map(Number)
-    .sort((a, b) => a - b);
-
-  return roundNums.map((r) => {
-    const need = seedsCount[r];
-    const seeds = Array.from({ length: need }, (_, i) => ({
-      id: `placeholder-${r}-${i}`,
-      __match: null,
-      teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
-    }));
-
-    const ms = real
-      .filter((m) => (m.round || 1) === r)
-      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
-
-    ms.forEach((m, idx) => {
-      let i = Number.isInteger(m.order)
-        ? m.order
-        : seeds.findIndex((s) => s.__match === null);
-      if (i < 0 || i >= seeds.length) i = Math.min(idx, seeds.length - 1);
-
-      const sideLabel = (side) => {
-        const pair = side === "A" ? m.pairA : m.pairB;
-        const prev = side === "A" ? m.previousA : m.previousB;
-        if (pair)
-          return pairLabelWithNick(
-            side === "A" ? m.pairA : m.pairB,
-            m?.tournament?.eventType
-          );
-        if (prev) return depLabel(prev);
-        return "Chưa có đội";
-      };
-
-      seeds[i] = {
-        id: m._id || `${r}-${i}`,
-        date: m?.scheduledAt
-          ? new Date(m.scheduledAt).toDateString()
-          : undefined,
-        __match: m,
-        teams: [{ name: sideLabel("A") }, { name: sideLabel("B") }],
-      };
-    });
-
-    return { title: roundTitleByCount(need), seeds };
-  });
+  // Trận CK phải kết thúc & có winner
+  const finals = M.filter((m) => Number(m.round || 1) === rmax);
+  const fm = finals.length === 1 ? finals[0] : null;
+  if (
+    !fm ||
+    String(fm.status || "").toLowerCase() !== "finished" ||
+    !fm.winner
+  ) {
+    return { allowed: false, matchId: null, pair: null };
+  }
+  const champion = fm.winner === "A" ? fm.pairA : fm.pairB;
+  return { allowed: true, matchId: fm._id || null, pair: champion };
 }
 
-/* ========== Custom seed (cúp chỉ ở trận vô địch) ========== */
+/* ===================== Fix lệch: đồng bộ chiều cao theo vòng ===================== */
+const SEED_MIN_H = 88; // tối thiểu để chứa 2 dòng tên + trạng thái
+const HeightSyncContext = createContext({ get: () => 0, report: () => {} });
+
+function HeightSyncProvider({ roundsKey, children }) {
+  const [maxByRound, setMaxByRound] = useState({});
+  const api = useMemo(
+    () => ({
+      get: (r) => maxByRound[r] || 0,
+      report: (r, h) =>
+        setMaxByRound((prev) => {
+          const cur = prev[r] || 0;
+          return h > cur ? { ...prev, [r]: h } : prev;
+        }),
+    }),
+    [maxByRound]
+  );
+  useEffect(() => setMaxByRound({}), [roundsKey]);
+  return (
+    <HeightSyncContext.Provider value={api}>
+      {children}
+    </HeightSyncContext.Provider>
+  );
+}
+function useResizeHeight(ref, onHeight) {
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const el = ref.current;
+    const report = () => onHeight(el.offsetHeight || 0);
+    report();
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    window.addEventListener("resize", report);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", report);
+    };
+  }, [ref, onHeight]);
+}
+
+/* ========== Custom seed (KHÔNG ellipsis, cho wrap + sync height) ========== */
 const RED = "#F44336";
 const CustomSeed = ({ seed, breakpoint, onOpen, championMatchId }) => {
   const m = seed.__match || null;
+  const roundNo = Number(seed.__round || m?.round || 1);
   const nameA = seed.teams?.[0]?.name || "Chưa có đội";
   const nameB = seed.teams?.[1]?.name || "Chưa có đội";
   const winA = m?.status === "finished" && m?.winner === "A";
   const winB = m?.status === "finished" && m?.winner === "B";
   const isPlaceholder =
     !m && nameA === "Chưa có đội" && nameB === "Chưa có đội";
-
   const isChampion =
     !!m &&
     !!championMatchId &&
     String(m._id) === String(championMatchId) &&
     (winA || winB);
+
+  // Ẩn “đường đi tiếp” nếu là cột cuối (vòng cắt ở roundElim hoặc cột CK)
+  const hideAdvanceTick = seed.__lastCol === true;
+  const showAdvanceTick = !hideAdvanceTick && (winA || winB);
+
+  const wrapRef = useRef(null);
+  const sync = useContext(HeightSyncContext);
+  useResizeHeight(wrapRef, (h) =>
+    sync.report(roundNo, Math.max(h, SEED_MIN_H))
+  );
+  const syncedMinH = Math.max(SEED_MIN_H, sync.get(roundNo));
 
   const RightTick = (props) => (
     <span
@@ -289,13 +338,34 @@ const CustomSeed = ({ seed, breakpoint, onOpen, championMatchId }) => {
     />
   );
 
+  const lineStyle = (isWin) => ({
+    display: "block",
+    fontWeight: isWin ? 700 : 400,
+    borderLeft: isWin ? `4px solid ${RED}` : "4px solid transparent",
+    paddingLeft: 6,
+    opacity: isPlaceholder ? 0.7 : 1,
+    fontStyle: isPlaceholder ? "italic" : "normal",
+    // ---- KHÔNG ELLIPSIS, CHO WRAP ----
+    whiteSpace: "normal",
+    overflow: "visible",
+    textOverflow: "unset",
+    wordBreak: "break-word",
+    lineHeight: 1.25,
+  });
+
   return (
     <Seed mobileBreakpoint={breakpoint} style={{ fontSize: 13 }}>
       <SeedItem
         onClick={() => m && onOpen?.(m)}
-        style={{ cursor: m ? "pointer" : "default" }}
+        style={{
+          cursor: m ? "pointer" : "default",
+          minHeight: syncedMinH, // đồng bộ theo vòng
+        }}
       >
-        <div style={{ position: "relative", display: "grid", gap: 4 }}>
+        <div
+          ref={wrapRef}
+          style={{ position: "relative", display: "grid", gap: 4 }}
+        >
           {isChampion && (
             <TrophyIcon
               sx={{
@@ -308,28 +378,9 @@ const CustomSeed = ({ seed, breakpoint, onOpen, championMatchId }) => {
             />
           )}
 
-          <SeedTeam
-            style={{
-              fontWeight: winA ? 700 : 400,
-              borderLeft: winA ? `4px solid ${RED}` : "4px solid transparent",
-              paddingLeft: 6,
-              opacity: isPlaceholder ? 0.7 : 1,
-              fontStyle: isPlaceholder ? "italic" : "normal",
-            }}
-          >
-            {nameA}
-          </SeedTeam>
-          <SeedTeam
-            style={{
-              fontWeight: winB ? 700 : 400,
-              borderLeft: winB ? `4px solid ${RED}` : "4px solid transparent",
-              paddingLeft: 6,
-              opacity: isPlaceholder ? 0.7 : 1,
-              fontStyle: isPlaceholder ? "italic" : "normal",
-            }}
-          >
-            {nameB}
-          </SeedTeam>
+          {/* dùng SeedTeam nhưng ép style để bỏ ellipsis và cho wrap */}
+          <SeedTeam style={lineStyle(winA)}>{nameA}</SeedTeam>
+          <SeedTeam style={lineStyle(winB)}>{nameB}</SeedTeam>
 
           <div style={{ fontSize: 11, opacity: 0.75 }}>
             {m
@@ -338,12 +389,14 @@ const CustomSeed = ({ seed, breakpoint, onOpen, championMatchId }) => {
               ? "Chưa có đội"
               : "Chưa diễn ra"}
           </div>
-          {(winA || winB) && <RightTick />}
+
+          {showAdvanceTick && <RightTick />}
         </div>
       </SeedItem>
     </Seed>
   );
 };
+
 CustomSeed.propTypes = {
   seed: PropTypes.shape({
     __match: PropTypes.shape({
@@ -352,6 +405,8 @@ CustomSeed.propTypes = {
       winner: PropTypes.string,
       round: PropTypes.number,
     }),
+    __round: PropTypes.number,
+    __lastCol: PropTypes.bool,
     teams: PropTypes.arrayOf(PropTypes.shape({ name: PropTypes.string })),
   }).isRequired,
   breakpoint: PropTypes.number,
@@ -475,37 +530,10 @@ function MatchContent({ m, isLoading, liveLoading }) {
   const canSeeOverlay = isAdmin || isManager;
 
   const streams = extractStreams(m);
-  const teamA = m?.pairA
-    ? pairLabelWithNick(m.pairA, m?.tournament?.eventType)
-    : depLabel(m?.previousA);
-  const teamB = m?.pairB
-    ? pairLabelWithNick(m.pairB, m?.tournament?.eventType)
-    : depLabel(m?.previousB);
-
   const status = m?.status || "scheduled";
   const winnerSide = m?.status === "finished" ? m?.winner : "";
   const gamesWon = countGamesWon(m?.gameScores);
   const curr = lastGameScore(m?.gameScores);
-
-  const leading =
-    status === "live"
-      ? curr.a > curr.b
-        ? "A"
-        : curr.b > curr.a
-        ? "B"
-        : ""
-      : m?.status === "finished"
-      ? winnerSide
-      : "";
-
-  const origin =
-    typeof window !== "undefined" && window?.location?.origin
-      ? window.location.origin
-      : "";
-  const overlayUrl =
-    m?._id && origin
-      ? `${origin}/overlay/score?matchId=${m._id}&theme=dark&size=md&showSets=1`
-      : "";
 
   const yt = streams.find((s) => ytEmbed(s.url));
   const ytSrc = ytEmbed(yt?.url);
@@ -518,6 +546,11 @@ function MatchContent({ m, isLoading, liveLoading }) {
     );
   }
   if (!m) return <Alert severity="error">Không tải được dữ liệu trận.</Alert>;
+
+  const overlayUrl =
+    m?._id && typeof window !== "undefined" && window?.location?.origin
+      ? `${window.location.origin}/overlay/score?matchId=${m._id}&theme=dark&size=md&showSets=1`
+      : "";
 
   return (
     <Stack spacing={2}>
@@ -639,34 +672,36 @@ function MatchContent({ m, isLoading, liveLoading }) {
             <Typography variant="body2" color="text.secondary">
               Đội A
             </Typography>
-            <Typography variant="h6">{teamA}</Typography>
+            <Typography variant="h6">
+              {m?.pairA
+                ? pairLabelWithNick(m.pairA, m?.tournament?.eventType)
+                : depLabel(m?.previousA)}
+            </Typography>
           </Box>
           <Box textAlign="center" minWidth={140}>
-            {status === "live" && (
+            {m?.status === "live" && (
               <Typography variant="caption" color="text.secondary">
                 Ván hiện tại
               </Typography>
             )}
             <Typography variant="h4" fontWeight={800}>
-              {curr.a} – {curr.b}
+              {lastGameScore(m?.gameScores).a} –{" "}
+              {lastGameScore(m?.gameScores).b}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Sets: {gamesWon.A} – {gamesWon.B}
+              Sets: {countGamesWon(m?.gameScores).A} –{" "}
+              {countGamesWon(m?.gameScores).B}
             </Typography>
-            {!!leading && (
-              <Chip
-                size="small"
-                color="primary"
-                sx={{ mt: 0.5 }}
-                label={leading === "A" ? "A đang dẫn" : "B đang dẫn"}
-              />
-            )}
           </Box>
           <Box flex={1} textAlign={{ xs: "left", sm: "right" }}>
             <Typography variant="body2" color="text.secondary">
               Đội B
             </Typography>
-            <Typography variant="h6">{teamB}</Typography>
+            <Typography variant="h6">
+              {m?.pairB
+                ? pairLabelWithNick(m.pairB, m?.tournament?.eventType)
+                : depLabel(m?.previousB)}
+            </Typography>
           </Box>
         </Stack>
 
@@ -891,6 +926,8 @@ function buildGroupIndex(bracket) {
   }
   return { byKey, byRegId };
 }
+
+/* ===================== BXH theo nhóm ===================== */
 function lastGameScoreLocal(gameScores) {
   if (!Array.isArray(gameScores) || !gameScores.length) return { a: 0, b: 0 };
   return gameScores[gameScores.length - 1] || { a: 0, b: 0 };
@@ -1108,7 +1145,6 @@ function TeamHistoryDialog({
   );
 }
 
-/* ===================== BXH theo nhóm ===================== */
 function computeGroupTablesForBracket(bracket, matches, eventType) {
   const { byKey, byRegId } = buildGroupIndex(bracket);
 
@@ -1530,6 +1566,295 @@ GroupStandings.propTypes = {
   onOpenMatch: PropTypes.func,
 };
 
+/* ===================== 🆕 RoundElim builder ===================== */
+/**
+ * Xây rounds cho round-elim:
+ * - Chỉ tới vòng cắt (Vòng 1…Vòng k)
+ * - Nếu có meta.expectedFirstRoundMatches = cutTo (số đội muốn giữ lại), thì k = 1 + ceil(log2(N / cutTo))
+ * - Cột cuối gắn __lastCol=true để ẩn tick “đi tiếp”
+ * - Thêm __round để đồng bộ chiều cao theo vòng
+ */
+function buildRoundElimRounds(bracket, brMatches) {
+  const ceil2 = (n) => Math.pow(2, Math.ceil(Math.log2(Math.max(1, n || 1))));
+  const isPow2Local = (n) =>
+    Number.isInteger(n) && n > 0 && (n & (n - 1)) === 0;
+
+  // N: quy mô tổng
+  const Nmeta = Number(bracket?.meta?.drawSize) || 0;
+  const Ncfg = Number(bracket?.config?.roundElim?.drawSize) || 0;
+  let N = Nmeta || Ncfg;
+  if (!N) {
+    const r1matches = (brMatches || []).filter(
+      (m) => (m.round || 1) === 1
+    ).length;
+    if (r1matches > 0) N = r1matches * 2;
+  }
+  if (!N) N = 16;
+  if (!isPow2Local(N)) N = ceil2(N);
+
+  // k: số vòng hiển thị
+  let k = Number(bracket?.config?.roundElim?.cutRounds) || 0;
+
+  const cutTo = Number(bracket?.meta?.expectedFirstRoundMatches) || 0; // hiểu là "cắt còn cutTo đội"
+  if (!k && cutTo > 0 && cutTo <= N) {
+    const r = Math.ceil(Math.log2(N / cutTo)); // #vòng cần để từ N còn cutTo
+    k = Math.max(1, r + 1); // hiển thị tới cột vòng cắt (bao gồm R1 ⇒ +1)
+  }
+
+  if (!k) {
+    const maxR =
+      Math.max(
+        0,
+        ...((brMatches || []).map((m) => Number(m.round || 1)) || [])
+      ) || 1;
+    k = Math.max(1, maxR);
+  }
+
+  // Gom match theo vòng (chỉ lấy tới k)
+  const realByRound = new Map();
+  (brMatches || [])
+    .slice()
+    .sort(
+      (a, b) =>
+        (a.round || 1) - (b.round || 1) || (a.order || 0) - (b.order || 0)
+    )
+    .forEach((m) => {
+      const r = Number(m.round || 1);
+      if (r >= 1 && r <= k) {
+        if (!realByRound.has(r)) realByRound.set(r, []);
+        realByRound.get(r).push(m);
+      }
+    });
+
+  // Helper: số trận ở vòng r (r=1..k)
+  const matchesInRound = (r) => Math.max(1, Math.floor(N / (1 << r)));
+
+  const rounds = [];
+  for (let r = 1; r <= k; r++) {
+    const need = matchesInRound(r);
+    const seeds = Array.from({ length: need }, (_, i) => ({
+      id: `re-${r}-${i}`,
+      __match: null,
+      __round: r,
+      teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
+    }));
+
+    const ms = (realByRound.get(r) || []).sort(
+      (a, b) => (a.order ?? 9999) - (b.order ?? 9999)
+    );
+
+    ms.forEach((m, idx) => {
+      let i = Number.isInteger(m.order)
+        ? m.order
+        : seeds.findIndex((s) => s.__match === null);
+      if (i < 0 || i >= seeds.length) i = Math.min(idx, seeds.length - 1);
+
+      const sideLabel = (side) => {
+        const pair = side === "A" ? m.pairA : m.pairB;
+        const prev = side === "A" ? m.previousA : m.previousB;
+        if (pair) return pairLabelWithNick(pair, m?.tournament?.eventType);
+        if (prev)
+          return `Winner of R${prev.round ?? "?"} #${(prev.order ?? 0) + 1}`;
+        return "Chưa có đội";
+      };
+
+      seeds[i] = {
+        id: m._id || `re-${r}-${i}`,
+        date: m?.scheduledAt
+          ? new Date(m.scheduledAt).toDateString()
+          : undefined,
+        __match: m,
+        __round: r,
+        teams: [{ name: sideLabel("A") }, { name: sideLabel("B") }],
+      };
+    });
+
+    rounds.push({ title: `Vòng ${r}`, seeds });
+  }
+
+  // Cột cuối = vòng cắt → không vẽ tick “đi tiếp”
+  const last = rounds[rounds.length - 1];
+  if (last) last.seeds = last.seeds.map((s) => ({ ...s, __lastCol: true }));
+
+  return rounds;
+}
+
+function buildEmptyRoundsByScale(scale /* 2^n */) {
+  const rounds = [];
+  let matches = Math.max(1, Math.floor(scale / 2));
+  let r = 1;
+  while (matches >= 1) {
+    const seeds = Array.from({ length: matches }, (_, i) => ({
+      id: `placeholder-${r}-${i}`,
+      __match: null,
+      __round: r, // để sync
+      teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
+    }));
+    rounds.push({ title: roundTitleByCount(matches), seeds });
+    matches = Math.floor(matches / 2);
+    r += 1;
+  }
+  // Ẩn tick cột cuối
+  const last = rounds[rounds.length - 1];
+  if (last) last.seeds = last.seeds.map((s) => ({ ...s, __lastCol: true }));
+  return rounds;
+}
+
+/* ===================== 🆕 Prefill → KO rounds ===================== */
+/* dựng rounds KO từ prefill.pairs (cột đầu = prefill, các cột sau = placeholder tới F) */
+function buildRoundsFromPrefill(prefill, koMeta) {
+  if (!prefill || !Array.isArray(prefill.pairs) || prefill.pairs.length === 0) {
+    return [];
+  }
+  const firstCount = prefill.pairs.length;
+  const totalRounds =
+    (koMeta && Number(koMeta.rounds)) ||
+    Math.ceil(Math.log2(Math.max(2, firstCount * 2)));
+
+  const rounds = [];
+  let cnt = firstCount;
+  for (let r = 1; r <= totalRounds && cnt >= 1; r++) {
+    const seeds = Array.from({ length: cnt }, (_, i) => {
+      if (r === 1) {
+        const p = prefill.pairs[i] || {};
+        const nameA = p?.a?.name || "Chưa có đội";
+        const nameB = p?.b?.name || "Chưa có đội";
+        return {
+          id: `pf-${r}-${i}`,
+          __match: null,
+          __round: r,
+          teams: [{ name: nameA }, { name: nameB }],
+        };
+      }
+      return {
+        id: `pf-${r}-${i}`,
+        __match: null,
+        __round: r,
+        teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
+      };
+    });
+
+    rounds.push({ title: roundTitleByCount(cnt), seeds });
+    cnt = Math.floor(cnt / 2);
+  }
+  // Ẩn tick cột cuối
+  const last = rounds[rounds.length - 1];
+  if (last) last.seeds = last.seeds.map((s) => ({ ...s, __lastCol: true }));
+  return rounds;
+}
+
+/** KO: trải tới chung kết (+ __round) */
+function buildRoundsWithPlaceholders(
+  brMatches,
+  { minRounds = 0, extendForward = true, expectedFirstRoundPairs = 0 } = {}
+) {
+  const real = (brMatches || [])
+    .slice()
+    .sort(
+      (a, b) =>
+        (a.round || 1) - (b.round || 1) || (a.order || 0) - (b.order || 0)
+    );
+
+  const roundsHave = Array.from(new Set(real.map((m) => m.round || 1))).sort(
+    (a, b) => a - b
+  );
+  const lastRound = roundsHave.length ? Math.max(...roundsHave) : 1;
+
+  let firstRound = roundsHave.length ? Math.min(...roundsHave) : 1;
+  const haveColsInitial = roundsHave.length ? lastRound - firstRound + 1 : 1;
+  if (minRounds && haveColsInitial < minRounds) {
+    firstRound = Math.max(1, lastRound - (minRounds - 1));
+  }
+
+  const countByRoundReal = {};
+  real.forEach((m) => {
+    const r = m.round || 1;
+    countByRoundReal[r] = (countByRoundReal[r] || 0) + 1;
+  });
+
+  const seedsCount = {};
+
+  if (firstRound === 1 && expectedFirstRoundPairs > 0) {
+    seedsCount[1] = Math.max(countByRoundReal[1] || 0, expectedFirstRoundPairs);
+  } else if (countByRoundReal[lastRound]) {
+    seedsCount[lastRound] = countByRoundReal[lastRound];
+  } else {
+    seedsCount[lastRound] = 1;
+  }
+
+  for (let r = lastRound - 1; r >= firstRound; r--) {
+    seedsCount[r] = countByRoundReal[r] || (seedsCount[r + 1] || 1) * 2;
+  }
+
+  if (extendForward) {
+    let cur = firstRound;
+    if (firstRound !== 1 && seedsCount[1]) cur = 1;
+    while ((seedsCount[cur] || 1) > 1) {
+      const nxt = cur + 1;
+      seedsCount[nxt] = Math.ceil((seedsCount[cur] || 1) / 2);
+      cur = nxt;
+    }
+  }
+
+  const roundNums = Object.keys(seedsCount)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  const res = roundNums.map((r) => {
+    const need = seedsCount[r];
+    const seeds = Array.from({ length: need }, (_, i) => [
+      { name: "Chưa có đội" },
+      { name: "Chưa có đội" },
+    ]).map((teams, i) => ({
+      id: `placeholder-${r}-${i}`,
+      __match: null,
+      __round: r,
+      teams,
+    }));
+
+    const ms = real
+      .filter((m) => (m.round || 1) === r)
+      .sort((a, b) => (a.order ?? 9999) - (b.order ?? 9999));
+
+    ms.forEach((m, idx) => {
+      let i = Number.isInteger(m.order)
+        ? m.order
+        : seeds.findIndex((s) => s.__match === null);
+      if (i < 0 || i >= seeds.length) i = Math.min(idx, seeds.length - 1);
+
+      const sideLabel = (side) => {
+        const pair = side === "A" ? m.pairA : m.pairB;
+        const prev = side === "A" ? m.previousA : m.previousB;
+        if (pair)
+          return pairLabelWithNick(
+            side === "A" ? m.pairA : m.pairB,
+            m?.tournament?.eventType
+          );
+        if (prev) return depLabel(prev);
+        return "Chưa có đội";
+      };
+
+      seeds[i] = {
+        id: m._id || `${r}-${i}`,
+        date: m?.scheduledAt
+          ? new Date(m.scheduledAt).toDateString()
+          : undefined,
+        __match: m,
+        __round: r,
+        teams: [{ name: sideLabel("A") }, { name: sideLabel("B") }],
+      };
+    });
+
+    return { title: roundTitleByCount(need), seeds };
+  });
+
+  // Ẩn tick cột cuối
+  const last = res[res.length - 1];
+  if (last) last.seeds = last.seeds.map((s) => ({ ...s, __lastCol: true }));
+
+  return res;
+}
+
 /* ===================== Component chính ===================== */
 export default function TournamentBracket() {
   const theme = useTheme();
@@ -1626,6 +1951,13 @@ export default function TournamentBracket() {
     [byBracket, current]
   );
 
+  // 🆕: rounds dựng từ prefill (nếu API list trả về prefill)
+  const prefillRounds = useMemo(() => {
+    if (!current?.prefill || !Array.isArray(current.prefill.pairs)) return null;
+    if (current.prefill.pairs.length === 0) return null;
+    return buildRoundsFromPrefill(current.prefill, current?.ko);
+  }, [current]);
+
   const groupData = useMemo(() => {
     if (current?.type !== "group") return null;
     return computeGroupTablesForBracket(
@@ -1676,18 +2008,20 @@ export default function TournamentBracket() {
     );
   }
 
-  const tabLabels = brackets.map((b) => (
-    <Stack key={b._id} direction="row" spacing={1} alignItems="center">
-      <Typography>{b.name}</Typography>
-      <Chip
-        size="small"
-        label={b.type === "group" ? "Group" : "Knockout"}
-        color={b.type === "group" ? "default" : "primary"}
-        variant="outlined"
-        sx={{ ml: 0.5 }}
-      />
-    </Stack>
-  ));
+  const tabLabels = brackets.map((b) => {
+    const t =
+      b.type === "group"
+        ? "Group"
+        : b.type === "roundElim"
+        ? "Round Elim"
+        : "Knockout";
+    return (
+      <Stack key={b._id} direction="row" spacing={1} alignItems="center">
+        <Typography>{b.name}</Typography>
+        <Chip size="small" label={t} color="default" variant="outlined" />
+      </Stack>
+    );
+  });
 
   const uniqueRoundsCount = new Set(currentMatches.map((m) => m.round ?? 1))
     .size;
@@ -1859,6 +2193,63 @@ export default function TournamentBracket() {
             </TableContainer>
           )}
         </Paper>
+      ) : current.type === "roundElim" ? (
+        <Paper sx={{ p: 2 }}>
+          <Typography variant="h6" gutterBottom>
+            Vòng loại rút gọn (Round Elimination): {current.name}
+          </Typography>
+
+          {(() => {
+            const reRounds = buildRoundElimRounds(current, currentMatches);
+            const roundsKeyRE = `${current._id}:${reRounds.length}:${reRounds
+              .map((r) => r.seeds.length)
+              .join(",")}`;
+
+            return (
+              <>
+                <GlobalStyles
+                  styles={{
+                    /* round column - ẩn connector cột cuối */
+                    ".re-bracket .sc-gEvEer:last-of-type .sc-dcJsrY::after, \
+           .re-bracket .sc-gEvEer:last-of-type .sc-dcJsrY::before, \
+           .re-bracket .sc-gEvEer:last-of-type .sc-imWYAI::after, \
+           ": {
+                      content: '""',
+                      display: "none !important",
+                      border: "0 !important",
+                      width: 0,
+                      height: 0,
+                    },
+                  }}
+                />
+                <Box
+                  className="re-bracket"
+                  sx={{ overflowX: { xs: "auto", sm: "visible" }, pb: 1 }}
+                >
+                  <HeightSyncProvider roundsKey={roundsKeyRE}>
+                    <Bracket
+                      rounds={reRounds}
+                      renderSeedComponent={(props) => (
+                        <CustomSeed
+                          {...props}
+                          onOpen={openMatch}
+                          championMatchId={null /* không hiển thị cúp */}
+                        />
+                      )}
+                      mobileBreakpoint={0}
+                    />
+                  </HeightSyncProvider>
+                </Box>
+
+                {currentMatches.length === 0 && (
+                  <Typography variant="caption" color="text.secondary">
+                    * Chưa bốc cặp — đang hiển thị khung theo vòng cắt (V1..Vk).
+                  </Typography>
+                )}
+              </>
+            );
+          })()}
+        </Paper>
       ) : (
         <Paper sx={{ p: 2 }}>
           <Typography variant="h6" gutterBottom>
@@ -1866,55 +2257,123 @@ export default function TournamentBracket() {
           </Typography>
 
           {(() => {
-            // Xác định trận vô địch: chỉ công nhận khi CHUNG KẾT đã kết thúc & có winner
-            const finalRoundNumber = currentMatches.length
-              ? Math.max(...currentMatches.map((m) => Number(m.round || 1)))
-              : 0;
-            const finals = currentMatches.filter(
-              (m) => Number(m.round || 1) === finalRoundNumber
-            );
-            const finalMatch =
-              finals.length === 1 &&
-              String(finals[0]?.status || "").toLowerCase() === "finished" &&
-              finals[0]?.winner
-                ? finals[0]
-                : null;
-            const champion = finalMatch ? winnerPair(finalMatch) : null;
+            // 🆕 Gate kiểm tra KO đầy đủ trước khi hiện cúp/nhà vô địch
+            const championGate = computeChampionGate(currentMatches);
+            const finalMatchId = championGate.allowed
+              ? championGate.matchId
+              : null;
+            const championPair = championGate.allowed
+              ? championGate.pair
+              : null;
+
+            // Ưu tiên dùng rounds từ prefill khi chưa có trận
+            const expectedFirstRoundPairs =
+              Array.isArray(current?.prefill?.pairs) &&
+              current.prefill.pairs.length
+                ? current.prefill.pairs.length
+                : scaleForCurrent
+                ? Math.floor(scaleForCurrent / 2)
+                : 0;
 
             const roundsToRender =
               currentMatches.length > 0
                 ? buildRoundsWithPlaceholders(currentMatches, {
                     minRounds: minRoundsForCurrent,
                     extendForward: true,
+                    expectedFirstRoundPairs,
                   })
+                : prefillRounds
+                ? prefillRounds
                 : current.drawRounds && current.drawRounds > 0
                 ? buildEmptyRoundsByScale(2 ** current.drawRounds)
                 : buildEmptyRoundsForKO(current);
 
+            const roundsKeyKO = `${current._id}:${
+              roundsToRender.length
+            }:${roundsToRender.map((r) => r.seeds.length).join(",")}`;
+
             return (
               <>
-                {champion && (
+                {/* Thông tin prefill/ko (không ảnh hưởng logic) */}
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{ mb: 1 }}
+                  flexWrap="wrap"
+                >
+                  {current?.ko?.startKey && (
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={`Bắt đầu: ${current.ko.startKey}`}
+                    />
+                  )}
+                  {current?.prefill?.isVirtual && (
+                    <Chip
+                      size="small"
+                      color="warning"
+                      variant="outlined"
+                      label="Prefill ảo"
+                    />
+                  )}
+                  {current?.prefill?.source?.fromName && (
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={`Nguồn: ${current.prefill.source.fromName}`}
+                    />
+                  )}
+                  {current?.prefill?.roundKey && (
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={`RoundKey: ${current.prefill.roundKey}`}
+                    />
+                  )}
+                </Stack>
+
+                {championPair && (
                   <Alert severity="success" sx={{ mb: 1 }}>
                     Vô địch:{" "}
-                    <b>{pairLabelWithNick(champion, tour?.eventType)}</b>
+                    <b>{pairLabelWithNick(championPair, tour?.eventType)}</b>
                   </Alert>
                 )}
 
                 <Box sx={{ overflowX: { xs: "auto", sm: "visible" }, pb: 1 }}>
-                  <Bracket
-                    rounds={roundsToRender}
-                    renderSeedComponent={(props) => (
-                      <CustomSeed
-                        {...props}
-                        onOpen={openMatch}
-                        championMatchId={finalMatch?._id || null}
-                      />
-                    )}
-                    mobileBreakpoint={0}
-                  />
+                  <HeightSyncProvider roundsKey={roundsKeyKO}>
+                    <Bracket
+                      rounds={roundsToRender}
+                      renderSeedComponent={(props) => (
+                        <CustomSeed
+                          {...props}
+                          onOpen={openMatch}
+                          championMatchId={
+                            finalMatchId /* chỉ set khi hợp lệ */
+                          }
+                        />
+                      )}
+                      mobileBreakpoint={0}
+                    />
+                  </HeightSyncProvider>
                 </Box>
 
-                {currentMatches.length === 0 && (
+                {currentMatches.length === 0 && prefillRounds && (
+                  <Typography variant="caption" color="text.secondary">
+                    * Đang hiển thị khung <b>prefill</b>
+                    {current?.prefill?.isVirtual
+                      ? " (ảo theo seeding)"
+                      : ""}{" "}
+                    bắt đầu từ{" "}
+                    <b>
+                      {current?.ko?.startKey ||
+                        current?.prefill?.roundKey ||
+                        "?"}
+                    </b>
+                    . Khi có trận thật, nhánh sẽ tự cập nhật.
+                  </Typography>
+                )}
+
+                {currentMatches.length === 0 && !prefillRounds && (
                   <Typography variant="caption" color="text.secondary">
                     * Chưa bốc thăm / chưa lấy đội từ vòng trước — tạm hiển thị
                     khung theo <b>quy mô</b>. Khi có trận thật, nhánh sẽ tự cập

@@ -27,7 +27,6 @@ import {
   DialogContent,
   DialogActions,
   Alert,
-  MenuItem,
   Pagination,
 } from "@mui/material";
 import { Container as RBContainer } from "react-bootstrap";
@@ -122,6 +121,46 @@ function CheckinChip({ checkinAt }) {
         sx={{ whiteSpace: "nowrap" }}
       />
     </Tooltip>
+  );
+}
+
+/* Stat item (không viền) */
+function StatItem({ icon, label, value, hint }) {
+  return (
+    <Box sx={{ p: 1, height: "100%" }}>
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <Box
+          sx={{
+            width: 36,
+            height: 36,
+            borderRadius: "50%",
+            display: "grid",
+            placeItems: "center",
+            backgroundColor: "action.hover",
+          }}
+        >
+          {icon}
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="caption" color="text.secondary" noWrap>
+            {label}
+          </Typography>
+          <Typography
+            variant="h6"
+            sx={{ lineHeight: 1.2 }}
+            noWrap
+            title={String(value)}
+          >
+            {value}
+          </Typography>
+          {hint && (
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {hint}
+            </Typography>
+          )}
+        </Box>
+      </Stack>
+    </Box>
   );
 }
 
@@ -297,6 +336,31 @@ export default function TournamentRegistration() {
     }
   }, [location?.pathname, id]);
 
+  /* ───────── derived helpers ───────── */
+  const regCount = regs?.length ?? 0;
+  const paidCount = useMemo(
+    () => regs.filter((r) => r?.payment?.status === "Paid").length,
+    [regs]
+  );
+
+  const totalPages = Math.max(1, Math.ceil(regCount / pageSize));
+  const baseIndex = (page - 1) * pageSize;
+  const paginatedRegs = useMemo(
+    () => regs.slice(baseIndex, baseIndex + pageSize),
+    [regs, baseIndex, pageSize]
+  );
+
+  const playersOfReg = (r) => [r?.player1, r?.player2].filter(Boolean);
+  const disableSubmit = saving || !p1 || (isDoubles && !p2);
+
+  const formatDate = (d) => (d ? new Date(d).toLocaleDateString() : "");
+  const formatRange = (a, b) => {
+    const A = formatDate(a);
+    const B = formatDate(b);
+    if (A && B) return `${A} – ${B}`;
+    return A || B || "—";
+  };
+
   /* ───────── actions ───────── */
   const submit = async (e) => {
     e.preventDefault();
@@ -430,44 +494,7 @@ export default function TournamentRegistration() {
     }
   };
 
-  /* ───────── helpers ───────── */
-  const playersOfReg = (r) => [r?.player1, r?.player2].filter(Boolean);
-  const disableSubmit = saving || !p1 || (isDoubles && !p2);
-  const regCount = regs?.length ?? 0;
-  const totalPages = Math.max(1, Math.ceil(regCount / pageSize));
-  const baseIndex = (page - 1) * pageSize;
-  const paginatedRegs = useMemo(
-    () => regs.slice(baseIndex, baseIndex + pageSize),
-    [regs, baseIndex, pageSize]
-  );
-
-  const renderInviteConfirmState = (inv) => {
-    const { confirmations = {}, eventType } = inv || {};
-    const isSingle = eventType === "single";
-    const chip = (v) =>
-      v === "accepted" ? (
-        <Chip size="small" color="success" label="Đã chấp nhận" />
-      ) : v === "declined" ? (
-        <Chip size="small" color="error" label="Từ chối" />
-      ) : (
-        <Chip size="small" color="default" label="Chờ xác nhận" />
-      );
-    return (
-      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-        <Typography variant="caption">Xác nhận:</Typography>
-        <Chip size="small" variant="outlined" label="P1" />
-        {chip(confirmations?.p1)}
-        {!isSingle && (
-          <>
-            <Chip size="small" variant="outlined" label="P2" />
-            {chip(confirmations?.p2)}
-          </>
-        )}
-      </Stack>
-    );
-  };
-
-  /* ───────── UI ───────── */
+  /* ───────── UI guard ───────── */
   if (tourLoading) {
     return (
       <Box p={3} textAlign="center">
@@ -488,7 +515,7 @@ export default function TournamentRegistration() {
 
   const PlayerCell = ({ player, onEdit, canEdit }) => (
     <Stack direction="row" spacing={1} alignItems="center">
-      {/* Avatar: chỉ phóng to ảnh */}
+      {/* Avatar: phóng to ảnh */}
       <Box
         onClick={() =>
           openPreview(player?.avatar || PLACE, displayName(player))
@@ -544,6 +571,7 @@ export default function TournamentRegistration() {
     </Stack>
   );
 
+  /* ───────── RENDER ───────── */
   return (
     <RBContainer fluid="xl" className="py-4">
       {/* Header */}
@@ -564,7 +592,92 @@ export default function TournamentRegistration() {
         </Stack>
       </Stack>
 
-      {/* Thông báo đăng nhập (ẩn invites và chặn loop) */}
+      {/* THÔNG TIN GIẢI ĐẤU (không ảnh, không viền) */}
+      <Box sx={{ mb: 2 }}>
+        <Grid container spacing={1.5} alignItems="center">
+          <Grid item xs={12} md={5}>
+            <Stack spacing={0.5}>
+              <Typography variant="h6" noWrap title={tour.name}>
+                {tour.name}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {tour.location || "—"}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {formatRange(tour.startDate, tour.endDate)}
+              </Typography>
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ mt: 0.5 }}
+                alignItems="center"
+                flexWrap="wrap"
+              >
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={isSingles ? "Đơn" : "Đôi"}
+                />
+              </Stack>
+            </Stack>
+          </Grid>
+
+          <Grid item xs={12} md={7}>
+            <Grid container spacing={1}>
+              <Grid item xs={12} sm={6}>
+                <StatItem
+                  icon={<Equalizer fontSize="small" />}
+                  label={
+                    isDoubles ? "Giới hạn tổng điểm (đội)" : "Giới hạn điểm/VĐV"
+                  }
+                  value={
+                    isDoubles
+                      ? tour?.scoreCap ?? 0
+                      : tour?.singleCap ?? tour?.scoreCap ?? 0
+                  }
+                  hint={
+                    isDoubles ? "Giới hạn điểm (đôi)" : "Giới hạn điểm (đơn)"
+                  }
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <StatItem
+                  icon={<Equalizer fontSize="small" />}
+                  label="Giới hạn điểm mỗi VĐV"
+                  value={tour?.singleCap ?? 0}
+                  hint="Giới hạn điểm (đơn)"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <StatItem
+                  icon={<Groups fontSize="small" />}
+                  label={isSingles ? "Số VĐV dự kiến" : "Số đội dự kiến"}
+                  value={tour?.maxPairs ?? 0}
+                  hint="Tối đa số cặp (đôi)"
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <StatItem
+                  icon={<Groups fontSize="small" />}
+                  label={isSingles ? "Số VĐV đã đăng ký" : "Số đội đã đăng ký"}
+                  value={regCount}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <StatItem
+                  icon={<MonetizationOn fontSize="small" />}
+                  label={
+                    isSingles ? "Số VĐV đã nộp lệ phí" : "Số đội đã nộp lệ phí"
+                  }
+                  value={paidCount}
+                />
+              </Grid>
+            </Grid>
+          </Grid>
+        </Grid>
+      </Box>
+
+      {/* Thông báo đăng nhập */}
       {!isLoggedIn && (
         <Paper sx={{ p: 2, mb: 3 }} variant="outlined">
           <Alert severity="info">
@@ -574,7 +687,7 @@ export default function TournamentRegistration() {
         </Paper>
       )}
 
-      {/* Lời mời đang chờ xác nhận (chỉ hiện khi đã đăng nhập) */}
+      {/* Lời mời đang chờ xác nhận */}
       {isLoggedIn && pendingInvitesHere.length > 0 && (
         <Paper sx={{ p: 2, mb: 3 }} variant="outlined">
           <Stack spacing={1.5}>
@@ -611,7 +724,47 @@ export default function TournamentRegistration() {
                   </Typography>
                 </Box>
 
-                <Box sx={{ flex: 1 }}>{renderInviteConfirmState(inv)}</Box>
+                <Box sx={{ flex: 1 }}>
+                  {/* trạng thái xác nhận */}
+                  {(() => {
+                    const { confirmations = {}, eventType } = inv || {};
+                    const isSingle = eventType === "single";
+                    const chip = (v) =>
+                      v === "accepted" ? (
+                        <Chip
+                          size="small"
+                          color="success"
+                          label="Đã chấp nhận"
+                        />
+                      ) : v === "declined" ? (
+                        <Chip size="small" color="error" label="Từ chối" />
+                      ) : (
+                        <Chip
+                          size="small"
+                          color="default"
+                          label="Chờ xác nhận"
+                        />
+                      );
+                    return (
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        alignItems="center"
+                        flexWrap="wrap"
+                      >
+                        <Typography variant="caption">Xác nhận:</Typography>
+                        <Chip size="small" variant="outlined" label="P1" />
+                        {chip(confirmations?.p1)}
+                        {!isSingle && (
+                          <>
+                            <Chip size="small" variant="outlined" label="P2" />
+                            {chip(confirmations?.p2)}
+                          </>
+                        )}
+                      </Stack>
+                    );
+                  })()}
+                </Box>
 
                 <Stack direction="row" spacing={1}>
                   <Button
@@ -639,7 +792,7 @@ export default function TournamentRegistration() {
       )}
 
       {/* FORM (trên) */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 3, maxWidth: 760 }}>
+      <Paper variant="outlined" sx={{ p: 2, mb: 1.5, maxWidth: 760 }}>
         <Typography variant="h6" gutterBottom>
           {isAdmin ? "Tạo đăng ký (admin)" : "Gửi lời mời đăng ký"}
         </Typography>
@@ -706,6 +859,60 @@ export default function TournamentRegistration() {
           </Stack>
         </Grid>
       </Paper>
+
+      {/* === Thông tin liên hệ & Nội dung giải — dạng ROW, không viền === */}
+      {(tour?.contactHtml || tour?.contentHtml) && (
+        <Box
+          sx={{
+            mb: 2,
+            display: { xs: "block", md: "flex" },
+            justifyContent: { md: "space-between" },
+            gap: { md: 2 },
+          }}
+        >
+          {tour?.contactHtml && (
+            <Box sx={{ width: { xs: "100%", md: "48%" } }}>
+              <Typography variant="h6" gutterBottom>
+                Thông tin liên hệ
+              </Typography>
+              <Box
+                sx={{
+                  "& a": { color: "primary.main" },
+                  "& img": {
+                    maxWidth: "100%",
+                    height: "auto",
+                    borderRadius: 1,
+                  },
+                  overflowX: "auto",
+                }}
+                dangerouslySetInnerHTML={{ __html: tour.contactHtml }}
+              />
+            </Box>
+          )}
+
+          {tour?.contentHtml && (
+            <Box
+              sx={{ width: { xs: "100%", md: "48%" }, mt: { xs: 2, md: 0 } }}
+            >
+              <Typography variant="h6" gutterBottom>
+                Nội dung giải đấu
+              </Typography>
+              <Box
+                sx={{
+                  "& a": { color: "primary.main" },
+                  "& img": {
+                    maxWidth: "100%",
+                    height: "auto",
+                    borderRadius: 1,
+                  },
+                  overflowX: "auto",
+                }}
+                dangerouslySetInnerHTML={{ __html: tour.contentHtml }}
+              />
+            </Box>
+          )}
+        </Box>
+      )}
 
       {/* Khu quản lý */}
       {canManage && (

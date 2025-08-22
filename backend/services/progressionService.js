@@ -6,10 +6,21 @@ import Match from "../models/matchModel.js";
 import Registration from "../models/registrationModel.js";
 import Tournament from "../models/tournamentModel.js";
 import { seedCompare } from "../utils/sorters.js";
+import mongoose from "mongoose";
 
 /** Compute winners of a specific round from a KO-like bracket */
-export async function computeQualifiersFromKO({ sourceBracketId, round, limit = 0, session }) {
-  const matches = await Match.find({ bracket: sourceBracketId, round, status: "finished", winner: { $in: ["A", "B"] } })
+export async function computeQualifiersFromKO({
+  sourceBracketId,
+  round,
+  limit = 0,
+  session,
+}) {
+  const matches = await Match.find({
+    bracket: sourceBracketId,
+    round,
+    status: "finished",
+    winner: { $in: ["A", "B"] },
+  })
     .select("pairA pairB winner order round pool.id")
     .sort({ order: 1 })
     .session(session || null)
@@ -18,70 +29,178 @@ export async function computeQualifiersFromKO({ sourceBracketId, round, limit = 
   const qualifiers = [];
   for (const m of matches) {
     const regId = m.winner === "A" ? m.pairA : m.pairB;
-    if (regId) qualifiers.push({ regId: String(regId), from: { matchId: String(m._id), round: m.round } });
+    if (regId)
+      qualifiers.push({
+        regId: String(regId),
+        from: { matchId: String(m._id), round: m.round },
+      });
     if (limit > 0 && qualifiers.length >= limit) break;
   }
   return { qualifiers, meta: { round, matchCount: matches.length } };
 }
 
 /** Compute top N from each group in a group/round-robin style bracket */
-export async function computeQualifiersFromGroups({ sourceBracketId, topPerGroup = 1, limit = 0, session }) {
-  const bracket = await Bracket.findById(sourceBracketId).select("groups config type").session(session || null).lean();
+
+export async function computeQualifiersFromGroups({
+  sourceBracketId,
+  topPerGroup = 1,
+  limit = 0,
+  session,
+}) {
+  const bracket = await Bracket.findById(sourceBracketId)
+    .select("groups config type")
+    .session(session || null)
+    .lean();
   if (!bracket) throw new Error("Source bracket not found");
 
+  // 🛠 CHANGED: đọc điểm win/loss từ config, mặc định win=1, loss=0
   const ptsWin = bracket?.config?.roundRobin?.points?.win ?? 1;
   const ptsLoss = bracket?.config?.roundRobin?.points?.loss ?? 0;
-  const tiebreakers = bracket?.config?.roundRobin?.tiebreakers || ["h2h", "setsDiff", "pointsDiff", "pointsFor"]; // order only used for deterministic sort; h2h partly supported
 
-  const matches = await Match.find({ bracket: sourceBracketId, status: "finished" })
+  // 🛠 CHANGED: đọc tiebreakers từ config (nếu có), có thể gồm: h2h, setsDiff, pointsDiff, pointsFor, wins
+  const tiebreakers =
+    Array.isArray(bracket?.config?.roundRobin?.tiebreakers) &&
+    bracket.config.roundRobin.tiebreakers.length
+      ? bracket.config.roundRobin.tiebreakers
+      : ["h2h", "setsDiff", "pointsDiff", "pointsFor"]; // ⭐ ADDED default
+
+  // Lấy tất cả trận đã kết thúc trong bracket nguồn
+  const matches = await Match.find({
+    bracket: sourceBracketId,
+    status: "finished",
+  })
     .select("pairA pairB winner gameScores pool.id pool.name")
     .session(session || null)
     .lean();
 
-  // Accumulate per group
-  const byGroup = new Map(); // groupId -> regId -> stats
+  // Gom theo nhóm: groupId -> (regId -> stats)
+  const byGroup = new Map();
+
   for (const m of matches) {
     if (!m?.pool?.id || !m.pairA || !m.pairB || !m.winner) continue;
+
     const gid = String(m.pool.id);
     if (!byGroup.has(gid)) byGroup.set(gid, new Map());
     const g = byGroup.get(gid);
 
-    // safe init helper
     const init = (id) => {
-      if (!g.has(id)) g.set(id, { regId: id, played: 0, wins: 0, losses: 0, setsFor: 0, setsAgainst: 0, pointsFor: 0, pointsAgainst: 0, opponents: new Map() });
+      if (!g.has(id)) {
+        g.set(id, {
+          regId: id,
+          played: 0,
+          wins: 0,
+          losses: 0,
+          setsFor: 0,
+          setsAgainst: 0,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          opponents: new Map(), // regId -> { wins, losses }
+        });
+      }
       return g.get(id);
     };
 
     const aId = String(m.pairA);
     const bId = String(m.pairB);
-    const a = init(aId);
-    const b = init(bId);
+    const A = init(aId);
+    const B = init(bId);
 
-    a.played++; b.played++;
+    A.played++;
+    B.played++;
 
-    // winner/loser
-    if (m.winner === "A") { a.wins++; b.losses++; } else if (m.winner === "B") { b.wins++; a.losses++; }
+    // thắng/thua
+    if (m.winner === "A") {
+      A.wins++;
+      B.losses++;
+    } else if (m.winner === "B") {
+      B.wins++;
+      A.losses++;
+    }
 
-    // sets & points from gameScores
+    // cộng điểm/sets từ gameScores
     for (const gs of m.gameScores || []) {
       const pa = typeof gs?.a === "number" ? gs.a : 0;
       const pb = typeof gs?.b === "number" ? gs.b : 0;
-      a.pointsFor += pa; a.pointsAgainst += pb;
-      b.pointsFor += pb; b.pointsAgainst += pa;
-      if (pa > pb) { a.setsFor++; b.setsAgainst++; } else if (pb > pa) { b.setsFor++; a.setsAgainst++; }
+
+      A.pointsFor += pa;
+      A.pointsAgainst += pb;
+      B.pointsFor += pb;
+      B.pointsAgainst += pa;
+
+      if (pa > pb) {
+        A.setsFor++;
+        B.setsAgainst++;
+      } else if (pb > pa) {
+        B.setsFor++;
+        A.setsAgainst++;
+      }
     }
 
-    // simple head-to-head record
-    const oppA = a.opponents.get(bId) || { wins: 0, losses: 0 };
-    const oppB = b.opponents.get(aId) || { wins: 0, losses: 0 };
-    if (m.winner === "A") { oppA.wins++; oppB.losses++; } else if (m.winner === "B") { oppB.wins++; oppA.losses++; }
-    a.opponents.set(bId, oppA);
-    b.opponents.set(aId, oppB);
+    // head-to-head đơn giản (chỉ lưu record)
+    const oppA = A.opponents.get(bId) || { wins: 0, losses: 0 };
+    const oppB = B.opponents.get(aId) || { wins: 0, losses: 0 };
+    if (m.winner === "A") {
+      oppA.wins++;
+      oppB.losses++;
+    } else if (m.winner === "B") {
+      oppB.wins++;
+      oppA.losses++;
+    }
+    A.opponents.set(bId, oppA);
+    B.opponents.set(aId, oppB);
   }
 
-  // Rank in each group
+  // 🛠 CHANGED: thứ tự nhóm theo bracket.groups để ổn định; fallback theo thứ tự xuất hiện
+  const declared = (bracket?.groups || []).map((g) => String(g._id));
+  const present = new Set(Array.from(byGroup.keys()));
+  const groupOrder = [
+    ...declared.filter((id) => present.has(id)),
+    ...Array.from(present).filter((id) => !declared.includes(id)),
+  ];
+
+  // comparator xếp hạng trong từng nhóm
+  const cmp = (x, y, rowsAtSameGroup) => {
+    // 1) Điểm tổng (từ wins/losses theo ptsWin/ptsLoss)
+    if (y.points !== x.points) return y.points - x.points;
+
+    // 2) Áp dụng tiebreakers theo config (⭐ ADDED)
+    for (const tb of tiebreakers) {
+      if (tb === "h2h") {
+        // chỉ áp dụng khi đúng 2 đội đang đồng điểm
+        const tied = rowsAtSameGroup.filter((r) => r.points === x.points);
+        if (
+          tied.length === 2 &&
+          (tied[0].regId === x.regId || tied[1].regId === x.regId)
+        ) {
+          const other = tied[0].regId === x.regId ? tied[1] : tied[0];
+          const vs = x.opponents.get(other.regId) || { wins: 0, losses: 0 };
+          const vs2 = other.opponents.get(x.regId) || { wins: 0, losses: 0 };
+          const diff = vs.wins - vs.losses - (vs2.wins - vs2.losses);
+          if (diff !== 0) return -diff; // x tốt hơn h2h -> x trước
+        }
+      } else if (tb === "setsDiff") {
+        if (y.setsDiff !== x.setsDiff) return y.setsDiff - x.setsDiff;
+      } else if (tb === "pointsDiff") {
+        if (y.pointsDiff !== x.pointsDiff) return y.pointsDiff - x.pointsDiff;
+      } else if (tb === "pointsFor") {
+        if (y.pointsFor !== x.pointsFor) return y.pointsFor - x.pointsFor;
+      } else if (tb === "wins") {
+        if (y.wins !== x.wins) return y.wins - x.wins;
+      }
+      // (bỏ qua key không hỗ trợ)
+    }
+
+    // 3) chốt ổn định cuối cùng
+    return String(x.regId).localeCompare(String(y.regId));
+  };
+
   const qualifiers = [];
-  for (const [gid, gmap] of byGroup) {
+
+  for (const gid of groupOrder) {
+    const gmap = byGroup.get(gid);
+    if (!gmap || gmap.size === 0) continue;
+
+    // tính các cột phụ trợ
     const rows = Array.from(gmap.values()).map((s) => ({
       ...s,
       points: s.wins * ptsWin + s.losses * ptsLoss,
@@ -89,112 +208,259 @@ export async function computeQualifiersFromGroups({ sourceBracketId, topPerGroup
       pointsDiff: s.pointsFor - s.pointsAgainst,
     }));
 
-    rows.sort((x, y) => {
-      // primary by points (wins/loss points)
-      if (y.points !== x.points) return y.points - x.points;
-      // optional h2h (only if just 2 tied)
-      const tied = rows.filter((r) => r.points === x.points);
-      if (tied.length === 2 && (tied[0].regId === x.regId || tied[1].regId === x.regId)) {
-        const other = tied[0].regId === x.regId ? tied[1] : tied[0];
-        const vs = x.opponents.get(other.regId) || { wins: 0, losses: 0 };
-        const vs2 = other.opponents.get(x.regId) || { wins: 0, losses: 0 };
-        const diff = (vs.wins - vs.losses) - (vs2.wins - vs2.losses);
-        if (diff !== 0) return -diff; // if x has better h2h, x should come first
-      }
-      // then setsDiff, then pointsDiff, then pointsFor
-      if (y.setsDiff !== x.setsDiff) return y.setsDiff - x.setsDiff;
-      if (y.pointsDiff !== x.pointsDiff) return y.pointsDiff - x.pointsDiff;
-      if (y.pointsFor !== x.pointsFor) return y.pointsFor - x.pointsFor;
-      // final stable tie-breaker by regId to avoid random jitter
-      return x.regId.localeCompare(y.regId);
-    });
+    // sort theo comparator
+    rows.sort((x, y) => cmp(x, y, rows));
 
-    const n = Math.max(1, topPerGroup);
-    for (let i = 0; i < Math.min(n, rows.length); i++) {
-      qualifiers.push({ regId: rows[i].regId, from: { groupId: gid, rank: i + 1 } });
+    // 🛠 CHANGED: nhóm có đúng 2 đội -> lấy cả 2; còn lại theo topPerGroup (>=1)
+    const desired = rows.length === 2 ? 2 : Math.max(1, topPerGroup); // ⭐ ADDED
+
+    for (let i = 0; i < Math.min(desired, rows.length); i++) {
+      qualifiers.push({
+        regId: rows[i].regId,
+        from: { groupId: gid, rank: i + 1 },
+      });
       if (limit > 0 && qualifiers.length >= limit) break;
     }
     if (limit > 0 && qualifiers.length >= limit) break;
   }
 
-  return { qualifiers, meta: { groups: byGroup.size, topPerGroup } };
+  return {
+    qualifiers,
+    meta: { groups: groupOrder.length, topPerGroup },
+  };
 }
 
 /** Assign seeds & basic ordering. Extend here to support protected draws, etc. */
-export async function buildSeeding({ qualifiers, seedMethod = "rating", tournamentId, session }) {
-  // Fetch registrations w/ score for sorting if needed
-  const ids = [...new Set(qualifiers.map(q => q.regId))];
-  const regs = await Registration.find({ _id: { $in: ids } })
-    .select("_id player1.score player2.score")
+// 🛠 CHANGED: viết lại đầy đủ, không phụ thuộc seedCompare bên ngoài
+export async function buildSeeding({
+  qualifiers,
+  seedMethod = "rating",
+  tournamentId, // hiện chưa dùng, giữ để mở rộng protected draw theo giải
+  session,
+}) {
+  // Chuẩn hoá & loại trùng theo thứ tự xuất hiện
+  // ví dụ qualifiers: [{ regId, from: {...} }, ...]
+  const uniqueIds = [];
+  const seen = new Set();
+  for (const q of Array.isArray(qualifiers) ? qualifiers : []) {
+    const id = q?.regId ? String(q.regId) : "";
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    uniqueIds.push(id);
+  }
+
+  if (uniqueIds.length === 0) return [];
+
+  // Lấy thông tin Registration để tính điểm/tier
+  // ⭐ ADDED: chọn thêm vài field "có thể có" nhưng không bắt buộc (tier…)
+  const regs = await Registration.find({ _id: { $in: uniqueIds } })
+    .select("_id player1.score player2.score player1.tier player2.tier tier")
     .session(session || null)
     .lean();
-  const scoreOf = (reg) => (reg?.player1?.score || 0) + (reg?.player2?.score || 0);
+
   const regMap = new Map(regs.map((r) => [String(r._id), r]));
 
-  let seeded = ids.map((id) => ({ regId: id, seedScore: scoreOf(regMap.get(id)) }));
+  // Helpers: tính score & tier (nếu có)
+  const scoreOf = (reg) => {
+    if (!reg) return 0;
+    const s1 = Number(reg?.player1?.score) || 0;
+    const s2 = Number(reg?.player2?.score) || 0;
+    return s1 + s2;
+  };
 
-  if (seedMethod === "rating" || seedMethod === "tiered") {
-    seeded.sort(seedCompare);
-  } else if (seedMethod === "random") {
-    for (let i = seeded.length - 1; i > 0; i--) {
+  // Tier nhỏ hơn = mạnh hơn (ưu tiên xếp trước). Không có tier → +∞
+  const tierOf = (reg) => {
+    if (!reg) return Number.POSITIVE_INFINITY;
+    if (typeof reg?.tier === "number") return reg.tier;
+    const t1 =
+      typeof reg?.player1?.tier === "number"
+        ? reg.player1.tier
+        : Number.POSITIVE_INFINITY;
+    const t2 =
+      typeof reg?.player2?.tier === "number"
+        ? reg.player2.tier
+        : Number.POSITIVE_INFINITY;
+    return Math.min(t1, t2);
+  };
+
+  // Tạo mảng seeding thô
+  let seeded = uniqueIds.map((id) => {
+    const reg = regMap.get(id);
+    return {
+      regId: id,
+      seedScore: scoreOf(reg), // dùng cho "rating"/"tiered" tie-break
+      seedTier: tierOf(reg), // dùng cho "tiered"
+    };
+  });
+
+  // Comparator mặc định theo "rating": seedScore desc, rồi regId asc để ổn định
+  const cmpRating = (a, b) => {
+    if (b.seedScore !== a.seedScore) return b.seedScore - a.seedScore;
+    return String(a.regId).localeCompare(String(b.regId));
+  };
+
+  // Comparator cho "tiered": tier asc, rồi rating desc, rồi regId asc
+  const cmpTiered = (a, b) => {
+    if (a.seedTier !== b.seedTier) return a.seedTier - b.seedTier;
+    if (b.seedScore !== a.seedScore) return b.seedScore - a.seedScore;
+    return String(a.regId).localeCompare(String(b.regId));
+  };
+
+  // Shuffle Fisher–Yates
+  const shuffleInPlace = (arr) => {
+    for (let i = arr.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      [seeded[i], seeded[j]] = [seeded[j], seeded[i]];
+      [arr[i], arr[j]] = [arr[j], arr[i]];
     }
-  }
-  // TODO: implement protected draws (clubs, regions, etc.) if needed
+  };
 
-  // assign seed number
-  seeded = seeded.map((x, idx) => ({ ...x, seed: idx + 1 }));
+  // Áp dụng phương pháp seeding
+  switch (String(seedMethod || "rating").toLowerCase()) {
+    case "keep":
+      // ⭐ ADDED: giữ nguyên thứ tự qualifiers (dùng cho "carry bracket")
+      // không sort, chỉ gán seed theo thứ tự hiện có
+      break;
+
+    case "random":
+      shuffleInPlace(seeded);
+      break;
+
+    case "tiered":
+      // Nếu không có tier thực, logic này sẽ rơi về giống "rating" nhờ tie-break seedScore
+      seeded.sort(cmpTiered);
+      break;
+
+    case "rating":
+    default:
+      seeded.sort(cmpRating);
+      break;
+  }
+
+  // Gán số hạt giống 1..N
+  seeded = seeded.map((x, idx) => ({
+    ...x,
+    seed: idx + 1,
+  }));
+
+  // TODO (tuỳ chọn tương lai):
+  // - Protected draw (tránh cùng CLB/vùng/seedTier gặp sớm)
+  // - Bốc thăm nhóm hạt giống (seed banding) thay vì sort cứng
+
   return seeded;
 }
 
 /** Create round 1 matches in target bracket using a seeding/pairing strategy */
-export async function createRound1Matches({ targetBracket, entrants, pairing = "standard", session }) {
-  if (!Array.isArray(entrants) || entrants.length < 2) throw new Error("Not enough entrants to create matches");
-  const pairs = [];
-  const N = entrants.length;
+export async function createRound1Matches({
+  targetBracket,
+  entrants,
+  pairing = "standard",
+  session,
+}) {
+  if (!targetBracket || !targetBracket._id) {
+    throw new Error("targetBracket is required");
+  }
+  if (!Array.isArray(entrants) || entrants.length < 2) {
+    throw new Error("Not enough entrants to create matches");
+  }
 
-  // standard KO pairing: 1 vs N, 2 vs N-1, ...
-  if (pairing === "standard") {
-    for (let i = 0; i < N / 2; i++) {
-      const A = entrants[i];
-      const B = entrants[N - 1 - i];
+  // Kiểm tra trùng/chẵn
+  const ids = entrants.map((e) => String(e?.regId || ""));
+  const seen = new Set();
+  for (const id of ids) {
+    if (!id) throw new Error("Entrant missing regId");
+    if (seen.has(id)) throw new Error(`Duplicated entrant regId: ${id}`);
+    seen.add(id);
+  }
+  if (ids.length % 2 !== 0) {
+    throw new Error(`Entrants must be even. Got ${ids.length}`);
+  }
+
+  const N = entrants.length;
+  const pairs = [];
+
+  const byOrder = (arr) => {
+    for (let i = 0; i < arr.length; i += 2) {
+      const A = arr[i];
+      const B = arr[i + 1];
+      if (!B) throw new Error("Odd number of entrants for by_order/adjacent");
       pairs.push([A, B]);
     }
-  } else if (pairing === "snake") {
-    // snake seeding: (1 v 2N), (2 v 2N-1), then reverse etc.
-    const left = entrants.slice(0, N / 2);
-    const right = entrants.slice(N / 2).reverse();
-    for (let i = 0; i < left.length; i++) pairs.push([left[i], right[i]]);
-  } else {
-    throw new Error(`Unsupported pairing: ${pairing}`);
+  };
+
+  const shuffleInPlace = (arr) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+  };
+
+  switch (String(pairing || "standard").toLowerCase()) {
+    case "standard":
+      for (let i = 0; i < N / 2; i++) {
+        pairs.push([entrants[i], entrants[N - 1 - i]]);
+      }
+      break;
+    case "snake":
+      // R1 của snake ≈ standard
+      for (let i = 0; i < N / 2; i++) {
+        pairs.push([entrants[i], entrants[N - 1 - i]]);
+      }
+      break;
+    case "adjacent":
+      byOrder(entrants);
+      break;
+    case "cross":
+      for (let i = 0; i < N / 2; i++) {
+        pairs.push([entrants[i], entrants[i + N / 2]]);
+      }
+      break;
+    case "by_order":
+      byOrder(entrants);
+      break;
+    case "random":
+      {
+        const arr = [...entrants];
+        shuffleInPlace(arr);
+        byOrder(arr);
+      }
+      break;
+    default:
+      throw new Error(`Unsupported pairing: ${pairing}`);
   }
+
+  const rules = targetBracket?.config?.rules || {
+    bestOf: 3,
+    pointsToWin: 11,
+    winByTwo: true,
+  };
 
   let created = 0;
-  const rules = targetBracket?.config?.rules || { bestOf: 3, pointsToWin: 11, winByTwo: true };
-
   for (let i = 0; i < pairs.length; i++) {
     const [A, B] = pairs[i];
-    await Match.create([
-      {
-        tournament: targetBracket.tournament,
-        bracket: targetBracket._id,
-        format: targetBracket.type,
-        round: 1,
-        order: i + 1,
-        rules,
-        pairA: new mongoose.Types.ObjectId(A.regId),
-        pairB: new mongoose.Types.ObjectId(B.regId),
-        status: "scheduled",
-      },
-    ], { session });
+    await Match.create(
+      [
+        {
+          tournament: targetBracket.tournament,
+          bracket: targetBracket._id,
+          format: targetBracket.type,
+          round: 1,
+          // 🛠 CHANGED: order bắt đầu từ 0 (trước đây là i + 1)
+          order: i,
+          rules,
+          pairA: new mongoose.Types.ObjectId(String(A.regId)),
+          pairB: new mongoose.Types.ObjectId(String(B.regId)),
+          status: "scheduled",
+        },
+      ],
+      { session }
+    );
     created++;
   }
+
   return { matchesCreated: created };
 }
 
 // ==================
-
 
 // =============================
 // server registration snippet

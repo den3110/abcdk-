@@ -4,10 +4,20 @@ import DrawSettingsSchema from "./drawSettingsSchema.js";
 
 const { Schema } = mongoose;
 
-/**
- * Nhóm/pool dùng cho round-robin & GSL (group-of-4).
- * - regIds: danh sách Registration tham dự nhóm này
- */
+/** Sub-schema: metadata nhẹ cho UI (không ràng buộc logic business) */
+const bracketMetaSchema = new Schema(
+  {
+    /** Quy mô vẽ khung (2^n đội). Nếu truyền số bất kỳ, sẽ được làm tròn lên 2^k trong pre-save. */
+    drawSize: { type: Number, default: 0 },
+    /** Số vòng tối đa (n). Nếu có drawSize > 0, sẽ tính = log2(drawSize) trong pre-save. */
+    maxRounds: { type: Number, default: 0 },
+    /** Số cặp dự kiến ở vòng 1 (drawSize / 2) */
+    expectedFirstRoundMatches: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
+/** Nhóm/pool dùng cho round-robin & GSL */
 const groupSchema = new Schema(
   {
     name: { type: String, required: true }, // ví dụ: "A", "B", "C"...
@@ -24,30 +34,33 @@ const bracketSchema = new Schema(
       required: true,
     },
     name: { type: String, required: true },
+
     /**
-     * GIỮ NGUYÊN: "knockout" | "group"
-     * MỞ RỘNG: "double_elim" | "round_robin" | "swiss" | "gsl"
+     * Hỗ trợ:
+     * - "group"
+     * - "knockout"
+     * - "roundElim"
+     * (về sau bạn có thể mở rộng double_elim / round_robin / swiss / gsl…)
      */
     type: {
       type: String,
       enum: [
         "knockout",
-        "group", // dùng chung cho bảng thuần túy
+        "group",
         "double_elim",
         "round_robin",
         "swiss",
         "gsl",
+        "roundElim",
       ],
       default: "knockout",
       index: true,
     },
 
-    stage: { type: Number, default: 1 }, // GIỮ NGUYÊN
-    order: { type: Number, default: 0 }, // GIỮ NGUYÊN
+    stage: { type: Number, default: 1 },
+    order: { type: Number, default: 0 },
 
-    /**
-     * Cấu hình theo thể thức (đều có default, không bắt buộc truyền)
-     */
+    /** Cấu hình thể thức (mặc định giữ nguyên như bạn đang dùng) */
     config: {
       // Luật trận mặc định cho bracket (match có thể override)
       rules: {
@@ -73,7 +86,7 @@ const bracketSchema = new Schema(
 
       // Double Elimination
       doubleElim: {
-        hasGrandFinalReset: { type: Boolean, default: true }, // true-double
+        hasGrandFinalReset: { type: Boolean, default: true },
       },
 
       // Round Robin
@@ -98,52 +111,80 @@ const bracketSchema = new Schema(
         },
         avoidRematch: { type: Boolean, default: true },
         pairing: {
-          // dành cho thuật toán nâng cao
-          model: { type: String, default: "hungarian" }, // hoặc "bp" nếu bạn implement branch & bound
+          model: { type: String, default: "hungarian" },
         },
       },
 
-      // GSL (group-of-4: winners/losers/decider)
+      // GSL
       gsl: {
-        groupSize: { type: Number, default: 4 }, // ~ luôn là 4
+        groupSize: { type: Number, default: 4 },
+      },
+
+      // (tuỳ bạn mở rộng: config.roundElim nếu muốn)
+      roundElim: {
+        drawSize: { type: Number, default: 0 }, // nếu bạn muốn lưu riêng cho roundElim
+        cutRounds: { type: Number, default: 0 }, // k: n → n/(2^k)
       },
     },
 
-    /**
-     * Dùng cho "round_robin" và "gsl" (nhóm/pool)
-     */
+    /** Dùng cho round_robin/gsl nếu cần */
     groups: [groupSchema],
 
-    // Đếm nhanh
+    // Counters
     matchesCount: { type: Number, default: 0 },
     teamsCount: { type: Number, default: 0 },
-    // === NEW: override theo từng giải ===
+
+    // Cấu hình bốc thăm chung
     drawSettings: { type: DrawSettingsSchema, default: () => ({}) },
-    /** ⭐ NEW: Quy mô main draw (số đội = 2^n). 0 = chưa đặt */
+
+    /** KO scale theo số vòng: drawRounds = n → drawSize = 2^n (UI dùng meta để hiển thị) */
     drawRounds: { type: Number, default: 0 },
+
+    /** ⭐ META nhẹ cho UI (quy mô hiển thị) */
+    meta: { type: bracketMetaSchema, default: () => ({}) },
   },
   { timestamps: true }
 );
 
-// // ====== Helpers cho drawScale ======
-// function ceilPow2(n) {
-//   if (!n || n < 1) return 0;
-//   return 1 << Math.ceil(Math.log2(n));
-// }
+// ===== Helpers =====
+function ceilPow2(n) {
+  if (!n || n < 1) return 0;
+  return 1 << Math.ceil(Math.log2(n));
+}
+function isPow2(n) {
+  return Number.isInteger(n) && n >= 1 && (n & (n - 1)) === 0;
+}
 
-// // Validate: đảm bảo drawScale là lũy thừa của 2 (hoặc 0)
-// bracketSchema.pre("save", function (next) {
-//   if (typeof this.drawScale === "number" && this.drawScale > 0) {
-//     this.drawScale = ceilPow2(this.drawScale);
-//   }
-//   next();
-// });
+// Đồng bộ meta trước khi lưu (an toàn)
+bracketSchema.pre("save", function (next) {
+  this.meta = this.meta || {};
 
-// // Virtual: số vòng tối đa = log2(drawScale)
-// bracketSchema.virtual("maxRounds").get(function () {
-//   const n = this.drawScale || 0;
-//   return n > 0 ? Math.round(Math.log2(n)) : 0;
-// });
+  // Nếu có meta.drawSize → làm tròn lên 2^k và sync maxRounds/expectedFirstRoundMatches
+  if (typeof this.meta.drawSize === "number" && this.meta.drawSize > 0) {
+    const pow2 = isPow2(this.meta.drawSize)
+      ? this.meta.drawSize
+      : ceilPow2(this.meta.drawSize);
+    this.meta.drawSize = pow2;
+    this.meta.maxRounds = Math.round(Math.log2(pow2));
+    this.meta.expectedFirstRoundMatches = pow2 / 2;
+  }
+
+  // Nếu type = knockout & có drawRounds mà meta còn thiếu → sync meta từ drawRounds
+  if (
+    this.type === "knockout" &&
+    Number.isInteger(this.drawRounds) &&
+    this.drawRounds > 0 &&
+    (!this.meta.drawSize || !this.meta.maxRounds)
+  ) {
+    const pow2 = 1 << this.drawRounds;
+    if (!this.meta.drawSize) this.meta.drawSize = pow2;
+    if (!this.meta.maxRounds) this.meta.maxRounds = this.drawRounds;
+    if (!this.meta.expectedFirstRoundMatches)
+      this.meta.expectedFirstRoundMatches = pow2 / 2;
+  }
+
+  next();
+});
 
 bracketSchema.index({ tournament: 1, order: 1 });
 bracketSchema.index({ tournament: 1, type: 1 });

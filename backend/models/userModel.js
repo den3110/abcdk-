@@ -111,4 +111,24 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
+const RatingSchema = new mongoose.Schema(
+  {
+    singles: { type: Number, default: 3.5 },   // thang 2.0..8.0 (dùng số thực)
+    doubles: { type: Number, default: 3.5 },
+    matchesSingles: { type: Number, default: 0 },
+    matchesDoubles: { type: Number, default: 0 },
+    reliabilitySingles: { type: Number, default: 0 }, // 0..1
+    reliabilityDoubles: { type: Number, default: 0 },
+    // tùy chọn: khóa cứng min/max để tránh trôi quá xa
+    minBound: { type: Number, default: 2.0 },
+    maxBound: { type: Number, default: 8.0 },
+  },
+  { _id: false }
+);
+
+// NEW: gắn vào schema
+userSchema.add({
+  localRatings: { type: RatingSchema, default: () => ({}) },
+});
+
 export default mongoose.model("User", userSchema);
