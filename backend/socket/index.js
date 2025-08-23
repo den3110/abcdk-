@@ -65,9 +65,18 @@ export function initSocket(
       if (!matchId) return;
       const room = `match:${matchId}`;
       socket.join(room);
-      const m = await Match.findById(matchId).populate(
-        "pairA pairB referee previousA previousB nextMatch tournament bracket"
-      );
+      // query giống hệt shape tham chiếu và trả về plain object
+      const m = await Match.findById(matchId)
+        .populate({ path: "pairA", select: "player1 player2" })
+        .populate({ path: "pairB", select: "player1 player2" })
+        .populate({ path: "referee", select: "name fullName" })
+        .populate({ path: "previousA", select: "round order" })
+        .populate({ path: "previousB", select: "round order" })
+        // chỉ cần _id để biết còn trận sau không
+        .populate({ path: "nextMatch", select: "_id" })
+        // ⚠️ Nếu FE cần eventType cho label:
+        // .populate({ path: "tournament", select: "eventType" })
+        .lean();
       if (m) socket.emit("match:snapshot", toDTO(m));
     });
     socket.on("overlay:join", ({ matchId }) => {

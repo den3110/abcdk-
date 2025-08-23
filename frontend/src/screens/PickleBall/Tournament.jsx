@@ -162,7 +162,7 @@ export default function TournamentDashboard() {
   }, [tournaments, tab, search]);
 
   return (
-    <Container sx={{ py: 4 }}>
+    <Container maxWidth="xl" sx={{ py: 3 }}>
       <Typography variant="h5" mb={3} fontWeight={600}>
         Dashboard Giải đấu
       </Typography>

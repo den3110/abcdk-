@@ -5,12 +5,17 @@ const ASSESSMENTS_URL = "/api/assessments";
 
 export const assessmentsApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
-    // Tạo bản chấm mới cho 1 user
+    // Tạo bản chấm mới cho 1 user (simple mode)
     createAssessment: builder.mutation({
-      query: ({ userId, items, note = "" }) => ({
+      query: ({ userId, singleLevel, doubleLevel, meta, note = "" }) => ({
         url: `${ASSESSMENTS_URL}/${userId}`,
         method: "POST",
-        body: { items, note },
+        body: {
+          singleLevel,
+          doubleLevel,
+          ...(meta ? { meta } : {}),
+          note,
+        },
       }),
     }),
 
@@ -25,12 +30,17 @@ export const assessmentsApiSlice = apiSlice.injectEndpoints({
         `${ASSESSMENTS_URL}/${userId}/history?limit=${limit}`,
     }),
 
-    // Cập nhật một bản chấm theo id (nếu cho phép sửa)
+    // Cập nhật một bản chấm theo id (simple mode)
     updateAssessment: builder.mutation({
-      query: ({ id, items, note = "" }) => ({
+      query: ({ id, singleLevel, doubleLevel, meta, note }) => ({
         url: `${ASSESSMENTS_URL}/${id}`,
         method: "PUT",
-        body: { items, note },
+        body: {
+          ...(singleLevel !== undefined ? { singleLevel } : {}),
+          ...(doubleLevel !== undefined ? { doubleLevel } : {}),
+          ...(meta ? { meta } : {}),
+          ...(typeof note === "string" ? { note } : {}),
+        },
       }),
     }),
 
@@ -38,7 +48,6 @@ export const assessmentsApiSlice = apiSlice.injectEndpoints({
     getRankingByUser: builder.query({
       query: (userId) => `/api/rankings/${userId}`,
     }),
- 
   }),
 });
 

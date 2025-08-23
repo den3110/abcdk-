@@ -13,30 +13,26 @@ export const getRankings = asyncHandler(async (req, res) => {
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 10, 10)));
   const keyword = String(req.query.keyword ?? "").trim();
 
-  // 1) Nếu có keyword, lấy danh sách _id user khớp nickname (không lọc role)
+  // 1) Nếu có keyword, lọc theo nickname
   let userIdsFilter = null;
   if (keyword) {
     const rawIds = await User.find(
       { nickname: { $regex: keyword, $options: "i" } },
       { _id: 1 }
     ).lean();
-
     const ids = rawIds
       .map((d) => d?._id)
       .filter((id) => mongoose.isValidObjectId(id));
-
-    if (ids.length === 0) {
-      return res.json({ docs: [], totalPages: 0, page });
-    }
+    if (ids.length === 0) return res.json({ docs: [], totalPages: 0, page });
     userIdsFilter = ids;
   }
 
-  // 2) Match cơ bản cho Ranking
+  // 2) Match cơ bản
   const matchStage = {
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
   };
 
-  // 3) Đếm số user duy nhất để tính totalPages
+  // 3) Tổng user duy nhất (tính trang)
   const countAgg = await Ranking.aggregate([
     { $match: matchStage },
     { $match: { user: { $type: "objectId" } } },
@@ -45,12 +41,14 @@ export const getRankings = asyncHandler(async (req, res) => {
   ]);
   const totalUniqueUsers = countAgg[0]?.n ?? 0;
 
-  // 4) Lấy docs theo trang với các tính toán tier
+  // 4) Lấy docs + tính toán
+  const now = new Date();
+
   const docsAgg = await Ranking.aggregate([
     { $match: matchStage },
     { $match: { user: { $type: "objectId" } } },
 
-    // Chuẩn hoá giá trị để sort an toàn
+    // Chuẩn hoá cho bước chọn bản / user
     {
       $addFields: {
         reputation: { $ifNull: ["$reputation", 0] },
@@ -60,12 +58,12 @@ export const getRankings = asyncHandler(async (req, res) => {
       },
     },
 
-    // Nếu (giả định) có nhiều bản / user, chọn bản "đẹp" nhất theo điểm (để ổn định)
+    // Nếu có nhiều bản / user, pick bản "đẹp" nhất
     { $sort: { updatedAt: -1, double: -1, single: -1, points: -1, _id: 1 } },
     { $group: { _id: "$user", doc: { $first: "$$ROOT" } } },
     { $replaceRoot: { newRoot: "$doc" } },
 
-    // Join sang users (FULL ROLE, không lọc)
+    // Join user
     {
       $lookup: {
         from: "users",
@@ -76,14 +74,13 @@ export const getRankings = asyncHandler(async (req, res) => {
           {
             $project: {
               nickname: 1,
-              // role: 1,
               gender: 1,
               province: 1,
               avatar: 1,
               verified: 1,
               createdAt: 1,
               cccdStatus: 1,
-              dob: 1
+              dob: 1,
             },
           },
         ],
@@ -91,7 +88,7 @@ export const getRankings = asyncHandler(async (req, res) => {
     },
     { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
 
-    // Lấy lần chấm gần nhất (để biết tự chấm hay không)
+    // Lần chấm gần nhất (để biết tự chấm)
     {
       $lookup: {
         from: "assessments",
@@ -109,23 +106,15 @@ export const getRankings = asyncHandler(async (req, res) => {
     {
       $addFields: {
         isSelfScoredLatest: {
-          $cond: [
-            {
-              $or: [
-                { $eq: ["$latestAssess.meta.selfScored", true] },
-                { $eq: ["$latestAssess.scorer", "$user._id"] },
-              ],
-            },
-            true,
-            false,
+          $or: [
+            { $eq: ["$latestAssess.meta.selfScored", true] },
+            { $eq: ["$latestAssess.scorer", "$user._id"] },
           ],
         },
       },
     },
 
-    // --- Tính số trận ĐÔI/ĐƠN đã KẾT THÚC cho user ---
-
-    // Lấy tất cả registrations của user + phân loại theo eventType (single/double)
+    // === ĐẾM SỐ GIẢI ĐÃ KẾT THÚC (distinct tournament) tách theo eventType ===
     {
       $lookup: {
         from: "registrations",
@@ -147,7 +136,17 @@ export const getRankings = asyncHandler(async (req, res) => {
               localField: "tournament",
               foreignField: "_id",
               as: "tour",
-              pipeline: [{ $project: { eventType: 1 } }],
+              pipeline: [
+                {
+                  $project: {
+                    _id: 1,
+                    eventType: 1,
+                    status: 1,
+                    finishedAt: 1,
+                    endAt: 1,
+                  },
+                },
+              ],
             },
           },
           {
@@ -155,121 +154,90 @@ export const getRankings = asyncHandler(async (req, res) => {
               eventType: {
                 $ifNull: [{ $arrayElemAt: ["$tour.eventType", 0] }, "double"],
               },
+              tourId: { $arrayElemAt: ["$tour._id", 0] },
+              status: { $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, ""] },
+              finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
+              endAt: { $arrayElemAt: ["$tour.endAt", 0] },
             },
           },
-          { $group: { _id: "$eventType", ids: { $push: "$_id" } } },
-        ],
-        as: "regsByType",
-      },
-    },
-
-    // Rút 2 mảng regIds: regsDoubleIds & regsSingleIds
-    {
-      $addFields: {
-        regsDoubleIds: {
-          $let: {
-            vars: {
-              arr: {
-                $filter: {
-                  input: "$regsByType",
-                  as: "r",
-                  cond: { $eq: ["$$r._id", "double"] },
-                },
-              },
-            },
-            in: { $ifNull: [{ $arrayElemAt: ["$$arr.ids", 0] }, []] },
-          },
-        },
-        regsSingleIds: {
-          $let: {
-            vars: {
-              arr: {
-                $filter: {
-                  input: "$regsByType",
-                  as: "r",
-                  cond: { $eq: ["$$r._id", "single"] },
-                },
-              },
-            },
-            in: { $ifNull: [{ $arrayElemAt: ["$$arr.ids", 0] }, []] },
-          },
-        },
-      },
-    },
-
-    // Đếm trận ĐÔI đã finished
-    {
-      $lookup: {
-        from: "matches",
-        let: { rids: "$regsDoubleIds" },
-        pipeline: [
           {
-            $match: {
-              $expr: {
-                $and: [
+            $addFields: {
+              tourFinished: {
+                $or: [
                   { $eq: ["$status", "finished"] },
-                  {
-                    $or: [
-                      { $in: ["$pairA", "$$rids"] },
-                      { $in: ["$pairB", "$$rids"] },
-                    ],
-                  },
+                  { $ne: ["$finishedAt", null] },
+                  { $lt: ["$endAt", now] },
                 ],
               },
             },
           },
-          { $count: "n" },
+          { $match: { tourFinished: true } },
+          { $group: { _id: { eventType: "$eventType", t: "$tourId" } } },
+          {
+            $group: {
+              _id: "$_id.eventType",
+              tourIds: { $addToSet: "$_id.t" },
+              count: { $sum: 1 },
+            },
+          },
         ],
-        as: "doubleCnt",
-      },
-    },
-    {
-      $addFields: {
-        doubleMatches: { $ifNull: [{ $arrayElemAt: ["$doubleCnt.n", 0] }, 0] },
+        as: "finishedToursByType",
       },
     },
 
-    // Đếm trận ĐƠN đã finished
+    // Số giải theo loại
     {
-      $lookup: {
-        from: "matches",
-        let: { rids: "$regsSingleIds" },
-        pipeline: [
-          {
-            $match: {
-              $expr: {
-                $and: [
-                  { $eq: ["$status", "finished"] },
+      $addFields: {
+        doubleTours: {
+          $let: {
+            vars: {
+              item: {
+                $arrayElemAt: [
                   {
-                    $or: [
-                      { $in: ["$pairA", "$$rids"] },
-                      { $in: ["$pairB", "$$rids"] },
-                    ],
+                    $filter: {
+                      input: "$finishedToursByType",
+                      as: "r",
+                      cond: { $eq: ["$$r._id", "double"] },
+                    },
                   },
+                  0,
                 ],
               },
             },
+            in: { $ifNull: ["$$item.count", 0] },
           },
-          { $count: "n" },
-        ],
-        as: "singleCnt",
-      },
-    },
-    {
-      $addFields: {
-        singleMatches: { $ifNull: [{ $arrayElemAt: ["$singleCnt.n", 0] }, 0] },
+        },
+        singleTours: {
+          $let: {
+            vars: {
+              item: {
+                $arrayElemAt: [
+                  {
+                    $filter: {
+                      input: "$finishedToursByType",
+                      as: "r",
+                      cond: { $eq: ["$$r._id", "single"] },
+                    },
+                  },
+                  0,
+                ],
+              },
+            },
+            in: { $ifNull: ["$$item.count", 0] },
+          },
+        },
       },
     },
 
-    // Tính tier cho đôi/đơn
+    // Tier theo SỐ GIẢI đã kết thúc
     {
       $addFields: {
         doubleTier: {
           $switch: {
             branches: [
-              { case: { $gte: ["$doubleMatches", 10] }, then: 0 },
-              { case: { $gte: ["$doubleMatches", 5] }, then: 1 },
-              { case: { $gte: ["$doubleMatches", 1] }, then: 2 },
+              { case: { $gte: ["$doubleTours", 10] }, then: 0 },
+              { case: { $gte: ["$doubleTours", 5] }, then: 1 },
+              { case: { $gte: ["$doubleTours", 1] }, then: 2 },
             ],
             default: 4,
           },
@@ -277,9 +245,9 @@ export const getRankings = asyncHandler(async (req, res) => {
         singleTier: {
           $switch: {
             branches: [
-              { case: { $gte: ["$singleMatches", 10] }, then: 0 },
-              { case: { $gte: ["$singleMatches", 5] }, then: 1 },
-              { case: { $gte: ["$singleMatches", 1] }, then: 2 },
+              { case: { $gte: ["$singleTours", 10] }, then: 0 },
+              { case: { $gte: ["$singleTours", 5] }, then: 1 },
+              { case: { $gte: ["$singleTours", 1] }, then: 2 },
             ],
             default: 4,
           },
@@ -288,7 +256,7 @@ export const getRankings = asyncHandler(async (req, res) => {
       },
     },
 
-    // Badge hiệu lực (ưu tiên đôi → đơn → tự chấm → chưa đấu)
+    // Badge hiệu lực (ưu tiên ĐÔI rồi ĐƠN rồi tự chấm; nếu cả hai 4 thì là 4)
     {
       $addFields: {
         effectiveTier: {
@@ -302,6 +270,8 @@ export const getRankings = asyncHandler(async (req, res) => {
         },
       },
     },
+
+    // Màu/nhãn theo GIẢI
     {
       $addFields: {
         tierColor: {
@@ -318,9 +288,9 @@ export const getRankings = asyncHandler(async (req, res) => {
         tierLabel: {
           $switch: {
             branches: [
-              { case: { $eq: ["$effectiveTier", 0] }, then: "≥10 trận" },
-              { case: { $eq: ["$effectiveTier", 1] }, then: "5–9 trận" },
-              { case: { $eq: ["$effectiveTier", 2] }, then: "1–4 trận" },
+              { case: { $eq: ["$effectiveTier", 0] }, then: "≥10 giải" },
+              { case: { $eq: ["$effectiveTier", 1] }, then: "5–9 giải" },
+              { case: { $eq: ["$effectiveTier", 2] }, then: "1–4 giải" },
               { case: { $eq: ["$effectiveTier", 3] }, then: "Tự chấm" },
             ],
             default: "Chưa đấu",
@@ -329,47 +299,55 @@ export const getRankings = asyncHandler(async (req, res) => {
       },
     },
 
-    // === SORT theo ưu tiên mới ===
+    // Reputation theo GIẢI
+    {
+      $addFields: {
+        reputation: {
+          $min: [
+            100,
+            { $multiply: [{ $add: ["$singleTours", "$doubleTours"] }, 10] },
+          ],
+        },
+      },
+    },
+
+    // Sort: nhóm → điểm → reputation (chỉ dùng khi bằng điểm)
     {
       $sort: {
-        doubleTier: 1, // Ưu tiên ĐÔI
-        singleTier: 1, // rồi tới ĐƠN
-        selfTier: 1, // rồi tới TỰ CHẤM
-        double: -1, // sau đó theo điểm rank
+        effectiveTier: 1, // 0 → 1 → 2 → 3 → 4
+        double: -1,
         single: -1,
         points: -1,
+        reputation: -1, // tie-break khi các điểm bằng nhau
         updatedAt: -1,
         _id: 1,
       },
     },
 
-    // Paginate
+    // Trang
     { $skip: page * limit },
     { $limit: limit },
 
     // Project gọn
     {
       $project: {
-        user: 1, // đầy đủ role + info cơ bản
+        user: 1,
         single: 1,
         double: 1,
         mix: 1,
         points: 1,
-        reputation: 1,
+        reputation: 1, // đã tính theo giải
         updatedAt: 1,
 
-        // trận/tiers tách đôi & đơn
-        doubleMatches: 1,
-        singleMatches: 1,
+        doubleTours: 1,
+        singleTours: 1,
+
         doubleTier: 1,
         singleTier: 1,
-
-        // badge hiệu lực (ưu tiên đôi)
         effectiveTier: 1,
         tierColor: 1,
         tierLabel: 1,
 
-        // cờ tự chấm gần nhất
         isSelfScoredLatest: 1,
       },
     },
@@ -472,7 +450,7 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
 export const updateRanking = asyncHandler(async (req, res) => {
   const { single, double } = req.body;
   const { id: userId } = req.params;
-  const note= "Admin chấm điểm trình"
+  const note = "Admin chấm điểm trình";
   // 1️⃣ Validate dữ liệu
   if (single == null || double == null) {
     res.status(400);

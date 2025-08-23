@@ -11,21 +11,39 @@ export const toDTO = (m) => ({
   _id: m._id,
   status: m.status,
   winner: m.winner,
-  rules: m.rules,
-  currentGame: m.currentGame ?? 0,
-  gameScores: m.gameScores || [],
-  pairA: m.pairA,
-  pairB: m.pairB,
-  referee: m.referee,
-  tournament: m.tournament,
-  scheduledAt: m.scheduledAt,
-  startedAt: m.startedAt,
-  finishedAt: m.finishedAt,
-  version: m.liveVersion ?? 0,
-  // ✅ gửi serve cho FE
-  serve: m.serve || { side: "A", server: 2 },
-});
 
+  // top-level dùng cho tiêu đề R#/order
+  round: m.round,
+  order: m.order,
+
+  rules: m.rules || {},
+  currentGame: m.currentGame ?? 0,
+  gameScores: Array.isArray(m.gameScores) ? m.gameScores : [],
+
+  // cặp/seed & phụ thuộc
+  pairA: m.pairA || null, // { player1, player2 }
+  pairB: m.pairB || null, // { player1, player2 }
+  seedA: m.seedA || null, // giữ để FE có thể hiển thị seed fallback
+  seedB: m.seedB || null,
+  previousA: m.previousA || null, // { round, order }
+  previousB: m.previousB || null, // { round, order }
+  nextMatch: m.nextMatch || null, // { _id } hoặc null
+  referee: m.referee || null, // { name, fullName }
+
+  // thời gian
+  scheduledAt: m.scheduledAt || null,
+  startedAt: m.startedAt || null,
+  finishedAt: m.finishedAt || null,
+
+  version: m.liveVersion ?? 0,
+
+  // ✅ gửi serve cho FE (mặc định A-2)
+  serve: m.serve || { side: "A", server: 2 },
+
+  // ⚠️ Nếu ở trên có populate tournament (eventType) thì mở dòng này:
+  // tournament: m.tournament || undefined,
+});
+  
 const gamesToWin = (bestOf) => Math.floor(bestOf / 2) + 1;
 const gameWon = (x, y, pts, byTwo) =>
   x >= pts && (byTwo ? x - y >= 2 : x - y >= 1);

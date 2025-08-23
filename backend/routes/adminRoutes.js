@@ -24,6 +24,8 @@ import {
   finishTournament,
   getTournamentById,
   getTournaments,
+  planAuto,
+  planCommit,
   updateTournament,
 } from "../controllers/admin/adminTournamentController.js";
 import {
@@ -213,5 +215,16 @@ router.post("/brackets/:bracketId/matches/batch-delete", protect, authorize("adm
 
 // RoundElim helper
 router.post("/brackets/:bracketId/round-elim/skeleton", protect, authorize("admin"), buildRoundElimSkeleton);
+
+// 
+
+// /api/tournaments/:id/plan/auto
+router.post("/tournaments/:id/plan/auto", protect, authorize("admin"), planAuto);
+
+// /api/tournaments/:id/plan/commit
+router.post("/tournaments/:id/plan/commit", protect, authorize("admin"), planCommit);
+
+
+
 
 export default router;

@@ -7,6 +7,12 @@ import { DateTime } from "luxon";
 import Tournament from "../../models/tournamentModel.js";
 import Registration from "../../models/registrationModel.js";
 import { addTournamentReputationBonus } from "../../services/reputationService.js";
+import { autoPlan } from "../../services/tournamentPlanner.js";
+import {
+  buildGroupBracket,
+  buildKnockoutBracket,
+  buildRoundElimBracket,
+} from "../../services/bracketBuilder.js";
 
 /* -------------------------- Sanitize cấu hình -------------------------- */
 const SAFE_HTML = {
@@ -424,5 +430,128 @@ export async function finishExpiredTournaments(_req, res) {
     return res.json({ checked: ids.length, finished });
   } catch (e) {
     return res.status(500).json({ message: e.message || "Bulk finish failed" });
+  }
+}
+
+export async function planAuto(req, res) {
+  try {
+    const { id } = req.params;
+    const t = await Tournament.findById(id).lean();
+    if (!t) return res.status(404).json({ message: "Tournament not found" });
+
+    // quyền (tùy hệ thống của bạn)
+    // if (req.user?.role !== "admin") return res.status(403).json({ message: "Forbidden" });
+
+    const {
+      expectedTeams,
+      allowGroup = true,
+      allowPO = true,
+      allowKO = true,
+    } = req.body || {};
+    const plan = autoPlan({
+      expectedTeams: Number(expectedTeams || t.expected || 0),
+      allowGroup,
+      allowPO,
+      allowKO,
+    });
+
+    return res.json(plan);
+  } catch (e) {
+    console.error("[planAuto] error:", e);
+    res
+      .status(500)
+      .json({ message: "Auto plan failed", error: String(e?.message || e) });
+  }
+}
+
+/**
+ * body:
+ * {
+ *   groups: { count, size, qualifiersPerGroup } | null,
+ *   po: { drawSize, seeds? } | null,
+ *   ko: { drawSize, seeds: [{pair, A:{...}, B:{...}}] } | null
+ * }
+ */
+export async function planCommit(req, res) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { id } = req.params;
+    const t = await Tournament.findById(id).session(session);
+    if (!t) {
+      await session.abortTransaction();
+      return res.status(404).json({ message: "Tournament not found" });
+    }
+
+    const { groups, po, ko } = req.body || {};
+    const created = { groupBracket: null, poBracket: null, koBracket: null };
+
+    let stage = 0;
+
+    // 1) Group
+    if (groups?.count > 0 && groups?.size > 0) {
+      stage += 1;
+      created.groupBracket = await buildGroupBracket({
+        tournamentId: t._id,
+        name: "Group Stage",
+        order: 1,
+        stage,
+        groupCount: Number(groups.count),
+        groupSize: Number(groups.size),
+        session,
+      });
+    }
+
+    // 2) PO (roundElim)
+    if (po?.drawSize > 0) {
+      stage += 1;
+      const firstRoundSeeds = Array.isArray(po.seeds) ? po.seeds : [];
+      const { bracket } = await buildRoundElimBracket({
+        tournamentId: t._id,
+        name: "Pre-Qualifying",
+        order: 2,
+        stage,
+        drawSize: Number(po.drawSize),
+        maxRounds: Number(po.maxRounds) || 1,
+        firstRoundSeeds,
+        session,
+      });
+      created.poBracket = bracket;
+    }
+
+    // 3) KO chính
+    if (ko?.drawSize > 0) {
+      stage += 1;
+      const firstRoundSeeds = Array.isArray(ko.seeds) ? ko.seeds : [];
+      const { bracket } = await buildKnockoutBracket({
+        tournamentId: t._id,
+        name: "Knockout",
+        order: 3,
+        stage,
+        drawSize: Number(ko.drawSize),
+        firstRoundSeeds,
+        session,
+      });
+      created.koBracket = bracket;
+    }
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.json({
+      ok: true,
+      created: {
+        groupBracketId: created.groupBracket?._id || null,
+        poBracketId: created.poBracket?._id || null,
+        koBracketId: created.koBracket?._id || null,
+      },
+    });
+  } catch (e) {
+    console.error("[planCommit] error:", e);
+    await session.abortTransaction();
+    session.endSession();
+    res
+      .status(500)
+      .json({ message: "Commit plan failed", error: String(e?.message || e) });
   }
 }

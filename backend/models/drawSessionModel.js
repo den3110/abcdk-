@@ -48,7 +48,7 @@ const DrawSessionSchema = new mongoose.Schema(
     mode: { type: String, enum: ["group", "knockout"], required: true },
     targetRound: {
       type: String,
-      enum: ["R64", "R32", "R16", "QF", "SF", "F", null],
+      enum: ["R256", "R128", "R64", "R32", "R16", "QF", "SF", "F", null],
       default: null,
     },
 
@@ -62,11 +62,11 @@ const DrawSessionSchema = new mongoose.Schema(
     pool: [{ type: mongoose.Schema.Types.ObjectId, ref: "Registration" }],
     taken: [{ type: mongoose.Schema.Types.ObjectId, ref: "Registration" }],
 
-    board: {
-      type: { type: String, enum: ["group", "knockout"], required: true },
-      groups: [GroupBoardSchema],
-      pairs: [KnockoutPairSchema],
-    },
+    // board: {
+    //   type: { type: String, enum: ["group", "knockout"], required: true },
+    //   groups: [GroupBoardSchema],
+    //   pairs: [KnockoutPairSchema],
+    // },
 
     cursor: {
       gIndex: { type: Number, default: 0 },
@@ -146,7 +146,11 @@ const DrawSessionSchema = new mongoose.Schema(
       type: { type: String },
       roundKey: String,
       pairs: [
-        { index: Number, a: mongoose.Schema.Types.ObjectId, b: mongoose.Schema.Types.ObjectId },
+        {
+          index: Number,
+          a: mongoose.Schema.Types.ObjectId,
+          b: mongoose.Schema.Types.ObjectId,
+        },
       ],
     },
     computedMeta: {

@@ -1,75 +1,97 @@
 // controllers/assessmentController.js
+import mongoose from "mongoose";
 import Assessment from "../models/assessmentModel.js";
 import Ranking from "../models/rankingModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
-import mongoose from "mongoose";
-import { computeLevels } from "../utils/computeLevels.js";
+import { normalizeDupr, rawFromDupr, sanitizeMeta } from "../utils/level.js";
 
 /**
  * POST /api/assessments/:userId
- * body: { items: [{skillId, single, double}], note? }
- * return: { assessment, ranking }
+ * Body (đơn giản):
+ * {
+ *   singleLevel: number,      // 2.000..8.000
+ *   doubleLevel: number,      // 2.000..8.000
+ *   meta?: { freq?:0..5, competed?:bool, external?:0..10 },
+ *   note?: string
+ * }
+ * -> { assessment, ranking }
  */
 export async function createAssessment(req, res) {
   const { userId } = req.params;
-  const { items = [], note = "" } = req.body;
+  const body = req.body || {};
+  const note = typeof body.note === "string" ? body.note : "";
 
-  if (!Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ message: "items required" });
+  // chấp nhận thiếu 1 bên: mirror sang bên còn lại
+  let sLv = Number(body.singleLevel ?? body.doubleLevel);
+  let dLv = Number(body.doubleLevel ?? body.singleLevel);
+
+  if (Number.isNaN(sLv) || Number.isNaN(dLv)) {
+    return res
+      .status(400)
+      .json({ message: "singleLevel/doubleLevel phải là số" });
   }
+
+  // chuẩn hoá: clamp [2..8] và làm tròn 3 số
+  sLv = normalizeDupr(sLv);
+  dLv = normalizeDupr(dLv);
+
+  // quy đổi sang RAW 0..10 để lưu thống nhất (tham chiếu cho các nơi khác)
+  const singleScore = rawFromDupr(sLv);
+  const doubleScore = rawFromDupr(dLv);
+
+  const metaInput = sanitizeMeta(body.meta);
+  const selfScored = String(req.user?._id || "") === String(userId);
 
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    const { singleScore, doubleScore, singleLevel, doubleLevel, meta } =
-      computeLevels(items);
-    const selfScored = String(req.user?._id || "") === String(userId);
     // Lưu bản chấm
-    const assessment = await Assessment.create(
+    const [assessment] = await Assessment.create(
       [
         {
           user: userId,
           scorer: req.user?._id || null,
-          items,
+          items: [], // Không dùng nữa
           singleScore,
           doubleScore,
-          singleLevel,
-          doubleLevel,
-          meta: { ...meta, selfScored },
+          singleLevel: sLv,
+          doubleLevel: dLv,
+          meta: { ...metaInput, selfScored },
           note,
+          scoredAt: new Date(),
         },
       ],
       { session }
     );
 
-    // Cập nhật Ranking
-    const r = await Ranking.findOneAndUpdate(
+    // Upsert Ranking
+    const ranking = await Ranking.findOneAndUpdate(
       { user: userId },
       {
         $set: {
-          single: singleLevel,
-          double: doubleLevel,
+          single: sLv,
+          double: dLv,
           lastUpdated: new Date(),
         },
         $inc: {
-          // ví dụ bonus point theo tần suất/đấu giải/hệ thống khác
+          // ví dụ cộng điểm phụ
           points:
-            (meta.freq || 0) +
-            (meta.competed ? 1 : 0) +
-            (meta.external || 0) / 10,
+            (metaInput.freq || 0) +
+            (metaInput.competed ? 1 : 0) +
+            (metaInput.external || 0) / 10,
         },
       },
       { upsert: true, new: true, session }
     );
 
-    // Log lịch sử điểm (đơn/đôi) – để khớp model có sẵn của bạn
+    // Lịch sử điểm (lưu DUPR)
     await ScoreHistory.create(
       [
         {
           user: userId,
           scorer: req.user?._id || null,
-          single: singleLevel,
-          double: doubleLevel,
+          single: sLv,
+          double: dLv,
           note,
           scoredAt: new Date(),
         },
@@ -79,11 +101,7 @@ export async function createAssessment(req, res) {
 
     await session.commitTransaction();
     session.endSession();
-
-    return res.json({
-      assessment: assessment[0],
-      ranking: r,
-    });
+    return res.json({ assessment, ranking });
   } catch (e) {
     await session.abortTransaction();
     session.endSession();
@@ -91,9 +109,7 @@ export async function createAssessment(req, res) {
   }
 }
 
-/**
- * GET /api/assessments/:userId/latest
- */
+/** GET /api/assessments/:userId/latest */
 export async function getLatestAssessment(req, res) {
   const { userId } = req.params;
   const a = await Assessment.findOne({ user: userId })
@@ -102,9 +118,7 @@ export async function getLatestAssessment(req, res) {
   return res.json(a || null);
 }
 
-/**
- * GET /api/assessments/:userId/history?limit=20
- */
+/** GET /api/assessments/:userId/history?limit=20 */
 export async function getAssessmentHistory(req, res) {
   const { userId } = req.params;
   const limit = Math.min(Number(req.query.limit) || 20, 100);
@@ -116,29 +130,43 @@ export async function getAssessmentHistory(req, res) {
 }
 
 /**
- * OPTIONAL: PUT /api/assessments/:id  (admin/referee)
- * Cho phép sửa note hoặc items rồi tính lại
+ * OPTIONAL: PUT /api/assessments/:id
+ * Cho phép sửa level/note (không dùng trọng số/items nữa)
+ * Body hỗ trợ:
+ *  - singleLevel?, doubleLevel?, meta?, note?
  */
 export async function updateAssessment(req, res) {
   const { id } = req.params;
-  const { items, note } = req.body;
+  const body = req.body || {};
 
   const a = await Assessment.findById(id);
   if (!a) return res.status(404).json({ message: "Not found" });
 
-  if (items) {
-    const { singleScore, doubleScore, singleLevel, doubleLevel, meta } =
-      computeLevels(items);
-    a.items = items;
-    a.singleScore = singleScore;
-    a.doubleScore = doubleScore;
-    a.singleLevel = singleLevel;
-    a.doubleLevel = doubleLevel;
-    a.meta = meta;
-  }
-  if (typeof note === "string") a.note = note;
-  await a.save();
+  let needRecalc = false;
 
-  // Không tự động push Ranking/History khi sửa cũ (tuỳ bạn)
+  if (body.singleLevel !== undefined) {
+    const v = Number(body.singleLevel);
+    if (Number.isNaN(v))
+      return res.status(400).json({ message: "singleLevel phải là số" });
+    a.singleLevel = normalizeDupr(v);
+    a.singleScore = rawFromDupr(a.singleLevel);
+    needRecalc = true;
+  }
+  if (body.doubleLevel !== undefined) {
+    const v = Number(body.doubleLevel);
+    if (Number.isNaN(v))
+      return res.status(400).json({ message: "doubleLevel phải là số" });
+    a.doubleLevel = normalizeDupr(v);
+    a.doubleScore = rawFromDupr(a.doubleLevel);
+    needRecalc = true;
+  }
+  if (body.meta) {
+    a.meta = { ...a.meta, ...sanitizeMeta(body.meta) };
+  }
+  if (typeof body.note === "string") {
+    a.note = body.note;
+  }
+
+  await a.save();
   return res.json(a);
 }

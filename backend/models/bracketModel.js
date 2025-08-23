@@ -1,6 +1,7 @@
 // models/bracketModel.js
 import mongoose from "mongoose";
 import DrawSettingsSchema from "./drawSettingsSchema.js";
+import seedSourceSchema from "./seedSourceSchema.js";
 
 const { Schema } = mongoose;
 
@@ -21,6 +22,7 @@ const bracketMetaSchema = new Schema(
 const groupSchema = new Schema(
   {
     name: { type: String, required: true }, // ví dụ: "A", "B", "C"...
+    expectedSize: { type: Number, default: 0 },
     regIds: [{ type: Schema.Types.ObjectId, ref: "Registration" }],
   },
   { _id: true }
@@ -142,6 +144,23 @@ const bracketSchema = new Schema(
 
     /** ⭐ META nhẹ cho UI (quy mô hiển thị) */
     meta: { type: bracketMetaSchema, default: () => ({}) },
+    prefill: {
+      roundKey: { type: String, default: "" }, // "R16"
+      seeds: [
+        {
+          pair: { type: Number, required: true }, // 1..N ở vòng đầu
+          A: { type: seedSourceSchema, default: null },
+          B: { type: seedSourceSchema, default: null },
+        },
+      ],
+    },
+
+    feedPolicy: [
+      {
+        to: { type: String, required: true }, // ví dụ "R1#3A" (round 1, match #3, slot A)
+        from: seedSourceSchema, // nguồn cố định
+      },
+    ],
   },
   { timestamps: true }
 );

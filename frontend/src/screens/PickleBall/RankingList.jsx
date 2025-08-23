@@ -38,21 +38,19 @@ const PLACE = "https://dummyimage.com/40x40/cccccc/ffffff&text=?";
 
 // map từ tierColor BE → màu hex hiển thị
 const HEX = {
-  green: "#2e7d32", // ≥10 trận
+  green: "#2e7d32", // ≥10 giải
   blue: "#1976d2", // 5–9
   yellow: "#ff9800", // 1–4
   red: "#f44336", // tự chấm
   grey: "#616161", // chưa đấu
 };
-const textOn = (hex) => (hex === HEX.yellow ? "#000" : "#fff");
 const fmt3 = (x) => (Number.isFinite(x) ? Number(x).toFixed(3) : "0.000");
 
-// Tính tuổi: ưu tiên ngày sinh; fallback theo năm sinh
+// Tính tuổi
 const calcAge = (u) => {
   if (!u) return null;
   const today = new Date();
 
-  // Ưu tiên ngày sinh đầy đủ
   const dateStr =
     u.dob || u.dateOfBirth || u.birthday || u.birthdate || u.birth_date;
   if (dateStr) {
@@ -65,14 +63,12 @@ const calcAge = (u) => {
     }
   }
 
-  // Fallback: năm sinh (có thể là string)
   const yearRaw = u.birthYear ?? u.birth_year ?? u.yob;
   const year = Number(yearRaw);
   if (Number.isFinite(year) && year > 1900 && year <= today.getFullYear()) {
     return today.getFullYear() - year;
   }
 
-  // Nếu chỉ có dateStr dạng năm (ví dụ "1995")
   if (dateStr && /^\d{4}$/.test(String(dateStr))) {
     const y = Number(dateStr);
     if (Number.isFinite(y)) return today.getFullYear() - y;
@@ -109,7 +105,7 @@ const genderLabel = (g) => {
   }
 };
 
-// Legend theo tier
+// Legend theo tier (theo GIẢI)
 const Legend = () => (
   <Stack
     direction="row"
@@ -118,14 +114,14 @@ const Legend = () => (
     sx={{ columnGap: 1.5, rowGap: 1, mb: 2 }}
   >
     <Chip
-      label="Xanh lá: ≥ 10 trận"
+      label="Xanh lá: ≥ 10 giải"
       sx={{ bgcolor: HEX.green, color: "#fff" }}
     />
     <Chip
-      label="Xanh dương: 5–9 trận"
+      label="Xanh dương: 5–9 giải"
       sx={{ bgcolor: HEX.blue, color: "#fff" }}
     />
-    <Chip label="Vàng: 1–4 trận" sx={{ bgcolor: HEX.yellow, color: "#000" }} />
+    <Chip label="Vàng: 1–4 giải" sx={{ bgcolor: HEX.yellow, color: "#000" }} />
     <Chip label="Đỏ: tự chấm" sx={{ bgcolor: HEX.red, color: "#fff" }} />
   </Stack>
 );
@@ -146,7 +142,7 @@ export default function RankingList() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme?.breakpoints?.down("sm"));
 
-  // nhẹ nhàng debounce refetch khi keyword đổi
+  // debounce refetch khi keyword đổi
   useEffect(() => {
     const t = setTimeout(refetch, 300);
     return () => clearTimeout(t);
@@ -231,7 +227,6 @@ export default function RankingList() {
                       <Typography fontWeight={600} noWrap>
                         {u?.nickname || "---"}
                       </Typography>
-                      {/* BỎ ROLE TRÊN MOBILE */}
                     </Box>
                     <Stack direction="row" spacing={1} alignItems="center">
                       {Number.isFinite(age) && (
@@ -269,10 +264,11 @@ export default function RankingList() {
 
                   <Divider sx={{ mb: 1 }} />
 
+                  {/* Điểm rank hiển thị theo màu tier */}
                   <Stack
                     direction="row"
                     spacing={2}
-                    mb={1}
+                    mb={0.5}
                     sx={{ "& .score": { color: tierHex, fontWeight: 600 } }}
                   >
                     <Typography variant="body2" className="score">
@@ -282,6 +278,8 @@ export default function RankingList() {
                       Đơn: {fmt3(r?.single)}
                     </Typography>
                   </Stack>
+
+                  {/* đã bỏ hiển thị “Giải đã kết thúc: Đôi/Đơn” */}
 
                   <Typography
                     variant="caption"
@@ -305,7 +303,6 @@ export default function RankingList() {
                   </Typography>
 
                   <Stack direction="row" spacing={1} mt={2}>
-                    {/* BỎ NÚT CHẤM TRÊN MOBILE */}
                     <Button
                       size="small"
                       variant="contained"
@@ -327,14 +324,14 @@ export default function RankingList() {
             <TableHead>
               <TableRow>
                 <TableCell>#</TableCell>
-                {/* <TableCell>ID</TableCell>  // XOÁ */}
                 <TableCell>Ảnh</TableCell>
                 <TableCell>Nick</TableCell>
-                <TableCell>Tuổi</TableCell> {/* THÊM */}
+                <TableCell>Tuổi</TableCell>
                 <TableCell>Giới&nbsp;tính</TableCell>
                 <TableCell>Tỉnh</TableCell>
                 <TableCell>Điểm&nbsp;đôi</TableCell>
                 <TableCell>Điểm&nbsp;đơn</TableCell>
+                {/* đã bỏ 2 cột Giải đôi/Giải đơn */}
                 <TableCell>Cập nhật</TableCell>
                 <TableCell>Tham gia</TableCell>
                 <TableCell>Xác thực</TableCell>
@@ -352,7 +349,6 @@ export default function RankingList() {
                 return (
                   <TableRow key={r?._id || u?._id} hover>
                     <TableCell>{page * 10 + idx + 1}</TableCell>
-                    {/* <TableCell>{u?._id?.toString()?.slice(-5)}</TableCell> // XOÁ */}
                     <TableCell>
                       <Avatar
                         src={avatarSrc}
@@ -362,10 +358,7 @@ export default function RankingList() {
                       />
                     </TableCell>
                     <TableCell>{u?.nickname || "--"}</TableCell>
-                    <TableCell>
-                      {Number.isFinite(age) ? age : "--"}
-                    </TableCell>{" "}
-                    {/* số thuần */}
+                    <TableCell>{Number.isFinite(age) ? age : "--"}</TableCell>
                     <TableCell>{genderLabel(u?.gender)}</TableCell>
                     <TableCell>{u?.province || "--"}</TableCell>
                     <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
@@ -374,6 +367,9 @@ export default function RankingList() {
                     <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
                       {fmt3(r?.single)}
                     </TableCell>
+
+                    {/* đã bỏ 2 ô Giải đôi/Giải đơn */}
+
                     <TableCell>
                       {r?.updatedAt
                         ? new Date(r.updatedAt).toLocaleDateString()
