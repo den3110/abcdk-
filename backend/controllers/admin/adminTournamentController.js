@@ -486,33 +486,50 @@ export async function planCommit(req, res) {
     const { groups, po, ko } = req.body || {};
     const created = { groupBracket: null, poBracket: null, koBracket: null };
 
-    let stage = 0;
+    // Tính stage index liên tiếp
+    let stageCounter = 1;
+    let groupStageIdx = null;
+    let poStageIdx = null;
+    let koStageIdx = null;
 
-    // 1) Group
-    if (groups?.count > 0 && groups?.size > 0) {
-      stage += 1;
-      created.groupBracket = await buildGroupBracket({
+    if (groups && groups.count > 0) {
+      groupStageIdx = stageCounter++;
+    }
+    if (po && po.drawSize > 0) {
+      poStageIdx = stageCounter++;
+    }
+    if (ko && ko.drawSize > 0) {
+      koStageIdx = stageCounter++;
+    }
+
+    // 1) Group (hỗ trợ totalTeams / groupSizes)
+    if (groups?.count > 0) {
+      const payload = {
         tournamentId: t._id,
         name: "Group Stage",
         order: 1,
-        stage,
+        stage: groupStageIdx || 1,
         groupCount: Number(groups.count),
-        groupSize: Number(groups.size),
+        groupSize: Number(groups.size || 0) || undefined,
+        totalTeams: Number(groups.totalTeams || 0) || undefined,
+        groupSizes: Array.isArray(groups.groupSizes)
+          ? groups.groupSizes
+          : undefined,
         session,
-      });
+      };
+      created.groupBracket = await buildGroupBracket(payload);
     }
 
-    // 2) PO (roundElim)
+    // 2) PO (roundElim – KHÔNG ép 2^n)
     if (po?.drawSize > 0) {
-      stage += 1;
       const firstRoundSeeds = Array.isArray(po.seeds) ? po.seeds : [];
       const { bracket } = await buildRoundElimBracket({
         tournamentId: t._id,
         name: "Pre-Qualifying",
         order: 2,
-        stage,
+        stage: poStageIdx || (groupStageIdx ? groupStageIdx + 1 : 1),
         drawSize: Number(po.drawSize),
-        maxRounds: Number(po.maxRounds) || 1,
+        maxRounds: Math.max(1, Number(po.maxRounds || 1)),
         firstRoundSeeds,
         session,
       });
@@ -521,13 +538,14 @@ export async function planCommit(req, res) {
 
     // 3) KO chính
     if (ko?.drawSize > 0) {
-      stage += 1;
       const firstRoundSeeds = Array.isArray(ko.seeds) ? ko.seeds : [];
       const { bracket } = await buildKnockoutBracket({
         tournamentId: t._id,
         name: "Knockout",
         order: 3,
-        stage,
+        stage:
+          koStageIdx ||
+          (poStageIdx ? poStageIdx + 1 : groupStageIdx ? groupStageIdx + 1 : 1),
         drawSize: Number(ko.drawSize),
         firstRoundSeeds,
         session,

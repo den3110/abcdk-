@@ -12,6 +12,7 @@ function roundTitleByPairs(pairs) {
   return `R${pairs * 2}`;
 }
 
+// Tạo seed BYE hợp lệ cho validation
 const SEED_BYE = { type: "bye", ref: null, label: "BYE" };
 
 /* ====================== KO Builder (2^n) ====================== */
@@ -28,6 +29,7 @@ export async function buildKnockoutBracket({
   const rounds = Math.round(Math.log2(size));
   const firstPairs = size / 2;
 
+  // Chuẩn hoá seeds cho R1: thiếu -> BYE
   const r1Seeds = Array.from({ length: firstPairs }, (_, i) => {
     const found = firstRoundSeeds.find((s) => Number(s.pair) === i + 1);
     const A = found?.A && found.A.type ? found.A : SEED_BYE;
@@ -48,16 +50,14 @@ export async function buildKnockoutBracket({
           maxRounds: rounds,
           expectedFirstRoundMatches: firstPairs,
         },
-        prefill: {
-          roundKey: roundTitleByPairs(firstPairs),
-          seeds: r1Seeds,
-        },
+        prefill: { roundKey: roundTitleByPairs(firstPairs), seeds: r1Seeds },
       },
     ],
     { session }
   ).then((arr) => arr[0]);
 
   const created = {};
+  // R1
   created[1] = await Match.insertMany(
     r1Seeds.map((s, idx) => ({
       tournament: tournamentId,
@@ -71,6 +71,7 @@ export async function buildKnockoutBracket({
     { session }
   );
 
+  // R2..R
   for (let r = 2; r <= rounds; r++) {
     const prev = created[r - 1];
     const pairs = Math.ceil(prev.length / 2);
@@ -91,7 +92,7 @@ export async function buildKnockoutBracket({
     created[r] = await Match.insertMany(ms, { session });
   }
 
-  // set nextMatch/nextSlot
+  // Link nextMatch/nextSlot
   for (let r = 1; r < rounds; r++) {
     const cur = created[r];
     const nxt = created[r + 1];
@@ -112,21 +113,27 @@ export async function buildKnockoutBracket({
     }
   }
 
-  // 👇 NEW: resolve seed ngay cho bracket này
-  await Match.compileSeedsForBracket(bracket._id);
+  // ✅ NEW: resolve seed ngay cho KO bracket này (giữ bản #1 + bổ sung)
+  if (typeof Match.compileSeedsForBracket === "function") {
+    await Match.compileSeedsForBracket(bracket._id);
+  }
 
   return { bracket, matchesByRound: created };
 }
 
-/* ====================== Round-Elim (PO) ====================== */
+/* ====================== PO Builder (non-2^n round-elim) ====================== */
+// #matches of round r
 function poMatchesForRound(N, r) {
   const n = Math.max(0, Number(N) || 0);
   const round = Math.max(1, Number(r) || 1);
   if (round === 1) return Math.max(1, Math.ceil(n / 2));
-  let prevMatches = poMatchesForRound(n, round - 1);
+  const prevMatches = poMatchesForRound(n, round - 1);
   return Math.floor(prevMatches / 2);
 }
 
+/**
+ * PO: vòng sau đấu giữa LOSER của vòng trước (không ép 2^n)
+ */
 export async function buildRoundElimBracket({
   tournamentId,
   name = "Play-off",
@@ -141,6 +148,7 @@ export async function buildRoundElimBracket({
   const R1Pairs = Math.max(1, Math.ceil(N / 2));
   const Rmax = Math.max(1, Number(maxRounds || 1));
 
+  // R1 seeds: nếu thiếu hoặc N lẻ -> BYE cho slot B
   const r1Seeds = Array.from({ length: R1Pairs }, (_, i) => {
     const found = firstRoundSeeds.find((s) => Number(s.pair) === i + 1) || {};
     const idxA = i * 2 + 1;
@@ -163,24 +171,23 @@ export async function buildRoundElimBracket({
       {
         tournament: tournamentId,
         name,
-        type: "roundElim", // 👈 NEW
+        type: "roundElim", // ⭐ PO là roundElim, không phải knockout
         order,
         stage,
         meta: {
-          drawSize: N,
+          drawSize: 0, // (giữ đúng bản #1) KHÔNG ép 2^n
           maxRounds: Rmax,
           expectedFirstRoundMatches: R1Pairs,
         },
-        prefill: {
-          roundKey: `R1`,
-          seeds: r1Seeds,
-        },
+        prefill: { roundKey: `R1`, seeds: r1Seeds },
       },
     ],
     { session }
   ).then((arr) => arr[0]);
 
   const created = {};
+
+  // V1
   created[1] = await Match.insertMany(
     r1Seeds.map((s, idx) => ({
       tournament: tournamentId,
@@ -194,6 +201,7 @@ export async function buildRoundElimBracket({
     { session }
   );
 
+  // V2..Vmax: Loser cascade
   for (let r = 2; r <= Rmax; r++) {
     const pairs = poMatchesForRound(N, r);
     if (pairs <= 0) break;
@@ -201,15 +209,14 @@ export async function buildRoundElimBracket({
 
     const ms = [];
     for (let i = 0; i < pairs; i++) {
-      const leftOrder = 2 * i;
-      const rightOrder = 2 * i + 1;
+      const leftOrder = 2 * i; // 0-based
+      const rightOrder = 2 * i + 1; // 0-based
 
       const seedA = {
         type: "stageMatchLoser",
         ref: { stageIndex: stage, round: r - 1, order: leftOrder },
         label: `L-V${r - 1}-T${leftOrder + 1}`,
       };
-
       const seedB =
         rightOrder < prevPairs
           ? {
@@ -233,46 +240,59 @@ export async function buildRoundElimBracket({
     created[r] = await Match.insertMany(ms, { session });
   }
 
-  // 👇 NEW: resolve seed ngay cho bracket này
-  await Match.compileSeedsForBracket(bracket._id);
+  // ✅ NEW: resolve seed ngay cho PO bracket này (giữ bản #1 + bổ sung)
+  if (typeof Match.compileSeedsForBracket === "function") {
+    await Match.compileSeedsForBracket(bracket._id);
+  }
 
   return { bracket, matchesByRound: created };
 }
 
-/* ====================== Group Builder ====================== */
+/* ====================== Group Builder (có expectedSize) ====================== */
+/**
+ * - Nếu truyền groupSizes (array độ dài = groupCount) -> dùng trực tiếp
+ * - Else nếu truyền totalTeams > 0 -> chia đều, phần dư dồn vào bảng CUỐI
+ * - Else nếu truyền groupSize -> mọi bảng = groupSize
+ * - Else -> expectedSize = 0
+ */
 export async function buildGroupBracket({
   tournamentId,
   name = "Group Stage",
   order = 0,
   stage = 1,
   groupCount,
-  groupSize,
+  groupSize, // optional
+  totalTeams, // optional
+  groupSizes, // optional array
   session = null,
 }) {
   const letters = Array.from({ length: groupCount }, (_, i) =>
     String.fromCharCode(65 + i)
   );
-  // giữ cấu trúc groups cũ; nếu cần bạn có thể thêm meta/regCount tuỳ spec
-  const groups = letters.map((code) => ({ name: code, regIds: [] }));
+
+  let sizes = new Array(groupCount).fill(0);
+
+  if (Array.isArray(groupSizes) && groupSizes.length === groupCount) {
+    sizes = groupSizes.map((x) => Math.max(0, Number(x) || 0));
+  } else if (Number(totalTeams) > 0) {
+    const N = Math.max(0, Number(totalTeams) || 0);
+    const base = Math.floor(N / groupCount);
+    const remainder = N - base * groupCount;
+    sizes = new Array(groupCount).fill(base);
+    // ⭐ dồn phần dư vào bảng cuối
+    sizes[groupCount - 1] += remainder;
+  } else if (Number(groupSize) > 0) {
+    sizes = new Array(groupCount).fill(Math.max(0, Number(groupSize) || 0));
+  }
+
+  const groups = letters.map((code, i) => ({
+    name: code,
+    expectedSize: sizes[i] || 0,
+    regIds: [],
+  }));
 
   const bracket = await Bracket.create(
-    [
-      {
-        tournament: tournamentId,
-        name,
-        type: "group",
-        order,
-        stage,
-        groups,
-        // gợi ý config để FE/BXH dùng
-        config: {
-          roundRobin: {
-            points: { win: 3, draw: 1, loss: 0 },
-            tiebreakers: ["h2h", "setsDiff", "pointsDiff", "pointsFor"],
-          },
-        },
-      },
-    ],
+    [{ tournament: tournamentId, name, type: "group", order, stage, groups }],
     { session }
   ).then((arr) => arr[0]);
 

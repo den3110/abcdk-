@@ -57,6 +57,7 @@ import { finalizeExpiredTournaments } from "../services/tournamentLifecycle.js";
 import { createAutoUsers, previewAutoUsers } from "../controllers/admin/adminUserController.js";
 import { getDashboardMetrics, getDashboardSeries } from "../controllers/admin/adminDashboardController.js";
 import { batchAssignReferee, batchDeleteMatches, buildRoundElimSkeleton } from "../controllers/matchBatchController.js";
+import { autoGenerateRegistrations } from "../controllers/registrationAutoController.js";
 
 const router = express.Router();
 
@@ -224,7 +225,7 @@ router.post("/tournaments/:id/plan/auto", protect, authorize("admin"), planAuto)
 // /api/tournaments/:id/plan/commit
 router.post("/tournaments/:id/plan/commit", protect, authorize("admin"), planCommit);
 
-
-
+// auto create registration
+router.post("/tournaments/:tourId/registrations/auto", protect, authorize("admin"), autoGenerateRegistrations);
 
 export default router;
