@@ -13,6 +13,7 @@ import {
   buildKnockoutBracket,
   buildRoundElimBracket,
 } from "../../services/bracketBuilder.js";
+import expressAsyncHandler from "express-async-handler";
 
 /* -------------------------- Sanitize cấu hình -------------------------- */
 const SAFE_HTML = {
@@ -128,235 +129,232 @@ const isValidTZ = (tz) => {
 };
 
 /* -------------------------------------------------------------------------- */
-/*  Controllers                                                               */
+/*  Controllers (bọc expressAsyncHandler)                                     */
 /* -------------------------------------------------------------------------- */
 
-export const getTournaments = async (req, res, next) => {
-  try {
-    const page = Math.max(parseInt(req.query.page ?? 1, 10), 1);
-    const limit = Math.min(parseInt(req.query.limit ?? 50, 10), 100);
-    const sortRaw = (req.query.sort || "-createdAt").toString();
-    const sortSpecRaw = parseSort(sortRaw);
-    const sortSpec = Object.keys(sortSpecRaw).length
-      ? sortSpecRaw
-      : { createdAt: -1, _id: -1 };
+export const getTournaments = expressAsyncHandler(async (req, res) => {
+  const page = Math.max(parseInt(req.query.page ?? 1, 10), 1);
+  const limit = Math.min(parseInt(req.query.limit ?? 50, 10), 100);
+  const sortRaw = (req.query.sort || "-createdAt").toString();
+  const sortSpecRaw = parseSort(sortRaw);
+  const sortSpec = Object.keys(sortSpecRaw).length
+    ? sortSpecRaw
+    : { createdAt: -1, _id: -1 };
 
-    const { keyword = "", status = "", sportType, groupId } = req.query;
+  const { keyword = "", status = "", sportType, groupId } = req.query;
 
-    // Cho phép truyền tz từ client: ?tz=Asia/Ho_Chi_Minh (fallback VN)
-    const TZ =
-      (typeof req.query.tz === "string" &&
-        isValidTZ(req.query.tz) &&
-        req.query.tz) ||
-      "Asia/Ho_Chi_Minh";
+  // Cho phép truyền tz từ client: ?tz=Asia/Ho_Chi_Minh (fallback VN)
+  const TZ =
+    (typeof req.query.tz === "string" &&
+      isValidTZ(req.query.tz) &&
+      req.query.tz) ||
+    "Asia/Ho_Chi_Minh";
 
-    // Filter cơ bản
-    const match = {};
-    if (keyword.trim()) match.name = { $regex: keyword.trim(), $options: "i" };
-    if (sportType) match.sportType = Number(sportType);
-    if (groupId) match.groupId = Number(groupId);
+  // Filter cơ bản
+  const match = {};
+  if (keyword.trim()) match.name = { $regex: keyword.trim(), $options: "i" };
+  if (sportType) match.sportType = Number(sportType);
+  if (groupId) match.groupId = Number(groupId);
 
-    const skip = (page - 1) * limit;
+  const skip = (page - 1) * limit;
 
-    // Chuẩn hoá status theo ngôn ngữ
-    const statusNorm = String(status || "").toLowerCase();
-    const mapStatus = {
-      upcoming: "upcoming",
-      sắp: "upcoming",
-      sap: "upcoming",
-      ongoing: "ongoing",
-      live: "ongoing",
-      đang: "ongoing",
-      dang: "ongoing",
-      finished: "finished",
-      done: "finished",
-      past: "finished",
-      đã: "finished",
-      da: "finished",
-    };
-    const wantedStatus = mapStatus[statusNorm] || null;
+  // Chuẩn hoá status theo ngôn ngữ
+  const statusNorm = String(status || "").toLowerCase();
+  const mapStatus = {
+    upcoming: "upcoming",
+    sắp: "upcoming",
+    sap: "upcoming",
+    ongoing: "ongoing",
+    live: "ongoing",
+    đang: "ongoing",
+    dang: "ongoing",
+    finished: "finished",
+    done: "finished",
+    past: "finished",
+    đã: "finished",
+    da: "finished",
+  };
+  const wantedStatus = mapStatus[statusNorm] || null;
 
-    const pipeline = [
-      { $match: match },
-      // Tính status theo ngày local TZ (bao gồm ngày bắt & kết thúc)
-      {
-        $addFields: {
-          _nowDay: {
-            $dateToString: { date: "$$NOW", format: "%Y-%m-%d", timezone: TZ },
+  const pipeline = [
+    { $match: match },
+    // Tính status theo ngày local TZ (bao gồm ngày bắt & kết thúc)
+    {
+      $addFields: {
+        _nowDay: {
+          $dateToString: { date: "$$NOW", format: "%Y-%m-%d", timezone: TZ },
+        },
+        _startDay: {
+          $dateToString: {
+            date: "$startDate",
+            format: "%Y-%m-%d",
+            timezone: TZ,
           },
-          _startDay: {
-            $dateToString: {
-              date: "$startDate",
-              format: "%Y-%m-%d",
-              timezone: TZ,
-            },
-          },
-          _endDay: {
-            $dateToString: {
-              date: "$endDate",
-              format: "%Y-%m-%d",
-              timezone: TZ,
-            },
+        },
+        _endDay: {
+          $dateToString: {
+            date: "$endDate",
+            format: "%Y-%m-%d",
+            timezone: TZ,
           },
         },
       },
-      {
-        $addFields: {
-          status: {
-            $switch: {
-              branches: [
-                { case: { $lt: ["$_nowDay", "$_startDay"] }, then: "upcoming" },
-                { case: { $gt: ["$_nowDay", "$_endDay"] }, then: "finished" },
-              ],
-              default: "ongoing",
-            },
+    },
+    {
+      $addFields: {
+        status: {
+          $switch: {
+            branches: [
+              { case: { $lt: ["$_nowDay", "$_startDay"] }, then: "upcoming" },
+              { case: { $gt: ["$_nowDay", "$_endDay"] }, then: "finished" },
+            ],
+            default: "ongoing",
           },
         },
       },
-    ];
+    },
+  ];
 
-    if (wantedStatus) pipeline.push({ $match: { status: wantedStatus } });
+  if (wantedStatus) pipeline.push({ $match: { status: wantedStatus } });
 
-    pipeline.push({
-      $facet: {
-        data: [
-          { $sort: sortSpec },
-          { $skip: skip },
-          { $limit: limit },
-          // Đếm số registration
-          {
-            $lookup: {
-              from: "registrations",
-              let: { tid: "$_id" },
-              pipeline: [
-                { $match: { $expr: { $eq: ["$tournament", "$$tid"] } } },
-                { $group: { _id: null, c: { $sum: 1 } } },
-              ],
-              as: "_rc",
-            },
+  pipeline.push({
+    $facet: {
+      data: [
+        { $sort: sortSpec },
+        { $skip: skip },
+        { $limit: limit },
+        // Đếm số registration
+        {
+          $lookup: {
+            from: "registrations",
+            let: { tid: "$_id" },
+            pipeline: [
+              { $match: { $expr: { $eq: ["$tournament", "$$tid"] } } },
+              { $group: { _id: null, c: { $sum: 1 } } },
+            ],
+            as: "_rc",
           },
-          {
-            $addFields: {
-              registered: { $ifNull: [{ $arrayElemAt: ["$_rc.c", 0] }, 0] },
-            },
+        },
+        {
+          $addFields: {
+            registered: { $ifNull: [{ $arrayElemAt: ["$_rc.c", 0] }, 0] },
           },
-          { $project: { _rc: 0, _nowDay: 0, _startDay: 0, _endDay: 0 } },
-        ],
-        total: [{ $count: "count" }],
-      },
-    });
+        },
+        { $project: { _rc: 0, _nowDay: 0, _startDay: 0, _endDay: 0 } },
+      ],
+      total: [{ $count: "count" }],
+    },
+  });
 
-    const agg = await Tournament.aggregate(pipeline);
-    const list = agg?.[0]?.data || [];
-    const total = agg?.[0]?.total?.[0]?.count || 0;
+  const agg = await Tournament.aggregate(pipeline);
+  const list = agg?.[0]?.data || [];
+  const total = agg?.[0]?.total?.[0]?.count || 0;
 
-    res.json({ total, page, limit, list });
-  } catch (err) {
-    next(err);
+  res.json({ total, page, limit, list });
+});
+
+export const createTournament = expressAsyncHandler(async (req, res) => {
+  const data = validate(createSchema, req.body);
+
+  // sanitize HTML trước khi lưu
+  data.contactHtml = cleanHTML(data.contactHtml);
+  data.contentHtml = cleanHTML(data.contentHtml);
+
+  if (!req.user?._id) {
+    res.status(401);
+    throw new Error("Unauthenticated");
   }
-};
 
-export const createTournament = async (req, res, next) => {
-  try {
-    const data = validate(createSchema, req.body);
+  const t = await Tournament.create({
+    ...data,
+    createdBy: req.user._id,
+  });
+  res.status(201).json(t);
+});
 
-    // sanitize HTML trước khi lưu
-    data.contactHtml = cleanHTML(data.contactHtml);
-    data.contentHtml = cleanHTML(data.contentHtml);
-
-    if (!req.user?._id)
-      return res.status(401).json({ message: "Unauthenticated" });
-
-    const t = await Tournament.create({
-      ...data,
-      createdBy: req.user._id,
-    });
-    res.status(201).json(t);
-  } catch (err) {
-    next(err);
+export const getTournamentById = expressAsyncHandler(async (req, res) => {
+  if (!isObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid ID");
   }
-};
-
-export const getTournamentById = async (req, res, next) => {
-  try {
-    if (!isObjectId(req.params.id)) {
-      return res.status(400).json({ message: "Invalid ID" });
-    }
-    const t = await Tournament.findById(req.params.id);
-    if (!t) return res.status(404).json({ message: "Tournament not found" });
-    res.json(t);
-  } catch (err) {
-    next(err);
+  const t = await Tournament.findById(req.params.id);
+  if (!t) {
+    res.status(404);
+    throw new Error("Tournament not found");
   }
-};
+  res.json(t);
+});
 
-export const updateTournament = async (req, res, next) => {
-  try {
-    if (!isObjectId(req.params.id)) {
-      return res.status(400).json({ message: "Invalid ID" });
-    }
-
-    const payload = validate(updateSchema, req.body);
-    if (!Object.keys(payload).length) {
-      return res.status(400).json({ message: "Không có dữ liệu để cập nhật" });
-    }
-
-    // kiểm tra chéo ngày khi có cả 2 đầu mốc
-    const toDate = (v) => (v instanceof Date ? v : new Date(v));
-    if (payload.startDate && payload.endDate) {
-      if (toDate(payload.endDate) < toDate(payload.startDate)) {
-        return res.status(400).json({ message: "endDate phải ≥ startDate" });
-      }
-    }
-    if (payload.regOpenDate && payload.registrationDeadline) {
-      if (toDate(payload.registrationDeadline) < toDate(payload.regOpenDate)) {
-        return res.status(400).json({
-          message: "registrationDeadline phải ≥ regOpenDate",
-        });
-      }
-    }
-    // (khuyên) đảm bảo hạn đăng ký không sau ngày bắt đầu, nếu có cả 2
-    if (payload.registrationDeadline && payload.startDate) {
-      if (toDate(payload.registrationDeadline) > toDate(payload.startDate)) {
-        return res.status(400).json({
-          message: "registrationDeadline không được sau startDate",
-        });
-      }
-    }
-
-    // sanitize HTML nếu có cập nhật
-    if (typeof payload.contactHtml === "string") {
-      payload.contactHtml = cleanHTML(payload.contactHtml);
-    }
-    if (typeof payload.contentHtml === "string") {
-      payload.contentHtml = cleanHTML(payload.contentHtml);
-    }
-
-    const t = await Tournament.findByIdAndUpdate(
-      req.params.id,
-      { $set: payload },
-      { new: true, runValidators: false }
-    );
-
-    if (!t) return res.status(404).json({ message: "Tournament not found" });
-    res.json(t);
-  } catch (err) {
-    next(err);
+export const updateTournament = expressAsyncHandler(async (req, res) => {
+  if (!isObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid ID");
   }
-};
 
-export const deleteTournament = async (req, res, next) => {
-  try {
-    if (!isObjectId(req.params.id)) {
-      return res.status(400).json({ message: "Invalid ID" });
-    }
-    const t = await Tournament.findByIdAndDelete(req.params.id);
-    if (!t) return res.status(404).json({ message: "Tournament not found" });
-    res.json({ message: "Tournament removed" });
-  } catch (err) {
-    next(err);
+  const payload = validate(updateSchema, req.body);
+  if (!Object.keys(payload).length) {
+    res.status(400);
+    throw new Error("Không có dữ liệu để cập nhật");
   }
-};
+
+  // kiểm tra chéo ngày khi có cả 2 đầu mốc
+  const toDate = (v) => (v instanceof Date ? v : new Date(v));
+  if (payload.startDate && payload.endDate) {
+    if (toDate(payload.endDate) < toDate(payload.startDate)) {
+      res.status(400);
+      throw new Error("endDate phải ≥ startDate");
+    }
+  }
+  if (payload.regOpenDate && payload.registrationDeadline) {
+    if (toDate(payload.registrationDeadline) < toDate(payload.regOpenDate)) {
+      res.status(400);
+      throw new Error("registrationDeadline phải ≥ regOpenDate");
+    }
+  }
+  // (khuyên) đảm bảo hạn đăng ký không sau ngày bắt đầu, nếu có cả 2
+  if (payload.registrationDeadline && payload.startDate) {
+    if (toDate(payload.registrationDeadline) > toDate(payload.startDate)) {
+
+      console.log(toDate(payload.registrationDeadline))
+      console.log(toDate(payload.startDate))
+      res.status(400);
+      throw new Error("registrationDeadline không được sau startDate");
+    }
+  }
+
+  // sanitize HTML nếu có cập nhật
+  if (typeof payload.contactHtml === "string") {
+    payload.contactHtml = cleanHTML(payload.contactHtml);
+  }
+  if (typeof payload.contentHtml === "string") {
+    payload.contentHtml = cleanHTML(payload.contentHtml);
+  }
+
+  const t = await Tournament.findByIdAndUpdate(
+    req.params.id,
+    { $set: payload },
+    { new: true, runValidators: false }
+  );
+
+  if (!t) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+  res.json(t);
+});
+
+export const deleteTournament = expressAsyncHandler(async (req, res) => {
+  if (!isObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid ID");
+  }
+  const t = await Tournament.findByIdAndDelete(req.params.id);
+  if (!t) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+  res.json({ message: "Tournament removed" });
+});
 
 /** Kết thúc 1 giải (snap endDate = hôm nay theo TZ, endAt = cuối ngày TZ) */
 async function finalizeOneTournament(id) {
@@ -400,20 +398,18 @@ async function finalizeOneTournament(id) {
 }
 
 /** PUT /tournament/:id/finish */
-export async function finishTournament(req, res) {
-  try {
-    const r = await finalizeOneTournament(req.params.id);
-    if (!r.ok && r.reason === "not_found")
-      return res.status(404).json({ message: "Tournament not found" });
-    return res.json(r);
-  } catch (e) {
-    return res.status(500).json({ message: e.message || "Finish failed" });
+export const finishTournament = expressAsyncHandler(async (req, res) => {
+  const r = await finalizeOneTournament(req.params.id);
+  if (!r.ok && r.reason === "not_found") {
+    res.status(404);
+    throw new Error("Tournament not found");
   }
-}
+  res.json(r);
+});
 
 /** POST /tournaments/finish-expired — quét endAt <= now & kết thúc hàng loạt */
-export async function finishExpiredTournaments(_req, res) {
-  try {
+export const finishExpiredTournaments = expressAsyncHandler(
+  async (_req, res) => {
     const now = new Date();
     const ids = await Tournament.find({
       status: { $ne: "finished" },
@@ -427,60 +423,54 @@ export async function finishExpiredTournaments(_req, res) {
       const r = await finalizeOneTournament(_id);
       if (r.ok) finished++;
     }
-    return res.json({ checked: ids.length, finished });
-  } catch (e) {
-    return res.status(500).json({ message: e.message || "Bulk finish failed" });
+    res.json({ checked: ids.length, finished });
   }
-}
+);
 
-export async function planAuto(req, res) {
-  try {
-    const { id } = req.params;
-    const t = await Tournament.findById(id).lean();
-    if (!t) return res.status(404).json({ message: "Tournament not found" });
-
-    // quyền (tùy hệ thống của bạn)
-    // if (req.user?.role !== "admin") return res.status(403).json({ message: "Forbidden" });
-
-    const {
-      expectedTeams,
-      allowGroup = true,
-      allowPO = true,
-      allowKO = true,
-    } = req.body || {};
-    const plan = autoPlan({
-      expectedTeams: Number(expectedTeams || t.expected || 0),
-      allowGroup,
-      allowPO,
-      allowKO,
-    });
-
-    return res.json(plan);
-  } catch (e) {
-    console.error("[planAuto] error:", e);
-    res
-      .status(500)
-      .json({ message: "Auto plan failed", error: String(e?.message || e) });
+export const planAuto = expressAsyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const t = await Tournament.findById(id).lean();
+  if (!t) {
+    res.status(404);
+    throw new Error("Tournament not found");
   }
-}
+
+  // quyền (tùy hệ thống của bạn)
+  // if (req.user?.role !== "admin") { res.status(403); throw new Error("Forbidden"); }
+
+  const {
+    expectedTeams,
+    allowGroup = true,
+    allowPO = true,
+    allowKO = true,
+  } = req.body || {};
+  const plan = autoPlan({
+    expectedTeams: Number(expectedTeams || t.expected || 0),
+    allowGroup,
+    allowPO,
+    allowKO,
+  });
+
+  res.json(plan);
+});
 
 /**
  * body:
  * {
- *   groups: { count, size, qualifiersPerGroup } | null,
- *   po: { drawSize, seeds? } | null,
+ *   groups: { count, size, qualifiersPerGroup, totalTeams?, groupSizes? } | null,
+ *   po: { drawSize, maxRounds?, seeds? } | null,
  *   ko: { drawSize, seeds: [{pair, A:{...}, B:{...}}] } | null
  * }
  */
-export async function planCommit(req, res) {
+export const planCommit = expressAsyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
     const { id } = req.params;
     const t = await Tournament.findById(id).session(session);
     if (!t) {
-      await session.abortTransaction();
-      return res.status(404).json({ message: "Tournament not found" });
+      res.status(404);
+      throw new Error("Tournament not found");
     }
 
     const { groups, po, ko } = req.body || {};
@@ -492,15 +482,9 @@ export async function planCommit(req, res) {
     let poStageIdx = null;
     let koStageIdx = null;
 
-    if (groups && groups.count > 0) {
-      groupStageIdx = stageCounter++;
-    }
-    if (po && po.drawSize > 0) {
-      poStageIdx = stageCounter++;
-    }
-    if (ko && ko.drawSize > 0) {
-      koStageIdx = stageCounter++;
-    }
+    if (groups && groups.count > 0) groupStageIdx = stageCounter++;
+    if (po && po.drawSize > 0) poStageIdx = stageCounter++;
+    if (ko && ko.drawSize > 0) koStageIdx = stageCounter++;
 
     // 1) Group (hỗ trợ totalTeams / groupSizes)
     if (groups?.count > 0) {
@@ -554,9 +538,7 @@ export async function planCommit(req, res) {
     }
 
     await session.commitTransaction();
-    session.endSession();
-
-    return res.json({
+    res.json({
       ok: true,
       created: {
         groupBracketId: created.groupBracket?._id || null,
@@ -565,11 +547,39 @@ export async function planCommit(req, res) {
       },
     });
   } catch (e) {
-    console.error("[planCommit] error:", e);
-    await session.abortTransaction();
+    await session.abortTransaction().catch(() => {});
+    res.status(500);
+    throw new Error(`Commit plan failed: ${e?.message || e}`);
+  } finally {
     session.endSession();
-    res
-      .status(500)
-      .json({ message: "Commit plan failed", error: String(e?.message || e) });
   }
-}
+});
+
+export const updateTournamentOverlay = expressAsyncHandler(async (req, res) => {
+  const t = await Tournament.findById(req.params.id);
+  if (!t) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+  // chỉ cho phép set các key whitelist
+  const allow = [
+    "theme",
+    "accentA",
+    "accentB",
+    "corner",
+    "rounded",
+    "shadow",
+    "showSets",
+    "fontFamily",
+    "nameScale",
+    "scoreScale",
+    "customCss",
+    "logoUrl",
+  ];
+  t.overlay = t.overlay || {};
+  for (const k of allow) {
+    if (k in req.body) t.overlay[k] = req.body[k];
+  }
+  await t.save();
+  res.json({ ok: true, overlay: t.overlay });
+});

@@ -19,7 +19,7 @@ const matchSchema = new Schema(
       index: true,
     },
 
-    // Hỗ trợ PO dạng round elimination
+    // Hỗ trợ nhiều định dạng bracket
     format: {
       type: String,
       enum: [
@@ -68,6 +68,7 @@ const matchSchema = new Schema(
     previousA: { type: Schema.Types.ObjectId, ref: "Match", default: null },
     previousB: { type: Schema.Types.ObjectId, ref: "Match", default: null },
 
+    // Luật tính điểm
     rules: {
       bestOf: { type: Number, enum: [1, 3, 5], default: 3 },
       pointsToWin: { type: Number, enum: [11, 15, 21], default: 11 },
@@ -88,6 +89,7 @@ const matchSchema = new Schema(
     referee: { type: Schema.Types.ObjectId, ref: "User" },
     note: { type: String, default: "" },
 
+    // KO chaining (tùy chọn)
     nextMatch: { type: Schema.Types.ObjectId, ref: "Match", default: null },
     nextSlot: { type: String, enum: ["A", "B", null], default: null },
 
@@ -95,6 +97,7 @@ const matchSchema = new Schema(
     court: { type: Schema.Types.ObjectId, ref: "Court", default: null },
     courtLabel: { type: String, default: "" },
 
+    // Live state
     currentGame: { type: Number, default: 0 },
     serve: {
       side: { type: String, enum: ["A", "B"], default: "A" },
@@ -127,14 +130,14 @@ const matchSchema = new Schema(
       },
     ],
 
-    ratingDelta: { type: Number, default: 0.01 },
+    // Rating meta (DUPr-like)
+    ratingDelta: { type: Number, default: 0 },
     ratingApplied: { type: Boolean, default: false },
     ratingAppliedAt: { type: Date, default: null },
 
-    // V1, V2, ...
-    stageIndex: { type: Number, default: 1, index: true },
-    // Ví dụ: V2#R1#3
-    labelKey: { type: String, default: "" },
+    // Stage & label
+    stageIndex: { type: Number, default: 1, index: true }, // V1, V2, ...
+    labelKey: { type: String, default: "" }, // ví dụ: V2#R1#3
   },
   { timestamps: true }
 );
@@ -290,7 +293,6 @@ async function propagateFromFinishedMatch(doc) {
       $or: [
         { "seedA.ref.stageIndex": st },
         { "seedA.ref.stage": st },
-        // fallback nếu FE gửi string
         { "seedA.ref.stageIndex": String(st) },
         { "seedA.ref.stage": String(st) },
       ],
@@ -408,33 +410,52 @@ matchSchema.pre("save", async function (next) {
 /* ======================= POST-SAVE ======================= */
 matchSchema.post("save", async function (doc, next) {
   try {
-    // Logic push nextMatch (KO cũ)
-    if (
-      doc.status === "finished" &&
-      doc.winner &&
-      doc.nextMatch &&
-      doc.nextSlot
-    ) {
-      const winnerRegId = doc.winner === "A" ? doc.pairA : doc.pairB;
-      if (winnerRegId) {
-        const Next = doc.model("Match");
-        const nm = await Next.findById(doc.nextMatch);
-        if (nm) {
-          const field = doc.nextSlot === "A" ? "pairA" : "pairB";
-          if (!nm[field]) {
-            nm[field] = winnerRegId;
-            await nm.save();
-          }
-        }
-      }
-    }
-
-    // Propagate cross/in-bracket theo seed
+    // Propagate winner/loser & KO chaining
     if (
       doc.status === "finished" &&
       (doc.winner === "A" || doc.winner === "B")
     ) {
+      // Logic push nextMatch (KO cũ)
+      if (doc.nextMatch && doc.nextSlot) {
+        const winnerRegId = doc.winner === "A" ? doc.pairA : doc.pairB;
+        if (winnerRegId) {
+          const Next = doc.model("Match");
+          const nm = await Next.findById(doc.nextMatch);
+          if (nm) {
+            const field = doc.nextSlot === "A" ? "pairA" : "pairB";
+            if (!nm[field]) {
+              nm[field] = winnerRegId;
+              await nm.save();
+            }
+          }
+        }
+      }
       await propagateFromFinishedMatch(doc);
+    }
+
+    // === AUTO APPLY LOCAL RATING (DUPr-like) ===
+    try {
+      if (
+        doc.status === "finished" &&
+        (doc.winner === "A" || doc.winner === "B") &&
+        doc.pairA &&
+        doc.pairB && // tránh BYE/missing pair
+        !doc.ratingApplied // idempotent
+      ) {
+        // chạy async tách tick để không block hook
+        setImmediate(async () => {
+          try {
+            const { applyRatingForMatch } = await import(
+              "../services/ratingEngine.js"
+            );
+            // await applyRatingForMatch(doc._id);
+          } catch (err) {
+            console.error("[rating] apply after save failed:", err?.message);
+          }
+        });
+      }
+    } catch (e) {
+      console.error("[rating] schedule error:", e?.message);
     }
 
     next();
@@ -459,6 +480,30 @@ matchSchema.post("findOneAndUpdate", async function (res) {
       (fresh.winner === "A" || fresh.winner === "B")
     ) {
       await propagateFromFinishedMatch(fresh);
+    }
+
+    // === AUTO APPLY LOCAL RATING (DUPr-like) ===
+    try {
+      if (
+        fresh.status === "finished" &&
+        (fresh.winner === "A" || fresh.winner === "B") &&
+        fresh.pairA &&
+        fresh.pairB &&
+        !fresh.ratingApplied
+      ) {
+        setImmediate(async () => {
+          try {
+            const { applyRatingForMatch } = await import(
+              "../services/ratingEngine.js"
+            );
+            // await applyRatingForMatch(fresh._id);
+          } catch (err) {
+            console.error("[rating] apply after update failed:", err?.message);
+          }
+        });
+      }
+    } catch (e) {
+      console.error("[rating] schedule(update) error:", e?.message);
     }
   } catch (err) {
     console.error("[Match post(findOneAndUpdate)] propagate error:", err);
@@ -507,7 +552,7 @@ matchSchema.index({ labelKey: 1 });
 // giúp truy seed/propagate nhanh
 matchSchema.index({ bracket: 1, "seedA.type": 1 });
 matchSchema.index({ bracket: 1, "seedB.type": 1 });
-// tùy chọn: hỗ trợ truy theo stage/round/order khi propagate cross-bracket
+// hỗ trợ propagate cross-bracket theo stage/round/order
 matchSchema.index({
   tournament: 1,
   "seedA.ref.stageIndex": 1,

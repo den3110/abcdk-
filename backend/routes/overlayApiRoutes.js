@@ -1,11 +1,10 @@
+// src/routes/overlayRoutes.js (ví dụ)
 import express from "express";
 import Match from "../models/matchModel.js";
-import Tournament from "../models/tournamentModel.js";
-import Registration from "../models/registrationModel.js";
 
 const router = express.Router();
 
-// helper: tên hiển thị team theo eventType
+// helper: tên hiển thị team theo eventType (fallback)
 function regName(reg, evType) {
   if (!reg) return "—";
   if (evType === "single") return reg?.player1?.fullName || "N/A";
@@ -29,49 +28,119 @@ function setWins(gameScores = [], rules) {
   return { a, b };
 }
 
+// Ưu tiên nickname
+const preferNick = (p) =>
+  (
+    p?.nickname ||
+    p?.nickName ||
+    p?.shortName ||
+    p?.name ||
+    p?.fullName ||
+    ""
+  ).trim();
+
 router.get("/match/:id", async (req, res) => {
-  const { id } = req.params;
+  try {
+    const { id } = req.params;
 
-  const m = await Match.findById(id)
-    .populate({ path: "tournament", select: "name eventType" })
-    .populate({ path: "pairA", select: "player1 player2" })
-    .populate({ path: "pairB", select: "player1 player2" })
-    .lean();
+    const m = await Match.findById(id)
+      .populate({ path: "tournament", select: "name eventType" })
+      .populate({
+        path: "pairA",
+        select: "player1 player2",
+        populate: [
+          { path: "player1", select: "fullName nickname name shortName" },
+          { path: "player2", select: "fullName nickname name shortName" },
+        ],
+      })
+      .populate({
+        path: "pairB",
+        select: "player1 player2",
+        populate: [
+          { path: "player1", select: "fullName nickname name shortName" },
+          { path: "player2", select: "fullName nickname name shortName" },
+        ],
+      })
+      .lean();
 
-  if (!m) return res.status(404).json({ message: "Match not found" });
+    if (!m) return res.status(404).json({ message: "Match not found" });
 
-  const evType = m?.tournament?.eventType === "single" ? "single" : "double";
-  const rules = {
-    bestOf: Number(m?.rules?.bestOf ?? 3),
-    pointsToWin: Number(m?.rules?.pointsToWin ?? 11),
-    winByTwo: Boolean(m?.rules?.winByTwo ?? true),
-  };
-  const { a: setsA, b: setsB } = setWins(m.gameScores, rules);
+    const evType =
+      (m?.tournament?.eventType || "").toLowerCase() === "single"
+        ? "single"
+        : "double";
 
-  res.json({
-    matchId: String(m._id),
-    status: m.status,
-    winner: m.winner || "",
-    tournament: {
-      id: m?.tournament?._id || null,
-      name: m?.tournament?.name || "",
-      eventType: evType,
-    },
-    teams: {
-      A: {
-        name: regName(m.pairA, evType),
+    const rules = {
+      bestOf: Number(m?.rules?.bestOf ?? 3),
+      pointsToWin: Number(m?.rules?.pointsToWin ?? 11),
+      winByTwo: Boolean(m?.rules?.winByTwo ?? true),
+    };
+
+    const { a: setsA, b: setsB } = setWins(m?.gameScores || [], rules);
+
+    const playersFromReg = (reg) => {
+      if (!reg) return [];
+      return [reg.player1, reg.player2].filter(Boolean).map((p) => ({
+        id: String(p?._id || ""),
+        nickname: preferNick(p),
+        name: p?.fullName || p?.name || "",
+      }));
+    };
+
+    const teamName = (reg) => {
+      const ps = playersFromReg(reg);
+      const nick = ps
+        .map((x) => x.nickname)
+        .filter(Boolean)
+        .join(" & ");
+      return nick || regName(reg, evType);
+    };
+
+    // Chuẩn hóa serve
+    const serve =
+      m?.serve && (m.serve.side || m.serve.server || m.serve.playerIndex)
+        ? m.serve
+        : { side: "A", server: 1 };
+
+    res.json({
+      matchId: String(m._id),
+      status: m.status || "",
+      winner: m.winner || "",
+      tournament: {
+        id: m?.tournament?._id || null,
+        name: m?.tournament?.name || "",
+        eventType: evType,
       },
-      B: {
-        name: regName(m.pairB, evType),
+      teams: {
+        A: {
+          name: teamName(m.pairA),
+          players: playersFromReg(m.pairA),
+        },
+        B: {
+          name: teamName(m.pairB),
+          players: playersFromReg(m.pairB),
+        },
       },
-    },
-    rules,
-    serve: m?.serve || { side: "A", server: 2 },
-    currentGame: m?.currentGame ?? 0,
-    gameScores: m?.gameScores ?? [],
-    sets: { A: setsA, B: setsB },
-    needSetsToWin: gamesToWin(rules.bestOf),
-  });
+      rules,
+      serve,
+      currentGame: Number.isInteger(m?.currentGame) ? m.currentGame : 0,
+      gameScores: Array.isArray(m?.gameScores) ? m.gameScores : [],
+      // nếu có thông tin bracket/round thì trả thêm (ScoreOverlay sẽ tự xử lý nếu vắng)
+      bracketType: m?.bracket?.type || "",
+      roundCode:
+        m?.roundCode ||
+        (Number.isFinite(m?.roundSize) ? `R${m.roundSize}` : undefined),
+      roundName: m?.roundName || "",
+      round: Number.isFinite(m?.round) ? m.round : undefined,
+
+      // tổng kết set
+      sets: { A: setsA, B: setsB },
+      needSetsToWin: gamesToWin(rules.bestOf),
+    });
+  } catch (err) {
+    console.error("GET /overlay/match error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
 });
 
 export default router;

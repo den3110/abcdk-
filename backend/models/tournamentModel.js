@@ -132,6 +132,20 @@ const tournamentSchema = new mongoose.Schema(
 
     // === NEW: override theo từng giải ===
     drawSettings: { type: DrawSettingsSchema, default: () => ({}) },
+    overlay: {
+      theme: { type: String, enum: ["dark", "light"], default: "dark" },
+      accentA: { type: String, default: "#25C2A0" },
+      accentB: { type: String, default: "#4F46E5" },
+      corner: { type: String, enum: ["tl", "tr", "bl", "br"], default: "tl" },
+      rounded: { type: Number, default: 18, min: 0, max: 40 },
+      shadow: { type: Boolean, default: true },
+      showSets: { type: Boolean, default: true },
+      fontFamily: { type: String, default: "" }, // ví dụ: "Inter, system-ui, ..."
+      nameScale: { type: Number, default: 1 }, // hệ số phóng to tên
+      scoreScale: { type: Number, default: 1 }, // hệ số phóng to điểm
+      customCss: { type: String, default: "" }, // CSS tuỳ chỉnh (scoped)
+      logoUrl: { type: String, default: "" }, // nếu muốn chèn logo
+    },
   },
   { timestamps: true }
 );

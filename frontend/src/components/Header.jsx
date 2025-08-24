@@ -107,13 +107,17 @@ const Header = () => {
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           {userInfo ? (
             <>
-              <Tooltip title="Tài khoản">
-                <IconButton onClick={openUserMenu} sx={{ p: 0 }}>
-                  <Avatar alt={userInfo.name} src={userInfo.avatar || ""}>
-                    {userInfo.name?.charAt(0).toUpperCase()}
-                  </Avatar>
-                </IconButton>
-              </Tooltip>
+              {/* ẨN avatar + dropdown của user trên mobile */}
+              <Box sx={{ display: { xs: "none", md: "inline-flex" } }}>
+                <Tooltip title="Tài khoản">
+                  <IconButton onClick={openUserMenu} sx={{ p: 0 }}>
+                    <Avatar alt={userInfo.name} src={userInfo.avatar || ""}>
+                      {userInfo.name?.charAt(0).toUpperCase()}
+                    </Avatar>
+                  </IconButton>
+                </Tooltip>
+              </Box>
+
               <Menu
                 anchorEl={userAnchor}
                 open={Boolean(userAnchor)}

@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
-import Registration from "../models/registrationModel.js"
+import Registration from "../models/registrationModel.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 // @desc    Lấy danh sách giải đấu (lọc theo sportType & groupId)
@@ -25,6 +25,9 @@ const getTournaments = asyncHandler(async (req, res) => {
     ? Math.max(parseInt(req.query.limit, 10) || 0, 0)
     : null;
   const status = (req.query.status || "").toString().toLowerCase(); // optional: upcoming|ongoing|finished
+  const rawKeyword = (req.query.keyword ?? req.query.q ?? "").toString().trim();
+
+  const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
   const parseSort = (s) =>
     s.split(",").reduce((acc, token) => {
@@ -38,10 +41,39 @@ const getTournaments = asyncHandler(async (req, res) => {
   const sortSpec = Object.keys(parseSort(sort)).length
     ? parseSort(sort)
     : { startDate: -1, _id: -1 };
+
   const TZ = "Asia/Bangkok";
 
-  const pipeline = [
-    // Tính status theo ngày (bao gồm cả start/end) theo TZ, bỏ qua status của model
+  const pipeline = [];
+
+  // ----- Search (keyword / q) -----
+  if (rawKeyword) {
+    const tokens = rawKeyword.split(/\s+/).filter(Boolean).map(escapeRegex);
+    const tokenConds = tokens.map((tk) => ({
+      $or: [
+        { name: { $regex: tk, $options: "i" } },
+        { slug: { $regex: tk, $options: "i" } },
+        { code: { $regex: tk, $options: "i" } },
+        { "location.city": { $regex: tk, $options: "i" } },
+        { "location.province": { $regex: tk, $options: "i" } },
+        { venueName: { $regex: tk, $options: "i" } },
+      ],
+    }));
+
+    const orExpr = [];
+    if (tokenConds.length) orExpr.push({ $and: tokenConds });
+
+    if (mongoose.Types.ObjectId.isValid(rawKeyword)) {
+      orExpr.push({ _id: new mongoose.Types.ObjectId(rawKeyword) });
+    }
+
+    pipeline.push({
+      $match: orExpr.length === 1 ? orExpr[0] : { $or: orExpr },
+    });
+  }
+
+  // ----- Tính status theo ngày theo TZ -----
+  pipeline.push(
     {
       $addFields: {
         _nowDay: {
@@ -71,19 +103,19 @@ const getTournaments = asyncHandler(async (req, res) => {
           },
         },
       },
-    },
-  ];
+    }
+  );
 
-  // Lọc theo status mới nếu FE truyền
+  // ----- Lọc theo status -----
   if (["upcoming", "ongoing", "finished"].includes(status)) {
     pipeline.push({ $match: { status } });
   }
 
-  // Sort/limit
+  // ----- Sort / Limit -----
   pipeline.push({ $sort: sortSpec });
   if (limit) pipeline.push({ $limit: limit });
 
-  // Tính registered / isFull / remaining
+  // ----- registered / isFull / remaining -----
   pipeline.push(
     {
       $lookup: {
@@ -135,12 +167,12 @@ const getTournaments = asyncHandler(async (req, res) => {
         },
       },
     },
-    // Ẩn trường trung gian
     { $project: { _rc: 0, _nowDay: 0, _startDay: 0, _endDay: 0 } }
   );
 
   const tournaments = await Tournament.aggregate(pipeline);
-  res.json(tournaments);
+  // (Khuyến nghị dùng 200 cho GET)
+  res.status(200).json(tournaments);
 });
 
 const getTournamentById = asyncHandler(async (req, res) => {

@@ -7,43 +7,82 @@ import usersOfReg from "../utils/usersOfReg.js";
 import latestSnapshot from "../utils/getLastestSnapshot.js";
 import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
 
-export const toDTO = (m) => ({
-  _id: m._id,
-  status: m.status,
-  winner: m.winner,
+export const toDTO = (m) => {
+  const tournament = m.tournament
+    ? {
+        _id: m.tournament._id || m.tournament,
+        name: m.tournament.name || "",
+        image: m.tournament.image || "",
+        eventType: (m.tournament.eventType || "").toLowerCase(),
+        overlay: m.tournament.overlay || undefined,
+      }
+    : undefined;
 
-  // top-level dùng cho tiêu đề R#/order
-  round: m.round,
-  order: m.order,
+  const bracket = m.bracket
+    ? {
+        _id: m.bracket._id || m.bracket,
+        type: (m.bracket.type || "").toLowerCase(),
+        name: m.bracket.name || "",
+        order: m.bracket.order ?? undefined,
+        overlay: m.bracket.overlay || undefined,
+      }
+    : undefined;
 
-  rules: m.rules || {},
-  currentGame: m.currentGame ?? 0,
-  gameScores: Array.isArray(m.gameScores) ? m.gameScores : [],
+  // Ưu tiên overlay ở root nếu sau này bạn muốn đặt riêng cho match (hiện tại Match không có, nên dùng overlay của tournament/bracket)
+  const overlay =
+    (m.overlay && Object.keys(m.overlay).length ? m.overlay : null) ||
+    tournament?.overlay ||
+    null ||
+    bracket?.overlay ||
+    null ||
+    undefined;
 
-  // cặp/seed & phụ thuộc
-  pairA: m.pairA || null, // { player1, player2 }
-  pairB: m.pairB || null, // { player1, player2 }
-  seedA: m.seedA || null, // giữ để FE có thể hiển thị seed fallback
-  seedB: m.seedB || null,
-  previousA: m.previousA || null, // { round, order }
-  previousB: m.previousB || null, // { round, order }
-  nextMatch: m.nextMatch || null, // { _id } hoặc null
-  referee: m.referee || null, // { name, fullName }
+  return {
+    _id: m._id,
+    status: m.status,
+    winner: m.winner,
 
-  // thời gian
-  scheduledAt: m.scheduledAt || null,
-  startedAt: m.startedAt || null,
-  finishedAt: m.finishedAt || null,
+    // top-level dùng cho tiêu đề R#/order
+    round: m.round,
+    order: m.order,
 
-  version: m.liveVersion ?? 0,
+    rules: m.rules || {},
+    currentGame: m.currentGame ?? 0,
+    gameScores: Array.isArray(m.gameScores) ? m.gameScores : [],
 
-  // ✅ gửi serve cho FE (mặc định A-2)
-  serve: m.serve || { side: "A", server: 2 },
+    // cặp/seed & phụ thuộc
+    pairA: m.pairA || null, // { player1, player2 }
+    pairB: m.pairB || null,
+    seedA: m.seedA || null,
+    seedB: m.seedB || null,
+    previousA: m.previousA || null, // { round, order }
+    previousB: m.previousB || null,
+    nextMatch: m.nextMatch || null, // { _id } hoặc null
+    referee: m.referee || null, // { name, fullName }
 
-  // ⚠️ Nếu ở trên có populate tournament (eventType) thì mở dòng này:
-  // tournament: m.tournament || undefined,
-});
-  
+    // thời gian
+    scheduledAt: m.scheduledAt || null,
+    startedAt: m.startedAt || null,
+    finishedAt: m.finishedAt || null,
+
+    version: m.liveVersion ?? 0,
+
+    // ✅ serve cho FE (mặc định A-2)
+    serve: m.serve || { side: "A", server: 2 },
+
+    // ✅ gửi kèm để FE hiện tên/ảnh giải + eventType + lấy overlay
+    tournament,
+    // (khuyến nghị) gửi bracket để FE suy ra round label tốt hơn
+    bracket,
+
+    // ✅ đặt thêm các field dạng “shortcut” để FE không phải đào sâu
+    bracketType: bracket?.type || undefined,
+
+    // ✅ overlay ở root (FE của bạn đọc được cả root.overlay lẫn tournament.overlay)
+    overlay,
+  };
+};
+
 const gamesToWin = (bestOf) => Math.floor(bestOf / 2) + 1;
 const gameWon = (x, y, pts, byTwo) =>
   x >= pts && (byTwo ? x - y >= 2 : x - y >= 1);

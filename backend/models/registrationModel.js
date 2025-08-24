@@ -43,6 +43,14 @@ const registrationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+/* ======================= Virtuals ======================= */
+registrationSchema.virtual("users").get(function () {
+  const ids = [];
+  if (this.player1?.user) ids.push(this.player1.user);
+  if (this.player2?.user) ids.push(this.player2.user);
+  return ids;
+});
+
 // ✅ validate theo loại giải
 registrationSchema.pre("validate", async function (next) {
   try {
@@ -70,4 +78,52 @@ registrationSchema.index({ "player2.phone": 1 });
 registrationSchema.index({ "player1.user": 1 });
 registrationSchema.index({ "player2.user": 1 });
 
-export default mongoose.model("Registration", registrationSchema);
+// hữu ích khi lọc theo tournament + user
+registrationSchema.index({ tournament: 1, "player1.user": 1 });
+registrationSchema.index({ tournament: 1, "player2.user": 1 });
+
+/* ======================= Statics (helpers) ======================= */
+/**
+ * Kiểm tra user đã từng tham gia giải đấu nào (ở bất kỳ vai trò player1/2) chưa.
+ * @param {mongoose.Types.ObjectId|string} userId
+ * @param {{ tournament?: string|ObjectId, requirePaid?: boolean, requireCheckin?: boolean }} opts
+ * @returns {Promise<boolean>}
+ */
+registrationSchema.statics.hasParticipated = async function (userId, opts = {}) {
+  if (!userId) return false;
+  const { tournament, requirePaid = false, requireCheckin = false } = opts;
+
+  const filter = {
+    $or: [{ "player1.user": userId }, { "player2.user": userId }],
+  };
+  if (tournament) filter.tournament = tournament;
+  if (requirePaid) filter["payment.status"] = "Paid";
+  if (requireCheckin) filter.checkinAt = { $ne: null };
+
+  const exists = await this.exists(filter);
+  return !!exists;
+};
+
+/**
+ * Đếm số lần tham gia (hữu ích cho thống kê/huy hiệu).
+ * @param {mongoose.Types.ObjectId|string} userId
+ * @param {{ tournament?: string|ObjectId, requirePaid?: boolean, requireCheckin?: boolean }} opts
+ * @returns {Promise<number>}
+ */
+registrationSchema.statics.countParticipations = async function (userId, opts = {}) {
+  if (!userId) return 0;
+  const { tournament, requirePaid = false, requireCheckin = false } = opts;
+
+  const filter = {
+    $or: [{ "player1.user": userId }, { "player2.user": userId }],
+  };
+  if (tournament) filter.tournament = tournament;
+  if (requirePaid) filter["payment.status"] = "Paid";
+  if (requireCheckin) filter.checkinAt = { $ne: null };
+
+  return this.countDocuments(filter);
+};
+
+const Registration = mongoose.model("Registration", registrationSchema);
+export default Registration;
+

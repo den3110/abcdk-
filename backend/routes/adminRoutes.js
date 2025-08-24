@@ -27,6 +27,7 @@ import {
   planAuto,
   planCommit,
   updateTournament,
+  updateTournamentOverlay,
 } from "../controllers/admin/adminTournamentController.js";
 import {
   adminCheckin,
@@ -58,6 +59,7 @@ import { createAutoUsers, previewAutoUsers } from "../controllers/admin/adminUse
 import { getDashboardMetrics, getDashboardSeries } from "../controllers/admin/adminDashboardController.js";
 import { batchAssignReferee, batchDeleteMatches, buildRoundElimSkeleton } from "../controllers/matchBatchController.js";
 import { autoGenerateRegistrations } from "../controllers/registrationAutoController.js";
+import { getMatchAdmin, getMatchLogs, getMatchRatingChanges } from "../controllers/admin/adminMatchController.js";
 
 const router = express.Router();
 
@@ -227,5 +229,13 @@ router.post("/tournaments/:id/plan/commit", protect, authorize("admin"), planCom
 
 // auto create registration
 router.post("/tournaments/:tourId/registrations/auto", protect, authorize("admin"), autoGenerateRegistrations);
+
+
+router.patch("/tournaments/:id/overlay", protect, authorize("admin"), updateTournamentOverlay);
+
+
+router.get("/matches/a/:id", protect, authorize("admin"), getMatchAdmin);
+router.get("/matches/:id/logs", protect, authorize("admin"), getMatchLogs);
+router.get("/matches/:id/rating-changes", protect, authorize("admin"), getMatchRatingChanges);
 
 export default router;

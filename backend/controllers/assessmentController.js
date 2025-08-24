@@ -4,6 +4,7 @@ import Assessment from "../models/assessmentModel.js";
 import Ranking from "../models/rankingModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import { normalizeDupr, rawFromDupr, sanitizeMeta } from "../utils/level.js";
+import Registration from "../models/registrationModel.js";
 
 /**
  * POST /api/assessments/:userId
@@ -35,12 +36,34 @@ export async function createAssessment(req, res) {
   sLv = normalizeDupr(sLv);
   dLv = normalizeDupr(dLv);
 
-  // quy đổi sang RAW 0..10 để lưu thống nhất (tham chiếu cho các nơi khác)
+  // quy đổi sang RAW 0..10 để lưu thống nhất
   const singleScore = rawFromDupr(sLv);
   const doubleScore = rawFromDupr(dLv);
 
   const metaInput = sanitizeMeta(body.meta);
   const selfScored = String(req.user?._id || "") === String(userId);
+
+  // ===== NEW: Không cho tự chấm nếu user đã từng tham gia giải =====
+  if (selfScored) {
+    try {
+      // dùng helper trong model
+      const participated = await Registration.hasParticipated(userId);
+      // nếu chưa thêm helper, có thể thay bằng:
+      // const participated = await Registration.exists({
+      //   $or: [{ "player1.user": userId }, { "player2.user": userId }],
+      // });
+      if (participated) {
+        return res.status(403).json({
+          message:
+            "Bạn đã có điểm trình trên hệ thống, vui lòng liên hệ Admin để hỗ trợ thêm.",
+        });
+      }
+    } catch (e) {
+      // không chặn nhầm khi lỗi kiểm tra; log để theo dõi
+      console.error("Participation check failed:", e);
+    }
+  }
+  // ===== END NEW =====
 
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -74,7 +97,6 @@ export async function createAssessment(req, res) {
           lastUpdated: new Date(),
         },
         $inc: {
-          // ví dụ cộng điểm phụ
           points:
             (metaInput.freq || 0) +
             (metaInput.competed ? 1 : 0) +

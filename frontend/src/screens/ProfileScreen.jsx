@@ -16,17 +16,22 @@ import {
   TextField,
   Typography,
   Chip,
+  Divider,
 } from "@mui/material";
-// import { useDispatch, useSelector } from "react-redux";
+import { useDispatch } from "react-redux";
+import { useNavigate } from "react-router-dom";
 import {
   useGetProfileQuery,
   useUpdateUserMutation,
+  useLogoutMutation,
 } from "../slices/usersApiSlice";
 import {
   useUploadCccdMutation,
   useUploadAvatarMutation,
 } from "../slices/uploadApiSlice";
+import { logout } from "../slices/authSlice";
 import CccdDropzone from "../components/CccdDropzone";
+import LogoutIcon from "@mui/icons-material/Logout";
 
 /* ---------- Config ---------- */
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -98,7 +103,7 @@ const PROVINCES = [
   "Yên Bái",
 ];
 
-/* ---------- Gender options (enum mới) ---------- */
+/* ---------- Gender options ---------- */
 const GENDER_OPTIONS = [
   { value: "unspecified", label: "--" },
   { value: "male", label: "Nam" },
@@ -117,12 +122,21 @@ const EMPTY = {
   email: "",
   password: "",
   confirmPassword: "",
-  gender: "unspecified", // ⬅️ thêm
-  avatar: "", // ⬅️ thêm avatar vào form để diff
+  gender: "unspecified",
+  avatar: "",
 };
 
 export default function ProfileScreen() {
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
+
   const { data: user, isLoading: fetching, refetch } = useGetProfileQuery();
+  const [updateProfile, { isLoading }] = useUpdateUserMutation();
+  const [logoutApiCall] = useLogoutMutation();
+
+  const [uploadCccd, { isLoading: upLoad }] = useUploadCccdMutation();
+  const [uploadAvatar, { isLoading: uploadingAvatar }] =
+    useUploadAvatarMutation();
 
   const [form, setForm] = useState(EMPTY);
   const [touched, setTouched] = useState({});
@@ -130,15 +144,10 @@ export default function ProfileScreen() {
   const [snack, setSnack] = useState({ open: false, type: "success", msg: "" });
   const initialRef = useRef(EMPTY);
 
-  const [updateProfile, { isLoading }] = useUpdateUserMutation();
-  const [uploadCccd, { isLoading: upLoad }] = useUploadCccdMutation();
-  const [uploadAvatar, { isLoading: uploadingAvatar }] =
-    useUploadAvatarMutation();
-
   const [frontImg, setFrontImg] = useState(null);
   const [backImg, setBackImg] = useState(null);
 
-  // ⬇️ state cho avatar
+  // Avatar state
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState("");
   const [uploadedAvatarUrl, setUploadedAvatarUrl] = useState("");
@@ -156,7 +165,7 @@ export default function ProfileScreen() {
       email: user.email || "",
       password: "",
       confirmPassword: "",
-      gender: user.gender || "unspecified", // ⬅️ thêm
+      gender: user.gender || "unspecified",
       avatar: user.avatar || "",
     };
     initialRef.current = init;
@@ -188,7 +197,6 @@ export default function ProfileScreen() {
       if (d.password.length < 6) e.password = "Tối thiểu 6 ký tự";
       if (d.password !== d.confirmPassword) e.confirmPassword = "Không khớp";
     }
-    // ✅ validate gender theo enum
     if (!["male", "female", "unspecified", "other"].includes(d.gender)) {
       e.gender = "Giới tính không hợp lệ";
     }
@@ -200,7 +208,6 @@ export default function ProfileScreen() {
     const changed = Object.keys(form).some(
       (k) => k !== "confirmPassword" && form[k] !== initialRef.current[k]
     );
-    // nếu chỉ đổi avatarFile mà chưa upload -> vẫn coi là dirty
     return changed || !!avatarFile;
   }, [form, avatarFile]);
 
@@ -234,7 +241,7 @@ export default function ProfileScreen() {
       return setSnack({ open: true, type: "info", msg: "Chưa thay đổi" });
 
     try {
-      // Nếu user đã chọn file avatar mới và chưa có uploaded URL thì upload trước
+      // Upload avatar nếu cần
       let finalAvatarUrl = uploadedAvatarUrl || form.avatar || "";
       if (avatarFile && !uploadedAvatarUrl) {
         if (avatarFile.size > MAX_FILE_SIZE) {
@@ -248,7 +255,6 @@ export default function ProfileScreen() {
         const resUpload = await uploadAvatar(avatarFile).unwrap();
         finalAvatarUrl = resUpload.url;
         setUploadedAvatarUrl(resUpload.url);
-        // cập nhật ngay vào form để lần sau diff đúng
         setForm((p) => ({ ...p, avatar: resUpload.url }));
       }
 
@@ -256,7 +262,6 @@ export default function ProfileScreen() {
       if (finalAvatarUrl && finalAvatarUrl !== initialRef.current.avatar) {
         payload.avatar = finalAvatarUrl;
       }
-      // Cho phép xóa avatar (đặt rỗng)
       if (!finalAvatarUrl && initialRef.current.avatar) {
         payload.avatar = "";
       }
@@ -291,6 +296,21 @@ export default function ProfileScreen() {
         open: true,
         type: "error",
         msg: err?.data?.message || "Upload thất bại",
+      });
+    }
+  };
+
+  /* Logout */
+  const onLogout = async () => {
+    try {
+      await logoutApiCall().unwrap();
+      dispatch(logout());
+      navigate("/login");
+    } catch (err) {
+      setSnack({
+        open: true,
+        type: "error",
+        msg: err?.data?.message || "Đăng xuất thất bại",
       });
     }
   };
@@ -350,11 +370,11 @@ export default function ProfileScreen() {
                       }
                       setAvatarFile(file);
                       setAvatarPreview(URL.createObjectURL(file));
-                      setUploadedAvatarUrl(""); // reset để upload lại khi submit
+                      setUploadedAvatarUrl("");
                     }}
                   />
                 </Button>
-                {form.avatar || avatarPreview ? (
+                {(form.avatar || avatarPreview) && (
                   <Button
                     variant="text"
                     color="error"
@@ -367,7 +387,7 @@ export default function ProfileScreen() {
                   >
                     Xóa ảnh
                   </Button>
-                ) : null}
+                )}
               </Stack>
             </Box>
 
@@ -624,6 +644,19 @@ export default function ProfileScreen() {
             </Button>
           </Stack>
         </Box>
+
+        {/* ✅ Đăng xuất dưới cùng, chỉ hiện trên mobile */}
+        <Divider sx={{ my: 2, display: { xs: "block", md: "none" } }} />
+        <Button
+          variant="outlined"
+          color="error"
+          fullWidth
+          startIcon={<LogoutIcon />}
+          onClick={onLogout}
+          sx={{ display: { xs: "inline-flex", md: "none" } }}
+        >
+          Đăng xuất
+        </Button>
       </Paper>
 
       {/* Snackbar */}

@@ -1,10 +1,13 @@
 // src/overlay/ScoreOverlay.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useGetOverlaySnapshotQuery } from "../../slices/tournamentsApiSlice";
+import {
+  useGetOverlaySnapshotQuery,
+  useLazyGetTournamentQuery,
+} from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
 
-/* ---------------- utils ---------------- */
+/* ========================== Utils ========================== */
 const smax = (v) => (Number.isFinite(+v) ? +v : 0);
 const gameWon = (x, y, pts, byTwo) =>
   smax(x) >= smax(pts) && (byTwo ? x - y >= 2 : x - y >= 1);
@@ -28,7 +31,7 @@ const preferNick = (p) =>
     p?.fullName
   );
 
-function codeToRoundLabel(code) {
+const codeToRoundLabel = (code) => {
   if (!code) return "";
   const rc = String(code).toUpperCase();
   if (rc === "F") return "Chung kết";
@@ -44,17 +47,15 @@ function codeToRoundLabel(code) {
     return `1/${denom}`;
   }
   return rc;
-}
+};
 
-function regDisplayNick(reg, evType) {
+const regDisplayNick = (reg, evType) => {
   if (!reg) return "—";
-  if (evType === "single") {
-    return preferNick(reg?.player1) || "N/A";
-  }
+  if (evType === "single") return preferNick(reg?.player1) || "N/A";
   const a = preferNick(reg?.player1) || "N/A";
   const b = preferNick(reg?.player2) || "";
   return b ? `${a} & ${b}` : a;
-}
+};
 
 function normalizePayload(p) {
   if (!p) return null;
@@ -81,8 +82,6 @@ function normalizePayload(p) {
   const roundNumber = Number.isFinite(+p?.round) ? +p?.round : undefined;
 
   let teams = { A: {}, B: {} };
-
-  // Nếu server đã gửi sẵn teams
   if (p?.teams?.A || p?.teams?.B) {
     const playersA =
       Array.isArray(p?.teams?.A?.players) && p.teams.A.players.length
@@ -93,24 +92,16 @@ function normalizePayload(p) {
         ? p.teams.B.players
         : [];
 
-    // Ưu tiên hiển thị nickname ghép từ players; nếu không có thì fallback name do server gửi
     const nameA = playersA.length
-      ? playersA
-          .map((pl) => preferNick(pl))
-          .filter(Boolean)
-          .join(" & ")
+      ? playersA.map(preferNick).filter(Boolean).join(" & ")
       : readStr(p?.teams?.A?.name);
     const nameB = playersB.length
-      ? playersB
-          .map((pl) => preferNick(pl))
-          .filter(Boolean)
-          .join(" & ")
+      ? playersB.map(preferNick).filter(Boolean).join(" & ")
       : readStr(p?.teams?.B?.name);
 
     teams.A = { name: nameA || "—", players: playersA };
     teams.B = { name: nameB || "—", players: playersB };
   } else {
-    // Tự build từ pairA/pairB (ưu tiên nickname)
     const a1 = p?.pairA?.player1
       ? {
           nickname: preferNick(p?.pairA?.player1),
@@ -142,18 +133,14 @@ function normalizePayload(p) {
 
     teams.A = {
       name:
-        listA
-          .map((x) => preferNick(x))
-          .filter(Boolean)
-          .join(" & ") || regDisplayNick(p?.pairA, eventType),
+        listA.map(preferNick).filter(Boolean).join(" & ") ||
+        regDisplayNick(p?.pairA, eventType),
       players: listA,
     };
     teams.B = {
       name:
-        listB
-          .map((x) => preferNick(x))
-          .filter(Boolean)
-          .join(" & ") || regDisplayNick(p?.pairB, eventType),
+        listB.map(preferNick).filter(Boolean).join(" & ") ||
+        regDisplayNick(p?.pairB, eventType),
       players: listB,
     };
   }
@@ -165,11 +152,11 @@ function normalizePayload(p) {
     tournament: {
       id: p?.tournament?._id || p?.tournament?.id || p?.tournamentId || null,
       name: p?.tournament?.name || readStr(p?.tournamentName) || "",
+      image: p?.tournament?.image || "",
       eventType,
     },
     teams,
     rules,
-    // lưu ý: server có thể gửi "server" hoặc "playerIndex"
     serve: p?.serve || { side: "A", server: 1 },
     currentGame: Number.isInteger(p?.currentGame) ? p.currentGame : 0,
     gameScores:
@@ -183,57 +170,109 @@ function normalizePayload(p) {
   };
 }
 
-function teamNameFull(team) {
-  // Ưu tiên nickname từ players
+/* ==== pick overlay từ root / .overlay / .tournament.overlay ==== */
+const OVERLAY_KEYS = new Set([
+  "theme",
+  "size",
+  "accentA",
+  "accentB",
+  "corner",
+  "rounded",
+  "shadow",
+  "showSets",
+  "fontFamily",
+  "nameScale",
+  "scoreScale",
+  "customCss",
+  "logoUrl",
+]);
+
+const looksLikeOverlay = (obj) =>
+  obj &&
+  typeof obj === "object" &&
+  [...OVERLAY_KEYS].some((k) => obj[k] != null);
+
+const pickOverlay = (obj) => {
+  if (!obj || typeof obj !== "object") return null;
+  const src =
+    (obj.overlay && looksLikeOverlay(obj.overlay) && obj.overlay) ||
+    (obj.tournament &&
+      obj.tournament.overlay &&
+      looksLikeOverlay(obj.tournament.overlay) &&
+      obj.tournament.overlay) ||
+    (looksLikeOverlay(obj) && obj) ||
+    null;
+  if (!src) return null;
+  const out = {};
+  OVERLAY_KEYS.forEach((k) => {
+    if (src[k] != null) out[k] = src[k];
+  });
+  return out;
+};
+
+// merge helpers
+const firstDefined = (...vals) => {
+  for (const v of vals) if (v !== null && v !== undefined && v !== "") return v;
+  return undefined;
+};
+const parseQPBool = (raw) => {
+  if (raw == null) return undefined;
+  const s = String(raw).toLowerCase();
+  if (s === "0" || s === "false" || s === "off" || s === "no") return false;
+  return true;
+};
+
+const teamNameFull = (team) => {
   if (Array.isArray(team?.players) && team.players.length) {
-    const nicks = team.players.map((p) => preferNick(p)).filter(Boolean);
+    const nicks = team.players.map(preferNick).filter(Boolean);
     if (nicks.length) return nicks.join(" & ");
   }
   return readStr(team?.name, "—");
-}
+};
 
-function knockoutRoundLabel(data) {
+const knockoutRoundLabel = (data) => {
   const t = (data?.bracketType || "").toLowerCase();
   if (!t || t === "group") return "";
   return readStr(data?.roundName, codeToRoundLabel(data?.roundCode));
-}
+};
 
-/* ---------------- small UI pieces ---------------- */
-function ServeBalls({ count = 1 }) {
-  const n = Math.max(1, Math.min(2, Number(count) || 1)); // chỉ 1 hoặc 2 bóng
-  return (
-    <span style={styles.serve}>
-      <span style={styles.ballsWrap}>
-        {Array.from({ length: n }).map((_, i) => (
-          <span key={i} style={styles.ball} />
-        ))}
-      </span>
-    </span>
-  );
-}
-
-/* ---------------- Component ---------------- */
+/* ======================== Component ======================== */
 export default function ScoreOverlay() {
   const socket = useSocket();
   const [q] = useSearchParams();
   const matchId = q.get("matchId") || "";
 
-  const theme = (q.get("theme") || "dark").toLowerCase();
-  const size = (q.get("size") || "md").toLowerCase();
-  const accentA = decodeURIComponent(q.get("accentA") || "#25C2A0");
-  const accentB = decodeURIComponent(q.get("accentB") || "#4F46E5");
-  const corner = (q.get("corner") || "tl").toLowerCase();
-  const rounded = Number(q.get("rounded") || 18);
-  const shadow = q.get("shadow") !== "0";
-  const showSets = q.get("showSets") !== "0";
+  // query params (override nếu BE không có)
+  const qp = {
+    theme: q.get("theme"),
+    size: (q.get("size") || "md").toLowerCase(),
+    accentA: q.get("accentA"),
+    accentB: q.get("accentB"),
+    corner: q.get("corner"),
+    rounded: q.get("rounded"),
+    shadow: q.get("shadow"),
+    showSets: q.get("showSets"),
+    fontFamily: q.get("font"),
+    nameScale: q.get("nameScale"),
+    scoreScale: q.get("scoreScale"),
+    logoUrl: q.get("logo"),
+  };
 
-  const { data: snapData } = useGetOverlaySnapshotQuery(matchId, {
+  const {
+    data: snapRaw,
+    isLoading: snapLoading,
+    isFetching: snapFetching,
+    isError: snapError,
+  } = useGetOverlaySnapshotQuery(matchId, {
     skip: !matchId,
     refetchOnMountOrArgChange: true,
   });
+  const [getTournament] = useLazyGetTournamentQuery();
 
   const [data, setData] = useState(null);
+  const [overlayBE, setOverlayBE] = useState(null);
 
+  // transparent bg (dùng cho OBS)
   useEffect(() => {
     const prevBodyBg = document.body.style.background;
     const root = document.getElementById("root");
@@ -246,57 +285,213 @@ export default function ScoreOverlay() {
     };
   }, []);
 
+  // snapshot -> data + overlay
   useEffect(() => {
-    if (!snapData) return;
-    setData((prev) => ({ ...(prev || {}), ...normalizePayload(snapData) }));
-  }, [snapData]);
+    if (!snapRaw) return;
+    setData((p) => ({ ...(p || {}), ...normalizePayload(snapRaw) }));
+    const snapOverlay = pickOverlay(snapRaw);
+    if (snapOverlay) setOverlayBE((p) => ({ ...(p || {}), ...snapOverlay }));
+  }, [snapRaw]);
 
+  // fetch tournament overlay + name/image when have id
+  useEffect(() => {
+    const tId = data?.tournament?.id;
+    if (!tId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const detail = await getTournament(tId).unwrap();
+        if (cancelled) return;
+
+        const tourOverlay = pickOverlay(detail);
+        if (tourOverlay)
+          setOverlayBE((p) => ({ ...(p || {}), ...tourOverlay }));
+
+        setData((p) => {
+          const cur = p || {};
+          const curT = cur.tournament || {};
+          return {
+            ...cur,
+            tournament: {
+              ...curT,
+              name: firstDefined(curT.name, detail?.name, ""),
+              image: firstDefined(curT.image, detail?.image, ""),
+            },
+          };
+        });
+      } catch {
+        // ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [data?.tournament?.id, getTournament]);
+
+  // socket live updates
   useEffect(() => {
     if (!matchId || !socket) return;
     socket.emit("match:join", { matchId });
 
-    const onSnapshot = (dto) => setData(normalizePayload(dto));
+    const onSnapshot = (dto) => {
+      setData(normalizePayload(dto));
+      const o = pickOverlay(dto);
+      if (o) setOverlayBE((p) => ({ ...(p || {}), ...o }));
+    };
     const onUpdate = (payload) => {
       if (payload?.data) {
-        setData((prev) => ({
-          ...(prev || {}),
-          ...normalizePayload(payload.data),
-        }));
+        setData((p) => ({ ...(p || {}), ...normalizePayload(payload.data) }));
+        const o = pickOverlay(payload.data);
+        if (o) setOverlayBE((p) => ({ ...(p || {}), ...o }));
       }
     };
 
     socket.on("match:snapshot", onSnapshot);
     socket.on("match:update", onUpdate);
-
     return () => {
       socket.off("match:snapshot", onSnapshot);
       socket.off("match:update", onUpdate);
     };
   }, [matchId, socket]);
 
-  const cssVars = useMemo(
-    () => ({
-      "--accent-a": accentA,
-      "--accent-b": accentB,
-      "--bg": theme === "light" ? "#ffffffcc" : "#0b0f14cc",
-      "--fg": theme === "light" ? "#0b0f14" : "#E6EDF3",
-      "--muted": theme === "light" ? "#5c6773" : "#9AA4AF",
-      "--radius": `${rounded}px`,
-      "--pad":
-        size === "lg" ? "14px 16px" : size === "sm" ? "8px 10px" : "12px 14px",
-      "--minw": size === "lg" ? "380px" : size === "sm" ? "260px" : "320px",
-      "--name": size === "lg" ? "18px" : size === "sm" ? "14px" : "16px",
-      "--serve": size === "lg" ? "12px" : size === "sm" ? "10px" : "11px",
-      "--score": size === "lg" ? "28px" : size === "sm" ? "20px" : "24px",
-      "--meta": size === "lg" ? "12px" : size === "sm" ? "10px" : "11px",
-      "--badge": size === "lg" ? "10px" : size === "sm" ? "9px" : "10px",
-      "--shadow": shadow ? "0 8px 24px rgba(0,0,0,.25)" : "none",
-      "--table": size === "lg" ? "12px" : size === "sm" ? "10px" : "11px",
-      "--table-cell": size === "lg" ? "26px" : size === "sm" ? "20px" : "22px",
-    }),
-    [accentA, accentB, theme, rounded, size, shadow]
-  );
+  /* ---------- Merge: BE overlay > QP > default ---------- */
+  const effective = useMemo(() => {
+    const theme = (
+      firstDefined(overlayBE?.theme, qp.theme, "dark") || "dark"
+    ).toLowerCase();
+    const size = (
+      firstDefined(overlayBE?.size, qp.size, "md") || "md"
+    ).toLowerCase();
 
+    const accentA = firstDefined(
+      overlayBE?.accentA,
+      qp.accentA && decodeURIComponent(qp.accentA),
+      "#25C2A0"
+    );
+    const accentB = firstDefined(
+      overlayBE?.accentB,
+      qp.accentB && decodeURIComponent(qp.accentB),
+      "#4F46E5"
+    );
+
+    const corner = (
+      firstDefined(overlayBE?.corner, qp.corner, "tl") || "tl"
+    ).toLowerCase();
+    const rounded = Number(firstDefined(overlayBE?.rounded, qp.rounded, 18));
+    const shadow = firstDefined(
+      overlayBE?.shadow,
+      parseQPBool(qp.shadow),
+      true
+    );
+    const showSets = firstDefined(
+      overlayBE?.showSets,
+      parseQPBool(qp.showSets),
+      true
+    );
+
+    const fontFamily = firstDefined(
+      overlayBE?.fontFamily,
+      qp.fontFamily,
+      'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial'
+    );
+
+    const nameScale =
+      Number(firstDefined(overlayBE?.nameScale, qp.nameScale, 1)) || 1;
+    const scoreScale =
+      Number(firstDefined(overlayBE?.scoreScale, qp.scoreScale, 1)) || 1;
+
+    const logoUrl = firstDefined(
+      overlayBE?.logoUrl,
+      qp.logoUrl,
+      (typeof window !== "undefined" && data?.tournament?.image) || ""
+    );
+
+    const customCss = overlayBE?.customCss || "";
+
+    return {
+      theme,
+      size,
+      accentA,
+      accentB,
+      corner,
+      rounded,
+      shadow,
+      showSets,
+      fontFamily,
+      nameScale,
+      scoreScale,
+      logoUrl,
+      customCss,
+    };
+  }, [
+    overlayBE,
+    qp.theme,
+    qp.size,
+    qp.accentA,
+    qp.accentB,
+    qp.corner,
+    qp.rounded,
+    qp.shadow,
+    qp.showSets,
+    qp.fontFamily,
+    qp.nameScale,
+    qp.scoreScale,
+    qp.logoUrl,
+    data?.tournament?.image,
+  ]);
+
+  /* ---------- CSS variables (inline) ---------- */
+  const cssVarStyle = useMemo(() => {
+    const baseName =
+      effective.size === "lg" ? 18 : effective.size === "sm" ? 14 : 16;
+    const baseServe =
+      effective.size === "lg" ? 12 : effective.size === "sm" ? 10 : 11;
+    const baseScore =
+      effective.size === "lg" ? 28 : effective.size === "sm" ? 20 : 24;
+    const baseMeta =
+      effective.size === "lg" ? 12 : effective.size === "sm" ? 10 : 11;
+    const baseBadge =
+      effective.size === "lg" ? 10 : effective.size === "sm" ? 9 : 10;
+    const baseTable =
+      effective.size === "lg" ? 12 : effective.size === "sm" ? 10 : 11;
+    const baseCell =
+      effective.size === "lg" ? 26 : effective.size === "sm" ? 20 : 22;
+
+    return {
+      "--accent-a": effective.accentA,
+      "--accent-b": effective.accentB,
+      "--bg": effective.theme === "light" ? "#ffffffcc" : "#0b0f14cc",
+      "--fg": effective.theme === "light" ? "#0b0f14" : "#E6EDF3",
+      "--muted": effective.theme === "light" ? "#5c6773" : "#9AA4AF",
+      "--radius": `${effective.rounded}px`,
+      "--pad":
+        effective.size === "lg"
+          ? "14px 16px"
+          : effective.size === "sm"
+          ? "8px 10px"
+          : "12px 14px",
+      "--minw":
+        effective.size === "lg"
+          ? "380px"
+          : effective.size === "sm"
+          ? "260px"
+          : "320px",
+      "--name": `${Math.round(baseName * effective.nameScale)}px`,
+      "--serve": `${baseServe}px`,
+      "--score": `${Math.round(baseScore * effective.scoreScale)}px`,
+      "--meta": `${baseMeta}px`,
+      "--badge": `${baseBadge}px`,
+      "--shadow": effective.shadow ? "0 8px 24px rgba(0,0,0,.25)" : "none",
+      "--table": `${baseTable}px`,
+      "--table-cell": `${baseCell}px`,
+    };
+  }, [effective]);
+
+  /* ---------- Gate hiển thị: ẩn đến khi API snapshot xong ---------- */
+  const apiSettled = !snapLoading && !snapFetching; // RTKQ đã settle (success hoặc error)
+  const ready = apiSettled && !!data; // và đã có dữ liệu để vẽ (snapshot/socket)
+
+  /* ---------- Data hiển thị ---------- */
   const tourName = data?.tournament?.name || "";
   const rawStatus = (data?.status || "").toUpperCase();
   const isFinished = rawStatus === "FINISHED";
@@ -346,20 +541,30 @@ export default function ScoreOverlay() {
       2,
       Number(data?.serve?.playerIndex ?? data?.serve?.server ?? 1) || 1
     )
-  ); // tay 1 = 1 bóng, tay 2 = 2 bóng
+  );
 
-  const roundLabel = knockoutRoundLabel(data); // rỗng nếu group
+  const roundLabel = knockoutRoundLabel(data);
 
   const wrapStyle = {
     position: "fixed",
-    ...(corner.includes("t") ? { top: 16 } : { bottom: 16 }),
-    ...(corner.includes("l") ? { left: 16 } : { right: 16 }),
+    ...(effective.corner.includes("t") ? { top: 16 } : { bottom: 16 }),
+    ...(effective.corner.includes("l") ? { left: 16 } : { right: 16 }),
     zIndex: 2147483647,
   };
 
+  /* Ẩn toàn bộ overlay cho đến khi ready */
+  if (!ready) return null;
+
   return (
-    <div style={wrapStyle}>
-      <div style={styles.card} data-theme={theme}>
+    <div style={wrapStyle} data-ovl="">
+      <div
+        data-theme={effective.theme}
+        style={{
+          ...styles.card,
+          ...cssVarStyle,
+          fontFamily: effective.fontFamily,
+        }}
+      >
         {/* Meta */}
         <div style={styles.meta}>
           <span
@@ -369,9 +574,26 @@ export default function ScoreOverlay() {
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
             }}
           >
-            {tourName}
+            {effective.logoUrl ? (
+              <img
+                src={effective.logoUrl}
+                alt="logo"
+                style={{
+                  height: 18,
+                  width: "auto",
+                  display: "block",
+                  borderRadius: 4,
+                }}
+              />
+            ) : null}
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+              {tourName || "—"}
+            </span>
           </span>
           <span
             style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
@@ -394,7 +616,7 @@ export default function ScoreOverlay() {
           </span>
         </div>
 
-        {/* A */}
+        {/* Team A */}
         <div style={styles.row}>
           <div style={styles.team}>
             <span style={{ ...styles.pill, background: "var(--accent-a)" }} />
@@ -406,7 +628,7 @@ export default function ScoreOverlay() {
           <div style={styles.score}>{scoreA}</div>
         </div>
 
-        {/* B */}
+        {/* Team B */}
         <div style={styles.row}>
           <div style={styles.team}>
             <span style={{ ...styles.pill, background: "var(--accent-b)" }} />
@@ -419,9 +641,8 @@ export default function ScoreOverlay() {
         </div>
 
         {/* Bảng set */}
-        {showSets && (
+        {effective.showSets && (
           <div style={styles.tableWrap}>
-            {/* Header */}
             <div style={styles.tableRowHeader}>
               <div style={{ ...styles.th, ...styles.thHidden }} />
               {setSummary.map((s, i) => (
@@ -437,7 +658,6 @@ export default function ScoreOverlay() {
               ))}
             </div>
 
-            {/* Row A */}
             <div style={styles.tableRow}>
               <div style={{ ...styles.tdTeam, color: "var(--muted)" }}>A</div>
               {setSummary.map((s, i) => (
@@ -461,7 +681,6 @@ export default function ScoreOverlay() {
               ))}
             </div>
 
-            {/* Row B */}
             <div style={styles.tableRow}>
               <div style={{ ...styles.tdTeam, color: "var(--muted)" }}>B</div>
               {setSummary.map((s, i) => (
@@ -488,31 +707,13 @@ export default function ScoreOverlay() {
         )}
       </div>
 
-      <style>{`
-        [data-theme]{
-          --bg: ${cssVars["--bg"]};
-          --fg: ${cssVars["--fg"]};
-          --muted: ${cssVars["--muted"]};
-          --radius: ${cssVars["--radius"]};
-          --pad: ${cssVars["--pad"]};
-          --minw: ${cssVars["--minw"]};
-          --name: ${cssVars["--name"]};
-          --serve: ${cssVars["--serve"]};
-          --score: ${cssVars["--score"]};
-          --meta: ${cssVars["--meta"]};
-          --badge: ${cssVars["--badge"]};
-          --accent-a: ${cssVars["--accent-a"]};
-          --accent-b: ${cssVars["--accent-b"]};
-          --shadow: ${cssVars["--shadow"]};
-          --table: ${cssVars["--table"]};
-          --table-cell: ${cssVars["--table-cell"]};
-        }
-      `}</style>
+      {/* inject customCss của BE (nếu có) */}
+      {effective.customCss ? <style>{effective.customCss}</style> : null}
     </div>
   );
 }
 
-/* ---------------- styles ---------------- */
+/* ========================== Styles ========================== */
 const styles = {
   card: {
     display: "inline-flex",
@@ -579,8 +780,6 @@ const styles = {
     minWidth: 36,
     textAlign: "right",
   },
-
-  // ----- bảng set -----
   tableWrap: {
     display: "grid",
     gap: 4,
@@ -625,7 +824,6 @@ const styles = {
     minWidth: 24,
   },
   cellActive: { borderColor: "#94a3b8", background: "#64748b22" },
-
   badge: {
     fontWeight: 700,
     fontSize: "var(--badge)",
@@ -637,3 +835,17 @@ const styles = {
   badgeFt: { background: "#16a34a" },
   badgeLive: { background: "#ef4444" },
 };
+
+/* ---------------- ServeBalls ---------------- */
+function ServeBalls({ count = 1 }) {
+  const n = Math.max(1, Math.min(2, Number(count) || 1));
+  return (
+    <span style={styles.serve}>
+      <span style={styles.ballsWrap}>
+        {Array.from({ length: n }).map((_, i) => (
+          <span key={i} style={styles.ball} />
+        ))}
+      </span>
+    </span>
+  );
+}

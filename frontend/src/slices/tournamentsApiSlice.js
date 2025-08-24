@@ -1,12 +1,76 @@
+// src/slices/tournamentsApiSlice.js
 import { apiSlice } from "./apiSlice";
 
 export const tournamentsApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
+    /* ========= DANH SÁCH GIẢI (mới) ========= */
+    listTournaments: builder.query({
+      // ví dụ: /api/tournaments?limit=50&sort=-updatedAt
+      query: ({ limit = 50, sort = "-updatedAt" } = {}) => ({
+        url: `/api/tournaments`,
+        params: { limit, sort },
+      }),
+      // Chuẩn hoá về mảng mà KHÔNG dùng toArray
+      transformResponse: (res) => {
+        if (Array.isArray(res)) return res;
+        if (Array.isArray(res?.items)) return res.items;
+        if (Array.isArray(res?.tournaments)) return res.tournaments;
+        if (Array.isArray(res?.list)) return res.list;
+        if (Array.isArray(res?.data)) return res.data;
+        return [];
+      },
+      providesTags: (result) =>
+        result && result.length
+          ? [
+              ...result.map((t) => ({
+                type: "Tournaments",
+                id: t?._id || t?.id,
+              })),
+              { type: "Tournaments", id: "LIST" },
+            ]
+          : [{ type: "Tournaments", id: "LIST" }],
+      keepUnusedDataFor: 0,
+    }),
+
+    /* ========= TÌM KIẾM GIẢI (mới) ========= */
+    searchTournaments: builder.query({
+      // ví dụ: /api/tournaments?keyword=abc&limit=20
+      query: ({ q = "", limit = 20 } = {}) => ({
+        url: `/api/tournaments`,
+        params: { keyword: q, limit },
+      }),
+      transformResponse: (res) => {
+        if (Array.isArray(res)) return res;
+        if (Array.isArray(res?.items)) return res.items;
+        if (Array.isArray(res?.tournaments)) return res.tournaments;
+        if (Array.isArray(res?.list)) return res.list;
+        if (Array.isArray(res?.data)) return res.data;
+        return [];
+      },
+      keepUnusedDataFor: 0,
+    }),
+
+    /* ========= OVERLAY PATCH (mới) ========= */
+    updateOverlay: builder.mutation({
+      // PATCH /api/tournaments/:id/overlay  body = { ...overlayConfig }
+      query: ({ id, body }) => ({
+        url: `/api/tournaments/${id}/overlay`,
+        method: "PATCH",
+        body,
+      }),
+      invalidatesTags: (res, err, { id }) => [
+        { type: "Tournaments", id },
+        { type: "Tournaments", id: "LIST" },
+      ],
+    }),
+
+    /* ========= ĐÃ CÓ TỪ TRƯỚC (giữ nguyên) ========= */
     getTournaments: builder.query({
       query: ({ sportType, groupId }) =>
         `/api/tournaments?sportType=${sportType}&groupId=${groupId}`,
       providesTags: ["Tournaments"],
     }),
+
     /* ---------------------------------- REG LIST ---------------------------------- */
     getRegistrations: builder.query({
       query: (tourId) => `/api/tournaments/${tourId}/registrations`,
@@ -28,6 +92,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         { type: "Tournaments", id: tourId },
       ],
     }),
+
     /* --------------------------- UPDATE PAYMENT STATUS --------------------------- */
     updatePayment: builder.mutation({
       query: ({ regId, status }) => ({
@@ -40,7 +105,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       ],
     }),
 
-    /* ----------------------------- CHECK‑IN REGISTRATION ----------------------------- */
+    /* ----------------------------- CHECK-IN REGISTRATION ----------------------------- */
     checkin: builder.mutation({
       query: ({ regId }) => ({
         url: `/api/registrations/${regId}/checkin`,
@@ -50,25 +115,31 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         { type: "Registrations", id: arg.regId },
       ],
     }),
+
     getTournament: builder.query({
       query: (id) => `/api/tournaments/${id}`,
       keepUnusedDataFor: 0,
+      providesTags: (res, err, id) => [{ type: "Tournaments", id }],
     }),
-    // ✨ LẤY DANH SÁCH TRẬN ĐẤU (bracket + check‑in page)
+
+    // ✨ LẤY DANH SÁCH TRẬN ĐẤU (bracket + check-in page)
     getMatches: builder.query({
       query: (tourId) => `/api/tournaments/${tourId}/matches`,
       providesTags: (r, e, id) => [{ type: "Matches", id }],
     }),
+
     getTournamentMatchesForCheckin: builder.query({
       query: (tournamentId) =>
         `/api/tournaments/${tournamentId}/checkin-matches`,
     }),
+
     searchUserMatches: builder.query({
       query: ({ tournamentId, q }) => ({
         url: `/api/tournaments/checkin/search`,
         params: { tournamentId, q },
       }),
     }),
+
     userCheckinRegistration: builder.mutation({
       query: (body) => ({
         url: `/api/tournaments/checkin`,
@@ -76,6 +147,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         body, // { tournamentId, q, regId }
       }),
     }),
+
     // GET /api/tournaments/:id/brackets  (user route)
     listTournamentBrackets: builder.query({
       query: (tournamentId) => ({
@@ -87,13 +159,10 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         if (res?.list && Array.isArray(res.list)) return res.list;
         return [];
       },
-      // tránh cache đè giữa các giải
-
       keepUnusedDataFor: 0,
     }),
 
     // GET /api/tournaments/:id/matches  (user route)
-    // Bạn có thể hỗ trợ ?stage=&type=&page=&limit=&sort= ở BE nếu muốn
     listTournamentMatches: builder.query({
       query: ({ tournamentId, ...params }) => ({
         url: `/api/tournaments/${tournamentId}/matches`,
@@ -101,17 +170,18 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         params,
       }),
       transformResponse: (res) => {
-        if (Array.isArray(res)) return res; // mảng thuần
-        if (res?.list && Array.isArray(res.list)) return res.list; // phân trang
+        if (Array.isArray(res)) return res;
+        if (res?.list && Array.isArray(res.list)) return res.list;
         return [];
       },
-
       keepUnusedDataFor: 0,
     }),
+
     getMatchPublic: builder.query({
-      query: (matchId) => `/api/tournaments/matches/${matchId}`, // GET /api/matches/:id
+      query: (matchId) => `/api/tournaments/matches/${matchId}`,
       providesTags: (res, err, id) => [{ type: "Match", id }],
     }),
+
     cancelRegistration: builder.mutation({
       query: (regId) => ({
         url: `/api/registrations/${regId}/cancel`,
@@ -119,7 +189,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: () => [{ type: "Registrations", id: "LIST" }],
     }),
-    //
+
     // NEW: tạo lời mời đăng ký
     createRegInvite: builder.mutation({
       query: ({ tourId, message, player1Id, player2Id }) => ({
@@ -146,14 +216,14 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ["RegInvites"],
     }),
+
     // ✅ Manager toggle trạng thái thanh toán
     managerSetRegPaymentStatus: builder.mutation({
       query: ({ regId, status }) => ({
         url: `/api/registrations/${regId}/payment`,
         method: "PATCH",
-        body: { status }, // "Paid" | "Unpaid"
+        body: { status },
       }),
-      // tùy hệ thống tags của bạn, có thể là ["Registrations"] hoặc ["Registration"]
       invalidatesTags: ["Registrations"],
     }),
 
@@ -165,13 +235,15 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: ["Registrations"],
     }),
+
+    /* ========= SNAPSHOT OVERLAY (giữ) ========= */
     getOverlaySnapshot: builder.query({
-      // dùng API snapshot mình đã gợi ý ở BE: GET /api/overlay/match/:id
-      // nếu bạn chưa có route này thì tạm thay bằng /api/matches/:id cũng được
+      // Nếu BE của bạn khác, sửa route này cho khớp
       query: (matchId) => `/api/overlay/match/${matchId}`,
       providesTags: (res, err, id) => [{ type: "Match", id }],
     }),
-    // ✅ DRAW API (ADD)
+
+    /* ========= DRAW API (giữ) ========= */
     getDrawStatus: builder.query({
       query: (bracketId) => ({
         url: `/api/draw/brackets/${bracketId}/draw/status`,
@@ -220,8 +292,8 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         { type: "Draw", id: bracketId },
       ],
     }),
+
     startDraw: builder.mutation({
-      // body: { mode: "group" } | { mode: "knockout", round: "R16"|... }
       query: ({ bracketId, body }) => ({
         url: `/api/draw/${bracketId}/start`,
         method: "POST",
@@ -233,7 +305,6 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
     }),
 
     drawNext: builder.mutation({
-      // body optional
       query: ({ drawId, body }) => ({
         url: `/api/draw/${drawId}/next`,
         method: "POST",
@@ -249,6 +320,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (_res, _err, arg) => [{ type: "Draw", id: arg.drawId }],
     }),
+
     cancelDraw: builder.mutation({
       query: (bracketId) => ({
         url: `/api/brackets/${bracketId}/draw/cancel`,
@@ -266,6 +338,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (_res, _err, arg) => [{ type: "Draw", id: arg.drawId }],
     }),
+
     getBracket: builder.query({
       query: (bracketId) => `/api/brackets/${bracketId}`,
       keepUnusedDataFor: 0,
@@ -279,6 +352,7 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (r, e, arg) => [{ type: "Matches", id: arg.bracketId }],
     }),
+
     managerReplaceRegPlayer: builder.mutation({
       query: ({ regId, slot, userId }) => ({
         url: `/api/registrations/${regId}/manager/replace-player`,
@@ -294,12 +368,20 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
 });
 
 export const {
+  // mới thêm
+  useListTournamentsQuery,
+  useSearchTournamentsQuery,
+  useLazySearchTournamentsQuery,
+  useUpdateOverlayMutation,
+
+  // đã có
   useGetTournamentsQuery,
   useGetRegistrationsQuery,
   useCreateRegistrationMutation,
   useUpdatePaymentMutation,
   useCheckinMutation,
   useGetTournamentQuery,
+  useLazyGetTournamentQuery, // ✅ export thêm lazy
   useGetMatchesQuery,
   useGetTournamentMatchesForCheckinQuery,
   useSearchUserMatchesQuery,

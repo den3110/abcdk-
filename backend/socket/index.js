@@ -72,11 +72,16 @@ export function initSocket(
         .populate({ path: "referee", select: "name fullName" })
         .populate({ path: "previousA", select: "round order" })
         .populate({ path: "previousB", select: "round order" })
-        // chỉ cần _id để biết còn trận sau không
         .populate({ path: "nextMatch", select: "_id" })
-        // ⚠️ Nếu FE cần eventType cho label:
-        // .populate({ path: "tournament", select: "eventType" })
+        // ✅ lấy overlay + name/image/eventType của giải
+        .populate({
+          path: "tournament",
+          select: "name image eventType overlay",
+        })
+        // (khuyến nghị) nếu muốn biết loại bracket để FE hiển thị label vòng hợp lý
+        .populate({ path: "bracket", select: "type name order overlay" })
         .lean();
+
       if (m) socket.emit("match:snapshot", toDTO(m));
     });
     socket.on("overlay:join", ({ matchId }) => {
