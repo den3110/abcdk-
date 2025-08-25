@@ -102,3 +102,41 @@ export const buildRoundElimSkeleton = expressAsyncHandler(async (req, res) => {
   const result = await Match.insertMany(docs);
   res.json({ created: result.length, rounds });
 });
+
+/** POST /admin/brackets/:bracketId/matches/clear
+ * body: {
+ *   status?: 'scheduled'|'queued'|'assigned'|'live'|'finished' | string[]  // optional filter
+ *   dryRun?: boolean                                                       // optional: chỉ đếm, không xoá
+ * }
+ * Xoá tất cả match thuộc bracket (giữ nguyên bracket).
+ */
+export const clearBracketMatches = expressAsyncHandler(async (req, res) => {
+  const { bracketId } = req.params;
+  const { status, dryRun } = req.body || {};
+
+  const br = await Bracket.findById(bracketId).select("_id");
+  if (!br) {
+    res.status(404);
+    throw new Error("Bracket not found");
+  }
+
+  const query = { bracket: br._id };
+  if (typeof status !== "undefined") {
+    if (Array.isArray(status) && status.length) {
+      query.status = { $in: status };
+    } else if (typeof status === "string" && status.trim()) {
+      query.status = status.trim();
+    } else {
+      res.status(400);
+      throw new Error("status must be a non-empty string or an array of strings");
+    }
+  }
+
+  if (dryRun) {
+    const wouldDelete = await Match.countDocuments(query);
+    return res.json({ wouldDelete });
+  }
+
+  const result = await Match.deleteMany(query);
+  res.json({ deleted: result.deletedCount || 0 });
+});

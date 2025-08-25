@@ -57,7 +57,7 @@ import { softResetChainFrom } from "../services/matchChainReset.js";
 import { finalizeExpiredTournaments } from "../services/tournamentLifecycle.js";
 import { createAutoUsers, previewAutoUsers } from "../controllers/admin/adminUserController.js";
 import { getDashboardMetrics, getDashboardSeries } from "../controllers/admin/adminDashboardController.js";
-import { batchAssignReferee, batchDeleteMatches, buildRoundElimSkeleton } from "../controllers/matchBatchController.js";
+import { batchAssignReferee, batchDeleteMatches, buildRoundElimSkeleton, clearBracketMatches } from "../controllers/matchBatchController.js";
 import { autoGenerateRegistrations } from "../controllers/registrationAutoController.js";
 import { getMatchAdmin, getMatchLogs, getMatchRatingChanges } from "../controllers/admin/adminMatchController.js";
 import { assignNextHttp, buildGroupsQueueHttp, freeCourtHttp, getSchedulerState, upsertCourts } from "../controllers/admin/adminCourtController.js";
@@ -222,6 +222,7 @@ router.post("/brackets/:bracketId/matches/batch-delete", protect, authorize("adm
 // RoundElim helper
 router.post("/brackets/:bracketId/round-elim/skeleton", protect, authorize("admin"), buildRoundElimSkeleton);
 
+router.post("/brackets/:bracketId/matches/clear", protect, authorize("admin"), clearBracketMatches);
 // 
 
 // /api/tournaments/:id/plan/auto

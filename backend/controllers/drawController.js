@@ -1042,7 +1042,7 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
     throw new Error("Bracket không phải vòng bảng.");
   }
   const defaultRules = br?.config?.rules || {
-    bestOf: 3,
+    bestOf: 1,
     pointsToWin: 11,
     winByTwo: true,
   };
