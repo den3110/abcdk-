@@ -5,6 +5,7 @@ import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
 import Registration from "../models/registrationModel.js";
+import Court from "../models/courtModel.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 // @desc    Lấy danh sách giải đấu (lọc theo sportType & groupId)
@@ -466,7 +467,10 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       bracket, // optional: id bracket cụ thể
       stage, // optional: lọc theo stage của bracket
       type, // optional: 'group' | 'knockout'
-      status, // optional: 'scheduled' | 'live' | 'finished'
+      status, // optional: 'scheduled' | 'queued' | 'assigned' | 'live' | 'finished'
+      court, // 🆕 optional: court id cụ thể
+      hasCourt, // 🆕 optional: '1' | 'true' → chỉ lấy trận đã gán sân
+      courtStatus, // 🆕 optional: lọc theo trạng thái của sân (idle/assigned/live/maintenance)
       page = 1,
       limit = 200,
       sort = "round,order,createdAt",
@@ -487,12 +491,12 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       ? parseSort(sort)
       : { round: 1, order: 1, createdAt: 1 };
 
-    // Base filter: đúng giải
+    // Base filter
     const filter = { tournament: id };
     if (status) filter.status = status;
     if (bracket && isId(bracket)) filter.bracket = bracket;
 
-    // Nếu lọc theo stage/type: tìm trước các bracket thuộc giải đáp ứng điều kiện
+    // Lọc theo stage/type -> lấy ds bracket trước
     if (
       (stage && Number.isFinite(Number(stage))) ||
       (type && typeof type === "string")
@@ -503,7 +507,6 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
 
       const brs = await Bracket.find(bFilter).select("_id").lean();
       const ids = brs.map((b) => b._id);
-      // nếu đồng thời có param bracket cụ thể thì ưu tiên giao nhau
       if (filter.bracket) {
         filter.bracket = {
           $in: ids.filter((x) => String(x) === String(filter.bracket)),
@@ -513,12 +516,44 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       }
     }
 
+    // 🆕 Lọc theo court
+    if (court && isId(court)) {
+      filter.court = court;
+    }
+    // 🆕 Chỉ lấy trận đã gán court
+    if (hasCourt === "1" || hasCourt === "true") {
+      filter.court = { $ne: null, ...(filter.court || {}) };
+    }
+
+    // 🆕 Lọc theo courtStatus (cần tra bảng Court -> danh sách courtId theo status)
+    if (courtStatus) {
+      const courtCond = { tournament: id };
+      if (bracket && isId(bracket)) courtCond.bracket = bracket;
+      const courts = await Court.find({ ...courtCond, status: courtStatus })
+        .select("_id")
+        .lean();
+      const ids = courts.map((c) => c._id);
+      // nếu đã có filter.court thì giao phần giao nhau
+      if (filter.court && filter.court.$ne === null) {
+        // đã có điều kiện khác (vd hasCourt), chuyển thành $in
+        filter.court = { $in: ids };
+      } else if (filter.court) {
+        // đã set 1 court cụ thể → kiểm tra khớp status
+        if (!ids.some((x) => String(x) === String(filter.court))) {
+          // không có court này trong status yêu cầu → trả rỗng nhanh
+          return res.json({ total: 0, page: 1, limit: 0, list: [] });
+        }
+      } else {
+        filter.court = { $in: ids };
+      }
+    }
+
     const pg = Math.max(parseInt(page, 10) || 1, 1);
     const lim = Math.min(Math.max(parseInt(limit, 10) || 0, 0), 1000);
     const skip = (pg - 1) * lim;
 
-    // Query + populate CHUẨN (không có 'reg1'/'reg2')
-    const [list, total] = await Promise.all([
+    // Query + populate
+    const [listRaw, total] = await Promise.all([
       Match.find(filter)
         .populate({ path: "tournament", select: "name" })
         .populate({ path: "bracket", select: "name type stage order" })
@@ -527,6 +562,11 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
         .populate({ path: "previousA", select: "round order" })
         .populate({ path: "previousB", select: "round order" })
         .populate({ path: "referee", select: "name nickname" })
+        // 🆕 LẤY SÂN đầy đủ hơn
+        .populate({
+          path: "court",
+          select: "name cluster status bracket order",
+        })
         .sort(sortSpec)
         .skip(lim ? skip : 0)
         .limit(lim || 0)
@@ -534,12 +574,18 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       Match.countDocuments(filter),
     ]);
 
-    res.json({
-      total,
-      page: pg,
-      limit: lim,
-      list,
-    });
+    // 🆕 Phẳng hoá thông tin sân để FE dùng tiện
+    const list = listRaw.map((m) => ({
+      ...m,
+      courtId: m.court?._id || m.court || null,
+      courtName: m.court?.name || m.courtLabel || "", // ưu tiên tên Court, fallback courtLabel
+      courtStatus: m.court?.status || "", // trạng thái sân hiện tại
+      courtOrder: m.court?.order ?? null, // thứ tự sân trong bracket
+      courtBracket: m.court?.bracket || null, // bracket của sân (thiết kế mới: required)
+      courtCluster: m.court?.cluster || m.courtCluster || "", // clusterKey (thường = String(bracketId))
+    }));
+
+    res.json({ total, page: pg, limit: lim, list });
   } catch (err) {
     next(err);
   }

@@ -80,7 +80,7 @@ const matchSchema = new Schema(
 
     status: {
       type: String,
-      enum: ["scheduled", "live", "finished"],
+      enum: ["scheduled", "queued", "assigned", "live", "finished"],
       default: "scheduled",
       index: true,
     },
@@ -96,7 +96,12 @@ const matchSchema = new Schema(
     scheduledAt: { type: Date, default: null },
     court: { type: Schema.Types.ObjectId, ref: "Court", default: null },
     courtLabel: { type: String, default: "" },
-
+    courtCluster: { type: String, default: "Main", index: true }, // cụm sân
+    queueOrder: { type: Number, default: null, index: true }, // thứ tự trong hàng đợi
+    assignedAt: { type: Date, default: null }, // thời điểm gán sân
+    participants: [
+      { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+    ], // VĐV tham gia trận (denormalize để lọc eligibility nhanh)
     // Live state
     currentGame: { type: Number, default: 0 },
     serve: {
@@ -370,6 +375,50 @@ async function propagateFromFinishedMatch(doc) {
   );
 }
 
+async function triggerAutoFeedGroupRank(doc, { log = false } = {}) {
+  try {
+    // chỉ chạy cho định dạng bảng
+    if (!["group", "round_robin", "gsl"].includes(doc.format)) return;
+
+    // stageIndex fallback từ bracket nếu chưa có
+    let st = doc.stageIndex;
+    if (!st) {
+      const br = await Bracket.findById(doc.bracket).select("stage").lean();
+      if (br?.stage) st = br.stage;
+    }
+
+    const { autoFeedGroupRank } = await import("../services/autoFeedGroupRank.js");
+    await autoFeedGroupRank({
+      tournamentId: doc.tournament,
+      bracketId: doc.bracket,
+      stageIndex: st,
+      provisional: true, // lock sớm: dùng BXH hiện tại, vẫn cập nhật nếu BXH đổi
+      log,
+    });
+  } catch (e) {
+    console.error("[feed] autoFeedGroupRank failed:", e?.message || e);
+  }
+}
+
+
+// Lấy danh sách userIds của 2 đôi để tránh trùng trận
+matchSchema.methods.computeParticipants = async function () {
+  if (!this.pairA && !this.pairB) return;
+  const Registration = this.model("Registration");
+  const regs = await Registration.find({
+    _id: { $in: [this.pairA, this.pairB].filter(Boolean) },
+  })
+    .select("player1.user player2.user")
+    .lean();
+
+  const ids = new Set();
+  for (const r of regs) {
+    if (r?.player1?.user) ids.add(String(r.player1.user));
+    if (r?.player2?.user) ids.add(String(r.player2.user));
+  }
+  this.participants = [...ids];
+};
+
 /* ======================= PRE-SAVE ======================= */
 matchSchema.pre("save", async function (next) {
   try {
@@ -400,7 +449,14 @@ matchSchema.pre("save", async function (next) {
     // Thử resolve seed → pair/previous (nếu có thể)
     await resolveSeedToSlots(this, "A");
     await resolveSeedToSlots(this, "B");
-
+    try {
+      const willMatter = ["queued", "assigned", "live"].includes(this.status);
+      if (willMatter && typeof this.computeParticipants === "function") {
+        await this.computeParticipants();
+      }
+    } catch (e) {
+      // an toàn, không chặn save nếu lỗi phụ
+    }
     next();
   } catch (e) {
     next(e);
@@ -458,6 +514,50 @@ matchSchema.post("save", async function (doc, next) {
       console.error("[rating] schedule error:", e?.message);
     }
 
+    try {
+      // nếu trận thuộc bracket type = group → auto-feed groupRank
+      if (doc.status === "finished") {
+        // Lấy stage/type nhanh
+        const br = await Bracket.findById(doc.bracket)
+          .select("type stage")
+          .lean();
+        if (br?.type === "group") {
+          // chạy async không block
+          setImmediate(async () => {
+            try {
+              const { autoFeedGroupRank } = await import(
+                "../services/autoFeedGroupRank.js"
+              );
+              await autoFeedGroupRank({
+                tournamentId: doc.tournament,
+                bracketId: doc.bracket,
+                stageIndex: br.stage,
+                provisional: true,
+                finalizeOnComplete: true,
+                log: false
+              });
+            } catch (e) {
+              console.error(
+                "[autoFeedGroupRank] post-save failed:",
+                e?.message
+              );
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.error(
+        "[autoFeedGroupRank] schedule post-save error:",
+        e?.message
+      );
+    }
+
+    // 🔔 Nếu là trận vòng bảng → auto-feed BXH sang các seed groupRank
+    if (doc.status === "finished" && ["group", "round_robin", "gsl"].includes(doc.format)) {
+      // chạy async không block hook
+      // setImmediate(() => triggerAutoFeedGroupRank(doc, { log: false }));
+    }
+
     next();
   } catch (e) {
     next(e);
@@ -504,6 +604,41 @@ matchSchema.post("findOneAndUpdate", async function (res) {
       }
     } catch (e) {
       console.error("[rating] schedule(update) error:", e?.message);
+    }
+
+    try {
+      if (fresh.status === "finished") {
+        const br = await Bracket.findById(fresh.bracket)
+          .select("type stage")
+          .lean();
+        if (br?.type === "group") {
+          setImmediate(async () => {
+            try {
+              const { autoFeedGroupRank } = await import(
+                "../services/autoFeedGroupRank.js"
+              );
+              await autoFeedGroupRank({
+                tournamentId: fresh.tournament,
+                bracketId: fresh.bracket,
+                stageIndex: br.stage,
+                provisional: true,
+                finalizeOnComplete: true,
+                log: false
+              });
+            } catch (e) {
+              console.error(
+                "[autoFeedGroupRank] post-update failed:",
+                e?.message
+              );
+            }
+          });
+        }
+      }
+    } catch (e) {
+      console.error(
+        "[autoFeedGroupRank] schedule post-update error:",
+        e?.message
+      );
     }
   } catch (err) {
     console.error("[Match post(findOneAndUpdate)] propagate error:", err);
@@ -565,5 +700,8 @@ matchSchema.index({
   "seedB.ref.round": 1,
   "seedB.ref.order": 1,
 });
+
+matchSchema.index({ status: 1, queueOrder: 1, courtCluster: 1 });
+matchSchema.index({ participants: 1 });
 
 export default mongoose.model("Match", matchSchema);

@@ -136,7 +136,14 @@ export const getBracketsWithMatches = expressAsyncHandler(async (req, res) => {
   const { id } = req.params; // tournament id
   const list = await Bracket.find({ tournament: id })
     .sort({ order: 1, stage: 1 })
+    .populate({
+      path: "tournament",
+      // chỉ lấy các field cần thiết để payload gọn
+      select:
+        "_id name image sportType groupId regOpenDate registrationDeadline startDate endDate eventType maxPairs status location expected matchesCount finishedAt",
+    })
     .lean();
+
   res.json(list);
 });
 

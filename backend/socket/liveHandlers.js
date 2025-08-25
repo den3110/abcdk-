@@ -6,6 +6,7 @@ import Registration from "../models/registrationModel.js";
 import usersOfReg from "../utils/usersOfReg.js";
 import latestSnapshot from "../utils/getLastestSnapshot.js";
 import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
+import { onMatchFinished } from "../services/courtQueueService.js";
 
 export const toDTO = (m) => {
   const tournament = m.tournament
@@ -123,6 +124,7 @@ export async function startMatch(matchId, refereeId, io) {
   });
 }
 
+// chua dung
 async function applyRatingDeltaForMatch(mt, scorerId) {
   // đã áp dụng hoặc không cấu hình delta → bỏ qua
   const delta = Number(mt.ratingDelta) || 0;
@@ -307,6 +309,7 @@ export async function addPoint(matchId, team, step = 1, by, io) {
   try {
     if (m.status === "finished" && !m.ratingApplied) {
       await applyRatingForFinishedMatch(m._id);
+      await onMatchFinished({matchId: m._id})
     }
   } catch (err) {
     console.error("[rating] applyRatingForFinishedMatch error:", err);
@@ -415,6 +418,8 @@ export async function finishMatch(matchId, winner, reason, by, io) {
   try {
     if (!m.ratingApplied) {
       await applyRatingForFinishedMatch(m._id);
+      await onMatchFinished({matchId: m._id})
+
     }
   } catch (err) {
     console.error("[rating] applyRatingForFinishedMatch error:", err);

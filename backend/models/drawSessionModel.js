@@ -45,6 +45,7 @@ const DrawSessionSchema = new mongoose.Schema(
       ref: "Bracket",
       required: true,
     },
+
     mode: { type: String, enum: ["group", "knockout"], required: true },
     targetRound: {
       type: String,
@@ -62,17 +63,33 @@ const DrawSessionSchema = new mongoose.Schema(
     pool: [{ type: mongoose.Schema.Types.ObjectId, ref: "Registration" }],
     taken: [{ type: mongoose.Schema.Types.ObjectId, ref: "Registration" }],
 
-    // board: {
-    //   type: { type: String, enum: ["group", "knockout"], required: true },
-    //   groups: [GroupBoardSchema],
-    //   pairs: [KnockoutPairSchema],
-    // },
+    // >>> BOARD (khai báo đầy đủ cả 2 mode)
+    board: {
+      type: {
+        type: String,
+        enum: ["group", "knockout"],
+        required: true,
+      },
+      roundKey: { type: String, default: null },
+
+      // group mode
+      groups: {
+        type: [GroupBoardSchema],
+        default: undefined, // chỉ có khi type='group'
+      },
+
+      // knockout mode
+      pairs: {
+        type: [KnockoutPairSchema],
+        default: undefined, // chỉ có khi type='knockout'
+      },
+    },
 
     cursor: {
-      gIndex: { type: Number, default: 0 },
-      slotIndex: { type: Number, default: 0 },
-      pairIndex: { type: Number, default: 0 },
-      side: { type: String, enum: ["A", "B", null], default: "A" },
+      gIndex: { type: Number, default: 0 }, // group mode
+      slotIndex: { type: Number, default: 0 }, // group mode
+      pairIndex: { type: Number, default: 0 }, // ko mode
+      side: { type: String, enum: ["A", "B", null], default: "A" }, // ko mode
     },
 
     settings: {
@@ -118,7 +135,7 @@ const DrawSessionSchema = new mongoose.Schema(
       },
     },
 
-    // NEW: điểm số & chỉ số để audit (optional)
+    // Audit / scoring (optional)
     score: { type: Number, default: 0 },
     metrics: {
       groupFairness: { type: Number, default: 0 },
@@ -142,17 +159,8 @@ const DrawSessionSchema = new mongoose.Schema(
         },
       },
     ],
-    board: {
-      type: { type: String },
-      roundKey: String,
-      pairs: [
-        {
-          index: Number,
-          a: mongoose.Schema.Types.ObjectId,
-          b: mongoose.Schema.Types.ObjectId,
-        },
-      ],
-    },
+
+    // Meta để rebuild khi cần
     computedMeta: {
       ko: {
         entrants: Number,
@@ -160,6 +168,11 @@ const DrawSessionSchema = new mongoose.Schema(
         rounds: Number,
         labels: [String],
         startKey: String,
+        byes: Number,
+      },
+      group: {
+        sizes: [Number],
+        count: Number,
         byes: Number,
       },
     },
@@ -177,4 +190,5 @@ const DrawSessionSchema = new mongoose.Schema(
 );
 
 DrawSessionSchema.index({ bracket: 1, status: 1 });
+
 export default mongoose.model("DrawSession", DrawSessionSchema);

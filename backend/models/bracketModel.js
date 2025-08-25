@@ -161,6 +161,9 @@ const bracketSchema = new Schema(
         from: seedSourceSchema, // nguồn cố định
       },
     ],
+    scheduler: {
+      autoAssign: { type: Boolean, default: true }, // true: tự động fill sau mỗi trận kết thúc
+    },
   },
   { timestamps: true }
 );

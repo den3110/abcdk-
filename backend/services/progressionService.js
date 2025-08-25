@@ -8,7 +8,7 @@ import Tournament from "../models/tournamentModel.js";
 import { seedCompare } from "../utils/sorters.js";
 import mongoose from "mongoose";
 
-/** Compute winners of a specific round from a KO-like bracket */
+/** Compute winners of a specifice round from a KO-like bracket */
 export async function computeQualifiersFromKO({
   sourceBracketId,
   round,

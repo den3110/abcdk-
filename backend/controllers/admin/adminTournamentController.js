@@ -314,9 +314,8 @@ export const updateTournament = expressAsyncHandler(async (req, res) => {
   // (khuyên) đảm bảo hạn đăng ký không sau ngày bắt đầu, nếu có cả 2
   if (payload.registrationDeadline && payload.startDate) {
     if (toDate(payload.registrationDeadline) > toDate(payload.startDate)) {
-
-      console.log(toDate(payload.registrationDeadline))
-      console.log(toDate(payload.startDate))
+      console.log(toDate(payload.registrationDeadline));
+      console.log(toDate(payload.startDate));
       res.status(400);
       throw new Error("registrationDeadline không được sau startDate");
     }
@@ -476,23 +475,24 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
     const { groups, po, ko } = req.body || {};
     const created = { groupBracket: null, poBracket: null, koBracket: null };
 
-    // Tính stage index liên tiếp
-    let stageCounter = 1;
-    let groupStageIdx = null;
-    let poStageIdx = null;
-    let koStageIdx = null;
+    // Xác định stage nào thực sự có
+    const hasGroup = Boolean(groups?.count > 0);
+    const hasPO = Boolean(po?.drawSize > 0);
+    const hasKO = Boolean(ko?.drawSize > 0);
 
-    if (groups && groups.count > 0) groupStageIdx = stageCounter++;
-    if (po && po.drawSize > 0) poStageIdx = stageCounter++;
-    if (ko && ko.drawSize > 0) koStageIdx = stageCounter++;
+    // Gán order liên tiếp từ 1 theo các stage có mặt
+    let orderCounter = 1;
+    const groupOrder = hasGroup ? orderCounter++ : null;
+    const poOrder = hasPO ? orderCounter++ : null;
+    const koOrder = hasKO ? orderCounter++ : null;
 
     // 1) Group (hỗ trợ totalTeams / groupSizes)
-    if (groups?.count > 0) {
+    if (hasGroup) {
       const payload = {
         tournamentId: t._id,
         name: "Group Stage",
-        order: 1,
-        stage: groupStageIdx || 1,
+        order: groupOrder, // <-- liên tiếp
+        stage: groupOrder, // <-- cho khớp với order
         groupCount: Number(groups.count),
         groupSize: Number(groups.size || 0) || undefined,
         totalTeams: Number(groups.totalTeams || 0) || undefined,
@@ -505,13 +505,13 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
     }
 
     // 2) PO (roundElim – KHÔNG ép 2^n)
-    if (po?.drawSize > 0) {
+    if (hasPO) {
       const firstRoundSeeds = Array.isArray(po.seeds) ? po.seeds : [];
       const { bracket } = await buildRoundElimBracket({
         tournamentId: t._id,
-        name: "Pre-Qualifying",
-        order: 2,
-        stage: poStageIdx || (groupStageIdx ? groupStageIdx + 1 : 1),
+        name: "Pre-Qualifying", // tuỳ bạn đổi label
+        order: poOrder, // <-- liên tiếp
+        stage: poOrder, // <-- cho khớp với order
         drawSize: Number(po.drawSize),
         maxRounds: Math.max(1, Number(po.maxRounds || 1)),
         firstRoundSeeds,
@@ -521,15 +521,13 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
     }
 
     // 3) KO chính
-    if (ko?.drawSize > 0) {
+    if (hasKO) {
       const firstRoundSeeds = Array.isArray(ko.seeds) ? ko.seeds : [];
       const { bracket } = await buildKnockoutBracket({
         tournamentId: t._id,
         name: "Knockout",
-        order: 3,
-        stage:
-          koStageIdx ||
-          (poStageIdx ? poStageIdx + 1 : groupStageIdx ? groupStageIdx + 1 : 1),
+        order: koOrder, // <-- liên tiếp
+        stage: koOrder, // <-- cho khớp với order
         drawSize: Number(ko.drawSize),
         firstRoundSeeds,
         session,

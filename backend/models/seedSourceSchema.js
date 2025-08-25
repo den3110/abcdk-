@@ -11,6 +11,8 @@ const seedSourceSchema = new mongoose.Schema(
         "stageMatchLoser", // loserV2#R1#3 (tuỳ chọn)
         "bye",
         "registration",
+        // "matchWinner",
+        // "matchLoser",
       ],
       required: true,
     },
@@ -36,6 +38,11 @@ const seedSourceSchema = new mongoose.Schema(
         ref: "Registration",
         default: null,
       },
+      group: {
+        id: { type: mongoose.Schema.Types.ObjectId }, // id trong bracket.groups._id
+        name: { type: String }, // "A","B",...
+      },
+      rank: { type: Number }, // 1,2,3,..
     },
     label: { type: String, default: "" }, // hiển thị nhanh
   },

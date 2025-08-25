@@ -60,6 +60,9 @@ import { getDashboardMetrics, getDashboardSeries } from "../controllers/admin/ad
 import { batchAssignReferee, batchDeleteMatches, buildRoundElimSkeleton } from "../controllers/matchBatchController.js";
 import { autoGenerateRegistrations } from "../controllers/registrationAutoController.js";
 import { getMatchAdmin, getMatchLogs, getMatchRatingChanges } from "../controllers/admin/adminMatchController.js";
+import { assignNextHttp, buildGroupsQueueHttp, freeCourtHttp, getSchedulerState, upsertCourts } from "../controllers/admin/adminCourtController.js";
+// import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
+// import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
 const router = express.Router();
 
@@ -237,5 +240,62 @@ router.patch("/tournaments/:id/overlay", protect, authorize("admin"), updateTour
 router.get("/matches/a/:id", protect, authorize("admin"), getMatchAdmin);
 router.get("/matches/:id/logs", protect, authorize("admin"), getMatchLogs);
 router.get("/matches/:id/rating-changes", protect, authorize("admin"), getMatchRatingChanges);
+
+// relate court
+
+// Courts CRUD (upsert theo cụm)
+// router.post("/tournaments/:id/courts", upsertCourts);
+
+// Build hàng đợi vòng bảng (xoay lượt A1,B1,C1,D1,...)
+// router.post("/tournaments/:id/queue/groups:build", buildGroupsQueue);
+
+// Gán trận kế tiếp hợp lệ vào 1 sân
+// router.post(
+//   "/tournaments/:id/courts/:courtId/assign-next",
+//   assignNextToCourtCtrl
+// );
+
+// (Tuỳ chọn) Giải phóng sân + auto-assign
+// router.post("/courts/:courtId/free", freeCourtCtrl);
+
+// Tất cả endpoint yêu cầu quyền admin ở middleware global của bạn
+// router.post("/brackets/:bracketId/courts",protect, authorize("admin"), upsertBracketCourts);
+
+// Tất cả require admin
+router.post(
+  "/tournaments/:tournamentId/courts",
+  protect,
+  authorize("admin"),
+  upsertCourts
+);
+
+router.post(
+  "/tournaments/:tournamentId/queue/groups/build",
+  protect,
+  authorize("admin"),
+  buildGroupsQueueHttp
+);
+
+router.post(
+  "/tournaments/:tournamentId/courts/:courtId/assign-next",
+  protect,
+  authorize("admin"),
+  assignNextHttp
+);
+
+router.post(
+  "/tournaments/:tournamentId/courts/:courtId/free",
+  protect,
+  authorize("admin"),
+  freeCourtHttp
+);
+
+// Realtime panel (FE gọi để lấy state ban đầu / fallback polling)
+router.get(
+  "/tournaments/:tournamentId/scheduler/state",
+  protect,
+  authorize("admin"),
+  getSchedulerState
+);
 
 export default router;

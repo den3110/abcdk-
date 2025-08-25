@@ -7,6 +7,7 @@ import mongoose from "mongoose";
 import { softResetChainFrom } from "../../services/matchChainReset.js";
 import applyRatingsForMatch from "../../utils/applyRatingsForMatch.js";
 import { applyRatingForFinishedMatch } from "../../utils/applyRatingForFinishedMatch.js";
+import { onMatchFinished } from "../../services/courtQueueService.js";
 
 /* Tạo 1 trận trong 1 bảng */
 export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
@@ -384,7 +385,7 @@ export const adminGetAllMatches = expressAsyncHandler(async (req, res) => {
     .populate({ path: "referee", select: "name nickname" })
     .populate({ path: "previousA", select: "round order" })
     .populate({ path: "previousB", select: "round order" })
-    
+
     .sort({ createdAt: -1 });
 
   res.json(matches);
@@ -633,7 +634,9 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
 
   // status & winner
   if (status) {
-    if (!["scheduled", "live", "finished"].includes(status)) {
+    if (
+      !["scheduled", "live", "finished", "assigned", "queued"].includes(status)
+    ) {
       res.status(400);
       throw new Error("Invalid status");
     }
@@ -670,6 +673,7 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
   try {
     if (mt.status === "finished" && !mt.ratingApplied) {
       await applyRatingForFinishedMatch(mt._id);
+      await onMatchFinished({ matchId: m._id });
     }
   } catch (e) {
     console.error("[adminUpdateMatch] applyRatingForFinishedMatch error:", e);
