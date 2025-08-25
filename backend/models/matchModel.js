@@ -70,7 +70,7 @@ const matchSchema = new Schema(
 
     // Luật tính điểm
     rules: {
-      bestOf: { type: Number, enum: [1, 3, 5], default: 3 },
+      bestOf: { type: Number, enum: [1, 3, 5], default: 1 },
       pointsToWin: { type: Number, enum: [11, 15, 21], default: 11 },
       winByTwo: { type: Boolean, default: true },
     },
