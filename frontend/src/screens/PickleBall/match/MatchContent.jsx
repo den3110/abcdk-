@@ -1,15 +1,85 @@
-import { Alert, Box, Chip, CircularProgress, Divider, Stack, Link as MuiLink, Button, Paper, Typography, TextField, Table, TableHead, TableRow, TableCell, TableBody, } from "@mui/material";
+// MatchContent.jsx
+import React, { useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  Box,
+  Chip,
+  CircularProgress,
+  Divider,
+  Stack,
+  Link as MuiLink,
+  Button,
+  Paper,
+  Typography,
+  TextField,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+} from "@mui/material";
 import { useSelector } from "react-redux";
 import {
-  Close as CloseIcon,
-  EmojiEvents as TrophyIcon,
   PlayCircle as PlayIcon,
   ContentCopy as ContentCopyIcon,
   OpenInNew as OpenInNewIcon,
 } from "@mui/icons-material";
 import { depLabel, pairLabelWithNick, seedLabel } from "../TournamentBracket";
 
-/* ===================== Match viewer utils ===================== */
+/* ===================== Hooks chống nháy ===================== */
+// luôn gọi hook, đừng đặt trong biểu thức điều kiện
+function useDelayedFlag(flag, ms = 250) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    let t;
+    if (flag) t = setTimeout(() => setShow(true), ms);
+    else setShow(false);
+    return () => clearTimeout(t);
+  }, [flag, ms]);
+  return show;
+}
+
+// Throttle render: gộp socket updates trong khoảng interval (ms)
+function useThrottledStable(
+  value,
+  { interval = 280, isEqual = (a, b) => a === b } = {}
+) {
+  const [display, setDisplay] = useState(value ?? null);
+  const latestRef = useRef(value);
+  const timerRef = useRef(null);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    latestRef.current = value;
+
+    // Lần đầu: hiển thị ngay
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      setDisplay(value ?? null);
+      return;
+    }
+
+    if (isEqual(value, display)) return;
+
+    // Có cập nhật mới -> chờ đến nhịp flush (không hiển thị indicator)
+    if (timerRef.current) return;
+
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      setDisplay(latestRef.current ?? null);
+    }, interval);
+  }, [value, display, interval, isEqual]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  return display;
+}
+
+/* ============ Helpers ============ */
 function ytEmbed(url) {
   if (!url) return null;
   try {
@@ -21,8 +91,7 @@ function ytEmbed(url) {
       return `https://www.youtube.com/embed/${u.pathname.slice(1)}`;
     }
   } catch (e) {
-    console.log(e);
-    alert(e);
+    console.warn(e);
   }
   return null;
 }
@@ -51,14 +120,34 @@ function countGamesWon(gameScores) {
   return { A, B };
 }
 
-function sumPoints(gameScores) {
-  let a = 0,
-    b = 0;
-  for (const g of gameScores || []) {
-    a += Number(g?.a ?? 0);
-    b += Number(g?.b ?? 0);
-  }
-  return { a, b };
+// So sánh tối giản các field ảnh hưởng UI để bỏ qua cập nhật không cần thiết
+function isMatchEqual(a, b) {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a._id !== b._id) return false;
+  if (a.status !== b.status) return false;
+
+  const ra = a.rules || {};
+  const rb = b.rules || {};
+  if ((ra.bestOf ?? 3) !== (rb.bestOf ?? 3)) return false;
+  if ((ra.pointsToWin ?? 11) !== (rb.pointsToWin ?? 11)) return false;
+  if ((ra.winByTwo ?? false) !== (rb.winByTwo ?? false)) return false;
+
+  const gsA = JSON.stringify(a.gameScores || []);
+  const gsB = JSON.stringify(b.gameScores || []);
+  if (gsA !== gsB) return false;
+
+  const saA = a.seedA ?? null;
+  const saB = b.seedA ?? null;
+  const sbA = a.seedB ?? null;
+  const sbB = b.seedB ?? null;
+
+  const paA = a.pairA?._id ?? a.pairA ?? null;
+  const paB = b.pairA?._id ?? b.pairA ?? null;
+  const pbA = a.pairB?._id ?? a.pairB ?? null;
+  const pbB = b.pairB?._id ?? b.pairB ?? null;
+
+  return saA === saB && sbA === sbB && paA === paB && pbA === pbB;
 }
 
 /* ===== Shared content for Match viewer ===== */
@@ -128,28 +217,41 @@ function MatchContent({ m, isLoading, liveLoading }) {
 
   const canSeeOverlay = isAdmin || isManager;
 
-  const streams = extractStreams(m);
-  const status = m?.status || "scheduled";
-  const gamesWon = countGamesWon(m?.gameScores);
-  const yt = streams.find((s) => ytEmbed(s.url));
-  const ytSrc = ytEmbed(yt?.url);
+  /* ==== Chống nháy: throttle + KHÔNG hiển thị progress khi cập nhật ==== */
+  const mm = useThrottledStable(m, {
+    interval: 280, // chỉnh 250–400ms theo cảm nhận
+    isEqual: isMatchEqual,
+  });
 
-  if (isLoading || liveLoading) {
+  // ✅ luôn gọi hook; kết hợp điều kiện sau
+  const initialPending = Boolean(isLoading || liveLoading);
+  const initialDelayPassed = useDelayedFlag(initialPending, 250);
+  const showInitialSpinner = !mm && initialDelayPassed;
+
+  if (showInitialSpinner) {
     return (
       <Box py={4} textAlign="center">
         <CircularProgress />
       </Box>
     );
   }
-  if (!m) return <Alert severity="error">Không tải được dữ liệu trận.</Alert>;
+  if (!mm) return <Alert severity="error">Không tải được dữ liệu trận.</Alert>;
+
+  const streams = extractStreams(mm);
+  const status = mm?.status || "scheduled";
+  const gamesWon = countGamesWon(mm?.gameScores);
+  const yt = streams.find((s) => ytEmbed(s.url));
+  const ytSrc = ytEmbed(yt?.url);
 
   const overlayUrl =
-    m?._id && typeof window !== "undefined" && window?.location?.origin
-      ? `${window.location.origin}/overlay/score?matchId=${m._id}&theme=dark&size=md&showSets=1`
+    mm?._id && typeof window !== "undefined" && window?.location?.origin
+      ? `${window.location.origin}/overlay/score?matchId=${mm._id}&theme=dark&size=md&showSets=1`
       : "";
 
   return (
-    <Stack spacing={2}>
+    <Stack spacing={2} sx={{ position: "relative" }}>
+      {/* KHÔNG LinearProgress/Chip -> không gây layout shift/pop-up rung */}
+
       {status === "live" ? (
         ytSrc ? (
           <Box sx={{ position: "relative", pt: "56.25%" }}>
@@ -195,7 +297,7 @@ function MatchContent({ m, isLoading, liveLoading }) {
               size="small"
               component={MuiLink}
               href={s.url}
-              target="_blank"
+              target={"_blank"}
               rel="noreferrer"
               underline="none"
             >
@@ -269,26 +371,25 @@ function MatchContent({ m, isLoading, liveLoading }) {
               Đội A
             </Typography>
             <Typography variant="h6">
-              {m?.pairA
-                ? pairLabelWithNick(m.pairA, m?.tournament?.eventType)
-                : m?.previousA
-                ? depLabel(m.previousA)
-                : seedLabel(m?.seedA)}
+              {mm?.pairA
+                ? pairLabelWithNick(mm.pairA, mm?.tournament?.eventType)
+                : mm?.previousA
+                ? depLabel(mm.previousA)
+                : seedLabel(mm?.seedA)}
             </Typography>
           </Box>
           <Box textAlign="center" minWidth={140}>
-            {m?.status === "live" && (
+            {mm?.status === "live" && (
               <Typography variant="caption" color="text.secondary">
                 Ván hiện tại
               </Typography>
             )}
             <Typography variant="h4" fontWeight={800}>
-              {lastGameScore(m?.gameScores).a} –{" "}
-              {lastGameScore(m?.gameScores).b}
+              {lastGameScore(mm?.gameScores).a} –{" "}
+              {lastGameScore(mm?.gameScores).b}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Sets: {countGamesWon(m?.gameScores).A} –{" "}
-              {countGamesWon(m?.gameScores).B}
+              Sets: {gamesWon.A} – {gamesWon.B}
             </Typography>
           </Box>
           <Box flex={1} textAlign={{ xs: "left", sm: "right" }}>
@@ -296,16 +397,16 @@ function MatchContent({ m, isLoading, liveLoading }) {
               Đội B
             </Typography>
             <Typography variant="h6">
-              {m?.pairB
-                ? pairLabelWithNick(m.pairB, m?.tournament?.eventType)
-                : m?.previousB
-                ? depLabel(m.previousB)
-                : seedLabel(m?.seedB)}
+              {mm?.pairB
+                ? pairLabelWithNick(mm.pairB, mm?.tournament?.eventType)
+                : mm?.previousB
+                ? depLabel(mm.previousB)
+                : seedLabel(mm?.seedB)}
             </Typography>
           </Box>
         </Stack>
 
-        {!!m?.gameScores?.length && (
+        {!!mm?.gameScores?.length && (
           <Table size="small" sx={{ mt: 2 }}>
             <TableHead>
               <TableRow>
@@ -315,7 +416,7 @@ function MatchContent({ m, isLoading, liveLoading }) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {m.gameScores.map((g, idx) => (
+              {mm.gameScores.map((g, idx) => (
                 <TableRow key={idx}>
                   <TableCell>{idx + 1}</TableCell>
                   <TableCell align="center">{g.a ?? 0}</TableCell>
@@ -328,14 +429,14 @@ function MatchContent({ m, isLoading, liveLoading }) {
 
         <Divider sx={{ my: 2 }} />
         <Stack direction="row" spacing={2} flexWrap="wrap">
-          <Chip size="small" label={`Best of: ${m.rules?.bestOf ?? 3}`} />
+          <Chip size="small" label={`Best of: ${mm.rules?.bestOf ?? 3}`} />
           <Chip
             size="small"
-            label={`Điểm thắng: ${m.rules?.pointsToWin ?? 11}`}
+            label={`Điểm thắng: ${mm.rules?.pointsToWin ?? 11}`}
           />
-          {m.rules?.winByTwo && <Chip size="small" label="Phải chênh 2" />}
-          {m.referee?.name && (
-            <Chip size="small" label={`Trọng tài: ${m.referee.name}`} />
+          {mm.rules?.winByTwo && <Chip size="small" label="Phải chênh 2" />}
+          {mm.referee?.name && (
+            <Chip size="small" label={`Trọng tài: ${mm.referee.name}`} />
           )}
         </Stack>
       </Paper>

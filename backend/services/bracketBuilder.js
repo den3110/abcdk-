@@ -15,6 +15,20 @@ function roundTitleByPairs(pairs) {
 // Tạo seed BYE hợp lệ cho validation
 const SEED_BYE = { type: "bye", ref: null, label: "BYE" };
 
+// ✅ NEW: rule defaults + sanitizer (không đổi schema)
+const DEFAULT_RULES = { bestOf: 3, pointsToWin: 11, winByTwo: true };
+function sanitizeRules(r) {
+  if (!r || typeof r !== "object") return DEFAULT_RULES;
+  const bo = [1, 3, 5].includes(Number(r.bestOf))
+    ? Number(r.bestOf)
+    : DEFAULT_RULES.bestOf;
+  const pt = [11, 15, 21].includes(Number(r.pointsToWin))
+    ? Number(r.pointsToWin)
+    : DEFAULT_RULES.pointsToWin;
+  const w2 = !!r.winByTwo;
+  return { bestOf: bo, pointsToWin: pt, winByTwo: w2 };
+}
+
 /* ====================== KO Builder (2^n) ====================== */
 export async function buildKnockoutBracket({
   tournamentId,
@@ -23,11 +37,17 @@ export async function buildKnockoutBracket({
   stage = 1,
   drawSize,
   firstRoundSeeds = [],
+  // ✅ NEW:
+  rules = undefined, // rule mặc định cho KO
+  finalRules = null, // rule áp riêng trận chung kết KO
   session = null,
 }) {
   const size = Math.max(2, ceilPow2(drawSize || 2));
   const rounds = Math.round(Math.log2(size));
   const firstPairs = size / 2;
+
+  const baseRules = sanitizeRules(rules);
+  const finalOnly = finalRules ? sanitizeRules(finalRules) : null;
 
   // Chuẩn hoá seeds cho R1: thiếu -> BYE
   const r1Seeds = Array.from({ length: firstPairs }, (_, i) => {
@@ -51,6 +71,7 @@ export async function buildKnockoutBracket({
           expectedFirstRoundMatches: firstPairs,
         },
         prefill: { roundKey: roundTitleByPairs(firstPairs), seeds: r1Seeds },
+        // (không đổi schema/logic; không cần lưu rules vào config nếu không muốn)
       },
     ],
     { session }
@@ -59,15 +80,19 @@ export async function buildKnockoutBracket({
   const created = {};
   // R1
   created[1] = await Match.insertMany(
-    r1Seeds.map((s, idx) => ({
-      tournament: tournamentId,
-      bracket: bracket._id,
-      format: "knockout",
-      round: 1,
-      order: idx,
-      seedA: s.A || null,
-      seedB: s.B || null,
-    })),
+    r1Seeds.map((s, idx) => {
+      const isFinal = rounds === 1 && idx === 0; // trường hợp size=2
+      return {
+        tournament: tournamentId,
+        bracket: bracket._id,
+        format: "knockout",
+        round: 1,
+        order: idx,
+        seedA: s.A || null,
+        seedB: s.B || null,
+        rules: isFinal && finalOnly ? finalOnly : baseRules, // ✅ NEW
+      };
+    }),
     { session }
   );
 
@@ -79,6 +104,7 @@ export async function buildKnockoutBracket({
     for (let i = 0; i < pairs; i++) {
       const aPrev = prev[i * 2];
       const bPrev = prev[i * 2 + 1];
+      const isFinal = r === rounds && i === 0; // ✅ NEW: chỉ trận duy nhất vòng cuối
       ms.push({
         tournament: tournamentId,
         bracket: bracket._id,
@@ -87,12 +113,13 @@ export async function buildKnockoutBracket({
         order: i,
         previousA: aPrev?._id || null,
         previousB: bPrev?._id || null,
+        rules: isFinal && finalOnly ? finalOnly : baseRules, // ✅ NEW
       });
     }
     created[r] = await Match.insertMany(ms, { session });
   }
 
-  // Link nextMatch/nextSlot
+  // Link nextMatch/nextSlot (giữ nguyên logic cũ)
   for (let r = 1; r < rounds; r++) {
     const cur = created[r];
     const nxt = created[r + 1];
@@ -113,7 +140,7 @@ export async function buildKnockoutBracket({
     }
   }
 
-  // ✅ NEW: resolve seed ngay cho KO bracket này (giữ bản #1 + bổ sung)
+  // resolve seeds (giữ như cũ)
   if (typeof Match.compileSeedsForBracket === "function") {
     await Match.compileSeedsForBracket(bracket._id);
   }
@@ -142,11 +169,15 @@ export async function buildRoundElimBracket({
   drawSize,
   maxRounds = 1,
   firstRoundSeeds = [],
+  // ✅ NEW:
+  rules = undefined,
   session = null,
 }) {
   const N = Math.max(0, Number(drawSize || 0));
   const R1Pairs = Math.max(1, Math.ceil(N / 2));
   const Rmax = Math.max(1, Number(maxRounds || 1));
+
+  const baseRules = sanitizeRules(rules);
 
   // R1 seeds: nếu thiếu hoặc N lẻ -> BYE cho slot B
   const r1Seeds = Array.from({ length: R1Pairs }, (_, i) => {
@@ -197,6 +228,7 @@ export async function buildRoundElimBracket({
       order: idx,
       seedA: s.A || null,
       seedB: s.B || null,
+      rules: baseRules, // ✅ NEW
     })),
     { session }
   );
@@ -234,13 +266,14 @@ export async function buildRoundElimBracket({
         order: i,
         seedA,
         seedB,
+        rules: baseRules, // ✅ NEW
       });
     }
 
     created[r] = await Match.insertMany(ms, { session });
   }
 
-  // ✅ NEW: resolve seed ngay cho PO bracket này (giữ bản #1 + bổ sung)
+  // resolve seed (giữ như cũ)
   if (typeof Match.compileSeedsForBracket === "function") {
     await Match.compileSeedsForBracket(bracket._id);
   }
@@ -264,6 +297,8 @@ export async function buildGroupBracket({
   groupSize, // optional
   totalTeams, // optional
   groupSizes, // optional array
+  // ✅ NEW:
+  rules = undefined, // rule mặc định cho các trận vòng bảng (sẽ được dùng khi tạo match ở nơi khác)
   session = null,
 }) {
   const letters = Array.from({ length: groupCount }, (_, i) =>
@@ -291,8 +326,20 @@ export async function buildGroupBracket({
     regIds: [],
   }));
 
+  // Giữ nguyên logic tạo bracket, chỉ thêm config.rules (schema đã có sẵn)
   const bracket = await Bracket.create(
-    [{ tournament: tournamentId, name, type: "group", order, stage, groups }],
+    [
+      {
+        tournament: tournamentId,
+        name,
+        type: "group",
+        order,
+        stage,
+        groups,
+        // LƯU Ý: Không thay đổi schema. Trường config.rules đã tồn tại, ta set làm mặc định cho phase này
+        config: { rules: sanitizeRules(rules) },
+      },
+    ],
     { session }
   ).then((arr) => arr[0]);
 

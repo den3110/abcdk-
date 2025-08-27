@@ -7,7 +7,7 @@ import {
   recomputeUserRatings,
 } from "../services/ratingEngine.js";
 
-/** Áp dụng rating cho 1 match ngay lập tức */
+/** Áp dụng rating cho 1 match ngay lập tức chưa dùng */
 export const applyMatchRating = asyncHandler(async (req, res) => {
   const { matchId } = req.params;
   const out = await applyRatingForMatch(matchId);

@@ -292,7 +292,12 @@ function oneStepLookahead(
 /** Chọn candidate tốt nhất (áp cho đơn & đôi) */
 export async function selectNextCandidate(session) {
   const settings = getSettings(session);
-  const { mode, board, cursor, pool } = session;
+  // PO → xử lý như knockout
+  const mode =
+    session.mode === "po" || session.mode === "playoff"
+      ? "knockout"
+      : session.mode;
+  const { board, cursor, pool } = session;
   if (!pool?.length) return null;
 
   const regIds = pool.map(String);
@@ -358,7 +363,8 @@ export async function selectNextCandidate(session) {
 
 /** Move cursor tới slot tiếp theo */
 export function advanceCursor(session) {
-  if (session.mode === "group") {
+  const isGroup = session.mode === "group";
+  if (isGroup) {
     const g = session.board.groups;
     for (let gi = 0; gi < g.length; gi++) {
       for (let si = 0; si < g[gi].size; si++) {

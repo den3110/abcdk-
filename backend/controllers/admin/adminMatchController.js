@@ -1,6 +1,8 @@
 import asyncHandler from "express-async-handler";
 import Match from "../../models/matchModel.js";
 import RatingChange from "../../models/ratingChangeModel.js";
+import { computeRatingPreviewFromParams } from "../../utils/applyRatingForFinishedMatch.js";
+import mongoose from "mongoose";
 
 /** Chuẩn hoá DTO match (đủ dữ liệu để render) */
 const toDTO = (m) => ({
@@ -117,5 +119,108 @@ export const getMatchRatingChanges = asyncHandler(async (req, res) => {
       marginBonus: r.marginBonus,
       createdAt: r.createdAt,
     })),
+  });
+});
+
+
+// POST /admin/match/rating/preview
+// body: { tournamentId, bracketId?, round?, pairARegId, pairBRegId, winner, gameScores:[{a,b}], forfeit? }
+export const previewRatingDelta = asyncHandler(async (req, res) => {
+  const { tournamentId, bracketId, round, pairARegId, pairBRegId, winner, gameScores, forfeit } = req.body || {};
+  if (!tournamentId || !pairARegId || !pairBRegId || !winner) {
+    res.status(400);
+    throw new Error("tournamentId, pairARegId, pairBRegId, winner là bắt buộc");
+  }
+  const details = await computeRatingPreviewFromParams({
+    tournamentId, bracketId, round, pairARegId, pairBRegId, winner,
+    gameScores: Array.isArray(gameScores) ? gameScores : [],
+    forfeit: !!forfeit,
+  });
+  res.json(details);
+});
+
+
+/**
+ * POST /api/matches/:id/reset-scores
+ * Reset bảng điểm về 0–0: xoá gameScores[], currentGame=0, (tuỳ chọn) reset serve, xoá liveLog
+ * - KHÔNG tự ý đổi status (FE sẽ đổi trước nếu muốn)
+ * - Nếu status !== 'finished' thì winner = "" và finishedAt = null.
+ *   Nếu status !== 'live' thì startedAt = null (vì về scheduled/queued).
+ * - Không đụng ratingApplied/ratingDelta.
+ * Body options (tuỳ chọn):
+ *   - clearLiveLog?: boolean (default false)
+ *   - resetServe?: boolean (default true)
+ *   - bumpVersion?: boolean (default true)
+ */
+export const resetMatchScores = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const {
+    clearLiveLog = false,
+    resetServe = true,
+    bumpVersion = true,
+  } = req.body || {};
+
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ message: "Invalid match id" });
+  }
+
+  const match = await Match.findById(id);
+  if (!match) {
+    return res.status(404).json({ message: "Match not found" });
+  }
+
+  // ===== Reset scoreboard theo schema hiện tại =====
+  match.gameScores = [];              // xoá toàn bộ ván
+  match.currentGame = 0;              // quay về game 0 (chưa bắt đầu)
+
+  if (resetServe) {
+    // về default theo schema
+    match.serve = { side: "A", server: 2 };
+  }
+
+  // Nếu không còn finished, đảm bảo winner & mốc thời gian hợp lý
+  if (match.status !== "finished") {
+    match.winner = "";                // clear winner (enum: ["A","B",""])
+    match.finishedAt = null;
+    if (match.status !== "live") {
+      match.startedAt = null;
+    }
+  }
+
+  if (clearLiveLog && Array.isArray(match.liveLog)) {
+    match.liveLog = [];
+  }
+
+  // Bump version để client biết có thay đổi live state
+  if (bumpVersion) {
+    match.liveVersion = (match.liveVersion || 0) + 1;
+  }
+
+  await match.save();
+
+  // Phát socket để UI cập nhật ngay (optional)
+  const io = req.app.get("io");
+  try {
+    const payload = {
+      matchId: match._id,
+      gameScores: match.gameScores,
+      currentGame: match.currentGame,
+      serve: match.serve,
+      status: match.status,
+      winner: match.winner,
+      liveVersion: match.liveVersion,
+    };
+    io?.to(String(match._id)).emit("score:reset", payload);
+    io?.to(String(match._id)).emit("match:patched", { matchId: match._id });
+  } catch (_) {
+    // socket optional, không chặn request
+  }
+
+  return res.json({
+    message: "Đã reset tỉ số về 0–0 (xoá toàn bộ gameScores).",
+    matchId: match._id,
+    status: match.status,
+    winner: match.winner,
+    liveVersion: match.liveVersion,
   });
 });

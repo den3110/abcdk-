@@ -40,6 +40,7 @@ import {
   adminUpdateBracket,
   deleteBracketCascade,
   getBracketsWithMatches,
+  getTournamentBracketsStructure,
 } from "../controllers/admin/bracketController.js";
 import {
   adminAssignReferee,
@@ -59,7 +60,7 @@ import { createAutoUsers, previewAutoUsers } from "../controllers/admin/adminUse
 import { getDashboardMetrics, getDashboardSeries } from "../controllers/admin/adminDashboardController.js";
 import { batchAssignReferee, batchDeleteMatches, buildRoundElimSkeleton, clearBracketMatches } from "../controllers/matchBatchController.js";
 import { autoGenerateRegistrations } from "../controllers/registrationAutoController.js";
-import { getMatchAdmin, getMatchLogs, getMatchRatingChanges } from "../controllers/admin/adminMatchController.js";
+import { getMatchAdmin, getMatchLogs, getMatchRatingChanges, previewRatingDelta, resetMatchScores } from "../controllers/admin/adminMatchController.js";
 import { assignNextHttp, buildGroupsQueueHttp, freeCourtHttp, getSchedulerState, upsertCourts } from "../controllers/admin/adminCourtController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
@@ -114,11 +115,21 @@ router.post(
   authorize("admin"),
   adminCreateBracket
 );
+
+// get lists of bracket của tournament
 router.get(
   "/tournaments/:id/brackets",
   protect,
   authorize("admin", "referee", "user"),
   getBracketsWithMatches
+);
+
+// get lists of bracket của tournament
+router.get(
+  "/tournaments/:id/brackets/structure",
+  protect,
+  authorize("admin", "referee", "user"),
+  getTournamentBracketsStructure
 );
 
 router.get("/tournaments/:id/registrations", protect, authorize("admin"), getRegistrationsAdmin);
@@ -298,5 +309,9 @@ router.get(
   authorize("admin"),
   getSchedulerState
 );
+
+router.post("/match/rating/preview", protect, authorize("admin"), previewRatingDelta);
+
+router.post("/matches/:id/reset-scores", resetMatchScores);
 
 export default router;

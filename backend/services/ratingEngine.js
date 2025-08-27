@@ -39,7 +39,7 @@ function expectedFromDiff(diff /* A - B trên thang DUPR */) {
 }
 
 function teamRatingDoubles(u1, u2) {
-  const r1 = u1.localRatings?.doubles ?? 3.5;
+  const r1 = u1.localRatings?.doubles ?? 2.5;
   const r2 = u2?.localRatings?.doubles ?? r1; // nếu lẻ, dùng r1
   const mean = (r1 + r2) / 2;
   const imbalance = Math.abs(r1 - r2);
@@ -48,7 +48,7 @@ function teamRatingDoubles(u1, u2) {
 }
 
 function ratingSingles(u) {
-  return u.localRatings?.singles ?? 3.5;
+  return u.localRatings?.singles ?? 2.5;
 }
 
 function reliabilityFor(kind, user) {
@@ -105,12 +105,12 @@ async function ensureSeedFromAssessment(userIds, kind, session) {
 
     const seed =
       kind === "singles"
-        ? latest?.singleLevel || 3.5
-        : latest?.doubleLevel || 3.5;
+        ? latest?.singleLevel || 2.5
+        : latest?.doubleLevel || 2.5;
 
     u.localRatings = {
       ...lr,
-      [field]: clamp(Number(seed) || 3.5, DUPR_MIN, DUPR_MAX),
+      [field]: clamp(Number(seed) || 2.5, DUPR_MIN, DUPR_MAX),
     };
     await u.save({ session });
   }
@@ -143,7 +143,7 @@ async function applyForUser({
   const reliabilityField =
     kind === "singles" ? "reliabilitySingles" : "reliabilityDoubles";
 
-  const before = lr[field] ?? 3.5;
+  const before = lr[field] ?? 2.5;
   const reliability = reliabilityFor(kind, user);
 
   // Nếu có overrideDelta thì dùng nó (zero-sum, per-person equal).

@@ -486,50 +486,54 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
     const poOrder = hasPO ? orderCounter++ : null;
     const koOrder = hasKO ? orderCounter++ : null;
 
-    // 1) Group (hỗ trợ totalTeams / groupSizes)
+    // 1) Group (hỗ trợ totalTeams / groupSizes) — giữ nguyên logic, chỉ thêm truyền rules
     if (hasGroup) {
       const payload = {
         tournamentId: t._id,
         name: "Group Stage",
-        order: groupOrder, // <-- liên tiếp
-        stage: groupOrder, // <-- cho khớp với order
+        order: groupOrder,
+        stage: groupOrder,
         groupCount: Number(groups.count),
         groupSize: Number(groups.size || 0) || undefined,
         totalTeams: Number(groups.totalTeams || 0) || undefined,
         groupSizes: Array.isArray(groups.groupSizes)
           ? groups.groupSizes
           : undefined,
+        rules: groups?.rules || undefined, // ✅ NEW: truyền rules (không đổi schema)
         session,
       };
       created.groupBracket = await buildGroupBracket(payload);
     }
 
-    // 2) PO (roundElim – KHÔNG ép 2^n)
+    // 2) PO (roundElim – KHÔNG ép 2^n) — giữ nguyên logic, chỉ thêm truyền rules
     if (hasPO) {
       const firstRoundSeeds = Array.isArray(po.seeds) ? po.seeds : [];
       const { bracket } = await buildRoundElimBracket({
         tournamentId: t._id,
-        name: "Pre-Qualifying", // tuỳ bạn đổi label
-        order: poOrder, // <-- liên tiếp
-        stage: poOrder, // <-- cho khớp với order
+        name: "Pre-Qualifying",
+        order: poOrder,
+        stage: poOrder,
         drawSize: Number(po.drawSize),
         maxRounds: Math.max(1, Number(po.maxRounds || 1)),
         firstRoundSeeds,
+        rules: po?.rules || undefined, // ✅ NEW
         session,
       });
       created.poBracket = bracket;
     }
 
-    // 3) KO chính
+    // 3) KO chính — giữ nguyên logic, chỉ thêm truyền rules + finalRules
     if (hasKO) {
       const firstRoundSeeds = Array.isArray(ko.seeds) ? ko.seeds : [];
       const { bracket } = await buildKnockoutBracket({
         tournamentId: t._id,
         name: "Knockout",
-        order: koOrder, // <-- liên tiếp
-        stage: koOrder, // <-- cho khớp với order
+        order: koOrder,
+        stage: koOrder,
         drawSize: Number(ko.drawSize),
         firstRoundSeeds,
+        rules: ko?.rules || undefined, // ✅ NEW
+        finalRules: ko?.finalRules || null, // ✅ NEW: áp riêng cho trận chung kết
         session,
       });
       created.koBracket = bracket;

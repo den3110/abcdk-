@@ -581,7 +581,9 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
   }
 
   // ───────────────────── KNOCKOUT ─────────────────────
-  if (mode === "knockout") {
+  if (mode === "knockout" || mode === "po" || mode === "playoff") {
+    const sessMode = mode === "playoff" ? "po" : mode; // normalize
+
     const pairCount = roundKeyToPairs(round);
     if (!pairCount) {
       res.status(400);
@@ -590,7 +592,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
 
     const target = normalizeRoundKey(round) || null;
 
-    await purgePreviousDrawResults(bracket._id, "knockout", target);
+    await purgePreviousDrawResults(bracket._id, sessMode, target);
 
     // pool theo lựa chọn:
     let poolIds = regs.map((r) => r._id);
@@ -629,7 +631,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
     }
 
     const board = {
-      type: "knockout",
+      type: sessMode === "po" ? "roundElim" : "knockout",
       roundKey: target || null,
       pairs: Array.from({ length: pairCount }, (_, i) => ({
         index: i,
@@ -641,7 +643,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
     const sess = await DrawSession.create({
       tournament: bracket.tournament._id,
       bracket: bracket._id,
-      mode: "knockout",
+      mode: sessMode, // "knockout" | "po"
       board,
       pool: poolIds,
       taken: [],
@@ -843,6 +845,8 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
   // 3) Biến dùng chung
   let created = 0;
   let createdIds = [];
+  let updated = 0;
+
 
   if (sess.mode === "group") {
     // 4A) GROUP: Xoá đúng các trận do lần commit group trước tạo (nếu có lưu matchIds),
@@ -862,12 +866,12 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
     await br.save();
 
     // Không tạo trận → created = 0, createdIds = []
-  } else if (sess.mode === "knockout") {
+  } else if (sess.mode === "knockout" || sess.mode === "po") {
     // 4B) KNOCKOUT: Xoá đúng các trận do lần commit KO trước ở CHÍNH VÒNG NÀY,
     // sau đó tạo lại trận cho vòng này.
     const target = sess.targetRound || sess.board?.roundKey || null;
 
-    await purgePreviousDrawResults(br._id, "knockout", target);
+    await purgePreviousDrawResults(br._id, sess.mode, target);
 
     const pairs = sess.board?.pairs || [];
     const roundNumber = await calcRoundNumberForCode(br, target, pairs.length);
@@ -878,23 +882,93 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
       winByTwo: true,
     };
 
-    let order = 0;
-    for (const p of pairs) {
-      if (!p.a || !p.b) continue; // chỉ tạo trận khi đủ 2 bên
-      const m = await Match.create({
-        tournament: tour._id,
-        bracket: br._id,
-        round: roundNumber, // số vòng (1=round đầu của bracket này)
-        order: order++,
-        pairA: p.a,
-        pairB: p.b,
-        rules: defaultRules,
-        gameScores: [],
-        status: "scheduled",
-      });
-      created++;
-      createdIds.push(String(m._id));
+    // let order = 0;
+    // for (const p of pairs) {
+    //   if (!p.a || !p.b) continue; // chỉ tạo trận khi đủ 2 bên
+    //   const m = await Match.create({
+    //     tournament: tour._id,
+    //     bracket: br._id,
+    //     round: roundNumber, // số vòng (1=round đầu của bracket này)
+    //     order: order++,
+    //     pairA: p.a,
+    //     pairB: p.b,
+    //     rules: defaultRules,
+    //     gameScores: [],
+    //     status: "scheduled",
+    //   });
+    //   created++;
+    //   createdIds.push(String(m._id));
+    // }
+    // --- NEW: upsert theo order/index để "đè lên" trận sẵn có ---
+    const overwriteExisting = Boolean(req.body?.overwriteExisting);
+    const existing = await Match.find({
+      bracket: br._id,
+      round: roundNumber,
+    })
+      .sort({ order: 1, createdAt: 1 })
+      .lean();
+
+    const byOrder = new Map(existing.map((m) => [Number(m.order) || 0, m]));
+
+    for (let i = 0; i < pairs.length; i++) {
+      const p = pairs[i];
+      if (!p?.a || !p?.b) continue; // chỉ upsert khi đủ 2 bên
+      const desiredOrder = Number(p.index ?? i);
+      const found =
+        byOrder.get(desiredOrder) || existing[i]; /* fallback theo vị trí */
+
+      if (found) {
+        // không ép đè trận đã kết thúc, trừ khi overwriteExisting = true
+        if (found.status === "finished" && !overwriteExisting) {
+          continue;
+        }
+        await Match.updateOne(
+          { _id: found._id },
+          {
+            $set: {
+              tournament: tour._id,
+              bracket: br._id,
+              round: roundNumber,
+              order: desiredOrder,
+              pairA: p.a,
+              pairB: p.b,
+              rules: defaultRules,
+              status: "scheduled",
+              gameScores: [],
+              winner: null,
+            },
+            $unset: { previousA: "", previousB: "" },
+          }
+        );
+        updated++;
+        // LƯU Ý: KHÔNG push vào createdIds → để purge lần sau không xóa nhầm
+      } else {
+        const m = await Match.create({
+          tournament: tour._id,
+          bracket: br._id,
+          round: roundNumber,
+          order: desiredOrder,
+          pairA: p.a,
+          pairB: p.b,
+          rules: defaultRules,
+          gameScores: [],
+          status: "scheduled",
+        });
+        created++;
+        createdIds.push(String(m._id));
+      }
     }
+
+    // (Tuỳ chọn) Nếu muốn "thu gọn" đúng số cặp của draw:
+    // Xoá các trận thừa cùng round có order >= pairs.length và chưa finished.
+    // if (overwriteExisting) {
+    //   const extra = existing.filter(
+    //     (m) => (Number(m.order) || 0) >= pairs.length && m.status !== "finished"
+    //   );
+    //   if (extra.length) {
+    //     await Match.deleteMany({ _id: { $in: extra.map((m) => m._id) } });
+    //   }
+    // }
 
     if (created > 0) {
       br.matchesCount = (br.matchesCount || 0) + created;
@@ -910,7 +984,7 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
   sess.committedAt = new Date();
   sess.history.push({
     action: "commit",
-    payload: { created, matchIds: createdIds },
+    payload: { created, updated, matchIds: createdIds },
     by: req.user?._id || null,
   });
   await sess.save();
@@ -1051,7 +1125,6 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
 
   let created = 0;
   const createdIds = [];
-
   if (mode === "manual") {
     // Manual: giữ nguyên như cũ
     for (const m of matches) {

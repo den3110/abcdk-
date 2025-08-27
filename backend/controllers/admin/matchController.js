@@ -242,16 +242,86 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
 /* Danh sách trận theo bracket */
 export const getMatchesByBracket = expressAsyncHandler(async (req, res) => {
   const { bracketId } = req.params;
-  const matches = await Match.find({ bracket: bracketId })
-    .populate({ path: "pairA", select: "player1 player2" })
-    .populate({ path: "pairB", select: "player1 player2" })
-    .populate({ path: "previousA", select: "round order" })
-    .populate({ path: "previousB", select: "round order" })
-    .sort({ round: 1, order: 1, createdAt: 1 });
 
-  res.json(matches);
+  if (!mongoose.Types.ObjectId.isValid(bracketId)) {
+    return res.status(400).json({ message: "Invalid bracket id" });
+  }
+
+  // ===== optional filters (không đổi structure response) =====
+  const {
+    status, // ví dụ: "finished" hoặc "queued,assigned"
+    type, // "group" | "ko" | "po" | ...
+    round, // số
+    rrRound, // số
+    stage, // stageIndex (số)
+    limit, // số lượng trả về
+    skip, // bỏ qua N bản ghi
+  } = req.query;
+
+  const filter = { bracket: new mongoose.Types.ObjectId(bracketId) };
+
+  if (status) {
+    const arr = String(status)
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (arr.length) filter.status = arr.length > 1 ? { $in: arr } : arr[0];
+  }
+  if (type) filter.type = String(type).toLowerCase();
+
+  if (round !== undefined) {
+    const r = Number(round);
+    if (Number.isFinite(r)) filter.round = r;
+  }
+  if (rrRound !== undefined) {
+    const rr = Number(rrRound);
+    if (Number.isFinite(rr)) filter.rrRound = rr;
+  }
+  if (stage !== undefined) {
+    const st = Number(stage);
+    filter.stageIndex = Number.isFinite(st) ? st : stage;
+  }
+
+  // ===== query chính (giữ nguyên sort & cấu trúc trả về) =====
+  let q = Match.find(filter)
+    .sort({ round: 1, order: 1, createdAt: 1 }) // giữ nguyên thứ tự cũ
+    .populate({
+      path: "pairA",
+      select: "player1 player2",
+      options: { lean: true },
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2",
+      options: { lean: true },
+    })
+    .populate({
+      path: "previousA",
+      select: "round order",
+      options: { lean: true },
+    })
+    .populate({
+      path: "previousB",
+      select: "round order",
+      options: { lean: true },
+    })
+    .lean({ virtuals: true });
+
+  // Cho dataset lớn: cho phép sort dùng disk
+  if (typeof q.allowDiskUse === "function") q = q.allowDiskUse(true);
+
+  // Optional limit/skip (không thay đổi cấu trúc response)
+  const lim = parseInt(limit, 10);
+  const sk = parseInt(skip, 10);
+  if (Number.isFinite(sk) && sk > 0) q = q.skip(sk);
+  if (Number.isFinite(lim) && lim > 0) q = q.limit(Math.min(lim, 1000));
+
+  // (Tùy chọn) Nếu đã tạo index có tên, có thể bật hint để tối ưu:
+  // q = q.hint({ bracket: 1, round: 1, order: 1, createdAt: 1 });
+
+  const matches = await q;
+  return res.json(matches); // GIỮ Y NGUYÊN cấu trúc cũ
 });
-
 /* Trọng tài cập nhật điểm */
 export const refereeUpdateScore = expressAsyncHandler(async (req, res) => {
   const { matchId } = req.params;

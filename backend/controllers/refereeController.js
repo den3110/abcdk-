@@ -1,8 +1,11 @@
 // controllers/refereeController.js
 import asyncHandler from "express-async-handler";
 import Match from "../models/matchModel.js";
+import Tournament from "../models/tournamentModel.js";
+import Bracket from "../models/bracketModel.js";
 import {
-  addPoint /* optional: nextGame helper nếu bạn tách riêng */,
+  addPoint, /* optional: nextGame helper nếu bạn tách riêng */
+  toDTO,
 } from "../socket/liveHandlers.js";
 import mongoose from "mongoose";
 
@@ -376,6 +379,23 @@ export const patchStatus = asyncHandler(async (req, res) => {
     matchId: match._id,
     status,
   });
+  if(match._id) {
+    const m = await Match.findById(match._id)
+      .populate({ path: "pairA", select: "player1 player2" })
+      .populate({ path: "pairB", select: "player1 player2" })
+      .populate({ path: "referee", select: "name fullName nickname" })
+      .populate({ path: "previousA", select: "round order" })
+      .populate({ path: "previousB", select: "round order" })
+      .populate({ path: "nextMatch", select: "_id" })
+      .populate({
+        path: "tournament",
+        select: "name image eventType overlay",
+      })
+      .populate({ path: "bracket", select: "type name order overlay" })
+      .lean();
+
+    if (m) io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
+  }
   return res.json({ message: "Status updated", status: match.status });
 });
 
@@ -405,3 +425,181 @@ export const patchWinner = asyncHandler(async (req, res) => {
 
   return res.json({ message: "Winner updated", winner: match.winner });
 });
+
+
+// ===== helpers =====
+const toObjectId = (id) => {
+  try { return new mongoose.Types.ObjectId(id); } catch { return null; }
+};
+
+const escapeRegex = (s = "") =>
+  s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // an toàn cho $regex
+
+// Định nghĩa tập trạng thái "đang chờ/đang diễn ra" để tính pendingCount
+const PENDING_STATES = ["queued", "assigned", "live"];
+
+/**
+ * 1) GET /referee/tournaments
+ * Trả về danh sách giải mà trọng tài (req.user._id) có trận,
+ * kèm pendingCount (số trận ở trạng thái queued/assigned/live).
+ */
+export async function listRefereeTournaments(req, res, next) {
+  console.log(123)
+  try {
+    const userId = toObjectId(req.user?._id);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    // Nếu model của bạn dùng 'referees: [ObjectId]' hoặc 'referee: ObjectId'
+    // thì query theo cả hai trường với $or cho an toàn:
+    const agg = await Match.aggregate([
+      {
+        $match: {
+          $or: [{ referees: userId }, { referee: userId }],
+        },
+      },
+      {
+        $group: {
+          _id: "$tournament",
+          pendingCount: {
+            $sum: { $cond: [{ $in: ["$status", PENDING_STATES] }, 1, 0] },
+          },
+        },
+      },
+      {
+        $lookup: {
+          from: "tournaments",
+          localField: "_id",
+          foreignField: "_id",
+          as: "t",
+        },
+      },
+      { $unwind: "$t" },
+      {
+        $project: {
+          _id: "$t._id",
+          name: "$t.name",
+          location: "$t.location",
+          startDate: "$t.startDate",
+          endDate: "$t.endDate",
+          pendingCount: 1,
+        },
+      },
+      { $sort: { startDate: -1, _id: 1 } },
+    ]);
+
+    return res.json({ items: agg });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * 2) GET /referee/tournaments/:tid/brackets
+ * Trả về danh sách bracket của 1 giải
+ */
+export async function listRefereeBrackets(req, res, next) {
+  try {
+    const tid = toObjectId(req.params.tid);
+    if (!tid) return res.status(400).json({ message: "Invalid tournament id" });
+
+    const items = await Bracket.find({ tournament: tid })
+      .select("_id name type stage order")
+      .sort({ order: 1, stage: 1, name: 1 })
+      .lean();
+
+    return res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * 3) GET /referee/tournaments/:tid/matches
+ * Query params:
+ *  - status: scheduled|queued|assigned|live|finished
+ *  - bracketId: ObjectId
+ *  - q: tìm theo mã trận (code) hoặc tên/biệt danh VĐV
+ *  - page (default 1), pageSize (default 10)
+ *
+ * Response:
+ *  { items, total, page, pageSize, totalPages }
+ */
+export async function listRefereeMatchesByTournament(req, res, next) {
+  try {
+    const tid = toObjectId(req.params.tid);
+    if (!tid) return res.status(400).json({ message: "Invalid tournament id" });
+
+    const userId = toObjectId(req.user?._id);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    const {
+      status,
+      bracketId,
+      q,
+      page = 1,
+      pageSize = 10,
+    } = req.query;
+
+    // Build filter
+    const filter = {
+      tournament: tid,
+      $or: [{ referees: userId }, { referee: userId }], // tùy model của bạn
+    };
+
+    if (status && status !== "all") filter.status = status;
+    if (bracketId) {
+      const bid = toObjectId(bracketId);
+      if (!bid) return res.status(400).json({ message: "Invalid bracket id" });
+      filter.bracket = bid;
+    }
+
+    if (q && String(q).trim()) {
+      const rx = new RegExp(escapeRegex(String(q).trim()), "i");
+      // Tối ưu: đảm bảo bạn có field 'code' trên Match (pre-save) & index text cho tên
+      filter.$or = [
+        { code: rx }, // gợi ý nên có index
+        { "pairA.player1.nickname": rx },
+        { "pairA.player2.nickname": rx },
+        { "pairA.player1.fullName": rx },
+        { "pairA.player2.fullName": rx },
+        { "pairA.player1.name": rx },
+        { "pairA.player2.name": rx },
+        { "pairB.player1.nickname": rx },
+        { "pairB.player2.nickname": rx },
+        { "pairB.player1.fullName": rx },
+        { "pairB.player2.fullName": rx },
+        { "pairB.player1.name": rx },
+        { "pairB.player2.name": rx },
+      ];
+    }
+
+    // Pagination
+    const p = Math.max(1, parseInt(page, 10) || 1);
+    const ps = Math.min(50, Math.max(1, parseInt(pageSize, 10) || 10));
+
+    const total = await Match.countDocuments(filter);
+
+    // Sắp xếp: ưu tiên status (alphabet không ý nghĩa lắm),
+    // bạn có thể thêm trường 'statusWeight' trong DB. Ở đây giữ ổn định theo round/order.
+    const items = await Match.find(filter)
+      .sort({ status: 1, round: 1, order: 1, _id: 1 })
+      .skip((p - 1) * ps)
+      .limit(ps)
+      .populate([
+        { path: "tournament", select: "_id name eventType" },
+        { path: "bracket", select: "_id name type stage" },
+        { path: "court", select: "_id name" },
+      ])
+      .lean();
+
+    return res.json({
+      items,
+      total,
+      page: p,
+      pageSize: ps,
+      totalPages: Math.max(1, Math.ceil(total / ps)),
+    });
+  } catch (err) {
+    next(err);
+  }
+}

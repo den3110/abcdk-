@@ -256,3 +256,113 @@ export const deleteBracketCascade = expressAsyncHandler(async (req, res) => {
 
   res.json({ message: "Bracket deleted (and its matches)" });
 });
+
+
+/* ===== helpers (local) ===== */
+const nextPow2 = ceilPow2;
+const maxPoRoundsFor = (n) => {
+  const N = Math.max(0, Number(n) || 0);
+  const losers1 = Math.floor(N / 2);
+  return Math.max(1, 1 + (losers1 > 0 ? Math.floor(Math.log2(losers1)) : 0));
+};
+
+// giữ nguyên seed object nếu có; không tự suy luận từ match để tránh sai
+const sanitizeSeeds = (seeds) => {
+  if (!Array.isArray(seeds)) return [];
+  return seeds
+    .map((s) => ({
+      pair: Number(s?.pair) || 0,
+      A: s?.A && s.A.type ? s.A : null,
+      B: s?.B && s.B.type ? s.B : null,
+    }))
+    .filter((s) => s.pair > 0);
+};
+
+const normalizeGroupConfig = (cfg = {}) => {
+  const groupCount = Number(cfg.groupCount || (Array.isArray(cfg.groups) ? cfg.groups.length : 0) || 0);
+  const groups =
+    Array.isArray(cfg.groups) && cfg.groups.length
+      ? cfg.groups.map(String)
+      : Array.from({ length: groupCount }, (_, i) => String(i + 1));
+
+  // ưu tiên groupSizes nếu có; nếu không thì rỗng (Blueprint sẽ tự hiển thị fallback)
+  const groupSizes = Array.isArray(cfg.groupSizes) ? cfg.groupSizes.map((v) => Number(v) || 0) : [];
+
+  const out = {
+    groupCount: groups.length,
+    groups,
+    groupSize: Number(cfg.groupSize || 0),      // vẫn trả để tương thích
+    groupSizes,                                  // ưu tiên dùng khi có
+    qualifiersPerGroup: Number(cfg.qualifiersPerGroup || 0), // có thể =0 nếu meta mới giữ
+  };
+  return out;
+};
+
+const normalizePoConfig = (cfg = {}) => {
+  const drawSize = Math.max(0, Number(cfg.drawSize || 0));
+  const maxRounds = Math.max(1, Math.min(Number(cfg.maxRounds || 1), maxPoRoundsFor(drawSize)));
+  const seeds = sanitizeSeeds(cfg.seeds);
+
+  return { drawSize, maxRounds, seeds };
+};
+
+const normalizeKoConfig = (cfg = {}) => {
+  const ds = Math.max(2, Number(cfg.drawSize || 2));
+  const drawSize = nextPow2(ds); // KO luôn 2^n
+  const firstPairs = Math.max(1, drawSize / 2);
+  const seeds = sanitizeSeeds(cfg.seeds).filter((s) => s.pair >= 1 && s.pair <= firstPairs);
+  return { drawSize, seeds };
+};
+
+/* ============================================================
+ * GET /admin/tournaments/:id/brackets
+ * trả về danh sách bracket đã chuẩn hoá cho Blueprint prefill
+ * ============================================================ */
+export const getTournamentBracketsStructure = expressAsyncHandler(async (req, res) => {
+  const { id } = req.params; // tournament id
+
+  const raw = await Bracket.find({ tournament: id })
+    .sort({ order: 1, stage: 1 })
+    .select("_id tournament name type stage order config rules finalRules meta")
+    .lean();
+
+  if (!raw.length) return res.json([]);
+
+  const list = raw.map((b) => {
+    const type = b.type; // "group" | "po" | "ko"
+    const meta = b.meta || {};
+    const cfg = b.config || {};
+
+    // lấy qualifiersPerGroup từ meta nếu config chưa có
+    if (type === "group") {
+      if (!("qualifiersPerGroup" in cfg) && typeof meta.qualifiersPerGroup !== "undefined") {
+        cfg.qualifiersPerGroup = Number(meta.qualifiersPerGroup || 0);
+      }
+    }
+
+    let normConfig = cfg;
+    if (type === "group") normConfig = normalizeGroupConfig(cfg);
+    if (type === "po") normConfig = normalizePoConfig(cfg);
+    if (type === "ko") normConfig = normalizeKoConfig(cfg);
+
+    // rules/finalRules: giữ nguyên nếu có, set mặc định an toàn nếu thiếu
+    const rules = b.rules || cfg.rules || { bestOf: 3, pointsToWin: 11, winByTwo: true };
+    const finalRules = b.finalRules || cfg.finalRules || null;
+
+    return {
+      _id: b._id,
+      tournament: b.tournament,
+      name: b.name,
+      title: b.name,      // giúp UI hiển thị nhãn nếu cần
+      type,               // group | po | ko
+      stage: b.stage,
+      order: b.order,
+      config: normConfig, // ⭐ quan trọng cho prefill
+      rules,
+      finalRules,
+      meta,               // vẫn trả để tương thích chỗ khác
+    };
+  });
+
+  res.json(list);
+});

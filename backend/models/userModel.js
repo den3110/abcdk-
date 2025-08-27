@@ -113,8 +113,8 @@ userSchema.pre("save", async function (next) {
 
 const RatingSchema = new mongoose.Schema(
   {
-    singles: { type: Number, default: 3.5 },   // thang 2.0..8.0 (dùng số thực)
-    doubles: { type: Number, default: 3.5 },
+    singles: { type: Number, default: 2.5 },   // thang 2.0..8.0 (dùng số thực)
+    doubles: { type: Number, default: 2.5 },
     matchesSingles: { type: Number, default: 0 },
     matchesDoubles: { type: Number, default: 0 },
     reliabilitySingles: { type: Number, default: 0 }, // 0..1

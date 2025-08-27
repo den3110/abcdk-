@@ -376,10 +376,10 @@ export async function onMatchFinished({ matchId }) {
     { $set: { status: "idle", currentMatch: null } }
   );
 
-  if (!courtDoc?.isActive) {
-    // sân bị deactivate (ví dụ upsert loại bỏ sân này) → dừng tại đây, không auto-assign
-    return { tournamentId: m.tournament, clusterKey, assigned: false };
-  }
+  // if (!courtDoc?.isActive) {
+  //   // sân bị deactivate (ví dụ upsert loại bỏ sân này) → dừng tại đây, không auto-assign
+  //   return { tournamentId: m.tournament, clusterKey, assigned: false };
+  // }
 
   const assigned = await assignNextToCourt({
     tournamentId: m.tournament,

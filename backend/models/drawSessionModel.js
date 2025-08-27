@@ -46,7 +46,7 @@ const DrawSessionSchema = new mongoose.Schema(
       required: true,
     },
 
-    mode: { type: String, enum: ["group", "knockout"], required: true },
+    mode: { type: String, enum: ["group", "knockout", "po"], required: true },
     targetRound: {
       type: String,
       enum: ["R256", "R128", "R64", "R32", "R16", "QF", "SF", "F", null],
@@ -67,7 +67,7 @@ const DrawSessionSchema = new mongoose.Schema(
     board: {
       type: {
         type: String,
-        enum: ["group", "knockout"],
+        enum: ["group", "knockout", "roundElim"],
         required: true,
       },
       roundKey: { type: String, default: null },

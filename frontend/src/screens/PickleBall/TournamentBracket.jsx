@@ -412,7 +412,7 @@ const CustomSeed = ({
               : "Chưa diễn ra"}
           </div>
 
-          {showAdvanceTick && <RightTick />}
+          {/* {showAdvanceTick && <RightTick />} */}
         </div>
       </SeedItem>
 
@@ -846,14 +846,22 @@ function buildGroupStarts(bracket) {
   const starts = new Map();
   let acc = 1;
   const groups = bracket?.groups || [];
-  const sizeOf = (g) =>
-    Number(g?.expectedSize ?? bracket?.config?.roundRobin?.groupSize ?? 0) || 0;
+
+  // Ưu tiên số đội thực tế trong từng bảng; fallback expectedSize -> groupSize
+  const sizeOf = (g) => {
+    const actual = Array.isArray(g?.regIds) ? g.regIds.length : 0;
+    const expected =
+      Number(g?.expectedSize ?? bracket?.config?.roundRobin?.groupSize ?? 0) ||
+      0;
+    return actual || expected || 0;
+  };
 
   groups.forEach((g, idx) => {
     const key = String(g.name || g.code || g._id || String(idx + 1));
     starts.set(key, acc);
     acc += sizeOf(g);
   });
+
   return { starts, sizeOf };
 }
 
@@ -1030,7 +1038,7 @@ function buildEmptyRoundsByScale(scale /* 2^n */) {
       teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
     }));
     rounds.push({
-      title: matches === 1 ? "Chung kết" : `Vòng (${matches} trận)`,
+      title: koRoundTitle(matches), // <— đổi ở đây
       seeds,
     });
     matches = Math.floor(matches / 2);
@@ -1089,7 +1097,7 @@ function buildRoundsFromPrefill(prefill, koMeta) {
     });
 
     rounds.push({
-      title: cnt === 1 ? "Chung kết" : `Vòng (${cnt} trận)`,
+      title: koRoundTitle(cnt), // <— đổi ở đây (cnt = số trận)
       seeds,
     });
     cnt = Math.floor(cnt / 2);
@@ -1098,6 +1106,15 @@ function buildRoundsFromPrefill(prefill, koMeta) {
   if (last) last.seeds = last.seeds.map((s) => ({ ...s, __lastCol: true }));
   return rounds;
 }
+
+/* ==== KO round titles theo số đội ==== */
+const koRoundTitle = (matchesCount) => {
+  const teams = matchesCount * 2;
+  if (matchesCount === 1) return "Chung kết";
+  if (matchesCount === 2) return "Bán kết";
+  if (matchesCount === 4) return "Tứ kết";
+  return `Vòng ${teams} đội`;
+};
 
 function buildRoundsWithPlaceholders(
   brMatches,
@@ -1154,7 +1171,7 @@ function buildRoundsWithPlaceholders(
     .map(Number)
     .sort((a, b) => a - b);
   const res = roundNums.map((r) => {
-    const need = seedsCount[r];
+    const need = seedsCount[r]; // số trận ở round r
     const seeds = Array.from({ length: need }, (_, i) => [
       { name: "Chưa có đội" },
       { name: "Chưa có đội" },
@@ -1189,7 +1206,7 @@ function buildRoundsWithPlaceholders(
       };
     });
 
-    return { title: need === 1 ? "Chung kết" : `Vòng (${need} trận)`, seeds };
+    return { title: koRoundTitle(need), seeds }; // <— đổi ở đây
   });
 
   const last = res[res.length - 1];
@@ -1238,6 +1255,47 @@ export default function TournamentBracket() {
   const liveMapRef = useRef(new Map());
   const [liveBump, setLiveBump] = useState(0);
 
+  const pendingRef = useRef(new Map());
+  const rafRef = useRef(null);
+
+  const flushPending = useCallback(() => {
+    if (!pendingRef.current.size) return;
+    const mp = liveMapRef.current;
+    for (const [id, inc] of pendingRef.current) {
+      const cur = mp.get(id);
+      const vNew = Number(inc?.liveVersion ?? inc?.version ?? 0);
+      const vOld = Number(cur?.liveVersion ?? cur?.version ?? 0);
+      const merged = !cur || vNew >= vOld ? { ...(cur || {}), ...inc } : cur;
+      mp.set(id, merged);
+    }
+    pendingRef.current.clear();
+    setLiveBump((x) => x + 1);
+  }, []);
+
+  const queueUpsert = useCallback(
+    (incRaw) => {
+      const inc = incRaw?.data ?? incRaw?.match ?? incRaw; // server gửi {type,data} cho match:update
+      if (!inc?._id) return;
+      const id = String(inc._id);
+      pendingRef.current.set(id, inc);
+      if (rafRef.current) return;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        flushPending();
+      });
+    },
+    [flushPending]
+  );
+
+  useEffect(() => {
+    const mp = new Map();
+    for (const m of allMatchesFetched || []) {
+      if (m?._id) mp.set(String(m._id), m);
+    }
+    liveMapRef.current = mp;
+    setLiveBump((x) => x + 1);
+  }, [allMatchesFetched]);
+
   useEffect(() => {
     const mp = new Map();
     for (const m of allMatchesFetched) {
@@ -1250,18 +1308,50 @@ export default function TournamentBracket() {
 
   useEffect(() => {
     if (!socket) return;
-    const upsert = (incomingRaw) => {
-      const inc = incomingRaw?.match ?? incomingRaw;
-      if (!inc?._id) return;
-      const id = String(inc._id);
-      const cur = liveMapRef.current.get(id);
-      const vNew = Number(inc?.liveVersion ?? inc?.version ?? 0);
-      const vOld = Number(cur?.liveVersion ?? cur?.version ?? 0);
-      const merged = !cur || vNew >= vOld ? { ...(cur || {}), ...inc } : cur;
-      liveMapRef.current.set(id, merged);
-      setLiveBump((x) => x + 1);
+
+    // ---- subscribe draw theo bracketId (không phải tournamentId) ----
+    const bracketIds = (brackets || []).map((b) => String(b._id));
+    const subscribeDrawRooms = () => {
+      try {
+        bracketIds.forEach((bid) =>
+          socket.emit("draw:subscribe", { bracketId: bid })
+        );
+      } catch (e) {
+        console.log(e);
+      }
     };
-    const remove = (payload) => {
+    const unsubscribeDrawRooms = () => {
+      try {
+        bracketIds.forEach((bid) =>
+          socket.emit("draw:unsubscribe", { bracketId: bid })
+        );
+      } catch (e) {
+        console.log(e);
+      }
+    };
+
+    // ---- join tất cả phòng match của giải để nhận "match:update" ----
+    const matchIds = (allMatchesFetched || [])
+      .map((m) => String(m._id))
+      .filter(Boolean);
+    const joined = new Set();
+    const joinAllMatches = () => {
+      try {
+        matchIds.forEach((mid) => {
+          if (!joined.has(mid)) {
+            socket.emit("match:join", { matchId: mid });
+            socket.emit("match:snapshot:request", { matchId: mid });
+            joined.add(mid);
+          }
+        });
+      } catch (e) {
+        console.log(e);
+      }
+    };
+
+    // ---- handlers ----
+    const onUpsert = (payload) => queueUpsert(payload); // nhận cả match:update & match:snapshot
+    const onRemove = (payload) => {
       const id = String(payload?.id ?? payload?._id ?? "");
       if (!id) return;
       if (liveMapRef.current.has(id)) {
@@ -1273,32 +1363,53 @@ export default function TournamentBracket() {
       refetchBrackets();
       refetchMatches();
     };
-    const subscribe = () => {
-      try {
-        socket.emit("draw:subscribe", { tournamentId: tourId });
-      } catch {}
+
+    // ---- wire up ----
+    const onConnected = () => {
+      subscribeDrawRooms();
+      joinAllMatches();
     };
-    subscribe();
-    socket.on("connect", subscribe);
-    socket.on("match:snapshot", upsert);
-    socket.on("match:patched", upsert);
-    socket.on("score:updated", upsert);
-    socket.on("match:deleted", remove);
+
+    socket.on("connect", onConnected);
+
+    // BE phát vào room match:<id> với "match:update" {type,data}
+    socket.on("match:update", onUpsert);
+    // snapshot khi join 1 match
+    socket.on("match:snapshot", onUpsert);
+    // tương thích cũ nếu đôi khi bạn còn emit cái này
+    socket.on("score:updated", onUpsert);
+
+    socket.on("match:deleted", onRemove);
     socket.on("draw:refilled", onRefilled);
     socket.on("bracket:updated", onRefilled);
+
+    // chạy ngay lần đầu
+    onConnected();
+
     return () => {
-      try {
-        socket.emit("draw:unsubscribe", { tournamentId: tourId });
-      } catch {}
-      socket.off("connect", subscribe);
-      socket.off("match:snapshot", upsert);
-      socket.off("match:patched", upsert);
-      socket.off("score:updated", upsert);
-      socket.off("match:deleted", remove);
+      socket.off("connect", onConnected);
+      socket.off("match:update", onUpsert);
+      socket.off("match:snapshot", onUpsert);
+      socket.off("score:updated", onUpsert);
+      socket.off("match:deleted", onRemove);
       socket.off("draw:refilled", onRefilled);
       socket.off("bracket:updated", onRefilled);
+      unsubscribeDrawRooms();
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
     };
-  }, [socket, tourId, refetchBrackets, refetchMatches]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    socket,
+    tourId,
+    brackets,
+    allMatchesFetched,
+    refetchBrackets,
+    refetchMatches,
+    queueUpsert,
+  ]);
 
   const matchesMerged = useMemo(
     () =>
@@ -1423,6 +1534,105 @@ export default function TournamentBracket() {
     const scale = ceilPow2(fallback);
     return buildEmptyRoundsByScale(scale);
   }, []);
+
+  const liveSpotlight = useMemo(() => {
+    if (!current || current.type !== "group") return [];
+    return (currentMatches || [])
+      .filter((m) => String(m.status || "").toLowerCase() === "live")
+      .sort((a, b) => {
+        // Ưu tiên sân có 'order' nhỏ trước, sau đó đến thời gian / updatedAt
+        const ao = a?.court?.order ?? 9999;
+        const bo = b?.court?.order ?? 9999;
+        if (ao !== bo) return ao - bo;
+        const at = new Date(a.updatedAt || a.scheduledAt || 0).getTime();
+        const bt = new Date(b.updatedAt || b.scheduledAt || 0).getTime();
+        return bt - at; // mới cập nhật lên trước
+      });
+  }, [current, currentMatches]);
+  // Render “LIVE spotlight” cho vòng bảng
+  const renderLiveSpotlight = () => {
+    if (!liveSpotlight.length) return null;
+    const stageNo = current?.stage || 1;
+
+    // map row
+    const rows = liveSpotlight.map((m) => {
+      const gKey = matchGroupLabel(m) || "?";
+      const aName = resolveSideLabel(m, "A");
+      const bName = resolveSideLabel(m, "B");
+      const code = `B${gKey} · R${m.round ?? "?"} #${(m.order ?? 0) + 1}`;
+      const time = formatTime(m.scheduledAt);
+      const court = m?.venue?.name || m?.court?.name || m?.court || "";
+      const score = scoreLabel(m);
+      return {
+        id: String(m._id),
+        code,
+        aName,
+        bName,
+        time,
+        court,
+        score,
+        match: m,
+      };
+    });
+
+    return (
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 2,
+          mb: 2,
+          borderColor: "error.light",
+          background: (theme) =>
+            theme.palette.mode === "dark"
+              ? "rgba(244,67,54,0.08)"
+              : "rgba(244,67,54,0.06)",
+        }}
+      >
+        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+          <Chip label="LIVE" color="error" size="small" />
+          <Typography variant="subtitle1" fontWeight={700}>
+            Trận đang diễn ra (Vòng bảng)
+          </Typography>
+        </Stack>
+
+        <TableContainer component={Paper} variant="outlined">
+          <Table size="small" aria-label="live-spotlight">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ width: 200, fontWeight: 700 }}>Mã</TableCell>
+                <TableCell sx={{ fontWeight: 700 }}>Trận</TableCell>
+                <TableCell sx={{ width: 180, fontWeight: 700 }}>
+                  Giờ đấu
+                </TableCell>
+                <TableCell sx={{ width: 160, fontWeight: 700 }}>Sân</TableCell>
+                <TableCell sx={{ width: 120, fontWeight: 700 }}>
+                  Tỷ số
+                </TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((r) => (
+                <TableRow
+                  key={r.id}
+                  hover
+                  onClick={() => openMatch(r.match)}
+                  sx={{ cursor: "pointer" }}
+                >
+                  <TableCell>{r.code}</TableCell>
+                  <TableCell>
+                    {r.aName} <b>vs</b> {r.bName}
+                  </TableCell>
+                  <TableCell>{r.time || ""}</TableCell>
+                  <TableCell>{r.court || ""}</TableCell>
+                  <TableCell>{r.score || "LIVE"}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Paper>
+    );
+  };
 
   if (loading) {
     return (
@@ -1742,7 +1952,7 @@ export default function TournamentBracket() {
           <Typography variant="h6" gutterBottom>
             Vòng bảng: {current.name}
           </Typography>
-
+          {renderLiveSpotlight()}
           {renderGroupBlocks()}
         </Paper>
       ) : current.type === "roundElim" ? (

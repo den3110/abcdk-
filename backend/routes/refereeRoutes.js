@@ -3,6 +3,9 @@ import { protect, refereeOnly } from "../middleware/authMiddleware.js";
 import canScoreMatch, { ownOrAdmin } from "../middleware/canScoreMatch.js";
 import {
   getAssignedMatches,
+  listRefereeBrackets,
+  listRefereeMatchesByTournament,
+  listRefereeTournaments,
   patchScore,
   patchStatus,
   patchWinner,
@@ -29,5 +32,15 @@ router.patch(
   patchStatus
 );
 router.patch("/matches/:id/winner", protect, refereeOnly, ownOrAdmin, patchWinner);
+
+
+// GET /referee/tournaments
+router.get("/tournaments", protect, refereeOnly, listRefereeTournaments);
+
+// GET /referee/tournaments/:tid/brackets
+router.get("/tournaments/:tid/brackets", protect, refereeOnly, listRefereeBrackets);
+
+// GET /referee/tournaments/:tid/matches
+router.get("/tournaments/:tid/matches", protect, refereeOnly, listRefereeMatchesByTournament);
 
 export default router;

@@ -84,7 +84,12 @@ const matchSchema = new Schema(
       default: "scheduled",
       index: true,
     },
-    winner: { type: String, enum: ["A", "B", ""], default: "" },
+    winner: {
+      type: String,
+      enum: ["A", "B", ""],
+      default: "",
+      set: (v) => (v == null ? "" : v),
+    },
 
     referee: { type: Schema.Types.ObjectId, ref: "User" },
     note: { type: String, default: "" },
@@ -154,6 +159,7 @@ matchSchema.pre("validate", function (next) {
   const hasResolvedB = !!this.pairB || !!this.previousB;
   const hasSeedA = !!this.seedA && !!this.seedA.type;
   const hasSeedB = !!this.seedB && !!this.seedB.type;
+  if (this.winner == null) this.winner = "";
 
   if (!hasResolvedA && !hasSeedA)
     return next(new Error("Either pairA/previousA or seedA is required"));
@@ -387,7 +393,9 @@ async function triggerAutoFeedGroupRank(doc, { log = false } = {}) {
       if (br?.stage) st = br.stage;
     }
 
-    const { autoFeedGroupRank } = await import("../services/autoFeedGroupRank.js");
+    const { autoFeedGroupRank } = await import(
+      "../services/autoFeedGroupRank.js"
+    );
     await autoFeedGroupRank({
       tournamentId: doc.tournament,
       bracketId: doc.bracket,
@@ -399,7 +407,6 @@ async function triggerAutoFeedGroupRank(doc, { log = false } = {}) {
     console.error("[feed] autoFeedGroupRank failed:", e?.message || e);
   }
 }
-
 
 // Lấy danh sách userIds của 2 đôi để tránh trùng trận
 matchSchema.methods.computeParticipants = async function () {
@@ -534,7 +541,7 @@ matchSchema.post("save", async function (doc, next) {
                 stageIndex: br.stage,
                 provisional: true,
                 finalizeOnComplete: true,
-                log: false
+                log: false,
               });
             } catch (e) {
               console.error(
@@ -553,7 +560,10 @@ matchSchema.post("save", async function (doc, next) {
     }
 
     // 🔔 Nếu là trận vòng bảng → auto-feed BXH sang các seed groupRank
-    if (doc.status === "finished" && ["group", "round_robin", "gsl"].includes(doc.format)) {
+    if (
+      doc.status === "finished" &&
+      ["group", "round_robin", "gsl"].includes(doc.format)
+    ) {
       // chạy async không block hook
       // setImmediate(() => triggerAutoFeedGroupRank(doc, { log: false }));
     }
@@ -623,7 +633,7 @@ matchSchema.post("findOneAndUpdate", async function (res) {
                 stageIndex: br.stage,
                 provisional: true,
                 finalizeOnComplete: true,
-                log: false
+                log: false,
               });
             } catch (e) {
               console.error(
@@ -700,7 +710,9 @@ matchSchema.index({
   "seedB.ref.round": 1,
   "seedB.ref.order": 1,
 });
-
+matchSchema.index({ tournament: 1, createdAt: -1 });
+matchSchema.index({ bracket: 1, createdAt: -1 });
+matchSchema.index({ tournament: 1, bracket: 1, status: 1, createdAt: -1 });
 matchSchema.index({ status: 1, queueOrder: 1, courtCluster: 1 });
 matchSchema.index({ participants: 1 });
 
