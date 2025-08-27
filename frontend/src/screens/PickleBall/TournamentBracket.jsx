@@ -48,6 +48,12 @@ import {
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
 
+import {
+  Stadium as StadiumIcon,
+  AccessTime as AccessTimeIcon,
+  SportsScore as SportsScoreIcon,
+} from "@mui/icons-material";
+
 /* ===================== Helpers (names) ===================== */
 export const safePairName = (pair, eventType = "double") => {
   if (!pair) return "—";
@@ -1219,7 +1225,7 @@ export default function TournamentBracket() {
   const socket = useSocket();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-
+  const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
   const { id: tourId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -1684,6 +1690,7 @@ export default function TournamentBracket() {
   /* ======= GROUP UI (theo yêu cầu) ======= */
   const renderGroupBlocks = () => {
     const groups = current?.groups || [];
+
     if (!groups.length) {
       return (
         <Paper variant="outlined" sx={{ p: 2, textAlign: "center" }}>
@@ -1756,12 +1763,23 @@ export default function TournamentBracket() {
           const pointsCfg = sData.points || { win: 3, draw: 1, loss: 0 };
 
           return (
-            <Paper key={key} variant="outlined" sx={{ p: 2 }}>
+            <Paper
+              key={key}
+              variant="outlined"
+              sx={{
+                p: { xs: 1.5, md: 2 },
+                borderRadius: 2,
+                boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
+              }}
+            >
+              {/* Header chips */}
               <Stack
                 direction="row"
                 spacing={1}
                 alignItems="center"
                 sx={{ mb: 1 }}
+                flexWrap="wrap"
+                useFlexGap
               >
                 <Chip
                   color="primary"
@@ -1782,142 +1800,346 @@ export default function TournamentBracket() {
                 />
               </Stack>
 
-              {/* BẢNG TRẬN */}
-              <Typography variant="subtitle1" gutterBottom>
+              {/* ============== Trận trong bảng ============== */}
+              <Typography
+                variant="subtitle1"
+                sx={{ fontWeight: 700 }}
+                gutterBottom
+              >
                 Trận trong bảng
               </Typography>
-              <TableContainer
-                component={Paper}
-                variant="outlined"
-                sx={{ mb: 2 }}
-              >
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ width: 140, fontWeight: 700 }}>
-                        Mã
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Trận</TableCell>
-                      <TableCell sx={{ width: 180, fontWeight: 700 }}>
-                        Giờ đấu
-                      </TableCell>
-                      <TableCell sx={{ width: 160, fontWeight: 700 }}>
-                        Sân
-                      </TableCell>
-                      <TableCell sx={{ width: 120, fontWeight: 700 }}>
-                        Tỷ số
-                      </TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {matchRows.length ? (
-                      matchRows.map((r) => (
-                        <TableRow
-                          key={r._id}
-                          hover={!r.isPlaceholder}
-                          onClick={() =>
-                            !r.isPlaceholder && r.match
-                              ? openMatch(r.match)
-                              : null
-                          }
-                          sx={{
-                            cursor:
-                              !r.isPlaceholder && r.match
-                                ? "pointer"
-                                : "default",
-                          }}
-                        >
-                          <TableCell>{r.code}</TableCell>
-                          <TableCell>
-                            {r.aName} <b>vs</b> {r.bName}
-                          </TableCell>
-                          <TableCell>{r.time || ""}</TableCell>
-                          <TableCell>{r.court || ""}</TableCell>
-                          <TableCell>{r.score || ""}</TableCell>
-                        </TableRow>
-                      ))
-                    ) : (
+
+              {isMdUp ? (
+                // ------- Desktop: Table gọn gàng (không tràn) -------
+                <TableContainer
+                  component={Paper}
+                  variant="outlined"
+                  sx={{ mb: 2, borderRadius: 2 }}
+                >
+                  <Table size="small">
+                    <TableHead>
                       <TableRow>
-                        <TableCell colSpan={5} align="center">
-                          Chưa có trận nào.
+                        <TableCell sx={{ width: { md: 140 }, fontWeight: 700 }}>
+                          Mã
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Trận</TableCell>
+                        <TableCell sx={{ width: { md: 180 }, fontWeight: 700 }}>
+                          Giờ đấu
+                        </TableCell>
+                        <TableCell sx={{ width: { md: 160 }, fontWeight: 700 }}>
+                          Sân
+                        </TableCell>
+                        <TableCell sx={{ width: { md: 120 }, fontWeight: 700 }}>
+                          Tỷ số
                         </TableCell>
                       </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+                    </TableHead>
+                    <TableBody>
+                      {matchRows.length ? (
+                        matchRows.map((r) => (
+                          <TableRow
+                            key={r._id}
+                            hover={!r.isPlaceholder}
+                            onClick={() =>
+                              !r.isPlaceholder && r.match
+                                ? openMatch(r.match)
+                                : null
+                            }
+                            sx={{
+                              cursor:
+                                !r.isPlaceholder && r.match
+                                  ? "pointer"
+                                  : "default",
+                            }}
+                          >
+                            <TableCell sx={{ whiteSpace: "nowrap" }}>
+                              {r.code}
+                            </TableCell>
+                            <TableCell sx={{ wordBreak: "break-word" }}>
+                              {r.aName} <b style={{ opacity: 0.6 }}>vs</b>{" "}
+                              {r.bName}
+                            </TableCell>
+                            <TableCell>{r.time || "—"}</TableCell>
+                            <TableCell>{r.court || "—"}</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>
+                              {r.score || "—"}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={5} align="center">
+                            Chưa có trận nào.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                // ------- Mobile: Card list, không cần vuốt ngang -------
+                <Stack spacing={1.25} sx={{ mb: 2 }}>
+                  {matchRows.length ? (
+                    matchRows.map((r) => (
+                      <Paper
+                        key={r._id}
+                        variant="outlined"
+                        onClick={() =>
+                          !r.isPlaceholder && r.match
+                            ? openMatch(r.match)
+                            : null
+                        }
+                        sx={{
+                          p: 1.25,
+                          borderRadius: 2,
+                          cursor:
+                            !r.isPlaceholder && r.match ? "pointer" : "default",
+                          "&:hover": {
+                            borderColor:
+                              !r.isPlaceholder && r.match
+                                ? "primary.main"
+                                : "divider",
+                            boxShadow:
+                              !r.isPlaceholder && r.match
+                                ? "0 2px 12px rgba(0,0,0,0.06)"
+                                : "none",
+                          },
+                        }}
+                      >
+                        <Stack spacing={0.75}>
+                          <Stack
+                            direction="row"
+                            alignItems="center"
+                            justifyContent="space-between"
+                          >
+                            <Chip size="small" color="default" label={r.code} />
+                            <Typography
+                              variant="subtitle2"
+                              sx={{ fontWeight: 800, ml: 1 }}
+                            >
+                              {r.score || "—"}
+                            </Typography>
+                          </Stack>
 
-              {/* BXH */}
-              <Typography variant="subtitle1" gutterBottom>
+                          <Typography
+                            variant="body2"
+                            sx={{ fontWeight: 600, lineHeight: 1.3 }}
+                          >
+                            {r.aName} <b style={{ opacity: 0.6 }}>vs</b>{" "}
+                            {r.bName}
+                          </Typography>
+
+                          <Stack
+                            direction="row"
+                            spacing={1}
+                            alignItems="center"
+                            flexWrap="wrap"
+                          >
+                            <Chip
+                              size="small"
+                              icon={<AccessTimeIcon sx={{ fontSize: 14 }} />}
+                              label={r.time || "—"}
+                              variant="outlined"
+                            />
+                            {r.court && (
+                              <Chip
+                                size="small"
+                                icon={<StadiumIcon sx={{ fontSize: 14 }} />}
+                                label={r.court}
+                                variant="outlined"
+                              />
+                            )}
+                          </Stack>
+                        </Stack>
+                      </Paper>
+                    ))
+                  ) : (
+                    <Paper
+                      variant="outlined"
+                      sx={{ p: 2, textAlign: "center" }}
+                    >
+                      Chưa có trận nào.
+                    </Paper>
+                  )}
+                </Stack>
+              )}
+
+              {/* ============== BXH ============== */}
+              <Typography
+                variant="subtitle1"
+                sx={{ fontWeight: 700 }}
+                gutterBottom
+              >
                 Bảng xếp hạng
               </Typography>
 
               {/* Chú thích điểm (giữ style cũ) */}
               <StandingsLegend points={pointsCfg} tiebreakers={[]} />
 
-              <TableContainer component={Paper} variant="outlined">
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell
-                        sx={{ width: 56, fontWeight: 700 }}
-                        align="center"
-                      >
-                        #
-                      </TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Đội</TableCell>
-                      <TableCell
-                        sx={{ width: 100, fontWeight: 700 }}
-                        align="center"
-                      >
-                        Điểm
-                      </TableCell>
-                      <TableCell
-                        sx={{ width: 120, fontWeight: 700 }}
-                        align="center"
-                      >
-                        Hiệu số
-                      </TableCell>
-                      <TableCell
-                        sx={{ width: 120, fontWeight: 700 }}
-                        align="center"
-                      >
-                        Xếp hạng
-                      </TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {gStand?.rows?.length ? (
-                      gStand.rows.map((row, idx) => {
-                        const name = row.pair
-                          ? safePairName(row.pair, tour?.eventType)
-                          : row.name || "—";
-                        const pts = Number(row.pts ?? 0);
-                        const diff = Number.isFinite(row.pointDiff)
-                          ? row.pointDiff
-                          : row.setDiff ?? 0;
-                        const rank = row.rank || idx + 1;
-                        return (
-                          <TableRow key={row.id || `row-${idx}`}>
-                            <TableCell align="center">{idx + 1}</TableCell>
-                            <TableCell>{name}</TableCell>
-                            <TableCell align="center">{pts}</TableCell>
-                            <TableCell align="center">{diff}</TableCell>
-                            <TableCell align="center">{rank}</TableCell>
-                          </TableRow>
-                        );
-                      })
-                    ) : (
-                      // Fallback không có row (trường hợp size=0)
+              {isMdUp ? (
+                // ------- Desktop: Table -------
+                <TableContainer
+                  component={Paper}
+                  variant="outlined"
+                  sx={{ borderRadius: 2 }}
+                >
+                  <Table size="small">
+                    <TableHead>
                       <TableRow>
-                        <TableCell colSpan={5} align="center">
-                          Chưa có dữ liệu BXH.
+                        <TableCell
+                          sx={{ width: 56, fontWeight: 700 }}
+                          align="center"
+                        >
+                          #
+                        </TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Đội</TableCell>
+                        <TableCell
+                          sx={{ width: 100, fontWeight: 700 }}
+                          align="center"
+                        >
+                          Điểm
+                        </TableCell>
+                        <TableCell
+                          sx={{ width: 120, fontWeight: 700 }}
+                          align="center"
+                        >
+                          Hiệu số
+                        </TableCell>
+                        <TableCell
+                          sx={{ width: 120, fontWeight: 700 }}
+                          align="center"
+                        >
+                          Xếp hạng
                         </TableCell>
                       </TableRow>
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+                    </TableHead>
+                    <TableBody>
+                      {gStand?.rows?.length ? (
+                        gStand.rows.map((row, idx) => {
+                          const name = row.pair
+                            ? safePairName(row.pair, tour?.eventType)
+                            : row.name || "—";
+                          const pts = Number(row.pts ?? 0);
+                          const diff = Number.isFinite(row.pointDiff)
+                            ? row.pointDiff
+                            : row.setDiff ?? 0;
+                          const rank = row.rank || idx + 1;
+                          return (
+                            <TableRow key={row.id || `row-${idx}`}>
+                              <TableCell align="center">{idx + 1}</TableCell>
+                              <TableCell sx={{ wordBreak: "break-word" }}>
+                                {name}
+                              </TableCell>
+                              <TableCell
+                                align="center"
+                                sx={{ fontWeight: 700 }}
+                              >
+                                {pts}
+                              </TableCell>
+                              <TableCell align="center">{diff}</TableCell>
+                              <TableCell align="center">{rank}</TableCell>
+                            </TableRow>
+                          );
+                        })
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={5} align="center">
+                            Chưa có dữ liệu BXH.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              ) : (
+                // ------- Mobile: List cards -------
+                <Stack spacing={1}>
+                  {gStand?.rows?.length ? (
+                    gStand.rows.map((row, idx) => {
+                      const name = row.pair
+                        ? safePairName(row.pair, tour?.eventType)
+                        : row.name || "—";
+                      const pts = Number(row.pts ?? 0);
+                      const diff = Number.isFinite(row.pointDiff)
+                        ? row.pointDiff
+                        : row.setDiff ?? 0;
+                      const rank = row.rank || idx + 1;
+                      return (
+                        <Paper
+                          key={row.id || `row-${idx}`}
+                          variant="outlined"
+                          sx={{ p: 1.25, borderRadius: 2 }}
+                        >
+                          <Stack
+                            direction="row"
+                            alignItems="center"
+                            spacing={1.25}
+                            justifyContent="space-between"
+                          >
+                            <Stack
+                              direction="row"
+                              spacing={1.25}
+                              alignItems="center"
+                            >
+                              <Box
+                                sx={{
+                                  width: 28,
+                                  height: 28,
+                                  borderRadius: "50%",
+                                  bgcolor: "action.selected",
+                                  display: "grid",
+                                  placeItems: "center",
+                                  fontWeight: 700,
+                                  fontSize: 12,
+                                }}
+                              >
+                                {idx + 1}
+                              </Box>
+                              <Typography
+                                variant="body2"
+                                sx={{ fontWeight: 600, lineHeight: 1.2 }}
+                              >
+                                {name}
+                              </Typography>
+                            </Stack>
+                            <Stack
+                              direction="row"
+                              spacing={1}
+                              alignItems="center"
+                              flexWrap="wrap"
+                            >
+                              <Chip
+                                size="small"
+                                label={`Điểm: ${pts}`}
+                                color="default"
+                                variant="outlined"
+                              />
+                              <Chip
+                                size="small"
+                                label={`Hiệu số: ${diff}`}
+                                color="default"
+                                variant="outlined"
+                              />
+                              <Chip
+                                size="small"
+                                label={`Hạng: ${rank}`}
+                                color="primary"
+                              />
+                            </Stack>
+                          </Stack>
+                        </Paper>
+                      );
+                    })
+                  ) : (
+                    <Paper
+                      variant="outlined"
+                      sx={{ p: 2, textAlign: "center" }}
+                    >
+                      Chưa có dữ liệu BXH.
+                    </Paper>
+                  )}
+                </Stack>
+              )}
             </Paper>
           );
         })}
