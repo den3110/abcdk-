@@ -449,34 +449,64 @@ const TIEBREAK_LABELS = {
   pointsDiff: "hiệu số điểm",
   pointsFor: "tổng điểm ghi được",
 };
-function StandingsLegend({ points, tiebreakers }) {
-  const tb = (tiebreakers || [])
-    .map((k) => TIEBREAK_LABELS[k] || k)
-    .join(" → ");
+function StandingsLegend({
+  points = { win: 3, draw: 1, loss: 0 },
+  tiebreakers = [],
+}) {
   return (
-    <Alert severity="info" sx={{ mb: 2 }}>
-      <Stack spacing={0.5}>
-        <Typography variant="subtitle2" fontWeight={700}>
-          Chú thích
+    <Paper
+      variant="outlined"
+      sx={{
+        p: 1.25,
+        mb: 1.5,
+        borderRadius: 2,
+        bgcolor: "background.default",
+      }}
+    >
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={1}
+        alignItems={{ xs: "flex-start", sm: "center" }}
+        justifyContent="space-between"
+        useFlexGap
+        flexWrap="wrap"
+      >
+        <Typography variant="caption" sx={{ fontWeight: 700 }}>
+          Chú thích BXH
         </Typography>
-        <Typography variant="body2">
-          <b>P</b> = trận đã đấu,&nbsp; <b>W</b> = thắng,&nbsp; <b>D</b> =
-          hòa,&nbsp; <b>L</b> = thua.
-        </Typography>
-        <Typography variant="body2">
-          <b>Set (+/−)</b> = set ghi được − set thua;&nbsp; <b>Điểm (+/−)</b> =
-          điểm ghi được − điểm thua.
-        </Typography>
-        <Typography variant="body2">
-          <b>Pts</b> = W×{points.win} + D×{points.draw} + L×{points.loss}.
-        </Typography>
-        {!!tb && (
-          <Typography variant="body2">
-            Xếp hạng theo: <b>Pts</b> {tb ? `→ ${tb}` : ""} → tên.
-          </Typography>
-        )}
+
+        <Stack
+          direction="row"
+          spacing={1}
+          flexWrap="wrap"
+          useFlexGap
+          sx={{ rowGap: 0.75 }}
+        >
+          <Chip
+            size="small"
+            variant="outlined"
+            label={`Thắng +${points.win ?? 3}`}
+          />
+          <Chip
+            size="small"
+            variant="outlined"
+            label={`Thua +${points.loss ?? 0}`}
+          />
+          <Chip
+            size="small"
+            variant="outlined"
+            label="Hiệu số = Điểm ghi - Điểm thua"
+          />
+          {Array.isArray(tiebreakers) && tiebreakers.length > 0 && (
+            <Chip
+              size="small"
+              variant="outlined"
+              label={`Tie-break: ${tiebreakers.join(" > ")}`}
+            />
+          )}
+        </Stack>
       </Stack>
-    </Alert>
+    </Paper>
   );
 }
 
@@ -2085,12 +2115,15 @@ export default function TournamentBracket() {
                                 sx={{
                                   width: 28,
                                   height: 28,
+                                  flex: "0 0 28px", // ngăn flex kéo giãn
                                   borderRadius: "50%",
                                   bgcolor: "action.selected",
-                                  display: "grid",
-                                  placeItems: "center",
+                                  display: "inline-flex", // canh giữa chắc chắn
+                                  alignItems: "center",
+                                  justifyContent: "center",
                                   fontWeight: 700,
                                   fontSize: 12,
+                                  lineHeight: 1, // tránh line-height kéo méo
                                 }}
                               >
                                 {idx + 1}
@@ -2107,17 +2140,17 @@ export default function TournamentBracket() {
                               spacing={1}
                               alignItems="center"
                               flexWrap="wrap"
+                              useFlexGap
+                              sx={{ rowGap: 0.75 }} // chip có khoảng cách dọc nữa
                             >
                               <Chip
                                 size="small"
                                 label={`Điểm: ${pts}`}
-                                color="default"
                                 variant="outlined"
                               />
                               <Chip
                                 size="small"
                                 label={`Hiệu số: ${diff}`}
-                                color="default"
                                 variant="outlined"
                               />
                               <Chip
