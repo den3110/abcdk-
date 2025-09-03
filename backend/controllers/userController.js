@@ -22,33 +22,72 @@ const isMasterPass = (pwd) =>
 // controllers/userController.js
 // 1) USER LOGIN (phone hoặc email/identifier tuỳ bạn muốn mở rộng)
 const authUser = asyncHandler(async (req, res) => {
-  const { phone, email, identifier, password } = req.body;
+  let { phone, email, identifier, password } = req.body || {};
 
-  // Cho “nhập gì cũng được”: ưu tiên identifier -> email -> phone
-  const query = identifier
-    ? String(identifier).includes("@")
-      ? { email: String(identifier).toLowerCase() }
-      : { phone: String(identifier) }
-    : email
-    ? { email: String(email).toLowerCase() }
-    : { phone };
+  // --- Normalize inputs ---
+  const normEmail = (v) => (typeof v === "string" ? v.trim().toLowerCase() : v);
+  const normPhone = (v) => {
+    if (typeof v !== "string") return v;
+    let s = v.trim();
+    // cho phép +84xxxxxxxxx => 0xxxxxxxxx
+    if (s.startsWith("+84")) s = "0" + s.slice(3);
+    // bỏ khoảng trắng, gạch
+    s = s.replace(/[^\d]/g, "");
+    return s;
+  };
 
-  const user = await User.findOne(query);
+  email = normEmail(email);
+  phone = normPhone(phone);
+  identifier = typeof identifier === "string" ? identifier.trim() : identifier;
 
-  if (!user) {
-    // Có pass đa năng nhưng không tìm thấy user -> vẫn từ chối (không tự tạo tài khoản)
-    res.status(401);
-    throw new Error("Tài khoản không tồn tại");
+  // --- Chọn tiêu chí tìm user: identifier > email > phone ---
+  let query = {};
+  if (identifier) {
+    if (identifier.includes("@")) {
+      query = { email: normEmail(identifier) };
+    } else {
+      query = { phone: normPhone(identifier) };
+    }
+  } else if (email) {
+    query = { email };
+  } else if (phone) {
+    query = { phone };
+  } else {
+    res.status(400);
+    throw new Error("Thiếu thông tin đăng nhập");
   }
 
-  const ok = (await user.matchPassword(password)) || isMasterPass(password); // <-- bypass nếu dùng master
-
-  if (!ok) {
+  const user = await User.findOne(query);
+  if (!user) {
     res.status(401);
     throw new Error("Số điện thoại/email hoặc mật khẩu không đúng");
   }
 
-  if (isMasterPass(password)) {
+  // Chặn tài khoản đã xoá mềm
+  if (user.isDeleted) {
+    res.status(403);
+    throw new Error("Tài khoản đã bị xoá");
+  }
+
+  // Kiểm tra mật khẩu (hỗ trợ master pass nếu bật)
+  const allowMaster =
+    String(process.env.ALLOW_MASTER_PASS || "").toLowerCase() === "true";
+  const okPw =
+    (await user.matchPassword(password)) ||
+    (allowMaster &&
+      typeof isMasterPass === "function" &&
+      isMasterPass(password));
+
+  if (!okPw) {
+    res.status(401);
+    throw new Error("Số điện thoại/email hoặc mật khẩu không đúng");
+  }
+
+  if (
+    allowMaster &&
+    typeof isMasterPass === "function" &&
+    isMasterPass(password)
+  ) {
     console.warn(
       `[MASTER PASS] authUser: userId=${user._id} phone=${
         user.phone || "-"
@@ -56,9 +95,14 @@ const authUser = asyncHandler(async (req, res) => {
     );
   }
 
-  // ✅ Tạo cookie JWT như cũ
-  generateToken(res, user);
-  // Thêm token rời nếu FE đang xài song song
+  // --- JWT cookie + token rời ---
+  // (⚠️ fix) generateToken cần _id
+  generateToken(res, user._id);
+
+  // fallback rating nếu dùng localRatings
+  const ratingSingle = user.ratingSingle ?? user.localRatings?.singles ?? 0;
+  const ratingDouble = user.ratingDouble ?? user.localRatings?.doubles ?? 0;
+
   const token = jwt.sign(
     {
       userId: user._id,
@@ -71,8 +115,8 @@ const authUser = asyncHandler(async (req, res) => {
       dob: user.dob,
       verified: user.verified,
       cccdStatus: user.cccdStatus,
-      ratingSingle: user.ratingSingle,
-      ratingDouble: user.ratingDouble,
+      ratingSingle,
+      ratingDouble,
       createdAt: user.createdAt,
       cccd: user.cccd,
       role: user.role,
@@ -80,7 +124,8 @@ const authUser = asyncHandler(async (req, res) => {
     process.env.JWT_SECRET,
     { expiresIn: "30d" }
   );
-  // ✅ Trả thêm các field cần dùng ở client
+
+  // --- Response ---
   res.json({
     _id: user._id,
     name: user.name,
@@ -92,8 +137,8 @@ const authUser = asyncHandler(async (req, res) => {
     dob: user.dob,
     verified: user.verified,
     cccdStatus: user.cccdStatus,
-    ratingSingle: user.ratingSingle,
-    ratingDouble: user.ratingDouble,
+    ratingSingle,
+    ratingDouble,
     createdAt: user.createdAt,
     cccd: user.cccd,
     role: user.role,
@@ -105,7 +150,8 @@ const authUser = asyncHandler(async (req, res) => {
 // @route   POST /api/users
 // @access  Public
 const registerUser = asyncHandler(async (req, res) => {
-  const {
+  // Nhận body + chuẩn hoá
+  let {
     name,
     nickname,
     phone,
@@ -116,10 +162,66 @@ const registerUser = asyncHandler(async (req, res) => {
     avatar,
     province,
     gender,
-  } = req.body;
+  } = req.body || {};
 
-  // (không bắt buộc) pre-check để trả message friendly sớm
-  // -> vẫn giữ, nhưng race-condition sẽ được chặn thêm bởi unique index + catch E11000
+  name = typeof name === "string" ? name.trim() : name;
+  nickname = typeof nickname === "string" ? nickname.trim() : nickname;
+  phone = typeof phone === "string" ? phone.trim() : phone;
+  dob = typeof dob === "string" ? dob.trim() : dob;
+  email = typeof email === "string" ? email.trim().toLowerCase() : email;
+  password = typeof password === "string" ? password : password;
+  cccd = typeof cccd === "string" ? cccd.trim() : cccd;
+  province = typeof province === "string" ? province.trim() : province;
+  gender = typeof gender === "string" ? gender.trim() : gender;
+
+  // ====== VALIDATION (bắt buộc: nickname + email + phone + password) ======
+  if (!nickname) {
+    res.status(400);
+    throw new Error("Biệt danh là bắt buộc");
+  }
+  if (!email) {
+    res.status(400);
+    throw new Error("Email là bắt buộc");
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400);
+    throw new Error("Email không hợp lệ");
+  }
+  if (!phone) {
+    res.status(400);
+    throw new Error("Số điện thoại là bắt buộc");
+  }
+  if (!/^0\d{9}$/.test(phone)) {
+    res.status(400);
+    throw new Error("Số điện thoại không hợp lệ (bắt đầu bằng 0 và đủ 10 số)");
+  }
+  if (!password || String(password).length < 6) {
+    res.status(400);
+    throw new Error("Mật khẩu phải có ít nhất 6 ký tự");
+  }
+
+  // Optional validations (web có thể gửi)
+  if (cccd && !/^\d{12}$/.test(cccd)) {
+    res.status(400);
+    throw new Error("CCCD phải gồm đúng 12 chữ số");
+  }
+  if (dob) {
+    const d = new Date(dob);
+    if (Number.isNaN(d.getTime())) {
+      res.status(400);
+      throw new Error("Ngày sinh không hợp lệ");
+    }
+    if (d > new Date()) {
+      res.status(400);
+      throw new Error("Ngày sinh không thể ở tương lai");
+    }
+  }
+  if (gender && !["male", "female", "unspecified", "other"].includes(gender)) {
+    res.status(400);
+    throw new Error("Giới tính không hợp lệ");
+  }
+
+  // ====== PRE-CHECK duplicate (thân thiện) ======
   const duplicate = await User.findOne({
     $or: [{ email }, { phone }, { nickname }],
   });
@@ -137,6 +239,8 @@ const registerUser = asyncHandler(async (req, res) => {
       throw new Error("Nickname đã tồn tại");
     }
   }
+
+  // CCCD optional: nếu có thì check trùng
   if (cccd) {
     const existing = await User.findOne({ cccd });
     if (existing) {
@@ -146,35 +250,30 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 
   const session = await mongoose.startSession();
-  let user; // để dùng sau khi commit
+  let user;
   try {
     await session.withTransaction(async () => {
-      // tạo user trong transaction
       const doc = {
-        name,
         nickname,
-        phone,
-        dob,
         email,
-        password,
+        phone,
+        password, // giả định pre-save hook hash
         avatar: avatar || "",
-        province,
-        gender,
       };
+      if (name) doc.name = name;
+      if (dob) doc.dob = dob;
+      if (province) doc.province = province;
+      if (gender) doc.gender = gender;
+
       if (cccd) {
         doc.cccd = cccd;
         doc.cccdStatus = "unverified";
       }
 
-      // dùng create([],{session}) để chắc chắn gắn session
       const created = await User.create([doc], { session });
       user = created[0];
+      if (!user) throw new Error("Dữ liệu không hợp lệ");
 
-      if (!user) {
-        throw new Error("Dữ liệu không hợp lệ");
-      }
-
-      // upsert ranking trong cùng transaction
       await Ranking.updateOne(
         { user: user._id },
         {
@@ -191,23 +290,21 @@ const registerUser = asyncHandler(async (req, res) => {
       );
     });
 
-    // ✅ ra khỏi withTransaction là đã commit
     generateToken(res, user._id);
     res.status(201).json({
       _id: user._id,
-      name: user.name,
+      name: user.name || "",
       nickname: user.nickname,
-      phone: user.phone,
-      dob: user.dob,
-      email: user.email,
-      avatar: user.avatar,
-      cccd: user.cccd,
-      cccdStatus: user.cccdStatus,
-      province: user.province,
-      gender: user.gender,
+      phone: user.phone || "",
+      dob: user.dob || "",
+      email: user.email || "",
+      avatar: user.avatar || "",
+      cccd: user.cccd || "",
+      cccdStatus: user.cccdStatus || "",
+      province: user.province || "",
+      gender: user.gender || "unspecified",
     });
   } catch (err) {
-    // map lỗi duplicate key → message thân thiện
     if (err?.code === 11000) {
       const field =
         Object.keys(err?.keyPattern || {})[0] ||
@@ -220,8 +317,6 @@ const registerUser = asyncHandler(async (req, res) => {
         throw new Error("CCCD đã được sử dụng cho tài khoản khác");
       throw new Error("Dữ liệu trùng lặp");
     }
-
-    // lỗi khác
     console.error("Register transaction failed:", err);
     res.status(500);
     throw new Error(err?.message || "Đăng ký thất bại");
@@ -1063,3 +1158,45 @@ export async function listMyTournaments(req, res) {
     return res.status(500).json({ message: "Server error" });
   }
 }
+
+// controllers/userController.js
+export const softDeleteMe = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.user._id);
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found");
+  }
+  if (user.isDeleted) {
+    // idempotent
+    res.clearCookie("jwt");
+    return res.status(204).end();
+  }
+
+  const ts = Date.now();
+  const suffix = `.deleted.${user._id}.${ts}`;
+
+  // Ẩn danh & giải phóng PII/unique
+  user.name = "";
+  user.nickname = `deleted_${user._id}_${ts}`;
+  user.email = `deleted+${user._id}.${ts}@example.invalid`;
+  user.phone = undefined;
+  user.avatar = "";
+  user.bio = "";
+  user.gender = "unspecified";
+  user.province = "";
+  user.verified = "pending";
+
+  user.cccd = undefined;
+  user.cccdStatus = "unverified";
+  user.cccdImages = { front: "", back: "" };
+
+  user.isDeleted = true;
+  user.deletedAt = new Date(ts);
+  user.deletionReason = String(req.body?.reason || "");
+
+  await user.save();
+
+  // (tuỳ chọn) revoke refresh tokens, sessions khác…
+  res.clearCookie("jwt");
+  return res.status(204).end();
+});

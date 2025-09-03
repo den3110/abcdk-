@@ -8,6 +8,7 @@ import {
   getPublicProfile,
   searchUser,
   listMyTournaments,
+  softDeleteMe,
 } from "../controllers/userController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import {
@@ -32,5 +33,6 @@ router
 router.get("/search", searchUser);
 
 router.get("/tournaments", protect, listMyTournaments);
+router.delete("/me", protect, softDeleteMe);
 
 export default router;

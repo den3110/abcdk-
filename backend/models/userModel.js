@@ -22,7 +22,7 @@ const EvaluatorSchema = new mongoose.Schema(
 const userSchema = new mongoose.Schema(
   {
     /* ------- Thông tin cơ bản ------- */
-    name: { type: String, required: true, trim: true },
+    name: { type: String, trim: true },
 
     nickname: {
       type: String,
@@ -54,9 +54,9 @@ const userSchema = new mongoose.Schema(
 
     dob: {
       type: Date,
-      required() {
-        return this.role === "user";
-      },
+      // required() {
+      //   return this.role === "user";
+      // },
     },
 
     /* ------- Avatar + giới thiệu ------- */
@@ -103,6 +103,10 @@ const userSchema = new mongoose.Schema(
 
     /* ------- Năng lực chấm trình (có/không) ------- */
     evaluator: { type: EvaluatorSchema, default: () => ({}) },
+    // models/User.js (thêm vào schema)
+    isDeleted: { type: Boolean, default: false, index: true },
+    deletedAt: { type: Date },
+    deletionReason: { type: String, default: "" },
   },
   { timestamps: true, strict: true }
 );

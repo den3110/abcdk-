@@ -23,7 +23,7 @@ export const createRegistration = asyncHandler(async (req, res) => {
   }
 
   // chuẩn hoá eventType: singles | doubles
-  const et = String(tour.eventType || "").toLowerCase(); // "single"/"singles" hoặc "double"/"doubles"
+  const et = String(tour.eventType || "").toLowerCase();
   const isSingles = et === "single" || et === "singles";
   const isDoubles = et === "double" || et === "doubles";
 
@@ -75,7 +75,8 @@ export const createRegistration = asyncHandler(async (req, res) => {
   /* ─ 5) Lấy thông tin user ─ */
   const userIds = isSingles ? [player1Id] : [player1Id, player2Id];
   const users = await User.find({ _id: { $in: userIds } }).select(
-    "name phone avatar province"
+    // cần thêm cccdStatus/cccd để kiểm tra xác thực
+    "name nickname phone avatar province cccd cccdStatus"
   );
   if (users.length !== userIds.length) {
     res.status(400);
@@ -87,7 +88,23 @@ export const createRegistration = asyncHandler(async (req, res) => {
   const u1 = byId.get(String(player1Id));
   const u2 = isDoubles ? byId.get(String(player2Id)) : null;
 
-  /* ─ 6) Kiểm tra đã đăng ký ─ */
+  /* ─ 6) YÊU CẦU: CCCD đã xác thực ─ */
+  // const notVerified = [];
+  // if (u1?.cccdStatus !== "verified") notVerified.push("VĐV 1");
+  // if (isDoubles && ( u2?.cccdStatus !== "verified"))
+  //   notVerified.push("VĐV 2");
+  // if (notVerified.length) {
+  //   // dùng 412 để FE phân biệt điều kiện tiên quyết
+    
+  //   // bạn có thể đổi message nếu muốn FE match code riêng
+  //   throw new Error(
+  //     notVerified.length === 1
+  //       ? `${notVerified[0]} cần xác thực CCCD trước khi đăng ký`
+  //       : `${notVerified.join(" và ")} cần xác thực CCCD trước khi đăng ký`
+  //   );
+  // }
+
+  /* ─ 7) Kiểm tra đã đăng ký ─ */
   const orConds = isSingles
     ? [{ "player1.user": player1Id }, { "player2.user": player1Id }]
     : [
@@ -109,7 +126,7 @@ export const createRegistration = asyncHandler(async (req, res) => {
     );
   }
 
-  /* ─ 7) Điểm trình mới nhất ─ */
+  /* ─ 8) Điểm trình mới nhất ─ */
   const scores = await ScoreHistory.aggregate([
     {
       $match: {
@@ -132,12 +149,10 @@ export const createRegistration = asyncHandler(async (req, res) => {
   const s1 = map[String(player1Id)]?.[key] ?? 0;
   const s2 = isDoubles ? map[String(player2Id)]?.[key] ?? 0 : 0;
 
-  /* ─ 8) Validate điểm trình ─ */
-  // UPDATE: nếu scoreCap === 0 => KHÔNG giới hạn theo điểm (bỏ qua mọi check điểm)
+  /* ─ 9) Validate điểm trình ─ */
   const noPointCap = Number(tour.scoreCap) === 0;
 
   if (!noPointCap) {
-    // cap cá nhân (nếu được set > 0)
     if (typeof tour.singleCap === "number" && tour.singleCap > 0) {
       if (s1 > tour.singleCap || (isDoubles && s2 > tour.singleCap)) {
         res.status(400);
@@ -145,7 +160,6 @@ export const createRegistration = asyncHandler(async (req, res) => {
       }
     }
 
-    // cap tổng đôi (chỉ áp dụng cho đôi và khi scoreCap > 0)
     if (isDoubles && Number(tour.scoreCap) > 0) {
       const gap = Number(tour.scoreGap) || 0;
       if (s1 + s2 > Number(tour.scoreCap) + gap) {
@@ -154,12 +168,11 @@ export const createRegistration = asyncHandler(async (req, res) => {
       }
     }
   }
-  // END UPDATE
 
-  /* ─ 9) Chuẩn hoá player object & lưu ─ */
+  /* ─ 10) Chuẩn hoá player object & lưu ─ */
   const player1 = {
     user: u1._id,
-    fullName: u1.name,
+    fullName: u1.name || u1.nickname, // fallback tránh rỗng
     phone: u1.phone,
     avatar: u1.avatar,
     province: u1.province,
@@ -168,7 +181,7 @@ export const createRegistration = asyncHandler(async (req, res) => {
   const player2 = isDoubles
     ? {
         user: u2._id,
-        fullName: u2.name,
+        fullName: u2.name || u2.nickname,
         phone: u2.phone,
         avatar: u2.avatar,
         province: u2.province,
@@ -184,7 +197,6 @@ export const createRegistration = asyncHandler(async (req, res) => {
     createdBy: req.user._id,
   });
 
-  // có thể dùng $inc để tránh race condition khi load nặng
   await Tournament.updateOne(
     { _id: id },
     { $inc: { registered: 1 }, $set: { updatedAt: new Date() } }
@@ -192,6 +204,7 @@ export const createRegistration = asyncHandler(async (req, res) => {
 
   res.status(201).json(reg);
 });
+
 
 /* Lấy danh sách đăng ký */
 // controllers/registrationController.js
