@@ -27,7 +27,7 @@ export const protect = asyncHandler(async (req, res, next) => {
   const token = extractToken(req);
 
   if (!token) {
-    res.status(401);
+    res.status(403);
     throw new Error("Not authorized – no token");
   }
 
