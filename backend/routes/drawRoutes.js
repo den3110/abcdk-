@@ -8,6 +8,7 @@ import {
   getDrawSession,
   getDrawStatusByBracket,
   generateGroupMatches,
+  assignByes,
 } from "../controllers/drawController.js";
 import { protect, authorize } from "../middleware/authMiddleware.js";
 
@@ -16,6 +17,7 @@ const router = express.Router();
 // Tất cả endpoint đều yêu cầu admin
 router.post("/:bracketId/start", protect, authorize("admin"), startDraw);
 router.post("/:drawId/next", protect, authorize("admin"), drawNext);
+router.post("/brackets/:bracketId/byes/assign", protect, authorize("admin"), assignByes);
 router.post("/:drawId/commit", protect, authorize("admin"), drawCommit);
 router.post("/:drawId/cancel", protect, authorize("admin"), drawCancel);
 router.get("/:drawId", protect, authorize("admin"), getDrawSession);

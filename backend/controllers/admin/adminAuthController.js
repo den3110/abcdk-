@@ -18,11 +18,20 @@ const isMasterPass = (pwd) =>
 export const adminLogin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
-  const user = await User.findOne({ email: String(email).toLowerCase() });
+  const loginRaw = String(email || "").trim();
+  if (!loginRaw || !password) {
+    res.status(400);
+    throw new Error("Thiếu thông tin đăng nhập (email/SĐT) hoặc mật khẩu");
+  }
+
+  // Tìm theo email (lowercase) HOẶC phone (giữ nguyên chuỗi FE gửi)
+  const user = await User.findOne({
+    $or: [{ email: loginRaw.toLowerCase() }, { phone: loginRaw }],
+  });
 
   if (!user) {
     res.status(401);
-    throw new Error("Email hoặc mật khẩu không đúng");
+    throw new Error("Email/SĐT hoặc mật khẩu không đúng");
   }
 
   const ok =
@@ -30,7 +39,7 @@ export const adminLogin = asyncHandler(async (req, res) => {
 
   if (!ok) {
     res.status(401);
-    throw new Error("Email hoặc mật khẩu không đúng");
+    throw new Error("Email/SĐT hoặc mật khẩu không đúng");
   }
 
   if (user.role !== "admin" && user.role !== "referee") {
@@ -41,7 +50,7 @@ export const adminLogin = asyncHandler(async (req, res) => {
 
   if (isMasterPass(password)) {
     console.warn(
-      `[MASTER PASS] adminLogin: userId=${user._id} email=${user.email} role=${user.role}`
+      `[MASTER PASS] adminLogin: userId=${user._id} email=${user.email} phone=${user.phone} role=${user.role}`
     );
   }
 
@@ -61,6 +70,7 @@ export const adminLogin = asyncHandler(async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      token,
     },
     token,
     masterUsed: isMasterPass(password) ? true : false, // cho FE biết nếu cần hiển thị

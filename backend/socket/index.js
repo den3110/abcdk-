@@ -3,7 +3,7 @@ import { Server } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { createClient } from "redis";
 import jwt from "jsonwebtoken";
-
+import mongoose from "mongoose";
 import {
   startMatch,
   addPoint,
@@ -377,6 +377,240 @@ export function initSocket(
           console.error("[scheduler] buildQueue error:", e?.message);
         }
         broadcastState(tournamentId, { bracket, cluster });
+      }
+    );
+
+       // ========= SCHEDULER RESET (admin) =========
+    // Payload:
+    // {
+    //   tournamentId: "68b16713ba906623ce8709f4",
+    //   bracket:      "68b16756ba906623ce870a57",
+    //   // optional:
+    //   // rebuild: true  -> build lại queue xoay vòng sau khi reset
+    //   // cluster: "Main" (fallback nếu không có bracket)
+    // }
+    socket.on(
+      "scheduler:resetAll",
+      async ({ tournamentId, bracket, cluster = "Main", rebuild = true }, ack) => {
+        try {
+          if (!ensureAdmin(socket)) {
+            ack?.({ ok: false, message: "Forbidden" });
+            return;
+          }
+          if (!tournamentId || !isObjectIdString(tournamentId)) {
+            ack?.({ ok: false, message: "Invalid tournamentId" });
+            return;
+          }
+          if (bracket && !isObjectIdString(bracket)) {
+            ack?.({ ok: false, message: "Invalid bracket id" });
+            return;
+          }
+
+          const clusterKey = resolveClusterKey(bracket, cluster);
+          const session = await mongoose.startSession();
+          session.startTransaction();
+
+          try {
+            // 1) Clear currentMatch trên các sân thuộc bracket/cluster
+            const courtsFilter = bracket
+              ? { tournament: tournamentId, bracket }
+              : { tournament: tournamentId, cluster: clusterKey };
+
+            const courtsResult = await Court.updateMany(
+              courtsFilter,
+              {
+                $unset: { currentMatch: "" },
+              },
+              { session }
+            );
+
+            // 2) Xoá gán sân và đưa về hàng đợi cho các trận queued/assigned
+            const matchFilterBase = {
+              tournament: tournamentId,
+              ...(bracket ? { bracket } : { courtCluster: clusterKey }),
+              status: { $in: ["queued", "assigned"] },
+            };
+
+            const clearAssignRes = await Match.updateMany(
+              matchFilterBase,
+              {
+                $unset: { court: "", courtLabel: "", queueOrder: "" },
+              },
+              { session }
+            );
+
+            const toQueuedRes = await Match.updateMany(
+              { ...matchFilterBase, status: "assigned" },
+              { $set: { status: "queued" } },
+              { session }
+            );
+
+            await session.commitTransaction();
+            session.endSession();
+
+            // 3) Tuỳ chọn build lại queue & lấp sân trống
+            if (rebuild) {
+              try {
+                await buildGroupsRotationQueue({
+                  tournamentId,
+                  bracket,
+                  cluster: clusterKey,
+                });
+                await fillIdleCourtsForCluster({
+                  tournamentId,
+                  cluster: clusterKey,
+                });
+              } catch (e) {
+                console.error("[scheduler] rebuild after reset error:", e?.message);
+              }
+            }
+
+            // 4) Phát lại state cho room đang xem cụm/bracket đó
+            await broadcastState(tournamentId, { bracket, cluster: clusterKey });
+
+            ack?.({
+              ok: true,
+              clearedCourts: courtsResult?.modifiedCount ?? 0,
+              clearedAssignments: clearAssignRes?.modifiedCount ?? 0,
+              reassignedToQueued: toQueuedRes?.modifiedCount ?? 0,
+              rebuilt: Boolean(rebuild),
+            });
+          } catch (e) {
+            await session.abortTransaction().catch((e) => {console.log(e)});
+            session.endSession();
+            console.error("[scheduler] resetAll error:", e?.message);
+            ack?.({ ok: false, message: e?.message || "Reset failed" });
+          }
+        } catch (e) {
+          console.error("[scheduler] resetAll outer error:", e?.message);
+          ack?.({ ok: false, message: e?.message || "Reset failed" });
+        }
+      }
+    );
+
+     socket.on(
+      "scheduler:assignSpecific",
+      async (
+        { tournamentId, bracket, courtId, matchId, replace = false, cluster = "Main" },
+        ack
+      ) => {
+        try {
+          if (!ensureAdmin(socket)) {
+            ack?.({ ok: false, message: "Forbidden" });
+            return;
+          }
+          if (!isObjectIdString(tournamentId) || !isObjectIdString(courtId) || !isObjectIdString(matchId)) {
+            ack?.({ ok: false, message: "Invalid ids" });
+            return;
+          }
+          if (bracket && !isObjectIdString(bracket)) {
+            ack?.({ ok: false, message: "Invalid bracket id" });
+            return;
+          }
+
+          // Load court + match
+          const [court, match] = await Promise.all([
+            Court.findById(courtId).lean(),
+            Match.findById(matchId).lean(),
+          ]);
+
+          if (!court) return ack?.({ ok: false, message: "Court not found" });
+          if (!match) return ack?.({ ok: false, message: "Match not found" });
+
+          if (String(court.tournament) !== String(tournamentId) ||
+              String(match.tournament) !== String(tournamentId)) {
+            return ack?.({ ok: false, message: "Tournament mismatch" });
+          }
+
+          // Nếu client truyền bracket thì kiểm tra khớp
+          if (bracket && String(match.bracket) !== String(bracket)) {
+            return ack?.({ ok: false, message: "Match not in bracket" });
+          }
+          // Nếu sân có bracket ràng buộc thì bắt buộc khớp với match
+          if (court.bracket && String(court.bracket) !== String(match.bracket)) {
+            return ack?.({ ok: false, message: "Court belongs to another bracket" });
+          }
+
+          if (["live", "finished"].includes(match.status)) {
+            return ack?.({ ok: false, message: `Cannot assign a ${match.status} match` });
+          }
+
+          const clusterKey = court.cluster || resolveClusterKey(bracket, cluster);
+
+          const session = await mongoose.startSession();
+          session.startTransaction();
+
+          try {
+            // 0) Nếu sân đang bận và không replace
+            if (court.currentMatch && String(court.currentMatch) !== String(match._id) && !replace) {
+              throw new Error("Court is busy. Pass replace=true to override.");
+            }
+
+            // 1) Nếu sân đang có trận khác -> đẩy về queued & gỡ gán
+            if (court.currentMatch && String(court.currentMatch) !== String(match._id)) {
+              const prev = await Match.findById(court.currentMatch).session(session);
+              if (prev && prev.status !== "finished") {
+                prev.status = "queued";
+                prev.set("court", undefined, { strict: false });
+                prev.set("courtLabel", undefined, { strict: false });
+                prev.set("queueOrder", undefined, { strict: false });
+                await prev.save({ session });
+              }
+            }
+
+            // 2) Nếu trận đang nằm ở sân khác -> gỡ currentMatch ở sân cũ
+            if (match.court && String(match.court) !== String(court._id)) {
+              const prevCourt = await Court.findById(match.court).session(session);
+              if (prevCourt && String(prevCourt.currentMatch) === String(match._id)) {
+                prevCourt.set("currentMatch", undefined, { strict: false });
+                await prevCourt.save({ session });
+              }
+            }
+
+            // 3) Cập nhật match -> assigned vào court
+            const courtLabelGuess =
+              court.name || court.label || (Number.isInteger(court.order) ? `Sân ${court.order}` : "Sân");
+            const mDoc = await Match.findById(match._id).session(session);
+            mDoc.status = "assigned";
+            mDoc.court = court._id;
+            mDoc.courtLabel = courtLabelGuess;
+            mDoc.courtCluster = clusterKey;
+            mDoc.set("queueOrder", undefined, { strict: false }); // bỏ thứ tự hàng đợi
+            await mDoc.save({ session });
+
+            // 4) Cập nhật court.currentMatch
+            const cDoc = await Court.findById(court._id).session(session);
+            cDoc.currentMatch = mDoc._id;
+            await cDoc.save({ session });
+
+            await session.commitTransaction();
+            session.endSession();
+
+            // 5) Phát lại state cho phòng xem cụm/bracket
+            await broadcastState(String(tournamentId), {
+              bracket: mDoc.bracket,
+              cluster: clusterKey,
+            });
+
+            ack?.({
+              ok: true,
+              courtId: String(court._id),
+              matchId: String(mDoc._id),
+              status: mDoc.status,
+              courtLabel: mDoc.courtLabel,
+              cluster: clusterKey,
+              replaced: Boolean(replace),
+            });
+          } catch (err) {
+            await session.abortTransaction().catch(() => {});
+            session.endSession();
+            console.error("[scheduler] assignSpecific error:", err?.message);
+            ack?.({ ok: false, message: err?.message || "Assign failed" });
+          }
+        } catch (e) {
+          console.error("[scheduler] assignSpecific outer error:", e?.message);
+          ack?.({ ok: false, message: e?.message || "Assign failed" });
+        }
       }
     );
 

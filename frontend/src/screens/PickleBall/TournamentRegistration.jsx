@@ -929,6 +929,14 @@ export default function TournamentRegistration() {
             >
               Bốc thăm
             </Button>
+            <Button
+              component={Link}
+              to={`/tournament/${id}/manage`}
+              variant="outlined"
+              size="small"
+            >
+              Quản lý giải
+            </Button>
           </Stack>
         </Box>
       )}

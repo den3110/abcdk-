@@ -35,10 +35,12 @@ import PreviewIcon from "@mui/icons-material/Preview";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
+import EventNoteIcon from "@mui/icons-material/EventNote";
 import CloseIcon from "@mui/icons-material/Close";
 import { useGetTournamentsQuery } from "../../slices/tournamentsApiSlice";
+import { useSelector } from "react-redux";
 
-const THUMB_SIZE = 96; // desktop: ảnh to hơn một chút
+const THUMB_SIZE = 96;
 
 const STATUS_LABEL = {
   upcoming: "Sắp diễn ra",
@@ -64,27 +66,37 @@ const columns = [
 ];
 
 export default function TournamentDashboard() {
+  const me = useSelector((s) => s.auth?.userInfo || null);
+  const isAdmin = !!(
+    me?.isAdmin ||
+    me?.role === "admin" ||
+    (Array.isArray(me?.roles) && me.roles.includes("admin"))
+  );
+  const isManagerOf = (t) => {
+    if (!me?._id) return false;
+    if (String(t?.createdBy) === String(me._id)) return true;
+    if (Array.isArray(t?.managers)) {
+      return t.managers.some((m) => String(m?.user ?? m) === String(me._id));
+    }
+    // nếu BE có sẵn flag
+    if (typeof t?.isManager !== "undefined") return !!t.isManager;
+    return false;
+  };
+  const canManage = (t) => isAdmin || isManagerOf(t);
   const [params, setParams] = useSearchParams();
-
-  // Giữ nguyên param sportType & groupId từ URL
   const sportType = params.get("sportType") || 2;
   const groupId = params.get("groupId") || 0;
 
-  // ===== URL <-> state: status (tab) =====
   const initialTab = TABS.includes(params.get("status"))
     ? params.get("status")
     : "upcoming";
   const [tab, setTab] = useState(initialTab);
 
-  // Đồng bộ tab khi back/forward
   useEffect(() => {
     const urlTab = params.get("status");
-    if (urlTab && TABS.includes(urlTab) && urlTab !== tab) {
-      setTab(urlTab);
-    }
+    if (urlTab && TABS.includes(urlTab) && urlTab !== tab) setTab(urlTab);
   }, [params, tab]);
 
-  // Đảm bảo luôn có status hợp lệ trên URL
   useEffect(() => {
     const urlTab = params.get("status");
     if (!urlTab || !TABS.includes(urlTab)) {
@@ -100,11 +112,9 @@ export default function TournamentDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===== URL <-> state: q (keyword) =====
   const [keyword, setKeyword] = useState(params.get("q") || "");
   const [search, setSearch] = useState(params.get("q")?.toLowerCase() || "");
 
-  // Debounce & push lên URL
   useEffect(() => {
     const t = setTimeout(() => {
       const val = keyword.trim().toLowerCase();
@@ -154,7 +164,6 @@ export default function TournamentDashboard() {
         })
       : "-";
 
-  // 1) Lọc theo tab trạng thái, 2) Lọc theo keyword
   const filtered = useMemo(() => {
     if (!tournaments) return [];
     return tournaments
@@ -182,7 +191,6 @@ export default function TournamentDashboard() {
 
       {tournaments && (
         <Fragment>
-          {/* Tabs trạng thái */}
           <Tabs
             value={tab}
             onChange={handleChangeTab}
@@ -200,7 +208,6 @@ export default function TournamentDashboard() {
             ))}
           </Tabs>
 
-          {/* Ô tìm kiếm */}
           <TextField
             label="Tìm kiếm tên giải"
             size="small"
@@ -209,9 +216,7 @@ export default function TournamentDashboard() {
             sx={{ mb: 3, width: 320, maxWidth: "100%" }}
           />
 
-          {/* ===== LIST ===== */}
           {isMobile ? (
-            /* ----- CARD (MOBILE) ----- */
             <Stack spacing={2}>
               {filtered.length === 0 && (
                 <Alert severity="info">Không có giải nào phù hợp.</Alert>
@@ -223,7 +228,7 @@ export default function TournamentDashboard() {
                     <Stack
                       direction="row"
                       spacing={2}
-                      alignItems="flex-start" // căn top để tên dài nhiều dòng
+                      alignItems="flex-start"
                       mb={2}
                     >
                       <Avatar
@@ -239,14 +244,11 @@ export default function TournamentDashboard() {
                         onClick={() => setPreviewSrc(t.image)}
                       />
                       <Box flex={1} minWidth={0}>
-                        {/* FULL tên giải: không ellipsis */}
                         <Typography
                           fontWeight={600}
                           sx={{
                             whiteSpace: "normal",
                             wordBreak: "break-word",
-                            overflow: "visible",
-                            textOverflow: "clip",
                             lineHeight: 1.25,
                             mb: 0.5,
                           }}
@@ -257,7 +259,6 @@ export default function TournamentDashboard() {
                           Đăng ký đến {formatDate(t.registrationDeadline)}
                         </Typography>
                       </Box>
-
                       <Chip
                         label={STATUS_LABEL[t.status]}
                         color={STATUS_COLOR[t.status]}
@@ -289,16 +290,41 @@ export default function TournamentDashboard() {
                       gap: 1,
                     }}
                   >
-                    <Button
-                      component={RouterLink}
-                      to={`/tournament/${t._id}/register`}
-                      size="small"
-                      variant="contained"
-                      color="primary"
-                      startIcon={<HowToRegIcon />}
-                    >
-                      Đăng ký
-                    </Button>
+                    {t.status === "ongoing" ? (
+                      <Button
+                        component={RouterLink}
+                        to={`/tournament/${t._id}/schedule`}
+                        size="small"
+                        variant="contained"
+                        color="primary"
+                        startIcon={<EventNoteIcon />}
+                      >
+                        Lịch đấu
+                      </Button>
+                    ) : (
+                      <Button
+                        component={RouterLink}
+                        to={`/tournament/${t._id}/register`}
+                        size="small"
+                        variant="contained"
+                        color="primary"
+                        startIcon={<HowToRegIcon />}
+                      >
+                        Đăng ký
+                      </Button>
+                    )}
+                    {t.status === "ongoing" && canManage(t) && (
+                      <Button
+                        component={RouterLink}
+                        to={`/tournament/${t._id}/register`}
+                        size="small"
+                        variant="contained"
+                        color="primary"
+                        startIcon={<HowToRegIcon />}
+                      >
+                        Đăng ký
+                      </Button>
+                    )}
                     <Button
                       component={RouterLink}
                       to={`/tournament/${t._id}/checkin`}
@@ -324,7 +350,6 @@ export default function TournamentDashboard() {
               ))}
             </Stack>
           ) : (
-            /* ----- TABLE (DESKTOP) ----- */
             <Paper elevation={2}>
               <TableContainer sx={{ maxHeight: 640 }}>
                 <Table stickyHeader size="small">
@@ -363,8 +388,8 @@ export default function TournamentDashboard() {
                               src={t.image}
                               alt={t.name}
                               sx={{
-                                width: THUMB_SIZE, // 96
-                                height: THUMB_SIZE, // 96
+                                width: THUMB_SIZE,
+                                height: THUMB_SIZE,
                                 objectFit: "cover",
                                 borderRadius: 1,
                                 cursor: "zoom-in",
@@ -399,16 +424,42 @@ export default function TournamentDashboard() {
                               justifyContent="center"
                               gap={1.5}
                             >
-                              <Button
-                                component={RouterLink}
-                                to={`/tournament/${t._id}/register`}
-                                size="small"
-                                variant="contained"
-                                color="primary"
-                                startIcon={<HowToRegIcon />}
-                              >
-                                Đăng ký
-                              </Button>
+                              {t.status === "ongoing" ? (
+                                <Button
+                                  component={RouterLink}
+                                  to={`/tournament/${t._id}/schedule`}
+                                  size="small"
+                                  variant="contained"
+                                  color="primary"
+                                  startIcon={<EventNoteIcon />}
+                                >
+                                  Lịch đấu
+                                </Button>
+                              ) : (
+                                <Button
+                                  component={RouterLink}
+                                  to={`/tournament/${t._id}/register`}
+                                  size="small"
+                                  variant="contained"
+                                  color="primary"
+                                  startIcon={<HowToRegIcon />}
+                                >
+                                  Đăng ký
+                                </Button>
+                              )}
+                              {t.status === "ongoing" && canManage(t) && (
+                                <Button
+                                  component={RouterLink}
+                                  to={`/tournament/${t._id}/register`}
+                                  size="small"
+                                  variant="contained"
+                                  color="primary"
+                                  startIcon={<HowToRegIcon />}
+                                >
+                                  Đăng ký
+                                </Button>
+                              )}
+
                               <Button
                                 component={RouterLink}
                                 to={`/tournament/${t._id}/checkin`}
@@ -442,7 +493,6 @@ export default function TournamentDashboard() {
         </Fragment>
       )}
 
-      {/* Dialog preview ảnh */}
       <Dialog
         open={Boolean(previewSrc)}
         onClose={() => setPreviewSrc(null)}

@@ -18,6 +18,8 @@ import drawRoutes from "./routes/drawRoutes.js";
 import bracketRoutes from "./routes/bracketRoutes.js";
 import drawSettingsRoutes from "./routes/drawSettingsRoutes.js";
 import progressionRoutes from "./routes/progressionRoutes.js";
+import matchRoutes from "./routes/matchesRoutes.js"
+
 import cmsRoutes from "./routes/cmsRoutes.js";
 import { initSocket } from "./socket/index.js";
 import cors from "cors";
@@ -75,6 +77,7 @@ app.use("/api/draw", drawRoutes);
 app.use("/api/d", drawSettingsRoutes);
 app.use("/api/progression", progressionRoutes);
 app.use("/api/cms", cmsRoutes);
+app.use("/api/matches", matchRoutes);
 
 if (process.env.NODE_ENV === "production") {
   const __dirname = path.resolve();

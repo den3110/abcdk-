@@ -61,7 +61,8 @@ import { getDashboardMetrics, getDashboardSeries } from "../controllers/admin/ad
 import { batchAssignReferee, batchDeleteMatches, buildRoundElimSkeleton, clearBracketMatches } from "../controllers/matchBatchController.js";
 import { autoGenerateRegistrations } from "../controllers/registrationAutoController.js";
 import { getMatchAdmin, getMatchLogs, getMatchRatingChanges, previewRatingDelta, resetMatchScores } from "../controllers/admin/adminMatchController.js";
-import { assignNextHttp, buildGroupsQueueHttp, freeCourtHttp, getSchedulerState, upsertCourts } from "../controllers/admin/adminCourtController.js";
+import { assignNextHttp, assignSpecificHttp, buildGroupsQueueHttp, freeCourtHttp, getSchedulerState, resetCourtsHttp, upsertCourts } from "../controllers/admin/adminCourtController.js";
+import { feedStageToNext, reapplyPropagation, reapplySeedsForBracket } from "../controllers/tool/seedToolsController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -310,8 +311,28 @@ router.get(
   getSchedulerState
 );
 
+
+// POST /api/tournaments/:tournamentId/courts/:courtId/assign-specific
+router.post(
+  "/tournaments/:tournamentId/courts/:courtId/assign-specific",
+  protect, authorize("admin"),  // nếu bạn có middleware
+  assignSpecificHttp
+);
+
+// POST /api/tournaments/:tournamentId/courts/reset
+router.post(
+  "/tournaments/:tournamentId/courts/reset",
+  protect, authorize("admin"),
+  resetCourtsHttp
+);
+
 router.post("/match/rating/preview", protect, authorize("admin"), previewRatingDelta);
 
 router.post("/matches/:id/reset-scores", resetMatchScores);
+
+router.post("/tournaments/:id/reapply-propagation", protect, authorize("admin"), reapplyPropagation);
+router.post("/tournaments/:id/brackets/:bid/reapply-seeds", protect, authorize("admin"), reapplySeedsForBracket);
+
+router.post("/tournaments/:tid/stages/:sourceStage/feed-to/:targetStage", protect, authorize("admin"), feedStageToNext);
 
 export default router;

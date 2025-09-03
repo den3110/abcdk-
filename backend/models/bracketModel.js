@@ -210,5 +210,8 @@ bracketSchema.pre("save", function (next) {
 
 bracketSchema.index({ tournament: 1, order: 1 });
 bracketSchema.index({ tournament: 1, type: 1 });
+// Tối ưu truy vấn theo tournament + sort
+bracketSchema.index({ tournament: 1, stage: 1, order: 1 });
+
 
 export default mongoose.model("Bracket", bracketSchema);

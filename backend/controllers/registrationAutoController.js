@@ -137,7 +137,7 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
     {
       $project: {
         name: 1,
-        nickname: 1,
+        nickname: 1, // ✅ lấy biệt danh từ DB
         email: 1,
         phone: 1,
         avatar: 1,
@@ -165,7 +165,6 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
     if (dedupeByUser && usedUsers.has(String(u._id))) return false;
     if (dedupeByPhone && u.phone && usedPhones.has(String(u.phone)))
       return false;
-    // capSingle check cho từng người (khi enforceCaps)
     if (enforceCaps && capSingle > 0 && Number(u.ratingR) > capSingle)
       return false;
     return true;
@@ -194,14 +193,14 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
    *  SINGLES
    * ============================================================ */
   if (isSingles) {
-    // sắp xếp theo rating để… tuỳ biến (ở đây random nhẹ để đa dạng)
     candidates = shuffle(candidates, rnd);
-
     const selected = candidates.slice(0, need);
+
     const preview = selected.map((u) => ({
       userId: u._id,
       phone: u.phone || "",
-      name: u.name || u.nickname || u.email,
+      name: u.name || u.nickname || u.email, // tên hiển thị (giữ logic cũ)
+      nickname: u.nickname || null, // ✅ trả kèm biệt danh
       score: Number(u.ratingR),
     }));
 
@@ -223,17 +222,25 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
       });
     }
 
-    // bulk insert
+    // bulk insert — dùng selected (giữ đủ field nickname)
     const ops = [];
-    for (const u of preview) {
+    for (const u of selected) {
       const paid = pickPaid(paymentMode, paidRatio, rnd);
+      const score = Number(u.ratingR);
       ops.push({
         insertOne: {
           document: {
             tournament: new mongoose.Types.ObjectId(tour._id),
             player1: playerDoc(
-              { _id: u.userId, phone: u.phone, name: u.name },
-              u.score
+              {
+                _id: u._id,
+                name: u.name, // tên thật (có thể rỗng)
+                nickname: u.nickname, // ✅ BIỆT DANH
+                phone: u.phone,
+                email: u.email,
+                avatar: u.avatar,
+              },
+              score
             ),
             player2: null,
             payment: {
@@ -245,6 +252,7 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
         },
       });
     }
+
     const bulk = ops.length ? await Registration.bulkWrite(ops) : null;
     const created = bulk?.insertedCount || 0;
 
@@ -253,12 +261,7 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
       created,
       singlesPlanned: preview.length,
       diag: diagnose
-        ? {
-            candidatesTotal,
-            afterDedupe,
-            capacityLeft,
-            created,
-          }
+        ? { candidatesTotal, afterDedupe, capacityLeft, created }
         : undefined,
     });
   }
@@ -311,19 +314,14 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
   };
 
   if (pairMethod === "balance") {
-    // Ghép high với low: (last with first)
     let i = 0,
       j = pool.length - 1;
     while (i < j && resultPairs.length < need) {
       const A = pool[j],
         B = pool[i];
       if (!tryPush(A, B)) {
-        // nếu fail caps, thử dịch chỉ số
-        if (A.score + B.score > capTotal && j - 1 > i) {
-          j--;
-        } else {
-          i++;
-        }
+        if (A.score + B.score > capTotal && j - 1 > i) j--;
+        else i++;
         continue;
       }
       i++;
@@ -334,22 +332,16 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
       const A = pool[i],
         B = pool[i + 1];
       if (tryPush(A, B)) continue;
-      // Nếu fail, thử hoán đổi nhanh với phần tử kế (i+2)
       if (i + 2 < pool.length) {
         const C = pool[i + 2];
-        if (tryPush(A, C)) {
-          // B sẽ thử ghép sau
-          continue;
-        }
+        if (tryPush(A, C)) continue;
       }
     }
   } else {
-    // random
     for (let i = 0; i + 1 < pool.length && resultPairs.length < need; i += 2) {
       const A = pool[i],
         B = pool[i + 1];
       if (tryPush(A, B)) continue;
-      // thử tìm C phù hợp
       let paired = false;
       for (let j = i + 2; j < pool.length; j++) {
         const C = pool[j];
@@ -367,11 +359,13 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
     a: {
       id: A.user._id,
       name: A.user.name || A.user.nickname || A.user.email,
+      nickname: A.user.nickname || null, // ✅ preview có biệt danh
       score: A.score,
     },
     b: {
       id: B.user._id,
       name: B.user.name || B.user.nickname || B.user.email,
+      nickname: B.user.nickname || null, // ✅ preview có biệt danh
       score: B.score,
     },
     sum: A.score + B.score,
@@ -422,8 +416,29 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
       insertOne: {
         document: {
           tournament: new mongoose.Types.ObjectId(tour._id),
-          player1: playerDoc(A.user, A.score),
-          player2: playerDoc(B.user, B.score),
+          // ✅ Truyền kèm nickname vào playerDoc
+          player1: playerDoc(
+            {
+              _id: A.user._id,
+              name: A.user.name,
+              nickname: A.user.nickname, // ✅
+              phone: A.user.phone,
+              email: A.user.email,
+              avatar: A.user.avatar,
+            },
+            A.score
+          ),
+          player2: playerDoc(
+            {
+              _id: B.user._id,
+              name: B.user.name,
+              nickname: B.user.nickname, // ✅
+              phone: B.user.phone,
+              email: B.user.email,
+              avatar: B.user.avatar,
+            },
+            B.score
+          ),
           payment: {
             status: paid ? "Paid" : "Unpaid",
             paidAt: paid ? new Date() : undefined,
@@ -441,13 +456,7 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
     created,
     pairsPlanned,
     diag: diagnose
-      ? {
-          candidatesTotal,
-          afterDedupe,
-          rejectedByCaps,
-          capacityLeft,
-          created,
-        }
+      ? { candidatesTotal, afterDedupe, rejectedByCaps, capacityLeft, created }
       : undefined,
   });
 });

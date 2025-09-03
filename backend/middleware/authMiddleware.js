@@ -2,6 +2,9 @@
 import jwt from "jsonwebtoken";
 import asyncHandler from "express-async-handler";
 import User from "../models/userModel.js";
+import Match from "../models/matchModel.js"
+import Tournament from "../models/tournamentModel.js"
+import mongoose from "mongoose";
 
 /* ----------------------------------------------------------
  | Tiện ích lấy JWT:
@@ -149,3 +152,66 @@ export async function optionalAuth(req, res, next) {
   }
   next();
 }
+
+export const isManagerTournament = asyncHandler(async (req, res, next) => {
+  // Yêu cầu đã có req.user (thường đặt sau protect)
+  if (!req.user?._id) {
+    res.status(401);
+    throw new Error("Not authorized – no user");
+  }
+
+  // Lấy matchId từ params
+  const matchId = req.params?.id || req.params?.matchId;
+  if (!mongoose.isValidObjectId(matchId)) {
+    res.status(400);
+    throw new Error("Invalid match id");
+  }
+
+  // Tìm match
+  const match = await Match.findById(matchId);
+  if (!match) {
+    res.status(404);
+    throw new Error("Match not found");
+  }
+
+  // Admin luôn pass
+  const isAdmin =
+    req.user.isAdmin ||
+    req.user.role === "admin" ||
+    (Array.isArray(req.user.roles) && req.user.roles.includes("admin"));
+  if (isAdmin) {
+    req.match = match;
+    return next();
+  }
+
+  // Kiểm tra owner/manager của tournament chứa match này
+  const t = await Tournament.findById(match.tournament)
+    .select("createdBy managers")
+    .lean();
+  if (!t) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+
+  const uid = String(req.user._id);
+  const isOwner = String(t.createdBy) === uid;
+
+  const isManager = Array.isArray(t.managers)
+    ? t.managers.some((m) => {
+        const v =
+          typeof m === "object" && m !== null
+            ? (m.user ?? m._id ?? m)
+            : m;
+        return String(v) === uid;
+      })
+    : false;
+
+  if (!isOwner && !isManager) {
+    res.status(403);
+    throw new Error("Forbidden");
+  }
+
+  // Gắn doc để controller dùng
+  req.match = match;
+  return next();
+});

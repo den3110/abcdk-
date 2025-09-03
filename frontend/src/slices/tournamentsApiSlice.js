@@ -364,6 +364,55 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         { type: "Registrations", id: "LIST" },
       ],
     }),
+    listPublicMatchesByTournament: builder.query({
+      query: ({ tid, params }) => {
+        // backend nên trả danh sách đã tối ưu cho hiển thị (simple fields)
+        const search = new URLSearchParams({
+          ...(params || {}),
+          public: 1,
+          pageSize: 500,
+        }).toString();
+        return `/api/tournaments/${tid}/matches?${search}`;
+      },
+      providesTags: (r, e, { tid }) => [{ type: "TournamentMatches", id: tid }],
+    }),
+    adminGetBrackets: builder.query({
+      query: (tournamentId) => ({
+        url: `/api/tournaments/${tournamentId}/brackets`,
+        method: "GET",
+      }),
+      transformResponse: (res) => res?.list || res || [],
+      providesTags: ["ADMIN_BRACKETS"],
+    }),
+    adminListMatchesByTournament: builder.query({
+      // args: { tid, page, pageSize, status, bracketId, q }
+      query: ({ tid, ...params }) => {
+        const qs = new URLSearchParams(params).toString();
+        return {
+          url: `/api/tournaments/${tid}/matches${qs ? `?${qs}` : ""}`,
+          method: "GET",
+        };
+      },
+      // expect: { total, page, limit, list: [...] }
+      transformResponse: (res) =>
+        res ?? { total: 0, page: 1, limit: 200, list: [] },
+      providesTags: ["ADMIN_MATCHES"],
+    }),
+    adminSetMatchLiveUrl: builder.mutation({
+      query: ({ matchId, video }) => ({
+        url: `/api/matches/${matchId}/live`,
+        method: "PATCH",
+        body: { video: video || null },
+      }),
+      invalidatesTags: ["ADMIN_MATCHES"],
+    }),
+    assignByes: builder.mutation({
+      query: ({ bracketId, body }) => ({
+        url: `/api/draw/brackets/${bracketId}/byes/assign`,
+        method: "POST",
+        body,
+      }),
+    }),
   }),
 });
 
@@ -409,4 +458,9 @@ export const {
   useGetBracketQuery,
   useGenerateGroupMatchesMutation,
   useManagerReplaceRegPlayerMutation,
+  useListPublicMatchesByTournamentQuery,
+  useAdminGetBracketsQuery,
+  useAdminListMatchesByTournamentQuery,
+  useAdminSetMatchLiveUrlMutation,
+  useAssignByesMutation,
 } = tournamentsApiSlice;

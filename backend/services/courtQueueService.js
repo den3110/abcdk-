@@ -358,7 +358,6 @@ export async function freeCourtAndAssignNext({ courtId }) {
  * Trả về { tournamentId, clusterKey, assigned } để socket/controller biết mà broadcast.
  */
 export async function onMatchFinished({ matchId }) {
-  console.log(12345);
   const m = await Match.findById(matchId)
     .select("court tournament courtCluster")
     .lean();

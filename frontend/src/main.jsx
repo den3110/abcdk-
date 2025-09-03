@@ -28,6 +28,9 @@ import ScoreOverlay from "./screens/PickleBall/ScoreOverlay.jsx";
 import AdminDrawPage from "./screens/PickleBall/AdminDrawPage.jsx";
 import DrawPage from "./screens/draw/DrawPage.jsx";
 import NotFound from "./screens/NotFound.jsx";
+import TournamentSchedule from "./screens/PickleBall/TournamentSchedule.jsx";
+import TournamentManagePage from "./screens/PickleBall/TournamentManagePage.jsx";
+import TournamentOverviewPage from "./screens/PickleBall/TournamentOverviewPage.jsx";
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -46,15 +49,26 @@ const router = createBrowserRouter(
         />
         <Route path="/tournament/:id/checkin" element={<TournamentCheckin />} />
         <Route path="/tournament/:id/bracket" element={<TournamentBracket />} />
+        <Route
+          path="/tournament/:id/schedule"
+          element={<TournamentSchedule />}
+        />
         <Route path="/pickle-ball/rankings" element={<RankingList />} />
         <Route path="/contact" element={<ContactPage />} />
         <Route
           path="/tournament/:id/brackets/:bracketId/draw"
           element={<AdminDrawPage />}
-        />
-        <Route path="/tournament/:id/draw" element={<DrawPage />} />
+        />  
+        <Route path="/tournament/:id/overview" element={<TournamentOverviewPage />} />
+        <Route path="/tournament/:id" element={<TournamentOverviewPage />} />
+
         <Route path="/404" element={<NotFound />} />
         <Route path="" element={<PrivateRoute />}>
+          <Route path="/tournament/:id/draw" element={<DrawPage />} />
+          <Route
+            path="/tournament/:id/manage"
+            element={<TournamentManagePage />}
+          />
           <Route path="/profile" element={<ProfileScreen />} />
           <Route path="/levelpoint" element={<LevelPointPage />} />
         </Route>

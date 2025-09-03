@@ -73,9 +73,28 @@ const matchSchema = new Schema(
       bestOf: { type: Number, enum: [1, 3, 5], default: 1 },
       pointsToWin: { type: Number, enum: [11, 15, 21], default: 11 },
       winByTwo: { type: Boolean, default: true },
+      /* NEW: cấu hình cap (chạm điểm) */
+      cap: {
+        mode: {
+          type: String,
+          enum: ["none", "hard", "soft"], // hard = chạm là thắng; soft = tới cap rồi vẫn cần chênh 1 nếu đang hòa, không kéo vô tận
+          default: "none",
+        },
+        points: {
+          type: Number,
+          // cho phép bất kỳ số nguyên dương hợp lệ; nếu muốn gò chặt có thể thay bằng enum
+          min: 1,
+          default: null, // ví dụ 15 => chạm 15 là thắng (nếu mode="hard")
+        },
+      },
     },
     gameScores: [
-      { a: { type: Number, default: 0 }, b: { type: Number, default: 0 } },
+      {
+        a: { type: Number, default: 0 },
+        b: { type: Number, default: 0 },
+        /* NEW: ván này kết thúc do cap (để hiển thị / audit) */
+        capped: { type: Boolean, default: false },
+      },
     ],
 
     status: {
@@ -117,7 +136,12 @@ const matchSchema = new Schema(
     finishedAt: { type: Date, default: null },
     liveBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
     liveVersion: { type: Number, default: 0 },
-    video: { type: String, default: "" },
+    video: {
+      type: String,
+      default: "",
+      trim: true,
+      set: (v) => (v == null ? "" : String(v).trim()),
+    },
     liveLog: [
       {
         type: {
@@ -161,10 +185,10 @@ matchSchema.pre("validate", function (next) {
   const hasSeedB = !!this.seedB && !!this.seedB.type;
   if (this.winner == null) this.winner = "";
 
-  if (!hasResolvedA && !hasSeedA)
-    return next(new Error("Either pairA/previousA or seedA is required"));
-  if (!hasResolvedB && !hasSeedB)
-    return next(new Error("Either pairB/previousB or seedB is required"));
+  // if (!hasResolvedA)
+  //   return next(new Error("Either pairA/previousA or seedA is required"));
+  // if (!hasResolvedB )
+  //   return next(new Error("Either pairB/previousB or seedB is required"));
   next();
 });
 

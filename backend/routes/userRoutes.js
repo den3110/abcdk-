@@ -7,6 +7,7 @@ import {
   updateUserProfile,
   getPublicProfile,
   searchUser,
+  listMyTournaments,
 } from "../controllers/userController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import {
@@ -29,5 +30,7 @@ router
   .put(protect, updateUserProfile);
 
 router.get("/search", searchUser);
+
+router.get("/tournaments", protect, listMyTournaments);
 
 export default router;

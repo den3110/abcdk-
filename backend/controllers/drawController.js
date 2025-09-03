@@ -585,6 +585,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
     const sessMode = mode === "playoff" ? "po" : mode; // normalize
 
     const pairCount = roundKeyToPairs(round);
+    console.log(round);
     if (!pairCount) {
       res.status(400);
       throw new Error("Invalid 'round' for knockout.");
@@ -846,7 +847,6 @@ export const drawCommit = expressAsyncHandler(async (req, res) => {
   let created = 0;
   let createdIds = [];
   let updated = 0;
-
 
   if (sess.mode === "group") {
     // 4A) GROUP: Xoá đúng các trận do lần commit group trước tạo (nếu có lưu matchIds),
@@ -1206,4 +1206,386 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
     matchIds: createdIds,
     doubleRound,
   });
+});
+
+function groupBy(list, keyFn) {
+  const m = {};
+  for (const it of list) {
+    const k = keyFn(it);
+    if (!m[k]) m[k] = [];
+    m[k].push(it);
+  }
+  return m;
+}
+
+function sumGameScores(gs) {
+  if (!Array.isArray(gs) || gs.length === 0) return { aTotal: 0, bTotal: 0 };
+  let aTotal = 0,
+    bTotal = 0;
+  for (const g of gs) {
+    aTotal += Number(g?.a || 0);
+    bTotal += Number(g?.b || 0);
+  }
+  return { aTotal, bTotal };
+}
+
+// PRNG đơn giản có seed để trộn deterministic
+function seededShuffle(arr, seedInput) {
+  if (seedInput === undefined || seedInput === null) return arr; // không trộn nếu không có seed
+  let seed = Number(seedInput);
+  if (!Number.isFinite(seed) || seed === 0) seed = Date.now();
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    seed = (seed * 9301 + 49297) % 233280;
+    const j = Math.floor((seed / 233280) * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// ===== Standings từ các trận vòng bảng đã hoàn thành =====
+export async function buildStandingsForBracket(bracketId) {
+  const matches = await Match.find({
+    bracket: asId(bracketId),
+    format: "group",
+    status: "finished",
+  })
+    .select("pool pairA pairB winner gameScores")
+    .lean();
+
+  const rows = new Map(); // regId -> row
+  const ensure = (regId, groupKey) => {
+    const k = String(regId);
+    if (!rows.has(k)) {
+      rows.set(k, {
+        registrationId: asId(regId),
+        groupKey: groupKey || "N/A",
+        played: 0,
+        won: 0,
+        lost: 0,
+        points: 0,
+        diff: 0,
+        scored: 0,
+      });
+    }
+    return rows.get(k);
+  };
+
+  for (const m of matches) {
+    const A = m.pairA;
+    const B = m.pairB;
+    if (!A || !B) continue;
+    const gKey = m?.pool?.name || String(m?.pool?.id || "N/A");
+
+    const ra = ensure(A, gKey);
+    const rb = ensure(B, gKey);
+    ra.played++;
+    rb.played++;
+
+    // Quy ước điểm: thắng 3 – thua 0 (tùy bạn chỉnh)
+    if (m.winner === "A") {
+      ra.won++;
+      rb.lost++;
+      ra.points += 3;
+    } else if (m.winner === "B") {
+      rb.won++;
+      ra.lost++;
+      rb.points += 3;
+    } else {
+      ra.points += 1;
+      rb.points += 1;
+    }
+
+    const { aTotal, bTotal } = sumGameScores(m?.gameScores);
+    ra.diff += aTotal - bTotal;
+    rb.diff += bTotal - aTotal;
+    ra.scored += aTotal;
+    rb.scored += bTotal;
+  }
+
+  const arr = Array.from(rows.values());
+  const byGroup = groupBy(arr, (r) => r.groupKey);
+  const out = [];
+  for (const [, list] of Object.entries(byGroup)) {
+    list.sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
+      if (b.diff !== a.diff) return b.diff - a.diff;
+      if (b.scored !== a.scored) return b.scored - a.scored;
+      if (a.lost !== b.lost) return a.lost - b.lost;
+      return 0;
+    });
+    list.forEach((row, i) => (row.rank = i + 1));
+    out.push(...list);
+  }
+  return out;
+}
+
+// Đẩy đội thắng sang trận kế tiếp nếu có cấu trúc nextMatch/nextSlot
+async function propagateWinnerToNextMatch(matchId) {
+  const m = await Match.findById(matchId).lean();
+  if (!m) return;
+
+  const winnerTeam = m.winner === "A" ? m.pairA : m.pairB;
+  if (!winnerTeam) return;
+
+  const nextId = m?.nextMatch;
+  const nextSlot = m?.nextSlot || "A";
+  if (!nextId) return;
+
+  const setObj =
+    nextSlot === "A" ? { pairA: winnerTeam } : { pairB: winnerTeam };
+  await Match.updateOne(
+    { _id: asId(nextId) },
+    { $set: { ...setObj, updatedAt: new Date() } }
+  );
+}
+
+// ====== API: Assign BYEs ======
+export const assignByes = expressAsyncHandler(async (req, res) => {
+  const { bracketId } = req.params;
+  const {
+    round,
+    matchIds,
+    limit,
+    randomSeed,
+    dryRun = false,
+    source,
+  } = req.body || {};
+
+  // --- Bracket / Tournament ---
+  const br = await Bracket.findById(bracketId).lean();
+  if (!br) {
+    res.status(404);
+    throw new Error("Bracket not found");
+  }
+  const tour = await Tournament.findById(br.tournament).lean();
+  if (!tour) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+
+  // --- Lấy danh sách MATCH thuộc knockout/po (không phải group) và lọc theo round/matchIds ---
+  const q = { bracket: br._id, format: { $ne: "group" } };
+  if (Number.isFinite(Number(round))) q.round = Number(round);
+  if (Array.isArray(matchIds) && matchIds.length) {
+    q._id = { $in: matchIds.map(asId) };
+  }
+  const matches = await Match.find(q).lean();
+
+  // --- Thu thập các SLOT BYE còn trống (slot-level, không phải match-level) ---
+  const openByeSlots = [];
+  for (const m of matches) {
+    const aIsBye = m?.seedA?.type === "bye";
+    const bIsBye = m?.seedB?.type === "bye";
+    if (aIsBye && !m?.pairA)
+      openByeSlots.push({
+        match: m,
+        matchId: m._id,
+        round: m.round || 0,
+        order: m.order || 0,
+        side: "A",
+      });
+    if (bIsBye && !m?.pairB)
+      openByeSlots.push({
+        match: m,
+        matchId: m._id,
+        round: m.round || 0,
+        order: m.order || 0,
+        side: "B",
+      });
+  }
+
+  if (!openByeSlots.length) {
+    return res.json({
+      ok: true,
+      assigned: 0,
+      preview: [],
+      reason: "NO_OPEN_BYE_SLOT",
+    });
+  }
+
+  // --- Xây pool ứng viên theo source ---
+  let candidates = [];
+  const mode = source?.mode;
+
+  if (mode === "manual") {
+    const ids = (source?.params?.teamIds || []).map(asId);
+    if (!ids.length) {
+      res.status(400);
+      throw new Error("Manual mode requires params.teamIds");
+    }
+    candidates = await Registration.find({
+      _id: { $in: ids },
+      tournament: br.tournament,
+    })
+      .select("_id player1 player2")
+      .lean();
+  } else if (mode === "topEachGroup") {
+    const takePerGroup = Math.max(1, Number(source?.params?.takePerGroup ?? 1));
+    const rankN = Number(source?.params?.rank);
+    const range = source?.params?.range;
+
+    const standings = await buildStandingsForBracket(br._id);
+    const byGroup = groupBy(standings, (r) => r.groupKey || "N/A");
+
+    for (const rows of Object.values(byGroup)) {
+      let pool = [];
+      if (Array.isArray(range) && range.length === 2) {
+        const [lo, hi] = range.map(Number);
+        pool = rows.filter((r) => r.rank >= lo && r.rank <= hi);
+      } else if (Number.isFinite(rankN)) {
+        pool = rows.filter((r) => r.rank === rankN);
+      } else {
+        pool = rows.filter((r) => r.rank === 3); // mặc định rank 3
+      }
+      // trộn trong từng bảng (nếu có seed)
+      const mixed = seededShuffle(pool, randomSeed);
+      const picked = mixed.slice(0, takePerGroup);
+      const regIds = picked.map((r) => r.registrationId);
+      if (regIds.length) {
+        const regs = await Registration.find({ _id: { $in: regIds } })
+          .select("_id player1 player2")
+          .lean();
+        candidates.push(...regs);
+      }
+    }
+    // trộn toàn cục lần nữa để công bằng (nếu có seed)
+    candidates = seededShuffle(candidates, randomSeed);
+  } else if (mode === "bestOfTopN") {
+    const rankN = Number(source?.params?.rank ?? 3);
+    const standings = await buildStandingsForBracket(br._id);
+    const filtered = standings.filter((r) => r.rank === rankN);
+    filtered.sort((a, b) => {
+      if (b.points !== a.points) return b.points - a.points;
+      if (b.diff !== a.diff) return b.diff - a.diff;
+      if (b.scored !== a.scored) return b.scored - a.scored;
+      if (a.lost !== b.lost) return a.lost - b.lost;
+      return 0;
+    });
+    const regIds = filtered.map((r) => r.registrationId);
+    candidates = await Registration.find({
+      _id: { $in: regIds },
+      tournament: br.tournament,
+    })
+      .select("_id player1 player2")
+      .lean();
+  } else {
+    res.status(400);
+    throw new Error("Unknown source.mode");
+  }
+
+  if (!candidates.length) {
+    return res.json({
+      ok: true,
+      assigned: 0,
+      preview: [],
+      reason: "EMPTY_CANDIDATE_POOL",
+    });
+  }
+
+  // loại trùng
+  {
+    const seen = new Set();
+    candidates = candidates.filter((c) => {
+      const id = String(c._id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }
+
+  // --- Sắp xếp slot: round ↑, order ↑, side A trước B ---
+  openByeSlots.sort((x, y) => {
+    if (x.round !== y.round) return x.round - y.round;
+    if (x.order !== y.order) return x.order - y.order;
+    // A trước B
+    return x.side === y.side ? 0 : x.side === "A" ? -1 : 1;
+  });
+
+  const maxAssign = Math.min(
+    openByeSlots.length,
+    candidates.length,
+    Number.isFinite(Number(limit)) ? Number(limit) : Infinity
+  );
+
+  const assignments = []; // { matchId, side, regId }
+  for (let i = 0; i < maxAssign; i++) {
+    const slot = openByeSlots[i];
+    const reg = candidates[i];
+    assignments.push({
+      matchId: slot.matchId,
+      side: slot.side,
+      regId: reg._id,
+    });
+  }
+
+  const preview = assignments.map((a) => ({
+    matchId: a.matchId,
+    side: a.side,
+    teamId: a.regId,
+  }));
+
+  if (dryRun) {
+    return res.json({
+      ok: true,
+      dryRun: true,
+      assigned: preview.length,
+      preview,
+    });
+  }
+
+  // --- Commit: cập nhật từng match theo slot ---
+  //   - set pairA/pairB theo slot
+  //   - Nếu bên còn lại vẫn là BYE và chưa có pair -> kết thúc ngay (winner = side)
+  //   - Nếu cả 2 bên đều có pair sau khi gán -> để scheduled (không auto-finish)
+  const ops = [];
+  for (const a of assignments) {
+    const m = matches.find((mm) => String(mm._id) === String(a.matchId));
+    if (!m) continue;
+
+    // set pair theo slot
+    const setObj = a.side === "A" ? { pairA: a.regId } : { pairB: a.regId };
+
+    // Xác định có nên auto-finish không
+    const otherSide = a.side === "A" ? "B" : "A";
+    const otherSeedIsBye = m?.[`seed${otherSide}`]?.type === "bye";
+    const otherPairFilled =
+      otherSide === "A" ? Boolean(m.pairA) : Boolean(m.pairB);
+
+    // Sau update, nếu otherSide vẫn trống & seed(other) là BYE => kết thúc BYE
+    const shouldFinish = otherSeedIsBye && !otherPairFilled; // sau update side kia vẫn trống
+
+    const update = {
+      $set: {
+        ...setObj,
+        updatedAt: new Date(),
+        ...(shouldFinish
+          ? {
+              status: "finished",
+              winner: a.side, // "A" | "B"
+              reason: "BYE",
+              gameScores: [],
+              finishedAt: new Date(),
+            }
+          : {}),
+      },
+      // Không ép "type: 'bye'" ở cấp match; BYE được thể hiện qua seedA/seedB
+    };
+
+    ops.push({
+      updateOne: { filter: { _id: asId(a.matchId) }, update },
+    });
+  }
+
+  if (ops.length) await Match.bulkWrite(ops);
+
+  // --- Propagate winner cho những match đã kết thúc vì BYE ---
+  for (const a of assignments) {
+    const m = await Match.findById(a.matchId).select("status").lean();
+    if (m?.status === "finished") {
+      await propagateWinnerToNextMatch(a.matchId);
+    }
+  }
+
+  return res.json({ ok: true, assigned: assignments.length, preview });
 });

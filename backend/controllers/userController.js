@@ -3,6 +3,8 @@ import User from "../models/userModel.js";
 import generateToken from "../utils/generateToken.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import Ranking from "../models/rankingModel.js";
+import Registration from "../models/registrationModel.js";
+import Tournament from "../models/tournamentModel.js";
 import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
 // helpers (có thể đặt trên cùng file)
@@ -95,7 +97,7 @@ const authUser = asyncHandler(async (req, res) => {
     createdAt: user.createdAt,
     cccd: user.cccd,
     role: user.role,
-    token
+    token,
   });
 });
 
@@ -113,7 +115,7 @@ const registerUser = asyncHandler(async (req, res) => {
     cccd,
     avatar,
     province,
-    gender
+    gender,
   } = req.body;
 
   // (không bắt buộc) pre-check để trả message friendly sớm
@@ -157,7 +159,7 @@ const registerUser = asyncHandler(async (req, res) => {
         password,
         avatar: avatar || "",
         province,
-        gender
+        gender,
       };
       if (cccd) {
         doc.cccd = cccd;
@@ -202,7 +204,7 @@ const registerUser = asyncHandler(async (req, res) => {
       cccd: user.cccd,
       cccdStatus: user.cccdStatus,
       province: user.province,
-      gender: user.gender
+      gender: user.gender,
     });
   } catch (err) {
     // map lỗi duplicate key → message thân thiện
@@ -318,7 +320,11 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     throw new Error("CCCD phải bao gồm đúng 12 chữ số.");
   }
   // email
-  if (email !== undefined && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (
+    email !== undefined &&
+    email &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  ) {
     res.status(400);
     throw new Error("Email không hợp lệ.");
   }
@@ -407,7 +413,6 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   });
 });
 
-
 export const getPublicProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id).select(
     "nickname gender province createdAt bio avatar"
@@ -482,8 +487,8 @@ export const searchUser = asyncHandler(async (req, res) => {
 
   const qNorm = vnNorm(rawQ);
   const qCompact = qNorm.replace(/\s+/g, "");
-  const qTokensRaw = rawQ.split(/\s+/).filter(Boolean);       // giữ dấu để regex trực tiếp
-  const qTokensNorm = qNorm.split(/\s+/).filter(Boolean);     // cho scoring
+  const qTokensRaw = rawQ.split(/\s+/).filter(Boolean); // giữ dấu để regex trực tiếp
+  const qTokensNorm = qNorm.split(/\s+/).filter(Boolean); // cho scoring
 
   const qDigits = rawQ.replace(/\D/g, "");
 
@@ -503,10 +508,19 @@ export const searchUser = asyncHandler(async (req, res) => {
     const lastScores = await ScoreHistory.aggregate([
       { $match: { user: { $in: idList } } },
       { $sort: { user: 1, scoredAt: -1 } },
-      { $group: { _id: "$user", single: { $first: "$single" }, double: { $first: "$double" } } },
+      {
+        $group: {
+          _id: "$user",
+          single: { $first: "$single" },
+          double: { $first: "$double" },
+        },
+      },
     ]);
     const scoreMap = new Map(
-      lastScores.map((s) => [String(s._id), { single: s.single || 0, double: s.double || 0 }])
+      lastScores.map((s) => [
+        String(s._id),
+        { single: s.single || 0, double: s.double || 0 },
+      ])
     );
 
     return res.json(
@@ -603,7 +617,7 @@ export const searchUser = asyncHandler(async (req, res) => {
       const nameHits = countTokenHits(qTokensNorm, norm.name);
 
       score += nickHits * 110; // mỗi token match trong nickname
-      score += nameHits * 90;  // mỗi token match trong name
+      score += nameHits * 90; // mỗi token match trong name
 
       if (nickHits === qTokensNorm.length) score += 220; // đủ token trong nickname
       if (nameHits === qTokensNorm.length) score += 180; // đủ token trong name
@@ -630,7 +644,8 @@ export const searchUser = asyncHandler(async (req, res) => {
 
   // bucket sort + ưu tiên có phone & gần độ dài
   const buckets = new Map();
-  let maxB = -Infinity, minB = Infinity;
+  let maxB = -Infinity,
+    minB = Infinity;
   for (const it of scored) {
     const b = Math.floor(it.score / 10);
     maxB = Math.max(maxB, b);
@@ -665,10 +680,19 @@ export const searchUser = asyncHandler(async (req, res) => {
   const lastScores = await ScoreHistory.aggregate([
     { $match: { user: { $in: idList } } },
     { $sort: { user: 1, scoredAt: -1 } },
-    { $group: { _id: "$user", single: { $first: "$single" }, double: { $first: "$double" } } },
+    {
+      $group: {
+        _id: "$user",
+        single: { $first: "$single" },
+        double: { $first: "$double" },
+      },
+    },
   ]);
   const scoreMap = new Map(
-    lastScores.map((s) => [String(s._id), { single: s.single || 0, double: s.double || 0 }])
+    lastScores.map((s) => [
+      String(s._id),
+      { single: s.single || 0, double: s.double || 0 },
+    ])
   );
 
   return res.json(
@@ -690,7 +714,10 @@ function dedupById(arr) {
   const out = [];
   for (const u of arr) {
     const k = String(u._id);
-    if (!seen.has(k)) { seen.add(k); out.push(u); }
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(u);
+    }
   }
   return out;
 }
@@ -699,6 +726,7 @@ function countTokenHits(tokensNorm, targetNorm) {
   for (const tk of tokensNorm) if (targetNorm.includes(tk)) hits++;
   return hits;
 }
+//
 
 export {
   authUser,
@@ -707,3 +735,331 @@ export {
   getUserProfile,
   updateUserProfile,
 };
+
+function parsePaging(q) {
+  let page = parseInt(q.page, 10);
+  let limit = parseInt(q.limit, 10);
+  if (!Number.isFinite(page) || page <= 0) page = 1;
+  if (!Number.isFinite(limit) || limit <= 0 || limit > 200) limit = 50;
+  return { page, limit };
+}
+function parseStatus(status) {
+  if (!status) return null;
+  const valid = new Set(["upcoming", "ongoing", "finished"]);
+  const arr = String(status)
+    .toLowerCase()
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => valid.has(s));
+  return arr.length ? arr : null;
+}
+function parseBool(v, def = true) {
+  if (v === undefined) return def;
+  const s = String(v).toLowerCase();
+  return s === "1" || s === "true" || s === "yes";
+}
+function clamp(n, min, max) {
+  const x = parseInt(n, 10);
+  if (!Number.isFinite(x)) return min;
+  return Math.max(min, Math.min(max, x));
+}
+
+/**
+ * GET /api/me/tournaments
+ * Query:
+ *   page=1&limit=50
+ *   status=ongoing[,finished]
+ *   withMatches=1|0      (default 1)
+ *   matchLimit=200       (default 200; per tournament)
+ * Return:
+ *   { items:[{...tournament, matches:[...] }], meta:{...} }
+ */
+export async function listMyTournaments(req, res) {
+  try {
+    const userId = req.user?._id;
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { page, limit } = parsePaging(req.query);
+    const statusFilter = parseStatus(req.query.status);
+    const withMatches = parseBool(req.query.withMatches, true);
+    const matchLimit = clamp(req.query.matchLimit ?? 200, 1, 500);
+
+    const userIdObj = new mongoose.Types.ObjectId(userId);
+
+    const pipeline = [
+      // 1) Mọi đăng ký mà user là player1 hoặc player2
+      {
+        $match: {
+          $or: [{ "player1.user": userIdObj }, { "player2.user": userIdObj }],
+        },
+      },
+
+      // 2) Gom theo tournament (tránh trùng nếu user có nhiều đăng ký)
+      {
+        $group: {
+          _id: "$tournament",
+          myRegistrationIds: { $addToSet: "$_id" },
+          firstJoinedAt: { $min: "$createdAt" },
+          paidAny: {
+            $max: { $cond: [{ $eq: ["$payment.status", "Paid"] }, 1, 0] },
+          },
+          checkedAny: {
+            $max: { $cond: [{ $ifNull: ["$checkinAt", false] }, 1, 0] },
+          },
+        },
+      },
+
+      // 🔒 BẢO HIỂM: luôn cho myRegistrationIds là mảng
+      {
+        $addFields: {
+          myRegistrationIds: { $ifNull: ["$myRegistrationIds", []] },
+        },
+      },
+
+      // 3) Join sang tournaments
+      {
+        $lookup: {
+          from: "tournaments",
+          localField: "_id",
+          foreignField: "_id",
+          as: "tournament",
+        },
+      },
+      { $unwind: "$tournament" },
+
+      // 4) (tuỳ chọn) lọc status
+      ...(statusFilter
+        ? [{ $match: { "tournament.status": { $in: statusFilter } } }]
+        : []),
+
+      // 5) Nếu cần, kéo matches của CHÍNH user trong từng tournament
+      ...(withMatches
+        ? [
+            {
+              $lookup: {
+                from: "matches",
+                let: {
+                  tourId: "$_id",
+                  regIds: { $ifNull: ["$myRegistrationIds", []] }, // ✅ luôn mảng
+                  uid: userIdObj,
+                },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: {
+                        $and: [
+                          { $eq: ["$tournament", "$$tourId"] },
+                          {
+                            $or: [
+                              { $in: ["$pairA", "$$regIds"] },
+                              { $in: ["$pairB", "$$regIds"] },
+                              {
+                                $in: [
+                                  "$$uid",
+                                  { $ifNull: ["$participants", []] },
+                                ],
+                              }, // ✅ luôn mảng
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                  },
+                  {
+                    $sort: { stageIndex: 1, round: 1, order: 1, createdAt: 1 },
+                  },
+                  { $limit: matchLimit },
+
+                  // pairA → registrations -> lấy player1/player2
+                  {
+                    $lookup: {
+                      from: "registrations",
+                      localField: "pairA",
+                      foreignField: "_id",
+                      as: "pairAReg",
+                    },
+                  },
+                  {
+                    $unwind: {
+                      path: "$pairAReg",
+                      preserveNullAndEmptyArrays: true,
+                    },
+                  },
+
+                  // pairB → registrations -> lấy player1/player2
+                  {
+                    $lookup: {
+                      from: "registrations",
+                      localField: "pairB",
+                      foreignField: "_id",
+                      as: "pairBReg",
+                    },
+                  },
+                  {
+                    $unwind: {
+                      path: "$pairBReg",
+                      preserveNullAndEmptyArrays: true,
+                    },
+                  },
+
+                  // Project shape gọn cho FE
+                  {
+                    $project: {
+                      _id: 1,
+                      status: 1,
+                      winner: 1, // "A" | "B" | ""
+                      round: 1,
+                      rrRound: 1,
+                      swissRound: 1,
+                      phase: 1,
+                      branch: 1,
+                      format: 1,
+                      scheduledAt: 1,
+                      courtName: "$courtLabel",
+                      sets: {
+                        $map: {
+                          input: { $ifNull: ["$gameScores", []] },
+                          as: "s",
+                          in: {
+                            a: { $ifNull: ["$$s.a", 0] },
+                            b: { $ifNull: ["$$s.b", 0] },
+                          },
+                        },
+                      },
+                      teamA: {
+                        players: {
+                          $filter: {
+                            input: [
+                              {
+                                user: "$pairAReg.player1.user",
+                                fullName: "$pairAReg.player1.fullName",
+                                nickName: "$pairAReg.player1.nickName",
+                                avatar: "$pairAReg.player1.avatar",
+                                phone: "$pairAReg.player1.phone",
+                                score: "$pairAReg.player1.score",
+                              },
+                              {
+                                user: "$pairAReg.player2.user",
+                                fullName: "$pairAReg.player2.fullName",
+                                nickName: "$pairAReg.player2.nickName",
+                                avatar: "$pairAReg.player2.avatar",
+                                phone: "$pairAReg.player2.phone",
+                                score: "$pairAReg.player2.score",
+                              },
+                            ],
+                            as: "p",
+                            cond: { $ne: ["$$p.user", null] },
+                          },
+                        },
+                      },
+                      teamB: {
+                        players: {
+                          $filter: {
+                            input: [
+                              {
+                                user: "$pairBReg.player1.user",
+                                fullName: "$pairBReg.player1.fullName",
+                                nickName: "$pairBReg.player1.nickName",
+                                avatar: "$pairBReg.player1.avatar",
+                                phone: "$pairBReg.player1.phone",
+                                score: "$pairBReg.player1.score",
+                              },
+                              {
+                                user: "$pairBReg.player2.user",
+                                fullName: "$pairBReg.player2.fullName",
+                                nickName: "$pairBReg.player2.nickName",
+                                avatar: "$pairBReg.player2.avatar",
+                                phone: "$pairBReg.player2.phone",
+                                score: "$pairBReg.player2.score",
+                              },
+                            ],
+                            as: "p",
+                            cond: { $ne: ["$$p.user", null] },
+                          },
+                        },
+                      },
+                    },
+                  },
+
+                  // Chuẩn hóa thành mảng teams
+                  {
+                    $project: {
+                      _id: 1,
+                      status: 1,
+                      winner: 1,
+                      round: 1,
+                      rrRound: 1,
+                      swissRound: 1,
+                      phase: 1,
+                      branch: 1,
+                      format: 1,
+                      scheduledAt: 1,
+                      courtName: 1,
+                      sets: 1,
+                      teams: ["$teamA", "$teamB"],
+                    },
+                  },
+                ],
+                as: "matches",
+              },
+            },
+          ]
+        : []),
+
+      // 6) sort tournaments (mới trước)
+      { $sort: { "tournament.startAt": -1, "tournament.createdAt": -1 } },
+
+      // 7) phân trang
+      {
+        $facet: {
+          total: [{ $count: "count" }],
+          items: [{ $skip: (page - 1) * limit }, { $limit: limit }],
+        },
+      },
+      {
+        $project: {
+          total: { $ifNull: [{ $arrayElemAt: ["$total.count", 0] }, 0] },
+          items: 1,
+        },
+      },
+    ];
+
+    const agg = await Registration.aggregate(pipeline);
+    const total = agg?.[0]?.total ?? 0;
+    const rows = agg?.[0]?.items ?? [];
+
+    const items = rows.map((r) => {
+      const t = r.tournament || {};
+      return {
+        _id: t._id,
+        name: t.name,
+        image: t.image ?? null,
+        location: t.location ?? "",
+        eventType: t.eventType, // "single" | "double"
+        status: t.status, // "upcoming" | "ongoing" | "finished"
+        startDate: t.startDate ?? null,
+        endDate: t.endDate ?? null,
+        startAt: t.startAt ?? null,
+        endAt: t.endAt ?? null,
+        myRegistrationIds: r.myRegistrationIds || [],
+        joinedAt: r.firstJoinedAt || null,
+        paidAny: !!r.paidAny,
+        checkedAny: !!r.checkedAny,
+        matches: r.matches || [], // 👈 danh sách trận của user trong giải
+      };
+    });
+
+    return res.json({
+      items,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    });
+  } catch (err) {
+    console.error("[listMyTournaments] error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+}

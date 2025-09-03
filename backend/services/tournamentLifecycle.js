@@ -1,19 +1,30 @@
 // services/tournamentLifecycle.js
+import mongoose from "mongoose";
 import { DateTime } from "luxon";
 import Tournament from "../models/tournamentModel.js";
 import Registration from "../models/registrationModel.js";
 import { addTournamentReputationBonus } from "./reputationService.js";
 
-/**
- * Kết thúc 1 giải:
- * - idempotent (chỉ chạy nếu chưa finished)
- * - snap endDate về NGÀY HIỆN TẠI THEO TIMEZONE của giải
- * - endAt = cuối ngày địa phương đó (UTC)
- * - cộng uy tín +10%
- */
+const { isValidObjectId, Types } = mongoose;
+
+/** Lấy _id hợp lệ dưới dạng chuỗi 24-hex từ nhiều dạng đầu vào */
+function toHexId(v) {
+  if (!v) return null;
+  if (typeof v === "string") return isValidObjectId(v) ? v : null;
+  if (v instanceof Types.ObjectId) return v.toString();
+  if (typeof v === "object" && v._id) return toHexId(v._id);
+  return null;
+}
+
 export async function finalizeTournamentById(id) {
-  // Lấy timezone của giải (default nếu không có)
-  const t0 = await Tournament.findById(id).select("_id status timezone").lean();
+  // id có thể là string/ObjectId → chuẩn hoá
+  const tid = toHexId(id);
+  if (!tid) return false;
+
+  // Lấy timezone & trạng thái hiện tại
+  const t0 = await Tournament.findById(tid)
+    .select("_id status timezone")
+    .lean();
   if (!t0) return false;
   if (t0.status === "finished") return false;
 
@@ -24,48 +35,43 @@ export async function finalizeTournamentById(id) {
 
   // Cập nhật trạng thái + chốt endDate/endAt
   const t = await Tournament.findOneAndUpdate(
-    { _id: id, status: { $ne: "finished" } },
+    { _id: tid, status: { $ne: "finished" } },
     {
       $set: {
         status: "finished",
-        // giữ finishedAt để trace, dù FE có thể bám theo endDate
-        finishedAt: nowUTC.toJSDate(),
-        // endDate = "ngày hiện tại" theo TZ (hiển thị)
-        endDate: nowLocal.toJSDate(),
-        // endAt = cuối ngày địa phương đó (chuẩn UTC để so sánh)
-        endAt: endOfLocalDayUTC.toJSDate(),
+        finishedAt: nowUTC.toJSDate(), // để trace
+        endDate: nowLocal.toJSDate(), // ngày hiển thị theo TZ
+        endAt: endOfLocalDayUTC.toJSDate(), // mốc chuẩn UTC để so sánh
       },
     },
     { new: true }
   );
-  if (!t) return false; // có thể race với request khác
+  if (!t) return false; // có thể race
 
-  // Gom userIds từ đăng ký (player1, player2)
-  const regs = await Registration.find({ tournament: id })
+  // Gom userIds từ đăng ký (player1, player2) — KHÔNG map(String) !!!
+  const regs = await Registration.find({ tournament: tid })
     .select("player1 player2")
     .lean();
 
   const userIds = Array.from(
     new Set(
-      regs.flatMap((r) => [r.player1, r.player2].filter(Boolean)).map(String)
+      regs
+        .flatMap((r) => [toHexId(r.player1), toHexId(r.player2)])
+        .filter(Boolean)
     )
   );
 
-  // +10% uy tín (idempotent nhờ ReputationEvent unique)
+  // +10% uy tín (idempotent nhờ unique index trên ReputationEvent)
   await addTournamentReputationBonus({
     userIds,
-    tournamentId: id,
+    tournamentId: tid,
     amount: 10,
   });
 
   return true;
 }
 
-/**
- * Quét & kết thúc các giải đã quá hạn (endAt <= now UTC)
- * - Không động vào endDate cũ nếu đã finished
- * - Với giải đang active: snap endDate về ngày hiện tại (theo TZ) như finalizeTournamentById
- */
+/** Quét & kết thúc các giải đã quá hạn (endAt <= now UTC) */
 export async function finalizeExpiredTournaments() {
   const now = new Date();
 
@@ -83,9 +89,7 @@ export async function finalizeExpiredTournaments() {
   return { checked: ids.length, finished };
 }
 
-/**
- * (Tuỳ chọn) Chuyển upcoming -> ongoing khi tới startAt
- */
+/** Chuyển upcoming -> ongoing khi tới startAt */
 export async function markOngoingTournaments() {
   const now = new Date();
   const r = await Tournament.updateMany(

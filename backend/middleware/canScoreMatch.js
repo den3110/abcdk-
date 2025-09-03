@@ -4,8 +4,8 @@ import Match from "../models/matchModel.js";
 const userIsAdmin = (user) =>
   Boolean(
     user?.isAdmin ||
-    user?.role === "admin" ||
-    (Array.isArray(user?.roles) && user.roles.includes("admin"))
+      user?.role === "admin" ||
+      (Array.isArray(user?.roles) && user.roles.includes("admin"))
   );
 
 export const canScoreMatch = asyncHandler(async (req, res, next) => {
@@ -23,7 +23,7 @@ export const canScoreMatch = asyncHandler(async (req, res, next) => {
     res.status(403);
     throw new Error("Not your match");
   }
-
+  // console.log("m.status", m.status);
   if (m.status === "finished") {
     res.status(400);
     throw new Error("Trận đấu đã kết thúc");

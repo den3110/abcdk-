@@ -1,26 +1,38 @@
 // services/reputationService.js
+import mongoose from "mongoose";
 import Ranking from "../models/rankingModel.js";
 import ReputationEvent from "../models/reputationEventModel.js";
 
-/**
- * Cộng uy tín cho danh sách user khi 1 giải kết thúc (idempotent).
- * - Tạo event (unique) -> nếu insert thành công thì mới cộng.
- */
-export async function addTournamentReputationBonus({ userIds = [], tournamentId, amount = 10 }) {
+const { isValidObjectId } = mongoose;
+
+export async function addTournamentReputationBonus({
+  userIds = [],
+  tournamentId,
+  amount = 10,
+}) {
   if (!userIds.length || !tournamentId) return { applied: 0 };
 
   let applied = 0;
-  for (const uid of userIds) {
+
+  // Chuẩn hoá tournamentId (cho chắc)
+  const tid =
+    typeof tournamentId === "string" ? tournamentId : String(tournamentId);
+
+  for (const uidRaw of userIds) {
+    // Chuẩn hoá UID về string 24-hex; bỏ qua nếu không hợp lệ
+    const uid = typeof uidRaw === "string" ? uidRaw : String(uidRaw);
+    if (!isValidObjectId(uid)) continue;
+
     try {
-      // upsert event (unique theo user+tournament)
+      // 1) Tạo event (unique theo user + type + tournament)
       await ReputationEvent.create({
         user: uid,
         type: "TOURNAMENT_FINISHED",
-        tournament: tournamentId,
+        tournament: tid,
         amount,
       });
 
-      // nếu tạo được event => cộng uy tín
+      // 2) Find-or-create Ranking row
       await Ranking.findOneAndUpdate(
         { user: uid },
         {
@@ -31,25 +43,23 @@ export async function addTournamentReputationBonus({ userIds = [], tournamentId,
         { upsert: true, new: true }
       );
 
-      // tăng reputation + cap 100 (pipeline update cần MongoDB >= 4.2; fallback 2 bước nếu muốn)
-      await Ranking.updateOne(
-        { user: uid },
-        [
-          {
-            $set: {
-              reputation: {
-                $min: [100, { $add: [{ $ifNull: ["$reputation", 0] }, amount] }],
-              },
+      // 3) Tăng reputation + cap 100 (pipeline)
+      await Ranking.updateOne({ user: uid }, [
+        {
+          $set: {
+            reputation: {
+              $min: [100, { $add: [{ $ifNull: ["$reputation", 0] }, amount] }],
             },
           },
-        ]
-      );
+        },
+      ]);
 
       applied++;
     } catch (e) {
-      // duplicate event => bỏ qua (đã cộng trước đó)
-      if (e.code !== 11000) throw e;
+      // Nếu trùng (unique key), bỏ qua; lỗi khác ném ra
+      if (e?.code !== 11000) throw e;
     }
   }
+
   return { applied };
 }

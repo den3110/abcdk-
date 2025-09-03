@@ -21,8 +21,6 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
     open ? matchId : null,
     token
   );
-  console.log("live", live)
-  console.log("base", base)
   const m = live || base;
   const status = m?.status || "scheduled";
 

@@ -4,7 +4,7 @@ import Match from "../models/matchModel.js";
 import Tournament from "../models/tournamentModel.js";
 import Bracket from "../models/bracketModel.js";
 import {
-  addPoint, /* optional: nextGame helper nếu bạn tách riêng */
+  addPoint /* optional: nextGame helper nếu bạn tách riêng */,
   toDTO,
 } from "../socket/liveHandlers.js";
 import mongoose from "mongoose";
@@ -227,17 +227,80 @@ const gameWon = (x, y, pts, byTwo) =>
   x >= pts && (byTwo ? x - y >= 2 : x - y >= 1);
 
 export const patchScore = asyncHandler(async (req, res) => {
-  const winsCount = (gs = [], rules = { pointsToWin: 11, winByTwo: true }) => {
+  // ======= CAP-AWARE RULE HELPERS =======
+  function isFinitePos(n) {
+    return Number.isFinite(n) && n > 0;
+  }
+
+  /**
+   * Kết luận 1 ván dựa trên rules (pointsToWin, winByTwo, cap).
+   * Trả về: { finished: boolean, winner: 'A'|'B'|null, capped: boolean }
+   */
+  function evaluateGameFinish(aRaw, bRaw, rules) {
+    const a = Number(aRaw) || 0;
+    const b = Number(bRaw) || 0;
+
+    const base = Number(rules?.pointsToWin ?? 11);
+    const byTwo = rules?.winByTwo !== false; // default true
+    const mode = String(rules?.cap?.mode ?? "none"); // 'none' | 'hard' | 'soft'
+    const capPoints =
+      rules?.cap?.points != null ? Number(rules.cap.points) : null;
+
+    // HARD CAP: chạm cap là kết thúc ngay, không cần chênh 2.
+    if (mode === "hard" && isFinitePos(capPoints)) {
+      if (a >= capPoints || b >= capPoints) {
+        if (a === b) return { finished: false, winner: null, capped: false }; // edge-case nhập tay
+        return { finished: true, winner: a > b ? "A" : "B", capped: true };
+      }
+    }
+
+    // SOFT CAP: khi đạt ngưỡng cap, bỏ luật chênh 2 → ai dẫn trước là thắng.
+    if (mode === "soft" && isFinitePos(capPoints)) {
+      if (a >= capPoints || b >= capPoints) {
+        if (a === b) return { finished: false, winner: null, capped: false }; // cần hơn nhau 1
+        return { finished: true, winner: a > b ? "A" : "B", capped: true };
+      }
+    }
+
+    // Không cap (hoặc chưa tới cap):
+    if (byTwo) {
+      if ((a >= base || b >= base) && Math.abs(a - b) >= 2) {
+        return { finished: true, winner: a > b ? "A" : "B", capped: false };
+      }
+    } else {
+      if ((a >= base || b >= base) && a !== b) {
+        return { finished: true, winner: a > b ? "A" : "B", capped: false };
+      }
+    }
+    return { finished: false, winner: null, capped: false };
+  }
+
+  function countWins(gs = [], rules) {
     let aWins = 0,
       bWins = 0;
     for (const g of gs) {
-      if (gameWon(g?.a ?? 0, g?.b ?? 0, rules.pointsToWin, rules.winByTwo))
-        aWins++;
-      if (gameWon(g?.b ?? 0, g?.a ?? 0, rules.pointsToWin, rules.winByTwo))
-        bWins++;
+      const ev = evaluateGameFinish(g?.a ?? 0, g?.b ?? 0, rules);
+      if (!ev.finished) continue;
+      if (ev.winner === "A") aWins++;
+      else if (ev.winner === "B") bWins++;
     }
     return { aWins, bWins };
-  };
+  }
+
+  async function finalizeMatchIfDone(match, rules) {
+    const { aWins, bWins } = countWins(match.gameScores || [], rules);
+    const need = Math.floor(Number(rules.bestOf) / 2) + 1;
+    if (aWins >= need || bWins >= need) {
+      match.winner = aWins > bWins ? "A" : "B";
+      match.status = "finished";
+      if (!match.finishedAt) match.finishedAt = new Date(); // ★ ensure end time
+      await match.save();
+      return true;
+    }
+    return false;
+  }
+
+  // ======= Controller logic =======
   const { id } = req.params;
   const { op } = req.body || {};
   const io = req.app.get("io");
@@ -245,14 +308,24 @@ export const patchScore = asyncHandler(async (req, res) => {
   const match = await Match.findById(id);
   if (!match) return res.status(404).json({ message: "Match not found" });
 
-  // bảo vệ rules mặc định
+  // Bảo vệ rules mặc định + CAP
   const rules = {
     bestOf: Number(match.rules?.bestOf ?? 3),
     pointsToWin: Number(match.rules?.pointsToWin ?? 11),
-    winByTwo: Boolean(match.rules?.winByTwo ?? true),
+    winByTwo:
+      match.rules?.winByTwo === undefined
+        ? true
+        : Boolean(match.rules?.winByTwo),
+    cap: {
+      mode: String(match.rules?.cap?.mode ?? "none"),
+      points:
+        match.rules?.cap?.points === undefined
+          ? null
+          : Number(match.rules.cap.points),
+    },
   };
 
-  // ===== 1) TĂNG/GIẢM ĐIỂM -> delegate ra liveHandlers để dùng chung luật + serve =====
+  // ===== 1) INC/DEC điểm =====
   if (op === "inc") {
     const { side, delta } = req.body;
     const d = Number(delta);
@@ -261,22 +334,53 @@ export const patchScore = asyncHandler(async (req, res) => {
     if (!Number.isFinite(d) || d === 0)
       return res.status(400).json({ message: "Invalid delta" });
 
-    // Dùng service chung để: cập nhật điểm, xét kết thúc ván/trận, xoay giao bóng (nếu bạn đã thêm).
+    // Service addPoint sẽ cập nhật điểm; sau đó ta kiểm tra kết thúc để set finishedAt nếu cần
     await addPoint(id, side, d, req.user?._id, io);
 
-    // Trả snapshot mới nhất
+    // Re-fetch document (không lean) để có thể cập nhật finishedAt
+    const freshDoc = await Match.findById(id);
+    if (!freshDoc) return res.status(404).json({ message: "Match not found" });
+
+    // Recompute rules từ doc mới (phòng rule đổi khi live)
+    const rulesNow = {
+      bestOf: Number(freshDoc.rules?.bestOf ?? rules.bestOf),
+      pointsToWin: Number(freshDoc.rules?.pointsToWin ?? rules.pointsToWin),
+      winByTwo:
+        freshDoc.rules?.winByTwo === undefined
+          ? rules.winByTwo
+          : Boolean(freshDoc.rules?.winByTwo),
+      cap: {
+        mode: String(freshDoc.rules?.cap?.mode ?? rules.cap.mode),
+        points:
+          freshDoc.rules?.cap?.points === undefined
+            ? rules.cap.points
+            : Number(freshDoc.rules.cap.points),
+      },
+    };
+
+    // Nếu đã finished mà chưa có finishedAt → đóng dấu thời gian.
+    // Hoặc nếu chưa finished nhưng đủ điều kiện → finalize (sẽ set finishedAt).
+    if (freshDoc.status === "finished") {
+      if (!freshDoc.finishedAt) {
+        freshDoc.finishedAt = new Date();
+        await freshDoc.save();
+      }
+    } else {
+      await finalizeMatchIfDone(freshDoc, rulesNow);
+    }
+
     const fresh = await Match.findById(id).lean();
-    io?.to(`match:${id}`).emit("score:updated", { matchId: id }); // đúng room
+    io?.to(`match:${id}`).emit("score:updated", { matchId: id });
     return res.json({
       message: "Score updated",
       gameScores: fresh?.gameScores ?? [],
-      status: fresh?.status, // NEW
-      winner: fresh?.winner, // NEW
-      ratingApplied: fresh?.ratingApplied, // NEW
+      status: fresh?.status,
+      winner: fresh?.winner,
+      ratingApplied: fresh?.ratingApplied,
     });
   }
 
-  // ===== 2) SET GAME TẠI CHỈ SỐ CỤ THỂ =====
+  // ===== 2) SET GAME ở chỉ số cụ thể =====
   if (op === "setGame") {
     let { gameIndex, a = 0, b = 0 } = req.body;
     if (!Number.isInteger(gameIndex) || gameIndex < 0) {
@@ -284,16 +388,24 @@ export const patchScore = asyncHandler(async (req, res) => {
     }
     if (!Array.isArray(match.gameScores)) match.gameScores = [];
 
-    // chèn/ghi đè
     if (gameIndex > match.gameScores.length) {
       return res.status(400).json({ message: "gameIndex out of range" });
     }
-    const nextScore = { a: Number(a) || 0, b: Number(b) || 0 };
+
+    a = Number(a) || 0;
+    b = Number(b) || 0;
+
+    // kiểm tra kết thúc (cap-aware)
+    evaluateGameFinish(a, b, rules);
+
+    const nextScore = { a, b };
     if (gameIndex === match.gameScores.length) match.gameScores.push(nextScore);
     else match.gameScores[gameIndex] = nextScore;
 
-    // cập nhật currentGame = gameIndex
     match.currentGame = gameIndex;
+
+    // Thử tự đóng trận nếu đã đủ set thắng → sẽ set finishedAt
+    await finalizeMatchIfDone(match, rules);
 
     await match.save();
     io?.to(`match:${id}`).emit("score:updated", { matchId: id });
@@ -301,48 +413,63 @@ export const patchScore = asyncHandler(async (req, res) => {
       message: "Game set",
       gameScores: match.gameScores,
       currentGame: match.currentGame,
+      status: match.status,
+      winner: match.winner,
     });
   }
 
-  // ===== 3) MỞ VÁN MỚI (sau khi ván hiện tại đã kết thúc & trận chưa đủ set thắng) =====
+  // ===== 3) MỞ VÁN MỚI =====
   if (op === "nextGame") {
     if (!Array.isArray(match.gameScores) || match.gameScores.length === 0) {
       return res
         .status(400)
         .json({ message: "Chưa có ván hiện tại để kiểm tra" });
     }
-    const last = match.gameScores[match.gameScores.length - 1];
-    if (
-      !gameWon(last?.a ?? 0, last?.b ?? 0, rules.pointsToWin, rules.winByTwo)
-    ) {
+
+    const last = match.gameScores[match.gameScores.length - 1] || {
+      a: 0,
+      b: 0,
+    };
+    const ev = evaluateGameFinish(
+      Number(last?.a ?? 0),
+      Number(last?.b ?? 0),
+      rules
+    );
+
+    if (!ev.finished) {
       return res
         .status(400)
         .json({ message: "Ván hiện tại chưa đủ điều kiện kết thúc" });
     }
 
-    const { aWins, bWins } = winsCount(match.gameScores, rules);
-    const need = Math.floor(rules.bestOf / 2) + 1;
-    if (aWins >= need || bWins >= need) {
-      return res
-        .status(400)
-        .json({ message: "Trận đã đủ số ván thắng. Không thể tạo ván mới" });
+    // Nếu đủ best-of thì đóng trận luôn (sẽ set finishedAt)
+    const done = await finalizeMatchIfDone(match, rules);
+    if (done) {
+      io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+      return res.json({
+        message: "Trận đã đủ số ván thắng, đã kết thúc",
+        gameScores: match.gameScores,
+        currentGame: match.currentGame,
+        status: match.status,
+        winner: match.winner,
+      });
     }
 
-    // thêm ván mới + cập nhật currentGame
+    // Mở ván mới
     match.gameScores.push({ a: 0, b: 0 });
     match.currentGame = match.gameScores.length - 1;
 
-    // reset giao bóng đầu ván theo luật truyền thống: 0-0-2
-    match.serving = match.serving || { team: "A", server: 2 }; // tuỳ bạn có field này chưa
-    match.serving.team = match.serving.team || "A";
-    match.serving.server = 2;
+    // reset giao bóng đầu ván theo schema
+    match.serve = match.serve || { side: "A", server: 2 };
+    match.serve.side = match.serve.side || "A";
+    match.serve.server = 2;
 
     // log (nếu dùng liveLog)
     match.liveLog = match.liveLog || [];
     match.liveLog.push({
       type: "serve",
       by: req.user?._id || null,
-      payload: { team: match.serving.team, server: 2 },
+      payload: { side: match.serve.side, server: 2 },
       at: new Date(),
     });
 
@@ -352,6 +479,8 @@ export const patchScore = asyncHandler(async (req, res) => {
       message: "Đã tạo ván tiếp theo",
       gameScores: match.gameScores,
       currentGame: match.currentGame,
+      status: match.status,
+      winner: match.winner,
     });
   }
 
@@ -368,10 +497,19 @@ export const patchStatus = asyncHandler(async (req, res) => {
   if (!["scheduled", "live", "finished"].includes(status)) {
     return res.status(400).json({ message: "Invalid status" });
   }
+
   const match = await Match.findById(id);
   if (!match) return res.status(404).json({ message: "Match not found" });
 
+  const prevStatus = match.status;
   match.status = status;
+
+  // ★ NEW: nếu chuyển sang live lần đầu → đóng dấu thời gian bắt đầu
+  if (status === "live" && prevStatus !== "live") {
+    if (!match.startedAt) match.startedAt = new Date();
+    if (req.user?._id) match.liveBy = req.user._id; // optional: lưu ai bật live
+  }
+
   await match.save();
 
   const io = req.app.get("io");
@@ -379,7 +517,8 @@ export const patchStatus = asyncHandler(async (req, res) => {
     matchId: match._id,
     status,
   });
-  if(match._id) {
+
+  if (match._id) {
     const m = await Match.findById(match._id)
       .populate({ path: "pairA", select: "player1 player2" })
       .populate({ path: "pairB", select: "player1 player2" })
@@ -394,8 +533,10 @@ export const patchStatus = asyncHandler(async (req, res) => {
       .populate({ path: "bracket", select: "type name order overlay" })
       .lean();
 
-    if (m) io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
+    if (m)
+      io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
   }
+
   return res.json({ message: "Status updated", status: match.status });
 });
 
@@ -426,14 +567,16 @@ export const patchWinner = asyncHandler(async (req, res) => {
   return res.json({ message: "Winner updated", winner: match.winner });
 });
 
-
 // ===== helpers =====
 const toObjectId = (id) => {
-  try { return new mongoose.Types.ObjectId(id); } catch { return null; }
+  try {
+    return new mongoose.Types.ObjectId(id);
+  } catch {
+    return null;
+  }
 };
 
-const escapeRegex = (s = "") =>
-  s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // an toàn cho $regex
+const escapeRegex = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // an toàn cho $regex
 
 // Định nghĩa tập trạng thái "đang chờ/đang diễn ra" để tính pendingCount
 const PENDING_STATES = ["queued", "assigned", "live"];
@@ -444,7 +587,6 @@ const PENDING_STATES = ["queued", "assigned", "live"];
  * kèm pendingCount (số trận ở trạng thái queued/assigned/live).
  */
 export async function listRefereeTournaments(req, res, next) {
-  console.log(123)
   try {
     const userId = toObjectId(req.user?._id);
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
@@ -500,6 +642,7 @@ export async function listRefereeTournaments(req, res, next) {
 export async function listRefereeBrackets(req, res, next) {
   try {
     const tid = toObjectId(req.params.tid);
+    console.log(tid);
     if (!tid) return res.status(400).json({ message: "Invalid tournament id" });
 
     const items = await Bracket.find({ tournament: tid })
@@ -524,6 +667,7 @@ export async function listRefereeBrackets(req, res, next) {
  * Response:
  *  { items, total, page, pageSize, totalPages }
  */
+
 export async function listRefereeMatchesByTournament(req, res, next) {
   try {
     const tid = toObjectId(req.params.tid);
@@ -532,67 +676,518 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     const userId = toObjectId(req.user?._id);
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
-    const {
-      status,
-      bracketId,
-      q,
-      page = 1,
-      pageSize = 10,
-    } = req.query;
+    let { status, bracketId, q, page = 1, pageSize = 10 } = req.query;
 
-    // Build filter
-    const filter = {
-      tournament: tid,
-      $or: [{ referees: userId }, { referee: userId }], // tùy model của bạn
-    };
-
-    if (status && status !== "all") filter.status = status;
-    if (bracketId) {
-      const bid = toObjectId(bracketId);
-      if (!bid) return res.status(400).json({ message: "Invalid bracket id" });
-      filter.bracket = bid;
-    }
-
-    if (q && String(q).trim()) {
-      const rx = new RegExp(escapeRegex(String(q).trim()), "i");
-      // Tối ưu: đảm bảo bạn có field 'code' trên Match (pre-save) & index text cho tên
-      filter.$or = [
-        { code: rx }, // gợi ý nên có index
-        { "pairA.player1.nickname": rx },
-        { "pairA.player2.nickname": rx },
-        { "pairA.player1.fullName": rx },
-        { "pairA.player2.fullName": rx },
-        { "pairA.player1.name": rx },
-        { "pairA.player2.name": rx },
-        { "pairB.player1.nickname": rx },
-        { "pairB.player2.nickname": rx },
-        { "pairB.player1.fullName": rx },
-        { "pairB.player2.fullName": rx },
-        { "pairB.player1.name": rx },
-        { "pairB.player2.name": rx },
-      ];
-    }
-
-    // Pagination
     const p = Math.max(1, parseInt(page, 10) || 1);
     const ps = Math.min(50, Math.max(1, parseInt(pageSize, 10) || 10));
 
-    const total = await Match.countDocuments(filter);
+    // ---------- $match ----------
+    const andClauses = [
+      { tournament: tid },
+      { $or: [{ referee: userId }, { referees: userId }] },
+    ];
 
-    // Sắp xếp: ưu tiên status (alphabet không ý nghĩa lắm),
-    // bạn có thể thêm trường 'statusWeight' trong DB. Ở đây giữ ổn định theo round/order.
-    const items = await Match.find(filter)
-      .sort({ status: 1, round: 1, order: 1, _id: 1 })
-      .skip((p - 1) * ps)
-      .limit(ps)
-      .populate([
-        { path: "tournament", select: "_id name eventType" },
-        { path: "bracket", select: "_id name type stage" },
-        { path: "court", select: "_id name" },
-      ])
-      .lean();
+    if (bracketId) {
+      const bid = toObjectId(bracketId);
+      if (!bid) return res.status(400).json({ message: "Invalid bracket id" });
+      andClauses.push({ bracket: bid });
+    }
 
-    return res.json({
+    // enum: ["scheduled", "queued", "assigned", "live", "finished"]
+    if (status && status !== "all") {
+      const s = String(status).trim().toLowerCase();
+      if (
+        !["scheduled", "queued", "assigned", "live", "finished"].includes(s)
+      ) {
+        return res.status(400).json({ message: "Invalid status" });
+      }
+      andClauses.push({
+        $expr: {
+          $eq: [
+            { $trim: { input: { $toLower: { $ifNull: ["$status", ""] } } } },
+            s,
+          ],
+        },
+      });
+    }
+
+    // Tìm kiếm nhẹ theo code/labelKey/courtLabel
+    if (q && String(q).trim()) {
+      const rx = new RegExp(escapeRegex(String(q).trim()), "i");
+      andClauses.push({
+        $or: [{ code: rx }, { labelKey: rx }, { courtLabel: rx }],
+      });
+    }
+
+    // ---------- pipeline ----------
+    const pipeline = [
+      { $match: { $and: andClauses } },
+
+      // Chuẩn hóa + bucket
+      {
+        $addFields: {
+          normalizedStatus: {
+            $trim: { input: { $toLower: { $ifNull: ["$status", ""] } } },
+          },
+        },
+      },
+      {
+        $addFields: {
+          _bucketPrio: {
+            $switch: {
+              branches: [
+                { case: { $eq: ["$normalizedStatus", "live"] }, then: 0 },
+                { case: { $eq: ["$normalizedStatus", "scheduled"] }, then: 1 },
+                { case: { $eq: ["$normalizedStatus", "assigned"] }, then: 2 },
+                { case: { $eq: ["$normalizedStatus", "queued"] }, then: 3 },
+                { case: { $eq: ["$normalizedStatus", "finished"] }, then: 4 },
+              ],
+              default: 9,
+            },
+          },
+          _bucketLabel: {
+            $switch: {
+              branches: [
+                { case: { $eq: ["$normalizedStatus", "live"] }, then: "live" },
+                {
+                  case: { $eq: ["$normalizedStatus", "scheduled"] },
+                  then: "scheduled",
+                },
+                {
+                  case: { $eq: ["$normalizedStatus", "assigned"] },
+                  then: "assigned",
+                },
+                {
+                  case: { $eq: ["$normalizedStatus", "queued"] },
+                  then: "queued",
+                },
+                {
+                  case: { $eq: ["$normalizedStatus", "finished"] },
+                  then: "finished",
+                },
+              ],
+              default: "other",
+            },
+          },
+          _updatedAtSafe: { $ifNull: ["$updatedAt", "$createdAt"] },
+          _finishedAtSafe: { $ifNull: ["$finishedAt", new Date(0)] },
+          _queueOrderSafe: {
+            $cond: [{ $ifNull: ["$queueOrder", false] }, "$queueOrder", 999999],
+          },
+        },
+      },
+
+      // K1/K2 per-bucket
+      {
+        $addFields: {
+          _updatedAtLong: { $toLong: "$_updatedAtSafe" },
+          _finishedAtLong: { $toLong: "$_finishedAtSafe" },
+          _k1: {
+            $switch: {
+              branches: [
+                {
+                  case: { $eq: ["$_bucketPrio", 0] },
+                  then: { $multiply: ["$_updatedAtLong", -1] },
+                }, // live: updatedAt desc
+                {
+                  case: { $in: ["$_bucketPrio", [1, 2]] },
+                  then: { $ifNull: ["$round", 99999] },
+                }, // sched/assigned: round asc
+                {
+                  case: { $eq: ["$_bucketPrio", 3] },
+                  then: "$_queueOrderSafe",
+                }, // queued: queueOrder asc
+                {
+                  case: { $eq: ["$_bucketPrio", 4] },
+                  then: { $multiply: ["$_finishedAtLong", -1] },
+                }, // finished: finishedAt desc
+              ],
+              default: 0,
+            },
+          },
+          _k2: {
+            $switch: {
+              branches: [
+                {
+                  case: { $in: ["$_bucketPrio", [1, 2]] },
+                  then: { $ifNull: ["$order", 99999] },
+                }, // sched/assigned: order asc
+                { case: { $in: ["$_bucketPrio", [0, 3, 4]] }, then: 0 },
+              ],
+              default: 0,
+            },
+          },
+        },
+      },
+
+      // Sort chính
+      { $sort: { _bucketPrio: 1, _k1: 1, _k2: 1, _id: 1 } },
+
+      // Facet meta & page
+      {
+        $facet: {
+          meta: [{ $count: "count" }],
+          items: [{ $skip: (p - 1) * ps }, { $limit: ps }],
+        },
+      },
+      {
+        $addFields: {
+          _total: { $ifNull: [{ $arrayElemAt: ["$meta.count", 0] }, 0] },
+        },
+      },
+      { $project: { meta: 0 } },
+      { $unwind: { path: "$items", preserveNullAndEmptyArrays: true } },
+      {
+        $replaceRoot: {
+          newRoot: { $mergeObjects: ["$items", { _total: "$_total" }] },
+        },
+      },
+
+      /* ---------- Lookups (populate gọn) ---------- */
+      {
+        $lookup: {
+          from: "tournaments",
+          localField: "tournament",
+          foreignField: "_id",
+          pipeline: [{ $project: { _id: 1, name: 1, eventType: 1 } }],
+          as: "tournament",
+        },
+      },
+      { $unwind: { path: "$tournament", preserveNullAndEmptyArrays: true } },
+
+      // 🔁 Lấy bracket + groups (để tính bảng)
+      {
+        $lookup: {
+          from: "brackets",
+          localField: "bracket",
+          foreignField: "_id",
+          pipeline: [
+            {
+              $project: {
+                _id: 1,
+                name: 1,
+                type: 1,
+                stage: 1,
+                // chỉ lấy field tối thiểu trong groups
+                groups: {
+                  $map: {
+                    input: { $ifNull: ["$groups", []] },
+                    as: "g",
+                    in: {
+                      _id: "$$g._id",
+                      name: "$$g.name",
+                      code: "$$g.code",
+                      regIds: { $ifNull: ["$$g.regIds", []] },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+          as: "bracket",
+        },
+      },
+      { $unwind: { path: "$bracket", preserveNullAndEmptyArrays: true } },
+
+      {
+        $lookup: {
+          from: "courts",
+          localField: "court",
+          foreignField: "_id",
+          pipeline: [{ $project: { _id: 1, name: 1, label: "$name" } }],
+          as: "court",
+        },
+      },
+      { $unwind: { path: "$court", preserveNullAndEmptyArrays: true } },
+
+      // 💡 Tính display order 1-based
+      {
+        $addFields: {
+          _orderDisplay: { $add: [{ $ifNull: ["$order", 0] }, 1] },
+        },
+      },
+
+      // 💡 Tính groupCtx nếu bracket.type === 'group' và A/B cùng nhóm
+      {
+        $addFields: {
+          _groupCtx: {
+            $cond: [
+              {
+                $and: [
+                  { $eq: ["$bracket.type", "group"] },
+                  { $isArray: "$bracket.groups" },
+                ],
+              },
+              {
+                $let: {
+                  vars: {
+                    gs: "$bracket.groups",
+                    n: { $size: { $ifNull: ["$bracket.groups", []] } },
+                  },
+                  in: {
+                    $let: {
+                      vars: {
+                        withIdx: {
+                          $map: {
+                            input: { $range: [0, "$$n"] },
+                            as: "i",
+                            in: {
+                              idx: "$$i",
+                              g: { $arrayElemAt: ["$$gs", "$$i"] },
+                            },
+                          },
+                        },
+                      },
+                      in: {
+                        $let: {
+                          vars: {
+                            matched: {
+                              $filter: {
+                                input: "$$withIdx",
+                                as: "it",
+                                cond: {
+                                  $and: [
+                                    {
+                                      $in: [
+                                        "$pairA",
+                                        { $ifNull: ["$$it.g.regIds", []] },
+                                      ],
+                                    },
+                                    {
+                                      $in: [
+                                        "$pairB",
+                                        { $ifNull: ["$$it.g.regIds", []] },
+                                      ],
+                                    },
+                                  ],
+                                },
+                              },
+                            },
+                          },
+                          in: {
+                            $let: {
+                              vars: {
+                                first: { $arrayElemAt: ["$$matched", 0] },
+                              },
+                              in: {
+                                $cond: [
+                                  { $gt: [{ $size: "$$matched" }, 0] },
+                                  {
+                                    idx: "$$first.idx",
+                                    key: {
+                                      $let: {
+                                        vars: { gg: "$$first.g" },
+                                        in: {
+                                          $ifNull: [
+                                            "$$gg.name",
+                                            {
+                                              $ifNull: [
+                                                "$$gg.code",
+                                                { $toString: "$$gg._id" },
+                                              ],
+                                            },
+                                          ],
+                                        },
+                                      },
+                                    },
+                                  },
+                                  null,
+                                ],
+                              },
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+              null,
+            ],
+          },
+        },
+      },
+
+      // 💡 Xuất groupKey / groupIndex / codeGroup
+      {
+        $addFields: {
+          groupKey: "$_groupCtx.key",
+          groupIndex: {
+            $cond: [
+              { $ifNull: ["$_groupCtx", false] },
+              { $add: ["$_groupCtx.idx", 1] },
+              null,
+            ],
+          },
+          codeGroup: {
+            $cond: [
+              { $ifNull: ["$_groupCtx", false] },
+              {
+                $concat: [
+                  "#V",
+                  { $toString: { $ifNull: ["$bracket.stage", 1] } },
+                  "-B",
+                  { $toString: { $add: ["$_groupCtx.idx", 1] } },
+                  "#",
+                  { $toString: "$_orderDisplay" },
+                ],
+              },
+              null,
+            ],
+          },
+        },
+      },
+
+      // 🔥 populate pairA (Registration) + project player fields
+      {
+        $lookup: {
+          from: "registrations",
+          localField: "pairA",
+          foreignField: "_id",
+          pipeline: [
+            {
+              $project: {
+                _id: 1,
+                teamName: 1,
+                seed: 1,
+                "player1.user": 1,
+                "player1.name": 1,
+                "player1.fullName": 1,
+                "player1.nickname": 1,
+                "player2.user": 1,
+                "player2.name": 1,
+                "player2.fullName": 1,
+                "player2.nickname": 1,
+              },
+            },
+          ],
+          as: "pairAReg",
+        },
+      },
+      { $unwind: { path: "$pairAReg", preserveNullAndEmptyArrays: true } },
+
+      // 🔥 populate pairB
+      {
+        $lookup: {
+          from: "registrations",
+          localField: "pairB",
+          foreignField: "_id",
+          pipeline: [
+            {
+              $project: {
+                _id: 1,
+                teamName: 1,
+                seed: 1,
+                "player1.user": 1,
+                "player1.name": 1,
+                "player1.fullName": 1,
+                "player1.nickname": 1,
+                "player2.user": 1,
+                "player2.name": 1,
+                "player2.fullName": 1,
+                "player2.nickname": 1,
+              },
+            },
+          ],
+          as: "pairBReg",
+        },
+      },
+      { $unwind: { path: "$pairBReg", preserveNullAndEmptyArrays: true } },
+
+      // Gom lại items + total
+      {
+        $group: {
+          _id: null,
+          items: { $push: "$$ROOT" },
+          total: { $first: "$_total" },
+        },
+      },
+
+      // Project shape cuối cùng
+      {
+        $project: {
+          _id: 0,
+          total: 1,
+          items: {
+            $map: {
+              input: "$items",
+              as: "it",
+              in: {
+                _id: "$$it._id",
+                code: "$$it.code",
+                codeGroup: "$$it.codeGroup",
+                // 👉 Dùng cho UI hiển thị thống nhất
+                codeResolved: { $ifNull: ["$$it.codeGroup", "$$it.code"] },
+
+                labelKey: "$$it.labelKey",
+                status: "$$it.status",
+                sortBucket: "$$it._bucketLabel",
+                round: "$$it.round",
+                rrRound: "$$it.rrRound",
+                order: "$$it.order",
+                queueOrder: "$$it.queueOrder",
+                winner: "$$it.winner",
+                court: "$$it.court",
+                courtLabel: "$$it.courtLabel",
+                startedAt: "$$it.startedAt",
+                finishedAt: "$$it.finishedAt",
+                updatedAt: "$$it.updatedAt",
+                tournament: "$$it.tournament",
+                bracket: "$$it.bracket",
+
+                // 👇 thông tin bảng để client tuỳ biến thêm nếu muốn
+                groupKey: "$$it.groupKey",
+                groupIndex: "$$it.groupIndex",
+
+                // ✅ pairA chi tiết
+                pairA: {
+                  _id: "$$it.pairAReg._id",
+                  teamName: "$$it.pairAReg.teamName",
+                  seed: "$$it.pairAReg.seed",
+                  player1: {
+                    user: "$$it.pairAReg.player1.user",
+                    name: "$$it.pairAReg.player1.name",
+                    fullName: "$$it.pairAReg.player1.fullName",
+                    nickname: "$$it.pairAReg.player1.nickname",
+                  },
+                  player2: {
+                    user: "$$it.pairAReg.player2.user",
+                    name: "$$it.pairAReg.player2.name",
+                    fullName: "$$it.pairAReg.player2.fullName",
+                    nickname: "$$it.pairAReg.player2.nickname",
+                  },
+                },
+
+                // ✅ pairB chi tiết
+                pairB: {
+                  _id: "$$it.pairBReg._id",
+                  teamName: "$$it.pairBReg.teamName",
+                  seed: "$$it.pairBReg.seed",
+                  player1: {
+                    user: "$$it.pairBReg.player1.user",
+                    name: "$$it.pairBReg.player1.name",
+                    fullName: "$$it.pairBReg.player1.fullName",
+                    nickname: "$$it.pairBReg.player1.nickname",
+                  },
+                  player2: {
+                    user: "$$it.pairBReg.player2.user",
+                    name: "$$it.pairBReg.player2.name",
+                    fullName: "$$it.pairBReg.player2.fullName",
+                    nickname: "$$it.pairBReg.player2.nickname",
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    ];
+
+    const result = await Match.aggregate(pipeline).allowDiskUse(true);
+    const items = result[0]?.items || [];
+    const total = result[0]?.total || 0;
+
+    res.json({
       items,
       total,
       page: p,

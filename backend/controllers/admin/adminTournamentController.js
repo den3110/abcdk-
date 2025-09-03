@@ -475,6 +475,24 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
     const { groups, po, ko } = req.body || {};
     const created = { groupBracket: null, poBracket: null, koBracket: null };
 
+    // ===== ONLY ADD: chuẩn hoá cap trong rules (không đổi các field khác)
+    const withCap = (rules) => {
+      if (!rules) return undefined;
+      const rawMode = String(rules?.cap?.mode ?? "none").toLowerCase();
+      const mode = ["none", "soft", "hard"].includes(rawMode)
+        ? rawMode
+        : "none";
+      let points = rules?.cap?.points;
+      if (mode === "none") {
+        points = null;
+      } else {
+        const n = Number(points);
+        points = Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+      }
+      return { ...rules, cap: { mode, points } };
+    };
+    // ===== END ONLY ADD
+
     // Xác định stage nào thực sự có
     const hasGroup = Boolean(groups?.count > 0);
     const hasPO = Boolean(po?.drawSize > 0);
@@ -486,7 +504,7 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
     const poOrder = hasPO ? orderCounter++ : null;
     const koOrder = hasKO ? orderCounter++ : null;
 
-    // 1) Group (hỗ trợ totalTeams / groupSizes) — giữ nguyên logic, chỉ thêm truyền rules
+    // 1) Group (hỗ trợ totalTeams / groupSizes) — NGUYÊN LOGIC CŨ
     if (hasGroup) {
       const payload = {
         tournamentId: t._id,
@@ -499,13 +517,13 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         groupSizes: Array.isArray(groups.groupSizes)
           ? groups.groupSizes
           : undefined,
-        rules: groups?.rules || undefined, // ✅ NEW: truyền rules (không đổi schema)
+        rules: withCap(groups?.rules), // <— chỉ thêm chuẩn hoá cap
         session,
       };
       created.groupBracket = await buildGroupBracket(payload);
     }
 
-    // 2) PO (roundElim – KHÔNG ép 2^n) — giữ nguyên logic, chỉ thêm truyền rules
+    // 2) PO (roundElim – KHÔNG ép 2^n) — NGUYÊN LOGIC CŨ
     if (hasPO) {
       const firstRoundSeeds = Array.isArray(po.seeds) ? po.seeds : [];
       const { bracket } = await buildRoundElimBracket({
@@ -516,13 +534,13 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         drawSize: Number(po.drawSize),
         maxRounds: Math.max(1, Number(po.maxRounds || 1)),
         firstRoundSeeds,
-        rules: po?.rules || undefined, // ✅ NEW
+        rules: withCap(po?.rules), // <— chỉ thêm chuẩn hoá cap
         session,
       });
       created.poBracket = bracket;
     }
 
-    // 3) KO chính — giữ nguyên logic, chỉ thêm truyền rules + finalRules
+    // 3) KO chính — NGUYÊN LOGIC CŨ
     if (hasKO) {
       const firstRoundSeeds = Array.isArray(ko.seeds) ? ko.seeds : [];
       const { bracket } = await buildKnockoutBracket({
@@ -532,8 +550,8 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         stage: koOrder,
         drawSize: Number(ko.drawSize),
         firstRoundSeeds,
-        rules: ko?.rules || undefined, // ✅ NEW
-        finalRules: ko?.finalRules || null, // ✅ NEW: áp riêng cho trận chung kết
+        rules: withCap(ko?.rules), // <— chỉ thêm chuẩn hoá cap
+        finalRules: ko?.finalRules ? withCap(ko.finalRules) : null, // <— chỉ thêm chuẩn hoá cap
         session,
       });
       created.koBracket = bracket;

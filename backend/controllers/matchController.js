@@ -367,3 +367,59 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
 });
 
 export { getMatchesByTournament };
+
+/**
+ * PATCH /api/matches/:id/live
+ * Body: { liveUrl?: string, video?: string }
+ * ✅ Chỉ cập nhật field `video` (string). Không chạm vào status/startedAt/finishedAt.
+ * - Gán link:  { liveUrl: "https://..." } hoặc { video: "https://..." }
+ * - Xoá link:  { liveUrl: "" } hoặc { video: "" }  → video = ""
+ */
+export const setMatchLive = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    res.status(400);
+    throw new Error("Invalid match id");
+  }
+
+  const match = await Match.findById(id);
+  if (!match) {
+    res.status(404);
+    throw new Error("Match not found");
+  }
+
+  // Lấy URL từ body (ưu tiên liveUrl)
+  const raw = (req.body?.video ?? "").toString().trim();
+
+  // (Tuỳ chọn) enforce http/https
+  // if (raw && !/^https?:\/\//i.test(raw)) {
+  //   res.status(400);
+  //   throw new Error("Video URL must start with http/https");
+  // }
+
+  const prev = match.video || "";
+  match.video = raw || ""; // chỉ cập nhật video
+  if (prev !== match.video) {
+    match.liveVersion = (match.liveVersion || 0) + 1; // bump version khi đổi link
+  }
+  if (raw) {
+    match.liveBy = req.user?._id || match.liveBy || null; // ai gắn link
+  } 
+  // ❌ KHÔNG đổi status/startedAt/finishedAt
+
+  await match.save();
+
+  res.json({
+    success: true,
+    data: {
+      _id: match._id,
+      video: match.video,
+      liveVersion: match.liveVersion,
+      // Trả thêm cho tiện debug UI, nhưng không chỉnh sửa:
+      status: match.status,
+      startedAt: match.startedAt,
+      finishedAt: match.finishedAt,
+      updatedAt: match.updatedAt,
+    },
+  });
+});

@@ -8,6 +8,54 @@ import latestSnapshot from "../utils/getLastestSnapshot.js";
 import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
 import { onMatchFinished } from "../services/courtQueueService.js";
 
+// ===== CAP-AWARE helpers =====
+function isFinitePos(n) {
+  return Number.isFinite(n) && n > 0;
+}
+
+/**
+ * Kết luận 1 ván dựa trên rules (pointsToWin, winByTwo, cap).
+ * Trả về: { finished: boolean, winner: 'A'|'B'|null, capped: boolean }
+ */
+function evaluateGameFinish(aRaw, bRaw, rules) {
+  const a = Number(aRaw) || 0;
+  const b = Number(bRaw) || 0;
+
+  const base = Number(rules?.pointsToWin ?? 11);
+  const byTwo = rules?.winByTwo !== false; // default true
+  const mode = String(rules?.cap?.mode ?? "none"); // 'none' | 'hard' | 'soft'
+  const capPoints =
+    rules?.cap?.points != null ? Number(rules.cap.points) : null;
+
+  // HARD CAP: chạm cap là kết thúc ngay (không cần chênh 2)
+  if (mode === "hard" && isFinitePos(capPoints)) {
+    if (a >= capPoints || b >= capPoints) {
+      if (a === b) return { finished: false, winner: null, capped: false }; // edge-case nhập tay
+      return { finished: true, winner: a > b ? "A" : "B", capped: true };
+    }
+  }
+
+  // SOFT CAP: khi đạt ngưỡng cap, bỏ luật chênh 2 → ai dẫn trước là thắng
+  if (mode === "soft" && isFinitePos(capPoints)) {
+    if (a >= capPoints || b >= capPoints) {
+      if (a === b) return { finished: false, winner: null, capped: false };
+      return { finished: true, winner: a > b ? "A" : "B", capped: true };
+    }
+  }
+
+  // Không cap / chưa tới cap:
+  if (byTwo) {
+    if ((a >= base || b >= base) && Math.abs(a - b) >= 2) {
+      return { finished: true, winner: a > b ? "A" : "B", capped: false };
+    }
+  } else {
+    if ((a >= base || b >= base) && a !== b) {
+      return { finished: true, winner: a > b ? "A" : "B", capped: false };
+    }
+  }
+  return { finished: false, winner: null, capped: false };
+}
+
 export const toDTO = (m) => {
   const tournament = m.tournament
     ? {
@@ -37,6 +85,17 @@ export const toDTO = (m) => {
     bracket?.overlay ||
     null ||
     undefined;
+  // 👉 Media fields: ưu tiên m.video là nguồn chính
+  const primaryVideo =
+    typeof m.video === "string" && m.video.trim().length ? m.video.trim() : "";
+  // Giữ thêm vài field quen thuộc phòng khi bạn có dùng:
+  const videoUrl = typeof m.videoUrl === "string" ? m.videoUrl : undefined;
+  const stream = typeof m.stream === "string" ? m.stream : undefined;
+  const streams = Array.isArray(m.streams)
+    ? m.streams
+    : Array.isArray(m.meta?.streams)
+    ? m.meta.streams
+    : undefined;
 
   return {
     _id: m._id,
@@ -81,6 +140,12 @@ export const toDTO = (m) => {
 
     // ✅ overlay ở root (FE của bạn đọc được cả root.overlay lẫn tournament.overlay)
     overlay,
+
+    // === NEW: gửi về FE ===
+    video: primaryVideo || undefined, // FE của bạn đọc m.video là đủ
+    videoUrl, // tuỳ bạn có dùng hay không
+    stream,
+    streams, // nếu DB có, FE normalize được
   };
 };
 
@@ -201,14 +266,10 @@ async function applyRatingDeltaForMatch(mt, scorerId) {
 
 export async function addPoint(matchId, team, step = 1, by, io) {
   const m = await Match.findById(matchId);
-  // chỉ cộng khi đang live
   if (!m || m.status !== "live") return;
 
   // ---- guard & ép kiểu an toàn ----
-  const toNum = (v, fb = 0) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : fb;
-  };
+  const toNum = (v, fb = 0) => (Number.isFinite(Number(v)) ? Number(v) : fb);
   const clamp0 = (n) => (n < 0 ? 0 : n);
   const validSide = (s) => (s === "A" || s === "B" ? s : "A");
   const validServer = (x) => (x === 1 || x === 2 ? x : 2);
@@ -244,40 +305,42 @@ export async function addPoint(matchId, team, step = 1, by, io) {
     m.serve = prevServe;
   }
 
-  // check kết thúc ván/trận
+  // ===== cap-aware rules lấy từ match =====
   const rules = {
     bestOf: toNum(m.rules?.bestOf, 3),
     pointsToWin: toNum(m.rules?.pointsToWin, 11),
-    winByTwo: Boolean(m.rules?.winByTwo ?? true),
+    winByTwo:
+      m.rules?.winByTwo === undefined ? true : Boolean(m.rules?.winByTwo),
+    cap: {
+      mode: String(m.rules?.cap?.mode ?? "none"),
+      points:
+        m.rules?.cap?.points === undefined ? null : Number(m.rules.cap.points),
+    },
   };
 
-  let endedSide = null;
-  if (gameWon(cur.a, cur.b, rules.pointsToWin, rules.winByTwo)) endedSide = "A";
-  else if (gameWon(cur.b, cur.a, rules.pointsToWin, rules.winByTwo))
-    endedSide = "B";
+  // Kiểm tra kết thúc ván theo cap/soft-cap/by-two
+  const ev = evaluateGameFinish(cur.a, cur.b, rules);
 
-  if (endedSide) {
-    const winsOf = (side) =>
-      m.gameScores.reduce((acc, s) => {
-        const a = toNum(s.a, 0);
-        const b = toNum(s.b, 0);
-        const ok =
-          side === "A"
-            ? gameWon(a, b, rules.pointsToWin, rules.winByTwo)
-            : gameWon(b, a, rules.pointsToWin, rules.winByTwo);
-        return acc + (ok ? 1 : 0);
-      }, 0);
+  if (ev.finished) {
+    // Tính số ván đã thắng (cap-aware) đến thời điểm hiện tại
+    const wins = { A: 0, B: 0 };
+    for (let i = 0; i < m.gameScores.length; i++) {
+      const g = m.gameScores[i];
+      const ge = evaluateGameFinish(toNum(g?.a, 0), toNum(g?.b, 0), rules);
+      if (ge.finished && ge.winner) wins[ge.winner]++;
+    }
+    // cộng thêm ván vừa xong (vì cur vừa cập nhật)
+    // wins[ev.winner]++;
 
     const need = gamesToWin(rules.bestOf);
-    const wonA = winsOf("A");
-    const wonB = winsOf("B");
 
-    if (wonA >= need || wonB >= need) {
+    if (wins.A >= need || wins.B >= need) {
+      // Kết thúc TRẬN
       m.status = "finished";
-      m.winner = wonA > wonB ? "A" : "B";
+      m.winner = wins.A > wins.B ? "A" : "B";
       m.finishedAt = new Date();
     } else {
-      // mở ván mới, đổi bên giao đầu ván, 0-0-2
+      // Mở ván mới, đảo bên giao đầu ván, 0-0-2
       m.gameScores.push({ a: 0, b: 0 });
       m.currentGame = gi + 1;
       const nextFirstSide = prevServe.side === "A" ? "B" : "A";
@@ -305,11 +368,11 @@ export async function addPoint(matchId, team, step = 1, by, io) {
 
   await m.save();
 
-  // ❗ CHỈ áp điểm khi đã kết thúc (1 đường duy nhất)
+  // Áp rating + notify queue khi trận kết thúc
   try {
     if (m.status === "finished" && !m.ratingApplied) {
       await applyRatingForFinishedMatch(m._id);
-      await onMatchFinished({matchId: m._id})
+      await onMatchFinished({ matchId: m._id });
     }
   } catch (err) {
     console.error("[rating] applyRatingForFinishedMatch error:", err);
@@ -418,8 +481,7 @@ export async function finishMatch(matchId, winner, reason, by, io) {
   try {
     if (!m.ratingApplied) {
       await applyRatingForFinishedMatch(m._id);
-      await onMatchFinished({matchId: m._id})
-
+      await onMatchFinished({ matchId: m._id });
     }
   } catch (err) {
     console.error("[rating] applyRatingForFinishedMatch error:", err);

@@ -57,26 +57,14 @@ import {
 /* ===================== Helpers (names) ===================== */
 export const safePairName = (pair, eventType = "double") => {
   if (!pair) return "—";
-  const p1 =
-    pair.player1?.fullName ||
-    pair.player1?.name ||
-    pair.player1?.nickname ||
-    "N/A";
-  const p2 =
-    pair.player2?.fullName ||
-    pair.player2?.name ||
-    pair.player2?.nickname ||
-    "";
   const isSingle = String(eventType).toLowerCase() === "single";
-  if (isSingle) return p1;
-  return p2 ? `${p1} & ${p2}` : p1;
+  const a = nameWithNick(pair.player1); // nickname or "—"
+  const b = pair.player2 ? nameWithNick(pair.player2) : "";
+  if (isSingle) return a;
+  return b && b !== "—" ? `${a} & ${b}` : a;
 };
 
-export const preferName = (p) =>
-  (p?.fullName && String(p.fullName).trim()) ||
-  (p?.name && String(p.name).trim()) ||
-  (p?.nickname && String(p.nickname).trim()) ||
-  "N/A";
+export const preferName = (p) => preferNick(p);
 
 export const preferNick = (p) =>
   (p?.nickname && String(p.nickname).trim()) ||
@@ -84,21 +72,18 @@ export const preferNick = (p) =>
   (p?.nick && String(p.nick).trim()) ||
   "";
 
-export const nameWithNick = (p) => {
-  if (!p) return "—";
-  const nm = preferName(p);
-  const nk = preferNick(p);
-  if (!nk) return nm;
-  return nm.toLowerCase() === nk.toLowerCase() ? nm : `${nm} (${nk})`;
-};
-
 export const pairLabelWithNick = (pair, eventType = "double") => {
   if (!pair) return "—";
   const isSingle = String(eventType).toLowerCase() === "single";
   const a = nameWithNick(pair.player1);
   if (isSingle) return a;
   const b = pair.player2 ? nameWithNick(pair.player2) : "";
-  return b ? `${a} & ${b}` : a;
+  return b && b !== "—" ? `${a} & ${b}` : a;
+};
+
+export const nameWithNick = (p) => {
+  const nk = preferNick(p);
+  return nk || "—";
 };
 
 /* ----- seed label helpers ----- */
@@ -909,6 +894,18 @@ function formatTime(ts) {
     return "";
   }
 }
+
+function pickGroupKickoffTime(m) {
+  if (!m) return null;
+  const st = String(m.status || "").toLowerCase();
+  if (st === "live" || st === "finished") {
+    // Ưu tiên giờ bắt đầu thực tế nếu đã live/finished
+    return m.startedAt || m.scheduledAt || m.assignedAt || null;
+  }
+  // Chưa diễn ra → ưu tiên giờ dự kiến
+  return m.scheduledAt || m.assignedAt || null;
+}
+
 function scoreLabel(m) {
   if (!m) return "";
   const st = String(m.status || "").toLowerCase();
@@ -1588,15 +1585,49 @@ export default function TournamentBracket() {
   // Render “LIVE spotlight” cho vòng bảng
   const renderLiveSpotlight = () => {
     if (!liveSpotlight.length) return null;
+
     const stageNo = current?.stage || 1;
+
+    // Map nhóm -> chỉ số hiển thị (Bảng 1,2,3...)
+    const groupOrderMap = new Map(
+      (current?.groups || []).map((g, gi) => {
+        const key = String(g.name || g.code || g._id || String(gi + 1));
+        return [key, gi + 1];
+      })
+    );
+
+    // Tính thứ tự trận trong từng bảng (giống logic ở phần "Trận trong bảng")
+    const byGroup = new Map();
+    (currentMatches || []).forEach((m) => {
+      const key = matchGroupLabel(m);
+      if (!key) return;
+      if (!byGroup.has(key)) byGroup.set(key, []);
+      byGroup.get(key).push(m);
+    });
+    // sort và lập map matchId -> index trong bảng
+    const seqIndexByMatchId = new Map();
+    for (const [key, arr] of byGroup.entries()) {
+      arr
+        .slice()
+        .sort(
+          (a, b) =>
+            (a.round || 1) - (b.round || 1) || (a.order ?? 0) - (b.order ?? 0)
+        )
+        .forEach((m, idx) => {
+          seqIndexByMatchId.set(String(m._id), idx + 1);
+        });
+    }
 
     // map row
     const rows = liveSpotlight.map((m) => {
       const gKey = matchGroupLabel(m) || "?";
       const aName = resolveSideLabel(m, "A");
       const bName = resolveSideLabel(m, "B");
-      const code = `B${gKey} · R${m.round ?? "?"} #${(m.order ?? 0) + 1}`;
-      const time = formatTime(m.scheduledAt);
+      const bIndex = groupOrderMap.get(gKey) ?? "?";
+      const seq = seqIndexByMatchId.get(String(m._id)) ?? "?";
+      const code = `#V${stageNo}-B${bIndex}#${seq}`;
+
+      const time = formatTime(pickGroupKickoffTime(m));
       const court = m?.venue?.name || m?.court?.name || m?.court || "";
       const score = scoreLabel(m);
       return {
@@ -1631,41 +1662,109 @@ export default function TournamentBracket() {
           </Typography>
         </Stack>
 
-        <TableContainer component={Paper} variant="outlined">
-          <Table size="small" aria-label="live-spotlight">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ width: 200, fontWeight: 700 }}>Mã</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>Trận</TableCell>
-                <TableCell sx={{ width: 180, fontWeight: 700 }}>
-                  Giờ đấu
-                </TableCell>
-                <TableCell sx={{ width: 160, fontWeight: 700 }}>Sân</TableCell>
-                <TableCell sx={{ width: 120, fontWeight: 700 }}>
-                  Tỷ số
-                </TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((r) => (
-                <TableRow
-                  key={r.id}
-                  hover
-                  onClick={() => openMatch(r.match)}
-                  sx={{ cursor: "pointer" }}
-                >
-                  <TableCell>{r.code}</TableCell>
-                  <TableCell>
-                    {r.aName} <b>vs</b> {r.bName}
+        {isMdUp ? (
+          <TableContainer component={Paper} variant="outlined">
+            <Table size="small" aria-label="live-spotlight">
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ width: 200, fontWeight: 700 }}>Mã</TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>Trận</TableCell>
+                  <TableCell sx={{ width: 180, fontWeight: 700 }}>
+                    Giờ đấu
                   </TableCell>
-                  <TableCell>{r.time || ""}</TableCell>
-                  <TableCell>{r.court || ""}</TableCell>
-                  <TableCell>{r.score || "LIVE"}</TableCell>
+                  <TableCell sx={{ width: 160, fontWeight: 700 }}>
+                    Sân
+                  </TableCell>
+                  <TableCell sx={{ width: 120, fontWeight: 700 }}>
+                    Tỷ số
+                  </TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+              </TableHead>
+              <TableBody>
+                {rows.map((r) => (
+                  <TableRow
+                    key={r.id}
+                    hover
+                    onClick={() => openMatch(r.match)}
+                    sx={{ cursor: "pointer" }}
+                  >
+                    <TableCell>{r.code}</TableCell>
+                    <TableCell>
+                      {r.aName} <b>vs</b> {r.bName}
+                    </TableCell>
+                    <TableCell>{r.time || ""}</TableCell>
+                    <TableCell>{r.court || ""}</TableCell>
+                    <TableCell>{r.score || "LIVE"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        ) : (
+          <Stack spacing={1.25}>
+            {rows.map((r) => (
+              <Paper
+                key={r.id}
+                variant="outlined"
+                onClick={() => openMatch(r.match)}
+                sx={{
+                  p: 1.25,
+                  borderRadius: 2,
+                  cursor: "pointer",
+                  "&:hover": {
+                    borderColor: "primary.main",
+                    boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+                  },
+                }}
+              >
+                <Stack spacing={0.75}>
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    justifyContent="space-between"
+                  >
+                    <Chip size="small" color="default" label={r.code} />
+                    <Typography
+                      variant="subtitle2"
+                      sx={{ fontWeight: 800, ml: 1 }}
+                    >
+                      {r.score || "LIVE"}
+                    </Typography>
+                  </Stack>
+
+                  <Typography
+                    variant="body2"
+                    sx={{ fontWeight: 600, lineHeight: 1.3 }}
+                  >
+                    {r.aName} <b style={{ opacity: 0.6 }}>vs</b> {r.bName}
+                  </Typography>
+
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    alignItems="center"
+                    flexWrap="wrap"
+                  >
+                    <Chip
+                      size="small"
+                      icon={<AccessTimeIcon sx={{ fontSize: 14 }} />}
+                      label={r.time || "—"}
+                      variant="outlined"
+                    />
+                    {r.court && (
+                      <Chip
+                        size="small"
+                        icon={<StadiumIcon sx={{ fontSize: 14 }} />}
+                        label={r.court}
+                        variant="outlined"
+                      />
+                    )}
+                  </Stack>
+                </Stack>
+              </Paper>
+            ))}
+          </Stack>
+        )}
       </Paper>
     );
   };
@@ -1756,7 +1855,7 @@ export default function TournamentBracket() {
               const code = `#V${stageNo}-B${labelNumeric}#${idx + 1}`;
               const aName = resolveSideLabel(m, "A");
               const bName = resolveSideLabel(m, "B");
-              const time = formatTime(m.scheduledAt);
+              const time = formatTime(pickGroupKickoffTime(m));
               const court = m?.venue?.name || m?.court?.name || m?.court || "";
               const score = scoreLabel(m);
               return {

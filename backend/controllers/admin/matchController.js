@@ -21,7 +21,9 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     order = 0,
     rules,
     ratingDelta, // giữ như cũ
-    referee, // 👈 NEW: userId trọng tài (optional)
+    referee, // userId trọng tài (optional)
+    // ⭐ NEW: chỉ dùng video
+    video,
   } = req.body;
 
   const bracket = await Bracket.findById(bracketId);
@@ -30,7 +32,7 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     throw new Error("Bracket not found");
   }
 
-  // Validate nguồn đội
+  // Validate nguồn đội (giữ nguyên)
   if (pairA && previousA) {
     res.status(400);
     throw new Error("Provide either pairA or previousA for side A (not both)");
@@ -52,7 +54,21 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     throw new Error("Two teams must be different");
   }
 
-  // Chuẩn hoá rules
+  // ===== Chuẩn hoá rules (thêm cap) — giữ nguyên =====
+  const capModeRaw = (rules?.cap?.mode ?? "none").toString();
+  const capMode = ["none", "hard", "soft"].includes(capModeRaw)
+    ? capModeRaw
+    : "none";
+  let capPoints =
+    rules?.cap?.points === "" ||
+    rules?.cap?.points === null ||
+    rules?.cap?.points === undefined
+      ? null
+      : Number(rules?.cap?.points);
+  capPoints =
+    Number.isFinite(capPoints) && capPoints > 0 ? Math.floor(capPoints) : null;
+  if (capMode === "none") capPoints = null;
+
   const finalRules = {
     bestOf: [1, 3, 5].includes(Number(rules?.bestOf))
       ? Number(rules.bestOf)
@@ -61,9 +77,10 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
       ? Number(rules.pointsToWin)
       : 11,
     winByTwo: typeof rules?.winByTwo === "boolean" ? rules.winByTwo : true,
+    cap: { mode: capMode, points: capPoints },
   };
 
-  // Nếu theo Registration: kiểm tra tính hợp lệ
+  // Nếu theo Registration: kiểm tra tính hợp lệ (giữ nguyên)
   let rA = null,
     rB = null;
   if (pairA) {
@@ -89,7 +106,7 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  // Nếu theo Winner-of: kiểm tra trận nguồn
+  // Nếu theo Winner-of: kiểm tra trận nguồn (giữ nguyên)
   let prevMatchA = null,
     prevMatchB = null;
   if (previousA) {
@@ -133,7 +150,7 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  // Validate mềm cho knockout khi round > 1 và chọn tay
+  // Validate mềm cho knockout khi round > 1 và chọn tay (giữ nguyên)
   if (Number(round) > 1 && (pairA || pairB)) {
     const prevRoundMatches = await Match.find({
       bracket: bracketId,
@@ -174,7 +191,7 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  // 👇 NEW: validate & chuẩn hoá referee (nếu có)
+  // validate & chuẩn hoá referee (nếu có) — giữ nguyên
   let refId = undefined;
   if (referee !== undefined && referee !== null && referee !== "") {
     if (!mongoose.isValidObjectId(referee)) {
@@ -193,12 +210,20 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     refId = refUser._id;
   }
 
-  // Tạo match
-  const match = await Match.create({
+  // ⭐ NEW: chuẩn hoá video nếu được gửi lên (không thay đổi gì nếu client không gửi)
+  const hasVideoField = Object.prototype.hasOwnProperty.call(req.body, "video");
+  const videoSanitized = hasVideoField
+    ? video == null
+      ? ""
+      : String(video).trim()
+    : undefined;
+
+  // Tạo match (giữ nguyên, chỉ thêm video nếu có gửi)
+  const createPayload = {
     tournament: bracket.tournament,
     bracket: bracketId,
-    round: Number(round),
-    order: Number(order),
+    round: Math.max(1, Number(round)),
+    order: Math.max(0, Number(order)),
     pairA: pairA || null,
     pairB: pairB || null,
     previousA: previousA || null,
@@ -209,10 +234,13 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     ratingDelta: Math.max(0, Number(ratingDelta) || 0),
     ratingApplied: false,
     ratingAppliedAt: null,
-    referee: refId, // 👈 NEW
-  });
+    referee: refId,
+  };
+  if (hasVideoField) createPayload.video = videoSanitized;
 
-  // Link ngược từ trận nguồn (nếu có)
+  const match = await Match.create(createPayload);
+
+  // Link ngược từ trận nguồn (giữ nguyên)
   if (prevMatchA) {
     prevMatchA.nextMatch = match._id;
     prevMatchA.nextSlot = "A";
@@ -224,7 +252,7 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     await prevMatchB.save();
   }
 
-  // tăng đếm
+  // tăng đếm (giữ nguyên)
   bracket.matchesCount = (bracket.matchesCount || 0) + 1;
   await bracket.save();
 
@@ -234,7 +262,7 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
     .populate({
       path: "referee",
       select: "name nickname email phone avatar role",
-    }); // 👈 NEW
+    });
 
   res.status(201).json(populated);
 });
@@ -611,10 +639,12 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     pairA,
     pairB,
     rules,
-    status, // 'scheduled' | 'live' | 'finished'
+    status, // 'scheduled' | 'live' | 'finished' | 'assigned' | 'queued'
     winner, // 'A' | 'B' | ''
     ratingDelta, // số điểm cộng/trừ cho trận
-    referee, // 👈 NEW: userId trọng tài (string) | null | ''
+    referee, // userId trọng tài (string) | null | ''
+    // ⭐ NEW: chỉ dùng video
+    video,
   } = req.body;
 
   const mt = await Match.findById(matchId);
@@ -639,11 +669,10 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     mt.ratingDelta = Number.isFinite(v) && v >= 0 ? v : 0; // không âm
   }
 
-  // 👇 NEW: gán / bỏ gán trọng tài
+  // 👇 gán / bỏ gán trọng tài
   if (referee !== undefined) {
-    // cho phép bỏ gán nếu null/""/0-like
     if (referee === null || referee === "") {
-      mt.referee = undefined;
+      mt.referee = undefined; // clear
     } else {
       if (!mongoose.isValidObjectId(referee)) {
         res.status(400);
@@ -660,6 +689,11 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
       }
       mt.referee = refUser._id;
     }
+  }
+
+  // ⭐ NEW: cập nhật video (trim, cho phép clear)
+  if (Object.prototype.hasOwnProperty.call(req.body, "video")) {
+    mt.video = video == null ? "" : String(video).trim();
   }
 
   // pairA/pairB (nếu cập nhật, phải hợp lệ & cùng tournament)
@@ -685,8 +719,30 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     throw new Error("Two teams must be different");
   }
 
-  // rules
+  // ===== rules (thêm cap: { mode: 'none'|'hard'|'soft', points: number|null }) =====
   if (rules) {
+    // sanitize cap
+    const incomingMode = (
+      rules?.cap?.mode ??
+      mt.rules?.cap?.mode ??
+      "none"
+    ).toString();
+    const capMode = ["none", "hard", "soft"].includes(incomingMode)
+      ? incomingMode
+      : "none";
+    let capPoints =
+      rules?.cap?.points === "" ||
+      rules?.cap?.points === null ||
+      rules?.cap?.points === undefined
+        ? null
+        : Number(rules.cap.points);
+    capPoints =
+      Number.isFinite(capPoints) && capPoints > 0
+        ? Math.floor(capPoints)
+        : null;
+    // nếu mode = none thì ép points = null
+    if (capMode === "none") capPoints = null;
+
     const nextRules = {
       bestOf: [1, 3, 5].includes(Number(rules.bestOf))
         ? Number(rules.bestOf)
@@ -698,6 +754,10 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
         typeof rules.winByTwo === "boolean"
           ? rules.winByTwo
           : mt.rules?.winByTwo ?? true,
+      cap: {
+        mode: capMode,
+        points: capPoints,
+      },
     };
     mt.rules = nextRules;
   }
@@ -719,13 +779,15 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
       throw new Error("Winner must be 'A' or 'B' when status is 'finished'");
     }
     mt.winner = winner;
+    mt.finishedAt = mt.finishedAt || new Date();
   } else {
     mt.winner = "";
+    // không ép finishedAt về null ở đây để giữ lịch sử; nếu cần có thể clear theo policy riêng
   }
 
   await mt.save();
 
-  // GIỮ LOGIC CŨ: feed winner cho các trận phụ thuộc previousA/B
+  // GIỮ LOGIC CŨ: feed winner cho các trận phụ thuộc previousA/B (KO chaining cũ)
   if (mt.status === "finished" && mt.winner) {
     const winnerReg = mt.winner === "A" ? mt.pairA : mt.pairB;
     if (winnerReg) {
@@ -740,10 +802,11 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     }
   }
 
+  // rating & side-effects sau khi kết thúc
   try {
     if (mt.status === "finished" && !mt.ratingApplied) {
       await applyRatingForFinishedMatch(mt._id);
-      await onMatchFinished({ matchId: m._id });
+      await onMatchFinished({ matchId: mt._id }); // ✅ giữ nguyên fix
     }
   } catch (e) {
     console.error("[adminUpdateMatch] applyRatingForFinishedMatch error:", e);
@@ -755,7 +818,6 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     .populate({ path: "previousA", select: "round order" })
     .populate({ path: "previousB", select: "round order" })
     .populate({
-      // 👇 NEW: trả về thông tin trọng tài
       path: "referee",
       select: "name nickname email phone avatar role",
     });

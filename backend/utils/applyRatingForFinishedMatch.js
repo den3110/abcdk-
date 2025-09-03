@@ -9,65 +9,61 @@ import RatingChange from "../models/ratingChangeModel.js";
 const DUPR_MIN = 2.0;
 const DUPR_MAX = 8.0;
 const DIFF_SCALE = 0.6; // logistic scale cho expected
-const BASE_K_SINGLES = 0.18;
-const BASE_K_DOUBLES = 0.14;
-const FLOOR_K = 0.04; // K tối thiểu theo độ tin cậy
+
+// Giảm K để hạ biên độ dao động
+const BASE_K_SINGLES = 0.1;
+const BASE_K_DOUBLES = 0.08;
+const FLOOR_K = 0.02;
 const MATCHES_FOR_FULL_RELIABILITY = 25;
 const SYNERGY_WEIGHT = 0.05; // phạt lệch trình trong đôi
 const FORFEIT_K_SCALE = 0.25; // nếu forfeit → giảm K
 
 /* ===================== Tunables (margin/phase/context) ===================== */
-const MARGIN_MAX_BOOST = 0.25; // cap ±25% K theo tổng điểm các set
+const MARGIN_MAX_BOOST = 0.15; // cap ±15%
 const ROUND_PHASE_STEP = 0.02; // +2%/round
 const ROUND_PHASE_CAP = 0.2; // tới đa +20%
 const KO_STAGE_BONUS = 0.05; // +5% nếu là KO (so với group)
 
 /* ===================== Tunables (form/history) ===================== */
 const FORM_ENABLED = true;
-const FORM_WINDOW_MATCHES = 10; // xem tối đa N trận gần nhất/người
-const FORM_WINDOW_DAYS = 180; // trong T ngày gần nhất
-const FORM_ALPHA_WINS = 0.6; // trọng số win%
-const FORM_BETA_SETWINS = 0.4; // trọng số set-win%
-const FORM_GAMMA_STREAK = 0.05; // streak hiện tại (nhẹ)
-const FORM_DELTA_SOS = 0.2; // strength-of-schedule
-const FORM_CAP = 0.15; // |boost| tối đa ±15% (đổi sang ΔDU sau)
+const FORM_WINDOW_MATCHES = 10;
+const FORM_WINDOW_DAYS = 180;
+const FORM_ALPHA_WINS = 0.6;
+const FORM_BETA_SETWINS = 0.4;
+const FORM_GAMMA_STREAK = 0.05;
+const FORM_DELTA_SOS = 0.2;
+const FORM_CAP = 0.15;
 
 /* ===================== Tunables (expected context shift) ===================== */
-// Chuyển form/sos/streak thành "lệch trình tương đương" theo đơn vị rating (DU)
-const CTX_RATING_DU = 0.15; // ±0.15 DU tối đa do context (form+sos+streak)
+const CTX_RATING_DU = 0.15;
 
-/* ===================== Tunables (UPSET AMPLIFICATION) ===================== */
-/** Chỉ khi underdog thắng VÀ chênh mạnh:
- *  - underdog nếu E_win ≤ 0.35
- *  - chênh mạnh nếu |diff| ≥ 0.8 (DUPR)
- *  - khuếch đại tối đa +60%, ramp theo độ bất ngờ và độ chênh
- */
+/* ===================== Upset ===================== */
 const UPSET_UNDERDOG_MAX_EXPECTED = 0.35;
 const UPSET_DIFF_THRESHOLD = 0.8;
 const UPSET_DIFF_WIDTH = 0.6;
-const UPSET_MAX_BOOST = 0.6;
+const UPSET_MAX_BOOST = 0.4;
 
-/* ===================== Tunables (SOFT CAP Δ per person) ===================== */
-// Trần mềm ~0.1 điểm mỗi người/mỗi trận (không cắt cứng, nén mượt)
-const SOFT_DELTA_CAP = 0.1; // mục tiêu tiệm cận
-const SOFT_DELTA_SOFTNESS = 0.7; // 0.4..1.0 (nhỏ = nén mạnh)
+/* ===================== Soft cap (TEAM level) ===================== */
+const SOFT_TEAM_CAP = 0.05;
+const SOFT_TEAM_SOFTNESS = 0.65;
 
-// Bảo đảm Δ không rơi về 0 sau khi làm tròn: 0.001–0.005 tuỳ theo độ lớn K trận
-const MIN_DELTA_EPS_MIN = 0.001; // sàn thấp nhất (mỗi người)
-const MIN_DELTA_EPS_MAX = 0.005; // sàn cao nhất (mỗi người)
-const MIN_DELTA_EPS_FACTOR = 0.02; // eps ≈ K_match * 2%
+// min epsilon theo K để không rơi về 0
+const MIN_DELTA_EPS_MIN = 0.001;
+const MIN_DELTA_EPS_MAX = 0.003;
+const MIN_DELTA_EPS_FACTOR = 0.02; // ≈ K_match * 2%
 
-// === Midline dampening + exponent on (1 - E) ===
+// === Shapers ===
 const MIDLINE_DAMPEN = true;
-const MIDLINE_BETA = 0.6; // 0..1  (0.6 = giảm 60% ở E=0.5)
-const EXP_GAMMA = 1.35; // >1: bó nhẹ quanh 0.5, giữ upset
+const MIDLINE_BETA = 0.65;
+const EXP_GAMMA = 1.18;
 const DEFAULT_SEED_RATING = 2.5;
 
-function midlineDampen(E) {
-  // closeness = 1 tại E=0.5, về 0 ở E=0 hoặc 1
-  const closeness = 1 - 4 * Math.pow(E - 0.5, 2); // ∈[0,1]
-  return 1 - MIDLINE_BETA * Math.max(0, closeness);
-}
+// === Win negative small ===
+const MAX_WIN_NEG = 0.005; // per person, âm tối đa khi đội thắng
+const QUALITY_DEFAULT_WIN = 0.75;
+
+// === WIN-TAX (kèo trên thắng vẫn bị “thuế” nhỏ) ===
+const WIN_TAX_COEF = 0.16; // tỷ lệ trên K_match * (E_win - 0.5)
 
 /* ===================== Helpers ===================== */
 const round3 = (x) => Math.round(x * 1000) / 1000;
@@ -84,7 +80,7 @@ function invExpectedToDiff(E) {
   const e = clamp(E, 1e-6, 1 - 1e-6);
   return DIFF_SCALE * (Math.log10(e) - Math.log10(1 - e));
 }
-function marginBonusFromScores(match, winnerSide /* "A" | "B" */) {
+function marginBoostFromScores(match, winnerSide /* "A" | "B" */) {
   const arr = Array.isArray(match.gameScores) ? match.gameScores : [];
   if (!arr.length) return 0;
   let winPts = 0,
@@ -103,7 +99,29 @@ function marginBonusFromScores(match, winnerSide /* "A" | "B" */) {
   const total = winPts + losePts;
   if (total <= 0) return 0;
   const m = clamp((winPts - losePts) / total, -1, 1);
-  return MARGIN_MAX_BOOST * m; // ∈ [-0.25, +0.25]
+  return MARGIN_MAX_BOOST * m; // ∈ [-0.15, +0.15]
+}
+// điểm chất lượng thắng: 0.5..1, nếu thiếu điểm set → 0.75
+function qualityScoreFromScores(match, winnerSide /* "A" | "B" */) {
+  const arr = Array.isArray(match.gameScores) ? match.gameScores : [];
+  if (!arr.length) return QUALITY_DEFAULT_WIN;
+  let winPts = 0,
+    losePts = 0;
+  for (const g of arr) {
+    const a = Number(g.a || 0),
+      b = Number(g.b || 0);
+    if (winnerSide === "A") {
+      winPts += a;
+      losePts += b;
+    } else {
+      winPts += b;
+      losePts += a;
+    }
+  }
+  const total = winPts + losePts;
+  if (total <= 0) return QUALITY_DEFAULT_WIN;
+  const m = clamp((winPts - losePts) / total, -1, 1);
+  return clamp(0.5 + 0.5 * Math.max(0, m), 0.5, 1);
 }
 function teamRatingDoubles(r1, r2) {
   const mean = (r1 + r2) / 2;
@@ -117,17 +135,12 @@ function phaseMultiplier(match, bracketType) {
     bracketType === "knockout" || bracketType === "roundElim"
       ? 1 + KO_STAGE_BONUS
       : 1;
-  return roundMul * koMul; // cap ~1.2 * 1.05
+  return roundMul * koMul;
 }
-// nén mượt: |Δ| nhỏ ≈ giữ nguyên, |Δ| lớn → tiệm cận SOFT_DELTA_CAP
-function softCapDelta(delta) {
+function softCapTeam(delta) {
   const x = Math.abs(delta);
-  const scaled = Math.tanh(x / (SOFT_DELTA_CAP * SOFT_DELTA_SOFTNESS));
-  return Math.sign(delta) * SOFT_DELTA_CAP * scaled;
-}
-function kFor(kind, reliability /* 0..1 */) {
-  const base = kind === "singles" ? BASE_K_SINGLES : BASE_K_DOUBLES;
-  return base * (1 - reliability) + FLOOR_K;
+  const scaled = Math.tanh(x / (SOFT_TEAM_CAP * SOFT_TEAM_SOFTNESS));
+  return Math.sign(delta) * SOFT_TEAM_CAP * scaled;
 }
 function nextRep(current) {
   return Math.min(100, (Number(current) || 0) + 10);
@@ -146,7 +159,34 @@ function upsetAmplification(absDiff, E_win) {
     0,
     1
   );
-  return UPSET_MAX_BOOST * underdogDegree * gapDegree; // 0..0.6
+  return UPSET_MAX_BOOST * underdogDegree * gapDegree;
+}
+function midlineDampen(E) {
+  const closeness = 1 - 4 * Math.pow(E - 0.5, 2); // ∈[0,1]
+  return 1 - MIDLINE_BETA * Math.max(0, closeness);
+}
+
+/* ===== Weights per player (phân phối Δ theo độ tin cậy & rating) ===== */
+function weightFor({ reliability, rating }) {
+  // ít trận (reliability thấp) → biến động nhiều hơn
+  const relTerm = Math.pow(1 - clamp(reliability ?? 0, 0, 1), 0.6); // 0..1
+  // rating cao → nặng hơn → biến động ít hơn
+  const pivot = 4.0;
+  const over = Math.max(0, (rating ?? pivot) - pivot); // >0 nếu trên 4.0
+  const ratingTerm = 1 / (1 + over); // 1..~0.33 khi rating 7.0
+  // tránh bằng 0
+  return clamp(0.35 + 0.65 * relTerm * ratingTerm, 0.35, 1.0);
+}
+function distributeTeamDelta(
+  deltaTeam,
+  players /* [{uid, reliability, rating}] */
+) {
+  if (!players.length) return [];
+  const ws = players.map(weightFor);
+  const sumW = ws.reduce((s, x) => s + x, 0);
+  return ws.map((w) =>
+    sumW > 0 ? (deltaTeam * w) / sumW : deltaTeam / players.length
+  );
 }
 
 /* ===================== Ratings & reliability ===================== */
@@ -209,13 +249,11 @@ async function getReliabilityMap(userIds, key /* "single"|"double" */) {
   return rel;
 }
 
-/* ===================== Form/History stats (nhẹ, nhanh) ===================== */
-// Trích từ RatingChange + Match gần đây để lấy: win%, set-win%, streak, strength-of-schedule
+/* ===================== Form/History ===================== */
 async function getRecentStats(uid, key, cfg) {
   const userId = new mongoose.Types.ObjectId(String(uid));
   const timeFloor = new Date(Date.now() - cfg.FORM_WINDOW_DAYS * 86400000);
 
-  // lấy nhanh từ RatingChange trước
   const rc = await RatingChange.find({
     user: userId,
     kind: key === "single" ? "singles" : "doubles",
@@ -273,7 +311,6 @@ async function getRecentStats(uid, key, cfg) {
     const games = Array.isArray(mm.gameScores) ? mm.gameScores : [];
     setTotal += games.length;
 
-    // xác định user ở phía A hay B để tính set thắng
     const isA = [mm?.pairA?.player1?.user, mm?.pairA?.player2?.user]
       .map(String)
       .includes(String(uid));
@@ -290,7 +327,7 @@ async function getRecentStats(uid, key, cfg) {
       r.expected > 0 &&
       r.expected < 1
     ) {
-      const diff = invExpectedToDiff(r.expected); // myTeam - oppTeam ở trận đó
+      const diff = invExpectedToDiff(r.expected); // myTeam - oppTeam
       sosSum += -diff; // opp - me
       sosCnt += 1;
     }
@@ -300,7 +337,7 @@ async function getRecentStats(uid, key, cfg) {
 
   const winPct = total ? wins / total : 0.5;
   const setWinPct = setTotal ? setWins / setTotal : 0.5;
-  const sos = sosCnt ? sosSum / sosCnt : 0; // >0 nghĩa là thường gặp đối thủ mạnh hơn
+  const sos = sosCnt ? sosSum / sosCnt : 0; // >0: thường gặp đối thủ mạnh
   const streak01 =
     0.5 +
     0.5 *
@@ -310,11 +347,10 @@ async function getRecentStats(uid, key, cfg) {
 }
 
 function computeFormScore(stats, cfg) {
-  // Chuẩn hoá và tổng hợp thành 0..1 (0.5 là trung tính)
-  const zWin = stats.winPct - 0.5; // -0.5..+0.5
-  const zSet = stats.setWinPct - 0.5; // -0.5..+0.5
-  const zStr = stats.streak01 - 0.5; // -0.5..+0.5
-  const zSOS = clamp(stats.sos / 2.0, -1, 1) * 0.5; // quy về -0.5..+0.5
+  const zWin = stats.winPct - 0.5;
+  const zSet = stats.setWinPct - 0.5;
+  const zStr = stats.streak01 - 0.5;
+  const zSOS = clamp(stats.sos / 2.0, -1, 1) * 0.5;
 
   const raw =
     cfg.FORM_ALPHA_WINS * zWin +
@@ -322,13 +358,11 @@ function computeFormScore(stats, cfg) {
     cfg.FORM_GAMMA_STREAK * zStr +
     cfg.FORM_DELTA_SOS * zSOS;
 
-  const capped = clamp(raw, -FORM_CAP, FORM_CAP); // -0.15..+0.15
-  // chuyển về 0..1 để dễ trộn (0.5 ~ trung tính)
-  return 0.5 + capped; // 0.35..0.65
+  const capped = clamp(raw, -FORM_CAP, FORM_CAP);
+  return 0.5 + capped;
 }
 
 function teamFormScore(kind, formA, formB) {
-  // Ghép 2 người: thiên về "phải đồng đều" (harmonic mean) để phạt cặp lệch
   return kind === "singles" ? formA : harmonicMean(formA, formB);
 }
 
@@ -336,7 +370,7 @@ function teamFormScore(kind, formA, formB) {
 export async function applyRatingForFinishedMatch(matchId) {
   const mt = await Match.findById(matchId)
     .populate({ path: "tournament", select: "eventType" })
-    .populate({ path: "bracket", select: "type stage name meta" }) // để nhận biết group/KO & round
+    .populate({ path: "bracket", select: "type stage name meta" })
     .populate({ path: "pairA", select: "player1 player2" })
     .populate({ path: "pairB", select: "player1 player2" });
 
@@ -358,9 +392,9 @@ export async function applyRatingForFinishedMatch(matchId) {
   const key = mt.tournament?.eventType === "single" ? "single" : "double";
   const when = mt.finishedAt || new Date();
   const winnerSide = mt.winner; // "A" | "B"
-  const bracketType = mt.bracket?.type || "knockout"; // mặc định coi là KO nếu thiếu
+  const bracketType = mt.bracket?.type || "knockout";
 
-  // Lấy các user id của 2 bên
+  // user ids
   const usersA = [mt.pairA?.player1?.user, mt.pairA?.player2?.user]
     .filter(Boolean)
     .map(String);
@@ -369,17 +403,24 @@ export async function applyRatingForFinishedMatch(matchId) {
     .map(String);
   const allIds = [...new Set([...usersA, ...usersB])];
 
-  // 1) điểm hiện tại & reliability
+  // ratings & reliability
   const latest = await getLatestRatingsMap(allIds);
   const reliabilityMap = await getReliabilityMap(allIds, key);
-
   const getRating = (uid) => {
     const r = latest.get(uid) || { single: 0, double: 0 };
     const val = Number(r[key] || 0) || 0;
     return val > 0 ? val : 2.5;
   };
 
-  // 2) team rating hiện tại (có synergy đôi)
+  // ===== NEW: prefetch reputation map (để tránh await trong loop) =====
+  const repDocs = await Ranking.find({ user: { $in: allIds } })
+    .select("user reputation")
+    .lean();
+  const repMap = new Map(
+    repDocs.map((d) => [String(d.user), Number(d.reputation) || 0])
+  );
+
+  // team ratings
   let teamA = 0,
     teamB = 0;
   if (kind === "singles") {
@@ -396,7 +437,7 @@ export async function applyRatingForFinishedMatch(matchId) {
     teamB = teamRatingDoubles(b1, b2);
   }
 
-  // 3) Form/History của từng người → score 0..1, ghép thành teamForm 0..1
+  // form
   let formA = 0.5,
     formB = 0.5;
   if (FORM_ENABLED) {
@@ -476,25 +517,24 @@ export async function applyRatingForFinishedMatch(matchId) {
         })
       : 0.5;
 
-    formA = kind === "singles" ? fA1 : teamFormScore(kind, fA1, fA2); // 0..1
-    formB = kind === "singles" ? fB1 : teamFormScore(kind, fB1, fB2); // 0..1
+    formA = kind === "singles" ? fA1 : teamFormScore(kind, fA1, fA2);
+    formB = kind === "singles" ? fB1 : teamFormScore(kind, fB1, fB2);
   }
 
-  // 4) Điều chỉnh expected theo context (form/streak/SOS → đổi sang "rating DU")
-  const contextDU = CTX_RATING_DU * clamp(formA - formB, -1, 1); // -0.15..+0.15
+  // expected with context
+  const contextDU = CTX_RATING_DU * clamp(formA - formB, -1, 1);
   const diffRaw = teamA - teamB + contextDU;
   const expA = expectedFromDiff(diffRaw);
   const expB = 1 - expA;
 
-  // 5) margin + forfeit + phase multiplier
+  // K scale
   const isForfeit =
     Array.isArray(mt.liveLog) && mt.liveLog.some((e) => e?.type === "forfeit");
-  const marginBoost = isForfeit ? 0 : marginBonusFromScores(mt, winnerSide); // ∈ [-0.25, 0.25]
-  const phaseMul = phaseMultiplier(mt, bracketType); // ~1.0..1.26
+  const marginBoost = isForfeit ? 0 : marginBoostFromScores(mt, winnerSide);
+  const phaseMul = phaseMultiplier(mt, bracketType);
   const kScale =
     (isForfeit ? FORFEIT_K_SCALE : 1.0) * phaseMul * (1 + marginBoost);
 
-  // Độ tin cậy: dùng trung bình của tất cả người chơi
   const relValues = allIds.map((uid) => reliabilityMap.get(uid) ?? 0);
   const avgReliability = relValues.length
     ? relValues.reduce((s, x) => s + x, 0) / relValues.length
@@ -503,153 +543,187 @@ export async function applyRatingForFinishedMatch(matchId) {
   const baseK = kind === "singles" ? BASE_K_SINGLES : BASE_K_DOUBLES;
   const K_match = (baseK * (1 - avgReliability) + FLOOR_K) * kScale;
 
+  // quality vs expected
   const E_win = winnerSide === "A" ? expA : expB;
   const absDiff = Math.abs(teamA - teamB);
-  const upsetBoost = upsetAmplification(absDiff, E_win); // chỉ khi underdog thắng & chênh mạnh
+  const upsetBoost = upsetAmplification(absDiff, E_win);
+  const S_win = qualityScoreFromScores(mt, winnerSide); // 0.5..1
+  const diffS = clamp(S_win - E_win, -1, 1);
 
-  // 6) Delta "thô" theo expected + upset
-  let D_perPerson_raw =
-    K_match * Math.pow(1 - E_win, EXP_GAMMA) * (1 + upsetBoost);
-  if (MIDLINE_DAMPEN) D_perPerson_raw *= midlineDampen(E_win);
+  // Δ đội thô: sign(S-E) * |S-E|^γ
+  let D_team_raw =
+    K_match * Math.sign(diffS) * Math.pow(Math.abs(diffS), EXP_GAMMA);
 
-  // Epsilon floor để không rơi về 0
+  // khuếch đại upset khi underdog thắng và S>E
+  if (diffS > 0) D_team_raw *= 1 + upsetBoost;
+
+  // midline dampen theo kỳ vọng của bên thắng
+  if (MIDLINE_DAMPEN) D_team_raw *= midlineDampen(E_win);
+
+  // WIN-TAX: kèo trên thắng (E>0.5) bị trừ một ít theo độ “kèo”
+  if (E_win > 0.5) {
+    const winTax = K_match * WIN_TAX_COEF * (E_win - 0.5);
+    D_team_raw -= winTax;
+  }
+
+  // epsilon theo K (giữ dấu)
   const epsDyn = clamp(
     K_match * MIN_DELTA_EPS_FACTOR,
     MIN_DELTA_EPS_MIN,
     MIN_DELTA_EPS_MAX
   );
-  if (D_perPerson_raw < epsDyn) D_perPerson_raw = epsDyn;
+  if (Math.abs(D_team_raw) > 0 && Math.abs(D_team_raw) < epsDyn) {
+    D_team_raw = Math.sign(D_team_raw) * epsDyn;
+  }
 
-  // 7) Soft-cap Δ ~ 0.1 (không cứng) để đảm bảo ổn định
-  const D_perPerson = softCapDelta(D_perPerson_raw);
+  // soft-cap theo ĐỘI
+  let D_team = softCapTeam(D_team_raw);
 
-  // === APPLY (zero-sum) ===
-  const winUsers = winnerSide === "A" ? usersA : usersB;
-  const loseUsers = winnerSide === "A" ? usersB : usersA;
+  // ===== Phân phối Δ theo trọng số từng người (rating & reliability) =====
+  const winnerUsers = (winnerSide === "A" ? usersA : usersB).map((uid) => ({
+    uid,
+    reliability: reliabilityMap.get(uid) ?? 0,
+    rating: getRating(uid),
+  }));
+  const loserUsers = (winnerSide === "A" ? usersB : usersA).map((uid) => ({
+    uid,
+    reliability: reliabilityMap.get(uid) ?? 0,
+    rating: getRating(uid),
+  }));
 
+  // phân phối bên thắng tổng +D_team, bên thua tổng -D_team
+  let winnerDeltas = distributeTeamDelta(D_team, winnerUsers);
+  let loserDeltas = distributeTeamDelta(-D_team, loserUsers);
+
+  // Kẹp biên âm khi WIN: mỗi người không bị âm quá -0.005
+  const clampWinNeg = (d) => Math.max(d, -MAX_WIN_NEG);
+  const totalWinBefore = winnerDeltas.reduce((s, x) => s + x, 0);
+  const winnerClamped = winnerDeltas.map(clampWinNeg);
+  const totalWinAfter = winnerClamped.reduce((s, x) => s + x, 0);
+  if (totalWinAfter !== totalWinBefore) {
+    // cần phân phối phần thiếu (dương) vào các slot còn room
+    const room = winnerClamped.map((val, i) =>
+      Math.max(0, winnerDeltas[i] - -MAX_WIN_NEG)
+    );
+    const sumRoom = room.reduce((s, x) => s + x, 0);
+    const deficit = totalWinBefore - totalWinAfter;
+    if (sumRoom > 0 && deficit > 0) {
+      winnerDeltas = winnerClamped.map(
+        (val, i) => val + (room[i] / sumRoom) * deficit
+      );
+    } else {
+      // fallback: scale đều
+      const n = winnerClamped.length || 1;
+      winnerDeltas = winnerClamped.map((val) => val + deficit / n);
+    }
+  } else {
+    winnerDeltas = winnerClamped;
+  }
+
+  // Ensure zero-sum strict
+  const sumWin = winnerDeltas.reduce((s, x) => s + x, 0);
+  const sumLose = loserDeltas.reduce((s, x) => s + x, 0);
+  const drift = sumWin + sumLose; // nên = 0
+  if (Math.abs(drift) > 1e-9) {
+    // điều chỉnh bên thua theo tỷ lệ để triệt tiêu drift
+    const s = loserDeltas.reduce((a, b) => a + Math.abs(b), 0) || 1;
+    loserDeltas = loserDeltas.map((d) => d - (drift * Math.abs(d)) / s);
+  }
+
+  // === APPLY ===
   const histDocs = [];
-  const rankingUpdates = [];
+  const rankingOps = [];
   const logs = [];
   const perUserDeltasAbs = [];
 
-  // Winners +D
-  for (const uid of winUsers) {
-    const current = latest.get(uid) || { single: 0, double: 0 };
-    const curVal = (Number(current[key]) || 0) > 0 ? Number(current[key]) : 2.5;
-    const delta = D_perPerson;
-    const next = clamp(curVal + delta, DUPR_MIN, DUPR_MAX);
-    perUserDeltasAbs.push(Math.abs(delta));
+  const applySide = (users, deltas, isWinner) => {
+    users.forEach((u, idx) => {
+      const uid = u.uid;
+      const current = latest.get(uid) || { single: 0, double: 0 };
+      const curVal =
+        (Number(current[key]) || 0) > 0 ? Number(current[key]) : 2.5;
+      const delta = deltas[idx] ?? 0;
+      const next = clamp(curVal + delta, DUPR_MIN, DUPR_MAX);
+      perUserDeltasAbs.push(Math.abs(delta));
 
-    histDocs.push({
-      user: uid,
-      [key]: round3(next),
-      scoredAt: when,
-      sourceMatch: mt._id,
-      note: `+${round3(delta)} (E=${round3(E_win)},K=${round3(
-        K_match
-      )},up=${round3(upsetBoost)},ctxDU=${round3(contextDU)})`,
-    });
+      const noteScore = isWinner ? S_win : 1 - S_win;
+      const noteExp = isWinner ? E_win : 1 - E_win;
 
-    const repDoc = await Ranking.findOne({ user: uid })
-      .select("reputation")
-      .lean();
-    rankingUpdates.push({
-      updateOne: {
-        filter: { user: uid },
-        update: {
-          $set: {
-            single: key === "single" ? round3(next) : current.single ?? 0,
-            double: key === "double" ? round3(next) : current.double ?? 0,
-            reputation: nextRep(repDoc?.reputation),
+      histDocs.push({
+        user: uid,
+        [key]: round3(next),
+        scoredAt: when,
+        sourceMatch: mt._id,
+        note: `${delta >= 0 ? "+" : ""}${round3(delta)} (S=${round3(
+          noteScore
+        )},E=${round3(noteExp)},K=${round3(K_match)},up=${round3(
+          upsetBoost
+        )},ctxDU=${round3(contextDU)})`,
+      });
+
+      const prevRep = repMap.get(String(uid)) ?? 0;
+      rankingOps.push({
+        updateOne: {
+          filter: { user: uid },
+          update: {
+            $set: {
+              single: key === "single" ? round3(next) : current.single ?? 0,
+              double: key === "double" ? round3(next) : current.double ?? 0,
+              reputation: nextRep(prevRep),
+            },
           },
+          upsert: true,
         },
-        upsert: true,
-      },
+      });
+
+      const relBefore = reliabilityMap.get(uid) ?? 0;
+      const relAfter = clamp(
+        relBefore + 1 / MATCHES_FOR_FULL_RELIABILITY,
+        0,
+        1
+      );
+      logs.push({
+        user: uid,
+        match: mt._id,
+        tournament: mt.tournament?._id || mt.tournament,
+        kind,
+        before: round3(curVal),
+        after: round3(next),
+        delta: round3(delta),
+        expected: noteExp,
+        score: noteScore,
+        reliabilityBefore: relBefore,
+        reliabilityAfter: relAfter,
+        marginBonus: marginBoost,
+        contextDU: round3(contextDU),
+        bracketType,
+        round: mt.round || 1,
+        createdAt: new Date(),
+      });
     });
+  };
 
-    const relBefore = reliabilityMap.get(uid) ?? 0;
-    const relAfter = clamp(relBefore + 1 / MATCHES_FOR_FULL_RELIABILITY, 0, 1);
-    logs.push({
-      user: uid,
-      match: mt._id,
-      tournament: mt.tournament?._id || mt.tournament,
-      kind,
-      before: round3(curVal),
-      after: round3(next),
-      delta: round3(delta),
-      expected: E_win,
-      score: 1,
-      reliabilityBefore: relBefore,
-      reliabilityAfter: relAfter,
-      marginBonus: marginBoost,
-      contextDU: round3(contextDU),
-      bracketType,
-      round: mt.round || 1,
-      createdAt: new Date(),
-    });
-  }
+  applySide(
+    (winnerSide === "A" ? usersA : usersB).map((uid) => ({
+      uid,
+      reliability: reliabilityMap.get(uid) ?? 0,
+      rating: getRating(uid),
+    })),
+    winnerDeltas,
+    true
+  );
+  applySide(
+    (winnerSide === "A" ? usersB : usersA).map((uid) => ({
+      uid,
+      reliability: reliabilityMap.get(uid) ?? 0,
+      rating: getRating(uid),
+    })),
+    loserDeltas,
+    false
+  );
 
-  // Losers -D
-  for (const uid of loseUsers) {
-    const current = latest.get(uid) || { single: 0, double: 0 };
-    const curVal = (Number(current[key]) || 0) > 0 ? Number(current[key]) : 2.5;
-    const delta = -D_perPerson;
-    const next = clamp(curVal + delta, DUPR_MIN, DUPR_MAX);
-    perUserDeltasAbs.push(Math.abs(delta));
-
-    const E_lose = 1 - E_win;
-    histDocs.push({
-      user: uid,
-      [key]: round3(next),
-      scoredAt: when,
-      sourceMatch: mt._id,
-      note: `${round3(delta)} (E=${round3(E_lose)},K=${round3(
-        K_match
-      )},up=${round3(upsetBoost)},ctxDU=${round3(contextDU)})`,
-    });
-
-    const repDoc = await Ranking.findOne({ user: uid })
-      .select("reputation")
-      .lean();
-    rankingUpdates.push({
-      updateOne: {
-        filter: { user: uid },
-        update: {
-          $set: {
-            single: key === "single" ? round3(next) : current.single ?? 0,
-            double: key === "double" ? round3(next) : current.double ?? 0,
-            reputation: nextRep(repDoc?.reputation),
-          },
-        },
-        upsert: true,
-      },
-    });
-
-    const relBefore = reliabilityMap.get(uid) ?? 0;
-    const relAfter = clamp(relBefore + 1 / MATCHES_FOR_FULL_RELIABILITY, 0, 1);
-    logs.push({
-      user: uid,
-      match: mt._id,
-      tournament: mt.tournament?._id || mt.tournament,
-      kind,
-      before: round3(curVal),
-      after: round3(next),
-      delta: round3(delta),
-      expected: E_lose,
-      score: 0,
-      reliabilityBefore: relBefore,
-      reliabilityAfter: relAfter,
-      marginBonus: marginBoost,
-      contextDU: round3(contextDU),
-      bracketType,
-      round: mt.round || 1,
-      createdAt: new Date(),
-    });
-  }
-
-  // commit
   if (histDocs.length) await ScoreHistory.insertMany(histDocs);
-  if (rankingUpdates.length) await Ranking.bulkWrite(rankingUpdates);
+  if (rankingOps.length) await Ranking.bulkWrite(rankingOps);
   if (logs.length) {
     await RatingChange.insertMany(logs, { ordered: false }).catch(() => {});
   }
@@ -663,7 +737,7 @@ export async function applyRatingForFinishedMatch(matchId) {
   await mt.save();
 }
 
-/* ===================== Preview cho UI (không ghi DB) ===================== */
+/* ===================== Preview (mirror apply) ===================== */
 export async function computeRatingPreviewFromParams({
   tournamentId,
   bracketId,
@@ -671,7 +745,7 @@ export async function computeRatingPreviewFromParams({
   pairARegId,
   pairBRegId,
   winner = "A",
-  gameScores = [], // [{a,b}, ...]
+  gameScores = [],
   forfeit = false,
 }) {
   const Tournament = (await import("../models/tournamentModel.js")).default;
@@ -749,7 +823,7 @@ export async function computeRatingPreviewFromParams({
     teamB = teamRatingDoubles(b1, b2);
   }
 
-  // ==== FORM / CONTEXT ====
+  // form/context
   let formA = 0.5,
     formB = 0.5,
     ctxDU = 0;
@@ -852,7 +926,7 @@ export async function computeRatingPreviewFromParams({
   const isForfeit = forfeit;
   const marginBoost = isForfeit
     ? 0
-    : marginBonusFromScores(fakeMatch, winnerSide);
+    : marginBoostFromScores(fakeMatch, winnerSide);
   const phaseMul = phaseMultiplier(fakeMatch, bracketType);
   const kScale =
     (isForfeit ? FORFEIT_K_SCALE : 1.0) * phaseMul * (1 + marginBoost);
@@ -868,30 +942,78 @@ export async function computeRatingPreviewFromParams({
   const absDiff = Math.abs(teamA - teamB);
   const upBoost = upsetAmplification(absDiff, E_win);
 
-  // ==== Δ with γ-exponent + midline dampen + epsilon floor (y như apply) ====
-  const baseRaw = Math.pow(1 - E_win, EXP_GAMMA) * (1 + upBoost);
-  let midFactor = 1;
-  if (MIDLINE_DAMPEN) midFactor = midlineDampen(E_win);
-  let D_raw = K_match * baseRaw * midFactor;
+  const S_win = qualityScoreFromScores(fakeMatch, winnerSide);
+  const diffS = clamp(S_win - E_win, -1, 1);
+
+  let D_team_raw =
+    K_match * Math.sign(diffS) * Math.pow(Math.abs(diffS), EXP_GAMMA);
+  if (diffS > 0) D_team_raw *= 1 + upBoost;
+  if (MIDLINE_DAMPEN) D_team_raw *= midlineDampen(E_win);
+  if (E_win > 0.5) {
+    const winTax = K_match * WIN_TAX_COEF * (E_win - 0.5);
+    D_team_raw -= winTax;
+  }
 
   const epsDyn = clamp(
     K_match * MIN_DELTA_EPS_FACTOR,
     MIN_DELTA_EPS_MIN,
     MIN_DELTA_EPS_MAX
   );
-  if (D_raw < epsDyn) D_raw = epsDyn;
+  if (Math.abs(D_team_raw) > 0 && Math.abs(D_team_raw) < epsDyn) {
+    D_team_raw = Math.sign(D_team_raw) * epsDyn;
+  }
 
-  const D_soft = softCapDelta(D_raw);
+  let D_team = softCapTeam(D_team_raw);
 
-  // per-user preview (zero-sum)
-  const sideWin = winnerSide === "A" ? "A" : "B";
-  const sideLose = winnerSide === "A" ? "B" : "A";
+  const winnerUsers2 = (winnerSide === "A" ? usersA : usersB).map((uid) => ({
+    uid,
+    reliability: reliabilityMap.get(uid) ?? 0,
+    rating: getRating(uid),
+  }));
+  const loserUsers2 = (winnerSide === "A" ? usersB : usersA).map((uid) => ({
+    uid,
+    reliability: reliabilityMap.get(uid) ?? 0,
+    rating: getRating(uid),
+  }));
+
+  let winnerDeltas = distributeTeamDelta(D_team, winnerUsers2);
+  let loserDeltas = distributeTeamDelta(-D_team, loserUsers2);
+
+  const clampWinNeg = (d) => Math.max(d, -MAX_WIN_NEG);
+  const totalWinBefore = winnerDeltas.reduce((s, x) => s + x, 0);
+  const winnerClamped = winnerDeltas.map(clampWinNeg);
+  const totalWinAfter = winnerClamped.reduce((s, x) => s + x, 0);
+  if (totalWinAfter !== totalWinBefore) {
+    const room = winnerClamped.map((val, i) =>
+      Math.max(0, winnerDeltas[i] - -MAX_WIN_NEG)
+    );
+    const sumRoom = room.reduce((s, x) => s + x, 0);
+    const deficit = totalWinBefore - totalWinAfter;
+    if (sumRoom > 0 && deficit > 0) {
+      winnerDeltas = winnerClamped.map(
+        (val, i) => val + (room[i] / sumRoom) * deficit
+      );
+    } else {
+      const n = winnerClamped.length || 1;
+      winnerDeltas = winnerClamped.map((val) => val + deficit / n);
+    }
+  } else {
+    winnerDeltas = winnerClamped;
+  }
+
+  const sumWin = winnerDeltas.reduce((s, x) => s + x, 0);
+  const sumLose = loserDeltas.reduce((s, x) => s + x, 0);
+  const drift = sumWin + sumLose;
+  if (Math.abs(drift) > 1e-9) {
+    const s = loserDeltas.reduce((a, b) => a + Math.abs(b), 0) || 1;
+    loserDeltas = loserDeltas.map((d) => d - (drift * Math.abs(d)) / s);
+  }
+
   const perUser = [];
-  const pushUser = (uid, side, sign) => {
-    if (!uid) return;
+  const push = (uid, side, delta) => {
     const cur = latest.get(uid) || { single: 0, double: 0 };
-    const curVal = (Number(cur[key]) || 0) > 0 ? Number(cur[key]) : 2.5;
-    const delta = sign * D_soft;
+    const curVal =
+      (Number(cur[key]) || 0) > 0 ? Number(cur[key]) : DEFAULT_SEED_RATING;
     const next = clamp(curVal + delta, DUPR_MIN, DUPR_MAX);
     perUser.push({
       uid,
@@ -901,13 +1023,14 @@ export async function computeRatingPreviewFromParams({
       after: round3(next),
     });
   };
-  (winnerSide === "A" ? usersA : usersB).forEach((uid) =>
-    pushUser(uid, sideWin, +1)
+  (winnerSide === "A" ? usersA : usersB).forEach((uid, i) =>
+    push(uid, winnerSide, winnerDeltas[i] ?? 0)
   );
-  (winnerSide === "A" ? usersB : usersA).forEach((uid) =>
-    pushUser(uid, sideLose, -1)
+  (winnerSide === "A" ? usersB : usersA).forEach((uid, i) =>
+    push(uid, winnerSide === "A" ? "B" : "A", loserDeltas[i] ?? 0)
   );
 
+  // ⬇️ Thay toàn bộ khối return hiện có bằng khối này
   return {
     params: {
       tournamentId,
@@ -927,6 +1050,7 @@ export async function computeRatingPreviewFromParams({
       diffRaw: round3(diffRaw),
     },
     expected: { expA: round3(expA), expB: round3(expB), E_win: round3(E_win) },
+    // giữ nguyên shape cũ: context có formDetails
     context: {
       formA: round3(formA),
       formB: round3(formB),
@@ -938,20 +1062,21 @@ export async function computeRatingPreviewFromParams({
       avgReliability: round3(avgReliability),
       marginBoost: round3(marginBoost),
       phaseMul: round3(phaseMul),
-      upsetBoost: round3(upBoost),
+      upsetBoost: round3(upBoost), // alias đúng tên cũ
       kScale: round3(kScale),
       K_match: round3(K_match),
       shaper: {
         gamma: EXP_GAMMA,
-        midFactor: round3(midFactor),
+        midFactor: round3(MIDLINE_DAMPEN ? midlineDampen(E_win) : 1),
         epsDyn: round3(epsDyn),
       },
     },
+    // giữ tên "delta" như trước (cap/softness lấy theo team-cap mới)
     delta: {
-      raw: round3(D_raw),
-      soft: round3(D_soft),
-      cap: SOFT_DELTA_CAP,
-      softness: SOFT_DELTA_SOFTNESS,
+      raw: round3(D_team_raw),
+      soft: round3(D_team),
+      cap: SOFT_TEAM_CAP,
+      softness: SOFT_TEAM_SOFTNESS,
     },
     perUser,
     zeroSumCheck: round3(perUser.reduce((s, u) => s + u.delta, 0)),

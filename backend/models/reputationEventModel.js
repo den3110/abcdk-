@@ -8,6 +8,7 @@ const reputationEventSchema = new mongoose.Schema(
       ref: "User",
       required: true,
       index: true,
+      set: (v) => (v && typeof v === "object" && v._id ? v._id : v),
     },
     type: { type: String, enum: ["TOURNAMENT_FINISHED"], required: true },
     tournament: {
