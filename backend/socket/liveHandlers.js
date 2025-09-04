@@ -264,11 +264,14 @@ async function applyRatingDeltaForMatch(mt, scorerId) {
 // yêu cầu sẵn có các helper: gameWon, gamesToWin, onLostRallyNextServe, toDTO
 // (tuỳ bạn import ở đầu file) + hàm applyRatingForFinishedMatch (nếu dùng auto cộng/trừ điểm)
 
-export async function addPoint(matchId, team, step = 1, by, io) {
+// ✅ addPoint mới: trung lập, chỉ auto khi opts.autoNext === true
+export async function addPoint(matchId, team, step = 1, by, io, opts = {}) {
+  const { autoNext = false } = opts;
+
   const m = await Match.findById(matchId);
   if (!m || m.status !== "live") return;
 
-  // ---- guard & ép kiểu an toàn ----
+  // ---- helpers an toàn ----
   const toNum = (v, fb = 0) => (Number.isFinite(Number(v)) ? Number(v) : fb);
   const clamp0 = (n) => (n < 0 ? 0 : n);
   const validSide = (s) => (s === "A" || s === "B" ? s : "A");
@@ -287,25 +290,29 @@ export async function addPoint(matchId, team, step = 1, by, io) {
   const curRaw = m.gameScores[gi] || {};
   const cur = { a: toNum(curRaw.a, 0), b: toNum(curRaw.b, 0) };
 
-  // cộng điểm (cho phép st âm để admin “undo” nhanh, nhưng không < 0)
+  // cộng/trừ điểm (không âm)
   if (team === "A") cur.a = clamp0(cur.a + st);
   else cur.b = clamp0(cur.b + st);
   m.gameScores[gi] = cur;
 
-  // serve/rally
+  // ===== serve/rally =====
+  // Chỉ đổi lượt giao khi là điểm THÊM (st > 0). Undo không đụng tới serve.
   const prevServe = {
     side: validSide(m.serve?.side),
     server: validServer(m.serve?.server),
   };
-  const servingTeam = prevServe.side;
-  const scoredForServing = team === servingTeam;
-  if (!scoredForServing) {
-    m.serve = onLostRallyNextServe(prevServe);
-  } else if (!m.serve) {
-    m.serve = prevServe;
+  if (st > 0) {
+    const servingTeam = prevServe.side;
+    const scoredForServing = team === servingTeam;
+    if (!scoredForServing) {
+      // đội nhận ghi điểm → đổi lượt/đổi người theo luật hệ thống
+      m.serve = onLostRallyNextServe(prevServe);
+    } else if (!m.serve) {
+      m.serve = prevServe;
+    }
   }
 
-  // ===== cap-aware rules lấy từ match =====
+  // ===== rules (cap-aware) =====
   const rules = {
     bestOf: toNum(m.rules?.bestOf, 3),
     pointsToWin: toNum(m.rules?.pointsToWin, 11),
@@ -318,42 +325,47 @@ export async function addPoint(matchId, team, step = 1, by, io) {
     },
   };
 
-  // Kiểm tra kết thúc ván theo cap/soft-cap/by-two
+  // Kết luận ván hiện tại
   const ev = evaluateGameFinish(cur.a, cur.b, rules);
 
   if (ev.finished) {
-    // Tính số ván đã thắng (cap-aware) đến thời điểm hiện tại
-    const wins = { A: 0, B: 0 };
+    // Đếm số ván thắng (tính trên toàn bộ m.gameScores sau cập nhật)
+    let aWins = 0,
+      bWins = 0;
     for (let i = 0; i < m.gameScores.length; i++) {
-      const g = m.gameScores[i];
-      const ge = evaluateGameFinish(toNum(g?.a, 0), toNum(g?.b, 0), rules);
-      if (ge.finished && ge.winner) wins[ge.winner]++;
+      const g = m.gameScores[i] || { a: 0, b: 0 };
+      const ge = evaluateGameFinish(toNum(g.a, 0), toNum(g.b, 0), rules);
+      if (ge.finished) {
+        if (ge.winner === "A") aWins++;
+        else if (ge.winner === "B") bWins++;
+      }
     }
-    // cộng thêm ván vừa xong (vì cur vừa cập nhật)
-    // wins[ev.winner]++;
+    const need = Math.floor(Number(rules.bestOf) / 2) + 1;
 
-    const need = gamesToWin(rules.bestOf);
+    if (autoNext === true) {
+      // ✅ CHỈ trong chế độ tự động mới được advance/finish
+      if (aWins >= need || bWins >= need) {
+        // Kết thúc TRẬN
+        m.status = "finished";
+        m.winner = aWins > bWins ? "A" : "B";
+        if (!m.finishedAt) m.finishedAt = new Date();
+      } else {
+        // Mở ván mới, đảo bên giao đầu ván, 0-0-2
+        m.gameScores.push({ a: 0, b: 0 });
+        m.currentGame = gi + 1;
+        const nextFirstSide = validSide(prevServe.side) === "A" ? "B" : "A";
+        m.serve = { side: nextFirstSide, server: 2 };
 
-    if (wins.A >= need || wins.B >= need) {
-      // Kết thúc TRẬN
-      m.status = "finished";
-      m.winner = wins.A > wins.B ? "A" : "B";
-      m.finishedAt = new Date();
-    } else {
-      // Mở ván mới, đảo bên giao đầu ván, 0-0-2
-      m.gameScores.push({ a: 0, b: 0 });
-      m.currentGame = gi + 1;
-      const nextFirstSide = prevServe.side === "A" ? "B" : "A";
-      m.serve = { side: nextFirstSide, server: 2 };
-
-      m.liveLog = m.liveLog || [];
-      m.liveLog.push({
-        type: "serve",
-        by: by || null,
-        payload: { team: m.serve.side, server: 2 },
-        at: new Date(),
-      });
+        m.liveLog = m.liveLog || [];
+        m.liveLog.push({
+          type: "serve",
+          by: by || null,
+          payload: { team: m.serve.side, server: 2 },
+          at: new Date(),
+        });
+      }
     }
+    // ❌ Không autoNext: KHÔNG làm gì thêm (để trọng tài bấm nút)
   }
 
   // log point + version
@@ -487,7 +499,72 @@ export async function finishMatch(matchId, winner, reason, by, io) {
     console.error("[rating] applyRatingForFinishedMatch error:", err);
   }
 
-  const doc = await Match.findById(m._id).populate("pairA pairB referee");
+  const doc = await Match.findById(m._id)
+    .populate({
+      path: "pairA",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({ path: "referee", select: "name fullName nickname nickName" })
+    .lean();
+
+  if (!doc) return;
+
+  // Ưu tiên player.nickname/nickName; nếu thiếu HOẶC rỗng -> fallback user.nickname/user.nickName
+  const fillNick = (p) => {
+    if (!p) return p;
+    const pick = (v) => (v && String(v).trim()) || "";
+    const primary = pick(p.nickname) || pick(p.nickName);
+    const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+    const n = primary || fromUser || "";
+    if (n) {
+      p.nickname = n;
+      p.nickName = n;
+    }
+    // (tuỳ chọn) giảm payload:
+    // if (p.user) delete p.user;
+    return p;
+  };
+
+  if (doc.pairA) {
+    doc.pairA.player1 = fillNick(doc.pairA.player1);
+    doc.pairA.player2 = fillNick(doc.pairA.player2);
+  }
+  if (doc.pairB) {
+    doc.pairB.player1 = fillNick(doc.pairB.player1);
+    doc.pairB.player2 = fillNick(doc.pairB.player2);
+  }
+
+  // (tuỳ chọn) nếu bạn có meta.streams muốn đính kèm
+  if (!doc.streams && doc.meta?.streams) doc.streams = doc.meta.streams;
+
   io?.to(`match:${matchId}`)?.emit("match:update", {
     type: "finish",
     data: toDTO(doc),

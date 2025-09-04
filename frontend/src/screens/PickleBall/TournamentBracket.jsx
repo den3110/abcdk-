@@ -67,9 +67,9 @@ export const safePairName = (pair, eventType = "double") => {
 export const preferName = (p) => preferNick(p);
 
 export const preferNick = (p) =>
-  (p?.nickname && String(p.nickname).trim()) ||
-  (p?.nickName && String(p.nickName).trim()) ||
-  (p?.nick && String(p.nick).trim()) ||
+  (p?.nickname?.length > 0 && String(p.nickname).trim()) ||
+  (p?.nickName?.length > 0 && String(p.nickName).trim()) ||
+  (p?.nick?.length > 0 && String(p.nick).trim()) ||
   "";
 
 export const pairLabelWithNick = (pair, eventType = "double") => {

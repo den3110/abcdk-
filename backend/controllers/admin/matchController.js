@@ -546,17 +546,13 @@ export const adminListMatchGroups = expressAsyncHandler(async (req, res) => {
 export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
   const match = await Match.findById(req.params.id)
     .populate({ path: "tournament", select: "name eventType" })
-    // 👉 lấy thêm bracket (chọn vài field hay dùng; có thể bỏ select để lấy full)
     .populate({
       path: "bracket",
       select: "name type stage round rules format eventType",
     })
-    .populate({ path: "pairA" }) // đã có player1, player2, score…
+    .populate({ path: "pairA" })
     .populate({ path: "pairB" })
     .populate({ path: "referee", select: "name nickname" })
-    // Nếu muốn xem 2 match nguồn từ vòng trước (tuỳ schema):
-    // .populate({ path: "previousA", select: "code round order winner" })
-    // .populate({ path: "previousB", select: "code round order winner" })
     .lean();
 
   if (!match) {
@@ -564,17 +560,44 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     throw new Error("Match không tồn tại");
   }
 
-  // ✅ Fallback rules: ưu tiên rules của match, rồi đến rules của bracket
+  // helpers
+  const toIntOrNull = (v) =>
+    v == null ? null : (Number.isFinite(Number(v)) ? Number(v) : null);
+
+  // ✅ Fallback rules: ưu tiên match.rules → bracket.rules → default
   const mergedRules = {
     bestOf: match?.rules?.bestOf ?? match?.bracket?.rules?.bestOf ?? 3,
     pointsToWin:
       match?.rules?.pointsToWin ?? match?.bracket?.rules?.pointsToWin ?? 11,
-    winByTwo: match?.rules?.winByTwo ?? match?.bracket?.rules?.winByTwo ?? true,
+    winByTwo:
+      (match?.rules?.winByTwo ??
+        match?.bracket?.rules?.winByTwo ??
+        true) === true,
+    cap: {
+      mode:
+        match?.rules?.cap?.mode ??
+        match?.bracket?.rules?.cap?.mode ??
+        "none", // 'none' | 'hard' | 'soft'
+      points: toIntOrNull(
+        match?.rules?.cap?.points ??
+          match?.bracket?.rules?.cap?.points ??
+          null
+      ),
+    },
   };
 
-  // trả về match + rules đã merge
+  // Chuẩn hoá cap: nếu mode không hợp lệ → none; none thì points = null
+  if (!["none", "hard", "soft"].includes(mergedRules.cap.mode)) {
+    mergedRules.cap.mode = "none";
+  }
+  if (mergedRules.cap.mode === "none") {
+    mergedRules.cap.points = null;
+  }
+
+  // trả về match + rules đã merge (kèm cap)
   res.json({ ...match, rules: mergedRules });
 });
+
 /**
  * DELETE /api/matches/:matchId
  * Xoá 1 match:

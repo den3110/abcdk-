@@ -370,26 +370,47 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
   const escapeRegex = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const rx = kw ? new RegExp(escapeRegex(kw), "i") : null;
 
-  const keyword = kw
-    ? {
-        $or: [
-          { name: rx }, // họ tên
-          { nickname: rx }, // nickname
-          { phone: rx }, // số điện thoại
-        ],
-      }
-    : {};
+  const conds = [];
+
+  if (kw) {
+    conds.push({
+      $or: [
+        { name: rx }, // họ tên
+        { nickname: rx }, // nickname
+        { phone: rx }, // số điện thoại
+        // Nếu muốn tìm theo email, mở dòng dưới:
+        // { email: rx },
+      ],
+    });
+  }
 
   // ── role filter (nếu có)
-  const role = req.query.role ? { role: req.query.role } : {};
+  if (req.query.role) {
+    conds.push({ role: req.query.role });
+  }
 
-  const filter = { ...keyword, ...role };
+  // ── cccdStatus filter (server-side)
+  const rawStatus = (req.query.cccdStatus || "").trim();
+  const ALLOWED = new Set(["unverified", "pending", "verified", "rejected"]);
+  if (ALLOWED.has(rawStatus)) {
+    if (rawStatus === "unverified") {
+      // Bao gồm cả user chưa có field cccdStatus
+      conds.push({
+        $or: [{ cccdStatus: { $exists: false } }, { cccdStatus: "unverified" }],
+      });
+    } else {
+      conds.push({ cccdStatus: rawStatus });
+    }
+  }
+
+  const filter = conds.length ? { $and: conds } : {};
 
   // ── tổng số user theo filter
   const total = await User.countDocuments(filter);
 
   // ── danh sách user trang hiện tại
   const users = await User.find(filter)
+    // .sort({ createdAt: -1 }) // nếu cần sort, mở dòng này
     .limit(pageSize)
     .skip(pageSize * (page - 1))
     .lean();

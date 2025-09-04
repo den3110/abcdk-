@@ -69,6 +69,18 @@ const bracketSchema = new Schema(
         bestOf: { type: Number, enum: [1, 3, 5], default: 1 },
         pointsToWin: { type: Number, enum: [11, 15, 21], default: 11 },
         winByTwo: { type: Boolean, default: true },
+        cap: {
+          mode: {
+            type: String,
+            enum: ["none", "hard", "soft"],
+            default: "none",
+          },
+          points: {
+            type: Number,
+            min: 1,
+            default: null, // ví dụ 15 => chạm 15
+          },
+        },
       },
 
       // Cấu hình seed/bốc thăm
@@ -212,6 +224,5 @@ bracketSchema.index({ tournament: 1, order: 1 });
 bracketSchema.index({ tournament: 1, type: 1 });
 // Tối ưu truy vấn theo tournament + sort
 bracketSchema.index({ tournament: 1, stage: 1, order: 1 });
-
 
 export default mongoose.model("Bracket", bracketSchema);

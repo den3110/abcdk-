@@ -25,6 +25,7 @@ import { initSocket } from "./socket/index.js";
 import cors from "cors";
 import dotenv from "dotenv";
 import { startTournamentCrons } from "./jobs/tournamentCron.js";
+import { initKycBot } from "./bot/kycBot.js";
 dotenv.config();
 const port = process.env.PORT;
 const WHITELIST = [
@@ -94,6 +95,17 @@ if (process.env.NODE_ENV === "production") {
 
 app.use(notFound);
 app.use(errorHandler);
+
+if (process.env.TELEGRAM_BOT_TOKEN) {
+  try {
+    console.log("✅ Running KYC bot...");
+    initKycBot(app); // polling
+    
+  } catch (error) {
+    console.log("❌ Failed to start KYC bot:", error.message);
+  }
+}
+
 
 server.listen(port, () => {
   try {

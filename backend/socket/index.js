@@ -223,8 +223,38 @@ export function initSocket(
       socket.join(`match:${matchId}`);
 
       const m = await Match.findById(matchId)
-        .populate({ path: "pairA", select: "player1 player2" })
-        .populate({ path: "pairB", select: "player1 player2" })
+        .populate({
+          path: "pairA",
+          select: "player1 player2 seed label teamName",
+          populate: [
+            {
+              path: "player1",
+              select: "nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+          ],
+        })
+        .populate({
+          path: "pairB",
+          select: "player1 player2 seed label teamName",
+          populate: [
+            {
+              path: "player1",
+              select: "nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+          ],
+        })
         .populate({ path: "referee", select: "name fullName nickname" })
         .populate({ path: "previousA", select: "round order" })
         .populate({ path: "previousB", select: "round order" })
@@ -236,7 +266,38 @@ export function initSocket(
         .populate({ path: "bracket", select: "type name order overlay" })
         .lean();
 
-      if (m) socket.emit("match:snapshot", toDTO(m));
+      if (!m) return;
+
+      // Helper: lấy nickname ưu tiên player.nickname/nickName;
+      // nếu thiếu HOẶC chuỗi rỗng => fallback sang user.nickname/user.nickName.
+      const fillNick = (p) => {
+        if (!p) return p;
+        const pick = (v) => (v && String(v).trim()) || "";
+        const primary = pick(p.nickname) || pick(p.nickName);
+        const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+        const n = primary || fromUser || "";
+        if (n) {
+          p.nickname = n;
+          p.nickName = n;
+        }
+        // (tuỳ chọn) giảm payload: xoá user nếu không cần về FE
+        // if (p.user) delete p.user;
+        return p;
+      };
+
+      if (m.pairA) {
+        m.pairA.player1 = fillNick(m.pairA.player1);
+        m.pairA.player2 = fillNick(m.pairA.player2);
+      }
+      if (m.pairB) {
+        m.pairB.player1 = fillNick(m.pairB.player1);
+        m.pairB.player2 = fillNick(m.pairB.player2);
+      }
+
+      // bổ sung streams từ meta nếu có
+      if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
+      socket.emit("match:snapshot", toDTO(m));
     });
 
     socket.on("overlay:join", ({ matchId }) => {
@@ -306,10 +367,83 @@ export function initSocket(
 
     // (Giữ compatibility nếu FE còn dùng)
     socket.on("score:inc", async ({ matchId /*, side, delta*/ }) => {
-      const m = await Match.findById(matchId).populate(
-        "pairA pairB referee previousA previousB nextMatch tournament bracket"
-      );
-      if (m) io.to(`match:${matchId}`).emit("score:updated", toDTO(m));
+      if (!matchId) return;
+
+      const m = await Match.findById(matchId)
+        .populate({
+          path: "pairA",
+          select: "player1 player2 seed label teamName",
+          populate: [
+            {
+              path: "player1",
+              select: "nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+          ],
+        })
+        .populate({
+          path: "pairB",
+          select: "player1 player2 seed label teamName",
+          populate: [
+            {
+              path: "player1",
+              select: "nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+          ],
+        })
+        .populate({ path: "referee", select: "name fullName nickname" })
+        .populate({ path: "previousA", select: "round order" })
+        .populate({ path: "previousB", select: "round order" })
+        .populate({ path: "nextMatch", select: "_id" })
+        .populate({
+          path: "tournament",
+          select: "name image eventType overlay",
+        })
+        .populate({ path: "bracket", select: "type name order overlay" })
+        .lean();
+
+      if (!m) return;
+
+      // Helper: ưu tiên player.nickname/nickName; nếu thiếu HOẶC rỗng -> fallback user.nickname/user.nickName
+      const fillNick = (p) => {
+        if (!p) return p;
+        const pick = (v) => (v && String(v).trim()) || "";
+        const primary = pick(p.nickname) || pick(p.nickName);
+        const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+        const n = primary || fromUser || "";
+        if (n) {
+          p.nickname = n;
+          p.nickName = n;
+        }
+        // Tuỳ chọn: không cần mang user về FE
+        // if (p.user) delete p.user;
+        return p;
+      };
+
+      if (m.pairA) {
+        m.pairA.player1 = fillNick(m.pairA.player1);
+        m.pairA.player2 = fillNick(m.pairA.player2);
+      }
+      if (m.pairB) {
+        m.pairB.player1 = fillNick(m.pairB.player1);
+        m.pairB.player2 = fillNick(m.pairB.player2);
+      }
+
+      // bổ sung streams từ meta nếu có
+      if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
+      io.to(`match:${matchId}`).emit("score:updated", toDTO(m));
     });
 
     // ========= SCHEDULER (Tournament + Bracket/Cluster) =========
@@ -380,7 +514,7 @@ export function initSocket(
       }
     );
 
-       // ========= SCHEDULER RESET (admin) =========
+    // ========= SCHEDULER RESET (admin) =========
     // Payload:
     // {
     //   tournamentId: "68b16713ba906623ce8709f4",
@@ -391,7 +525,10 @@ export function initSocket(
     // }
     socket.on(
       "scheduler:resetAll",
-      async ({ tournamentId, bracket, cluster = "Main", rebuild = true }, ack) => {
+      async (
+        { tournamentId, bracket, cluster = "Main", rebuild = true },
+        ack
+      ) => {
         try {
           if (!ensureAdmin(socket)) {
             ack?.({ ok: false, message: "Forbidden" });
@@ -461,12 +598,18 @@ export function initSocket(
                   cluster: clusterKey,
                 });
               } catch (e) {
-                console.error("[scheduler] rebuild after reset error:", e?.message);
+                console.error(
+                  "[scheduler] rebuild after reset error:",
+                  e?.message
+                );
               }
             }
 
             // 4) Phát lại state cho room đang xem cụm/bracket đó
-            await broadcastState(tournamentId, { bracket, cluster: clusterKey });
+            await broadcastState(tournamentId, {
+              bracket,
+              cluster: clusterKey,
+            });
 
             ack?.({
               ok: true,
@@ -476,7 +619,9 @@ export function initSocket(
               rebuilt: Boolean(rebuild),
             });
           } catch (e) {
-            await session.abortTransaction().catch((e) => {console.log(e)});
+            await session.abortTransaction().catch((e) => {
+              console.log(e);
+            });
             session.endSession();
             console.error("[scheduler] resetAll error:", e?.message);
             ack?.({ ok: false, message: e?.message || "Reset failed" });
@@ -488,10 +633,17 @@ export function initSocket(
       }
     );
 
-     socket.on(
+    socket.on(
       "scheduler:assignSpecific",
       async (
-        { tournamentId, bracket, courtId, matchId, replace = false, cluster = "Main" },
+        {
+          tournamentId,
+          bracket,
+          courtId,
+          matchId,
+          replace = false,
+          cluster = "Main",
+        },
         ack
       ) => {
         try {
@@ -499,7 +651,11 @@ export function initSocket(
             ack?.({ ok: false, message: "Forbidden" });
             return;
           }
-          if (!isObjectIdString(tournamentId) || !isObjectIdString(courtId) || !isObjectIdString(matchId)) {
+          if (
+            !isObjectIdString(tournamentId) ||
+            !isObjectIdString(courtId) ||
+            !isObjectIdString(matchId)
+          ) {
             ack?.({ ok: false, message: "Invalid ids" });
             return;
           }
@@ -517,8 +673,10 @@ export function initSocket(
           if (!court) return ack?.({ ok: false, message: "Court not found" });
           if (!match) return ack?.({ ok: false, message: "Match not found" });
 
-          if (String(court.tournament) !== String(tournamentId) ||
-              String(match.tournament) !== String(tournamentId)) {
+          if (
+            String(court.tournament) !== String(tournamentId) ||
+            String(match.tournament) !== String(tournamentId)
+          ) {
             return ack?.({ ok: false, message: "Tournament mismatch" });
           }
 
@@ -527,28 +685,47 @@ export function initSocket(
             return ack?.({ ok: false, message: "Match not in bracket" });
           }
           // Nếu sân có bracket ràng buộc thì bắt buộc khớp với match
-          if (court.bracket && String(court.bracket) !== String(match.bracket)) {
-            return ack?.({ ok: false, message: "Court belongs to another bracket" });
+          if (
+            court.bracket &&
+            String(court.bracket) !== String(match.bracket)
+          ) {
+            return ack?.({
+              ok: false,
+              message: "Court belongs to another bracket",
+            });
           }
 
           if (["live", "finished"].includes(match.status)) {
-            return ack?.({ ok: false, message: `Cannot assign a ${match.status} match` });
+            return ack?.({
+              ok: false,
+              message: `Cannot assign a ${match.status} match`,
+            });
           }
 
-          const clusterKey = court.cluster || resolveClusterKey(bracket, cluster);
+          const clusterKey =
+            court.cluster || resolveClusterKey(bracket, cluster);
 
           const session = await mongoose.startSession();
           session.startTransaction();
 
           try {
             // 0) Nếu sân đang bận và không replace
-            if (court.currentMatch && String(court.currentMatch) !== String(match._id) && !replace) {
+            if (
+              court.currentMatch &&
+              String(court.currentMatch) !== String(match._id) &&
+              !replace
+            ) {
               throw new Error("Court is busy. Pass replace=true to override.");
             }
 
             // 1) Nếu sân đang có trận khác -> đẩy về queued & gỡ gán
-            if (court.currentMatch && String(court.currentMatch) !== String(match._id)) {
-              const prev = await Match.findById(court.currentMatch).session(session);
+            if (
+              court.currentMatch &&
+              String(court.currentMatch) !== String(match._id)
+            ) {
+              const prev = await Match.findById(court.currentMatch).session(
+                session
+              );
               if (prev && prev.status !== "finished") {
                 prev.status = "queued";
                 prev.set("court", undefined, { strict: false });
@@ -560,8 +737,13 @@ export function initSocket(
 
             // 2) Nếu trận đang nằm ở sân khác -> gỡ currentMatch ở sân cũ
             if (match.court && String(match.court) !== String(court._id)) {
-              const prevCourt = await Court.findById(match.court).session(session);
-              if (prevCourt && String(prevCourt.currentMatch) === String(match._id)) {
+              const prevCourt = await Court.findById(match.court).session(
+                session
+              );
+              if (
+                prevCourt &&
+                String(prevCourt.currentMatch) === String(match._id)
+              ) {
                 prevCourt.set("currentMatch", undefined, { strict: false });
                 await prevCourt.save({ session });
               }
@@ -569,7 +751,9 @@ export function initSocket(
 
             // 3) Cập nhật match -> assigned vào court
             const courtLabelGuess =
-              court.name || court.label || (Number.isInteger(court.order) ? `Sân ${court.order}` : "Sân");
+              court.name ||
+              court.label ||
+              (Number.isInteger(court.order) ? `Sân ${court.order}` : "Sân");
             const mDoc = await Match.findById(match._id).session(session);
             mDoc.status = "assigned";
             mDoc.court = court._id;

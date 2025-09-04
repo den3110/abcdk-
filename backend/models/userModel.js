@@ -119,7 +119,7 @@ userSchema.index(
   { name: "idx_province_vi", collation: { locale: "vi", strength: 1 } }
 );
 
-
+userSchema.index({ cccdStatus: 1, updatedAt: -1 });
 userSchema.index({ email: 1 }, { unique: true, sparse: true });
 userSchema.index({ phone: 1 }, { unique: true, sparse: true });
 // cho trang evaluator

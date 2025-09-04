@@ -227,14 +227,12 @@ const gameWon = (x, y, pts, byTwo) =>
   x >= pts && (byTwo ? x - y >= 2 : x - y >= 1);
 
 export const patchScore = asyncHandler(async (req, res) => {
-  // ======= CAP-AWARE RULE HELPERS =======
-  function isFinitePos(n) {
-    return Number.isFinite(n) && n > 0;
-  }
+  // ================== Helpers (CAP-aware) ==================
+  const isFinitePos = (n) => Number.isFinite(n) && n > 0;
 
   /**
-   * Kết luận 1 ván dựa trên rules (pointsToWin, winByTwo, cap).
-   * Trả về: { finished: boolean, winner: 'A'|'B'|null, capped: boolean }
+   * Kết luận 1 ván theo rules (pointsToWin, winByTwo, cap)
+   * return { finished: boolean, winner: 'A'|'B'|null, capped: boolean }
    */
   function evaluateGameFinish(aRaw, bRaw, rules) {
     const a = Number(aRaw) || 0;
@@ -246,7 +244,7 @@ export const patchScore = asyncHandler(async (req, res) => {
     const capPoints =
       rules?.cap?.points != null ? Number(rules.cap.points) : null;
 
-    // HARD CAP: chạm cap là kết thúc ngay, không cần chênh 2.
+    // HARD CAP: chạm cap là kết thúc ngay, không cần chênh 2
     if (mode === "hard" && isFinitePos(capPoints)) {
       if (a >= capPoints || b >= capPoints) {
         if (a === b) return { finished: false, winner: null, capped: false }; // edge-case nhập tay
@@ -254,15 +252,15 @@ export const patchScore = asyncHandler(async (req, res) => {
       }
     }
 
-    // SOFT CAP: khi đạt ngưỡng cap, bỏ luật chênh 2 → ai dẫn trước là thắng.
+    // SOFT CAP: đạt cap → bỏ luật chênh 2, ai dẫn là thắng
     if (mode === "soft" && isFinitePos(capPoints)) {
       if (a >= capPoints || b >= capPoints) {
-        if (a === b) return { finished: false, winner: null, capped: false }; // cần hơn nhau 1
+        if (a === b) return { finished: false, winner: null, capped: false };
         return { finished: true, winner: a > b ? "A" : "B", capped: true };
       }
     }
 
-    // Không cap (hoặc chưa tới cap):
+    // Không cap (hoặc chưa tới cap)
     if (byTwo) {
       if ((a >= base || b >= base) && Math.abs(a - b) >= 2) {
         return { finished: true, winner: a > b ? "A" : "B", capped: false };
@@ -293,23 +291,45 @@ export const patchScore = asyncHandler(async (req, res) => {
     if (aWins >= need || bWins >= need) {
       match.winner = aWins > bWins ? "A" : "B";
       match.status = "finished";
-      if (!match.finishedAt) match.finishedAt = new Date(); // ★ ensure end time
+      if (!match.finishedAt) match.finishedAt = new Date();
       await match.save();
       return true;
     }
     return false;
   }
 
-  // ======= Controller logic =======
+  const getRulesFromDoc = (doc, fallback) => ({
+    bestOf: Number(doc?.rules?.bestOf ?? fallback?.bestOf ?? 3),
+    pointsToWin: Number(doc?.rules?.pointsToWin ?? fallback?.pointsToWin ?? 11),
+    winByTwo:
+      doc?.rules?.winByTwo === undefined
+        ? fallback?.winByTwo ?? true
+        : Boolean(doc.rules.winByTwo),
+    cap: {
+      mode: String(doc?.rules?.cap?.mode ?? fallback?.cap?.mode ?? "none"),
+      points:
+        doc?.rules?.cap?.points === undefined
+          ? fallback?.cap?.points ?? null
+          : Number(doc.rules.cap.points),
+    },
+  });
+
+  const lastGame = (m) => {
+    if (!Array.isArray(m?.gameScores) || m.gameScores.length === 0) return null;
+    return m.gameScores[m.gameScores.length - 1] || null;
+  };
+
+  // ============== Controller main ==============
+  const io = req.app.get("io");
   const { id } = req.params;
   const { op } = req.body || {};
-  const io = req.app.get("io");
+  const autoNext = req.body?.autoNext === true; // ✅ chuẩn hoá: chỉ true mới tính là bật
 
   const match = await Match.findById(id);
   if (!match) return res.status(404).json({ message: "Match not found" });
 
-  // Bảo vệ rules mặc định + CAP
-  const rules = {
+  // snapshot rule ban đầu (phòng rule đổi trong lúc live)
+  const rules0 = {
     bestOf: Number(match.rules?.bestOf ?? 3),
     pointsToWin: Number(match.rules?.pointsToWin ?? 11),
     winByTwo:
@@ -325,48 +345,67 @@ export const patchScore = asyncHandler(async (req, res) => {
     },
   };
 
-  // ===== 1) INC/DEC điểm =====
+  // =============== 1) INC/DEC điểm ===============
   if (op === "inc") {
-    const { side, delta } = req.body;
-    const d = Number(delta);
-    if (!["A", "B"].includes(side))
+    const side = req.body?.side;
+    const d = Number(req.body?.delta);
+
+    if (!["A", "B"].includes(side)) {
       return res.status(400).json({ message: "Invalid side" });
-    if (!Number.isFinite(d) || d === 0)
+    }
+    if (!Number.isFinite(d) || d === 0) {
       return res.status(400).json({ message: "Invalid delta" });
+    }
 
-    // Service addPoint sẽ cập nhật điểm; sau đó ta kiểm tra kết thúc để set finishedAt nếu cần
-    await addPoint(id, side, d, req.user?._id, io);
+    await addPoint(id, side, d, req.user?._id, io, { autoNext });
 
-    // Re-fetch document (không lean) để có thể cập nhật finishedAt
+    // Lấy bản mới để tính lại
     const freshDoc = await Match.findById(id);
     if (!freshDoc) return res.status(404).json({ message: "Match not found" });
+    const rulesNow = getRulesFromDoc(freshDoc, rules0);
 
-    // Recompute rules từ doc mới (phòng rule đổi khi live)
-    const rulesNow = {
-      bestOf: Number(freshDoc.rules?.bestOf ?? rules.bestOf),
-      pointsToWin: Number(freshDoc.rules?.pointsToWin ?? rules.pointsToWin),
-      winByTwo:
-        freshDoc.rules?.winByTwo === undefined
-          ? rules.winByTwo
-          : Boolean(freshDoc.rules?.winByTwo),
-      cap: {
-        mode: String(freshDoc.rules?.cap?.mode ?? rules.cap.mode),
-        points:
-          freshDoc.rules?.cap?.points === undefined
-            ? rules.cap.points
-            : Number(freshDoc.rules.cap.points),
-      },
-    };
-
-    // Nếu đã finished mà chưa có finishedAt → đóng dấu thời gian.
-    // Hoặc nếu chưa finished nhưng đủ điều kiện → finalize (sẽ set finishedAt).
+    // Nếu trận đã 'finished' mà thiếu finishedAt → đóng dấu
     if (freshDoc.status === "finished") {
       if (!freshDoc.finishedAt) {
         freshDoc.finishedAt = new Date();
         await freshDoc.save();
       }
-    } else {
+    } else if (autoNext) {
+      // ✅ CHỈ khi tick: mới auto kết thúc TRẬN nếu đã đủ set
       await finalizeMatchIfDone(freshDoc, rulesNow);
+    }
+
+    // ✅ CHỈ khi tick: mới auto mở ván mới (nếu ván vừa xong & trận chưa đủ set)
+    if (autoNext && freshDoc.status !== "finished") {
+      const lg = lastGame(freshDoc);
+      if (lg) {
+        const ev = evaluateGameFinish(lg.a ?? 0, lg.b ?? 0, rulesNow);
+        if (ev.finished) {
+          const { aWins, bWins } = countWins(
+            freshDoc.gameScores || [],
+            rulesNow
+          );
+          const need = Math.floor(Number(rulesNow.bestOf) / 2) + 1;
+          const matchDone = aWins >= need || bWins >= need;
+          if (!matchDone) {
+            freshDoc.gameScores.push({ a: 0, b: 0 });
+            freshDoc.currentGame = freshDoc.gameScores.length - 1;
+            // reset giao bóng đầu ván
+            freshDoc.serve = freshDoc.serve || { side: "A", server: 2 };
+            freshDoc.serve.side = freshDoc.serve.side || "A";
+            freshDoc.serve.server = 2;
+            // log (tuỳ dùng)
+            freshDoc.liveLog = freshDoc.liveLog || [];
+            freshDoc.liveLog.push({
+              type: "serve",
+              by: req.user?._id || null,
+              payload: { side: freshDoc.serve.side, server: 2 },
+              at: new Date(),
+            });
+            await freshDoc.save();
+          }
+        }
+      }
     }
 
     const fresh = await Match.findById(id).lean();
@@ -380,14 +419,14 @@ export const patchScore = asyncHandler(async (req, res) => {
     });
   }
 
-  // ===== 2) SET GAME ở chỉ số cụ thể =====
+  // =============== 2) SET GAME tại index cụ thể ===============
   if (op === "setGame") {
     let { gameIndex, a = 0, b = 0 } = req.body;
+
     if (!Number.isInteger(gameIndex) || gameIndex < 0) {
       return res.status(400).json({ message: "Invalid gameIndex" });
     }
     if (!Array.isArray(match.gameScores)) match.gameScores = [];
-
     if (gameIndex > match.gameScores.length) {
       return res.status(400).json({ message: "gameIndex out of range" });
     }
@@ -395,8 +434,11 @@ export const patchScore = asyncHandler(async (req, res) => {
     a = Number(a) || 0;
     b = Number(b) || 0;
 
-    // kiểm tra kết thúc (cap-aware)
-    evaluateGameFinish(a, b, rules);
+    // lấy rules mới nhất từ doc (phòng rule đổi khi live)
+    const rulesNow = getRulesFromDoc(match, rules0);
+
+    // Chấp nhận set tay (evaluate để tham khảo, không auto gì nếu không tick)
+    evaluateGameFinish(a, b, rulesNow);
 
     const nextScore = { a, b };
     if (gameIndex === match.gameScores.length) match.gameScores.push(nextScore);
@@ -404,8 +446,10 @@ export const patchScore = asyncHandler(async (req, res) => {
 
     match.currentGame = gameIndex;
 
-    // Thử tự đóng trận nếu đã đủ set thắng → sẽ set finishedAt
-    await finalizeMatchIfDone(match, rules);
+    // ✅ CHỈ khi tick: mới auto kết thúc TRẬN nếu đã đủ set
+    if (autoNext) {
+      await finalizeMatchIfDone(match, rulesNow);
+    }
 
     await match.save();
     io?.to(`match:${id}`).emit("score:updated", { matchId: id });
@@ -418,36 +462,98 @@ export const patchScore = asyncHandler(async (req, res) => {
     });
   }
 
-  // ===== 3) MỞ VÁN MỚI =====
+  // =============== 3) MỞ VÁN MỚI (thủ công) ===============
   if (op === "nextGame") {
+    // ❗ KHÔNG re-declare autoNext ở đây; dùng biến đã chuẩn hoá ở trên
+    const rulesNow = getRulesFromDoc(match, rules0);
+
     if (!Array.isArray(match.gameScores) || match.gameScores.length === 0) {
       return res
         .status(400)
         .json({ message: "Chưa có ván hiện tại để kiểm tra" });
     }
 
-    const last = match.gameScores[match.gameScores.length - 1] || {
-      a: 0,
-      b: 0,
-    };
-    const ev = evaluateGameFinish(
-      Number(last?.a ?? 0),
-      Number(last?.b ?? 0),
-      rules
-    );
+    // helper dùng rulesNow (không phải rules)
+    const eva = (g) =>
+      evaluateGameFinish(Number(g?.a || 0), Number(g?.b || 0), rulesNow);
 
-    if (!ev.finished) {
+    const len = match.gameScores.length;
+    const cg = Number.isInteger(match.currentGame)
+      ? match.currentGame
+      : len - 1;
+    const idx = Math.min(Math.max(cg, 0), len - 1);
+
+    const cur = match.gameScores[idx];
+    const curEv = eva(cur);
+
+    // Trường hợp đã lỡ mở ván mới (đuôi 0-0) => ván vừa kết thúc là idx-1
+    const hasTrailingZero =
+      len >= 2 &&
+      Number(match.gameScores[len - 1]?.a || 0) === 0 &&
+      Number(match.gameScores[len - 1]?.b || 0) === 0 &&
+      !eva(match.gameScores[len - 1]).finished;
+
+    if (!curEv.finished) {
+      if (
+        hasTrailingZero &&
+        idx > 0 &&
+        eva(match.gameScores[idx - 1]).finished
+      ) {
+        // Đã ở ván mới rồi, không cần tạo thêm
+        match.currentGame = len - 1; // trỏ về ván 0-0 hiện tại
+        await match.save();
+        io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+        return res.json({
+          message: "Đã ở ván mới rồi",
+          gameScores: match.gameScores,
+          currentGame: match.currentGame,
+          status: match.status,
+          winner: match.winner,
+        });
+      }
+
       return res
         .status(400)
         .json({ message: "Ván hiện tại chưa đủ điều kiện kết thúc" });
     }
 
-    // Nếu đủ best-of thì đóng trận luôn (sẽ set finishedAt)
-    const done = await finalizeMatchIfDone(match, rules);
-    if (done) {
+    // Ván hiện tại đã kết thúc → kiểm tra đủ set để kết thúc trận chưa
+    const { aWins, bWins } = countWins(match.gameScores || [], rulesNow);
+    const need = Math.floor(Number(rulesNow.bestOf) / 2) + 1;
+    const matchDone = aWins >= need || bWins >= need;
+
+    if (matchDone) {
+      if (autoNext === true) {
+        await finalizeMatchIfDone(match, rulesNow);
+        io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+        return res.json({
+          message: "Trận đã đủ số ván thắng, đã kết thúc",
+          gameScores: match.gameScores,
+          currentGame: match.currentGame,
+          status: match.status,
+          winner: match.winner,
+        });
+      } else {
+        // không tick → không tự kết thúc trận
+        io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+        return res.status(409).json({
+          message:
+            "Trận đã đủ số ván thắng. Hãy bấm 'Kết thúc trận' để kết thúc.",
+          gameScores: match.gameScores,
+          currentGame: match.currentGame,
+          status: match.status, // giữ 'live'
+          winner: match.winner || null,
+        });
+      }
+    }
+
+    // Nếu đã có ván 0-0 (do trước đó lỡ mở), đừng mở thêm
+    if (hasTrailingZero) {
+      match.currentGame = len - 1;
+      await match.save();
       io?.to(`match:${id}`).emit("score:updated", { matchId: id });
       return res.json({
-        message: "Trận đã đủ số ván thắng, đã kết thúc",
+        message: "Đã có ván tiếp theo sẵn",
         gameScores: match.gameScores,
         currentGame: match.currentGame,
         status: match.status,
@@ -455,16 +561,15 @@ export const patchScore = asyncHandler(async (req, res) => {
       });
     }
 
-    // Mở ván mới
+    // Mở ván mới chuẩn
     match.gameScores.push({ a: 0, b: 0 });
     match.currentGame = match.gameScores.length - 1;
 
-    // reset giao bóng đầu ván theo schema
+    // reset giao bóng đầu ván
     match.serve = match.serve || { side: "A", server: 2 };
     match.serve.side = match.serve.side || "A";
     match.serve.server = 2;
 
-    // log (nếu dùng liveLog)
     match.liveLog = match.liveLog || [];
     match.liveLog.push({
       type: "serve",

@@ -1,3 +1,5 @@
+import { notifyNewKyc } from "../services/telegram/telegramNotifyKyc.js";
+
 export const uploadCccd = async (req, res) => {
   if (!req.files || !req.files.front || !req.files.back)
     return res.status(400).json({ message: "Thiếu file ảnh" });
@@ -11,6 +13,7 @@ export const uploadCccd = async (req, res) => {
   req.user.cccdImages = urls;
   req.user.cccdStatus = "pending";
   await req.user.save();
+  notifyNewKyc(req.user).catch((e) => console.error("Telegram notify error:", e));
 
   res.status(201).json({
     message: "Upload thành công, đang chờ xác minh",

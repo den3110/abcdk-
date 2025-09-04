@@ -345,12 +345,41 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
   }
 
   const match = await Match.findById(id)
-    .populate({ path: "pairA", select: "player1 player2" })
-    .populate({ path: "pairB", select: "player1 player2" })
-    .populate({ path: "referee", select: "name fullName" })
+    .populate({
+      path: "pairA",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({ path: "referee", select: "name fullName nickname nickName" })
     .populate({ path: "previousA", select: "round order" })
     .populate({ path: "previousB", select: "round order" })
-    // nextMatch chỉ cần _id để FE nhận biết “trận cuối”
     .populate({ path: "nextMatch", select: "_id" })
     .lean();
 
@@ -358,13 +387,44 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Match not found" });
   }
 
-  // có thể bổ sung “streams” từ meta nếu BE đang lưu như vậy
+  // Helper: lấy nickname ưu tiên player.nickname/nickName;
+  // nếu thiếu hoặc rỗng => fallback sang user.nickname/user.nickName.
+  const fillNick = (p) => {
+    if (!p) return p;
+    const pick = (v) => (v && String(v).trim()) || "";
+    const primary = pick(p.nickname) || pick(p.nickName);
+    const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+    const n = primary || fromUser || "";
+
+    if (n) {
+      // điền cả hai key để FE dùng key nào cũng có giá trị
+      p.nickname = n;
+      p.nickName = n;
+    }
+    // Không muốn lộ cấu trúc user ra FE thì bỏ comment:
+    // if (p.user) delete p.user;
+
+    return p;
+  };
+
+  if (match.pairA) {
+    match.pairA.player1 = fillNick(match.pairA.player1);
+    match.pairA.player2 = fillNick(match.pairA.player2);
+  }
+  if (match.pairB) {
+    match.pairB.player1 = fillNick(match.pairB.player1);
+    match.pairB.player2 = fillNick(match.pairB.player2);
+  }
+
+  // bổ sung streams từ meta nếu có
   if (!match.streams && match.meta?.streams) {
     match.streams = match.meta.streams;
   }
 
   res.json(match);
 });
+
+
 
 export { getMatchesByTournament };
 
