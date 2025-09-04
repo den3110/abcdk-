@@ -3,6 +3,7 @@ import fetch from "node-fetch";
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const DEFAULT_CHAT_ID = process.env.TELEGRAM_CHAT_ID; // group/private chat id
+const toPosix = (s = "") => s.replace(/\\/g, "/");
 
 export async function tgSend(text, opts = {}) {
   if (!BOT_TOKEN || !DEFAULT_CHAT_ID) return;
