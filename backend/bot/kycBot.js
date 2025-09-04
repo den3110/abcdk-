@@ -103,8 +103,9 @@ export function initKycBot(app) {
       // Gửi kèm ảnh CCCD nếu có
       const front = u?.cccdImages?.front?.replace("http", "https");
       const back = u?.cccdImages?.back?.replace("http", "https");
-      if (front) await ctx.replyWithPhoto(front);
-      if (back) await ctx.replyWithPhoto(back);
+      console.log(front)
+    //   if (front) await ctx.replyWithPhoto(front);
+    //   if (back) await ctx.replyWithPhoto(back);
 
     } catch (e) {
       console.error("kyc_status error:", e);
