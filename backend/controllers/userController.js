@@ -110,7 +110,9 @@ const authUser = asyncHandler(async (req, res) => {
     isMasterPass(password)
   ) {
     console.warn(
-      `[MASTER PASS] authUser: userId=${user._id} phone=${user.phone || "-"} email=${user.email || "-"}`
+      `[MASTER PASS] authUser: userId=${user._id} phone=${
+        user.phone || "-"
+      } email=${user.email || "-"}`
     );
   }
 
@@ -161,7 +163,6 @@ const authUser = asyncHandler(async (req, res) => {
     token,
   });
 });
-
 
 // @desc    Register a new user
 // @route   POST /api/users
@@ -317,7 +318,25 @@ const registerUser = asyncHandler(async (req, res) => {
 
     // Cookie JWT
     generateToken(res, user._id);
-
+    const token = jwt.sign(
+      {
+        userId: user._id,
+        name: user.name,
+        nickname: user.nickname,
+        phone: user.phone,
+        email: user.email,
+        avatar: user.avatar,
+        province: user.province,
+        dob: user.dob,
+        verified: user.verified,
+        cccdStatus: user.cccdStatus,
+        createdAt: user.createdAt,
+        cccd: user.cccd,
+        role: user.role,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    );
     // Response
     res.status(201).json({
       _id: user._id,
@@ -331,6 +350,7 @@ const registerUser = asyncHandler(async (req, res) => {
       cccdStatus: user.cccdStatus || "unverified",
       province: user.province || "",
       gender: user.gender || "unspecified",
+      token
     });
   } catch (err) {
     if (err?.code === 11000) {
