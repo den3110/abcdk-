@@ -101,8 +101,8 @@ export function initKycBot(app) {
       await ctx.reply(msg, { parse_mode: "HTML", disable_web_page_preview: true });
 
       // Gửi kèm ảnh CCCD nếu có
-      const front = u?.cccdImages?.front;
-      const back = u?.cccdImages?.back;
+      const front = u?.cccdImages?.front?.replace("http", "https");
+      const back = u?.cccdImages?.back?.replace("http", "https");
       if (front) await ctx.replyWithPhoto(front);
       if (back) await ctx.replyWithPhoto(back);
 
