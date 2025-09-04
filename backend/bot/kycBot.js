@@ -12,7 +12,7 @@ const ADMIN_IDS = (process.env.TELEGRAM_ADMIN_IDS || "")
 
 function isEmail(s="") { return /\S+@\S+\.\S+/.test(s); }
 function isDigits(s="") { return /^\d{6,}$/.test(s.replace(/\D/g, "")); } // phone >= 6 digits
-
+const toPosix = (s='') => s.replace(/\\/g, '/');
 function fmtUser(u) {
   const label = {
     unverified: "Chưa KYC",
@@ -103,8 +103,8 @@ export function initKycBot(app) {
       // Gửi kèm ảnh CCCD nếu có
       const front = u?.cccdImages?.front?.replace("http", "https");
       const back = u?.cccdImages?.back?.replace("http", "https");
-      if (front) await ctx.replyWithPhoto(process.env.HOST + front);
-      if (back) await ctx.replyWithPhoto(process.env.HOST + back);
+      if (front) await ctx.replyWithPhoto(toPosix(process.env.HOST + front));
+      if (back) await ctx.replyWithPhoto(toPosix(process.env.HOST + back));
 
     } catch (e) {
       console.error("kyc_status error:", e);
