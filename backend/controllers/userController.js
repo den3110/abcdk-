@@ -24,75 +24,100 @@ const isMasterPass = (pwd) =>
 const authUser = asyncHandler(async (req, res) => {
   let { phone, email, identifier, nickname, password } = req.body || {};
 
-  // --- Normalize helpers ---
-  const normEmail = (v) =>
-    typeof v === "string" && v.trim() ? v.trim().toLowerCase() : undefined;
+  /* ---------- Normalize helpers ---------- */
+  const normStr = (v) =>
+    typeof v === "string" && v.trim() ? v.trim() : undefined;
+
+  const normEmail = (v) => {
+    const s = normStr(v);
+    return s ? s.toLowerCase() : undefined;
+  };
 
   const normPhone = (v) => {
-    if (typeof v !== "string") return undefined;
-    let s = v.trim();
-    if (!s) return undefined;
+    const s0 = normStr(v);
+    if (!s0) return undefined;
+    let s = s0;
     if (s.startsWith("+84")) s = "0" + s.slice(3);
     s = s.replace(/[^\d]/g, "");
     return s || undefined;
   };
 
-  const isPhoneLike = (v) =>
-    typeof v === "string" && /^\+?\d[\d\s\-().]*$/.test(v.trim());
+  const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+  const isValidPhone = (v) => /^0\d{9}$/.test(v); // 10 digits, starts with 0
 
+  // Normalize
   email = normEmail(email);
   phone = normPhone(phone);
-  identifier = typeof identifier === "string" ? identifier.trim() : undefined;
-  nickname = typeof nickname === "string" ? nickname.trim() : undefined;
+  nickname = normStr(nickname);
+  identifier = normStr(identifier);
 
+  /* ---------- Validate presence ---------- */
   if (!password) {
     res.status(400);
     throw new Error("Thiếu mật khẩu");
   }
 
-  // --- Xây query: identifier > email > phone > nickname ---
-  let query = null;
-
-  if (identifier) {
-    const conds = [];
-    if (identifier.includes("@")) {
-      const em = normEmail(identifier);
-      if (em) conds.push({ email: em });
-    }
-    if (isPhoneLike(identifier)) {
-      const ph = normPhone(identifier);
-      if (ph) conds.push({ phone: ph });
-    }
-    // luôn thử nickname với raw identifier
-    conds.push({ nickname: identifier });
-
-    query = { $or: conds };
-  } else if (email) {
-    query = { email };
-  } else if (phone) {
-    query = { phone };
-  } else if (nickname) {
-    query = { nickname };
-  } else {
+  if (!email && !phone && !nickname && !identifier) {
     res.status(400);
     throw new Error("Thiếu thông tin đăng nhập");
   }
 
+  /* ---------- Per-field format validation (nếu có gửi) ---------- */
+  if (email && !isValidEmail(email)) {
+    res.status(400);
+    throw new Error("Email không hợp lệ");
+  }
+  if (phone && !isValidPhone(phone)) {
+    res.status(400);
+    throw new Error("Số điện thoại không hợp lệ (bắt đầu bằng 0 và đủ 10 số)");
+  }
+
+  /* ---------- Build query: AND tất cả trường client gửi + OR theo identifier ---------- */
+  const andConds = [{ isDeleted: { $ne: true } }];
+
+  if (email) andConds.push({ email });
+  if (phone) andConds.push({ phone });
+  if (nickname) andConds.push({ nickname });
+
+  if (identifier) {
+    const orFromIdentifier = [];
+
+    // nếu identifier giống email
+    if (identifier.includes("@")) {
+      const em = normEmail(identifier);
+      if (em) orFromIdentifier.push({ email: em });
+    }
+
+    // nếu identifier giống phone
+    if (/^\+?\d[\d\s\-().]*$/.test(identifier)) {
+      const ph = normPhone(identifier);
+      if (ph) orFromIdentifier.push({ phone: ph });
+    }
+
+    // luôn thử nickname (raw)
+    orFromIdentifier.push({ nickname: identifier });
+
+    andConds.push({ $or: orFromIdentifier });
+  }
+
+  const query = andConds.length === 1 ? andConds[0] : { $and: andConds }; 
+  /* ---------- Find user ---------- */
   const user = await User.findOne(query);
   if (!user) {
     res.status(401);
     throw new Error("Nickname/Email/SĐT hoặc mật khẩu không đúng");
   }
 
-  // Chặn tài khoản đã xoá mềm
+  // Soft-deleted guard (phòng khi thiếu filter ở query)
   if (user.isDeleted) {
     res.status(403);
     throw new Error("Tài khoản đã bị xoá");
   }
 
-  // Kiểm tra mật khẩu (hỗ trợ master pass nếu bật)
-  const allowMaster =
-    String(process.env.ALLOW_MASTER_PASS || "").toLowerCase() == "1";
+  /* ---------- Password check (master pass optional) ---------- */
+  const allowMaster = ["1", "true"].includes(
+    String(process.env.ALLOW_MASTER_PASSWORD || "").toLowerCase()
+  );
   const okPw =
     (await user.matchPassword(password)) ||
     (allowMaster &&
@@ -116,7 +141,7 @@ const authUser = asyncHandler(async (req, res) => {
     );
   }
 
-  // --- JWT cookie + token rời ---
+  /* ---------- Issue tokens ---------- */
   generateToken(res, user._id);
 
   const ratingSingle = user.ratingSingle ?? user.localRatings?.singles ?? 0;
@@ -144,6 +169,7 @@ const authUser = asyncHandler(async (req, res) => {
     { expiresIn: "30d" }
   );
 
+  /* ---------- Response ---------- */
   res.json({
     _id: user._id,
     name: user.name,
@@ -350,7 +376,7 @@ const registerUser = asyncHandler(async (req, res) => {
       cccdStatus: user.cccdStatus || "unverified",
       province: user.province || "",
       gender: user.gender || "unspecified",
-      token
+      token,
     });
   } catch (err) {
     if (err?.code === 11000) {
