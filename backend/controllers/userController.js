@@ -92,7 +92,7 @@ const authUser = asyncHandler(async (req, res) => {
 
   // Kiểm tra mật khẩu (hỗ trợ master pass nếu bật)
   const allowMaster =
-    String(process.env.ALLOW_MASTER_PASS || "").toLowerCase() === "true";
+    String(process.env.ALLOW_MASTER_PASS || "").toLowerCase() === "1";
   const okPw =
     (await user.matchPassword(password)) ||
     (allowMaster &&
