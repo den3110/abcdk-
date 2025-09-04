@@ -27,25 +27,19 @@ const userSchema = new mongoose.Schema(
     nickname: {
       type: String,
       trim: true,
+      unique: true,
+      sparse: true,
+      // default: 
       required() {
         return this.role === "user"; // chỉ user thường mới bắt buộc
       },
     },
 
-    phone: {
+    phone: { type: String, unique: true, sparse: true, trim: true },
+    email: {
       type: String,
       unique: true,
       sparse: true,
-      trim: true,
-      required() {
-        return this.role === "user";
-      },
-    },
-
-    email: {
-      type: String,
-      required: true,
-      unique: true,
       trim: true,
       lowercase: true,
     },
@@ -125,6 +119,9 @@ userSchema.index(
   { name: "idx_province_vi", collation: { locale: "vi", strength: 1 } }
 );
 
+
+userSchema.index({ email: 1 }, { unique: true, sparse: true });
+userSchema.index({ phone: 1 }, { unique: true, sparse: true });
 // cho trang evaluator
 userSchema.index({ "evaluator.enabled": 1 }, { name: "idx_eval_enabled" });
 userSchema.index(

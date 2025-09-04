@@ -22,36 +22,57 @@ const isMasterPass = (pwd) =>
 // controllers/userController.js
 // 1) USER LOGIN (phone hoặc email/identifier tuỳ bạn muốn mở rộng)
 const authUser = asyncHandler(async (req, res) => {
-  let { phone, email, identifier, password } = req.body || {};
+  let { phone, email, identifier, nickname, password } = req.body || {};
 
-  // --- Normalize inputs ---
-  const normEmail = (v) => (typeof v === "string" ? v.trim().toLowerCase() : v);
+  // --- Normalize helpers ---
+  const normEmail = (v) =>
+    typeof v === "string" && v.trim() ? v.trim().toLowerCase() : undefined;
+
   const normPhone = (v) => {
-    if (typeof v !== "string") return v;
+    if (typeof v !== "string") return undefined;
     let s = v.trim();
-    // cho phép +84xxxxxxxxx => 0xxxxxxxxx
+    if (!s) return undefined;
     if (s.startsWith("+84")) s = "0" + s.slice(3);
-    // bỏ khoảng trắng, gạch
     s = s.replace(/[^\d]/g, "");
-    return s;
+    return s || undefined;
   };
+
+  const isPhoneLike = (v) =>
+    typeof v === "string" && /^\+?\d[\d\s\-().]*$/.test(v.trim());
 
   email = normEmail(email);
   phone = normPhone(phone);
-  identifier = typeof identifier === "string" ? identifier.trim() : identifier;
+  identifier = typeof identifier === "string" ? identifier.trim() : undefined;
+  nickname = typeof nickname === "string" ? nickname.trim() : undefined;
 
-  // --- Chọn tiêu chí tìm user: identifier > email > phone ---
-  let query = {};
+  if (!password) {
+    res.status(400);
+    throw new Error("Thiếu mật khẩu");
+  }
+
+  // --- Xây query: identifier > email > phone > nickname ---
+  let query = null;
+
   if (identifier) {
+    const conds = [];
     if (identifier.includes("@")) {
-      query = { email: normEmail(identifier) };
-    } else {
-      query = { phone: normPhone(identifier) };
+      const em = normEmail(identifier);
+      if (em) conds.push({ email: em });
     }
+    if (isPhoneLike(identifier)) {
+      const ph = normPhone(identifier);
+      if (ph) conds.push({ phone: ph });
+    }
+    // luôn thử nickname với raw identifier
+    conds.push({ nickname: identifier });
+
+    query = { $or: conds };
   } else if (email) {
     query = { email };
   } else if (phone) {
     query = { phone };
+  } else if (nickname) {
+    query = { nickname };
   } else {
     res.status(400);
     throw new Error("Thiếu thông tin đăng nhập");
@@ -60,7 +81,7 @@ const authUser = asyncHandler(async (req, res) => {
   const user = await User.findOne(query);
   if (!user) {
     res.status(401);
-    throw new Error("Số điện thoại/email hoặc mật khẩu không đúng");
+    throw new Error("Nickname/Email/SĐT hoặc mật khẩu không đúng");
   }
 
   // Chặn tài khoản đã xoá mềm
@@ -80,7 +101,7 @@ const authUser = asyncHandler(async (req, res) => {
 
   if (!okPw) {
     res.status(401);
-    throw new Error("Số điện thoại/email hoặc mật khẩu không đúng");
+    throw new Error("Nickname/Email/SĐT hoặc mật khẩu không đúng");
   }
 
   if (
@@ -89,17 +110,13 @@ const authUser = asyncHandler(async (req, res) => {
     isMasterPass(password)
   ) {
     console.warn(
-      `[MASTER PASS] authUser: userId=${user._id} phone=${
-        user.phone || "-"
-      } email=${user.email || "-"}`
+      `[MASTER PASS] authUser: userId=${user._id} phone=${user.phone || "-"} email=${user.email || "-"}`
     );
   }
 
   // --- JWT cookie + token rời ---
-  // (⚠️ fix) generateToken cần _id
   generateToken(res, user._id);
 
-  // fallback rating nếu dùng localRatings
   const ratingSingle = user.ratingSingle ?? user.localRatings?.singles ?? 0;
   const ratingDouble = user.ratingDouble ?? user.localRatings?.doubles ?? 0;
 
@@ -125,7 +142,6 @@ const authUser = asyncHandler(async (req, res) => {
     { expiresIn: "30d" }
   );
 
-  // --- Response ---
   res.json({
     _id: user._id,
     name: user.name,
@@ -146,11 +162,12 @@ const authUser = asyncHandler(async (req, res) => {
   });
 });
 
+
 // @desc    Register a new user
 // @route   POST /api/users
 // @access  Public
 const registerUser = asyncHandler(async (req, res) => {
-  // Nhận body + chuẩn hoá
+  // ===== Nhận & chuẩn hoá đầu vào =====
   let {
     name,
     nickname,
@@ -164,43 +181,47 @@ const registerUser = asyncHandler(async (req, res) => {
     gender,
   } = req.body || {};
 
-  name = typeof name === "string" ? name.trim() : name;
-  nickname = typeof nickname === "string" ? nickname.trim() : nickname;
-  phone = typeof phone === "string" ? phone.trim() : phone;
-  dob = typeof dob === "string" ? dob.trim() : dob;
-  email = typeof email === "string" ? email.trim().toLowerCase() : email;
-  password = typeof password === "string" ? password : password;
-  cccd = typeof cccd === "string" ? cccd.trim() : cccd;
-  province = typeof province === "string" ? province.trim() : province;
-  gender = typeof gender === "string" ? gender.trim() : gender;
+  const normStr = (v) => (typeof v === "string" ? v.trim() : v);
+  const normEmail = (v) =>
+    typeof v === "string" && v.trim() ? v.trim().toLowerCase() : undefined;
+  const normPhone = (v) => {
+    if (typeof v !== "string") return undefined;
+    let s = v.trim();
+    if (!s) return undefined;
+    if (s.startsWith("+84")) s = "0" + s.slice(3);
+    s = s.replace(/[^\d]/g, "");
+    return s || undefined;
+  };
 
-  // ====== VALIDATION (bắt buộc: nickname + email + phone + password) ======
+  name = normStr(name);
+  nickname = normStr(nickname);
+  phone = normPhone(phone);
+  dob = normStr(dob);
+  email = normEmail(email);
+  password = typeof password === "string" ? password : undefined;
+  cccd = normStr(cccd);
+  province = normStr(province);
+  gender = normStr(gender);
+
+  // ===== VALIDATION bắt buộc tối thiểu =====
   if (!nickname) {
     res.status(400);
     throw new Error("Biệt danh là bắt buộc");
   }
-  if (!email) {
-    res.status(400);
-    throw new Error("Email là bắt buộc");
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    res.status(400);
-    throw new Error("Email không hợp lệ");
-  }
-  if (!phone) {
-    res.status(400);
-    throw new Error("Số điện thoại là bắt buộc");
-  }
-  if (!/^0\d{9}$/.test(phone)) {
-    res.status(400);
-    throw new Error("Số điện thoại không hợp lệ (bắt đầu bằng 0 và đủ 10 số)");
-  }
-  if (!password || String(password).length < 6) {
+  if (!password || password.length < 6) {
     res.status(400);
     throw new Error("Mật khẩu phải có ít nhất 6 ký tự");
   }
 
-  // Optional validations (web có thể gửi)
+  // ===== VALIDATION tuỳ chọn (chỉ check khi có gửi) =====
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    res.status(400);
+    throw new Error("Email không hợp lệ");
+  }
+  if (phone && !/^0\d{9}$/.test(phone)) {
+    res.status(400);
+    throw new Error("Số điện thoại không hợp lệ (bắt đầu bằng 0 và đủ 10 số)");
+  }
   if (cccd && !/^\d{12}$/.test(cccd)) {
     res.status(400);
     throw new Error("CCCD phải gồm đúng 12 chữ số");
@@ -221,26 +242,30 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error("Giới tính không hợp lệ");
   }
 
-  // ====== PRE-CHECK duplicate (thân thiện) ======
-  const duplicate = await User.findOne({
-    $or: [{ email }, { phone }, { nickname }],
-  });
-  if (duplicate) {
-    if (duplicate.email === email) {
-      res.status(400);
-      throw new Error("Email đã tồn tại");
-    }
-    if (duplicate.phone === phone) {
-      res.status(400);
-      throw new Error("Số điện thoại đã tồn tại");
-    }
-    if (duplicate.nickname === nickname) {
-      res.status(400);
-      throw new Error("Nickname đã tồn tại");
+  // ===== PRE-CHECK duplicate thân thiện (chỉ cho field có giá trị) =====
+  const orConds = [];
+  if (email) orConds.push({ email });
+  if (phone) orConds.push({ phone });
+  if (nickname) orConds.push({ nickname });
+
+  if (orConds.length) {
+    const duplicate = await User.findOne({ $or: orConds });
+    if (duplicate) {
+      if (email && duplicate.email === email) {
+        res.status(400);
+        throw new Error("Email đã tồn tại");
+      }
+      if (phone && duplicate.phone === phone) {
+        res.status(400);
+        throw new Error("Số điện thoại đã tồn tại");
+      }
+      if (nickname && duplicate.nickname === nickname) {
+        res.status(400);
+        throw new Error("Nickname đã tồn tại");
+      }
     }
   }
 
-  // CCCD optional: nếu có thì check trùng
   if (cccd) {
     const existing = await User.findOne({ cccd });
     if (existing) {
@@ -249,22 +274,22 @@ const registerUser = asyncHandler(async (req, res) => {
     }
   }
 
+  // ===== Transaction tạo user + ranking =====
   const session = await mongoose.startSession();
   let user;
   try {
     await session.withTransaction(async () => {
       const doc = {
         nickname,
-        email,
-        phone,
-        password, // giả định pre-save hook hash
+        password, // pre-save hook sẽ hash
         avatar: avatar || "",
       };
+      if (email) doc.email = email;
+      if (phone) doc.phone = phone;
       if (name) doc.name = name;
       if (dob) doc.dob = dob;
       if (province) doc.province = province;
-      if (gender) doc.gender = gender;
-
+      if (gender) doc.gender = gender || "unspecified";
       if (cccd) {
         doc.cccd = cccd;
         doc.cccdStatus = "unverified";
@@ -290,7 +315,10 @@ const registerUser = asyncHandler(async (req, res) => {
       );
     });
 
+    // Cookie JWT
     generateToken(res, user._id);
+
+    // Response
     res.status(201).json({
       _id: user._id,
       name: user.name || "",
@@ -300,7 +328,7 @@ const registerUser = asyncHandler(async (req, res) => {
       email: user.email || "",
       avatar: user.avatar || "",
       cccd: user.cccd || "",
-      cccdStatus: user.cccdStatus || "",
+      cccdStatus: user.cccdStatus || "unverified",
       province: user.province || "",
       gender: user.gender || "unspecified",
     });
