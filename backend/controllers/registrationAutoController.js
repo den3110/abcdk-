@@ -51,10 +51,22 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
   const { tourId } = req.params;
   const body = req.body || {};
 
-  // ---------- Input ----------
+  // ---------- Helpers nhỏ ----------
   const isNum = (v, def = 0) => (Number.isFinite(Number(v)) ? Number(v) : def);
   const isBool = (v, def = false) => (typeof v === "boolean" ? v : def);
 
+  // Chuẩn hoá số ĐT để dedupe (không ghi vào DB, chỉ dùng so sánh)
+  const normPhone = (v) => {
+    if (typeof v !== "string") return "";
+    let s = v.trim();
+    if (!s) return "";
+    if (s.startsWith("+84")) s = "0" + s.slice(3);
+    return s.replace(/[^\d]/g, "");
+  };
+  const hasPhone = (u) =>
+    typeof u?.phone === "string" && u.phone.trim().length > 0;
+
+  // ---------- Input ----------
   const count = Math.max(1, isNum(body.count, 16)); // singles: VĐV, doubles: cặp
   const requireVerified = isBool(body.requireVerified, false);
   const province = (body.province || "").trim();
@@ -115,9 +127,9 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
   const usedPhones = new Set();
   for (const r of regs) {
     if (r?.player1?.user) usedUsers.add(String(r.player1.user));
-    if (r?.player1?.phone) usedPhones.add(String(r.player1.phone));
+    if (r?.player1?.phone) usedPhones.add(normPhone(r.player1.phone));
     if (r?.player2?.user) usedUsers.add(String(r.player2.user));
-    if (r?.player2?.phone) usedPhones.add(String(r.player2.phone));
+    if (r?.player2?.phone) usedPhones.add(normPhone(r.player2.phone));
   }
 
   // ---------- Seeded RNG ----------
@@ -127,24 +139,42 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
   const ratingPath = isSingles
     ? "$localRatings.singles"
     : "$localRatings.doubles";
+
   const baseMatch = { role: "user" };
   if (requireVerified) baseMatch.verified = "verified";
   if (province)
     baseMatch.province = { $regex: new RegExp(escapeRegExp(province), "i") };
 
+  // Lọc phone KHÔNG rỗng ngay từ pipeline để tránh lỗi required
   const pipeline = [
     { $match: baseMatch },
     {
       $project: {
         name: 1,
-        nickname: 1, // ✅ lấy biệt danh từ DB
+        nickname: 1,
         email: 1,
         phone: 1,
         avatar: 1,
         localRatings: 1,
-        ratingR: { $ifNull: [ratingPath, 3.5] }, // ✅ thiếu rating => 3.5
+        ratingR: { $ifNull: [ratingPath, 3.5] }, // thiếu rating => 3.5
       },
     },
+    // ✅ chỉ lấy user có phone khác rỗng (trim)
+    {
+      $match: {
+        $expr: {
+          $gt: [
+            {
+              $strLenCP: {
+                $trim: { input: { $ifNull: ["$phone", ""] } },
+              },
+            },
+            0,
+          ],
+        },
+      },
+    },
+    // lọc theo ratingMin/Max
     {
       $match: {
         $expr: {
@@ -162,9 +192,9 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
 
   // ---------- Dedupe pool ----------
   let candidates = agg.filter((u) => {
+    if (!hasPhone(u)) return false; // ✅ double-check
     if (dedupeByUser && usedUsers.has(String(u._id))) return false;
-    if (dedupeByPhone && u.phone && usedPhones.has(String(u.phone)))
-      return false;
+    if (dedupeByPhone && usedPhones.has(normPhone(u.phone))) return false;
     if (enforceCaps && capSingle > 0 && Number(u.ratingR) > capSingle)
       return false;
     return true;
@@ -183,7 +213,8 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
         ? {
             candidatesTotal,
             afterDedupe,
-            notes: "Pool rỗng sau khi dedupe/capSingle",
+            notes:
+              "Pool rỗng sau khi lọc thiếu phone/dedupe/capSingle hoặc capacity.",
           }
         : undefined,
     });
@@ -199,8 +230,8 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
     const preview = selected.map((u) => ({
       userId: u._id,
       phone: u.phone || "",
-      name: u.name || u.nickname || u.email, // tên hiển thị (giữ logic cũ)
-      nickname: u.nickname || null, // ✅ trả kèm biệt danh
+      name: u.name || u.nickname || u.email,
+      nickname: u.nickname || null,
       score: Number(u.ratingR),
     }));
 
@@ -222,7 +253,7 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
       });
     }
 
-    // bulk insert — dùng selected (giữ đủ field nickname)
+    // bulk insert — dùng selected
     const ops = [];
     for (const u of selected) {
       const paid = pickPaid(paymentMode, paidRatio, rnd);
@@ -234,9 +265,9 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
             player1: playerDoc(
               {
                 _id: u._id,
-                name: u.name, // tên thật (có thể rỗng)
-                nickname: u.nickname, // ✅ BIỆT DANH
-                phone: u.phone,
+                name: u.name,
+                nickname: u.nickname,
+                phone: u.phone, // ✅ luôn có
                 email: u.email,
                 avatar: u.avatar,
               },
@@ -359,13 +390,13 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
     a: {
       id: A.user._id,
       name: A.user.name || A.user.nickname || A.user.email,
-      nickname: A.user.nickname || null, // ✅ preview có biệt danh
+      nickname: A.user.nickname || null,
       score: A.score,
     },
     b: {
       id: B.user._id,
       name: B.user.name || B.user.nickname || B.user.email,
-      nickname: B.user.nickname || null, // ✅ preview có biệt danh
+      nickname: B.user.nickname || null,
       score: B.score,
     },
     sum: A.score + B.score,
@@ -416,13 +447,12 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
       insertOne: {
         document: {
           tournament: new mongoose.Types.ObjectId(tour._id),
-          // ✅ Truyền kèm nickname vào playerDoc
           player1: playerDoc(
             {
               _id: A.user._id,
               name: A.user.name,
-              nickname: A.user.nickname, // ✅
-              phone: A.user.phone,
+              nickname: A.user.nickname,
+              phone: A.user.phone, // ✅ luôn có phone
               email: A.user.email,
               avatar: A.user.avatar,
             },
@@ -432,8 +462,8 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
             {
               _id: B.user._id,
               name: B.user.name,
-              nickname: B.user.nickname, // ✅
-              phone: B.user.phone,
+              nickname: B.user.nickname,
+              phone: B.user.phone, // ✅ luôn có phone
               email: B.user.email,
               avatar: B.user.avatar,
             },
