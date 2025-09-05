@@ -91,7 +91,7 @@ export async function notifyNewKyc(user) {
       ? `🕒 ${new Date(user.createdAt).toLocaleString("vi-VN")}`
       : "",
     "",
-    "Trạng thái: <b>pending</b>",
+    "Trạng thái: <b>Chờ KYC</b>",
   ].filter(Boolean);
   const caption = captionLines.join("\n");
 

@@ -8,6 +8,7 @@ import {
   toDTO,
 } from "../socket/liveHandlers.js";
 import mongoose from "mongoose";
+import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
 
 /* ───────── helpers ───────── */
 function isGameWin(a = 0, b = 0, rules) {
@@ -747,7 +748,11 @@ export const patchWinner = asyncHandler(async (req, res) => {
   });
   // phát “match:patched” cho các client đang lắng nghe tổng quát
   io?.to(String(match._id)).emit("match:patched", { matchId: match._id });
-
+  try {
+    await applyRatingForFinishedMatch(match._id);
+  } catch (error) {
+    console.error("[adminUpdateMatch] applyRatingForFinishedMatch error:", e);
+  }
   return res.json({ message: "Winner updated", winner: match.winner });
 });
 
@@ -904,7 +909,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     const pipeline = [
       { $match: { $and: andClauses } },
 
-      // chuẩn hóa & bucket
+      // Chuẩn hoá & bucket theo status
       {
         $addFields: {
           normalizedStatus: {
@@ -967,19 +972,19 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                 {
                   case: { $eq: ["$_bucketPrio", 0] },
                   then: { $multiply: ["$_updatedAtLong", -1] },
-                },
+                }, // LIVE: mới cập nhật lên trước
                 {
                   case: { $in: ["$_bucketPrio", [1, 2]] },
                   then: { $ifNull: ["$round", 99999] },
-                },
+                }, // scheduled/assigned: theo round
                 {
                   case: { $eq: ["$_bucketPrio", 3] },
                   then: "$_queueOrderSafe",
-                },
+                }, // queued: theo queueOrder
                 {
                   case: { $eq: ["$_bucketPrio", 4] },
                   then: { $multiply: ["$_finishedAtLong", -1] },
-                },
+                }, // finished: mới xong lên trước
               ],
               default: 0,
             },
@@ -998,7 +1003,38 @@ export async function listRefereeMatchesByTournament(req, res, next) {
           },
         },
       },
-      { $sort: { _bucketPrio: 1, _k1: 1, _k2: 1, _id: 1 } },
+
+      // <<< NEW for bracket-order sorting (nhẹ, chỉ để sắp xếp theo vòng) >>>
+      {
+        $lookup: {
+          from: "brackets",
+          localField: "bracket",
+          foreignField: "_id",
+          pipeline: [{ $project: { _id: 1, type: 1, stage: 1 } }],
+          as: "__br4sort",
+        },
+      },
+      { $unwind: { path: "$__br4sort", preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          _brTypePrio: {
+            $switch: {
+              branches: [
+                { case: { $eq: ["$__br4sort.type", "group"] }, then: 1 },
+                { case: { $eq: ["$__br4sort.type", "po"] }, then: 2 }, // PO trước KO
+                { case: { $eq: ["$__br4sort.type", "ko"] }, then: 3 },
+                { case: { $eq: ["$__br4sort.type", "double"] }, then: 4 },
+              ],
+              default: 99,
+            },
+          },
+          _brStageOrder: { $ifNull: ["$__br4sort.stage", "$_brTypePrio"] },
+        },
+      },
+      // <<< END NEW >>>
+
+      // SẮP XẾP: Ưu tiên theo BRACKET (vòng trước → vòng sau), rồi mới theo bucket/status như cũ
+      { $sort: { _brStageOrder: 1, _bucketPrio: 1, _k1: 1, _k2: 1, _id: 1 } },
 
       // facet + paging
       {
@@ -1020,7 +1056,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      /* ---------- Lookups ---------- */
+      /* ---------- Lookups (đầy đủ) ---------- */
       {
         $lookup: {
           from: "tournaments",
@@ -1081,7 +1117,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      // groupCtx cho bảng
+      // groupCtx cho bảng (như cũ)
       {
         $addFields: {
           _groupCtx: {
@@ -1265,7 +1301,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       },
       { $unwind: { path: "$pairBReg", preserveNullAndEmptyArrays: true } },
 
-      /* === NEW: lookup User để fallback nickname === */
+      /* === NEW: lookup User để fallback nickname (giữ nguyên) === */
       // A.p1
       {
         $lookup: {
@@ -1328,7 +1364,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      // Project kết quả
+      // Project kết quả (loại bỏ các field nội bộ)
       {
         $project: {
           _id: 0,
@@ -1360,7 +1396,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                 groupKey: "$$it.groupKey",
                 groupIndex: "$$it.groupIndex",
 
-                // pairA
                 pairA: {
                   _id: "$$it.pairAReg._id",
                   teamName: "$$it.pairAReg.teamName",
@@ -1369,7 +1404,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                     user: "$$it.pairAReg.player1.user",
                     name: "$$it.pairAReg.player1.name",
                     fullName: "$$it.pairAReg.player1.fullName",
-                    // nickname ưu tiên từ Registration, fallback user.nickname
                     nickname: {
                       $ifNull: [
                         "$$it.pairAReg.player1.nickname",
@@ -1390,7 +1424,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                   },
                 },
 
-                // pairB
                 pairB: {
                   _id: "$$it.pairBReg._id",
                   teamName: "$$it.pairBReg.teamName",
