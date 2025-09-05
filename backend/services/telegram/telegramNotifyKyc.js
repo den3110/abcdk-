@@ -97,7 +97,7 @@ export async function notifyNewKyc(user) {
   const captionLines = [
     "🆕 <b>KYC mới</b>",
     `👤 <b>${user?.name || "Ẩn danh"}</b>${
-      user?.nickname ? " <i>(" + user.nickname + ")</i>" : ""
+      u?.nickname ? ` <i>(${user.nickname})</i>` : ""
     }`,
     user?.email ? `✉️ ${user.email}` : "",
     user?.phone ? `📞 ${user.phone}` : "",
@@ -123,14 +123,14 @@ export async function notifyNewKyc(user) {
   const frontUrl = normalizeImageUrl(toPosix(user?.cccdImages?.front || ""));
   const backUrl = normalizeImageUrl(toPosix(user?.cccdImages?.back || ""));
 
-  // 1) GỬI TIN NHẮN KYC TRƯỚC
+  // 1) Gửi tin nhắn KYC TRƯỚC
   const sentMsg = await tgSend(caption, { reply_markup });
   const replyToId = sentMsg?.result?.message_id;
 
-  // 2) SAU ĐÓ GỬI ẢNH (reply vào tin nhắn vừa gửi)
+  // 2) Helper gửi 1 ảnh với caption và fallback
   async function sendOnePhoto(url, label) {
     if (!url) return;
-    // Thử sendPhoto trước
+    // Thử sendPhoto (URL)
     const r = await tgSendPhotoUrl({
       photo: url,
       caption: label,
@@ -144,13 +144,12 @@ export async function notifyNewKyc(user) {
       caption: label,
       reply_to_message_id: replyToId,
     });
-    if (!r2?.ok) {
-      console.error("Failed to send photo/document for:", url);
-    }
+    if (!r2?.ok) console.error("Failed to send photo/document for:", url);
     return r2;
   }
 
-  // Gửi mặt trước rồi mặt sau (nếu có)
+  // 3) Gửi ảnh với CHÚ THÍCH RÕ mặt trước/mặt sau (như file cũ)
+  //    - Nếu chỉ có 1 ảnh, vẫn ghi đúng "Mặt trước" hoặc "Mặt sau".
   if (frontUrl) {
     await sendOnePhoto(frontUrl, "CCCD - Mặt trước");
   }
