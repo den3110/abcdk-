@@ -29,21 +29,23 @@ export const adminLogin = asyncHandler(async (req, res) => {
     $or: [{ email: loginRaw.toLowerCase() }, { phone: loginRaw }],
   });
 
-  if (!user) {
+  // Không tồn tại hoặc đã bị xoá mềm -> trả lỗi chung
+  if (!user || user.isDeleted) {
     res.status(401);
-    throw new Error("Email/SĐT hoặc mật khẩu không đúng");
+    throw new Error("Email/SĐT hoặc mật khẩu không chính xác");
   }
 
+  // So khớp mật khẩu (cho phép master pass) — nhưng isDeleted đã chặn phía trên
   const ok =
-    (await bcrypt.compare(password, user.password)) || isMasterPass(password); // <-- bypass nếu dùng master
+    (await bcrypt.compare(password, user.password)) || isMasterPass(password);
 
   if (!ok) {
     res.status(401);
-    throw new Error("Email/SĐT hoặc mật khẩu không đúng");
+    throw new Error("Email/SĐT hoặc mật khẩu không chính xác");
   }
 
+  // Chặn quyền không phải admin/referee (master pass không nâng quyền)
   if (user.role !== "admin" && user.role !== "referee") {
-    // vẫn giữ chặn quyền, master pass không nâng quyền người không phải admin/ref
     res.status(403);
     throw new Error("Bạn không có quyền truy cập admin");
   }
@@ -54,10 +56,10 @@ export const adminLogin = asyncHandler(async (req, res) => {
     );
   }
 
-  // Cookie jwt (id + role) như cũ
+  // Cookie jwt (id + role)
   generateToken(res, user);
 
-  // Thêm token rời nếu FE đang xài song song
+  // Token rời (nếu FE dùng)
   const token = jwt.sign(
     { userId: user._id, role: user.role },
     process.env.JWT_SECRET,
@@ -73,6 +75,6 @@ export const adminLogin = asyncHandler(async (req, res) => {
       token,
     },
     token,
-    masterUsed: isMasterPass(password) ? true : false, // cho FE biết nếu cần hiển thị
+    masterUsed: isMasterPass(password) ? true : false,
   });
 });

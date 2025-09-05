@@ -23,7 +23,7 @@ const isMasterPass = (pwd) =>
 // controllers/userController.js
 // 1) USER LOGIN (phone hoặc email/identifier tuỳ bạn muốn mở rộng)
 const authUser = asyncHandler(async (req, res) => {
-  console.log(req.body)
+  console.log(req.body);
   let { phone, email, identifier, nickname, password } = req.body || {};
 
   /* ---------- Normalize helpers ---------- */
@@ -312,7 +312,80 @@ const registerUser = asyncHandler(async (req, res) => {
   province = normStr(province);
   gender = normStr(gender);
 
-  // ===== VALIDATION bắt buộc tối thiểu =====
+  // ===== NHÁNH KHÔI PHỤC TÀI KHOẢN (undelete) =====
+  // Ưu tiên match cả phone + nickname nếu cả hai cùng được gửi
+  let reUser = null;
+  if (phone && nickname) {
+    reUser = await User.findOne({ isDeleted: true, phone, nickname });
+  }
+  if (!reUser && phone) {
+    reUser = await User.findOne({ isDeleted: true, phone });
+  }
+  if (!reUser && nickname) {
+    reUser = await User.findOne({ isDeleted: true, nickname });
+  }
+
+  if (reUser) {
+    // Gỡ cờ isDeleted, giữ nguyên toàn bộ thông tin cũ
+    reUser.isDeleted = false;
+    // (tuỳ chọn) không động vào deletedAt/deletionReason để lưu audit lịch sử
+    await reUser.save();
+
+    // Đảm bảo có Ranking (nếu trước đây chưa khởi tạo)
+    await Ranking.updateOne(
+      { user: reUser._id },
+      {
+        $setOnInsert: {
+          user: reUser._id,
+          single: 0,
+          double: 0,
+          mix: 0,
+          points: 0,
+          lastUpdated: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+
+    // Cookie + token như đăng nhập bình thường
+    generateToken(res, reUser._id);
+    const token = jwt.sign(
+      {
+        userId: reUser._id,
+        name: reUser.name,
+        nickname: reUser.nickname,
+        phone: reUser.phone,
+        email: reUser.email,
+        avatar: reUser.avatar,
+        province: reUser.province,
+        dob: reUser.dob,
+        verified: reUser.verified,
+        cccdStatus: reUser.cccdStatus,
+        createdAt: reUser.createdAt,
+        cccd: reUser.cccd,
+        role: reUser.role,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    return res.status(200).json({
+      _id: reUser._id,
+      name: reUser.name || "",
+      nickname: reUser.nickname,
+      phone: reUser.phone || "",
+      dob: reUser.dob || "",
+      email: reUser.email || "",
+      avatar: reUser.avatar || "",
+      cccd: reUser.cccd || "",
+      cccdStatus: reUser.cccdStatus || "unverified",
+      province: reUser.province || "",
+      gender: reUser.gender || "unspecified",
+      token,
+    });
+  }
+
+  // ===== VALIDATION bắt buộc tối thiểu (chỉ khi KHÔNG khôi phục) =====
   if (!nickname) {
     res.status(400);
     throw new Error("Biệt danh là bắt buộc");
@@ -351,11 +424,11 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error("Giới tính không hợp lệ");
   }
 
-  // ===== PRE-CHECK duplicate thân thiện (chỉ cho field có giá trị) =====
+  // ===== PRE-CHECK duplicate thân thiện (bỏ qua các tài khoản isDeleted vì đã xử lý ở nhánh trên) =====
   const orConds = [];
-  if (email) orConds.push({ email });
-  if (phone) orConds.push({ phone });
-  if (nickname) orConds.push({ nickname });
+  if (email) orConds.push({ email, isDeleted: { $ne: true } });
+  if (phone) orConds.push({ phone, isDeleted: { $ne: true } });
+  if (nickname) orConds.push({ nickname, isDeleted: { $ne: true } });
 
   if (orConds.length) {
     const duplicate = await User.findOne({ $or: orConds });
@@ -376,7 +449,7 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 
   if (cccd) {
-    const existing = await User.findOne({ cccd });
+    const existing = await User.findOne({ cccd, isDeleted: { $ne: true } });
     if (existing) {
       res.status(400);
       throw new Error("CCCD đã được sử dụng cho tài khoản khác");
@@ -445,6 +518,7 @@ const registerUser = asyncHandler(async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: "30d" }
     );
+
     // Response
     res.status(201).json({
       _id: user._id,
@@ -1318,42 +1392,23 @@ export async function listMyTournaments(req, res) {
 
 // controllers/userController.js
 export const softDeleteMe = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id);
+  const user = await User.findById(req.user._id).select("_id isDeleted");
   if (!user) {
     res.status(404);
     throw new Error("User not found");
   }
-  if (user.isDeleted) {
-    // idempotent
+
+  // Idempotent: nếu đã xóa mềm rồi thì chỉ logout và trả 204
+  if (user.isDeleted === true) {
     res.clearCookie("jwt");
     return res.status(204).end();
   }
 
-  const ts = Date.now();
-  const suffix = `.deleted.${user._id}.${ts}`;
-
-  // Ẩn danh & giải phóng PII/unique
-  user.name = "";
-  user.nickname = `deleted_${user._id}_${ts}`;
-  user.email = `deleted+${user._id}.${ts}@example.invalid`;
-  user.phone = undefined;
-  user.avatar = "";
-  user.bio = "";
-  user.gender = "unspecified";
-  user.province = "";
-  user.verified = "pending";
-
-  user.cccd = undefined;
-  user.cccdStatus = "unverified";
-  user.cccdImages = { front: "", back: "" };
-
+  // ✅ Chỉ bật cờ isDeleted, không thay đổi bất kỳ field nào khác
   user.isDeleted = true;
-  user.deletedAt = new Date(ts);
-  user.deletionReason = String(req.body?.reason || "");
+  await user.save({ validateModifiedOnly: true });
 
-  await user.save();
-
-  // (tuỳ chọn) revoke refresh tokens, sessions khác…
+  // (tuỳ chọn) revoke session hiện tại
   res.clearCookie("jwt");
   return res.status(204).end();
 });
