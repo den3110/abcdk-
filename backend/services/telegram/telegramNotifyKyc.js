@@ -34,7 +34,7 @@ export async function tgSend(text, opts = {}) {
     text,
     parse_mode: "HTML",
     disable_web_page_preview: true,
-    ...opts,
+    ...opts, // có thể truyền reply_to_message_id, reply_markup, ...
   });
 }
 
@@ -43,6 +43,7 @@ async function tgSendPhotoUrl({
   caption,
   reply_markup,
   parse_mode = "HTML",
+  reply_to_message_id,
 }) {
   return tgApi("sendPhoto", {
     chat_id: DEFAULT_CHAT_ID,
@@ -50,6 +51,21 @@ async function tgSendPhotoUrl({
     caption,
     parse_mode,
     ...(reply_markup ? { reply_markup } : {}),
+    ...(reply_to_message_id ? { reply_to_message_id } : {}),
+  });
+}
+
+async function tgSendDocumentUrl({
+  document,
+  caption,
+  parse_mode = "HTML",
+  reply_to_message_id,
+}) {
+  return tgApi("sendDocument", {
+    chat_id: DEFAULT_CHAT_ID,
+    document,
+    ...(caption ? { caption, parse_mode } : {}),
+    ...(reply_to_message_id ? { reply_to_message_id } : {}),
   });
 }
 
@@ -71,10 +87,10 @@ function normalizeImageUrl(raw = "") {
 // ---------------- Public APIs ----------------
 
 // Gọi từ controller nộp KYC
-// Behavior:
-// - Nếu có ảnh: thử gửi ảnh đầu tiên (ưu tiên mặt trước) + caption + buttons.
-//   - Nếu sendPhoto lỗi (400...), fallback -> sendMessage (caption + buttons).
-// - Ảnh thứ hai: thử sendPhoto; nếu lỗi thì bỏ qua.
+// Yêu cầu mới:
+// - LUÔN gửi tin nhắn KYC (text + buttons) TRƯỚC.
+// - Sau đó mới gửi ảnh CCCD (mặt trước/mặt sau), reply vào message KYC.
+// - Nếu sendPhoto lỗi -> fallback sendDocument (URL). Nếu vẫn lỗi -> bỏ qua ảnh đó.
 export async function notifyNewKyc(user) {
   if (!user || !BOT_TOKEN || !DEFAULT_CHAT_ID) return;
 
@@ -106,35 +122,41 @@ export async function notifyNewKyc(user) {
 
   const frontUrl = normalizeImageUrl(toPosix(user?.cccdImages?.front || ""));
   const backUrl = normalizeImageUrl(toPosix(user?.cccdImages?.back || ""));
-  const firstPhoto = frontUrl || backUrl;
-  const secondPhoto =
-    frontUrl && backUrl ? (firstPhoto === frontUrl ? backUrl : frontUrl) : null;
 
-  if (firstPhoto) {
-    // Thử gửi ảnh đầu tiên kèm nút
-    const r1 = await tgSendPhotoUrl({
-      photo: firstPhoto,
-      caption,
-      reply_markup,
+  // 1) GỬI TIN NHẮN KYC TRƯỚC
+  const sentMsg = await tgSend(caption, { reply_markup });
+  const replyToId = sentMsg?.result?.message_id;
+
+  // 2) SAU ĐÓ GỬI ẢNH (reply vào tin nhắn vừa gửi)
+  async function sendOnePhoto(url, label) {
+    if (!url) return;
+    // Thử sendPhoto trước
+    const r = await tgSendPhotoUrl({
+      photo: url,
+      caption: label,
+      reply_to_message_id: replyToId,
     });
-    if (!r1?.ok) {
-      // ❗Fallback: chỉ gửi text + buttons
-      await tgSend(caption, { reply_markup });
-    }
+    if (r?.ok) return r;
 
-    // Ảnh thứ hai (nếu có): thử gửi, lỗi thì thôi
-    if (secondPhoto) {
-      await tgSendPhotoUrl({
-        photo: secondPhoto,
-        caption:
-          secondPhoto === backUrl ? "CCCD - Mặt sau" : "CCCD - Mặt trước",
-      });
+    // Fallback: sendDocument (URL)
+    const r2 = await tgSendDocumentUrl({
+      document: url,
+      caption: label,
+      reply_to_message_id: replyToId,
+    });
+    if (!r2?.ok) {
+      console.error("Failed to send photo/document for:", url);
     }
-    return;
+    return r2;
   }
 
-  // Không có ảnh: gửi text + buttons như cũ
-  await tgSend(caption, { reply_markup });
+  // Gửi mặt trước rồi mặt sau (nếu có)
+  if (frontUrl) {
+    await sendOnePhoto(frontUrl, "CCCD - Mặt trước");
+  }
+  if (backUrl) {
+    await sendOnePhoto(backUrl, "CCCD - Mặt sau");
+  }
 }
 
 // (tuỳ chọn) Thông báo khi duyệt/từ chối
@@ -156,7 +178,7 @@ export async function notifyKycReviewed(user, action) {
 }
 
 // ---------------- Register callback buttons ----------------
-// KHÔNG xoá nút sau khi bấm (theo yêu cầu); Idempotent nếu bấm lại.
+// KHÔNG xoá nút sau khi bấm; Idempotent nếu bấm lại.
 export function registerKycReviewButtons(
   bot,
   { UserModel, onAfterReview } = {}
