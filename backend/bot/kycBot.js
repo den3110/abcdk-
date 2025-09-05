@@ -7,20 +7,27 @@ import { registerKycReviewButtons } from "../services/telegram/telegramNotifyKyc
 dotenv.config();
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-// ADMIN_IDS hiện không dùng nữa (ai cũng dùng được), nhưng giữ lại nếu sau này cần
+// ADMIN_IDS giữ lại nếu sau này bạn muốn hạn chế, hiện tại không dùng
 const ADMIN_IDS = (process.env.TELEGRAM_ADMIN_IDS || "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
 
 // ===== Utils =====
+const toPosix = (s = "") => String(s).replace(/\\/g, "/");
 function isEmail(s = "") {
   return /\S+@\S+\.\S+/.test(s);
 }
 function isDigits(s = "") {
   return /^\d{6,}$/.test(String(s).replace(/\D/g, "")); // phone >= 6 digits
 }
-const toPosix = (s = "") => String(s).replace(/\\/g, "/");
+/** Escape an toàn khi dùng parse_mode: "HTML" */
+function esc(v) {
+  return String(v ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
 
 function fmtUser(u) {
   const label = {
@@ -30,13 +37,13 @@ function fmtUser(u) {
     rejected: "Từ chối",
   };
   return [
-    `👤 <b>${u?.name || "—"}</b>${
-      u?.nickname ? " <i>(" + u.nickname + ")</i>" : ""
+    `👤 <b>${esc(u?.name || "—")}</b>${
+      u?.nickname ? ` <i>(${esc(u.nickname)})</i>` : ""
     }`,
-    u?.email ? `✉️ ${u.email}` : "",
-    u?.phone ? `📞 ${u.phone}` : "",
-    u?.province ? `📍 ${u.province}` : "",
-    u?.cccd ? `🪪 ${u.cccd}` : "",
+    u?.email ? `✉️ ${esc(u.email)}` : "",
+    u?.phone ? `📞 ${esc(u.phone)}` : "",
+    u?.province ? `📍 ${esc(u.province)}` : "",
+    u?.cccd ? `🪪 ${esc(u.cccd)}` : "",
     `🧾 Trạng thái: <b>${label[u?.cccdStatus || "unverified"]}</b>`,
     u?.updatedAt
       ? `🕒 Cập nhật: ${new Date(u.updatedAt).toLocaleString("vi-VN")}`
@@ -53,8 +60,10 @@ function normalizeImageUrl(rawPath = "") {
     .trim()
     .replace(/^http:\/\//i, "https://");
   try {
+    // URL tuyệt đối hợp lệ
     return new URL(s).toString();
   } catch {
+    // Ghép từ HOST + path tương đối
     const host = (process.env.HOST || "").replace(/\/+$/, "");
     if (!host) return "";
     const path = s.startsWith("/") ? s : `/${s}`;
@@ -63,7 +72,7 @@ function normalizeImageUrl(rawPath = "") {
 }
 
 async function fetchImageAsBuffer(url) {
-  // Hỗ trợ Node < 18: dynamic import node-fetch nếu thiếu global fetch
+  // Node < 18: dùng node-fetch nếu thiếu global fetch
   const _fetch =
     typeof fetch === "function" ? fetch : (await import("node-fetch")).default;
 
@@ -93,12 +102,17 @@ async function fetchImageAsBuffer(url) {
   }
 }
 
+/**
+ * Gửi ảnh an toàn:
+ * - Nếu ảnh > ~10MB → gửi Document
+ * - Nếu sendPhoto lỗi → fallback sendDocument
+ * - opts có thể chứa reply_to_message_id, caption, ...
+ */
 async function sendPhotoSafely(telegram, chatId, url, opts = {}) {
   if (!url) return;
   const { buffer, contentType, filename } = await fetchImageAsBuffer(url);
   const sizeMB = buffer.byteLength / (1024 * 1024);
 
-  // Ảnh lớn > ~10MB → gửi dạng document
   if (contentType?.startsWith("image/") && sizeMB > 9.9) {
     return telegram.sendDocument(chatId, { source: buffer, filename }, opts);
   }
@@ -133,13 +147,25 @@ function buildKycHelp() {
     "Các lệnh khả dụng:",
     "• <code>/kyc_command</code> — Danh sách toàn bộ lệnh & cách dùng",
     "• <code>/start</code> — Giới thiệu nhanh và nhận Telegram ID của bạn",
-    "• <code>/kyc_status &lt;email|phone|nickname&gt;</code> — Tra cứu chi tiết 1 người dùng (kèm ảnh CCCD nếu có).",
+    "• <code>/kyc_status &lt;email|phone|nickname&gt;</code> — Tra cứu chi tiết 1 người dùng (kèm ảnh CCCD & nút duyệt/từ chối).",
     "• <code>/kyc_pending [limit]</code> — Liệt kê người dùng đang chờ duyệt (mặc định 20, tối đa 50).",
     "",
     "Lưu ý:",
-    "• Ảnh CCCD sẽ tự gửi kèm nếu tìm thấy, bot tự fallback gửi file nếu gửi ảnh lỗi.",
-    "• Sử dụng <i>email</i> hoặc <i>số điện thoại</i> hoặc <i>nickname</i> để tra cứu.",
+    "• Ảnh CCCD được gửi sau và bám (reply) vào tin nhắn KYC.",
+    "• Bot tự fallback gửi file nếu gửi ảnh lỗi.",
   ].join("\n");
+}
+
+/** Tạo inline keyboard duyệt/từ chối cho 1 user */
+function buildReviewButtons(userId) {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Duyệt", callback_data: `kyc:approve:${userId}` },
+        { text: "❌ Từ chối", callback_data: `kyc:reject:${userId}` },
+      ],
+    ],
+  };
 }
 
 // =====================================================================
@@ -153,9 +179,8 @@ export function initKycBot(app) {
   const bot = new Telegraf(BOT_TOKEN);
 
   // Không chặn quyền: ai cũng dùng được tất cả lệnh
-  // (Nếu sau này cần giới hạn, có thể thêm middleware kiểm tra ADMIN_IDS)
 
-  // Log callback_query (ví dụ bấm nút duyệt/từ chối)
+  // Log callback_query (bấm nút duyệt/từ chối)
   bot.on("callback_query", async (ctx, next) => {
     console.log(
       "[kycBot] callback_query:",
@@ -166,7 +191,7 @@ export function initKycBot(app) {
     return next();
   });
 
-  // Đăng ký handler nút Duyệt/Từ chối
+  // Đăng ký handler nút Duyệt/Từ chối (gửi toast & message kết quả)
   registerKycReviewButtons(bot, {
     UserModel: User,
     onAfterReview: ({ user, action, reviewer }) => {
@@ -177,7 +202,7 @@ export function initKycBot(app) {
     },
   });
 
-  // Hiển thị lệnh trong menu của Telegram (không await để giữ sync)
+  // Hiển thị lệnh trong menu của Telegram
   bot.telegram
     .setMyCommands([
       { command: "start", description: "Giới thiệu & hướng dẫn nhanh" },
@@ -199,7 +224,7 @@ export function initKycBot(app) {
     ctx.reply(
       [
         "Bot KYC đã sẵn sàng.",
-        `Your Telegram ID: <code>${uid}</code>`,
+        `Your Telegram ID: <code>${esc(uid)}</code>`,
         "",
         "Gõ <code>/kyc_command</code> để xem đầy đủ lệnh & cách dùng.",
       ].join("\n"),
@@ -221,7 +246,7 @@ export function initKycBot(app) {
     }
   });
 
-  // /kyc_status <email|phone|nickname>
+  // /kyc_status <email|phone|nickname> — trả về info + NÚT duyệt/từ chối; ảnh gửi sau và reply vào tin đó
   bot.command("kyc_status", async (ctx) => {
     const args = (ctx.message?.text || "").split(" ").slice(1);
     const q = (args[0] || "").trim();
@@ -235,30 +260,44 @@ export function initKycBot(app) {
       const u = await findUserByQuery(q);
       if (!u) return ctx.reply("Không tìm thấy người dùng phù hợp.");
 
-      const msg = fmtUser(u);
-      await ctx.reply(msg, {
+      // 1) Gửi thông tin + NÚT duyệt/từ chối
+      const infoMsg = await ctx.reply(fmtUser(u), {
         parse_mode: "HTML",
         disable_web_page_preview: true,
+        reply_markup: buildReviewButtons(String(u._id)),
       });
+
+      // 2) Gửi ảnh sau, reply vào message trên
+      const chatId = ctx.chat?.id;
+      const reply_to_message_id = infoMsg?.message_id;
 
       const frontUrl = normalizeImageUrl(toPosix(u?.cccdImages?.front || ""));
       const backUrl = normalizeImageUrl(toPosix(u?.cccdImages?.back || ""));
-      const chatId = ctx.chat?.id;
 
       if (frontUrl) {
         try {
-          await sendPhotoSafely(ctx.telegram, chatId, frontUrl);
+          await sendPhotoSafely(ctx.telegram, chatId, frontUrl, {
+            caption: "CCCD - Mặt trước",
+            reply_to_message_id,
+          });
         } catch (e) {
           console.error("send front image failed:", e?.message);
-          await ctx.reply("⚠️ Không gửi được ảnh CCCD mặt trước.");
+          await ctx.reply("⚠️ Không gửi được ảnh CCCD mặt trước.", {
+            reply_to_message_id,
+          });
         }
       }
       if (backUrl) {
         try {
-          await sendPhotoSafely(ctx.telegram, chatId, backUrl);
+          await sendPhotoSafely(ctx.telegram, chatId, backUrl, {
+            caption: "CCCD - Mặt sau",
+            reply_to_message_id,
+          });
         } catch (e) {
           console.error("send back image failed:", e?.message);
-          await ctx.reply("⚠️ Không gửi được ảnh CCCD mặt sau.");
+          await ctx.reply("⚠️ Không gửi được ảnh CCCD mặt sau.", {
+            reply_to_message_id,
+          });
         }
       }
     } catch (e) {
@@ -283,27 +322,44 @@ export function initKycBot(app) {
 
       if (!list.length) return ctx.reply("Hiện không có KYC đang chờ duyệt.");
 
+      // Dạng ngắn gọn trước
       const lines = list.map(
         (u, i) =>
           `${i + 1}. ${u?.name || "—"}${
             u?.nickname ? ` (@${u.nickname})` : ""
           } — ${u?.phone || u?.email || ""}`
       );
-
       const header = `📝 Danh sách KYC đang chờ (${list.length}):\n`;
-      let msg = header + lines.join("\n");
+      const summary = header + lines.join("\n");
 
-      // Telegram message limit ~4096 chars → tách nếu dài
-      if (msg.length > 3900) {
+      if (summary.length <= 3900) {
+        await ctx.reply(summary);
+      } else {
+        // Nếu quá dài → tách ra từng user (kèm nút)
         await ctx.reply(header);
         for (const u of list) {
           await ctx.reply(fmtUser(u), {
             parse_mode: "HTML",
             disable_web_page_preview: true,
+            reply_markup: buildReviewButtons(String(u._id)),
+          });
+        }
+        return;
+      }
+
+      // Gửi thêm chi tiết từng user (kèm nút) nếu danh sách không quá lớn
+      if (list.length <= 10) {
+        for (const u of list) {
+          await ctx.reply(fmtUser(u), {
+            parse_mode: "HTML",
+            disable_web_page_preview: true,
+            reply_markup: buildReviewButtons(String(u._id)),
           });
         }
       } else {
-        await ctx.reply(msg);
+        await ctx.reply(
+          "Mẹo: Dùng /kyc_status <email|phone|nickname> để mở chi tiết từng hồ sơ kèm ảnh & nút duyệt."
+        );
       }
     } catch (e) {
       console.error("kyc_pending error:", e);
