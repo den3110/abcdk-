@@ -61,9 +61,40 @@ const safe = (v, fallback = TEXT_PLACE) =>
 const num = (v, digits = 3) =>
   Number.isFinite(v) ? v.toFixed(digits) : TEXT_PLACE;
 
-/* --------- score helpers: chuyển "11-9, 8-11, 11-7" => thành mảng dòng --------- */
+/* ---------- prefer nickname everywhere ---------- */
+const preferNick = (p) =>
+  (p?.nickname && String(p.nickname).trim()) ||
+  (p?.nickName && String(p.nickName).trim()) ||
+  (p?.nick_name && String(p.nick_name).trim()) ||
+  (p?.name && String(p.name).trim()) ||
+  (p?.fullName && String(p.fullName).trim()) ||
+  "N/A";
+
+/* ---------- gender label mapping ---------- */
+function genderLabel(g) {
+  if (g === null || g === undefined || g === "") return "Không xác định";
+
+  // numeric 0–3
+  if (g === 0 || g === "0") return "Không xác định";
+  if (g === 1 || g === "1") return "Nam";
+  if (g === 2 || g === "2") return "Nữ";
+  if (g === 3 || g === "3") return "Khác";
+
+  // normalized strings
+  const s = String(g).toLowerCase().trim();
+  if (["unknown", "unspecified", "na", "none"].includes(s))
+    return "Không xác định";
+  if (["male", "m", "nam"].includes(s)) return "Nam";
+  if (["female", "f", "nu", "nữ"].includes(s)) return "Nữ";
+  if (["other", "khac", "khác", "nonbinary", "non-binary"].includes(s))
+    return "Khác";
+
+  // fallback: show raw but capitalized first letter
+  return "Không xác định";
+}
+
+/* --------- score helpers: chuyển "11-9, 8-11, 11-7" => mảng dòng --------- */
 function toScoreLines(m) {
-  // ưu tiên m.gameScores (array), fallback m.scoreText (string)
   if (Array.isArray(m?.gameScores) && m.gameScores.length) {
     return m.gameScores.map((g, i) => {
       const a = g?.a ?? g?.A ?? g?.left ?? g?.teamA ?? g?.scoreA ?? "–";
@@ -92,7 +123,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   const error = baseQ.error || rateQ.error || matchQ.error;
   const base = baseQ.data || {};
 
-  /* --- local pagination (FE fallback). Nếu BE trả {items,total}, vẫn hoạt động --- */
+  /* --- local pagination --- */
   const ratingRaw = Array.isArray(rateQ.data?.history)
     ? rateQ.data.history
     : rateQ.data?.items || [];
@@ -119,7 +150,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     return matchRaw.slice(start, start + matchPerPage);
   }, [matchRaw, matchPage, matchPerPage]);
 
-  /* --- match detail modal (khi click 1 trận trong mobile) --- */
+  /* --- match detail modal --- */
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   const openDetail = (row) => {
@@ -219,11 +250,22 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         }}
       />
       <Stack spacing={1} sx={{ flex: 1, minWidth: 0 }}>
-        <Typography variant="h5" noWrap>
-          {safe(base.nickname)}
+        {/* Nickname */}
+        <Typography variant="h5" noWrap title={safe(base?.nickname)}>
+          {safe(base?.name)}
+        </Typography>
+        {/* Username (thêm mới) */}
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ mt: -0.5 }}
+          noWrap
+          title={safe(base?.nickname)}
+        >
+          {base?.nickname ? `@${base.nickname}` : TEXT_PLACE}
         </Typography>
 
-        {/* Chips có màu + thoáng khoảng cách */}
+        {/* Chips */}
         <Stack
           direction="row"
           spacing={1}
@@ -234,7 +276,8 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           <Chip
             size="small"
             color="secondary"
-            label={`Giới tính: ${safe(base.gender, "Không rõ")}`}
+            // dùng genderLabel thay vì raw
+            label={`Giới tính: ${genderLabel(base.gender)}`}
           />
           <Chip
             size="small"
@@ -246,7 +289,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             color="success"
             label={`Tham gia: ${fmtDate(base.joinedAt)}`}
           />
-          {/* Có thể bổ sung chip khác ở đây nếu cần */}
         </Stack>
       </Stack>
     </Stack>
@@ -334,7 +376,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     );
   };
 
-  /* ---------- player cell ---------- */
+  /* ---------- player cell: chỉ hiển thị NICKNAME ---------- */
   function PlayerCell({ players = [], highlight = false }) {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -350,9 +392,11 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           const hasScore =
             Number.isFinite(p?.preScore) || Number.isFinite(p?.postScore);
 
+          const nick = preferNick(p);
+
           return (
             <Stack
-              key={`${p?._id || p?.name || idx}`}
+              key={`${p?._id || nick || idx}`}
               direction="row"
               spacing={1}
               alignItems="center"
@@ -370,8 +414,8 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                 src={p?.avatar || AVA_PLACE}
                 sx={{ width: 24, height: 24, cursor: "zoom-in" }}
                 onClick={(e) => {
-                  e.stopPropagation(); // không mở modal trận khi zoom ảnh
-                  openZoom(p?.avatar || AVA_PLACE, p?.name);
+                  e.stopPropagation();
+                  openZoom(p?.avatar || AVA_PLACE, nick);
                 }}
                 imgProps={{
                   onError: (e) => (e.currentTarget.src = AVA_PLACE),
@@ -379,8 +423,9 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
               />
 
               <Stack sx={{ minWidth: 0, flex: 1 }}>
-                <Typography variant="body2" noWrap title={safe(p?.name)}>
-                  {safe(p?.name)}
+                {/* chỉ nickname */}
+                <Typography variant="body2" noWrap title={nick}>
+                  {nick}
                 </Typography>
 
                 {hasScore ? (
@@ -389,7 +434,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                     spacing={0.5}
                     alignItems="center"
                     sx={{
-                      // 👇 chỉ mobile mới cho wrap để không tràn
                       flexWrap: isMobile ? "wrap" : "nowrap",
                       rowGap: isMobile ? 0.25 : 0,
                       columnGap: 0.5,
@@ -421,7 +465,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                     </Typography>
 
                     {Number.isFinite(p?.delta) && p?.delta !== 0 && (
-                      // 👇 gói icon + số delta vào 1 cụm inline-flex để không bị tách rời khi xuống dòng
                       <Box
                         component="span"
                         sx={{
@@ -469,7 +512,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   /* ---------- match detail modal ---------- */
   function MatchDetailDialog({ open, onClose, row }) {
     const theme = useTheme();
-    const fullScreen = useMediaQuery(theme.breakpoints.down("sm")); // ✅ mobile: full-screen
+    const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
     const scoreLines = toScoreLines(row);
     const winnerA = row?.winner === "A";
     const winnerB = row?.winner === "B";
@@ -496,13 +539,11 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
       <Dialog
         open={open}
         onClose={onClose}
-        fullScreen={fullScreen} // ✅ xs/sm: full-screen
+        fullScreen={fullScreen}
         maxWidth="sm"
         fullWidth={!fullScreen}
         PaperProps={{
-          sx: fullScreen
-            ? { m: 0, borderRadius: 0 } // sát mép, không bo trên mobile
-            : { borderRadius: 3 },
+          sx: fullScreen ? { m: 0, borderRadius: 0 } : { borderRadius: 3 },
         }}
       >
         <DialogTitle
@@ -561,7 +602,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
 
             <Divider />
 
-            {/* Teams + score: MOBILE dọc, DESKTOP ngang */}
+            {/* Teams + score */}
             <Stack
               direction={fullScreen ? "column" : "row"}
               spacing={fullScreen ? 2 : 3}
@@ -575,7 +616,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                 <PlayerCell players={row?.team1} highlight={winnerA} />
               </Box>
 
-              {/* Score block (mỗi game 1 dòng) */}
+              {/* Score block */}
               <Stack
                 alignItems="center"
                 sx={{
@@ -644,12 +685,11 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     );
   }
 
-  /* --- Match section: mobile (cards) | desktop (table) --- */
+  /* --- Match section: mobile | desktop --- */
   function MatchSection({ isMobileView }) {
     const rows = matchPaged;
 
     if (isMobileView) {
-      // MOBILE: card list, không cần vuốt ngang + có pagination dưới
       return (
         <Stack spacing={1.25}>
           <Typography variant="subtitle1" fontWeight={600}>
@@ -692,7 +732,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                     {safe(m?.tournament?.name)}
                   </Typography>
 
-                  {/* teams + scores (mỗi game 1 dòng) */}
+                  {/* teams + scores */}
                   <Stack direction="row" alignItems="flex-start" spacing={1}>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <PlayerCell players={m.team1} highlight={winnerA} />
@@ -782,7 +822,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
       );
     }
 
-    // DESKTOP → table + pagination
+    // Desktop
     return (
       <Stack spacing={1.5}>
         <Typography variant="subtitle1" fontWeight={600}>
@@ -845,8 +885,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                       </TableCell>
 
                       <TableCell sx={{ whiteSpace: "nowrap" }}>
-                        {/* mỗi game 1 dòng */}
-                        {toScoreLines(m).length ? (
+                        {scoreLines.length ? (
                           <Stack spacing={0} alignItems="flex-start">
                             {scoreLines.map((s, i) => (
                               <Typography key={i} fontWeight={700}>
@@ -918,7 +957,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     );
   }
 
-  /* ---------- Mobile: Drawer (to hơn + chips không dính) ---------- */
+  /* ---------- Mobile: Drawer ---------- */
   if (isMobile) {
     return (
       <>
@@ -967,7 +1006,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                 <Tab label="Thi đấu" />
               </Tabs>
 
-              {/* không cần vuốt ngang; nội dung cuộn dọc thoải mái */}
               <Box
                 sx={{
                   overflowY: "auto",
@@ -984,7 +1022,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           )}
         </Drawer>
 
-        {/* Zoom dialog (mobile) */}
         <ImageZoomDialog
           open={zoom.open}
           src={zoom.src}
@@ -995,7 +1032,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     );
   }
 
-  /* ---------- Desktop: Dialog to bự ---------- */
+  /* ---------- Desktop: Dialog ---------- */
   return (
     <>
       <Dialog
@@ -1066,7 +1103,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         </DialogActions>
       </Dialog>
 
-      {/* Zoom dialog (desktop) */}
       <ImageZoomDialog
         open={zoom.open}
         src={zoom.src}

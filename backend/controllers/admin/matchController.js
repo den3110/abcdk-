@@ -550,8 +550,25 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
       path: "bracket",
       select: "name type stage round rules format eventType",
     })
-    .populate({ path: "pairA" })
-    .populate({ path: "pairB" })
+    // 👉 populate pairA + user nickname cho p1/p2
+    .populate({
+      path: "pairA",
+      // có thể bổ sung select để nhẹ payload:
+      // select: "teamName seed player1 player2",
+      populate: [
+        { path: "player1.user", select: "nickname" },
+        { path: "player2.user", select: "nickname" },
+      ],
+    })
+    // 👉 populate pairB + user nickname cho p1/p2
+    .populate({
+      path: "pairB",
+      // select: "teamName seed player1 player2",
+      populate: [
+        { path: "player1.user", select: "nickname" },
+        { path: "player2.user", select: "nickname" },
+      ],
+    })
     .populate({ path: "referee", select: "name nickname" })
     .lean();
 
@@ -562,26 +579,47 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
 
   // helpers
   const toIntOrNull = (v) =>
-    v == null ? null : (Number.isFinite(Number(v)) ? Number(v) : null);
+    v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null;
 
-  // ✅ Fallback rules: ưu tiên match.rules → bracket.rules → default
+  // ✅ Chuẩn hóa nickname cho Registration: ưu tiên reg.playerX.nickname → user.nickname
+  const normalizeRegNick = (reg) => {
+    if (!reg) return reg;
+    const p1 = reg.player1 || {};
+    const p2 = reg.player2 || {};
+    return {
+      ...reg,
+      player1: {
+        ...p1,
+        nickname:
+          (p1 && p1.nickname != null && p1.nickname !== ""
+            ? p1.nickname
+            : null) ??
+          (p1 && p1.user && p1.user.nickname != null ? p1.user.nickname : null),
+      },
+      player2: {
+        ...p2,
+        nickname:
+          (p2 && p2.nickname != null && p2.nickname !== ""
+            ? p2.nickname
+            : null) ??
+          (p2 && p2.user && p2.user.nickname != null ? p2.user.nickname : null),
+      },
+    };
+  };
+
+  // ✅ Fallback rules: ưu tiên match.rules → bracket.rules → default (kèm cap)
   const mergedRules = {
     bestOf: match?.rules?.bestOf ?? match?.bracket?.rules?.bestOf ?? 3,
     pointsToWin:
       match?.rules?.pointsToWin ?? match?.bracket?.rules?.pointsToWin ?? 11,
     winByTwo:
-      (match?.rules?.winByTwo ??
-        match?.bracket?.rules?.winByTwo ??
-        true) === true,
+      (match?.rules?.winByTwo ?? match?.bracket?.rules?.winByTwo ?? true) ===
+      true,
     cap: {
       mode:
-        match?.rules?.cap?.mode ??
-        match?.bracket?.rules?.cap?.mode ??
-        "none", // 'none' | 'hard' | 'soft'
+        match?.rules?.cap?.mode ?? match?.bracket?.rules?.cap?.mode ?? "none", // 'none' | 'hard' | 'soft'
       points: toIntOrNull(
-        match?.rules?.cap?.points ??
-          match?.bracket?.rules?.cap?.points ??
-          null
+        match?.rules?.cap?.points ?? match?.bracket?.rules?.cap?.points ?? null
       ),
     },
   };
@@ -594,8 +632,13 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     mergedRules.cap.points = null;
   }
 
-  // trả về match + rules đã merge (kèm cap)
-  res.json({ ...match, rules: mergedRules });
+  // trả về match + rules đã merge + pairA/pairB đã chuẩn hoá nickname
+  res.json({
+    ...match,
+    pairA: normalizeRegNick(match.pairA),
+    pairB: normalizeRegNick(match.pairB),
+    rules: mergedRules,
+  });
 });
 
 /**

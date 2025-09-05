@@ -1,4 +1,3 @@
-// src/overlay/ScoreOverlay.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -210,7 +209,39 @@ const pickOverlay = (obj) => {
   return out;
 };
 
-// merge helpers
+// merge helpers (KHÔNG ghi đè bằng chuỗi rỗng/undefined)
+const hasVal = (v) =>
+  v !== null && v !== undefined && (typeof v !== "string" || v.trim() !== "");
+const keep = (prev, next) => (hasVal(next) ? next : prev);
+
+const mergeTournament = (prev = {}, next = {}) => ({
+  id: keep(prev?.id, next?.id),
+  name: keep(prev?.name, next?.name),
+  image: keep(prev?.image, next?.image),
+  eventType: keep(prev?.eventType, next?.eventType),
+});
+
+const mergeTeam = (prev = {}, next = {}) => ({
+  name: keep(prev?.name, next?.name),
+  players: Array.isArray(next?.players) ? next.players : prev?.players,
+});
+
+const mergeNormalized = (prev, next) => {
+  if (!prev) return next || null;
+  if (!next) return prev;
+
+  return {
+    ...prev,
+    ...next,
+    tournament: mergeTournament(prev.tournament, next.tournament),
+    teams: {
+      A: mergeTeam(prev?.teams?.A, next?.teams?.A),
+      B: mergeTeam(prev?.teams?.B, next?.teams?.B),
+    },
+    // các field còn lại (status, winner, rules, serve, scores...) đã đc spread ở trên
+  };
+};
+
 const firstDefined = (...vals) => {
   for (const v of vals) if (v !== null && v !== undefined && v !== "") return v;
   return undefined;
@@ -285,15 +316,16 @@ export default function ScoreOverlay() {
     };
   }, []);
 
-  // snapshot -> data + overlay
+  // snapshot -> data + overlay  (⚠ merge, không replace)
   useEffect(() => {
     if (!snapRaw) return;
-    setData((p) => ({ ...(p || {}), ...normalizePayload(snapRaw) }));
+    const n = normalizePayload(snapRaw);
+    setData((prev) => mergeNormalized(prev, n));
     const snapOverlay = pickOverlay(snapRaw);
     if (snapOverlay) setOverlayBE((p) => ({ ...(p || {}), ...snapOverlay }));
   }, [snapRaw]);
 
-  // fetch tournament overlay + name/image when have id
+  // fetch tournament overlay + name/image when have id (giữ nguyên nếu realtime không gửi kèm)
   useEffect(() => {
     const tId = data?.tournament?.id;
     if (!tId) return;
@@ -309,15 +341,13 @@ export default function ScoreOverlay() {
 
         setData((p) => {
           const cur = p || {};
-          const curT = cur.tournament || {};
-          return {
-            ...cur,
+          return mergeNormalized(cur, {
             tournament: {
-              ...curT,
-              name: firstDefined(curT.name, detail?.name, ""),
-              image: firstDefined(curT.image, detail?.image, ""),
+              id: cur?.tournament?.id ?? detail?._id ?? detail?.id ?? null,
+              name: detail?.name,
+              image: detail?.image,
             },
-          };
+          });
         });
       } catch {
         // ignore
@@ -328,22 +358,23 @@ export default function ScoreOverlay() {
     };
   }, [data?.tournament?.id, getTournament]);
 
-  // socket live updates
+  // socket live updates  (⚠ merge, không replace)
   useEffect(() => {
     if (!matchId || !socket) return;
     socket.emit("match:join", { matchId });
 
     const onSnapshot = (dto) => {
-      setData(normalizePayload(dto));
+      const n = normalizePayload(dto);
+      setData((prev) => mergeNormalized(prev, n));
       const o = pickOverlay(dto);
       if (o) setOverlayBE((p) => ({ ...(p || {}), ...o }));
     };
     const onUpdate = (payload) => {
-      if (payload?.data) {
-        setData((p) => ({ ...(p || {}), ...normalizePayload(payload.data) }));
-        const o = pickOverlay(payload.data);
-        if (o) setOverlayBE((p) => ({ ...(p || {}), ...o }));
-      }
+      const dto = payload?.data || payload;
+      const n = normalizePayload(dto);
+      setData((prev) => mergeNormalized(prev, n));
+      const o = pickOverlay(dto);
+      if (o) setOverlayBE((p) => ({ ...(p || {}), ...o }));
     };
 
     socket.on("match:snapshot", onSnapshot);
@@ -357,10 +388,10 @@ export default function ScoreOverlay() {
   /* ---------- Merge: BE overlay > QP > default ---------- */
   const effective = useMemo(() => {
     const theme = (
-      firstDefined(overlayBE?.theme, qp.theme, "dark") || "dark"
+      (firstDefined(overlayBE?.theme, qp.theme, "dark") || "dark") + ""
     ).toLowerCase();
     const size = (
-      firstDefined(overlayBE?.size, qp.size, "md") || "md"
+      (firstDefined(overlayBE?.size, qp.size, "md") || "md") + ""
     ).toLowerCase();
 
     const accentA = firstDefined(
@@ -375,7 +406,7 @@ export default function ScoreOverlay() {
     );
 
     const corner = (
-      firstDefined(overlayBE?.corner, qp.corner, "tl") || "tl"
+      (firstDefined(overlayBE?.corner, qp.corner, "tl") || "tl") + ""
     ).toLowerCase();
     const rounded = Number(firstDefined(overlayBE?.rounded, qp.rounded, 18));
     const shadow = firstDefined(
@@ -487,9 +518,9 @@ export default function ScoreOverlay() {
     };
   }, [effective]);
 
-  /* ---------- Gate hiển thị: ẩn đến khi API snapshot xong ---------- */
-  const apiSettled = !snapLoading && !snapFetching; // RTKQ đã settle (success hoặc error)
-  const ready = apiSettled && !!data; // và đã có dữ liệu để vẽ (snapshot/socket)
+  /* ---------- Gate hiển thị ---------- */
+  const apiSettled = !snapLoading && !snapFetching;
+  const ready = apiSettled && !!data;
 
   /* ---------- Data hiển thị ---------- */
   const tourName = data?.tournament?.name || "";
@@ -552,7 +583,6 @@ export default function ScoreOverlay() {
     zIndex: 2147483647,
   };
 
-  /* Ẩn toàn bộ overlay cho đến khi ready */
   if (!ready) return null;
 
   return (

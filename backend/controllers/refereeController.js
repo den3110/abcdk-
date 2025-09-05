@@ -226,6 +226,85 @@ export const getAssignedMatches = asyncHandler(async (req, res) => {
 const gameWon = (x, y, pts, byTwo) =>
   x >= pts && (byTwo ? x - y >= 2 : x - y >= 1);
 
+// ===== Helpers for broadcast with nickname fallback =====
+async function loadMatchWithNickForEmit(matchId) {
+  const m = await Match.findById(matchId)
+    .populate({
+      path: "pairA",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({ path: "referee", select: "name fullName nickname nickName" })
+    .populate({ path: "previousA", select: "round order" })
+    .populate({ path: "previousB", select: "round order" })
+    .populate({ path: "nextMatch", select: "_id" })
+    // tuỳ ý giữ/loại các populate dưới nếu muốn payload gọn hơn
+    .populate({ path: "tournament", select: "name image eventType overlay" })
+    .populate({ path: "bracket", select: "type name order overlay" })
+    .lean();
+
+  if (!m) return null;
+
+  const pick = (v) => (v && String(v).trim()) || "";
+  const fillNick = (p) => {
+    if (!p) return p;
+    const primary = pick(p.nickname) || pick(p.nickName);
+    const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+    const n = primary || fromUser || "";
+    if (n) {
+      p.nickname = n;
+      p.nickName = n;
+    }
+    // nếu muốn gọn payload:
+    // if (p.user) delete p.user;
+    return p;
+  };
+
+  if (m.pairA) {
+    m.pairA.player1 = fillNick(m.pairA.player1);
+    m.pairA.player2 = fillNick(m.pairA.player2);
+  }
+  if (m.pairB) {
+    m.pairB.player1 = fillNick(m.pairB.player1);
+    m.pairB.player2 = fillNick(m.pairB.player2);
+  }
+
+  if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
+  return m;
+}
+
+async function broadcastScoreUpdated(io, matchId) {
+  const snap = await loadMatchWithNickForEmit(matchId);
+  if (snap) io?.to(`match:${matchId}`)?.emit("score:updated", toDTO(snap));
+}
 export const patchScore = asyncHandler(async (req, res) => {
   // ================== Helpers (CAP-aware) ==================
   const isFinitePos = (n) => Number.isFinite(n) && n > 0;
@@ -409,7 +488,7 @@ export const patchScore = asyncHandler(async (req, res) => {
     }
 
     const fresh = await Match.findById(id).lean();
-    io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+    await broadcastScoreUpdated(io, id);
     return res.json({
       message: "Score updated",
       gameScores: fresh?.gameScores ?? [],
@@ -798,7 +877,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       andClauses.push({ bracket: bid });
     }
 
-    // enum: ["scheduled", "queued", "assigned", "live", "finished"]
     if (status && status !== "all") {
       const s = String(status).trim().toLowerCase();
       if (
@@ -816,7 +894,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       });
     }
 
-    // Tìm kiếm nhẹ theo code/labelKey/courtLabel
     if (q && String(q).trim()) {
       const rx = new RegExp(escapeRegex(String(q).trim()), "i");
       andClauses.push({
@@ -824,11 +901,10 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       });
     }
 
-    // ---------- pipeline ----------
     const pipeline = [
       { $match: { $and: andClauses } },
 
-      // Chuẩn hóa + bucket
+      // chuẩn hóa & bucket
       {
         $addFields: {
           normalizedStatus: {
@@ -881,8 +957,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
           },
         },
       },
-
-      // K1/K2 per-bucket
       {
         $addFields: {
           _updatedAtLong: { $toLong: "$_updatedAtSafe" },
@@ -893,19 +967,19 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                 {
                   case: { $eq: ["$_bucketPrio", 0] },
                   then: { $multiply: ["$_updatedAtLong", -1] },
-                }, // live: updatedAt desc
+                },
                 {
                   case: { $in: ["$_bucketPrio", [1, 2]] },
                   then: { $ifNull: ["$round", 99999] },
-                }, // sched/assigned: round asc
+                },
                 {
                   case: { $eq: ["$_bucketPrio", 3] },
                   then: "$_queueOrderSafe",
-                }, // queued: queueOrder asc
+                },
                 {
                   case: { $eq: ["$_bucketPrio", 4] },
                   then: { $multiply: ["$_finishedAtLong", -1] },
-                }, // finished: finishedAt desc
+                },
               ],
               default: 0,
             },
@@ -916,7 +990,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                 {
                   case: { $in: ["$_bucketPrio", [1, 2]] },
                   then: { $ifNull: ["$order", 99999] },
-                }, // sched/assigned: order asc
+                },
                 { case: { $in: ["$_bucketPrio", [0, 3, 4]] }, then: 0 },
               ],
               default: 0,
@@ -924,11 +998,9 @@ export async function listRefereeMatchesByTournament(req, res, next) {
           },
         },
       },
-
-      // Sort chính
       { $sort: { _bucketPrio: 1, _k1: 1, _k2: 1, _id: 1 } },
 
-      // Facet meta & page
+      // facet + paging
       {
         $facet: {
           meta: [{ $count: "count" }],
@@ -948,7 +1020,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      /* ---------- Lookups (populate gọn) ---------- */
+      /* ---------- Lookups ---------- */
       {
         $lookup: {
           from: "tournaments",
@@ -960,7 +1032,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       },
       { $unwind: { path: "$tournament", preserveNullAndEmptyArrays: true } },
 
-      // 🔁 Lấy bracket + groups (để tính bảng)
       {
         $lookup: {
           from: "brackets",
@@ -973,7 +1044,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                 name: 1,
                 type: 1,
                 stage: 1,
-                // chỉ lấy field tối thiểu trong groups
                 groups: {
                   $map: {
                     input: { $ifNull: ["$groups", []] },
@@ -1005,14 +1075,13 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       },
       { $unwind: { path: "$court", preserveNullAndEmptyArrays: true } },
 
-      // 💡 Tính display order 1-based
       {
         $addFields: {
           _orderDisplay: { $add: [{ $ifNull: ["$order", 0] }, 1] },
         },
       },
 
-      // 💡 Tính groupCtx nếu bracket.type === 'group' và A/B cùng nhóm
+      // groupCtx cho bảng
       {
         $addFields: {
           _groupCtx: {
@@ -1112,8 +1181,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
           },
         },
       },
-
-      // 💡 Xuất groupKey / groupIndex / codeGroup
       {
         $addFields: {
           groupKey: "$_groupCtx.key",
@@ -1143,7 +1210,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      // 🔥 populate pairA (Registration) + project player fields
+      // populate Registration A/B (lấy các field player)
       {
         $lookup: {
           from: "registrations",
@@ -1171,7 +1238,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       },
       { $unwind: { path: "$pairAReg", preserveNullAndEmptyArrays: true } },
 
-      // 🔥 populate pairB
       {
         $lookup: {
           from: "registrations",
@@ -1199,7 +1265,61 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       },
       { $unwind: { path: "$pairBReg", preserveNullAndEmptyArrays: true } },
 
-      // Gom lại items + total
+      /* === NEW: lookup User để fallback nickname === */
+      // A.p1
+      {
+        $lookup: {
+          from: "users",
+          let: { uid: "$pairAReg.player1.user" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$uid"] } } },
+            { $project: { _id: 1, nickname: 1 } },
+          ],
+          as: "_pairA_p1User",
+        },
+      },
+      { $unwind: { path: "$_pairA_p1User", preserveNullAndEmptyArrays: true } },
+      // A.p2
+      {
+        $lookup: {
+          from: "users",
+          let: { uid: "$pairAReg.player2.user" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$uid"] } } },
+            { $project: { _id: 1, nickname: 1 } },
+          ],
+          as: "_pairA_p2User",
+        },
+      },
+      { $unwind: { path: "$_pairA_p2User", preserveNullAndEmptyArrays: true } },
+      // B.p1
+      {
+        $lookup: {
+          from: "users",
+          let: { uid: "$pairBReg.player1.user" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$uid"] } } },
+            { $project: { _id: 1, nickname: 1 } },
+          ],
+          as: "_pairB_p1User",
+        },
+      },
+      { $unwind: { path: "$_pairB_p1User", preserveNullAndEmptyArrays: true } },
+      // B.p2
+      {
+        $lookup: {
+          from: "users",
+          let: { uid: "$pairBReg.player2.user" },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$uid"] } } },
+            { $project: { _id: 1, nickname: 1 } },
+          ],
+          as: "_pairB_p2User",
+        },
+      },
+      { $unwind: { path: "$_pairB_p2User", preserveNullAndEmptyArrays: true } },
+
+      // Gom lại
       {
         $group: {
           _id: null,
@@ -1208,7 +1328,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      // Project shape cuối cùng
+      // Project kết quả
       {
         $project: {
           _id: 0,
@@ -1221,9 +1341,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                 _id: "$$it._id",
                 code: "$$it.code",
                 codeGroup: "$$it.codeGroup",
-                // 👉 Dùng cho UI hiển thị thống nhất
                 codeResolved: { $ifNull: ["$$it.codeGroup", "$$it.code"] },
-
                 labelKey: "$$it.labelKey",
                 status: "$$it.status",
                 sortBucket: "$$it._bucketLabel",
@@ -1239,12 +1357,10 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                 updatedAt: "$$it.updatedAt",
                 tournament: "$$it.tournament",
                 bracket: "$$it.bracket",
-
-                // 👇 thông tin bảng để client tuỳ biến thêm nếu muốn
                 groupKey: "$$it.groupKey",
                 groupIndex: "$$it.groupIndex",
 
-                // ✅ pairA chi tiết
+                // pairA
                 pairA: {
                   _id: "$$it.pairAReg._id",
                   teamName: "$$it.pairAReg.teamName",
@@ -1253,17 +1369,28 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                     user: "$$it.pairAReg.player1.user",
                     name: "$$it.pairAReg.player1.name",
                     fullName: "$$it.pairAReg.player1.fullName",
-                    nickname: "$$it.pairAReg.player1.nickname",
+                    // nickname ưu tiên từ Registration, fallback user.nickname
+                    nickname: {
+                      $ifNull: [
+                        "$$it.pairAReg.player1.nickname",
+                        "$$it._pairA_p1User.nickname",
+                      ],
+                    },
                   },
                   player2: {
                     user: "$$it.pairAReg.player2.user",
                     name: "$$it.pairAReg.player2.name",
                     fullName: "$$it.pairAReg.player2.fullName",
-                    nickname: "$$it.pairAReg.player2.nickname",
+                    nickname: {
+                      $ifNull: [
+                        "$$it.pairAReg.player2.nickname",
+                        "$$it._pairA_p2User.nickname",
+                      ],
+                    },
                   },
                 },
 
-                // ✅ pairB chi tiết
+                // pairB
                 pairB: {
                   _id: "$$it.pairBReg._id",
                   teamName: "$$it.pairBReg.teamName",
@@ -1272,13 +1399,23 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                     user: "$$it.pairBReg.player1.user",
                     name: "$$it.pairBReg.player1.name",
                     fullName: "$$it.pairBReg.player1.fullName",
-                    nickname: "$$it.pairBReg.player1.nickname",
+                    nickname: {
+                      $ifNull: [
+                        "$$it.pairBReg.player1.nickname",
+                        "$$it._pairB_p1User.nickname",
+                      ],
+                    },
                   },
                   player2: {
                     user: "$$it.pairBReg.player2.user",
                     name: "$$it.pairBReg.player2.name",
                     fullName: "$$it.pairBReg.player2.fullName",
-                    nickname: "$$it.pairBReg.player2.nickname",
+                    nickname: {
+                      $ifNull: [
+                        "$$it.pairBReg.player2.nickname",
+                        "$$it._pairB_p2User.nickname",
+                      ],
+                    },
                   },
                 },
               },

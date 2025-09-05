@@ -57,6 +57,7 @@ import {
 import { softResetChainFrom } from "../services/matchChainReset.js";
 import { finalizeExpiredTournaments } from "../services/tournamentLifecycle.js";
 import {
+  adminChangeUserPassword,
   createAutoUsers,
   previewAutoUsers,
 } from "../controllers/admin/adminUserController.js";
@@ -278,6 +279,12 @@ router.post(
 
 // Tạo thật (ghi DB)
 router.post("/users/auto/create", protect, authorize("admin"), createAutoUsers);
+router.patch(
+  "/users/:id/password",
+  protect,
+  authorize("admin"),
+  adminChangeUserPassword
+);
 
 router.get(
   "/dashboard/metrics",
@@ -468,12 +475,27 @@ router.post(
 router.get("/evaluators/", protect, authorize("admin"), listEvaluators);
 
 // Cập nhật phạm vi chấm
-router.patch("/evaluators/:id/scopes", protect, authorize("admin"), updateEvaluatorScopes);
+router.patch(
+  "/evaluators/:id/scopes",
+  protect,
+  authorize("admin"),
+  updateEvaluatorScopes
+);
 
 // Promote user -> evaluator
-router.post("/evaluators/promote", protect, authorize("admin"), promoteToEvaluator);
+router.post(
+  "/evaluators/promote",
+  protect,
+  authorize("admin"),
+  promoteToEvaluator
+);
 
 // Demote evaluator -> user/referee
-router.patch("/evaluators/:id/demote", protect, authorize("admin"), demoteEvaluator);
+router.patch(
+  "/evaluators/:id/demote",
+  protect,
+  authorize("admin"),
+  demoteEvaluator
+);
 
 export default router;

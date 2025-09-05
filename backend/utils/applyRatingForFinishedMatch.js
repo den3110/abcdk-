@@ -6,7 +6,7 @@ import ScoreHistory from "../models/scoreHistoryModel.js";
 import RatingChange from "../models/ratingChangeModel.js";
 
 /* ===================== Tunables (core) ===================== */
-const DUPR_MIN = 2.0;
+const DUPR_MIN = 1.5;
 const DUPR_MAX = 8.0;
 const DIFF_SCALE = 0.6; // logistic scale cho expected
 
@@ -56,7 +56,7 @@ const MIN_DELTA_EPS_FACTOR = 0.02; // ≈ K_match * 2%
 const MIDLINE_DAMPEN = true;
 const MIDLINE_BETA = 0.65;
 const EXP_GAMMA = 1.18;
-const DEFAULT_SEED_RATING = 2.5;
+const DEFAULT_SEED_RATING = 2;
 
 // === Win negative small ===
 const MAX_WIN_NEG = 0.005; // per person, âm tối đa khi đội thắng
@@ -409,7 +409,7 @@ export async function applyRatingForFinishedMatch(matchId) {
   const getRating = (uid) => {
     const r = latest.get(uid) || { single: 0, double: 0 };
     const val = Number(r[key] || 0) || 0;
-    return val > 0 ? val : 2.5;
+    return val > 0 ? val : DEFAULT_SEED_RATING;
   };
 
   // ===== NEW: prefetch reputation map (để tránh await trong loop) =====
@@ -426,12 +426,12 @@ export async function applyRatingForFinishedMatch(matchId) {
   if (kind === "singles") {
     const ua = usersA[0],
       ub = usersB[0];
-    teamA = ua ? getRating(ua) : 2.5;
-    teamB = ub ? getRating(ub) : 2.5;
+    teamA = ua ? getRating(ua) : DEFAULT_SEED_RATING;
+    teamB = ub ? getRating(ub) : DEFAULT_SEED_RATING;
   } else {
-    const a1 = usersA[0] ? getRating(usersA[0]) : 2.5;
+    const a1 = usersA[0] ? getRating(usersA[0]) : DEFAULT_SEED_RATING;
     const a2 = usersA[1] ? getRating(usersA[1]) : a1;
-    const b1 = usersB[0] ? getRating(usersB[0]) : 2.5;
+    const b1 = usersB[0] ? getRating(usersB[0]) : DEFAULT_SEED_RATING;
     const b2 = usersB[1] ? getRating(usersB[1]) : b1;
     teamA = teamRatingDoubles(a1, a2);
     teamB = teamRatingDoubles(b1, b2);
@@ -641,7 +641,7 @@ export async function applyRatingForFinishedMatch(matchId) {
       const uid = u.uid;
       const current = latest.get(uid) || { single: 0, double: 0 };
       const curVal =
-        (Number(current[key]) || 0) > 0 ? Number(current[key]) : 2.5;
+        (Number(current[key]) || 0) > 0 ? Number(current[key]) : DEFAULT_SEED_RATING;
       const delta = deltas[idx] ?? 0;
       const next = clamp(curVal + delta, DUPR_MIN, DUPR_MAX);
       perUserDeltasAbs.push(Math.abs(delta));

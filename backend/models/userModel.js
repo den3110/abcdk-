@@ -29,7 +29,7 @@ const userSchema = new mongoose.Schema(
       trim: true,
       unique: true,
       sparse: true,
-      // default: 
+      // default:
       required() {
         return this.role === "user"; // chỉ user thường mới bắt buộc
       },
@@ -105,30 +105,6 @@ const userSchema = new mongoose.Schema(
   { timestamps: true, strict: true }
 );
 
-/* ---------- Index ---------- */
-userSchema.index(
-  { nickname: 1 },
-  { name: "idx_nickname_vi", collation: { locale: "vi", strength: 1 } }
-);
-userSchema.index(
-  { name: 1 },
-  { name: "idx_name_vi", collation: { locale: "vi", strength: 1 } }
-);
-userSchema.index(
-  { province: 1 },
-  { name: "idx_province_vi", collation: { locale: "vi", strength: 1 } }
-);
-
-userSchema.index({ cccdStatus: 1, updatedAt: -1 });
-userSchema.index({ email: 1 }, { unique: true, sparse: true });
-userSchema.index({ phone: 1 }, { unique: true, sparse: true });
-// cho trang evaluator
-userSchema.index({ "evaluator.enabled": 1 }, { name: "idx_eval_enabled" });
-userSchema.index(
-  { "evaluator.gradingScopes.provinces": 1 },
-  { name: "idx_eval_province" }
-);
-
 /* ---------- Bcrypt helpers ---------- */
 userSchema.methods.matchPassword = function (entered) {
   return bcrypt.compare(entered, this.password);
@@ -142,9 +118,9 @@ userSchema.pre("save", async function (next) {
 
 /* ---------- Validate logic cho evaluator ---------- */
 userSchema.pre("validate", function (next) {
-  if (this.evaluator?.enabled) {
+  if (this.role !== "admin" && this.evaluator?.enabled) {
     const provinces = Array.from(
-      new Set(
+    new Set(
         (this.evaluator.gradingScopes?.provinces || []).map((s) =>
           String(s || "").trim()
         )
@@ -176,13 +152,17 @@ userSchema.pre("validate", function (next) {
 
 /* ---------- Helper methods ---------- */
 userSchema.methods.isEvaluator = function () {
-  return !!this.evaluator?.enabled;
+  return this.role === "admin" || !!this.evaluator?.enabled;
 };
 userSchema.methods.canGradeProvince = function (province) {
+  // Admin chấm được tất cả tỉnh
+  if (this.role === "admin") return true;
+
   if (!this.isEvaluator()) return false;
   const p = String(province || "").trim();
   return !!p && this.evaluator?.gradingScopes?.provinces?.includes(p);
 };
+
 userSchema.methods.canGradeUser = function (targetUserOrProvince) {
   const province =
     typeof targetUserOrProvince === "string"
@@ -190,15 +170,18 @@ userSchema.methods.canGradeUser = function (targetUserOrProvince) {
       : targetUserOrProvince?.province;
   return this.canGradeProvince(province);
 };
+
 userSchema.statics.findEvaluatorsForProvince = function (province) {
   const p = String(province || "").trim();
   if (!p) return Promise.resolve([]);
   return this.find({
-    "evaluator.enabled": true,
-    "evaluator.gradingScopes.provinces": p,
+    isDeleted: { $ne: true },
+    $or: [
+      { role: "admin" }, // ✅ admin luôn match
+      { "evaluator.enabled": true, "evaluator.gradingScopes.provinces": p },
+    ],
   });
 };
-
 /* ---------- Ratings giữ nguyên ---------- */
 const RatingSchema = new mongoose.Schema(
   {
@@ -214,5 +197,29 @@ const RatingSchema = new mongoose.Schema(
   { _id: false }
 );
 userSchema.add({ localRatings: { type: RatingSchema, default: () => ({}) } });
+/* ---------- Index ---------- */
+userSchema.index(
+  { nickname: 1 },
+  { name: "idx_nickname_vi", collation: { locale: "vi", strength: 1 } }
+);
+userSchema.index(
+  { name: 1 },
+  { name: "idx_name_vi", collation: { locale: "vi", strength: 1 } }
+);
+userSchema.index(
+  { province: 1 },
+  { name: "idx_province_vi", collation: { locale: "vi", strength: 1 } }
+);
+
+userSchema.index({ cccdStatus: 1, updatedAt: -1 });
+// userSchema.index({ email: 1 }, { unique: true, sparse: true });
+// userSchema.index({ phone: 1 }, { unique: true, sparse: true });
+// cho trang evaluator
+userSchema.index({ "evaluator.enabled": 1 }, { name: "idx_eval_enabled" });
+userSchema.index(
+  { "evaluator.gradingScopes.provinces": 1 },
+  { name: "idx_eval_province" }
+);
+userSchema.index({ role: 1 }, { name: "idx_role" });
 
 export default mongoose.model("User", userSchema);

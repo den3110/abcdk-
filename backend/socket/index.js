@@ -364,7 +364,85 @@ export function initSocket(
       if (!ensureReferee(socket)) return;
       await setServe(matchId, side, server, socket.user?._id, io);
     });
+    socket.on("match:started", async ({ matchId }) => {
+      if (!matchId) return;
 
+      const m = await Match.findById(matchId)
+        .populate({
+          path: "pairA",
+          select: "player1 player2 seed label teamName",
+          populate: [
+            {
+              path: "player1",
+              select: "nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+          ],
+        })
+        .populate({
+          path: "pairB",
+          select: "player1 player2 seed label teamName",
+          populate: [
+            {
+              path: "player1",
+              select: "nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+          ],
+        })
+        .populate({ path: "referee", select: "name fullName nickname" })
+        .populate({ path: "previousA", select: "round order" })
+        .populate({ path: "previousB", select: "round order" })
+        .populate({ path: "nextMatch", select: "_id" })
+        .populate({
+          path: "tournament",
+          select: "name image eventType overlay",
+        })
+        .populate({ path: "bracket", select: "type name order overlay" })
+        .lean();
+
+      if (!m) return;
+
+      // Helper: ưu tiên player.nickname/nickName; nếu thiếu HOẶC rỗng -> fallback user.nickname/user.nickName
+      const fillNick = (p) => {
+        if (!p) return p;
+        const pick = (v) => (v && String(v).trim()) || "";
+        const primary = pick(p.nickname) || pick(p.nickName);
+        const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+        const n = primary || fromUser || "";
+        if (n) {
+          p.nickname = n;
+          p.nickName = n;
+        }
+        // Tuỳ chọn: không cần mang user về FE
+        // if (p.user) delete p.user;
+        return p;
+      };
+
+      if (m.pairA) {
+        m.pairA.player1 = fillNick(m.pairA.player1);
+        m.pairA.player2 = fillNick(m.pairA.player2);
+      }
+      if (m.pairB) {
+        m.pairB.player1 = fillNick(m.pairB.player1);
+        m.pairB.player2 = fillNick(m.pairB.player2);
+      }
+
+      // bổ sung streams từ meta nếu có
+      if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
+      io.to(`match:${matchId}`).emit("match:snapshot", toDTO(m));
+    });
     // (Giữ compatibility nếu FE còn dùng)
     socket.on("score:inc", async ({ matchId /*, side, delta*/ }) => {
       if (!matchId) return;

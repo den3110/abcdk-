@@ -80,3 +80,31 @@ export const createAutoUsers = asyncHandler(async (req, res) => {
     session.endSession();
   }
 });
+
+
+export const adminChangeUserPassword = asyncHandler(async (req, res) => {
+  const userId = req.params.id;
+  const { newPassword } = req.body || {};
+
+  if (!newPassword || String(newPassword).length < 6) {
+    res.status(400);
+    throw new Error("Mật khẩu tối thiểu 6 ký tự");
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    res.status(404);
+    throw new Error("User không tồn tại");
+  }
+
+  // Nếu User model có pre('save') để hash password:
+  user.password = String(newPassword);
+
+  // Nếu KHÔNG có pre('save'), hãy hash tại đây bằng bcrypt:
+  // const salt = await bcrypt.genSalt(10);
+  // user.password = await bcrypt.hash(String(newPassword), salt);
+
+  await user.save();
+
+  res.json({ message: "Đã đổi mật khẩu" });
+});

@@ -9,6 +9,9 @@ import {
   searchUser,
   listMyTournaments,
   softDeleteMe,
+  getMe,
+  createEvaluation,
+  authUserWeb,
 } from "../controllers/userController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import {
@@ -19,7 +22,8 @@ import {
 const router = express.Router();
 
 router.post("/", registerUser);
-router.post("/auth", authUser);
+router.post("/auth", authUser); // mobile
+router.post("/auth/web", authUserWeb); // web
 router.post("/logout", logoutUser);
 router.get("/:id/public", getPublicProfile);
 router.get("/:id/ratings", getRatingHistory);
@@ -34,5 +38,7 @@ router.get("/search", searchUser);
 
 router.get("/tournaments", protect, listMyTournaments);
 router.delete("/me", protect, softDeleteMe);
+router.get("/me", protect, getMe);
+router.post("/evaluations", protect, createEvaluation);
 
 export default router;

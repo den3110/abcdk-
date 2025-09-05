@@ -20,17 +20,22 @@ import {
   useGetLatestAssessmentQuery,
 } from "../../slices/assessmentsApiSlice";
 
-/* ===== DUPR helpers ===== */
-const DUPR_MIN = 2.0;
+/* ===== DUPR helpers (min = 1.5) ===== */
+const DUPR_MIN = 1.5;
 const DUPR_MAX = 8.0;
 const clamp = (n, min, max) => Math.max(min, Math.min(max, Number(n) || 0));
 const round3 = (n) => Number((Number(n) || 0).toFixed(3));
 const normalizeDupr = (n) => round3(clamp(n, DUPR_MIN, DUPR_MAX));
 const duprFromRaw = (raw0to10) =>
-  round3(DUPR_MIN + clamp(raw0to10, 0, 10) * (6 / 10));
+  round3(DUPR_MIN + clamp(raw0to10, 0, 10) * ((DUPR_MAX - DUPR_MIN) / 10));
 
 /* Rubric (rút gọn text cho ngắn) */
 const RUBRIC = [
+  {
+    level: 1.5,
+    label: "Novice",
+    bullets: ["Mới chơi", "Chưa ổn định kỹ thuật", "Cần hướng dẫn cơ bản"],
+  },
   {
     level: 2.0,
     label: "Beginner",
@@ -110,7 +115,7 @@ const sanitizeDecimalInput = (s) => {
   return v;
 };
 
-/* ======= HOISTED helpers/components: giữ identity ổn định ======= */
+/* ======= HOISTED helpers/components ======= */
 const isValidDupr = (v) =>
   v != null && !Number.isNaN(v) && v >= DUPR_MIN && v <= DUPR_MAX;
 
@@ -170,7 +175,7 @@ const InputCard = React.memo(function InputCard({
         }}
         autoComplete="off"
         label={label}
-        placeholder={initializing ? "" : "vd. 3.25"}
+        placeholder={initializing ? "" : "vd. 2.75"}
         error={value !== "" && !isValidDupr(parseFloat(value))}
         helperText={
           value !== "" && !isValidDupr(parseFloat(value))
@@ -287,7 +292,11 @@ export default function LevelPointPage({ userId: userIdProp }) {
       return;
     }
     if (!singleValid || !doubleValid) {
-      toast.error("Vui lòng nhập đủ Đơn & Đôi trong dải 2.000–8.000.");
+      toast.error(
+        `Vui lòng nhập đủ Đơn & Đôi trong dải ${DUPR_MIN.toFixed(
+          3
+        )}–${DUPR_MAX.toFixed(3)}.`
+      );
       return;
     }
     try {
@@ -295,7 +304,7 @@ export default function LevelPointPage({ userId: userIdProp }) {
         userId,
         singleLevel: singleVal,
         doubleLevel: doubleVal,
-        note: "self-eval (2 fields)",
+        note: "Tự đánh giá, cần đánh giá thêm",
       }).unwrap();
       toast.success("Đã lưu đánh giá & cập nhật ranking!");
     } catch (err) {

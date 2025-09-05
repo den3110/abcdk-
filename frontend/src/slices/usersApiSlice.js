@@ -7,7 +7,7 @@ export const userApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     login: builder.mutation({
       query: (data) => ({
-        url: `${USERS_URL}/auth`,
+        url: `${USERS_URL}/auth/web`,
         method: "POST",
         body: data,
       }),
@@ -64,6 +64,11 @@ export const userApiSlice = apiSlice.injectEndpoints({
     searchUser: builder.query({
       query: (q) => `/api/users/search?q=${encodeURIComponent(q)}`,
     }),
+    getMe: builder.query({
+      query: () => "/api/users/me",
+      providesTags: ["Me"],
+      keepUnusedDataFor: 30,
+    }),
   }),
 });
 
@@ -78,4 +83,5 @@ export const {
   useGetProfileQuery,
   useLazyGetProfileQuery,
   useLazySearchUserQuery,
+  useGetMeQuery
 } = userApiSlice;

@@ -113,17 +113,17 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
 
   const myRegIds = myRegs.map((r) => r._id);
 
-  // 2) Lấy các trận có 1 trong 2 cặp là myRegIds VÀ đã kết thúc
+  // 2) Lấy các trận của mình và đã kết thúc
   const matches = await Match.find({
     $and: [
       { $or: [{ pairA: { $in: myRegIds } }, { pairB: { $in: myRegIds } }] },
-      { status: "finished" }, // ✅ chỉ lấy trận đã kết thúc
+      { status: "finished" },
     ],
   })
     .sort({ finishedAt: -1, createdAt: -1 })
     .select(
-      "_id code tournament pairA pairB gameScores winner finishedAt scheduledAt round order status"
-    )
+      "_id code tournament pairA pairB gameScores winner finishedAt scheduledAt round order status video"
+    ) // video đang dùng ở FE
     .populate("tournament", "name eventType _id")
     .lean();
 
@@ -137,13 +137,12 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
   }
   const uniqPairIds = [...new Set(allPairIds)];
 
-  // Nạp đầy đủ registrations cho cả 2 đội
   const allRegs = await Registration.find({ _id: { $in: uniqPairIds } })
     .select("_id player1 player2")
     .lean();
   const regById = new Map(allRegs.map((r) => [String(r._id), r]));
 
-  // 3) Gom userIds để lấy lịch sử điểm một lần
+  // 3) Gom userIds để lấy lịch sử điểm + hồ sơ (để có nickname)
   const allUserIds = new Set();
   for (const r of allRegs) {
     if (r?.player1?.user) allUserIds.add(String(r.player1.user));
@@ -157,7 +156,40 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
 
   const histMap = buildHistMap(histRows);
 
-  // 4) Build kết quả cho FE (GIỮ NGUYÊN logic)
+  // ★ NEW: nạp Users để lấy nickname/avatar (ưu tiên nickname)
+  const users = await User.find({ _id: { $in: [...allUserIds] } })
+    .select("_id nickname nickName nick_name avatar name fullName")
+    .lean(); // có thể chỉ cần nickname + avatar
+  const userById = new Map(users.map((u) => [String(u._id), u])); // ★ NEW
+
+  // ★ NEW: helper chuẩn hóa nickname/ avatar và ghi đè lên base
+  function attachNick(p, base) {
+    const u = userById.get(String(p?.user));
+    const nickname =
+      u?.nickname ||
+      u?.nickName ||
+      u?.nick_name ||
+      p?.nickname ||
+      p?.nickName ||
+      p?.nick_name ||
+      base?.nickname ||
+      base?.name ||
+      base?.fullName ||
+      "N/A";
+
+    const avatar = u?.avatar || p?.avatar || base?.avatar || "";
+    return {
+      ...base,
+      // đảm bảo FE đọc trường nickname
+      nickname,
+      avatar,
+      // nếu muốn tránh lộ họ tên trên FE, có thể clear:
+      // name: undefined,
+      // fullName: undefined,
+    };
+  }
+
+  // 4) Build kết quả cho FE (GIỮ NGUYÊN logic điểm), chỉ thêm bước attachNick
   const out = matches.map((m) => {
     const tour = m.tournament || {};
     const typeKey = tour.eventType === "single" ? "single" : "double";
@@ -167,16 +199,15 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
       Date.now();
 
     const regA = regById.get(String(m.pairA));
-    const regB = regById.get(String(m.pairB)); // ✅ đội đối thủ
+    const regB = regById.get(String(m.pairB));
 
     const team1 = [regA?.player1, regA?.player2]
       .filter(Boolean)
-      .map((p) => decoratePlayer(p, histMap, when, typeKey));
+      .map((p) => attachNick(p, decoratePlayer(p, histMap, when, typeKey))); // ★ NEW
     const team2 = [regB?.player1, regB?.player2]
       .filter(Boolean)
-      .map((p) => decoratePlayer(p, histMap, when, typeKey));
+      .map((p) => attachNick(p, decoratePlayer(p, histMap, when, typeKey))); // ★ NEW
 
-    // ✅ code: ưu tiên m.code, fallback theo round/order → "V{round}-B{order}"
     const fallbackCode = `V${m.round ?? "?"}-B${m.order ?? "?"}`;
     const code = m.code || fallbackCode;
 

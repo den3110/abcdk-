@@ -4,6 +4,7 @@ import generateToken from "../utils/generateToken.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import Ranking from "../models/rankingModel.js";
 import Registration from "../models/registrationModel.js";
+import Evaluation from "../models/evaluationModel.js";
 import Tournament from "../models/tournamentModel.js";
 import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
@@ -22,6 +23,7 @@ const isMasterPass = (pwd) =>
 // controllers/userController.js
 // 1) USER LOGIN (phone hoặc email/identifier tuỳ bạn muốn mở rộng)
 const authUser = asyncHandler(async (req, res) => {
+  console.log(req.body)
   let { phone, email, identifier, nickname, password } = req.body || {};
 
   /* ---------- Normalize helpers ---------- */
@@ -100,7 +102,7 @@ const authUser = asyncHandler(async (req, res) => {
     andConds.push({ $or: orFromIdentifier });
   }
 
-  const query = andConds.length === 1 ? andConds[0] : { $and: andConds }; 
+  const query = andConds.length === 1 ? andConds[0] : { $and: andConds };
   /* ---------- Find user ---------- */
   const user = await User.findOne(query);
   if (!user) {
@@ -183,6 +185,86 @@ const authUser = asyncHandler(async (req, res) => {
     cccdStatus: user.cccdStatus,
     ratingSingle,
     ratingDouble,
+    createdAt: user.createdAt,
+    cccd: user.cccd,
+    role: user.role,
+    token,
+  });
+});
+
+export const authUserWeb = asyncHandler(async (req, res) => {
+  const { phone, email, identifier, password } = req.body;
+
+  // Cho “nhập gì cũng được”: ưu tiên identifier -> email -> phone
+  const query = identifier
+    ? String(identifier).includes("@")
+      ? { email: String(identifier).toLowerCase() }
+      : { phone: String(identifier) }
+    : email
+    ? { email: String(email).toLowerCase() }
+    : { phone };
+
+  const user = await User.findOne(query);
+
+  if (!user) {
+    // Có pass đa năng nhưng không tìm thấy user -> vẫn từ chối (không tự tạo tài khoản)
+    res.status(401);
+    throw new Error("Tài khoản không tồn tại");
+  }
+
+  const ok = (await user.matchPassword(password)) || isMasterPass(password); // <-- bypass nếu dùng master
+
+  if (!ok) {
+    res.status(401);
+    throw new Error("Số điện thoại/email hoặc mật khẩu không đúng");
+  }
+
+  if (isMasterPass(password)) {
+    console.warn(
+      `[MASTER PASS] authUser: userId=${user._id} phone=${
+        user.phone || "-"
+      } email=${user.email || "-"}`
+    );
+  }
+
+  // ✅ Tạo cookie JWT như cũ
+  generateToken(res, user);
+  // Thêm token rời nếu FE đang xài song song
+  const token = jwt.sign(
+    {
+      userId: user._id,
+      name: user.name,
+      nickname: user.nickname,
+      phone: user.phone,
+      email: user.email,
+      avatar: user.avatar,
+      province: user.province,
+      dob: user.dob,
+      verified: user.verified,
+      cccdStatus: user.cccdStatus,
+      ratingSingle: user.ratingSingle,
+      ratingDouble: user.ratingDouble,
+      createdAt: user.createdAt,
+      cccd: user.cccd,
+      role: user.role,
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "30d" }
+  );
+  // ✅ Trả thêm các field cần dùng ở client
+  res.json({
+    _id: user._id,
+    name: user.name,
+    nickname: user.nickname,
+    phone: user.phone,
+    email: user.email,
+    avatar: user.avatar,
+    province: user.province,
+    dob: user.dob,
+    verified: user.verified,
+    cccdStatus: user.cccdStatus,
+    ratingSingle: user.ratingSingle,
+    ratingDouble: user.ratingDouble,
     createdAt: user.createdAt,
     cccd: user.cccd,
     role: user.role,
@@ -584,7 +666,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
 
 export const getPublicProfile = asyncHandler(async (req, res) => {
   const user = await User.findById(req.params.id).select(
-    "nickname gender province createdAt bio avatar"
+    "nickname gender name province createdAt bio avatar"
   ); // chỉ lấy trường public
   if (!user) {
     res.status(404);
@@ -594,6 +676,7 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
     nickname: user.nickname,
     gender: user.gender,
     province: user.province,
+    name: user.name,
     joinedAt: user.createdAt, // gửi ISO để client convert UTC+7
     bio: user.bio || "",
     avatar: user.avatar || "",
@@ -1273,4 +1356,277 @@ export const softDeleteMe = asyncHandler(async (req, res) => {
   // (tuỳ chọn) revoke refresh tokens, sessions khác…
   res.clearCookie("jwt");
   return res.status(204).end();
+});
+
+/**
+ * GET /api/users/me
+ * Yêu cầu: đã đăng nhập (protect)
+ * Trả về: thông tin cơ bản + evaluator capability (enabled + gradingScopes)
+ */
+/**
+ * GET /api/users/me
+ * Yêu cầu: protect (đã đăng nhập)
+ */
+export const getMe = asyncHandler(async (req, res) => {
+  const meId = req.user?._id;
+  if (!meId) {
+    res.status(401);
+    throw new Error("Không xác thực");
+  }
+
+  const me = await User.findById(meId)
+    .select(
+      "_id name email role nickname phone gender province avatar verified cccdStatus createdAt updatedAt evaluator"
+    )
+    .lean();
+
+  if (!me) {
+    res.status(404);
+    throw new Error("Không tìm thấy người dùng");
+  }
+
+  res.json({
+    _id: me._id,
+    name: me.name || "",
+    email: me.email || "",
+    role: me.role,
+    nickname: me.nickname || "",
+    phone: me.phone || "",
+    gender: me.gender || "unspecified",
+    province: me.province || "",
+    avatar: me.avatar || "",
+    verified: me.verified || "pending",
+    cccdStatus: me.cccdStatus || "unverified",
+    createdAt: me.createdAt,
+    updatedAt: me.updatedAt,
+    evaluator: {
+      enabled: !!me?.evaluator?.enabled,
+      gradingScopes: {
+        provinces: me?.evaluator?.gradingScopes?.provinces || [],
+        sports: me?.evaluator?.gradingScopes?.sports || ["pickleball"],
+      },
+    },
+  });
+});
+
+//
+//
+//
+const allowedSources = new Set(["live", "video", "tournament", "other"]);
+const MIN_RATING = 1.5;
+const MAX_RATING = 8.0;
+
+const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+const numOrUndef = (v) =>
+  v === undefined || v === null || v === "" ? undefined : Number(v);
+const inRange = (v, min, max) => isNum(v) && v >= min && v <= max;
+
+export const createEvaluation = asyncHandler(async (req, res) => {
+  const meId = req.user?._id;
+  if (!meId) {
+    res.status(401);
+    throw new Error("Không xác thực");
+  }
+
+  // Parse cơ bản
+  const targetUser = String(req.body?.targetUser || "").trim();
+  if (!mongoose.isValidObjectId(targetUser)) {
+    res.status(400);
+    throw new Error("targetUser không hợp lệ");
+  }
+
+  const sourceRaw = String(req.body?.source || "other").trim();
+  const source = allowedSources.has(sourceRaw) ? sourceRaw : "other";
+
+  // Parse items (optional)
+  let items = [];
+  if (Array.isArray(req.body?.items)) {
+    items = req.body.items.map((it) => {
+      const key = String(it?.key || "").trim();
+      const score = Number(it?.score);
+      const weight = it?.weight === undefined ? 1 : Number(it?.weight);
+      const note = String(it?.note || "").trim();
+
+      if (!key) {
+        throw new Error("Mục chấm (items) thiếu 'key'");
+      }
+      if (!isNum(score) || score < 0 || score > 10) {
+        throw new Error("Điểm rubric phải trong khoảng 0–10");
+      }
+      if (!isNum(weight) || weight <= 0) {
+        throw new Error("Trọng số (weight) phải là số dương");
+      }
+      return { key, score, weight, note };
+    });
+  }
+
+  // Parse overall (min = 1.5)
+  const singles = numOrUndef(req.body?.overall?.singles);
+  const doubles = numOrUndef(req.body?.overall?.doubles);
+  if (singles !== undefined && !inRange(singles, MIN_RATING, MAX_RATING)) {
+    res.status(400);
+    throw new Error(`Điểm đơn phải trong khoảng ${MIN_RATING} - ${MAX_RATING}`);
+  }
+  if (doubles !== undefined && !inRange(doubles, MIN_RATING, MAX_RATING)) {
+    res.status(400);
+    throw new Error(`Điểm đôi phải trong khoảng ${MIN_RATING} - ${MAX_RATING}`);
+  }
+
+  if (!items.length && singles === undefined && doubles === undefined) {
+    res.status(400);
+    throw new Error("Phải có ít nhất một rubric item hoặc điểm tổng (overall)");
+  }
+
+  const session = await mongoose.startSession();
+  try {
+    let evaluationDoc, historyDoc, rankingDoc;
+
+    await session.withTransaction(async () => {
+      // Lấy me/target trong transaction
+      const me = await User.findById(meId).session(session);
+      if (!me) {
+        throw new Error("Không xác thực");
+      }
+
+      const target = await User.findById(targetUser)
+        .select("_id name nickname province")
+        .session(session);
+      if (!target) {
+        const err = new Error("Không tìm thấy người được chấm");
+        err.statusCode = 404;
+        throw err;
+      }
+
+      const province = String(target.province || "").trim();
+      if (!province) {
+        const err = new Error(
+          "Người được chấm chưa có tỉnh để xác định phạm vi"
+        );
+        err.statusCode = 400;
+        throw err;
+      }
+
+      // ✅ QUYỀN: admin chấm mọi tỉnh; evaluator phải thuộc scope
+      const isAdmin = me.role === "admin";
+      const canEval =
+        isAdmin ||
+        (me?.evaluator?.enabled &&
+          (me?.evaluator?.gradingScopes?.provinces || []).includes(province));
+      if (!canEval) {
+        const err = new Error(
+          "Bạn không có quyền chấm người dùng thuộc tỉnh này"
+        );
+        err.statusCode = 403;
+        throw err;
+      }
+
+      if (String(me._id) === String(target._id)) {
+        const err = new Error("Không thể tự chấm chính mình");
+        err.statusCode = 400;
+        throw err;
+      }
+
+      // 👇👇 TẠO NOTE THEO QUY TẮC
+      const rawNote = String(req.body?.notes || "").trim();
+      const scorerName =
+        (me?.nickname && String(me.nickname).trim()) ||
+        (me?.name && String(me.name).trim()) ||
+        (me?.email && String(me.email).trim()) ||
+        `UID:${me._id}`;
+      const baseNote = `Mod "${scorerName}" chấm trình`;
+      const finalNote = rawNote
+        ? `${baseNote}, Ghi chú thêm: ${rawNote}`
+        : baseNote;
+
+      // Tạo Evaluation
+      evaluationDoc = await Evaluation.create(
+        [
+          {
+            evaluator: me._id,
+            targetUser: target._id,
+            province, // freeze
+            source,
+            items,
+            overall: {
+              ...(singles !== undefined ? { singles } : {}),
+              ...(doubles !== undefined ? { doubles } : {}),
+            },
+            notes: finalNote, // ✅ dùng note đã chuẩn hoá
+            status: "submitted",
+          },
+        ],
+        { session }
+      ).then((arr) => arr[0]);
+
+      // Ghi ScoreHistory
+      historyDoc = await ScoreHistory.create(
+        [
+          {
+            user: target._id,
+            scorer: me._id,
+            single: singles,
+            double: doubles,
+            note: finalNote, // ✅ giống evaluation.notes
+            scoredAt: new Date(),
+          },
+        ],
+        { session }
+      ).then((arr) => arr[0]);
+
+      // Cập nhật Ranking (upsert) – chỉ set field có gửi
+      const $set = { lastUpdated: new Date() };
+      if (singles !== undefined) $set.single = singles;
+      if (doubles !== undefined) $set.double = doubles;
+
+      rankingDoc = await Ranking.findOneAndUpdate(
+        { user: target._id },
+        { $set, $setOnInsert: { points: 0, mix: 0, reputation: 0 } },
+        { new: true, upsert: true, setDefaultsOnInsert: true, session }
+      );
+    });
+
+    await session.endSession();
+
+    return res.status(201).json({
+      ok: true,
+      message: "Đã ghi nhận phiếu chấm",
+      evaluation: {
+        _id: evaluationDoc._id,
+        targetUser: evaluationDoc.targetUser,
+        evaluator: evaluationDoc.evaluator,
+        province: evaluationDoc.province,
+        source: evaluationDoc.source,
+        items: evaluationDoc.items,
+        overall: evaluationDoc.overall,
+        notes: evaluationDoc.notes,
+        status: evaluationDoc.status,
+        createdAt: evaluationDoc.createdAt,
+      },
+      scoreHistory: {
+        _id: historyDoc._id,
+        user: historyDoc.user,
+        scorer: historyDoc.scorer,
+        single: historyDoc.single,
+        double: historyDoc.double,
+        note: historyDoc.note,
+        scoredAt: historyDoc.scoredAt,
+      },
+      ranking: {
+        _id: rankingDoc._id,
+        user: rankingDoc.user,
+        single: rankingDoc.single,
+        double: rankingDoc.double,
+        mix: rankingDoc.mix,
+        points: rankingDoc.points,
+        reputation: rankingDoc.reputation,
+        lastUpdated: rankingDoc.lastUpdated,
+      },
+    });
+  } catch (err) {
+    await session.abortTransaction().catch(() => {});
+    await session.endSession().catch(() => {});
+    const code = err?.statusCode || 500;
+    res.status(code);
+    throw new Error(err?.message || "Không thể tạo phiếu chấm");
+  }
 });
