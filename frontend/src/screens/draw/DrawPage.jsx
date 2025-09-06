@@ -1,3 +1,4 @@
+// DrawPage.jsx — add Card-Deck draw mode (Classic/Card), deal & flip animations, KO=flip 2 to pair; Group=flip 1 and auto-seat per cursor. Pool still disappears immediately after drawNext; Group board reads board.groups[*].slots (fallback groupsMeta+reveals).
 import React, {
   useEffect,
   useMemo,
@@ -37,6 +38,9 @@ import {
   Tooltip,
   Autocomplete,
   TextField,
+  Fade,
+  ToggleButtonGroup,
+  ToggleButton,
 } from "@mui/material";
 import CasinoIcon from "@mui/icons-material/Casino";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
@@ -46,6 +50,8 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import CelebrationIcon from "@mui/icons-material/Celebration";
+import TaskAltIcon from "@mui/icons-material/TaskAlt";
+import CloseIcon from "@mui/icons-material/Close";
 import { Container as RBContainer } from "react-bootstrap";
 import { Bracket, Seed, SeedItem, SeedTeam } from "react-brackets";
 import {
@@ -72,6 +78,7 @@ import {
   useAssignByesMutation,
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
+import PublicProfileDialog from "../../components/PublicProfileDialog";
 
 /********************** FX helpers **********************/
 function useAudioCue(enabled) {
@@ -90,7 +97,7 @@ function useAudioCue(enabled) {
       if (!ctx) return;
       const osc = ctx.createOscillator();
       const g = ctx.createGain();
-      osc.type = type; // triangle|sine|square|sawtooth
+      osc.type = type;
       osc.frequency.value = freq;
       g.gain.value = gain;
       osc.connect(g);
@@ -152,20 +159,14 @@ const labelBracketType = (b) => {
       return b?.type || "—";
   }
 };
-const nameFromPlayer = (p) => p?.fullName || p?.name || p?.nickname || "N/A";
+const nameFromPlayer = (p) => p?.nickName || p?.fullName || p?.name || "N/A";
 const safePairName = (reg, evType = "double") => {
   if (!reg) return "—";
   const p1 = nameFromPlayer(reg?.player1);
-
-  // Giải đơn: chỉ hiện người 1
   if (evType === "single") return p1 || "—";
-
-  // Giải đôi: chỉ thêm & khi thật sự có player2 (object tồn tại)
   const hasP2 = !!reg?.player2;
   if (!hasP2) return p1 || "—";
-
   const p2 = nameFromPlayer(reg?.player2);
-  // tránh trường hợp p2 = "N/A"
   return p2 && p2 !== "N/A" ? `${p1} & ${p2}` : p1 || "—";
 };
 const idOf = (x) => String(x?._id ?? x);
@@ -216,14 +217,198 @@ const buildKnockoutOptions = (teamCount) => {
   return out;
 };
 
-/********************** Group seating **********************/
+/********************** Pool (đội chờ bốc) **********************/
+const PoolPanel = memo(function PoolPanel({
+  title = "Pool đội chờ bốc",
+  eventType,
+  regIndex,
+  poolIds,
+  revealsGroup,
+}) {
+  const poolItems = useMemo(() => {
+    if (Array.isArray(poolIds)) {
+      return poolIds
+        .map((id) => {
+          const str = String(id);
+          const reg = regIndex?.get(str);
+          return {
+            id: str,
+            label: safePairName(reg, eventType) || `#${str.slice(-6)}`,
+          };
+        })
+        .sort((a, b) =>
+          a.label.localeCompare(b.label, "vi", { sensitivity: "base" })
+        );
+    }
+    const revealed = new Set(
+      (revealsGroup || []).map((rv) => {
+        const id =
+          (rv && (rv.regId || rv.reg || rv.id || rv._id)) ??
+          rv?.pair?.registration ??
+          null;
+        const normId = typeof id === "object" ? id?._id || id?.id : id;
+        return String(normId || "");
+      })
+    );
+    const arr = [];
+    regIndex?.forEach((reg, id) => {
+      if (!revealed.has(String(id))) {
+        arr.push({ id: String(id), label: safePairName(reg, eventType) });
+      }
+    });
+    return arr.sort((a, b) =>
+      a.label.localeCompare(b.label, "vi", { sensitivity: "base" })
+    );
+  }, [poolIds, revealsGroup, regIndex, eventType]);
+
+  const [items, setItems] = useState(poolItems);
+  const disappearingRef = useRef(new Set());
+  const prevSetRef = useRef(new Set(poolItems.map((i) => i.id)));
+
+  useEffect(() => {
+    const next = poolItems;
+    const nextSet = new Set(next.map((i) => i.id));
+    const prevSet = prevSetRef.current;
+
+    const removed = [...prevSet].filter((id) => !nextSet.has(id));
+    if (removed.length) {
+      removed.forEach((id) => disappearingRef.current.add(id));
+      const t = setTimeout(() => {
+        setItems(next);
+        removed.forEach((id) => disappearingRef.current.delete(id));
+        prevSetRef.current = new Set(next.map((i) => i.id));
+      }, 420);
+      return () => clearTimeout(t);
+    }
+    setItems(next);
+    prevSetRef.current = nextSet;
+  }, [poolItems]);
+
+  return (
+    <Paper variant="outlined" sx={{ p: 2 }}>
+      <Stack
+        direction="row"
+        alignItems="center"
+        justifyContent="space-between"
+        sx={{ mb: 1 }}
+      >
+        <Typography fontWeight={700}>{title}</Typography>
+        <Chip size="small" label={`Còn lại: ${items.length}`} />
+      </Stack>
+
+      {items.length === 0 ? (
+        <Typography variant="body2" color="text.secondary">
+          Pool trống.
+        </Typography>
+      ) : (
+        <Stack
+          spacing={0.75}
+          sx={{ maxHeight: 360, overflowY: "auto", pr: 0.5 }}
+        >
+          {items.map((it) => {
+            const fading = disappearingRef.current.has(it.id);
+            return (
+              <Fade
+                key={it.id}
+                in={!fading}
+                timeout={{ enter: 180, exit: 420 }}
+              >
+                <Box
+                  sx={{
+                    p: 1,
+                    border: "1px dashed #e5e7eb",
+                    borderRadius: 1,
+                    background: "#fafafa",
+                    transition: "transform .28s ease",
+                    "&:hover": { transform: "translateY(-1px)" },
+                  }}
+                >
+                  <Typography variant="body2">{it.label}</Typography>
+                </Box>
+              </Fade>
+            );
+          })}
+        </Stack>
+      )}
+    </Paper>
+  );
+});
+
+/********************** Group seating (ưu tiên board.groups[*].slots) **********************/
 const GroupSeatingBoard = memo(function GroupSeatingBoard({
+  board,
   groupsMeta,
   reveals,
   regIndex,
   eventType,
   lastHighlight,
 }) {
+  if (board && Array.isArray(board.groups) && board.groups.length > 0) {
+    return (
+      <Grid container spacing={2}>
+        {board.groups.map((g, gi) => {
+          const code = g?.key || g?.code || String.fromCharCode(65 + gi);
+          const slots = Array.isArray(g?.slots) ? g.slots : [];
+          return (
+            <Grid item xs={12} sm={6} md={4} lg={3} key={code}>
+              <Card variant="outlined" sx={{ p: 1.5 }}>
+                <Typography fontWeight={700} sx={{ mb: 1 }}>
+                  Bảng {code}
+                </Typography>
+                <Stack spacing={0.75}>
+                  {slots.map((regId, si) => {
+                    const reg = regId ? regIndex?.get(String(regId)) : null;
+                    const name = regId ? safePairName(reg, eventType) : "—";
+                    const isHit =
+                      lastHighlight &&
+                      lastHighlight.type === "group" &&
+                      norm(lastHighlight.groupCode) === norm(code) &&
+                      lastHighlight.slotIndex === si;
+                    return (
+                      <Box
+                        key={`${code}-${si}`}
+                        sx={{
+                          p: 1,
+                          border: "1px dashed #ddd",
+                          borderRadius: 1,
+                          backgroundColor: regId
+                            ? isHit
+                              ? "#f0fff4"
+                              : "#f8fbff"
+                            : "#fafafa",
+                          position: "relative",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {isHit && (
+                          <Box
+                            sx={{
+                              position: "absolute",
+                              inset: 0,
+                              background:
+                                "radial-gradient(ellipse at center, rgba(0,200,83,0.22), transparent 60%)",
+                              animation: "pulseGlow 1.2s ease-out 2",
+                              pointerEvents: "none",
+                            }}
+                          />
+                        )}
+                        <Typography variant="body2">
+                          <b>Slot {si + 1}:</b> {name}
+                        </Typography>
+                      </Box>
+                    );
+                  })}
+                </Stack>
+              </Card>
+            </Grid>
+          );
+        })}
+        <style>{`@keyframes pulseGlow { 0%{opacity:0} 50%{opacity:1} 100%{opacity:0} }`}</style>
+      </Grid>
+    );
+  }
+
+  // Fallback từ groupsMeta + reveals
   const seats = useMemo(() => {
     const map = new Map();
     (groupsMeta || []).forEach((g, idx) => {
@@ -239,24 +424,46 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
         rv.groupCode ||
         rv.groupKey ||
         (typeof rv.group === "string" ? rv.group : "");
-      const nm = (() => {
-        const by =
-          rv.teamName ||
-          rv.name ||
-          rv.team ||
-          rv.displayName ||
-          rv.AName ||
-          rv.BName;
-        if (by) return String(by);
-        const rid = asId(rv.regId ?? rv.reg ?? rv.id ?? rv._id);
-        if (rid && regIndex?.get(String(rid)))
-          return safePairName(regIndex.get(String(rid)), eventType);
-        return "—";
-      })();
+      const rid =
+        asId(rv.regId) ||
+        asId(rv.reg) ||
+        asId(rv.registration) ||
+        asId(rv.id) ||
+        asId(rv._id);
+      const regDoc =
+        rid && regIndex?.get(String(rid)) ? regIndex.get(String(rid)) : null;
+
+      const p1 =
+        rv.player1 ||
+        rv.user1 ||
+        rv.A ||
+        rv?.pair?.player1 ||
+        rv?.pairA?.player1;
+      const p2 =
+        rv.player2 ||
+        rv.user2 ||
+        rv.B ||
+        rv?.pair?.player2 ||
+        rv?.pairB?.player2;
+
+      const nm =
+        (regDoc && safePairName(regDoc, eventType)) ||
+        (eventType === "single"
+          ? (p1 && nameFromPlayer(p1)) || null
+          : [p1, p2].filter(Boolean).map(nameFromPlayer).join(" & ")) ||
+        rv.nickName ||
+        rv.teamName ||
+        rv.name ||
+        rv.team ||
+        rv.displayName ||
+        rv.AName ||
+        rv.BName ||
+        "—";
+
       const g = map.get(norm(key));
       if (g) {
         const slot = g.slots.findIndex((x) => !x);
-        if (slot >= 0) g.slots[slot] = nm;
+        if (slot >= 0) g.slots[slot] = { label: nm, reg: regDoc, p1, p2 };
       }
     });
     return Array.from(map.values());
@@ -306,7 +513,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
                       />
                     )}
                     <Typography variant="body2">
-                      <b>Slot {idx + 1}:</b> {val || "—"}
+                      <b>Slot {idx + 1}:</b> {val?.label ?? "—"}
                     </Typography>
                   </Box>
                 );
@@ -360,19 +567,19 @@ const RoundRobinPreview = memo(function RoundRobinPreview({
           return reg
             ? reg.player2
               ? `${
+                  reg.player1?.nickName ||
                   reg.player1?.fullName ||
-                  reg.player1?.name ||
-                  reg.player1?.nickname
+                  reg.player1?.name
                 } & ${
+                  reg.player2?.nickName ||
                   reg.player2?.fullName ||
-                  reg.player2?.name ||
-                  reg.player2?.nickname
+                  reg.player2?.name
                 }`
-              : reg.player1?.fullName ||
-                reg.player1?.name ||
-                reg.player1?.nickname
+              : reg.player1?.nickName ||
+                reg.player1?.fullName ||
+                reg.player1?.name
             : typeof rid === "string"
-            ? `#${rid.slice(-6)}`
+            ? `#${String(rid).slice(-6)}`
             : "—";
         });
         const schedule1 = buildRR(teamNames);
@@ -427,6 +634,7 @@ const RoundRobinPreview = memo(function RoundRobinPreview({
   );
 });
 
+/********************** KO render helpers **********************/
 const buildPlayoffOptions = (bracket, bracketDetail, regsCount) => {
   const pairs1 =
     Number(bracketDetail?.meta?.expectedFirstRoundMatches) ||
@@ -462,7 +670,6 @@ const buildPlayoffOptions = (bracket, bracketDetail, regsCount) => {
   return out;
 };
 
-/********************** KO render helpers **********************/
 const roundTitleByCount = (cnt) => {
   if (cnt === 1) return "Chung kết";
   if (cnt === 2) return "Bán kết";
@@ -487,6 +694,8 @@ const matchSideName = (m, side, eventType) => {
 const CustomSeed = memo(function CustomSeed({ seed, breakpoint }) {
   const nameA = seed?.teams?.[0]?.name || "Chưa có đội";
   const nameB = seed?.teams?.[1]?.name || "Chưa có đội";
+  const nodeA = seed?.teams?.[0]?.node;
+  const nodeB = seed?.teams?.[1]?.node;
   const ITEM_HEIGHT = 100;
   const teamStyle = {
     display: "-webkit-box",
@@ -517,12 +726,12 @@ const CustomSeed = memo(function CustomSeed({ seed, breakpoint }) {
         >
           <SeedTeam title={nameA} style={teamStyle}>
             <Tooltip title={nameA} arrow placement="top">
-              <span style={{ display: "block" }}>{nameA}</span>
+              <span style={{ display: "block" }}>{nodeA ?? nameA}</span>
             </Tooltip>
           </SeedTeam>
           <SeedTeam title={nameB} style={teamStyle}>
             <Tooltip title={nameB} arrow placement="bottom">
-              <span style={{ display: "block" }}>{nameB}</span>
+              <span style={{ display: "block" }}>{nodeB ?? nameB}</span>
             </Tooltip>
           </SeedTeam>
         </div>
@@ -530,10 +739,7 @@ const CustomSeed = memo(function CustomSeed({ seed, breakpoint }) {
     </Seed>
   );
 });
-
-// ADAPTER tương thích nhiều version
 const seedRenderer = (...args) => {
-  // v2+: gọi với 1 object: { seed, breakpoint, roundIndex, seedIndex }
   if (
     args.length === 1 &&
     args[0] &&
@@ -542,7 +748,6 @@ const seedRenderer = (...args) => {
   ) {
     return <CustomSeed {...args[0]} />;
   }
-  // v1.x: gọi dạng (seed, breakpoint, roundIndex, seedIndex) hoặc (seed, { roundIndex, seedIndex })
   const seed = args[0];
   const maybeObj = args[1];
   const breakpoint =
@@ -550,7 +755,7 @@ const seedRenderer = (...args) => {
   return <CustomSeed seed={seed} breakpoint={breakpoint} />;
 };
 
-/********************** Live FX overlays **********************/
+/********************** Live FX overlays (Classic) **********************/
 const useNamesPool = (regIndex, eventType) =>
   useMemo(() => {
     const arr = [];
@@ -797,6 +1002,271 @@ const RevealOverlay = memo(function RevealOverlay({
   );
 });
 
+/********************** CARD MODE OVERLAY **********************/
+const CardDeckOverlay = memo(function CardDeckOverlay({
+  open,
+  onClose,
+  mode = "group", // 'group' | 'ko'
+  cards, // [{id,label}]
+  flipQueue = [], // [label,...] names to flip sequentially
+  onDrawOne, // () => void
+  onDrawTwo, // () => void  (KO/PO)
+  busy = false,
+  muted = false,
+}) {
+  const [fanned, setFanned] = useState(false);
+  const [removed, setRemoved] = useState(new Set()); // labels removed
+  const [flipping, setFlipping] = useState(new Set()); // labels flipping now
+  const [queue, setQueue] = useState([]);
+  const [pair, setPair] = useState([]); // last two names for KO banner
+  const { beep } = useAudioCue(!muted);
+
+  // Reset when open
+  useEffect(() => {
+    if (!open) return;
+    setFanned(false);
+    setRemoved(new Set());
+    setFlipping(new Set());
+    setQueue([]);
+    setPair([]);
+    const t = setTimeout(() => setFanned(true), 140);
+    return () => clearTimeout(t);
+  }, [open]);
+
+  // Append new flips to local queue
+  const known = useRef(new Set());
+  useEffect(() => {
+    const newOnes = [];
+    flipQueue.forEach((nm) => {
+      const key = String(nm || "");
+      if (key && !known.current.has(key)) {
+        known.current.add(key);
+        newOnes.push(key);
+      }
+    });
+    if (newOnes.length) setQueue((q) => q.concat(newOnes));
+  }, [flipQueue]);
+
+  // Process queue sequentially
+  useEffect(() => {
+    if (!open) return;
+    if (!queue.length) return;
+    const name = queue[0];
+    const i = cards.findIndex(
+      (c) => c.label === name && !removed.has(c.label) && !flipping.has(c.label)
+    );
+    if (i === -1) {
+      // Not found or already removed; drop and continue
+      setQueue((q) => q.slice(1));
+      return;
+    }
+    const label = cards[i].label;
+    const fn = new Set(flipping);
+    fn.add(label);
+    setFlipping(fn);
+    if (!muted) beep(760, 0.08);
+    const t1 = setTimeout(() => {
+      const rm = new Set(removed);
+      rm.add(label);
+      setRemoved(rm);
+      const ff = new Set(flipping);
+      ff.delete(label);
+      setFlipping(ff);
+
+      // KO pairing banner
+      if (mode !== "group") {
+        setPair((old) => {
+          const next = (old || []).concat([label]).slice(-2);
+          if (next.length === 2) {
+            setTimeout(() => {
+              if (!muted) beep(520, 0.12);
+              fireConfettiBurst();
+            }, 120);
+          }
+          return next;
+        });
+      } else {
+        setPair([]);
+      }
+
+      setQueue((q) => q.slice(1));
+    }, 700); // flip duration
+    return () => clearTimeout(t1);
+  }, [queue, open, cards, removed, flipping, beep, muted, mode]);
+
+  // Auto close if all removed
+  useEffect(() => {
+    if (!open) return;
+    const alive = cards.filter((c) => !removed.has(c.label)).length;
+    if (alive === 0 && queue.length === 0) {
+      // delay a bit for last animation
+      const t = setTimeout(() => onClose?.(), 600);
+      return () => clearTimeout(t);
+    }
+  }, [cards, removed, queue, open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <Box
+      sx={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 2300,
+        display: "flex",
+        flexDirection: "column",
+        background:
+          "radial-gradient(ellipse at center, rgba(0,0,0,0.78), rgba(0,0,0,0.92))",
+        color: "#fff",
+      }}
+    >
+      {/* Header */}
+      <Stack direction="row" alignItems="center" sx={{ p: 1.5, px: 2 }}>
+        <Typography fontWeight={800} sx={{ letterSpacing: 1, mr: 2 }}>
+          Bốc thăm kiểu Thẻ bài {mode === "group" ? "— Vòng bảng" : "— KO / PO"}
+        </Typography>
+        <Chip size="small" label={`Còn: ${cards.length - removed.size}`} />
+        <Box sx={{ flex: 1 }} />
+        <Stack direction="row" spacing={1}>
+          {mode === "group" ? (
+            <Button
+              disabled={busy}
+              variant="contained"
+              onClick={onDrawOne}
+              sx={{ color: "white !important" }}
+            >
+              Lật 1 thẻ (đổ vào bảng)
+            </Button>
+          ) : (
+            <>
+              <Button
+                disabled={busy}
+                variant="contained"
+                onClick={onDrawTwo}
+                sx={{ color: "white !important" }}
+              >
+                Lật 2 thẻ (ghép cặp)
+              </Button>
+              <Button disabled={busy} variant="outlined" onClick={onDrawOne}>
+                Lật 1 thẻ
+              </Button>
+            </>
+          )}
+          <IconButton onClick={onClose} sx={{ ml: 0.5, color: "#fff" }}>
+            <CloseIcon />
+          </IconButton>
+        </Stack>
+      </Stack>
+
+      {/* Pair banner */}
+      {mode !== "group" && pair.length === 2 && (
+        <Box sx={{ textAlign: "center", mb: 1, fontSize: 18, fontWeight: 700 }}>
+          {pair[0]} <span style={{ opacity: 0.7, margin: "0 8px" }}>VS</span>{" "}
+          {pair[1]}
+        </Box>
+      )}
+
+      {/* Deck grid */}
+      <Box
+        sx={{
+          flex: 1,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
+          gap: 16,
+          p: 16,
+          alignContent: "start",
+        }}
+      >
+        {cards.map((c, idx) => {
+          const gone = removed.has(c.label);
+          const isFlip = flipping.has(c.label);
+          return (
+            <Box
+              key={c.id || c.label || idx}
+              className={`card3d ${fanned ? "fanned" : ""} ${
+                isFlip ? "flip" : ""
+              } ${gone ? "gone" : ""}`}
+              sx={{
+                height: 180,
+                perspective: "900px",
+                opacity: gone ? 0 : 1,
+                transform: fanned
+                  ? "translate(0,0) scale(1)"
+                  : "translateY(12vh) scale(0.7)",
+                transition: `transform .6s cubic-bezier(.2,.8,.2,1) ${
+                  idx * 20
+                }ms, opacity .35s`,
+              }}
+            >
+              <Box
+                className="inner"
+                sx={{
+                  position: "relative",
+                  width: "100%",
+                  height: "100%",
+                  transformStyle: "preserve-3d",
+                  transition: "transform .7s cubic-bezier(.2,.8,.2,1)",
+                  transform: isFlip ? "rotateY(180deg)" : "rotateY(0deg)",
+                }}
+              >
+                {/* Back (face-down) */}
+                <Box
+                  sx={{
+                    position: "absolute",
+                    inset: 0,
+                    backfaceVisibility: "hidden",
+                    borderRadius: 2,
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    background: "linear-gradient(145deg, #3b3b4f, #1f1f27)",
+                    boxShadow:
+                      "0 10px 24px rgba(0,0,0,0.35) inset, 0 8px 20px rgba(0,0,0,0.35)",
+                    display: "grid",
+                    placeItems: "center",
+                    letterSpacing: 1,
+                  }}
+                >
+                  <Box sx={{ textAlign: "center", opacity: 0.9 }}>
+                    <Box sx={{ fontSize: 28, fontWeight: 900, mb: 0.5 }}>?</Box>
+                    <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                      Nhấn “Lật” bên trên
+                    </Typography>
+                  </Box>
+                </Box>
+                {/* Front (face-up) */}
+                <Box
+                  sx={{
+                    position: "absolute",
+                    inset: 0,
+                    backfaceVisibility: "hidden",
+                    transform: "rotateY(180deg)",
+                    borderRadius: 2,
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background:
+                      "linear-gradient(145deg, rgba(255,255,255,.06), rgba(255,255,255,.02))",
+                    display: "grid",
+                    placeItems: "center",
+                    p: 1.5,
+                    textAlign: "center",
+                  }}
+                >
+                  <Typography sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                    {c.label}
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+          );
+        })}
+      </Box>
+
+      <style>{`
+        .card3d.gone { pointer-events: none; }
+        .card3d .inner { will-change: transform; }
+      `}</style>
+    </Box>
+  );
+});
+
 /********************** Prefill round logic **********************/
 const getPreferredRoundCode = (bracket, bracketDetail) => {
   const seedsLen =
@@ -817,7 +1287,6 @@ const getPreferredRoundCode = (bracket, bracketDetail) => {
     bracketDetail?.meta?.startKey ||
     bracket?.meta?.startKey ||
     "";
-
   const upKey = String(rawKey).toUpperCase();
 
   if (firstPairs > 0) {
@@ -956,18 +1425,18 @@ const AssignByesDialog = memo(function AssignByesDialog({
   assignByes,
   eventType,
 }) {
-  const [mode, setMode] = useState("manual"); // manual | topEachGroup | bestOfTopN
+  const [mode, setMode] = useState("manual");
   const [dryRun, setDryRun] = useState(true);
   const [randomSeed, setRandomSeed] = useState("");
   const [limit, setLimit] = useState("");
-  const [manualTeams, setManualTeams] = useState([]); // manual
-  const [rank, setRank] = useState(3); // topEachGroup / bestOfTopN
+  const [manualTeams, setManualTeams] = useState([]);
+  const [rank, setRank] = useState(3);
   const [rangeLo, setRangeLo] = useState("");
   const [rangeHi, setRangeHi] = useState("");
   const [takePerGroup, setTakePerGroup] = useState(1);
-  const [useRoundFilter, setUseRoundFilter] = useState(true); // match scope
+  const [useRoundFilter, setUseRoundFilter] = useState(true);
   const [selectedMatchIds, setSelectedMatchIds] = useState([]);
-  const [preview, setPreview] = useState(null); // preview (dryRun)
+  const [preview, setPreview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
@@ -1327,11 +1796,27 @@ export default function DrawPage() {
   const [fxEnabled, setFxEnabled] = useState(true);
   const [fxMuted, setFxMuted] = useState(false);
   const [showCountdown, setShowCountdown] = useState(false);
-  const [overlayOpen, setOverlayOpen] = useState(false);
+  const [overlayOpen, setOverlayOpen] = useState(false); // Classic overlay
   const [overlayMode, setOverlayMode] = useState("group");
   const [overlayData, setOverlayData] = useState(null);
   const [lastHighlight, setLastHighlight] = useState(null);
   const { beep } = useAudioCue(!fxMuted);
+
+  // NEW: UI mode
+  const [uiMode, setUiMode] = useState("classic"); // 'classic' | 'cards'
+  const usingCardMode = uiMode === "cards";
+
+  // Card overlay state
+  const [cardOpen, setCardOpen] = useState(false);
+  const [cardQueue, setCardQueue] = useState([]); // names to flip
+
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileUserId, setProfileUserId] = useState(null);
+  const openProfile = useCallback((uid) => {
+    if (!uid) return;
+    setProfileUserId(String(uid));
+    setProfileOpen(true);
+  }, []);
 
   // Queries
   const {
@@ -1373,7 +1858,7 @@ export default function DrawPage() {
   const [drawNext, { isLoading: revealing }] = useDrawNextMutation();
   const [drawCommit, { isLoading: committing }] = useDrawCommitMutation();
   const [drawCancel, { isLoading: canceling }] = useDrawCancelMutation();
-  const [assignByes, { isLoading: assigningByes }] = useAssignByesMutation();
+  const [assignByes] = useAssignByesMutation();
 
   const { data: regsData, isLoading: lRegs } = useGetRegistrationsQuery(
     tournamentId,
@@ -1579,7 +2064,9 @@ export default function DrawPage() {
   const [state, setState] = useState("idle"); // idle|running|committed|canceled
   const [reveals, setReveals] = useState([]);
   const [planned, setPlanned] = useState(null);
-  const [log, setLog] = useState([]);
+
+  // draw doc (board & pool)
+  const [drawDoc, setDrawDoc] = useState(null);
 
   useEffect(() => {
     if (!selBracketId) return;
@@ -1587,7 +2074,9 @@ export default function DrawPage() {
     setState("idle");
     setReveals([]);
     setPlanned(null);
-    setLog([]);
+    setDrawDoc(null);
+    setCardOpen(false);
+    setCardQueue([]);
   }, [selBracketId]);
   useEffect(() => {
     if (!(drawType === "knockout" || drawType === "po")) return;
@@ -1595,7 +2084,9 @@ export default function DrawPage() {
     setState("idle");
     setReveals([]);
     setPlanned(null);
-    setLog([]);
+    setDrawDoc(null);
+    setCardOpen(false);
+    setCardQueue([]);
   }, [selectRoundValue, drawType]);
 
   useEffect(() => {
@@ -1614,16 +2105,15 @@ export default function DrawPage() {
       setState(s);
       setReveals([]);
     }
+    const doc = drawStatus?.doc || drawStatus?.draw || null;
+    if (doc?.board || Array.isArray(doc?.pool)) setDrawDoc(doc);
   }, [drawStatus]);
 
   // sockets
   useEffect(() => {
     if (!socket || !selBracketId) return;
     socket.emit("draw:join", { bracketId: selBracketId });
-    const onPlanned = (payload) => {
-      setPlanned(payload);
-      setLog((lg) => lg.concat([{ t: Date.now(), type: "planned" }]));
-    };
+    const onPlanned = (payload) => setPlanned(payload);
     socket.on("draw:planned", onPlanned);
     return () => {
       socket.off("draw:planned", onPlanned);
@@ -1637,15 +2127,16 @@ export default function DrawPage() {
     const onUpdate = (payload) => {
       if (payload?.state) setState(payload.state);
       if (Array.isArray(payload?.reveals)) setReveals(payload.reveals);
-      setLog((lg) => lg.concat([{ t: Date.now(), type: "update" }]));
+      const doc = payload?.doc || payload?.draw || null;
+      if (doc?.board || Array.isArray(doc?.pool)) setDrawDoc(doc);
     };
     const onRevealed = (payload) => {
       if (Array.isArray(payload?.reveals)) setReveals(payload.reveals);
-      setLog((lg) => lg.concat([{ t: Date.now(), type: "reveal" }]));
+      const doc = payload?.doc || payload?.draw || null;
+      if (doc?.board || Array.isArray(doc?.pool)) setDrawDoc(doc);
     };
     const onCommitted = () => {
       setState("committed");
-      setLog((lg) => lg.concat([{ t: Date.now(), type: "commit" }]));
       refetchBracket?.();
       if (fxEnabled) fireConfettiBurst();
     };
@@ -1653,7 +2144,7 @@ export default function DrawPage() {
       setState("canceled");
       setReveals([]);
       setDrawId(null);
-      setLog((lg) => lg.concat([{ t: Date.now(), type: "cancel" }]));
+      setDrawDoc(null);
     };
     socket.on("draw:update", onUpdate);
     socket.on("draw:revealed", onRevealed);
@@ -1712,7 +2203,6 @@ export default function DrawPage() {
   }, [groupsRaw, state, plannedGroupsMeta]);
   const hasGroups = useMemo(() => (groupsMeta?.length || 0) > 0, [groupsMeta]);
 
-  // round mapping
   const selectedRoundNumber = useMemo(() => {
     const opt = knockoutOptionsFinal.find(
       (o) =>
@@ -1930,8 +2420,17 @@ export default function DrawPage() {
     [drawType]
   );
 
-  /* ===== Handlers ===== */
-  const canOperate = Boolean(drawId && state === "running");
+  /* ===== Hoàn thành chỉ khi drawNext làm pool về 0 ===== */
+  const [showDoneBanner, setShowDoneBanner] = useState(false);
+  const lastRevealActionRef = useRef(false);
+  const prevPoolCountRef = useRef(null);
+
+  const eventType = tournament?.eventType?.toLowerCase()?.includes("single")
+    ? "single"
+    : "double";
+  const namesPool = useNamesPool(regIndex, eventType);
+
+  // START DRAW
   const onStart = useCallback(async () => {
     if (!selBracketId) return;
     try {
@@ -1948,13 +2447,28 @@ export default function DrawPage() {
       setState(resp?.state || "running");
       setReveals(Array.isArray(resp?.reveals) ? resp.reveals : []);
       if (resp?.planned) setPlanned(resp);
-      setLog((lg) => lg.concat([{ t: Date.now(), type: "start" }]));
+
+      const doc = resp?.doc || resp?.draw || resp;
+      if (doc?.board || Array.isArray(doc?.pool)) setDrawDoc(doc);
+
       if (fxEnabled) setShowCountdown(true);
+
+      // reset banner/flags
+      setShowDoneBanner(false);
+      prevPoolCountRef.current = Array.isArray(doc?.pool)
+        ? doc.pool.length
+        : null;
+      lastRevealActionRef.current = false;
+
+      // Auto open Card overlay if using card mode
+      if (uiMode === "cards") {
+        setCardQueue([]);
+        setCardOpen(true);
+      }
     } catch (e) {
       toast.error(
         e?.data?.message || e?.error || "Có lỗi khi bắt đầu bốc thăm."
       );
-      setLog((lg) => lg.concat([{ t: Date.now(), type: "error:start" }]));
     }
   }, [
     selBracketId,
@@ -1963,52 +2477,160 @@ export default function DrawPage() {
     usePrevWinners,
     startDraw,
     fxEnabled,
+    uiMode,
   ]);
 
+  const canOperate = Boolean(drawId && state === "running");
+
+  // === Classic "Reveal tiếp" (giữ nguyên hành vi hiện tại) ===
   const onReveal = useCallback(async () => {
     if (!canOperate) return;
     try {
-      await drawNext({ drawId }).unwrap();
-    } catch (e) {
-      toast.error(e?.data?.message || e?.error);
-      setLog((lg) => lg.concat([{ t: Date.now(), type: "error:reveal" }]));
-    }
-  }, [canOperate, drawNext, drawId]);
+      lastRevealActionRef.current = true;
+      const resp = await drawNext({ drawId }).unwrap();
 
-  const onCommit = useCallback(async () => {
+      if (Array.isArray(resp?.reveals)) setReveals(resp.reveals);
+      const doc = resp?.doc || resp?.draw || resp;
+      if (doc?.board || Array.isArray(doc?.pool)) setDrawDoc(doc);
+
+      const lastPick =
+        (Array.isArray(doc?.history) &&
+          [...doc.history].reverse().find((h) => h?.action === "pick")) ||
+        null;
+      const curCursor = lastPick?.payload?.cursor || doc?.cursor || null;
+      if (curCursor && Array.isArray(doc?.board?.groups)) {
+        const g = doc.board.groups[curCursor.gIndex];
+        const key = g?.key ?? String.fromCharCode(65 + (curCursor.gIndex || 0));
+        const slotIndex = curCursor.slotIndex ?? 0;
+        setLastHighlight({ type: "group", groupCode: key, slotIndex });
+        if (!fxMuted && fxEnabled) beep(520, 0.08);
+      }
+
+      const prev = prevPoolCountRef.current ?? null;
+      const cur = Array.isArray(doc?.pool) ? doc.pool.length : null;
+      if (lastRevealActionRef.current && prev > 0 && cur === 0) {
+        setShowDoneBanner(true);
+        if (fxEnabled) fireConfettiBurst();
+        toast.success("Bốc thăm hoàn thành!");
+      }
+      prevPoolCountRef.current = cur;
+      lastRevealActionRef.current = false;
+    } catch (e) {
+      lastRevealActionRef.current = false;
+      toast.error(e?.data?.message || e?.error);
+    }
+  }, [canOperate, drawNext, drawId, fxEnabled, fxMuted, beep]);
+
+  // === Card mode reveal helper: call drawNext and return names just revealed ===
+  const revealOnceForCards = useCallback(async () => {
+    if (!canOperate) return [];
+    try {
+      lastRevealActionRef.current = true;
+      const prevRevs = Array.isArray(reveals) ? [...reveals] : [];
+      const resp = await drawNext({ drawId }).unwrap();
+
+      // update state immediately
+      const newRevs = Array.isArray(resp?.reveals) ? resp.reveals : prevRevs;
+      setReveals(newRevs);
+      const doc = resp?.doc || resp?.draw || resp;
+      if (doc?.board || Array.isArray(doc?.pool)) setDrawDoc(doc);
+
+      // group highlight via cursor
+      const lastPick =
+        (Array.isArray(doc?.history) &&
+          [...doc.history].reverse().find((h) => h?.action === "pick")) ||
+        null;
+      const curCursor = lastPick?.payload?.cursor || doc?.cursor || null;
+      if (curCursor && Array.isArray(doc?.board?.groups)) {
+        const g = doc.board.groups[curCursor.gIndex];
+        const key = g?.key ?? String.fromCharCode(65 + (curCursor.gIndex || 0));
+        const slotIndex = curCursor.slotIndex ?? 0;
+        setLastHighlight({ type: "group", groupCode: key, slotIndex });
+      }
+
+      // detect delta names (works for both group and ko)
+      let newNames = [];
+      const n = Math.max(prevRevs.length, newRevs.length);
+      for (let i = 0; i < n; i++) {
+        const p = prevRevs[i] || {};
+        const c = newRevs[i] || {};
+        if (drawType === "group") {
+          const rid = asId(c.regId ?? c.reg ?? c.id ?? c._id);
+          const prid = asId(p.regId ?? p.reg ?? p.id ?? p._id);
+          if (rid && !prid) {
+            const reg = regIndex.get(String(rid));
+            const nm = reg
+              ? safePairName(reg, eventType)
+              : c.nickName ||
+                c.teamName ||
+                c.name ||
+                c.team ||
+                c.displayName ||
+                "—";
+            newNames.push(nm);
+          }
+        } else {
+          const pA = p?.AName || p?.A || null;
+          const pB = p?.BName || p?.B || null;
+          const cA = c?.AName || c?.A || null;
+          const cB = c?.BName || c?.B || null;
+          if (cA && !pA) newNames.push(cA);
+          if (cB && !pB) newNames.push(cB);
+        }
+      }
+
+      // finish banner check
+      const prev = prevPoolCountRef.current ?? null;
+      const cur = Array.isArray(doc?.pool) ? doc.pool.length : null;
+      if (lastRevealActionRef.current && prev > 0 && cur === 0) {
+        setShowDoneBanner(true);
+        if (fxEnabled) fireConfettiBurst();
+      }
+      prevPoolCountRef.current = cur;
+      lastRevealActionRef.current = false;
+
+      return newNames;
+    } catch (e) {
+      lastRevealActionRef.current = false;
+      toast.error(e?.data?.message || e?.error);
+      return [];
+    }
+  }, [
+    canOperate,
+    drawNext,
+    drawId,
+    reveals,
+    regIndex,
+    eventType,
+    drawType,
+    fxEnabled,
+  ]);
+
+  // === Card mode actions ===
+  const onCardDrawOne = useCallback(async () => {
     if (!canOperate) return;
-    try {
-      await drawCommit({ drawId }).unwrap();
-    } catch (e) {
-      toast.error(e?.data?.message || e?.error);
-      setLog((lg) => lg.concat([{ t: Date.now(), type: "error:commit" }]));
-    }
-  }, [canOperate, drawCommit, drawId]);
+    const names = await revealOnceForCards();
+    if (names.length) setCardQueue((q) => q.concat(names));
+  }, [canOperate, revealOnceForCards]);
 
-  const onCancel = useCallback(async () => {
-    if (!drawId) return;
-    try {
-      await drawCancel({ drawId }).unwrap();
-      setDrawId(null);
-      setState("idle");
-      setReveals([]);
-      toast.success("Đã huỷ phiên bốc. Bạn có thể bắt đầu phiên mới.");
-      setLog((lg) => lg.concat([{ t: Date.now(), type: "cancel" }]));
-    } catch (e) {
-      toast.error(e?.data?.message || e?.error);
-      setLog((lg) => lg.concat([{ t: Date.now(), type: "error:cancel" }]));
-    }
-  }, [drawId, drawCancel]);
+  const onCardDrawTwo = useCallback(async () => {
+    if (!canOperate) return;
+    // flip 2 sequentially
+    const n1 = await revealOnceForCards();
+    const n2 = await revealOnceForCards();
+    const names = [...n1, ...n2];
+    if (names.length) setCardQueue((q) => q.concat(names));
+  }, [canOperate, revealOnceForCards]);
 
-  const eventType = tournament?.eventType?.toLowerCase()?.includes("single")
-    ? "single"
-    : "double";
-  const namesPool = useNamesPool(regIndex, eventType);
-
-  // FX: overlay on reveal
+  // Classic overlay auto-open only if NOT in card mode
   const prevRevealsRef = useRef([]);
   useEffect(() => {
-    if (!fxEnabled || state !== "running" || !Array.isArray(reveals)) {
+    if (
+      !fxEnabled ||
+      usingCardMode ||
+      state !== "running" ||
+      !Array.isArray(reveals)
+    ) {
       prevRevealsRef.current = reveals || [];
       return;
     }
@@ -2035,7 +2657,16 @@ export default function DrawPage() {
             .filter(
               (x) => (x.groupCode || x.groupKey || x.group) === key
             ).length;
-          const teamName = c.teamName || c.name || c.displayName || "—";
+          const rid = asId(c.regId ?? c.reg ?? c.id ?? c._id);
+          const reg = rid && regIndex?.get(String(rid));
+          const teamName = reg
+            ? safePairName(reg, eventType)
+            : c.nickName ||
+              c.teamName ||
+              c.name ||
+              c.team ||
+              c.displayName ||
+              "—";
           setOverlayMode("group");
           setOverlayData({ groupCode: key, slotIndex, teamName });
           setOverlayOpen(true);
@@ -2058,13 +2689,16 @@ export default function DrawPage() {
       setTimeout(() => beep(520, 0.08), 200);
     }
     prevRevealsRef.current = reveals;
-  }, [reveals, drawType, state, fxEnabled, beep]);
-
-  useEffect(() => {
-    if (!lastHighlight) return;
-    const t = setTimeout(() => setLastHighlight(null), 2200);
-    return () => clearTimeout(t);
-  }, [lastHighlight]);
+  }, [
+    reveals,
+    drawType,
+    state,
+    fxEnabled,
+    usingCardMode,
+    beep,
+    regIndex,
+    eventType,
+  ]);
 
   // Trận BYE còn trống của round hiện tại
   const byeMatchesThisRound = useMemo(() => {
@@ -2082,12 +2716,8 @@ export default function DrawPage() {
         const sameBracket =
           String(m.bracket?._id || m.bracket) === String(selBracketId);
         const sameRound = (Number(m.round) || 1) === roundNo;
-
-        // mở BYE ở từng side (1 BYE hoặc 2 BYE đều qua)
         const openByeA = isByeSeed(m.seedA) && !m.pairA;
         const openByeB = isByeSeed(m.seedB) && !m.pairB;
-
-        // fallback: dữ liệu cũ gán type='bye' ở cấp match
         const fallbackBye =
           String(m?.type || "").toLowerCase() === "bye" &&
           (!m.pairA || !m.pairB);
@@ -2098,6 +2728,55 @@ export default function DrawPage() {
       })
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   }, [allMatches, selBracketId, bracket?.type, selectedRoundNumber]);
+
+  // ===== Card deck pool =====
+  const cardDeck = useMemo(() => {
+    // source priority: drawDoc.pool (ids) -> fallback by names from regIndex minus current revealed names
+    if (Array.isArray(drawDoc?.pool) && drawDoc.pool.length) {
+      return drawDoc.pool
+        .map((id) => {
+          const str = String(id);
+          const reg = regIndex?.get(str);
+          const label = safePairName(reg, eventType) || `#${str.slice(-6)}`;
+          return { id: str, label };
+        })
+        .sort((a, b) =>
+          a.label.localeCompare(b.label, "vi", { sensitivity: "base" })
+        );
+    }
+
+    // fallback: derive pool by removing already revealed names (works for both modes)
+    const out = [];
+    const revealedNames = new Set();
+    if (drawType === "group") {
+      (revealsForGroup || []).forEach((rv) => {
+        const rid = asId(rv.regId ?? rv.reg ?? rv.id ?? rv._id);
+        const reg = rid && regIndex?.get(String(rid));
+        if (reg) revealedNames.add(safePairName(reg, eventType));
+      });
+    } else {
+      (revealsForKO || []).forEach((rv) => {
+        const a = rv?.AName || rv?.A || null;
+        const b = rv?.BName || rv?.B || null;
+        if (a) revealedNames.add(a);
+        if (b) revealedNames.add(b);
+      });
+    }
+    regIndex?.forEach((reg, id) => {
+      const label = safePairName(reg, eventType);
+      if (!revealedNames.has(label)) out.push({ id: String(id), label });
+    });
+    return out.sort((a, b) =>
+      a.label.localeCompare(b.label, "vi", { sensitivity: "base" })
+    );
+  }, [
+    drawDoc?.pool,
+    regIndex,
+    eventType,
+    revealsForGroup,
+    revealsForKO,
+    drawType,
+  ]);
 
   /* ===== Render ===== */
   if (!isAdmin) {
@@ -2132,7 +2811,12 @@ export default function DrawPage() {
 
   return (
     <RBContainer fluid="xl" className="py-4">
-      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={1}
+        sx={{ mb: 2, flexWrap: "wrap" }}
+      >
         <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(-1)}>
           Quay lại
         </Button>
@@ -2174,6 +2858,46 @@ export default function DrawPage() {
           </IconButton>
         </Tooltip>
       </Stack>
+
+      {/* NEW: UI mode switch */}
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={1}
+        sx={{ mb: 1.5 }}
+      >
+        <Typography variant="body2" sx={{ mt: 0.5, opacity: 0.8 }}>
+          Kiểu bốc:
+        </Typography>
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={uiMode}
+          onChange={(_, v) => v && setUiMode(v)}
+        >
+          <ToggleButton value="classic">Classic</ToggleButton>
+          <ToggleButton value="cards">Thẻ bài</ToggleButton>
+        </ToggleButtonGroup>
+        {state === "running" && uiMode === "cards" && (
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => setCardOpen(true)}
+          >
+            Mở giao diện thẻ
+          </Button>
+        )}
+      </Stack>
+
+      {showDoneBanner && drawType === "group" && state === "running" && (
+        <Alert
+          icon={<TaskAltIcon fontSize="inherit" />}
+          severity="success"
+          sx={{ mb: 2 }}
+          onClose={() => setShowDoneBanner(false)}
+        >
+          Bốc thăm vòng bảng đã hoàn thành!
+        </Alert>
+      )}
 
       <Paper
         key={`${selBracketId || "none"}-${
@@ -2268,7 +2992,10 @@ export default function DrawPage() {
               variant="contained"
               startIcon={<CheckCircleIcon />}
               disabled={!canOperate || committing}
-              onClick={onCommit}
+              onClick={async () => {
+                await drawCommit({ drawId }).unwrap();
+                setShowDoneBanner(false);
+              }}
               sx={{ color: "white !important" }}
             >
               Ghi kết quả (Commit)
@@ -2278,7 +3005,19 @@ export default function DrawPage() {
               variant="outlined"
               startIcon={<CancelIcon />}
               disabled={!drawId || canceling}
-              onClick={onCancel}
+              onClick={async () => {
+                await drawCancel({ drawId }).unwrap();
+                setDrawId(null);
+                setState("idle");
+                setReveals([]);
+                setDrawDoc(null);
+                setShowDoneBanner(false);
+                setCardOpen(false);
+                setCardQueue([]);
+                toast.success(
+                  "Đã huỷ phiên bốc. Bạn có thể bắt đầu phiên mới."
+                );
+              }}
             >
               Huỷ phiên
             </Button>
@@ -2296,9 +3035,10 @@ export default function DrawPage() {
           {!selBracketId ? (
             <Alert severity="info">Hãy chọn một Bracket để bắt đầu.</Alert>
           ) : drawType === "group" ? (
-            groupsMeta.length ? (
+            hasGroups || drawDoc?.board ? (
               <GroupSeatingBoard
                 key={`grp-${selBracketId}-${state}`}
+                board={drawDoc?.board || null}
                 groupsMeta={groupsMeta}
                 reveals={revealsForGroup}
                 regIndex={regIndex}
@@ -2335,100 +3075,102 @@ export default function DrawPage() {
           )}
         </Paper>
 
-        {/* Quick links & Planned/Log */}
-        <Paper variant="outlined" sx={{ p: 2, width: { md: 380 } }}>
-          <Typography fontWeight={700} gutterBottom>
-            Liên kết nhanh
-          </Typography>
-          <Stack spacing={1}>
-            <Button
-              component={RouterLink}
-              to={`/tournament/${tournamentId}/bracket`}
-              variant="outlined"
-            >
-              Xem sơ đồ giải
-            </Button>
-            {selBracketId && (
+        {/* Right column */}
+        <Stack spacing={2} sx={{ width: { md: 380 } }}>
+          {drawType === "group" ? (
+            <PoolPanel
+              title="Pool đội chờ bốc"
+              eventType={eventType}
+              regIndex={regIndex}
+              poolIds={drawDoc?.pool || null}
+              revealsGroup={revealsForGroup}
+            />
+          ) : (
+            <Paper variant="outlined" sx={{ p: 2 }}>
+              <Typography fontWeight={700} gutterBottom>
+                Pool đội chờ bốc
+              </Typography>
+              <Alert severity="info">
+                Pool áp dụng cho vòng bảng; với Knockout, nguồn đội phụ thuộc
+                seeding/matches của round.
+              </Alert>
+            </Paper>
+          )}
+
+          <Paper variant="outlined" sx={{ p: 2 }}>
+            <Typography fontWeight={700} gutterBottom>
+              Liên kết nhanh
+            </Typography>
+            <Stack spacing={1}>
               <Button
                 component={RouterLink}
-                to={`/tournament/${tournamentId}/bracket?tab=${Math.max(
-                  0,
-                  brackets.findIndex(
-                    (b) => String(b._id) === String(selBracketId)
-                  )
-                )}`}
+                to={`/tournament/${tournamentId}/bracket`}
                 variant="outlined"
               >
-                Mở Bracket đang bốc
+                Xem sơ đồ giải
               </Button>
-            )}
-            {selBracketId && drawType === "group" && hasGroups && (
-              <Button
-                variant="contained"
-                onClick={() => setOpenGroupDlg(true)}
-                sx={{ color: "white !important" }}
-              >
-                Bốc thăm trận trong bảng
-              </Button>
-            )}
-            {selBracketId && (drawType === "knockout" || drawType === "po") && (
-              <Button
-                variant="contained"
-                color="secondary"
-                onClick={() => setOpenAssignByeDlg(true)}
-                startIcon={<CasinoIcon />}
-                sx={{ color: "white !important" }}
-              >
-                Bốc BYE (round {selectedRoundNumber}){" "}
-                {byeMatchesThisRound.length
-                  ? ` • ${byeMatchesThisRound.length} slot`
-                  : ""}
-              </Button>
-            )}
-          </Stack>
-
-          {planned && (
-            <>
-              <Divider sx={{ my: 2 }} />
-              <Typography fontWeight={700} gutterBottom>
-                Kế hoạch (planned)
-              </Typography>
-              {planned?.planned?.groupSizes && (
-                <Typography variant="body2" sx={{ mb: 0.5 }}>
-                  Group sizes: {JSON.stringify(planned.planned.groupSizes)}
-                </Typography>
+              {selBracketId && (
+                <Button
+                  component={RouterLink}
+                  to={`/tournament/${tournamentId}/bracket?tab=${Math.max(
+                    0,
+                    brackets.findIndex(
+                      (b) => String(b._id) === String(selBracketId)
+                    )
+                  )}`}
+                  variant="outlined"
+                >
+                  Mở Bracket đang bốc
+                </Button>
               )}
-              {Number.isFinite(planned?.planned?.byes) && (
-                <Typography variant="body2" sx={{ mb: 0.5 }}>
-                  Byes: {planned.planned.byes}
-                </Typography>
-              )}
-            </>
-          )}
+              {selBracketId &&
+                drawType === "group" &&
+                (hasGroups || drawDoc?.board) && (
+                  <Button
+                    variant="contained"
+                    onClick={() => setOpenGroupDlg(true)}
+                    sx={{ color: "white !important" }}
+                  >
+                    Bốc thăm trận trong bảng
+                  </Button>
+                )}
+              {selBracketId &&
+                (drawType === "knockout" || drawType === "po") && (
+                  <Button
+                    variant="contained"
+                    color="secondary"
+                    onClick={() => setOpenAssignByeDlg(true)}
+                    startIcon={<CasinoIcon />}
+                    sx={{ color: "white !important" }}
+                  >
+                    Bốc BYE (round {selectedRoundNumber})
+                    {byeMatchesThisRound.length
+                      ? ` • ${byeMatchesThisRound.length} slot`
+                      : ""}
+                  </Button>
+                )}
+            </Stack>
 
-          {!!log.length && (
-            <>
-              <Divider sx={{ my: 2 }} />
-              <Typography fontWeight={700} gutterBottom>
-                Log
-              </Typography>
-              <Stack spacing={0.5} sx={{ maxHeight: 220, overflowY: "auto" }}>
-                {log
-                  .slice(-80)
-                  .reverse()
-                  .map((row, i) => (
-                    <Typography
-                      key={i}
-                      variant="caption"
-                      sx={{ display: "block" }}
-                    >
-                      • {row.type} @ {new Date(row.t).toLocaleTimeString()}
-                    </Typography>
-                  ))}
-              </Stack>
-            </>
-          )}
-        </Paper>
+            {planned && (
+              <>
+                <Divider sx={{ my: 2 }} />
+                <Typography fontWeight={700} gutterBottom>
+                  Kế hoạch (planned)
+                </Typography>
+                {planned?.planned?.groupSizes && (
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>
+                    Group sizes: {JSON.stringify(planned.planned.groupSizes)}
+                  </Typography>
+                )}
+                {Number.isFinite(planned?.planned?.byes) && (
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>
+                    Byes: {planned.planned.byes}
+                  </Typography>
+                )}
+              </>
+            )}
+          </Paper>
+        </Stack>
       </Stack>
 
       {/* Dialog: Group matches */}
@@ -2454,7 +3196,7 @@ export default function DrawPage() {
         eventType={eventType}
       />
 
-      {/* FX overlays */}
+      {/* Classic FX overlays */}
       {fxEnabled && showCountdown && (
         <CountdownSplash seconds={3} onDone={() => setShowCountdown(false)} />
       )}
@@ -2471,6 +3213,27 @@ export default function DrawPage() {
           }}
         />
       )}
+
+      {/* Card Mode Overlay */}
+      {cardOpen && (
+        <CardDeckOverlay
+          open={cardOpen}
+          onClose={() => setCardOpen(false)}
+          mode={drawType === "group" ? "group" : "ko"}
+          cards={cardDeck}
+          flipQueue={cardQueue}
+          onDrawOne={onCardDrawOne}
+          onDrawTwo={onCardDrawTwo}
+          busy={revealing}
+          muted={fxMuted}
+        />
+      )}
+
+      <PublicProfileDialog
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        userId={profileUserId}
+      />
     </RBContainer>
   );
 }

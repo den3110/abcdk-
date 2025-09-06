@@ -140,6 +140,8 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   const [matchPage, setMatchPage] = useState(1);
   const [matchPerPage, setMatchPerPage] = useState(10);
 
+  
+
   const ratingPaged = useMemo(() => {
     const start = (ratingPage - 1) * ratingPerPage;
     return ratingRaw.slice(start, start + ratingPerPage);

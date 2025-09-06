@@ -99,6 +99,7 @@ import {
   promoteToEvaluator,
   updateEvaluatorScopes,
 } from "../controllers/admin/adminEvaluatorController.js";
+import { bulkAssignSlotPlan } from "../controllers/admin/adminBracketController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -208,6 +209,13 @@ router.get(
   authorize("admin", "referee", "user"),
   getMatchesByBracket
 );
+
+router.post(
+  "/brackets/:bid/slot-plan/bulk-assign",
+  protect, authorize("admin"),
+  bulkAssignSlotPlan
+);
+
 
 router.patch(
   "/matches/:matchId/score",
