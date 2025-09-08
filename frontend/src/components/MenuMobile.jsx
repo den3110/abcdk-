@@ -5,7 +5,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import HomeIcon from "@mui/icons-material/Home";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import AssessmentIcon from "@mui/icons-material/Assessment";
-import ContactMailIcon from "@mui/icons-material/ContactMail";
+// import ContactMailIcon from "@mui/icons-material/ContactMail"; // removed
 import PersonIcon from "@mui/icons-material/Person";
 
 const navItems = [
@@ -20,7 +20,8 @@ const navItems = [
     icon: <AssessmentIcon />,
     path: "/pickle-ball/rankings",
   },
-  { label: "Liên hệ", icon: <ContactMailIcon />, path: "/contact" },
+  // 🔄 Đổi "Liên hệ" -> "Giải của tôi"
+  { label: "Giải của tôi", icon: <EmojiEventsIcon />, path: "/my-tournaments" },
   { label: "Profile", icon: <PersonIcon />, path: "/profile" },
 ];
 
@@ -74,7 +75,6 @@ const MobileBottomNav = () => {
         onChange={handleChange}
         showLabels
         sx={{
-          // Không cho label xuống dòng + ellipsis
           "& .MuiBottomNavigationAction-label": {
             whiteSpace: "nowrap",
             overflow: "hidden",
@@ -84,10 +84,9 @@ const MobileBottomNav = () => {
       >
         {navItems.map((item) => (
           <BottomNavigationAction
-            key={item.label}
+            key={item.path}
             label={item.label}
             icon={item.icon}
-            // (optional) nếu vẫn chật có thể giảm icon size:
             // icon={React.cloneElement(item.icon, { fontSize: "small" })}
           />
         ))}

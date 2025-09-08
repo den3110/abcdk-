@@ -31,6 +31,7 @@ import NotFound from "./screens/NotFound.jsx";
 import TournamentSchedule from "./screens/PickleBall/TournamentSchedule.jsx";
 import TournamentManagePage from "./screens/PickleBall/TournamentManagePage.jsx";
 import TournamentOverviewPage from "./screens/PickleBall/TournamentOverviewPage.jsx";
+import MyTournamentsPage from "./screens/MyTournaments.jsx";
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -71,6 +72,8 @@ const router = createBrowserRouter(
           />
           <Route path="/profile" element={<ProfileScreen />} />
           <Route path="/levelpoint" element={<LevelPointPage />} />
+          <Route path="/my-tournaments" element={<MyTournamentsPage />} />
+
         </Route>
       </Route>
       <Route path="/overlay/score" element={<ScoreOverlay />} />

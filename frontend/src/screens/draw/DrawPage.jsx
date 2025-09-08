@@ -1003,109 +1003,216 @@ const RevealOverlay = memo(function RevealOverlay({
 });
 
 /********************** CARD MODE OVERLAY **********************/
+// ===== CardDeckOverlay.jsx (inline trong DrawPage.jsx cũng được) =====
+
+/**
+ * Props:
+ * - open, onClose
+ * - mode: 'group' | 'ko'
+ * - cards: [{ id, label }]  // label = tên đội trong pool hiện tại (KHÔNG hiển thị mặt sau)
+ * - onFlipOne: () => Promise<string|null>  // gọi drawNext; trả về tên đội vừa bốc
+ * - muted?: boolean
+ */
 const CardDeckOverlay = memo(function CardDeckOverlay({
   open,
   onClose,
-  mode = "group", // 'group' | 'ko'
-  cards, // [{id,label}]
-  flipQueue = [], // [label,...] names to flip sequentially
-  onDrawOne, // () => void
-  onDrawTwo, // () => void  (KO/PO)
-  busy = false,
+  mode = "group",
+  cards = [],
+  onFlipOne,
   muted = false,
+  reveals,
 }) {
-  const [fanned, setFanned] = useState(false);
-  const [removed, setRemoved] = useState(new Set()); // labels removed
-  const [flipping, setFlipping] = useState(new Set()); // labels flipping now
-  const [queue, setQueue] = useState([]);
-  const [pair, setPair] = useState([]); // last two names for KO banner
-  const { beep } = useAudioCue(!muted);
+  // Snapshot bộ bài tại thời điểm mở overlay
+  const initialDeck = useMemo(
+    () =>
+      cards.map((c, i) => ({
+        key: c.id || `${i}`,
+        label: null, // tên đội sau khi flip
+        flipped: false, // đang lật (để xoay 3D)
+        vanishing: false, // đang chạy hiệu ứng biến mất
+        gone: false, // đã biến mất nhưng vẫn giữ chỗ
+      })),
+    // lock theo thời điểm open
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [open]
+  );
 
-  // Reset when open
-  useEffect(() => {
-    if (!open) return;
-    setFanned(false);
-    setRemoved(new Set());
-    setFlipping(new Set());
-    setQueue([]);
-    setPair([]);
-    const t = setTimeout(() => setFanned(true), 140);
-    return () => clearTimeout(t);
-  }, [open]);
+  const [deck, setDeck] = useState(initialDeck);
+  // Ghi nhớ "số lượng thẻ ban đầu" để tính layout cố định
+  const initialCountRef = useRef(initialDeck.length);
 
-  // Append new flips to local queue
-  const known = useRef(new Set());
   useEffect(() => {
-    const newOnes = [];
-    flipQueue.forEach((nm) => {
-      const key = String(nm || "");
-      if (key && !known.current.has(key)) {
-        known.current.add(key);
-        newOnes.push(key);
-      }
-    });
-    if (newOnes.length) setQueue((q) => q.concat(newOnes));
-  }, [flipQueue]);
-
-  // Process queue sequentially
-  useEffect(() => {
-    if (!open) return;
-    if (!queue.length) return;
-    const name = queue[0];
-    const i = cards.findIndex(
-      (c) => c.label === name && !removed.has(c.label) && !flipping.has(c.label)
-    );
-    if (i === -1) {
-      // Not found or already removed; drop and continue
-      setQueue((q) => q.slice(1));
-      return;
+    if (open) {
+      setDeck(initialDeck);
+      initialCountRef.current = initialDeck.length;
     }
-    const label = cards[i].label;
-    const fn = new Set(flipping);
-    fn.add(label);
-    setFlipping(fn);
-    if (!muted) beep(760, 0.08);
-    const t1 = setTimeout(() => {
-      const rm = new Set(removed);
-      rm.add(label);
-      setRemoved(rm);
-      const ff = new Set(flipping);
-      ff.delete(label);
-      setFlipping(ff);
+  }, [open, initialDeck]);
 
-      // KO pairing banner
-      if (mode !== "group") {
-        setPair((old) => {
-          const next = (old || []).concat([label]).slice(-2);
-          if (next.length === 2) {
-            setTimeout(() => {
-              if (!muted) beep(520, 0.12);
-              fireConfettiBurst();
-            }, 120);
-          }
+  // ---- layout: fit toàn màn hình theo SỐ THẺ BAN ĐẦU (không theo số còn lại) ----
+  const gridRef = useRef(null);
+  const [layout, setLayout] = useState({
+    cols: 1,
+    rows: initialCountRef.current || 1,
+    w: 120,
+    h: 168,
+    gap: 12,
+  });
+
+  const computeLayout = useCallback(() => {
+    const GAP = 12;
+    const AR = 130 / 180; // width / height
+    const N = Math.max(1, initialCountRef.current || 1);
+
+    const container = gridRef.current;
+    if (!container) return;
+
+    const W = container.clientWidth;
+    const H = container.clientHeight;
+
+    let best = { cols: 1, rows: N, w: Math.min(130, W), h: Math.min(180, H) };
+    for (let cols = 1; cols <= N; cols++) {
+      const rows = Math.ceil(N / cols);
+      const cardW = (W - GAP * (cols - 1)) / cols;
+      const cardH = cardW / AR;
+      const needH = rows * cardH + GAP * (rows - 1);
+      if (needH <= H) {
+        if (cardW > best.w) best = { cols, rows, w: cardW, h: cardH };
+      }
+    }
+
+    if (!best || best.w <= 0) {
+      const cols = Math.ceil(Math.sqrt(N));
+      const rows = Math.ceil(N / cols);
+      const cardH = (H - GAP * (rows - 1)) / rows;
+      const cardW = cardH * (130 / 180);
+      setLayout({ cols, rows, w: cardW, h: cardH, gap: GAP });
+    } else {
+      setLayout({ ...best, gap: GAP });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    computeLayout();
+    const obs = new ResizeObserver(() => computeLayout());
+    if (gridRef.current) obs.observe(gridRef.current);
+    const onWin = () => computeLayout();
+    window.addEventListener("resize", onWin);
+    return () => {
+      obs.disconnect();
+      window.removeEventListener("resize", onWin);
+    };
+  }, [open, computeLayout]);
+
+  // ---- hành vi lật & biến mất (giữ chỗ trống) ----
+  const [pairBuffer, setPairBuffer] = useState([]); // lưu index đã lật ở KO/PO
+  const [lastPair, setLastPair] = useState(null);
+  useEffect(() => {
+    if (open) {
+      setPairBuffer([]);
+      setLastPair(null);
+    }
+  }, [open, mode]);
+
+  const [busy, setBusy] = useState(false);
+
+  const vanishOne = useCallback((idx) => {
+    // 1) chạy animation vanish
+    setDeck((d) =>
+      d.map((c, i) => (i === idx ? { ...c, vanishing: true } : c))
+    );
+    // 2) kết thúc animation → đánh dấu "gone" nhưng KHÔNG xoá phần tử (để giữ chỗ)
+    setTimeout(() => {
+      setDeck((d) =>
+        d.map((c, i) =>
+          i === idx ? { ...c, vanishing: false, gone: true, label: c.label } : c
+        )
+      );
+    }, 260);
+  }, []);
+
+  const vanishPair = useCallback((iA, iB) => {
+    setDeck((d) =>
+      d.map((c, i) => (i === iA || i === iB ? { ...c, vanishing: true } : c))
+    );
+    setTimeout(() => {
+      setDeck((d) =>
+        d.map((c, i) =>
+          i === iA || i === iB
+            ? { ...c, vanishing: false, gone: true, label: c.label }
+            : c
+        )
+      );
+    }, 260);
+  }, []);
+
+  const flipCard = useCallback(
+    async (idx) => {
+      if (!open) return;
+      setDeck((d) => {
+        const c = d[idx];
+        if (!c || c.flipped || c.vanishing || c.gone) return d;
+        const next = d.slice();
+        next[idx] = { ...c, flipped: true };
+        return next;
+      });
+
+      try {
+        setBusy(true);
+        const teamName = (await onFlipOne?.()) ?? "—";
+
+        setDeck((d) => {
+          const c = d[idx];
+          if (!c) return d;
+          const next = d.slice();
+          next[idx] = { ...c, label: teamName, flipped: true };
           return next;
         });
-      } else {
-        setPair([]);
+
+        if (mode === "group") {
+          // vòng bảng: lật 1 thẻ → BIẾN MẤT nhưng vẫn giữ block trống
+          setTimeout(() => vanishOne(idx), 480);
+        } else {
+          // KO/PO: gom theo cặp → khi đủ 2 thì cùng biến mất và giữ 2 block trống
+          setPairBuffer((buf) => {
+            const next = [...buf, { idx, name: teamName }];
+            if (next.length === 2) {
+              setLastPair([next[0].name, next[1].name]);
+              setTimeout(() => vanishPair(next[0].idx, next[1].idx), 480);
+              return [];
+            }
+            return next;
+          });
+        }
+      } catch {
+        // lỗi → rollback flipped
+        setDeck((d) => {
+          const c = d[idx];
+          if (!c) return d;
+          const next = d.slice();
+          next[idx] = { ...c, flipped: false, label: null };
+          return next;
+        });
+      } finally {
+        setBusy(false);
       }
+    },
+    [mode, onFlipOne, open, vanishOne, vanishPair]
+  );
 
-      setQueue((q) => q.slice(1));
-    }, 700); // flip duration
-    return () => clearTimeout(t1);
-  }, [queue, open, cards, removed, flipping, beep, muted, mode]);
-
-  // Auto close if all removed
+  // Tự đóng overlay khi tất cả thẻ đã "gone"
   useEffect(() => {
     if (!open) return;
-    const alive = cards.filter((c) => !removed.has(c.label)).length;
-    if (alive === 0 && queue.length === 0) {
-      // delay a bit for last animation
-      const t = setTimeout(() => onClose?.(), 600);
-      return () => clearTimeout(t);
+    const allGone = deck.length > 0 && deck.every((c) => c.gone);
+    if (allGone) {
+      // nhồi nhẹ 1 frame để kết thúc animation
+      setTimeout(() => onClose?.(), 120);
     }
-  }, [cards, removed, queue, open, onClose]);
+  }, [open, deck, onClose]);
 
   if (!open) return null;
+
+  const remaining = deck.filter((c) => !c.gone).length;
 
   return (
     <Box
@@ -1116,141 +1223,134 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         display: "flex",
         flexDirection: "column",
         background:
-          "radial-gradient(ellipse at center, rgba(0,0,0,0.78), rgba(0,0,0,0.92))",
+          "radial-gradient(ellipse at center, rgba(0,0,0,.84), rgba(0,0,0,.94))",
         color: "#fff",
+        overflow: "hidden",
       }}
     >
       {/* Header */}
-      <Stack direction="row" alignItems="center" sx={{ p: 1.5, px: 2 }}>
-        <Typography fontWeight={800} sx={{ letterSpacing: 1, mr: 2 }}>
+      <Stack direction="row" alignItems="center" sx={{ p: 1.25, px: 2 }}>
+        <Typography fontWeight={800} sx={{ letterSpacing: 1 }}>
           Bốc thăm kiểu Thẻ bài {mode === "group" ? "— Vòng bảng" : "— KO / PO"}
         </Typography>
-        <Chip size="small" label={`Còn: ${cards.length - removed.size}`} />
+        <Chip size="small" sx={{ ml: 1 }} label={`Còn: ${remaining}`} />
         <Box sx={{ flex: 1 }} />
-        <Stack direction="row" spacing={1}>
-          {mode === "group" ? (
-            <Button
-              disabled={busy}
-              variant="contained"
-              onClick={onDrawOne}
-              sx={{ color: "white !important" }}
-            >
-              Lật 1 thẻ (đổ vào bảng)
-            </Button>
-          ) : (
-            <>
-              <Button
-                disabled={busy}
-                variant="contained"
-                onClick={onDrawTwo}
-                sx={{ color: "white !important" }}
-              >
-                Lật 2 thẻ (ghép cặp)
-              </Button>
-              <Button disabled={busy} variant="outlined" onClick={onDrawOne}>
-                Lật 1 thẻ
-              </Button>
-            </>
-          )}
-          <IconButton onClick={onClose} sx={{ ml: 0.5, color: "#fff" }}>
+        <Tooltip title="Đóng">
+          <IconButton onClick={onClose} sx={{ color: "#fff" }}>
             <CloseIcon />
           </IconButton>
-        </Stack>
+        </Tooltip>
       </Stack>
 
-      {/* Pair banner */}
-      {mode !== "group" && pair.length === 2 && (
-        <Box sx={{ textAlign: "center", mb: 1, fontSize: 18, fontWeight: 700 }}>
-          {pair[0]} <span style={{ opacity: 0.7, margin: "0 8px" }}>VS</span>{" "}
-          {pair[1]}
+      {/* Pair banner (KO/PO) */}
+      {mode !== "group" && lastPair && (
+        <Box sx={{ textAlign: "center", mb: 1, fontWeight: 800, fontSize: 18 }}>
+          {lastPair[0]}{" "}
+          <span style={{ opacity: 0.7, margin: "0 10px" }}>VS</span>{" "}
+          {lastPair[1]}
         </Box>
       )}
 
-      {/* Deck grid */}
+      {/* Grid (fit screen theo SỐ THẺ BAN ĐẦU) */}
       <Box
+        ref={gridRef}
         sx={{
           flex: 1,
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(130px, 1fr))",
-          gap: 16,
+          gridTemplateColumns: `repeat(${layout.cols}, ${Math.max(
+            70,
+            layout.w
+          )}px)`,
+          gridAutoRows: `${Math.max(95, layout.h)}px`,
+          gap: `${layout.gap}px`,
           p: 16,
-          alignContent: "start",
+          alignContent: "center",
+          justifyContent: "center",
+          overflow: "hidden",
         }}
       >
-        {cards.map((c, idx) => {
-          const gone = removed.has(c.label);
-          const isFlip = flipping.has(c.label);
+        {deck.map((c, idx) => {
+          if (c.gone) {
+            // block trống giữ chỗ đúng vị trí
+            return (
+              <Box
+                key={c.key}
+                sx={{
+                  width: `${Math.max(70, layout.w)}px`,
+                  height: `${Math.max(95, layout.h)}px`,
+                }}
+              />
+            );
+          }
+
+          const flipping = c.flipped;
+          const van = c.vanishing;
+
           return (
             <Box
-              key={c.id || c.label || idx}
-              className={`card3d ${fanned ? "fanned" : ""} ${
-                isFlip ? "flip" : ""
-              } ${gone ? "gone" : ""}`}
+              key={c.key}
+              onClick={() => !busy && !flipping && !van && flipCard(idx)}
               sx={{
-                height: 180,
-                perspective: "900px",
-                opacity: gone ? 0 : 1,
-                transform: fanned
-                  ? "translate(0,0) scale(1)"
-                  : "translateY(12vh) scale(0.7)",
-                transition: `transform .6s cubic-bezier(.2,.8,.2,1) ${
-                  idx * 20
-                }ms, opacity .35s`,
+                width: `${Math.max(70, layout.w)}px`,
+                height: `${Math.max(95, layout.h)}px`,
+                perspective: "1000px",
+                cursor: busy || flipping || van ? "default" : "pointer",
+                opacity: van ? 0 : 1,
+                transition: "opacity .26s ease-out, transform .26s ease-out",
               }}
             >
               <Box
-                className="inner"
                 sx={{
                   position: "relative",
                   width: "100%",
                   height: "100%",
                   transformStyle: "preserve-3d",
-                  transition: "transform .7s cubic-bezier(.2,.8,.2,1)",
-                  transform: isFlip ? "rotateY(180deg)" : "rotateY(0deg)",
+                  transition: "transform .55s cubic-bezier(.2,.8,.2,1)",
+                  transform: flipping ? "rotateY(180deg)" : "rotateY(0deg)",
                 }}
               >
-                {/* Back (face-down) */}
+                {/* mặt sau */}
                 <Box
                   sx={{
                     position: "absolute",
                     inset: 0,
                     backfaceVisibility: "hidden",
-                    borderRadius: 2,
-                    border: "1px solid rgba(255,255,255,0.15)",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,.14)",
                     background: "linear-gradient(145deg, #3b3b4f, #1f1f27)",
                     boxShadow:
-                      "0 10px 24px rgba(0,0,0,0.35) inset, 0 8px 20px rgba(0,0,0,0.35)",
+                      "0 14px 28px rgba(0,0,0,.35) inset, 0 10px 22px rgba(0,0,0,.45)",
                     display: "grid",
                     placeItems: "center",
-                    letterSpacing: 1,
                   }}
                 >
-                  <Box sx={{ textAlign: "center", opacity: 0.9 }}>
-                    <Box sx={{ fontSize: 28, fontWeight: 900, mb: 0.5 }}>?</Box>
+                  <Box sx={{ textAlign: "center", opacity: 0.95 }}>
+                    <Box sx={{ fontSize: 30, fontWeight: 900, mb: 0.5 }}>?</Box>
                     <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                      Nhấn “Lật” bên trên
+                      Nhấn để lật
                     </Typography>
                   </Box>
                 </Box>
-                {/* Front (face-up) */}
+
+                {/* mặt trước */}
                 <Box
                   sx={{
                     position: "absolute",
                     inset: 0,
                     backfaceVisibility: "hidden",
                     transform: "rotateY(180deg)",
-                    borderRadius: 2,
-                    border: "1px solid rgba(255,255,255,0.2)",
+                    borderRadius: 10,
+                    border: "1px solid rgba(255,255,255,.22)",
                     background:
-                      "linear-gradient(145deg, rgba(255,255,255,.06), rgba(255,255,255,.02))",
+                      "linear-gradient(145deg, rgba(255,255,255,.08), rgba(255,255,255,.03))",
                     display: "grid",
                     placeItems: "center",
-                    p: 1.5,
+                    p: 1.2,
                     textAlign: "center",
                   }}
                 >
                   <Typography sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-                    {c.label}
+                    {c.label || "…"}
                   </Typography>
                 </Box>
               </Box>
@@ -1258,11 +1358,6 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
           );
         })}
       </Box>
-
-      <style>{`
-        .card3d.gone { pointer-events: none; }
-        .card3d .inner { will-change: transform; }
-      `}</style>
     </Box>
   );
 });
@@ -1810,6 +1905,23 @@ export default function DrawPage() {
   const [cardOpen, setCardOpen] = useState(false);
   const [cardQueue, setCardQueue] = useState([]); // names to flip
 
+  
+// NEW: snapshot deck của phiên bốc hiện tại (một lần/phiên)
+const [cardSnapshot, setCardSnapshot] = useState([]); // [{id, label}]
+const [cardGoneIds, setCardGoneIds] = useState([]);   // ["regId", ...]
+
+  const [cardOpenPending, setCardOpenPending] = useState(false);
+  // NEW: helper mở thẻ có đợi countdown khi FX bật
+  const openCardAfterCountdown = useCallback(() => {
+    if (fxEnabled) {
+      // đảm bảo có countdown và đánh dấu pending
+      setShowCountdown(true);
+      setCardOpen(false);
+      setCardOpenPending(true);
+    } else {
+      setCardOpen(true);
+    }
+  }, [fxEnabled, setShowCountdown]);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileUserId, setProfileUserId] = useState(null);
   const openProfile = useCallback((uid) => {
@@ -1902,7 +2014,12 @@ export default function DrawPage() {
   );
 
   const socket = useSocket();
-
+  useEffect(() => {
+    if (!showCountdown && cardOpenPending) {
+      setCardOpen(true);
+      setCardOpenPending(false);
+    }
+  }, [showCountdown, cardOpenPending]);
   // URL helpers
   const updateURL = useCallback(
     (patch = {}) => {
@@ -2077,6 +2194,8 @@ export default function DrawPage() {
     setDrawDoc(null);
     setCardOpen(false);
     setCardQueue([]);
+     setCardSnapshot([]);
+ setCardGoneIds([]);
   }, [selBracketId]);
   useEffect(() => {
     if (!(drawType === "knockout" || drawType === "po")) return;
@@ -2087,6 +2206,8 @@ export default function DrawPage() {
     setDrawDoc(null);
     setCardOpen(false);
     setCardQueue([]);
+     setCardSnapshot([]);
+ setCardGoneIds([]);
   }, [selectRoundValue, drawType]);
 
   useEffect(() => {
@@ -2135,16 +2256,24 @@ export default function DrawPage() {
       const doc = payload?.doc || payload?.draw || null;
       if (doc?.board || Array.isArray(doc?.pool)) setDrawDoc(doc);
     };
-    const onCommitted = () => {
+    const onCommitted = async () => {
       setState("committed");
-      refetchBracket?.();
+      try {
+        await Promise.all([refetchMatches?.(), refetchBracket?.()]);
+      } catch {}
       if (fxEnabled) fireConfettiBurst();
     };
     const onCanceled = () => {
-      setState("canceled");
-      setReveals([]);
-      setDrawId(null);
-      setDrawDoc(null);
+      try {
+        setState("canceled");
+        setReveals([]);
+        setDrawId(null);
+        setDrawDoc(null);
+      } catch (e) {
+        toast.error(
+          e?.data?.message || e?.error || "Có lỗi khi bắt đầu bốc thăm."
+        );
+      }
     };
     socket.on("draw:update", onUpdate);
     socket.on("draw:revealed", onRevealed);
@@ -2157,7 +2286,7 @@ export default function DrawPage() {
       socket.off("draw:canceled", onCanceled);
       socket.emit("draw:leave", { drawId });
     };
-  }, [socket, drawId, refetchBracket, fxEnabled]);
+  }, [socket, drawId, refetchBracket, refetchMatches, fxEnabled]);
 
   // groups
   const groupsRaw = useMemo(
@@ -2245,10 +2374,13 @@ export default function DrawPage() {
   }, [koMatchesThisBracket, selectedRoundNumber, tournament?.eventType]);
 
   const revealsForKO = useMemo(() => {
-    if (state === "running" && Array.isArray(reveals) && reveals.length)
-      return reveals;
+    // RUNNING: luôn theo reveals
+    if (state === "running") return Array.isArray(reveals) ? reveals : [];
+    // Sau commit/cancel: nếu matches còn đang load ⇒ vẫn tạm hiển thị reveals
+    if (lMatches) return Array.isArray(reveals) ? reveals : [];
+    // Có matches mới rồi thì dùng matches
     return koPairsPersisted;
-  }, [state, reveals, koPairsPersisted]);
+  }, [state, reveals, lMatches, koPairsPersisted]);
 
   const revealsForGroup = useMemo(() => {
     if (state === "running" && Array.isArray(reveals) && reveals.length)
@@ -2442,7 +2574,9 @@ export default function DrawPage() {
               round: selectRoundValue,
               ...(drawType === "knockout" ? { usePrevWinners } : {}),
             };
+
       const resp = await startDraw({ bracketId: selBracketId, body }).unwrap();
+
       setDrawId(resp?.drawId);
       setState(resp?.state || "running");
       setReveals(Array.isArray(resp?.reveals) ? resp.reveals : []);
@@ -2453,19 +2587,38 @@ export default function DrawPage() {
 
       if (fxEnabled) setShowCountdown(true);
 
-      // reset banner/flags
+      // --- RESET chung ---
       setShowDoneBanner(false);
       prevPoolCountRef.current = Array.isArray(doc?.pool)
         ? doc.pool.length
         : null;
       lastRevealActionRef.current = false;
 
-      // Auto open Card overlay if using card mode
+      // --- NEW: PO: clear sạch mọi dấu vết để UI thật sự trắng ---
+      // ✅ KO và PO: clear sạch để UI trắng thật sự, không lẫn dữ liệu cũ
+      if (drawType === "knockout" || drawType === "po") {
+        setReveals([]); // clear reveals
+        prevRevealsRef.current = []; // overlay classic không bắt nhầm diff
+        setOverlayOpen(false); // đóng overlay nếu còn mở
+        setLastHighlight(null); // bỏ highlight slot cũ
+        setCardQueue([]); // reset hàng đợi thẻ
+        setShowDoneBanner(false); // tắt banner hoàn thành
+        prevPoolCountRef.current = null;
+      }
+
+      // (không bắt buộc) ép refetch matches để sidebar/bye-info cập nhật sớm
+      try {
+        await refetchMatches?.();
+      } catch {}
+
+      // Auto open Card overlay nếu đang ở card mode
       if (uiMode === "cards") {
         setCardQueue([]);
-        setCardOpen(true);
+        openCardAfterCountdown();
+
       }
     } catch (e) {
+      console.log(e);
       toast.error(
         e?.data?.message || e?.error || "Có lỗi khi bắt đầu bốc thăm."
       );
@@ -2483,35 +2636,71 @@ export default function DrawPage() {
   const canOperate = Boolean(drawId && state === "running");
 
   // === Classic "Reveal tiếp" (giữ nguyên hành vi hiện tại) ===
+  // === Classic "Reveal tiếp" (GIỜ dùng resp.next để biết ngay tên + vị trí) ===
   const onReveal = useCallback(async () => {
     if (!canOperate) return;
     try {
       lastRevealActionRef.current = true;
       const resp = await drawNext({ drawId }).unwrap();
 
+      // cập nhật state
       if (Array.isArray(resp?.reveals)) setReveals(resp.reveals);
       const doc = resp?.doc || resp?.draw || resp;
       if (doc?.board || Array.isArray(doc?.pool)) setDrawDoc(doc);
 
-      const lastPick =
-        (Array.isArray(doc?.history) &&
-          [...doc.history].reverse().find((h) => h?.action === "pick")) ||
-        null;
-      const curCursor = lastPick?.payload?.cursor || doc?.cursor || null;
-      if (curCursor && Array.isArray(doc?.board?.groups)) {
-        const g = doc.board.groups[curCursor.gIndex];
-        const key = g?.key ?? String.fromCharCode(65 + (curCursor.gIndex || 0));
-        const slotIndex = curCursor.slotIndex ?? 0;
-        setLastHighlight({ type: "group", groupCode: key, slotIndex });
-        if (!fxMuted && fxEnabled) beep(520, 0.08);
+      // === NEW: đọc thẳng từ resp.next
+      const nx = resp?.next;
+      if (nx && typeof nx === "object") {
+        if (nx.type === "group") {
+          // highlight slot vừa seat
+          setLastHighlight({
+            type: "group",
+            groupCode: nx.groupCode,
+            slotIndex: nx.slotIndex,
+          });
+          if (!fxMuted && fxEnabled) beep(520, 0.08);
+
+          // classic overlay (khi không ở card mode)
+          if (fxEnabled && !usingCardMode) {
+            setOverlayMode("group");
+            setOverlayData({
+              groupCode: nx.groupCode,
+              slotIndex: nx.slotIndex,
+              teamName: nx.name || "—",
+            });
+            setOverlayOpen(true);
+          }
+        } else if (nx.type === "ko") {
+          // Ko chỉ trả về 1 side; overlay hiển thị bên còn lại nếu đã có
+          if (fxEnabled && !usingCardMode) {
+            const pair = revealsForKO?.[nx.pairIndex] || {};
+            const AName =
+              nx.side === "A"
+                ? nx.name || "—"
+                : pair.AName || pair.A || "Chưa có đội";
+            const BName =
+              nx.side === "B"
+                ? nx.name || "—"
+                : pair.BName || pair.B || "Chưa có đội";
+            setOverlayMode("ko");
+            setOverlayData({ AName, BName });
+            setOverlayOpen(true);
+            setTimeout(() => beep(520, 0.08), 200);
+          }
+        }
       }
 
+      // hoàn tất/bắn confetti khi pool = 0
       const prev = prevPoolCountRef.current ?? null;
       const cur = Array.isArray(doc?.pool) ? doc.pool.length : null;
       if (lastRevealActionRef.current && prev > 0 && cur === 0) {
         setShowDoneBanner(true);
         if (fxEnabled) fireConfettiBurst();
-        toast.success("Bốc thăm hoàn thành!");
+        toast.success(
+          drawType === "group"
+            ? "Bốc thăm vòng bảng đã hoàn thành!"
+            : "Bốc thăm vòng này đã hoàn thành!"
+        );
       }
       prevPoolCountRef.current = cur;
       lastRevealActionRef.current = false;
@@ -2519,67 +2708,96 @@ export default function DrawPage() {
       lastRevealActionRef.current = false;
       toast.error(e?.data?.message || e?.error);
     }
-  }, [canOperate, drawNext, drawId, fxEnabled, fxMuted, beep]);
+  }, [
+    canOperate,
+    drawNext,
+    drawId,
+    fxEnabled,
+    fxMuted,
+    beep,
+    usingCardMode,
+    revealsForKO,
+    drawType,
+  ]);
 
   // === Card mode reveal helper: call drawNext and return names just revealed ===
+  // === Card mode reveal helper: gọi drawNext và TRẢ VỀ tên dựa trên resp.next ===
   const revealOnceForCards = useCallback(async () => {
     if (!canOperate) return [];
     try {
       lastRevealActionRef.current = true;
-      const prevRevs = Array.isArray(reveals) ? [...reveals] : [];
+
       const resp = await drawNext({ drawId }).unwrap();
 
-      // update state immediately
-      const newRevs = Array.isArray(resp?.reveals) ? resp.reveals : prevRevs;
-      setReveals(newRevs);
+      // cập nhật state ngay
+      if (Array.isArray(resp?.reveals)) setReveals(resp.reveals);
       const doc = resp?.doc || resp?.draw || resp;
       if (doc?.board || Array.isArray(doc?.pool)) setDrawDoc(doc);
 
-      // group highlight via cursor
-      const lastPick =
-        (Array.isArray(doc?.history) &&
-          [...doc.history].reverse().find((h) => h?.action === "pick")) ||
-        null;
-      const curCursor = lastPick?.payload?.cursor || doc?.cursor || null;
-      if (curCursor && Array.isArray(doc?.board?.groups)) {
-        const g = doc.board.groups[curCursor.gIndex];
-        const key = g?.key ?? String.fromCharCode(65 + (curCursor.gIndex || 0));
-        const slotIndex = curCursor.slotIndex ?? 0;
-        setLastHighlight({ type: "group", groupCode: key, slotIndex });
-      }
+      const outNames = [];
+      const nx = resp?.next;
 
-      // detect delta names (works for both group and ko)
-      let newNames = [];
-      const n = Math.max(prevRevs.length, newRevs.length);
-      for (let i = 0; i < n; i++) {
-        const p = prevRevs[i] || {};
-        const c = newRevs[i] || {};
+      if (nx && typeof nx === "object") {
+        // luôn có nx.name => đẩy vào danh sách tên để CardDeckOverlay hiển thị
+        if (nx.name) outNames.push(nx.name);
+
+        // group: set highlight thẳng từ next
+        if (nx.type === "group") {
+          setLastHighlight({
+            type: "group",
+            groupCode: nx.groupCode,
+            slotIndex: nx.slotIndex,
+          });
+        }
+        // KO: pairBuffer trong overlay sẽ tự gom 2 lần flip thành 1 cặp
+      } else {
+        // fallback (nếu server cũ không có next) — vẫn giữ logic cũ
         if (drawType === "group") {
-          const rid = asId(c.regId ?? c.reg ?? c.id ?? c._id);
-          const prid = asId(p.regId ?? p.reg ?? p.id ?? p._id);
-          if (rid && !prid) {
-            const reg = regIndex.get(String(rid));
-            const nm = reg
-              ? safePairName(reg, eventType)
-              : c.nickName ||
-                c.teamName ||
-                c.name ||
-                c.team ||
-                c.displayName ||
-                "—";
-            newNames.push(nm);
-          }
+          const last =
+            (Array.isArray(resp?.reveals) ? resp.reveals : []).slice(-1)[0] ||
+            {};
+          const rid =
+            asId(last?.regId) ||
+            asId(last?.reg) ||
+            asId(last?.id) ||
+            asId(last?._id) ||
+            null;
+          const name =
+            (rid && regIndex.has(String(rid))
+              ? safePairName(regIndex.get(String(rid)), eventType)
+              : last?.nickName ||
+                last?.teamName ||
+                last?.name ||
+                last?.team ||
+                last?.displayName) || "—";
+          outNames.push(name);
         } else {
-          const pA = p?.AName || p?.A || null;
-          const pB = p?.BName || p?.B || null;
-          const cA = c?.AName || c?.A || null;
-          const cB = c?.BName || c?.B || null;
-          if (cA && !pA) newNames.push(cA);
-          if (cB && !pB) newNames.push(cB);
+          // KO fallback: thử lấy tên vừa thay đổi giữa prev↔new
+          const prev = Array.isArray(reveals) ? [...reveals] : [];
+          const cur = Array.isArray(resp?.reveals) ? resp.reveals : prev;
+          const added = [];
+          if (cur.length > prev.length) {
+            const last = cur[cur.length - 1] || {};
+            if (last?.AName || last?.A) added.push(last.AName || last.A);
+            if (last?.BName || last?.B) added.push(last.BName || last.B);
+          } else {
+            const N = Math.max(prev.length, cur.length);
+            for (let i = 0; i < N; i++) {
+              const p = prev[i] || {};
+              const c = cur[i] || {};
+              const pA = p?.AName ?? p?.A ?? null;
+              const pB = p?.BName ?? p?.B ?? null;
+              const cA = c?.AName ?? c?.A ?? null;
+              const cB = c?.BName ?? c?.B ?? null;
+              if (cA && cA !== pA) added.push(cA);
+              if (cB && cB !== pB) added.push(cB);
+            }
+          }
+          outNames.push(...added.filter(Boolean));
         }
       }
 
-      // finish banner check
+      // hoàn tất/bắn confetti khi pool = 0
       const prev = prevPoolCountRef.current ?? null;
       const cur = Array.isArray(doc?.pool) ? doc.pool.length : null;
       if (lastRevealActionRef.current && prev > 0 && cur === 0) {
@@ -2589,10 +2807,10 @@ export default function DrawPage() {
       prevPoolCountRef.current = cur;
       lastRevealActionRef.current = false;
 
-      return newNames;
+      return outNames.filter(Boolean);
     } catch (e) {
       lastRevealActionRef.current = false;
-      toast.error(e?.data?.message || e?.error);
+      toast.error(e?.data?.message || e?.error || "Reveal thất bại.");
       return [];
     }
   }, [
@@ -2605,22 +2823,22 @@ export default function DrawPage() {
     drawType,
     fxEnabled,
   ]);
-
-  // === Card mode actions ===
-  const onCardDrawOne = useCallback(async () => {
-    if (!canOperate) return;
+  // trong DrawPage.jsx
+  const onFlipOneForCards = useCallback(async () => {
+    // 1) Nếu còn tên tồn trong queue → lấy ngay, KHÔNG gọi drawNext
+    if (cardQueue.length) {
+      const [head, ...rest] = cardQueue;
+      setCardQueue(rest);
+      return head || null;
+    }
+    // 2) Queue rỗng → gọi drawNext
     const names = await revealOnceForCards();
-    if (names.length) setCardQueue((q) => q.concat(names));
-  }, [canOperate, revealOnceForCards]);
-
-  const onCardDrawTwo = useCallback(async () => {
-    if (!canOperate) return;
-    // flip 2 sequentially
-    const n1 = await revealOnceForCards();
-    const n2 = await revealOnceForCards();
-    const names = [...n1, ...n2];
-    if (names.length) setCardQueue((q) => q.concat(names));
-  }, [canOperate, revealOnceForCards]);
+    if (names.length > 1) {
+      // đẩy phần thừa vào queue để lần flip kế tiếp dùng
+      setCardQueue(names.slice(1));
+    }
+    return names[0] || null; // có thể null nếu server chưa trả gì
+  }, [revealOnceForCards, cardQueue]);
 
   // Classic overlay auto-open only if NOT in card mode
   const prevRevealsRef = useRef([]);
@@ -2881,7 +3099,7 @@ export default function DrawPage() {
           <Button
             size="small"
             variant="outlined"
-            onClick={() => setCardOpen(true)}
+           onClick={openCardAfterCountdown}
           >
             Mở giao diện thẻ
           </Button>
@@ -2994,6 +3212,10 @@ export default function DrawPage() {
               disabled={!canOperate || committing}
               onClick={async () => {
                 await drawCommit({ drawId }).unwrap();
+                // kéo nhanh dữ liệu mới về thay vì đợi socket/network
+                try {
+                  await Promise.all([refetchMatches?.(), refetchBracket?.()]);
+                } catch {}
                 setShowDoneBanner(false);
               }}
               sx={{ color: "white !important" }}
@@ -3006,7 +3228,14 @@ export default function DrawPage() {
               startIcon={<CancelIcon />}
               disabled={!drawId || canceling}
               onClick={async () => {
-                await drawCancel({ drawId }).unwrap();
+                try {
+                  await drawCancel({ drawId }).unwrap();
+                  // kéo nhanh dữ liệu mới về thay vì đợi socket/network
+                } catch (e) {
+                  toast.error(
+                    e?.data?.message || e?.error || "Có lỗi khi huỷ phiên bốc."
+                  );
+                }
                 setDrawId(null);
                 setState("idle");
                 setReveals([]);
@@ -3014,6 +3243,7 @@ export default function DrawPage() {
                 setShowDoneBanner(false);
                 setCardOpen(false);
                 setCardQueue([]);
+                setCardSnapshot([]);
                 toast.success(
                   "Đã huỷ phiên bốc. Bạn có thể bắt đầu phiên mới."
                 );
@@ -3058,8 +3288,11 @@ export default function DrawPage() {
               <Bracket
                 rounds={buildRoundsForKO({
                   roundCode: selectRoundValue,
+                  // ✅ RUNNING → chỉ lấy từ reveals; ngừng “đọc đè” từ matches
                   reveals: state === "running" ? revealsForKO : [],
-                  matches: koMatchesThisBracket,
+                  matches:
+                    state === "running" || lMatches ? [] : koMatchesThisBracket,
+
                   eventType,
                   selectedRoundNumber,
                   selBracketId,
@@ -3217,14 +3450,12 @@ export default function DrawPage() {
       {/* Card Mode Overlay */}
       {cardOpen && (
         <CardDeckOverlay
+          reveals={reveals}
           open={cardOpen}
           onClose={() => setCardOpen(false)}
           mode={drawType === "group" ? "group" : "ko"}
           cards={cardDeck}
-          flipQueue={cardQueue}
-          onDrawOne={onCardDrawOne}
-          onDrawTwo={onCardDrawTwo}
-          busy={revealing}
+          onFlipOne={onFlipOneForCards}
           muted={fxMuted}
         />
       )}

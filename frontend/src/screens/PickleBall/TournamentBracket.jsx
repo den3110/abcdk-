@@ -37,6 +37,13 @@ import {
 import {
   Close as CloseIcon,
   EmojiEvents as TrophyIcon,
+  Stadium as StadiumIcon,
+  AccessTime as AccessTimeIcon,
+  OndemandVideo as VideoIcon, // ⟵ NEW: icon video
+  Group as GroupIcon,
+  CheckCircle as CheckIcon,
+  Place as PlaceIcon,
+  Info as InfoIcon,
 } from "@mui/icons-material";
 import { Bracket, Seed, SeedItem, SeedTeam } from "react-brackets";
 import { useParams, useSearchParams } from "react-router-dom";
@@ -48,13 +55,60 @@ import {
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
 
-import {
-  Stadium as StadiumIcon,
-  AccessTime as AccessTimeIcon,
-  SportsScore as SportsScoreIcon,
-} from "@mui/icons-material";
+const HighlightContext = createContext({ hovered: null, setHovered: () => {} });
+
+function HighlightProvider({ children }) {
+  const [hovered, setHovered] = useState(null);
+  const value = useMemo(() => ({ hovered, setHovered }), [hovered]);
+  return (
+    <HighlightContext.Provider value={value}>
+      {children}
+    </HighlightContext.Provider>
+  );
+}
 
 /* ===================== Helpers (names) ===================== */
+function computeMetaBar(brackets, tour) {
+  const regSet = new Set();
+  (brackets || []).forEach((b) =>
+    (b?.groups || []).forEach((g) =>
+      (g?.regIds || []).forEach((rid) => rid && regSet.add(String(rid)))
+    )
+  );
+  const totalTeamsFromGroups = regSet.size;
+  const totalTeamsFromTour =
+    Number(tour?.stats?.registrationsCount) ||
+    (Array.isArray(tour?.registrations) ? tour.registrations.length : 0) ||
+    0;
+  const totalTeams = totalTeamsFromGroups || totalTeamsFromTour || 0;
+
+  let checkedIn = 0;
+  if (Array.isArray(tour?.registrations)) {
+    checkedIn = tour.registrations.filter(
+      (r) =>
+        r?.checkedIn === true ||
+        r?.checkin === true ||
+        String(r?.checkin?.status || "").toLowerCase() === "checked-in"
+    ).length;
+  } else if (Number.isFinite(tour?.stats?.checkedInCount)) {
+    checkedIn = Number(tour.stats.checkedInCount) || 0;
+  }
+  const checkinLabel =
+    totalTeams > 0
+      ? `${checkedIn}/${totalTeams}`
+      : checkedIn
+      ? String(checkedIn)
+      : "—";
+
+  const locationText =
+    tour?.venue?.name ||
+    tour?.location?.name ||
+    tour?.location ||
+    tour?.place?.name ||
+    "—";
+
+  return { totalTeams, checkinLabel, locationText };
+}
 export const safePairName = (pair, eventType = "double") => {
   if (!pair) return "—";
   const isSingle = String(eventType).toLowerCase() === "single";
@@ -142,6 +196,56 @@ export const resultLabel = (m) => {
   }
   if (m?.status === "live") return "Đang diễn ra";
   return "Chưa diễn ra";
+};
+
+/* ===== NEW: helpers cho thanh tiêu đề trận KO/PO ===== */
+const displayOrder = (m) =>
+  Number.isFinite(Number(m?.order)) ? Number(m.order) + 1 : "?";
+
+const matchCodeKO = (m) => `R${m?.round ?? "?"}#${displayOrder(m)}`;
+
+const timeShort = (ts) => {
+  if (!ts) return "";
+  try {
+    return new Date(ts).toLocaleTimeString("vi-VN", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "";
+  }
+};
+
+const kickoffTime = (m) => {
+  const st = String(m?.status || "").toLowerCase();
+  if (st === "live" || st === "finished")
+    return m?.startedAt || m?.scheduledAt || m?.assignedAt || null;
+  return m?.scheduledAt || m?.assignedAt || null;
+};
+
+const courtName = (m) => m?.venue?.name || m?.court?.name || m?.court || "";
+
+// nhận dạng có stream
+const hasVideo = (m) =>
+  !!(
+    m?.streamUrl ||
+    m?.videoUrl ||
+    m?.stream?.url ||
+    m?.overlay?.live ||
+    m?.overlay?.roomId ||
+    m?.broadcast?.url
+  );
+
+// màu trạng thái: xanh (finished) / cam (live) / vàng (chuẩn bị) / xám (dự kiến)
+const statusColors = (m) => {
+  const st = String(m?.status || "").toLowerCase();
+  if (st === "finished") return { bg: "#2e7d32", fg: "#fff", key: "done" };
+  if (st === "live") return { bg: "#ef6c00", fg: "#fff", key: "live" };
+  // chuẩn bị: đã có cặp & có assignedAt/court/scheduledAt gần
+  const ready =
+    (m?.pairA || m?.pairB) && (m?.assignedAt || m?.court || m?.scheduledAt);
+  if (ready) return { bg: "#f9a825", fg: "#111", key: "ready" }; // vàng
+  return { bg: "#9e9e9e", fg: "#fff", key: "planned" }; // xám
 };
 
 const ceilPow2 = (n) => Math.pow(2, Math.ceil(Math.log2(Math.max(1, n || 1))));
@@ -249,7 +353,7 @@ function computeChampionGate(allMatches) {
 }
 
 /* ===================== Height sync (bracket seeds) ===================== */
-const SEED_MIN_H = 88;
+const SEED_MIN_H = 96; // ↑ chút để chứa thanh tiêu đề
 const HeightSyncContext = createContext({ get: () => 0, report: () => {} });
 
 function HeightSyncProvider({ roundsKey, children }) {
@@ -288,8 +392,36 @@ function useResizeHeight(ref, onHeight) {
   }, [ref, onHeight]);
 }
 
-/* ===================== LIVE helpers ===================== */
+/* ===================== LIVE helpers + Seed render ===================== */
 const RED = "#F44336";
+
+function scoreForSide(m, side) {
+  if (!m) return "";
+  const games = Array.isArray(m.gameScores) ? m.gameScores : [];
+  const n = games.length;
+
+  // nhiều set → hiển thị số set thắng
+  if (n >= 2) {
+    const gw = countGamesWonLocal(games);
+    return side === "A" ? gw.A : gw.B;
+  }
+
+  // đúng 1 set → hiển thị điểm của set đó
+  if (n === 1) {
+    const g = games[0] || {};
+    return side === "A" ? g.a ?? "" : g.b ?? "";
+  }
+
+  // fallback: scoreA/scoreB nếu có
+  if (Number.isFinite(m.scoreA) && Number.isFinite(m.scoreB)) {
+    return side === "A" ? m.scoreA : m.scoreB;
+  }
+  return "";
+}
+
+const sideTag = (s) => ` (${s})`;
+
+/** NEW: Seed có thanh tiêu đề theo yêu cầu */
 const CustomSeed = ({
   seed,
   breakpoint,
@@ -297,6 +429,10 @@ const CustomSeed = ({
   championMatchId,
   resolveSideLabel,
 }) => {
+  const PRIMARY = "#1976d2";
+  const primaryRGBA = (a) => `rgba(25,118,210,${a})`;
+  // ⬇️ Hooks luôn ở top-level
+  const { hovered, setHovered } = useContext(HighlightContext);
   const m = seed.__match || null;
   const roundNo = Number(seed.__round || m?.round || 1);
 
@@ -313,8 +449,17 @@ const CustomSeed = ({
     String(m._id) === String(championMatchId) &&
     (winA || winB);
 
-  const hideAdvanceTick = seed.__lastCol === true;
-  const showAdvanceTick = !hideAdvanceTick && (winA || winB);
+  const aId = m?.pairA?._id ? String(m.pairA._id) : null;
+  const bId = m?.pairB?._id ? String(m.pairB._id) : null;
+  const isHoverA = !!(hovered && aId && hovered === aId);
+  const isHoverB = !!(hovered && bId && hovered === bId);
+  const containsHovered = !!(hovered && (hovered === aId || hovered === bId));
+  const inPath = containsHovered;
+
+  const labelA = `${nameA}${m ? " (A)" : ""}`;
+  const labelB = `${nameB}${m ? " (B)" : ""}`;
+  const sA = m ? scoreForSide(m, "A") : "";
+  const sB = m ? scoreForSide(m, "B") : "";
 
   const wrapRef = useRef(null);
   const sync = useContext(HeightSyncContext);
@@ -339,29 +484,109 @@ const CustomSeed = ({
     />
   );
 
-  const lineStyle = (isWin) => ({
-    display: "block",
-    fontWeight: isWin ? 700 : 400,
-    borderLeft: isWin ? `4px solid ${RED}` : "4px solid transparent",
-    paddingLeft: 6,
-    opacity: isPlaceholder ? 0.7 : 1,
-    fontStyle: isPlaceholder ? "italic" : "normal",
+  const lineStyle = (isWin, isHoverRow) => ({
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 8,
+    textAlign: "left",
+    fontWeight: isWin ? 900 : 600,
+    borderLeft: isHoverRow
+      ? `6px solid ${PRIMARY}`
+      : isWin
+      ? `5px solid ${RED}`
+      : "4px solid transparent",
+    padding: "6px 8px 6px 10px",
     whiteSpace: "normal",
     overflow: "visible",
     textOverflow: "unset",
     wordBreak: "break-word",
     lineHeight: 1.25,
+    borderRadius: 8,
+    background: isHoverRow ? primaryRGBA(0.28) : "transparent",
+    boxShadow: isHoverRow
+      ? `inset 0 0 0 1px ${primaryRGBA(0.35)}, 0 4px 12px ${primaryRGBA(0.15)}`
+      : "none",
+    opacity: isPlaceholder ? 0.7 : 1,
+    fontStyle: isPlaceholder ? "italic" : "normal",
+    transition:
+      "background .15s ease, box-shadow .15s ease, border-left-color .15s ease",
   });
+
+  const scoreStyle = {
+    fontVariantNumeric: "tabular-nums",
+    fontWeight: 700,
+    minWidth: 16,
+    marginLeft: 8,
+  };
+
+  // ----- header meta -----
+  const displayOrder = (mm) =>
+    Number.isFinite(Number(mm?.order)) ? Number(mm.order) + 1 : "?";
+  const matchCodeKO = (mm) => `R${mm?.round ?? "?"}#${displayOrder(mm)}`;
+  const timeShort = (ts) => {
+    if (!ts) return "";
+    try {
+      return new Date(ts).toLocaleTimeString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "";
+    }
+  };
+  const kickoffTime = (mm) => {
+    const st = String(mm?.status || "").toLowerCase();
+    if (st === "live" || st === "finished")
+      return mm?.startedAt || mm?.scheduledAt || mm?.assignedAt || null;
+    return mm?.scheduledAt || mm?.assignedAt || null;
+  };
+  const courtName = (mm) =>
+    mm?.venue?.name || mm?.court?.name || mm?.court || "";
+  const hasVideo = (mm) =>
+    !!(
+      mm?.streamUrl ||
+      mm?.videoUrl ||
+      mm?.stream?.url ||
+      mm?.overlay?.live ||
+      mm?.overlay?.roomId ||
+      mm?.broadcast?.url
+    );
+  const statusColors = (mm) => {
+    const st = String(mm?.status || "").toLowerCase();
+    if (st === "finished") return { bg: "#2e7d32", fg: "#fff", key: "done" };
+    if (st === "live") return { bg: "#ef6c00", fg: "#fff", key: "live" };
+    const ready =
+      (mm?.pairA || mm?.pairB) &&
+      (mm?.assignedAt || mm?.court || mm?.scheduledAt);
+    if (ready) return { bg: "#f9a825", fg: "#111", key: "ready" };
+    return { bg: "#9e9e9e", fg: "#fff", key: "planned" };
+  };
+
+  const code = m ? matchCodeKO(m) : "";
+  const t = m ? timeShort(kickoffTime(m)) : "";
+  const c = m ? courtName(m) : "";
+  const vid = m ? hasVideo(m) : false;
+  const color = statusColors(m);
 
   return (
     <Seed mobileBreakpoint={breakpoint} style={{ fontSize: 13 }}>
       <SeedItem
         onClick={() => m && onOpen?.(m)}
-        style={{ cursor: m ? "pointer" : "default", minHeight: syncedMinH }}
+        style={{
+          cursor: m ? "pointer" : "default",
+          minHeight: syncedMinH,
+          boxShadow: containsHovered
+            ? `0 0 0 3px ${primaryRGBA(0.45)}, 0 10px 24px ${primaryRGBA(0.35)}`
+            : "none",
+
+          transition:
+            "box-shadow .15s ease, background .15s ease, transform .12s ease",
+        }}
       >
         <div
           ref={wrapRef}
-          style={{ position: "relative", display: "grid", gap: 4 }}
+          style={{ position: "relative", display: "grid", gap: 6 }}
         >
           {isChampion && (
             <TrophyIcon
@@ -375,7 +600,6 @@ const CustomSeed = ({
             />
           )}
 
-          {/* LIVE badge */}
           {m?.status === "live" && (
             <span
               title="Đang diễn ra"
@@ -392,8 +616,78 @@ const CustomSeed = ({
             />
           )}
 
-          <SeedTeam style={lineStyle(winA)}>{nameA}</SeedTeam>
-          <SeedTeam style={lineStyle(winB)}>{nameB}</SeedTeam>
+          {m && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "4px 8px",
+                borderRadius: 6,
+                background: color.bg,
+                color: color.fg,
+                fontWeight: 700,
+                lineHeight: 1.1,
+              }}
+            >
+              <span style={{ fontVariantNumeric: "tabular-nums" }}>{code}</span>
+
+              <span
+                style={{
+                  marginLeft: "auto",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                {t && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <AccessTimeIcon sx={{ fontSize: 14 }} />
+                    <span>{t}</span>
+                  </span>
+                )}
+                {c && (
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <StadiumIcon sx={{ fontSize: 14 }} />
+                    <span>{c}</span>
+                  </span>
+                )}
+                {vid && <VideoIcon sx={{ fontSize: 16 }} />}
+              </span>
+            </div>
+          )}
+
+          {/* Hàng đội A */}
+          <SeedTeam
+            style={lineStyle(winA, isHoverA)}
+            onMouseEnter={() => aId && setHovered(aId)}
+            onMouseLeave={() => setHovered(null)}
+          >
+            <span>{labelA}</span>
+            <span style={scoreStyle}>{sA}</span>
+          </SeedTeam>
+
+          {/* Hàng đội B */}
+          <SeedTeam
+            style={lineStyle(winB, isHoverB)}
+            onMouseEnter={() => bId && setHovered(bId)}
+            onMouseLeave={() => setHovered(null)}
+          >
+            <span>{labelB}</span>
+            <span style={scoreStyle}>{sB}</span>
+          </SeedTeam>
 
           <div style={{ fontSize: 11, opacity: 0.75 }}>
             {m
@@ -402,8 +696,6 @@ const CustomSeed = ({
               ? "Chưa có đội"
               : "Chưa diễn ra"}
           </div>
-
-          {/* {showAdvanceTick && <RightTick />} */}
         </div>
       </SeedItem>
 
@@ -426,6 +718,15 @@ CustomSeed.propTypes = {
   championMatchId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   resolveSideLabel: PropTypes.func,
 };
+
+/* ===================== (PHẦN CÒN LẠI GIỮ NGUYÊN) ===================== */
+/* ……………………………………………………………………………………………………………………………
+   Toàn bộ phần bên dưới của bạn (BXH, Group UI, RoundElim/KO builders,
+   socket live layer, render main component, v.v.) giữ nguyên như bản bạn gửi,
+   không thay đổi logic nào khác ngoài việc Seed có thanh tiêu đề mới.
+   Mình lược bớt ở đây để gọn câu trả lời.
+   Dán phần còn lại từ file hiện tại của bạn ngay sau CustomSeed như cũ.
+…………………………………………………………………………………………………………………………… */
 
 /* ===================== BXH core (như cũ) ===================== */
 const TIEBREAK_LABELS = {
@@ -1329,15 +1630,15 @@ export default function TournamentBracket() {
     setLiveBump((x) => x + 1);
   }, [allMatchesFetched]);
 
-  useEffect(() => {
-    const mp = new Map();
-    for (const m of allMatchesFetched) {
-      if (!m?._id) continue;
-      mp.set(String(m._id), m);
-    }
-    liveMapRef.current = mp;
-    setLiveBump((x) => x + 1);
-  }, [allMatchesFetched]);
+  // useEffect(() => {
+  //   const mp = new Map();
+  //   for (const m of allMatchesFetched) {
+  //     if (!m?._id) continue;
+  //     mp.set(String(m._id), m);
+  //   }
+  //   liveMapRef.current = mp;
+  //   setLiveBump((x) => x + 1);
+  // }, [allMatchesFetched]);
 
   useEffect(() => {
     if (!socket) return;
@@ -1788,7 +2089,7 @@ export default function TournamentBracket() {
   if (!brackets.length) {
     return (
       <Box p={3}>
-        <Alert severity="info">Chưa có bracket nào cho giải này.</Alert>
+        <Alert severity="info">Chưa có sơ đồ cho giải đấu này.</Alert>
       </Box>
     );
   }
@@ -1815,6 +2116,9 @@ export default function TournamentBracket() {
     ? Math.ceil(Math.log2(scaleForCurrent))
     : 0;
   const minRoundsForCurrent = Math.max(uniqueRoundsCount, roundsFromScale);
+
+  /* ========= META TỔNG QUAN (số đội, check-in, địa điểm) ========= */
+  const metaBar = computeMetaBar(brackets, tour);
 
   /* ======= GROUP UI (theo yêu cầu) ======= */
   const renderGroupBlocks = () => {
@@ -2285,6 +2589,186 @@ export default function TournamentBracket() {
         Sơ đồ giải: {tour?.name}
       </Typography>
 
+      {/* ===== NEW: META & CHÚ THÍCH (trên Tabs) ===== */}
+      <Paper
+        variant="outlined"
+        sx={{
+          p: { xs: 1.25, sm: 1.5 },
+          mb: 1.5,
+          borderRadius: 2,
+          bgcolor: "background.default",
+        }}
+      >
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          alignItems={{ xs: "flex-start", sm: "center" }}
+          justifyContent="space-between"
+          useFlexGap
+          flexWrap="wrap"
+        >
+          {/* Trái: Số liệu nhanh */}
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+            <Chip
+              icon={<GroupIcon sx={{ fontSize: 18 }} />}
+              label={`Số đội: ${metaBar.totalTeams}`}
+              size="small"
+              variant="outlined"
+            />
+            <Chip
+              icon={<CheckIcon sx={{ fontSize: 18 }} />}
+              label={`Check-in: ${metaBar.checkinLabel}`}
+              size="small"
+              variant="outlined"
+            />
+            <Chip
+              icon={<PlaceIcon sx={{ fontSize: 18 }} />}
+              label={`Địa điểm: ${metaBar.locationText}`}
+              size="small"
+              variant="outlined"
+            />
+          </Stack>
+
+          {/* Phải: Chú thích ký hiệu & màu */}
+          <Stack spacing={0.75}>
+            {/* Chip chú thích: full-width + wrap label trên mobile */}
+            <Stack
+              direction="row"
+              spacing={1}
+              alignItems="flex-start"
+              flexWrap="wrap"
+              useFlexGap
+              sx={{ width: "100%" }}
+            >
+              <Chip
+                icon={<InfoIcon sx={{ fontSize: 18 }} />}
+                size="small"
+                variant="outlined"
+                label={
+                  <Box
+                    component="span"
+                    sx={{
+                      display: "block",
+                      whiteSpace: "normal",
+                      lineHeight: 1.3,
+                    }}
+                  >
+                    <b>Chú thích:</b> R/V: Vòng; T: Trận; B: Bảng; W: Thắng; L:
+                    Thua; BYE: Ưu tiên
+                  </Box>
+                }
+                sx={{
+                  maxWidth: { xs: "100%", sm: "unset" },
+                  height: "auto",
+                  alignItems: "flex-start",
+                  "& .MuiChip-label": { whiteSpace: "normal", py: 0.25 },
+                }}
+              />
+            </Stack>
+
+            {/* Huy hiệu màu: grid 2 cột trên mobile, tự giãn trên desktop */}
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(4, auto)" },
+                columnGap: { xs: 1, sm: 1.5 },
+                rowGap: { xs: 0.75, sm: 1 },
+                alignItems: "center",
+                width: "100%",
+              }}
+            >
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.75,
+                  minWidth: 0,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 0.5,
+                    bgcolor: "#2e7d32",
+                    flex: "0 0 12px",
+                  }}
+                />
+                <Typography variant="caption" sx={{ wordBreak: "break-word" }}>
+                  Xanh: hoàn thành
+                </Typography>
+              </Box>
+
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.75,
+                  minWidth: 0,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 0.5,
+                    bgcolor: "#ef6c00",
+                    flex: "0 0 12px",
+                  }}
+                />
+                <Typography variant="caption" sx={{ wordBreak: "break-word" }}>
+                  Cam: đang thi đấu
+                </Typography>
+              </Box>
+
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.75,
+                  minWidth: 0,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 0.5,
+                    bgcolor: "#f9a825",
+                    flex: "0 0 12px",
+                  }}
+                />
+                <Typography variant="caption" sx={{ wordBreak: "break-word" }}>
+                  Vàng: chuẩn bị
+                </Typography>
+              </Box>
+
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.75,
+                  minWidth: 0,
+                }}
+              >
+                <Box
+                  sx={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 0.5,
+                    bgcolor: "#9e9e9e",
+                    flex: "0 0 12px",
+                  }}
+                />
+                <Typography variant="caption" sx={{ wordBreak: "break-word" }}>
+                  Ghi: dự kiến
+                </Typography>
+              </Box>
+            </Box>
+          </Stack>
+        </Stack>
+      </Paper>
+
       <Tabs
         value={tab}
         onChange={onTabChange}
@@ -2345,20 +2829,22 @@ export default function TournamentBracket() {
                   className="re-bracket"
                   sx={{ overflowX: { xs: "auto", sm: "visible" }, pb: 1 }}
                 >
-                  <HeightSyncProvider roundsKey={roundsKeyRE}>
-                    <Bracket
-                      rounds={reRounds}
-                      renderSeedComponent={(props) => (
-                        <CustomSeed
-                          {...props}
-                          onOpen={openMatch}
-                          championMatchId={null}
-                          resolveSideLabel={resolveSideLabel}
-                        />
-                      )}
-                      mobileBreakpoint={0}
-                    />
-                  </HeightSyncProvider>
+                  <HighlightProvider>
+                    <HeightSyncProvider roundsKey={roundsKeyRE}>
+                      <Bracket
+                        rounds={reRounds}
+                        renderSeedComponent={(props) => (
+                          <CustomSeed
+                            {...props}
+                            onOpen={openMatch}
+                            championMatchId={null}
+                            resolveSideLabel={resolveSideLabel}
+                          />
+                        )}
+                        mobileBreakpoint={0}
+                      />
+                    </HeightSyncProvider>
+                  </HighlightProvider>
                 </Box>
                 {!currentMatches.length && (
                   <Typography variant="caption" color="text.secondary">
@@ -2463,20 +2949,22 @@ export default function TournamentBracket() {
                 )}
 
                 <Box sx={{ overflowX: { xs: "auto", sm: "visible" }, pb: 1 }}>
-                  <HeightSyncProvider roundsKey={roundsKeyKO}>
-                    <Bracket
-                      rounds={roundsToRender}
-                      renderSeedComponent={(props) => (
-                        <CustomSeed
-                          {...props}
-                          onOpen={openMatch}
-                          championMatchId={finalMatchId}
-                          resolveSideLabel={resolveSideLabel}
-                        />
-                      )}
-                      mobileBreakpoint={0}
-                    />
-                  </HeightSyncProvider>
+                  <HighlightProvider>
+                    <HeightSyncProvider roundsKey={roundsKeyKO}>
+                      <Bracket
+                        rounds={roundsToRender}
+                        renderSeedComponent={(props) => (
+                          <CustomSeed
+                            {...props}
+                            onOpen={openMatch}
+                            championMatchId={finalMatchId}
+                            resolveSideLabel={resolveSideLabel}
+                          />
+                        )}
+                        mobileBreakpoint={0}
+                      />
+                    </HeightSyncProvider>
+                  </HighlightProvider>
                 </Box>
 
                 {currentMatches.length === 0 && prefillRounds && (

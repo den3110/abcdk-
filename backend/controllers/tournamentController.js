@@ -180,10 +180,7 @@ const getTournamentById = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   // lấy tournament
-  const tour = await Tournament.findById(id)
-    // .populate('createdBy', 'name avatar') // nếu muốn kèm info chủ giải
-    .lean();
-
+  const tour = await Tournament.findById(id).lean();
   if (!tour) {
     res.status(404);
     throw new Error("Tournament not found");
@@ -194,11 +191,10 @@ const getTournamentById = asyncHandler(async (req, res) => {
   // load managers
   const managerRows = await TournamentManager.find({ tournament: id })
     .select("user role")
-    // .populate('user', 'name avatar') // nếu muốn kèm info user
     .lean();
 
   const managers = managerRows.map((r) => ({
-    user: r.user, // hoặc r.user._id nếu populate
+    user: r.user,
     role: r.role,
   }));
 
@@ -206,12 +202,25 @@ const getTournamentById = asyncHandler(async (req, res) => {
   const amManager =
     amOwner || (!!meId && managerRows.some((r) => String(r.user) === meId));
 
-  // trả về đầy đủ tour + flags tiện dụng
+  // === NEW: thống kê đăng ký & check-in theo Registration ===
+  const [registrationsCount, checkedInCount] = await Promise.all([
+    Registration.countDocuments({ tournament: id }),
+    Registration.countDocuments({
+      tournament: id,
+      checkinAt: { $ne: null },
+    }),
+  ]);
+
+  // trả về đầy đủ tour + flags + stats
   res.json({
     ...tour,
     managers,
     amOwner,
     amManager,
+    stats: {
+      registrationsCount, // số đội đăng ký
+      checkedInCount,     // số đội đã check-in
+    },
   });
 });
 

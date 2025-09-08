@@ -24,6 +24,11 @@ const DEFAULTS = {
       youtube: "https://youtube.com",
       zalo: "#",
     },
+    // 👇 NEW: links cửa hàng ứng dụng
+    apps: {
+      appStore: "",     // vd: https://apps.apple.com/app/idXXXXXXXXX
+      playStore: "",    // vd: https://play.google.com/store/apps/details?id=...
+    },
   },
 };
 
@@ -58,24 +63,32 @@ function normalize(slug, doc) {
   };
 }
 
+// Hỗ trợ cả 2 kiểu payload: {data:{...}} (cũ) và {...} (mới)
+function extractPayload(body) {
+  if (!body || typeof body !== "object") return null;
+  const candidate = body.data && typeof body.data === "object" && !Array.isArray(body.data)
+    ? body.data
+    : body;
+  if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) return candidate;
+  return null;
+}
+
 async function getBlock(req, res, slug) {
   try {
     const doc = await CmsBlock.findOne({ slug }).lean();
     return res.json(normalize(slug, doc));
   } catch (err) {
-    return res
-      .status(500)
-      .json({ message: err.message || "Internal Server Error" });
+    return res.status(500).json({ message: err.message || "Internal Server Error" });
   }
 }
 
 async function updateBlock(req, res, slug) {
   try {
-    const payload = req.body?.data;
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    const payload = extractPayload(req.body);
+    if (!payload) {
       return res
         .status(400)
-        .json({ message: "Invalid payload: 'data' must be an object" });
+        .json({ message: "Invalid payload: must be an object (or { data: object })" });
     }
 
     // Lấy current để deep-merge
@@ -91,9 +104,7 @@ async function updateBlock(req, res, slug) {
 
     return res.json(normalize(slug, updated));
   } catch (err) {
-    return res
-      .status(500)
-      .json({ message: err.message || "Internal Server Error" });
+    return res.status(500).json({ message: err.message || "Internal Server Error" });
   }
 }
 

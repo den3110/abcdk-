@@ -107,7 +107,6 @@ export async function getNameMap(regIds = [], evType = "single") {
   return map;
 }
 
-
 async function computeReveals(session) {
   const evType = eventTypeOf(
     await Tournament.findById(session.tournament).select("eventType")
@@ -645,6 +644,26 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       pairCount
     );
 
+    /**
+     * ⛔ XÓA SẠCH TRẬN CŨ CỦA VÒNG ĐANG BỐC
+     * - Chỉ xoá vòng hiện tại (không xoá vòng trước để còn lấy winners nếu cần).
+     * - Với roundElim (PO), logic hiển thị sẽ hoàn toàn dựa vào reveals mới.
+     */
+    try {
+      const clearQuery = { bracket: bracket._id };
+      if (Number.isFinite(roundNumber)) clearQuery.round = roundNumber;
+      await Match.deleteMany(clearQuery);
+    } catch (e) {
+      // Không chặn flow bốc thăm, nhưng log để theo dõi
+      console.error(
+        "[startDraw] Failed to clear matches for bracket",
+        bracket._id,
+        "round",
+        roundNumber,
+        e
+      );
+    }
+
     if (usePrevWinners) {
       if (roundNumber <= 1) {
         res.status(400);
@@ -715,6 +734,24 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
 /**
  * POST /api/draw/:drawId/next
  */
+// Helper dựng tên hiển thị từ registration
+const _pName = (p) =>
+  p?.nickName || p?.fullName || p?.name || p?.displayName || null;
+
+const displayNameFromReg = (reg, eventType) => {
+  if (!reg) return null;
+  const teamFallback =
+    reg.teamName || reg.nickName || reg.name || reg.displayName || null;
+  const single = String(eventType || "")
+    .toLowerCase()
+    .includes("single");
+  const p1 = _pName(reg.player1) || reg.player1Name || null;
+  if (single) return p1 || teamFallback || "—";
+  const p2 = _pName(reg.player2) || reg.player2Name || null;
+  if (p1 && p2) return `${p1} & ${p2}`;
+  return p1 || teamFallback || "—";
+};
+
 export const drawNext = expressAsyncHandler(async (req, res) => {
   const { drawId } = req.params;
 
@@ -730,17 +767,16 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     throw new Error(`Cannot draw when session status = ${sess.status}`);
   }
 
-  // Lấy eventType (và chặn null)
+  // Lấy eventType
   const tour = await Tournament.findById(sess.tournament).select("eventType");
   if (!tour) {
     res.status(404);
     throw new Error("Tournament not found for this draw session");
   }
 
-  // Dựng DTO và chuẩn hoá field để tránh undefined
+  // Chuẩn hoá DTO
   const dto = sess.toObject();
   dto.__eventType = eventTypeOf(tour);
-
   dto.pool = Array.isArray(dto.pool) ? dto.pool : [];
   dto.taken = Array.isArray(dto.taken) ? dto.taken : [];
   dto.board = dto.board ?? {};
@@ -748,7 +784,7 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
   dto.mode =
     dto.mode ?? (Array.isArray(dto.board?.groups) ? "group" : "knockout");
 
-  // Chuẩn hoá cấu trúc board theo mode
+  // Chuẩn hoá board theo mode
   if (dto.mode === "group") {
     if (!Array.isArray(dto.board.groups) || dto.board.groups.length === 0) {
       const ok = rebuildGroupsFromMeta(dto);
@@ -757,7 +793,6 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
         throw new Error("Board.groups is not initialized");
       }
     }
-    // Mỗi group phải có slots là mảng
     dto.board.groups = dto.board.groups.map((g, idx) => {
       const group = g ?? {};
       if (!Array.isArray(group.slots)) {
@@ -767,7 +802,6 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
       return group;
     });
   } else {
-    // KO / pairs mode
     dto.board.pairs = Array.isArray(dto.board.pairs) ? dto.board.pairs : [];
     if (dto.board.pairs.length === 0) {
       res.status(400);
@@ -775,10 +809,10 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  // Đảm bảo cursor hiện tại đang ở slot trống
+  // Đảm bảo cursor hiện ở slot trống
   advanceCursor(dto);
 
-  // === Reveal logic ===
+  // ===== GROUP MODE =====
   if (dto.mode === "group") {
     const { gIndex: gi, slotIndex: si } = dto.cursor || {};
     if (
@@ -795,7 +829,7 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
       throw new Error("Slot already filled (concurrent op?)");
     }
 
-    // 1) Ưu tiên lấy đội preassign cho slot hiện tại (đọc trực tiếp từ Bracket.slotPlan)
+    // Ưu tiên preassign
     let chosen = await findPreassignedRegForSlot(
       sess.bracket,
       dto.board,
@@ -803,7 +837,7 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
       si
     );
 
-    // 2) Nếu không có preassign → mới rút từ pool
+    // Nếu không có preassign → rút từ pool
     if (!chosen) {
       if (!Array.isArray(dto.pool) || dto.pool.length === 0) {
         res.status(400);
@@ -819,12 +853,17 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     // Đặt vào slot
     dto.board.groups[gi].slots[si] = asId(chosen);
 
+    // Ghi lại vị trí vừa gán (trước khi cursor nhảy)
+    const filledGroup = dto.board.groups[gi] || {};
+    const filledGroupCode =
+      filledGroup.key || filledGroup.code || String.fromCharCode(65 + gi);
+
     // Cập nhật pool/taken và cursor
     dto.pool = dto.pool.filter((x) => String(x) !== String(chosen));
     dto.taken = [...dto.taken, asId(chosen)];
     advanceCursor(dto);
 
-    // Persist về session
+    // Persist
     sess.board = dto.board;
     sess.pool = dto.pool;
     sess.taken = dto.taken;
@@ -836,16 +875,35 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
       by: req.user?._id || null,
       at: new Date(),
     });
-
     await sess.save();
 
+    // Socket update
     const io = req.app.get("io");
     await emitUpdate(io, sess);
 
-    return res.json(sess);
+    // Lấy tên đội vừa bốc
+    const reg = await Registration.findById(chosen)
+      .select("teamName nickName name displayName player1 player2")
+      .populate("player1", "nickName fullName name displayName")
+      .populate("player2", "nickName fullName name displayName")
+      .lean();
+    const nextName =
+      displayNameFromReg(reg, dto.__eventType) ||
+      `#${String(chosen).slice(-6)}`;
+
+    // Response có thêm field `next`
+    const out = sess.toObject();
+    out.next = {
+      type: "group",
+      regId: asId(chosen),
+      name: nextName,
+      groupCode: filledGroupCode,
+      slotIndex: si,
+    };
+    return res.json(out);
   }
 
-  // KO / pairs mode (giữ nguyên)
+  // ===== KO / PAIRS MODE =====
   if (!Array.isArray(dto.pool) || dto.pool.length === 0) {
     res.status(400);
     throw new Error("Pool is empty");
@@ -855,11 +913,13 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("No candidate available");
   }
+
   const { pairIndex: pi, side } = dto.cursor || {};
   if (typeof pi !== "number" || !dto.board.pairs[pi]) {
     res.status(409);
     throw new Error("Invalid cursor for KO mode");
   }
+
   if (side === "A") {
     if (dto.board.pairs[pi].a) {
       res.status(409);
@@ -873,10 +933,17 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     }
     dto.board.pairs[pi].b = asId(chosen);
   }
+
+  // Ghi lại vị trí vừa gán (trước khi cursor nhảy)
+  const filledPairIndex = pi;
+  const filledSide = side;
+
+  // Cập nhật pool/taken và cursor
   dto.pool = dto.pool.filter((x) => String(x) !== String(chosen));
   dto.taken = [...dto.taken, asId(chosen)];
   advanceCursor(dto);
 
+  // Persist
   sess.board = dto.board;
   sess.pool = dto.pool;
   sess.taken = dto.taken;
@@ -888,12 +955,31 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     by: req.user?._id || null,
     at: new Date(),
   });
-
   await sess.save();
+
+  // Socket update
   const io = req.app.get("io");
   await emitUpdate(io, sess);
 
-  res.json(sess);
+  // Lấy tên đội vừa bốc
+  const reg = await Registration.findById(chosen)
+    .select("teamName nickName name displayName player1 player2")
+    .populate("player1", "nickName fullName name displayName")
+    .populate("player2", "nickName fullName name displayName")
+    .lean();
+  const nextName =
+    displayNameFromReg(reg, dto.__eventType) || `#${String(chosen).slice(-6)}`;
+
+  // Response có thêm field `next`
+  const out = sess.toObject();
+  out.next = {
+    type: "ko",
+    regId: asId(chosen),
+    name: nextName,
+    pairIndex: filledPairIndex,
+    side: filledSide, // 'A' | 'B'
+  };
+  return res.json(out);
 });
 
 /**
@@ -1364,6 +1450,7 @@ async function propagateWinnerToNextMatch(matchId) {
 }
 
 // ====== API: Assign BYEs ======
+// ====== API: Assign BYEs ======
 export const assignByes = expressAsyncHandler(async (req, res) => {
   const { bracketId } = req.params;
   const {
@@ -1386,6 +1473,7 @@ export const assignByes = expressAsyncHandler(async (req, res) => {
     throw new Error("Tournament not found");
   }
 
+  // Lấy các trận KO/PO (không phải group)
   const q = { bracket: br._id, format: { $ne: "group" } };
   if (Number.isFinite(Number(round))) q.round = Number(round);
   if (Array.isArray(matchIds) && matchIds.length) {
@@ -1393,11 +1481,12 @@ export const assignByes = expressAsyncHandler(async (req, res) => {
   }
   const matches = await Match.find(q).lean();
 
+  // Tìm slot BYE còn trống
   const openByeSlots = [];
   for (const m of matches) {
     const aIsBye = m?.seedA?.type === "bye";
     const bIsBye = m?.seedB?.type === "bye";
-    if (aIsBye && !m?.pairA)
+    if (aIsBye && !m?.pairA) {
       openByeSlots.push({
         match: m,
         matchId: m._id,
@@ -1405,7 +1494,8 @@ export const assignByes = expressAsyncHandler(async (req, res) => {
         order: m.order || 0,
         side: "A",
       });
-    if (bIsBye && !m?.pairB)
+    }
+    if (bIsBye && !m?.pairB) {
       openByeSlots.push({
         match: m,
         matchId: m._id,
@@ -1413,6 +1503,7 @@ export const assignByes = expressAsyncHandler(async (req, res) => {
         order: m.order || 0,
         side: "B",
       });
+    }
   }
 
   if (!openByeSlots.length) {
@@ -1424,6 +1515,7 @@ export const assignByes = expressAsyncHandler(async (req, res) => {
     });
   }
 
+  // Build pool ứng viên
   let candidates = [];
   const modeSel = source?.mode;
 
@@ -1461,7 +1553,10 @@ export const assignByes = expressAsyncHandler(async (req, res) => {
       const picked = mixed.slice(0, takePerGroup);
       const regIds = picked.map((r) => r.registrationId);
       if (regIds.length) {
-        const regs2 = await Registration.find({ _id: { $in: regIds } })
+        const regs2 = await Registration.find({
+          _id: { $in: regIds },
+          tournament: br.tournament,
+        })
           .select("_id player1 player2")
           .lean();
         candidates.push(...regs2);
@@ -1500,7 +1595,7 @@ export const assignByes = expressAsyncHandler(async (req, res) => {
     });
   }
 
-  // loại trùng
+  // Loại trùng ứng viên
   {
     const seen = new Set();
     candidates = candidates.filter((c) => {
@@ -1511,17 +1606,16 @@ export const assignByes = expressAsyncHandler(async (req, res) => {
     });
   }
 
+  // Ưu tiên slot theo (round asc, order asc, side A trước B)
   openByeSlots.sort((x, y) => {
     if (x.round !== y.round) return x.round - y.round;
     if (x.order !== y.order) return x.order - y.order;
     return x.side === y.side ? 0 : x.side === "A" ? -1 : 1;
   });
 
-  const maxAssign = Math.min(
-    openByeSlots.length,
-    candidates.length,
-    Number.isFinite(Number(limit)) ? Number(limit) : Infinity
-  );
+  // Bắt cặp slot ↔ candidates
+  const lim = Number.isFinite(Number(limit)) ? Number(limit) : Infinity;
+  const maxAssign = Math.min(openByeSlots.length, candidates.length, lim);
 
   const assignments = [];
   for (let i = 0; i < maxAssign; i++) {
@@ -1549,49 +1643,30 @@ export const assignByes = expressAsyncHandler(async (req, res) => {
     });
   }
 
+  // ⛔️ KHÔNG auto-finish: gộp update theo trận, chỉ set pairA/pairB + updatedAt
+  const byMatch = assignments.reduce((acc, a) => {
+    const k = String(a.matchId);
+    (acc[k] ||= []).push(a);
+    return acc;
+  }, {});
+
   const ops = [];
-  for (const a of assignments) {
-    const m = matches.find((mm) => String(mm._id) === String(a.matchId));
-    if (!m) continue;
-
-    const setObj = a.side === "A" ? { pairA: a.regId } : { pairB: a.regId };
-
-    const otherSide = a.side === "A" ? "B" : "A";
-    const otherSeedIsBye = m?.[`seed${otherSide}`]?.type === "bye";
-    const otherPairFilled =
-      otherSide === "A" ? Boolean(m.pairA) : Boolean(m.pairB);
-
-    const shouldFinish = otherSeedIsBye && !otherPairFilled;
-
-    const update = {
-      $set: {
-        ...setObj,
-        updatedAt: new Date(),
-        ...(shouldFinish
-          ? {
-              status: "finished",
-              winner: a.side,
-              reason: "BYE",
-              gameScores: [],
-              finishedAt: new Date(),
-            }
-          : {}),
-      },
-    };
-
+  for (const [matchId, list] of Object.entries(byMatch)) {
+    const setObj = { updatedAt: new Date() };
+    for (const a of list) {
+      if (a.side === "A") setObj.pairA = a.regId;
+      else setObj.pairB = a.regId;
+    }
     ops.push({
-      updateOne: { filter: { _id: asId(a.matchId) }, update },
+      updateOne: {
+        filter: { _id: asId(matchId) },
+        update: { $set: setObj }, // tuyệt đối không set status/winner/reason/finishedAt
+      },
     });
   }
 
   if (ops.length) await Match.bulkWrite(ops);
 
-  for (const a of assignments) {
-    const m = await Match.findById(a.matchId).select("status").lean();
-    if (m?.status === "finished") {
-      await propagateWinnerToNextMatch(a.matchId);
-    }
-  }
-
+  // ⛔️ Không propagateWinnerToNextMatch ở đây
   return res.json({ ok: true, assigned: assignments.length, preview });
 });

@@ -1,7 +1,8 @@
 // src/components/Header.jsx
 import React, { useState } from "react";
 import { useSelector, useDispatch } from "react-redux";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { ArrowBackIosNew as BackIcon } from "@mui/icons-material";
 import {
   AppBar,
   Toolbar,
@@ -37,11 +38,26 @@ const navConfig = [
 ];
 
 const Header = () => {
+  const location = useLocation();
   const { userInfo } = useSelector((state) => state.auth);
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const [logoutApiCall] = useLogoutMutation();
+  const [canGoBack, setCanGoBack] = useState(false);
 
+  // Các tab gốc của MobileBottomNav – đứng ở các path này thì ẩn nút back
+  const BOTTOM_NAV_TABS = React.useMemo(
+    () =>
+      new Set([
+        "/", // Trang chủ
+        "/pickle-ball/tournaments",
+        "/pickle-ball/rankings",
+        "/my-tournaments",
+        "/profile",
+      ]),
+    []
+  );
+  const isOnBottomNavTab = BOTTOM_NAV_TABS.has(location.pathname);
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
@@ -64,11 +80,42 @@ const Header = () => {
     }
   };
 
+  React.useEffect(() => {
+    try {
+      const st = window.history?.state;
+      if (st && typeof st.idx === "number") {
+        setCanGoBack(st.idx > 0);
+      } else {
+        // referrer khác rỗng => có trang trước (kể cả từ ngoài app)
+        setCanGoBack(Boolean(document.referrer));
+      }
+    } catch {
+      setCanGoBack(false);
+    }
+    // dùng location.key để update theo từng lần chuyển route
+  }, [location.key]);
+
   return (
     <AppBar position="static" color="primary" elevation={2}>
       <Toolbar sx={{ px: { xs: 2, sm: 3 }, justifyContent: "space-between" }}>
         {/* Logo + Nav */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+          {isMobile && canGoBack && !isOnBottomNavTab && (
+            <IconButton
+              aria-label="Quay lại"
+              edge="start"
+              onClick={() => navigate(-1)}
+              sx={{
+                mr: 0.5,
+                color: "inherit",
+                // cảm giác iOS: hit area lớn, icon nhỏ gọn
+                p: 1,
+                "& .MuiSvgIcon-root": { fontSize: 18 },
+              }}
+            >
+              <BackIcon />
+            </IconButton>
+          )}
           <Typography
             variant="h6"
             component={Link}
@@ -93,13 +140,22 @@ const Header = () => {
                 </Button>
               ))}
 
-            <Button
+            {/* <Button
               component={Link}
               to="/contact"
               sx={{ color: "white", textTransform: "none" }}
             >
               Liên hệ
-            </Button>
+            </Button> */}
+            {userInfo && (
+              <Button
+                component={Link}
+                to="/my-tournaments"
+                sx={{ color: "white", textTransform: "none" }}
+              >
+                Giải của tôi
+              </Button>
+            )}
           </Box>
         </Box>
 

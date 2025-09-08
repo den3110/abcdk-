@@ -19,6 +19,9 @@ import bracketRoutes from "./routes/bracketRoutes.js";
 import drawSettingsRoutes from "./routes/drawSettingsRoutes.js";
 import progressionRoutes from "./routes/progressionRoutes.js";
 import matchRoutes from "./routes/matchesRoutes.js"
+import pushTokenRoutes from "./routes/pushTokenRoutes.js";
+import subscriptionsRoutes from "./routes/subscriptionsRoutes.js";
+import notifyRoutes from "./routes/notifyRoutes.js";
 
 import cmsRoutes from "./routes/cmsRoutes.js";
 import { initSocket } from "./socket/index.js";
@@ -79,6 +82,9 @@ app.use("/api/d", drawSettingsRoutes);
 app.use("/api/progression", progressionRoutes);
 app.use("/api/cms", cmsRoutes);
 app.use("/api/matches", matchRoutes);
+app.use("/api/push", pushTokenRoutes);
+app.use("/api/subscriptions", subscriptionsRoutes);
+app.use("/api/events", notifyRoutes);
 
 if (process.env.NODE_ENV === "production") {
   const __dirname = path.resolve();
