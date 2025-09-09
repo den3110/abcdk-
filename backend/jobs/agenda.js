@@ -5,6 +5,9 @@ import dotenv from "dotenv";
 import mongoose from "mongoose";
 dotenv.config();
 
+// 🆕 xác định môi trường
+const isProd = process.env.NODE_ENV === "production";
+
 // 🆕 tách hàm tạo instance để ưu tiên xài kết nối có sẵn
 function buildAgendaInstance() {
   const collection = process.env.AGENDA_COLLECTION || "jobs";
@@ -17,6 +20,9 @@ function buildAgendaInstance() {
     mongoose?.connection?.readyState === 1 && mongoose?.connection?.db;
 
   if (hasMongoose) {
+    console.log(
+      `[agenda] Using existing mongoose connection (${isProd ? "PROD" : "DEV"})`
+    );
     return new Agenda({
       // Agenda chấp nhận native Db của driver
       mongo: mongoose.connection.db,
@@ -26,13 +32,22 @@ function buildAgendaInstance() {
     });
   }
 
-  // Fallback: dùng MONGO_URI
-  const address = process.env.MONGO_URI;
+  // 🆕 Fallback: tự kết nối theo NODE_ENV
+  //    production -> MONGO_URI_PROD
+  //    development (hoặc khác) -> MONGO_URI
+  const address = isProd ? process.env.MONGO_URI_PROD : process.env.MONGO_URI;
+
   if (!address) {
     throw new Error(
-      "[agenda] MONGO_URI is not set and no existing mongoose connection found."
+      "[agenda] Mongo URI not set. Expected " +
+        (isProd ? "MONGO_URI_PROD" : "MONGO_URI") +
+        " for current NODE_ENV."
     );
   }
+
+  console.log(
+    `[agenda] Creating standalone Agenda connection -> ${isProd ? "MONGO_URI_PROD" : "MONGO_URI"}`
+  );
 
   return new Agenda({
     db: { address, collection },

@@ -8,10 +8,14 @@ import User from "../backend/models/userModel.js";
 dotenv.config();
 const prompt = promptSync({ sigint: true });
 
+// 🔑 Chọn URI theo NODE_ENV
+const isProd = process.env.NODE_ENV === "production";
+const MONGO_URI = isProd ? process.env.MONGO_URI_PROD : process.env.MONGO_URI;
+
 (async () => {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log("🔗  Đã kết nối MongoDB");
+    await mongoose.connect(MONGO_URI);
+    console.log(`🔗  Đã kết nối MongoDB (${isProd ? "PROD" : "DEV"})`);
 
     /* ---------- Hỏi thông tin ---------- */
     const email = prompt("Nhập email admin: ").trim().toLowerCase();
@@ -41,7 +45,7 @@ const prompt = promptSync({ sigint: true });
     const admin = await User.create({
       name: "Super Admin",
       email,
-      password: password,
+      password,
       phone: `000${Date.now()}`,
       role: "admin",
     });
@@ -49,7 +53,7 @@ const prompt = promptSync({ sigint: true });
     console.log("✅  Đã tạo admin :", admin.email);
     process.exit(0);
   } catch (err) {
-    console.error(err);
+    console.error("❌  Lỗi:", err);
     process.exit(1);
   }
 })();
