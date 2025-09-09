@@ -39,6 +39,7 @@ const rankingFieldFor = (eventType) => {
  * Trả về number hoặc null nếu chưa có.
  */
 async function getRankingScore(userId, eventType) {
+  if (!userId) return null;
   const r = await Ranking.findOne({ user: userId })
     .select("single double mix points")
     .lean();
@@ -108,10 +109,13 @@ function inRegWindow(tour) {
  * Trả về:
  *  {
  *    ok: boolean,
- *    s1: number, s2: number,          // điểm lấy từ ScoreHistory (phục vụ CAP/validate)
- *    noPointCap: boolean,             // nếu true, bỏ qua mọi check điểm & ghi 0 khi snapshot
+ *    s1: number, s2: number,          // điểm lấy từ ScoreHistory để validate cap/xếp loại
  *    reason, message                  // nếu !ok
  *  }
+ *
+ * Semantics:
+ *  - scoreCap = 0  => KHÔNG GIỚI HẠN tổng đôi (bỏ check pair cap)
+ *  - singleCap = 0 => KHÔNG GIỚI HẠN từng VĐV (bỏ check single cap)
  */
 async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
   const isSingle = eventType === "single";
@@ -127,9 +131,9 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
   }
 
   // (2) Full chỗ
-  if (tour.maxPairs && tour.maxPairs > 0) {
+  if (Number(tour.maxPairs) > 0) {
     const cnt = await Registration.countDocuments({ tournament: tour._id });
-    if (cnt >= tour.maxPairs) {
+    if (cnt >= Number(tour.maxPairs)) {
       return {
         ok: false,
         reason: "full",
@@ -147,39 +151,41 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
     };
   }
 
-  // (4) Điểm trình dùng để validate CAP (lấy từ ScoreHistory)
-  const noPointCap = Number(tour.scoreCap) === 0; // mở cap => bỏ qua mọi check điểm
-  let s1 = 0,
-    s2 = 0;
+  // (4) Tính điểm để kiểm tra cap từ ScoreHistory (không liên quan snapshot)
+  const map = await latestScoresMap(ids);
+  const key = eventType === "double" ? "double" : "single";
+  const s1 = map.get(String(p1UserId))?.[key] ?? 0;
+  const s2 = isSingle ? 0 : map.get(String(p2UserId))?.[key] ?? 0;
 
-  if (!noPointCap) {
-    const map = await latestScoresMap(ids);
-    const key = eventType === "double" ? "double" : "single";
-    s1 = map.get(String(p1UserId))?.[key] ?? 0;
-    s2 = isSingle ? 0 : map.get(String(p2UserId))?.[key] ?? 0;
+  // Bật/tắt cap theo giá trị > 0
+  const singleCap = Number(tour.singleCap);
+  const singleCapEnabled = Number.isFinite(singleCap) && singleCap > 0;
 
-    if (typeof tour.singleCap === "number" && tour.singleCap > 0) {
-      if (s1 > tour.singleCap || (!isSingle && s2 > tour.singleCap)) {
-        return {
-          ok: false,
-          reason: "single_cap_exceeded",
-          message: "Điểm của 1 VĐV vượt giới hạn",
-        };
-      }
-    }
-    if (!isSingle && Number(tour.scoreCap) > 0) {
-      const gap = Number(tour.scoreGap) || 0;
-      if (s1 + s2 > Number(tour.scoreCap) + gap) {
-        return {
-          ok: false,
-          reason: "pair_cap_exceeded",
-          message: "Tổng điểm đôi vượt giới hạn",
-        };
-      }
+  const pairCap = Number(tour.scoreCap);
+  const pairCapEnabled = Number.isFinite(pairCap) && pairCap > 0;
+  const gap = Number(tour.scoreGap) || 0;
+
+  if (singleCapEnabled) {
+    if (s1 > singleCap || (!isSingle && s2 > singleCap)) {
+      return {
+        ok: false,
+        reason: "single_cap_exceeded",
+        message: "Điểm của 1 VĐV vượt giới hạn",
+      };
     }
   }
 
-  return { ok: true, s1, s2, noPointCap };
+  if (!isSingle && pairCapEnabled) {
+    if (s1 + s2 > pairCap + gap) {
+      return {
+        ok: false,
+        reason: "pair_cap_exceeded",
+        message: "Tổng điểm đôi vượt giới hạn",
+      };
+    }
+  }
+
+  return { ok: true, s1, s2 };
 }
 
 /* ---------- Finalize nếu đủ xác nhận ---------- */
@@ -228,12 +234,8 @@ async function finalizeIfReady(invite) {
       : getRankingScore(invite.player2?.user, invite.eventType),
   ]);
 
-  const p1Score = pf.noPointCap ? 0 : preferScore(rank1, pf.s1, u1?.score);
-  const p2Score = isSingle
-    ? null
-    : pf.noPointCap
-    ? 0
-    : preferScore(rank2, pf.s2, u2?.score);
+  const p1Score = preferScore(rank1, pf.s1, u1?.score);
+  const p2Score = isSingle ? null : preferScore(rank2, pf.s2, u2?.score);
 
   const reg = await Registration.create({
     tournament: tour._id,
@@ -386,12 +388,8 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
 
   // ====== ⛳ ADMIN: tạo Registration trực tiếp (auto-approve) ======
   if (isAdmin) {
-    const s1 = pf?.noPointCap ? 0 : preferScore(rank1, pf?.s1, u1?.score);
-    const s2 = isSingle
-      ? null
-      : pf?.noPointCap
-      ? 0
-      : preferScore(rank2, pf?.s2, u2?.score);
+    const s1 = preferScore(rank1, pf?.s1, u1?.score);
+    const s2 = isSingle ? null : preferScore(rank2, pf?.s2, u2?.score);
 
     const snap = (u, score) => ({
       user: u._id,
@@ -420,12 +418,8 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   }
 
   // ====== 👤 USER THƯỜNG: tạo lời mời (auto-accept nếu người tạo trùng VĐV tương ứng) ======
-  const p1Score = pf.noPointCap ? 0 : preferScore(rank1, pf.s1, u1?.score);
-  const p2Score = isSingle
-    ? null
-    : pf.noPointCap
-    ? 0
-    : preferScore(rank2, pf.s2, u2?.score);
+  const p1Score = preferScore(rank1, pf.s1, u1?.score);
+  const p2Score = isSingle ? null : preferScore(rank2, pf.s2, u2?.score);
 
   const invite = await RegInvite.create({
     tournament: tour._id,

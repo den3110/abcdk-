@@ -2,6 +2,7 @@
 import asyncHandler from "express-async-handler";
 import User from "../../models/userModel.js";
 import { CATEGORY, EVENTS, publishNotification } from "../../services/notifications/notificationHub.js";
+import mongoose from "mongoose";
 
 /**
  * GET  /api/admin/users
