@@ -9,6 +9,11 @@ import {
 } from "../socket/liveHandlers.js";
 import mongoose from "mongoose";
 import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
+import {
+  CATEGORY,
+  EVENTS,
+  publishNotification,
+} from "../services/notifications/notificationHub.js";
 
 /* ───────── helpers ───────── */
 function isGameWin(a = 0, b = 0, rules) {
@@ -306,6 +311,7 @@ async function broadcastScoreUpdated(io, matchId) {
   const snap = await loadMatchWithNickForEmit(matchId);
   if (snap) io?.to(`match:${matchId}`)?.emit("score:updated", toDTO(snap));
 }
+
 export const patchScore = asyncHandler(async (req, res) => {
   // ================== Helpers (CAP-aware) ==================
   const isFinitePos = (n) => Number.isFinite(n) && n > 0;
@@ -679,47 +685,64 @@ export const patchScore = asyncHandler(async (req, res) => {
 export const patchStatus = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { status } = req.body || {};
+
   if (!["scheduled", "live", "finished"].includes(status)) {
     return res.status(400).json({ message: "Invalid status" });
   }
 
+  // Tìm trận
   const match = await Match.findById(id);
   if (!match) return res.status(404).json({ message: "Match not found" });
 
   const prevStatus = match.status;
   match.status = status;
 
-  // ★ NEW: nếu chuyển sang live lần đầu → đóng dấu thời gian bắt đầu
-  if (status === "live" && prevStatus !== "live") {
+  // Nếu chuyển sang live lần đầu → đóng dấu bắt đầu & lưu người bật (optional)
+  const justWentLive = status === "live" && prevStatus !== "live";
+  if (justWentLive) {
     if (!match.startedAt) match.startedAt = new Date();
-    if (req.user?._id) match.liveBy = req.user._id; // optional: lưu ai bật live
+    if (req.user?._id) match.liveBy = req.user._id;
   }
 
   await match.save();
 
+  // Emit socket thay đổi trạng thái tối giản
   const io = req.app.get("io");
   io?.to(String(match._id)).emit("status:updated", {
     matchId: match._id,
-    status,
+    status: match.status,
   });
 
-  if (match._id) {
-    const m = await Match.findById(match._id)
-      .populate({ path: "pairA", select: "player1 player2" })
-      .populate({ path: "pairB", select: "player1 player2" })
-      .populate({ path: "referee", select: "name fullName nickname" })
-      .populate({ path: "previousA", select: "round order" })
-      .populate({ path: "previousB", select: "round order" })
-      .populate({ path: "nextMatch", select: "_id" })
-      .populate({
-        path: "tournament",
-        select: "name image eventType overlay",
-      })
-      .populate({ path: "bracket", select: "type name order overlay" })
-      .lean();
+  // Lấy snapshot đầy đủ cho client
+  const m = await Match.findById(match._id)
+    .populate({ path: "pairA", select: "player1 player2" })
+    .populate({ path: "pairB", select: "player1 player2" })
+    .populate({ path: "referee", select: "name fullName nickname" })
+    .populate({ path: "previousA", select: "round order" })
+    .populate({ path: "previousB", select: "round order" })
+    .populate({ path: "nextMatch", select: "_id" })
+    .populate({ path: "tournament", select: "name image eventType overlay" })
+    .populate({ path: "bracket", select: "type name order overlay" })
+    .select("label court scheduledAt startAt startedAt status tournament")
+    .lean();
 
-    if (m)
-      io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
+  if (m) {
+    io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
+  }
+
+  // ★★★ Gửi thông báo cho người chơi khi TRẬN BẮT ĐẦU (chỉ lần đầu vào live) ★★★
+  if (justWentLive) {
+    try {
+      await publishNotification(EVENTS.MATCH_WENT_LIVE, {
+        matchId: String(match._id),
+        topicType: "match", // để filter theo Subscription nếu bạn dùng
+        topicId: String(match._id),
+        category: CATEGORY.STATUS, // cho phép user mute theo category
+        label: m?.label || "", // render title/body đẹp hơn trong payload
+      });
+    } catch (err) {
+      console.error("[notify] MATCH_WENT_LIVE error:", err?.message);
+    }
   }
 
   return res.json({ message: "Status updated", status: match.status });
@@ -735,25 +758,78 @@ export const patchWinner = asyncHandler(async (req, res) => {
   if (!["", "A", "B"].includes(winner)) {
     return res.status(400).json({ message: "Invalid winner" });
   }
+
   const match = await Match.findById(id);
   if (!match) return res.status(404).json({ message: "Match not found" });
 
-  match.winner = winner;
+  const io = req.app.get("io");
+
+  // cập nhật trạng thái
+  const clearing = winner === "";
+  if (clearing) {
+    match.winner = "";
+    match.status = "live";
+    match.finishedAt = null;
+  } else {
+    match.winner = winner;
+    match.status = "finished";
+    if (!match.finishedAt) match.finishedAt = new Date();
+  }
+
   await match.save();
 
-  const io = req.app.get("io");
-  io?.to(String(match._id)).emit("winner:updated", {
-    matchId: match._id,
-    winner,
+  // === EMIT ra room trận (client xem live) ===
+  io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+  io?.to(`match:${id}`).emit("winner:updated", { matchId: id, winner });
+  io?.to(`match:${id}`).emit("match:patched", { matchId: id });
+
+  // === EMIT ra room scheduler (trang điều phối sân đang join) ===
+  // BE của bạn khi nhận "scheduler:join" nhiều khả năng join vào room dạng này:
+  const schedRoom = `scheduler:${String(match.tournament)}:${String(match.bracket)}`;
+
+  // luôn bắn match:update để panel gọi lại requestState()
+  io?.to(schedRoom).emit("match:update", {
+    matchId: String(match._id),
+    tournamentId: String(match.tournament),
+    bracket: String(match.bracket),
+    status: match.status,
   });
-  // phát “match:patched” cho các client đang lắng nghe tổng quát
-  io?.to(String(match._id)).emit("match:patched", { matchId: match._id });
-  try {
-    await applyRatingForFinishedMatch(match._id);
-  } catch (error) {
-    console.error("[adminUpdateMatch] applyRatingForFinishedMatch error:", e);
+
+  // nếu đã kết thúc, bonus thêm match:finish (trang này cũng đang lắng nghe)
+  if (!clearing && match.status === "finished") {
+    io?.to(schedRoom).emit("match:finish", {
+      matchId: String(match._id),
+      winner: match.winner,
+      tournamentId: String(match.tournament),
+      bracket: String(match.bracket),
+      finishedAt: match.finishedAt,
+    });
   }
-  return res.json({ message: "Winner updated", winner: match.winner });
+
+  // (tuỳ có helper) phát broadcast tổng hợp nếu app đang dùng
+  try {
+    if (typeof broadcastScoreUpdated === "function") {
+      await broadcastScoreUpdated(io, id);
+    }
+  } catch (err) {
+    console.error("[patchWinner] broadcastScoreUpdated error:", err);
+  }
+
+  // chỉ chạy rating khi đã có winner
+  if (!clearing) {
+    try {
+      await applyRatingForFinishedMatch(match._id);
+    } catch (error) {
+      console.error("[patchWinner] applyRatingForFinishedMatch error:", error);
+    }
+  }
+
+  return res.json({
+    message: "Winner updated",
+    winner: match.winner,
+    status: match.status,
+    finishedAt: match.finishedAt,
+  });
 });
 
 // ===== helpers =====

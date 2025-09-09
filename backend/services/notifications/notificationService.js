@@ -1,11 +1,11 @@
 // src/services/notificationService.js
-import Subscription from "../models/subscriptionsModel.js";
-import PushToken from "../models/pushTokenModel.js";
-import Registration from "../models/registrationModel.js";
-import Match from "../models/matchModel.js";
-import Tournament from "../models/tournamentModel.js";
+import Subscription from "../../models/subscriptionsModel.js";
+import PushToken from "../../models/pushTokenModel.js";
+import Registration from "../../models/registrationModel.js";
+import Match from "../../models/matchModel.js";
+import Tournament from "../../models/tournamentModel.js";
 import { sendToTokens } from "./expoPush.js";
-import { asId } from "../utils/ids.js";
+import { asId } from "../../utils/ids.js";
 
 /** ───── Audience resolvers ───── */
 const audienceResolvers = {

@@ -201,7 +201,11 @@ async function finalizeIfReady(invite) {
 }
 
 /* ================== Controllers ================== */
-
+// 🔧 helper nhỏ để ép kiểu an toàn
+const num = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
 /** Tạo lời mời đăng ký (user gửi lời mời cho chính mình +/ hoặc partner) */
 export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const { id } = req.params; // tournamentId
@@ -247,6 +251,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const users = await User.find({ _id: { $in: ids } })
     .select("_id name nickname phone avatar province score cccd cccdStatus")
     .lean();
+
   if (users.length !== ids.length) {
     res.status(400);
     throw new Error("Không tìm thấy VĐV hợp lệ");
@@ -254,7 +259,6 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const byId = new Map(users.map((u) => [String(u._id), u]));
   const u1 = byId.get(String(player1Id));
   const u2 = isDouble ? byId.get(String(player2Id)) : null;
-
   // xác định người tạo có chính là VĐV 1/2 không
   const creatorIsP1 =
     String(me._id) === String(u1._id) ||
@@ -266,28 +270,39 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       (!!me.phone && me.phone === (u2.phone || "")) ||
       (!!me.nickname && me.nickname === (u2.nickname || "")));
 
-  const isVerified = (u) => !!u?.cccd && u?.cccdStatus === "verified";
+  // ✅ Cho phép: verified hoặc pending; ❌ Chặn: thiếu CCCD / rejected / trạng thái khác
+  const isCCCDAllowed = (u) => {
+    const s = String(u?.cccdStatus || "").toLowerCase();
+    return !!u?.cccd && (s === "verified" || s === "pending");
+  };
 
-  // ⛔ ƯU TIÊN: nếu người tạo chính là VĐV và chưa verified → trả message "Bạn…"
-  if ((creatorIsP1 && !isVerified(u1)) || (creatorIsP2 && !isVerified(u2))) {
+  // ⛔ Nếu người tạo chính là VĐV và CCCD không hợp lệ (chưa nộp / bị từ chối) → chặn
+  if (
+    (creatorIsP1 && !isCCCDAllowed(u1)) ||
+    (creatorIsP2 && !isCCCDAllowed(u2))
+  ) {
     res.status(412);
-    throw new Error("Bạn cần xác minh CCCD để tạo đăng ký");
-  }
-
-  // Nếu người tạo không phải VĐV, nhưng VĐV chưa verified → báo theo VĐV 1/2
-  const notVerified = [];
-  if (!isVerified(u1)) notVerified.push("VĐV 1");
-  if (isDouble && !isVerified(u2)) notVerified.push("VĐV 2");
-  if (notVerified.length) {
-    // res.status(412);
     throw new Error(
-      notVerified.length === 1
-        ? `${notVerified[0]} cần xác thực CCCD trước khi tạo đăng ký`
-        : `${notVerified.join(" và ")} cần xác thực CCCD trước khi tạo đăng ký`
+      "Bạn cần nộp CCCD hợp lệ (đã xác minh hoặc đang chờ duyệt) để tạo đăng ký"
     );
   }
 
-  // preflight checks (đã xác minh CCCD nên mới vào đây)
+  // Nếu người tạo KHÔNG phải VĐV, nhưng VĐV chưa đáp ứng CCCD → báo theo VĐV 1/2
+  const notEligible = [];
+  if (!isCCCDAllowed(u1)) notEligible.push("VĐV 1");
+  if (isDouble && !isCCCDAllowed(u2)) notEligible.push("VĐV 2");
+
+  if (notEligible.length) {
+    throw new Error(
+      notEligible.length === 1
+        ? `${notEligible[0]} cần nộp CCCD hợp lệ (đã xác minh hoặc đang chờ duyệt) trước khi tạo đăng ký`
+        : `${notEligible.join(
+            " và "
+          )} cần nộp CCCD hợp lệ (đã xác minh hoặc đang chờ duyệt) trước khi tạo đăng ký`
+    );
+  }
+
+  // preflight checks (đi qua đây khi CCCD hợp lệ: verified/pending)
   const pf = await preflightChecks({
     tour,
     eventType,
@@ -301,6 +316,9 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
 
   // ====== ⛳ ADMIN: tạo Registration trực tiếp (auto-approve) ======
   if (isAdmin) {
+    const s1 = pf?.noPointCap ? 0 : pf?.s1 ?? u1?.score ?? 0;
+    const s2 = isSingle ? null : pf?.noPointCap ? 0 : pf?.s2 ?? u2?.score ?? 0;
+
     const snap = (u, score) => ({
       user: u._id,
       phone: u.phone || "",
@@ -308,13 +326,14 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       nickName: u.nickname || "",
       avatar: u.avatar || "",
       province: u.province || "",
-      score: pf?.noPointCap ? 0 : Number(score ?? u.score ?? 0),
+      // 🔧 dùng num() để chắc chắn là số
+      score: num(score),
     });
 
     const reg = await Registration.create({
       tournament: tour._id,
-      player1: snap(u1, pf?.s1),
-      player2: isSingle ? null : snap(u2, pf?.s2),
+      player1: snap(u1, s1),
+      player2: isSingle ? null : snap(u2, s2),
       message,
       createdBy: me._id,
       payment: { status: "Unpaid" },
@@ -338,7 +357,8 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       fullName: u1.name || u1.nickname || "",
       avatar: u1.avatar || "",
       province: u1.province || "",
-      score: pf.noPointCap ? 0 : pf.s1,
+      // 🔧 fallback về user.score nếu pf.s1 trống
+      score: num(p1Score),
     },
     player2: isSingle
       ? null
@@ -349,7 +369,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
           fullName: u2.name || u2.nickname || "",
           avatar: u2.avatar || "",
           province: u2.province || "",
-          score: pf.noPointCap ? 0 : pf.s2,
+          score: num(p2Score),
         },
     createdBy: me._id,
     confirmations: {
@@ -359,7 +379,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     message,
   });
 
-  // (Khuyến nghị) finalizeIfReady cũng nên re-check verified để tránh race-condition
+  // (Khuyến nghị) finalizeIfReady có thể vẫn yêu cầu verified để auto-chốt; pending vẫn tạo invite OK
   const after = await finalizeIfReady(invite);
   res.status(201).json({ invite: after, message });
 });

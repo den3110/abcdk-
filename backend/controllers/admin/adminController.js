@@ -1,6 +1,7 @@
 // controllers/adminController.js
 import asyncHandler from "express-async-handler";
 import User from "../../models/userModel.js";
+import { CATEGORY, EVENTS, publishNotification } from "../../services/notifications/notificationHub.js";
 
 /**
  * GET  /api/admin/users
@@ -90,7 +91,7 @@ export const updateUserInfo = asyncHandler(async (req, res) => {
     "dob",
     "gender",
     "province",
-    "cccd"
+    "cccd",
   ];
 
   fields.forEach((f) => {
@@ -126,16 +127,51 @@ export const updateUserInfo = asyncHandler(async (req, res) => {
 });
 /* ✨ Duyệt / Từ chối KYC */
 export const reviewUserKyc = asyncHandler(async (req, res) => {
-  const { action } = req.body; // "approve" | "reject"
+  const { action, reason = "" } = req.body || {};
+  const { id } = req.params;
+
   if (!["approve", "reject"].includes(action)) {
-    res.status(400);
-    throw new Error("Invalid action");
+    return res.status(400).json({ message: "Hành động không hợp lệ" });
   }
-  const user = await User.findById(req.params.id);
-  if (!user) throw new Error("User not found");
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ message: "ID người dùng không hợp lệ" });
+  }
 
-  user.cccdStatus = action === "approve" ? "verified" : "rejected";
+  const user = await User.findById(id).select("_id cccdStatus verified");
+  if (!user) return res.status(404).json({ message: "User not found" });
+
+  // Cập nhật trạng thái CCCD
+  const nextStatus = action === "approve" ? "verified" : "rejected";
+  user.cccdStatus = nextStatus;
+
+  // (tuỳ chọn) đồng bộ cờ verified tổng khi CCCD được duyệt
+  if (action === "approve" && user.verified !== "verified") {
+    user.verified = "verified";
+  }
+
   await user.save();
-  res.json({ message: "KYC updated", status: user.cccdStatus });
-});
 
+  // Gửi thông báo – không để lỗi notify phá hỏng response
+  try {
+    if (action === "approve") {
+      await publishNotification(EVENTS.KYC_APPROVED, {
+        userId: String(user._id),
+        topicType: "user",
+        topicId: String(user._id),
+        category: CATEGORY.KYC,
+      });
+    } else {
+      await publishNotification(EVENTS.KYC_REJECTED, {
+        userId: String(user._id),
+        topicType: "user",
+        topicId: String(user._id),
+        category: CATEGORY.KYC,
+        reason: String(reason || ""),
+      });
+    }
+  } catch (e) {
+    console.error("[notify] KYC decision failed:", e?.message);
+  }
+
+  return res.json({ message: "KYC updated", status: user.cccdStatus });
+});

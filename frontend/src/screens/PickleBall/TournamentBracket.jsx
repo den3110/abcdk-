@@ -543,8 +543,10 @@ const CustomSeed = ({
   };
   const courtName = (mm) =>
     mm?.venue?.name || mm?.court?.name || mm?.court || "";
-  const hasVideo = (mm) =>
-    !!(
+  const hasVideo = (mm) => {
+    
+    return !!(
+      mm?.video ||
       mm?.streamUrl ||
       mm?.videoUrl ||
       mm?.stream?.url ||
@@ -552,6 +554,7 @@ const CustomSeed = ({
       mm?.overlay?.roomId ||
       mm?.broadcast?.url
     );
+  };
   const statusColors = (mm) => {
     const st = String(mm?.status || "").toLowerCase();
     if (st === "finished") return { bg: "#2e7d32", fg: "#fff", key: "done" };

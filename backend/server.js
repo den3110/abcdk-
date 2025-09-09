@@ -22,13 +22,16 @@ import matchRoutes from "./routes/matchesRoutes.js"
 import pushTokenRoutes from "./routes/pushTokenRoutes.js";
 import subscriptionsRoutes from "./routes/subscriptionsRoutes.js";
 import notifyRoutes from "./routes/notifyRoutes.js";
-
 import cmsRoutes from "./routes/cmsRoutes.js";
 import { initSocket } from "./socket/index.js";
 import cors from "cors";
 import dotenv from "dotenv";
 import { startTournamentCrons } from "./jobs/tournamentCron.js";
+import { agenda, startAgenda } from "./jobs/agenda.js";
 import { initKycBot } from "./bot/kycBot.js";
+import Agendash from "agendash";
+
+
 dotenv.config();
 const port = process.env.PORT;
 const WHITELIST = [
@@ -41,6 +44,11 @@ const WHITELIST = [
 connectDB();
 
 const app = express();
+
+app.use("/admin/agendash",
+  Agendash(agenda, { middleware: "express" })
+);  
+
 // HTTP + Socket.IO
 const server = http.createServer(app);
 
@@ -113,10 +121,11 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
 }
 
 
-server.listen(port, () => {
+server.listen(port, async () => {
   try {
     console.log(`✅ Server started on port ${port}`);
     startTournamentCrons();
+    await startAgenda();
   } catch (error) {
     console.error(`❌ Error starting server: ${error.message}`);
   }

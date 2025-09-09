@@ -8,6 +8,7 @@ import { softResetChainFrom } from "../../services/matchChainReset.js";
 import applyRatingsForMatch from "../../utils/applyRatingsForMatch.js";
 import { applyRatingForFinishedMatch } from "../../utils/applyRatingForFinishedMatch.js";
 import { onMatchFinished } from "../../services/courtQueueService.js";
+import { scheduleMatchStartSoon } from "../../utils/scheduleNotifications.js";
 
 /* Tạo 1 trận trong 1 bảng */
 export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
@@ -238,7 +239,13 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
   };
   if (hasVideoField) createPayload.video = videoSanitized;
 
-  const match = await Match.create(createPayload);
+  try {
+    
+    const match = await Match.create(createPayload);
+  } catch (e) {
+    console.log(e)
+  }
+  await scheduleMatchStartSoon(match); 
 
   // Link ngược từ trận nguồn (giữ nguyên)
   if (prevMatchA) {
@@ -852,6 +859,11 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
   }
 
   await mt.save();
+  try {
+    await scheduleMatchStartSoon(mt);
+  } catch (e) {
+    console.log(e)
+  }
 
   // GIỮ LOGIC CŨ: feed winner cho các trận phụ thuộc previousA/B (KO chaining cũ)
   if (mt.status === "finished" && mt.winner) {

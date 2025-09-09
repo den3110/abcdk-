@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import Joi from "joi";
 import sanitizeHtml from "sanitize-html";
 import { DateTime } from "luxon";
+import expressAsyncHandler from "express-async-handler";
 
 import Tournament from "../../models/tournamentModel.js";
 import Registration from "../../models/registrationModel.js";
@@ -13,7 +14,7 @@ import {
   buildKnockoutBracket,
   buildRoundElimBracket,
 } from "../../services/bracketBuilder.js";
-import expressAsyncHandler from "express-async-handler";
+import { scheduleTournamentCountdown } from "../../utils/scheduleNotifications.js";
 
 /* -------------------------- Sanitize cấu hình -------------------------- */
 const SAFE_HTML = {
@@ -43,69 +44,230 @@ const SAFE_HTML = {
 
 const cleanHTML = (html = "") => sanitizeHtml(html, SAFE_HTML);
 
+/* --------------------------- Field labels (VN) --------------------------- */
+const FIELD_LABELS = {
+  name: "Tên giải đấu",
+  image: "Ảnh",
+  sportType: "Loại môn",
+  groupId: "Nhóm",
+  eventType: "Hình thức",
+  regOpenDate: "Mở đăng ký",
+  registrationDeadline: "Hạn đăng ký",
+  startDate: "Ngày bắt đầu",
+  endDate: "Ngày kết thúc",
+  scoreCap: "Điểm trần (cap)",
+  scoreGap: "Chênh lệch điểm tối thiểu",
+  singleCap: "Cap đơn",
+  maxPairs: "Số cặp tối đa",
+  location: "Địa điểm",
+  contactHtml: "Thông tin liên hệ",
+  contentHtml: "Nội dung",
+};
+
+function labelOf(pathArr = []) {
+  const joined = pathArr.join(".");
+  const last = pathArr[pathArr.length - 1];
+  return (
+    FIELD_LABELS[joined] || FIELD_LABELS[last] || joined || "Trường dữ liệu"
+  );
+}
+
+/* ------------------------- Joi common messages (VN) ------------------------- */
+const COMMON_MESSAGES = {
+  "any.required": "{{#label}} là bắt buộc",
+  "any.only": "{{#label}} không hợp lệ",
+  "any.invalid": "{{#label}} không hợp lệ",
+  "string.base": "{{#label}} phải là chuỗi",
+  "string.min": "{{#label}} phải ≥ {{#limit}} ký tự",
+  "string.max": "{{#label}} không được vượt quá {{#limit}} ký tự",
+  "string.uri": "{{#label}} phải là URL hợp lệ",
+  "number.base": "{{#label}} phải là số",
+  "number.min": "{{#label}} phải ≥ {{#limit}}",
+  "number.max": "{{#label}} phải ≤ {{#limit}}",
+  "number.integer": "{{#label}} phải là số nguyên",
+  "date.base": "{{#label}} phải là ngày hợp lệ (ISO)",
+  "date.iso": "{{#label}} phải theo định dạng ISO",
+  "date.min": "{{#label}} phải ≥ {{#limit.key}}",
+};
+
 /* ------------------------------ Joi schemas --------------------------- */
 const dateISO = Joi.date().iso();
 
 const createSchema = Joi.object({
-  name: Joi.string().trim().min(2).max(120).required(),
-  image: Joi.string().uri().allow(""),
-  sportType: Joi.number().valid(1, 2).required(),
-  groupId: Joi.number().integer().min(0).default(0),
-  eventType: Joi.string().valid("single", "double").default("double"),
+  name: Joi.string().trim().min(2).max(120).required().label(FIELD_LABELS.name),
+  image: Joi.string().uri().allow("").label(FIELD_LABELS.image),
+  sportType: Joi.number().valid(1, 2).required().label(FIELD_LABELS.sportType),
+  groupId: Joi.number().integer().min(0).default(0).label(FIELD_LABELS.groupId),
+  eventType: Joi.string()
+    .valid("single", "double")
+    .default("double")
+    .label(FIELD_LABELS.eventType),
 
-  regOpenDate: dateISO.required(),
-  registrationDeadline: dateISO.required(),
-  startDate: dateISO.required(),
+  regOpenDate: dateISO.required().label(FIELD_LABELS.regOpenDate),
+  registrationDeadline: dateISO
+    .required()
+    .label(FIELD_LABELS.registrationDeadline),
+  startDate: dateISO.required().label(FIELD_LABELS.startDate),
   // end >= start
-  endDate: dateISO.min(Joi.ref("startDate")).required(),
+  endDate: dateISO
+    .min(Joi.ref("startDate"))
+    .required()
+    .label(FIELD_LABELS.endDate),
 
-  scoreCap: Joi.number().min(0).default(0),
-  scoreGap: Joi.number().min(0).default(0),
-  singleCap: Joi.number().min(0).default(0),
-  maxPairs: Joi.number().integer().min(0).default(0),
+  scoreCap: Joi.number().min(0).default(0).label(FIELD_LABELS.scoreCap),
+  scoreGap: Joi.number().min(0).default(0).label(FIELD_LABELS.scoreGap),
+  singleCap: Joi.number().min(0).default(0).label(FIELD_LABELS.singleCap),
+  maxPairs: Joi.number()
+    .integer()
+    .min(0)
+    .default(0)
+    .label(FIELD_LABELS.maxPairs),
 
-  location: Joi.string().trim().min(2).required(),
-  contactHtml: Joi.string().allow("").max(20_000).default(""),
-  contentHtml: Joi.string().allow("").max(100_000).default(""),
-}).messages({
-  "date.min": "{{#label}} phải ≥ {{#limit.key}}",
-});
+  location: Joi.string().trim().min(2).required().label(FIELD_LABELS.location),
+  contactHtml: Joi.string()
+    .allow("")
+    .max(20_000)
+    .default("")
+    .label(FIELD_LABELS.contactHtml),
+  contentHtml: Joi.string()
+    .allow("")
+    .max(100_000)
+    .default("")
+    .label(FIELD_LABELS.contentHtml),
+})
+  .messages(COMMON_MESSAGES)
+  .custom((obj, helpers) => {
+    const toDate = (v) => (v instanceof Date ? v : new Date(v));
+    // regOpenDate ≤ registrationDeadline ≤ startDate ≤ endDate (endDate đã min startDate ở trên)
+    if (toDate(obj.registrationDeadline) < toDate(obj.regOpenDate)) {
+      return helpers.message(
+        `"${FIELD_LABELS.registrationDeadline}" không được trước "${FIELD_LABELS.regOpenDate}"`
+      );
+    }
+    // if (toDate(obj.registrationDeadline) > toDate(obj.startDate)) {
+    //   return helpers.message(
+    //     `"${FIELD_LABELS.registrationDeadline}" không được sau "${FIELD_LABELS.startDate}"`
+    //   );
+    // }
+    return obj;
+  });
 
 const updateSchema = Joi.object({
-  name: Joi.string().trim().min(2).max(120),
-  image: Joi.string().uri().allow(""),
-  sportType: Joi.number().valid(1, 2),
-  groupId: Joi.number().integer().min(0),
-  eventType: Joi.string().valid("single", "double"),
+  name: Joi.string().trim().min(2).max(120).label(FIELD_LABELS.name),
+  image: Joi.string().uri().allow("").label(FIELD_LABELS.image),
+  sportType: Joi.number().valid(1, 2).label(FIELD_LABELS.sportType),
+  groupId: Joi.number().integer().min(0).label(FIELD_LABELS.groupId),
+  eventType: Joi.string()
+    .valid("single", "double")
+    .label(FIELD_LABELS.eventType),
 
-  regOpenDate: dateISO,
-  registrationDeadline: dateISO,
-  startDate: dateISO,
-  endDate: dateISO, // kiểm tra chéo phía dưới
+  regOpenDate: dateISO.label(FIELD_LABELS.regOpenDate),
+  registrationDeadline: dateISO.label(FIELD_LABELS.registrationDeadline),
+  startDate: dateISO.label(FIELD_LABELS.startDate),
+  endDate: dateISO.label(FIELD_LABELS.endDate), // kiểm tra chéo phía dưới (trong custom)
 
-  scoreCap: Joi.number().min(0),
-  scoreGap: Joi.number().min(0),
-  singleCap: Joi.number().min(0),
-  maxPairs: Joi.number().integer().min(0),
+  scoreCap: Joi.number().min(0).label(FIELD_LABELS.scoreCap),
+  scoreGap: Joi.number().min(0).label(FIELD_LABELS.scoreGap),
+  singleCap: Joi.number().min(0).label(FIELD_LABELS.singleCap),
+  maxPairs: Joi.number().integer().min(0).label(FIELD_LABELS.maxPairs),
 
-  location: Joi.string().trim().min(2),
-  contactHtml: Joi.string().allow(""),
-  contentHtml: Joi.string().allow(""),
-});
+  location: Joi.string().trim().min(2).label(FIELD_LABELS.location),
+  contactHtml: Joi.string().allow("").label(FIELD_LABELS.contactHtml),
+  contentHtml: Joi.string().allow("").label(FIELD_LABELS.contentHtml),
+})
+  .messages(COMMON_MESSAGES)
+  .custom((obj, helpers) => {
+    const toDate = (v) => (v instanceof Date ? v : new Date(v));
+    // Chỉ kiểm tra khi cả hai đầu mốc đều có trong payload
+    if (obj.startDate && obj.endDate) {
+      if (toDate(obj.endDate) < toDate(obj.startDate)) {
+        return helpers.message(
+          `"${FIELD_LABELS.endDate}" phải ≥ "${FIELD_LABELS.startDate}"`
+        );
+      }
+    }
+    if (obj.regOpenDate && obj.registrationDeadline) {
+      if (toDate(obj.registrationDeadline) < toDate(obj.regOpenDate)) {
+        return helpers.message(
+          `"${FIELD_LABELS.registrationDeadline}" không được trước "${FIELD_LABELS.regOpenDate}"`
+        );
+      }
+    }
+    // if (obj.registrationDeadline && obj.startDate) {
+    //   if (toDate(obj.registrationDeadline) > toDate(obj.startDate)) {
+    //     return helpers.message(
+    //       `"${FIELD_LABELS.registrationDeadline}" không được sau "${FIELD_LABELS.startDate}"`
+    //     );
+    //   }
+    // }
+    return obj;
+  });
 
 /* ------------------------------- Helpers ------------------------------ */
+// ── validate: trả message cụ thể, kèm errors/fields/strippedKeys ─────────────
 const validate = (schema, payload) => {
-  const { error, value } = schema.validate(payload, {
-    convert: true, // nhận 'YYYY-MM-DD'
-    stripUnknown: true,
+  const options = {
+    convert: true,
+    stripUnknown: { objects: true },
     abortEarly: false,
-  });
+    errors: { wrap: { label: "" } }, // không bọc "" quanh label
+  };
+
+  const { error, value } = schema.validate(payload, options);
+
+  // key top-level bị strip
+  const strippedKeys = Object.keys(payload || {}).filter(
+    (k) => !(k in (value || {}))
+  );
+
   if (error) {
-    const err = new Error("Validation error");
+    // map chi tiết
+    const details = error.details.map((d) => {
+      const path = d.path || [];
+      const fieldLabel = labelOf(path);
+      const rawLabel = d.context?.label ?? path.join(".");
+      const message = String(d.message || "")
+        .replace(rawLabel, fieldLabel)
+        .replace("is not allowed to be empty", "không được để trống")
+        .replace("must be a valid date", "phải là ngày hợp lệ (ISO)")
+        .replace("must be a number", "phải là số")
+        .replace("is required", "là bắt buộc")
+        .replace("must be greater than or equal to", "phải ≥")
+        .replace("must be less than or equal to", "phải ≤");
+
+      return {
+        path: path.join("."),
+        field: fieldLabel,
+        type: d.type,
+        message,
+        context: { ...d.context, label: fieldLabel },
+      };
+    });
+
+    // gom theo field
+    const fields = details.reduce((acc, e) => {
+      acc[e.path] = acc[e.path] || [];
+      acc[e.path].push(e.message);
+      return acc;
+    }, {});
+
+    // 👉 message tổng hợp: gộp các thông điệp, ngăn cách bằng "; "
+    const summary = Array.from(new Set(details.map((d) => d.message))).join(
+      "; "
+    );
+
+    const err = new Error(
+      summary || "Yêu cầu không hợp lệ – dữ liệu không đạt kiểm tra"
+    );
     err.status = 400;
-    err.details = error.details.map((d) => d.message);
+    err.code = "VALIDATION_ERROR";
+    err.errors = details;
+    err.fields = fields;
+    err.strippedKeys = strippedKeys;
     throw err;
   }
+
+  if (strippedKeys.length) value._meta = { strippedKeys };
   return value;
 };
 
@@ -192,11 +354,7 @@ export const getTournaments = expressAsyncHandler(async (req, res) => {
           },
         },
         _endDay: {
-          $dateToString: {
-            date: "$endDate",
-            format: "%Y-%m-%d",
-            timezone: TZ,
-          },
+          $dateToString: { date: "$endDate", format: "%Y-%m-%d", timezone: TZ },
         },
       },
     },
@@ -260,6 +418,9 @@ export const createTournament = expressAsyncHandler(async (req, res) => {
   data.contactHtml = cleanHTML(data.contactHtml);
   data.contentHtml = cleanHTML(data.contentHtml);
 
+  // Loại bỏ meta không lưu DB
+  if (data._meta) delete data._meta;
+
   if (!req.user?._id) {
     res.status(401);
     throw new Error("Unauthenticated");
@@ -269,6 +430,13 @@ export const createTournament = expressAsyncHandler(async (req, res) => {
     ...data,
     createdBy: req.user._id,
   });
+
+  try {
+    await scheduleTournamentCountdown(t);
+  } catch (e) {
+    console.log(e);
+  }
+
   res.status(201).json(t);
 });
 
@@ -297,30 +465,6 @@ export const updateTournament = expressAsyncHandler(async (req, res) => {
     throw new Error("Không có dữ liệu để cập nhật");
   }
 
-  // kiểm tra chéo ngày khi có cả 2 đầu mốc
-  const toDate = (v) => (v instanceof Date ? v : new Date(v));
-  if (payload.startDate && payload.endDate) {
-    if (toDate(payload.endDate) < toDate(payload.startDate)) {
-      res.status(400);
-      throw new Error("endDate phải ≥ startDate");
-    }
-  }
-  if (payload.regOpenDate && payload.registrationDeadline) {
-    if (toDate(payload.registrationDeadline) < toDate(payload.regOpenDate)) {
-      res.status(400);
-      throw new Error("registrationDeadline phải ≥ regOpenDate");
-    }
-  }
-  // (khuyên) đảm bảo hạn đăng ký không sau ngày bắt đầu, nếu có cả 2
-  if (payload.registrationDeadline && payload.startDate) {
-    if (toDate(payload.registrationDeadline) > toDate(payload.startDate)) {
-      console.log(toDate(payload.registrationDeadline));
-      console.log(toDate(payload.startDate));
-      res.status(400);
-      throw new Error("registrationDeadline không được sau startDate");
-    }
-  }
-
   // sanitize HTML nếu có cập nhật
   if (typeof payload.contactHtml === "string") {
     payload.contactHtml = cleanHTML(payload.contactHtml);
@@ -329,11 +473,20 @@ export const updateTournament = expressAsyncHandler(async (req, res) => {
     payload.contentHtml = cleanHTML(payload.contentHtml);
   }
 
+  // Loại bỏ meta không lưu DB
+  if (payload._meta) delete payload._meta;
+
   const t = await Tournament.findByIdAndUpdate(
     req.params.id,
     { $set: payload },
     { new: true, runValidators: false }
   );
+
+  try {
+    await scheduleTournamentCountdown(t);
+  } catch (e) {
+    console.log(e);
+  }
 
   if (!t) {
     res.status(404);
@@ -456,9 +609,9 @@ export const planAuto = expressAsyncHandler(async (req, res) => {
 /**
  * body:
  * {
- *   groups: { count, size, qualifiersPerGroup, totalTeams?, groupSizes? } | null,
- *   po: { drawSize, maxRounds?, seeds? } | null,
- *   ko: { drawSize, seeds: [{pair, A:{...}, B:{...}}] } | null
+ *   groups: { count, size, qualifiersPerGroup, totalTeams?, groupSizes?, rules? } | null,
+ *   po: { drawSize, maxRounds?, seeds?, rules? } | null,
+ *   ko: { drawSize, seeds: [{pair, A:{...}, B:{...}}], rules?, finalRules? } | null
  * }
  */
 export const planCommit = expressAsyncHandler(async (req, res) => {

@@ -17,7 +17,10 @@ import {
   Typography,
   Chip,
   Divider,
+  Dialog,
+  IconButton,
 } from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
 import { useDispatch } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import {
@@ -151,7 +154,14 @@ export default function ProfileScreen() {
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState("");
   const [uploadedAvatarUrl, setUploadedAvatarUrl] = useState("");
-
+  const [avatarZoomOpen, setAvatarZoomOpen] = useState(false);
+  const avatarSrc = useMemo(
+    () =>
+      avatarPreview ||
+      form.avatar ||
+      "https://dummyimage.com/400x400/cccccc/ffffff&text=?",
+    [avatarPreview, form.avatar]
+  );
   /* Prefill khi user đến */
   useEffect(() => {
     if (!user) return;
@@ -339,12 +349,11 @@ export default function ProfileScreen() {
             {/* ------ Avatar ------ */}
             <Box display="flex" alignItems="center" gap={2}>
               <Avatar
-                src={
-                  avatarPreview ||
-                  form.avatar ||
-                  "https://dummyimage.com/80x80/cccccc/ffffff&text=?"
-                }
-                sx={{ width: 80, height: 80 }}
+                src={avatarSrc}
+                sx={{ width: 80, height: 80, cursor: "zoom-in" }}
+                title="Nhấn để phóng to"
+                onClick={() => setAvatarZoomOpen(true)}
+                imgProps={{ loading: "lazy" }}
               />
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
                 <Button
@@ -674,6 +683,59 @@ export default function ProfileScreen() {
           {snack.msg}
         </Alert>
       </Snackbar>
+      {/* Zoom Avatar */}
+      <Dialog
+        open={avatarZoomOpen}
+        onClose={() => setAvatarZoomOpen(false)}
+        maxWidth="md"
+        fullWidth
+        // PaperProps={{ sx: { background: "rgba(0,0,0,0.9)" } }}
+      >
+        <Box sx={{ position: "relative" }}>
+          <IconButton
+            aria-label="Đóng"
+            onClick={() => setAvatarZoomOpen(false)}
+            size="large"
+            sx={{
+              position: "absolute",
+              right: 8,
+              top: 8,
+              zIndex: 1,
+              // Nút tròn nền tối để nổi bật trên ảnh hoặc nền sáng
+              bgcolor: "rgba(0,0,0,0.65)",
+              color: "#fff",
+              boxShadow: 3,
+              backdropFilter: "blur(2px)",
+              "&:hover": { bgcolor: "rgba(0,0,0,0.8)" },
+            }}
+          >
+            <CloseIcon sx={{ fontSize: 26 }} />
+          </IconButton>
+          <Box
+            sx={{
+              p: { xs: 1, sm: 2 },
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: { xs: 280, sm: 400 },
+            }}
+          >
+            <img
+              src={avatarSrc}
+              alt="Avatar"
+              onClick={() => setAvatarZoomOpen(false)}
+              style={{
+                maxWidth: "100%",
+                maxHeight: "80vh",
+                borderRadius: 12,
+                cursor: "zoom-out",
+                userSelect: "none",
+              }}
+              draggable={false}
+            />
+          </Box>
+        </Box>
+      </Dialog>
     </Container>
   );
 }

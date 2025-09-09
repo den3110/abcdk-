@@ -7,33 +7,68 @@ export async function registerPushToken(req, res) {
   const {
     token,
     platform = "ios",
-    deviceId = null,
+    deviceId,
     appVersion = null,
   } = req.body || {};
-  if (!userId || !token)
-    return res.status(400).json({ message: "Bad request" });
+  if (!userId || !token || !deviceId) {
+    return res.status(400).json({ message: "userId/token/deviceId required" });
+  }
 
-  // Nếu có deviceId → upsert theo (user, deviceId), để giữ 1-bản-ghi/thiết-bị
-  // Nếu không có deviceId → fallback upsert theo token (cũ)
-  const query = deviceId ? { user: userId, deviceId } : { token };
-
-  await PushToken.updateOne(
-    query,
-    {
-      $set: {
-        user: userId,
-        token,
-        platform,
-        deviceId,
-        appVersion,
-        enabled: true,
-        lastError: null,
-        lastActiveAt: new Date(),
-      },
+  const now = new Date();
+  const filter = { $or: [{ user: userId, deviceId }, { token }] };
+  const update = {
+    $set: {
+      user: userId,
+      token,
+      platform,
+      deviceId,
+      appVersion,
+      enabled: true,
+      lastError: null,
+      lastActiveAt: now,
+      updatedAt: now,
     },
-    { upsert: true }
-  );
-  res.json({ ok: true });
+    $setOnInsert: { createdAt: now },
+  };
+
+  try {
+    // Gộp (merge) nếu đã tồn tại theo deviceId hoặc theo token
+    const doc = await PushToken.findOneAndUpdate(filter, update, {
+      upsert: true,
+      new: true,
+      runValidators: true,
+    });
+
+    // Phòng khi đã tồn tại “bản ghi cũ” còn sót khác _id mà trùng token (hiếm do unique)
+    await PushToken.deleteMany({ token, _id: { $ne: doc._id } });
+
+    return res.json({ ok: true, id: doc._id });
+  } catch (err) {
+    // Nếu race-condition gây E11000 (unique token hoặc (user,deviceId))
+    if (err?.code === 11000) {
+      // Lấy lại doc rồi cập nhật lần nữa một cách an toàn
+      const existing = await PushToken.findOne(filter).select("_id");
+      if (existing) {
+        await PushToken.updateOne(
+          { _id: existing._id },
+          {
+            $set: {
+              user: userId,
+              token,
+              platform,
+              deviceId,
+              appVersion,
+              enabled: true,
+              lastError: null,
+              lastActiveAt: new Date(),
+            },
+          }
+        );
+        return res.json({ ok: true, id: existing._id, deduped: true });
+      }
+    }
+    return res.status(500).json({ message: err.message });
+  }
 }
 
 /** DELETE /api/push/me/push-token  { deviceId? , token? }  → disable token của thiết bị hiện tại */

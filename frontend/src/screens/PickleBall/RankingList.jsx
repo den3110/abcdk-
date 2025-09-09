@@ -14,7 +14,6 @@ import {
   Paper,
   Button,
   Avatar,
-  CircularProgress,
   Alert,
   Stack,
   Chip,
@@ -29,6 +28,7 @@ import {
   DialogContent,
   DialogActions,
   Snackbar,
+  Skeleton,
 } from "@mui/material";
 import { Link } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
@@ -51,6 +51,9 @@ const HEX = {
 const MIN_RATING = 1.5;
 const MAX_RATING = 8.0;
 const fmt3 = (x) => (Number.isFinite(x) ? Number(x).toFixed(3) : "0.000");
+
+const SKELETON_CARDS_MOBILE = 6;
+const SKELETON_ROWS_DESKTOP = 10;
 
 // Tính tuổi
 const calcAge = (u) => {
@@ -300,19 +303,6 @@ export default function RankingList() {
         },
       }));
 
-      // ⬇️ Bắn event để nơi khác (vd: profile dialog) tự cập nhật lịch sử
-      if (resp?.scoreHistory) {
-        try {
-          window.dispatchEvent(
-            new CustomEvent("scoreHistory:new", {
-              detail: resp.scoreHistory,
-            })
-          );
-        } catch (e) {
-          console.log(e);
-        }
-      }
-
       // ⬇️ Nếu đang mở hồ sơ đúng user vừa chấm → báo dialog refresh (nếu dialog có dùng prop này)
       if (
         openProfile &&
@@ -333,6 +323,125 @@ export default function RankingList() {
   };
 
   const chipMobileSx = { mr: { xs: 0.75, sm: 0 }, mb: { xs: 0.75, sm: 0 } };
+
+  // ========== SKELETON RENDERERS ==========
+  const MobileSkeletonList = () => (
+    <Stack spacing={2}>
+      {Array.from({ length: SKELETON_CARDS_MOBILE }).map((_, i) => (
+        <Card key={i} variant="outlined">
+          <CardContent>
+            <Box display="flex" alignItems="center" mb={1} gap={2}>
+              <Skeleton variant="circular" width={40} height={40} />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Skeleton variant="text" width="40%" />
+              </Box>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Skeleton variant="rounded" width={64} height={24} />
+                <Skeleton variant="rounded" width={90} height={24} />
+              </Stack>
+            </Box>
+
+            <Stack
+              direction="row"
+              flexWrap="wrap"
+              useFlexGap
+              sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
+            >
+              <Skeleton variant="rounded" width={140} height={24} />
+              <Skeleton variant="rounded" width={160} height={24} />
+            </Stack>
+
+            <Divider sx={{ mb: 1 }} />
+
+            <Stack direction="row" spacing={2} mb={0.5}>
+              <Skeleton variant="text" width={100} />
+              <Skeleton variant="text" width={100} />
+            </Stack>
+
+            <Skeleton variant="text" width={180} />
+            <Skeleton variant="text" width={200} />
+
+            <Stack direction="row" spacing={1} mt={2}>
+              <Skeleton variant="rounded" width={80} height={32} />
+              <Skeleton variant="rounded" width={100} height={32} />
+            </Stack>
+          </CardContent>
+        </Card>
+      ))}
+    </Stack>
+  );
+
+  const DesktopSkeletonTable = () => (
+    <TableContainer component={Paper}>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            {[
+              "#",
+              "Ảnh",
+              "Nick",
+              "Tuổi",
+              "Giới tính",
+              "Tỉnh",
+              "Điểm đôi",
+              "Điểm đơn",
+              "Cập nhật",
+              "Tham gia",
+              "Xác thực",
+              "",
+            ].map((h) => (
+              <TableCell key={h}>{h}</TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {Array.from({ length: SKELETON_ROWS_DESKTOP }).map((_, i) => (
+            <TableRow key={i}>
+              <TableCell>
+                <Skeleton variant="text" width={24} />
+              </TableCell>
+              <TableCell>
+                <Skeleton variant="circular" width={32} height={32} />
+              </TableCell>
+              <TableCell>
+                <Skeleton variant="text" width={120} />
+              </TableCell>
+              <TableCell>
+                <Skeleton variant="text" width={40} />
+              </TableCell>
+              <TableCell>
+                <Skeleton variant="text" width={70} />
+              </TableCell>
+              <TableCell>
+                <Skeleton variant="text" width={90} />
+              </TableCell>
+              <TableCell>
+                <Skeleton variant="text" width={80} />
+              </TableCell>
+              <TableCell>
+                <Skeleton variant="text" width={80} />
+              </TableCell>
+              <TableCell>
+                <Skeleton variant="text" width={110} />
+              </TableCell>
+              <TableCell>
+                <Skeleton variant="text" width={110} />
+              </TableCell>
+              <TableCell>
+                <Skeleton variant="rounded" width={90} height={24} />
+              </TableCell>
+              <TableCell>
+                <Stack direction="row" spacing={1}>
+                  <Skeleton variant="rounded" width={64} height={28} />
+                  <Skeleton variant="rounded" width={96} height={28} />
+                </Stack>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
 
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
@@ -366,10 +475,14 @@ export default function RankingList() {
         sx={{ mb: 2, width: 300 }}
       />
 
-      {isLoading ? (
-        <CircularProgress />
-      ) : error ? (
+      {error ? (
         <Alert severity="error">{error?.data?.message || error?.error}</Alert>
+      ) : isLoading ? (
+        isMobile ? (
+          <MobileSkeletonList />
+        ) : (
+          <DesktopSkeletonTable />
+        )
       ) : isMobile ? (
         // ===== MOBILE CARD LIST =====
         <Stack spacing={2}>
@@ -402,7 +515,10 @@ export default function RankingList() {
                         <Chip
                           size="small"
                           label={`${age} tuổi`}
-                          sx={chipMobileSx}
+                          sx={{
+                            mr: { xs: 0.75, sm: 0 },
+                            mb: { xs: 0.75, sm: 0 },
+                          }}
                         />
                       )}
                       <Chip
@@ -422,12 +538,12 @@ export default function RankingList() {
                     <Chip
                       size="small"
                       label={`Giới tính: ${genderLabel(u?.gender)}`}
-                      sx={chipMobileSx}
+                      sx={{ mr: { xs: 0.75, sm: 0 }, mb: { xs: 0.75, sm: 0 } }}
                     />
                     <Chip
                       size="small"
                       label={`Tỉnh: ${u?.province || "--"}`}
-                      sx={chipMobileSx}
+                      sx={{ mr: { xs: 0.75, sm: 0 }, mb: { xs: 0.75, sm: 0 } }}
                     />
                   </Stack>
 
@@ -589,7 +705,7 @@ export default function RankingList() {
         </TableContainer>
       )}
 
-      {totalPages > 1 && (
+      {totalPages > 1 && !isLoading && (
         <Box mt={2} display="flex" justifyContent="center">
           <Pagination
             count={totalPages}
