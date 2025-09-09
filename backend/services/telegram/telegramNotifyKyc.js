@@ -1,6 +1,7 @@
 // server/services/telegramNotify.js
 import fetch from "node-fetch";
 import dotenv from "dotenv";
+import { CATEGORY, EVENTS, publishNotification } from "../notifications/notificationHub.js";
 dotenv.config();
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
@@ -195,12 +196,13 @@ export function registerKycReviewButtons(
         return ctx.answerCbQuery("Callback không hợp lệ.");
       }
 
-      const UM = UserModel || (await import("../models/userModel.js")).default;
-      const user = await UM.findById(userId);
+      // ⚠️ Nếu dự án của bạn dùng models/User.js, nên sửa path dưới đây cho đúng:
+      const UM =
+        UserModel || (await import("../../models/userModel")).default; // <- chỉnh path nếu cần
+      const user = await UM.findById(userId).select("_id cccdStatus verified name nickname email phone cccd").lean();
+
       if (!user) {
-        await ctx.answerCbQuery("Không tìm thấy người dùng.", {
-          show_alert: true,
-        });
+        await ctx.answerCbQuery("Không tìm thấy người dùng.", { show_alert: true });
         return;
       }
 
@@ -214,17 +216,61 @@ export function registerKycReviewButtons(
         return;
       }
 
-      user.cccdStatus = action === "approve" ? "verified" : "rejected";
-      await user.save();
+      // Cập nhật trạng thái (duyệt -> set cả verified tổng)
+      const $set =
+        action === "approve"
+          ? { cccdStatus: "verified", verified: "verified" }
+          : { cccdStatus: "rejected" };
 
-      await ctx.answerCbQuery(
-        action === "approve" ? "Đã duyệt ✅" : "Đã từ chối ❌"
-      );
-      await notifyKycReviewed(user, action);
+      const updated = await UM.findByIdAndUpdate(
+        userId,
+        { $set },
+        { new: true, runValidators: true }
+      ).select("_id cccdStatus verified name nickname email phone cccd");
 
+      if (!updated) {
+        await ctx.answerCbQuery("Cập nhật thất bại.", { show_alert: true });
+        return;
+      }
+
+      // Gửi push qua app (bọc try/catch riêng, tránh ảnh hưởng trải nghiệm Telegram)
+      try {
+        if (action === "approve") {
+          await publishNotification(EVENTS.KYC_APPROVED, {
+            userId: String(updated._id),
+            topicType: "user",
+            topicId: String(updated._id),
+            category: CATEGORY.KYC,
+          });
+        } else {
+          const defaultReason =
+            "Hồ sơ chưa đạt yêu cầu, vui lòng cập nhật lại thông tin CCCD.";
+          await publishNotification(EVENTS.KYC_REJECTED, {
+            userId: String(updated._id),
+            topicType: "user",
+            topicId: String(updated._id),
+            category: CATEGORY.KYC,
+            reason: defaultReason,
+          });
+        }
+      } catch (err) {
+        console.error("[kycBot] publishNotification error:", err?.message);
+      }
+
+      // Thông báo trong Telegram group
+      try {
+        await ctx.answerCbQuery(
+          action === "approve" ? "Đã duyệt ✅" : "Đã từ chối ❌"
+        );
+        await notifyKycReviewed(updated, action);
+      } catch (err) {
+        console.error("[kycBot] telegram notify error:", err?.message);
+      }
+
+      // Hook sau khi duyệt (tuỳ chọn)
       if (typeof onAfterReview === "function") {
         try {
-          await onAfterReview({ user, action, reviewer: ctx.from });
+          await onAfterReview({ user: updated, action, reviewer: ctx.from });
         } catch (e) {
           console.warn("onAfterReview hook error:", e?.message);
         }

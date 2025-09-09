@@ -81,6 +81,79 @@ import { useSocket } from "../../context/SocketContext";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 
 /********************** FX helpers **********************/
+// Ưu tiên server cursor; nếu không, suy từ slots hoặc reveals
+function inferNextGroupCursor(board, groupsMeta, reveals) {
+  const norm = (s) =>
+    String(s ?? "")
+      .trim()
+      .toUpperCase();
+
+  // 1) Server có cursor/next → dùng ngay
+  const srv = board?.cursor || board?.next;
+  if (srv && srv.groupCode != null) {
+    const si = Number(srv.slotIndex ?? 0);
+    return {
+      groupCode: srv.groupCode,
+      slotIndex: Number.isFinite(si) ? si : 0,
+    };
+  }
+
+  // 2) Chuẩn bị danh sách bảng và kích thước kỳ vọng
+  let groups = [];
+  if (Array.isArray(board?.groups) && board.groups.length) {
+    groups = board.groups.map((g, gi) => ({
+      code: g?.key || g?.code || String.fromCharCode(65 + gi),
+      slots: Array.isArray(g?.slots) ? g.slots : [],
+    }));
+  } else if (Array.isArray(groupsMeta) && groupsMeta.length) {
+    groups = groupsMeta.map((g, gi) => ({
+      code: g?.code || String.fromCharCode(65 + gi),
+      slots: Array.from({ length: Number(g?.size) || 0 }, () => null),
+    }));
+  } else {
+    return null;
+  }
+
+  // Map kích thước mong muốn theo meta
+  const sizeMap = new Map();
+  (groupsMeta || []).forEach((g, gi) => {
+    const code = g?.code || String.fromCharCode(65 + gi);
+    sizeMap.set(norm(code), Number(g?.size) || 0);
+  });
+
+  // Đếm số đã seat theo reveals (fallback khi slots trống/không cập nhật)
+  const revealedByGroup = new Map();
+  (reveals || []).forEach((rv) => {
+    const key =
+      rv?.groupCode ||
+      rv?.groupKey ||
+      (typeof rv?.group === "string" ? rv.group : "");
+    const k = norm(key);
+    if (!k) return;
+    revealedByGroup.set(k, (revealedByGroup.get(k) || 0) + 1);
+  });
+
+  // 3) Tìm bảng đầu tiên còn chỗ trống
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const code = g.code;
+    const k = norm(code);
+
+    const slots = Array.isArray(g.slots) ? g.slots : [];
+    const size = (slots.length ? slots.length : 0) || sizeMap.get(k) || 0;
+
+    // ưu tiên đếm theo slots nếu slots có dữ liệu, ngược lại dùng reveals
+    const seatedFromSlots = slots.length ? slots.filter(Boolean).length : null;
+    const seated =
+      seatedFromSlots != null ? seatedFromSlots : revealedByGroup.get(k) || 0;
+
+    if (size > 0 && seated < size) {
+      return { groupCode: code, slotIndex: seated };
+    }
+  }
+  return null;
+}
+
 function useAudioCue(enabled) {
   const ctxRef = useRef(null);
   const ensure = () => {
@@ -1013,34 +1086,57 @@ const RevealOverlay = memo(function RevealOverlay({
  * - onFlipOne: () => Promise<string|null>  // gọi drawNext; trả về tên đội vừa bốc
  * - muted?: boolean
  */
+// ===== CardDeckOverlay.jsx (REPLACE TOÀN BỘ) =====
 const CardDeckOverlay = memo(function CardDeckOverlay({
   open,
   onClose,
-  mode = "group",
-  cards = [],
-  onFlipOne,
+  mode = "group", // 'group' | 'ko'
+  cards = [], // [{ id, label }]
+  onFlipOne, // () => Promise<{name, meta?} | string | null>
   muted = false,
   reveals,
+  targetInfo, // { groupCode, slotIndex } | null
 }) {
-  // Snapshot bộ bài tại thời điểm mở overlay
+  // Bảng màu cơ bản + sinh màu vô hạn (không trùng) bằng golden-angle
+  const pairPalette = useMemo(
+    () => [
+      "#00BCD4",
+      "#FF9800",
+      "#8BC34A",
+      "#E91E63",
+      "#9C27B0",
+      "#3F51B5",
+      "#FF5722",
+      "#009688",
+    ],
+    []
+  );
+  const getDistinctPairColor = useCallback(
+    (id) => {
+      if (id < pairPalette.length) return pairPalette[id];
+      const hue = (id * 137.508) % 360; // golden-angle
+      return `hsl(${hue} 75% 55%)`;
+    },
+    [pairPalette]
+  );
+
+  // Snapshot deck khi mở overlay
   const initialDeck = useMemo(
     () =>
       cards.map((c, i) => ({
         key: c.id || `${i}`,
-        label: null, // tên đội sau khi flip
-        flipped: false, // đang lật (để xoay 3D)
-        vanishing: false, // đang chạy hiệu ứng biến mất
-        gone: false, // đã biến mất nhưng vẫn giữ chỗ
+        label: null, // tên sau khi flip
+        flipped: false, // đã lật?
+        meta: null, // {type:'group'|'ko', groupCode, slotIndex, side, pairIndex}
+        pairId: null, // id cặp (KO/PO)
+        pairColor: null, // màu viền cặp
       })),
-    // lock theo thời điểm open
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [open]
   );
 
   const [deck, setDeck] = useState(initialDeck);
-  // Ghi nhớ "số lượng thẻ ban đầu" để tính layout cố định
   const initialCountRef = useRef(initialDeck.length);
-
   useEffect(() => {
     if (open) {
       setDeck(initialDeck);
@@ -1048,7 +1144,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
     }
   }, [open, initialDeck]);
 
-  // ---- layout: fit toàn màn hình theo SỐ THẺ BAN ĐẦU (không theo số còn lại) ----
+  // layout grid cố định theo tổng số thẻ ban đầu
   const gridRef = useRef(null);
   const [layout, setLayout] = useState({
     cols: 1,
@@ -1057,45 +1153,36 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
     h: 168,
     gap: 12,
   });
-
   const computeLayout = useCallback(() => {
-    const GAP = 12;
-    const AR = 130 / 180; // width / height
-    const N = Math.max(1, initialCountRef.current || 1);
-
-    const container = gridRef.current;
-    if (!container) return;
-
-    const W = container.clientWidth;
-    const H = container.clientHeight;
-
+    const GAP = 12,
+      AR = 130 / 180,
+      N = Math.max(1, initialCountRef.current || 1);
+    const el = gridRef.current;
+    if (!el) return;
+    const W = el.clientWidth,
+      H = el.clientHeight;
     let best = { cols: 1, rows: N, w: Math.min(130, W), h: Math.min(180, H) };
     for (let cols = 1; cols <= N; cols++) {
       const rows = Math.ceil(N / cols);
       const cardW = (W - GAP * (cols - 1)) / cols;
       const cardH = cardW / AR;
       const needH = rows * cardH + GAP * (rows - 1);
-      if (needH <= H) {
-        if (cardW > best.w) best = { cols, rows, w: cardW, h: cardH };
-      }
+      if (needH <= H && cardW > best.w)
+        best = { cols, rows, w: cardW, h: cardH };
     }
-
     if (!best || best.w <= 0) {
       const cols = Math.ceil(Math.sqrt(N));
       const rows = Math.ceil(N / cols);
       const cardH = (H - GAP * (rows - 1)) / rows;
       const cardW = cardH * (130 / 180);
       setLayout({ cols, rows, w: cardW, h: cardH, gap: GAP });
-    } else {
-      setLayout({ ...best, gap: GAP });
-    }
+    } else setLayout({ ...best, gap: GAP });
   }, []);
-
   useEffect(() => {
     if (!open) return;
     computeLayout();
     const obs = new ResizeObserver(() => computeLayout());
-    if (gridRef.current) obs.observe(gridRef.current);
+    gridRef.current && obs.observe(gridRef.current);
     const onWin = () => computeLayout();
     window.addEventListener("resize", onWin);
     return () => {
@@ -1104,54 +1191,33 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
     };
   }, [open, computeLayout]);
 
-  // ---- hành vi lật & biến mất (giữ chỗ trống) ----
-  const [pairBuffer, setPairBuffer] = useState([]); // lưu index đã lật ở KO/PO
+  // Ghép cặp KO: lưu 2 index đã lật, set viền cùng màu
+  const [pairBuffer, setPairBuffer] = useState([]); // [{idx, name}]
+  const [pairCount, setPairCount] = useState(0); // tăng dần → màu mới
+  const [pairLinks, setPairLinks] = useState({}); // pairId -> [idxA, idxB]
   const [lastPair, setLastPair] = useState(null);
   useEffect(() => {
     if (open) {
       setPairBuffer([]);
+      setPairCount(0);
       setLastPair(null);
+      setPairLinks({});
     }
   }, [open, mode]);
 
+  // Hover: sáng thẻ và “đối tác” nếu có
+  const [hoverIdx, setHoverIdx] = useState(null);
+  const setHover = useCallback((i) => setHoverIdx(i), []);
+  const clearHover = useCallback(() => setHoverIdx(null), []);
+
   const [busy, setBusy] = useState(false);
 
-  const vanishOne = useCallback((idx) => {
-    // 1) chạy animation vanish
-    setDeck((d) =>
-      d.map((c, i) => (i === idx ? { ...c, vanishing: true } : c))
-    );
-    // 2) kết thúc animation → đánh dấu "gone" nhưng KHÔNG xoá phần tử (để giữ chỗ)
-    setTimeout(() => {
-      setDeck((d) =>
-        d.map((c, i) =>
-          i === idx ? { ...c, vanishing: false, gone: true, label: c.label } : c
-        )
-      );
-    }, 260);
-  }, []);
-
-  const vanishPair = useCallback((iA, iB) => {
-    setDeck((d) =>
-      d.map((c, i) => (i === iA || i === iB ? { ...c, vanishing: true } : c))
-    );
-    setTimeout(() => {
-      setDeck((d) =>
-        d.map((c, i) =>
-          i === iA || i === iB
-            ? { ...c, vanishing: false, gone: true, label: c.label }
-            : c
-        )
-      );
-    }, 260);
-  }, []);
-
+  // Lật 1 thẻ
   const flipCard = useCallback(
     async (idx) => {
-      if (!open) return;
       setDeck((d) => {
         const c = d[idx];
-        if (!c || c.flipped || c.vanishing || c.gone) return d;
+        if (!c || c.flipped) return d;
         const next = d.slice();
         next[idx] = { ...c, flipped: true };
         return next;
@@ -1159,29 +1225,42 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
 
       try {
         setBusy(true);
-        const teamName = (await onFlipOne?.()) ?? "—";
+        const res = await onFlipOne?.();
+        const obj = res && typeof res === "object" ? res : { name: res };
+        const teamName = obj?.name ?? "—";
+        const meta = obj?.meta ?? null;
 
+        // Gán label + meta ngay cho thẻ
         setDeck((d) => {
           const c = d[idx];
           if (!c) return d;
           const next = d.slice();
-          next[idx] = { ...c, label: teamName, flipped: true };
+          next[idx] = { ...c, label: teamName, flipped: true, meta };
           return next;
         });
 
-        if (mode === "group") {
-          // vòng bảng: lật 1 thẻ → BIẾN MẤT nhưng vẫn giữ block trống
-          setTimeout(() => vanishOne(idx), 480);
-        } else {
-          // KO/PO: gom theo cặp → khi đủ 2 thì cùng biến mất và giữ 2 block trống
+        if (mode !== "group") {
+          // KO/PO: gom 2 thẻ thành 1 cặp → tô cùng màu (mỗi cặp 1 màu khác nhau)
           setPairBuffer((buf) => {
-            const next = [...buf, { idx, name: teamName }];
-            if (next.length === 2) {
-              setLastPair([next[0].name, next[1].name]);
-              setTimeout(() => vanishPair(next[0].idx, next[1].idx), 480);
+            const nextBuf = [...buf, { idx, name: teamName }];
+            if (nextBuf.length === 2) {
+              const [a, b] = nextBuf;
+              const pid = pairCount;
+              const color = getDistinctPairColor(pid);
+
+              setDeck((d) =>
+                d.map((c, i) =>
+                  i === a.idx || i === b.idx
+                    ? { ...c, pairId: pid, pairColor: color }
+                    : c
+                )
+              );
+              setPairLinks((prev) => ({ ...prev, [pid]: [a.idx, b.idx] }));
+              setLastPair([a.name, b.name]);
+              setPairCount((n) => n + 1);
               return [];
             }
-            return next;
+            return nextBuf;
           });
         }
       } catch {
@@ -1190,29 +1269,19 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
           const c = d[idx];
           if (!c) return d;
           const next = d.slice();
-          next[idx] = { ...c, flipped: false, label: null };
+          next[idx] = { ...c, flipped: false, label: null, meta: null };
           return next;
         });
       } finally {
         setBusy(false);
       }
     },
-    [mode, onFlipOne, open, vanishOne, vanishPair]
+    [onFlipOne, mode, pairCount, getDistinctPairColor]
   );
-
-  // Tự đóng overlay khi tất cả thẻ đã "gone"
-  useEffect(() => {
-    if (!open) return;
-    const allGone = deck.length > 0 && deck.every((c) => c.gone);
-    if (allGone) {
-      // nhồi nhẹ 1 frame để kết thúc animation
-      setTimeout(() => onClose?.(), 120);
-    }
-  }, [open, deck, onClose]);
 
   if (!open) return null;
 
-  const remaining = deck.filter((c) => !c.gone).length;
+  const remaining = deck.filter((c) => !c.flipped).length;
 
   return (
     <Box
@@ -1225,7 +1294,6 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         background:
           "radial-gradient(ellipse at center, rgba(0,0,0,.84), rgba(0,0,0,.94))",
         color: "#fff",
-        overflow: "hidden",
       }}
     >
       {/* Header */}
@@ -1235,6 +1303,16 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         </Typography>
         <Chip size="small" sx={{ ml: 1 }} label={`Còn: ${remaining}`} />
         <Box sx={{ flex: 1 }} />
+        {/* ĐANG BỐC VÀO BẢNG NÀO */}
+        {mode === "group" && targetInfo && (
+          <Chip
+            sx={{ mr: 1, color: "#fff" }}
+            variant="outlined"
+            label={`ĐANG BỐC: Bảng ${targetInfo.groupCode} · Slot ${
+              Number(targetInfo.slotIndex) + 1
+            }`}
+          />
+        )}
         <Tooltip title="Đóng">
           <IconButton onClick={onClose} sx={{ color: "#fff" }}>
             <CloseIcon />
@@ -1251,7 +1329,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         </Box>
       )}
 
-      {/* Grid (fit screen theo SỐ THẺ BAN ĐẦU) */}
+      {/* Grid */}
       <Box
         ref={gridRef}
         sx={{
@@ -1270,33 +1348,51 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         }}
       >
         {deck.map((c, idx) => {
-          if (c.gone) {
-            // block trống giữ chỗ đúng vị trí
-            return (
-              <Box
-                key={c.key}
-                sx={{
-                  width: `${Math.max(70, layout.w)}px`,
-                  height: `${Math.max(95, layout.h)}px`,
-                }}
-              />
-            );
-          }
+          const isHovered = hoverIdx === idx;
 
-          const flipping = c.flipped;
-          const van = c.vanishing;
+          // Nếu đang hover một thẻ thuộc cặp → thẻ còn lại cũng sáng
+          const hoveredCard = hoverIdx != null ? deck[hoverIdx] : null;
+          const mateHighlighted =
+            hoveredCard &&
+            hoveredCard.pairId != null &&
+            c.pairId != null &&
+            hoveredCard.pairId === c.pairId &&
+            hoverIdx !== idx;
+
+          const borderColor = c.pairColor || "rgba(255,255,255,.22)";
+          const borderWidth =
+            mode !== "group"
+              ? isHovered
+                ? 3
+                : mateHighlighted
+                ? 3
+                : c.pairColor
+                ? 2
+                : 1
+              : isHovered
+              ? 2
+              : 1;
+
+          const glow =
+            isHovered || mateHighlighted
+              ? `0 0 0 3px rgba(255,255,255,0.18), 0 0 22px 2px ${
+                  c.pairColor || "rgba(255,255,255,.45)"
+                }`
+              : "none";
 
           return (
             <Box
               key={c.key}
-              onClick={() => !busy && !flipping && !van && flipCard(idx)}
+              onMouseEnter={() => setHover(idx)}
+              onMouseLeave={clearHover}
+              onClick={() => !busy && !c.flipped && flipCard(idx)}
               sx={{
                 width: `${Math.max(70, layout.w)}px`,
                 height: `${Math.max(95, layout.h)}px`,
                 perspective: "1000px",
-                cursor: busy || flipping || van ? "default" : "pointer",
-                opacity: van ? 0 : 1,
-                transition: "opacity .26s ease-out, transform .26s ease-out",
+                cursor: busy || c.flipped ? "default" : "pointer",
+                transition: "transform .18s ease",
+                transform: isHovered ? "translateY(-2px)" : "none",
               }}
             >
               <Box
@@ -1306,10 +1402,10 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                   height: "100%",
                   transformStyle: "preserve-3d",
                   transition: "transform .55s cubic-bezier(.2,.8,.2,1)",
-                  transform: flipping ? "rotateY(180deg)" : "rotateY(0deg)",
+                  transform: c.flipped ? "rotateY(180deg)" : "rotateY(0deg)",
                 }}
               >
-                {/* mặt sau */}
+                {/* Mặt sau */}
                 <Box
                   sx={{
                     position: "absolute",
@@ -1332,7 +1428,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                   </Box>
                 </Box>
 
-                {/* mặt trước */}
+                {/* Mặt trước */}
                 <Box
                   sx={{
                     position: "absolute",
@@ -1340,18 +1436,31 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                     backfaceVisibility: "hidden",
                     transform: "rotateY(180deg)",
                     borderRadius: 10,
-                    border: "1px solid rgba(255,255,255,.22)",
+                    border: `${borderWidth}px solid ${borderColor}`,
                     background:
                       "linear-gradient(145deg, rgba(255,255,255,.08), rgba(255,255,255,.03))",
                     display: "grid",
                     placeItems: "center",
                     p: 1.2,
                     textAlign: "center",
+                    boxShadow: glow,
                   }}
                 >
-                  <Typography sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-                    {c.label || "…"}
-                  </Typography>
+                  <Box sx={{ px: 0.5 }}>
+                    <Typography sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                      {c.label || "…"}
+                    </Typography>
+                    {/* Vòng bảng: hiển thị Bảng/Slot ngay trên thẻ */}
+                    {mode === "group" && c.meta?.groupCode != null && (
+                      <Typography
+                        variant="caption"
+                        sx={{ opacity: 0.85, display: "block", mt: 0.5 }}
+                      >
+                        Bảng {c.meta.groupCode} • Slot{" "}
+                        {Number(c.meta.slotIndex) + 1}
+                      </Typography>
+                    )}
+                  </Box>
                 </Box>
               </Box>
             </Box>
@@ -1905,10 +2014,9 @@ export default function DrawPage() {
   const [cardOpen, setCardOpen] = useState(false);
   const [cardQueue, setCardQueue] = useState([]); // names to flip
 
-  
-// NEW: snapshot deck của phiên bốc hiện tại (một lần/phiên)
-const [cardSnapshot, setCardSnapshot] = useState([]); // [{id, label}]
-const [cardGoneIds, setCardGoneIds] = useState([]);   // ["regId", ...]
+  // NEW: snapshot deck của phiên bốc hiện tại (một lần/phiên)
+  const [cardSnapshot, setCardSnapshot] = useState([]); // [{id, label}]
+  const [cardGoneIds, setCardGoneIds] = useState([]); // ["regId", ...]
 
   const [cardOpenPending, setCardOpenPending] = useState(false);
   // NEW: helper mở thẻ có đợi countdown khi FX bật
@@ -2194,8 +2302,8 @@ const [cardGoneIds, setCardGoneIds] = useState([]);   // ["regId", ...]
     setDrawDoc(null);
     setCardOpen(false);
     setCardQueue([]);
-     setCardSnapshot([]);
- setCardGoneIds([]);
+    setCardSnapshot([]);
+    setCardGoneIds([]);
   }, [selBracketId]);
   useEffect(() => {
     if (!(drawType === "knockout" || drawType === "po")) return;
@@ -2206,8 +2314,8 @@ const [cardGoneIds, setCardGoneIds] = useState([]);   // ["regId", ...]
     setDrawDoc(null);
     setCardOpen(false);
     setCardQueue([]);
-     setCardSnapshot([]);
- setCardGoneIds([]);
+    setCardSnapshot([]);
+    setCardGoneIds([]);
   }, [selectRoundValue, drawType]);
 
   useEffect(() => {
@@ -2615,7 +2723,6 @@ const [cardGoneIds, setCardGoneIds] = useState([]);   // ["regId", ...]
       if (uiMode === "cards") {
         setCardQueue([]);
         openCardAfterCountdown();
-
       }
     } catch (e) {
       console.log(e);
@@ -2726,22 +2833,28 @@ const [cardGoneIds, setCardGoneIds] = useState([]);   // ["regId", ...]
     if (!canOperate) return [];
     try {
       lastRevealActionRef.current = true;
-
       const resp = await drawNext({ drawId }).unwrap();
 
-      // cập nhật state ngay
       if (Array.isArray(resp?.reveals)) setReveals(resp.reveals);
       const doc = resp?.doc || resp?.draw || resp;
       if (doc?.board || Array.isArray(doc?.pool)) setDrawDoc(doc);
 
-      const outNames = [];
+      const out = [];
       const nx = resp?.next;
 
       if (nx && typeof nx === "object") {
-        // luôn có nx.name => đẩy vào danh sách tên để CardDeckOverlay hiển thị
-        if (nx.name) outNames.push(nx.name);
-
-        // group: set highlight thẳng từ next
+        if (nx.name) {
+          out.push({
+            name: nx.name,
+            meta: {
+              type: nx.type,
+              groupCode: nx.groupCode,
+              slotIndex: nx.slotIndex,
+              side: nx.side,
+              pairIndex: nx.pairIndex,
+            },
+          });
+        }
         if (nx.type === "group") {
           setLastHighlight({
             type: "group",
@@ -2749,19 +2862,13 @@ const [cardGoneIds, setCardGoneIds] = useState([]);   // ["regId", ...]
             slotIndex: nx.slotIndex,
           });
         }
-        // KO: pairBuffer trong overlay sẽ tự gom 2 lần flip thành 1 cặp
       } else {
-        // fallback (nếu server cũ không có next) — vẫn giữ logic cũ
+        // Fallback cũ — trả dạng object
         if (drawType === "group") {
           const last =
             (Array.isArray(resp?.reveals) ? resp.reveals : []).slice(-1)[0] ||
             {};
-          const rid =
-            asId(last?.regId) ||
-            asId(last?.reg) ||
-            asId(last?.id) ||
-            asId(last?._id) ||
-            null;
+          const rid = asId(last?.regId ?? last?.reg ?? last?.id ?? last?._id);
           const name =
             (rid && regIndex.has(String(rid))
               ? safePairName(regIndex.get(String(rid)), eventType)
@@ -2770,9 +2877,8 @@ const [cardGoneIds, setCardGoneIds] = useState([]);   // ["regId", ...]
                 last?.name ||
                 last?.team ||
                 last?.displayName) || "—";
-          outNames.push(name);
+          out.push({ name, meta: null });
         } else {
-          // KO fallback: thử lấy tên vừa thay đổi giữa prev↔new
           const prev = Array.isArray(reveals) ? [...reveals] : [];
           const cur = Array.isArray(resp?.reveals) ? resp.reveals : prev;
           const added = [];
@@ -2785,29 +2891,30 @@ const [cardGoneIds, setCardGoneIds] = useState([]);   // ["regId", ...]
             for (let i = 0; i < N; i++) {
               const p = prev[i] || {};
               const c = cur[i] || {};
-              const pA = p?.AName ?? p?.A ?? null;
-              const pB = p?.BName ?? p?.B ?? null;
-              const cA = c?.AName ?? c?.A ?? null;
-              const cB = c?.BName ?? c?.B ?? null;
+              const pA = p?.AName ?? p?.A ?? null,
+                pB = p?.BName ?? p?.B ?? null;
+              const cA = c?.AName ?? c?.A ?? null,
+                cB = c?.BName ?? c?.B ?? null;
               if (cA && cA !== pA) added.push(cA);
               if (cB && cB !== pB) added.push(cB);
             }
           }
-          outNames.push(...added.filter(Boolean));
+          out.push(
+            ...added.filter(Boolean).map((nm) => ({ name: nm, meta: null }))
+          );
         }
       }
 
-      // hoàn tất/bắn confetti khi pool = 0
       const prev = prevPoolCountRef.current ?? null;
-      const cur = Array.isArray(doc?.pool) ? doc.pool.length : null;
-      if (lastRevealActionRef.current && prev > 0 && cur === 0) {
+      const curPool = Array.isArray(doc?.pool) ? doc.pool.length : null;
+      if (lastRevealActionRef.current && prev > 0 && curPool === 0) {
         setShowDoneBanner(true);
         if (fxEnabled) fireConfettiBurst();
       }
-      prevPoolCountRef.current = cur;
+      prevPoolCountRef.current = curPool;
       lastRevealActionRef.current = false;
 
-      return outNames.filter(Boolean);
+      return out;
     } catch (e) {
       lastRevealActionRef.current = false;
       toast.error(e?.data?.message || e?.error || "Reveal thất bại.");
@@ -2825,21 +2932,15 @@ const [cardGoneIds, setCardGoneIds] = useState([]);   // ["regId", ...]
   ]);
   // trong DrawPage.jsx
   const onFlipOneForCards = useCallback(async () => {
-    // 1) Nếu còn tên tồn trong queue → lấy ngay, KHÔNG gọi drawNext
     if (cardQueue.length) {
       const [head, ...rest] = cardQueue;
       setCardQueue(rest);
-      return head || null;
+      return head; // {name, meta}
     }
-    // 2) Queue rỗng → gọi drawNext
-    const names = await revealOnceForCards();
-    if (names.length > 1) {
-      // đẩy phần thừa vào queue để lần flip kế tiếp dùng
-      setCardQueue(names.slice(1));
-    }
-    return names[0] || null; // có thể null nếu server chưa trả gì
+    const items = await revealOnceForCards(); // [{name, meta}, ...]
+    if (items.length > 1) setCardQueue(items.slice(1));
+    return items[0] || null;
   }, [revealOnceForCards, cardQueue]);
-
   // Classic overlay auto-open only if NOT in card mode
   const prevRevealsRef = useRef([]);
   useEffect(() => {
@@ -2996,6 +3097,11 @@ const [cardGoneIds, setCardGoneIds] = useState([]);   // ["regId", ...]
     drawType,
   ]);
 
+  // ĐANG BỐC VÀO BẢNG NÀO (chỉ group)
+  const targetInfo = useMemo(() => {
+    if (drawType !== "group") return null;
+    return inferNextGroupCursor(drawDoc?.board, groupsMeta, revealsForGroup);
+  }, [drawType, drawDoc?.board, groupsMeta, revealsForGroup]);
   /* ===== Render ===== */
   if (!isAdmin) {
     return (
@@ -3099,7 +3205,7 @@ const [cardGoneIds, setCardGoneIds] = useState([]);   // ["regId", ...]
           <Button
             size="small"
             variant="outlined"
-           onClick={openCardAfterCountdown}
+            onClick={openCardAfterCountdown}
           >
             Mở giao diện thẻ
           </Button>
@@ -3457,6 +3563,7 @@ const [cardGoneIds, setCardGoneIds] = useState([]);   // ["regId", ...]
           cards={cardDeck}
           onFlipOne={onFlipOneForCards}
           muted={fxMuted}
+          targetInfo={targetInfo}
         />
       )}
 
