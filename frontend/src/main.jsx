@@ -64,6 +64,7 @@ const router = createBrowserRouter(
         <Route path="/tournament/:id" element={<TournamentOverviewPage />} />
 
         <Route path="/404" element={<NotFound />} />
+        <Route path="*" element={<NotFound />} />
         <Route path="" element={<PrivateRoute />}>
           <Route path="/tournament/:id/draw" element={<DrawPage />} />
           <Route
