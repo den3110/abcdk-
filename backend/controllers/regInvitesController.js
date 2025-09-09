@@ -1,20 +1,61 @@
 // controllers/regInviteController.js
 import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
+
 import RegInvite from "../models/regInviteModel.js";
 import Registration from "../models/registrationModel.js";
 import Tournament from "../models/tournamentModel.js";
 import User from "../models/userModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
+import Ranking from "../models/rankingModel.js";
 
 /* ----------------- Utils ----------------- */
 const oid = (x) => new mongoose.Types.ObjectId(String(x));
+const num = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
 const normET = (et) => {
   const s = String(et || "").toLowerCase();
   if (s === "single" || s === "singles") return "single";
   if (s === "double" || s === "doubles") return "double";
+  if (s === "mix" || s === "mixed") return "mix";
   return "double";
 };
+
+const rankingFieldFor = (eventType) => {
+  const et = String(eventType || "").toLowerCase();
+  if (et === "single") return "single";
+  if (et === "double") return "double";
+  if (et === "mix" || et === "mixed") return "mix";
+  return null;
+};
+
+/**
+ * Lấy điểm BXH ưu tiên theo loại giải:
+ * - field theo eventType (single/double/mix)
+ * - fallback: points
+ * Trả về number hoặc null nếu chưa có.
+ */
+async function getRankingScore(userId, eventType) {
+  const r = await Ranking.findOne({ user: userId })
+    .select("single double mix points")
+    .lean();
+  if (!r) return null;
+  const key = rankingFieldFor(eventType);
+  const byET = key ? r[key] : null;
+  const candidates = [byET, r?.points];
+  const hit = candidates.find((x) => Number.isFinite(Number(x)));
+  return hit != null ? Number(hit) : null;
+}
+
+/** Ưu tiên: rankScore -> pfScore -> userScore */
+function preferScore(rankScore, pfScore, userScore) {
+  const cands = [rankScore, pfScore, userScore];
+  const hit = cands.find((x) => Number.isFinite(Number(x)));
+  return num(hit);
+}
 
 async function latestScoresMap(userIds) {
   if (!userIds.length) return new Map();
@@ -63,6 +104,15 @@ function inRegWindow(tour) {
 }
 
 /* ---------- Validate giống createRegistration (preflight) ---------- */
+/**
+ * Trả về:
+ *  {
+ *    ok: boolean,
+ *    s1: number, s2: number,          // điểm lấy từ ScoreHistory (phục vụ CAP/validate)
+ *    noPointCap: boolean,             // nếu true, bỏ qua mọi check điểm & ghi 0 khi snapshot
+ *    reason, message                  // nếu !ok
+ *  }
+ */
 async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
   const isSingle = eventType === "single";
   const ids = [p1UserId, p2UserId].filter(Boolean).map(String);
@@ -97,10 +147,11 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
     };
   }
 
-  // (4) Điểm trình
+  // (4) Điểm trình dùng để validate CAP (lấy từ ScoreHistory)
   const noPointCap = Number(tour.scoreCap) === 0; // mở cap => bỏ qua mọi check điểm
   let s1 = 0,
     s2 = 0;
+
   if (!noPointCap) {
     const map = await latestScoresMap(ids);
     const key = eventType === "double" ? "double" : "single";
@@ -147,7 +198,7 @@ async function finalizeIfReady(invite) {
     return invite.save();
   }
 
-  // re-validate trước khi chốt
+  // re-validate trước khi chốt (CAP/duplicate/time window)
   const pf = await preflightChecks({
     tour,
     eventType: invite.eventType,
@@ -160,13 +211,29 @@ async function finalizeIfReady(invite) {
     return invite.save();
   }
 
-  // snapshot users
-  const u1 = invite.player1.user
-    ? await User.findById(invite.player1.user).lean()
-    : null;
-  const u2 = invite.player2?.user
-    ? await User.findById(invite.player2.user).lean()
-    : null;
+  // lấy user & điểm BXH (ưu tiên BXH khi snapshot Registration)
+  const [u1, u2] = await Promise.all([
+    invite.player1.user
+      ? User.findById(invite.player1.user).lean()
+      : Promise.resolve(null),
+    invite.player2?.user
+      ? User.findById(invite.player2.user).lean()
+      : Promise.resolve(null),
+  ]);
+
+  const [rank1, rank2] = await Promise.all([
+    getRankingScore(invite.player1.user, invite.eventType),
+    isSingle
+      ? Promise.resolve(null)
+      : getRankingScore(invite.player2?.user, invite.eventType),
+  ]);
+
+  const p1Score = pf.noPointCap ? 0 : preferScore(rank1, pf.s1, u1?.score);
+  const p2Score = isSingle
+    ? null
+    : pf.noPointCap
+    ? 0
+    : preferScore(rank2, pf.s2, u2?.score);
 
   const reg = await Registration.create({
     tournament: tour._id,
@@ -176,7 +243,7 @@ async function finalizeIfReady(invite) {
       fullName: invite.player1.fullName || u1?.name || "",
       phone: invite.player1.phone || u1?.phone || "",
       avatar: invite.player1.avatar || u1?.avatar || "",
-      score: pf.noPointCap ? 0 : pf.s1,
+      score: num(p1Score),
     },
     player2: isSingle
       ? null
@@ -185,7 +252,7 @@ async function finalizeIfReady(invite) {
           fullName: invite.player2?.fullName || u2?.name || "",
           phone: invite.player2?.phone || u2?.phone || "",
           avatar: invite.player2?.avatar || u2?.avatar || "",
-          score: pf.noPointCap ? 0 : pf.s2,
+          score: num(p2Score),
         },
     createdBy: invite.createdBy,
   });
@@ -201,11 +268,7 @@ async function finalizeIfReady(invite) {
 }
 
 /* ================== Controllers ================== */
-// 🔧 helper nhỏ để ép kiểu an toàn
-const num = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-};
+
 /** Tạo lời mời đăng ký (user gửi lời mời cho chính mình +/ hoặc partner) */
 export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const { id } = req.params; // tournamentId
@@ -259,6 +322,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const byId = new Map(users.map((u) => [String(u._id), u]));
   const u1 = byId.get(String(player1Id));
   const u2 = isDouble ? byId.get(String(player2Id)) : null;
+
   // xác định người tạo có chính là VĐV 1/2 không
   const creatorIsP1 =
     String(me._id) === String(u1._id) ||
@@ -314,10 +378,20 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     throw new Error(pf.message || "Không thể tạo lời mời");
   }
 
+  // Lấy điểm BXH theo loại giải (ưu tiên dùng khi snapshot)
+  const [rank1, rank2] = await Promise.all([
+    getRankingScore(u1._id, eventType),
+    isSingle ? Promise.resolve(null) : getRankingScore(u2._id, eventType),
+  ]);
+
   // ====== ⛳ ADMIN: tạo Registration trực tiếp (auto-approve) ======
   if (isAdmin) {
-    const s1 = pf?.noPointCap ? 0 : pf?.s1 ?? u1?.score ?? 0;
-    const s2 = isSingle ? null : pf?.noPointCap ? 0 : pf?.s2 ?? u2?.score ?? 0;
+    const s1 = pf?.noPointCap ? 0 : preferScore(rank1, pf?.s1, u1?.score);
+    const s2 = isSingle
+      ? null
+      : pf?.noPointCap
+      ? 0
+      : preferScore(rank2, pf?.s2, u2?.score);
 
     const snap = (u, score) => ({
       user: u._id,
@@ -326,7 +400,6 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       nickName: u.nickname || "",
       avatar: u.avatar || "",
       province: u.province || "",
-      // 🔧 dùng num() để chắc chắn là số
       score: num(score),
     });
 
@@ -347,6 +420,13 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   }
 
   // ====== 👤 USER THƯỜNG: tạo lời mời (auto-accept nếu người tạo trùng VĐV tương ứng) ======
+  const p1Score = pf.noPointCap ? 0 : preferScore(rank1, pf.s1, u1?.score);
+  const p2Score = isSingle
+    ? null
+    : pf.noPointCap
+    ? 0
+    : preferScore(rank2, pf.s2, u2?.score);
+
   const invite = await RegInvite.create({
     tournament: tour._id,
     eventType,
@@ -357,8 +437,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       fullName: u1.name || u1.nickname || "",
       avatar: u1.avatar || "",
       province: u1.province || "",
-      // 🔧 fallback về user.score nếu pf.s1 trống
-      score: num(p1Score),
+      score: num(p1Score), // ƯU TIÊN BXH
     },
     player2: isSingle
       ? null
@@ -369,7 +448,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
           fullName: u2.name || u2.nickname || "",
           avatar: u2.avatar || "",
           province: u2.province || "",
-          score: num(p2Score),
+          score: num(p2Score), // ƯU TIÊN BXH
         },
     createdBy: me._id,
     confirmations: {
@@ -379,7 +458,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     message,
   });
 
-  // (Khuyến nghị) finalizeIfReady có thể vẫn yêu cầu verified để auto-chốt; pending vẫn tạo invite OK
+  // finalize nếu đủ xác nhận
   const after = await finalizeIfReady(invite);
   res.status(201).json({ invite: after, message });
 });
