@@ -162,6 +162,16 @@ export default function ProfileScreen() {
       "https://dummyimage.com/400x400/cccccc/ffffff&text=?",
     [avatarPreview, form.avatar]
   );
+
+  // CCCD Zoom state
+  const [cccdZoomOpen, setCccdZoomOpen] = useState(false);
+  const [cccdZoomSrc, setCccdZoomSrc] = useState("");
+  const openCccdZoom = (src) => {
+    if (!src) return;
+    setCccdZoomSrc(src);
+    setCccdZoomOpen(true);
+  };
+
   /* Prefill khi user đến */
   useEffect(() => {
     if (!user) return;
@@ -222,6 +232,12 @@ export default function ProfileScreen() {
   }, [form, avatarFile]);
 
   const isValid = useMemo(() => !Object.keys(errors).length, [errors]);
+
+  // 🔒 CCCD phải hợp lệ (12 số) mới được gửi ảnh
+  const isCccdValid = useMemo(
+    () => /^\d{12}$/.test((form.cccd || "").trim()),
+    [form.cccd]
+  );
 
   /* Helpers */
   const showErr = (f) => touched[f] && !!errors[f];
@@ -292,6 +308,14 @@ export default function ProfileScreen() {
   /* Upload CCCD */
   const sendCccd = async () => {
     if (!frontImg || !backImg || upLoad) return;
+    if (!isCccdValid) {
+      setSnack({
+        open: true,
+        type: "error",
+        msg: "Vui lòng nhập số CCCD hợp lệ (12 số) trước khi gửi ảnh.",
+      });
+      return;
+    }
     const fd = new FormData();
     fd.append("front", frontImg);
     fd.append("back", backImg);
@@ -513,7 +537,9 @@ export default function ProfileScreen() {
               placeholder="12 chữ số"
               inputProps={{ inputMode: "numeric", maxLength: 12 }}
               error={showErr("cccd")}
-              helperText={showErr("cccd") ? errors.cccd : " "}
+              helperText={
+                showErr("cccd") ? errors.cccd : "Bạn cần nhập CCCD để gửi ảnh."
+              }
             />
             <TextField
               label="Email"
@@ -559,6 +585,12 @@ export default function ProfileScreen() {
             </Typography>
             {showUpload ? (
               <>
+                {!isCccdValid && (
+                  <Alert severity="info" sx={{ mb: 1 }}>
+                    Nhập <strong>số CCCD hợp lệ (12 số)</strong> trước khi gửi
+                    ảnh xác minh.
+                  </Alert>
+                )}
                 <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
                   <CccdDropzone
                     label="Mặt trước"
@@ -573,7 +605,7 @@ export default function ProfileScreen() {
                 </Stack>
                 <Button
                   variant="outlined"
-                  disabled={!frontImg || !backImg || upLoad}
+                  disabled={!frontImg || !backImg || upLoad || !isCccdValid}
                   startIcon={upLoad && <CircularProgress size={20} />}
                   onClick={sendCccd}
                 >
@@ -585,13 +617,18 @@ export default function ProfileScreen() {
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <img
                     src={frontUrl}
-                    alt="front"
+                    alt="CCCD mặt trước"
                     style={{
                       width: "100%",
                       maxHeight: 160,
                       objectFit: "contain",
                       borderRadius: 8,
+                      cursor: frontUrl ? "zoom-in" : "default",
+                      userSelect: "none",
                     }}
+                    onClick={() => openCccdZoom(frontUrl)}
+                    loading="lazy"
+                    draggable={false}
                   />
                   <Typography align="center" variant="caption">
                     Mặt trước
@@ -600,13 +637,18 @@ export default function ProfileScreen() {
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <img
                     src={backUrl}
-                    alt="back"
+                    alt="CCCD mặt sau"
                     style={{
                       width: "100%",
                       maxHeight: 160,
                       objectFit: "contain",
                       borderRadius: 8,
+                      cursor: backUrl ? "zoom-in" : "default",
+                      userSelect: "none",
                     }}
+                    onClick={() => openCccdZoom(backUrl)}
+                    loading="lazy"
+                    draggable={false}
                   />
                   <Typography align="center" variant="caption">
                     Mặt sau
@@ -683,13 +725,13 @@ export default function ProfileScreen() {
           {snack.msg}
         </Alert>
       </Snackbar>
+
       {/* Zoom Avatar */}
       <Dialog
         open={avatarZoomOpen}
         onClose={() => setAvatarZoomOpen(false)}
         maxWidth="md"
         fullWidth
-        // PaperProps={{ sx: { background: "rgba(0,0,0,0.9)" } }}
       >
         <Box sx={{ position: "relative" }}>
           <IconButton
@@ -701,7 +743,6 @@ export default function ProfileScreen() {
               right: 8,
               top: 8,
               zIndex: 1,
-              // Nút tròn nền tối để nổi bật trên ảnh hoặc nền sáng
               bgcolor: "rgba(0,0,0,0.65)",
               color: "#fff",
               boxShadow: 3,
@@ -724,6 +765,58 @@ export default function ProfileScreen() {
               src={avatarSrc}
               alt="Avatar"
               onClick={() => setAvatarZoomOpen(false)}
+              style={{
+                maxWidth: "100%",
+                maxHeight: "80vh",
+                borderRadius: 12,
+                cursor: "zoom-out",
+                userSelect: "none",
+              }}
+              draggable={false}
+            />
+          </Box>
+        </Box>
+      </Dialog>
+
+      {/* 🔍 Zoom CCCD (mặt trước / mặt sau) */}
+      <Dialog
+        open={cccdZoomOpen}
+        onClose={() => setCccdZoomOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <Box sx={{ position: "relative" }}>
+          <IconButton
+            aria-label="Đóng"
+            onClick={() => setCccdZoomOpen(false)}
+            size="large"
+            sx={{
+              position: "absolute",
+              right: 8,
+              top: 8,
+              zIndex: 1,
+              bgcolor: "rgba(0,0,0,0.65)",
+              color: "#fff",
+              boxShadow: 3,
+              backdropFilter: "blur(2px)",
+              "&:hover": { bgcolor: "rgba(0,0,0,0.8)" },
+            }}
+          >
+            <CloseIcon sx={{ fontSize: 26 }} />
+          </IconButton>
+          <Box
+            sx={{
+              p: { xs: 1, sm: 2 },
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: { xs: 280, sm: 400 },
+            }}
+          >
+            <img
+              src={cccdZoomSrc || ""}
+              alt="Ảnh CCCD"
+              onClick={() => setCccdZoomOpen(false)}
               style={{
                 maxWidth: "100%",
                 maxHeight: "80vh",

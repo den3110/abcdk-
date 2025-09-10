@@ -57,6 +57,14 @@ import PublicProfileDialog from "../../components/PublicProfileDialog";
 /* ---------------- helpers ---------------- */
 const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";
 
+/** Làm tròn đến 3 chữ số thập phân và lược 0 thừa (1.230 -> 1.23, 2.000 -> 2) */
+const fmt3 = (v) => {
+  const n = Number(v);
+  if (!isFinite(n)) return "—";
+  const r = Math.round(n * 1000) / 1000;
+  return r.toFixed(3).replace(/\.?0+$/, "");
+};
+
 const normType = (t) => {
   const s = String(t || "").toLowerCase();
   if (s === "single" || s === "singles") return "single";
@@ -554,7 +562,7 @@ export default function TournamentRegistration() {
           size="small"
           variant="outlined"
           icon={<Equalizer fontSize="small" />}
-          label={player?.score ?? 0}
+          label={fmt3(player?.score ?? 0)}
           sx={{ whiteSpace: "nowrap" }}
         />
       </Tooltip>
@@ -632,8 +640,8 @@ export default function TournamentRegistration() {
                   }
                   value={
                     isDoubles
-                      ? tour?.scoreCap ?? 0
-                      : tour?.singleCap ?? tour?.scoreCap ?? 0
+                      ? fmt3(tour?.scoreCap ?? 0)
+                      : fmt3(tour?.singleCap ?? tour?.scoreCap ?? 0)
                   }
                   hint={
                     isDoubles ? "Giới hạn điểm (đôi)" : "Giới hạn điểm (đơn)"
@@ -644,7 +652,7 @@ export default function TournamentRegistration() {
                 <StatItem
                   icon={<Equalizer fontSize="small" />}
                   label="Giới hạn điểm mỗi VĐV"
-                  value={tour?.singleCap ?? 0}
+                  value={fmt3(tour?.singleCap ?? 0)}
                   hint="Giới hạn điểm (đơn)"
                 />
               </Grid>
@@ -652,7 +660,7 @@ export default function TournamentRegistration() {
                 <StatItem
                   icon={<Groups fontSize="small" />}
                   label={isSingles ? "Số VĐV dự kiến" : "Số đội dự kiến"}
-                  value={tour?.maxPairs ?? 0}
+                  value={fmt3(tour?.maxPairs ?? 0)}
                   hint="Tối đa số cặp (đôi)"
                 />
               </Grid>
@@ -660,7 +668,7 @@ export default function TournamentRegistration() {
                 <StatItem
                   icon={<Groups fontSize="small" />}
                   label={isSingles ? "Số VĐV đã đăng ký" : "Số đội đã đăng ký"}
-                  value={regCount}
+                  value={fmt3(regCount)}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -669,7 +677,7 @@ export default function TournamentRegistration() {
                   label={
                     isSingles ? "Số VĐV đã nộp lệ phí" : "Số đội đã nộp lệ phí"
                   }
-                  value={paidCount}
+                  value={fmt3(paidCount)}
                 />
               </Grid>
             </Grid>
@@ -1025,7 +1033,7 @@ export default function TournamentRegistration() {
                         size="small"
                         variant="outlined"
                         icon={<Equalizer fontSize="small" />}
-                        label={pl?.score ?? 0}
+                        label={fmt3(pl?.score ?? 0)}
                         sx={{ whiteSpace: "nowrap" }}
                       />
                     </Tooltip>
@@ -1081,7 +1089,7 @@ export default function TournamentRegistration() {
                   <Chip
                     size="small"
                     icon={<Equalizer fontSize="small" />}
-                    label={totalScoreOf(r, isSingles)}
+                    label={fmt3(totalScoreOf(r, isSingles))}
                   />
                 </Stack>
 
@@ -1164,7 +1172,7 @@ export default function TournamentRegistration() {
                         <Chip
                           size="small"
                           icon={<Equalizer fontSize="small" />}
-                          label={totalScoreOf(r, isSingles)}
+                          label={fmt3(totalScoreOf(r, isSingles))}
                         />
                       </Tooltip>
                     </TableCell>
