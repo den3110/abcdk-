@@ -18,6 +18,8 @@ import {
   getMatchHistory,
   getRatingHistory,
 } from "../controllers/profileController.js";
+import { forgotPassword, resetPassword } from "../controllers/passwordController.js";
+import { simpleRateLimit } from "../middleware/rateLimit.js";
 
 const router = express.Router();
 
@@ -40,5 +42,8 @@ router.get("/tournaments", protect, listMyTournaments);
 router.delete("/me", protect, softDeleteMe);
 router.get("/me", protect, getMe);
 router.post("/evaluations", protect, createEvaluation);
+
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password", simpleRateLimit(60_000, 5), resetPassword);
 
 export default router;

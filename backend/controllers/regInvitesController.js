@@ -278,7 +278,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
 
   // người gửi (để auto-accept & xác định self)
   const me = await User.findById(req.user._id)
-    .select("_id phone nickname role")
+    .select("_id phone nickname role roles isAdmin")
     .lean();
 
   // quyền admin
@@ -297,7 +297,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const isSingle = eventType === "single";
   const isDouble = eventType === "double";
 
-  // validate input
+  // ====== VALIDATE cơ bản (áp dụng cho cả admin) ======
   if (!player1Id) {
     res.status(400);
     throw new Error("Thiếu VĐV 1");
@@ -311,7 +311,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     throw new Error("Hai VĐV phải khác nhau");
   }
 
-  // lấy user snapshots (kèm cccd/cccdStatus để kiểm tra)
+  // lấy user snapshots (kèm cccd/cccdStatus để kiểm tra cho user thường)
   const ids = isDouble ? [player1Id, player2Id] : [player1Id];
   const users = await User.find({ _id: { $in: ids } })
     .select("_id name nickname phone avatar province score cccd cccdStatus")
@@ -325,6 +325,48 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const u1 = byId.get(String(player1Id));
   const u2 = isDouble ? byId.get(String(player2Id)) : null;
 
+  // ====== 🆕 NHÁNH ADMIN: luôn pass, bỏ qua CCCD & preflight, tạo Registration trực tiếp ======
+  if (isAdmin) {
+    // Lấy điểm BXH để snapshot (không cần preflight)
+    const [rank1, rank2] = await Promise.all([
+      getRankingScore(u1._id, eventType),
+      isSingle ? Promise.resolve(null) : getRankingScore(u2._id, eventType),
+    ]);
+
+    const s1 = preferScore(rank1, null, u1?.score);
+    const s2 = isSingle ? null : preferScore(rank2, null, u2?.score);
+
+    const snap = (u, score) => ({
+      user: u._id,
+      phone: u.phone || "",
+      fullName: u.name || u.nickname || "",
+      nickName: u.nickname || "",
+      avatar: u.avatar || "",
+      province: u.province || "",
+      score: num(score),
+    });
+
+    const reg = await Registration.create({
+      tournament: tour._id,
+      eventType, // lưu lại loại giải cho rõ ràng
+      player1: snap(u1, s1),
+      player2: isSingle ? null : snap(u2, s2),
+      message,
+      createdBy: me._id,
+      payment: { status: "Unpaid" },
+      // 🆕 gắn cờ để biết đây là admin override (nếu schema có meta)
+      meta: { createdByAdmin: true },
+    });
+
+    return res.status(201).json({
+      mode: "direct_by_admin",
+      registration: reg,
+      message:
+        "Đã tạo đăng ký trực tiếp bởi admin (bỏ qua kiểm tra CCCD & giới hạn).",
+    });
+  }
+
+  // ====== NHÁNH USER THƯỜNG (logic cũ, giữ nguyên) ======
   // xác định người tạo có chính là VĐV 1/2 không
   const creatorIsP1 =
     String(me._id) === String(u1._id) ||
@@ -357,8 +399,8 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const notEligible = [];
   if (!isCCCDAllowed(u1)) notEligible.push("VĐV 1");
   if (isDouble && !isCCCDAllowed(u2)) notEligible.push("VĐV 2");
-
   if (notEligible.length) {
+    res.status(412);
     throw new Error(
       notEligible.length === 1
         ? `${notEligible[0]} cần nộp CCCD hợp lệ (đã xác minh hoặc đang chờ duyệt) trước khi tạo đăng ký`
@@ -386,38 +428,6 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     isSingle ? Promise.resolve(null) : getRankingScore(u2._id, eventType),
   ]);
 
-  // ====== ⛳ ADMIN: tạo Registration trực tiếp (auto-approve) ======
-  if (isAdmin) {
-    const s1 = preferScore(rank1, pf?.s1, u1?.score);
-    const s2 = isSingle ? null : preferScore(rank2, pf?.s2, u2?.score);
-
-    const snap = (u, score) => ({
-      user: u._id,
-      phone: u.phone || "",
-      fullName: u.name || u.nickname || "",
-      nickName: u.nickname || "",
-      avatar: u.avatar || "",
-      province: u.province || "",
-      score: num(score),
-    });
-
-    const reg = await Registration.create({
-      tournament: tour._id,
-      player1: snap(u1, s1),
-      player2: isSingle ? null : snap(u2, s2),
-      message,
-      createdBy: me._id,
-      payment: { status: "Unpaid" },
-    });
-
-    return res.status(201).json({
-      mode: "direct_by_admin",
-      registration: reg,
-      message: "Đã tạo đăng ký (admin — auto approve)",
-    });
-  }
-
-  // ====== 👤 USER THƯỜNG: tạo lời mời (auto-accept nếu người tạo trùng VĐV tương ứng) ======
   const p1Score = preferScore(rank1, pf.s1, u1?.score);
   const p2Score = isSingle ? null : preferScore(rank2, pf.s2, u2?.score);
 
@@ -456,7 +466,6 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const after = await finalizeIfReady(invite);
   res.status(201).json({ invite: after, message });
 });
-
 /** Danh sách lời mời mà TÔI cần phản hồi (global, không theo giải) */
 export const listMyInvites = asyncHandler(async (req, res) => {
   const me = await User.findById(req.user._id)

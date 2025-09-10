@@ -69,6 +69,21 @@ export const userApiSlice = apiSlice.injectEndpoints({
       providesTags: ["Me"],
       keepUnusedDataFor: 30,
     }),
+    // ... login, register đang có
+    forgotPassword: builder.mutation({
+      query: (body) => ({
+        url: `${USERS_URL}/forgot-password`,
+        method: "POST",
+        body,
+      }),
+    }),
+    resetPassword: builder.mutation({
+      query: (body) => ({
+        url: `${USERS_URL}/reset-password`,
+        method: "POST",
+        body,
+      }),
+    }),
   }),
 });
 
@@ -83,5 +98,7 @@ export const {
   useGetProfileQuery,
   useLazyGetProfileQuery,
   useLazySearchUserQuery,
-  useGetMeQuery
+  useGetMeQuery,
+  useForgotPasswordMutation,
+  useResetPasswordMutation,
 } = userApiSlice;

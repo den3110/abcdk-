@@ -29,6 +29,7 @@ import dotenv from "dotenv";
 import { startTournamentCrons } from "./jobs/tournamentCron.js";
 import { agenda, startAgenda } from "./jobs/agenda.js";
 import { initKycBot } from "./bot/kycBot.js";
+import { initEmail } from "./services/emailService.js";
 import Agendash from "agendash";
 
 
@@ -125,6 +126,7 @@ server.listen(port, async () => {
   try {
     console.log(`✅ Server started on port ${port}`);
     startTournamentCrons();
+    initEmail()
     await startAgenda();
   } catch (error) {
     console.error(`❌ Error starting server: ${error.message}`);

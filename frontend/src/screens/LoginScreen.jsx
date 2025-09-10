@@ -1,3 +1,4 @@
+// src/screens/LoginScreen.jsx
 import { useState, useEffect } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import {
@@ -9,6 +10,7 @@ import {
   Grid,
   CircularProgress,
   Paper,
+  Link,
 } from "@mui/material";
 import { useDispatch, useSelector } from "react-redux";
 import { useLoginMutation } from "../slices/usersApiSlice";
@@ -94,15 +96,24 @@ export default function LoginScreen() {
           >
             {isLoading ? <CircularProgress size={24} /> : "Đăng nhập"}
           </Button>
-        </Box>
 
-        <Grid container justifyContent="flex-end">
-          <Grid item>
-            <RouterLink to="/register" style={{ textDecoration: "none" }}>
-              Chưa có tài khoản? Đăng ký ngay
-            </RouterLink>
+          <Grid container alignItems="center" justifyContent="space-between">
+            <Grid item>
+              <Link
+                component={RouterLink}
+                to="/forgot-password"
+                underline="hover"
+              >
+                Quên mật khẩu?
+              </Link>
+            </Grid>
+            <Grid item>
+              <Link component={RouterLink} to="/register" underline="hover">
+                Chưa có tài khoản? Đăng ký ngay
+              </Link>
+            </Grid>
           </Grid>
-        </Grid>
+        </Box>
       </Box>
     </Container>
   );

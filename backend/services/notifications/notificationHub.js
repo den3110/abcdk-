@@ -24,6 +24,8 @@ export const EVENTS = {
   INVITE_ACCEPTED: "INVITE_ACCEPTED",
 
   SYSTEM_BROADCAST: "SYSTEM_BROADCAST",
+  RANK_MILESTONE: "RANK_MILESTONE", // lọt TOP xx
+  RANK_MOVED: "RANK_MOVED", // tăng/giảm x bậc
 };
 
 // xác định category để áp vào Subscription.categories (nếu bạn dùng)
@@ -35,6 +37,7 @@ export const CATEGORY = {
   SYSTEM: "system",
   STATUS: "status",
   KYC: "kyc",
+  RANKING: "ranking",
 };
 
 // ── helper chung ─────────────────────────────────────────────────────────
@@ -205,6 +208,14 @@ const implicitAudienceResolvers = {
   async [EVENTS.KYC_REJECTED]({ userId }) {
     return [String(userId)];
   },
+
+  // ranking
+  async [EVENTS.RANK_MILESTONE]({ userId }) {
+    return [String(userId)];
+  },
+  async [EVENTS.RANK_MOVED]({ userId }) {
+    return [String(userId)];
+  },
 };
 
 // 2) Render payload push theo event
@@ -363,6 +374,42 @@ const payloadBuilders = {
       data: { url: "/(tabs)/profile", kind: EVENTS.KYC_REJECTED, userId },
     };
   },
+
+  async [EVENTS.RANK_MILESTONE]({ ladderLabel, newRank, threshold }) {
+    const title = `Bạn vừa lọt TOP ${threshold}! 🎉`;
+    const body = `${ladderLabel} • Hạng hiện tại: #${newRank}`;
+    return {
+      title,
+      body,
+      data: {
+        url: "/(tabs)/rankings",
+        kind: EVENTS.RANK_MILESTONE,
+        rank: newRank,
+        threshold,
+        ladderLabel,
+      },
+    };
+  },
+
+  async [EVENTS.RANK_MOVED]({ ladderLabel, newRank, delta }) {
+    const up = delta < 0; // delta = newRank - oldRank
+    const steps = Math.abs(delta);
+    const title = up
+      ? `Thứ hạng tăng ${steps} bậc! ⬆️`
+      : `Thứ hạng giảm ${steps} bậc ⬇️`;
+    const body = `${ladderLabel} • Hạng hiện tại: #${newRank}`;
+    return {
+      title,
+      body,
+      data: {
+        url: "/(tabs)/rankings",
+        kind: EVENTS.RANK_MOVED,
+        rank: newRank,
+        delta,
+        ladderLabel,
+      },
+    };
+  },
 };
 
 // 3) Tạo eventKey thống nhất (để log idempotent)
@@ -394,6 +441,16 @@ function makeEventKey(eventName, ctx) {
     return `kyc.rejected:user#${ctx.userId}:${
       ctx.reason ? String(ctx.reason).slice(0, 64) : ""
     }`;
+
+  if (eventName === EVENTS.RANK_MILESTONE) {
+    // 1 user chỉ nhận 1 lần cho mỗi mốc/laddder
+    return `rank.milestone:ladder#${ctx.ladderKey}:top#${ctx.threshold}:user#${ctx.userId}`;
+  }
+  if (eventName === EVENTS.RANK_MOVED) {
+    // Chặn spam trong ngày: key theo (user, ladder, day-bucket)
+    const day = ctx.day || new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    return `rank.moved:ladder#${ctx.ladderKey}:day#${day}:user#${ctx.userId}`;
+  }
   return `${eventName}`;
 }
 

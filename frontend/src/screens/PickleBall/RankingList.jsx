@@ -30,7 +30,7 @@ import {
   Snackbar,
   Skeleton,
 } from "@mui/material";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom"; // ⬅️ MỚI: useSearchParams
 import { useDispatch, useSelector } from "react-redux";
 import { setKeyword, setPage } from "../../slices/rankingUiSlice";
 import { useGetRankingsQuery } from "../../slices/rankingsApiSlice";
@@ -164,9 +164,19 @@ const getBaselineScores = (u, r) => {
   };
 };
 
+// ⬇️ MỚI: helpers parse/format page & keyword với URLSearchParams
+const parsePageFromParams = (sp) => {
+  const raw = sp.get("page");
+  const n = parseInt(raw ?? "1", 10);
+  return Number.isFinite(n) && n > 0 ? n - 1 : 0; // URL 1-based → state 0-based
+};
+const parseKeywordFromParams = (sp) => sp.get("q") ?? "";
+
 export default function RankingList() {
   const dispatch = useDispatch();
   const { keyword, page } = useSelector((s) => s?.rankingUi || {});
+  const [searchParams, setSearchParams] = useSearchParams(); // ⬅️ MỚI
+
   const {
     data = { docs: [], totalPages: 0 },
     isLoading,
@@ -181,6 +191,42 @@ export default function RankingList() {
   // ⬇️ gọi profile "me" để biết quyền chấm
   const { data: meData } = useGetMeQuery();
   const me = meData || null;
+
+  // ⬇️ MỚI: URL → Redux (kể cả Back/Forward). Chỉ dispatch khi khác để tránh loop.
+  useEffect(() => {
+    const urlPage = parsePageFromParams(searchParams);
+    if (urlPage !== page) dispatch(setPage(urlPage));
+
+    const urlQ = parseKeywordFromParams(searchParams);
+    if ((urlQ || "") !== (keyword || "")) dispatch(setKeyword(urlQ));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]); // chủ đích không đưa page/keyword vào deps để không phản ứng vòng lặp
+
+  // ⬇️ MỚI: Redux → URL khi page/keyword đổi. Giữ các params khác nếu có.
+  useEffect(() => {
+    const curPageParam = searchParams.get("page");
+    const desiredPageParam = page > 0 ? String(page + 1) : null; // 1-based trong URL; trang 1 thì bỏ param
+
+    const curQ = searchParams.get("q") ?? "";
+    const desiredQ = keyword || "";
+
+    const needPageUpdate = curPageParam !== desiredPageParam;
+    const needQUpdate = curQ !== desiredQ;
+
+    if (needPageUpdate || needQUpdate) {
+      const next = new URLSearchParams(searchParams);
+      if (desiredPageParam) next.set("page", desiredPageParam);
+      else next.delete("page");
+
+      if (desiredQ) next.set("q", desiredQ);
+      else next.delete("q");
+
+      // replace=false để tạo history khi người dùng chuyển trang; lần sync đầu có thể replace=true,
+      // nhưng ở đây ta để mặc định để người dùng Back/Forward hoạt động tự nhiên.
+      setSearchParams(next);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, keyword]);
 
   // debounce refetch khi keyword đổi
   useEffect(() => {
@@ -709,8 +755,8 @@ export default function RankingList() {
         <Box mt={2} display="flex" justifyContent="center">
           <Pagination
             count={totalPages}
-            page={page + 1}
-            onChange={(_, v) => dispatch(setPage(v - 1))}
+            page={page + 1} // state 0-based → UI 1-based
+            onChange={(_, v) => dispatch(setPage(v - 1))} // UI 1-based → state 0-based
             color="primary"
           />
         </Box>

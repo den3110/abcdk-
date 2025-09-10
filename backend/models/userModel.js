@@ -101,6 +101,9 @@ const userSchema = new mongoose.Schema(
     isDeleted: { type: Boolean, default: false, index: true },
     deletedAt: { type: Date },
     deletionReason: { type: String, default: "" },
+     // reset password
+    resetPasswordToken: { type: String, index: true },     // lưu SHA256(token)
+    resetPasswordExpires: { type: Date },  
   },
   { timestamps: true, strict: true }
 );

@@ -32,6 +32,8 @@ import TournamentSchedule from "./screens/PickleBall/TournamentSchedule.jsx";
 import TournamentManagePage from "./screens/PickleBall/TournamentManagePage.jsx";
 import TournamentOverviewPage from "./screens/PickleBall/TournamentOverviewPage.jsx";
 import MyTournamentsPage from "./screens/MyTournaments.jsx";
+import ForgotPasswordScreen from "./screens/ForgotPasswordScreen.jsx";
+import ResetPasswordScreen from "./screens/ResetPasswordScreen.jsx";
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -59,12 +61,20 @@ const router = createBrowserRouter(
         <Route
           path="/tournament/:id/brackets/:bracketId/draw"
           element={<AdminDrawPage />}
-        />  
-        <Route path="/tournament/:id/overview" element={<TournamentOverviewPage />} />
+        />
+        <Route
+          path="/tournament/:id/overview"
+          element={<TournamentOverviewPage />}
+        />
         <Route path="/tournament/:id" element={<TournamentOverviewPage />} />
 
         <Route path="/404" element={<NotFound />} />
         <Route path="*" element={<NotFound />} />
+        <Route path="/forgot-password" element={<ForgotPasswordScreen />} />
+        <Route
+          path="/reset-password/:token"
+          element={<ResetPasswordScreen />}
+        />
         <Route path="" element={<PrivateRoute />}>
           <Route path="/tournament/:id/draw" element={<DrawPage />} />
           <Route
@@ -74,7 +84,6 @@ const router = createBrowserRouter(
           <Route path="/profile" element={<ProfileScreen />} />
           <Route path="/levelpoint" element={<LevelPointPage />} />
           <Route path="/my-tournaments" element={<MyTournamentsPage />} />
-
         </Route>
       </Route>
       <Route path="/overlay/score" element={<ScoreOverlay />} />

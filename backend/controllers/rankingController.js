@@ -9,11 +9,12 @@ import Assessment from "../models/assessmentModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 
 export const getRankings = asyncHandler(async (req, res) => {
+  // -------- Params --------
   const page = Math.max(0, parseInt(req.query.page ?? 0, 10));
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 10, 10)));
   const keyword = String(req.query.keyword ?? "").trim();
 
-  // 1) Nếu có keyword, lọc theo nickname
+  // -------- Optional filter by nickname --------
   let userIdsFilter = null;
   if (keyword) {
     const rawIds = await User.find(
@@ -23,341 +24,369 @@ export const getRankings = asyncHandler(async (req, res) => {
     const ids = rawIds
       .map((d) => d?._id)
       .filter((id) => mongoose.isValidObjectId(id));
-    if (ids.length === 0) return res.json({ docs: [], totalPages: 0, page });
+    if (ids.length === 0) {
+      return res.json({ docs: [], totalPages: 0, page });
+    }
     userIdsFilter = ids;
   }
 
-  // 2) Match cơ bản
+  // -------- Match stage (once) --------
   const matchStage = {
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
   };
 
-  // 3) Tổng user duy nhất (tính trang)
-  const countAgg = await Ranking.aggregate([
-    { $match: matchStage },
-    { $match: { user: { $type: "objectId" } } },
-    { $group: { _id: "$user" } },
-    { $count: "n" },
-  ]);
-  const totalUniqueUsers = countAgg[0]?.n ?? 0;
-
-  // 4) Lấy docs + tính toán
   const now = new Date();
 
-  const docsAgg = await Ranking.aggregate([
+  // -------- One-pass aggregation with $facet --------
+  const agg = await Ranking.aggregate([
     { $match: matchStage },
     { $match: { user: { $type: "objectId" } } },
 
-    // Chuẩn hoá cho bước chọn bản / user
     {
-      $addFields: {
-        reputation: { $ifNull: ["$reputation", 0] },
-        points: { $ifNull: ["$points", 0] },
-        single: { $ifNull: ["$single", 0] },
-        double: { $ifNull: ["$double", 0] },
-      },
-    },
+      $facet: {
+        // --- count distinct users for total pages ---
+        total: [{ $group: { _id: "$user" } }, { $count: "n" }],
 
-    // Nếu có nhiều bản / user, pick bản "đẹp" nhất
-    { $sort: { updatedAt: -1, double: -1, single: -1, points: -1, _id: 1 } },
-    { $group: { _id: "$user", doc: { $first: "$$ROOT" } } },
-    { $replaceRoot: { newRoot: "$doc" } },
-
-    // Join user
-    {
-      $lookup: {
-        from: "users",
-        localField: "user",
-        foreignField: "_id",
-        as: "user",
-        pipeline: [
+        // --- heavy docs pipeline ---
+        docs: [
+          // normalize numeric fields (fallback 0)
           {
-            $project: {
-              nickname: 1,
-              gender: 1,
-              province: 1,
-              avatar: 1,
-              verified: 1,
-              createdAt: 1,
-              cccdStatus: 1,
-              dob: 1,
+            $addFields: {
+              reputation: { $ifNull: ["$reputation", 0] },
+              points: { $ifNull: ["$points", 0] },
+              single: { $ifNull: ["$single", 0] },
+              double: { $ifNull: ["$double", 0] },
+              mix: { $ifNull: ["$mix", 0] },
             },
           },
-        ],
-      },
-    },
-    { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
 
-    // Lần chấm gần nhất (để biết tự chấm)
-    {
-      $lookup: {
-        from: "assessments",
-        let: { uid: "$user._id" },
-        pipeline: [
-          { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
-          { $sort: { scoredAt: -1, _id: -1 } },
-          { $limit: 1 },
-          { $project: { scorer: 1, scoredAt: 1, meta: 1 } },
-        ],
-        as: "latestAssess",
-      },
-    },
-    { $addFields: { latestAssess: { $arrayElemAt: ["$latestAssess", 0] } } },
-    {
-      $addFields: {
-        isSelfScoredLatest: {
-          $or: [
-            { $eq: ["$latestAssess.meta.selfScored", true] },
-            { $eq: ["$latestAssess.scorer", "$user._id"] },
-          ],
-        },
-      },
-    },
-
-    // === ĐẾM SỐ GIẢI ĐÃ KẾT THÚC (distinct tournament) tách theo eventType ===
-    {
-      $lookup: {
-        from: "registrations",
-        let: { uid: "$user._id" },
-        pipeline: [
+          // pick the latest/best record per user before lookups
           {
-            $match: {
-              $expr: {
-                $or: [
-                  { $eq: ["$player1.user", "$$uid"] },
-                  { $eq: ["$player2.user", "$$uid"] },
-                ],
-              },
+            $sort: {
+              updatedAt: -1,
+              double: -1,
+              single: -1,
+              points: -1,
+              _id: 1,
             },
           },
+          { $group: { _id: "$user", doc: { $first: "$$ROOT" } } },
+          { $replaceRoot: { newRoot: "$doc" } },
+
+          // join user profile (only needed fields)
           {
             $lookup: {
-              from: "tournaments",
-              localField: "tournament",
+              from: "users",
+              localField: "user",
               foreignField: "_id",
-              as: "tour",
+              as: "user",
               pipeline: [
                 {
                   $project: {
-                    _id: 1,
-                    eventType: 1,
-                    status: 1,
-                    finishedAt: 1,
-                    endAt: 1,
+                    nickname: 1,
+                    gender: 1,
+                    province: 1,
+                    avatar: 1,
+                    verified: 1,
+                    createdAt: 1,
+                    cccdStatus: 1,
+                    dob: 1,
                   },
                 },
               ],
             },
           },
+          { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
+
+          // latest assessment to detect self-scored
           {
-            $addFields: {
-              eventType: {
-                $ifNull: [{ $arrayElemAt: ["$tour.eventType", 0] }, "double"],
-              },
-              tourId: { $arrayElemAt: ["$tour._id", 0] },
-              status: { $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, ""] },
-              finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
-              endAt: { $arrayElemAt: ["$tour.endAt", 0] },
+            $lookup: {
+              from: "assessments",
+              let: { uid: "$user._id" },
+              pipeline: [
+                { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
+                { $sort: { scoredAt: -1, _id: -1 } },
+                { $limit: 1 },
+                { $project: { scorer: 1, scoredAt: 1, meta: 1 } },
+              ],
+              as: "latestAssess",
             },
           },
           {
             $addFields: {
-              tourFinished: {
+              latestAssess: { $arrayElemAt: ["$latestAssess", 0] },
+            },
+          },
+          {
+            $addFields: {
+              isSelfScoredLatest: {
                 $or: [
-                  { $eq: ["$status", "finished"] },
-                  { $ne: ["$finishedAt", null] },
-                  { $lt: ["$endAt", now] },
+                  { $eq: ["$latestAssess.meta.selfScored", true] },
+                  { $eq: ["$latestAssess.scorer", "$user._id"] },
                 ],
               },
             },
           },
-          { $match: { tourFinished: true } },
-          { $group: { _id: { eventType: "$eventType", t: "$tourId" } } },
+
+          // finished tournaments by type (distinct per tour)
           {
-            $group: {
-              _id: "$_id.eventType",
-              tourIds: { $addToSet: "$_id.t" },
-              count: { $sum: 1 },
+            $lookup: {
+              from: "registrations",
+              let: { uid: "$user._id" },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $or: [
+                        { $eq: ["$player1.user", "$$uid"] },
+                        { $eq: ["$player2.user", "$$uid"] },
+                      ],
+                    },
+                  },
+                },
+                {
+                  $lookup: {
+                    from: "tournaments",
+                    localField: "tournament",
+                    foreignField: "_id",
+                    as: "tour",
+                    pipeline: [
+                      {
+                        $project: {
+                          _id: 1,
+                          eventType: 1,
+                          status: 1,
+                          finishedAt: 1,
+                          endAt: 1,
+                        },
+                      },
+                    ],
+                  },
+                },
+                {
+                  $addFields: {
+                    eventType: {
+                      $ifNull: [
+                        { $arrayElemAt: ["$tour.eventType", 0] },
+                        "double",
+                      ],
+                    },
+                    tourId: { $arrayElemAt: ["$tour._id", 0] },
+                    status: {
+                      $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, ""],
+                    },
+                    finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
+                    endAt: { $arrayElemAt: ["$tour.endAt", 0] },
+                  },
+                },
+                {
+                  $addFields: {
+                    tourFinished: {
+                      $or: [
+                        { $eq: ["$status", "finished"] },
+                        { $ne: ["$finishedAt", null] },
+                        { $lt: ["$endAt", now] },
+                      ],
+                    },
+                  },
+                },
+                { $match: { tourFinished: true } },
+                { $group: { _id: { eventType: "$eventType", t: "$tourId" } } },
+                {
+                  $group: {
+                    _id: "$_id.eventType",
+                    tourIds: { $addToSet: "$_id.t" },
+                    count: { $sum: 1 },
+                  },
+                },
+              ],
+              as: "finishedToursByType",
+            },
+          },
+
+          // counts by type
+          {
+            $addFields: {
+              doubleTours: {
+                $let: {
+                  vars: {
+                    item: {
+                      $arrayElemAt: [
+                        {
+                          $filter: {
+                            input: "$finishedToursByType",
+                            as: "r",
+                            cond: { $eq: ["$$r._id", "double"] },
+                          },
+                        },
+                        0,
+                      ],
+                    },
+                  },
+                  in: { $ifNull: ["$$item.count", 0] },
+                },
+              },
+              singleTours: {
+                $let: {
+                  vars: {
+                    item: {
+                      $arrayElemAt: [
+                        {
+                          $filter: {
+                            input: "$finishedToursByType",
+                            as: "r",
+                            cond: { $eq: ["$$r._id", "single"] },
+                          },
+                        },
+                        0,
+                      ],
+                    },
+                  },
+                  in: { $ifNull: ["$$item.count", 0] },
+                },
+              },
+            },
+          },
+
+          // tiers by number of finished tournaments
+          {
+            $addFields: {
+              doubleTier: {
+                $switch: {
+                  branches: [
+                    { case: { $gte: ["$doubleTours", 10] }, then: 0 },
+                    { case: { $gte: ["$doubleTours", 5] }, then: 1 },
+                    { case: { $gte: ["$doubleTours", 1] }, then: 2 },
+                  ],
+                  default: 4,
+                },
+              },
+              singleTier: {
+                $switch: {
+                  branches: [
+                    { case: { $gte: ["$singleTours", 10] }, then: 0 },
+                    { case: { $gte: ["$singleTours", 5] }, then: 1 },
+                    { case: { $gte: ["$singleTours", 1] }, then: 2 },
+                  ],
+                  default: 4,
+                },
+              },
+              selfTier: {
+                $cond: [{ $eq: ["$isSelfScoredLatest", true] }, 3, 4],
+              },
+            },
+          },
+
+          // effective tier (prioritize doubles -> singles -> self)
+          {
+            $addFields: {
+              effectiveTier: {
+                $cond: [
+                  { $ne: ["$doubleTier", 4] },
+                  "$doubleTier",
+                  {
+                    $cond: [
+                      { $ne: ["$singleTier", 4] },
+                      "$singleTier",
+                      "$selfTier",
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+
+          // tier visuals + recompute reputation (10 per finished tour, capped 100)
+          {
+            $addFields: {
+              tierColor: {
+                $switch: {
+                  branches: [
+                    { case: { $eq: ["$effectiveTier", 0] }, then: "green" },
+                    { case: { $eq: ["$effectiveTier", 1] }, then: "blue" },
+                    { case: { $eq: ["$effectiveTier", 2] }, then: "yellow" },
+                    { case: { $eq: ["$effectiveTier", 3] }, then: "red" },
+                  ],
+                  default: "grey",
+                },
+              },
+              tierLabel: {
+                $switch: {
+                  branches: [
+                    { case: { $eq: ["$effectiveTier", 0] }, then: "≥10 giải" },
+                    { case: { $eq: ["$effectiveTier", 1] }, then: "5–9 giải" },
+                    { case: { $eq: ["$effectiveTier", 2] }, then: "1–4 giải" },
+                    { case: { $eq: ["$effectiveTier", 3] }, then: "Tự chấm" },
+                  ],
+                  default: "Chưa đấu",
+                },
+              },
+              reputation: {
+                $min: [
+                  100,
+                  {
+                    $multiply: [{ $add: ["$singleTours", "$doubleTours"] }, 10],
+                  },
+                ],
+              },
+            },
+          },
+
+          // final sort & paginate
+          {
+            $sort: {
+              effectiveTier: 1,
+              double: -1,
+              single: -1,
+              points: -1,
+              reputation: -1,
+              updatedAt: -1,
+              _id: 1,
+            },
+          },
+          { $skip: page * limit },
+          { $limit: limit },
+
+          // final projection
+          {
+            $project: {
+              user: 1,
+              single: 1,
+              double: 1,
+              mix: 1,
+              points: 1,
+              reputation: 1,
+              updatedAt: 1,
+              doubleTours: 1,
+              singleTours: 1,
+              doubleTier: 1,
+              singleTier: 1,
+              effectiveTier: 1,
+              tierColor: 1,
+              tierLabel: 1,
+              isSelfScoredLatest: 1,
             },
           },
         ],
-        as: "finishedToursByType",
       },
     },
 
-    // Số giải theo loại
-    {
-      $addFields: {
-        doubleTours: {
-          $let: {
-            vars: {
-              item: {
-                $arrayElemAt: [
-                  {
-                    $filter: {
-                      input: "$finishedToursByType",
-                      as: "r",
-                      cond: { $eq: ["$$r._id", "double"] },
-                    },
-                  },
-                  0,
-                ],
-              },
-            },
-            in: { $ifNull: ["$$item.count", 0] },
-          },
-        },
-        singleTours: {
-          $let: {
-            vars: {
-              item: {
-                $arrayElemAt: [
-                  {
-                    $filter: {
-                      input: "$finishedToursByType",
-                      as: "r",
-                      cond: { $eq: ["$$r._id", "single"] },
-                    },
-                  },
-                  0,
-                ],
-              },
-            },
-            in: { $ifNull: ["$$item.count", 0] },
-          },
-        },
-      },
-    },
-
-    // Tier theo SỐ GIẢI đã kết thúc
-    {
-      $addFields: {
-        doubleTier: {
-          $switch: {
-            branches: [
-              { case: { $gte: ["$doubleTours", 10] }, then: 0 },
-              { case: { $gte: ["$doubleTours", 5] }, then: 1 },
-              { case: { $gte: ["$doubleTours", 1] }, then: 2 },
-            ],
-            default: 4,
-          },
-        },
-        singleTier: {
-          $switch: {
-            branches: [
-              { case: { $gte: ["$singleTours", 10] }, then: 0 },
-              { case: { $gte: ["$singleTours", 5] }, then: 1 },
-              { case: { $gte: ["$singleTours", 1] }, then: 2 },
-            ],
-            default: 4,
-          },
-        },
-        selfTier: { $cond: [{ $eq: ["$isSelfScoredLatest", true] }, 3, 4] },
-      },
-    },
-
-    // Badge hiệu lực (ưu tiên ĐÔI rồi ĐƠN rồi tự chấm; nếu cả hai 4 thì là 4)
-    {
-      $addFields: {
-        effectiveTier: {
-          $cond: [
-            { $ne: ["$doubleTier", 4] },
-            "$doubleTier",
-            {
-              $cond: [{ $ne: ["$singleTier", 4] }, "$singleTier", "$selfTier"],
-            },
-          ],
-        },
-      },
-    },
-
-    // Màu/nhãn theo GIẢI
-    {
-      $addFields: {
-        tierColor: {
-          $switch: {
-            branches: [
-              { case: { $eq: ["$effectiveTier", 0] }, then: "green" },
-              { case: { $eq: ["$effectiveTier", 1] }, then: "blue" },
-              { case: { $eq: ["$effectiveTier", 2] }, then: "yellow" },
-              { case: { $eq: ["$effectiveTier", 3] }, then: "red" },
-            ],
-            default: "grey",
-          },
-        },
-        tierLabel: {
-          $switch: {
-            branches: [
-              { case: { $eq: ["$effectiveTier", 0] }, then: "≥10 giải" },
-              { case: { $eq: ["$effectiveTier", 1] }, then: "5–9 giải" },
-              { case: { $eq: ["$effectiveTier", 2] }, then: "1–4 giải" },
-              { case: { $eq: ["$effectiveTier", 3] }, then: "Tự chấm" },
-            ],
-            default: "Chưa đấu",
-          },
-        },
-      },
-    },
-
-    // Reputation theo GIẢI
-    {
-      $addFields: {
-        reputation: {
-          $min: [
-            100,
-            { $multiply: [{ $add: ["$singleTours", "$doubleTours"] }, 10] },
-          ],
-        },
-      },
-    },
-
-    // Sort: nhóm → điểm → reputation (chỉ dùng khi bằng điểm)
-    {
-      $sort: {
-        effectiveTier: 1, // 0 → 1 → 2 → 3 → 4
-        double: -1,
-        single: -1,
-        points: -1,
-        reputation: -1, // tie-break khi các điểm bằng nhau
-        updatedAt: -1,
-        _id: 1,
-      },
-    },
-
-    // Trang
-    { $skip: page * limit },
-    { $limit: limit },
-
-    // Project gọn
+    // shape the response
     {
       $project: {
-        user: 1,
-        single: 1,
-        double: 1,
-        mix: 1,
-        points: 1,
-        reputation: 1, // đã tính theo giải
-        updatedAt: 1,
-
-        doubleTours: 1,
-        singleTours: 1,
-
-        doubleTier: 1,
-        singleTier: 1,
-        effectiveTier: 1,
-        tierColor: 1,
-        tierLabel: 1,
-
-        isSelfScoredLatest: 1,
+        docs: "$docs",
+        total: { $ifNull: [{ $arrayElemAt: ["$total.n", 0] }, 0] },
+      },
+    },
+    {
+      $addFields: {
+        totalPages: { $ceil: { $divide: ["$total", limit] } },
       },
     },
   ]);
 
-  res.json({
-    docs: docsAgg,
-    totalPages: Math.ceil(totalUniqueUsers / limit),
-    page,
-  });
+  const first = agg[0] || { docs: [], totalPages: 0 };
+  return res.json({ docs: first.docs, totalPages: first.totalPages, page });
 });
 
 /* GET điểm kèm user (dùng trong danh sách) */ // Admin
@@ -471,8 +500,8 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
 export const updateRanking = asyncHandler(async (req, res) => {
   const { single, double } = req.body;
   const { id: userId } = req.params;
-  const note = "Admin chấm điểm trình";
-  // 1️⃣ Validate dữ liệu
+
+  // 1) Validate
   if (single == null || double == null) {
     res.status(400);
     throw new Error("Thiếu điểm");
@@ -482,33 +511,75 @@ export const updateRanking = asyncHandler(async (req, res) => {
     throw new Error("userId không hợp lệ");
   }
 
-  // 2️⃣ Kiểm tra user tồn tại
+  const sSingle = Number(single);
+  const sDouble = Number(double);
+  if (!Number.isFinite(sSingle) || !Number.isFinite(sDouble)) {
+    res.status(400);
+    throw new Error("Điểm không hợp lệ");
+  }
+
+  // 2) User tồn tại?
   const userExists = await User.exists({ _id: userId });
   if (!userExists) {
     res.status(404);
     throw new Error("Không tìm thấy người dùng");
   }
 
-  // 3️⃣ Tạo hoặc cập nhật Ranking
+  // 3) Cập nhật/Upsert Ranking
   const rank = await Ranking.findOneAndUpdate(
     { user: userId },
-    { single, double, updatedAt: new Date() },
-    { upsert: true, new: true, setDefaultsOnInsert: true }
-  ).lean();
-  await ScoreHistory.create({
-    user: req.params.id,
-    scorer: req.user._id,
-    single,
-    double,
-    note,
+    { $set: { single: sSingle, double: sDouble, updatedAt: new Date() } },
+    { upsert: true, new: true, setDefaultsOnInsert: true, lean: true }
+  );
+
+  // 4) Nếu CHƯA từng có "tự chấm", tạo một bản tự chấm (admin hỗ trợ)
+  const hasSelfAssessment = await Assessment.exists({
+    user: userId,
+    "meta.selfScored": true,
   });
 
-  // 4️⃣ Trả kết quả
+  let createdSelfAssessment = false;
+  if (!hasSelfAssessment) {
+    await Assessment.create({
+      user: userId,
+      scorer: req.user?._id || null, // ai chấm (admin)
+      items: [], // items không bắt buộc
+      singleScore: sSingle, // snapshot thời điểm này
+      doubleScore: sDouble,
+      // singleLevel/doubleLevel: tuỳ bạn có map từ DUPR không, tạm để trống
+      meta: {
+        selfScored: true, // ❗ cờ tự chấm nằm trong meta
+        // các field khác giữ default: freq=0, competed=false, external=0
+      },
+      note: "Tự chấm trình (admin hỗ trợ)",
+      scoredAt: new Date(),
+    });
+    createdSelfAssessment = true;
+  }
+
+  // 5) Ghi lịch sử
+  const note = createdSelfAssessment
+    ? "Admin chấm điểm và tạo tự chấm (admin hỗ trợ)"
+    : "Admin chấm điểm trình";
+
+  await ScoreHistory.create({
+    user: userId,
+    scorer: req.user?._id || null,
+    single: sSingle,
+    double: sDouble,
+    note,
+    scoredAt: new Date(),
+  });
+
+  // 6) Trả kết quả
   res.json({
-    message: "Đã cập nhật điểm",
+    message: createdSelfAssessment
+      ? "Đã cập nhật điểm và tạo tự chấm (admin hỗ trợ)"
+      : "Đã cập nhật điểm",
     user: userId,
     single: rank.single,
     double: rank.double,
+    createdSelfAssessment,
   });
 });
 
