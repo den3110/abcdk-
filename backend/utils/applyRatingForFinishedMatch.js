@@ -369,8 +369,9 @@ function teamFormScore(kind, formA, formB) {
 /* ===================== Main ===================== */
 export async function applyRatingForFinishedMatch(matchId) {
   const mt = await Match.findById(matchId)
-    .populate({ path: "tournament", select: "eventType" })
-    .populate({ path: "bracket", select: "type stage name meta" })
+    // ⭐ ADD: cần noRankDelta để guard
+    .populate({ path: "tournament", select: "eventType noRankDelta" }) // ⭐
+    .populate({ path: "bracket", select: "type stage name meta noRankDelta" }) // ⭐
     .populate({ path: "pairA", select: "player1 player2" })
     .populate({ path: "pairB", select: "player1 player2" });
 
@@ -387,6 +388,22 @@ export async function applyRatingForFinishedMatch(matchId) {
     return;
   }
   if (mt.ratingApplied) return;
+
+  // ⭐ RATING GUARD (match/bracket/tournament) — nếu bật "không tính điểm", thoát sớm
+  // Ưu tiên: nếu bạn có field noRankDelta ở match thì check luôn; không có thì bỏ mt.noRankDelta.
+  const guardNoDelta =
+    mt.noRankDelta === true || // nếu match-level có
+    mt?.bracket?.noRankDelta === true ||
+    mt?.tournament?.noRankDelta === true;
+
+  if (guardNoDelta) {
+    mt.ratingApplied = true;
+    mt.ratingAppliedAt = new Date();
+    mt.ratingDelta = 0; // không thay đổi điểm
+    await mt.save();
+    return;
+  }
+  // ⭐ END RATING GUARD
 
   const kind = mt.tournament?.eventType === "single" ? "singles" : "doubles";
   const key = mt.tournament?.eventType === "single" ? "single" : "double";
@@ -641,7 +658,9 @@ export async function applyRatingForFinishedMatch(matchId) {
       const uid = u.uid;
       const current = latest.get(uid) || { single: 0, double: 0 };
       const curVal =
-        (Number(current[key]) || 0) > 0 ? Number(current[key]) : DEFAULT_SEED_RATING;
+        (Number(current[key]) || 0) > 0
+          ? Number(current[key])
+          : DEFAULT_SEED_RATING;
       const delta = deltas[idx] ?? 0;
       const next = clamp(curVal + delta, DUPR_MIN, DUPR_MAX);
       perUserDeltasAbs.push(Math.abs(delta));

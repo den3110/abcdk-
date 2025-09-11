@@ -72,6 +72,7 @@ const bracketSchema = new Schema(
       ref: "Tournament",
       required: true,
     },
+    noRankDelta: { type: Boolean, default: false }, // ⭐ NEW
     name: { type: String, required: true },
 
     /**

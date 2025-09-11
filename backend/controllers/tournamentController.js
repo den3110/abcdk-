@@ -20,16 +20,16 @@ const isId = (id) => mongoose.Types.ObjectId.isValid(id);
  *  - sort:      string, ví dụ "-startDate,name" (mặc định: "-startDate")
  *  - limit:     number (optional)
  */
+// GET /tournaments
 const getTournaments = asyncHandler(async (req, res) => {
   const sort = (req.query.sort || "-startDate").toString();
   const limit = req.query.limit
     ? Math.max(parseInt(req.query.limit, 10) || 0, 0)
     : null;
-  const status = (req.query.status || "").toString().toLowerCase(); // optional: upcoming|ongoing|finished
+  const status = (req.query.status || "").toString().toLowerCase(); // upcoming|ongoing|finished
   const rawKeyword = (req.query.keyword ?? req.query.q ?? "").toString().trim();
 
   const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
   const parseSort = (s) =>
     s.split(",").reduce((acc, token) => {
       const key = token.trim();
@@ -38,7 +38,6 @@ const getTournaments = asyncHandler(async (req, res) => {
       else acc[key] = 1;
       return acc;
     }, {});
-
   const sortSpec = Object.keys(parseSort(sort)).length
     ? parseSort(sort)
     : { startDate: -1, _id: -1 };
@@ -167,12 +166,78 @@ const getTournaments = asyncHandler(async (req, res) => {
           ],
         },
       },
+    }
+  );
+
+  // ----- Bracket stats để hỗ trợ noRankDelta (tự tích ở giải khi toàn bộ bracket đã bật) -----
+  pipeline.push(
+    {
+      $lookup: {
+        from: "brackets",
+        let: { tid: "$_id" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$tournament", "$$tid"] } } },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: 1 },
+              noRankOn: {
+                $sum: { $cond: [{ $eq: ["$noRankDelta", true] }, 1, 0] },
+              },
+            },
+          },
+        ],
+        as: "_bc",
+      },
     },
-    { $project: { _rc: 0, _nowDay: 0, _startDay: 0, _endDay: 0 } }
+    {
+      $addFields: {
+        bracketsTotal: { $ifNull: [{ $arrayElemAt: ["$_bc.total", 0] }, 0] },
+        bracketsNoRankDeltaTrue: {
+          $ifNull: [{ $arrayElemAt: ["$_bc.noRankOn", 0] }, 0],
+        },
+        // true nếu có >=1 bracket và tất cả đều bật
+        allBracketsNoRankDelta: {
+          $cond: [
+            { $gt: [{ $ifNull: [{ $arrayElemAt: ["$_bc.total", 0] }, 0] }, 0] },
+            {
+              $eq: [
+                { $ifNull: [{ $arrayElemAt: ["$_bc.noRankOn", 0] }, 0] },
+                { $ifNull: [{ $arrayElemAt: ["$_bc.total", 0] }, 0] },
+              ],
+            },
+            false,
+          ],
+        },
+        // hiệu lực thực tế để FE tham chiếu nhanh
+        effectiveNoRankDelta: {
+          $or: [
+            { $eq: ["$noRankDelta", true] },
+            {
+              $cond: [
+                {
+                  $gt: [
+                    { $ifNull: [{ $arrayElemAt: ["$_bc.total", 0] }, 0] },
+                    0,
+                  ],
+                },
+                {
+                  $eq: [
+                    { $ifNull: [{ $arrayElemAt: ["$_bc.noRankOn", 0] }, 0] },
+                    { $ifNull: [{ $arrayElemAt: ["$_bc.total", 0] }, 0] },
+                  ],
+                },
+                false,
+              ],
+            },
+          ],
+        },
+      },
+    },
+    { $project: { _rc: 0, _bc: 0, _nowDay: 0, _startDay: 0, _endDay: 0 } }
   );
 
   const tournaments = await Tournament.aggregate(pipeline);
-  // (Khuyến nghị dùng 200 cho GET)
   res.status(200).json(tournaments);
 });
 
@@ -219,7 +284,7 @@ const getTournamentById = asyncHandler(async (req, res) => {
     amManager,
     stats: {
       registrationsCount, // số đội đăng ký
-      checkedInCount,     // số đội đã check-in
+      checkedInCount, // số đội đã check-in
     },
   });
 });

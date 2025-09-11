@@ -15,6 +15,7 @@ import {
   buildRoundElimBracket,
 } from "../../services/bracketBuilder.js";
 import { scheduleTournamentCountdown } from "../../utils/scheduleNotifications.js";
+import Bracket from "../../models/bracketModel.js"; // <-- thêm dòng này
 
 /* -------------------------- Sanitize cấu hình -------------------------- */
 const SAFE_HTML = {
@@ -92,6 +93,9 @@ const COMMON_MESSAGES = {
 
 /* ------------------------------ Joi schemas --------------------------- */
 const dateISO = Joi.date().iso();
+const boolLoose = Joi.boolean()
+  .truthy(1, "1", "true", "yes", "y", "on")
+  .falsy(0, "0", "false", "no", "n", "off");
 
 const createSchema = Joi.object({
   name: Joi.string().trim().min(2).max(120).required().label(FIELD_LABELS.name),
@@ -134,6 +138,7 @@ const createSchema = Joi.object({
     .max(100_000)
     .default("")
     .label(FIELD_LABELS.contentHtml),
+  noRankDelta: boolLoose.default(false).label("Không áp dụng điểm trình"), // <-- thêm
 })
   .messages(COMMON_MESSAGES)
   .custom((obj, helpers) => {
@@ -174,6 +179,7 @@ const updateSchema = Joi.object({
   location: Joi.string().trim().min(2).label(FIELD_LABELS.location),
   contactHtml: Joi.string().allow("").label(FIELD_LABELS.contactHtml),
   contentHtml: Joi.string().allow("").label(FIELD_LABELS.contentHtml),
+  noRankDelta: boolLoose.label("Không áp dụng điểm trình"), // <-- thêm
 })
   .messages(COMMON_MESSAGES)
   .custom((obj, helpers) => {
@@ -411,14 +417,14 @@ export const getTournaments = expressAsyncHandler(async (req, res) => {
   res.json({ total, page, limit, list });
 });
 
-export const createTournament = expressAsyncHandler(async (req, res) => {
+// CREATE Tournament
+export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
   const data = validate(createSchema, req.body);
 
   // sanitize HTML trước khi lưu
   data.contactHtml = cleanHTML(data.contactHtml);
   data.contentHtml = cleanHTML(data.contentHtml);
 
-  // Loại bỏ meta không lưu DB
   if (data._meta) delete data._meta;
 
   if (!req.user?._id) {
@@ -426,6 +432,7 @@ export const createTournament = expressAsyncHandler(async (req, res) => {
     throw new Error("Unauthenticated");
   }
 
+  // Joi đã set noRankDelta (mặc định false nếu không gửi)
   const t = await Tournament.create({
     ...data,
     createdBy: req.user._id,
@@ -453,7 +460,8 @@ export const getTournamentById = expressAsyncHandler(async (req, res) => {
   res.json(t);
 });
 
-export const updateTournament = expressAsyncHandler(async (req, res) => {
+// UPDATE Tournament (admin)
+export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
   if (!isObjectId(req.params.id)) {
     res.status(400);
     throw new Error("Invalid ID");
@@ -472,10 +480,9 @@ export const updateTournament = expressAsyncHandler(async (req, res) => {
   if (typeof payload.contentHtml === "string") {
     payload.contentHtml = cleanHTML(payload.contentHtml);
   }
-
-  // Loại bỏ meta không lưu DB
   if (payload._meta) delete payload._meta;
 
+  // payload.noRankDelta lúc này đã là boolean chuẩn nhờ Joi (nếu client gửi)
   const t = await Tournament.findByIdAndUpdate(
     req.params.id,
     { $set: payload },
@@ -492,6 +499,22 @@ export const updateTournament = expressAsyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Tournament not found");
   }
+
+  // Bật ở giải → tự bật toàn bộ bracket trong giải (tắt thì không động tới bracket)
+  if (
+    Object.prototype.hasOwnProperty.call(payload, "noRankDelta") &&
+    payload.noRankDelta === true
+  ) {
+    try {
+      await Bracket.updateMany(
+        { tournament: t._id },
+        { $set: { noRankDelta: true } }
+      );
+    } catch (e) {
+      console.log("Failed to cascade noRankDelta to brackets:", e);
+    }
+  }
+
   res.json(t);
 });
 

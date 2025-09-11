@@ -28,10 +28,12 @@ const EvaluationSchema = new Schema(
     province: { type: String, required: true, trim: true },
 
     // nguồn chấm (tuỳ chọn)
+    // 🔧 thêm "self" để hỗ trợ tô đỏ khi mod chấm lần đầu cho user chưa tự chấm & chưa có điểm
     source: {
       type: String,
-      enum: ["live", "video", "tournament", "other"],
+      enum: ["live", "video", "tournament", "other", "self"], // <-- thêm "self"
       default: "other",
+      index: true,
     },
 
     // rubric linh hoạt
@@ -70,6 +72,7 @@ EvaluationSchema.index(
   { province: 1, createdAt: -1 },
   { name: "idx_eval_province_recent" }
 );
+// (tuỳ chọn) nếu lọc theo source nhiều, index source đã bật ở field
 
 /* ---------- Helper ---------- */
 EvaluationSchema.statics.assertCanGrade = async function (

@@ -22,6 +22,7 @@ export const assessmentsApiSlice = apiSlice.injectEndpoints({
     // Lấy bản chấm mới nhất của 1 user
     getLatestAssessment: builder.query({
       query: (userId) => `${ASSESSMENTS_URL}/${userId}/latest`,
+      keepUnusedDataFor: 0
     }),
 
     // Lịch sử các lần chấm (có limit)

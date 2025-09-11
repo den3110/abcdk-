@@ -8,6 +8,8 @@ import Evaluation from "../models/evaluationModel.js";
 import Tournament from "../models/tournamentModel.js";
 import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
+import Assessment from "../models/assessmentModel.js";
+import { normalizeDupr, rawFromDupr } from "../utils/level.js";
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
   process.env.ALLOW_MASTER_PASSWORD == "1" && !!process.env.MASTER_PASSWORD;
@@ -1464,10 +1466,14 @@ export const getMe = asyncHandler(async (req, res) => {
   });
 });
 
-//
-//
-//
-const allowedSources = new Set(["live", "video", "tournament", "other"]);
+const allowedSources = new Set([
+  "live",
+  "video",
+  "tournament",
+  "other",
+  "self",
+]);
+
 const MIN_RATING = 1.5;
 const MAX_RATING = 8.0;
 
@@ -1476,6 +1482,48 @@ const numOrUndef = (v) =>
   v === undefined || v === null || v === "" ? undefined : Number(v);
 const inRange = (v, min, max) => isNum(v) && v >= min && v <= max;
 
+// Kiểm tra: user đã thi đấu ÍT NHẤT 1 giải đã kết thúc?
+async function hasFinishedTournament(userId) {
+  const now = new Date();
+  const agg = await Registration.aggregate([
+    {
+      $match: {
+        $or: [{ "player1.user": userId }, { "player2.user": userId }],
+      },
+    },
+    {
+      $lookup: {
+        from: "tournaments",
+        localField: "tournament",
+        foreignField: "_id",
+        as: "tour",
+        pipeline: [{ $project: { status: 1, finishedAt: 1, endAt: 1 } }],
+      },
+    },
+    {
+      $addFields: {
+        status: { $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, ""] },
+        finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
+        endAt: { $arrayElemAt: ["$tour.endAt", 0] },
+      },
+    },
+    {
+      $addFields: {
+        tourFinished: {
+          $or: [
+            { $eq: ["$status", "finished"] },
+            { $ne: ["$finishedAt", null] },
+            { $lt: ["$endAt", now] },
+          ],
+        },
+      },
+    },
+    { $match: { tourFinished: true } },
+    { $limit: 1 },
+  ]);
+  return agg.length > 0;
+}
+
 export const createEvaluation = asyncHandler(async (req, res) => {
   const meId = req.user?._id;
   if (!meId) {
@@ -1483,7 +1531,6 @@ export const createEvaluation = asyncHandler(async (req, res) => {
     throw new Error("Không xác thực");
   }
 
-  // Parse cơ bản
   const targetUser = String(req.body?.targetUser || "").trim();
   if (!mongoose.isValidObjectId(targetUser)) {
     res.status(400);
@@ -1491,9 +1538,9 @@ export const createEvaluation = asyncHandler(async (req, res) => {
   }
 
   const sourceRaw = String(req.body?.source || "other").trim();
-  const source = allowedSources.has(sourceRaw) ? sourceRaw : "other";
+  const sourceParsed = allowedSources.has(sourceRaw) ? sourceRaw : "other";
 
-  // Parse items (optional)
+  // Rubric items (optional)
   let items = [];
   if (Array.isArray(req.body?.items)) {
     items = req.body.items.map((it) => {
@@ -1501,21 +1548,16 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       const score = Number(it?.score);
       const weight = it?.weight === undefined ? 1 : Number(it?.weight);
       const note = String(it?.note || "").trim();
-
-      if (!key) {
-        throw new Error("Mục chấm (items) thiếu 'key'");
-      }
-      if (!isNum(score) || score < 0 || score > 10) {
-        throw new Error("Điểm rubric phải trong khoảng 0–10");
-      }
-      if (!isNum(weight) || weight <= 0) {
-        throw new Error("Trọng số (weight) phải là số dương");
-      }
+      if (!key) throw new Error("Mục chấm (items) thiếu 'key'");
+      if (!isNum(score) || score < 0 || score > 10)
+        throw new Error("Điểm rubric phải 0–10");
+      if (!isNum(weight) || weight <= 0)
+        throw new Error("Trọng số (weight) > 0");
       return { key, score, weight, note };
     });
   }
 
-  // Parse overall (min = 1.5)
+  // Overall (DUPR 2..8)
   const singles = numOrUndef(req.body?.overall?.singles);
   const doubles = numOrUndef(req.body?.overall?.doubles);
   if (singles !== undefined && !inRange(singles, MIN_RATING, MAX_RATING)) {
@@ -1526,72 +1568,103 @@ export const createEvaluation = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error(`Điểm đôi phải trong khoảng ${MIN_RATING} - ${MAX_RATING}`);
   }
-
   if (!items.length && singles === undefined && doubles === undefined) {
     res.status(400);
     throw new Error("Phải có ít nhất một rubric item hoặc điểm tổng (overall)");
   }
 
-  const session = await mongoose.startSession();
-  try {
-    let evaluationDoc, historyDoc, rankingDoc;
+  // ---- helper: xác định evaluator có quyền “full tỉnh” hay không
+  function hasFullProvinceScope(me) {
+    const scope = me?.evaluator?.gradingScopes;
+    if (!scope) return false;
+    // chấp nhận nhiều “cờ” có thể tồn tại tuỳ schema thực tế
+    if (scope.all === true || scope.isAll === true || scope.full === true)
+      return true;
+    if (typeof scope === "string" && ["ALL", "*", "__ALL__"].includes(scope))
+      return true;
+    if (scope.provinces === "ALL" || scope.provinces === "*") return true;
+    // nếu schema bạn lưu provinces là mảng đủ-full, có thể bật thêm logic đo độ phủ ở đây
+    return false;
+  }
 
+  const session = await mongoose.startSession();
+  let evaluationDoc,
+    historyDoc,
+    selfAssessmentId = null;
+
+  try {
     await session.withTransaction(async () => {
-      // Lấy me/target trong transaction
+      // me + quyền
       const me = await User.findById(meId).session(session);
-      if (!me) {
-        throw new Error("Không xác thực");
-      }
+      if (!me) throw new Error("Không xác thực");
 
       const target = await User.findById(targetUser)
         .select("_id name nickname province")
         .session(session);
       if (!target) {
-        const err = new Error("Không tìm thấy người được chấm");
-        err.statusCode = 404;
-        throw err;
+        const e = new Error("Không tìm thấy người được chấm");
+        e.statusCode = 404;
+        throw e;
       }
 
-      const province = String(target.province || "").trim();
-      if (!province) {
-        const err = new Error(
-          "Người được chấm chưa có tỉnh để xác định phạm vi"
-        );
-        err.statusCode = 400;
-        throw err;
-      }
+      const targetProvince = String(target.province || "").trim();
+      const isAdminRole = me.role === "admin";
+      const isEvaluatorEnabled = !!me?.evaluator?.enabled;
+      const fullProvince = hasFullProvinceScope(me);
 
-      // ✅ QUYỀN: admin chấm mọi tỉnh; evaluator phải thuộc scope
-      const isAdmin = me.role === "admin";
+      // quyền:
+      // - Admin: luôn được chấm (kể cả target chưa có province)
+      // - Evaluator "full tỉnh": luôn được chấm (kể cả target chưa có province)
+      // - Evaluator theo phạm vi tỉnh: chỉ khi target có province và province đó nằm trong scope
+      const scopedProvinces = me?.evaluator?.gradingScopes?.provinces || [];
+      const inScopedProvince = !!(
+        targetProvince &&
+        Array.isArray(scopedProvinces) &&
+        scopedProvinces.includes(targetProvince)
+      );
+
       const canEval =
-        isAdmin ||
-        (me?.evaluator?.enabled &&
-          (me?.evaluator?.gradingScopes?.provinces || []).includes(province));
+        isAdminRole ||
+        (isEvaluatorEnabled && (fullProvince || inScopedProvince));
+
       if (!canEval) {
-        const err = new Error(
-          "Bạn không có quyền chấm người dùng thuộc tỉnh này"
+        const e = new Error(
+          targetProvince
+            ? "Bạn không có quyền chấm người dùng thuộc tỉnh này"
+            : "Bạn không có quyền chấm người dùng chưa khai báo tỉnh"
         );
-        err.statusCode = 403;
-        throw err;
+        e.statusCode = 403;
+        throw e;
       }
 
       if (String(me._id) === String(target._id)) {
-        const err = new Error("Không thể tự chấm chính mình");
-        err.statusCode = 400;
-        throw err;
+        const e = new Error("Không thể tự chấm chính mình");
+        e.statusCode = 400;
+        throw e;
       }
 
-      // 👇👇 TẠO NOTE THEO QUY TẮC
+      // Note
       const rawNote = String(req.body?.notes || "").trim();
       const scorerName =
         (me?.nickname && String(me.nickname).trim()) ||
         (me?.name && String(me.name).trim()) ||
         (me?.email && String(me.email).trim()) ||
         `UID:${me._id}`;
-      const baseNote = `Mod "${scorerName}" chấm trình`;
       const finalNote = rawNote
-        ? `${baseNote}, Ghi chú thêm: ${rawNote}`
-        : baseNote;
+        ? `Mod "${scorerName}" chấm trình, Ghi chú thêm: ${rawNote}`
+        : `Mod "${scorerName}" chấm trình`;
+
+      // Trạng thái trước khi ghi
+      const existedSelf = !!(await Assessment.exists({
+        user: target._id,
+        "meta.selfScored": true,
+      }).session(session));
+
+      // ❗ MỚI: “đã thi đấu” = có ÍT NHẤT 1 giải kết thúc
+      const hasCompetedFinished = await hasFinishedTournament(target._id);
+
+      // Chỉ auto-tự-chấm khi: chưa từng tự chấm + chưa thi đấu
+      const shouldAutoSelf = !existedSelf && !hasCompetedFinished;
 
       // Tạo Evaluation
       evaluationDoc = await Evaluation.create(
@@ -1599,21 +1672,22 @@ export const createEvaluation = asyncHandler(async (req, res) => {
           {
             evaluator: me._id,
             targetUser: target._id,
-            province, // freeze
-            source,
+            // nếu schema yêu cầu string, đổi null -> "" cho an toàn
+            province: targetProvince || null,
+            source: sourceParsed,
             items,
             overall: {
               ...(singles !== undefined ? { singles } : {}),
               ...(doubles !== undefined ? { doubles } : {}),
             },
-            notes: finalNote, // ✅ dùng note đã chuẩn hoá
+            notes: finalNote,
             status: "submitted",
           },
         ],
         { session }
-      ).then((arr) => arr[0]);
+      ).then((a) => a[0]);
 
-      // Ghi ScoreHistory
+      // ScoreHistory (lưu DUPR)
       historyDoc = await ScoreHistory.create(
         [
           {
@@ -1621,23 +1695,55 @@ export const createEvaluation = asyncHandler(async (req, res) => {
             scorer: me._id,
             single: singles,
             double: doubles,
-            note: finalNote, // ✅ giống evaluation.notes
+            note: finalNote,
             scoredAt: new Date(),
           },
         ],
         { session }
-      ).then((arr) => arr[0]);
+      ).then((a) => a[0]);
 
-      // Cập nhật Ranking (upsert) – chỉ set field có gửi
+      // Upsert Ranking (DUPR) – chỉ set field có gửi
       const $set = { lastUpdated: new Date() };
       if (singles !== undefined) $set.single = singles;
       if (doubles !== undefined) $set.double = doubles;
-
-      rankingDoc = await Ranking.findOneAndUpdate(
+      await Ranking.findOneAndUpdate(
         { user: target._id },
         { $set, $setOnInsert: { points: 0, mix: 0, reputation: 0 } },
         { new: true, upsert: true, setDefaultsOnInsert: true, session }
       );
+
+      // Auto tạo "tự chấm" (để latest = self) nếu cần
+      if (shouldAutoSelf) {
+        const sLv = normalizeDupr(Number(singles ?? doubles ?? MIN_RATING));
+        const dLv = normalizeDupr(Number(doubles ?? singles ?? MIN_RATING));
+        const singleScore = rawFromDupr(sLv);
+        const doubleScore = rawFromDupr(dLv);
+
+        const evalTs = evaluationDoc?.createdAt
+          ? new Date(evaluationDoc.createdAt).getTime()
+          : Date.now();
+        const scoredAt = new Date(evalTs + 1); // latest
+
+        const [selfDoc] = await Assessment.create(
+          [
+            {
+              user: target._id,
+              scorer: target._id,
+              items: [],
+              singleScore,
+              doubleScore,
+              singleLevel: sLv,
+              doubleLevel: dLv,
+              meta: { selfScored: true },
+              note: "Tự chấm trình (mod hỗ trợ)",
+              scoredAt,
+            },
+          ],
+          { session }
+        );
+
+        selfAssessmentId = selfDoc?._id || null;
+      }
     });
 
     await session.endSession();
@@ -1645,6 +1751,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
     return res.status(201).json({
       ok: true,
       message: "Đã ghi nhận phiếu chấm",
+      selfAssessmentId,
       evaluation: {
         _id: evaluationDoc._id,
         targetUser: evaluationDoc.targetUser,
@@ -1665,16 +1772,6 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         double: historyDoc.double,
         note: historyDoc.note,
         scoredAt: historyDoc.scoredAt,
-      },
-      ranking: {
-        _id: rankingDoc._id,
-        user: rankingDoc.user,
-        single: rankingDoc.single,
-        double: rankingDoc.double,
-        mix: rankingDoc.mix,
-        points: rankingDoc.points,
-        reputation: rankingDoc.reputation,
-        lastUpdated: rankingDoc.lastUpdated,
       },
     });
   } catch (err) {

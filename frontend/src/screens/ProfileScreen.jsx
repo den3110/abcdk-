@@ -36,8 +36,16 @@ import { logout } from "../slices/authSlice";
 import CccdDropzone from "../components/CccdDropzone";
 import LogoutIcon from "@mui/icons-material/Logout";
 
+/* ✅ MUI X Date Pickers */
+import dayjs from "dayjs";
+import "dayjs/locale/vi";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+
 /* ---------- Config ---------- */
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MIN_DOB = dayjs("1990-01-01"); // minDate 01/01/1990
 
 /* ---------- Danh sách tỉnh ---------- */
 const PROVINCES = [
@@ -209,6 +217,8 @@ export default function ProfileScreen() {
       const day = new Date(d.dob);
       if (Number.isNaN(day)) e.dob = "Ngày sinh không hợp lệ";
       else if (day > new Date()) e.dob = "Không được ở tương lai";
+      else if (new Date(d.dob) < new Date("1990-01-01"))
+        e.dob = "Không trước 01/01/1990";
     }
     if (!d.province) e.province = "Bắt buộc";
     if (d.cccd && !/^\d{12}$/.test(d.cccd.trim()))
@@ -349,17 +359,27 @@ export default function ProfileScreen() {
     }
   };
 
+  const status = user?.cccdStatus || "unverified";
+  const showUpload = status === "unverified" || status === "rejected";
+  const frontUrl = user?.cccdImages?.front || "";
+  const backUrl = user?.cccdImages?.back || "";
+
+  const cccdTrim = (form.cccd || "").trim();
+  const isCccdEmpty = cccdTrim === "";
+
+  // Dayjs value cho DatePicker (từ string 'YYYY-MM-DD')
+  const dobValue = useMemo(() => {
+    if (!form.dob) return null;
+    const d = dayjs(form.dob, "YYYY-MM-DD", true);
+    return d.isValid() ? d : null;
+  }, [form.dob]);
+
   if (fetching || !user)
     return (
       <Box sx={{ display: "flex", justifyContent: "center", mt: 10 }}>
         <CircularProgress />
       </Box>
     );
-
-  const status = user.cccdStatus || "unverified";
-  const showUpload = status === "unverified" || status === "rejected";
-  const frontUrl = user.cccdImages?.front || "";
-  const backUrl = user.cccdImages?.back || "";
 
   return (
     <Container maxWidth="sm" sx={{ py: 4 }}>
@@ -487,18 +507,39 @@ export default function ProfileScreen() {
               )}
             </FormControl>
 
-            <TextField
-              label="Ngày sinh"
-              type="date"
-              name="dob"
-              value={form.dob}
-              onChange={onChange}
-              onBlur={onBlur}
-              fullWidth
-              InputLabelProps={{ shrink: true }}
-              error={showErr("dob")}
-              helperText={showErr("dob") ? errors.dob : " "}
-            />
+            {/* ✅ DatePicker cho Ngày sinh */}
+            <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
+              <DatePicker
+                label="Ngày sinh"
+                value={dobValue}
+                onChange={(newVal) => {
+                  setTouched((t) => ({ ...t, dob: true }));
+                  setForm((p) => ({
+                    ...p,
+                    dob:
+                      newVal && newVal.isValid()
+                        ? newVal.format("YYYY-MM-DD")
+                        : "",
+                  }));
+                }}
+                format="DD/MM/YYYY"
+                minDate={MIN_DOB}
+                defaultCalendarMonth={MIN_DOB} // mở đúng tháng/năm 01/1990 khi chưa có giá trị
+                referenceDate={MIN_DOB} // tham chiếu mặc định 01/01/1990
+                disableFuture
+                views={["year", "month", "day"]}
+                slotProps={{
+                  textField: {
+                    fullWidth: true,
+                    placeholder: "DD/MM/YYYY", // 👈 placeholder khi chưa chọn
+                    onBlur: () => setTouched((t) => ({ ...t, dob: true })),
+                    error: showErr("dob"),
+                    helperText: showErr("dob") ? errors.dob : " ",
+                  },
+                }}
+              />
+            </LocalizationProvider>
+
             <FormControl fullWidth required error={showErr("province")}>
               <InputLabel id="province-lbl" shrink>
                 Tỉnh / Thành phố
@@ -527,6 +568,7 @@ export default function ProfileScreen() {
                 </Typography>
               )}
             </FormControl>
+
             <TextField
               label="Mã định danh CCCD"
               name="cccd"
@@ -538,9 +580,14 @@ export default function ProfileScreen() {
               inputProps={{ inputMode: "numeric", maxLength: 12 }}
               error={showErr("cccd")}
               helperText={
-                showErr("cccd") ? errors.cccd : "Bạn cần nhập CCCD để gửi ảnh."
+                showErr("cccd")
+                  ? errors.cccd
+                  : isCccdEmpty
+                  ? "Bạn cần nhập CCCD để gửi ảnh."
+                  : " "
               }
             />
+
             <TextField
               label="Email"
               type="email"
@@ -585,10 +632,9 @@ export default function ProfileScreen() {
             </Typography>
             {showUpload ? (
               <>
-                {!isCccdValid && (
+                {isCccdEmpty && (
                   <Alert severity="info" sx={{ mb: 1 }}>
-                    Nhập <strong>số CCCD hợp lệ (12 số)</strong> trước khi gửi
-                    ảnh xác minh.
+                    Nhập <strong>số CCCD</strong> trước khi gửi ảnh xác minh.
                   </Alert>
                 )}
                 <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>

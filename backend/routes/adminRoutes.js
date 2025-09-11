@@ -10,15 +10,16 @@ import {
 import { protect, authorize } from "../middleware/authMiddleware.js";
 import { adminLogin } from "../controllers/admin/adminAuthController.js";
 import {
+  adminUpdateRanking,
   getUsersWithRank,
-  updateRanking,
 } from "../controllers/rankingController.js";
 import {
   createScoreHistory,
   listScoreHistory,
 } from "../controllers/scoreHistoryController.js";
 import {
-  createTournament,
+  adminCreateTournament,
+  adminUpdateTournament,
   deleteTournament,
   finishExpiredTournaments,
   finishTournament,
@@ -26,7 +27,6 @@ import {
   getTournaments,
   planAuto,
   planCommit,
-  updateTournament,
   updateTournamentOverlay,
 } from "../controllers/admin/adminTournamentController.js";
 import {
@@ -123,7 +123,7 @@ router.delete("/users/:id", deleteUser);
 router.put("/users/:id", updateUserInfo);
 router.put("/users/:id/kyc", reviewUserKyc); // approve / reject
 
-router.put("/rankings/:id", updateRanking);
+router.put("/rankings/:id", adminUpdateRanking);
 
 router.get("/score-history", listScoreHistory); // ?user=&page=
 router.post("/score-history", createScoreHistory); // body { userId, ... }
@@ -132,13 +132,13 @@ router
   .route("/tournaments/:id")
   // .all(validateObjectId)           // (nếu dùng)
   .get(getTournamentById) // GET    /api/admin/tournaments/:id
-  .put(updateTournament) // PUT    /api/admin/tournaments/:id
+  .put(adminUpdateTournament) // PUT    /api/admin/tournaments/:id
   .delete(deleteTournament); // DELETE /api/admin/tournaments/:id
 
 router
   .route("/tournaments")
   .get(getTournaments) // GET  /api/admin/tournaments
-  .post(createTournament); // POST /api/admin/tournaments
+  .post(adminCreateTournament); // POST /api/admin/tournaments
 
 router
   .route("/tournaments/registrations/:regId/payment")

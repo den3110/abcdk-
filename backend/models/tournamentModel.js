@@ -146,6 +146,7 @@ const tournamentSchema = new mongoose.Schema(
       customCss: { type: String, default: "" }, // CSS tuỳ chỉnh (scoped)
       logoUrl: { type: String, default: "" }, // nếu muốn chèn logo
     },
+    noRankDelta: { type: Boolean, default: false }, // ⭐ NEW
   },
   { timestamps: true }
 );
