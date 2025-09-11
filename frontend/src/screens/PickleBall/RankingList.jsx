@@ -317,7 +317,7 @@ export default function RankingList() {
         );
         return;
       }
-      if (!gradeDlg.userId || !gradeDlg.province) {
+      if (!gradeDlg.userId) {
         showSnack("error", "Thiếu thông tin người được chấm hoặc tỉnh.");
         return;
       }
