@@ -1474,7 +1474,7 @@ const allowedSources = new Set([
   "self",
 ]);
 
-const MIN_RATING = 1.5;
+const MIN_RATING = 2.0;
 const MAX_RATING = 8.0;
 
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);

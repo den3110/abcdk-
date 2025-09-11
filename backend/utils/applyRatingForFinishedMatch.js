@@ -6,7 +6,7 @@ import ScoreHistory from "../models/scoreHistoryModel.js";
 import RatingChange from "../models/ratingChangeModel.js";
 
 /* ===================== Tunables (core) ===================== */
-const DUPR_MIN = 1.5;
+const DUPR_MIN = 2;
 const DUPR_MAX = 8.0;
 const DIFF_SCALE = 0.6; // logistic scale cho expected
 

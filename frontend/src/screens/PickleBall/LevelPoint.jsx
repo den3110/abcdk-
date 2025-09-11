@@ -20,8 +20,8 @@ import {
   useGetLatestAssessmentQuery,
 } from "../../slices/assessmentsApiSlice";
 
-/* ===== DUPR helpers (min = 1.5) ===== */
-const DUPR_MIN = 1.5;
+/* ===== DUPR helpers (min = 2.0) ===== */
+const DUPR_MIN = 2.0;
 const DUPR_MAX = 8.0;
 const clamp = (n, min, max) => Math.max(min, Math.min(max, Number(n) || 0));
 const round3 = (n) => Number((Number(n) || 0).toFixed(3));
@@ -29,13 +29,8 @@ const normalizeDupr = (n) => round3(clamp(n, DUPR_MIN, DUPR_MAX));
 const duprFromRaw = (raw0to10) =>
   round3(DUPR_MIN + clamp(raw0to10, 0, 10) * ((DUPR_MAX - DUPR_MIN) / 10));
 
-/* Rubric (rút gọn text cho ngắn) */
+/* Rubric (bắt đầu từ 2.0) */
 const RUBRIC = [
-  {
-    level: 1.5,
-    label: "Novice",
-    bullets: ["Mới chơi", "Chưa ổn định kỹ thuật", "Cần hướng dẫn cơ bản"],
-  },
   {
     level: 2.0,
     label: "Beginner",
