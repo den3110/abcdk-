@@ -25,7 +25,7 @@ const EvaluationSchema = new Schema(
     evaluator: { type: Schema.Types.ObjectId, ref: "User", required: true },
 
     // chấm theo tỉnh nào (freeze theo thời điểm chấm)
-    province: { type: String, required: true, trim: true },
+    province: { type: String, trim: true },
 
     // nguồn chấm (tuỳ chọn)
     // 🔧 thêm "self" để hỗ trợ tô đỏ khi mod chấm lần đầu cho user chưa tự chấm & chưa có điểm
