@@ -29,6 +29,11 @@ import {
   TextField,
   Tooltip,
   Typography,
+  Grid,
+  Card,
+  CardHeader,
+  CardContent,
+  Divider,
 } from "@mui/material";
 import {
   Edit as EditIcon,
@@ -36,6 +41,7 @@ import {
   OpenInNew as OpenInNewIcon,
   Search as SearchIcon,
   Sort as SortIcon,
+  Sports as SportsIcon,
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 
@@ -43,7 +49,6 @@ import {
   useGetTournamentQuery,
   useAdminGetBracketsQuery,
   useAdminListMatchesByTournamentQuery,
-  // Giữ nguyên hook, nhưng body gửi { video }
   useAdminSetMatchLiveUrlMutation,
 } from "../../slices/tournamentsApiSlice";
 
@@ -61,13 +66,20 @@ const TYPE_LABEL = (t) => {
   return t || "Khác";
 };
 
-const playerName = (p) =>
-  p?.fullName || p?.name || p?.nickName || p?.nickname || "—";
+// Ưu tiên nickname
+const personNickname = (p) =>
+  p?.nickname ||
+  p?.nickName ||
+  p?.nick ||
+  p?.displayName ||
+  p?.fullName ||
+  p?.name ||
+  "—";
 
 const pairLabel = (pair) => {
   if (!pair) return "—";
   if (pair.name) return pair.name;
-  const ps = [pair.player1, pair.player2].filter(Boolean).map(playerName);
+  const ps = [pair.player1, pair.player2].filter(Boolean).map(personNickname);
   return ps.join(" / ") || "—";
 };
 
@@ -110,7 +122,6 @@ export default function TournamentManagePage() {
     pageSize: 1000,
   });
 
-  // dùng hook cũ, nhưng gửi { video }
   const [setLiveUrl, { isLoading: savingVideo }] =
     useAdminSetMatchLiveUrlMutation();
 
@@ -130,7 +141,7 @@ export default function TournamentManagePage() {
   }, [tour, me]);
   const canManage = isAdmin || isManager;
 
-  // Build type tabs dynamically from API brackets
+  // Tabs theo type
   const typeOrderWeight = (t) => {
     const k = String(t || "").toLowerCase();
     if (k === "group") return 1;
@@ -150,7 +161,6 @@ export default function TournamentManagePage() {
           weight: typeOrderWeight(t),
         });
     });
-    // fallback nếu API rỗng
     if (uniq.size === 0)
       uniq.set("group", { type: "group", label: "Vòng bảng", weight: 1 });
     return Array.from(uniq.values()).sort((a, b) => a.weight - b.weight);
@@ -158,20 +168,12 @@ export default function TournamentManagePage() {
 
   const [tab, setTab] = useState(typesAvailable[0]?.type || "group");
   useEffect(() => {
-    // Khi dữ liệu typesAvailable đổi (sau fetch), đặt lại tab nếu cần
     if (!typesAvailable.find((t) => t.type === tab)) {
       setTab(typesAvailable[0]?.type || "group");
     }
-  }, [typesAvailable]); // eslint-disable-line
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [typesAvailable]);
 
-  // index nhanh
-  const bracketById = useMemo(() => {
-    const map = new Map();
-    (brackets || []).forEach((b) => map.set(String(b?._id), b));
-    return map;
-  }, [brackets]);
-
-  // Lọc list bracket theo type đang chọn, sắp xếp theo stage -> order -> createdAt
   const bracketsOfTab = useMemo(() => {
     const list = (brackets || []).filter(
       (b) => String(b?.type || "").toLowerCase() === String(tab).toLowerCase()
@@ -185,12 +187,12 @@ export default function TournamentManagePage() {
     });
   }, [brackets, tab]);
 
-  // Bộ lọc/sort trận trong mỗi bracket
+  // Lọc/sort
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState("round"); // round | order | time
   const [sortDir, setSortDir] = useState("asc"); // asc | desc
 
-  // Viewer popup
+  // Viewer
   const [viewer, setViewer] = useState({ open: false, matchId: null });
   const openMatch = (mid) => setViewer({ open: true, matchId: mid });
   const closeMatch = () => setViewer({ open: false, matchId: null });
@@ -222,7 +224,6 @@ export default function TournamentManagePage() {
           const tb = new Date(b?.scheduledAt || b?.createdAt || 0).getTime();
           return (ta - tb) * dir;
         }
-        // round default
         if ((a?.round ?? 0) !== (b?.round ?? 0))
           return ((a?.round ?? 0) - (b?.round ?? 0)) * dir;
         return ((a?.order ?? 0) - (b?.order ?? 0)) * dir;
@@ -245,7 +246,6 @@ export default function TournamentManagePage() {
     try {
       await setLiveUrl({
         matchId: videoDlg.match._id,
-        // backend /live nhận { video } (đúng theo model)
         video: videoDlg.url || "",
       }).unwrap();
       toast.success(videoDlg.url ? "Đã gán link video" : "Đã xoá link video");
@@ -390,9 +390,8 @@ export default function TournamentManagePage() {
         </Alert>
       ) : (
         bracketsOfTab.map((b) => {
-          // gom trận theo bracket này
           const bid = String(b?._id);
-          const matches = allMatches.filter((m) => {
+          const matches = (allMatches || []).filter((m) => {
             const mid = m?.bracket?._id || m?.bracket;
             return String(mid) === bid;
           });
@@ -431,131 +430,314 @@ export default function TournamentManagePage() {
                 </Stack>
               </Box>
 
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ whiteSpace: "nowrap" }}>Mã</TableCell>
-                      <TableCell sx={{ minWidth: 240 }}>Cặp A</TableCell>
-                      <TableCell sx={{ minWidth: 240 }}>Cặp B</TableCell>
-                      <TableCell sx={{ whiteSpace: "nowrap" }}>Vòng</TableCell>
-                      <TableCell sx={{ whiteSpace: "nowrap" }}>
-                        Thứ tự
-                      </TableCell>
-                      <TableCell sx={{ whiteSpace: "nowrap" }}>
-                        Trạng thái
-                      </TableCell>
-                      <TableCell sx={{ minWidth: 200 }}>Link video</TableCell>
-                      <TableCell sx={{ whiteSpace: "nowrap" }}>
-                        Hành động
-                      </TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {list.length === 0 ? (
+              {/* ===== Desktop: giữ nguyên bảng ===== */}
+              <Box sx={{ display: { xs: "none", md: "block" } }}>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
                       <TableRow>
-                        <TableCell colSpan={8} align="center">
-                          <Typography color="text.secondary">
-                            Chưa có trận nào.
-                          </Typography>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>Mã</TableCell>
+                        <TableCell sx={{ minWidth: 240 }}>Cặp A</TableCell>
+                        <TableCell sx={{ minWidth: 240 }}>Cặp B</TableCell>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>
+                          Vòng
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>
+                          Thứ tự
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>
+                          Trạng thái
+                        </TableCell>
+                        <TableCell sx={{ minWidth: 200 }}>Link video</TableCell>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>
+                          Hành động
                         </TableCell>
                       </TableRow>
-                    ) : (
-                      list.map((m) => (
-                        <TableRow
-                          key={m._id}
-                          hover
-                          onClick={() => openMatch(m._id)}
-                          sx={{ cursor: "pointer" }}
-                        >
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>
-                            {matchCode(m)}
+                    </TableHead>
+                    <TableBody>
+                      {list.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={8} align="center">
+                            <Typography color="text.secondary">
+                              Chưa có trận nào.
+                            </Typography>
                           </TableCell>
-                          <TableCell>{pairLabel(m?.pairA)}</TableCell>
-                          <TableCell>{pairLabel(m?.pairB)}</TableCell>
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>
-                            {m?.round ?? "—"}
-                          </TableCell>
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>
-                            {m?.order ?? "—"}
-                          </TableCell>
-                          <TableCell>{statusChip(m?.status)}</TableCell>
-                          <TableCell>
-                            {m?.video ? (
-                              <Stack
-                                direction="row"
-                                spacing={1}
-                                alignItems="center"
-                                flexWrap="wrap"
-                                onClick={(e) => e.stopPropagation()}
-                              >
+                        </TableRow>
+                      ) : (
+                        list.map((m) => (
+                          <TableRow
+                            key={m._id}
+                            hover
+                            onClick={() => openMatch(m._id)}
+                            sx={{ cursor: "pointer" }}
+                          >
+                            <TableCell sx={{ whiteSpace: "nowrap" }}>
+                              {matchCode(m)}
+                            </TableCell>
+                            <TableCell>{pairLabel(m?.pairA)}</TableCell>
+                            <TableCell>{pairLabel(m?.pairB)}</TableCell>
+                            <TableCell sx={{ whiteSpace: "nowrap" }}>
+                              {m?.round ?? "—"}
+                            </TableCell>
+                            <TableCell sx={{ whiteSpace: "nowrap" }}>
+                              {m?.order ?? "—"}
+                            </TableCell>
+                            <TableCell>{statusChip(m?.status)}</TableCell>
+                            <TableCell>
+                              {m?.video ? (
+                                <Stack
+                                  direction="row"
+                                  spacing={1}
+                                  alignItems="center"
+                                  flexWrap="wrap"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Chip
+                                    size="small"
+                                    color="success"
+                                    variant="outlined"
+                                    label="đã gắn"
+                                  />
+                                  <Tooltip title={m.video} arrow>
+                                    <IconButton
+                                      size="small"
+                                      component="a"
+                                      href={m.video}
+                                      target="_blank"
+                                      rel="noopener"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <OpenInNewIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </Stack>
+                              ) : (
                                 <Chip
                                   size="small"
-                                  color="success"
                                   variant="outlined"
-                                  label="đã gắn"
+                                  label="chưa có"
                                 />
-                                <Tooltip title={m.video} arrow>
-                                  <IconButton
-                                    size="small"
-                                    component="a"
-                                    href={m.video}
-                                    target="_blank"
-                                    rel="noopener"
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    <OpenInNewIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                              </Stack>
-                            ) : (
-                              <Chip
-                                size="small"
-                                variant="outlined"
-                                label="chưa có"
-                              />
-                            )}
-                          </TableCell>
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>
-                            <Tooltip title="Gán / sửa link video" arrow>
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    openVideoDlg(m);
-                                  }}
-                                >
-                                  <EditIcon fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                            {m?.video && (
-                              <Tooltip title="Xoá link video" arrow>
+                              )}
+                            </TableCell>
+                            <TableCell sx={{ whiteSpace: "nowrap" }}>
+                              <Tooltip title="Gán / sửa link video" arrow>
                                 <span>
                                   <IconButton
                                     size="small"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setVideoDlg({
-                                        open: true,
-                                        match: m,
-                                        url: "",
-                                      });
+                                      openVideoDlg(m);
                                     }}
                                   >
-                                    <LinkOffIcon fontSize="small" />
+                                    <EditIcon fontSize="small" />
                                   </IconButton>
                                 </span>
                               </Tooltip>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
+                              {m?.video && (
+                                <Tooltip title="Xoá link video" arrow>
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setVideoDlg({
+                                          open: true,
+                                          match: m,
+                                          url: "",
+                                        });
+                                      }}
+                                    >
+                                      <LinkOffIcon fontSize="small" />
+                                    </IconButton>
+                                  </span>
+                                </Tooltip>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+
+              {/* ===== Mobile: Card Grid 2 cột (xs=6) – không full width ===== */}
+              <Box sx={{ display: { xs: "block", md: "none" } }}>
+                <Box p={2} pt={1}>
+                  {list.length === 0 ? (
+                    <Typography color="text.secondary" align="center" py={2}>
+                      Chưa có trận nào.
+                    </Typography>
+                  ) : (
+                    <Grid container spacing={1.2}>
+                      {list.map((m) => {
+                        const code = matchCode(m);
+                        return (
+                          <Grid key={m._id} item width={"100%"} xs={6}>
+                            <Card
+                              variant="outlined"
+                              sx={{
+                                height: "100%",
+                                cursor: "pointer",
+                                "&:hover": { boxShadow: 2 },
+                              }}
+                              onClick={() => openMatch(m._id)}
+                            >
+                              <CardHeader
+                                sx={{ py: 1.2 }}
+                                avatar={<SportsIcon fontSize="small" />}
+                                titleTypographyProps={{
+                                  variant: "subtitle2",
+                                  noWrap: true,
+                                }}
+                                title={
+                                  <Stack
+                                    direction="row"
+                                    spacing={0.5}
+                                    alignItems="center"
+                                    flexWrap="wrap"
+                                  >
+                                    <Typography variant="subtitle2" noWrap>
+                                      {code}
+                                    </Typography>
+                                    {statusChip(m?.status)}
+                                  </Stack>
+                                }
+                                subheader={
+                                  <Stack
+                                    direction="row"
+                                    spacing={0.5}
+                                    flexWrap="wrap"
+                                  >
+                                    {typeof m?.round === "number" && (
+                                      <Chip
+                                        size="small"
+                                        label={`R${m.round}`}
+                                      />
+                                    )}
+                                    {typeof m?.order === "number" && (
+                                      <Chip
+                                        size="small"
+                                        variant="outlined"
+                                        label={`#${m.order}`}
+                                      />
+                                    )}
+                                  </Stack>
+                                }
+                                action={
+                                  <Stack direction="row" spacing={0.25}>
+                                    <Tooltip title="Sửa link video" arrow>
+                                      <span>
+                                        <IconButton
+                                          size="small"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openVideoDlg(m);
+                                          }}
+                                        >
+                                          <EditIcon fontSize="small" />
+                                        </IconButton>
+                                      </span>
+                                    </Tooltip>
+                                    {m?.video && (
+                                      <Tooltip title="Xoá link video" arrow>
+                                        <span>
+                                          <IconButton
+                                            size="small"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setVideoDlg({
+                                                open: true,
+                                                match: m,
+                                                url: "",
+                                              });
+                                            }}
+                                          >
+                                            <LinkOffIcon fontSize="small" />
+                                          </IconButton>
+                                        </span>
+                                      </Tooltip>
+                                    )}
+                                  </Stack>
+                                }
+                              />
+                              <Divider />
+                              <CardContent sx={{ py: 1.25 }}>
+                                <Stack spacing={0.5}>
+                                  <Box>
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                    >
+                                      Cặp A
+                                    </Typography>
+                                    <Typography
+                                      variant="body2"
+                                      sx={{ fontWeight: 600 }}
+                                      noWrap
+                                    >
+                                      {pairLabel(m?.pairA)}
+                                    </Typography>
+                                  </Box>
+                                  <Box>
+                                    <Typography
+                                      variant="caption"
+                                      color="text.secondary"
+                                    >
+                                      Cặp B
+                                    </Typography>
+                                    <Typography
+                                      variant="body2"
+                                      sx={{ fontWeight: 600 }}
+                                      noWrap
+                                    >
+                                      {pairLabel(m?.pairB)}
+                                    </Typography>
+                                  </Box>
+                                  <Box onClick={(e) => e.stopPropagation()}>
+                                    {m?.video ? (
+                                      <Stack
+                                        direction="row"
+                                        spacing={0.75}
+                                        alignItems="center"
+                                        flexWrap="wrap"
+                                      >
+                                        <Chip
+                                          size="small"
+                                          color="success"
+                                          variant="outlined"
+                                          label="Có video"
+                                        />
+                                        <Tooltip title={m.video} arrow>
+                                          <IconButton
+                                            size="small"
+                                            component="a"
+                                            href={m.video}
+                                            target="_blank"
+                                            rel="noopener"
+                                          >
+                                            <OpenInNewIcon fontSize="small" />
+                                          </IconButton>
+                                        </Tooltip>
+                                      </Stack>
+                                    ) : (
+                                      <Chip
+                                        size="small"
+                                        variant="outlined"
+                                        label="Chưa có video"
+                                      />
+                                    )}
+                                  </Box>
+                                </Stack>
+                              </CardContent>
+                            </Card>
+                          </Grid>
+                        );
+                      })}
+                    </Grid>
+                  )}
+                </Box>
+              </Box>
             </Paper>
           );
         })

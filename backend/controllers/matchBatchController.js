@@ -2,21 +2,67 @@
 import expressAsyncHandler from "express-async-handler";
 import Match from "../models/matchModel.js";
 import Bracket from "../models/bracketModel.js";
+import mongoose from "mongoose";
+import User from "../models/userModel.js"
 
 /** POST /admin/matches/batch/update-referee
  * body: { ids: [matchId...], referee: userId }
  */
 export const batchAssignReferee = expressAsyncHandler(async (req, res) => {
-  const { ids, referee } = req.body;
-  if (!Array.isArray(ids) || !ids.length) {
+  const { ids, referees } = req.body;
+
+  // 1) Validate match ids
+  if (!Array.isArray(ids) || ids.length === 0) {
     res.status(400);
     throw new Error("ids must be a non-empty array");
   }
+  const invalidMatchIds = ids.filter((id) => !mongoose.isValidObjectId(id));
+  if (invalidMatchIds.length) {
+    res.status(400);
+    throw new Error(`Invalid match ids: ${invalidMatchIds.join(", ")}`);
+  }
+
+  // 2) Validate & normalize referees (array; empty array = clear)
+  if (!Array.isArray(referees)) {
+    res.status(400);
+    throw new Error("referees must be an array (send [] to clear)");
+  }
+  const refIds = Array.from(new Set(referees.map(String).filter(Boolean)));
+
+  // 3) If not clearing, verify users exist and have proper roles
+  if (refIds.length > 0) {
+    const invalidRefIds = refIds.filter((id) => !mongoose.isValidObjectId(id));
+    if (invalidRefIds.length) {
+      res.status(400);
+      throw new Error(`Invalid referee ids: ${invalidRefIds.join(", ")}`);
+    }
+
+    const users = await User.find({ _id: { $in: refIds } }).select("_id role");
+    if (users.length !== refIds.length) {
+      const found = new Set(users.map((u) => String(u._id)));
+      const missing = refIds.filter((id) => !found.has(id));
+      res.status(404);
+      throw new Error(`Referees not found: ${missing.join(", ")}`);
+    }
+
+    const bad = users.find((u) => !["referee", "admin"].includes(u.role));
+    if (bad) {
+      res.status(400);
+      throw new Error("Some users do not have referee permission");
+    }
+  }
+
+  // 4) Update all matches: set array (or clear with [])
   const result = await Match.updateMany(
     { _id: { $in: ids } },
-    { $set: { referee: referee || null } }
+    { $set: { referee: refIds } }, // field 'referee' is an array<ObjectId>
+    { runValidators: true }
   );
-  res.json({ updated: result.modifiedCount ?? result.nModified ?? 0 });
+
+  res.json({
+    matched: result.matchedCount ?? result.n ?? ids.length,
+    updated: result.modifiedCount ?? result.nModified ?? 0,
+  });
 });
 
 /** POST /admin/brackets/:bracketId/matches/batch-delete
@@ -128,7 +174,9 @@ export const clearBracketMatches = expressAsyncHandler(async (req, res) => {
       query.status = status.trim();
     } else {
       res.status(400);
-      throw new Error("status must be a non-empty string or an array of strings");
+      throw new Error(
+        "status must be a non-empty string or an array of strings"
+      );
     }
   }
 

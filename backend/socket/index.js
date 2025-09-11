@@ -259,6 +259,7 @@ export function initSocket(
         .populate({ path: "previousA", select: "round order" })
         .populate({ path: "previousB", select: "round order" })
         .populate({ path: "nextMatch", select: "_id" })
+        .populate({ path: "liveBy", select: "name nickname" })
         .populate({
           path: "tournament",
           select: "name image eventType overlay",
@@ -400,7 +401,13 @@ export function initSocket(
             },
           ],
         })
-        .populate({ path: "referee", select: "name fullName nickname" })
+        // referee giờ là mảng — populate bình thường
+        .populate({
+          path: "referee",
+          select: "name nickname",
+        })
+        // lấy luôn người đang điều khiển live
+        .populate({ path: "liveBy", select: "name nickname" })
         .populate({ path: "previousA", select: "round order" })
         .populate({ path: "previousB", select: "round order" })
         .populate({ path: "nextMatch", select: "_id" })
@@ -484,6 +491,7 @@ export function initSocket(
         .populate({ path: "previousA", select: "round order" })
         .populate({ path: "previousB", select: "round order" })
         .populate({ path: "nextMatch", select: "_id" })
+        .populate({ path: "liveBy", select: "name nickname" })
         .populate({
           path: "tournament",
           select: "name image eventType overlay",

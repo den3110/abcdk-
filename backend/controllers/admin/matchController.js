@@ -240,12 +240,11 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
   if (hasVideoField) createPayload.video = videoSanitized;
 
   try {
-    
     const match = await Match.create(createPayload);
   } catch (e) {
-    console.log(e)
+    console.log(e);
   }
-  await scheduleMatchStartSoon(match); 
+  await scheduleMatchStartSoon(match);
 
   // Link ngược từ trận nguồn (giữ nguyên)
   if (prevMatchA) {
@@ -715,9 +714,9 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     status, // 'scheduled' | 'live' | 'finished' | 'assigned' | 'queued'
     winner, // 'A' | 'B' | ''
     ratingDelta, // số điểm cộng/trừ cho trận
-    referee, // userId trọng tài (string) | null | ''
-    // ⭐ NEW: chỉ dùng video
-    video,
+    referee, // backward-compat: string | string[] | null | ''
+    referees, // NEW: string[]
+    video, // chỉ dùng video
   } = req.body;
 
   const mt = await Match.findById(matchId);
@@ -736,31 +735,44 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
   if (Number.isFinite(Number(round))) mt.round = Math.max(1, Number(round));
   if (Number.isFinite(Number(order))) mt.order = Math.max(0, Number(order));
 
-  // cập nhật ratingDelta nếu có truyền
+  // cập nhật ratingDelta nếu có truyền (không âm)
   if (ratingDelta !== undefined) {
     const v = Number(ratingDelta);
-    mt.ratingDelta = Number.isFinite(v) && v >= 0 ? v : 0; // không âm
+    mt.ratingDelta = Number.isFinite(v) && v >= 0 ? v : 0;
   }
 
-  // 👇 gán / bỏ gán trọng tài
-  if (referee !== undefined) {
-    if (referee === null || referee === "") {
-      mt.referee = undefined; // clear
+  // 👇 gán / bỏ gán trọng tài (hỗ trợ nhiều trọng tài + tương thích ngược)
+  if (referee !== undefined || referees !== undefined) {
+    const raw = referees !== undefined ? referees : referee;
+    const list =
+      raw == null || raw === "" ? [] : Array.isArray(raw) ? raw : [raw];
+
+    // chuẩn hoá: string[] duy nhất
+    const ids = Array.from(new Set(list.map((x) => String(x))));
+
+    // cho phép clear nếu rỗng
+    if (ids.length === 0) {
+      mt.referee = [];
     } else {
-      if (!mongoose.isValidObjectId(referee)) {
-        res.status(400);
-        throw new Error("referee không hợp lệ");
+      // validate ObjectId
+      for (const id of ids) {
+        if (!mongoose.isValidObjectId(id)) {
+          res.status(400);
+          throw new Error("referee không hợp lệ");
+        }
       }
-      const refUser = await User.findById(referee).select("_id role");
-      if (!refUser) {
+      // load & validate role
+      const users = await User.find({ _id: { $in: ids } }).select("_id role");
+      if (users.length !== ids.length) {
         res.status(404);
-        throw new Error("Không tìm thấy người dùng để gán làm trọng tài");
+        throw new Error("Có trọng tài không tồn tại");
       }
-      if (!["referee", "admin"].includes(refUser.role)) {
+      const invalid = users.find((u) => !["referee", "admin"].includes(u.role));
+      if (invalid) {
         res.status(400);
-        throw new Error("Người này không có quyền trọng tài");
+        throw new Error("Có người không có quyền trọng tài");
       }
-      mt.referee = refUser._id;
+      mt.referee = users.map((u) => u._id); // lưu mảng ObjectId
     }
   }
 
@@ -803,17 +815,15 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     const capMode = ["none", "hard", "soft"].includes(incomingMode)
       ? incomingMode
       : "none";
+
     let capPoints =
-      rules?.cap?.points === "" ||
-      rules?.cap?.points === null ||
-      rules?.cap?.points === undefined
+      rules?.cap?.points === "" || rules?.cap?.points == null
         ? null
         : Number(rules.cap.points);
     capPoints =
       Number.isFinite(capPoints) && capPoints > 0
         ? Math.floor(capPoints)
         : null;
-    // nếu mode = none thì ép points = null
     if (capMode === "none") capPoints = null;
 
     const nextRules = {
@@ -827,10 +837,7 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
         typeof rules.winByTwo === "boolean"
           ? rules.winByTwo
           : mt.rules?.winByTwo ?? true,
-      cap: {
-        mode: capMode,
-        points: capPoints,
-      },
+      cap: { mode: capMode, points: capPoints },
     };
     mt.rules = nextRules;
   }
@@ -855,14 +862,16 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
     mt.finishedAt = mt.finishedAt || new Date();
   } else {
     mt.winner = "";
-    // không ép finishedAt về null ở đây để giữ lịch sử; nếu cần có thể clear theo policy riêng
+    // giữ finishedAt để lưu lịch sử; nếu cần, clear theo policy riêng
   }
 
   await mt.save();
+
+  // schedule start soon (không chặn lỗi)
   try {
     await scheduleMatchStartSoon(mt);
   } catch (e) {
-    console.log(e)
+    console.log(e);
   }
 
   // GIỮ LOGIC CŨ: feed winner cho các trận phụ thuộc previousA/B (KO chaining cũ)
@@ -884,12 +893,13 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
   try {
     if (mt.status === "finished" && !mt.ratingApplied) {
       await applyRatingForFinishedMatch(mt._id);
-      await onMatchFinished({ matchId: mt._id }); // ✅ giữ nguyên fix
+      await onMatchFinished({ matchId: mt._id }); // giữ nguyên fix
     }
   } catch (e) {
     console.error("[adminUpdateMatch] applyRatingForFinishedMatch error:", e);
   }
 
+  // trả về bản populate (referee là mảng)
   const populated = await Match.findById(mt._id)
     .populate({ path: "pairA", select: "player1 player2" })
     .populate({ path: "pairB", select: "player1 player2" })

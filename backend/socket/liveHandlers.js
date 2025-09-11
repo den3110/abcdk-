@@ -55,7 +55,6 @@ function evaluateGameFinish(aRaw, bRaw, rules) {
   }
   return { finished: false, winner: null, capped: false };
 }
-
 export const toDTO = (m) => {
   const tournament = m.tournament
     ? {
@@ -77,18 +76,17 @@ export const toDTO = (m) => {
       }
     : undefined;
 
-  // Ưu tiên overlay ở root nếu sau này bạn muốn đặt riêng cho match (hiện tại Match không có, nên dùng overlay của tournament/bracket)
+  // Fallback overlay: ưu tiên overlay tại match (nếu có & non-empty) → bracket → tournament
+  const overlayFromMatch =
+    m.overlay && typeof m.overlay === "object" && Object.keys(m.overlay).length
+      ? m.overlay
+      : null;
   const overlay =
-    (m.overlay && Object.keys(m.overlay).length ? m.overlay : null) ||
-    tournament?.overlay ||
-    null ||
-    bracket?.overlay ||
-    null ||
-    undefined;
-  // 👉 Media fields: ưu tiên m.video là nguồn chính
+    overlayFromMatch ?? bracket?.overlay ?? tournament?.overlay ?? undefined;
+
+  // Media
   const primaryVideo =
     typeof m.video === "string" && m.video.trim().length ? m.video.trim() : "";
-  // Giữ thêm vài field quen thuộc phòng khi bạn có dùng:
   const videoUrl = typeof m.videoUrl === "string" ? m.videoUrl : undefined;
   const stream = typeof m.stream === "string" ? m.stream : undefined;
   const streams = Array.isArray(m.streams)
@@ -96,6 +94,24 @@ export const toDTO = (m) => {
     : Array.isArray(m.meta?.streams)
     ? m.meta.streams
     : undefined;
+
+  // Chuẩn hoá tên nick cho user (referees/liveBy)
+  const normUserLite = (u) => {
+    if (!u) return null;
+    const nickname =
+      (u.nickname && String(u.nickname).trim()) ||
+      (u.nickName && String(u.nickName).trim()) ||
+      "";
+    return { _id: u._id, name: u.name || u.fullName || "", nickname };
+  };
+
+  // referees: luôn trả về mảng (kể cả rỗng)
+  const referees = Array.isArray(m.referee)
+    ? m.referee.map(normUserLite).filter(Boolean)
+    : [];
+
+  // liveBy: user đang điều khiển bảng điểm
+  const liveBy = m.liveBy ? normUserLite(m.liveBy) : null;
 
   return {
     _id: m._id,
@@ -111,14 +127,18 @@ export const toDTO = (m) => {
     gameScores: Array.isArray(m.gameScores) ? m.gameScores : [],
 
     // cặp/seed & phụ thuộc
-    pairA: m.pairA || null, // { player1, player2 }
+    pairA: m.pairA || null,
     pairB: m.pairB || null,
     seedA: m.seedA || null,
     seedB: m.seedB || null,
-    previousA: m.previousA || null, // { round, order }
+    previousA: m.previousA || null,
     previousB: m.previousB || null,
-    nextMatch: m.nextMatch || null, // { _id } hoặc null
-    referee: m.referee || null, // { name, fullName }
+    nextMatch: m.nextMatch || null,
+
+    // ⭐ thay vì 1 referee, trả về danh sách
+    referees,
+    // (tuỳ bạn có muốn giữ backward-compat không)
+    // referee: referees[0] || null,
 
     // thời gian
     scheduledAt: m.scheduledAt || null,
@@ -127,25 +147,23 @@ export const toDTO = (m) => {
 
     version: m.liveVersion ?? 0,
 
-    // ✅ serve cho FE (mặc định A-2)
+    // serve mặc định
     serve: m.serve || { side: "A", server: 2 },
 
-    // ✅ gửi kèm để FE hiện tên/ảnh giải + eventType + lấy overlay
     tournament,
-    // (khuyến nghị) gửi bracket để FE suy ra round label tốt hơn
     bracket,
-
-    // ✅ đặt thêm các field dạng “shortcut” để FE không phải đào sâu
     bracketType: bracket?.type || undefined,
 
-    // ✅ overlay ở root (FE của bạn đọc được cả root.overlay lẫn tournament.overlay)
     overlay,
 
-    // === NEW: gửi về FE ===
-    video: primaryVideo || undefined, // FE của bạn đọc m.video là đủ
-    videoUrl, // tuỳ bạn có dùng hay không
+    // media
+    video: primaryVideo || undefined,
+    videoUrl,
     stream,
-    streams, // nếu DB có, FE normalize được
+    streams,
+
+    // ⭐ expose liveBy cho FE
+    liveBy,
   };
 };
 

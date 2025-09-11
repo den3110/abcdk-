@@ -954,8 +954,8 @@ export default function MatchContent({ m, isLoading, liveLoading }) {
             label={`Điểm thắng: ${mm.rules?.pointsToWin ?? 11}`}
           />
           {mm.rules?.winByTwo && <Chip size="small" label="Phải chênh 2" />}
-          {mm.referee?.name && (
-            <Chip size="small" label={`Trọng tài: ${mm.referee.name}`} />
+          {mm?.liveBy?.name && (
+            <Chip size="small" label={`Trọng tài: ${mm.liveBy.name}`} />
           )}
         </Stack>
       </Paper>

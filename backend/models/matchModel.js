@@ -110,7 +110,10 @@ const matchSchema = new Schema(
       set: (v) => (v == null ? "" : v),
     },
 
-    referee: { type: Schema.Types.ObjectId, ref: "User" },
+    referee: {
+      type: [{ type: Schema.Types.ObjectId, ref: "User" }],
+      default: [],
+    },
     note: { type: String, default: "" },
 
     // KO chaining (tùy chọn)
@@ -185,6 +188,10 @@ matchSchema.pre("validate", function (next) {
   const hasSeedB = !!this.seedB && !!this.seedB.type;
   if (this.winner == null) this.winner = "";
 
+  //
+  if (this.referee && !Array.isArray(this.referee)) {
+    this.referee = [this.referee];
+  }
   // if (!hasResolvedA)
   //   return next(new Error("Either pairA/previousA or seedA is required"));
   // if (!hasResolvedB )
@@ -739,5 +746,6 @@ matchSchema.index({ bracket: 1, createdAt: -1 });
 matchSchema.index({ tournament: 1, bracket: 1, status: 1, createdAt: -1 });
 matchSchema.index({ status: 1, queueOrder: 1, courtCluster: 1 });
 matchSchema.index({ participants: 1 });
+matchSchema.index({ referee: 1 });
 
 export default mongoose.model("Match", matchSchema);
