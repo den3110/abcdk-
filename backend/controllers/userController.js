@@ -1497,12 +1497,14 @@ async function hasFinishedTournament(userId) {
         localField: "tournament",
         foreignField: "_id",
         as: "tour",
-        pipeline: [{ $project: { status: 1, finishedAt: 1, endAt: 1 } }],
+        pipeline: [
+          { $project: { status: 1, finishedAt: 1, endAt: 1 } },
+        ],
       },
     },
     {
       $addFields: {
-        status: { $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, ""] },
+        status: { $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, "" ] },
         finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
         endAt: { $arrayElemAt: ["$tour.endAt", 0] },
       },
@@ -1549,10 +1551,8 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       const weight = it?.weight === undefined ? 1 : Number(it?.weight);
       const note = String(it?.note || "").trim();
       if (!key) throw new Error("Mục chấm (items) thiếu 'key'");
-      if (!isNum(score) || score < 0 || score > 10)
-        throw new Error("Điểm rubric phải 0–10");
-      if (!isNum(weight) || weight <= 0)
-        throw new Error("Trọng số (weight) > 0");
+      if (!isNum(score) || score < 0 || score > 10) throw new Error("Điểm rubric phải 0–10");
+      if (!isNum(weight) || weight <= 0) throw new Error("Trọng số (weight) > 0");
       return { key, score, weight, note };
     });
   }
@@ -1561,16 +1561,13 @@ export const createEvaluation = asyncHandler(async (req, res) => {
   const singles = numOrUndef(req.body?.overall?.singles);
   const doubles = numOrUndef(req.body?.overall?.doubles);
   if (singles !== undefined && !inRange(singles, MIN_RATING, MAX_RATING)) {
-    res.status(400);
-    throw new Error(`Điểm đơn phải trong khoảng ${MIN_RATING} - ${MAX_RATING}`);
+    res.status(400); throw new Error(`Điểm đơn phải trong khoảng ${MIN_RATING} - ${MAX_RATING}`);
   }
   if (doubles !== undefined && !inRange(doubles, MIN_RATING, MAX_RATING)) {
-    res.status(400);
-    throw new Error(`Điểm đôi phải trong khoảng ${MIN_RATING} - ${MAX_RATING}`);
+    res.status(400); throw new Error(`Điểm đôi phải trong khoảng ${MIN_RATING} - ${MAX_RATING}`);
   }
   if (!items.length && singles === undefined && doubles === undefined) {
-    res.status(400);
-    throw new Error("Phải có ít nhất một rubric item hoặc điểm tổng (overall)");
+    res.status(400); throw new Error("Phải có ít nhất một rubric item hoặc điểm tổng (overall)");
   }
 
   // ---- helper: xác định evaluator có quyền “full tỉnh” hay không
@@ -1578,19 +1575,15 @@ export const createEvaluation = asyncHandler(async (req, res) => {
     const scope = me?.evaluator?.gradingScopes;
     if (!scope) return false;
     // chấp nhận nhiều “cờ” có thể tồn tại tuỳ schema thực tế
-    if (scope.all === true || scope.isAll === true || scope.full === true)
-      return true;
-    if (typeof scope === "string" && ["ALL", "*", "__ALL__"].includes(scope))
-      return true;
-    if (scope.provinces === "ALL" || scope.provinces === "*") return true;
+    if (scope.all === true || scope.isAll === true || scope.full === true) return true;
+    if (typeof scope === "string" && ["ALL", "*", "__ALL__"].includes(scope)) return true;
+    if (scope.provinces === "ALL" || scope.provinces === "*" ) return true;
     // nếu schema bạn lưu provinces là mảng đủ-full, có thể bật thêm logic đo độ phủ ở đây
     return false;
   }
 
   const session = await mongoose.startSession();
-  let evaluationDoc,
-    historyDoc,
-    selfAssessmentId = null;
+  let evaluationDoc, historyDoc, selfAssessmentId = null;
 
   try {
     await session.withTransaction(async () => {
@@ -1601,27 +1594,19 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       const target = await User.findById(targetUser)
         .select("_id name nickname province")
         .session(session);
-      if (!target) {
-        const e = new Error("Không tìm thấy người được chấm");
-        e.statusCode = 404;
-        throw e;
-      }
+      if (!target) { const e = new Error("Không tìm thấy người được chấm"); e.statusCode=404; throw e; }
 
       const targetProvince = String(target.province || "").trim();
       const isAdminRole = me.role === "admin";
       const isEvaluatorEnabled = !!me?.evaluator?.enabled;
       const fullProvince = hasFullProvinceScope(me);
 
-      // quyền:
+      // quyền: 
       // - Admin: luôn được chấm (kể cả target chưa có province)
       // - Evaluator "full tỉnh": luôn được chấm (kể cả target chưa có province)
       // - Evaluator theo phạm vi tỉnh: chỉ khi target có province và province đó nằm trong scope
-      const scopedProvinces = me?.evaluator?.gradingScopes?.provinces || [];
-      const inScopedProvince = !!(
-        targetProvince &&
-        Array.isArray(scopedProvinces) &&
-        scopedProvinces.includes(targetProvince)
-      );
+      const scopedProvinces = (me?.evaluator?.gradingScopes?.provinces || []);
+      const inScopedProvince = !!(targetProvince && Array.isArray(scopedProvinces) && scopedProvinces.includes(targetProvince));
 
       const canEval =
         isAdminRole ||
@@ -1638,9 +1623,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       }
 
       if (String(me._id) === String(target._id)) {
-        const e = new Error("Không thể tự chấm chính mình");
-        e.statusCode = 400;
-        throw e;
+        const e = new Error("Không thể tự chấm chính mình"); e.statusCode=400; throw e;
       }
 
       // Note
@@ -1667,40 +1650,30 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       const shouldAutoSelf = !existedSelf && !hasCompetedFinished;
 
       // Tạo Evaluation
-      evaluationDoc = await Evaluation.create(
-        [
-          {
-            evaluator: me._id,
-            targetUser: target._id,
-            // nếu schema yêu cầu string, đổi null -> "" cho an toàn
-            province: targetProvince || "",
-            source: sourceParsed,
-            items,
-            overall: {
-              ...(singles !== undefined ? { singles } : {}),
-              ...(doubles !== undefined ? { doubles } : {}),
-            },
-            notes: finalNote,
-            status: "submitted",
-          },
-        ],
-        { session }
-      ).then((a) => a[0]);
+      evaluationDoc = await Evaluation.create([{
+        evaluator: me._id,
+        targetUser: target._id,
+        // nếu schema yêu cầu string, đổi null -> "" cho an toàn
+        province: targetProvince || null,
+        source: sourceParsed,
+        items,
+        overall: {
+          ...(singles !== undefined ? { singles } : {}),
+          ...(doubles !== undefined ? { doubles } : {}),
+        },
+        notes: finalNote,
+        status: "submitted",
+      }], { session }).then(a => a[0]);
 
       // ScoreHistory (lưu DUPR)
-      historyDoc = await ScoreHistory.create(
-        [
-          {
-            user: target._id,
-            scorer: me._id,
-            single: singles,
-            double: doubles,
-            note: finalNote,
-            scoredAt: new Date(),
-          },
-        ],
-        { session }
-      ).then((a) => a[0]);
+      historyDoc = await ScoreHistory.create([{
+        user: target._id,
+        scorer: me._id,
+        single: singles,
+        double: doubles,
+        note: finalNote,
+        scoredAt: new Date(),
+      }], { session }).then(a => a[0]);
 
       // Upsert Ranking (DUPR) – chỉ set field có gửi
       const $set = { lastUpdated: new Date() };
@@ -1724,23 +1697,18 @@ export const createEvaluation = asyncHandler(async (req, res) => {
           : Date.now();
         const scoredAt = new Date(evalTs + 1); // latest
 
-        const [selfDoc] = await Assessment.create(
-          [
-            {
-              user: target._id,
-              scorer: target._id,
-              items: [],
-              singleScore,
-              doubleScore,
-              singleLevel: sLv,
-              doubleLevel: dLv,
-              meta: { selfScored: true },
-              note: "Tự chấm trình (mod hỗ trợ)",
-              scoredAt,
-            },
-          ],
-          { session }
-        );
+        const [selfDoc] = await Assessment.create([{
+          user: target._id,
+          scorer: target._id,
+          items: [],
+          singleScore,
+          doubleScore,
+          singleLevel: sLv,
+          doubleLevel: dLv,
+          meta: { selfScored: true },
+          note: "Tự chấm trình (mod hỗ trợ)",
+          scoredAt,
+        }], { session });
 
         selfAssessmentId = selfDoc?._id || null;
       }
