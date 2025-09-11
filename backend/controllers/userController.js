@@ -1673,7 +1673,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
             evaluator: me._id,
             targetUser: target._id,
             // nếu schema yêu cầu string, đổi null -> "" cho an toàn
-            province: targetProvince || null,
+            province: targetProvince || "",
             source: sourceParsed,
             items,
             overall: {
