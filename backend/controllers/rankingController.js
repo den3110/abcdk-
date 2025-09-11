@@ -41,27 +41,26 @@ export const getRankings = asyncHandler(async (req, res) => {
     { $match: matchStage },
     { $match: { user: { $type: "objectId" } } },
 
-    // FIX: lọc orphan trước khi facet để nhánh total và docs cùng tập dữ liệu
-    {
-      $lookup: {
-        from: "users",
-        localField: "user",
-        foreignField: "_id",
-        as: "u",
-        pipeline: [{ $project: { _id: 1 } }],
-      },
-    },
-    { $match: { "u.0": { $exists: true } } },
-    { $project: { u: 0 } },
-
     {
       $facet: {
-        // --- total đếm distinct user sau khi đã loại orphan ---
-        total: [{ $group: { _id: "$user" } }, { $count: "n" }],
+        // ✅ SỬA Ở ĐÂY: đếm distinct user nhưng loại mồ côi giống nhánh docs
+        total: [
+          {
+            $lookup: {
+              from: "users",
+              localField: "user",
+              foreignField: "_id",
+              as: "u",
+              pipeline: [{ $project: { _id: 1 } }],
+            },
+          },
+          { $match: { "u.0": { $exists: true } } },
+          { $group: { _id: "$user" } },
+          { $count: "n" },
+        ],
 
-        // --- docs pipeline ---
+        // --- heavy docs pipeline (y nguyên) ---
         docs: [
-          // normalize numeric fields
           {
             $addFields: {
               reputation: { $ifNull: ["$reputation", 0] },
@@ -71,8 +70,6 @@ export const getRankings = asyncHandler(async (req, res) => {
               mix: { $ifNull: ["$mix", 0] },
             },
           },
-
-          // pick latest/best per user
           {
             $sort: {
               updatedAt: -1,
@@ -84,8 +81,6 @@ export const getRankings = asyncHandler(async (req, res) => {
           },
           { $group: { _id: "$user", doc: { $first: "$$ROOT" } } },
           { $replaceRoot: { newRoot: "$doc" } },
-
-          // join user profile
           {
             $lookup: {
               from: "users",
@@ -109,8 +104,6 @@ export const getRankings = asyncHandler(async (req, res) => {
             },
           },
           { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
-
-          // latest assessment
           {
             $lookup: {
               from: "assessments",
@@ -127,6 +120,10 @@ export const getRankings = asyncHandler(async (req, res) => {
           {
             $addFields: {
               latestAssess: { $arrayElemAt: ["$latestAssess", 0] },
+            },
+          },
+          {
+            $addFields: {
               isSelfScoredLatest: {
                 $or: [
                   { $eq: ["$latestAssess.meta.selfScored", true] },
@@ -135,8 +132,6 @@ export const getRankings = asyncHandler(async (req, res) => {
               },
             },
           },
-
-          // finished tournaments by type (distinct per tour)
           {
             $lookup: {
               from: "registrations",
@@ -211,8 +206,6 @@ export const getRankings = asyncHandler(async (req, res) => {
               as: "finishedToursByType",
             },
           },
-
-          // counts by type
           {
             $addFields: {
               doubleTours: {
@@ -255,8 +248,6 @@ export const getRankings = asyncHandler(async (req, res) => {
               },
             },
           },
-
-          // tiers
           {
             $addFields: {
               doubleTier: {
@@ -284,8 +275,6 @@ export const getRankings = asyncHandler(async (req, res) => {
               },
             },
           },
-
-          // effective tier + recompute reputation
           {
             $addFields: {
               effectiveTier: {
@@ -301,6 +290,10 @@ export const getRankings = asyncHandler(async (req, res) => {
                   },
                 ],
               },
+            },
+          },
+          {
+            $addFields: {
               tierColor: {
                 $switch: {
                   branches: [
@@ -333,8 +326,6 @@ export const getRankings = asyncHandler(async (req, res) => {
               },
             },
           },
-
-          // final sort & paginate
           {
             $sort: {
               effectiveTier: 1,
@@ -348,8 +339,6 @@ export const getRankings = asyncHandler(async (req, res) => {
           },
           { $skip: page * limit },
           { $limit: limit },
-
-          // final projection
           {
             $project: {
               user: 1,
@@ -373,19 +362,14 @@ export const getRankings = asyncHandler(async (req, res) => {
       },
     },
 
-    // shape response
     {
       $project: {
         docs: "$docs",
         total: { $ifNull: [{ $arrayElemAt: ["$total.n", 0] }, 0] },
       },
     },
-    {
-      $addFields: {
-        totalPages: { $ceil: { $divide: ["$total", limit] } },
-      },
-    },
-  ]).option({ allowDiskUse: true });
+    { $addFields: { totalPages: { $ceil: { $divide: ["$total", limit] } } } },
+  ]);
 
   const first = agg[0] || { docs: [], totalPages: 0 };
   return res.json({ docs: first.docs, totalPages: first.totalPages, page });
