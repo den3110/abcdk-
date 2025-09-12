@@ -624,7 +624,7 @@ export default function TournamentSchedule() {
           </Grid>
 
           {/* RIGHT: all matches */}
-          <Grid item xs={12} md={7}>
+          <Grid item xs={12} md={7} sx={{"@media (max-width:625px)": { width: "100%" , marginBottom: 4},}}>
             <Card
               sx={{
                 width: 1,
