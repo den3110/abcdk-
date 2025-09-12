@@ -6,6 +6,7 @@ import Match from "../models/matchModel.js";
 import TournamentManager from "../models/tournamentManagerModel.js";
 import Registration from "../models/registrationModel.js";
 import Court from "../models/courtModel.js";
+import { sleep } from "../utils/sleep.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 // @desc    Lấy danh sách giải đấu (lọc theo sportType & groupId)
@@ -22,6 +23,7 @@ const isId = (id) => mongoose.Types.ObjectId.isValid(id);
  */
 // GET /tournaments
 const getTournaments = asyncHandler(async (req, res) => {
+  // await sleep(10000)
   const sort = (req.query.sort || "-startDate").toString();
   const limit = req.query.limit
     ? Math.max(parseInt(req.query.limit, 10) || 0, 0)

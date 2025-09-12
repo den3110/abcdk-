@@ -437,9 +437,12 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
     .lean();
 
   const io = req.app.get("io");
+  const fireAndForget = (p) =>
+    Promise.resolve(p).catch((e) => console.error("[emit] failed:", e));
 
-  if (!regs.length && mode !== "group") {
-    emitPlanned(io, bracketId, { groupSizes: [], byes: 0 }, []);
+  // ⛔️ CHỐT SỚM 1: pool rỗng => không tạo session, trả về idle cho mọi mode
+  if (!regs.length) {
+    fireAndForget(emitPlanned(io, bracketId, { groupSizes: [], byes: 0 }, []));
     return res.json({
       ok: true,
       drawId: null,
@@ -449,6 +452,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
     });
   }
 
+  // ───────────────────── GROUP ─────────────────────
   if (mode === "group") {
     await purgePreviousDrawResults(bracket._id, "group", null);
 
@@ -493,7 +497,6 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       const sizes = designGroups.map((g) =>
         pickPositive(g?.expectedSize, rrGroupSize)
       );
-
       if (sizes.every((s) => Number.isFinite(s) && s > 0)) {
         const need = regs.length;
         const totalCap = sizes.reduce((a, b) => a + b, 0);
@@ -556,11 +559,15 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
         ...plannerOpts,
       });
       if (!planned?.groupSizes?.length) {
-        emitPlanned(io, bracketId, { groupSizes: [], byes: 0 }, []);
-        return res.status(400).json({
-          ok: false,
-          message: "Cannot plan groups with provided parameters.",
-        });
+        fireAndForget(
+          emitPlanned(io, bracketId, { groupSizes: [], byes: 0 }, [])
+        );
+        return res
+          .status(400)
+          .json({
+            ok: false,
+            message: "Cannot plan groups with provided parameters.",
+          });
       }
       groupSizes = planned.groupSizes;
       byes = planned.byes ?? 0;
@@ -580,9 +587,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       })),
     };
 
-    // ✅ KHÔNG GHIM SẴN vào board; chỉ loại khỏi pool
     const usedPre = collectUsedPreassignedFromBracket(bracket, board);
-
     const presetSeed = pickPositive(seed, preset?.seed);
     const sessionSettings = {
       ...settings,
@@ -593,13 +598,25 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       .map((r) => r._id)
       .filter((id) => !usedPre.has(String(id)));
 
+    // ⛔️ CHỐT SỚM 2 (group): pool sau lọc vẫn rỗng → không tạo session
+    if (poolIds.length === 0) {
+      fireAndForget(emitPlanned(io, bracketId, { groupSizes, byes }, []));
+      return res.json({
+        ok: true,
+        drawId: null,
+        state: "idle",
+        reveals: [],
+        planned: { groupSizes, byes },
+      });
+    }
+
     const sess = await DrawSession.create({
       tournament: bracket.tournament._id,
       bracket: bracket._id,
       mode: "group",
-      board, // ⬅️ không chứa prefilled
-      pool: poolIds, // ⬅️ đã lọc đội cơ cấu
-      taken: [], // ⬅️ chưa reveal ⇒ chưa taken
+      board,
+      pool: poolIds,
+      taken: [],
       cursor: { gIndex: 0, slotIndex: 0 },
       status: "active",
       settings: sessionSettings,
@@ -609,9 +626,8 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       },
     });
 
-    // Không gửi trước danh sách pre-assign để FE không lộ
-    emitPlanned(io, bracketId, { groupSizes, byes }, []);
-    await emitUpdate(io, sess);
+    fireAndForget(emitPlanned(io, bracketId, { groupSizes, byes }, []));
+    fireAndForget(emitUpdate(io, sess));
 
     return res.json({
       ok: true,
@@ -622,7 +638,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
     });
   }
 
-  // ───────────────────── KNOCKOUT ─────────────────────
+  // ───────────────────── KNOCKOUT / PO ─────────────────────
   if (mode === "knockout" || mode === "po" || mode === "playoff") {
     const sessMode = mode === "playoff" ? "po" : mode;
 
@@ -644,17 +660,11 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       pairCount
     );
 
-    /**
-     * ⛔ XÓA SẠCH TRẬN CŨ CỦA VÒNG ĐANG BỐC
-     * - Chỉ xoá vòng hiện tại (không xoá vòng trước để còn lấy winners nếu cần).
-     * - Với roundElim (PO), logic hiển thị sẽ hoàn toàn dựa vào reveals mới.
-     */
     try {
       const clearQuery = { bracket: bracket._id };
       if (Number.isFinite(roundNumber)) clearQuery.round = roundNumber;
       await Match.deleteMany(clearQuery);
     } catch (e) {
-      // Không chặn flow bốc thăm, nhưng log để theo dõi
       console.error(
         "[startDraw] Failed to clear matches for bracket",
         bracket._id,
@@ -674,7 +684,6 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
         bracket: bracket._id,
         round: prevRound,
       }).select("pairA pairB winner");
-
       const winners = [];
       for (const m of prevMatches) {
         const w =
@@ -689,6 +698,19 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
         );
       }
       poolIds = winners.slice(0, stageTeams);
+    }
+
+    // ⛔️ CHỐT SỚM 2 (knockout): pool rỗng → không tạo session
+    if (poolIds.length === 0) {
+      fireAndForget(
+        emitPlanned(io, bracketId, { groupSizes: [], byes: 0 }, [])
+      );
+      return res.json({
+        ok: true,
+        drawId: null,
+        state: "idle",
+        reveals: [],
+      });
     }
 
     const board = {
@@ -716,8 +738,8 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       computedMeta: { ko: { entrants: poolIds.length } },
     });
 
-    emitPlanned(io, bracketId, { groupSizes: [], byes: 0 }, []);
-    await emitUpdate(io, sess);
+    fireAndForget(emitPlanned(io, bracketId, { groupSizes: [], byes: 0 }, []));
+    fireAndForget(emitUpdate(io, sess));
 
     return res.json({
       ok: true,

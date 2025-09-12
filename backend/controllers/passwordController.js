@@ -75,6 +75,7 @@ export async function resetPassword(req, res) {
   try {
     await sendPasswordChangedEmail({ to: user.email });
   } catch (e) {
+    console.log(e)
     // bỏ qua lỗi email confirm
   }
 

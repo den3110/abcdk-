@@ -36,8 +36,6 @@ import {
 } from "../../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 
-// 👉 import viewer mà bạn đưa
-
 /* ---------- helpers ---------- */
 const isLive = (m) =>
   ["live", "ongoing", "playing", "inprogress"].includes(
@@ -111,9 +109,9 @@ function ChipRow({ children, sx }) {
 }
 function StatusChip({ m }) {
   if (isLive(m))
-    return <Chip size="small" color="success" label="Đang diễn ra" />;
+    return <Chip size="small" color="warning" label="Đang diễn ra" />;
   if (isFinished(m))
-    return <Chip size="small" color="secondary" label="Đã diễn ra" />;
+    return <Chip size="small" color="success" label="Đã diễn ra" />;
   return <Chip size="small" color="info" label="Sắp diễn ra" />;
 }
 function ScoreChip({ text }) {
@@ -126,7 +124,7 @@ function WinnerChip({ m }) {
   return (
     <Chip
       size="small"
-      color="secondary"
+      color="success"
       icon={<EmojiEventsIcon />}
       label={`Winner: ${teamNameFrom(m, side)}`}
     />
@@ -464,7 +462,15 @@ export default function TournamentSchedule() {
   const queueLimit = upMd ? 6 : upSm ? 4 : 3;
 
   return (
-    <Container maxWidth="lg" sx={{ py: { xs: 2, sm: 3 } }}>
+    <Container
+      maxWidth="lg"
+      disableGutters
+      sx={{
+        // không padding ở mobile, thêm lại từ sm+
+        px: { sm: 2 },
+        py: { xs: 2, sm: 3 },
+      }}
+    >
       {/* header */}
       <SectionTitle
         right={
@@ -493,7 +499,7 @@ export default function TournamentSchedule() {
           borderColor: { xs: "divider", md: "transparent" },
           p: { xs: 1, sm: 0 },
           mb: 2,
-          borderRadius: { xs: 2, md: 0 },
+          borderRadius: { xs: 0, md: 2 }, // 0 ở mobile để sát mép
           boxShadow: { xs: 1, md: 0 },
         }}
       >
@@ -524,9 +530,15 @@ export default function TournamentSchedule() {
       {/* loading / error */}
       {loading && (
         <Box my={3}>
-          <Grid container spacing={2}>
+          <Grid container spacing={{ xs: 0, md: 2 }}>
             <Grid item xs={12} md={5}>
-              <Card>
+              <Card
+                sx={{
+                  width: 1,
+                  borderRadius: { xs: 0, md: 3 },
+                  overflow: "hidden",
+                }}
+              >
                 <CardHeader
                   avatar={<StadiumIcon color="primary" />}
                   title={<Skeleton width={160} />}
@@ -541,7 +553,13 @@ export default function TournamentSchedule() {
               </Card>
             </Grid>
             <Grid item xs={12} md={7}>
-              <Card>
+              <Card
+                sx={{
+                  width: 1,
+                  borderRadius: { xs: 0, md: 3 },
+                  overflow: "hidden",
+                }}
+              >
                 <CardHeader
                   title={<Skeleton width={220} />}
                   subheader={<Skeleton width={160} />}
@@ -565,10 +583,16 @@ export default function TournamentSchedule() {
       )}
 
       {!loading && !errorMsg && (
-        <Grid container spacing={2}>
+        <Grid container spacing={{ xs: 0, md: 2 }}>
           {/* LEFT: on-court */}
-          <Grid item xs={12} md={5}>
-            <Card sx={{ borderRadius: 3, overflow: "hidden" }}>
+          <Grid item xs={12} md={5} sx={{"@media (max-width:625px)": { width: "100%" , marginBottom: 4},}}>
+            <Card
+              sx={{
+                width: 1,
+                borderRadius: { xs: 0, md: 3 },
+                overflow: "hidden",
+              }}
+            >
               <CardHeader
                 avatar={<StadiumIcon color="primary" />}
                 title="Các trận đấu trên sân"
@@ -601,7 +625,13 @@ export default function TournamentSchedule() {
 
           {/* RIGHT: all matches */}
           <Grid item xs={12} md={7}>
-            <Card sx={{ borderRadius: 3, overflow: "hidden" }}>
+            <Card
+              sx={{
+                width: 1,
+                borderRadius: { xs: 0, md: 3 },
+                overflow: "hidden",
+              }}
+            >
               <CardHeader
                 title="Danh sách tất cả các trận"
                 subheader={`Sắp xếp theo thứ tự trận • ${filteredAll.length} trận`}

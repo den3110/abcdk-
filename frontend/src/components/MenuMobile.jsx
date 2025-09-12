@@ -5,8 +5,8 @@ import { useNavigate, useLocation } from "react-router-dom";
 import HomeIcon from "@mui/icons-material/Home";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import AssessmentIcon from "@mui/icons-material/Assessment";
-// import ContactMailIcon from "@mui/icons-material/ContactMail"; // removed
 import PersonIcon from "@mui/icons-material/Person";
+import EventAvailableIcon from "@mui/icons-material/EventAvailable"; // 🔁 NEW: icon khác cho "Giải của tôi"
 
 const navItems = [
   { label: "Trang chủ", icon: <HomeIcon />, path: "/" },
@@ -20,8 +20,12 @@ const navItems = [
     icon: <AssessmentIcon />,
     path: "/pickle-ball/rankings",
   },
-  // 🔄 Đổi "Liên hệ" -> "Giải của tôi"
-  { label: "Giải của tôi", icon: <EmojiEventsIcon />, path: "/my-tournaments" },
+  // 🔄 Đổi icon để không trùng
+  {
+    label: "Giải của tôi",
+    icon: <EventAvailableIcon />,
+    path: "/my-tournaments",
+  },
   { label: "Profile", icon: <PersonIcon />, path: "/profile" },
 ];
 
@@ -87,7 +91,6 @@ const MobileBottomNav = () => {
             key={item.path}
             label={item.label}
             icon={item.icon}
-            // icon={React.cloneElement(item.icon, { fontSize: "small" })}
           />
         ))}
       </BottomNavigation>
