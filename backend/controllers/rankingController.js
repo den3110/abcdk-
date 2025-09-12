@@ -9,28 +9,58 @@ import Assessment from "../models/assessmentModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 
 export const getRankings = asyncHandler(async (req, res) => {
-  // -------- Params --------
   const page = Math.max(0, parseInt(req.query.page ?? 0, 10));
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 10, 10)));
-  const keyword = String(req.query.keyword ?? "").trim();
+  const keywordRaw = String(req.query.keyword ?? "").trim();
 
-  // -------- Optional filter by nickname --------
+  // ---- helpers ----
+  const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const stripSpaces = (s) => s.replace(/\s+/g, "");
+  const digitsOnly = (s) => s.replace(/\D+/g, "");
+
+  // ---- Optional filter by nickname/email/phone/cccd ----
   let userIdsFilter = null;
-  if (keyword) {
-    const rawIds = await User.find(
-      { nickname: { $regex: keyword, $options: "i" } },
-      { _id: 1 }
-    ).lean();
+
+  if (keywordRaw) {
+    const orConds = [];
+
+    // 1) Nickname: fuzzy (giữ nguyên hành vi cũ)
+    orConds.push({ nickname: { $regex: keywordRaw, $options: "i" } });
+
+    // 2) Email: exact (bỏ space, không phân biệt hoa thường)
+    const emailCandidate = stripSpaces(keywordRaw);
+    if (emailCandidate.includes("@")) {
+      orConds.push({
+        email: { $regex: `^${escapeRegExp(emailCandidate)}$`, $options: "i" },
+      });
+    }
+
+    // 3) Phone: exact, bỏ qua khoảng trắng (cho phép \s* giữa các số)
+    const phoneDigits = digitsOnly(keywordRaw);
+    if (phoneDigits.length >= 9) {
+      const phonePattern = `^${phoneDigits.split("").join("\\s*")}$`;
+      orConds.push({ phone: { $regex: phonePattern } });
+    }
+
+    // 4) CCCD: exact, bỏ qua khoảng trắng (CMND 9 số, CCCD 12 số – cho >=9 để linh hoạt)
+    if (phoneDigits.length >= 9) {
+      const cccdPattern = `^${phoneDigits.split("").join("\\s*")}$`;
+      // ĐỔI 'cccd' nếu schema bạn dùng tên khác (vd: citizenId)
+      orConds.push({ cccd: { $regex: cccdPattern } });
+    }
+
+    const rawIds = await User.find({ $or: orConds }, { _id: 1 }).lean();
     const ids = rawIds
       .map((d) => d?._id)
       .filter((id) => mongoose.isValidObjectId(id));
+
     if (ids.length === 0) {
       return res.json({ docs: [], totalPages: 0, page });
     }
     userIdsFilter = ids;
   }
 
-  // -------- Match stage (once) --------
+  // ---- Match stage (once) ----
   const matchStage = {
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
   };
@@ -43,7 +73,7 @@ export const getRankings = asyncHandler(async (req, res) => {
 
     {
       $facet: {
-        // ✅ SỬA Ở ĐÂY: đếm distinct user nhưng loại mồ côi giống nhánh docs
+        // Đếm distinct user, loại mồ côi (không còn bản ghi user)
         total: [
           {
             $lookup: {
@@ -59,7 +89,7 @@ export const getRankings = asyncHandler(async (req, res) => {
           { $count: "n" },
         ],
 
-        // --- heavy docs pipeline (y nguyên) ---
+        // --- docs pipeline giữ nguyên, chỉ format lại cho gọn ---
         docs: [
           {
             $addFields: {

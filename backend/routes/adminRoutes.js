@@ -99,7 +99,7 @@ import {
   promoteToEvaluator,
   updateEvaluatorScopes,
 } from "../controllers/admin/adminEvaluatorController.js";
-import { bulkAssignSlotPlan } from "../controllers/admin/adminBracketController.js";
+import { bulkAssignSlotPlan, generateGroupMatchesForTeam, getAdminBracketById, insertRegIntoGroupSlot } from "../controllers/admin/adminBracketController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -505,5 +505,28 @@ router.patch(
   authorize("admin"),
   demoteEvaluator
 );
+
+router.post(
+  "/brackets/:bracketId/groups/:groupId/insert-slot",
+  protect,
+  authorize("admin"),
+  insertRegIntoGroupSlot
+);
+
+router.post(
+  "/brackets/:bracketId/groups/:groupId/generate-matches",
+  protect,
+  authorize("admin"),
+  generateGroupMatchesForTeam
+);
+
+router.get(
+  "/brackets/:bracketId",
+  protect,
+  authorize("admin"),
+  getAdminBracketById
+);
+
+
 
 export default router;
