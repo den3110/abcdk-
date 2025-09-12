@@ -22,72 +22,137 @@ export default function NotFound() {
 
   return (
     <Box
-      sx={{ minHeight: "80vh", display: "grid", placeItems: "center", p: 2 }}
+      sx={{
+        minHeight: { xs: "100dvh", md: "80vh" },
+        display: "grid",
+        placeItems: "center",
+        // Bỏ padding ngang ở mobile để không bị thu hẹp giấy
+        px: { xs: 0, sm: 2 },
+        py: { xs: 0, sm: 2 },
+      }}
     >
       <Paper
         elevation={0}
         sx={{
-          p: { xs: 3, md: 5 },
+          // Full-width thật trên mobile, bo góc lại trên desktop
+          width: { xs: "100%", sm: "auto" },
           maxWidth: 720,
-          width: "100%",
+          mx: "auto",
+          p: { xs: 2.5, sm: 3, md: 5 },
           textAlign: "center",
-          border: "1px solid",
+          border: { xs: "none", sm: "1px solid" },
           borderColor: "divider",
-          borderRadius: 3,
+          borderRadius: { xs: 0, sm: 3 },
         }}
       >
         <Typography
           variant="h1"
           sx={{
-            fontSize: { xs: 72, md: 120 },
+            // Co giãn theo viewport: nhỏ trên mobile, lớn trên desktop
+            fontSize: "clamp(56px, 18vw, 120px)",
             lineHeight: 1,
             fontWeight: 800,
-            letterSpacing: -2,
+            letterSpacing: { xs: -1, md: -2 },
+            wordBreak: "keep-all",
           }}
         >
           404
         </Typography>
 
-        <Typography variant="h5" fontWeight={700} sx={{ mt: 1 }}>
+        <Typography
+          variant="h5"
+          fontWeight={700}
+          sx={{ mt: 1, fontSize: { xs: 20, sm: 24 } }}
+        >
           Không tìm thấy nội dung
         </Typography>
 
-        <Typography color="text.secondary" sx={{ mt: 1.25 }}>
+        <Typography
+          color="text.secondary"
+          sx={{
+            mt: 1.25,
+            mx: "auto",
+            maxWidth: 680,
+            // Cho phép xuống dòng đẹp trên mobile
+            wordBreak: "break-word",
+            overflowWrap: "anywhere",
+          }}
+        >
           Tài nguyên bạn yêu cầu không tồn tại, đã bị xoá hoặc đường dẫn không
           hợp lệ.
           {origin ? (
             <>
               <br />
-              <b>URL gốc:</b> <code>{origin}</code>
+              <b>URL gốc:</b>{" "}
+              <Box
+                component="code"
+                sx={{
+                  display: "inline-block",
+                  mt: 0.5,
+                  px: 1,
+                  py: 0.5,
+                  bgcolor: "action.hover",
+                  borderRadius: 1,
+                  // Quan trọng: không tràn ngang khi URL dài
+                  wordBreak: "break-all",
+                  maxWidth: "100%",
+                  textAlign: "left",
+                  fontSize: "0.875rem",
+                }}
+              >
+                {origin}
+              </Box>
             </>
           ) : null}
         </Typography>
 
-        <Divider sx={{ my: 3 }} />
+        <Divider sx={{ my: { xs: 2, sm: 3 } }} />
 
         <Stack
           direction={{ xs: "column", sm: "row" }}
           spacing={1.25}
-          sx={{ justifyContent: "center" }}
+          sx={{
+            justifyContent: "center",
+            alignItems: "stretch",
+          }}
         >
           <Button
             variant="contained"
             onClick={goHome}
-            sx={{ color: "white !important" }}
+            sx={{
+              color: "white !important",
+              // Nút full-width trên mobile
+              width: { xs: "100%", sm: "auto" },
+              py: 1.1,
+            }}
           >
             Về trang chủ
           </Button>
-          <Button variant="outlined" onClick={goBack}>
+
+          <Button
+            variant="outlined"
+            onClick={goBack}
+            sx={{ width: { xs: "100%", sm: "auto" }, py: 1.1 }}
+          >
             Quay lại
           </Button>
-          <Button variant="text" onClick={tryAgain}>
+
+          <Button
+            variant="text"
+            onClick={tryAgain}
+            sx={{ width: { xs: "100%", sm: "auto" }, py: 1.1 }}
+          >
             Thử tải lại
           </Button>
+
           <Button
             variant="text"
             component={RouterLink}
             to="/contact"
-            sx={{ display: { xs: "none", sm: "inline-flex" } }}
+            sx={{
+              // Ẩn trên mobile nếu bạn muốn giữ gọn; bật dễ dàng bằng 'inline-flex'
+              display: { xs: "none", sm: "inline-flex" },
+            }}
           >
             Liên hệ hỗ trợ
           </Button>
