@@ -68,6 +68,25 @@ function HighlightProvider({ children }) {
 }
 
 /* ===================== Helpers (names) ===================== */
+// ✅ Trả về string an toàn để render
+const toText = (v) => {
+  if (v == null) return "";
+  if (typeof v === "string" || typeof v === "number") return String(v);
+  if (Array.isArray(v)) return v.map(toText).filter(Boolean).join(", ");
+  if (typeof v === "object") {
+    // Ưu tiên các key hay gặp
+    if (typeof v.name === "string") return v.name;
+    if (typeof v.label === "string") return v.label;
+    if (typeof v.title === "string") return v.title;
+    // Trường hợp xấu nhất: không render object
+    return "";
+  }
+  return "";
+};
+
+// ✅ Lấy tên từ entity có thể là id/string/object
+const pickName = (maybe) => toText(maybe);
+
 function computeMetaBar(brackets, tour) {
   const regSet = new Set();
   (brackets || []).forEach((b) =>
@@ -101,10 +120,9 @@ function computeMetaBar(brackets, tour) {
       : "—";
 
   const locationText =
-    tour?.venue?.name ||
-    tour?.location?.name ||
-    tour?.location ||
-    tour?.place?.name ||
+    pickName(tour?.venue) ||
+    pickName(tour?.location) ||
+    pickName(tour?.place) ||
     "—";
 
   return { totalTeams, checkinLabel, locationText };
@@ -223,7 +241,7 @@ const kickoffTime = (m) => {
   return m?.scheduledAt || m?.assignedAt || null;
 };
 
-const courtName = (m) => m?.venue?.name || m?.court?.name || m?.court || "";
+const courtName = (mm) => pickName(mm?.venue) || pickName(mm?.court) || "";
 
 // nhận dạng có stream
 const hasVideo = (m) =>
@@ -541,10 +559,8 @@ const CustomSeed = ({
       return mm?.startedAt || mm?.scheduledAt || mm?.assignedAt || null;
     return mm?.scheduledAt || mm?.assignedAt || null;
   };
-  const courtName = (mm) =>
-    mm?.venue?.name || mm?.court?.name || mm?.court || "";
+  const courtName = (mm) => pickName(mm?.venue) || pickName(mm?.court) || "";
   const hasVideo = (mm) => {
-    
     return !!(
       mm?.video ||
       mm?.streamUrl ||
@@ -1613,6 +1629,21 @@ export default function TournamentBracket() {
     (incRaw) => {
       const inc = incRaw?.data ?? incRaw?.match ?? incRaw; // server gửi {type,data} cho match:update
       if (!inc?._id) return;
+      // 🔧 Chuẩn hoá các field dễ gây lỗi hiển thị
+      const normalizeEntity = (v) => {
+        if (v == null) return v;
+        if (typeof v === "string" || typeof v === "number") return v;
+        if (typeof v === "object") {
+          return {
+            _id: v._id ?? (typeof v.id === "string" ? v.id : undefined),
+            name: toText(v.name ?? v.label ?? v.title ?? ""),
+          };
+        }
+        return v;
+      };
+      if (inc.court) inc.court = normalizeEntity(inc.court);
+      if (inc.venue) inc.venue = normalizeEntity(inc.venue);
+      if (inc.location) inc.location = normalizeEntity(inc.location);
       const id = String(inc._id);
       pendingRef.current.set(id, inc);
       if (rafRef.current) return;
@@ -1932,7 +1963,7 @@ export default function TournamentBracket() {
       const code = `#V${stageNo}-B${bIndex}#${seq}`;
 
       const time = formatTime(pickGroupKickoffTime(m));
-      const court = m?.venue?.name || m?.court?.name || m?.court || "";
+      const court = courtName(m);
       const score = scoreLabel(m);
       return {
         id: String(m._id),
@@ -2106,7 +2137,7 @@ export default function TournamentBracket() {
         : "Knockout";
     return (
       <Stack key={b._id} direction="row" spacing={1} alignItems="center">
-        <Typography>{b.name}</Typography>
+        <Typography>{toText(b.name)}</Typography>
         <Chip size="small" label={t} color="default" variant="outlined" />
       </Stack>
     );
@@ -2163,7 +2194,7 @@ export default function TournamentBracket() {
               const aName = resolveSideLabel(m, "A");
               const bName = resolveSideLabel(m, "B");
               const time = formatTime(pickGroupKickoffTime(m));
-              const court = m?.venue?.name || m?.court?.name || m?.court || "";
+              const court = courtName(m);
               const score = scoreLabel(m);
               return {
                 _id: String(m._id),

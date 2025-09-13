@@ -145,7 +145,7 @@ export default function TournamentCheckin() {
     }
   };
 
-  /* --------- Filter danh sách TRẬN của GIẢI (phần cũ) --------- */
+  /* --------- Filter danh sách TRẬN của GIẢI (thêm filter theo bracketName) --------- */
   const [search, setSearch] = useState("");
   const filtered = useMemo(() => {
     const key = search.trim().toLowerCase();
@@ -155,11 +155,13 @@ export default function TournamentCheckin() {
       const t2 = (m.team2 || "").toLowerCase();
       const code = (m.code || "").toLowerCase();
       const stt = (m.status || "").toLowerCase();
+      const bn = (m.bracketName || "").toLowerCase();
       return (
         code.includes(key) ||
         t1.includes(key) ||
         t2.includes(key) ||
-        stt.includes(key)
+        stt.includes(key) ||
+        bn.includes(key)
       );
     });
   }, [matches, search]);
@@ -383,6 +385,7 @@ export default function TournamentCheckin() {
                           <TableCell>Sân</TableCell>
                           <TableCell>Trọng tài</TableCell>
                           <TableCell>Tình trạng</TableCell>
+                          <TableCell>Bracket</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -405,6 +408,7 @@ export default function TournamentCheckin() {
                                 color={m.statusColor || "default"}
                               />
                             </TableCell>
+                            <TableCell>{m.bracketName || "—"}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -428,7 +432,7 @@ export default function TournamentCheckin() {
           <TextField
             fullWidth
             size="small"
-            placeholder="Tìm: Tên VĐV/đội, mã trận, tình trạng…"
+            placeholder="Tìm: Tên VĐV/đội, mã trận, tình trạng, bracket…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             InputProps={{
@@ -442,7 +446,7 @@ export default function TournamentCheckin() {
         </Col>
       </Row>
 
-      {/* ====== (Cũ) DANH SÁCH TRẬN CỦA GIẢI ====== */}
+      {/* ====== DANH SÁCH TRẬN CỦA GIẢI ====== */}
       {isLoading ? (
         <CircularProgress />
       ) : error ? (
@@ -469,6 +473,7 @@ export default function TournamentCheckin() {
 
               <Typography variant="caption" color="text.secondary">
                 {fmtDate(m.date)} • {fmtTime(m.time)} • {m.field || "—"}
+                {m.bracketName ? ` • ${m.bracketName}` : ""}
               </Typography>
 
               <Divider sx={{ my: 1 }} />
@@ -529,6 +534,7 @@ export default function TournamentCheckin() {
                 <TableCell>Sân</TableCell>
                 <TableCell>Trọng tài</TableCell>
                 <TableCell>Tình trạng</TableCell>
+                <TableCell>Bracket</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -553,6 +559,7 @@ export default function TournamentCheckin() {
                       color={m.statusColor || "default"}
                     />
                   </TableCell>
+                  <TableCell>{m.bracketName || "—"}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

@@ -52,7 +52,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
   const pipeline = [
     { $match: { tournament: new mongoose.Types.ObjectId(id) } },
 
-    // tournament (để tính ngày/giờ)
+    // ===== Tournament (ngày/giờ, eventType nếu cần) =====
     {
       $lookup: {
         from: "tournaments",
@@ -63,7 +63,18 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $unwind: "$_tour" },
 
-    // pairA/pairB
+    // ===== Bracket (để lấy type/stage/order) =====
+    {
+      $lookup: {
+        from: "brackets",
+        localField: "bracket",
+        foreignField: "_id",
+        as: "_br",
+      },
+    },
+    { $addFields: { _br: { $arrayElemAt: ["$_br", 0] } } },
+
+    // ===== Registration pairs =====
     {
       $lookup: {
         from: "registrations",
@@ -87,7 +98,45 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // referees: array<User>
+    // ===== Users cho từng player (để lấy nickname) =====
+    {
+      $lookup: {
+        from: "users",
+        localField: "_ra.player1.user",
+        foreignField: "_id",
+        as: "_ra_u1",
+      },
+    },
+    { $addFields: { _ra_u1: { $arrayElemAt: ["$_ra_u1", 0] } } },
+    {
+      $lookup: {
+        from: "users",
+        localField: "_ra.player2.user",
+        foreignField: "_id",
+        as: "_ra_u2",
+      },
+    },
+    { $addFields: { _ra_u2: { $arrayElemAt: ["$_ra_u2", 0] } } },
+    {
+      $lookup: {
+        from: "users",
+        localField: "_rb.player1.user",
+        foreignField: "_id",
+        as: "_rb_u1",
+      },
+    },
+    { $addFields: { _rb_u1: { $arrayElemAt: ["$_rb_u1", 0] } } },
+    {
+      $lookup: {
+        from: "users",
+        localField: "_rb.player2.user",
+        foreignField: "_id",
+        as: "_rb_u2",
+      },
+    },
+    { $addFields: { _rb_u2: { $arrayElemAt: ["$_rb_u2", 0] } } },
+
+    // ===== Referees & liveBy =====
     {
       $lookup: {
         from: "users",
@@ -96,8 +145,6 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
         as: "_ref",
       },
     },
-
-    // liveBy: single user
     {
       $lookup: {
         from: "users",
@@ -108,7 +155,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $addFields: { _liveBy: { $arrayElemAt: ["$_liveBy", 0] } } },
 
-    // court (nếu có)
+    // ===== Court =====
     {
       $lookup: {
         from: "courts",
@@ -119,7 +166,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $addFields: { _court: { $arrayElemAt: ["$_court", 0] } } },
 
-    // Ngày/giờ & status label
+    // ===== Ngày/giờ =====
     {
       $addFields: {
         _todayStr: {
@@ -139,6 +186,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
             timezone: TZ,
           },
         },
+
         _schedDate: {
           $cond: [
             { $ifNull: ["$scheduledAt", false] },
@@ -169,7 +217,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $addFields: { _tourUpcoming: { $lt: ["$_todayStr", "$_startStr"] } } },
 
-    // Set cuối
+    // ===== Set cuối =====
     {
       $addFields: {
         _lastSet: {
@@ -182,18 +230,165 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // Tên đội
+    // ===== Nickname cho từng player (ưu tiên nickname) =====
+    {
+      $addFields: {
+        _p1aNick: {
+          $let: {
+            vars: { u: "$_ra_u1", r: "$_ra.player1" },
+            in: {
+              $cond: [
+                { $gt: [{ $strLenCP: { $ifNull: ["$$u.nickname", ""] } }, 0] },
+                "$$u.nickname",
+                {
+                  $cond: [
+                    {
+                      $gt: [
+                        { $strLenCP: { $ifNull: ["$$r.nickname", ""] } },
+                        0,
+                      ],
+                    },
+                    "$$r.nickname",
+                    {
+                      $cond: [
+                        {
+                          $gt: [
+                            { $strLenCP: { $ifNull: ["$$u.name", ""] } },
+                            0,
+                          ],
+                        },
+                        "$$u.name",
+                        { $ifNull: ["$$r.fullName", "??"] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        _p2aNick: {
+          $let: {
+            vars: { u: "$_ra_u2", r: "$_ra.player2" },
+            in: {
+              $cond: [
+                { $gt: [{ $strLenCP: { $ifNull: ["$$u.nickname", ""] } }, 0] },
+                "$$u.nickname",
+                {
+                  $cond: [
+                    {
+                      $gt: [
+                        { $strLenCP: { $ifNull: ["$$r.nickname", ""] } },
+                        0,
+                      ],
+                    },
+                    "$$r.nickname",
+                    {
+                      $cond: [
+                        {
+                          $gt: [
+                            { $strLenCP: { $ifNull: ["$$u.name", ""] } },
+                            0,
+                          ],
+                        },
+                        "$$u.name",
+                        { $ifNull: ["$$r.fullName", ""] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        _p1bNick: {
+          $let: {
+            vars: { u: "$_rb_u1", r: "$_rb.player1" },
+            in: {
+              $cond: [
+                { $gt: [{ $strLenCP: { $ifNull: ["$$u.nickname", ""] } }, 0] },
+                "$$u.nickname",
+                {
+                  $cond: [
+                    {
+                      $gt: [
+                        { $strLenCP: { $ifNull: ["$$r.nickname", ""] } },
+                        0,
+                      ],
+                    },
+                    "$$r.nickname",
+                    {
+                      $cond: [
+                        {
+                          $gt: [
+                            { $strLenCP: { $ifNull: ["$$u.name", ""] } },
+                            0,
+                          ],
+                        },
+                        "$$u.name",
+                        { $ifNull: ["$$r.fullName", "??"] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        _p2bNick: {
+          $let: {
+            vars: { u: "$_rb_u2", r: "$_rb.player2" },
+            in: {
+              $cond: [
+                { $gt: [{ $strLenCP: { $ifNull: ["$$u.nickname", ""] } }, 0] },
+                "$$u.nickname",
+                {
+                  $cond: [
+                    {
+                      $gt: [
+                        { $strLenCP: { $ifNull: ["$$r.nickname", ""] } },
+                        0,
+                      ],
+                    },
+                    "$$r.nickname",
+                    {
+                      $cond: [
+                        {
+                          $gt: [
+                            { $strLenCP: { $ifNull: ["$$u.name", ""] } },
+                            0,
+                          ],
+                        },
+                        "$$u.name",
+                        { $ifNull: ["$$r.fullName", ""] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+
+    // ===== Team label theo nickname (đánh đơn sẽ chỉ hiện p1) =====
     {
       $addFields: {
         _team1: {
           $cond: [
             { $ifNull: ["$_ra", false] },
             {
-              $concat: [
-                { $ifNull: ["$_ra.player1.fullName", "??"] },
-                " & ",
-                { $ifNull: ["$_ra.player2.fullName", "??"] },
-              ],
+              $let: {
+                vars: { a: "$_p1aNick", b: "$_p2aNick" },
+                in: {
+                  $cond: [
+                    { $gt: [{ $strLenCP: "$$b" }, 0] },
+                    { $concat: ["$$a", " & ", "$$b"] },
+                    "$$a",
+                  ],
+                },
+              },
             },
             "Chưa xác định",
           ],
@@ -202,11 +397,16 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
           $cond: [
             { $ifNull: ["$_rb", false] },
             {
-              $concat: [
-                { $ifNull: ["$_rb.player1.fullName", "??"] },
-                " & ",
-                { $ifNull: ["$_rb.player2.fullName", "??"] },
-              ],
+              $let: {
+                vars: { a: "$_p1bNick", b: "$_p2bNick" },
+                in: {
+                  $cond: [
+                    { $gt: [{ $strLenCP: "$$b" }, 0] },
+                    { $concat: ["$$a", " & ", "$$b"] },
+                    "$$a",
+                  ],
+                },
+              },
             },
             "Chưa xác định",
           ],
@@ -214,7 +414,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // Status VN + màu
+    // ===== Status VN + màu =====
     {
       $addFields: {
         _statusVN: {
@@ -268,7 +468,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // Ngày/giờ output
+    // ===== Output date/time (nếu chưa diễn ra dùng ngày mở reg) =====
     {
       $addFields: {
         _outDate: { $cond: ["$_tourUpcoming", "$_openStr", "$_schedDate"] },
@@ -278,7 +478,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // Build nickname cho liveBy và referees
+    // ===== Nickname cho liveBy & referee list =====
     {
       $addFields: {
         _liveNick: {
@@ -340,7 +540,31 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // Project ra kết quả cho FE
+    // ===== Khóa sort theo BRACKET → MATCH =====
+    {
+      $addFields: {
+        _brStage: { $ifNull: ["$_br.stage", 9999] },
+        _brOrder: { $ifNull: ["$_br.order", 9999] },
+        _sortSchedDate: { $ifNull: ["$_schedDate", "9999-12-31"] },
+        _sortSchedTime: { $ifNull: ["$_schedTime", "23:59"] },
+        _roundSafe: { $ifNull: ["$round", 9999] },
+        _orderSafe: { $ifNull: ["$order", 9999] },
+      },
+    },
+
+    // ===== Sắp xếp: BRACKET trước, rồi round/order/time =====
+    {
+      $sort: {
+        _brStage: 1,
+        _brOrder: 1,
+        _roundSafe: 1,
+        _orderSafe: 1,
+        _sortSchedDate: 1,
+        _sortSchedTime: 1,
+      },
+    },
+
+    // ===== Project output cho FE =====
     {
       $project: {
         _id: 1,
@@ -350,19 +574,32 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
             {
               $concat: [
                 "M-",
-                { $toString: "$round" },
+                { $toString: { $ifNull: ["$round", 0] } },
                 "-",
-                { $toString: "$order" },
+                { $toString: { $ifNull: ["$order", 0] } },
               ],
             },
           ],
         },
+
+        // Bracket info
+        bracketId: "$_br._id",
+        bracketName: "$_br.name",
+        bracketType: "$_br.type",
+
+        // Date/time
         date: "$_outDate",
         time: "$_outTime",
+
+        // Team labels (nickname-based)
         team1: "$_team1",
         team2: "$_team2",
+
+        // Score (last set)
         score1: { $ifNull: ["$_lastSet.a", 0] },
         score2: { $ifNull: ["$_lastSet.b", 0] },
+
+        // Field label
         field: {
           $let: {
             vars: {
@@ -379,7 +616,8 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
             },
           },
         },
-        // referee (chuỗi): ưu tiên liveBy.nickname, nếu không có thì join referee[].nickname
+
+        // Referee string (ưu tiên liveBy)
         referee: {
           $let: {
             vars: { live: "$_liveNick", joined: "$_refereeJoined" },
@@ -392,12 +630,11 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
             },
           },
         },
+
         status: "$_statusVN",
         statusColor: "$_statusColor",
       },
     },
-
-    { $sort: { date: 1, time: 1, code: 1 } },
   ];
 
   const rows = await Match.aggregate(pipeline);
