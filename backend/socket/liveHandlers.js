@@ -103,6 +103,7 @@ export const toDTO = (m) => {
       (u.nickName && String(u.nickName).trim()) ||
       "";
     return { _id: u._id, name: u.name || u.fullName || "", nickname };
+    // nếu cần avatar/email thì bổ sung tại đây
   };
 
   // referees: luôn trả về mảng (kể cả rỗng)
@@ -112,6 +113,23 @@ export const toDTO = (m) => {
 
   // liveBy: user đang điều khiển bảng điểm
   const liveBy = m.liveBy ? normUserLite(m.liveBy) : null;
+
+  // 🆕 Court + fallback keys cho FE normalize
+  const courtObj = m.court
+    ? {
+        _id: m.court._id || m.court,
+        name:
+          m.court.name ??
+          (m.court.number != null ? `Sân ${m.court.number}` : ""),
+        number: m.court.number,
+        code: m.court.code,
+        label: m.court.label,
+        zone: m.court.zone ?? m.court.area,
+        venue: m.court.venue,
+        building: m.court.building,
+        floor: m.court.floor,
+      }
+    : undefined;
 
   return {
     _id: m._id,
@@ -137,11 +155,12 @@ export const toDTO = (m) => {
 
     // ⭐ thay vì 1 referee, trả về danh sách
     referees,
-    // (tuỳ bạn có muốn giữ backward-compat không)
-    // referee: referees[0] || null,
+    // referee: referees[0] || null, // nếu cần backward-compat
 
     // thời gian
     scheduledAt: m.scheduledAt || null,
+    // nếu bạn còn dùng startAt, có thể map thêm:
+    startAt: m.startAt || undefined,
     startedAt: m.startedAt || null,
     finishedAt: m.finishedAt || null,
 
@@ -164,6 +183,17 @@ export const toDTO = (m) => {
 
     // ⭐ expose liveBy cho FE
     liveBy,
+
+    // 🆕 court (object đầy đủ)
+    court: courtObj || null,
+
+    // 🆕 fallback keys — phù hợp với FE normalize đang đọc p.courtId / p.courtName / p.courtNo
+    courtId: courtObj?._id || undefined,
+    courtName: courtObj?.name || undefined,
+    courtNo: courtObj?.number ?? undefined,
+
+    // optional: label của match nếu bạn dùng làm hiển thị nhanh
+    label: m.label || undefined,
   };
 };
 

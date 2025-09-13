@@ -706,7 +706,7 @@ export default function MatchContent({ m, isLoading, liveLoading }) {
   const status = mm?.status || "scheduled";
   const overlayUrl =
     mm?._id && typeof window !== "undefined" && window?.location?.origin
-      ? `${window.location.origin}/overlay/score?matchId=${mm._id}&theme=dark&size=md&showSets=1`
+      ? `${window.location.origin}/overlay/score?matchId=${mm._id}&theme=dark&size=md&showSets=1&autoNext=1`
       : "";
   const displayTime = toDateSafe(pickDisplayTime(mm));
   const timeLabel =

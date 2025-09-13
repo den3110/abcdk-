@@ -1,8 +1,14 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+// src/pages/overlay/ScoreOverlay.jsx
+/* eslint-disable react/prop-types */
+import React, { useEffect, useMemo, useState, useRef } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import {
+  // ⬇️ RTK Query hooks (giữ nguyên nếu bạn đã có)
   useGetOverlaySnapshotQuery,
   useLazyGetTournamentQuery,
+  // ⬇️ NEW: lazy API để lấy trận kế tiếp theo sân (1 API duy nhất, dùng slice)
+  // Endpoint gợi ý: GET /api/courts/:courtId/next?after=:matchId  → { matchId: "..." }
+  useLazyGetNextByCourtQuery,
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
 
@@ -144,6 +150,10 @@ function normalizePayload(p) {
     };
   }
 
+  // ⬇️ Court thông tin (id & name) để auto-next
+  const courtId = p?.court?.id || p?.courtId || null;
+  const courtName = p?.court?.name || p?.courtName || "";
+
   return {
     matchId: String(p?._id || p?.matchId || ""),
     status: p?.status || "",
@@ -166,6 +176,7 @@ function normalizePayload(p) {
     roundCode,
     roundName,
     roundNumber,
+    court: { id: courtId, name: courtName },
   };
 }
 
@@ -238,7 +249,6 @@ const mergeNormalized = (prev, next) => {
       A: mergeTeam(prev?.teams?.A, next?.teams?.A),
       B: mergeTeam(prev?.teams?.B, next?.teams?.B),
     },
-    // các field còn lại (status, winner, rules, serve, scores...) đã đc spread ở trên
   };
 };
 
@@ -271,34 +281,23 @@ const knockoutRoundLabel = (data) => {
 export default function ScoreOverlay() {
   const socket = useSocket();
   const [q] = useSearchParams();
-  const matchId = q.get("matchId") || "";
+  const navigate = useNavigate();
 
-  // query params (override nếu BE không có)
-  const qp = {
-    theme: q.get("theme"),
-    size: (q.get("size") || "md").toLowerCase(),
-    accentA: q.get("accentA"),
-    accentB: q.get("accentB"),
-    corner: q.get("corner"),
-    rounded: q.get("rounded"),
-    shadow: q.get("shadow"),
-    showSets: q.get("showSets"),
-    fontFamily: q.get("font"),
-    nameScale: q.get("nameScale"),
-    scoreScale: q.get("scoreScale"),
-    logoUrl: q.get("logo"),
-  };
+  const matchId = q.get("matchId") || "";
+  const autoNext = parseQPBool(q.get("autoNext")); // true khi autoNext=1|true|on
 
   const {
     data: snapRaw,
     isLoading: snapLoading,
     isFetching: snapFetching,
-    isError: snapError,
   } = useGetOverlaySnapshotQuery(matchId, {
     skip: !matchId,
     refetchOnMountOrArgChange: true,
   });
   const [getTournament] = useLazyGetTournamentQuery();
+
+  // ⬇️ Lazy RTK Query duy nhất để lấy trận kế theo sân
+  const [getNextByCourt] = useLazyGetNextByCourtQuery();
 
   const [data, setData] = useState(null);
   const [overlayBE, setOverlayBE] = useState(null);
@@ -316,7 +315,7 @@ export default function ScoreOverlay() {
     };
   }, []);
 
-  // snapshot -> data + overlay  (⚠ merge, không replace)
+  // snapshot -> data + overlay  (merge, không replace)
   useEffect(() => {
     if (!snapRaw) return;
     const n = normalizePayload(snapRaw);
@@ -325,7 +324,7 @@ export default function ScoreOverlay() {
     if (snapOverlay) setOverlayBE((p) => ({ ...(p || {}), ...snapOverlay }));
   }, [snapRaw]);
 
-  // fetch tournament overlay + name/image when have id (giữ nguyên nếu realtime không gửi kèm)
+  // fetch tournament overlay + name/image khi có id
   useEffect(() => {
     const tId = data?.tournament?.id;
     if (!tId) return;
@@ -358,7 +357,7 @@ export default function ScoreOverlay() {
     };
   }, [data?.tournament?.id, getTournament]);
 
-  // socket live updates  (⚠ merge, không replace)
+  // socket live updates  (merge, không replace)
   useEffect(() => {
     if (!matchId || !socket) return;
     socket.emit("match:join", { matchId });
@@ -388,52 +387,58 @@ export default function ScoreOverlay() {
   /* ---------- Merge: BE overlay > QP > default ---------- */
   const effective = useMemo(() => {
     const theme = (
-      (firstDefined(overlayBE?.theme, qp.theme, "dark") || "dark") + ""
+      (firstDefined(overlayBE?.theme, q.get("theme"), "dark") || "dark") + ""
     ).toLowerCase();
     const size = (
-      (firstDefined(overlayBE?.size, qp.size, "md") || "md") + ""
+      (firstDefined(
+        overlayBE?.size,
+        (q.get("size") || "md").toLowerCase(),
+        "md"
+      ) || "md") + ""
     ).toLowerCase();
 
     const accentA = firstDefined(
       overlayBE?.accentA,
-      qp.accentA && decodeURIComponent(qp.accentA),
+      q.get("accentA") && decodeURIComponent(q.get("accentA")),
       "#25C2A0"
     );
     const accentB = firstDefined(
       overlayBE?.accentB,
-      qp.accentB && decodeURIComponent(qp.accentB),
+      q.get("accentB") && decodeURIComponent(q.get("accentB")),
       "#4F46E5"
     );
 
     const corner = (
-      (firstDefined(overlayBE?.corner, qp.corner, "tl") || "tl") + ""
+      (firstDefined(overlayBE?.corner, q.get("corner"), "tl") || "tl") + ""
     ).toLowerCase();
-    const rounded = Number(firstDefined(overlayBE?.rounded, qp.rounded, 18));
+    const rounded = Number(
+      firstDefined(overlayBE?.rounded, q.get("rounded"), 18)
+    );
     const shadow = firstDefined(
       overlayBE?.shadow,
-      parseQPBool(qp.shadow),
+      parseQPBool(q.get("shadow")),
       true
     );
     const showSets = firstDefined(
       overlayBE?.showSets,
-      parseQPBool(qp.showSets),
+      parseQPBool(q.get("showSets")),
       true
     );
 
     const fontFamily = firstDefined(
       overlayBE?.fontFamily,
-      qp.fontFamily,
+      q.get("font"),
       'Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial'
     );
 
     const nameScale =
-      Number(firstDefined(overlayBE?.nameScale, qp.nameScale, 1)) || 1;
+      Number(firstDefined(overlayBE?.nameScale, q.get("nameScale"), 1)) || 1;
     const scoreScale =
-      Number(firstDefined(overlayBE?.scoreScale, qp.scoreScale, 1)) || 1;
+      Number(firstDefined(overlayBE?.scoreScale, q.get("scoreScale"), 1)) || 1;
 
     const logoUrl = firstDefined(
       overlayBE?.logoUrl,
-      qp.logoUrl,
+      q.get("logo"),
       (typeof window !== "undefined" && data?.tournament?.image) || ""
     );
 
@@ -454,22 +459,7 @@ export default function ScoreOverlay() {
       logoUrl,
       customCss,
     };
-  }, [
-    overlayBE,
-    qp.theme,
-    qp.size,
-    qp.accentA,
-    qp.accentB,
-    qp.corner,
-    qp.rounded,
-    qp.shadow,
-    qp.showSets,
-    qp.fontFamily,
-    qp.nameScale,
-    qp.scoreScale,
-    qp.logoUrl,
-    data?.tournament?.image,
-  ]);
+  }, [overlayBE, q, data?.tournament?.image]);
 
   /* ---------- CSS variables (inline) ---------- */
   const cssVarStyle = useMemo(() => {
@@ -582,6 +572,60 @@ export default function ScoreOverlay() {
     ...(effective.corner.includes("l") ? { left: 16 } : { right: 16 }),
     zIndex: 2147483647,
   };
+
+  /* ---------- Auto-next theo sân khi FT ---------- */
+  const lastAutoNextFor = useRef(null);
+  useEffect(() => {
+    if (!autoNext) return; // không bật
+    if (!data?.matchId) return;
+    const finished = String(data?.status || "").toUpperCase() === "FINISHED";
+    if (!finished) return;
+
+    const cid = data?.court?.id || data?.courtId;
+    if (!cid) return; // không có sân → bỏ
+
+    // Tránh xử lý lặp cho cùng 1 match
+    if (lastAutoNextFor.current === data.matchId) return;
+    lastAutoNextFor.current = data.matchId;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const next = await getNextByCourt({
+          courtId: cid,
+          after: data.matchId,
+        }).unwrap();
+        const nextId =
+          next?.matchId || next?._id || next?.data?.matchId || next?.data?._id;
+        if (cancelled || !nextId || nextId === data.matchId) return;
+
+        const params = new URLSearchParams(window.location.search);
+        params.set("matchId", nextId);
+        // preserve autoNext để chuỗi tiếp tục
+        params.set("autoNext", "1");
+        navigate(
+          {
+            pathname: window.location.pathname,
+            search: `?${params.toString()}`,
+          },
+          { replace: true }
+        );
+      } catch {
+        // không có next hoặc lỗi → bỏ qua
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    autoNext,
+    data?.status,
+    data?.matchId,
+    data?.court?.id,
+    getNextByCourt,
+    navigate,
+  ]);
 
   if (!ready) return null;
 

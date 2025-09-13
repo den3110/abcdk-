@@ -723,8 +723,21 @@ export const patchStatus = asyncHandler(async (req, res) => {
     .populate({ path: "nextMatch", select: "_id" })
     .populate({ path: "tournament", select: "name image eventType overlay" })
     .populate({ path: "bracket", select: "type name order overlay" })
-    .select("label court scheduledAt startAt startedAt status tournament")
-    .lean();
+    // 🆕 lấy thêm court
+    .populate({
+      path: "court",
+      select: "name number code label zone area venue building floor",
+    })
+    // 🆕 nếu bạn muốn FE hiển thị ai đang điều khiển bảng điểm
+    .populate({ path: "liveBy", select: "name fullName nickname" })
+    // 🆕 mở rộng select để DTO có đủ dữ liệu (giữ các field cũ)
+    .select(
+      "label court scheduledAt startAt startedAt finishedAt status " +
+        "tournament bracket rules currentGame gameScores round order " +
+        "seedA seedB winner serve overlay video videoUrl stream streams " +
+        "liveBy liveVersion"
+    )
+    .lean();  
 
   if (m) {
     io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
@@ -785,7 +798,9 @@ export const patchWinner = asyncHandler(async (req, res) => {
 
   // === EMIT ra room scheduler (trang điều phối sân đang join) ===
   // BE của bạn khi nhận "scheduler:join" nhiều khả năng join vào room dạng này:
-  const schedRoom = `scheduler:${String(match.tournament)}:${String(match.bracket)}`;
+  const schedRoom = `scheduler:${String(match.tournament)}:${String(
+    match.bracket
+  )}`;
 
   // luôn bắn match:update để panel gọi lại requestState()
   io?.to(schedRoom).emit("match:update", {

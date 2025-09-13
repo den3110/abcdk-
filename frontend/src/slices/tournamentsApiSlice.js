@@ -433,6 +433,31 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
             ]
           : [{ type: "MyTournaments", id: "LIST" }],
     }),
+    getNextByCourt: builder.query({
+      query: ({ courtId, after }) => ({
+        url: `/api/overlay/courts/${encodeURIComponent(courtId)}/next`,
+        params: after ? { after } : undefined,
+        method: "GET",
+      }),
+      // Đảm bảo luôn trả về object có key matchId
+      transformResponse: (resp) => {
+        if (!resp || typeof resp !== "object") return { matchId: null };
+        const id =
+          resp.matchId ||
+          resp._id ||
+          resp?.data?.matchId ||
+          resp?.data?._id ||
+          null;
+        return { matchId: id };
+      },
+      providesTags: (result, error, arg) =>
+        result?.matchId
+          ? [
+              { type: "Match", id: result.matchId },
+              { type: "Court", id: arg.courtId },
+            ]
+          : [{ type: "Court", id: arg.courtId }],
+    }),
   }),
 });
 
@@ -484,4 +509,5 @@ export const {
   useAdminSetMatchLiveUrlMutation,
   useAssignByesMutation,
   useListMyTournamentsQuery,
+  useLazyGetNextByCourtQuery,
 } = tournamentsApiSlice;

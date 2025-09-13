@@ -483,3 +483,93 @@ export const resetCourtsHttp = asyncHandler(async (req, res) => {
     throw err;
   }
 });
+
+
+export const MATCH_BASE_SELECT =
+  "_id tournament bracket format type status queueOrder " +
+  "court courtLabel pool rrRound round order code labelKey " +
+  "scheduledAt startedAt finishedAt";
+
+const PAIR_SELECT =
+  "displayName name nickname nickName shortName code " +
+  "player1.fullName player1.nickName player2.fullName player2.nickName participants";
+
+export const displayLabelKey = (m) => {
+  if (!m?.labelKey) return "";
+  const isGroup = m.format === "group" || m.type === "group" || !!m.pool?.name;
+  return isGroup ? m.labelKey.replace(/#R(\d+)/, "#B$1") : m.labelKey;
+};
+
+const nameOfPerson = (p) =>
+  (p?.nickName ||
+    p?.nickname ||
+    p?.fullName ||
+    p?.displayName ||
+    p?.name ||
+    "").trim();
+
+export const nameOfPair = (pair) => {
+  if (!pair) return "";
+  if (pair.displayName || pair.name)
+    return String(pair.displayName || pair.name).trim();
+  const n1 = nameOfPerson(pair.player1);
+  const n2 = nameOfPerson(pair.player2);
+  return [n1, n2].filter(Boolean).join(" & ");
+};
+
+export async function fetchSchedulerMatches({
+  tournamentId,
+  bracket,
+  clusterKey,
+  includeIds = [],
+  statuses = ["queued", "assigned", "live", "scheduled"],
+}) {
+  const baseFilter = {
+    tournament: tournamentId,
+    status: { $in: statuses },
+    ...(bracket ? { bracket } : { courtCluster: clusterKey }),
+  };
+
+  let matches = await Match.find(baseFilter)
+    .select(MATCH_BASE_SELECT)
+    .populate({ path: "pairA", select: PAIR_SELECT })
+    .populate({ path: "pairB", select: PAIR_SELECT })
+    .sort({ status: 1, queueOrder: 1 })
+    .lean();
+
+  const missingIds = (includeIds || []).filter(
+    (id) => !matches.some((m) => String(m._id) === String(id))
+  );
+  if (missingIds.length) {
+    const extra = await Match.find({ _id: { $in: missingIds } })
+      .select(MATCH_BASE_SELECT)
+      .populate({ path: "pairA", select: PAIR_SELECT })
+      .populate({ path: "pairB", select: PAIR_SELECT })
+      .lean();
+    matches = matches.concat(extra);
+  }
+
+  return matches.map((m) => ({
+    _id: m._id,
+    status: m.status,
+    queueOrder: m.queueOrder,
+    court: m.court,
+    courtLabel: m.courtLabel,
+    pool: m.pool,
+    rrRound: m.rrRound,
+    round: m.round,
+    order: m.order,
+    code: m.code,
+    labelKey: m.labelKey,
+    labelKeyDisplay: displayLabelKey(m),
+    type: m.type,
+    format: m.format,
+    scheduledAt: m.scheduledAt,
+    startedAt: m.startedAt,
+    finishedAt: m.finishedAt,
+    pairA: m.pairA || null,
+    pairB: m.pairB || null,
+    pairAName: m.pairA ? nameOfPair(m.pairA) : "",
+    pairBName: m.pairB ? nameOfPair(m.pairB) : "",
+  }));
+}

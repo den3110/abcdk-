@@ -83,6 +83,7 @@ import {
   assignNextHttp,
   assignSpecificHttp,
   buildGroupsQueueHttp,
+  fetchSchedulerMatches,
   freeCourtHttp,
   getSchedulerState,
   resetCourtsHttp,
@@ -527,6 +528,7 @@ router.get(
   getAdminBracketById
 );
 
+router.get("/courts/matches", protect, authorize("admin"), fetchSchedulerMatches)
 
 
 export default router;
