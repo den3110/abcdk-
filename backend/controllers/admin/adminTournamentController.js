@@ -500,7 +500,39 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     throw new Error("Invalid ID");
   }
 
-  const payload = validate(updateSchema, req.body);
+  // === PRE-SANITIZE scoringScope để tránh lỗi "Các tỉnh áp dụng is not allowed"
+  const incoming = { ...(req.body || {}) };
+  if (incoming.scoringScope) {
+    const type =
+      String(incoming.scoringScope.type || "national").toLowerCase() ===
+      "provinces"
+        ? "provinces"
+        : "national";
+
+    if (type === "national") {
+      // Nếu chuyển về toàn quốc, loại bỏ hẳn provinces để Joi không báo forbidden
+      if (
+        Object.prototype.hasOwnProperty.call(incoming.scoringScope, "provinces")
+      ) {
+        delete incoming.scoringScope.provinces;
+      }
+      incoming.scoringScope.type = "national";
+    } else {
+      // provinces: chuẩn hoá mảng chuỗi, unique + trim
+      const arr = Array.isArray(incoming.scoringScope.provinces)
+        ? incoming.scoringScope.provinces
+        : [];
+      incoming.scoringScope = {
+        type: "provinces",
+        provinces: Array.from(
+          new Set(arr.map((s) => String(s).trim()).filter(Boolean))
+        ),
+      };
+    }
+  }
+
+  // Validate với schema cũ (không cần đổi schema)
+  const payload = validate(updateSchema, incoming);
   if (!Object.keys(payload).length) {
     res.status(400);
     throw new Error("Không có dữ liệu để cập nhật");
@@ -515,13 +547,14 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
   }
   if (payload._meta) delete payload._meta;
 
-  // payload.noRankDelta lúc này đã là boolean chuẩn nhờ Joi (nếu client gửi)
+  // Update
   const t = await Tournament.findByIdAndUpdate(
     req.params.id,
     { $set: payload },
     { new: true, runValidators: false }
   );
 
+  // Lên lịch thông báo (best effort)
   try {
     await scheduleTournamentCountdown(t);
   } catch (e) {
@@ -533,7 +566,7 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     throw new Error("Tournament not found");
   }
 
-  // Bật ở giải → tự bật toàn bộ bracket trong giải (tắt thì không động tới bracket)
+  // Bật noRankDelta ở giải → tự bật toàn bộ bracket
   if (
     Object.prototype.hasOwnProperty.call(payload, "noRankDelta") &&
     payload.noRankDelta === true
