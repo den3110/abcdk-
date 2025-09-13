@@ -37,6 +37,43 @@ import {
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 
 /* ---------- helpers ---------- */
+
+function displayMatchCode(m) {
+  const bo = m?.bracket?.order;
+  const ord = m?.order;
+
+  const hasBo =
+    bo === 0 || typeof bo === "number" || (typeof bo === "string" && bo !== "");
+  const hasOrd =
+    ord === 0 ||
+    typeof ord === "number" ||
+    (typeof ord === "string" && ord !== "");
+
+  if (hasBo && hasOrd) {
+    const boTxt = Number.isFinite(Number(bo)) ? String(Number(bo)) : String(bo);
+    // +1 cho phần order nếu là số; nếu không phải số thì giữ nguyên
+    const ordNum = Number(ord);
+    const ordTxt = Number.isFinite(ordNum) ? String(ordNum + 1) : String(ord);
+    return `R${boTxt}#${ordTxt}`;
+  }
+  if (hasOrd) {
+    const ordNum = Number(ord);
+    const ordTxt = Number.isFinite(ordNum) ? String(ordNum + 1) : String(ord);
+    return `#${ordTxt}`;
+  }
+  return m?.code || "Trận";
+}
+
+function matchCodeByOrder(m) {
+  const o = m?.order;
+  if (o === 0 || o) {
+    const n = Number(o);
+    const ordTxt = Number.isFinite(n) ? String(n).padStart(2, "0") : String(o);
+    return `#${ordTxt}`; // ví dụ: #01, #12
+  }
+  return m?.code || "Trận";
+}
+
 const isLive = (m) =>
   ["live", "ongoing", "playing", "inprogress"].includes(
     String(m?.status || "").toLowerCase()
@@ -216,7 +253,7 @@ function CourtCard({ court, queueLimit = 4, onOpenMatch }) {
           >
             <Stack direction="row" alignItems="center" gap={0.75}>
               <PlayArrowIcon fontSize="small" />
-              <Typography fontWeight={700}>{m.code || "Trận"}</Typography>
+              <Typography fontWeight={700}>{displayMatchCode(m)}</Typography>
             </Stack>
 
             <Typography sx={{ opacity: 0.9 }}>
@@ -257,7 +294,9 @@ function CourtCard({ court, queueLimit = 4, onOpenMatch }) {
                     gap={1}
                     flexWrap="wrap"
                   >
-                    <Typography fontWeight={700}>{m.code || "Trận"}</Typography>
+                    <Typography fontWeight={700}>
+                      {displayMatchCode(m)}
+                    </Typography>
                     <Typography sx={{ opacity: 0.9 }}>
                       {teamNameFrom(m, "A")} vs {teamNameFrom(m, "B")}
                     </Typography>
@@ -331,7 +370,7 @@ function MatchRow({ m, onOpenMatch }) {
               gap={1}
               flexWrap="wrap"
             >
-              <Typography fontWeight={700}>{m.code || "Trận"}</Typography>
+              <Typography fontWeight={700}>{displayMatchCode(m)}</Typography>
               <Typography sx={{ opacity: 0.9 }}>
                 {teamNameFrom(m, "A")} vs {teamNameFrom(m, "B")}
               </Typography>
@@ -424,8 +463,9 @@ export default function TournamentSchedule() {
         return false;
       if (status === "finished" && !isFinished(m)) return false;
       if (!qnorm) return true;
+      const formattedCode = displayMatchCode(m);
       const hay = [
-        m.code,
+        formattedCode,
         teamNameFrom(m, "A"),
         teamNameFrom(m, "B"),
         m.bracket?.name,
@@ -585,7 +625,14 @@ export default function TournamentSchedule() {
       {!loading && !errorMsg && (
         <Grid container spacing={{ xs: 0, md: 2 }}>
           {/* LEFT: on-court */}
-          <Grid item xs={12} md={5} sx={{"@media (max-width:625px)": { width: "100%" , marginBottom: 4},}}>
+          <Grid
+            item
+            xs={12}
+            md={5}
+            sx={{
+              "@media (max-width:625px)": { width: "100%", marginBottom: 4 },
+            }}
+          >
             <Card
               sx={{
                 width: 1,
@@ -624,7 +671,14 @@ export default function TournamentSchedule() {
           </Grid>
 
           {/* RIGHT: all matches */}
-          <Grid item xs={12} md={7} sx={{"@media (max-width:625px)": { width: "100%" , marginBottom: 4},}}>
+          <Grid
+            item
+            xs={12}
+            md={7}
+            sx={{
+              "@media (max-width:625px)": { width: "100%", marginBottom: 4 },
+            }}
+          >
             <Card
               sx={{
                 width: 1,

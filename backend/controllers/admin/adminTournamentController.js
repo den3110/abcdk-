@@ -464,8 +464,41 @@ export const getTournaments = expressAsyncHandler(async (req, res) => {
 });
 
 // CREATE Tournament
+// CREATE Tournament
 export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
-  const data = validate(createSchema, req.body);
+  // === PRE-SANITIZE scoringScope để tránh lỗi forbidden khi type = national
+  const incoming = { ...(req.body || {}) };
+  if (incoming.scoringScope) {
+    const type =
+      String(incoming.scoringScope.type || "national").toLowerCase() ===
+      "provinces"
+        ? "provinces"
+        : "national";
+
+    if (type === "national") {
+      // Nếu client lỡ gửi provinces kèm theo → xoá trước khi validate
+      if (
+        Object.prototype.hasOwnProperty.call(incoming.scoringScope, "provinces")
+      ) {
+        delete incoming.scoringScope.provinces;
+      }
+      incoming.scoringScope.type = "national";
+    } else {
+      // provinces: chuẩn hoá mảng chuỗi, unique + trim
+      const arr = Array.isArray(incoming.scoringScope.provinces)
+        ? incoming.scoringScope.provinces
+        : [];
+      incoming.scoringScope = {
+        type: "provinces",
+        provinces: Array.from(
+          new Set(arr.map((s) => String(s).trim()).filter(Boolean))
+        ),
+      };
+    }
+  }
+
+  // Validate với createSchema (Joi sẽ set default nếu thiếu)
+  const data = validate(createSchema, incoming);
 
   // sanitize HTML trước khi lưu
   data.contactHtml = cleanHTML(data.contactHtml);
@@ -478,12 +511,13 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
     throw new Error("Unauthenticated");
   }
 
-  // Joi đã set noRankDelta (mặc định false nếu không gửi)
+  // Joi đã chuẩn hoá noRankDelta (default false nếu không gửi)
   const t = await Tournament.create({
     ...data,
     createdBy: req.user._id,
   });
 
+  // Best-effort: schedule thông báo
   try {
     await scheduleTournamentCountdown(t);
   } catch (e) {
