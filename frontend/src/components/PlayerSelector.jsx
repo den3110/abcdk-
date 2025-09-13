@@ -41,9 +41,9 @@ export default function PlayerSelector({ label, eventType, onChange }) {
   const options = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
   const getLabel = (o) =>
+    (o?.nickname && String(o.nickname)) ||
     (o?.name && String(o.name)) ||
     (o?.fullName && String(o.fullName)) ||
-    (o?.nickname && String(o.nickname)) ||
     (o?.phone && String(o.phone)) ||
     "";
 
@@ -68,7 +68,7 @@ export default function PlayerSelector({ label, eventType, onChange }) {
               <Avatar src={option.avatar} sx={{ width: 28, height: 28 }} />
               <div>
                 <Typography variant="body2">
-                  {option.name || option.fullName || option.nickname || "—"}
+                  {option.nickname || "—"}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
                   {option.nickname ? `@${option.nickname}` : ""}
@@ -100,7 +100,7 @@ export default function PlayerSelector({ label, eventType, onChange }) {
       {value && (
         <Stack direction="row" spacing={1} mt={1} alignItems="center">
           <Avatar src={value.avatar} />
-          <span>{value.name || value.fullName || value.nickname}</span>
+          <span>{value.nickname}</span>
           <Chip
             size="small"
             label={`Điểm ${eventType === "double" ? "đôi" : "đơn"}: ${scoreOf(

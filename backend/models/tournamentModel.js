@@ -147,6 +147,14 @@ const tournamentSchema = new mongoose.Schema(
       logoUrl: { type: String, default: "" }, // nếu muốn chèn logo
     },
     noRankDelta: { type: Boolean, default: false }, // ⭐ NEW
+    scoringScope: {
+      type: {
+        type: String,
+        enum: ["national", "provinces"],
+        default: "national",
+      },
+      provinces: { type: [String], default: [] }, // ví dụ: ["Hà Nội","Đà Nẵng"]
+    },
   },
   { timestamps: true }
 );
@@ -154,17 +162,12 @@ const tournamentSchema = new mongoose.Schema(
 // helper chuẩn hóa mốc UTC từ field + timezone
 function recomputeUTC(doc) {
   const tz = doc.timezone || "Asia/Ho_Chi_Minh";
-  // Nếu bạn muốn “kết thúc theo hết ngày địa phương”, dùng endOf('day')
-  // Nếu muốn “đúng giờ phút bạn nhập”, bỏ .endOf('day') và giữ nguyên.
   if (doc.startDate) {
-    const s = DateTime.fromJSDate(doc.startDate)
-      .setZone(tz)
-      .startOf("day")
-      .toUTC();
+    const s = DateTime.fromJSDate(doc.startDate).setZone(tz).toUTC(); // bỏ .startOf('day')
     doc.startAt = s.toJSDate();
   }
   if (doc.endDate) {
-    const e = DateTime.fromJSDate(doc.endDate).setZone(tz).endOf("day").toUTC();
+    const e = DateTime.fromJSDate(doc.endDate).setZone(tz).toUTC(); // bỏ .endOf('day')
     doc.endAt = e.toJSDate();
   }
 }

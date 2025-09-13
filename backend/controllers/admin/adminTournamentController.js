@@ -63,6 +63,10 @@ const FIELD_LABELS = {
   location: "Địa điểm",
   contactHtml: "Thông tin liên hệ",
   contentHtml: "Nội dung",
+  // NEW: phạm vi chấm đa tỉnh
+  scoringScope: "Phạm vi chấm",
+  "scoringScope.type": "Loại phạm vi chấm",
+  "scoringScope.provinces": "Các tỉnh áp dụng",
 };
 
 function labelOf(pathArr = []) {
@@ -96,6 +100,42 @@ const dateISO = Joi.date().iso();
 const boolLoose = Joi.boolean()
   .truthy(1, "1", "true", "yes", "y", "on")
   .falsy(0, "0", "false", "no", "n", "off");
+
+// NEW: schema phạm vi chấm đa tỉnh
+const scoringScopeCreate = Joi.object({
+  type: Joi.string()
+    .valid("national", "provinces")
+    .required()
+    .label(FIELD_LABELS["scoringScope.type"]),
+  provinces: Joi.array()
+    .items(Joi.string().trim().min(1))
+    .when("type", {
+      is: "provinces",
+      then: Joi.array()
+        .min(1)
+        .required()
+        .label(FIELD_LABELS["scoringScope.provinces"]),
+      otherwise: Joi.forbidden(),
+    }),
+})
+  .label(FIELD_LABELS.scoringScope)
+  .default({ type: "national" });
+
+const scoringScopeUpdate = Joi.object({
+  type: Joi.string()
+    .valid("national", "provinces")
+    .label(FIELD_LABELS["scoringScope.type"]),
+  provinces: Joi.array()
+    .items(Joi.string().trim().min(1))
+    .when("type", {
+      is: "provinces",
+      then: Joi.array()
+        .min(1)
+        .required()
+        .label(FIELD_LABELS["scoringScope.provinces"]),
+      otherwise: Joi.forbidden(),
+    }),
+}).label(FIELD_LABELS.scoringScope);
 
 const createSchema = Joi.object({
   name: Joi.string().trim().min(2).max(120).required().label(FIELD_LABELS.name),
@@ -139,6 +179,9 @@ const createSchema = Joi.object({
     .default("")
     .label(FIELD_LABELS.contentHtml),
   noRankDelta: boolLoose.default(false).label("Không áp dụng điểm trình"), // <-- thêm
+
+  // NEW: phạm vi chấm đa tỉnh
+  scoringScope: scoringScopeCreate,
 })
   .messages(COMMON_MESSAGES)
   .custom((obj, helpers) => {
@@ -180,6 +223,9 @@ const updateSchema = Joi.object({
   contactHtml: Joi.string().allow("").label(FIELD_LABELS.contactHtml),
   contentHtml: Joi.string().allow("").label(FIELD_LABELS.contentHtml),
   noRankDelta: boolLoose.label("Không áp dụng điểm trình"), // <-- thêm
+
+  // NEW: phạm vi chấm đa tỉnh
+  scoringScope: scoringScopeUpdate,
 })
   .messages(COMMON_MESSAGES)
   .custom((obj, helpers) => {
@@ -447,19 +493,6 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
   res.status(201).json(t);
 });
 
-export const getTournamentById = expressAsyncHandler(async (req, res) => {
-  if (!isObjectId(req.params.id)) {
-    res.status(400);
-    throw new Error("Invalid ID");
-  }
-  const t = await Tournament.findById(req.params.id);
-  if (!t) {
-    res.status(404);
-    throw new Error("Tournament not found");
-  }
-  res.json(t);
-});
-
 // UPDATE Tournament (admin)
 export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
   if (!isObjectId(req.params.id)) {
@@ -515,6 +548,19 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     }
   }
 
+  res.json(t);
+});
+
+export const getTournamentById = expressAsyncHandler(async (req, res) => {
+  if (!isObjectId(req.params.id)) {
+    res.status(400);
+    throw new Error("Invalid ID");
+  }
+  const t = await Tournament.findById(req.params.id);
+  if (!t) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
   res.json(t);
 });
 

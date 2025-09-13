@@ -327,7 +327,6 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
 
   // ====== 🆕 NHÁNH ADMIN: luôn pass, bỏ qua CCCD & preflight, tạo Registration trực tiếp ======
   if (isAdmin) {
-    // Lấy điểm BXH để snapshot (không cần preflight)
     const [rank1, rank2] = await Promise.all([
       getRankingScore(u1._id, eventType),
       isSingle ? Promise.resolve(null) : getRankingScore(u2._id, eventType),
@@ -354,7 +353,6 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       message,
       createdBy: me._id,
       payment: { status: "Unpaid" },
-      // 🆕 gắn cờ để biết đây là admin override (nếu schema có meta)
       meta: { createdByAdmin: true },
     });
 
@@ -366,7 +364,35 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     });
   }
 
-  // ====== NHÁNH USER THƯỜNG (logic cũ, giữ nguyên) ======
+  // ====== NHÁNH USER THƯỜNG (áp dụng các yêu cầu mới) ======
+
+  // 🆕 1) Check phạm vi chấm theo tỉnh (chỉ user, admin bypass ở trên)
+  const scope = tour.scoringScope || {};
+  if (
+    scope.type === "provinces" &&
+    Array.isArray(scope.provinces) &&
+    scope.provinces.length
+  ) {
+    const norm = (s) =>
+      String(s || "")
+        .trim()
+        .toLowerCase();
+    const allow = new Set(scope.provinces.map(norm));
+    const bad = [];
+    if (!allow.has(norm(u1?.province))) bad.push("VĐV 1");
+    if (isDouble && !allow.has(norm(u2?.province))) bad.push("VĐV 2");
+
+    if (bad.length) {
+      const list = scope.provinces.join(", ");
+      res.status(403);
+      throw new Error(
+        bad.length === 1
+          ? `${bad[0]} không thuộc phạm vi tỉnh được phép (${list}).`
+          : `${bad.join(" và ")} không thuộc phạm vi tỉnh được phép (${list}).`
+      );
+    }
+  }
+
   // xác định người tạo có chính là VĐV 1/2 không
   const creatorIsP1 =
     String(me._id) === String(u1._id) ||
@@ -408,6 +434,40 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
             " và "
           )} cần nộp CCCD hợp lệ (đã xác minh hoặc đang chờ duyệt) trước khi tạo đăng ký`
     );
+  }
+
+  // 🆕 2) Nếu đã có invite trùng cặp đang chờ → trả về 409
+  //    - single: player2 == null
+  //    - double: chấp nhận đảo vị trí p1/p2
+  let existingInvite = null;
+  if (isSingle) {
+    existingInvite = await RegInvite.findOne({
+      tournament: tour._id,
+      eventType,
+      "player1.user": u1._id,
+      player2: null,
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+  } else {
+    existingInvite = await RegInvite.findOne({
+      tournament: tour._id,
+      eventType,
+      status: "pending",
+      $or: [
+        { "player1.user": u1._id, "player2.user": u2._id },
+        { "player1.user": u2._id, "player2.user": u1._id },
+      ],
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+  }
+
+  if (existingInvite) {
+    // (tuỳ hệ thống bạn có thể kiểm tra confirmations; ở đây coi như còn hiệu lực)
+    return res
+      .status(409)
+      .json({ message: "Đang chờ xác nhận từ các VĐV", invite: existingInvite });
   }
 
   // preflight checks (đi qua đây khi CCCD hợp lệ: verified/pending)
@@ -466,6 +526,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const after = await finalizeIfReady(invite);
   res.status(201).json({ invite: after, message });
 });
+
 /** Danh sách lời mời mà TÔI cần phản hồi (global, không theo giải) */
 export const listMyInvites = asyncHandler(async (req, res) => {
   const me = await User.findById(req.user._id)

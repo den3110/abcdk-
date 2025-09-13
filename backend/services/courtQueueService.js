@@ -113,6 +113,8 @@ export async function buildGroupsRotationQueue({
  *  2) Trận QUEUED theo BRACKET của sân nhưng chưa có courtCluster (data cũ).
  *  3) Trận SCHEDULED theo BRACKET của sân → assign thẳng (không cần queued).
  */
+
+// đây là hàm gán nhé
 export async function assignNextToCourt({
   tournamentId,
   courtId,

@@ -74,9 +74,14 @@ const normType = (t) => {
 
 const displayName = (pl) => {
   if (!pl) return "—";
-  const fn = pl.fullName || "";
-  const nn = pl.nickName || pl.nickname || "";
-  return nn ? `${fn} (${nn})` : fn || "—";
+  // Ưu tiên các biến thể nickname
+  const nn =
+    pl.nickName ||
+    pl.nickname ||
+    pl?.user?.nickname ||
+    "";
+  // Nếu chưa có nickname thì fallback fullName (để không trống)
+  return nn || pl.fullName || "—";
 };
 
 const getUserId = (pl) => {

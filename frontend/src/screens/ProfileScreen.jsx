@@ -45,7 +45,7 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 
 /* ---------- Config ---------- */
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const MIN_DOB = dayjs("1990-01-01"); // minDate 01/01/1990
+const MIN_DOB = dayjs("1940-01-01"); // minDate 01/01/1990
 
 /* ---------- Danh sách tỉnh ---------- */
 const PROVINCES = [
@@ -217,8 +217,8 @@ export default function ProfileScreen() {
       const day = new Date(d.dob);
       if (Number.isNaN(day)) e.dob = "Ngày sinh không hợp lệ";
       else if (day > new Date()) e.dob = "Không được ở tương lai";
-      else if (new Date(d.dob) < new Date("1990-01-01"))
-        e.dob = "Không trước 01/01/1990";
+      else if (new Date(d.dob) < new Date("1940-01-01"))
+        e.dob = "Không trước 01/01/1940";
     }
     if (!d.province) e.province = "Bắt buộc";
     if (d.cccd && !/^\d{12}$/.test(d.cccd.trim()))
