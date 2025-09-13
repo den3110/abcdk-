@@ -53,12 +53,12 @@ function displayMatchCode(m) {
     const boTxt = Number.isFinite(Number(bo)) ? String(Number(bo)) : String(bo);
     // +1 cho phần order nếu là số; nếu không phải số thì giữ nguyên
     const ordNum = Number(ord);
-    const ordTxt = Number.isFinite(ordNum) ? String(ordNum + 1) : String(ord);
+    const ordTxt = Number.isFinite(ordNum) ? String(ordNum) : String(ord);
     return `R${boTxt}#${ordTxt}`;
   }
   if (hasOrd) {
     const ordNum = Number(ord);
-    const ordTxt = Number.isFinite(ordNum) ? String(ordNum + 1) : String(ord);
+    const ordTxt = Number.isFinite(ordNum) ? String(ordNum) : String(ord);
     return `#${ordTxt}`;
   }
   return m?.code || "Trận";
