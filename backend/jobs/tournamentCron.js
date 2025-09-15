@@ -48,7 +48,7 @@ export function startTournamentCrons() {
 
   // 1) Ongoing: mỗi phút
   cron.schedule(
-    "* * * * *",
+    "*/5 * * * *",
     async () => {
       const start = Date.now();
       try {
@@ -70,7 +70,7 @@ export function startTournamentCrons() {
 
   // 2) Finish: mỗi 5 phút
   cron.schedule(
-    "* * * * *",
+    "*/5 * * * *",
     async () => {
       const start = Date.now();
       try {
