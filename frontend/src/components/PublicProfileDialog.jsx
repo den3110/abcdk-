@@ -30,6 +30,8 @@ import {
   Skeleton,
   Paper,
   Pagination,
+  Card,
+  CardContent,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import ArrowDropUpIcon from "@mui/icons-material/ArrowDropUp";
@@ -139,8 +141,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
 
   const [matchPage, setMatchPage] = useState(1);
   const [matchPerPage, setMatchPerPage] = useState(10);
-
-  
 
   const ratingPaged = useMemo(() => {
     const start = (ratingPage - 1) * ratingPerPage;
@@ -315,55 +315,135 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
 
   /* ---------- rating table + pagination ---------- */
   const RatingTable = () => {
+    const theme = useTheme();
+    const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
+    const EmptyState = (
+      <Box
+        sx={{
+          border: "1px dashed",
+          borderColor: "divider",
+          borderRadius: 1.5,
+          p: 2,
+          textAlign: "center",
+          fontStyle: "italic",
+          color: "text.secondary",
+        }}
+      >
+        Không có dữ liệu
+      </Box>
+    );
+
     return (
       <Stack spacing={1.5}>
         <Typography variant="subtitle1" fontWeight={600}>
           Lịch sử điểm trình
         </Typography>
 
-        <TableContainer
-          sx={{
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 1.5,
-            maxHeight: { xs: 320, md: 360 },
-          }}
-        >
-          <Table size="small" stickyHeader>
-            <TableHead>
-              <TableRow>
-                <TableCell>Ngày</TableCell>
-                <TableCell align="right">Điểm đơn</TableCell>
-                <TableCell align="right">Điểm đôi</TableCell>
-                <TableCell>Ghi chú</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {ratingPaged.length ? (
-                ratingPaged.map((h) => (
-                  <TableRow key={h._id} hover>
-                    <TableCell>{fmtDate(h.scoredAt)}</TableCell>
-                    <TableCell align="right">{num(h.single)}</TableCell>
-                    <TableCell align="right">{num(h.double)}</TableCell>
-                    <TableCell sx={{ color: "text.secondary" }}>
-                      {safe(h.note, TEXT_PLACE)}
+        {/* Mobile: card list */}
+        {isMobile ? (
+          <Stack spacing={1.25}>
+            {ratingPaged.length
+              ? ratingPaged.map((h) => (
+                  <Card
+                    key={h._id}
+                    variant="outlined"
+                    sx={{ borderRadius: 1.5 }}
+                  >
+                    <CardContent sx={{ p: 1.5 }}>
+                      <Stack spacing={1}>
+                        <Stack
+                          direction="row"
+                          alignItems="center"
+                          justifyContent="space-between"
+                        >
+                          <Typography variant="body2" fontWeight={600}>
+                            {fmtDate(h.scoredAt)}
+                          </Typography>
+                        </Stack>
+
+                        <Stack direction="row" spacing={1}>
+                          <Chip
+                            size="small"
+                            label={`Đơn: ${num(h.single)}`}
+                            variant="outlined"
+                          />
+                          <Chip
+                            size="small"
+                            label={`Đôi: ${num(h.double)}`}
+                            variant="outlined"
+                          />
+                        </Stack>
+
+                        {h.note ? (
+                          <>
+                            <Divider flexItem />
+                            <Typography
+                              variant="body2"
+                              color="text.secondary"
+                              sx={{
+                                display: "-webkit-box",
+                                WebkitLineClamp: 3,
+                                WebkitBoxOrient: "vertical",
+                                overflow: "hidden",
+                              }}
+                            >
+                              {safe(h.note, TEXT_PLACE)}
+                            </Typography>
+                          </>
+                        ) : null}
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                ))
+              : EmptyState}
+          </Stack>
+        ) : (
+          // Desktop/Tablet: table giữ nguyên
+          <TableContainer
+            sx={{
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 1.5,
+              maxHeight: { xs: 320, md: 360 },
+            }}
+          >
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell>Ngày</TableCell>
+                  <TableCell align="right">Điểm đơn</TableCell>
+                  <TableCell align="right">Điểm đôi</TableCell>
+                  <TableCell>Ghi chú</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {ratingPaged.length ? (
+                  ratingPaged.map((h) => (
+                    <TableRow key={h._id} hover>
+                      <TableCell>{fmtDate(h.scoredAt)}</TableCell>
+                      <TableCell align="right">{num(h.single)}</TableCell>
+                      <TableCell align="right">{num(h.double)}</TableCell>
+                      <TableCell sx={{ color: "text.secondary" }}>
+                        {safe(h.note, TEXT_PLACE)}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell
+                      colSpan={4}
+                      align="center"
+                      sx={{ fontStyle: "italic" }}
+                    >
+                      Không có dữ liệu
                     </TableCell>
                   </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell
-                    colSpan={4}
-                    align="center"
-                    sx={{ fontStyle: "italic" }}
-                  >
-                    Không có dữ liệu
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
 
         <Stack direction="row" justifyContent="center">
           <Pagination

@@ -22,7 +22,6 @@ export async function createAssessment(req, res) {
   const body = req.body || {};
   const note = typeof body.note === "string" ? body.note : "";
 
-  // chấp nhận thiếu 1 bên: mirror sang bên còn lại
   let sLv = Number(body.singleLevel ?? body.doubleLevel);
   let dLv = Number(body.doubleLevel ?? body.singleLevel);
 
@@ -32,26 +31,19 @@ export async function createAssessment(req, res) {
       .json({ message: "singleLevel/doubleLevel phải là số" });
   }
 
-  // chuẩn hoá: clamp [2..8] và làm tròn 3 số
   sLv = normalizeDupr(sLv);
   dLv = normalizeDupr(dLv);
 
-  // quy đổi sang RAW 0..10 để lưu thống nhất
   const singleScore = rawFromDupr(sLv);
   const doubleScore = rawFromDupr(dLv);
 
   const metaInput = sanitizeMeta(body.meta);
   const selfScored = String(req.user?._id || "") === String(userId);
 
-  // ===== NEW: Không cho tự chấm nếu user đã từng tham gia giải =====
+  // (Giữ nguyên) Không cho tự chấm nếu user đã từng tham gia giải
   if (selfScored) {
     try {
-      // dùng helper trong model
       const participated = await Registration.hasParticipated(userId);
-      // nếu chưa thêm helper, có thể thay bằng:
-      // const participated = await Registration.exists({
-      //   $or: [{ "player1.user": userId }, { "player2.user": userId }],
-      // });
       if (participated) {
         return res.status(403).json({
           message:
@@ -59,27 +51,24 @@ export async function createAssessment(req, res) {
         });
       }
     } catch (e) {
-      // không chặn nhầm khi lỗi kiểm tra; log để theo dõi
       console.error("Participation check failed:", e);
     }
   }
-  // ===== END NEW =====
 
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
-    // Lưu bản chấm
     const [assessment] = await Assessment.create(
       [
         {
           user: userId,
           scorer: req.user?._id || null,
-          items: [], // Không dùng nữa
+          items: [],
           singleScore,
           doubleScore,
           singleLevel: sLv,
           doubleLevel: dLv,
-          meta: { ...metaInput, selfScored },
+          meta: { ...metaInput, selfScored, scoreBy: "admin" }, // <-- NEW
           note,
           scoredAt: new Date(),
         },
@@ -87,15 +76,10 @@ export async function createAssessment(req, res) {
       { session }
     );
 
-    // Upsert Ranking
     const ranking = await Ranking.findOneAndUpdate(
       { user: userId },
       {
-        $set: {
-          single: sLv,
-          double: dLv,
-          lastUpdated: new Date(),
-        },
+        $set: { single: sLv, double: dLv, lastUpdated: new Date() },
         $inc: {
           points:
             (metaInput.freq || 0) +
@@ -106,7 +90,6 @@ export async function createAssessment(req, res) {
       { upsert: true, new: true, session }
     );
 
-    // Lịch sử điểm (lưu DUPR)
     await ScoreHistory.create(
       [
         {

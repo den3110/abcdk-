@@ -37,6 +37,11 @@ const assessmentSchema = new mongoose.Schema(
       competed: { type: Boolean, default: false },
       external: { type: Number, default: 0 }, // 0..10
       selfScored: { type: Boolean, default: false },
+      scoreBy: {
+        type: String,
+        enum: ["admin", "mod", "moderator"],
+        lowercase: true,
+      },
     },
 
     note: { type: String, default: "" },
@@ -46,5 +51,6 @@ const assessmentSchema = new mongoose.Schema(
 );
 
 assessmentSchema.index({ user: 1, scoredAt: -1 });
+assessmentSchema.index({ "meta.scoreBy": 1 });
 
 export default mongoose.model("Assessment", assessmentSchema);

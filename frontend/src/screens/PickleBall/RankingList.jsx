@@ -30,15 +30,15 @@ import {
   Snackbar,
   Skeleton,
 } from "@mui/material";
-import { Link, useSearchParams } from "react-router-dom"; // ⬅️ MỚI: useSearchParams
+import { Link, useSearchParams } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { setKeyword, setPage } from "../../slices/rankingUiSlice";
 import { useGetRankingsQuery } from "../../slices/rankingsApiSlice";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 
-// ⬇️ MỚI
 import { useGetMeQuery } from "../../slices/usersApiSlice";
 import { useCreateEvaluationMutation } from "../../slices/evaluationsApiSlice";
+import { skipToken } from "@reduxjs/toolkit/query";
 
 const PLACE = "https://dummyimage.com/40x40/cccccc/ffffff&text=?";
 const HEX = {
@@ -175,7 +175,7 @@ const parseKeywordFromParams = (sp) => sp.get("q") ?? "";
 export default function RankingList() {
   const dispatch = useDispatch();
   const { keyword, page } = useSelector((s) => s?.rankingUi || {});
-  const [searchParams, setSearchParams] = useSearchParams(); // ⬅️ MỚI
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const {
     data = { docs: [], totalPages: 0 },
@@ -183,16 +183,32 @@ export default function RankingList() {
     error,
     refetch,
   } = useGetRankingsQuery({ keyword, page });
+
   const { docs: list, totalPages } = data;
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme?.breakpoints?.down("sm"));
 
-  // ⬇️ gọi profile "me" để biết quyền chấm
-  const { data: meData } = useGetMeQuery();
+  // ====== TOKEN DETECTION (tránh gọi /me khi chưa đăng nhập) ======
+  const token =
+    useSelector((s) => s?.auth?.userInfo?.token) ||
+    useSelector((s) => s?.userLogin?.userInfo?.token) ||
+    useSelector((s) => s?.user?.token) ||
+    null;
+
+  // ⬇️ Gọi profile "me" CHỈ khi có token → tránh vòng lặp 401
+  const {
+    data: meData,
+    // error: meError,  // nếu muốn show cảnh báo khi token hết hạn
+  } = useGetMeQuery(token ? undefined : skipToken, {
+    refetchOnFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMountOrArgChange: false,
+  });
+
   const me = meData || null;
 
-  // ⬇️ MỚI: URL → Redux (kể cả Back/Forward). Chỉ dispatch khi khác để tránh loop.
+  // ⬇️ URL → Redux (kể cả Back/Forward). Chỉ dispatch khi khác để tránh loop.
   useEffect(() => {
     const urlPage = parsePageFromParams(searchParams);
     if (urlPage !== page) dispatch(setPage(urlPage));
@@ -200,9 +216,9 @@ export default function RankingList() {
     const urlQ = parseKeywordFromParams(searchParams);
     if ((urlQ || "") !== (keyword || "")) dispatch(setKeyword(urlQ));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]); // chủ đích không đưa page/keyword vào deps để không phản ứng vòng lặp
+  }, [searchParams]); // chủ đích không đưa page/keyword vào deps để tránh vòng lặp
 
-  // ⬇️ MỚI: Redux → URL khi page/keyword đổi. Giữ các params khác nếu có.
+  // ⬇️ Redux → URL khi page/keyword đổi. Giữ các params khác nếu có.
   useEffect(() => {
     const curPageParam = searchParams.get("page");
     const desiredPageParam = page > 0 ? String(page + 1) : null; // 1-based trong URL; trang 1 thì bỏ param
@@ -221,8 +237,6 @@ export default function RankingList() {
       if (desiredQ) next.set("q", desiredQ);
       else next.delete("q");
 
-      // replace=false để tạo history khi người dùng chuyển trang; lần sync đầu có thể replace=true,
-      // nhưng ở đây ta để mặc định để người dùng Back/Forward hoạt động tự nhiên.
       setSearchParams(next);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -561,10 +575,7 @@ export default function RankingList() {
                         <Chip
                           size="small"
                           label={`${age} tuổi`}
-                          sx={{
-                            mr: { xs: 0.75, sm: 0 },
-                            mb: { xs: 0.75, sm: 0 },
-                          }}
+                          sx={chipMobileSx}
                         />
                       )}
                       <Chip
@@ -584,12 +595,12 @@ export default function RankingList() {
                     <Chip
                       size="small"
                       label={`Giới tính: ${genderLabel(u?.gender)}`}
-                      sx={{ mr: { xs: 0.75, sm: 0 }, mb: { xs: 0.75, sm: 0 } }}
+                      sx={chipMobileSx}
                     />
                     <Chip
                       size="small"
                       label={`Tỉnh: ${u?.province || "--"}`}
-                      sx={{ mr: { xs: 0.75, sm: 0 }, mb: { xs: 0.75, sm: 0 } }}
+                      sx={chipMobileSx}
                     />
                   </Stack>
 

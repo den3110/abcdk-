@@ -13,21 +13,15 @@ export const getRankings = asyncHandler(async (req, res) => {
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 10, 10)));
   const keywordRaw = String(req.query.keyword ?? "").trim();
 
-  // ---- helpers ----
   const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const stripSpaces = (s) => s.replace(/\s+/g, "");
   const digitsOnly = (s) => s.replace(/\D+/g, "");
 
-  // ---- Optional filter by nickname/email/phone/cccd ----
   let userIdsFilter = null;
-
   if (keywordRaw) {
     const orConds = [];
-
-    // 1) Nickname: fuzzy (giữ nguyên hành vi cũ)
     orConds.push({ nickname: { $regex: keywordRaw, $options: "i" } });
 
-    // 2) Email: exact (bỏ space, không phân biệt hoa thường)
     const emailCandidate = stripSpaces(keywordRaw);
     if (emailCandidate.includes("@")) {
       orConds.push({
@@ -35,36 +29,24 @@ export const getRankings = asyncHandler(async (req, res) => {
       });
     }
 
-    // 3) Phone: exact, bỏ qua khoảng trắng (cho phép \s* giữa các số)
     const phoneDigits = digitsOnly(keywordRaw);
     if (phoneDigits.length >= 9) {
       const phonePattern = `^${phoneDigits.split("").join("\\s*")}$`;
       orConds.push({ phone: { $regex: phonePattern } });
-    }
-
-    // 4) CCCD: exact, bỏ qua khoảng trắng (CMND 9 số, CCCD 12 số – cho >=9 để linh hoạt)
-    if (phoneDigits.length >= 9) {
-      const cccdPattern = `^${phoneDigits.split("").join("\\s*")}$`;
-      // ĐỔI 'cccd' nếu schema bạn dùng tên khác (vd: citizenId)
-      orConds.push({ cccd: { $regex: cccdPattern } });
+      orConds.push({ cccd: { $regex: phonePattern } });
     }
 
     const rawIds = await User.find({ $or: orConds }, { _id: 1 }).lean();
     const ids = rawIds
       .map((d) => d?._id)
       .filter((id) => mongoose.isValidObjectId(id));
-
-    if (ids.length === 0) {
-      return res.json({ docs: [], totalPages: 0, page });
-    }
+    if (ids.length === 0) return res.json({ docs: [], totalPages: 0, page });
     userIdsFilter = ids;
   }
 
-  // ---- Match stage (once) ----
   const matchStage = {
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
   };
-
   const now = new Date();
 
   const agg = await Ranking.aggregate([
@@ -73,7 +55,6 @@ export const getRankings = asyncHandler(async (req, res) => {
 
     {
       $facet: {
-        // Đếm distinct user, loại mồ côi (không còn bản ghi user)
         total: [
           {
             $lookup: {
@@ -89,28 +70,22 @@ export const getRankings = asyncHandler(async (req, res) => {
           { $count: "n" },
         ],
 
-        // --- docs pipeline giữ nguyên, chỉ format lại cho gọn ---
         docs: [
+          // newest ranking per user
           {
             $addFields: {
-              reputation: { $ifNull: ["$reputation", 0] },
               points: { $ifNull: ["$points", 0] },
               single: { $ifNull: ["$single", 0] },
               double: { $ifNull: ["$double", 0] },
               mix: { $ifNull: ["$mix", 0] },
+              reputation: { $ifNull: ["$reputation", 0] },
             },
           },
-          {
-            $sort: {
-              updatedAt: -1,
-              double: -1,
-              single: -1,
-              points: -1,
-              _id: 1,
-            },
-          },
+          { $sort: { updatedAt: -1, _id: 1 } },
           { $group: { _id: "$user", doc: { $first: "$$ROOT" } } },
           { $replaceRoot: { newRoot: "$doc" } },
+
+          // join user
           {
             $lookup: {
               from: "users",
@@ -134,34 +109,8 @@ export const getRankings = asyncHandler(async (req, res) => {
             },
           },
           { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
-          {
-            $lookup: {
-              from: "assessments",
-              let: { uid: "$user._id" },
-              pipeline: [
-                { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
-                { $sort: { scoredAt: -1, _id: -1 } },
-                { $limit: 1 },
-                { $project: { scorer: 1, scoredAt: 1, meta: 1 } },
-              ],
-              as: "latestAssess",
-            },
-          },
-          {
-            $addFields: {
-              latestAssess: { $arrayElemAt: ["$latestAssess", 0] },
-            },
-          },
-          {
-            $addFields: {
-              isSelfScoredLatest: {
-                $or: [
-                  { $eq: ["$latestAssess.meta.selfScored", true] },
-                  { $eq: ["$latestAssess.scorer", "$user._id"] },
-                ],
-              },
-            },
-          },
+
+          // ===== tournaments finished (unique) =====
           {
             $lookup: {
               from: "registrations",
@@ -187,7 +136,6 @@ export const getRankings = asyncHandler(async (req, res) => {
                       {
                         $project: {
                           _id: 1,
-                          eventType: 1,
                           status: 1,
                           finishedAt: 1,
                           endAt: 1,
@@ -198,177 +146,166 @@ export const getRankings = asyncHandler(async (req, res) => {
                 },
                 {
                   $addFields: {
-                    eventType: {
-                      $ifNull: [
-                        { $arrayElemAt: ["$tour.eventType", 0] },
-                        "double",
-                      ],
-                    },
-                    tourId: { $arrayElemAt: ["$tour._id", 0] },
                     status: {
                       $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, ""],
                     },
                     finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
-                    endAt: { $arrayElemAt: ["$tour.endAt", 0] },
+                    rawEndAt: { $arrayElemAt: ["$tour.endAt", 0] },
                   },
                 },
                 {
                   $addFields: {
+                    endAtDate: {
+                      $convert: {
+                        input: "$rawEndAt",
+                        to: "date",
+                        onError: null,
+                        onNull: null,
+                      },
+                    },
                     tourFinished: {
                       $or: [
                         { $eq: ["$status", "finished"] },
                         { $ne: ["$finishedAt", null] },
-                        { $lt: ["$endAt", now] },
+                        {
+                          $and: [
+                            { $ne: ["$endAtDate", null] },
+                            { $lt: ["$endAtDate", now] },
+                          ],
+                        },
                       ],
                     },
                   },
                 },
                 { $match: { tourFinished: true } },
-                { $group: { _id: { eventType: "$eventType", t: "$tourId" } } },
-                {
-                  $group: {
-                    _id: "$_id.eventType",
-                    tourIds: { $addToSet: "$_id.t" },
-                    count: { $sum: 1 },
-                  },
-                },
+                { $group: { _id: "$tournament" } },
+                { $count: "n" },
               ],
-              as: "finishedToursByType",
+              as: "finishedToursCount",
             },
           },
           {
             $addFields: {
-              doubleTours: {
-                $let: {
-                  vars: {
-                    item: {
-                      $arrayElemAt: [
-                        {
-                          $filter: {
-                            input: "$finishedToursByType",
-                            as: "r",
-                            cond: { $eq: ["$$r._id", "double"] },
-                          },
-                        },
-                        0,
+              totalTours: {
+                $ifNull: [{ $arrayElemAt: ["$finishedToursCount.n", 0] }, 0],
+              },
+            },
+          },
+
+          // ===== flags from ASSESSMENTS only =====
+          // official: meta.scoreBy in [admin, mod, moderator]
+          {
+            $lookup: {
+              from: "assessments",
+              let: { uid: "$user._id" },
+              pipeline: [
+                { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
+                {
+                  $match: {
+                    $expr: {
+                      $in: [
+                        { $toLower: { $ifNull: ["$meta.scoreBy", ""] } },
+                        ["admin", "mod", "moderator"],
                       ],
                     },
                   },
-                  in: { $ifNull: ["$$item.count", 0] },
                 },
-              },
-              singleTours: {
-                $let: {
-                  vars: {
-                    item: {
-                      $arrayElemAt: [
+                { $limit: 1 },
+                { $project: { _id: 1 } },
+              ],
+              as: "assOfficial",
+            },
+          },
+          {
+            $addFields: {
+              hasOfficial: { $gt: [{ $size: "$assOfficial" }, 0] },
+            },
+          },
+
+          // self: selfScored==true OR scorer==user (any assessment)
+          {
+            $lookup: {
+              from: "assessments",
+              let: { uid: "$user._id" },
+              pipeline: [
+                { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
+                {
+                  $match: {
+                    $expr: {
+                      $or: [
                         {
-                          $filter: {
-                            input: "$finishedToursByType",
-                            as: "r",
-                            cond: { $eq: ["$$r._id", "single"] },
-                          },
+                          $eq: [{ $ifNull: ["$meta.selfScored", false] }, true],
                         },
-                        0,
+                        {
+                          $eq: [
+                            { $toString: { $ifNull: ["$scorer", ""] } },
+                            { $toString: "$$uid" },
+                          ],
+                        },
                       ],
                     },
                   },
-                  in: { $ifNull: ["$$item.count", 0] },
                 },
-              },
+                { $limit: 1 },
+                { $project: { _id: 1 } },
+              ],
+              as: "assSelf",
             },
           },
+          { $addFields: { hasSelf: { $gt: [{ $size: "$assSelf" }, 0] } } },
+
+          // ===== color grouping =====
           {
             $addFields: {
-              doubleTier: {
-                $switch: {
-                  branches: [
-                    { case: { $gte: ["$doubleTours", 10] }, then: 0 },
-                    { case: { $gte: ["$doubleTours", 5] }, then: 1 },
-                    { case: { $gte: ["$doubleTours", 1] }, then: 2 },
-                  ],
-                  default: 4,
-                },
-              },
-              singleTier: {
-                $switch: {
-                  branches: [
-                    { case: { $gte: ["$singleTours", 10] }, then: 0 },
-                    { case: { $gte: ["$singleTours", 5] }, then: 1 },
-                    { case: { $gte: ["$singleTours", 1] }, then: 2 },
-                  ],
-                  default: 4,
-                },
-              },
-              selfTier: {
-                $cond: [{ $eq: ["$isSelfScoredLatest", true] }, 3, 4],
-              },
-            },
-          },
-          {
-            $addFields: {
-              effectiveTier: {
-                $cond: [
-                  { $ne: ["$doubleTier", 4] },
-                  "$doubleTier",
-                  {
-                    $cond: [
-                      { $ne: ["$singleTier", 4] },
-                      "$singleTier",
-                      "$selfTier",
-                    ],
-                  },
+              isGold: { $or: [{ $gt: ["$totalTours", 0] }, "$hasOfficial"] },
+              isRed: {
+                $and: [
+                  { $eq: ["$totalTours", 0] },
+                  { $eq: ["$hasOfficial", false] },
+                  "$hasSelf",
                 ],
               },
             },
           },
           {
             $addFields: {
+              colorRank: { $cond: ["$isGold", 0, { $cond: ["$isRed", 1, 2] }] },
+              tierLabel: {
+                $switch: {
+                  branches: [
+                    { case: "$isGold", then: "Đã đấu/Official" },
+                    { case: "$isRed", then: "Tự chấm" },
+                  ],
+                  default: "Chưa có điểm",
+                },
+              },
               tierColor: {
                 $switch: {
                   branches: [
-                    { case: { $eq: ["$effectiveTier", 0] }, then: "green" },
-                    { case: { $eq: ["$effectiveTier", 1] }, then: "blue" },
-                    { case: { $eq: ["$effectiveTier", 2] }, then: "yellow" },
-                    { case: { $eq: ["$effectiveTier", 3] }, then: "red" },
+                    { case: "$isGold", then: "yellow" }, // gộp 3 màu thành vàng
+                    { case: "$isRed", then: "red" },
                   ],
                   default: "grey",
                 },
               },
-              tierLabel: {
-                $switch: {
-                  branches: [
-                    { case: { $eq: ["$effectiveTier", 0] }, then: "≥10 giải" },
-                    { case: { $eq: ["$effectiveTier", 1] }, then: "5–9 giải" },
-                    { case: { $eq: ["$effectiveTier", 2] }, then: "1–4 giải" },
-                    { case: { $eq: ["$effectiveTier", 3] }, then: "Tự chấm" },
-                  ],
-                  default: "Chưa đấu",
-                },
-              },
-              reputation: {
-                $min: [
-                  100,
-                  {
-                    $multiply: [{ $add: ["$singleTours", "$doubleTours"] }, 10],
-                  },
-                ],
-              },
+              reputation: { $min: [100, { $multiply: ["$totalTours", 10] }] },
             },
           },
+
+          // sort & paginate
           {
             $sort: {
-              effectiveTier: 1,
+              colorRank: 1,
               double: -1,
               single: -1,
               points: -1,
-              reputation: -1,
               updatedAt: -1,
               _id: 1,
             },
           },
           { $skip: page * limit },
           { $limit: limit },
+
           {
             $project: {
               user: 1,
@@ -376,16 +313,16 @@ export const getRankings = asyncHandler(async (req, res) => {
               double: 1,
               mix: 1,
               points: 1,
-              reputation: 1,
               updatedAt: 1,
-              doubleTours: 1,
-              singleTours: 1,
-              doubleTier: 1,
-              singleTier: 1,
-              effectiveTier: 1,
-              tierColor: 1,
+
+              // info UI/debug
               tierLabel: 1,
-              isSelfScoredLatest: 1,
+              tierColor: 1,
+              colorRank: 1,
+              totalTours: 1,
+              hasOfficial: 1,
+              hasSelf: 1,
+              reputation: 1,
             },
           },
         ],

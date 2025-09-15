@@ -61,6 +61,16 @@ import DrawSettingsSchema from "./drawSettingsSchema.js";
 //   { _id: false }
 // );
 
+const TeleSchema = new mongoose.Schema(
+  {
+    hubChatId: { type: String }, // ví dụ: "-1001234567890"
+    topicId: { type: Number }, // message_thread_id (int)
+    inviteLink: { type: String }, // link mời vào hub
+    enabled: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
 const tournamentSchema = new mongoose.Schema(
   {
     /* Thông tin cơ bản */
@@ -155,6 +165,7 @@ const tournamentSchema = new mongoose.Schema(
       },
       provinces: { type: [String], default: [] }, // ví dụ: ["Hà Nội","Đà Nẵng"]
     },
+    tele: TeleSchema,
   },
   { timestamps: true }
 );

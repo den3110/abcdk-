@@ -16,6 +16,9 @@ import {
 } from "../../services/bracketBuilder.js";
 import { scheduleTournamentCountdown } from "../../utils/scheduleNotifications.js";
 import Bracket from "../../models/bracketModel.js"; // <-- thêm dòng này
+import { createForumTopic, createInviteLink } from "../../utils/telegram.js";
+import dotenv from "dotenv";
+dotenv.config();
 
 /* -------------------------- Sanitize cấu hình -------------------------- */
 const SAFE_HTML = {
@@ -506,7 +509,6 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
         : "national";
 
     if (type === "national") {
-      // Nếu client lỡ gửi provinces kèm theo → xoá trước khi validate
       if (
         Object.prototype.hasOwnProperty.call(incoming.scoringScope, "provinces")
       ) {
@@ -514,7 +516,6 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
       }
       incoming.scoringScope.type = "national";
     } else {
-      // provinces: chuẩn hoá mảng chuỗi, unique + trim
       const arr = Array.isArray(incoming.scoringScope.provinces)
         ? incoming.scoringScope.provinces
         : [];
@@ -533,7 +534,6 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
   // sanitize HTML trước khi lưu
   data.contactHtml = cleanHTML(data.contactHtml);
   data.contentHtml = cleanHTML(data.contentHtml);
-
   if (data._meta) delete data._meta;
 
   if (!req.user?._id) {
@@ -541,20 +541,110 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
     throw new Error("Unauthenticated");
   }
 
-  // Joi đã chuẩn hoá noRankDelta (default false nếu không gửi)
+  // Tạo tournament (đồng bộ)
   const t = await Tournament.create({
     ...data,
     createdBy: req.user._id,
   });
 
-  // Best-effort: schedule thông báo
-  try {
-    await scheduleTournamentCountdown(t);
-  } catch (e) {
-    console.log(e);
-  }
-
+  // ✅ Trả về ngay cho client
   res.status(201).json(t);
+
+  // ---- Các tác vụ ngoài chạy nền (không await) ----
+
+  // 1) Lên lịch thông báo (best effort)
+  setImmediate(() => {
+    scheduleTournamentCountdown(t).catch((e) => {
+      console.error(
+        "[adminCreateTournament] scheduleTournamentCountdown failed:",
+        e?.message || e,
+        {
+          tournamentId: String(t._id),
+        }
+      );
+    });
+  });
+
+  // 2) Tạo topic Telegram (best effort)
+  setImmediate(async () => {
+    try {
+      const tele = t.tele || {};
+      // mặc định enabled nếu không set
+      const teleEnabled = tele.enabled !== false;
+      if (!teleEnabled) {
+        console.log(
+          "[adminCreateTournament] tele disabled; skip creating topic",
+          {
+            tournamentId: String(t._id),
+          }
+        );
+        return;
+      }
+
+      const hubChatId = tele.hubChatId || process.env.TELEGRAM_HUB_CHAT_ID;
+      if (!hubChatId) {
+        console.error(
+          "[adminCreateTournament] Missing TELEGRAM_HUB_CHAT_ID; skip creating topic",
+          {
+            tournamentId: String(t._id),
+          }
+        );
+        return;
+      }
+
+      // tạo topic theo tên giải (t.name)
+      const topicId = await createForumTopic({
+        chatId: hubChatId,
+        name: t.name,
+      });
+
+      // tạo invite link (không bắt buộc)
+      let inviteLink = tele.inviteLink;
+      try {
+        inviteLink =
+          inviteLink ||
+          (await createInviteLink({ chatId: hubChatId, name: t.name }));
+      } catch (ie) {
+        console.error(
+          "[adminCreateTournament] createInviteLink failed (non-fatal):",
+          ie?.message || ie,
+          { tournamentId: String(t._id) }
+        );
+      }
+
+      // lưu lại vào DB (không overwrite các key khác)
+      await Tournament.updateOne(
+        { _id: t._id },
+        {
+          $set: {
+            tele: {
+              ...tele,
+              hubChatId,
+              topicId,
+              inviteLink,
+              enabled: teleEnabled,
+            },
+          },
+        }
+      );
+
+      console.log("[adminCreateTournament] created forum topic", {
+        tournamentId: String(t._id),
+        topicId,
+        hubChatId,
+        name: t.name,
+      });
+    } catch (e) {
+      console.error(
+        "[adminCreateTournament] create topic failed:",
+        e?.message || e,
+        {
+          tournamentId: String(t._id),
+          name: t.name,
+        }
+      );
+    }
+  });
 });
 
 // UPDATE Tournament (admin)
@@ -564,7 +654,7 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     throw new Error("Invalid ID");
   }
 
-  // === PRE-SANITIZE scoringScope để tránh lỗi "Các tỉnh áp dụng is not allowed"
+  // === PRE-SANITIZE scoringScope
   const incoming = { ...(req.body || {}) };
   if (incoming.scoringScope) {
     const type =
@@ -574,7 +664,6 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
         : "national";
 
     if (type === "national") {
-      // Nếu chuyển về toàn quốc, loại bỏ hẳn provinces để Joi không báo forbidden
       if (
         Object.prototype.hasOwnProperty.call(incoming.scoringScope, "provinces")
       ) {
@@ -582,7 +671,6 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
       }
       incoming.scoringScope.type = "national";
     } else {
-      // provinces: chuẩn hoá mảng chuỗi, unique + trim
       const arr = Array.isArray(incoming.scoringScope.provinces)
         ? incoming.scoringScope.provinces
         : [];
@@ -595,14 +683,14 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  // Validate với schema cũ (không cần đổi schema)
+  // Validate
   const payload = validate(updateSchema, incoming);
   if (!Object.keys(payload).length) {
     res.status(400);
     throw new Error("Không có dữ liệu để cập nhật");
   }
 
-  // sanitize HTML nếu có cập nhật
+  // sanitize HTML
   if (typeof payload.contactHtml === "string") {
     payload.contactHtml = cleanHTML(payload.contactHtml);
   }
@@ -611,26 +699,19 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
   }
   if (payload._meta) delete payload._meta;
 
-  // Update
+  // Update chính
   const t = await Tournament.findByIdAndUpdate(
     req.params.id,
     { $set: payload },
     { new: true, runValidators: false }
   );
 
-  // Lên lịch thông báo (best effort)
-  try {
-    await scheduleTournamentCountdown(t);
-  } catch (e) {
-    console.log(e);
-  }
-
   if (!t) {
     res.status(404);
     throw new Error("Tournament not found");
   }
 
-  // Bật noRankDelta ở giải → tự bật toàn bộ bracket
+  // Cascade noRankDelta (đồng bộ)
   if (
     Object.prototype.hasOwnProperty.call(payload, "noRankDelta") &&
     payload.noRankDelta === true
@@ -645,7 +726,93 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     }
   }
 
+  // ✅ Trả về ngay
   res.json(t);
+
+  // ---- Tác vụ nền (không await) ----
+
+  // 1) Lên lịch đếm ngược
+  setImmediate(() => {
+    scheduleTournamentCountdown(t).catch((e) => {
+      console.error(
+        "[adminUpdateTournament] scheduleTournamentCountdown failed:",
+        e?.message || e,
+        { tournamentId: String(t._id) }
+      );
+    });
+  });
+
+  // 2) Auto-create forum topic nếu chưa có (hoặc ép tạo)
+  const tele = t.tele || {};
+  const teleEnabled = tele.enabled !== false;
+  const hasTopic = !!tele.topicId;
+  const forceCreate =
+    String(req.query?.forceCreateTopic || "0").trim() === "1" ||
+    String(req.body?.forceCreateTopic || "0").trim() === "1";
+
+  if ((teleEnabled && !hasTopic) || forceCreate) {
+    const hubChatId = tele.hubChatId || process.env.TELEGRAM_HUB_CHAT_ID;
+    if (!hubChatId) {
+      console.error(
+        "[adminUpdateTournament] Missing hubChatId for topic creation",
+        {
+          tournamentId: String(t._id),
+          hasTele: !!t.tele,
+        }
+      );
+    } else {
+      setImmediate(async () => {
+        try {
+          // ⚠️ DÙNG t.name
+          const topicId = await createForumTopic({
+            chatId: hubChatId,
+            name: t.name,
+          });
+
+          let inviteLink = tele.inviteLink;
+          try {
+            inviteLink =
+              inviteLink ||
+              (await createInviteLink({ chatId: hubChatId, name: t.name }));
+          } catch (ie) {
+            console.error(
+              "[adminUpdateTournament] createInviteLink failed (non-fatal):",
+              ie?.message || ie,
+              { tournamentId: String(t._id) }
+            );
+          }
+
+          await Tournament.updateOne(
+            { _id: t._id },
+            {
+              $set: {
+                tele: {
+                  ...tele,
+                  hubChatId,
+                  topicId,
+                  inviteLink,
+                  enabled: teleEnabled,
+                },
+              },
+            }
+          );
+
+          console.log("[adminUpdateTournament] created forum topic", {
+            tournamentId: String(t._id),
+            topicId,
+            hubChatId,
+            name: t.name,
+          });
+        } catch (e) {
+          console.error(
+            "[adminUpdateTournament] ensure topic failed:",
+            e?.message || e,
+            { tournamentId: String(t._id), name: t.name }
+          );
+        }
+      });
+    }
+  }
 });
 
 export const getTournamentById = expressAsyncHandler(async (req, res) => {

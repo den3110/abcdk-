@@ -75,11 +75,7 @@ const normType = (t) => {
 const displayName = (pl) => {
   if (!pl) return "—";
   // Ưu tiên các biến thể nickname
-  const nn =
-    pl.nickName ||
-    pl.nickname ||
-    pl?.user?.nickname ||
-    "";
+  const nn = pl.nickName || pl.nickname || pl?.user?.nickname || "";
   // Nếu chưa có nickname thì fallback fullName (để không trống)
   return nn || pl.fullName || "—";
 };
@@ -389,8 +385,21 @@ export default function TournamentRegistration() {
         ...(isDoubles ? { player2Id: p2._id } : {}),
       }).unwrap();
 
-      if (res?.mode === "direct_by_admin" || res?.registration) {
-        toast.success("Đã tạo đăng ký (admin — auto approve)");
+      // Server chỉ còn 2 nhánh: admin trực tiếp hoặc KYC trực tiếp
+      if (
+        res?.registration ||
+        res?.mode === "direct_by_admin" ||
+        res?.mode === "direct_by_kyc"
+      ) {
+        const mode = res?.mode || "direct";
+        const label =
+          mode === "direct_by_admin"
+            ? "Admin"
+            : mode === "direct_by_kyc"
+            ? "KYC"
+            : "Trực tiếp";
+        toast.success(`Đã tạo đăng ký (${label}).`);
+
         setP1(null);
         setP2(null);
         setMsg("");
@@ -398,18 +407,20 @@ export default function TournamentRegistration() {
         return;
       }
 
-      toast.success(
-        isSingles ? "Đã gửi lời mời (single)" : "Đã gửi lời mời (double)"
-      );
-      setP1(null);
-      setP2(null);
-      setMsg("");
-      await Promise.all([
-        isLoggedIn ? refetchInvites() : Promise.resolve(),
-        refetchRegs(),
-      ]);
+      // Trường hợp hiếm: không có registration trả về
+      toast.error("Không thể tạo đăng ký.");
     } catch (err) {
-      toast.error(err?.data?.message || err?.error || "Gửi lời mời thất bại");
+      // 412 từ backend: thiếu KYC VERIFIED
+      if (err?.status === 412) {
+        toast.error(
+          err?.data?.message ||
+            "Bạn (hoặc đồng đội) cần hoàn tất KYC (đã xác minh) trước khi đăng ký."
+        );
+      } else {
+        toast.error(
+          err?.data?.message || err?.error || "Không thể tạo đăng ký."
+        );
+      }
     }
   };
 
@@ -694,14 +705,13 @@ export default function TournamentRegistration() {
       {!isLoggedIn && (
         <Paper sx={{ p: 2, mb: 3 }} variant="outlined">
           <Alert severity="info">
-            Bạn chưa đăng nhập. Hãy đăng nhập để xem/ phản hồi lời mời và thực
-            hiện đăng ký.
+            Bạn chưa đăng nhập. Hãy đăng nhập để thực hiện đăng ký.
           </Alert>
         </Paper>
       )}
 
       {/* Lời mời đang chờ xác nhận */}
-      {isLoggedIn && pendingInvitesHere.length > 0 && (
+      {false && isLoggedIn && pendingInvitesHere.length > 0 && (
         <Paper sx={{ p: 2, mb: 3 }} variant="outlined">
           <Stack spacing={1.5}>
             <Typography fontWeight={700}>Lời mời đang chờ xác nhận</Typography>
@@ -807,7 +817,7 @@ export default function TournamentRegistration() {
       {/* FORM (trên) */}
       <Paper variant="outlined" sx={{ p: 2, mb: 1.5, maxWidth: 760 }}>
         <Typography variant="h6" gutterBottom>
-          {isAdmin ? "Tạo đăng ký (admin)" : "Gửi lời mời đăng ký"}
+          {isAdmin ? "Tạo đăng ký (admin)" : "Đăng ký thi đấu"}
         </Typography>
         <Grid item xs={12} component="form" onSubmit={submit}>
           <PlayerSelector
@@ -839,21 +849,15 @@ export default function TournamentRegistration() {
 
           <Typography variant="caption" color="text.secondary">
             {isAdmin
-              ? "Quyền admin: tạo đăng ký và duyệt ngay, không cần xác nhận từ VĐV."
+              ? "Quyền admin: tạo đăng ký trực tiếp."
               : isSingles
-              ? "Giải đơn: nếu bạn chính là VĐV mời chính mình, đăng ký sẽ tự xác nhận."
-              : "Giải đôi: cần cả hai VĐV chấp nhận lời mời thì mới tạo đăng ký."}
+              ? "Giải đơn: VĐV phải KYC (đã xác minh) thì mới đăng ký được."
+              : "Giải đôi: CẢ HAI VĐV phải KYC (đã xác minh) thì mới đăng ký được."}
           </Typography>
 
           <Stack direction="row" spacing={2} mt={2}>
             <Button type="submit" variant="contained" disabled={disableSubmit}>
-              {isAdmin
-                ? saving
-                  ? "Đang tạo…"
-                  : "Tạo đăng ký"
-                : saving
-                ? "Đang gửi lời mời…"
-                : "Gửi lời mời"}
+              {saving ? "Đang tạo…" : isAdmin ? "Tạo đăng ký" : "Đăng ký"}
             </Button>
             <Button
               component={Link}

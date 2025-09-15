@@ -8,6 +8,7 @@ import Tournament from "../models/tournamentModel.js";
 import User from "../models/userModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import Ranking from "../models/rankingModel.js";
+import { notifyNewPair } from "../services/telegram/telegramNotifyRegistration.js";
 
 /* ----------------- Utils ----------------- */
 const oid = (x) => new mongoose.Types.ObjectId(String(x));
@@ -276,7 +277,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const { id } = req.params; // tournamentId
   const { player1Id, player2Id, message = "" } = req.body || {};
 
-  // người gửi (để auto-accept & xác định self)
+  // người gửi (để lấy _id & quyền)
   const me = await User.findById(req.user._id)
     .select("_id phone nickname role roles isAdmin")
     .lean();
@@ -297,7 +298,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const isSingle = eventType === "single";
   const isDouble = eventType === "double";
 
-  // ====== VALIDATE cơ bản (áp dụng cho cả admin) ======
+  // ====== VALIDATE cơ bản ======
   if (!player1Id) {
     res.status(400);
     throw new Error("Thiếu VĐV 1");
@@ -311,7 +312,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     throw new Error("Hai VĐV phải khác nhau");
   }
 
-  // lấy user snapshots (kèm cccd/cccdStatus để kiểm tra cho user thường)
+  // lấy user snapshots (kèm cccd/cccdStatus)
   const ids = isDouble ? [player1Id, player2Id] : [player1Id];
   const users = await User.find({ _id: { $in: ids } })
     .select("_id name nickname phone avatar province score cccd cccdStatus")
@@ -325,7 +326,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const u1 = byId.get(String(player1Id));
   const u2 = isDouble ? byId.get(String(player2Id)) : null;
 
-  // ====== 🆕 NHÁNH ADMIN: luôn pass, bỏ qua CCCD & preflight, tạo Registration trực tiếp ======
+  // ====== NHÁNH ADMIN: tạo trực tiếp, bỏ qua KYC ======
   if (isAdmin) {
     const [rank1, rank2] = await Promise.all([
       getRankingScore(u1._id, eventType),
@@ -347,7 +348,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
 
     const reg = await Registration.create({
       tournament: tour._id,
-      eventType, // lưu lại loại giải cho rõ ràng
+      eventType,
       player1: snap(u1, s1),
       player2: isSingle ? null : snap(u2, s2),
       message,
@@ -355,6 +356,11 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       payment: { status: "Unpaid" },
       meta: { createdByAdmin: true },
     });
+
+    notifyNewPair({
+      tournamentId: tour._id,
+      reg: typeof reg.toObject === "function" ? reg.toObject() : reg,
+    }).catch((e) => console.error("[tele] notify new pair (admin) failed:", e));
 
     return res.status(201).json({
       mode: "direct_by_admin",
@@ -364,9 +370,9 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     });
   }
 
-  // ====== NHÁNH USER THƯỜNG (áp dụng các yêu cầu mới) ======
+  // ====== NHÁNH USER THƯỜNG ======
 
-  // 🆕 1) Check phạm vi chấm theo tỉnh (chỉ user, admin bypass ở trên)
+  // 1) Check phạm vi tỉnh (nếu bật)
   const scope = tour.scoringScope || {};
   if (
     scope.type === "provinces" &&
@@ -393,84 +399,26 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     }
   }
 
-  // xác định người tạo có chính là VĐV 1/2 không
-  const creatorIsP1 =
-    String(me._id) === String(u1._id) ||
-    (!!me.phone && me.phone === (u1.phone || "")) ||
-    (!!me.nickname && me.nickname === (u1.nickname || ""));
-  const creatorIsP2 =
-    isDouble &&
-    (String(me._id) === String(u2._id) ||
-      (!!me.phone && me.phone === (u2.phone || "")) ||
-      (!!me.nickname && me.nickname === (u2.nickname || "")));
+  // 2) Yêu cầu KYC VERIFIED tuyệt đối (bỏ hẳn pending)
+  const isKycVerified = (u) =>
+    !!u?.cccd && String(u?.cccdStatus || "").toLowerCase() === "verified";
 
-  // ✅ Cho phép: verified hoặc pending; ❌ Chặn: thiếu CCCD / rejected / trạng thái khác
-  const isCCCDAllowed = (u) => {
-    const s = String(u?.cccdStatus || "").toLowerCase();
-    return !!u?.cccd && (s === "verified" || s === "pending");
-  };
+  const notVerified = [];
+  if (!isKycVerified(u1)) notVerified.push("VĐV 1");
+  if (isDouble && !isKycVerified(u2)) notVerified.push("VĐV 2");
 
-  // ⛔ Nếu người tạo chính là VĐV và CCCD không hợp lệ (chưa nộp / bị từ chối) → chặn
-  if (
-    (creatorIsP1 && !isCCCDAllowed(u1)) ||
-    (creatorIsP2 && !isCCCDAllowed(u2))
-  ) {
-    res.status(412);
+  if (notVerified.length) {
+    res.status(412); // Precondition Failed
     throw new Error(
-      "Bạn cần nộp CCCD hợp lệ (đã xác minh hoặc đang chờ duyệt) để tạo đăng ký"
-    );
-  }
-
-  // Nếu người tạo KHÔNG phải VĐV, nhưng VĐV chưa đáp ứng CCCD → báo theo VĐV 1/2
-  const notEligible = [];
-  if (!isCCCDAllowed(u1)) notEligible.push("VĐV 1");
-  if (isDouble && !isCCCDAllowed(u2)) notEligible.push("VĐV 2");
-  if (notEligible.length) {
-    res.status(412);
-    throw new Error(
-      notEligible.length === 1
-        ? `${notEligible[0]} cần nộp CCCD hợp lệ (đã xác minh hoặc đang chờ duyệt) trước khi tạo đăng ký`
-        : `${notEligible.join(
+      notVerified.length === 1
+        ? `${notVerified[0]} cần hoàn tất KYC (đã xác minh) trước khi đăng ký.`
+        : `${notVerified.join(
             " và "
-          )} cần nộp CCCD hợp lệ (đã xác minh hoặc đang chờ duyệt) trước khi tạo đăng ký`
+          )} cần hoàn tất KYC (đã xác minh) trước khi đăng ký.`
     );
   }
 
-  // 🆕 2) Nếu đã có invite trùng cặp đang chờ → trả về 409
-  //    - single: player2 == null
-  //    - double: chấp nhận đảo vị trí p1/p2
-  let existingInvite = null;
-  if (isSingle) {
-    existingInvite = await RegInvite.findOne({
-      tournament: tour._id,
-      eventType,
-      "player1.user": u1._id,
-      player2: null,
-    })
-      .sort({ createdAt: -1 })
-      .lean();
-  } else {
-    existingInvite = await RegInvite.findOne({
-      tournament: tour._id,
-      eventType,
-      status: "pending",
-      $or: [
-        { "player1.user": u1._id, "player2.user": u2._id },
-        { "player1.user": u2._id, "player2.user": u1._id },
-      ],
-    })
-      .sort({ createdAt: -1 })
-      .lean();
-  }
-
-  if (existingInvite) {
-    // (tuỳ hệ thống bạn có thể kiểm tra confirmations; ở đây coi như còn hiệu lực)
-    return res
-      .status(409)
-      .json({ message: "Đang chờ xác nhận từ các VĐV", invite: existingInvite });
-  }
-
-  // preflight checks (đi qua đây khi CCCD hợp lệ: verified/pending)
+  // 3) Preflight checks (trùng đăng ký / giới hạn / cap điểm ...)
   const pf = await preflightChecks({
     tour,
     eventType,
@@ -479,10 +427,10 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   });
   if (!pf.ok) {
     res.status(400);
-    throw new Error(pf.message || "Không thể tạo lời mời");
+    throw new Error(pf.message || "Không thể tạo đăng ký");
   }
 
-  // Lấy điểm BXH theo loại giải (ưu tiên dùng khi snapshot)
+  // 4) Tạo Registration trực tiếp (vì đã KYC VERIFIED)
   const [rank1, rank2] = await Promise.all([
     getRankingScore(u1._id, eventType),
     isSingle ? Promise.resolve(null) : getRankingScore(u2._id, eventType),
@@ -491,40 +439,39 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const p1Score = preferScore(rank1, pf.s1, u1?.score);
   const p2Score = isSingle ? null : preferScore(rank2, pf.s2, u2?.score);
 
-  const invite = await RegInvite.create({
-    tournament: tour._id,
-    eventType,
-    player1: {
-      user: u1._id,
-      phone: u1.phone || "",
-      nickname: u1.nickname || "",
-      fullName: u1.name || u1.nickname || "",
-      avatar: u1.avatar || "",
-      province: u1.province || "",
-      score: num(p1Score), // ƯU TIÊN BXH
-    },
-    player2: isSingle
-      ? null
-      : {
-          user: u2._id,
-          phone: u2.phone || "",
-          nickname: u2.nickname || "",
-          fullName: u2.name || u2.nickname || "",
-          avatar: u2.avatar || "",
-          province: u2.province || "",
-          score: num(p2Score), // ƯU TIÊN BXH
-        },
-    createdBy: me._id,
-    confirmations: {
-      p1: creatorIsP1 ? "accepted" : "pending",
-      p2: isSingle ? "pending" : creatorIsP2 ? "accepted" : "pending",
-    },
-    message,
+  const snap = (u, score) => ({
+    user: u._id,
+    phone: u.phone || "",
+    fullName: u.name || u.nickname || "",
+    nickName: u.nickname || "",
+    avatar: u.avatar || "",
+    province: u.province || "",
+    score: num(score),
   });
 
-  // finalize nếu đủ xác nhận
-  const after = await finalizeIfReady(invite);
-  res.status(201).json({ invite: after, message });
+  const reg = await Registration.create({
+    tournament: tour._id,
+    eventType,
+    player1: snap(u1, p1Score),
+    player2: isSingle ? null : snap(u2, p2Score),
+    message,
+    createdBy: me._id,
+    payment: { status: "Unpaid" },
+    meta: { autoByKyc: true },
+  });
+
+  notifyNewPair({
+    tournamentId: tour._id,
+    reg: typeof reg.toObject === "function" ? reg.toObject() : reg,
+  }).catch((e) => console.error("[tele] notify new pair (kyc) failed:", e));
+
+  return res.status(201).json({
+    mode: "direct_by_kyc",
+    registration: reg,
+    message: isSingle
+      ? "Đã tạo đăng ký (VĐV đã KYC VERIFIED)."
+      : "Đã tạo đăng ký (cả 2 VĐV đã KYC VERIFIED).",
+  });
 });
 
 /** Danh sách lời mời mà TÔI cần phản hồi (global, không theo giải) */

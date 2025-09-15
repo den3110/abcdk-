@@ -1582,7 +1582,6 @@ export const createEvaluation = asyncHandler(async (req, res) => {
   const sourceRaw = String(req.body?.source || "other").trim();
   const sourceParsed = allowedSources.has(sourceRaw) ? sourceRaw : "other";
 
-  // Rubric items (optional)
   let items = [];
   if (Array.isArray(req.body?.items)) {
     items = req.body.items.map((it) => {
@@ -1599,7 +1598,6 @@ export const createEvaluation = asyncHandler(async (req, res) => {
     });
   }
 
-  // Overall (DUPR 2..8)
   const singles = numOrUndef(req.body?.overall?.singles);
   const doubles = numOrUndef(req.body?.overall?.doubles);
   if (singles !== undefined && !inRange(singles, MIN_RATING, MAX_RATING)) {
@@ -1615,28 +1613,25 @@ export const createEvaluation = asyncHandler(async (req, res) => {
     throw new Error("Phải có ít nhất một rubric item hoặc điểm tổng (overall)");
   }
 
-  // ---- helper: xác định evaluator có quyền “full tỉnh” hay không
   function hasFullProvinceScope(me) {
     const scope = me?.evaluator?.gradingScopes;
     if (!scope) return false;
-    // chấp nhận nhiều “cờ” có thể tồn tại tuỳ schema thực tế
     if (scope.all === true || scope.isAll === true || scope.full === true)
       return true;
     if (typeof scope === "string" && ["ALL", "*", "__ALL__"].includes(scope))
       return true;
     if (scope.provinces === "ALL" || scope.provinces === "*") return true;
-    // nếu schema bạn lưu provinces là mảng đủ-full, có thể bật thêm logic đo độ phủ ở đây
     return false;
   }
 
   const session = await mongoose.startSession();
   let evaluationDoc,
     historyDoc,
-    selfAssessmentId = null;
+    selfAssessmentId = null,
+    officialAssessmentId = null;
 
   try {
     await session.withTransaction(async () => {
-      // me + quyền
       const me = await User.findById(meId).session(session);
       if (!me) throw new Error("Không xác thực");
 
@@ -1654,10 +1649,6 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       const isEvaluatorEnabled = !!me?.evaluator?.enabled;
       const fullProvince = hasFullProvinceScope(me);
 
-      // quyền:
-      // - Admin: luôn được chấm (kể cả target chưa có province)
-      // - Evaluator "full tỉnh": luôn được chấm (kể cả target chưa có province)
-      // - Evaluator theo phạm vi tỉnh: chỉ khi target có province và province đó nằm trong scope
       const scopedProvinces = me?.evaluator?.gradingScopes?.provinces || [];
       const inScopedProvince = !!(
         targetProvince &&
@@ -1668,7 +1659,6 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       const canEval =
         isAdminRole ||
         (isEvaluatorEnabled && (fullProvince || inScopedProvince));
-
       if (!canEval) {
         const e = new Error(
           targetProvince
@@ -1678,14 +1668,12 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         e.statusCode = 403;
         throw e;
       }
-
       if (String(me._id) === String(target._id)) {
         const e = new Error("Không thể tự chấm chính mình");
         e.statusCode = 400;
         throw e;
       }
 
-      // Note
       const rawNote = String(req.body?.notes || "").trim();
       const scorerName =
         (me?.nickname && String(me.nickname).trim()) ||
@@ -1696,25 +1684,19 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         ? `Mod "${scorerName}" chấm trình, Ghi chú thêm: ${rawNote}`
         : `Mod "${scorerName}" chấm trình`;
 
-      // Trạng thái trước khi ghi
       const existedSelf = !!(await Assessment.exists({
         user: target._id,
         "meta.selfScored": true,
       }).session(session));
-
-      // ❗ MỚI: “đã thi đấu” = có ÍT NHẤT 1 giải kết thúc
       const hasCompetedFinished = await hasFinishedTournament(target._id);
-
-      // Chỉ auto-tự-chấm khi: chưa từng tự chấm + chưa thi đấu
       const shouldAutoSelf = !existedSelf && !hasCompetedFinished;
 
-      // Tạo Evaluation
+      // 1) Evaluation
       evaluationDoc = await Evaluation.create(
         [
           {
             evaluator: me._id,
             targetUser: target._id,
-            // nếu schema yêu cầu string, đổi null -> "" cho an toàn
             province: targetProvince || null,
             source: sourceParsed,
             items,
@@ -1729,7 +1711,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         { session }
       ).then((a) => a[0]);
 
-      // ScoreHistory (lưu DUPR)
+      // 2) ScoreHistory
       historyDoc = await ScoreHistory.create(
         [
           {
@@ -1744,7 +1726,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         { session }
       ).then((a) => a[0]);
 
-      // Upsert Ranking (DUPR) – chỉ set field có gửi
+      // 3) Upsert Ranking
       const $set = { lastUpdated: new Date() };
       if (singles !== undefined) $set.single = singles;
       if (doubles !== undefined) $set.double = doubles;
@@ -1754,28 +1736,55 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         { new: true, upsert: true, setDefaultsOnInsert: true, session }
       );
 
-      // Auto tạo "tự chấm" (để latest = self) nếu cần
-      if (shouldAutoSelf) {
-        const sLv = normalizeDupr(Number(singles ?? doubles ?? MIN_RATING));
-        const dLv = normalizeDupr(Number(doubles ?? singles ?? MIN_RATING));
-        const singleScore = rawFromDupr(sLv);
-        const doubleScore = rawFromDupr(dLv);
+      // 4) OFFICIAL Assessment (để gắn cờ meta.scoreBy = "mod")
+      // có/không có overall vẫn tạo được; điểm là optional
+      let sLv, dLv, singleScore, doubleScore;
+      if (singles !== undefined || doubles !== undefined) {
+        sLv = normalizeDupr(Number(singles ?? doubles ?? MIN_RATING));
+        dLv = normalizeDupr(Number(doubles ?? singles ?? MIN_RATING));
+        singleScore = rawFromDupr(sLv);
+        doubleScore = rawFromDupr(dLv);
+      }
 
+      const [officialAss] = await Assessment.create(
+        [
+          {
+            user: target._id,
+            scorer: me._id,
+            items: [],
+            ...(singleScore !== undefined ? { singleScore } : {}),
+            ...(doubleScore !== undefined ? { doubleScore } : {}),
+            ...(sLv !== undefined ? { singleLevel: sLv } : {}),
+            ...(dLv !== undefined ? { doubleLevel: dLv } : {}),
+            meta: { selfScored: false, scoreBy: "mod" }, // <-- NEW
+            note: finalNote,
+            scoredAt: new Date(),
+          },
+        ],
+        { session }
+      );
+      officialAssessmentId = officialAss?._id || null;
+
+      // 5) (giữ nguyên) Auto self nếu cần, để latest = self
+      if (shouldAutoSelf) {
+        const sLv2 = normalizeDupr(Number(singles ?? doubles ?? MIN_RATING));
+        const dLv2 = normalizeDupr(Number(doubles ?? singles ?? MIN_RATING));
+        const singleScore2 = rawFromDupr(sLv2);
+        const doubleScore2 = rawFromDupr(dLv2);
         const evalTs = evaluationDoc?.createdAt
           ? new Date(evaluationDoc.createdAt).getTime()
           : Date.now();
-        const scoredAt = new Date(evalTs + 1); // latest
-
+        const scoredAt = new Date(evalTs + 1);
         const [selfDoc] = await Assessment.create(
           [
             {
               user: target._id,
               scorer: target._id,
               items: [],
-              singleScore,
-              doubleScore,
-              singleLevel: sLv,
-              doubleLevel: dLv,
+              singleScore: singleScore2,
+              doubleScore: doubleScore2,
+              singleLevel: sLv2,
+              doubleLevel: dLv2,
               meta: { selfScored: true },
               note: "Tự chấm trình (mod hỗ trợ)",
               scoredAt,
@@ -1783,7 +1792,6 @@ export const createEvaluation = asyncHandler(async (req, res) => {
           ],
           { session }
         );
-
         selfAssessmentId = selfDoc?._id || null;
       }
     });
@@ -1794,6 +1802,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       ok: true,
       message: "Đã ghi nhận phiếu chấm",
       selfAssessmentId,
+      officialAssessmentId, // <-- trả id cho dễ debug
       evaluation: {
         _id: evaluationDoc._id,
         targetUser: evaluationDoc.targetUser,
