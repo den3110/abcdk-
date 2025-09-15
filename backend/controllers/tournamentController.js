@@ -23,7 +23,6 @@ const isId = (id) => mongoose.Types.ObjectId.isValid(id);
  */
 // GET /tournaments
 const getTournaments = asyncHandler(async (req, res) => {
-  // await sleep(10000)
   const sort = (req.query.sort || "-startDate").toString();
   const limit = req.query.limit
     ? Math.max(parseInt(req.query.limit, 10) || 0, 0)
@@ -40,10 +39,12 @@ const getTournaments = asyncHandler(async (req, res) => {
       else acc[key] = 1;
       return acc;
     }, {});
-  const sortSpec = Object.keys(parseSort(sort)).length
-    ? parseSort(sort)
+  const sortSpecRaw = parseSort(sort);
+  const sortSpec = Object.keys(sortSpecRaw).length
+    ? sortSpecRaw
     : { startDate: -1, _id: -1 };
 
+  // Nếu cần hiển thị theo TZ cụ thể ở FE thì dùng; còn logic trạng thái dựa trên *_At (UTC) đã chuẩn từ TZ của từng giải.
   const TZ = "Asia/Bangkok";
 
   const pipeline = [];
@@ -56,8 +57,9 @@ const getTournaments = asyncHandler(async (req, res) => {
         { name: { $regex: tk, $options: "i" } },
         { slug: { $regex: tk, $options: "i" } },
         { code: { $regex: tk, $options: "i" } },
-        { "location.city": { $regex: tk, $options: "i" } },
+        { "location.city": { $regex: tk, $options: "i" } }, // nếu location là object
         { "location.province": { $regex: tk, $options: "i" } },
+        { location: { $regex: tk, $options: "i" } }, // nếu location là string
         { venueName: { $regex: tk, $options: "i" } },
       ],
     }));
@@ -74,23 +76,12 @@ const getTournaments = asyncHandler(async (req, res) => {
     });
   }
 
-  // ----- Tính status theo ngày theo TZ -----
+  // ----- Tính status theo "instant" (ưu tiên finishedAt) -----
   pipeline.push(
     {
       $addFields: {
-        _nowDay: {
-          $dateToString: { date: "$$NOW", format: "%Y-%m-%d", timezone: TZ },
-        },
-        _startDay: {
-          $dateToString: {
-            date: "$startDate",
-            format: "%Y-%m-%d",
-            timezone: TZ,
-          },
-        },
-        _endDay: {
-          $dateToString: { date: "$endDate", format: "%Y-%m-%d", timezone: TZ },
-        },
+        _startInstant: { $ifNull: ["$startAt", "$startDate"] },
+        _endInstant: { $ifNull: ["$endAt", "$endDate"] },
       },
     },
     {
@@ -98,8 +89,9 @@ const getTournaments = asyncHandler(async (req, res) => {
         status: {
           $switch: {
             branches: [
-              { case: { $lt: ["$_nowDay", "$_startDay"] }, then: "upcoming" },
-              { case: { $gt: ["$_nowDay", "$_endDay"] }, then: "finished" },
+              { case: { $ne: ["$finishedAt", null] }, then: "finished" },
+              { case: { $lt: ["$$NOW", "$_startInstant"] }, then: "upcoming" },
+              { case: { $gt: ["$$NOW", "$_endInstant"] }, then: "finished" },
             ],
             default: "ongoing",
           },
@@ -108,13 +100,28 @@ const getTournaments = asyncHandler(async (req, res) => {
     }
   );
 
-  // ----- Lọc theo status -----
+  // ----- Lọc theo status (nếu truyền) -----
   if (["upcoming", "ongoing", "finished"].includes(status)) {
     pipeline.push({ $match: { status } });
   }
 
+  // ----- Ưu tiên sort theo status trước -----
+  pipeline.push({
+    $addFields: {
+      statusPriority: {
+        $switch: {
+          branches: [
+            { case: { $eq: ["$status", "ongoing"] }, then: 0 },
+            { case: { $eq: ["$status", "upcoming"] }, then: 1 },
+          ],
+          default: 2, // finished
+        },
+      },
+    },
+  });
+
   // ----- Sort / Limit -----
-  pipeline.push({ $sort: sortSpec });
+  pipeline.push({ $sort: { statusPriority: 1, ...sortSpec } });
   if (limit) pipeline.push({ $limit: limit });
 
   // ----- registered / isFull / remaining -----
@@ -171,7 +178,7 @@ const getTournaments = asyncHandler(async (req, res) => {
     }
   );
 
-  // ----- Bracket stats để hỗ trợ noRankDelta (tự tích ở giải khi toàn bộ bracket đã bật) -----
+  // ----- Bracket stats / effectiveNoRankDelta -----
   pipeline.push(
     {
       $lookup: {
@@ -198,7 +205,6 @@ const getTournaments = asyncHandler(async (req, res) => {
         bracketsNoRankDeltaTrue: {
           $ifNull: [{ $arrayElemAt: ["$_bc.noRankOn", 0] }, 0],
         },
-        // true nếu có >=1 bracket và tất cả đều bật
         allBracketsNoRankDelta: {
           $cond: [
             { $gt: [{ $ifNull: [{ $arrayElemAt: ["$_bc.total", 0] }, 0] }, 0] },
@@ -211,7 +217,6 @@ const getTournaments = asyncHandler(async (req, res) => {
             false,
           ],
         },
-        // hiệu lực thực tế để FE tham chiếu nhanh
         effectiveNoRankDelta: {
           $or: [
             { $eq: ["$noRankDelta", true] },
@@ -236,7 +241,15 @@ const getTournaments = asyncHandler(async (req, res) => {
         },
       },
     },
-    { $project: { _rc: 0, _bc: 0, _nowDay: 0, _startDay: 0, _endDay: 0 } }
+    {
+      $project: {
+        _rc: 0,
+        _bc: 0,
+        _startInstant: 0,
+        _endInstant: 0,
+        statusPriority: 0,
+      },
+    }
   );
 
   const tournaments = await Tournament.aggregate(pipeline);

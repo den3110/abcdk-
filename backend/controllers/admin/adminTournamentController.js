@@ -349,6 +349,8 @@ const isValidTZ = (tz) => {
 export const getTournaments = expressAsyncHandler(async (req, res) => {
   const page = Math.max(parseInt(req.query.page ?? 1, 10), 1);
   const limit = Math.min(parseInt(req.query.limit ?? 50, 10), 100);
+
+  // sort từ client, ví dụ: "-createdAt,name"
   const sortRaw = (req.query.sort || "-createdAt").toString();
   const sortSpecRaw = parseSort(sortRaw);
   const sortSpec = Object.keys(sortSpecRaw).length
@@ -357,7 +359,9 @@ export const getTournaments = expressAsyncHandler(async (req, res) => {
 
   const { keyword = "", status = "", sportType, groupId } = req.query;
 
-  // Cho phép truyền tz từ client: ?tz=Asia/Ho_Chi_Minh (fallback VN)
+  // Cho phép truyền tz nhưng LƯU Ý:
+  // so sánh "instant" dùng startAt/endAt (đã là UTC từ TZ của doc), nên NOW (UTC) là đủ để so.
+  // TZ vẫn giữ lại để dùng nơi khác nếu cần (vd: field hiển thị).
   const TZ =
     (typeof req.query.tz === "string" &&
       isValidTZ(req.query.tz) &&
@@ -372,8 +376,7 @@ export const getTournaments = expressAsyncHandler(async (req, res) => {
 
   const skip = (page - 1) * limit;
 
-  // Chuẩn hoá status theo ngôn ngữ
-  const statusNorm = String(status || "").toLowerCase();
+  // Map alias status (VN/EN) → upcoming | ongoing | finished
   const mapStatus = {
     upcoming: "upcoming",
     sắp: "upcoming",
@@ -388,79 +391,106 @@ export const getTournaments = expressAsyncHandler(async (req, res) => {
     đã: "finished",
     da: "finished",
   };
-  const wantedStatus = mapStatus[statusNorm] || null;
+  const wantedStatus = mapStatus[String(status || "").toLowerCase()] || null;
+
+  // ƯU TIÊN STATUS trước: ongoing (0) → upcoming (1) → finished (2)
+  const sortFinal = { statusPriority: 1, ...sortSpec };
 
   const pipeline = [
     { $match: match },
-    // Tính status theo ngày local TZ (bao gồm ngày bắt & kết thúc)
+
+    // Chuẩn hoá instant để so sánh (UTC):
+    // - Ưu tiên *_At (đã chuẩn từ TZ doc).
+    // - Fallback *_Date cho doc cũ.
     {
       $addFields: {
-        _nowDay: {
-          $dateToString: { date: "$$NOW", format: "%Y-%m-%d", timezone: TZ },
-        },
-        _startDay: {
-          $dateToString: {
-            date: "$startDate",
-            format: "%Y-%m-%d",
-            timezone: TZ,
-          },
-        },
-        _endDay: {
-          $dateToString: { date: "$endDate", format: "%Y-%m-%d", timezone: TZ },
-        },
+        _startInstant: { $ifNull: ["$startAt", "$startDate"] },
+        _endInstant: { $ifNull: ["$endAt", "$endDate"] },
       },
     },
+
+    // Tính status:
+    // - Nếu có finishedAt => finished (ưu tiên tuyệt đối).
+    // - Nếu NOW < start  => upcoming
+    // - Nếu NOW > end    => finished
+    // - Ngược lại        => ongoing
     {
       $addFields: {
         status: {
           $switch: {
             branches: [
-              { case: { $lt: ["$_nowDay", "$_startDay"] }, then: "upcoming" },
-              { case: { $gt: ["$_nowDay", "$_endDay"] }, then: "finished" },
+              { case: { $ne: ["$finishedAt", null] }, then: "finished" },
+              { case: { $lt: ["$$NOW", "$_startInstant"] }, then: "upcoming" },
+              { case: { $gt: ["$$NOW", "$_endInstant"] }, then: "finished" },
             ],
             default: "ongoing",
           },
         },
       },
     },
-  ];
 
-  if (wantedStatus) pipeline.push({ $match: { status: wantedStatus } });
-
-  pipeline.push({
-    $facet: {
-      data: [
-        { $sort: sortSpec },
-        { $skip: skip },
-        { $limit: limit },
-        // Đếm số registration
-        {
-          $lookup: {
-            from: "registrations",
-            let: { tid: "$_id" },
-            pipeline: [
-              { $match: { $expr: { $eq: ["$tournament", "$$tid"] } } },
-              { $group: { _id: null, c: { $sum: 1 } } },
+    // Ưu tiên sort theo status trước
+    {
+      $addFields: {
+        statusPriority: {
+          $switch: {
+            branches: [
+              { case: { $eq: ["$status", "ongoing"] }, then: 0 },
+              { case: { $eq: ["$status", "upcoming"] }, then: 1 },
             ],
-            as: "_rc",
+            default: 2, // finished
           },
         },
-        {
-          $addFields: {
-            registered: { $ifNull: [{ $arrayElemAt: ["$_rc.c", 0] }, 0] },
-          },
-        },
-        { $project: { _rc: 0, _nowDay: 0, _startDay: 0, _endDay: 0 } },
-      ],
-      total: [{ $count: "count" }],
+      },
     },
-  });
+
+    // Nếu client yêu cầu status cụ thể, lọc sau khi đã tính status
+    ...(wantedStatus ? [{ $match: { status: wantedStatus } }] : []),
+
+    {
+      $facet: {
+        data: [
+          { $sort: sortFinal },
+          { $skip: skip },
+          { $limit: limit },
+
+          // Đếm số registration
+          {
+            $lookup: {
+              from: "registrations",
+              let: { tid: "$_id" },
+              pipeline: [
+                { $match: { $expr: { $eq: ["$tournament", "$$tid"] } } },
+                { $group: { _id: null, c: { $sum: 1 } } },
+              ],
+              as: "_rc",
+            },
+          },
+          {
+            $addFields: {
+              registered: { $ifNull: [{ $arrayElemAt: ["$_rc.c", 0] }, 0] },
+            },
+          },
+
+          // Ẩn field phụ trợ
+          {
+            $project: {
+              _rc: 0,
+              _startInstant: 0,
+              _endInstant: 0,
+            },
+          },
+        ],
+        total: [{ $count: "count" }],
+      },
+    },
+  ];
 
   const agg = await Tournament.aggregate(pipeline);
   const list = agg?.[0]?.data || [];
   const total = agg?.[0]?.total?.[0]?.count || 0;
 
-  res.json({ total, page, limit, list });
+  res.json({ total, page, limit, list, tz: TZ });
 });
 
 // CREATE Tournament

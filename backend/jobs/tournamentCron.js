@@ -70,18 +70,18 @@ export function startTournamentCrons() {
 
   // 2) Finish: mỗi 5 phút
   cron.schedule(
-    "*/5 * * * *",
+    "* * * * *",
     async () => {
       const start = Date.now();
       try {
         const r = await finalizeExpiredTournaments();
         const end = Date.now();
         const tickTs = ts();
-        // console.log(
-        //   `[cron][finish] success @ ${tickTs.local} — checked=${
-        //     r.checked
-        //   }, finished=${r.finished}, took=${end - start}ms`
-        // );
+        console.log(
+          `[cron][finish] success @ ${tickTs.local} — checked=${
+            r.checked
+          }, finished=${r.finished}, took=${end - start}ms`
+        );
       } catch (e) {
         const errTs = ts();
         console.error(`[cron][finish] error @ ${errTs.local}:`, e);
