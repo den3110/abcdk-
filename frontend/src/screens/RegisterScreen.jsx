@@ -1,5 +1,6 @@
 // src/screens/RegisterScreen.jsx
-import { useState, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect } from "react"; // ✅ NEW: useEffect
+import React from "react";
 import {
   Box,
   Button,
@@ -13,21 +14,39 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Paper,
+  Stack,
+  Alert,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
-import { useDispatch, useSelector } from "react-redux";
+import { useDispatch } from "react-redux";
 import { useRegisterMutation } from "../slices/usersApiSlice";
-import { useUploadAvatarMutation } from "../slices/uploadApiSlice";
+import {
+  useUploadAvatarMutation,
+  useUploadRegisterCccdMutation,
+} from "../slices/uploadApiSlice";
 import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
+import CccdDropzone from "../components/CccdDropzone";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+/* MUI X Date Pickers */
+import dayjs from "dayjs";
+import "dayjs/locale/vi";
+import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+
+/* ---------- Config ---------- */
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+const MIN_DOB = dayjs("1940-01-01");
+
 const GENDER_OPTIONS = [
   { value: "unspecified", label: "--" },
   { value: "male", label: "Nam" },
   { value: "female", label: "Nữ" },
   { value: "other", label: "Khác" },
 ];
+
 const PROVINCES = [
   "An Giang",
   "Bà Rịa-Vũng Tàu",
@@ -94,106 +113,225 @@ const PROVINCES = [
   "Yên Bái",
 ];
 
+/* ---------- Utils ---------- */
+const EMPTY = {
+  name: "",
+  nickname: "",
+  phone: "",
+  dob: "",
+  email: "",
+  password: "",
+  confirmPassword: "",
+  cccd: "",
+  province: "",
+  gender: "unspecified",
+  avatar: "",
+};
+const norm = (p) => (typeof p === "string" ? p.replace(/\\/g, "/") : "");
+
+/* ---------- Component ---------- */
 export default function RegisterScreen() {
-  const [form, setForm] = useState({
-    name: "",
-    nickname: "",
-    phone: "",
-    dob: "",
-    email: "",
-    password: "",
-    confirmPassword: "",
-    cccd: "",
-    province: "",
-    gender: "unspecified", // 👈 thêm
-  });
-
-  const [avatarFile, setAvatarFile] = useState(null);
-  const [avatarPreview, setAvatarPreview] = useState("");
-  const [avatarUrl, setAvatarUrl] = useState("");
-
   const dispatch = useDispatch();
   const navigate = useNavigate();
+
   const [register, { isLoading }] = useRegisterMutation();
-  const [uploadAvatar] = useUploadAvatarMutation();
-  const { userInfo } = useSelector((state) => state.auth);
+  const [uploadAvatar, { isLoading: uploadingAvatar }] =
+    useUploadAvatarMutation();
+  const [uploadRegisterCccd, { isLoading: uploadingCccd }] =
+    useUploadRegisterCccdMutation();
 
-  useEffect(() => {
-    if (userInfo) navigate("/");
-  }, [userInfo, navigate]);
+  const [form, setForm] = useState(EMPTY);
+  const [touched, setTouched] = useState({});
+  const [errors, setErrors] = useState({});
 
-  const handleChange = (e) => {
+  // Avatar
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState("");
+
+  // CCCD images (files)
+  const [frontImg, setFrontImg] = useState(null);
+  const [backImg, setBackImg] = useState(null);
+
+  // Refs để scroll tới khu vực lỗi
+  const avatarRef = useRef(null);
+  const cccdRef = useRef(null);
+  const [highlightAvatar, setHighlightAvatar] = useState(false);
+  const [highlightCccd, setHighlightCccd] = useState(false);
+
+  const dobValue = useMemo(() => {
+    if (!form.dob) return null;
+    const d = dayjs(form.dob, "YYYY-MM-DD", true);
+    return d.isValid() ? d : null;
+  }, [form.dob]);
+
+  const isCccdValid = useMemo(
+    () => /^\d{12}$/.test((form.cccd || "").trim()),
+    [form.cccd]
+  );
+
+  const showErr = (f) => touched[f] && !!errors[f];
+
+  const onChange = (e) => {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((p) => ({ ...p, [name]: value }));
+  };
+  const onBlur = (e) => {
+    const { name } = e.target;
+    setTouched((t) => ({ ...t, [name]: true }));
+    // ✅ NEW: re-validate ngay khi blur để nếu hợp lệ thì xóa khung đỏ
+    setErrors((prev) => {
+      const next = validate({ ...form });
+      return next;
+    });
   };
 
-  const validate = ({
-    name,
-    nickname,
-    phone,
-    dob,
-    email,
-    password,
-    confirmPassword,
-    cccd,
-    province,
-    gender, // 👈 thêm
-  }) => {
-    const errors = [];
-    if (!name.trim()) errors.push("Họ tên không được để trống.");
-    if (!nickname.trim()) errors.push("Biệt danh không được để trống.");
-    if (!/^0\d{9}$/.test(phone.trim()))
-      errors.push("Số điện thoại phải bắt đầu bằng 0 và đủ 10 chữ số.");
-    if (!dob) errors.push("Vui lòng chọn ngày sinh.");
-    if (!province) errors.push("Vui lòng chọn tỉnh / thành.");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
-      errors.push("Email không hợp lệ.");
-    if (password.length < 6) errors.push("Mật khẩu phải có ít nhất 6 ký tự.");
-    if (password !== confirmPassword)
-      errors.push("Mật khẩu và xác nhận mật khẩu không khớp.");
-    if (!/^\d{12}$/.test(cccd.trim()))
-      errors.push("CCCD phải bao gồm đúng 12 chữ số.");
-    // 👇 hợp lệ theo enum; không bắt buộc khác 'unspecified'
-    if (!["male", "female", "unspecified", "other"].includes(gender))
-      errors.push("Giới tính không hợp lệ.");
-    return errors;
+  const validate = (d) => {
+    const e = {};
+    // Basic
+    if (!d.name.trim()) e.name = "Không được bỏ trống";
+    else if (d.name.trim().length < 2) e.name = "Tối thiểu 2 ký tự";
+
+    if (!d.nickname.trim()) e.nickname = "Không được bỏ trống";
+    else if (d.nickname.trim().length < 2) e.nickname = "Tối thiểu 2 ký tự";
+
+    if (!/^0\d{9}$/.test(d.phone.trim()))
+      e.phone = "Sai định dạng (10 chữ số, bắt đầu bằng 0)";
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email.trim()))
+      e.email = "Email không hợp lệ";
+
+    if (!d.password) e.password = "Bắt buộc";
+    else if (d.password.length < 6) e.password = "Tối thiểu 6 ký tự";
+    if (d.password !== d.confirmPassword) e.confirmPassword = "Không khớp";
+
+    if (!d.dob) e.dob = "Bắt buộc";
+    else {
+      const day = new Date(d.dob);
+      if (Number.isNaN(day)) e.dob = "Ngày sinh không hợp lệ";
+      else if (day > new Date()) e.dob = "Không được ở tương lai";
+      else if (new Date(d.dob) < new Date("1940-01-01"))
+        e.dob = "Không trước 01/01/1940";
+    }
+
+    if (!d.province) e.province = "Bắt buộc";
+
+    if (!["male", "female", "unspecified", "other"].includes(d.gender))
+      e.gender = "Giới tính không hợp lệ";
+
+    if (!d.cccd.trim()) e.cccd = "Bắt buộc";
+    else if (!/^\d{12}$/.test(d.cccd.trim())) e.cccd = "CCCD phải đủ 12 số";
+
+    // Required images (chỉ tạo lỗi để hiển thị, KHÔNG disable nút)
+    if (!avatarFile) e.avatar = "Vui lòng tải ảnh đại diện.";
+    if (!frontImg) e.cccdFront = "Vui lòng tải ảnh CCCD mặt trước.";
+    if (!backImg) e.cccdBack = "Vui lòng tải ảnh CCCD mặt sau.";
+
+    // Size guards
+    if (avatarFile && avatarFile.size > MAX_FILE_SIZE)
+      e.avatar = "Ảnh không vượt quá 10MB";
+    if (frontImg && frontImg.size > MAX_FILE_SIZE)
+      e.cccdFront = "Ảnh không vượt quá 10MB";
+    if (backImg && backImg.size > MAX_FILE_SIZE)
+      e.cccdBack = "Ảnh không vượt quá 10MB";
+
+    return e;
+  };
+
+  // ✅ NEW: luôn tính lại lỗi khi form/ảnh thay đổi
+  useEffect(() => {
+    setErrors(validate(form));
+  }, [form, avatarFile, frontImg, backImg]); // đảm bảo sửa xong là hết đỏ
+
+  // ✅ NEW: nếu đã hợp lệ, tắt highlight khối Avatar/CCCD
+  useEffect(() => {
+    if (!errors.avatar) setHighlightAvatar(false);
+    if (!errors.cccdFront && !errors.cccdBack && isCccdValid)
+      setHighlightCccd(false);
+  }, [errors.avatar, errors.cccdFront, errors.cccdBack, isCccdValid]);
+
+  const jumpAndHighlight = (ref, setHighlight) => {
+    ref?.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlight(true);
+    setTimeout(() => setHighlight(false), 1200);
   };
 
   const submitHandler = async (e) => {
     e.preventDefault();
+    setTouched({
+      name: true,
+      nickname: true,
+      phone: true,
+      dob: true,
+      email: true,
+      password: true,
+      confirmPassword: true,
+      cccd: true,
+      province: true,
+      gender: true,
+      avatar: true,
+      cccdFront: true,
+      cccdBack: true,
+    });
 
-    const cleaned = Object.fromEntries(
-      Object.entries(form).map(([k, v]) => [
-        k,
-        typeof v === "string" ? v.trim() : v,
-      ])
-    );
+    const errs = validate(form);
+    setErrors(errs);
 
-    const errors = validate(cleaned);
-    if (errors.length) {
-      errors.forEach((msg) => toast.error(msg));
+    // Nếu thiếu ảnh → scroll tới khu vực liên quan & hiển thị helper text
+    if (errs.avatar) {
+      jumpAndHighlight(avatarRef, setHighlightAvatar);
+    } else if (errs.cccdFront || errs.cccdBack || !isCccdValid) {
+      jumpAndHighlight(cccdRef, setHighlightCccd);
+    }
+
+    if (Object.keys(errs).length) {
+      toast.error("Vui lòng kiểm tra và tải đủ ảnh/điền đủ thông tin.");
       return;
     }
 
     try {
-      let uploadedUrl = avatarUrl;
-
-      if (avatarFile && !uploadedUrl) {
-        if (avatarFile.size > MAX_FILE_SIZE) {
-          toast.error("Ảnh không được vượt quá 10 MB.");
-          return;
-        }
-        const resUpload = await uploadAvatar(avatarFile).unwrap();
-        uploadedUrl = resUpload.url;
-        setAvatarUrl(resUpload.url);
+      // 1) Upload avatar
+      let avatarUrl = "";
+      if (avatarFile) {
+        const res = await uploadAvatar(avatarFile).unwrap();
+        avatarUrl = res?.url || "";
+        if (!avatarUrl) throw new Error("Upload avatar thất bại");
       }
 
-      const res = await register({ ...cleaned, avatar: uploadedUrl }).unwrap();
+      // 2) Upload CCCD front & back
+      let cccdFrontUrl = "";
+      let cccdBackUrl = "";
+      if (frontImg) {
+        const r1 = await uploadRegisterCccd(frontImg).unwrap();
+        cccdFrontUrl = norm(r1?.url);
+      }
+      if (backImg) {
+        const r2 = await uploadRegisterCccd(backImg).unwrap();
+        cccdBackUrl = norm(r2?.url);
+      }
+      if (!cccdFrontUrl || !cccdBackUrl)
+        throw new Error("Upload CCCD thất bại");
+
+      // 3) Register
+      const payload = {
+        name: form.name.trim(),
+        nickname: form.nickname.trim(),
+        phone: form.phone.trim(),
+        dob: form.dob,
+        email: form.email.trim(),
+        password: form.password,
+        cccd: form.cccd.trim(),
+        province: form.province,
+        gender: form.gender,
+        avatar: avatarUrl,
+        cccdImages: { front: cccdFrontUrl, back: cccdBackUrl },
+      };
+
+      const res = await register(payload).unwrap();
       dispatch(setCredentials(res));
       toast.success("Đăng ký thành công!");
       navigate("/");
     } catch (err) {
-      const msg = err?.data?.message || err.message || "Đăng ký thất bại";
+      const msg = err?.data?.message || err?.message || "Đăng ký thất bại";
       const map = {
         Email: "Email đã được sử dụng",
         "Số điện thoại": "Số điện thoại đã được sử dụng",
@@ -206,132 +344,355 @@ export default function RegisterScreen() {
   };
 
   return (
-    <Container maxWidth="sm" sx={{ mt: 6 }}>
-      <Typography variant="h4" gutterBottom>
-        Đăng ký
-      </Typography>
+    <Container maxWidth="sm" sx={{ py: 5 }}>
+      <Paper elevation={2} sx={{ p: 3 }}>
+        <Typography variant="h4" gutterBottom>
+          Đăng ký
+        </Typography>
 
-      <Box component="form" noValidate onSubmit={submitHandler}>
-        {[
-          { name: "name", label: "Họ và tên" },
-          { name: "nickname", label: "Nickname" },
-          { name: "phone", label: "Số điện thoại" },
-          {
-            name: "dob",
-            label: "Ngày sinh",
-            type: "date",
-            InputLabelProps: { shrink: true },
-          },
-          { name: "email", label: "Email", type: "email" },
-          { name: "cccd", label: "Mã định danh CCCD" },
-          { name: "password", label: "Mật khẩu", type: "password" },
-          {
-            name: "confirmPassword",
-            label: "Xác nhận mật khẩu",
-            type: "password",
-          },
-        ].map(({ name, ...rest }) => (
-          <TextField
-            key={name}
-            fullWidth
-            required
-            margin="normal"
-            name={name}
-            id={name}
-            value={form[name]}
-            onChange={handleChange}
-            {...rest}
-          />
-        ))}
-
-        {/* 👇 Gender Select */}
-        <FormControl fullWidth margin="normal">
-          <InputLabel id="gender-label">Giới tính</InputLabel>
-          <Select
-            labelId="gender-label"
-            name="gender"
-            value={form.gender}
-            label="Giới tính"
-            onChange={handleChange}
-          >
-            {GENDER_OPTIONS.map((opt) => (
-              <MenuItem key={opt.value} value={opt.value}>
-                {opt.label}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        {/* Province Select */}
-        <FormControl fullWidth required margin="normal">
-          <InputLabel id="province-label">Tỉnh / Thành phố</InputLabel>
-          <Select
-            labelId="province-label"
-            name="province"
-            value={form.province}
-            label="Tỉnh / Thành phố"
-            onChange={handleChange}
-          >
-            {PROVINCES.map((prov) => (
-              <MenuItem key={prov} value={prov}>
-                {prov}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-
-        {/* Avatar upload */}
-        <Box mt={2} display="flex" alignItems="center" gap={2}>
-          <Avatar
-            src={
-              avatarPreview ||
-              "https://dummyimage.com/80x80/cccccc/ffffff&text=?"
-            }
-            sx={{ width: 80, height: 80 }}
-          />
-          <Button variant="outlined" component="label">
-            Chọn ảnh đại diện
-            <input
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                if (file.size > MAX_FILE_SIZE) {
-                  toast.error("Ảnh không được vượt quá 10 MB.");
-                  return;
-                }
-                setAvatarFile(file);
-                setAvatarPreview(URL.createObjectURL(file));
-                setAvatarUrl("");
+        <Box component="form" noValidate onSubmit={submitHandler}>
+          <Stack spacing={2}>
+            {/* Avatar */}
+            <Box
+              ref={avatarRef}
+              sx={{
+                p: 1,
+                borderRadius: 1.5,
+                transition: "box-shadow .2s, border-color .2s",
+                border: highlightAvatar ? "1px solid" : "1px solid transparent",
+                borderColor: highlightAvatar ? "error.main" : "transparent",
+                boxShadow: highlightAvatar ? 3 : 0,
               }}
+            >
+              <Box display="flex" alignItems="center" gap={2}>
+                <Avatar
+                  src={
+                    avatarPreview ||
+                    "https://dummyimage.com/80x80/cccccc/ffffff&text=?"
+                  }
+                  sx={{ width: 80, height: 80 }}
+                />
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+                  <Button
+                    variant="outlined"
+                    component="label"
+                    disabled={uploadingAvatar || isLoading}
+                  >
+                    Chọn ảnh đại diện
+                    <input
+                      type="file"
+                      accept="image/*"
+                      hidden
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > MAX_FILE_SIZE) {
+                          setErrors((p) => ({
+                            ...p,
+                            avatar: "Ảnh không vượt quá 10MB",
+                          }));
+                          jumpAndHighlight(avatarRef, setHighlightAvatar);
+                          return;
+                        }
+                        setAvatarFile(file);
+                        setAvatarPreview(URL.createObjectURL(file));
+                        setErrors((p) => ({ ...p, avatar: undefined }));
+                      }}
+                    />
+                  </Button>
+                </Stack>
+              </Box>
+              {showErr("avatar") && errors.avatar && (
+                <Alert severity="error" sx={{ mt: 1 }} role="alert">
+                  {errors.avatar}
+                </Alert>
+              )}
+            </Box>
+
+            {/* Basic fields */}
+            <TextField
+              label="Họ và tên"
+              name="name"
+              value={form.name}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+              fullWidth
+              error={showErr("name")}
+              helperText={showErr("name") ? errors.name : " "}
             />
-          </Button>
+            <TextField
+              label="Nickname"
+              name="nickname"
+              value={form.nickname}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+              fullWidth
+              error={showErr("nickname")}
+              helperText={showErr("nickname") ? errors.nickname : " "}
+            />
+            <TextField
+              label="Số điện thoại"
+              name="phone"
+              value={form.phone}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+              fullWidth
+              inputProps={{
+                inputMode: "numeric",
+                pattern: "0\\d{9}",
+                maxLength: 10,
+              }}
+              error={showErr("phone")}
+              helperText={showErr("phone") ? errors.phone : " "}
+            />
+
+            <TextField
+              label="Email"
+              type="email"
+              name="email"
+              value={form.email}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+              fullWidth
+              error={showErr("email")}
+              helperText={showErr("email") ? errors.email : " "}
+            />
+
+            {/* Gender */}
+            <FormControl fullWidth error={showErr("gender")}>
+              <InputLabel id="gender-lbl" shrink>
+                Giới tính
+              </InputLabel>
+              <Select
+                labelId="gender-lbl"
+                label="Giới tính"
+                name="gender"
+                value={form.gender}
+                onChange={onChange}
+                onBlur={onBlur}
+                displayEmpty
+                required
+              >
+                {GENDER_OPTIONS.map((opt) => (
+                  <MenuItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </MenuItem>
+                ))}
+              </Select>
+              {showErr("gender") && (
+                <Typography variant="caption" color="error">
+                  {errors.gender}
+                </Typography>
+              )}
+            </FormControl>
+
+            {/* DOB */}
+            <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
+              <DatePicker
+                label="Ngày sinh"
+                value={dobValue}
+                onChange={(newVal) => {
+                  setTouched((t) => ({ ...t, dob: true }));
+                  setForm((p) => ({
+                    ...p,
+                    dob:
+                      newVal && newVal.isValid()
+                        ? newVal.format("YYYY-MM-DD")
+                        : "",
+                  }));
+                }}
+                format="DD/MM/YYYY"
+                minDate={MIN_DOB}
+                defaultCalendarMonth={MIN_DOB}
+                referenceDate={MIN_DOB}
+                disableFuture
+                views={["year", "month", "day"]}
+                slotProps={{
+                  textField: {
+                    fullWidth: true,
+                    required: true,
+                    placeholder: "DD/MM/YYYY",
+                    onBlur: () => setTouched((t) => ({ ...t, dob: true })),
+                    error: showErr("dob"),
+                    helperText: showErr("dob") ? errors.dob : " ",
+                  },
+                }}
+              />
+            </LocalizationProvider>
+
+            {/* Province */}
+            <FormControl fullWidth required error={showErr("province")}>
+              <InputLabel id="province-lbl" shrink>
+                Tỉnh / Thành phố
+              </InputLabel>
+              <Select
+                labelId="province-lbl"
+                label="Tỉnh / Thành phố"
+                name="province"
+                value={form.province}
+                onChange={onChange}
+                onBlur={onBlur}
+                displayEmpty
+                required
+              >
+                <MenuItem value="">
+                  <em>-- Chọn --</em>
+                </MenuItem>
+                {PROVINCES.map((p) => (
+                  <MenuItem key={p} value={p}>
+                    {p}
+                  </MenuItem>
+                ))}
+              </Select>
+              {showErr("province") && (
+                <Typography variant="caption" color="error">
+                  {errors.province}
+                </Typography>
+              )}
+            </FormControl>
+
+            {/* CCCD */}
+            <TextField
+              label="Mã định danh CCCD"
+              name="cccd"
+              value={form.cccd}
+              onChange={onChange}
+              onBlur={onBlur}
+              fullWidth
+              required
+              placeholder="12 chữ số"
+              inputProps={{ inputMode: "numeric", maxLength: 12 }}
+              error={showErr("cccd")}
+              helperText={showErr("cccd") ? errors.cccd : " "}
+            />
+
+            {/* CCCD images */}
+            <Box
+              ref={cccdRef}
+              sx={{
+                p: 1,
+                borderRadius: 1.5,
+                transition: "box-shadow .2s, border-color .2s",
+                border: highlightCccd ? "1px solid" : "1px solid transparent",
+                borderColor: highlightCccd ? "error.main" : "transparent",
+                boxShadow: highlightCccd ? 3 : 0,
+              }}
+            >
+              <Typography variant="subtitle1" fontWeight={600}>
+                Ảnh CCCD (Bắt buộc)
+              </Typography>
+              {!isCccdValid && (
+                <Alert severity="info" sx={{ mt: 1 }}>
+                  Nhập <strong>số CCCD (12 số)</strong> hợp lệ trước khi gửi
+                  ảnh.
+                </Alert>
+              )}
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={2}
+                sx={{ mt: 1 }}
+              >
+                <CccdDropzone
+                  label="Mặt trước"
+                  file={frontImg}
+                  onFile={(f) => {
+                    setFrontImg(f);
+                    if (f && f.size > MAX_FILE_SIZE) {
+                      setErrors((p) => ({
+                        ...p,
+                        cccdFront: "Ảnh không vượt quá 10MB",
+                      }));
+                      jumpAndHighlight(cccdRef, setHighlightCccd);
+                    } else {
+                      setErrors((p) => ({ ...p, cccdFront: undefined }));
+                    }
+                  }}
+                />
+                <CccdDropzone
+                  label="Mặt sau"
+                  file={backImg}
+                  onFile={(f) => {
+                    setBackImg(f);
+                    if (f && f.size > MAX_FILE_SIZE) {
+                      setErrors((p) => ({
+                        ...p,
+                        cccdBack: "Ảnh không vượt quá 10MB",
+                      }));
+                      jumpAndHighlight(cccdRef, setHighlightCccd);
+                    } else {
+                      setErrors((p) => ({ ...p, cccdBack: undefined }));
+                    }
+                  }}
+                />
+              </Stack>
+              {(showErr("cccdFront") && errors.cccdFront) ||
+              (showErr("cccdBack") && errors.cccdBack) ? (
+                <Alert severity="error" sx={{ mt: 1 }} role="alert">
+                  {errors.cccdFront || errors.cccdBack}
+                </Alert>
+              ) : null}
+            </Box>
+
+            {/* Email + Password */}
+
+            <TextField
+              label="Mật khẩu"
+              type="password"
+              name="password"
+              value={form.password}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+              fullWidth
+              error={showErr("password")}
+              helperText={showErr("password") ? errors.password : " "}
+            />
+            <TextField
+              label="Xác nhận mật khẩu"
+              type="password"
+              name="confirmPassword"
+              value={form.confirmPassword}
+              onChange={onChange}
+              onBlur={onBlur}
+              required
+              fullWidth
+              error={showErr("confirmPassword")}
+              helperText={
+                showErr("confirmPassword") ? errors.confirmPassword : " "
+              }
+            />
+
+            {/* Submit */}
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              color="primary"
+              disabled={isLoading || uploadingAvatar || uploadingCccd}
+              startIcon={
+                (isLoading || uploadingAvatar || uploadingCccd) && (
+                  <CircularProgress size={20} />
+                )
+              }
+            >
+              {isLoading || uploadingAvatar || uploadingCccd
+                ? "Đang xử lý..."
+                : "Đăng ký"}
+            </Button>
+          </Stack>
         </Box>
 
-        <Button
-          type="submit"
-          fullWidth
-          variant="contained"
-          color="primary"
-          sx={{ mt: 3, mb: 2 }}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <CircularProgress size={24} color="inherit" />
-          ) : (
-            "Đăng ký"
-          )}
-        </Button>
-      </Box>
-
-      <Typography variant="body2" align="center">
-        Đã có tài khoản?{" "}
-        <MuiLink component={Link} to="/login" underline="hover">
-          Đăng nhập
-        </MuiLink>
-      </Typography>
+        <Typography variant="body2" align="center" sx={{ mt: 2 }}>
+          Đã có tài khoản?{" "}
+          <MuiLink component={Link} to="/login" underline="hover">
+            Đăng nhập
+          </MuiLink>
+        </Typography>
+      </Paper>
     </Container>
   );
 }

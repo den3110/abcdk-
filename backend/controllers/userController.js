@@ -290,6 +290,7 @@ const registerUser = asyncHandler(async (req, res) => {
     avatar,
     province,
     gender,
+    cccdImages, // 👈 nhận thêm
   } = req.body || {};
 
   const normStr = (v) => (typeof v === "string" ? v.trim() : v);
@@ -303,6 +304,8 @@ const registerUser = asyncHandler(async (req, res) => {
     s = s.replace(/[^\d]/g, "");
     return s || undefined;
   };
+  const normUrl = (u) =>
+    typeof u === "string" ? u.replace(/\\/g, "/").trim() : "";
 
   name = normStr(name);
   nickname = normStr(nickname);
@@ -314,26 +317,37 @@ const registerUser = asyncHandler(async (req, res) => {
   province = normStr(province);
   gender = normStr(gender);
 
+  // 👇 Chuẩn hoá cccdImages (object { front, back }) – hỗ trợ string JSON
+  let cccdFront = "";
+  let cccdBack = "";
+  if (cccdImages) {
+    try {
+      const obj =
+        typeof cccdImages === "string" ? JSON.parse(cccdImages) : cccdImages;
+      if (obj && typeof obj === "object") {
+        if (obj.front) cccdFront = normUrl(obj.front);
+        if (obj.back) cccdBack = normUrl(obj.back);
+      }
+    } catch {
+      // ignore parse error
+    }
+  }
+  const hasFront = !!cccdFront;
+  const hasBack = !!cccdBack;
+  const hasBothCccdImages = hasFront && hasBack;
+
   // ===== NHÁNH KHÔI PHỤC TÀI KHOẢN (undelete) =====
-  // Ưu tiên match cả phone + nickname nếu cả hai cùng được gửi
   let reUser = null;
-  if (phone && nickname) {
+  if (phone && nickname)
     reUser = await User.findOne({ isDeleted: true, phone, nickname });
-  }
-  if (!reUser && phone) {
-    reUser = await User.findOne({ isDeleted: true, phone });
-  }
-  if (!reUser && nickname) {
+  if (!reUser && phone) reUser = await User.findOne({ isDeleted: true, phone });
+  if (!reUser && nickname)
     reUser = await User.findOne({ isDeleted: true, nickname });
-  }
 
   if (reUser) {
-    // Gỡ cờ isDeleted, giữ nguyên toàn bộ thông tin cũ
     reUser.isDeleted = false;
-    // (tuỳ chọn) không động vào deletedAt/deletionReason để lưu audit lịch sử
     await reUser.save();
 
-    // Đảm bảo có Ranking (nếu trước đây chưa khởi tạo)
     await Ranking.updateOne(
       { user: reUser._id },
       {
@@ -349,7 +363,6 @@ const registerUser = asyncHandler(async (req, res) => {
       { upsert: true }
     );
 
-    // Cookie + token như đăng nhập bình thường
     generateToken(res, reUser._id);
     const token = jwt.sign(
       {
@@ -381,13 +394,14 @@ const registerUser = asyncHandler(async (req, res) => {
       avatar: reUser.avatar || "",
       cccd: reUser.cccd || "",
       cccdStatus: reUser.cccdStatus || "unverified",
+      cccdImages: reUser.cccdImages || { front: "", back: "" },
       province: reUser.province || "",
       gender: reUser.gender || "unspecified",
       token,
     });
   }
 
-  // ===== VALIDATION bắt buộc tối thiểu (chỉ khi KHÔNG khôi phục) =====
+  // ===== VALIDATION bắt buộc tối thiểu =====
   if (!nickname) {
     res.status(400);
     throw new Error("Biệt danh là bắt buộc");
@@ -397,7 +411,7 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error("Mật khẩu phải có ít nhất 6 ký tự");
   }
 
-  // ===== VALIDATION tuỳ chọn (chỉ check khi có gửi) =====
+  // ===== VALIDATION tuỳ chọn =====
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     res.status(400);
     throw new Error("Email không hợp lệ");
@@ -426,12 +440,11 @@ const registerUser = asyncHandler(async (req, res) => {
     throw new Error("Giới tính không hợp lệ");
   }
 
-  // ===== PRE-CHECK duplicate thân thiện (bỏ qua các tài khoản isDeleted vì đã xử lý ở nhánh trên) =====
+  // ===== PRE-CHECK duplicate (bỏ qua isDeleted) =====
   const orConds = [];
   if (email) orConds.push({ email, isDeleted: { $ne: true } });
   if (phone) orConds.push({ phone, isDeleted: { $ne: true } });
   if (nickname) orConds.push({ nickname, isDeleted: { $ne: true } });
-
   if (orConds.length) {
     const duplicate = await User.findOne({ $or: orConds });
     if (duplicate) {
@@ -450,12 +463,25 @@ const registerUser = asyncHandler(async (req, res) => {
     }
   }
 
+  // CCCD trùng
   if (cccd) {
     const existing = await User.findOne({ cccd, isDeleted: { $ne: true } });
     if (existing) {
       res.status(400);
       throw new Error("CCCD đã được sử dụng cho tài khoản khác");
     }
+  }
+
+  // ✅ YÊU CẦU: nếu đã gửi CCCD thì BẮT BUỘC phải có đủ 2 ảnh
+  if (cccd) {
+    if (!hasBothCccdImages) {
+      res.status(400);
+      throw new Error("Cần cung cấp đủ 2 ảnh CCCD (mặt trước và mặt sau)");
+    }
+  } else {
+    // Không có CCCD → bỏ qua ảnh nếu lỡ gửi (không ảnh hưởng luồng khác)
+    cccdFront = "";
+    cccdBack = "";
   }
 
   // ===== Transaction tạo user + ranking =====
@@ -474,10 +500,17 @@ const registerUser = asyncHandler(async (req, res) => {
       if (dob) doc.dob = dob;
       if (province) doc.province = province;
       if (gender) doc.gender = gender || "unspecified";
+
       if (cccd) {
         doc.cccd = cccd;
-        doc.cccdStatus = "unverified";
+        // đủ 2 ảnh → pending + lưu ảnh
+        doc.cccdImages = {
+          front: cccdFront || "",
+          back: cccdBack || "",
+        };
+        doc.cccdStatus = "pending";
       }
+      // nếu không có CCCD: giữ mặc định schema (unverified, images rỗng)
 
       const created = await User.create([doc], { session });
       user = created[0];
@@ -521,7 +554,6 @@ const registerUser = asyncHandler(async (req, res) => {
       { expiresIn: "30d" }
     );
 
-    // Response
     res.status(201).json({
       _id: user._id,
       name: user.name || "",
@@ -532,6 +564,7 @@ const registerUser = asyncHandler(async (req, res) => {
       avatar: user.avatar || "",
       cccd: user.cccd || "",
       cccdStatus: user.cccdStatus || "unverified",
+      cccdImages: user.cccdImages || { front: "", back: "" }, // trả kèm
       province: user.province || "",
       gender: user.gender || "unspecified",
       token,
@@ -1497,14 +1530,12 @@ async function hasFinishedTournament(userId) {
         localField: "tournament",
         foreignField: "_id",
         as: "tour",
-        pipeline: [
-          { $project: { status: 1, finishedAt: 1, endAt: 1 } },
-        ],
+        pipeline: [{ $project: { status: 1, finishedAt: 1, endAt: 1 } }],
       },
     },
     {
       $addFields: {
-        status: { $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, "" ] },
+        status: { $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, ""] },
         finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
         endAt: { $arrayElemAt: ["$tour.endAt", 0] },
       },
@@ -1551,8 +1582,10 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       const weight = it?.weight === undefined ? 1 : Number(it?.weight);
       const note = String(it?.note || "").trim();
       if (!key) throw new Error("Mục chấm (items) thiếu 'key'");
-      if (!isNum(score) || score < 0 || score > 10) throw new Error("Điểm rubric phải 0–10");
-      if (!isNum(weight) || weight <= 0) throw new Error("Trọng số (weight) > 0");
+      if (!isNum(score) || score < 0 || score > 10)
+        throw new Error("Điểm rubric phải 0–10");
+      if (!isNum(weight) || weight <= 0)
+        throw new Error("Trọng số (weight) > 0");
       return { key, score, weight, note };
     });
   }
@@ -1561,13 +1594,16 @@ export const createEvaluation = asyncHandler(async (req, res) => {
   const singles = numOrUndef(req.body?.overall?.singles);
   const doubles = numOrUndef(req.body?.overall?.doubles);
   if (singles !== undefined && !inRange(singles, MIN_RATING, MAX_RATING)) {
-    res.status(400); throw new Error(`Điểm đơn phải trong khoảng ${MIN_RATING} - ${MAX_RATING}`);
+    res.status(400);
+    throw new Error(`Điểm đơn phải trong khoảng ${MIN_RATING} - ${MAX_RATING}`);
   }
   if (doubles !== undefined && !inRange(doubles, MIN_RATING, MAX_RATING)) {
-    res.status(400); throw new Error(`Điểm đôi phải trong khoảng ${MIN_RATING} - ${MAX_RATING}`);
+    res.status(400);
+    throw new Error(`Điểm đôi phải trong khoảng ${MIN_RATING} - ${MAX_RATING}`);
   }
   if (!items.length && singles === undefined && doubles === undefined) {
-    res.status(400); throw new Error("Phải có ít nhất một rubric item hoặc điểm tổng (overall)");
+    res.status(400);
+    throw new Error("Phải có ít nhất một rubric item hoặc điểm tổng (overall)");
   }
 
   // ---- helper: xác định evaluator có quyền “full tỉnh” hay không
@@ -1575,15 +1611,19 @@ export const createEvaluation = asyncHandler(async (req, res) => {
     const scope = me?.evaluator?.gradingScopes;
     if (!scope) return false;
     // chấp nhận nhiều “cờ” có thể tồn tại tuỳ schema thực tế
-    if (scope.all === true || scope.isAll === true || scope.full === true) return true;
-    if (typeof scope === "string" && ["ALL", "*", "__ALL__"].includes(scope)) return true;
-    if (scope.provinces === "ALL" || scope.provinces === "*" ) return true;
+    if (scope.all === true || scope.isAll === true || scope.full === true)
+      return true;
+    if (typeof scope === "string" && ["ALL", "*", "__ALL__"].includes(scope))
+      return true;
+    if (scope.provinces === "ALL" || scope.provinces === "*") return true;
     // nếu schema bạn lưu provinces là mảng đủ-full, có thể bật thêm logic đo độ phủ ở đây
     return false;
   }
 
   const session = await mongoose.startSession();
-  let evaluationDoc, historyDoc, selfAssessmentId = null;
+  let evaluationDoc,
+    historyDoc,
+    selfAssessmentId = null;
 
   try {
     await session.withTransaction(async () => {
@@ -1594,19 +1634,27 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       const target = await User.findById(targetUser)
         .select("_id name nickname province")
         .session(session);
-      if (!target) { const e = new Error("Không tìm thấy người được chấm"); e.statusCode=404; throw e; }
+      if (!target) {
+        const e = new Error("Không tìm thấy người được chấm");
+        e.statusCode = 404;
+        throw e;
+      }
 
       const targetProvince = String(target.province || "").trim();
       const isAdminRole = me.role === "admin";
       const isEvaluatorEnabled = !!me?.evaluator?.enabled;
       const fullProvince = hasFullProvinceScope(me);
 
-      // quyền: 
+      // quyền:
       // - Admin: luôn được chấm (kể cả target chưa có province)
       // - Evaluator "full tỉnh": luôn được chấm (kể cả target chưa có province)
       // - Evaluator theo phạm vi tỉnh: chỉ khi target có province và province đó nằm trong scope
-      const scopedProvinces = (me?.evaluator?.gradingScopes?.provinces || []);
-      const inScopedProvince = !!(targetProvince && Array.isArray(scopedProvinces) && scopedProvinces.includes(targetProvince));
+      const scopedProvinces = me?.evaluator?.gradingScopes?.provinces || [];
+      const inScopedProvince = !!(
+        targetProvince &&
+        Array.isArray(scopedProvinces) &&
+        scopedProvinces.includes(targetProvince)
+      );
 
       const canEval =
         isAdminRole ||
@@ -1623,7 +1671,9 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       }
 
       if (String(me._id) === String(target._id)) {
-        const e = new Error("Không thể tự chấm chính mình"); e.statusCode=400; throw e;
+        const e = new Error("Không thể tự chấm chính mình");
+        e.statusCode = 400;
+        throw e;
       }
 
       // Note
@@ -1650,30 +1700,40 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       const shouldAutoSelf = !existedSelf && !hasCompetedFinished;
 
       // Tạo Evaluation
-      evaluationDoc = await Evaluation.create([{
-        evaluator: me._id,
-        targetUser: target._id,
-        // nếu schema yêu cầu string, đổi null -> "" cho an toàn
-        province: targetProvince || null,
-        source: sourceParsed,
-        items,
-        overall: {
-          ...(singles !== undefined ? { singles } : {}),
-          ...(doubles !== undefined ? { doubles } : {}),
-        },
-        notes: finalNote,
-        status: "submitted",
-      }], { session }).then(a => a[0]);
+      evaluationDoc = await Evaluation.create(
+        [
+          {
+            evaluator: me._id,
+            targetUser: target._id,
+            // nếu schema yêu cầu string, đổi null -> "" cho an toàn
+            province: targetProvince || null,
+            source: sourceParsed,
+            items,
+            overall: {
+              ...(singles !== undefined ? { singles } : {}),
+              ...(doubles !== undefined ? { doubles } : {}),
+            },
+            notes: finalNote,
+            status: "submitted",
+          },
+        ],
+        { session }
+      ).then((a) => a[0]);
 
       // ScoreHistory (lưu DUPR)
-      historyDoc = await ScoreHistory.create([{
-        user: target._id,
-        scorer: me._id,
-        single: singles,
-        double: doubles,
-        note: finalNote,
-        scoredAt: new Date(),
-      }], { session }).then(a => a[0]);
+      historyDoc = await ScoreHistory.create(
+        [
+          {
+            user: target._id,
+            scorer: me._id,
+            single: singles,
+            double: doubles,
+            note: finalNote,
+            scoredAt: new Date(),
+          },
+        ],
+        { session }
+      ).then((a) => a[0]);
 
       // Upsert Ranking (DUPR) – chỉ set field có gửi
       const $set = { lastUpdated: new Date() };
@@ -1697,18 +1757,23 @@ export const createEvaluation = asyncHandler(async (req, res) => {
           : Date.now();
         const scoredAt = new Date(evalTs + 1); // latest
 
-        const [selfDoc] = await Assessment.create([{
-          user: target._id,
-          scorer: target._id,
-          items: [],
-          singleScore,
-          doubleScore,
-          singleLevel: sLv,
-          doubleLevel: dLv,
-          meta: { selfScored: true },
-          note: "Tự chấm trình (mod hỗ trợ)",
-          scoredAt,
-        }], { session });
+        const [selfDoc] = await Assessment.create(
+          [
+            {
+              user: target._id,
+              scorer: target._id,
+              items: [],
+              singleScore,
+              doubleScore,
+              singleLevel: sLv,
+              doubleLevel: dLv,
+              meta: { selfScored: true },
+              note: "Tự chấm trình (mod hỗ trợ)",
+              scoredAt,
+            },
+          ],
+          { session }
+        );
 
         selfAssessmentId = selfDoc?._id || null;
       }

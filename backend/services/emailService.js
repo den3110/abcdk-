@@ -220,3 +220,61 @@ export async function sendPasswordChangedEmail({ to }) {
   await sgMail.send(msg);
   return { ok: true };
 }
+
+// ⬇️ Thêm vào dưới cùng file services/emailService.js
+export async function sendPasswordResetOtpEmail({
+  to,
+  otp,
+  expiresInSec = 600,
+}) {
+  if (!process.env.SENDGRID_API_KEY) return { skipped: true };
+
+  const mins = Math.max(1, Math.round(expiresInSec / 60));
+
+  // Hiển thị OTP to rõ, cách chữ để chống đọc nhầm; giữ inline styles để tương thích client email
+  const otpHtmlBlock = `
+    <div style="
+      display:inline-block;
+      margin:12px 0 4px 0;
+      padding:12px 18px;
+      border:1px dashed ${BORDER_COLOR};
+      border-radius:12px;
+      background:#f1f5f9;
+      font-size:28px;
+      line-height:1;
+      letter-spacing:10px;
+      font-weight:800;
+      color:${TEXT_COLOR};
+    ">
+      ${String(otp).replace(/\D/g, "").split("").join(" ")}
+    </div>
+  `;
+
+  const html = renderEmail({
+    previewText: `Mã OTP đặt lại mật khẩu của bạn là ${otp}. Hết hạn sau ${mins} phút.`,
+    heading: "Mã OTP đặt lại mật khẩu",
+    bodyHtml: `
+      <p>Bạn đang yêu cầu đặt lại mật khẩu cho tài khoản <b>${to}</b>.</p>
+      <p>Nhập mã OTP gồm <b>6 chữ số</b> dưới đây vào ứng dụng để tiếp tục (hết hạn sau <b>${mins} phút</b>):</p>
+      ${otpHtmlBlock}
+      <p style="margin-top:8px">Vì lý do bảo mật, <b>không chia sẻ</b> mã này cho bất kỳ ai.</p>
+    `,
+    // Không cần CTA button cho luồng OTP
+    secondaryHtml: `Nếu bạn không yêu cầu thao tác này, bạn có thể bỏ qua email.`,
+  });
+
+  const msg = {
+    to,
+    from: { email: FROM_OBJ.email, name: FROM_OBJ.name },
+    subject: `[${APP_NAME}] Mã OTP đặt lại mật khẩu (${mins} phút)`,
+    text: `Bạn đang yêu cầu đặt lại mật khẩu cho tài khoản ${to}.
+Mã OTP của bạn là: ${otp}
+Mã sẽ hết hạn sau ${mins} phút. Không chia sẻ mã này cho bất kỳ ai.
+
+Nếu không phải bạn thực hiện, hãy bỏ qua email này.`,
+    html,
+  };
+
+  await sgMail.send(msg);
+  return { ok: true };
+}

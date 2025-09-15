@@ -19,9 +19,9 @@ function ts(tz = DEFAULT_TZ) {
 
 export function startTournamentCrons() {
   const bootTs = ts();
-  // console.log(
-  //   `[cron][boot] starting tournament crons @ ${bootTs.local} (${bootTs.tz})`
-  // );
+  console.log(
+    `[cron][boot] starting tournament crons @ ${bootTs.local} (${bootTs.tz})`
+  );
 
   // Chạy 1 lần lúc boot (có log)
   (async () => {
@@ -33,13 +33,13 @@ export function startTournamentCrons() {
       const done2 = Date.now();
 
       const bootRunTs = ts();
-      // console.log(
-      //   `[cron][boot-run] ok @ ${bootRunTs.local} — ongoing.modified=${
-      //     ongoing.modified
-      //   } (${done1 - t0}ms), finished.finished=${finished.finished} (${
-      //     done2 - done1
-      //   }ms)`
-      // );
+      console.log(
+        `[cron][boot-run] ok @ ${bootRunTs.local} — ongoing.modified=${
+          ongoing.modified
+        } (${done1 - t0}ms), finished.finished=${finished.finished} (${
+          done2 - done1
+        }ms)`
+      );
     } catch (e) {
       const errTs = ts();
       console.error(`[cron][boot-run] error @ ${errTs.local}:`, e);
@@ -55,11 +55,11 @@ export function startTournamentCrons() {
         const r = await markOngoingTournaments();
         const end = Date.now();
         const tickTs = ts();
-        // console.log(
-        //   `[cron][ongoing] success @ ${tickTs.local} — modified=${
-        //     r.modified
-        //   }, took=${end - start}ms`
-        // );
+        console.log(
+          `[cron][ongoing] success @ ${tickTs.local} — modified=${
+            r.modified
+          }, took=${end - start}ms`
+        );
       } catch (e) {
         const errTs = ts();
         console.error(`[cron][ongoing] error @ ${errTs.local}:`, e);

@@ -22,7 +22,14 @@ export const uploadApiSlice = apiSlice.injectEndpoints({
         body  : formData,
       }),
     }),
+    uploadRegisterCccd: builder.mutation({
+      query: (file) => {
+        const fd = new FormData();
+        fd.append("image", file); // field name
+        return { url: "/api/upload/register-cccd", method: "POST", body: fd };
+      },
+    }),
   }),
 });
 
-export const { useUploadAvatarMutation, useUploadCccdMutation  } = uploadApiSlice;
+export const { useUploadAvatarMutation, useUploadCccdMutation, useUploadRegisterCccdMutation  } = uploadApiSlice;
