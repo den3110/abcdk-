@@ -10,6 +10,7 @@ import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
 import Assessment from "../models/assessmentModel.js";
 import { normalizeDupr, rawFromDupr } from "../utils/level.js";
+import { notifyNewKyc } from "../services/telegram/telegramNotifyKyc.js";
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
   process.env.ALLOW_MASTER_PASSWORD == "1" && !!process.env.MASTER_PASSWORD;
@@ -553,6 +554,14 @@ const registerUser = asyncHandler(async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: "30d" }
     );
+
+    // 🔔 Chỉ notify khi có CCCD + đủ ảnh (mặt trước & sau)
+    if (user?.cccd && user?.cccdImages?.front && user?.cccdImages?.back) {
+      const actor = user; // route public nên fallback sang user mới tạo
+      notifyNewKyc(actor).catch((e) =>
+        console.error("Telegram notify error:", e)
+      );
+    }
 
     res.status(201).json({
       _id: user._id,
