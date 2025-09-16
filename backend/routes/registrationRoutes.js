@@ -8,6 +8,7 @@ import {
   managerReplacePlayer,
 } from "../controllers/registrationController.js";
 import { authorize, protect } from "../middleware/authMiddleware.js";
+import { canManageTournament } from "../utils/tournamentAuth.js";
 
 const router = express.Router();
 
@@ -15,8 +16,8 @@ const router = express.Router();
 router.patch("/:regId/checkin", protect, checkinRegistration);
 router.post("/:regId/cancel", protect, cancelRegistration);
 
-router.patch("/:id/payment", protect, authorize("admin"), updateRegistrationPayment);
-router.delete("/:id/admin", protect, authorize("admin"), deleteRegistration);
+router.patch("/:id/payment", protect, updateRegistrationPayment); // update payment
+router.delete("/:id/admin", protect, deleteRegistration);
 router.patch("/:regId/manager/replace-player", protect, managerReplacePlayer);
 
 export default router;
