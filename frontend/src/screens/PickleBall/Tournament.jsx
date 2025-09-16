@@ -1,4 +1,13 @@
-// src/pages/TournamentDashboard.jsx
+// src/pages/TournamentDashboard.jsx — Redesigned with cleaner layout, better empty states & stricter action rules
+// Notes:
+// - Mobile: card list with compact info rows
+// - Desktop: sticky table with denser rows
+// - Tabs show counts; search has clear button; preview dialog refined
+// - Action rules:
+//    * upcoming  → show Đăng ký (for everyone)
+//    * ongoing   → show Lịch đấu (everyone) + Đăng ký (chỉ hiện thêm nếu canManage)
+//    * finished  → KHÔNG hiện Đăng ký (chỉ Sơ đồ/Bracket)
+
 import { useState, useEffect, useMemo, Fragment } from "react";
 import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import {
@@ -30,6 +39,8 @@ import {
   Divider,
   TextField,
   Skeleton,
+  InputAdornment,
+  Tooltip,
 } from "@mui/material";
 import PreviewIcon from "@mui/icons-material/Preview";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
@@ -37,20 +48,33 @@ import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import EventNoteIcon from "@mui/icons-material/EventNote";
 import CloseIcon from "@mui/icons-material/Close";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import PlaceIcon from "@mui/icons-material/Place";
+import ScheduleIcon from "@mui/icons-material/Schedule";
+import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
+import TodayIcon from "@mui/icons-material/Today";
 import { useGetTournamentsQuery } from "../../slices/tournamentsApiSlice";
 import { useSelector } from "react-redux";
 
-const THUMB_SIZE = 96;
+const THUMB_SIZE = 84;
 
-const STATUS_LABEL = {
-  upcoming: "Sắp diễn ra",
-  ongoing: "Đang diễn ra",
-  finished: "Đã diễn ra",
-};
-const STATUS_COLOR = {
-  upcoming: "info",
-  ongoing: "success",
-  finished: "default",
+const STATUS_META = {
+  upcoming: {
+    label: "Sắp diễn ra",
+    color: "info",
+    icon: <TodayIcon fontSize="small" />,
+  },
+  ongoing: {
+    label: "Đang diễn ra",
+    color: "success",
+    icon: <ScheduleIcon fontSize="small" />,
+  },
+  finished: {
+    label: "Đã diễn ra",
+    color: "default",
+    icon: <PreviewIcon fontSize="small" />,
+  },
 };
 const TABS = ["upcoming", "ongoing", "finished"];
 
@@ -85,6 +109,7 @@ export default function TournamentDashboard() {
     return false;
   };
   const canManage = (t) => isAdmin || isManagerOf(t);
+
   const [params, setParams] = useSearchParams();
   const sportType = params.get("sportType") || 2;
   const groupId = params.get("groupId") || 0;
@@ -117,8 +142,9 @@ export default function TournamentDashboard() {
   const [keyword, setKeyword] = useState(params.get("q") || "");
   const [search, setSearch] = useState(params.get("q")?.toLowerCase() || "");
 
+  // gentle debounce
   useEffect(() => {
-    const t = setTimeout(() => {
+    const handle = setTimeout(() => {
       const val = keyword.trim().toLowerCase();
       setSearch(val);
       setParams(
@@ -130,8 +156,8 @@ export default function TournamentDashboard() {
         },
         { replace: true }
       );
-    }, 0);
-    return () => clearTimeout(t);
+    }, 250);
+    return () => clearTimeout(handle);
   }, [keyword, setParams]);
 
   const [previewSrc, setPreviewSrc] = useState(null);
@@ -144,6 +170,14 @@ export default function TournamentDashboard() {
     isLoading,
     error,
   } = useGetTournamentsQuery({ sportType, groupId });
+
+  const counts = useMemo(() => {
+    const c = { upcoming: 0, ongoing: 0, finished: 0 };
+    (tournaments || []).forEach((t) => {
+      if (c[t.status] !== undefined) c[t.status] += 1;
+    });
+    return c;
+  }, [tournaments]);
 
   const handleChangeTab = (_, v) => {
     setTab(v);
@@ -173,7 +207,7 @@ export default function TournamentDashboard() {
       .filter((t) => (search ? t.name?.toLowerCase().includes(search) : true));
   }, [tournaments, tab, search]);
 
-  // ========== Skeleton Renderers ==========
+  // ========== Skeletons ==========
   const MobileSkeletonList = () => (
     <Stack spacing={2}>
       {Array.from({ length: MOBILE_SKELETON_CARDS }).map((_, i) => (
@@ -187,7 +221,6 @@ export default function TournamentDashboard() {
               </Box>
               <Skeleton variant="rounded" width={100} height={24} />
             </Stack>
-
             <Divider sx={{ mb: 1 }} />
             <Skeleton variant="text" width="70%" />
             <Skeleton variant="text" width="50%" />
@@ -277,11 +310,201 @@ export default function TournamentDashboard() {
     </Paper>
   );
 
+  // ========== Action Buttons Helper ==========
+  const Actions = ({ t, dense = false }) => {
+    const size = dense ? "small" : "medium";
+    const gap = 1.2;
+
+    if (t.status === "upcoming") {
+      return (
+        <Box display="flex" flexWrap="wrap" justifyContent="center" gap={gap}>
+          <Button
+            component={RouterLink}
+            to={`/tournament/${t._id}/register`}
+            size="small"
+            variant="contained"
+            color="primary"
+            startIcon={<HowToRegIcon />}
+          >
+            Đăng ký
+          </Button>
+          <Button
+            component={RouterLink}
+            to={`/tournament/${t._id}/bracket`}
+            size="small"
+            variant="outlined"
+            color="info"
+            startIcon={<AccountTreeIcon />}
+          >
+            Sơ đồ
+          </Button>
+        </Box>
+      );
+    }
+
+    if (t.status === "ongoing") {
+      return (
+        <Box display="flex" flexWrap="wrap" justifyContent="center" gap={gap}>
+          <Button
+            component={RouterLink}
+            to={`/tournament/${t._id}/schedule`}
+            size={size}
+            variant="contained"
+            color="primary"
+            startIcon={<EventNoteIcon />}
+          >
+            Lịch đấu
+          </Button>
+          {canManage(t) && (
+            <Tooltip title="Chỉ quản lý có thể thêm đăng ký trong lúc giải đang diễn ra">
+              <span>
+                <Button
+                  component={RouterLink}
+                  to={`/tournament/${t._id}/register`}
+                  size={size}
+                  variant="contained"
+                  color="primary"
+                  startIcon={<HowToRegIcon />}
+                >
+                  Đăng ký
+                </Button>
+              </span>
+            </Tooltip>
+          )}
+          <Button
+            component={RouterLink}
+            to={`/tournament/${t._id}/checkin`}
+            size={size}
+            variant="contained"
+            color="success"
+            startIcon={<CheckCircleIcon />}
+          >
+            Check-in
+          </Button>
+          <Button
+            component={RouterLink}
+            to={`/tournament/${t._id}/bracket`}
+            size={size}
+            variant="outlined"
+            color="info"
+            startIcon={<AccountTreeIcon />}
+          >
+            Sơ đồ
+          </Button>
+        </Box>
+      );
+    }
+
+    // finished
+    return (
+      <Box display="flex" flexWrap="wrap" justifyContent="center" gap={gap}>
+        <Button
+          component={RouterLink}
+          to={`/tournament/${t._id}/bracket`}
+          size={size}
+          variant="outlined"
+          color="info"
+          startIcon={<AccountTreeIcon />}
+        >
+          Sơ đồ
+        </Button>
+      </Box>
+    );
+  };
+
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
-      <Typography variant="h5" mb={3} fontWeight={600}>
-        Dashboard Giải đấu
-      </Typography>
+      {/* Header / Hero */}
+      <Paper
+        elevation={0}
+        sx={{
+          p: 2.5,
+          mb: 2.5,
+          borderRadius: 3,
+          bgcolor: (th) =>
+            th.palette.mode === "light" ? "#f8fafc" : "#0b1220",
+          backgroundImage: (th) =>
+            th.palette.mode === "light"
+              ? "radial-gradient(circle at 20% 20%, rgba(2,132,199,0.06), transparent 40%), radial-gradient(circle at 80% 0%, rgba(34,197,94,0.06), transparent 40%)"
+              : "radial-gradient(circle at 20% 20%, rgba(56,189,248,0.09), transparent 40%), radial-gradient(circle at 80% 0%, rgba(34,197,94,0.07), transparent 40%)",
+          border: (th) => `1px solid ${th.palette.divider}`,
+        }}
+      >
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={2}
+          alignItems={{ xs: "flex-start", sm: "center" }}
+          justifyContent="space-between"
+        >
+          <Box>
+            <Typography variant="h5" fontWeight={700} gutterBottom>
+              Giải đấu
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {tournaments
+                ? `${tournaments.length} giải • ${STATUS_META[tab].label}`
+                : ""}
+            </Typography>
+          </Box>
+
+          <TextField
+            placeholder="Tìm kiếm tên giải..."
+            size="small"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            sx={{ width: { xs: "100%", sm: 340 } }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+              endAdornment: keyword ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setKeyword("")}>
+                    {" "}
+                    <ClearIcon fontSize="small" />{" "}
+                  </IconButton>
+                </InputAdornment>
+              ) : null,
+            }}
+          />
+        </Stack>
+
+        {/* Tabs with counts */}
+        <Tabs
+          value={tab}
+          onChange={handleChangeTab}
+          sx={{ mt: 1 }}
+          variant="scrollable"
+          allowScrollButtonsMobile
+        >
+          {TABS.map((v) => (
+            <Tab
+              key={v}
+              value={v}
+              icon={STATUS_META[v].icon}
+              iconPosition="start"
+              label={
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <span>{STATUS_META[v].label}</span>
+                  <Chip
+                    size="small"
+                    label={counts[v] || 0}
+                    color={STATUS_META[v].color}
+                    variant="outlined"
+                  />
+                </Stack>
+              }
+              sx={{
+                textTransform: "none",
+                fontWeight: 600,
+                "& .MuiTab-iconWrapper": { mr: 1 },
+              }}
+            />
+          ))}
+        </Tabs>
+      </Paper>
 
       {error && (
         <Alert severity="error" sx={{ mb: 2 }}>
@@ -298,31 +521,6 @@ export default function TournamentDashboard() {
       ) : (
         tournaments && (
           <Fragment>
-            <Tabs
-              value={tab}
-              onChange={handleChangeTab}
-              sx={{ mb: 2 }}
-              variant="scrollable"
-            >
-              {TABS.map((v) => (
-                <Tab
-                  key={v}
-                  value={v}
-                  label={STATUS_LABEL[v]}
-                  icon={<PreviewIcon fontSize="small" sx={{ ml: -0.5 }} />}
-                  iconPosition="start"
-                />
-              ))}
-            </Tabs>
-
-            <TextField
-              label="Tìm kiếm tên giải"
-              size="small"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              sx={{ mb: 3, width: 320, maxWidth: "100%" }}
-            />
-
             {isMobile ? (
               <Stack spacing={2}>
                 {filtered.length === 0 && (
@@ -330,13 +528,17 @@ export default function TournamentDashboard() {
                 )}
 
                 {filtered.map((t) => (
-                  <Card key={t._id} variant="outlined">
+                  <Card
+                    key={t._id}
+                    variant="outlined"
+                    sx={{ overflow: "hidden" }}
+                  >
                     <CardContent>
                       <Stack
                         direction="row"
                         spacing={2}
                         alignItems="flex-start"
-                        mb={2}
+                        mb={1.5}
                       >
                         <Avatar
                           src={t.image}
@@ -351,41 +553,80 @@ export default function TournamentDashboard() {
                           onClick={() => setPreviewSrc(t.image)}
                         />
                         <Box flex={1} minWidth={0}>
-                          <Typography
-                            fontWeight={600}
-                            sx={{
-                              whiteSpace: "normal",
-                              wordBreak: "break-word",
-                              lineHeight: 1.25,
-                              mb: 0.5,
-                            }}
+                          <Stack
+                            direction="row"
+                            alignItems="center"
+                            spacing={1}
+                            justifyContent="space-between"
                           >
-                            {t.name}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Đăng ký đến {formatDate(t.registrationDeadline)}
-                          </Typography>
+                            <Typography
+                              fontWeight={700}
+                              sx={{ wordBreak: "break-word", lineHeight: 1.25 }}
+                            >
+                              {t.name}
+                            </Typography>
+                            <Chip
+                              label={STATUS_META[t.status].label}
+                              color={STATUS_META[t.status].color}
+                              size="small"
+                            />
+                          </Stack>
+                          <Stack
+                            direction="row"
+                            spacing={1.5}
+                            mt={1}
+                            flexWrap="wrap"
+                          >
+                            <Typography
+                              variant="body2"
+                              color="text.secondary"
+                              display="flex"
+                              alignItems="center"
+                              gap={0.5}
+                            >
+                              <TodayIcon fontSize="inherit" />{" "}
+                              {formatDate(t.registrationDeadline)}
+                            </Typography>
+                            <Typography
+                              variant="body2"
+                              color="text.secondary"
+                              display="flex"
+                              alignItems="center"
+                              gap={0.5}
+                            >
+                              <ScheduleIcon fontSize="inherit" />{" "}
+                              {formatDate(t.startDate)} –{" "}
+                              {formatDate(t.endDate)}
+                            </Typography>
+                          </Stack>
                         </Box>
-                        <Chip
-                          label={STATUS_LABEL[t.status]}
-                          color={STATUS_COLOR[t.status]}
-                          size="small"
-                          sx={{ mt: 0.5 }}
-                        />
                       </Stack>
 
-                      <Divider sx={{ mb: 1 }} />
-                      <Typography variant="body2" mb={0.5}>
-                        Thời gian: {formatDate(t.startDate)} –{" "}
-                        {formatDate(t.endDate)}
-                      </Typography>
-                      <Typography variant="body2" mb={0.5}>
-                        Địa điểm: {t.location || "-"}
-                      </Typography>
-                      <Typography variant="body2" mb={0.5}>
-                        Đăng ký: {t.registered}/{t.maxPairs} – Trận:{" "}
-                        {t.matchesCount}
-                      </Typography>
+                      <Stack
+                        direction="row"
+                        spacing={2}
+                        flexWrap="wrap"
+                        color="text.secondary"
+                        sx={{ "& svg": { opacity: 0.9 } }}
+                      >
+                        <Typography
+                          variant="body2"
+                          display="flex"
+                          alignItems="center"
+                          gap={0.75}
+                        >
+                          <PeopleOutlineIcon fontSize="small" /> {t.registered}/
+                          {t.maxPairs}
+                        </Typography>
+                        <Typography
+                          variant="body2"
+                          display="flex"
+                          alignItems="center"
+                          gap={0.75}
+                        >
+                          <PlaceIcon fontSize="small" /> {t.location || "-"}
+                        </Typography>
+                      </Stack>
                     </CardContent>
 
                     <CardActions
@@ -397,61 +638,7 @@ export default function TournamentDashboard() {
                         gap: 1,
                       }}
                     >
-                      {t.status === "ongoing" ? (
-                        <Button
-                          component={RouterLink}
-                          to={`/tournament/${t._id}/schedule`}
-                          size="small"
-                          variant="contained"
-                          color="primary"
-                          startIcon={<EventNoteIcon />}
-                        >
-                          Lịch đấu
-                        </Button>
-                      ) : (
-                        <Button
-                          component={RouterLink}
-                          to={`/tournament/${t._id}/register`}
-                          size="small"
-                          variant="contained"
-                          color="primary"
-                          startIcon={<HowToRegIcon />}
-                        >
-                          Đăng ký
-                        </Button>
-                      )}
-                      {t.status === "ongoing" && canManage(t) && (
-                        <Button
-                          component={RouterLink}
-                          to={`/tournament/${t._id}/register`}
-                          size="small"
-                          variant="contained"
-                          color="primary"
-                          startIcon={<HowToRegIcon />}
-                        >
-                          Đăng ký
-                        </Button>
-                      )}
-                      <Button
-                        component={RouterLink}
-                        to={`/tournament/${t._id}/checkin`}
-                        size="small"
-                        variant="contained"
-                        color="success"
-                        startIcon={<CheckCircleIcon />}
-                      >
-                        Check-in
-                      </Button>
-                      <Button
-                        component={RouterLink}
-                        to={`/tournament/${t._id}/bracket`}
-                        size="small"
-                        variant="outlined"
-                        color="info"
-                        startIcon={<AccountTreeIcon />}
-                      >
-                        Sơ đồ
-                      </Button>
+                      <Actions t={t} dense />
                     </CardActions>
                   </Card>
                 ))}
@@ -468,7 +655,7 @@ export default function TournamentDashboard() {
                             align={col.align || "left"}
                             sx={{
                               minWidth: col.minWidth,
-                              fontWeight: 600,
+                              fontWeight: 700,
                               backgroundColor: "background.default",
                             }}
                           >
@@ -489,7 +676,7 @@ export default function TournamentDashboard() {
                       ) : (
                         filtered.map((t) => (
                           <TableRow hover key={t._id}>
-                            <TableCell sx={{ py: 1.5 }}>
+                            <TableCell sx={{ py: 1.2 }}>
                               <Box
                                 component="img"
                                 src={t.image}
@@ -506,7 +693,9 @@ export default function TournamentDashboard() {
                                 onClick={() => setPreviewSrc(t.image)}
                               />
                             </TableCell>
-                            <TableCell>{t.name}</TableCell>
+                            <TableCell>
+                              <Typography fontWeight={600}>{t.name}</Typography>
+                            </TableCell>
                             <TableCell>
                               {formatDate(t.registrationDeadline)}
                             </TableCell>
@@ -520,75 +709,13 @@ export default function TournamentDashboard() {
                             <TableCell>{t.location || "-"}</TableCell>
                             <TableCell align="center">
                               <Chip
-                                label={STATUS_LABEL[t.status]}
-                                color={STATUS_COLOR[t.status]}
+                                label={STATUS_META[t.status].label}
+                                color={STATUS_META[t.status].color}
                                 size="small"
                               />
                             </TableCell>
                             <TableCell align="center">
-                              <Box
-                                display="flex"
-                                flexWrap="wrap"
-                                justifyContent="center"
-                                gap={1.5}
-                              >
-                                {t.status === "ongoing" ? (
-                                  <Button
-                                    component={RouterLink}
-                                    to={`/tournament/${t._id}/schedule`}
-                                    size="small"
-                                    variant="contained"
-                                    color="primary"
-                                    startIcon={<EventNoteIcon />}
-                                  >
-                                    Lịch đấu
-                                  </Button>
-                                ) : (
-                                  <Button
-                                    component={RouterLink}
-                                    to={`/tournament/${t._id}/register`}
-                                    size="small"
-                                    variant="contained"
-                                    color="primary"
-                                    startIcon={<HowToRegIcon />}
-                                  >
-                                    Đăng ký
-                                  </Button>
-                                )}
-                                {t.status === "ongoing" && canManage(t) && (
-                                  <Button
-                                    component={RouterLink}
-                                    to={`/tournament/${t._id}/register`}
-                                    size="small"
-                                    variant="contained"
-                                    color="primary"
-                                    startIcon={<HowToRegIcon />}
-                                  >
-                                    Đăng ký
-                                  </Button>
-                                )}
-
-                                <Button
-                                  component={RouterLink}
-                                  to={`/tournament/${t._id}/checkin`}
-                                  size="small"
-                                  variant="contained"
-                                  color="success"
-                                  startIcon={<CheckCircleIcon />}
-                                >
-                                  Check-in
-                                </Button>
-                                <Button
-                                  component={RouterLink}
-                                  to={`/tournament/${t._id}/bracket`}
-                                  size="small"
-                                  variant="outlined"
-                                  color="info"
-                                  startIcon={<AccountTreeIcon />}
-                                >
-                                  Sơ đồ
-                                </Button>
-                              </Box>
+                              <Actions t={t} />
                             </TableCell>
                           </TableRow>
                         ))

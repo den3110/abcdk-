@@ -14,6 +14,7 @@ import {
   EVENTS,
   publishNotification,
 } from "../services/notifications/notificationHub.js";
+import Court from "../models/courtModel.js";
 
 /* ───────── helpers ───────── */
 function isGameWin(a = 0, b = 0, rules) {
@@ -737,7 +738,7 @@ export const patchStatus = asyncHandler(async (req, res) => {
         "seedA seedB winner serve overlay video videoUrl stream streams " +
         "liveBy liveVersion"
     )
-    .lean();  
+    .lean();
 
   if (m) {
     io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
@@ -956,6 +957,8 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     const userId = toObjectId(req.user?._id);
     if (!userId) return res.status(401).json({ message: "Unauthorized" });
 
+    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
     let { status, bracketId, q, page = 1, pageSize = 10 } = req.query;
 
     const p = Math.max(1, parseInt(page, 10) || 1);
@@ -1000,7 +1003,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     const pipeline = [
       { $match: { $and: andClauses } },
 
-      // Chuẩn hoá & bucket theo status
+      // Chuẩn hoá & bucket theo status (ưu tiên theo: live→assigned→queued→scheduled→finished)
       {
         $addFields: {
           normalizedStatus: {
@@ -1014,9 +1017,9 @@ export async function listRefereeMatchesByTournament(req, res, next) {
             $switch: {
               branches: [
                 { case: { $eq: ["$normalizedStatus", "live"] }, then: 0 },
-                { case: { $eq: ["$normalizedStatus", "scheduled"] }, then: 1 },
-                { case: { $eq: ["$normalizedStatus", "assigned"] }, then: 2 },
-                { case: { $eq: ["$normalizedStatus", "queued"] }, then: 3 },
+                { case: { $eq: ["$normalizedStatus", "assigned"] }, then: 1 },
+                { case: { $eq: ["$normalizedStatus", "queued"] }, then: 2 },
+                { case: { $eq: ["$normalizedStatus", "scheduled"] }, then: 3 },
                 { case: { $eq: ["$normalizedStatus", "finished"] }, then: 4 },
               ],
               default: 9,
@@ -1027,16 +1030,16 @@ export async function listRefereeMatchesByTournament(req, res, next) {
               branches: [
                 { case: { $eq: ["$normalizedStatus", "live"] }, then: "live" },
                 {
-                  case: { $eq: ["$normalizedStatus", "scheduled"] },
-                  then: "scheduled",
-                },
-                {
                   case: { $eq: ["$normalizedStatus", "assigned"] },
                   then: "assigned",
                 },
                 {
                   case: { $eq: ["$normalizedStatus", "queued"] },
                   then: "queued",
+                },
+                {
+                  case: { $eq: ["$normalizedStatus", "scheduled"] },
+                  then: "scheduled",
                 },
                 {
                   case: { $eq: ["$normalizedStatus", "finished"] },
@@ -1046,56 +1049,10 @@ export async function listRefereeMatchesByTournament(req, res, next) {
               default: "other",
             },
           },
-          _updatedAtSafe: { $ifNull: ["$updatedAt", "$createdAt"] },
-          _finishedAtSafe: { $ifNull: ["$finishedAt", new Date(0)] },
-          _queueOrderSafe: {
-            $cond: [{ $ifNull: ["$queueOrder", false] }, "$queueOrder", 999999],
-          },
-        },
-      },
-      {
-        $addFields: {
-          _updatedAtLong: { $toLong: "$_updatedAtSafe" },
-          _finishedAtLong: { $toLong: "$_finishedAtSafe" },
-          _k1: {
-            $switch: {
-              branches: [
-                {
-                  case: { $eq: ["$_bucketPrio", 0] },
-                  then: { $multiply: ["$_updatedAtLong", -1] },
-                }, // LIVE: mới cập nhật lên trước
-                {
-                  case: { $in: ["$_bucketPrio", [1, 2]] },
-                  then: { $ifNull: ["$round", 99999] },
-                }, // scheduled/assigned: theo round
-                {
-                  case: { $eq: ["$_bucketPrio", 3] },
-                  then: "$_queueOrderSafe",
-                }, // queued: theo queueOrder
-                {
-                  case: { $eq: ["$_bucketPrio", 4] },
-                  then: { $multiply: ["$_finishedAtLong", -1] },
-                }, // finished: mới xong lên trước
-              ],
-              default: 0,
-            },
-          },
-          _k2: {
-            $switch: {
-              branches: [
-                {
-                  case: { $in: ["$_bucketPrio", [1, 2]] },
-                  then: { $ifNull: ["$order", 99999] },
-                },
-                { case: { $in: ["$_bucketPrio", [0, 3, 4]] }, then: 0 },
-              ],
-              default: 0,
-            },
-          },
         },
       },
 
-      // <<< NEW for bracket-order sorting (nhẹ, chỉ để sắp xếp theo vòng) >>>
+      // Lấy stage/type để sort theo bracket và xác định group vs KO/PO/double
       {
         $lookup: {
           from: "brackets",
@@ -1108,24 +1065,129 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       { $unwind: { path: "$__br4sort", preserveNullAndEmptyArrays: true } },
       {
         $addFields: {
-          _brTypePrio: {
-            $switch: {
-              branches: [
-                { case: { $eq: ["$__br4sort.type", "group"] }, then: 1 },
-                { case: { $eq: ["$__br4sort.type", "po"] }, then: 2 }, // PO trước KO
-                { case: { $eq: ["$__br4sort.type", "ko"] }, then: 3 },
-                { case: { $eq: ["$__br4sort.type", "double"] }, then: 4 },
-              ],
-              default: 99,
-            },
-          },
-          _brStageOrder: { $ifNull: ["$__br4sort.stage", "$_brTypePrio"] },
+          _brType: "$__br4sort.type",
+          _brStageOrder: { $ifNull: ["$__br4sort.stage", 1] },
         },
       },
-      // <<< END NEW >>>
 
-      // SẮP XẾP: Ưu tiên theo BRACKET (vòng trước → vòng sau), rồi mới theo bucket/status như cũ
-      { $sort: { _brStageOrder: 1, _bucketPrio: 1, _k1: 1, _k2: 1, _id: 1 } },
+      // === TÍNH groupIndex sớm để SORT đúng "v{stage}-b{group}#{order}" ===
+      {
+        $lookup: {
+          from: "brackets",
+          localField: "bracket",
+          foreignField: "_id",
+          pipeline: [
+            {
+              $project: {
+                _id: 1,
+                type: 1,
+                stage: 1,
+                groups: {
+                  $map: {
+                    input: { $ifNull: ["$groups", []] },
+                    as: "g",
+                    in: {
+                      _id: "$$g._id",
+                      regIds: { $ifNull: ["$$g.regIds", []] },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+          as: "__brForGroupIdx",
+        },
+      },
+      {
+        $unwind: { path: "$__brForGroupIdx", preserveNullAndEmptyArrays: true },
+      },
+      {
+        $addFields: {
+          __groupsWithIdx: {
+            $map: {
+              input: {
+                $range: [
+                  0,
+                  { $size: { $ifNull: ["$__brForGroupIdx.groups", []] } },
+                ],
+              },
+              as: "i",
+              in: {
+                idx: "$$i",
+                regs: {
+                  $ifNull: [
+                    {
+                      $getField: {
+                        field: "regIds",
+                        input: {
+                          $arrayElemAt: ["$__brForGroupIdx.groups", "$$i"],
+                        },
+                      },
+                    },
+                    [],
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          __matchedGroup: {
+            $first: {
+              $filter: {
+                input: "$__groupsWithIdx",
+                as: "g",
+                cond: {
+                  $and: [
+                    { $in: ["$pairA", "$$g.regs"] },
+                    { $in: ["$pairB", "$$g.regs"] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          groupIndex: {
+            $cond: [
+              { $ifNull: ["$__matchedGroup", false] },
+              { $add: ["$__matchedGroup.idx", 1] },
+              null,
+            ],
+          },
+          _orderSafe: { $ifNull: ["$order", 99999] },
+          _roundSafe: { $ifNull: ["$round", { $ifNull: ["$rrRound", 99999] }] },
+        },
+      },
+
+      // Khóa sort theo "mã trận"
+      {
+        $addFields: {
+          _codeK1: {
+            $cond: [
+              { $eq: ["$_brType", "group"] },
+              { $ifNull: ["$groupIndex", 99999] },
+              "$_roundSafe",
+            ],
+          },
+          _codeK2: "$_orderSafe",
+        },
+      },
+
+      // === SORT: ưu tiên STATUS trước → rồi bracket(stage) → mã trận
+      {
+        $sort: {
+          _bucketPrio: 1,
+          _brStageOrder: 1,
+          _codeK1: 1,
+          _codeK2: 1,
+          _id: 1,
+        },
+      },
 
       // facet + paging
       {
@@ -1208,7 +1270,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      // groupCtx cho bảng (như cũ)
+      // groupCtx cho bảng (giữ nguyên để trả về groupKey / codeGroup như cũ)
       {
         $addFields: {
           _groupCtx: {
@@ -1337,7 +1399,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      // populate Registration A/B (lấy các field player)
+      // populate Registration A/B (giữ nguyên)
       {
         $lookup: {
           from: "registrations",
@@ -1392,8 +1454,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       },
       { $unwind: { path: "$pairBReg", preserveNullAndEmptyArrays: true } },
 
-      /* === NEW: lookup User để fallback nickname (giữ nguyên) === */
-      // A.p1
+      /* === lookup User để fallback nickname (giữ nguyên) === */
       {
         $lookup: {
           from: "users",
@@ -1406,7 +1467,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
       { $unwind: { path: "$_pairA_p1User", preserveNullAndEmptyArrays: true } },
-      // A.p2
       {
         $lookup: {
           from: "users",
@@ -1419,7 +1479,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
       { $unwind: { path: "$_pairA_p2User", preserveNullAndEmptyArrays: true } },
-      // B.p1
       {
         $lookup: {
           from: "users",
@@ -1432,7 +1491,6 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
       { $unwind: { path: "$_pairB_p1User", preserveNullAndEmptyArrays: true } },
-      // B.p2
       {
         $lookup: {
           from: "users",
@@ -1455,7 +1513,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      // Project kết quả (loại bỏ các field nội bộ)
+      // Project kết quả (y nguyên cấu trúc)
       {
         $project: {
           _id: 0,
@@ -1562,5 +1620,407 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     });
   } catch (err) {
     next(err);
+  }
+}
+
+// -------------------------------------------------------------------------------------------------------------------------
+
+const isTrue = (v, d = false) => {
+  if (v == null) return d;
+  if (typeof v === "boolean") return v;
+  const s = String(v).toLowerCase();
+  return s === "1" || s === "true" || s === "yes" || s === "y";
+};
+
+const COURT_BLOCKED = new Set(["maintenance"]);
+const COURT_BUSY = new Set(["assigned", "live"]);
+
+/** Map trạng thái court theo trạng thái match */
+const courtStatusFor = (matchStatus) =>
+  matchStatus === "live" ? "live" : "assigned";
+
+/** Đảm bảo court & match cùng tournament + bracket */
+function assertSameTB(matchDoc, courtDoc) {
+  if (!matchDoc || !courtDoc) return false;
+  const tOk = String(matchDoc.tournament) === String(courtDoc.tournament);
+  const bOk = String(matchDoc.bracket) === String(courtDoc.bracket);
+  return tOk && bOk;
+}
+
+/* ===================== LISTING ===================== */
+
+/**
+ * GET /referee/tournaments/:tId/brackets/:bId/courts
+ * Query:
+ *  - cluster   (optional)
+ *  - status    (optional: idle|assigned|live|maintenance)
+ *  - active    (optional, default true)
+ */
+export async function listCourtsByTournamentBracket(req, res, next) {
+  try {
+    const { tId, bId } = req.params;
+    const { cluster, status, active = "1" } = req.query;
+
+    const q = { tournament: tId, bracket: bId };
+    if (isTrue(active, true)) q.isActive = true;
+    if (cluster) q.cluster = cluster;
+    if (status) q.status = status;
+
+    const items = await Court.find(q).sort({ order: 1, name: 1 }).lean();
+
+    res.json({ items });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/**
+ * GET /referee/matches/:matchId/courts
+ * Liệt kê court *cùng tournament + bracket* của match.
+ * Query:
+ *  - includeBusy=0/1 (mặc định 0 → chỉ trả court idle)
+ *  - cluster         (optional)
+ *  - status          (optional; nếu truyền thì override includeBusy)
+ */
+export async function listCourtsForMatch(req, res, next) {
+  try {
+    const { matchId } = req.params;
+    const { includeBusy = "0", cluster, status } = req.query;
+
+    const m = await Match.findById(matchId).select("tournament bracket").lean();
+    if (!m) return res.status(404).json({ message: "Không tìm thấy trận" });
+
+    const q = {
+      tournament: m.tournament,
+      bracket: m.bracket,
+      isActive: true,
+    };
+    if (cluster) q.cluster = cluster;
+
+    const wantAvailable =
+      String(status || "").toLowerCase() === "available" ||
+      (!status && !isTrue(includeBusy, false));
+
+    // Trường hợp cần "available": idle hoặc currentMatch đã finished (hay null)
+    if (wantAvailable) {
+      const items = await Court.aggregate([
+        { $match: q },
+        {
+          $lookup: {
+            from: "matches",
+            localField: "currentMatch",
+            foreignField: "_id",
+            as: "cm",
+            pipeline: [{ $project: { status: 1 } }],
+          },
+        },
+        {
+          $addFields: {
+            currentMatchStatus: {
+              $ifNull: [{ $arrayElemAt: ["$cm.status", 0] }, null],
+            },
+          },
+        },
+        {
+          $match: {
+            $or: [
+              { status: "idle" },
+              { currentMatch: null },
+              { currentMatchStatus: "finished" },
+            ],
+          },
+        },
+        { $project: { cm: 0 } },
+        { $sort: { order: 1, name: 1 } },
+      ]);
+
+      return res.json({ items });
+    }
+
+    // Các trường hợp khác: lọc theo status cụ thể hoặc includeBusy=true (không lọc bận)
+    if (status && String(status).toLowerCase() !== "available") {
+      q.status = status; // "idle" | "assigned" | "live" | "maintenance"
+    }
+    const items = await Court.find(q).sort({ order: 1, name: 1 }).lean();
+    res.json({ items });
+  } catch (e) {
+    next(e);
+  }
+}
+
+/* ===================== ASSIGN / UNASSIGN ===================== */
+
+/**
+ * POST /referee/matches/:matchId/assign-court
+ * body: { courtId: string, force?: boolean, allowReassignLive?: boolean }
+ *
+ * Luồng:
+ * - Kiểm tra court & match cùng tournament + bracket
+ * - Chặn court maintenance (trừ khi force)
+ * - Nếu court đang bận (assigned/live) và khác match này → 409 (trừ khi force)
+ * - Nếu match đang ở court khác → trả court cũ về idle (an toàn theo session)
+ * - Set match.court = courtId, courtLabel/cluster/assignedAt, update status:
+ *     + nếu match.finished → không cho gán (400)
+ *     + nếu match.live → cho gán khi allowReassignLive (hoặc force)
+ *     + còn lại → đặt match.status = "assigned"
+ * - Set court.currentMatch = matchId và court.status = assigned/live tương ứng
+ */
+export async function assignCourtToMatch(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { matchId } = req.params;
+    const {
+      courtId, // có thể null => bỏ gán
+      force = false,
+      allowReassignLive = false,
+    } = req.body || {};
+
+    if (!mongoose.isValidObjectId(matchId)) {
+      return res.status(400).json({ message: "matchId không hợp lệ" });
+    }
+
+    // ===== Fetch match =====
+    const m = await Match.findById(matchId).session(session);
+    if (!m) return res.status(404).json({ message: "Không tìm thấy trận" });
+
+    // ===== UNASSIGN (courtId null/undefined) =====
+    if (!courtId) {
+      // Không cho bỏ gán nếu đã live (trừ khi force/allowReassignLive)
+      if (m.status === "live" && !(allowReassignLive || force)) {
+        return res.status(409).json({
+          message:
+            "Trận đang live, không thể bỏ gán sân (allowReassignLive=false)",
+        });
+      }
+
+      // Trả sân cũ (nếu đang cột với match này)
+      if (m.court) {
+        const old = await Court.findById(m.court).session(session);
+        if (old && String(old.currentMatch) === String(m._id)) {
+          old.currentMatch = null;
+          old.status = "idle";
+          await old.save({ session });
+        }
+      }
+
+      // Cập nhật match
+      m.court = null;
+      m.courtLabel = "";
+      m.courtCluster = "Main";
+      m.assignedAt = null;
+      if (m.status !== "live" && m.status !== "finished") {
+        m.status = "queued"; // hoặc "scheduled" tuỳ workflow của bạn
+      }
+      await m.save({ session });
+
+      await session.commitTransaction();
+
+      const matchFresh = await Match.findById(m._id)
+        .populate("court", "name cluster status")
+        .lean();
+      return res.json({ ok: true, match: matchFresh, court: null });
+    }
+
+    // ===== ASSIGN (courtId có giá trị) =====
+    if (!mongoose.isValidObjectId(courtId)) {
+      return res.status(400).json({ message: "courtId không hợp lệ" });
+    }
+
+    const c = await Court.findById(courtId).session(session);
+    if (!c) return res.status(404).json({ message: "Không tìm thấy sân" });
+
+    if (!assertSameTB(m, c)) {
+      return res.status(400).json({
+        message: "Court không thuộc cùng tournament/bracket với trận",
+      });
+    }
+
+    if (m.status === "finished") {
+      return res
+        .status(400)
+        .json({ message: "Trận đã kết thúc, không thể gán sân" });
+    }
+
+    if (COURT_BLOCKED.has(c.status) && !force) {
+      return res
+        .status(409)
+        .json({ message: "Sân đang bảo trì/không sẵn sàng" });
+    }
+
+    // Nếu trận đang live mà không cho phép đổi sân
+    if (m.status === "live" && !(allowReassignLive || force)) {
+      return res.status(409).json({
+        message: "Trận đang live, không thể đổi sân (allowReassignLive=false)",
+      });
+    }
+
+    // Nếu court đang bận: kiểm tra thực sự còn bận không
+    // - Nếu currentMatch đã finished => coi như trống, dọn sân về idle trước khi gán
+    if (
+      c.currentMatch &&
+      String(c.currentMatch) !== String(m._id) &&
+      COURT_BUSY.has(c.status) &&
+      !force
+    ) {
+      const cm = await Match.findById(c.currentMatch)
+        .select("status")
+        .session(session);
+      if (cm && cm.status === "finished") {
+        // dọn sân vì trận trước đã kết thúc
+        c.currentMatch = null;
+        c.status = "idle";
+        await c.save({ session });
+      } else {
+        return res.status(409).json({
+          message: "Sân đang bận với trận khác",
+          currentMatch: c.currentMatch,
+        });
+      }
+    }
+
+    // Nếu đang đổi từ court khác sang court này: trả court cũ (nếu còn cột với match)
+    if (m.court && String(m.court) !== String(c._id)) {
+      const old = await Court.findById(m.court).session(session);
+      if (old && String(old.currentMatch) === String(m._id)) {
+        old.currentMatch = null;
+        old.status = "idle";
+        await old.save({ session });
+      }
+    }
+
+    // Cập nhật match
+    m.court = c._id;
+    m.courtLabel = c.name || "";
+    m.courtCluster = c.cluster || "Main";
+    m.assignedAt = new Date();
+    if (m.status !== "live") m.status = "assigned";
+    await m.save({ session });
+
+    // Cập nhật court
+    c.currentMatch = m._id;
+    c.status = courtStatusFor(m.status); // "assigned" | "live" ...
+    await c.save({ session });
+
+    await session.commitTransaction();
+
+    const [matchFresh, courtFresh] = await Promise.all([
+      Match.findById(m._id).populate("court", "name cluster status").lean(),
+      Court.findById(c._id).lean(),
+    ]);
+
+    res.json({ ok: true, match: matchFresh, court: courtFresh });
+  } catch (e) {
+    try {
+      await session.abortTransaction();
+    } catch {}
+    next(e);
+  } finally {
+    session.endSession();
+  }
+}
+
+/**
+ * POST /referee/matches/:matchId/unassign-court
+ * body: { toStatus?: "queued"|"scheduled" } // mặc định "queued" nếu đang assigned
+ *
+ * - Xoá link 2 chiều: match.court=null, court.currentMatch=null
+ * - court.status → idle
+ * - match.status:
+ *     + nếu match.live → 409 (không cho unassign khi đang live)
+ *     + nếu match.assigned → chuyển về toStatus (mặc định queued)
+ */
+export async function unassignCourtFromMatch(req, res, next) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  try {
+    const { matchId } = req.params;
+    const { toStatus } = req.body || {};
+
+    if (!mongoose.isValidObjectId(matchId)) {
+      return res.status(400).json({ message: "matchId không hợp lệ" });
+    }
+
+    const m = await Match.findById(matchId).session(session);
+    if (!m) return res.status(404).json({ message: "Không tìm thấy trận" });
+
+    if (m.status === "live") {
+      return res
+        .status(409)
+        .json({ message: "Trận đang live, không thể bỏ gán sân" });
+    }
+    if (m.status === "finished") {
+      return res.status(409).json({ message: "Trận đã kết thúc" });
+    }
+
+    let courtFresh = null;
+
+    if (m.court) {
+      const c = await Court.findById(m.court).session(session);
+      if (c && String(c.currentMatch) === String(m._id)) {
+        c.currentMatch = null;
+        c.status = "idle";
+        await c.save({ session });
+        courtFresh = c.toObject();
+      }
+    }
+
+    m.court = null;
+    m.courtLabel = "";
+    // chỉ đưa về queued nếu đang assigned
+    if (m.status === "assigned") {
+      m.status = ["queued", "scheduled"].includes(toStatus)
+        ? toStatus
+        : "queued";
+    }
+    await m.save({ session });
+
+    await session.commitTransaction();
+
+    const matchFresh = await Match.findById(m._id).lean();
+    res.json({ ok: true, match: matchFresh, court: courtFresh });
+  } catch (e) {
+    try {
+      await session.abortTransaction();
+    } catch {}
+    next(e);
+  } finally {
+    session.endSession();
+  }
+}
+
+/* ============== Court maintenance / status ============== */
+
+/**
+ * PATCH /referee/courts/:courtId/status
+ * body: { status: "idle"|"assigned"|"live"|"maintenance" }
+ * Lưu ý: không cho chuyển sang assigned/live nếu không có currentMatch.
+ */
+export async function patchCourtStatus(req, res, next) {
+  try {
+    const { courtId } = req.params;
+    const { status } = req.body || {};
+    if (!mongoose.isValidObjectId(courtId)) {
+      return res.status(400).json({ message: "courtId không hợp lệ" });
+    }
+    if (!["idle", "assigned", "live", "maintenance"].includes(status)) {
+      return res.status(400).json({ message: "status không hợp lệ" });
+    }
+
+    const c = await Court.findById(courtId);
+    if (!c) return res.status(404).json({ message: "Không tìm thấy sân" });
+
+    if ((status === "assigned" || status === "live") && !c.currentMatch) {
+      return res.status(409).json({
+        message: "Không thể đặt sân sang trạng thái bận khi không có trận",
+      });
+    }
+
+    c.status = status;
+    await c.save();
+
+    res.json({ ok: true, court: c.toObject() });
+  } catch (e) {
+    next(e);
   }
 }

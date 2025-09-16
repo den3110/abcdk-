@@ -556,23 +556,32 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
       path: "bracket",
       select: "name type stage round rules format eventType",
     })
-    // 👉 populate pairA + user nickname cho p1/p2
+    // ✅ pairA: lấy thêm thông tin cần thiết từ user (đúng theo User model bạn gửi)
     .populate({
       path: "pairA",
-      // có thể bổ sung select để nhẹ payload:
-      // select: "teamName seed player1 player2",
       populate: [
-        { path: "player1.user", select: "nickname" },
-        { path: "player2.user", select: "nickname" },
+        {
+          path: "player1.user",
+          select: "name nickname phone cccd cccdImages avatar",
+        },
+        {
+          path: "player2.user",
+          select: "name nickname phone cccd cccdImages avatar",
+        },
       ],
     })
-    // 👉 populate pairB + user nickname cho p1/p2
+    // ✅ pairB: tương tự
     .populate({
       path: "pairB",
-      // select: "teamName seed player1 player2",
       populate: [
-        { path: "player1.user", select: "nickname" },
-        { path: "player2.user", select: "nickname" },
+        {
+          path: "player1.user",
+          select: "name nickname phone cccd cccdImages avatar",
+        },
+        {
+          path: "player2.user",
+          select: "name nickname phone cccd cccdImages avatar",
+        },
       ],
     })
     .populate({ path: "referee", select: "name nickname" })
@@ -587,29 +596,34 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
   const toIntOrNull = (v) =>
     v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null;
 
-  // ✅ Chuẩn hóa nickname cho Registration: ưu tiên reg.playerX.nickname → user.nickname
-  const normalizeRegNick = (reg) => {
+  // 👉 gom field quan trọng từ user “đặt thẳng” vào playerX (chỉ trong response)
+  const flattenFromUser = (p = {}) => {
+    const u = p.user || {};
+    return {
+      ...p,
+      // nickname: ưu tiên player.nickname, fallback user.nickname
+      nickname:
+        (p.nickname != null && p.nickname !== "" ? p.nickname : null) ??
+        (u.nickname != null ? u.nickname : null),
+      name: p.name ?? u.name ?? null,
+      phone: p.phone ?? u.phone ?? null,
+      cccd: p.cccd ?? u.cccd ?? null,
+      // chuẩn trả về cccdImages (đúng model của bạn)
+      cccdImages:
+        p.cccdImages && (p.cccdImages.front || p.cccdImages.back)
+          ? p.cccdImages
+          : u.cccdImages || { front: "", back: "" },
+      avatar: p.avatar ?? u.avatar ?? "",
+    };
+  };
+
+  // ✅ Chuẩn hoá Registration: nickname & flatten user fields
+  const normalizeReg = (reg) => {
     if (!reg) return reg;
-    const p1 = reg.player1 || {};
-    const p2 = reg.player2 || {};
     return {
       ...reg,
-      player1: {
-        ...p1,
-        nickname:
-          (p1 && p1.nickname != null && p1.nickname !== ""
-            ? p1.nickname
-            : null) ??
-          (p1 && p1.user && p1.user.nickname != null ? p1.user.nickname : null),
-      },
-      player2: {
-        ...p2,
-        nickname:
-          (p2 && p2.nickname != null && p2.nickname !== ""
-            ? p2.nickname
-            : null) ??
-          (p2 && p2.user && p2.user.nickname != null ? p2.user.nickname : null),
-      },
+      player1: flattenFromUser(reg.player1 || {}),
+      player2: flattenFromUser(reg.player2 || {}),
     };
   };
 
@@ -630,7 +644,7 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     },
   };
 
-  // Chuẩn hoá cap: nếu mode không hợp lệ → none; none thì points = null
+  // Chuẩn hoá cap
   if (!["none", "hard", "soft"].includes(mergedRules.cap.mode)) {
     mergedRules.cap.mode = "none";
   }
@@ -638,11 +652,11 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     mergedRules.cap.points = null;
   }
 
-  // trả về match + rules đã merge + pairA/pairB đã chuẩn hoá nickname
+  // trả về match + rules đã merge + pairA/pairB đã chuẩn hoá (KHÔNG đổi schema)
   res.json({
     ...match,
-    pairA: normalizeRegNick(match.pairA),
-    pairB: normalizeRegNick(match.pairB),
+    pairA: normalizeReg(match.pairA),
+    pairB: normalizeReg(match.pairB),
     rules: mergedRules,
   });
 });
