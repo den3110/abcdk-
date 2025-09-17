@@ -39,7 +39,7 @@ const assessmentSchema = new mongoose.Schema(
       selfScored: { type: Boolean, default: false },
       scoreBy: {
         type: String,
-        enum: ["admin", "mod", "moderator"],
+        enum: ["admin", "mod", "moderator", "self"],
         lowercase: true,
       },
     },
