@@ -312,6 +312,12 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     throw new Error("Hai VĐV phải khác nhau");
   }
 
+  // ✅ BẮT BUỘC VĐV1 LÀ CHÍNH USER (trừ admin)
+  if (!isAdmin && String(player1Id) !== String(req.user._id)) {
+    res.status(403);
+    throw new Error("VĐV 1 phải là chính bạn (tài khoản đang đăng nhập).");
+  }
+
   // lấy user snapshots (kèm cccd/cccdStatus)
   const ids = isDouble ? [player1Id, player2Id] : [player1Id];
   const users = await User.find({ _id: { $in: ids } })
@@ -403,19 +409,40 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const isKycVerified = (u) =>
     !!u?.cccd && String(u?.cccdStatus || "").toLowerCase() === "verified";
 
-  const notVerified = [];
-  if (!isKycVerified(u1)) notVerified.push("VĐV 1");
-  if (isDouble && !isKycVerified(u2)) notVerified.push("VĐV 2");
+  const needKycP1 = !isKycVerified(u1);
+  const needKycP2 = isDouble ? !isKycVerified(u2) : false;
 
-  if (notVerified.length) {
-    res.status(412); // Precondition Failed
-    throw new Error(
-      notVerified.length === 1
-        ? `${notVerified[0]} cần hoàn tất KYC (đã xác minh) trước khi đăng ký.`
-        : `${notVerified.join(
-            " và "
-          )} cần hoàn tất KYC (đã xác minh) trước khi đăng ký.`
-    );
+  if (needKycP1 || needKycP2) {
+    // 👉 Trả về 412 với detail chỉ rõ ai cần KYC
+    const baseMsg =
+      needKycP1 && needKycP2
+        ? "VĐV 1 và VĐV 2 cần hoàn tất KYC (đã xác minh) trước khi đăng ký."
+        : needKycP1
+        ? "VĐV 1 cần hoàn tất KYC (đã xác minh) trước khi đăng ký."
+        : "VĐV 2 cần hoàn tất KYC (đã xác minh) trước khi đăng ký.";
+
+    if (needKycP1 && !needKycP2) {
+      return res.status(412).json({
+        message: baseMsg,
+        userId: u1._id,
+        slot: "p1",
+      });
+    }
+    if (!needKycP1 && needKycP2) {
+      return res.status(412).json({
+        message: baseMsg,
+        userId: u2._id,
+        slot: "p2",
+      });
+    }
+    // cả hai đều thiếu
+    return res.status(412).json({
+      message: baseMsg,
+      targets: [
+        { userId: u1._id, slot: "p1" },
+        { userId: u2._id, slot: "p2" },
+      ],
+    });
   }
 
   // 3) Preflight checks (trùng đăng ký / giới hạn / cap điểm ...)
@@ -469,8 +496,8 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     mode: "direct_by_kyc",
     registration: reg,
     message: isSingle
-      ? "Đã tạo đăng ký (VĐV đã KYC VERIFIED)."
-      : "Đã tạo đăng ký (cả 2 VĐV đã KYC VERIFIED).",
+      ? "Đã tạo đăng ký (VĐV đã xác thực kyc)."
+      : "Đã tạo đăng ký (cả 2 VĐV đã xác thực kyc).",
   });
 });
 

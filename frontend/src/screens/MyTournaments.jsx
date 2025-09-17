@@ -1,4 +1,9 @@
 // src/pages/MyTournamentsPage.jsx — items full width (normal MUI Container)
+// Quy ước màu:
+// - ongoing/live  → warning (cam)
+// - upcoming/scheduled → primary (lam)
+// - finished → success (lục)
+
 import React, { useMemo, useState, useCallback } from "react";
 import {
   Box,
@@ -33,7 +38,7 @@ import { useNavigate } from "react-router-dom";
 import { useListMyTournamentsQuery } from "../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./PickleBall/match/ResponsiveMatchViewer";
 
-/* ================= Utils (giữ nguyên) ================= */
+/* ================= Utils ================= */
 const dateFmt = (s) => {
   if (!s) return "—";
   const d = new Date(s);
@@ -76,24 +81,36 @@ function roundText(m) {
   return "—";
 }
 
+/* ========== Tone helpers (áp màu đồng bộ) ========== */
+const toneToMuiColor = (tone) => {
+  // filter ở header & tournament-card (status giải)
+  if (tone === "upcoming" || tone === "scheduled") return "primary"; // lam
+  if (tone === "ongoing" || tone === "live") return "warning"; // cam
+  if (tone === "finished") return "success"; // lục
+  return "primary";
+};
+
 /* ================= Small UI bits ================= */
-function ToggleChip({ active, label, onClick }) {
+function ToggleChip({ active, label, onClick, tone }) {
+  const color = toneToMuiColor(tone);
   return (
     <Chip
       label={label}
       onClick={onClick}
       variant={active ? "filled" : "outlined"}
-      color={active ? "primary" : "default"}
+      color={active ? color : "default"}
       size="small"
       sx={{ borderRadius: 999, fontWeight: 700 }}
     />
   );
 }
+
 function StatusChip({ status }) {
+  // status của TRẬN
   const map = {
-    live: { label: "Đang diễn ra", color: "error" },
-    finished: { label: "Đã kết thúc", color: "success" },
-    scheduled: { label: "Sắp diễn ra", color: "primary" },
+    live: { label: "Đang diễn ra", color: "warning" }, // cam
+    finished: { label: "Đã kết thúc", color: "success" }, // lục
+    scheduled: { label: "Sắp diễn ra", color: "primary" }, // lam
   };
   const conf = map[status] || map.scheduled;
   return (
@@ -105,6 +122,7 @@ function StatusChip({ status }) {
     />
   );
 }
+
 function SmallMeta({ icon, text }) {
   const Icon = icon;
   return (
@@ -121,6 +139,7 @@ function SmallMeta({ icon, text }) {
     </Stack>
   );
 }
+
 function ScoreBadge({ sets }) {
   const text =
     Array.isArray(sets) && sets.length
@@ -155,12 +174,13 @@ function MatchRow({ m, onOpen, eventType }) {
   const status = m.status || (m.winner ? "finished" : "scheduled");
   const court = m.courtName || m.court || "";
   const when = m.scheduledAt || m.startTime || m.time;
+
   const accent =
     status === "live"
-      ? "error.main"
+      ? "warning.main" // cam
       : status === "finished"
-      ? "success.main"
-      : "primary.main";
+      ? "success.main" // lục
+      : "primary.main"; // lam
 
   return (
     <Card variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
@@ -207,17 +227,17 @@ function MatchRow({ m, onOpen, eventType }) {
 }
 
 function Banner({ t }) {
-  const status = t.status;
+  // status của GIẢI
   const statusText =
-    status === "ongoing"
+    t.status === "ongoing"
       ? "Đang diễn ra"
-      : status === "finished"
+      : t.status === "finished"
       ? "Đã kết thúc"
       : "Sắp diễn ra";
   const statusColor =
-    status === "ongoing"
+    t.status === "ongoing"
       ? "warning"
-      : status === "finished"
+      : t.status === "finished"
       ? "success"
       : "primary";
   const uri = t.image || t.cover || t.bannerUrl || null;
@@ -250,9 +270,11 @@ function Banner({ t }) {
             }}
           />
         )}
+        {/* overlay tối nhẹ */}
         <Box
           sx={{ position: "absolute", inset: 0, bgcolor: "rgba(0,0,0,0.22)" }}
         />
+        {/* gradient đáy */}
         <Box
           sx={{
             position: "absolute",
@@ -285,6 +307,7 @@ function Banner({ t }) {
               </Stack>
             )}
           </Box>
+          {/* status tag theo quy ước màu */}
           <Chip
             label={statusText}
             color={statusColor}
@@ -302,7 +325,9 @@ function TournamentCard({ t, onOpenMatch }) {
   const [statusFilter, setStatusFilter] = useState(
     new Set(["scheduled", "live", "finished"])
   );
+
   const matches = Array.isArray(t.matches) ? t.matches : [];
+
   const filteredMatches = useMemo(() => {
     const q = stripVN(matchQuery);
     return matches.filter((m) => {
@@ -325,6 +350,7 @@ function TournamentCard({ t, onOpenMatch }) {
 
   const shown = expanded ? filteredMatches : filteredMatches.slice(0, 5);
   const hasMore = filteredMatches.length > shown.length;
+
   const toggleStatus = (key) =>
     setStatusFilter((prev) => {
       const n = new Set(prev);
@@ -348,6 +374,7 @@ function TournamentCard({ t, onOpenMatch }) {
           </Typography>
         </Stack>
 
+        {/* SEARCH + FILTER TRẬN (chip có màu theo tone) */}
         <Stack
           direction={{ xs: "column", sm: "row" }}
           spacing={1}
@@ -374,21 +401,25 @@ function TournamentCard({ t, onOpenMatch }) {
               ) : null,
             }}
           />
+
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             <ToggleChip
               label="Sắp diễn ra"
               active={statusFilter.has("scheduled")}
               onClick={() => toggleStatus("scheduled")}
+              tone="scheduled"
             />
             <ToggleChip
               label="Đang diễn ra"
               active={statusFilter.has("live")}
               onClick={() => toggleStatus("live")}
+              tone="live"
             />
             <ToggleChip
               label="Đã kết thúc"
               active={statusFilter.has("finished")}
               onClick={() => toggleStatus("finished")}
+              tone="finished"
             />
             {(!!matchQuery || statusFilter.size !== 3) && (
               <Button
@@ -405,6 +436,7 @@ function TournamentCard({ t, onOpenMatch }) {
           </Stack>
         </Stack>
 
+        {/* LIST MATCHES */}
         {filteredMatches.length === 0 ? (
           <Box
             sx={{
@@ -453,7 +485,7 @@ function TournamentCard({ t, onOpenMatch }) {
   );
 }
 
-/* ======= Login Prompt (giữ nguyên) ======= */
+/* ======= Login Prompt ======= */
 function LoginPrompt() {
   const navigate = useNavigate();
   return (
@@ -543,6 +575,7 @@ export default function MyTournamentsPage() {
     setMatchId(m?._id);
     setViewerOpen(true);
   }, []);
+
   const toggleTourStatus = (key) =>
     setTourStatus((prev) => {
       const n = new Set(prev);
@@ -555,7 +588,7 @@ export default function MyTournamentsPage() {
 
   return (
     <Box sx={{ minHeight: "100dvh", bgcolor: "background.default" }}>
-      {/* Sticky header trong Container "bình thường" */}
+      {/* Sticky header trong Container */}
       <Box
         sx={{
           position: "sticky",
@@ -572,7 +605,7 @@ export default function MyTournamentsPage() {
       >
         <Container maxWidth="xl" sx={{ py: 3 }}>
           <Stack spacing={1}>
-            <Typography variant={"h5"} fontWeight={600} >
+            <Typography variant={"h5"} fontWeight={600}>
               Giải của tôi
             </Typography>
 
@@ -580,6 +613,7 @@ export default function MyTournamentsPage() {
               direction={{ xs: "column", sm: "row" }}
               spacing={1}
               alignItems={{ xs: "stretch", sm: "center" }}
+              useFlexGap
             >
               <TextField
                 value={tourQuery}
@@ -602,37 +636,8 @@ export default function MyTournamentsPage() {
                   ) : null,
                 }}
               />
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <ToggleChip
-                  label="Sắp diễn ra"
-                  active={tourStatus.has("upcoming")}
-                  onClick={() => toggleTourStatus("upcoming")}
-                />
-                <ToggleChip
-                  label="Đang diễn ra"
-                  active={tourStatus.has("ongoing")}
-                  onClick={() => toggleTourStatus("ongoing")}
-                />
-                <ToggleChip
-                  label="Đã kết thúc"
-                  active={tourStatus.has("finished")}
-                  onClick={() => toggleTourStatus("finished")}
-                />
-                {(!!tourQuery || tourStatus.size !== 3) && (
-                  <Button
-                    onClick={() => {
-                      setTourQuery("");
-                      setTourStatus(
-                        new Set(["upcoming", "ongoing", "finished"])
-                      );
-                    }}
-                    size="small"
-                    variant="text"
-                  >
-                    Reset
-                  </Button>
-                )}
-              </Stack>
+
+              {/* ===== Bộ lọc giải (chip màu theo tone) ===== */}
               {!!tournaments?.length && (
                 <Typography
                   variant="body2"
@@ -647,7 +652,7 @@ export default function MyTournamentsPage() {
         </Container>
       </Box>
 
-      {/* MAIN: Container chuẩn, item full width bằng Stack */}
+      {/* MAIN */}
       <Container maxWidth="xl" sx={{ pt: 2, pb: 4 }}>
         {isLoading ? (
           <Stack spacing={2}>

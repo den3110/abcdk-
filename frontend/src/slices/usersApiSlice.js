@@ -69,6 +69,10 @@ export const userApiSlice = apiSlice.injectEndpoints({
       providesTags: ["Me"],
       keepUnusedDataFor: 30,
     }),
+    getMeScore: builder.query({
+      query: () => ({ url: "/api/users/me/score", method: "GET" }),
+      providesTags: ["MeScore"],
+    }),
     // ... login, register đang có
     forgotPassword: builder.mutation({
       query: (body) => ({
@@ -101,4 +105,5 @@ export const {
   useGetMeQuery,
   useForgotPasswordMutation,
   useResetPasswordMutation,
+  useGetMeScoreQuery,
 } = userApiSlice;

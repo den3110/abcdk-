@@ -2892,7 +2892,7 @@ export default function TournamentBracket() {
       ) : (
         <Paper sx={{ p: 2 }}>
           <Typography variant="h6" gutterBottom>
-            Nhánh knock-out: {current.name}
+            Vòng knock-out: {current.name}
           </Typography>
 
           {(() => {

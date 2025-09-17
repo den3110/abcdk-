@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
-import { useSelector } from "react-redux";
+// ❌ Không dùng Redux auth nữa
 import {
   Avatar,
   Box,
@@ -51,13 +51,14 @@ import {
   useManagerDeleteRegistrationMutation,
   useManagerReplaceRegPlayerMutation,
 } from "../../slices/tournamentsApiSlice";
+import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 
 /* ---------------- helpers ---------------- */
 const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";
 
-/** Làm tròn đến 3 chữ số thập phân và lược 0 thừa (1.230 -> 1.23, 2.000 -> 2) */
+/** round to 3 decimals and trim trailing zeros */
 const fmt3 = (v) => {
   const n = Number(v);
   if (!isFinite(n)) return "—";
@@ -74,10 +75,8 @@ const normType = (t) => {
 
 const displayName = (pl) => {
   if (!pl) return "—";
-  // Ưu tiên các biến thể nickname
   const nn = pl.nickName || pl.nickname || pl?.user?.nickname || "";
-  // Nếu chưa có nickname thì fallback fullName (để không trống)
-  return nn || pl.fullName || "—";
+  return nn || pl.fullName || pl.name || pl.displayName || "—";
 };
 
 const getUserId = (pl) => {
@@ -133,7 +132,7 @@ function CheckinChip({ checkinAt }) {
   );
 }
 
-/* Stat item (không viền) */
+/* Stat item */
 function StatItem({ icon, label, value, hint }) {
   return (
     <Box sx={{ p: 1, height: "100%" }}>
@@ -168,6 +167,51 @@ function StatItem({ icon, label, value, hint }) {
             </Typography>
           )}
         </Box>
+      </Stack>
+    </Box>
+  );
+}
+
+/** VĐV 1 (Bạn) — read-only, lấy từ /api/users/me/score */
+function SelfPlayerReadonly({ me, isSingles }) {
+  if (!me?._id) return null;
+  const display = me?.nickname || me?.name || "Tôi";
+  const scoreVal = isSingles ? me?.score?.single : me?.score?.double;
+
+  return (
+    <Box
+      sx={{
+        p: 1.5,
+        borderRadius: 1,
+        border: "1px solid",
+        borderColor: "divider",
+      }}
+    >
+      <Typography variant="subtitle2" gutterBottom>
+        VĐV 1 (Bạn)
+      </Typography>
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <Avatar src={me?.avatar || PLACE} />
+        <Box sx={{ minWidth: 0, flex: 1 }}>
+          <Typography variant="body2" noWrap title={display}>
+            {display}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" noWrap>
+            {me?.phone || "—"}
+          </Typography>
+        </Box>
+        <Tooltip
+          arrow
+          title={`Điểm ${isSingles ? "đơn" : "đôi"} hiện tại của bạn`}
+        >
+          <Chip
+            size="small"
+            variant="outlined"
+            icon={<Equalizer fontSize="small" />}
+            label={fmt3(scoreVal ?? 0)}
+            sx={{ whiteSpace: "nowrap" }}
+          />
+        </Tooltip>
       </Stack>
     </Box>
   );
@@ -235,12 +279,14 @@ export default function TournamentRegistration() {
   const { id } = useParams();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
-  const me = useSelector((s) => s.auth?.userInfo || null);
+
+  // Lấy "mình" + điểm từ API mới
+  const { data: me, isLoading: meLoading, error: meErr } = useGetMeScoreQuery();
   const isLoggedIn = !!me?._id;
 
   // Pagination (client-side)
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize] = useState(10);
 
   /* ───────── queries ───────── */
   const {
@@ -256,7 +302,7 @@ export default function TournamentRegistration() {
     refetch: refetchRegs,
   } = useGetRegistrationsQuery(id);
 
-  // ⛔️ tránh loop khi anonymous
+  // chỉ gọi khi đã đăng nhập để tránh loop
   const {
     data: myInvites = [],
     error: invitesErr,
@@ -276,7 +322,7 @@ export default function TournamentRegistration() {
     useManagerReplaceRegPlayerMutation();
 
   /* ───────── local state ───────── */
-  const [p1, setP1] = useState(null);
+  // VĐV1 là bạn (không state), chỉ cần p2 nếu giải đôi
   const [p2, setP2] = useState(null);
   const [msg, setMsg] = useState("");
   const [cancelingId, setCancelingId] = useState(null);
@@ -360,7 +406,10 @@ export default function TournamentRegistration() {
   );
 
   const playersOfReg = (r) => [r?.player1, r?.player2].filter(Boolean);
-  const disableSubmit = saving || !p1 || (isDoubles && !p2);
+
+  // Submit: cần me xong; nếu đôi thì cần p2
+  const disableSubmit =
+    saving || meLoading || !isLoggedIn || (isDoubles && !p2);
 
   const formatDate = (d) => (d ? new Date(d).toLocaleDateString() : "");
   const formatRange = (a, b) => {
@@ -374,18 +423,17 @@ export default function TournamentRegistration() {
   const submit = async (e) => {
     e.preventDefault();
     if (!isLoggedIn) return toast.info("Vui lòng đăng nhập để đăng ký.");
-    if (!p1) return toast.error("Chọn VĐV 1");
+    if (!me?._id) return toast.error("Không xác định được VĐV 1 (bạn).");
     if (isDoubles && !p2) return toast.error("Giải đôi cần 2 VĐV");
 
     try {
       const res = await createInvite({
         tourId: id,
         message: msg,
-        player1Id: p1._id,
+        player1Id: String(me._id), // luôn là bạn
         ...(isDoubles ? { player2Id: p2._id } : {}),
       }).unwrap();
 
-      // Server chỉ còn 2 nhánh: admin trực tiếp hoặc KYC trực tiếp
       if (
         res?.registration ||
         res?.mode === "direct_by_admin" ||
@@ -400,17 +448,14 @@ export default function TournamentRegistration() {
             : "Trực tiếp";
         toast.success(`Đã tạo đăng ký (${label}).`);
 
-        setP1(null);
         setP2(null);
         setMsg("");
         await refetchRegs();
         return;
       }
 
-      // Trường hợp hiếm: không có registration trả về
       toast.error("Không thể tạo đăng ký.");
     } catch (err) {
-      // 412 từ backend: thiếu KYC VERIFIED
       if (err?.status === 412) {
         toast.error(
           err?.data?.message ||
@@ -457,23 +502,14 @@ export default function TournamentRegistration() {
     }
   };
 
-  const handleInviteRespond = async (inviteId, action) => {
-    if (!isLoggedIn)
-      return toast.info("Vui lòng đăng nhập để phản hồi lời mời.");
-    try {
-      await respondInvite({ inviteId, action }).unwrap();
-      if (action === "accept") toast.success("Đã chấp nhận lời mời");
-      else toast.info("Đã từ chối lời mời");
-      await Promise.all([refetchInvites(), refetchRegs()]);
-    } catch (e) {
-      toast.error(e?.data?.message || e?.error || "Không thể gửi phản hồi");
-    }
-  };
-
+  // Toggle trạng thái thanh toán của 1 đăng ký
   const togglePayment = async (r) => {
-    if (!canManage)
-      return toast.info("Bạn không có quyền cập nhật thanh toán.");
+    if (!canManage) {
+      toast.info("Bạn không có quyền cập nhật thanh toán.");
+      return;
+    }
     const next = r?.payment?.status === "Paid" ? "Unpaid" : "Paid";
+
     try {
       await setPaymentStatus({ regId: r._id, status: next }).unwrap();
       toast.success(
@@ -486,6 +522,18 @@ export default function TournamentRegistration() {
       toast.error(
         e?.data?.message || e?.error || "Cập nhật thanh toán thất bại"
       );
+    }
+  };
+  const handleInviteRespond = async (inviteId, action) => {
+    if (!isLoggedIn)
+      return toast.info("Vui lòng đăng nhập để phản hồi lời mời.");
+    try {
+      await respondInvite({ inviteId, action }).unwrap();
+      if (action === "accept") toast.success("Đã chấp nhận lời mời");
+      else toast.info("Đã từ chối lời mời");
+      await Promise.all([refetchInvites(), refetchRegs()]);
+    } catch (e) {
+      toast.error(e?.data?.message || e?.error || "Không thể gửi phản hồi");
     }
   };
 
@@ -539,7 +587,6 @@ export default function TournamentRegistration() {
 
   const PlayerCell = ({ player, onEdit, canEdit }) => (
     <Stack direction="row" spacing={1} alignItems="center">
-      {/* Avatar: phóng to ảnh */}
       <Box
         onClick={() =>
           openPreview(player?.avatar || PLACE, displayName(player))
@@ -554,7 +601,6 @@ export default function TournamentRegistration() {
         <Avatar src={player?.avatar || PLACE} />
       </Box>
 
-      {/* Tên + phone: mở hồ sơ */}
       <Box
         sx={{
           maxWidth: 300,
@@ -572,7 +618,6 @@ export default function TournamentRegistration() {
         </Typography>
       </Box>
 
-      {/* Điểm trình (chốt lúc đăng ký) */}
       <Tooltip arrow title="Điểm trình (chốt lúc đăng ký)">
         <Chip
           size="small"
@@ -616,7 +661,7 @@ export default function TournamentRegistration() {
         </Stack>
       </Stack>
 
-      {/* THÔNG TIN GIẢI ĐẤU (không ảnh, không viền) */}
+      {/* Thông tin giải */}
       <Box sx={{ mb: 2 }}>
         <Grid container spacing={1.5} alignItems="center">
           <Grid item xs={12} md={5}>
@@ -702,130 +747,37 @@ export default function TournamentRegistration() {
       </Box>
 
       {/* Thông báo đăng nhập */}
-      {!isLoggedIn && (
-        <Paper sx={{ p: 2, mb: 3 }} variant="outlined">
-          <Alert severity="info">
-            Bạn chưa đăng nhập. Hãy đăng nhập để thực hiện đăng ký.
-          </Alert>
-        </Paper>
-      )}
-
-      {/* Lời mời đang chờ xác nhận */}
-      {false && isLoggedIn && pendingInvitesHere.length > 0 && (
-        <Paper sx={{ p: 2, mb: 3 }} variant="outlined">
-          <Stack spacing={1.5}>
-            <Typography fontWeight={700}>Lời mời đang chờ xác nhận</Typography>
-            {invitesErr && (
-              <Alert severity="error" sx={{ my: 1 }}>
-                {invitesErr?.data?.message ||
-                  invitesErr?.error ||
-                  "Không tải được lời mời"}
+      {meLoading
+        ? null
+        : !isLoggedIn && (
+            <Paper sx={{ p: 2, mb: 3 }} variant="outlined">
+              <Alert severity="info">
+                Bạn chưa đăng nhập. Hãy đăng nhập để thực hiện đăng ký.
               </Alert>
-            )}
-            {pendingInvitesHere.map((inv) => (
-              <Stack
-                key={inv._id}
-                direction={{ xs: "column", md: "row" }}
-                alignItems={{ xs: "flex-start", md: "center" }}
-                spacing={1.5}
-                sx={{
-                  border: "1px dashed",
-                  borderColor: "divider",
-                  p: 1.5,
-                  borderRadius: 1,
-                }}
-              >
-                <Box sx={{ minWidth: 220 }}>
-                  <Typography variant="body2" fontWeight={700}>
-                    {inv.tournament?.name}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {inv.eventType === "single" ? "Giải đơn" : "Giải đôi"} •{" "}
-                    {inv.tournament?.startDate
-                      ? new Date(inv.tournament?.startDate).toLocaleDateString()
-                      : ""}
-                  </Typography>
-                </Box>
+            </Paper>
+          )}
 
-                <Box sx={{ flex: 1 }}>
-                  {/* trạng thái xác nhận */}
-                  {(() => {
-                    const { confirmations = {}, eventType } = inv || {};
-                    const isSingle = eventType === "single";
-                    const chip = (v) =>
-                      v === "accepted" ? (
-                        <Chip
-                          size="small"
-                          color="success"
-                          label="Đã chấp nhận"
-                        />
-                      ) : v === "declined" ? (
-                        <Chip size="small" color="error" label="Từ chối" />
-                      ) : (
-                        <Chip
-                          size="small"
-                          color="default"
-                          label="Chờ xác nhận"
-                        />
-                      );
-                    return (
-                      <Stack
-                        direction="row"
-                        spacing={1}
-                        alignItems="center"
-                        flexWrap="wrap"
-                      >
-                        <Typography variant="caption">Xác nhận:</Typography>
-                        <Chip size="small" variant="outlined" label="P1" />
-                        {chip(confirmations?.p1)}
-                        {!isSingle && (
-                          <>
-                            <Chip size="small" variant="outlined" label="P2" />
-                            {chip(confirmations?.p2)}
-                          </>
-                        )}
-                      </Stack>
-                    );
-                  })()}
-                </Box>
-
-                <Stack direction="row" spacing={1}>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="error"
-                    disabled={responding}
-                    onClick={() => handleInviteRespond(inv._id, "decline")}
-                  >
-                    Từ chối
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="contained"
-                    disabled={responding}
-                    onClick={() => handleInviteRespond(inv._id, "accept")}
-                  >
-                    Chấp nhận
-                  </Button>
-                </Stack>
-              </Stack>
-            ))}
-          </Stack>
-        </Paper>
-      )}
-
-      {/* FORM (trên) */}
+      {/* FORM: VĐV1 = Bạn (read-only), chỉ chọn VĐV2 nếu là đôi */}
       <Paper variant="outlined" sx={{ p: 2, mb: 1.5, maxWidth: 760 }}>
         <Typography variant="h6" gutterBottom>
           {isAdmin ? "Tạo đăng ký (admin)" : "Đăng ký thi đấu"}
         </Typography>
+
         <Grid item xs={12} component="form" onSubmit={submit}>
-          <PlayerSelector
-            label={isSingles ? "VĐV" : "VĐV 1"}
-            eventType={tour.eventType}
-            value={p1}
-            onChange={setP1}
-          />
+          {meLoading ? (
+            <Box sx={{ p: 2 }}>
+              <CircularProgress size={20} />
+            </Box>
+          ) : meErr ? (
+            <Alert severity="error">Không tải được thông tin của bạn.</Alert>
+          ) : isLoggedIn ? (
+            <SelfPlayerReadonly me={me} isSingles={isSingles} />
+          ) : (
+            <Alert severity="info">
+              Bạn chưa đăng nhập. Hãy đăng nhập để đăng ký.
+            </Alert>
+          )}
+
           {isDoubles && (
             <Box mt={3}>
               <PlayerSelector
@@ -877,7 +829,7 @@ export default function TournamentRegistration() {
         </Grid>
       </Paper>
 
-      {/* === Thông tin liên hệ & Nội dung giải — dạng ROW, không viền === */}
+      {/* === Nội dung/ liên hệ (nếu có) === */}
       {(tour?.contactHtml || tour?.contentHtml) && (
         <Box
           sx={{
@@ -958,7 +910,7 @@ export default function TournamentRegistration() {
         </Box>
       )}
 
-      {/* LIST (dưới) */}
+      {/* LIST đăng ký */}
       <Stack direction="row" alignItems="center" spacing={1} className="mb-1">
         <Typography variant="h5">Danh sách đăng ký ({regCount})</Typography>
         <Chip
@@ -999,7 +951,6 @@ export default function TournamentRegistration() {
                     alignItems="center"
                     mt={1}
                   >
-                    {/* Avatar: zoom ảnh */}
                     <Box
                       onClick={() =>
                         openPreview(pl?.avatar || PLACE, displayName(pl))
@@ -1014,7 +965,6 @@ export default function TournamentRegistration() {
                       <Avatar src={pl?.avatar || PLACE} />
                     </Box>
 
-                    {/* Tên/phone: mở hồ sơ */}
                     <Box
                       sx={{
                         flex: 1,
@@ -1036,7 +986,6 @@ export default function TournamentRegistration() {
                       </Typography>
                     </Box>
 
-                    {/* Điểm trình */}
                     <Tooltip arrow title="Điểm trình (chốt lúc đăng ký)">
                       <Chip
                         size="small"
@@ -1067,7 +1016,6 @@ export default function TournamentRegistration() {
                   </Stack>
                 ))}
 
-                {/* nếu đôi mà chưa có VĐV 2: cho thêm luôn */}
                 {!isSingles && !r.player2 && canManage && (
                   <Box mt={1}>
                     <Button
@@ -1092,7 +1040,6 @@ export default function TournamentRegistration() {
                   <CheckinChip checkinAt={r.checkinAt} />
                 </Stack>
 
-                {/* Tổng điểm */}
                 <Stack direction="row" spacing={1} mt={1} alignItems="center">
                   <Typography variant="body2">Tổng điểm:</Typography>
                   <Chip
@@ -1219,7 +1166,7 @@ export default function TournamentRegistration() {
         </TableContainer>
       )}
 
-      {/* Pagination controls */}
+      {/* Pagination */}
       {!regsLoading && !regsErr && regCount > 0 && (
         <Stack
           direction={{ xs: "column", md: "row" }}

@@ -12,6 +12,7 @@ import {
   getMe,
   createEvaluation,
   authUserWeb,
+  getMeWithScore,
 } from "../controllers/userController.js";
 import { protect } from "../middleware/authMiddleware.js";
 import {
@@ -30,6 +31,7 @@ router.post("/logout", logoutUser);
 router.get("/:id/public", getPublicProfile);
 router.get("/:id/ratings", getRatingHistory);
 router.get("/:id/matches", getMatchHistory);
+router.get("/me/score", protect, getMeWithScore);
 
 router
   .route("/profile")

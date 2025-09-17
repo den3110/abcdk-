@@ -363,34 +363,34 @@ export async function onMatchFinished({ matchId }) {
   const m = await Match.findById(matchId)
     .select("court tournament courtCluster")
     .lean();
-  if (!m || !m.court)
-    return { tournamentId: null, clusterKey: null, assigned: false };
+  // if (!m || !m.court)
+  //   return { tournamentId: null, clusterKey: null, assigned: false };
 
-  // Nếu match thiếu courtCluster, đọc cluster từ Court (cluster hiện là String(bracketId))
-  const courtDoc = await Court.findById(m.court)
-    .select("cluster isActive")
-    .lean();
-  const clusterKey = m.courtCluster || courtDoc?.cluster || "Main";
+  // // Nếu match thiếu courtCluster, đọc cluster từ Court (cluster hiện là String(bracketId))
+  // const courtDoc = await Court.findById(m.court)
+  //   .select("cluster isActive")
+  //   .lean();
+  // const clusterKey = m.courtCluster || courtDoc?.cluster || "Main";
 
-  await Court.updateOne(
-    { _id: m.court },
-    { $set: { status: "idle", currentMatch: null } }
-  );
+  // await Court.updateOne(
+  //   { _id: m.court },
+  //   { $set: { status: "idle", currentMatch: null } }
+  // );
 
-  // if (!courtDoc?.isActive) {
-  //   // sân bị deactivate (ví dụ upsert loại bỏ sân này) → dừng tại đây, không auto-assign
-  //   return { tournamentId: m.tournament, clusterKey, assigned: false };
-  // }
+  // // if (!courtDoc?.isActive) {
+  // //   // sân bị deactivate (ví dụ upsert loại bỏ sân này) → dừng tại đây, không auto-assign
+  // //   return { tournamentId: m.tournament, clusterKey, assigned: false };
+  // // }
 
-  const assigned = await assignNextToCourt({
-    tournamentId: m.tournament,
-    courtId: m.court,
-    cluster: clusterKey,
-  });
+  // const assigned = await assignNextToCourt({
+  //   tournamentId: m.tournament,
+  //   courtId: m.court,
+  //   cluster: clusterKey,
+  // });
 
   return {
     tournamentId: m.tournament,
-    clusterKey,
-    assigned: !!assigned,
+    // clusterKey,
+    // assigned: !!assigned,
   };
 }

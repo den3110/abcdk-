@@ -55,11 +55,10 @@ const fmt3 = (x) => (Number.isFinite(x) ? Number(x).toFixed(3) : "0.000");
 const SKELETON_CARDS_MOBILE = 6;
 const SKELETON_ROWS_DESKTOP = 10;
 
-// Tính tuổi
+/* ================= helpers ================= */
 const calcAge = (u) => {
   if (!u) return null;
   const today = new Date();
-
   const dateStr =
     u.dob || u.dateOfBirth || u.birthday || u.birthdate || u.birth_date;
   if (dateStr) {
@@ -71,31 +70,25 @@ const calcAge = (u) => {
       return age;
     }
   }
-
   const yearRaw = u.birthYear ?? u.birth_year ?? u.yob;
   const year = Number(yearRaw);
   if (Number.isFinite(year) && year > 1900 && year <= today.getFullYear()) {
     return today.getFullYear() - year;
   }
-
   if (dateStr && /^\d{4}$/.test(String(dateStr))) {
     const y = Number(dateStr);
     if (Number.isFinite(y)) return today.getFullYear() - y;
   }
-
   return null;
 };
 
+// ✅ đổi nhãn & màu chip xác thực trên từng dòng/card
 const cccdBadge = (status) => {
   switch (status) {
     case "verified":
-      return { text: "Xác thực", color: "success" };
-    case "pending":
-      return { text: "Chờ", color: "warning" };
-    case "rejected":
-    case "unverified":
+      return { text: "Đã xác thực", color: "warning" }; // vàng
     default:
-      return { text: "Chưa xác thực", color: "default" };
+      return { text: "Chưa xác thực", color: "default" }; // xám
   }
 };
 
@@ -114,7 +107,7 @@ const genderLabel = (g) => {
   }
 };
 
-// Legend theo tier (theo GIẢI)
+/* ===== Legend: chỉ 3 chip theo yêu cầu ===== */
 const Legend = () => (
   <Stack
     direction="row"
@@ -122,20 +115,13 @@ const Legend = () => (
     useFlexGap
     sx={{ columnGap: 1.5, rowGap: 1, mb: 2 }}
   >
-    <Chip
-      label="Xanh lá: ≥ 10 giải"
-      sx={{ bgcolor: HEX.green, color: "#fff" }}
-    />
-    <Chip
-      label="Xanh dương: 5–9 giải"
-      sx={{ bgcolor: HEX.blue, color: "#fff" }}
-    />
-    <Chip label="Vàng: 1–4 giải" sx={{ bgcolor: HEX.yellow, color: "#000" }} />
-    <Chip label="Đỏ: tự chấm" sx={{ bgcolor: HEX.red, color: "#fff" }} />
+    <Chip label="Đã xác thực" sx={{ bgcolor: HEX.yellow, color: "#000" }} />
+    <Chip label="Tự chấm" sx={{ bgcolor: HEX.red, color: "#fff" }} />
+    <Chip label="Chưa xác thực" sx={{ bgcolor: HEX.grey, color: "#fff" }} />
   </Stack>
 );
 
-// ⬇️ helper kiểm tra quyền chấm (admin = true cho mọi tỉnh)
+// quyền chấm
 const canGradeUser = (me, targetProvince) => {
   if (me?.role === "admin") return true;
   if (!me?.evaluator?.enabled) return false;
@@ -143,12 +129,10 @@ const canGradeUser = (me, targetProvince) => {
   return !!targetProvince && scopes.includes(String(targetProvince).trim());
 };
 
-// ⬇️ helper lấy điểm baseline để fill dialog
 const numOrUndef = (v) => (Number.isFinite(Number(v)) ? Number(v) : undefined);
 const getBaselineScores = (u, r) => {
   const singleFromR = numOrUndef(r?.single);
   const doubleFromR = numOrUndef(r?.double);
-
   const singleFromU =
     numOrUndef(u?.localRatings?.singles) ??
     numOrUndef(u?.ratingSingle) ??
@@ -157,18 +141,17 @@ const getBaselineScores = (u, r) => {
     numOrUndef(u?.localRatings?.doubles) ??
     numOrUndef(u?.ratingDouble) ??
     undefined;
-
   return {
     single: singleFromR ?? singleFromU,
     double: doubleFromR ?? doubleFromU,
   };
 };
 
-// ⬇️ MỚI: helpers parse/format page & keyword với URLSearchParams
+// URL params helpers
 const parsePageFromParams = (sp) => {
   const raw = sp.get("page");
   const n = parseInt(raw ?? "1", 10);
-  return Number.isFinite(n) && n > 0 ? n - 1 : 0; // URL 1-based → state 0-based
+  return Number.isFinite(n) && n > 0 ? n - 1 : 0;
 };
 const parseKeywordFromParams = (sp) => sp.get("q") ?? "";
 
@@ -189,60 +172,50 @@ export default function RankingList() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme?.breakpoints?.down("sm"));
 
-  // ====== TOKEN DETECTION (tránh gọi /me khi chưa đăng nhập) ======
+  // token
   const token =
     useSelector((s) => s?.auth?.userInfo?.token) ||
     useSelector((s) => s?.userLogin?.userInfo?.token) ||
     useSelector((s) => s?.user?.token) ||
     null;
 
-  // ⬇️ Gọi profile "me" CHỈ khi có token → tránh vòng lặp 401
-  const {
-    data: meData,
-    // error: meError,  // nếu muốn show cảnh báo khi token hết hạn
-  } = useGetMeQuery(token ? undefined : skipToken, {
+  const { data: meData } = useGetMeQuery(token ? undefined : skipToken, {
     refetchOnFocus: false,
     refetchOnReconnect: false,
     refetchOnMountOrArgChange: false,
   });
-
   const me = meData || null;
+  const canSelfAssess = !me || me.isScoreVerified === false;
 
-  // ⬇️ URL → Redux (kể cả Back/Forward). Chỉ dispatch khi khác để tránh loop.
+  // URL -> Redux
   useEffect(() => {
     const urlPage = parsePageFromParams(searchParams);
     if (urlPage !== page) dispatch(setPage(urlPage));
-
     const urlQ = parseKeywordFromParams(searchParams);
     if ((urlQ || "") !== (keyword || "")) dispatch(setKeyword(urlQ));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]); // chủ đích không đưa page/keyword vào deps để tránh vòng lặp
+  }, [searchParams]);
 
-  // ⬇️ Redux → URL khi page/keyword đổi. Giữ các params khác nếu có.
+  // Redux -> URL
   useEffect(() => {
     const curPageParam = searchParams.get("page");
-    const desiredPageParam = page > 0 ? String(page + 1) : null; // 1-based trong URL; trang 1 thì bỏ param
-
+    const desiredPageParam = page > 0 ? String(page + 1) : null;
     const curQ = searchParams.get("q") ?? "";
     const desiredQ = keyword || "";
-
     const needPageUpdate = curPageParam !== desiredPageParam;
     const needQUpdate = curQ !== desiredQ;
-
     if (needPageUpdate || needQUpdate) {
       const next = new URLSearchParams(searchParams);
       if (desiredPageParam) next.set("page", desiredPageParam);
       else next.delete("page");
-
       if (desiredQ) next.set("q", desiredQ);
       else next.delete("q");
-
       setSearchParams(next);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, keyword]);
 
-  // debounce refetch khi keyword đổi
+  // debounce refetch theo keyword
   useEffect(() => {
     const t = setTimeout(refetch, 300);
     return () => clearTimeout(t);
@@ -251,8 +224,7 @@ export default function RankingList() {
   // Profile dialog
   const [openProfile, setOpenProfile] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
-  const [profileRefreshKey, setProfileRefreshKey] = useState(0); // 🔄 tín hiệu refresh cho dialog
-
+  const [profileRefreshKey, setProfileRefreshKey] = useState(0);
   const handleOpenProfile = (id) => {
     setSelectedId(id);
     setOpenProfile(true);
@@ -261,14 +233,14 @@ export default function RankingList() {
 
   // Zoom avatar
   const [zoomSrc, setZoomSrc] = useState("");
-  const [zoomOpen, setZoomOpen] = useState(false);
+  const[zoomOpen, setZoomOpen] = useState(false);
   const openZoom = (src) => {
     setZoomSrc(src || PLACE);
     setZoomOpen(true);
   };
   const closeZoom = () => setZoomOpen(false);
 
-  // ⬇️ Dialog chấm điểm
+  // Dialog chấm điểm
   const [gradeDlg, setGradeDlg] = useState({
     open: false,
     userId: null,
@@ -281,12 +253,10 @@ export default function RankingList() {
   const [createEvaluation, { isLoading: creating }] =
     useCreateEvaluationMutation();
 
-  // snackbar
   const [snack, setSnack] = useState({ open: false, type: "success", msg: "" });
   const showSnack = (type, msg) => setSnack({ open: true, type, msg });
 
-  // 🔧 patch điểm ngay trên UI sau khi chấm (không cần reload)
-  // patchMap[userId] = { single, double, updatedAt }
+  // patch điểm tạm
   const [patchMap, setPatchMap] = useState({});
   const getPatched = (r, u) => {
     const p = patchMap[u?._id || ""];
@@ -297,7 +267,23 @@ export default function RankingList() {
     };
   };
 
-  // ✅ mở dialog + fill sẵn điểm hiện tại
+  const getBaselineScores = (u, r) => {
+    const singleFromR = numOrUndef(r?.single);
+    const doubleFromR = numOrUndef(r?.double);
+    const singleFromU =
+      numOrUndef(u?.localRatings?.singles) ??
+      numOrUndef(u?.ratingSingle) ??
+      undefined;
+    const doubleFromU =
+      numOrUndef(u?.localRatings?.doubles) ??
+      numOrUndef(u?.ratingDouble) ??
+      undefined;
+    return {
+      single: singleFromR ?? singleFromU,
+      double: doubleFromR ?? doubleFromU,
+    };
+  };
+
   const openGrade = (u, r) => {
     const base = getBaselineScores(u, r);
     setGradeDlg({
@@ -321,7 +307,6 @@ export default function RankingList() {
         gradeSingles === "" ? undefined : Number.parseFloat(gradeSingles);
       const doubles =
         gradeDoubles === "" ? undefined : Number.parseFloat(gradeDoubles);
-
       const inRange = (v) =>
         v === undefined || (v >= MIN_RATING && v <= MAX_RATING);
       if (!inRange(singles) || !inRange(doubles)) {
@@ -335,7 +320,6 @@ export default function RankingList() {
         showSnack("error", "Thiếu thông tin người được chấm hoặc tỉnh.");
         return;
       }
-
       const resp = await createEvaluation({
         targetUser: gradeDlg.userId,
         province: gradeDlg.province,
@@ -344,14 +328,12 @@ export default function RankingList() {
         notes: gradeNotes?.trim() || undefined,
       }).unwrap();
 
-      // ⬇️ Patch ngay điểm vào UI (ranking)
       const newSingle =
         resp?.ranking?.single ?? (singles !== undefined ? singles : undefined);
       const newDouble =
         resp?.ranking?.double ?? (doubles !== undefined ? doubles : undefined);
       const newUpdatedAt =
         resp?.ranking?.lastUpdated ?? new Date().toISOString();
-
       setPatchMap((m) => ({
         ...m,
         [gradeDlg.userId]: {
@@ -363,7 +345,6 @@ export default function RankingList() {
         },
       }));
 
-      // ⬇️ Nếu đang mở hồ sơ đúng user vừa chấm → báo dialog refresh (nếu dialog có dùng prop này)
       if (
         openProfile &&
         selectedId &&
@@ -384,125 +365,7 @@ export default function RankingList() {
 
   const chipMobileSx = { mr: { xs: 0.75, sm: 0 }, mb: { xs: 0.75, sm: 0 } };
 
-  // ========== SKELETON RENDERERS ==========
-  const MobileSkeletonList = () => (
-    <Stack spacing={2}>
-      {Array.from({ length: SKELETON_CARDS_MOBILE }).map((_, i) => (
-        <Card key={i} variant="outlined">
-          <CardContent>
-            <Box display="flex" alignItems="center" mb={1} gap={2}>
-              <Skeleton variant="circular" width={40} height={40} />
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Skeleton variant="text" width="40%" />
-              </Box>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Skeleton variant="rounded" width={64} height={24} />
-                <Skeleton variant="rounded" width={90} height={24} />
-              </Stack>
-            </Box>
-
-            <Stack
-              direction="row"
-              flexWrap="wrap"
-              useFlexGap
-              sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
-            >
-              <Skeleton variant="rounded" width={140} height={24} />
-              <Skeleton variant="rounded" width={160} height={24} />
-            </Stack>
-
-            <Divider sx={{ mb: 1 }} />
-
-            <Stack direction="row" spacing={2} mb={0.5}>
-              <Skeleton variant="text" width={100} />
-              <Skeleton variant="text" width={100} />
-            </Stack>
-
-            <Skeleton variant="text" width={180} />
-            <Skeleton variant="text" width={200} />
-
-            <Stack direction="row" spacing={1} mt={2}>
-              <Skeleton variant="rounded" width={80} height={32} />
-              <Skeleton variant="rounded" width={100} height={32} />
-            </Stack>
-          </CardContent>
-        </Card>
-      ))}
-    </Stack>
-  );
-
-  const DesktopSkeletonTable = () => (
-    <TableContainer component={Paper}>
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            {[
-              "#",
-              "Ảnh",
-              "Nick",
-              "Tuổi",
-              "Giới tính",
-              "Tỉnh",
-              "Điểm đôi",
-              "Điểm đơn",
-              "Cập nhật",
-              "Tham gia",
-              "Xác thực",
-              "",
-            ].map((h) => (
-              <TableCell key={h}>{h}</TableCell>
-            ))}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {Array.from({ length: SKELETON_ROWS_DESKTOP }).map((_, i) => (
-            <TableRow key={i}>
-              <TableCell>
-                <Skeleton variant="text" width={24} />
-              </TableCell>
-              <TableCell>
-                <Skeleton variant="circular" width={32} height={32} />
-              </TableCell>
-              <TableCell>
-                <Skeleton variant="text" width={120} />
-              </TableCell>
-              <TableCell>
-                <Skeleton variant="text" width={40} />
-              </TableCell>
-              <TableCell>
-                <Skeleton variant="text" width={70} />
-              </TableCell>
-              <TableCell>
-                <Skeleton variant="text" width={90} />
-              </TableCell>
-              <TableCell>
-                <Skeleton variant="text" width={80} />
-              </TableCell>
-              <TableCell>
-                <Skeleton variant="text" width={80} />
-              </TableCell>
-              <TableCell>
-                <Skeleton variant="text" width={110} />
-              </TableCell>
-              <TableCell>
-                <Skeleton variant="text" width={110} />
-              </TableCell>
-              <TableCell>
-                <Skeleton variant="rounded" width={90} height={24} />
-              </TableCell>
-              <TableCell>
-                <Stack direction="row" spacing={1}>
-                  <Skeleton variant="rounded" width={64} height={28} />
-                  <Skeleton variant="rounded" width={96} height={28} />
-                </Stack>
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </TableContainer>
-  );
-
+  /* ================= render ================= */
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
       <Box
@@ -514,16 +377,19 @@ export default function RankingList() {
         <Typography variant="h5" fontWeight={600}>
           Bảng xếp hạng
         </Typography>
-        <Button
-          component={Link}
-          to="/levelpoint"
-          variant="contained"
-          size="small"
-        >
-          Tự chấm trình
-        </Button>
+        {(!me || me.isScoreVerified === false) && (
+          <Button
+            component={Link}
+            to="/levelpoint"
+            variant="contained"
+            size="small"
+          >
+            Tự chấm trình
+          </Button>
+        )}
       </Box>
 
+      {/* Legend mới */}
       <Legend />
 
       <TextField
@@ -539,12 +405,119 @@ export default function RankingList() {
         <Alert severity="error">{error?.data?.message || error?.error}</Alert>
       ) : isLoading ? (
         isMobile ? (
-          <MobileSkeletonList />
+          /* mobile skeleton */
+          <Stack spacing={2}>
+            {Array.from({ length: SKELETON_CARDS_MOBILE }).map((_, i) => (
+              <Card key={i} variant="outlined">
+                <CardContent>
+                  <Box display="flex" alignItems="center" mb={1} gap={2}>
+                    <Skeleton variant="circular" width={40} height={40} />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Skeleton variant="text" width="40%" />
+                    </Box>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <Skeleton variant="rounded" width={64} height={24} />
+                      <Skeleton variant="rounded" width={90} height={24} />
+                    </Stack>
+                  </Box>
+                  <Stack
+                    direction="row"
+                    flexWrap="wrap"
+                    useFlexGap
+                    sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
+                  >
+                    <Skeleton variant="rounded" width={140} height={24} />
+                    <Skeleton variant="rounded" width={160} height={24} />
+                  </Stack>
+                  <Divider sx={{ mb: 1 }} />
+                  <Stack direction="row" spacing={2} mb={0.5}>
+                    <Skeleton variant="text" width={100} />
+                    <Skeleton variant="text" width={100} />
+                  </Stack>
+                  <Skeleton variant="text" width={180} />
+                  <Skeleton variant="text" width={200} />
+                  <Stack direction="row" spacing={1} mt={2}>
+                    <Skeleton variant="rounded" width={80} height={32} />
+                    <Skeleton variant="rounded" width={100} height={32} />
+                  </Stack>
+                </CardContent>
+              </Card>
+            ))}
+          </Stack>
         ) : (
-          <DesktopSkeletonTable />
+          /* desktop skeleton */
+          <TableContainer component={Paper}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  {[
+                    "#",
+                    "Ảnh",
+                    "Nick",
+                    "Tuổi",
+                    "Giới tính",
+                    "Tỉnh",
+                    "Điểm đôi",
+                    "Điểm đơn",
+                    "Cập nhật",
+                    "Tham gia",
+                    "Xác thực",
+                    "",
+                  ].map((h) => (
+                    <TableCell key={h}>{h}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {Array.from({ length: SKELETON_ROWS_DESKTOP }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell>
+                      <Skeleton variant="text" width={24} />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="circular" width={32} height={32} />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="text" width={120} />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="text" width={40} />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="text" width={70} />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="text" width={90} />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="text" width={80} />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="text" width={80} />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="text" width={110} />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="text" width={110} />
+                    </TableCell>
+                    <TableCell>
+                      <Skeleton variant="rounded" width={90} height={24} />
+                    </TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={1}>
+                        <Skeleton variant="rounded" width={64} height={28} />
+                        <Skeleton variant="rounded" width={96} height={28} />
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
         )
       ) : isMobile ? (
-        // ===== MOBILE CARD LIST =====
+        /* ===== MOBILE LIST ===== */
         <Stack spacing={2}>
           {list?.map((r) => {
             const u = r?.user || {};
@@ -553,7 +526,14 @@ export default function RankingList() {
             const tierHex = HEX[r?.tierColor] || HEX.grey;
             const age = calcAge(u);
             const canGrade = canGradeUser(me, u?.province);
-            const patched = getPatched(r, u);
+
+            // patched
+            const p = (id) => patchMap[id || ""] || {};
+            const patched = {
+              single: p(u?._id)?.single ?? r?.single,
+              double: p(u?._id)?.double ?? r?.double,
+              updatedAt: p(u?._id)?.updatedAt ?? r?.updatedAt,
+            };
 
             return (
               <Card key={r?._id || u?._id} variant="outlined">
@@ -575,7 +555,7 @@ export default function RankingList() {
                         <Chip
                           size="small"
                           label={`${age} tuổi`}
-                          sx={chipMobileSx}
+                          sx={{ mr: { xs: 0.75, sm: 0 } }}
                         />
                       )}
                       <Chip
@@ -595,13 +575,8 @@ export default function RankingList() {
                     <Chip
                       size="small"
                       label={`Giới tính: ${genderLabel(u?.gender)}`}
-                      sx={chipMobileSx}
                     />
-                    <Chip
-                      size="small"
-                      label={`Tỉnh: ${u?.province || "--"}`}
-                      sx={chipMobileSx}
-                    />
+                    <Chip size="small" label={`Tỉnh: ${u?.province || "--"}`} />
                   </Stack>
 
                   <Divider sx={{ mb: 1 }} />
@@ -666,7 +641,7 @@ export default function RankingList() {
           })}
         </Stack>
       ) : (
-        // ===== DESKTOP TABLE =====
+        /* ===== DESKTOP TABLE ===== */
         <TableContainer component={Paper}>
           <Table size="small">
             <TableHead>
@@ -693,7 +668,13 @@ export default function RankingList() {
                 const tierHex = HEX[r?.tierColor] || HEX.grey;
                 const age = calcAge(u);
                 const canGrade = canGradeUser(me, u?.province);
-                const patched = getPatched(r, u);
+
+                const p = (id) => patchMap[id || ""] || {};
+                const patched = {
+                  single: p(u?._id)?.single ?? r?.single,
+                  double: p(u?._id)?.double ?? r?.double,
+                  updatedAt: p(u?._id)?.updatedAt ?? r?.updatedAt,
+                };
 
                 return (
                   <TableRow key={r?._id || u?._id} hover>
@@ -766,8 +747,8 @@ export default function RankingList() {
         <Box mt={2} display="flex" justifyContent="center">
           <Pagination
             count={totalPages}
-            page={page + 1} // state 0-based → UI 1-based
-            onChange={(_, v) => dispatch(setPage(v - 1))} // UI 1-based → state 0-based
+            page={page + 1}
+            onChange={(_, v) => dispatch(setPage(v - 1))}
             color="primary"
           />
         </Box>
@@ -777,7 +758,7 @@ export default function RankingList() {
         open={openProfile}
         onClose={handleCloseProfile}
         userId={selectedId}
-        refreshKey={profileRefreshKey} // 🔄 truyền tín hiệu để dialog tự refetch nếu hỗ trợ
+        refreshKey={profileRefreshKey}
       />
 
       {/* Zoom dialog */}
@@ -803,7 +784,7 @@ export default function RankingList() {
         </DialogActions>
       </Dialog>
 
-      {/* ⬇️ Dialog chấm điểm */}
+      {/* Dialog chấm điểm */}
       <Dialog
         open={gradeDlg.open}
         onClose={() => setGradeDlg({ open: false })}

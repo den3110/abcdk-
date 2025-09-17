@@ -1078,6 +1078,44 @@ export const searchUser = asyncHandler(async (req, res) => {
   );
 });
 
+export const getMeWithScore = asyncHandler(async (req, res) => {
+  const uid = req.user?._id || req.user?.id;
+  if (!uid) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+
+  const user = await User.findById(uid)
+    .select("_id name nickname phone avatar province kycStatus levelPoint")
+    .lean();
+
+  if (!user) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
+  // Lấy bản ghi điểm mới nhất
+  const last = await ScoreHistory.findOne({ user: user._id })
+    .sort({ scoredAt: -1 })
+    .select("single double scoredAt")
+    .lean();
+
+  const score = {
+    single: last?.single ?? user?.levelPoint?.single ?? user?.levelPoint?.score ?? 0,
+    double: last?.double ?? user?.levelPoint?.double ?? 0,
+    scoredAt: last?.scoredAt ?? null,
+  };
+
+  return res.json({
+    _id: user._id,
+    name: user.name,
+    nickname: user.nickname,
+    phone: user.phone,
+    avatar: user.avatar,
+    province: user.province,
+    kycStatus: user.kycStatus ?? null,
+    score, // { single, double, scoredAt }
+  });
+});
+
 /* ===== helpers mới ===== */
 function dedupById(arr) {
   const seen = new Set();
@@ -1473,16 +1511,43 @@ export const getMe = asyncHandler(async (req, res) => {
     throw new Error("Không xác thực");
   }
 
-  const me = await User.findById(meId)
-    .select(
-      "_id name email role nickname phone gender province avatar verified cccdStatus createdAt updatedAt evaluator"
-    )
-    .lean();
+  // Chạy song song 3 truy vấn
+  const [me, participated, staffScored] = await Promise.all([
+    User.findById(meId)
+      .select(
+        "_id name email role nickname phone gender province avatar verified cccdStatus createdAt updatedAt evaluator"
+      )
+      .lean(),
+    (async () => {
+      try {
+        return await Registration.hasParticipated(meId);
+      } catch {
+        return false;
+      }
+    })(),
+    (async () => {
+      try {
+        // Đã được mod/admin chấm: scoreBy != self hoặc selfScored = false
+        const exists = await Assessment.exists({
+          user: meId,
+          $or: [
+            { "meta.scoreBy": { $in: ["admin", "mod", "moderator"] } },
+            { "meta.selfScored": false },
+          ],
+        });
+        return !!exists;
+      } catch {
+        return false;
+      }
+    })(),
+  ]);
 
   if (!me) {
     res.status(404);
     throw new Error("Không tìm thấy người dùng");
   }
+
+  const isScoreVerified = Boolean(participated || staffScored);
 
   res.json({
     _id: me._id,
@@ -1498,6 +1563,7 @@ export const getMe = asyncHandler(async (req, res) => {
     cccdStatus: me.cccdStatus || "unverified",
     createdAt: me.createdAt,
     updatedAt: me.updatedAt,
+    isScoreVerified, // <-- NEW
     evaluator: {
       enabled: !!me?.evaluator?.enabled,
       gradingScopes: {
