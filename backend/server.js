@@ -31,6 +31,9 @@ import { agenda, startAgenda } from "./jobs/agenda.js";
 import { initKycBot } from "./bot/kycBot.js";
 import { initEmail } from "./services/emailService.js";
 import Agendash from "agendash";
+import { versionGate } from "./middleware/versionGate.js";
+import appVersionRouter from "./routes/appVersion.route.js";
+import { attachJwtIfPresent } from "./middleware/authMiddleware.js";
 
 
 dotenv.config();
@@ -46,9 +49,17 @@ connectDB();
 
 const app = express();
 
+// body limit rộng hơn cho HTML/JSON dài
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(cookieParser());
+
 app.use("/admin/agendash",
   Agendash(agenda, { middleware: "express" })
 );  
+
+app.use(attachJwtIfPresent)
+app.use(versionGate);
 
 // HTTP + Socket.IO
 const server = http.createServer(app);
@@ -60,10 +71,7 @@ const io = initSocket(server, { whitelist: WHITELIST, path: "/socket.io" });
 app.set("io", io);
 // app.set("trust proxy", true);
 
-// body limit rộng hơn cho HTML/JSON dài
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-app.use(cookieParser());
+
 // CORS whitelist
 
 app.use(
@@ -72,7 +80,6 @@ app.use(
     credentials: true, // ✅ Phải bật
   })
 );
-
 app.use("/uploads", express.static("uploads"));
 app.use("/api/users", userRoutes);
 app.use("/api/tournaments", tournamentRoute);
@@ -94,6 +101,7 @@ app.use("/api/matches", matchRoutes);
 app.use("/api/push", pushTokenRoutes);
 app.use("/api/subscriptions", subscriptionsRoutes);
 app.use("/api/events", notifyRoutes);
+app.use("/api/app", appVersionRouter);
 
 if (process.env.NODE_ENV === "production") {
   const __dirname = path.resolve();

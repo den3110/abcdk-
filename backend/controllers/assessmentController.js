@@ -20,7 +20,7 @@ import Registration from "../models/registrationModel.js";
 export async function createAssessment(req, res) {
   const { userId } = req.params;
   const body = req.body || {};
-  const note = typeof body.note === "string" ? body.note : "";
+  const noteInput = typeof body.note === "string" ? body.note : "";
 
   let sLv = Number(body.singleLevel ?? body.doubleLevel);
   let dLv = Number(body.doubleLevel ?? body.singleLevel);
@@ -38,9 +38,24 @@ export async function createAssessment(req, res) {
   const doubleScore = rawFromDupr(dLv);
 
   const metaInput = sanitizeMeta(body.meta);
+
+  // Xác định selfScored (người chấm === chính chủ)
   const selfScored = String(req.user?._id || "") === String(userId);
 
-  // (Giữ nguyên) Không cho tự chấm nếu user đã từng tham gia giải
+  // Xác định quyền admin (linh hoạt theo các cách lưu role)
+  const isAdmin =
+    !!req.user &&
+    (req.user.role === "admin" ||
+      req.user.isAdmin === true ||
+      (Array.isArray(req.user.roles) && req.user.roles.includes("admin")));
+
+  // Theo yêu cầu:
+  // - Admin => scoreBy = "admin", note = "admin chấm điểm trình"
+  // - Không phải admin => scoreBy = "self", note giữ nguyên
+  const scoreBy = isAdmin ? "admin" : "self";
+  const finalNote = isAdmin ? "admin chấm điểm trình" : noteInput;
+
+  // (Giữ nguyên) Không cho TỰ CHẤM nếu user đã từng tham gia giải
   if (selfScored) {
     try {
       const participated = await Registration.hasParticipated(userId);
@@ -68,8 +83,8 @@ export async function createAssessment(req, res) {
           doubleScore,
           singleLevel: sLv,
           doubleLevel: dLv,
-          meta: { ...metaInput, selfScored, scoreBy: "admin" }, // <-- NEW
-          note,
+          meta: { ...metaInput, selfScored, scoreBy }, // <= cập nhật theo role
+          note: finalNote, // <= ghi đè nếu admin
           scoredAt: new Date(),
         },
       ],
@@ -97,7 +112,7 @@ export async function createAssessment(req, res) {
           scorer: req.user?._id || null,
           single: sLv,
           double: dLv,
-          note,
+          note: finalNote, // <= ghi đè nếu admin
           scoredAt: new Date(),
         },
       ],

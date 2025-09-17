@@ -215,3 +215,27 @@ export const isManagerTournament = asyncHandler(async (req, res, next) => {
   req.match = match;
   return next();
 });
+
+export const attachJwtIfPresent = asyncHandler(async (req, res, next) => {
+  const auth = req.headers.authorization || "";
+  if (!auth.startsWith("Bearer ")) return next();
+
+  const token = auth.split(" ")[1];
+  if (!token) return next();
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Hỗ trợ cả 'userId' và 'id' cho linh hoạt cách sign
+    const userId = decoded.userId || decoded.id;
+    if (!userId) return next();
+
+    const user = await User.findById(userId).select("-password");
+    if (!user) return next();
+
+    req.user = user;
+    return next();
+  } catch (err) {
+    // Token hỏng/hết hạn: không gắn user và cho đi tiếp (fail-open)
+    return next();
+  }
+});

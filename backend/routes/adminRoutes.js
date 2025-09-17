@@ -100,7 +100,13 @@ import {
   promoteToEvaluator,
   updateEvaluatorScopes,
 } from "../controllers/admin/adminEvaluatorController.js";
-import { bulkAssignSlotPlan, generateGroupMatchesForTeam, getAdminBracketById, insertRegIntoGroupSlot } from "../controllers/admin/adminBracketController.js";
+import {
+  bulkAssignSlotPlan,
+  generateGroupMatchesForTeam,
+  getAdminBracketById,
+  insertRegIntoGroupSlot,
+} from "../controllers/admin/adminBracketController.js";
+import { getUsersVersion, getVersionStats } from "../controllers/admin/adminVersions.route.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -213,10 +219,10 @@ router.get(
 
 router.post(
   "/brackets/:bid/slot-plan/bulk-assign",
-  protect, authorize("admin"),
+  protect,
+  authorize("admin"),
   bulkAssignSlotPlan
 );
-
 
 router.patch(
   "/matches/:matchId/score",
@@ -528,7 +534,14 @@ router.get(
   getAdminBracketById
 );
 
-router.get("/courts/matches", protect, authorize("admin"), fetchSchedulerMatches)
+router.get(
+  "/courts/matches",
+  protect,
+  authorize("admin"),
+  fetchSchedulerMatches
+);
 
+router.get("/versions/stats", protect, authorize("admin"), getVersionStats);
+router.get("/versions/by-user", protect, authorize("admin"), getUsersVersion);
 
 export default router;
