@@ -1,6 +1,7 @@
 // src/slices/apiSlice.js
 import { fetchBaseQuery, createApi } from "@reduxjs/toolkit/query/react";
-import { logout } from "./authSlice"; // chỉnh path nếu khác
+import { logout, setCredentials } from "./authSlice"; // chỉnh path nếu khác
+import { createListenerMiddleware } from "@reduxjs/toolkit";
 
 /* baseQuery gốc (gửi cookie) */
 const rawBaseQuery = fetchBaseQuery({
@@ -16,8 +17,8 @@ function redirectTo404() {
   try {
     const origin = window.location.pathname + window.location.search;
     sessionStorage.setItem("nf_origin", origin);
-  } catch(e) {
-    console.log(e)
+  } catch (e) {
+    console.log(e);
   }
 
   try {
@@ -42,7 +43,9 @@ const baseQuery = async (args, api, extraOptions) => {
       api.dispatch(logout());
       // lưu ý: apiSlice được gán sau, nhưng tới lúc hàm này chạy đã có giá trị
       api.dispatch(apiSlice.util.resetApiState());
-    } catch {}
+    } catch (e) {
+      console.log(e);
+    }
     // (tuỳ chọn) chuyển về login:
     // if (typeof window !== "undefined") window.location.href = "/login";
     return result;
@@ -66,3 +69,22 @@ export const apiSlice = createApi({
 });
 
 export default apiSlice;
+
+/** Middleware: nghe action logout và reset toàn bộ cache RTK Query */
+export const rtkQueryLogoutListener = createListenerMiddleware();
+
+rtkQueryLogoutListener.startListening({
+  actionCreator: logout,
+  effect: async (_action, { dispatch }) => {
+    // Hủy mọi request đang chạy + xoá cache queries/mutations + gỡ subscriptions
+    dispatch(apiSlice.util.resetApiState());
+
+    // (tuỳ chọn) dọn vài thứ lặt vặt trên storage nếu có
+    try {
+      sessionStorage.removeItem("nf_origin");
+    } catch (e) {
+      console.log(e);
+    }
+  },
+});
+

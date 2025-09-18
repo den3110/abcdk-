@@ -32,12 +32,17 @@ import {
   Pagination,
   Card,
   CardContent,
+  Snackbar,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import ArrowDropUpIcon from "@mui/icons-material/ArrowDropUp";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
+import SecurityIcon from "@mui/icons-material/Security";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import CheckIcon from "@mui/icons-material/Check";
+import { useSelector } from "react-redux";
 
 import {
   useGetPublicProfileQuery,
@@ -91,7 +96,6 @@ function genderLabel(g) {
   if (["other", "khac", "khác", "nonbinary", "non-binary"].includes(s))
     return "Khác";
 
-  // fallback: show raw but capitalized first letter
   return "Không xác định";
 }
 
@@ -109,12 +113,92 @@ function toScoreLines(m) {
   return s.split(",").map((x, i) => `G${i + 1}: ${x.trim()}`);
 }
 
+/* ---------------- helper row (label–value) ---------------- */
+function InfoRow({ label, value }) {
+  if (value === null || value === undefined || value === "") return null;
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: "baseline" }}>
+      <Typography
+        variant="body2"
+        sx={{ color: "text.secondary", minWidth: 120, flexShrink: 0 }}
+      >
+        {label}
+      </Typography>
+      <Typography
+        variant="body2"
+        sx={{ fontWeight: 700, wordBreak: "break-word" }}
+      >
+        {value}
+      </Typography>
+    </Stack>
+  );
+}
+
 /* ---------------- Component ---------------- */
 export default function PublicProfileDialog({ open, onClose, userId }) {
   /* --- responsive --- */
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [tab, setTab] = useState(0);
+
+  /* --- copy & snackbar --- */
+  const [snack, setSnack] = useState({ open: false, message: "" });
+  const openSnack = (msg) => setSnack({ open: true, message: msg });
+  const closeSnack = () => setSnack((s) => ({ ...s, open: false }));
+
+  async function copyText(text) {
+    const t = String(text ?? "");
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(t);
+      } else if (typeof document !== "undefined") {
+        const ta = document.createElement("textarea");
+        ta.value = t;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+    } catch {}
+  }
+
+  function CopyIconBtn({ text, label = "Nội dung" }) {
+    const [copied, setCopied] = useState(false);
+    const doCopy = async (e) => {
+      e?.stopPropagation?.();
+      await copyText(text);
+      setCopied(true);
+      openSnack(`Đã sao chép ${label.toLowerCase()}`);
+      setTimeout(() => setCopied(false), 1200);
+    };
+    return (
+      <Tooltip title={`Sao chép ${label}`}>
+        <IconButton size="small" onClick={doCopy}>
+          {copied ? (
+            <CheckIcon fontSize="inherit" />
+          ) : (
+            <ContentCopyIcon fontSize="inherit" />
+          )}
+        </IconButton>
+      </Tooltip>
+    );
+  }
+
+  const SnackRender = (
+    <Snackbar
+      open={snack.open}
+      autoHideDuration={1800}
+      onClose={closeSnack}
+      anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+    >
+      <Alert onClose={closeSnack} severity="success" sx={{ width: "100%" }}>
+        {snack.message}
+      </Alert>
+    </Snackbar>
+  );
 
   /* --- queries --- */
   const baseQ = useGetPublicProfileQuery(userId, { skip: !open });
@@ -124,6 +208,11 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   const loading = baseQ.isLoading || rateQ.isLoading || matchQ.isLoading;
   const error = baseQ.error || rateQ.error || matchQ.error;
   const base = baseQ.data || {};
+
+  /* --- viewer is admin? --- */
+  const viewerIsAdmin = useSelector(
+    (s) => !!(s?.auth?.userInfo?.isAdmin || s?.auth?.userInfo?.role === "admin")
+  );
 
   /* --- local pagination --- */
   const ratingRaw = Array.isArray(rateQ.data?.history)
@@ -137,10 +226,10 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   const matchTotal = matchQ.data?.total ?? matchRaw.length;
 
   const [ratingPage, setRatingPage] = useState(1);
-  const [ratingPerPage, setRatingPerPage] = useState(10);
+  const [ratingPerPage] = useState(10);
 
   const [matchPage, setMatchPage] = useState(1);
-  const [matchPerPage, setMatchPerPage] = useState(10);
+  const [matchPerPage] = useState(10);
 
   const ratingPaged = useMemo(() => {
     const start = (ratingPage - 1) * ratingPerPage;
@@ -175,19 +264,9 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         onClose={onClose}
         fullScreen={fullScreen}
         maxWidth="lg"
-        PaperProps={{
-          sx: {
-            bgcolor: "transparent",
-            boxShadow: "none",
-          },
-        }}
+        PaperProps={{ sx: { bgcolor: "transparent", boxShadow: "none" } }}
       >
-        <Box
-          sx={{
-            position: "relative",
-            p: { xs: 1, sm: 2 },
-          }}
-        >
+        <Box sx={{ position: "relative", p: { xs: 1, sm: 2 } }}>
           <IconButton
             onClick={onClose}
             aria-label="close"
@@ -240,32 +319,34 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     >
       <Avatar
         src={base.avatar || AVA_PLACE}
-        sx={{
-          width: 96,
-          height: 96,
-          boxShadow: 2,
-          cursor: "zoom-in",
-        }}
+        sx={{ width: 96, height: 96, boxShadow: 2, cursor: "zoom-in" }}
         onClick={() => openZoom(base.avatar || AVA_PLACE, base.nickname)}
-        imgProps={{
-          onError: (e) => (e.currentTarget.src = AVA_PLACE),
-        }}
+        imgProps={{ onError: (e) => (e.currentTarget.src = AVA_PLACE) }}
       />
       <Stack spacing={1} sx={{ flex: 1, minWidth: 0 }}>
-        {/* Nickname */}
-        <Typography variant="h5" noWrap title={safe(base?.nickname)}>
+        {/* Name */}
+        <Typography variant="h5" noWrap title={safe(base?.name)}>
           {safe(base?.name)}
         </Typography>
-        {/* Username (thêm mới) */}
-        <Typography
-          variant="body2"
-          color="text.secondary"
-          sx={{ mt: -0.5 }}
-          noWrap
-          title={safe(base?.nickname)}
+        {/* Username/Nickname with copy */}
+        <Stack
+          direction="row"
+          alignItems="center"
+          spacing={0.25}
+          sx={{ mt: -0.5, minWidth: 0 }}
         >
-          {base?.nickname ? `@${base.nickname}` : TEXT_PLACE}
-        </Typography>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            noWrap
+            title={safe(base?.nickname)}
+          >
+            {base?.nickname ? `@${base.nickname}` : TEXT_PLACE}
+          </Typography>
+          {base?.nickname && (
+            <CopyIconBtn text={base.nickname} label="nickname" />
+          )}
+        </Stack>
 
         {/* Chips */}
         <Stack
@@ -278,7 +359,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           <Chip
             size="small"
             color="secondary"
-            // dùng genderLabel thay vì raw
             label={`Giới tính: ${genderLabel(base.gender)}`}
           />
           <Chip
@@ -291,14 +371,63 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             color="success"
             label={`Tham gia: ${fmtDate(base.joinedAt)}`}
           />
+          {viewerIsAdmin && (
+            <>
+              {typeof base?.isAdmin !== "undefined" && (
+                <Chip
+                  size="small"
+                  color={base.isAdmin ? "error" : "default"}
+                  icon={<SecurityIcon />}
+                  label={base.isAdmin ? "Quyền: Admin" : "Quyền: User"}
+                />
+              )}
+              {base?._id && (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={`ID: ${base._id}`}
+                />
+              )}
+            </>
+          )}
         </Stack>
       </Stack>
     </Stack>
   );
 
+  function InfoRowWithCopy({ label, value, copyText: copyV, copyLabel }) {
+    if (value === null || value === undefined || value === "") return null;
+    return (
+      <Stack direction="row" spacing={1} sx={{ alignItems: "baseline" }}>
+        <Typography
+          variant="body2"
+          sx={{ color: "text.secondary", minWidth: 120, flexShrink: 0 }}
+        >
+          {label}
+        </Typography>
+        <Stack
+          direction="row"
+          spacing={0.5}
+          alignItems="center"
+          sx={{ minWidth: 0, flex: 1 }}
+        >
+          <Typography
+            variant="body2"
+            sx={{ fontWeight: 700, wordBreak: "break-word" }}
+          >
+            {value}
+          </Typography>
+          <CopyIconBtn text={copyV ?? value} label={copyLabel ?? label} />
+        </Stack>
+      </Stack>
+    );
+  }
+
   const InfoSection = () => (
     <Stack spacing={2}>
       <Header />
+
+      {/* Giới thiệu */}
       <Box>
         <Typography variant="subtitle2" gutterBottom>
           Giới thiệu
@@ -310,6 +439,94 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           {safe(base.bio, "Chưa có")}
         </Typography>
       </Box>
+
+      {/* Thông tin cơ bản (ai cũng thấy) */}
+      {viewerIsAdmin && (
+        <Box>
+          <Typography variant="subtitle2" gutterBottom>
+            Thông tin cơ bản
+          </Typography>
+          <Stack spacing={0.75}>
+            <InfoRow label="Tên hiển thị" value={safe(base?.name)} />
+            {base?.nickname ? (
+              <InfoRowWithCopy
+                label="Nickname"
+                value={`@${base.nickname}`}
+                copyText={base.nickname}
+                copyLabel="nickname"
+              />
+            ) : (
+              <InfoRow label="Nickname" value={TEXT_PLACE} />
+            )}
+            <InfoRow label="Giới tính" value={genderLabel(base?.gender)} />
+            <InfoRow label="Tỉnh/TP" value={safe(base?.province, "Không rõ")} />
+            <InfoRow label="Tham gia" value={fmtDate(base?.joinedAt)} />
+          </Stack>
+        </Box>
+      )}
+
+      {/* Thông tin bổ sung (chỉ admin mới thấy) */}
+      {viewerIsAdmin && (
+        <Box>
+          <Typography variant="subtitle2" gutterBottom>
+            Thông tin bổ sung
+          </Typography>
+          <Stack spacing={0.75}>
+            {base?.email && (
+              <InfoRowWithCopy
+                label="Email"
+                value={base.email}
+                copyLabel="email"
+              />
+            )}
+            <InfoRow
+              label="Username"
+              value={base?.username ?? base?.userName}
+            />
+            {(base?.phone ?? base?.phoneNumber) && (
+              <InfoRowWithCopy
+                label="SĐT"
+                value={base?.phone ?? base?.phoneNumber}
+                copyLabel="số điện thoại"
+              />
+            )}
+            <InfoRow
+              label="Vai trò"
+              value={
+                Array.isArray(base?.roles) && base.roles.length
+                  ? base.roles.join(", ")
+                  : base?.role ||
+                    (typeof base?.isAdmin === "boolean"
+                      ? base.isAdmin
+                        ? "admin"
+                        : "user"
+                      : "")
+              }
+            />
+            <InfoRow
+              label="isAdmin"
+              value={
+                typeof base?.isAdmin === "boolean"
+                  ? base.isAdmin
+                    ? "Có"
+                    : "Không"
+                  : null
+              }
+            />
+            <InfoRow
+              label="Tạo lúc"
+              value={fmtDT(base?.createdAt ?? base?.joinedAt)}
+            />
+            <InfoRow label="Cập nhật" value={fmtDT(base?.updatedAt)} />
+            <InfoRow
+              label="Đăng nhập lần cuối"
+              value={base?.lastLogin ? fmtDT(base?.lastLogin) : "—"}
+            />
+            <InfoRow label="Provider" value={base?.provider} />
+            <InfoRow label="ID" value={base?._id} />
+          </Stack>
+        </Box>
+      )}
     </Stack>
   );
 
@@ -399,7 +616,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
               : EmptyState}
           </Stack>
         ) : (
-          // Desktop/Tablet: table giữ nguyên
+          // Desktop/Tablet: table
           <TableContainer
             sx={{
               border: "1px solid",
@@ -473,7 +690,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           const down = (p?.delta ?? 0) < 0;
           const hasScore =
             Number.isFinite(p?.preScore) || Number.isFinite(p?.postScore);
-
           const nick = preferNick(p);
 
           return (
@@ -499,9 +715,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                   e.stopPropagation();
                   openZoom(p?.avatar || AVA_PLACE, nick);
                 }}
-                imgProps={{
-                  onError: (e) => (e.currentTarget.src = AVA_PLACE),
-                }}
+                imgProps={{ onError: (e) => (e.currentTarget.src = AVA_PLACE) }}
               />
 
               <Stack sx={{ minWidth: 0, flex: 1 }}>
@@ -526,7 +740,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                     <Typography
                       variant="caption"
                       color="text.secondary"
-                      sx={{ lineHeight: 1.2, wordBreak: "break-word" }}
+                      sx={{ lineHeight: 1.2 }}
                     >
                       {num(p?.preScore)}
                     </Typography>
@@ -553,7 +767,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                           display: "inline-flex",
                           alignItems: "center",
                           lineHeight: 1,
-                          mt: isMobile ? 0.25 : 0,
                         }}
                       >
                         {p.delta > 0 ? (
@@ -593,7 +806,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
 
   /* ---------- match detail modal ---------- */
   function MatchDetailDialog({ open, onClose, row }) {
-    const theme = useTheme();
     const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
     const scoreLines = toScoreLines(row);
     const winnerA = row?.winner === "A";
@@ -936,8 +1148,8 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.length ? (
-                rows.map((m) => {
+              {matchPaged.length ? (
+                matchPaged.map((m) => {
                   const winnerA = m?.winner === "A";
                   const winnerB = m?.winner === "B";
                   const scoreLines = toScoreLines(m);
@@ -1110,6 +1322,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           title={zoom.title}
           onClose={closeZoom}
         />
+        {SnackRender}
       </>
     );
   }
@@ -1152,10 +1365,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
 
         <DialogContent
           dividers
-          sx={{
-            p: { xs: 2, md: 3 },
-            bgcolor: "background.default",
-          }}
+          sx={{ p: { xs: 2, md: 3 }, bgcolor: "background.default" }}
         >
           {loading ? (
             <Stack spacing={2}>
@@ -1191,6 +1401,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         title={zoom.title}
         onClose={closeZoom}
       />
+      {SnackRender}
     </>
   );
 }

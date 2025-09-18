@@ -9,10 +9,10 @@ const schema = new mongoose.Schema(
       default: "all",
       unique: true,
     },
-    latestVersion: { type: String, required: true }, // v.d "2.3.1" (hiển thị)
-    latestBuild: { type: Number, required: true }, // v.d 20301 (khuyến nghị)
-    minSupportedBuild: { type: Number, required: true }, // < => FORCE update
-    storeUrl: { type: String }, // deep link App/Play Store
+    latestVersion: { type: String, required: true }, // vd "2.3.1"
+    latestBuild: { type: Number, required: true }, // vd 20301
+    minSupportedBuild: { type: Number, required: true }, // < => FORCE
+    storeUrl: { type: String }, // App/Play Store
     rollout: {
       percentage: { type: Number, default: 100 }, // 0..100
       cohortKey: {

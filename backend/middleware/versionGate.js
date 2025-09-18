@@ -31,6 +31,12 @@ function pickCfg(cfg, platform) {
   return cfg.all || cfg.ios || cfg.android || null;
 }
 
+function sanitize(v, max = 120) {
+  return String(v ?? "")
+    .replace(/[\r\n]/g, " ")
+    .slice(0, max);
+}
+
 export async function versionGate(req, res, next) {
   // 👉 Chỉ áp dụng cho app mobile: yêu cầu đủ “dấu hiệu” từ app
   const platform = String(req.header("X-Platform") || "").toLowerCase(); // ios|android
@@ -40,6 +46,16 @@ export async function versionGate(req, res, next) {
   const deviceId = String(req.header("X-Device-Id") || "");
   const pushToken = req.header("X-Push-Token") || "";
   const userId = req.user?._id || null;
+
+  // 👇 thêm các trường thiết bị mới
+  const deviceName = sanitize(req.header("X-Device-Name") || "", 120); // tên user đặt
+  const deviceBrand = sanitize(req.header("X-Device-Brand") || "", 60); // Apple/Samsung/Google/…
+  const deviceModel = sanitize(req.header("X-Device-Model") || "", 120); // marketing: "Apple iPhone 15 Pro Max"
+  const deviceModelName = sanitize(
+    req.header("X-Device-Model-Name") || "",
+    120
+  ); // "iPhone 15 Pro Max"
+  const deviceModelId = sanitize(req.header("X-Device-Model-Id") || "", 60); // iOS: "iPhone16,2", Android: có thể rỗng
 
   // ❗ Guard: chỉ chạy gate nếu đúng request từ app
   const isMobilePlatform = platform === "ios" || platform === "android";
@@ -103,16 +119,25 @@ export async function versionGate(req, res, next) {
 
   // log thiết bị (non-blocking) — chỉ log cho app
   (async () => {
+    const setObj = {
+      user: userId,
+      appVersion,
+      buildNumber,
+      lastSeenAt: new Date(),
+    };
+    if (pushToken) setObj.pushToken = pushToken;
+
+    // gắn thêm thông tin thiết bị chi tiết (nếu có)
+    if (deviceName) setObj.deviceName = deviceName;
+    if (deviceBrand) setObj.deviceBrand = deviceBrand;
+    if (deviceModel) setObj.deviceModel = deviceModel;
+    if (deviceModelName) setObj.deviceModelName = deviceModelName;
+    if (deviceModelId) setObj.deviceModelId = deviceModelId;
+
     await DeviceInstallation.findOneAndUpdate(
       { deviceId, platform },
       {
-        $set: {
-          user: userId,
-          appVersion,
-          buildNumber,
-          lastSeenAt: new Date(),
-          ...(pushToken ? { pushToken } : {}),
-        },
+        $set: setObj,
         $setOnInsert: { firstSeenAt: new Date() },
       },
       { upsert: true }

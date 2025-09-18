@@ -39,7 +39,6 @@ import LogoutIcon from "@mui/icons-material/Logout";
 /* ✅ MUI X Date Pickers */
 import dayjs from "dayjs";
 import "dayjs/locale/vi";
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 
@@ -508,7 +507,6 @@ export default function ProfileScreen() {
             </FormControl>
 
             {/* ✅ DatePicker cho Ngày sinh */}
-            <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
               <DatePicker
                 label="Ngày sinh"
                 value={dobValue}
@@ -538,7 +536,6 @@ export default function ProfileScreen() {
                   },
                 }}
               />
-            </LocalizationProvider>
 
             <FormControl fullWidth required error={showErr("province")}>
               <InputLabel id="province-lbl" shrink>

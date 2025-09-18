@@ -4,6 +4,7 @@ import App from "./App.jsx";
 import {
   createBrowserRouter,
   createRoutesFromElements,
+  Navigate,
   Route,
   RouterProvider,
 } from "react-router-dom";
@@ -34,6 +35,16 @@ import TournamentOverviewPage from "./screens/PickleBall/TournamentOverviewPage.
 import MyTournamentsPage from "./screens/MyTournaments.jsx";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen.jsx";
 import ResetPasswordScreen from "./screens/ResetPasswordScreen.jsx";
+import AdminLayout from "./components/AdminLayout.jsx";
+import UsersPage from "./screens/admin/UsersPage.jsx";
+import dayjs from "dayjs";
+import "dayjs/locale/vi";
+import { LocalizationProvider } from "@mui/x-date-pickers";
+import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import "../index.css"
+import Forbidden403 from "./screens/403.jsx";
+
+dayjs.locale("vi");
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -69,6 +80,7 @@ const router = createBrowserRouter(
         <Route path="/tournament/:id" element={<TournamentOverviewPage />} />
 
         <Route path="/404" element={<NotFound />} />
+        <Route path="/403" element={<Forbidden403 />} />
         <Route path="*" element={<NotFound />} />
         <Route path="/forgot-password" element={<ForgotPasswordScreen />} />
         <Route
@@ -87,6 +99,10 @@ const router = createBrowserRouter(
         </Route>
       </Route>
       <Route path="/overlay/score" element={<ScoreOverlay />} />
+      <Route path="/admin" element={<AdminLayout />}>
+        <Route index element={<Navigate to="/admin/users" replace />} />
+        <Route path="users" element={<UsersPage />} />
+      </Route>
     </>
   )
 );
@@ -95,7 +111,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   <Provider store={store}>
     <React.StrictMode>
       <SocketProvider>
-        <RouterProvider router={router} />
+        <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
+          <RouterProvider router={router} />
+        </LocalizationProvider>
       </SocketProvider>
     </React.StrictMode>
   </Provider>

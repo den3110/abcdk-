@@ -29,7 +29,16 @@ import {
   DialogActions,
   Snackbar,
   Skeleton,
+  Drawer,
+  AppBar,
+  Toolbar,
+  IconButton,
+  Grid,
 } from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
+import VerifiedIcon from "@mui/icons-material/HowToReg";
+import CancelIcon from "@mui/icons-material/Cancel";
+
 import { Link, useSearchParams } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { setKeyword, setPage } from "../../slices/rankingUiSlice";
@@ -38,6 +47,7 @@ import PublicProfileDialog from "../../components/PublicProfileDialog";
 
 import { useGetMeQuery } from "../../slices/usersApiSlice";
 import { useCreateEvaluationMutation } from "../../slices/evaluationsApiSlice";
+import { useReviewKycMutation } from "../../slices/adminApiSlice";
 import { skipToken } from "@reduxjs/toolkit/query";
 
 const PLACE = "https://dummyimage.com/40x40/cccccc/ffffff&text=?";
@@ -51,6 +61,7 @@ const HEX = {
 const MIN_RATING = 2;
 const MAX_RATING = 8.0;
 const fmt3 = (x) => (Number.isFinite(x) ? Number(x).toFixed(3) : "0.000");
+const prettyDate = (d) => (d ? new Date(d).toLocaleDateString("vi-VN") : "—");
 
 const SKELETON_CARDS_MOBILE = 6;
 const SKELETON_ROWS_DESKTOP = 10;
@@ -82,13 +93,15 @@ const calcAge = (u) => {
   return null;
 };
 
-// ✅ đổi nhãn & màu chip xác thực trên từng dòng/card
+// chip xác thực
 const cccdBadge = (status) => {
   switch (status) {
     case "verified":
-      return { text: "Đã xác thực", color: "warning" }; // vàng
+      return { text: "Đã xác thực", color: "success" };
+    case "pending":
+      return { text: "Chờ xác thực", color: "warning" };
     default:
-      return { text: "Chưa xác thực", color: "default" }; // xám
+      return { text: "Chưa xác thực", color: "default" };
   }
 };
 
@@ -107,7 +120,6 @@ const genderLabel = (g) => {
   }
 };
 
-/* ===== Legend: chỉ 3 chip theo yêu cầu ===== */
 const Legend = () => (
   <Stack
     direction="row"
@@ -115,9 +127,15 @@ const Legend = () => (
     useFlexGap
     sx={{ columnGap: 1.5, rowGap: 1, mb: 2 }}
   >
-    <Chip label="Đã xác thực" sx={{ bgcolor: HEX.yellow, color: "#000" }} />
-    <Chip label="Tự chấm" sx={{ bgcolor: HEX.red, color: "#fff" }} />
-    <Chip label="Chưa xác thực" sx={{ bgcolor: HEX.grey, color: "#fff" }} />
+    <Chip
+      label="Điểm vàng: Đã xác thực"
+      sx={{ bgcolor: HEX.yellow, color: "#000" }}
+    />
+    <Chip label="Điểm đỏ: Tự chấm" sx={{ bgcolor: HEX.red, color: "#fff" }} />
+    <Chip
+      label="Điểm xám: Chưa xác thực"
+      sx={{ bgcolor: HEX.grey, color: "#fff" }}
+    />
   </Stack>
 );
 
@@ -128,6 +146,10 @@ const canGradeUser = (me, targetProvince) => {
   const scopes = me?.evaluator?.gradingScopes?.provinces || [];
   return !!targetProvince && scopes.includes(String(targetProvince).trim());
 };
+
+// quyền xem KYC: chỉ admin & chỉ khi CCCD pending/verified
+const canViewKycAdmin = (me, status) =>
+  me?.role === "admin" && (status === "verified" || status === "pending");
 
 const numOrUndef = (v) => (Number.isFinite(Number(v)) ? Number(v) : undefined);
 const getBaselineScores = (u, r) => {
@@ -171,19 +193,26 @@ export default function RankingList() {
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme?.breakpoints?.down("sm"));
+  const isDesktop = useMediaQuery(theme?.breakpoints?.up("md"));
+  const DRAWER_WIDTH_DESKTOP = 380; // ← đổi 350/400 theo ý bạn
 
   // token
-  const token =
-    useSelector((s) => s?.auth?.userInfo?.token) ||
-    useSelector((s) => s?.userLogin?.userInfo?.token) ||
-    useSelector((s) => s?.user?.token) ||
-    null;
+  const token = useSelector(
+    (s) =>
+      s?.auth?.userInfo?.token ??
+      s?.userLogin?.userInfo?.token ??
+      s?.user?.token ??
+      null
+  );
 
-  const { data: meData } = useGetMeQuery(token ? undefined : skipToken, {
-    refetchOnFocus: false,
-    refetchOnReconnect: false,
-    refetchOnMountOrArgChange: false,
-  });
+  const { data: meData, isLoading: loading } = useGetMeQuery(
+    token ? undefined : skipToken,
+    {
+      refetchOnFocus: false,
+      refetchOnReconnect: false,
+      refetchOnMountOrArgChange: false,
+    }
+  );
   const me = meData || null;
   const canSelfAssess = !me || me.isScoreVerified === false;
 
@@ -233,7 +262,7 @@ export default function RankingList() {
 
   // Zoom avatar
   const [zoomSrc, setZoomSrc] = useState("");
-  const[zoomOpen, setZoomOpen] = useState(false);
+  const [zoomOpen, setZoomOpen] = useState(false);
   const openZoom = (src) => {
     setZoomSrc(src || PLACE);
     setZoomOpen(true);
@@ -267,7 +296,7 @@ export default function RankingList() {
     };
   };
 
-  const getBaselineScores = (u, r) => {
+  const getBaselineScores2 = (u, r) => {
     const singleFromR = numOrUndef(r?.single);
     const doubleFromR = numOrUndef(r?.double);
     const singleFromU =
@@ -285,7 +314,7 @@ export default function RankingList() {
   };
 
   const openGrade = (u, r) => {
-    const base = getBaselineScores(u, r);
+    const base = getBaselineScores2(u, r);
     setGradeDlg({
       open: true,
       userId: u?._id,
@@ -363,6 +392,33 @@ export default function RankingList() {
     }
   };
 
+  // ============== Xem KYC (Drawer full-screen) ==============
+  const [kycView, setKycView] = useState(null); // u object
+  const [reviewKycMut, { isLoading: reviewing }] = useReviewKycMutation();
+  const [cccdPatch, setCccdPatch] = useState({}); // { userId: 'verified'|'rejected' }
+
+  const openKyc = (u) => setKycView(u || null);
+  const closeKyc = () => setKycView(null);
+
+  const doReview = async (action) => {
+    if (!kycView?._id) return;
+    try {
+      await reviewKycMut({ id: kycView._id, action }).unwrap();
+      const nextStatus = action === "approve" ? "verified" : "rejected";
+      setCccdPatch((m) => ({ ...m, [kycView._id]: nextStatus }));
+      setKycView((v) => (v ? { ...v, cccdStatus: nextStatus } : v));
+      showSnack(
+        "success",
+        action === "approve" ? "Đã duyệt KYC" : "Đã từ chối KYC"
+      );
+    } catch (err) {
+      showSnack(
+        "error",
+        err?.data?.message || err?.error || "Không thể xử lý KYC"
+      );
+    }
+  };
+
   const chipMobileSx = { mr: { xs: 0.75, sm: 0 }, mb: { xs: 0.75, sm: 0 } };
 
   /* ================= render ================= */
@@ -377,7 +433,7 @@ export default function RankingList() {
         <Typography variant="h5" fontWeight={600}>
           Bảng xếp hạng
         </Typography>
-        {(!me || me.isScoreVerified === false) && (
+        {loading === false && canSelfAssess && (
           <Button
             component={Link}
             to="/levelpoint"
@@ -389,7 +445,7 @@ export default function RankingList() {
         )}
       </Box>
 
-      {/* Legend mới */}
+      {/* Legend */}
       <Legend />
 
       <TextField
@@ -521,19 +577,22 @@ export default function RankingList() {
         <Stack spacing={2}>
           {list?.map((r) => {
             const u = r?.user || {};
-            const badge = cccdBadge(u?.cccdStatus);
+            const effectiveStatus = cccdPatch[u?._id] || u?.cccdStatus; // patched
+            const badge = cccdBadge(effectiveStatus);
             const avatarSrc = u?.avatar || PLACE;
             const tierHex = HEX[r?.tierColor] || HEX.grey;
             const age = calcAge(u);
             const canGrade = canGradeUser(me, u?.province);
 
-            // patched
             const p = (id) => patchMap[id || ""] || {};
             const patched = {
               single: p(u?._id)?.single ?? r?.single,
               double: p(u?._id)?.double ?? r?.double,
               updatedAt: p(u?._id)?.updatedAt ?? r?.updatedAt,
             };
+
+            // ✅ chỉ admin + CCCD pending/verified mới thấy nút KYC
+            const allowKyc = canViewKycAdmin(me, effectiveStatus);
 
             return (
               <Card key={r?._id || u?._id} variant="outlined">
@@ -552,11 +611,7 @@ export default function RankingList() {
                     </Box>
                     <Stack direction="row" spacing={1} alignItems="center">
                       {Number.isFinite(age) && (
-                        <Chip
-                          size="small"
-                          label={`${age} tuổi`}
-                          sx={{ mr: { xs: 0.75, sm: 0 } }}
-                        />
+                        <Chip size="small" label={`${age} tuổi`} />
                       )}
                       <Chip
                         label={badge.text}
@@ -634,6 +689,15 @@ export default function RankingList() {
                         Chấm trình
                       </Button>
                     )}
+                    {allowKyc && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => openKyc(u)}
+                      >
+                        Xem KYC
+                      </Button>
+                    )}
                   </Stack>
                 </CardContent>
               </Card>
@@ -663,7 +727,8 @@ export default function RankingList() {
             <TableBody>
               {list?.map((r, idx) => {
                 const u = r?.user || {};
-                const badge = cccdBadge(u?.cccdStatus);
+                const effectiveStatus = cccdPatch[u?._id] || u?.cccdStatus; // patched
+                const badge = cccdBadge(effectiveStatus);
                 const avatarSrc = u?.avatar || PLACE;
                 const tierHex = HEX[r?.tierColor] || HEX.grey;
                 const age = calcAge(u);
@@ -675,6 +740,9 @@ export default function RankingList() {
                   double: p(u?._id)?.double ?? r?.double,
                   updatedAt: p(u?._id)?.updatedAt ?? r?.updatedAt,
                 };
+
+                // ✅ chỉ admin + CCCD pending/verified mới thấy nút KYC
+                const allowKyc = canViewKycAdmin(me, effectiveStatus);
 
                 return (
                   <TableRow key={r?._id || u?._id} hover>
@@ -733,6 +801,15 @@ export default function RankingList() {
                             Chấm trình
                           </Button>
                         )}
+                        {allowKyc && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => openKyc(u)}
+                          >
+                            Xem KYC
+                          </Button>
+                        )}
                       </Stack>
                     </TableCell>
                   </TableRow>
@@ -761,9 +838,18 @@ export default function RankingList() {
         refreshKey={profileRefreshKey}
       />
 
-      {/* Zoom dialog */}
-      <Dialog open={zoomOpen} onClose={closeZoom} maxWidth="sm" fullWidth>
-        <DialogTitle>Ảnh đại diện</DialogTitle>
+      {/* Zoom dialog (avatar) */}
+      <Dialog
+        open={zoomOpen}
+        onClose={closeZoom}
+        maxWidth="sm"
+        fullWidth
+        sx={{ zIndex: (t) => t.zIndex.tooltip + 2 }}
+        slotProps={{
+          paper: { sx: { borderRadius: 2 } },
+        }}
+      >
+        <DialogTitle>Ảnh KYC</DialogTitle>
         <DialogContent
           dividers
           sx={{ display: "flex", justifyContent: "center" }}
@@ -783,6 +869,220 @@ export default function RankingList() {
           <Button onClick={closeZoom}>Đóng</Button>
         </DialogActions>
       </Dialog>
+
+      {/* ============ Drawer xem KYC full-screen ============ */}
+      <Drawer
+        anchor="right"
+        open={!!kycView}
+        onClose={closeKyc}
+        PaperProps={{
+          sx: {
+            width: isDesktop ? DRAWER_WIDTH_DESKTOP : "100%",
+            maxWidth: isDesktop ? DRAWER_WIDTH_DESKTOP : "100%",
+            height: "100%",
+            display: "flex",
+            flexDirection: "column",
+            zIndex: (t) => t.zIndex.tooltip + 1,
+          },
+        }}
+        ModalProps={{
+          keepMounted: true,
+          sx: { zIndex: (t) => t.zIndex.tooltip + 1 },
+          BackdropProps: { sx: { zIndex: (t) => t.zIndex.tooltip } },
+        }}
+      >
+        <AppBar
+          position="sticky"
+          color="inherit"
+          elevation={0}
+          sx={{ borderBottom: "1px solid", borderColor: "divider" }}
+        >
+          <Toolbar sx={{ minHeight: 48, px: 1 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>
+              KYC – {kycView?.name || kycView?.nickname || "--"}
+            </Typography>
+            <IconButton onClick={closeKyc}>
+              <CloseIcon />
+            </IconButton>
+          </Toolbar>
+        </AppBar>
+
+        <Box
+          sx={{
+            p: { xs: 2, sm: 2 },
+            bgcolor: "transparent",
+            flex: 1,
+            overflow: "auto",
+          }}
+        >
+          {kycView ? (
+            <Grid container spacing={2} sx={{ m: 0 }}>
+              {/* LEFT: Ảnh */}
+              <Grid item xs={12} md={12} sx={{ width: "100%" }}>
+                <Grid container spacing={2} sx={{ width: "100%" }}>
+                  {["front", "back"].map((side) => (
+                    <Grid item xs={6} key={side} sx={{ width: "100%" }}>
+                      <Paper
+                        variant="outlined"
+                        sx={{
+                          borderRadius: 2,
+                          overflow: "hidden",
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            position: "relative",
+                            cursor: "zoom-in",
+                            bgcolor: "background.default",
+                          }}
+                          onClick={() => openZoom(kycView?.cccdImages?.[side])}
+                        >
+                          <img
+                            src={kycView?.cccdImages?.[side]}
+                            alt={side}
+                            style={{
+                              display: "block",
+                              width: "100%",
+                              height: "auto",
+                              maxHeight: 320,
+                              objectFit: "contain",
+                            }}
+                          />
+                          <Chip
+                            size="small"
+                            label={side === "front" ? "Mặt trước" : "Mặt sau"}
+                            sx={{
+                              position: "absolute",
+                              top: 8,
+                              left: 8,
+                              bgcolor: "rgba(0,0,0,0.6)",
+                              color: "#fff",
+                              "& .MuiChip-label": { px: 1 },
+                            }}
+                          />
+                        </Box>
+                      </Paper>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Grid>
+
+              {/* RIGHT: Thông tin */}
+              <Grid item xs={12} md={12} sx={{ width: "100%" }}>
+                <Box
+                  sx={{
+                    p: 2,
+                    border: "1px solid",
+                    borderColor: "divider",
+                    borderRadius: 2,
+                    bgcolor: "background.paper",
+                  }}
+                >
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    spacing={1}
+                    sx={{ mb: 1 }}
+                  >
+                    <Chip
+                      size="small"
+                      label={
+                        cccdBadge(
+                          cccdPatch[kycView?._id] || kycView?.cccdStatus
+                        ).text
+                      }
+                      color={
+                        cccdBadge(
+                          cccdPatch[kycView?._id] || kycView?.cccdStatus
+                        ).color
+                      }
+                    />
+                  </Stack>
+
+                  <Box
+                    sx={{
+                      display: "grid",
+                      gridTemplateColumns: { xs: "120px 1fr", md: "140px 1fr" },
+                      rowGap: 1,
+                      columnGap: 1.5,
+                      "& .label": { color: "text.secondary", fontSize: 14 },
+                      "& .value": { fontWeight: 600, fontSize: 15 },
+                    }}
+                  >
+                    <Box className="label">Họ & tên</Box>
+                    <Box className="value">{kycView?.name || "—"}</Box>
+
+                    <Box className="label">Ngày sinh</Box>
+                    <Box className="value">{prettyDate(kycView?.dob)}</Box>
+
+                    <Box className="label">Số CCCD</Box>
+                    <Box className="value" sx={{ fontFamily: "monospace" }}>
+                      {kycView?.cccd || "—"}
+                    </Box>
+
+                    <Box className="label">Tỉnh / Thành</Box>
+                    <Box className="value">{kycView?.province || "—"}</Box>
+                  </Box>
+
+                  {kycView?.note && (
+                    <Box
+                      sx={{
+                        mt: 1.5,
+                        p: 1.25,
+                        bgcolor: "grey.50",
+                        borderRadius: 1,
+                      }}
+                    >
+                      <Typography variant="caption" color="text.secondary">
+                        Ghi chú
+                      </Typography>
+                      <Typography variant="body2" display="block">
+                        {kycView?.note}
+                      </Typography>
+                    </Box>
+                  )}
+                </Box>
+              </Grid>
+            </Grid>
+          ) : (
+            <Box p={2}>
+              <Alert severity="info">Không có dữ liệu KYC để hiển thị.</Alert>
+            </Box>
+          )}
+        </Box>
+
+        {/* Footer actions */}
+        <Box
+          sx={{
+            position: "sticky",
+            bottom: 0,
+            borderTop: "1px solid",
+            borderColor: "divider",
+            bgcolor: "background.paper",
+            p: 1,
+          }}
+        >
+          <Stack direction="row" spacing={1} justifyContent="flex-end">
+            <Button onClick={closeKyc}>Đóng</Button>
+            <Button
+              color="error"
+              startIcon={<CancelIcon fontSize="small" />}
+              onClick={() => doReview("reject")}
+              disabled={reviewing || !kycView?._id}
+            >
+              Từ chối
+            </Button>
+            <Button
+              color="success"
+              startIcon={<VerifiedIcon fontSize="small" />}
+              onClick={() => doReview("approve")}
+              disabled={reviewing || !kycView?._id}
+            >
+              Duyệt
+            </Button>
+          </Stack>
+        </Box>
+      </Drawer>
 
       {/* Dialog chấm điểm */}
       <Dialog

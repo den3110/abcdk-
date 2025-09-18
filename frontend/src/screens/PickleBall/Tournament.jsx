@@ -1,13 +1,4 @@
-// src/pages/TournamentDashboard.jsx — Redesigned with cleaner layout, better empty states & stricter action rules
-// Notes:
-// - Mobile: card list with compact info rows
-// - Desktop: sticky table with denser rows
-// - Tabs show counts; search has clear button; preview dialog refined
-// - Action rules:
-//    * upcoming  → show Đăng ký (for everyone)
-//    * ongoing   → show Lịch đấu (everyone) + Đăng ký (chỉ hiện thêm nếu canManage)
-//    * finished  → KHÔNG hiện Đăng ký (chỉ Sơ đồ/Bracket)
-
+// src/pages/TournamentDashboard.jsx
 import { useState, useEffect, useMemo, Fragment } from "react";
 import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import {
@@ -57,6 +48,13 @@ import TodayIcon from "@mui/icons-material/Today";
 import { useGetTournamentsQuery } from "../../slices/tournamentsApiSlice";
 import { useSelector } from "react-redux";
 
+// ====== Date pickers (PRO) ======
+import dayjs from "dayjs";
+import "dayjs/locale/vi";
+import { DateRangePicker } from "@mui/x-date-pickers-pro/DateRangePicker";
+// v6 (tuỳ dự án): có thể dùng SingleInputDateRangeField để gộp 1 input
+// import { SingleInputDateRangeField } from "@mui/x-date-pickers-pro/SingleInputDateRangeField";
+
 const THUMB_SIZE = 84;
 
 const STATUS_META = {
@@ -93,6 +91,7 @@ const MOBILE_SKELETON_CARDS = 6;
 const DESKTOP_SKELETON_ROWS = 8;
 
 export default function TournamentDashboard() {
+  const FIELD_HEIGHT = 40;
   const me = useSelector((s) => s.auth?.userInfo || null);
   const isAdmin = !!(
     me?.isAdmin ||
@@ -142,7 +141,15 @@ export default function TournamentDashboard() {
   const [keyword, setKeyword] = useState(params.get("q") || "");
   const [search, setSearch] = useState(params.get("q")?.toLowerCase() || "");
 
-  // gentle debounce
+  // ====== Date range state (from/to in URL) ======
+  const fromParam = params.get("from");
+  const toParam = params.get("to");
+  const [dateRange, setDateRange] = useState([
+    fromParam ? dayjs(fromParam) : null,
+    toParam ? dayjs(toParam) : null,
+  ]);
+
+  // gentle debounce for search
   useEffect(() => {
     const handle = setTimeout(() => {
       const val = keyword.trim().toLowerCase();
@@ -159,6 +166,24 @@ export default function TournamentDashboard() {
     }, 250);
     return () => clearTimeout(handle);
   }, [keyword, setParams]);
+
+  // sync dateRange -> URL
+  useEffect(() => {
+    const [start, end] = dateRange;
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        if (start?.isValid()) p.set("from", start.format("YYYY-MM-DD"));
+        else p.delete("from");
+        if (end?.isValid()) p.set("to", end.format("YYYY-MM-DD"));
+        else p.delete("to");
+        return p;
+      },
+      { replace: true }
+    );
+  }, [dateRange, setParams]);
+
+  const clearRange = () => setDateRange([null, null]);
 
   const [previewSrc, setPreviewSrc] = useState(null);
 
@@ -200,12 +225,22 @@ export default function TournamentDashboard() {
         })
       : "-";
 
+  // Overlap: tournament [startDate, endDate] intersects [from, to]
   const filtered = useMemo(() => {
     if (!tournaments) return [];
+    const [from, to] = dateRange;
     return tournaments
       .filter((t) => t.status === tab)
-      .filter((t) => (search ? t.name?.toLowerCase().includes(search) : true));
-  }, [tournaments, tab, search]);
+      .filter((t) => (search ? t.name?.toLowerCase().includes(search) : true))
+      .filter((t) => {
+        if (!from && !to) return true;
+        const tStart = dayjs(t.startDate);
+        const tEnd = dayjs(t.endDate || t.startDate);
+        if (from && tEnd.isBefore(from, "day")) return false;
+        if (to && tStart.isAfter(to, "day")) return false;
+        return true;
+      });
+  }, [tournaments, tab, search, dateRange]);
 
   // ========== Skeletons ==========
   const MobileSkeletonList = () => (
@@ -395,7 +430,6 @@ export default function TournamentDashboard() {
       );
     }
 
-    // finished
     return (
       <Box display="flex" flexWrap="wrap" justifyContent="center" gap={gap}>
         <Button
@@ -447,28 +481,118 @@ export default function TournamentDashboard() {
             </Typography>
           </Box>
 
-          <TextField
-            placeholder="Tìm kiếm tên giải..."
-            size="small"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            sx={{ width: { xs: "100%", sm: 340 } }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-              endAdornment: keyword ? (
-                <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setKeyword("")}>
-                    {" "}
-                    <ClearIcon fontSize="small" />{" "}
-                  </IconButton>
-                </InputAdornment>
-              ) : null,
-            }}
-          />
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1.5}
+            alignItems={{ xs: "stretch", sm: "center" }}
+            sx={{ width: { xs: "100%", sm: "auto" } }}
+          >
+            <TextField
+              placeholder="Tìm kiếm tên giải..."
+              size="small"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              sx={{ width: { xs: "100%", sm: 280 } }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+                endAdornment: keyword ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setKeyword("")}>
+                      <ClearIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+              }}
+            />
+
+            {/* Date range (PRO) */}
+            <Box sx={{ minWidth: { xs: "100%", sm: 320 }, flexShrink: 0 }}>
+              <DateRangePicker
+                calendars={2}
+                value={dateRange}
+                onChange={(newValue) => setDateRange(newValue)}
+                slotProps={{
+                  textField: {
+                    size: "small",
+                    sx: {
+                        width: "100%",
+                      "& .MuiOutlinedInput-root": { height: FIELD_HEIGHT },
+                      "& .MuiOutlinedInput-input": {
+                        py: 0,
+                        my: 0,
+                        lineHeight: "40px",
+                      },
+                    },
+                  },
+                }}
+                renderInput={(startProps, endProps) => (
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    alignItems="center"
+                    sx={{ width: { xs: "100%", sm: 320 } }}
+                  >
+                    <TextField
+                      {...startProps}
+                      size="small"
+                      fullWidth
+                      placeholder="Từ ngày"
+                      sx={{
+                        "& .MuiOutlinedInput-root": { height: FIELD_HEIGHT },
+                        // optional: tinh chỉnh chữ nằm giữa tuyệt đối
+                        "& .MuiOutlinedInput-input": {
+                          py: 0,
+                          my: 0,
+                          lineHeight: "40px",
+                        },
+                      }}
+                    />
+                    <Box sx={{ color: "text.secondary", px: 0.5 }}>—</Box>
+                    <TextField
+                      {...endProps}
+                      size="small"
+                      fullWidth
+                      placeholder="Đến ngày"
+                      sx={{
+                        "& .MuiOutlinedInput-root": { height: FIELD_HEIGHT },
+                        "& .MuiOutlinedInput-input": {
+                          py: 0,
+                          my: 0,
+                          lineHeight: "40px",
+                        },
+                      }}
+                    />
+                  </Stack>
+                )}
+              />
+              {/* v6 (tuỳ dự án): gộp 1 input, dùng slots */}
+              {/*
+                <DateRangePicker
+                  value={dateRange}
+                  onChange={(v) => setDateRange(v)}
+                  calendars={2}
+                  slots={{ field: SingleInputDateRangeField }}
+                  slotProps={{ field: { size: "small", fullWidth: true, placeholder: "Khoảng ngày (Từ — Đến)" } }}
+                />
+                */}
+            </Box>
+
+            {(dateRange?.[0] || dateRange?.[1]) && (
+              <Button
+                onClick={clearRange}
+                size="small"
+                variant="text"
+                startIcon={<ClearIcon />}
+                sx={{ fontWeight: 600, textTransform: "none" }}
+              >
+                Xoá lọc
+              </Button>
+            )}
+          </Stack>
         </Stack>
 
         {/* Tabs with counts */}
@@ -561,7 +685,10 @@ export default function TournamentDashboard() {
                           >
                             <Typography
                               fontWeight={700}
-                              sx={{ wordBreak: "break-word", lineHeight: 1.25 }}
+                              sx={{
+                                wordBreak: "break-word",
+                                lineHeight: 1.25,
+                              }}
                             >
                               {t.name}
                             </Typography>

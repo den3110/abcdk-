@@ -40,6 +40,7 @@ const navConfig = [
 const Header = () => {
   const location = useLocation();
   const { userInfo } = useSelector((state) => state.auth);
+  const isAdmin = userInfo?.role === "admin" || userInfo?.isAdmin === true;
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const [logoutApiCall] = useLogoutMutation();
@@ -154,6 +155,15 @@ const Header = () => {
                 sx={{ color: "white", textTransform: "none" }}
               >
                 Giải của tôi
+              </Button>
+            )}
+            {isAdmin && (
+              <Button
+                component={Link}
+                to="/admin"
+                sx={{ color: "white", textTransform: "none" }}
+              >
+                Quản trị
               </Button>
             )}
           </Box>

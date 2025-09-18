@@ -32,8 +32,6 @@ import CccdDropzone from "../components/CccdDropzone";
 /* MUI X Date Pickers */
 import dayjs from "dayjs";
 import "dayjs/locale/vi";
-import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
-import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 
 /* ---------- Config ---------- */
@@ -491,7 +489,6 @@ export default function RegisterScreen() {
             </FormControl>
 
             {/* DOB */}
-            <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
               <DatePicker
                 label="Ngày sinh"
                 value={dobValue}
@@ -522,7 +519,6 @@ export default function RegisterScreen() {
                   },
                 }}
               />
-            </LocalizationProvider>
 
             {/* Province */}
             <FormControl fullWidth required error={showErr("province")}>

@@ -13,6 +13,11 @@ export const getRankings = asyncHandler(async (req, res) => {
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 10, 10)));
   const keywordRaw = String(req.query.keyword ?? "").trim();
 
+  // ✅ xác định quyền admin (tuỳ theo middleware của bạn)
+  const isAdmin =
+    String(req.user?.role || "").toLowerCase() === "admin" ||
+    !!req.user?.isAdmin;
+
   const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const stripSpaces = (s) => s.replace(/\s+/g, "");
   const digitsOnly = (s) => s.replace(/\D+/g, "");
@@ -49,6 +54,31 @@ export const getRankings = asyncHandler(async (req, res) => {
   };
   const now = new Date();
 
+  // ✅ project động theo quyền
+  const baseUserProject = {
+    _id: 1,
+    nickname: 1,
+    gender: 1,
+    province: 1,
+    avatar: 1,
+    verified: 1,
+    createdAt: 1,
+    cccdStatus: 1,
+    dob: 1,
+  };
+  const adminExtraProject = {
+    // chỉ admin mới nhận các trường nhạy cảm/chi tiết
+    name: 1,
+    email: 1,
+    phone: 1,
+    cccd: 1,
+    cccdImages: 1, // {front, back}
+    note: 1,
+  };
+  const userProject = isAdmin
+    ? { ...baseUserProject, ...adminExtraProject }
+    : baseUserProject;
+
   const agg = await Ranking.aggregate([
     { $match: matchStage },
     { $match: { user: { $type: "objectId" } } },
@@ -71,7 +101,6 @@ export const getRankings = asyncHandler(async (req, res) => {
         ],
 
         docs: [
-          // newest ranking per user
           {
             $addFields: {
               points: { $ifNull: ["$points", 0] },
@@ -81,36 +110,23 @@ export const getRankings = asyncHandler(async (req, res) => {
               reputation: { $ifNull: ["$reputation", 0] },
             },
           },
-          { $sort: { updatedAt: -1, _id: 1 } },
+          { $sort: { user: 1, updatedAt: -1, _id: 1 } },
           { $group: { _id: "$user", doc: { $first: "$$ROOT" } } },
           { $replaceRoot: { newRoot: "$doc" } },
 
-          // join user
+          // 🔁 join user với project theo quyền
           {
             $lookup: {
               from: "users",
               localField: "user",
               foreignField: "_id",
               as: "user",
-              pipeline: [
-                {
-                  $project: {
-                    nickname: 1,
-                    gender: 1,
-                    province: 1,
-                    avatar: 1,
-                    verified: 1,
-                    createdAt: 1,
-                    cccdStatus: 1,
-                    dob: 1,
-                  },
-                },
-              ],
+              pipeline: [{ $project: userProject }],
             },
           },
           { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
 
-          // ===== tournaments finished (unique) =====
+          // (các lookup + addFields khác giữ nguyên)
           {
             $lookup: {
               from: "registrations",
@@ -192,8 +208,7 @@ export const getRankings = asyncHandler(async (req, res) => {
             },
           },
 
-          // ===== flags from ASSESSMENTS only =====
-          // official: meta.scoreBy in [admin, mod, moderator]
+          // ... phần assessments & color giữ nguyên ...
           {
             $lookup: {
               from: "assessments",
@@ -221,8 +236,6 @@ export const getRankings = asyncHandler(async (req, res) => {
               hasOfficial: { $gt: [{ $size: "$assOfficial" }, 0] },
             },
           },
-
-          // self: selfScored==true OR scorer==user (any assessment)
           {
             $lookup: {
               from: "assessments",
@@ -254,7 +267,6 @@ export const getRankings = asyncHandler(async (req, res) => {
           },
           { $addFields: { hasSelf: { $gt: [{ $size: "$assSelf" }, 0] } } },
 
-          // ===== color grouping =====
           {
             $addFields: {
               isGold: { $or: [{ $gt: ["$totalTours", 0] }, "$hasOfficial"] },
@@ -282,7 +294,7 @@ export const getRankings = asyncHandler(async (req, res) => {
               tierColor: {
                 $switch: {
                   branches: [
-                    { case: "$isGold", then: "yellow" }, // gộp 3 màu thành vàng
+                    { case: "$isGold", then: "yellow" },
                     { case: "$isRed", then: "red" },
                   ],
                   default: "grey",
@@ -292,7 +304,6 @@ export const getRankings = asyncHandler(async (req, res) => {
             },
           },
 
-          // sort & paginate
           {
             $sort: {
               colorRank: 1,
@@ -314,8 +325,6 @@ export const getRankings = asyncHandler(async (req, res) => {
               mix: 1,
               points: 1,
               updatedAt: 1,
-
-              // info UI/debug
               tierLabel: 1,
               tierColor: 1,
               colorRank: 1,
@@ -328,7 +337,6 @@ export const getRankings = asyncHandler(async (req, res) => {
         ],
       },
     },
-
     {
       $project: {
         docs: "$docs",

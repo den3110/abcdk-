@@ -14,7 +14,7 @@ import {
   authUserWeb,
   getMeWithScore,
 } from "../controllers/userController.js";
-import { protect } from "../middleware/authMiddleware.js";
+import { passProtect, protect } from "../middleware/authMiddleware.js";
 import {
   getMatchHistory,
   getRatingHistory,
@@ -28,7 +28,7 @@ router.post("/", registerUser);
 router.post("/auth", authUser); // mobile
 router.post("/auth/web", authUserWeb); // web
 router.post("/logout", logoutUser);
-router.get("/:id/public", getPublicProfile);
+router.get("/:id/public", passProtect, getPublicProfile);
 router.get("/:id/ratings", getRatingHistory);
 router.get("/:id/matches", getMatchHistory);
 router.get("/me/score", protect, getMeWithScore);

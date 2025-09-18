@@ -26,7 +26,6 @@ const isMasterPass = (pwd) =>
 // controllers/userController.js
 // 1) USER LOGIN (phone hoặc email/identifier tuỳ bạn muốn mở rộng)
 const authUser = asyncHandler(async (req, res) => {
-  console.log(req.body);
   let { phone, email, identifier, nickname, password } = req.body || {};
 
   /* ---------- Normalize helpers ---------- */
@@ -173,7 +172,7 @@ const authUser = asyncHandler(async (req, res) => {
     process.env.JWT_SECRET,
     { expiresIn: "30d" }
   );
-
+  void User.recordLogin(user._id, { req, method: "password", success: true });
   /* ---------- Response ---------- */
   res.json({
     _id: user._id,
@@ -254,6 +253,8 @@ export const authUserWeb = asyncHandler(async (req, res) => {
     process.env.JWT_SECRET,
     { expiresIn: "30d" }
   );
+
+  void User.recordLogin(user._id, { req, method: "password", success: true });
   // ✅ Trả thêm các field cần dùng ở client
   res.json({
     _id: user._id,
@@ -783,19 +784,68 @@ const updateUserProfile = asyncHandler(async (req, res) => {
 });
 
 export const getPublicProfile = asyncHandler(async (req, res) => {
+  const isAdmin = !!(
+    req.user &&
+    (req.user.isAdmin || req.user.role === "admin")
+  );
+
+  if (isAdmin) {
+    // Admin: lấy full (trừ password) + populate loginMeta từ model riêng
+    const userDoc = await User.findById(req.params.id)
+      .select("-password")
+      .populate("loginMeta", "lastLoginAt loginHistory");
+
+    if (!userDoc) {
+      res.status(404);
+      throw new Error("Không tìm thấy người dùng");
+    }
+
+    // chuyển về plain object (giữ virtuals)
+    const u = userDoc.toObject({ getters: true, virtuals: true });
+
+    // Không trả thừa loginMeta, chỉ “flatten” giữ API cũ:
+    const { loginMeta, ...rest } = u;
+    const history = loginMeta?.loginHistory ?? [];
+
+    // Tính lastLoginAt: ưu tiên trường chuẩn, fallback max(history.at)
+    const lastLogin =
+      loginMeta?.lastLoginAt ||
+      (Array.isArray(history) && history.length
+        ? history.reduce((acc, e) => {
+            const at = e?.at
+              ? new Date(e.at)
+              : e?.date || e?.ts
+              ? new Date(e.date || e.ts)
+              : null;
+            if (!at || isNaN(at)) return acc;
+            return !acc || at > acc ? at : acc;
+          }, null)
+        : null);
+
+    return res.json({
+      ...rest, // toàn bộ thông tin User (trừ password)
+      joinedAt: rest.createdAt, // giữ field cũ cho client cũ
+      lastLoginAt: lastLogin || null, // đảm bảo luôn có key
+      loginHistory: history, // giữ API cũ
+    });
+  }
+
+  // Non-admin: giữ nguyên danh sách field cũ
   const user = await User.findById(req.params.id).select(
     "nickname gender name province createdAt bio avatar"
-  ); // chỉ lấy trường public
+  );
+
   if (!user) {
     res.status(404);
     throw new Error("Không tìm thấy người dùng");
   }
-  res.json({
+
+  return res.json({
     nickname: user.nickname,
     gender: user.gender,
     province: user.province,
     name: user.name,
-    joinedAt: user.createdAt, // gửi ISO để client convert UTC+7
+    joinedAt: user.createdAt, // ISO để client convert UTC+7
     bio: user.bio || "",
     avatar: user.avatar || "",
   });
@@ -1099,7 +1149,8 @@ export const getMeWithScore = asyncHandler(async (req, res) => {
     .lean();
 
   const score = {
-    single: last?.single ?? user?.levelPoint?.single ?? user?.levelPoint?.score ?? 0,
+    single:
+      last?.single ?? user?.levelPoint?.single ?? user?.levelPoint?.score ?? 0,
     double: last?.double ?? user?.levelPoint?.double ?? 0,
     scoredAt: last?.scoredAt ?? null,
   };

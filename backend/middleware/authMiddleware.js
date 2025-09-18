@@ -239,3 +239,23 @@ export const attachJwtIfPresent = asyncHandler(async (req, res, next) => {
     return next();
   }
 });
+
+export const passProtect = asyncHandler(async (req, res, next) => {
+  const token = extractToken(req);
+  if (!token) return next();
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Hỗ trợ cả userId/id/_id cho linh hoạt cách sign
+    const userId = decoded.userId || decoded.id || decoded._id;
+    if (!userId) return next();
+
+    const user = await User.findById(userId).select("-password");
+    if (!user) return next();
+
+    req.user = user;
+  } catch (err) {
+    // Token hỏng/hết hạn: không gắn user và cho đi tiếp (fail-open)
+  }
+  return next();
+});
