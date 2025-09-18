@@ -34,6 +34,7 @@ import Agendash from "agendash";
 import { versionGate } from "./middleware/versionGate.js";
 import appVersionRouter from "./routes/appVersion.route.js";
 import { attachJwtIfPresent } from "./middleware/authMiddleware.js";
+import { maintainanceTrigger } from "./middleware/maintainance.js";
 
 
 dotenv.config();
@@ -59,6 +60,7 @@ app.use("/admin/agendash",
 );  
 
 app.use(attachJwtIfPresent)
+// app.use(maintainanceTrigger)
 app.use(versionGate);
 
 // HTTP + Socket.IO

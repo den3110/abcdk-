@@ -31,6 +31,27 @@ function redirectTo404() {
   }
 }
 
+function redirectTo503() {
+  if (typeof window === "undefined") return;
+  if (window.location.pathname.startsWith("/503")) return; // tránh vòng lặp
+
+  try {
+    const origin = window.location.pathname + window.location.search;
+    sessionStorage.setItem("nf_origin", origin);
+  } catch (e) {
+    console.log(e);
+  }
+
+  try {
+    // Điều hướng SPA để React Router render NotFound
+    window.history.pushState({}, "", "/503");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  } catch {
+    // Fallback hard redirect
+    window.location.assign("/503");
+  }
+}
+
 /* Wrapper: bắt 401 → logout + reset cache; 404 → redirect /404 */
 const baseQuery = async (args, api, extraOptions) => {
   const result = await rawBaseQuery(args, api, extraOptions);
@@ -55,6 +76,9 @@ const baseQuery = async (args, api, extraOptions) => {
   // Có thể truyền cờ ở endpoint: builder.query({ ..., extraOptions: { skip404Redirect: true } })
   if (status === 404 && !extraOptions?.skip404Redirect) {
     redirectTo404();
+  }
+   if (status === 503) {
+    redirectTo503();
   }
 
   return result;

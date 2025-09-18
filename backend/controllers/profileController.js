@@ -15,18 +15,28 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
   const pageSize = 10;
   const page = Number(req.query.page) || 1;
 
+  const isAdmin = !!(req.user && (req.user.isAdmin || req.user.role === "admin"));
+
   const filter = { user: req.params.id };
   const total = await ScoreHistory.countDocuments(filter);
 
-  const list = await ScoreHistory.find(filter)
+  const rows = await ScoreHistory.find(filter)
     .sort({ scoredAt: -1 }) // mới nhất trước
     .skip(pageSize * (page - 1))
     .limit(pageSize)
-    .select("scoredAt single double note") // trường mong muốn
-    .populate("scorer", "name email"); // nếu muốn biết ai chấm
+    .select("scoredAt single double note scorer") // cần note & scorer để xử lý
+    .populate("scorer", "name email")
+    .lean();
 
-  res.json({ history: list, total, pageSize });
+  const history = rows.map((r) => ({
+    ...r,
+    // nếu không phải admin thì che note
+    note: isAdmin ? (r.note ?? "") : "mod Pickletour chấm trình",
+  }));
+
+  res.json({ history, total, pageSize, page });
 });
+
 
 /* -------- helpers -------- */
 

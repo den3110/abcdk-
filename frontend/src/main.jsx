@@ -41,8 +41,9 @@ import dayjs from "dayjs";
 import "dayjs/locale/vi";
 import { LocalizationProvider } from "@mui/x-date-pickers";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
-import "../index.css"
+import "../index.css";
 import Forbidden403 from "./screens/403.jsx";
+import ServiceUnavailable from "./screens/503.jsx";
 
 dayjs.locale("vi");
 
@@ -99,6 +100,7 @@ const router = createBrowserRouter(
         </Route>
       </Route>
       <Route path="/overlay/score" element={<ScoreOverlay />} />
+      <Route path="/503" element={<ServiceUnavailable />} />
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<Navigate to="/admin/users" replace />} />
         <Route path="users" element={<UsersPage />} />

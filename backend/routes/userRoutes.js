@@ -29,7 +29,7 @@ router.post("/auth", authUser); // mobile
 router.post("/auth/web", authUserWeb); // web
 router.post("/logout", logoutUser);
 router.get("/:id/public", passProtect, getPublicProfile);
-router.get("/:id/ratings", getRatingHistory);
+router.get("/:id/ratings", passProtect, getRatingHistory);
 router.get("/:id/matches", getMatchHistory);
 router.get("/me/score", protect, getMeWithScore);
 
