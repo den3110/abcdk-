@@ -113,7 +113,7 @@ export async function versionGate(req, res, next) {
       latestVersion: cfg.latestVersion,
       minSupportedBuild: cfg.minSupportedBuild,
       changelog: cfg.changelog || "",
-      message: "Phiên bản quá cũ. Vui lòng cập nhật để tiếp tục.",
+      message: "Phiên bản ứng dụng quá cũ. Vui lòng cập nhật ứng dụng trên app store để tiếp tục.",
     });
   }
 
