@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Dialog,
   DialogTitle,
@@ -34,6 +34,7 @@ import {
   CardContent,
   Snackbar,
 } from "@mui/material";
+import DeleteOutlineOutlinedIcon from "@mui/icons-material/DeleteOutlineOutlined";
 import CloseIcon from "@mui/icons-material/Close";
 import ArrowDropUpIcon from "@mui/icons-material/ArrowDropUp";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
@@ -48,6 +49,7 @@ import {
   useGetPublicProfileQuery,
   useGetRatingHistoryQuery,
   useGetMatchHistoryQuery,
+  useDeleteRatingHistoryMutation,
 } from "../slices/usersApiSlice";
 
 /* ---------- placeholders ---------- */
@@ -81,13 +83,11 @@ const preferNick = (p) =>
 function genderLabel(g) {
   if (g === null || g === undefined || g === "") return "Không xác định";
 
-  // numeric 0–3
   if (g === 0 || g === "0") return "Không xác định";
   if (g === 1 || g === "1") return "Nam";
   if (g === 2 || g === "2") return "Nữ";
   if (g === 3 || g === "3") return "Khác";
 
-  // normalized strings
   const s = String(g).toLowerCase().trim();
   if (["unknown", "unspecified", "na", "none"].includes(s))
     return "Không xác định";
@@ -141,9 +141,14 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [tab, setTab] = useState(0);
 
-  /* --- copy & snackbar --- */
-  const [snack, setSnack] = useState({ open: false, message: "" });
-  const openSnack = (msg) => setSnack({ open: true, message: msg });
+  /* --- copy & snackbar (nâng cấp có severity) --- */
+  const [snack, setSnack] = useState({
+    open: false,
+    message: "",
+    severity: "success",
+  });
+  const openSnack = (msg, severity = "success") =>
+    setSnack({ open: true, message: msg, severity });
   const closeSnack = () => setSnack((s) => ({ ...s, open: false }));
 
   async function copyText(text) {
@@ -190,11 +195,15 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
   const SnackRender = (
     <Snackbar
       open={snack.open}
-      autoHideDuration={1800}
+      autoHideDuration={2000}
       onClose={closeSnack}
       anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
     >
-      <Alert onClose={closeSnack} severity="success" sx={{ width: "100%" }}>
+      <Alert
+        onClose={closeSnack}
+        severity={snack.severity}
+        sx={{ width: "100%" }}
+      >
         {snack.message}
       </Alert>
     </Snackbar>
@@ -202,7 +211,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
 
   /* --- queries --- */
   const baseQ = useGetPublicProfileQuery(userId, { skip: !open });
-  const rateQ = useGetRatingHistoryQuery(userId, { skip: !open }); // {history:[]}
+  const rateQ = useGetRatingHistoryQuery(userId, { skip: !open }); // response: {history, total, page, pageSize}
   const matchQ = useGetMatchHistoryQuery(userId, { skip: !open });
 
   const loading = baseQ.isLoading || rateQ.isLoading || matchQ.isLoading;
@@ -324,11 +333,9 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         imgProps={{ onError: (e) => (e.currentTarget.src = AVA_PLACE) }}
       />
       <Stack spacing={1} sx={{ flex: 1, minWidth: 0 }}>
-        {/* Name */}
         <Typography variant="h5" noWrap title={safe(base?.name)}>
           {safe(base?.name)}
         </Typography>
-        {/* Username/Nickname with copy */}
         <Stack
           direction="row"
           alignItems="center"
@@ -348,7 +355,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           )}
         </Stack>
 
-        {/* Chips */}
         <Stack
           direction="row"
           spacing={1}
@@ -427,7 +433,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     <Stack spacing={2}>
       <Header />
 
-      {/* Giới thiệu */}
       <Box>
         <Typography variant="subtitle2" gutterBottom>
           Giới thiệu
@@ -440,7 +445,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         </Typography>
       </Box>
 
-      {/* Thông tin cơ bản (ai cũng thấy) */}
       {viewerIsAdmin && (
         <Box>
           <Typography variant="subtitle2" gutterBottom>
@@ -465,7 +469,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         </Box>
       )}
 
-      {/* Thông tin bổ sung (chỉ admin mới thấy) */}
       {viewerIsAdmin && (
         <Box>
           <Typography variant="subtitle2" gutterBottom>
@@ -535,6 +538,52 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     const theme = useTheme();
     const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
+    const me = useSelector((s) => s.auth?.userInfo);
+    const isAdmin = !!(me?.isAdmin || me?.role === "admin");
+
+    const [deleteHistory, { isLoading: deleting }] =
+      useDeleteRatingHistoryMutation();
+    const [deletingId, setDeletingId] = React.useState(null);
+
+    async function handleDeleteRow(h) {
+      if (!isAdmin) return;
+      const ok = window.confirm(
+        "Bạn có chắc chắn muốn xoá mục lịch sử điểm trình này?\nHành động không thể hoàn tác."
+      );
+      if (!ok) return;
+
+      try {
+        const historyId = h?._id ?? h?.id;
+        const uid = h?.user?._id || userId; // ưu tiên id từ item, fallback prop
+        if (!historyId || !uid) {
+          openSnack("Thiếu ID, không thể xoá.", "error");
+          return;
+        }
+        setDeletingId(historyId);
+
+        // DELETE /api/users/:userId/rating-history/:historyId
+        await deleteHistory({ userId: uid, historyId }).unwrap();
+
+        openSnack("Đã xoá một mục lịch sử điểm trình.", "success");
+
+        // Chủ động gọi lại list (ngoài invalidatesTags)
+        rateQ.refetch?.();
+
+        // Optional: nếu đang ở trang > 1 và trang hiện tại rỗng sau xoá, có thể lùi trang:
+        // setRatingPage((prev) => Math.max(1, Math.min(prev, Math.ceil((ratingTotal-1)/ratingPerPage))));
+      } catch (e) {
+        console.error(e);
+        const msg =
+          e?.data?.message ||
+          e?.error ||
+          e?.message ||
+          "Xoá thất bại. Vui lòng thử lại.";
+        openSnack(msg, "error");
+      } finally {
+        setDeletingId(null);
+      }
+    }
+
     const EmptyState = (
       <Box
         sx={{
@@ -561,58 +610,89 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         {isMobile ? (
           <Stack spacing={1.25}>
             {ratingPaged.length
-              ? ratingPaged.map((h) => (
-                  <Card
-                    key={h._id}
-                    variant="outlined"
-                    sx={{ borderRadius: 1.5 }}
-                  >
-                    <CardContent sx={{ p: 1.5 }}>
-                      <Stack spacing={1}>
-                        <Stack
-                          direction="row"
-                          alignItems="center"
-                          justifyContent="space-between"
-                        >
-                          <Typography variant="body2" fontWeight={600}>
-                            {fmtDate(h.scoredAt)}
-                          </Typography>
-                        </Stack>
-
-                        <Stack direction="row" spacing={1}>
-                          <Chip
-                            size="small"
-                            label={`Đơn: ${num(h.single)}`}
-                            variant="outlined"
-                          />
-                          <Chip
-                            size="small"
-                            label={`Đôi: ${num(h.double)}`}
-                            variant="outlined"
-                          />
-                        </Stack>
-
-                        {h.note ? (
-                          <>
-                            <Divider flexItem />
-                            <Typography
-                              variant="body2"
-                              color="text.secondary"
-                              sx={{
-                                display: "-webkit-box",
-                                WebkitLineClamp: 3,
-                                WebkitBoxOrient: "vertical",
-                                overflow: "hidden",
-                              }}
-                            >
-                              {safe(h.note, TEXT_PLACE)}
+              ? ratingPaged.map((h) => {
+                  const historyId = h?._id ?? h?.id;
+                  const noteText = isAdmin
+                    ? safe(h?.note, TEXT_PLACE)
+                    : "Mod PickleTour chấm trình";
+                  const scorerName = h?.scorer?.name || h?.scorer?.email || "—";
+                  return (
+                    <Card
+                      key={historyId}
+                      variant="outlined"
+                      sx={{ borderRadius: 1.5 }}
+                    >
+                      <CardContent sx={{ p: 1.5 }}>
+                        <Stack spacing={1}>
+                          <Stack
+                            direction="row"
+                            alignItems="center"
+                            justifyContent="space-between"
+                          >
+                            <Typography variant="body2" fontWeight={600}>
+                              {fmtDate(h.scoredAt)}
                             </Typography>
-                          </>
-                        ) : null}
-                      </Stack>
-                    </CardContent>
-                  </Card>
-                ))
+
+                            {isAdmin ? (
+                              <Tooltip title="Xoá mục này">
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleDeleteRow(h)}
+                                    disabled={
+                                      deleting && deletingId === historyId
+                                    }
+                                    aria-label="delete-score-history"
+                                  >
+                                    <DeleteOutlineOutlinedIcon fontSize="small" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                            ) : null}
+                          </Stack>
+
+                          <Typography
+                            variant="caption"
+                            sx={{ color: "text.secondary" }}
+                          >
+                            Bởi: {scorerName}
+                          </Typography>
+
+                          <Stack direction="row" spacing={1}>
+                            <Chip
+                              size="small"
+                              label={`Đơn: ${num(h.single)}`}
+                              variant="outlined"
+                            />
+                            <Chip
+                              size="small"
+                              label={`Đôi: ${num(h.double)}`}
+                              variant="outlined"
+                            />
+                          </Stack>
+
+                          {noteText ? (
+                            <>
+                              <Divider flexItem />
+                              <Typography
+                                variant="body2"
+                                color="text.secondary"
+                                sx={{
+                                  display: "-webkit-box",
+                                  WebkitLineClamp: 3,
+                                  WebkitBoxOrient: "vertical",
+                                  overflow: "hidden",
+                                }}
+                              >
+                                {noteText}
+                              </Typography>
+                            </>
+                          ) : null}
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  );
+                })
               : EmptyState}
           </Stack>
         ) : (
@@ -629,27 +709,67 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
               <TableHead>
                 <TableRow>
                   <TableCell>Ngày</TableCell>
+                  <TableCell>Người chấm</TableCell>
                   <TableCell align="right">Điểm đơn</TableCell>
                   <TableCell align="right">Điểm đôi</TableCell>
                   <TableCell>Ghi chú</TableCell>
+                  {isAdmin ? (
+                    <TableCell
+                      sx={{ whiteSpace: "nowrap" }}
+                      align="center"
+                      width={72}
+                    >
+                      Thao tác
+                    </TableCell>
+                  ) : null}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {ratingPaged.length ? (
-                  ratingPaged.map((h) => (
-                    <TableRow key={h._id} hover>
-                      <TableCell>{fmtDate(h.scoredAt)}</TableCell>
-                      <TableCell align="right">{num(h.single)}</TableCell>
-                      <TableCell align="right">{num(h.double)}</TableCell>
-                      <TableCell sx={{ color: "text.secondary" }}>
-                        {safe(h.note, TEXT_PLACE)}
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  ratingPaged.map((h) => {
+                    const historyId = h?._id ?? h?.id;
+                    const noteText = isAdmin
+                      ? safe(h?.note, TEXT_PLACE)
+                      : "Mod PickleTour chấm trình";
+                    const scorerName =
+                      h?.scorer?.name || h?.scorer?.email || "—";
+                    return (
+                      <TableRow key={historyId} hover>
+                        <TableCell>{fmtDate(h.scoredAt)}</TableCell>
+                        <TableCell sx={{ color: "text.secondary" }}>
+                          {scorerName}
+                        </TableCell>
+                        <TableCell align="right">{num(h.single)}</TableCell>
+                        <TableCell align="right">{num(h.double)}</TableCell>
+                        <TableCell sx={{ color: "text.secondary" }}>
+                          {noteText}
+                        </TableCell>
+
+                        {isAdmin ? (
+                          <TableCell align="center">
+                            <Tooltip title="Xoá mục này">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => handleDeleteRow(h)}
+                                  disabled={
+                                    deleting && deletingId === historyId
+                                  }
+                                  aria-label="delete-score-history"
+                                >
+                                  <DeleteOutlineOutlinedIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          </TableCell>
+                        ) : null}
+                      </TableRow>
+                    );
+                  })
                 ) : (
                   <TableRow>
                     <TableCell
-                      colSpan={4}
+                      colSpan={isAdmin ? 6 : 5}
                       align="center"
                       sx={{ fontStyle: "italic" }}
                     >
@@ -719,7 +839,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
               />
 
               <Stack sx={{ minWidth: 0, flex: 1 }}>
-                {/* chỉ nickname */}
                 <Typography variant="body2" noWrap title={nick}>
                   {nick}
                 </Typography>
@@ -863,7 +982,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
 
         <DialogContent dividers sx={{ p: { xs: 2, md: 3 } }}>
           <Stack spacing={1.5}>
-            {/* Header chips: code + time */}
             <Stack
               direction="row"
               alignItems="center"
@@ -883,7 +1001,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
               </Stack>
             </Stack>
 
-            {/* Tournament name */}
             <Typography
               variant="body2"
               color="text.secondary"
@@ -896,13 +1013,11 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
 
             <Divider />
 
-            {/* Teams + score */}
             <Stack
               direction={fullScreen ? "column" : "row"}
               spacing={fullScreen ? 2 : 3}
               alignItems={fullScreen ? "stretch" : "flex-start"}
             >
-              {/* Team A */}
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="caption" color="text.secondary">
                   Đội 1
@@ -910,7 +1025,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                 <PlayerCell players={row?.team1} highlight={winnerA} />
               </Box>
 
-              {/* Score block */}
               <Stack
                 alignItems="center"
                 sx={{
@@ -936,7 +1050,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                 )}
               </Stack>
 
-              {/* Team B */}
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Typography variant="caption" color="text.secondary">
                   Đội 2
@@ -945,7 +1058,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
               </Box>
             </Stack>
 
-            {/* Video */}
             <Stack direction="row" justifyContent="flex-end">
               {row?.video ? (
                 <Button
@@ -1002,7 +1114,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                   sx={{ p: 1.25, borderRadius: 2, cursor: "pointer" }}
                   onClick={() => openDetail(m)}
                 >
-                  {/* header */}
                   <Stack
                     direction="row"
                     justifyContent="space-between"
@@ -1016,7 +1127,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                     <Chip size="small" color="info" label={fmtDT(m.dateTime)} />
                   </Stack>
 
-                  {/* tournament */}
                   <Typography
                     variant="body2"
                     sx={{ mt: 0.5, mb: 1, color: "text.secondary" }}
@@ -1026,7 +1136,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                     {safe(m?.tournament?.name)}
                   </Typography>
 
-                  {/* teams + scores */}
                   <Stack direction="row" alignItems="flex-start" spacing={1}>
                     <Box sx={{ flex: 1, minWidth: 0 }}>
                       <PlayerCell players={m.team1} highlight={winnerA} />
@@ -1060,7 +1169,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                     </Box>
                   </Stack>
 
-                  {/* video */}
                   <Stack direction="row" justifyContent="flex-end" mt={1}>
                     {m.video ? (
                       <Button
@@ -1095,7 +1203,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             </Typography>
           )}
 
-          {/* pagination */}
           <Stack direction="row" justifyContent="center" mt={0.5}>
             <Pagination
               page={matchPage}
@@ -1106,7 +1213,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             />
           </Stack>
 
-          {/* popup chi tiết trận */}
           <MatchDetailDialog
             open={detailOpen}
             onClose={() => setDetailOpen(false)}
@@ -1241,7 +1347,6 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           />
         </Stack>
 
-        {/* popup chi tiết trận (desktop) */}
         <MatchDetailDialog
           open={detailOpen}
           onClose={() => setDetailOpen(false)}

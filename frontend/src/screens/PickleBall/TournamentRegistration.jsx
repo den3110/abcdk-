@@ -90,6 +90,57 @@ const getUserId = (pl) => {
 const totalScoreOf = (r, isSingles) =>
   (r?.player1?.score || 0) + (isSingles ? 0 : r?.player2?.score || 0);
 
+/** Lấy cap theo loại giải */
+const getScoreCap = (tour, isSingles) => {
+  if (!tour) return 0;
+  return isSingles
+    ? Number(tour?.singleCap ?? tour?.scoreCap ?? 0)
+    : Number(tour?.scoreCap ?? 0);
+};
+
+/** Lấy chênh lệch tối đa cho phép (đặt tên field linh hoạt) */
+const getMaxDelta = (tour) => {
+  return Number(
+    tour?.maxDiff ??
+      tour?.maxDelta ??
+      tour?.scoreTolerance ??
+      tour?.tolerance ??
+      0
+  );
+};
+
+/** Quyết định màu & tooltip cho chip Tổng điểm */
+const totalChipStyle = (total, cap, delta) => {
+  const hasCap = Number.isFinite(cap) && cap > 0;
+  if (!hasCap || !Number.isFinite(total)) {
+    return { color: "default", title: "Không có giới hạn" };
+  }
+  const threshold = cap + (Number.isFinite(delta) ? delta : 0);
+
+  if (total <= cap) {
+    return { color: "success", title: `≤ ${fmt3(cap)} (Hợp lệ)` };
+  }
+  if (total === threshold) {
+    return {
+      color: "warning",
+      title: `= ${fmt3(cap)} + ${fmt3(delta)} (Chạm ngưỡng tối đa)`,
+    };
+  }
+  if (total < threshold) {
+    return {
+      color: "error",
+      title: `Trong vùng vượt cap nhưng < cap + Δ (${fmt3(cap)} + ${fmt3(
+        delta
+      )})`,
+    };
+  }
+  // total > threshold
+  return {
+    color: "error",
+    title: `> ${fmt3(cap)} + ${fmt3(delta)} (Vượt quá chênh lệch tối đa)`,
+  };
+};
+
 function PaymentChip({ status, paidAt }) {
   const isPaid = status === "Paid";
   return (
@@ -352,7 +403,8 @@ export default function TournamentRegistration() {
   const evType = useMemo(() => normType(tour?.eventType), [tour]);
   const isSingles = evType === "single";
   const isDoubles = evType === "double";
-
+  const cap = useMemo(() => getScoreCap(tour, isSingles), [tour, isSingles]);
+  const delta = useMemo(() => getMaxDelta(tour), [tour]);
   // quyền
   const isManager = useMemo(() => {
     if (!isLoggedIn || !tour) return false;
@@ -1042,11 +1094,25 @@ export default function TournamentRegistration() {
 
                 <Stack direction="row" spacing={1} mt={1} alignItems="center">
                   <Typography variant="body2">Tổng điểm:</Typography>
-                  <Chip
-                    size="small"
-                    icon={<Equalizer fontSize="small" />}
-                    label={fmt3(totalScoreOf(r, isSingles))}
-                  />
+                  {(() => {
+                    const total = totalScoreOf(r, isSingles);
+                    const { color, title } = totalChipStyle(total, cap, delta);
+                    return (
+                      <Tooltip
+                        arrow
+                        title={`Tổng điểm: ${fmt3(total)} • ${title}`}
+                      >
+                        <Chip
+                          size="small"
+                          icon={<Equalizer fontSize="small" />}
+                          label={fmt3(total)}
+                          color={color}
+                          variant="filled"
+                          sx={{ whiteSpace: "nowrap" }}
+                        />
+                      </Tooltip>
+                    );
+                  })()}
                 </Stack>
 
                 <Box mt={1}>
@@ -1124,13 +1190,31 @@ export default function TournamentRegistration() {
                     )}
 
                     <TableCell sx={{ whiteSpace: "nowrap" }}>
-                      <Tooltip arrow title="Tổng điểm trình (chốt lúc đăng ký)">
-                        <Chip
-                          size="small"
-                          icon={<Equalizer fontSize="small" />}
-                          label={fmt3(totalScoreOf(r, isSingles))}
-                        />
-                      </Tooltip>
+                      {(() => {
+                        const total = totalScoreOf(r, isSingles);
+                        const { color, title } = totalChipStyle(
+                          total,
+                          cap,
+                          delta
+                        );
+                        return (
+                          <Tooltip
+                            arrow
+                            title={`Tổng điểm trình (chốt lúc đăng ký): ${fmt3(
+                              total
+                            )} • ${title}`}
+                          >
+                            <Chip
+                              size="small"
+                              icon={<Equalizer fontSize="small" />}
+                              label={fmt3(total)}
+                              color={color}
+                              variant="filled"
+                              sx={{ whiteSpace: "nowrap" }}
+                            />
+                          </Tooltip>
+                        );
+                      })()}
                     </TableCell>
 
                     <TableCell sx={{ whiteSpace: "nowrap" }}>

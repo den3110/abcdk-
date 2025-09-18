@@ -8,6 +8,8 @@ import {
   // ⬇️ NEW: gửi mã OTP qua email
   sendPasswordResetOtpEmail,
 } from "../services/emailService.js";
+import expressAsyncHandler from "express-async-handler";
+import ScoreHistory from "../models/scoreHistoryModel.js"
 
 // Helper: tạo OTP 6 số + expiry (mặc định 10 phút)
 function createSixDigitOtp(ttlMs = 10 * 60 * 1000) {
@@ -228,3 +230,17 @@ export async function verifyResetOtp(req, res) {
     expiresIn,
   });
 }
+
+
+export const deleteRatingHistoryItem = expressAsyncHandler(async (req, res) => {
+  const { userId, historyId } = req.params;
+
+  const doc = await ScoreHistory.findOne({ _id: historyId, user: userId });
+  if (!doc) {
+    res.status(404);
+    throw new Error("Không tìm thấy lịch sử cần xoá");
+  }
+
+  await doc.deleteOne();
+  res.json({ message: "Đã xoá lịch sử điểm trình" });
+});

@@ -15,28 +15,57 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
   const pageSize = 10;
   const page = Number(req.query.page) || 1;
 
-  const isAdmin = !!(req.user && (req.user.isAdmin || req.user.role === "admin"));
+  const isAdmin = !!(
+    req.user &&
+    (req.user.isAdmin || req.user.role === "admin")
+  );
+
+  const MASK_SCORER = {
+    _id: "000000000000000000000000",
+    name: "Mod Pickletour",
+    email: "contact@pickletour.vn",
+  };
 
   const filter = { user: req.params.id };
   const total = await ScoreHistory.countDocuments(filter);
 
   const rows = await ScoreHistory.find(filter)
-    .sort({ scoredAt: -1 }) // mới nhất trước
+    .sort({ scoredAt: -1 })
     .skip(pageSize * (page - 1))
     .limit(pageSize)
-    .select("scoredAt single double note scorer") // cần note & scorer để xử lý
+    .select("scoredAt single double note scorer user")
     .populate("scorer", "name email")
+    .populate("user", "name nickname email avatar")
     .lean();
 
-  const history = rows.map((r) => ({
-    ...r,
-    // nếu không phải admin thì che note
-    note: isAdmin ? (r.note ?? "") : "mod Pickletour chấm trình",
-  }));
+  const history = rows.map((r) => {
+    const scorerForClient = isAdmin
+      ? r.scorer
+        ? { _id: r.scorer._id, name: r.scorer.name, email: r.scorer.email }
+        : null
+      : MASK_SCORER; // luôn che cho non-admin
+
+    return {
+      _id: r._id,
+      scoredAt: r.scoredAt,
+      single: r.single,
+      double: r.double,
+      note: isAdmin ? r.note ?? "" : "Mod Pickletour chấm trình",
+      scorer: scorerForClient,
+      user: r.user
+        ? {
+            _id: r.user._id,
+            name: r.user.name,
+            nickname: r.user.nickname,
+            email: r.user.email,
+            avatar: r.user.avatar,
+          }
+        : { _id: req.params.id },
+    };
+  });
 
   res.json({ history, total, pageSize, page });
 });
-
 
 /* -------- helpers -------- */
 

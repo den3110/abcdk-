@@ -1741,11 +1741,106 @@ export const createEvaluation = asyncHandler(async (req, res) => {
     return false;
   }
 
+  // ✅ helper: xác định tournament còn hiệu lực (upcoming/ongoing)
+  function isUpcomingOrOngoing(t, now = new Date()) {
+    const s = t.startAt || t.startDate || t.date;
+    const e = t.endAt || t.endDate || t.toDate;
+    if (s && e) return (s <= now && e >= now) || s >= now; // ongoing hoặc upcoming
+    if (s && !e) return s >= now || s <= now; // có start
+    if (!s && e) return e >= now; // chỉ có end
+    return true; // thiếu thông tin => coi là hợp lệ để không bỏ sót (có thể siết lại nếu cần)
+  }
+
+  // ✅ helper: cập nhật điểm đăng ký bằng Registration + bulkWrite
+  async function updateActiveRegistrations(session, userId, sVal, dVal) {
+    if (sVal === undefined && dVal === undefined) {
+      return {
+        registrationsMatched: 0,
+        registrationsUpdated: 0,
+        tournamentsAffected: 0,
+      };
+    }
+
+    // tìm các registration mà user này là player1 hoặc player2
+    const regs = await Registration.find({
+      $or: [{ "player1.user": userId }, { "player2.user": userId }],
+    })
+      .select("player1 player2 tournament")
+      .populate(
+        "tournament",
+        "eventType startAt endAt startDate endDate date toDate status"
+      )
+      .session(session);
+
+    const ops = [];
+    const affectedTournaments = new Set();
+
+    for (const reg of regs) {
+      const tour = reg.tournament;
+      if (!tour) continue;
+      if (!isUpcomingOrOngoing(tour)) continue;
+
+      // xác định score cần set theo loại giải
+      const isSingle = String(tour.eventType || "").toLowerCase() === "single";
+      const newScore = isSingle ? sVal : dVal;
+      if (newScore === undefined) continue;
+
+      // nếu user ở slot nào thì set slot đó
+      if (reg.player1?.user && String(reg.player1.user) === String(userId)) {
+        if (reg.player1.score !== newScore) {
+          ops.push({
+            updateOne: {
+              filter: { _id: reg._id, "player1.user": userId },
+              update: { $set: { "player1.score": newScore } },
+            },
+          });
+          affectedTournaments.add(String(tour._id));
+        }
+      }
+      if (reg.player2?.user && String(reg.player2.user) === String(userId)) {
+        if (reg.player2.score !== newScore) {
+          ops.push({
+            updateOne: {
+              filter: { _id: reg._id, "player2.user": userId },
+              update: { $set: { "player2.score": newScore } },
+            },
+          });
+          affectedTournaments.add(String(tour._id));
+        }
+      }
+    }
+
+    if (!ops.length) {
+      return {
+        registrationsMatched: regs.length,
+        registrationsUpdated: 0,
+        tournamentsAffected: affectedTournaments.size,
+      };
+    }
+
+    const result = await Registration.bulkWrite(ops, {
+      session,
+      ordered: false,
+    });
+    const updated = result.modifiedCount ?? result.result?.nModified ?? 0;
+
+    return {
+      registrationsMatched: regs.length,
+      registrationsUpdated: updated,
+      tournamentsAffected: affectedTournaments.size,
+    };
+  }
+
   const session = await mongoose.startSession();
   let evaluationDoc,
     historyDoc,
     selfAssessmentId = null,
-    officialAssessmentId = null;
+    officialAssessmentId = null,
+    registrationUpdates = {
+      registrationsMatched: 0,
+      registrationsUpdated: 0,
+      tournamentsAffected: 0,
+    };
 
   try {
     await session.withTransaction(async () => {
@@ -1765,7 +1860,6 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       const isAdminRole = me.role === "admin";
       const isEvaluatorEnabled = !!me?.evaluator?.enabled;
       const fullProvince = hasFullProvinceScope(me);
-
       const scopedProvinces = me?.evaluator?.gradingScopes?.provinces || [];
       const inScopedProvince = !!(
         targetProvince &&
@@ -1853,8 +1947,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         { new: true, upsert: true, setDefaultsOnInsert: true, session }
       );
 
-      // 4) OFFICIAL Assessment (để gắn cờ meta.scoreBy = "mod")
-      // có/không có overall vẫn tạo được; điểm là optional
+      // 4) OFFICIAL Assessment (meta.scoreBy = "mod")
       let sLv, dLv, singleScore, doubleScore;
       if (singles !== undefined || doubles !== undefined) {
         sLv = normalizeDupr(Number(singles ?? doubles ?? MIN_RATING));
@@ -1873,7 +1966,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
             ...(doubleScore !== undefined ? { doubleScore } : {}),
             ...(sLv !== undefined ? { singleLevel: sLv } : {}),
             ...(dLv !== undefined ? { doubleLevel: dLv } : {}),
-            meta: { selfScored: false, scoreBy: "mod" }, // <-- NEW
+            meta: { selfScored: false, scoreBy: "mod" },
             note: finalNote,
             scoredAt: new Date(),
           },
@@ -1882,7 +1975,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       );
       officialAssessmentId = officialAss?._id || null;
 
-      // 5) (giữ nguyên) Auto self nếu cần, để latest = self
+      // 5) Auto self nếu cần
       if (shouldAutoSelf) {
         const sLv2 = normalizeDupr(Number(singles ?? doubles ?? MIN_RATING));
         const dLv2 = normalizeDupr(Number(doubles ?? singles ?? MIN_RATING));
@@ -1911,6 +2004,14 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         );
         selfAssessmentId = selfDoc?._id || null;
       }
+
+      // 6) ✅ Cập nhật điểm đăng ký ở các giải upcoming/ongoing qua Registration
+      registrationUpdates = await updateActiveRegistrations(
+        session,
+        target._id,
+        singles,
+        doubles
+      );
     });
 
     await session.endSession();
@@ -1919,7 +2020,8 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       ok: true,
       message: "Đã ghi nhận phiếu chấm",
       selfAssessmentId,
-      officialAssessmentId, // <-- trả id cho dễ debug
+      officialAssessmentId,
+      registrationUpdates, // { registrationsMatched, registrationsUpdated, tournamentsAffected }
       evaluation: {
         _id: evaluationDoc._id,
         targetUser: evaluationDoc.targetUser,

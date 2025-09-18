@@ -37,6 +37,9 @@ export const userApiSlice = apiSlice.injectEndpoints({
     }),
     getRatingHistory: builder.query({
       query: (id) => `/api/users/${id}/ratings`,
+      providesTags: (result, error, userId) => [
+        { type: "RatingHistory", id: userId },
+      ],
     }),
     getMatchHistory: builder.query({
       query: (id) => `/api/users/${id}/matches`,
@@ -88,6 +91,16 @@ export const userApiSlice = apiSlice.injectEndpoints({
         body,
       }),
     }),
+    // Xoá 1 lịch sử điểm trình
+    deleteRatingHistory: builder.mutation({
+      query: ({ userId, historyId }) => ({
+        url: `/api/users/${userId}/rating-history/${historyId}`,
+        method: "DELETE",
+      }),
+      invalidatesTags: (r, e, { userId }) => [
+        { type: "RatingHistory", id: userId },
+      ],
+    }),
   }),
 });
 
@@ -106,4 +119,5 @@ export const {
   useForgotPasswordMutation,
   useResetPasswordMutation,
   useGetMeScoreQuery,
+  useDeleteRatingHistoryMutation,
 } = userApiSlice;

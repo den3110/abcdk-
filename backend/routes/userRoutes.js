@@ -14,12 +14,21 @@ import {
   authUserWeb,
   getMeWithScore,
 } from "../controllers/userController.js";
-import { passProtect, protect } from "../middleware/authMiddleware.js";
+import {
+  authorize,
+  passProtect,
+  protect,
+} from "../middleware/authMiddleware.js";
 import {
   getMatchHistory,
   getRatingHistory,
 } from "../controllers/profileController.js";
-import { forgotPassword, resetPassword, verifyResetOtp } from "../controllers/passwordController.js";
+import {
+  deleteRatingHistoryItem,
+  forgotPassword,
+  resetPassword,
+  verifyResetOtp,
+} from "../controllers/passwordController.js";
 import { simpleRateLimit } from "../middleware/rateLimit.js";
 
 const router = express.Router();
@@ -48,5 +57,12 @@ router.post("/evaluations", protect, createEvaluation);
 router.post("/forgot-password", forgotPassword);
 router.post("/verify-reset-otp", verifyResetOtp);
 router.post("/reset-password", simpleRateLimit(60_000, 5), resetPassword);
+
+router.delete(
+  "/:userId/rating-history/:historyId",
+  protect,
+  authorize("admin"),
+  deleteRatingHistoryItem
+);
 
 export default router;

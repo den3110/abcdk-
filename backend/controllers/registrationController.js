@@ -95,7 +95,7 @@ export const createRegistration = asyncHandler(async (req, res) => {
   //   notVerified.push("VĐV 2");
   // if (notVerified.length) {
   //   // dùng 412 để FE phân biệt điều kiện tiên quyết
-    
+
   //   // bạn có thể đổi message nếu muốn FE match code riêng
   //   throw new Error(
   //     notVerified.length === 1
@@ -205,7 +205,6 @@ export const createRegistration = asyncHandler(async (req, res) => {
   res.status(201).json(reg);
 });
 
-
 /* Lấy danh sách đăng ký */
 // controllers/registrationController.js
 export const getRegistrations = asyncHandler(async (req, res) => {
@@ -217,6 +216,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     Boolean(req.user?.isAdmin) ||
     req.user?.role === "admin" ||
     (Array.isArray(req.user?.roles) && req.user.roles.includes("admin"));
+
   let canSeeFullPhone = false;
   if (isAdmin) {
     canSeeFullPhone = true;
@@ -243,7 +243,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
 
   // 3) query User, chỉ lấy field cần thiết
   const users = await User.find({ _id: { $in: [...uids] } })
-    .select("nickName nickname phone avatar fullName")
+    .select("_id avatar fullName name nickName nickname phone")
     .lean();
   const userById = new Map(users.map((u) => [String(u._id), u]));
 
@@ -251,7 +251,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
   const maskPhone = (val) => {
     if (!val) return val;
     const s = String(val);
-    if (canSeeFullPhone) return s; // <-- KHÔNG mask nếu có quyền
+    if (canSeeFullPhone) return s; // không mask nếu có quyền
 
     if (s.length <= 6) {
       const keepHead = Math.min(1, s.length);
@@ -264,18 +264,41 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     return `${s.slice(0, 3)}****${s.slice(-3)}`;
   };
 
-  // 5) hợp nhất nickName (chỉ bổ sung nếu thiếu)
+  // 5) hợp nhất từ User (override avatar/fullName/nickName/phone)
   const enrichPlayer = (pl) => {
-    if (!pl) return pl;
+    if (!pl) return pl; // singles có thể null player2
     const u = userById.get(String(pl.user));
-    const nick = pl.nickName || pl.nickname || u?.nickName || u?.nickname || "";
+
+    // nguồn nickname / fullName từ User là ưu tiên
+    const nickFromUser =
+      (u?.nickName && String(u.nickName).trim()) ||
+      (u?.nickname && String(u.nickname).trim()) ||
+      "";
+    const fullNameFromUser =
+      (u?.fullName && String(u.fullName).trim()) ||
+      (u?.name && String(u.name).trim()) ||
+      "";
+
+    // phone ưu tiên lấy từ User rồi mask, fallback về pl.phone
+    const phoneSource = u?.phone ?? pl.phone ?? "";
+    const maskedPhone = maskPhone(phoneSource);
+
     return {
       ...pl,
-      nickName: nick,
-      phone: maskPhone(pl.phone),
+      avatar: u?.avatar ?? pl?.avatar ?? null,
+      fullName: fullNameFromUser || pl.fullName || "",
+      nickName:
+        nickFromUser ||
+        (pl.nickName && String(pl.nickName).trim()) ||
+        (pl.nickname && String(pl.nickname).trim()) ||
+        "",
+      phone: maskedPhone,
+      // score giữ nguyên (điểm đã “lock” lúc đăng ký), nếu bạn muốn sync theo đánh giá mới
+      // thì đã có logic cập nhật ở chỗ createEvaluation như mình làm trước đó.
     };
   };
 
+  // 6) build output
   const out = regs.map((r) => ({
     ...r,
     player1: enrichPlayer(r.player1),
@@ -284,6 +307,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
 
   res.json(out);
 });
+
 /* Cập nhật trạng thái lệ phí */
 export const updatePaymentStatus = asyncHandler(async (req, res) => {
   const { regId } = req.params;
