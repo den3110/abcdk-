@@ -33,10 +33,26 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
     .sort({ scoredAt: -1 })
     .skip(pageSize * (page - 1))
     .limit(pageSize)
-    .select("scoredAt single double note scorer user")
+    // lấy thêm vài field có thể tồn tại để nhận biết “sau trận”
+    .select(
+      "scoredAt single double note scorer user match matchId source origin kind meta"
+    )
     .populate("scorer", "name email")
     .populate("user", "name nickname email avatar")
     .lean();
+
+  const isPostMatchNote = (r) => {
+    const n = (r.note || "").trim();
+    return Boolean(
+      r.match || // có populate match
+        r.matchId || // có matchId trực tiếp
+        r?.meta?.matchId || // có meta.matchId
+        r.source === "match" ||
+        r.origin === "match" ||
+        r.kind === "match" ||
+        /^[-+]\d+/.test(n) // “+5”, “-3” ở đầu note (phao nhận biết)
+    );
+  };
 
   const history = rows.map((r) => {
     const scorerForClient = isAdmin
@@ -45,12 +61,18 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
         : null
       : MASK_SCORER; // luôn che cho non-admin
 
+    const noteForClient = isAdmin
+      ? r.note ?? ""
+      : isPostMatchNote(r)
+      ? r.note ?? ""
+      : "Mod Pickletour chấm trình";
+
     return {
       _id: r._id,
       scoredAt: r.scoredAt,
       single: r.single,
       double: r.double,
-      note: isAdmin ? r.note ?? "" : "Mod Pickletour chấm trình",
+      note: noteForClient,
       scorer: scorerForClient,
       user: r.user
         ? {
