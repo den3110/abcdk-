@@ -20,6 +20,10 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
     (req.user.isAdmin || req.user.role === "admin")
   );
 
+  // Regex phát hiện cộng/trừ điểm: +5, -3, + 2.5, "thưởng +10", "phạt - 1", ...
+  const DELTA_RE = /(^|\s)[+-]\s*\d+(\.\d+)?\b/;
+  const isDeltaNote = (n) => DELTA_RE.test(String(n || "").trim());
+
   const MASK_SCORER = {
     _id: "000000000000000000000000",
     name: "Mod Pickletour",
@@ -33,39 +37,27 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
     .sort({ scoredAt: -1 })
     .skip(pageSize * (page - 1))
     .limit(pageSize)
-    // lấy thêm vài field có thể tồn tại để nhận biết “sau trận”
-    .select(
-      "scoredAt single double note scorer user match matchId source origin kind meta"
-    )
+    .select("scoredAt single double note scorer user")
     .populate("scorer", "name email")
     .populate("user", "name nickname email avatar")
     .lean();
 
-  const isPostMatchNote = (r) => {
-    const n = (r.note || "").trim();
-    return Boolean(
-      r.match || // có populate match
-        r.matchId || // có matchId trực tiếp
-        r?.meta?.matchId || // có meta.matchId
-        r.source === "match" ||
-        r.origin === "match" ||
-        r.kind === "match" ||
-        /^[-+]\d+/.test(n) // “+5”, “-3” ở đầu note (phao nhận biết)
-    );
-  };
-
   const history = rows.map((r) => {
-    const scorerForClient = isAdmin
-      ? r.scorer
-        ? { _id: r.scorer._id, name: r.scorer.name, email: r.scorer.email }
-        : null
-      : MASK_SCORER; // luôn che cho non-admin
+    const isDelta = isDeltaNote(r.note);
 
-    const noteForClient = isAdmin
-      ? r.note ?? ""
-      : isPostMatchNote(r)
+    const noteForClient = isDelta
+      ? r.note ?? "" // cộng/trừ điểm: hiển thị note gốc cho tất cả
+      : isAdmin
       ? r.note ?? ""
       : "Mod Pickletour chấm trình";
+
+    // scorer rule:
+    // - nếu là note cộng/trừ điểm => luôn null
+    // - nếu là mod/admin chấm => admin thấy scorer thật, non-admin thấy mask
+    const realScorer = r.scorer
+      ? { _id: r.scorer._id, name: r.scorer.name, email: r.scorer.email }
+      : null;
+    const scorerForClient = isDelta ? null : isAdmin ? realScorer : MASK_SCORER;
 
     return {
       _id: r._id,

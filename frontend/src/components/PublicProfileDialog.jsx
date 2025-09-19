@@ -614,7 +614,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                   const historyId = h?._id ?? h?.id;
                   const noteText = isAdmin
                     ? safe(h?.note, TEXT_PLACE)
-                    : "Mod PickleTour chấm trình";
+                    : h?.note;
                   const scorerName = h?.scorer?.name || h?.scorer?.email || "—";
                   return (
                     <Card
@@ -730,7 +730,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                     const historyId = h?._id ?? h?.id;
                     const noteText = isAdmin
                       ? safe(h?.note, TEXT_PLACE)
-                      : "Mod PickleTour chấm trình";
+                      : h?.note;
                     const scorerName =
                       h?.scorer?.name || h?.scorer?.email || "—";
                     return (
