@@ -81,7 +81,7 @@ function normalizePayload(p) {
     p?.roundCode ||
     p?.round_code ||
     (p?.roundSize ? `R${p.roundSize}` : "") ||
-    (p?.round_size ? `R${p.round_size}` : "");
+    (p?.round_size ? `R${p.round_size}` : "") || p?.round;
   const roundName =
     p?.roundName || p?.round_name || codeToRoundLabel(roundCode) || "";
   const roundNumber = Number.isFinite(+p?.round) ? +p?.round : undefined;

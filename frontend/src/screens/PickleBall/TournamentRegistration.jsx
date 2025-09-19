@@ -101,7 +101,7 @@ const getScoreCap = (tour, isSingles) => {
 /** Lấy chênh lệch tối đa cho phép (đặt tên field linh hoạt) */
 const getMaxDelta = (tour) => {
   return Number(
-    tour?.maxDiff ??
+    tour?.scoreGap ??
       tour?.maxDelta ??
       tour?.scoreTolerance ??
       tour?.tolerance ??
