@@ -723,10 +723,8 @@ const CustomSeed = ({
           </SeedTeam>
 
           <div style={{ fontSize: 11, opacity: 0.75 }}>
-              {/* "BYE • Tự động vào vòng sau" */}
             {isByeMatch
-              ? 
-              ""
+              ? ""
               : m
               ? resultLabel(m)
               : isPlaceholder
@@ -1923,40 +1921,103 @@ export default function TournamentBracket() {
     for (const m of matchesMerged) mp.set(String(m._id), m);
     return mp;
   }, [matchesMerged]);
-
+  const baseRoundStartForCurrent = useMemo(
+    () => computeBaseRoundStart(brackets, byBracket, current),
+    [brackets, byBracket, current]
+  );
+  // Đặt bên trong TournamentBracket (dùng chung matchIndex, tour?.eventType, baseRoundStartForCurrent, seedLabel, pairLabelWithNick, isByeMatchObj)
   const resolveSideLabel = useCallback(
-    (m, side) => {
+    function resolveSideLabel(m, side) {
       const eventType = tour?.eventType;
       if (!m) return "Chưa có đội";
+
+      // Có cặp thật rồi → ưu tiên tên cặp
       const pair = side === "A" ? m.pairA : m.pairB;
       if (pair) return pairLabelWithNick(pair, eventType);
 
+      // Lấy seed/prev tương ứng A/B
       const prev = side === "A" ? m.previousA : m.previousB;
       const seed = side === "A" ? m.seedA : m.seedB;
 
       if (prev) {
+        // Chuẩn hoá lấy trận trước
         const prevId =
           typeof prev === "object" && prev?._id
             ? String(prev._id)
             : String(prev);
         const pm =
           matchIndex.get(prevId) || (typeof prev === "object" ? prev : null);
+
+        // Nếu trận trước là BYE → mang nguyên nhãn của bên KHÔNG BYE bằng đệ quy
+        if (pm && isByeMatchObj(pm)) {
+          const isLoserSeed =
+            seed?.type === "stageMatchLoser" || seed?.type === "matchLoser";
+          if (isLoserSeed) return "—"; // nhánh thua không có đội khi BYE
+
+          // Xác định bên đi tiếp (bên không BYE)
+          const byeA =
+            pm?.seedA?.type === "bye" ||
+            (typeof pm?.seedA?.label === "string" &&
+              /\bBYE\b/i.test(pm.seedA.label));
+          const byeB =
+            pm?.seedB?.type === "bye" ||
+            (typeof pm?.seedB?.label === "string" &&
+              /\bBYE\b/i.test(pm.seedB.label));
+          const winSide = byeA ? "B" : byeB ? "A" : null;
+
+          if (winSide) {
+            // ĐỆ QUY: lấy y nguyên nhãn đã hiển thị ở vòng trước (vd: W-V1-T33)
+            const carried = resolveSideLabel(pm, winSide);
+            if (
+              carried &&
+              carried !== "BYE" &&
+              carried !== "TBD" &&
+              carried !== "Registration"
+            ) {
+              return carried;
+            }
+            // Fallback: từ seed/pair nếu có
+            const winSeed = pm[`seed${winSide}`];
+            const fromSeed = seedLabel(winSeed);
+            if (
+              fromSeed &&
+              fromSeed !== "BYE" &&
+              fromSeed !== "TBD" &&
+              fromSeed !== "Registration"
+            ) {
+              return fromSeed;
+            }
+            const winPair = pm[`pair${winSide}`];
+            if (winPair) return pairLabelWithNick(winPair, eventType);
+          }
+
+          // Fallback cuối: dùng mã trận prev (KHÔNG cộng offset V)
+          const rPrev = Number(pm.round ?? 1);
+          const idxPrev = (pm.order ?? 0) + 1;
+          return `W-V${rPrev}-T${idxPrev}`;
+        }
+
+        // Trận trước đã xong và xác định winner → trả tên cặp thắng
         if (pm && pm.status === "finished" && pm.winner) {
           const wp = pm.winner === "A" ? pm.pairA : pm.pairB;
           if (wp) return pairLabelWithNick(wp, eventType);
         }
-        const r = Number(prev.round ?? 1);
-        const idx = (prev.order ?? 0) + 1;
+
+        // Trận trước chưa xong → hiển thị "W-V{offset}-T{idx}" với offset cộng dồn
+        const r = Number(pm?.round ?? prev?.round ?? 1);
+        const idx = Number(pm?.order ?? prev?.order ?? 0) + 1;
         const disp = Number.isFinite(r)
           ? baseRoundStartForCurrent + (r - 1)
           : r;
         return `W-V${disp}-T${idx}`;
       }
 
+      // Không có prev → rơi về nhãn seed gốc (W-/L-/groupRank/…)
       if (seed && seed.type) return seedLabel(seed);
+
       return "Chưa có đội";
     },
-    [matchIndex, tour?.eventType]
+    [matchIndex, tour?.eventType, baseRoundStartForCurrent]
   );
 
   // Prefill rounds for KO
@@ -2194,11 +2255,6 @@ export default function TournamentBracket() {
       </Paper>
     );
   };
-
-  const baseRoundStartForCurrent = useMemo(
-    () => computeBaseRoundStart(brackets, byBracket, current),
-    [brackets, byBracket, current]
-  );
 
   if (loading) {
     return (
