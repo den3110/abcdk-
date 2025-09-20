@@ -273,6 +273,53 @@ async function finalizeIfReady(invite) {
 /* ================== Controllers ================== */
 
 /** Tạo lời mời đăng ký (user gửi lời mời cho chính mình +/ hoặc partner) */
+/** Đồng bộ counter "registration_code" để không bị thấp hơn max(code) đã có */
+async function ensureRegCodeCounterIsNotBehind() {
+  // Lấy max(code) hiện có trong registrations
+  const agg = await Registration.aggregate([
+    { $match: { code: { $type: "number" } } },
+    { $group: { _id: null, maxCode: { $max: "$code" } } },
+    { $project: { _id: 0, maxCode: 1 } },
+  ]);
+  const maxExisting = Number(agg?.[0]?.maxCode || 0);
+  const base = Math.max(9999, maxExisting);
+
+  // Nâng counter nếu đang thấp hơn base
+  const counters = mongoose.connection.collection("counters");
+  await counters.updateOne(
+    { _id: "registration_code", seq: { $lt: base } },
+    { $set: { seq: base } },
+    { upsert: true }
+  );
+}
+
+/** Tạo Registration với retry nếu gặp duplicate key ở field code */
+async function createRegistrationWithRetry(payload, maxTry = 3) {
+  let lastErr;
+  for (let i = 0; i < maxTry; i++) {
+    try {
+      return await Registration.create(payload);
+    } catch (e) {
+      const isDup =
+        e?.code === 11000 &&
+        (e?.keyPattern?.code || "code" in (e?.keyValue || {}));
+      if (isDup) {
+        // đồng bộ counter rồi thử lại
+        await ensureRegCodeCounterIsNotBehind();
+        await new Promise((r) => setTimeout(r, 10));
+        lastErr = e;
+        continue;
+      }
+      throw e;
+    }
+  }
+  const err = new Error(
+    "Không cấp được mã đăng ký duy nhất. Vui lòng thử lại sau ít phút."
+  );
+  err.status = 503;
+  throw err;
+}
+
 export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const { id } = req.params; // tournamentId
   const { player1Id, player2Id, message = "" } = req.body || {};
@@ -352,7 +399,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       score: num(score),
     });
 
-    const reg = await Registration.create({
+    const reg = await createRegistrationWithRetry({
       tournament: tour._id,
       eventType,
       player1: snap(u1, s1),
@@ -405,7 +452,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     }
   }
 
-  // 2) Yêu cầu KYC VERIFIED tuyệt đối (bỏ hẳn pending)
+  // 2) Yêu cầu KYC VERIFIED tuyệt đối
   const isKycVerified = (u) =>
     !!u?.cccd && String(u?.cccdStatus || "").toLowerCase() === "verified";
 
@@ -413,7 +460,6 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const needKycP2 = isDouble ? !isKycVerified(u2) : false;
 
   if (needKycP1 || needKycP2) {
-    // 👉 Trả về 412 với detail chỉ rõ ai cần KYC
     const baseMsg =
       needKycP1 && needKycP2
         ? "VĐV 1 và VĐV 2 cần hoàn tất KYC (đã xác minh) trước khi đăng ký."
@@ -422,20 +468,15 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
         : "VĐV 2 cần hoàn tất KYC (đã xác minh) trước khi đăng ký.";
 
     if (needKycP1 && !needKycP2) {
-      return res.status(412).json({
-        message: baseMsg,
-        userId: u1._id,
-        slot: "p1",
-      });
+      return res
+        .status(412)
+        .json({ message: baseMsg, userId: u1._id, slot: "p1" });
     }
     if (!needKycP1 && needKycP2) {
-      return res.status(412).json({
-        message: baseMsg,
-        userId: u2._id,
-        slot: "p2",
-      });
+      return res
+        .status(412)
+        .json({ message: baseMsg, userId: u2._id, slot: "p2" });
     }
-    // cả hai đều thiếu
     return res.status(412).json({
       message: baseMsg,
       targets: [
@@ -445,7 +486,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     });
   }
 
-  // 3) Preflight checks (trùng đăng ký / giới hạn / cap điểm ...)
+  // 3) Preflight checks
   const pf = await preflightChecks({
     tour,
     eventType,
@@ -457,7 +498,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     throw new Error(pf.message || "Không thể tạo đăng ký");
   }
 
-  // 4) Tạo Registration trực tiếp (vì đã KYC VERIFIED)
+  // 4) Tạo Registration trực tiếp (KYC ok)
   const [rank1, rank2] = await Promise.all([
     getRankingScore(u1._id, eventType),
     isSingle ? Promise.resolve(null) : getRankingScore(u2._id, eventType),
@@ -476,7 +517,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     score: num(score),
   });
 
-  const reg = await Registration.create({
+  const reg = await createRegistrationWithRetry({
     tournament: tour._id,
     eventType,
     player1: snap(u1, p1Score),

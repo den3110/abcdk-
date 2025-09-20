@@ -1,6 +1,59 @@
+// models/registrationModel.js
 import mongoose from "mongoose";
 import Tournament from "./tournamentModel.js";
 
+/* ========= Atomic counter (global) cho mã đăng ký ========= */
+const counterSchema = new mongoose.Schema(
+  {
+    _id: { type: String, required: true }, // ví dụ: 'registration_code'
+    seq: { type: Number, required: true, default: 0 },
+  },
+  { collection: "counters" }
+);
+
+// tránh recompile model khi hot-reload
+const Counter =
+  mongoose.models.Counter || mongoose.model("Counter", counterSchema);
+
+/**
+ * Lấy mã đăng ký tiếp theo (atomic, không trùng).
+ * Bắt đầu từ 10000 (5 chữ số), khi vượt 99999 tự nhiên lên 6 chữ số (100000), v.v.
+ */
+async function getNextRegistrationCode() {
+  try {
+    // ✅ Cách 1: aggregation pipeline update -> không còn xung đột path
+    const doc = await Counter.findOneAndUpdate(
+      { _id: "registration_code" },
+      [
+        {
+          $set: {
+            // seq = (seq ?? 9999) + 1  -> lần đầu ra 10000
+            seq: { $add: [{ $ifNull: ["$seq", 9999] }, 1] },
+          },
+        },
+      ],
+      { new: true, upsert: true }
+    ).lean();
+
+    return doc.seq; // 10000, 10001, ...
+  } catch (err) {
+    // 🔁 Fallback (MongoDB quá cũ không hỗ trợ pipeline update):
+    // Tách làm 2 bước vẫn an toàn với _id cố định.
+    await Counter.updateOne(
+      { _id: "registration_code" },
+      { $setOnInsert: { seq: 9999 } },
+      { upsert: true }
+    );
+    const doc = await Counter.findOneAndUpdate(
+      { _id: "registration_code" },
+      { $inc: { seq: 1 } },
+      { new: true }
+    ).lean();
+    return doc.seq;
+  }
+}
+
+/* ======================= Player subdoc ======================= */
 const playerSchema = new mongoose.Schema(
   {
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -13,8 +66,12 @@ const playerSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/* ======================= Registration ======================= */
 const registrationSchema = new mongoose.Schema(
   {
+    // 🔢 Mã đăng ký tự tăng, duy nhất toàn hệ thống
+    code: { type: Number, index: true, unique: true, sparse: true },
+
     tournament: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Tournament",
@@ -51,6 +108,7 @@ registrationSchema.virtual("users").get(function () {
   return ids;
 });
 
+/* ======================= Hooks ======================= */
 // ✅ validate theo loại giải
 registrationSchema.pre("validate", async function (next) {
   try {
@@ -66,12 +124,34 @@ registrationSchema.pre("validate", async function (next) {
         return next(new Error("Doubles requires two players"));
       }
     }
+
+    // 🔢 Tạo mã đăng ký nếu chưa có (áp dụng cho cả tài liệu cũ khi được update lại)
+    if (this.isNew && this.code == null) {
+      this.code = await getNextRegistrationCode();
+    }
     next();
   } catch (e) {
     next(e);
   }
 });
 
+// 🔢 insertMany: đảm bảo mọi doc đều có code khi tạo hàng loạt
+registrationSchema.pre("insertMany", async function (next, docs) {
+  try {
+    for (const d of docs) {
+      if (d.code == null) {
+        // tuần tự để đảm bảo thứ tự & không đụng nhau
+        // eslint-disable-next-line no-await-in-loop
+        d.code = await getNextRegistrationCode();
+      }
+    }
+    next();
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ======================= Indexes ======================= */
 registrationSchema.index({ tournament: 1 });
 registrationSchema.index({ "player1.phone": 1 });
 registrationSchema.index({ "player2.phone": 1 });
@@ -82,13 +162,10 @@ registrationSchema.index({ "player2.user": 1 });
 registrationSchema.index({ tournament: 1, "player1.user": 1 });
 registrationSchema.index({ tournament: 1, "player2.user": 1 });
 
+// 🔢 Đảm bảo duy nhất cho code, cho phép doc cũ thiếu code (sparse)
+registrationSchema.index({ code: 1 }, { unique: true, sparse: true });
+
 /* ======================= Statics (helpers) ======================= */
-/**
- * Kiểm tra user đã từng tham gia giải đấu nào (ở bất kỳ vai trò player1/2) chưa.
- * @param {mongoose.Types.ObjectId|string} userId
- * @param {{ tournament?: string|ObjectId, requirePaid?: boolean, requireCheckin?: boolean }} opts
- * @returns {Promise<boolean>}
- */
 registrationSchema.statics.hasParticipated = async function (userId, opts = {}) {
   if (!userId) return false;
   const { tournament, requirePaid = false, requireCheckin = false } = opts;
@@ -104,13 +181,10 @@ registrationSchema.statics.hasParticipated = async function (userId, opts = {}) 
   return !!exists;
 };
 
-/**
- * Đếm số lần tham gia (hữu ích cho thống kê/huy hiệu).
- * @param {mongoose.Types.ObjectId|string} userId
- * @param {{ tournament?: string|ObjectId, requirePaid?: boolean, requireCheckin?: boolean }} opts
- * @returns {Promise<number>}
- */
-registrationSchema.statics.countParticipations = async function (userId, opts = {}) {
+registrationSchema.statics.countParticipations = async function (
+  userId,
+  opts = {}
+) {
   if (!userId) return 0;
   const { tournament, requirePaid = false, requireCheckin = false } = opts;
 
@@ -124,6 +198,28 @@ registrationSchema.statics.countParticipations = async function (userId, opts = 
   return this.countDocuments(filter);
 };
 
-const Registration = mongoose.model("Registration", registrationSchema);
-export default Registration;
+/**
+ * 🔧 Backfill code cho các bản ghi cũ chưa có mã (tuỳ chọn chạy thủ công).
+ * Ví dụ: await Registration.backfillCodes(1000) // backfill tối đa 1000 bản ghi
+ */
+registrationSchema.statics.backfillCodes = async function (limit = 1000) {
+  const docs = await this.find({
+    $or: [{ code: { $exists: false } }, { code: null }],
+  })
+    .select("_id code")
+    .limit(limit);
 
+  for (const doc of docs) {
+    // eslint-disable-next-line no-await-in-loop
+    doc.code = await getNextRegistrationCode();
+    // eslint-disable-next-line no-await-in-loop
+    await doc.save();
+  }
+  return docs.length;
+};
+
+const Registration =
+  mongoose.models.Registration ||
+  mongoose.model("Registration", registrationSchema);
+
+export default Registration;

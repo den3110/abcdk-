@@ -20,16 +20,64 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
     (req.user.isAdmin || req.user.role === "admin")
   );
 
-  // Regex phát hiện cộng/trừ điểm: +5, -3, + 2.5, "thưởng +10", "phạt - 1", ...
+  // ===== 1) Detect cộng/trừ điểm trong note (+5, -3, + 2.5, "thưởng +10", "phạt - 1", ...)
   const DELTA_RE = /(^|\s)[+-]\s*\d+(\.\d+)?\b/;
   const isDeltaNote = (n) => DELTA_RE.test(String(n || "").trim());
 
+  // ===== 2) Helpers: bỏ dấu và chuẩn hoá để detect "tự ..." (sửa lỗi đ/Đ)
+  const asciiFold = (s = "") =>
+    String(s)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // bỏ dấu tiếng Việt
+      .replace(/đ/g, "d")
+      .replace(/Đ/g, "D");
+
+  const normText = (s = "") =>
+    asciiFold(s)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ") // ký tự lạ -> space
+      .replace(/\s+/g, " ")
+      .trim();
+
+  // ===== 3) Detect "tự chấm trình / tự đánh giá / tự chấm điểm" (kể cả không dấu, dính liền)
+  const isSelfNote = (n) => {
+    const t = normText(n);
+    const compact = t.replace(/\s+/g, "");
+
+    // cụm tiếng Việt phổ biến
+    if (
+      t.includes("tu cham trinh") ||
+      t.includes("tu danh gia") ||
+      t.includes("tu cham diem") ||
+      t.includes("tu danh diem") ||
+      /^tu (cham|danh)/.test(t)
+    )
+      return true;
+
+    // biến thể dính liền
+    if (
+      compact.includes("tuchamtrinh") ||
+      compact.includes("tudanhgia") ||
+      compact.includes("tuchamdiem") ||
+      compact.includes("tudanhdiem")
+    )
+      return true;
+
+    // tiếng Anh
+    if (/^self( |-)?(rate|rating|assess(ment)?|scor(e|ed)?)/.test(t))
+      return true;
+
+    return false;
+  };
+
+  // ===== 4) Mask cho non-admin
   const MASK_SCORER = {
     _id: "000000000000000000000000",
     name: "Mod Pickletour",
     email: "contact@pickletour.vn",
   };
 
+  // ===== 5) Query
   const filter = { user: req.params.id };
   const total = await ScoreHistory.countDocuments(filter);
 
@@ -42,18 +90,20 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
     .populate("user", "name nickname email avatar")
     .lean();
 
+  // ===== 6) Transform
   const history = rows.map((r) => {
     const isDelta = isDeltaNote(r.note);
+    const isSelf = isSelfNote(r.note);
 
-    const noteForClient = isDelta
-      ? r.note ?? "" // cộng/trừ điểm: hiển thị note gốc cho tất cả
-      : isAdmin
-      ? r.note ?? ""
-      : "Mod Pickletour chấm trình";
+    // Hiển thị note
+    const noteForClient =
+      isDelta || isSelf
+        ? r.note ?? ""
+        : isAdmin
+        ? r.note ?? ""
+        : "Mod Pickletour chấm trình";
 
-    // scorer rule:
-    // - nếu là note cộng/trừ điểm => luôn null
-    // - nếu là mod/admin chấm => admin thấy scorer thật, non-admin thấy mask
+    // Scorer: delta => null; còn lại: admin thấy thật, non-admin thấy mask
     const realScorer = r.scorer
       ? { _id: r.scorer._id, name: r.scorer.name, email: r.scorer.email }
       : null;

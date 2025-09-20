@@ -17,7 +17,7 @@ import {
 import { scheduleTournamentCountdown } from "../../utils/scheduleNotifications.js";
 import Bracket from "../../models/bracketModel.js"; // <-- thêm dòng này
 import { createForumTopic, createInviteLink } from "../../utils/telegram.js";
-import Match from "../../models/matchModel.js"
+import Match from "../../models/matchModel.js";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -71,6 +71,11 @@ const FIELD_LABELS = {
   scoringScope: "Phạm vi chấm",
   "scoringScope.type": "Loại phạm vi chấm",
   "scoringScope.provinces": "Các tỉnh áp dụng",
+  // NEW: thanh toán
+  bankShortName: "Tên ngân hàng",
+  bankAccountNumber: "Số tài khoản",
+  bankAccountName: "Tên chủ tài khoản",
+  registrationFee: "Phí đăng ký (VND)",
 };
 
 function labelOf(pathArr = []) {
@@ -90,6 +95,7 @@ const COMMON_MESSAGES = {
   "string.min": "{{#label}} phải ≥ {{#limit}} ký tự",
   "string.max": "{{#label}} không được vượt quá {{#limit}} ký tự",
   "string.uri": "{{#label}} phải là URL hợp lệ",
+  "string.pattern.base": "{{#label}} không hợp lệ",
   "number.base": "{{#label}} phải là số",
   "number.min": "{{#label}} phải ≥ {{#limit}}",
   "number.max": "{{#label}} phải ≤ {{#limit}}",
@@ -141,6 +147,36 @@ const scoringScopeUpdate = Joi.object({
     }),
 }).label(FIELD_LABELS.scoringScope);
 
+/* ------------ NEW: các field thanh toán (SePay VietQR compatible) --------- */
+const bankShortName = Joi.string()
+  .trim()
+  .max(64)
+  .allow("")
+  .empty("") // coi "" như undefined để .with() không kích hoạt
+  .label(FIELD_LABELS.bankShortName);
+
+const bankAccountNumber = Joi.string()
+  .pattern(/^\d{4,32}$/) // 4–32 chữ số
+  .messages({
+    "string.pattern.base": "{{#label}} phải gồm 4–32 chữ số (0–9)",
+  })
+  .allow("")
+  .empty("")
+  .label(FIELD_LABELS.bankAccountNumber);
+
+const bankAccountName = Joi.string()
+  .trim()
+  .max(64)
+  .allow("")
+  .empty("")
+  .label(FIELD_LABELS.bankAccountName);
+
+const registrationFee = Joi.number()
+  .min(0)
+  .precision(0)
+  .label(FIELD_LABELS.registrationFee);
+
+/* --------------------------------- CREATE --------------------------------- */
 const createSchema = Joi.object({
   name: Joi.string().trim().min(2).max(120).required().label(FIELD_LABELS.name),
   image: Joi.string().uri().allow("").label(FIELD_LABELS.image),
@@ -182,11 +218,21 @@ const createSchema = Joi.object({
     .max(100_000)
     .default("")
     .label(FIELD_LABELS.contentHtml),
-  noRankDelta: boolLoose.default(false).label("Không áp dụng điểm trình"), // <-- thêm
+  noRankDelta: boolLoose.default(false).label("Không áp dụng điểm trình"),
 
   // NEW: phạm vi chấm đa tỉnh
   scoringScope: scoringScopeCreate,
+
+  // NEW: thanh toán
+  bankShortName: bankShortName.default(""),
+  bankAccountNumber: bankAccountNumber.default(""),
+  bankAccountName: bankAccountName.default(""),
+  registrationFee: registrationFee.default(0),
 })
+  // Khi đã có 1 field ngân hàng ⇒ phải có đủ 3
+  .with("bankShortName", ["bankAccountNumber", "bankAccountName"])
+  .with("bankAccountNumber", ["bankShortName", "bankAccountName"])
+  .with("bankAccountName", ["bankShortName", "bankAccountNumber"])
   .messages(COMMON_MESSAGES)
   .custom((obj, helpers) => {
     const toDate = (v) => (v instanceof Date ? v : new Date(v));
@@ -196,14 +242,10 @@ const createSchema = Joi.object({
         `"${FIELD_LABELS.registrationDeadline}" không được trước "${FIELD_LABELS.regOpenDate}"`
       );
     }
-    // if (toDate(obj.registrationDeadline) > toDate(obj.startDate)) {
-    //   return helpers.message(
-    //     `"${FIELD_LABELS.registrationDeadline}" không được sau "${FIELD_LABELS.startDate}"`
-    //   );
-    // }
     return obj;
   });
 
+/* --------------------------------- UPDATE --------------------------------- */
 const updateSchema = Joi.object({
   name: Joi.string().trim().min(2).max(120).label(FIELD_LABELS.name),
   image: Joi.string().uri().allow("").label(FIELD_LABELS.image),
@@ -226,11 +268,20 @@ const updateSchema = Joi.object({
   location: Joi.string().trim().min(2).label(FIELD_LABELS.location),
   contactHtml: Joi.string().allow("").label(FIELD_LABELS.contactHtml),
   contentHtml: Joi.string().allow("").label(FIELD_LABELS.contentHtml),
-  noRankDelta: boolLoose.label("Không áp dụng điểm trình"), // <-- thêm
+  noRankDelta: boolLoose.label("Không áp dụng điểm trình"),
 
   // NEW: phạm vi chấm đa tỉnh
   scoringScope: scoringScopeUpdate,
+
+  // NEW: thanh toán
+  bankShortName,
+  bankAccountNumber,
+  bankAccountName,
+  registrationFee,
 })
+  .with("bankShortName", ["bankAccountNumber", "bankAccountName"])
+  .with("bankAccountNumber", ["bankShortName", "bankAccountName"])
+  .with("bankAccountName", ["bankShortName", "bankAccountNumber"])
   .messages(COMMON_MESSAGES)
   .custom((obj, helpers) => {
     const toDate = (v) => (v instanceof Date ? v : new Date(v));
@@ -249,13 +300,6 @@ const updateSchema = Joi.object({
         );
       }
     }
-    // if (obj.registrationDeadline && obj.startDate) {
-    //   if (toDate(obj.registrationDeadline) > toDate(obj.startDate)) {
-    //     return helpers.message(
-    //       `"${FIELD_LABELS.registrationDeadline}" không được sau "${FIELD_LABELS.startDate}"`
-    //     );
-    //   }
-    // }
     return obj;
   });
 
@@ -498,10 +542,11 @@ export const getTournaments = expressAsyncHandler(async (req, res) => {
 });
 
 // CREATE Tournament
-// CREATE Tournament
 export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
   // === PRE-SANITIZE scoringScope để tránh lỗi forbidden khi type = national
   const incoming = { ...(req.body || {}) };
+
+  // --- scoringScope (giữ logic cũ) ---
   if (incoming.scoringScope) {
     const type =
       String(incoming.scoringScope.type || "national").toLowerCase() ===
@@ -527,6 +572,29 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
         ),
       };
     }
+  }
+
+  // --- NEW: PRE-SANITIZE payment fields (SePay VietQR compatible) ---
+  if (Object.prototype.hasOwnProperty.call(incoming, "bankShortName")) {
+    incoming.bankShortName = String(incoming.bankShortName || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, "bankAccountNumber")) {
+    // chỉ giữ chữ số, giữ rỗng nếu không có
+    incoming.bankAccountNumber = String(
+      incoming.bankAccountNumber || ""
+    ).replace(/\D/g, "");
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, "bankAccountName")) {
+    incoming.bankAccountName = String(incoming.bankAccountName || "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, "registrationFee")) {
+    // chấp nhận "500,000" hoặc "500000"; không âm; làm tròn xuống
+    const raw = String(incoming.registrationFee ?? "").replace(/[^0-9.-]/g, "");
+    const fee = Number(raw);
+    incoming.registrationFee =
+      Number.isFinite(fee) && fee >= 0 ? Math.floor(fee) : 0;
   }
 
   // Validate với createSchema (Joi sẽ set default nếu thiếu)
@@ -559,9 +627,7 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
       console.error(
         "[adminCreateTournament] scheduleTournamentCountdown failed:",
         e?.message || e,
-        {
-          tournamentId: String(t._id),
-        }
+        { tournamentId: String(t._id) }
       );
     });
   });
@@ -570,7 +636,6 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
   setImmediate(async () => {
     try {
       const tele = t.tele || {};
-      // mặc định enabled nếu không set
       const teleEnabled = tele.enabled !== false;
       if (!teleEnabled) {
         console.log(
@@ -586,20 +651,16 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
       if (!hubChatId) {
         console.error(
           "[adminCreateTournament] Missing TELEGRAM_HUB_CHAT_ID; skip creating topic",
-          {
-            tournamentId: String(t._id),
-          }
+          { tournamentId: String(t._id) }
         );
         return;
       }
 
-      // tạo topic theo tên giải (t.name)
       const topicId = await createForumTopic({
         chatId: hubChatId,
         name: t.name,
       });
 
-      // tạo invite link (không bắt buộc)
       let inviteLink = tele.inviteLink;
       try {
         inviteLink =
@@ -613,7 +674,6 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
         );
       }
 
-      // lưu lại vào DB (không overwrite các key khác)
       await Tournament.updateOne(
         { _id: t._id },
         {
@@ -655,8 +715,10 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     throw new Error("Invalid ID");
   }
 
-  // === PRE-SANITIZE scoringScope
+  // Clone & chuẩn hoá input
   const incoming = { ...(req.body || {}) };
+
+  // === PRE-SANITIZE scoringScope (giữ logic cũ) ===
   if (incoming.scoringScope) {
     const type =
       String(incoming.scoringScope.type || "national").toLowerCase() ===
@@ -684,7 +746,31 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  // Validate
+  // === NEW: PRE-SANITIZE payment fields ===
+  if (Object.prototype.hasOwnProperty.call(incoming, "bankShortName")) {
+    incoming.bankShortName = String(incoming.bankShortName || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, "bankAccountNumber")) {
+    // chỉ giữ digits; để trống nếu null/undefined
+    incoming.bankAccountNumber = String(
+      incoming.bankAccountNumber || ""
+    ).replace(/\D/g, "");
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, "bankAccountName")) {
+    // trim & gom khoảng trắng
+    incoming.bankAccountName = String(incoming.bankAccountName || "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(incoming, "registrationFee")) {
+    // chấp nhận số/chuỗi; loại dấu phẩy/ký tự khác; không âm; làm tròn xuống
+    const raw = String(incoming.registrationFee ?? "").replace(/[^0-9.-]/g, "");
+    const fee = Number(raw);
+    incoming.registrationFee =
+      Number.isFinite(fee) && fee >= 0 ? Math.floor(fee) : 0;
+  }
+
+  // Validate (theo updateSchema)
   const payload = validate(updateSchema, incoming);
   if (!Object.keys(payload).length) {
     res.status(400);
@@ -700,11 +786,11 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
   }
   if (payload._meta) delete payload._meta;
 
-  // Update chính
+  // Update chính (bật runValidators để áp schema rules bank/STK/fee)
   const t = await Tournament.findByIdAndUpdate(
     req.params.id,
     { $set: payload },
-    { new: true, runValidators: false }
+    { new: true, runValidators: true, context: "query" }
   );
 
   if (!t) {

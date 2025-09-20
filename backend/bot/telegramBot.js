@@ -21,6 +21,95 @@ dotenv.config();
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 
 // ======================= Utils chung ==========================
+
+// === Helpers cho Registration ===
+const TELE_PAYMENT_ADMINS = String(process.env.TELEGRAM_ADMIN_IDS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+const isPaymentAdmin = (telegramUserId) => {
+  if (!TELE_PAYMENT_ADMINS.length) return true; // nếu không cấu hình thì cho phép hết
+  return TELE_PAYMENT_ADMINS.includes(String(telegramUserId));
+};
+// Ai thực hiện thao tác trên Telegram
+const actorLabel = (from = {}) => {
+  const name = [from.first_name, from.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  const uname = from.username ? `@${from.username}` : "";
+  const id = from.id ? `#${from.id}` : "";
+  return [name, uname, id].filter(Boolean).join(" ");
+};
+const normET = (t) => {
+  const s = String(t || "").toLowerCase();
+  if (s === "single" || s === "singles") return "single";
+  return "double";
+};
+
+const displayNameSimple = (pl) => {
+  if (!pl) return "—";
+  const nn = pl.nickName || pl.nickname || "";
+  return nn || pl.fullName || pl.name || pl.displayName || "—";
+};
+
+const teamNameOf = (reg, tour) => {
+  const et = normET(tour?.eventType);
+  if (et === "single") return displayNameSimple(reg?.player1);
+  const a = displayNameSimple(reg?.player1);
+  const b = displayNameSimple(reg?.player2);
+  return `${a} / ${b}`.replace(/\s+\/\s+$/, ""); // nếu thiếu player2
+};
+
+const fmtPaymentLine = (payment = {}) => {
+  const isPaid = String(payment.status || "") === "Paid";
+  const when = payment.paidAt
+    ? new Date(payment.paidAt).toLocaleString("vi-VN")
+    : "";
+  return isPaid
+    ? `💰 Lệ phí: <b>ĐÃ THANH TOÁN</b>${when ? ` <i>(${when})</i>` : ""}`
+    : "💰 Lệ phí: <b>CHƯA THANH TOÁN</b>";
+};
+
+const buildPayKeyboard = (regId, isPaid) => ({
+  inline_keyboard: [
+    [
+      isPaid
+        ? {
+            text: "↩️ Đánh dấu CHƯA thanh toán",
+            callback_data: `reg:unpay:${regId}`,
+          }
+        : {
+            text: "✅ Xác nhận ĐÃ thanh toán",
+            callback_data: `reg:pay:${regId}`,
+          },
+    ],
+  ],
+});
+
+const fmtRegMessage = (reg, tour) => {
+  const created = reg?.createdAt
+    ? new Date(reg.createdAt).toLocaleString("vi-VN")
+    : "";
+  const et = normET(tour?.eventType);
+  const nameLine =
+    et === "single"
+      ? `👤 VĐV: <b>${esc(teamNameOf(reg, tour))}</b>`
+      : `👥 Cặp VĐV: <b>${esc(teamNameOf(reg, tour))}</b>`;
+  const codeStr = reg?.code != null ? String(reg.code) : "—";
+
+  return [
+    `🧾 <b>Đăng ký #${esc(codeStr)}</b>`,
+    `🏆 Giải: <b>${esc(tour?.name || "—")}</b> • <i>${
+      et === "single" ? "Đơn" : "Đôi"
+    }</i>`,
+    nameLine,
+    `🕒 Thời gian: <i>${created || "—"}</i>`,
+    fmtPaymentLine(reg?.payment),
+  ].join("\n");
+};
+
 const toPosix = (s = "") => String(s).replace(/\\/g, "/");
 function isEmail(s = "") {
   return /\S+@\S+\.\S+/.test(s);
@@ -172,6 +261,104 @@ export async function initKycBot(app) {
     return next();
   });
 
+  // ====== Toggle thanh toán: reg:pay / reg:unpay ======
+  // ====== Toggle thanh toán: reg:pay / reg:unpay ======
+  bot.action(/^reg:(pay|unpay):([a-fA-F0-9]{24})$/, async (ctx) => {
+    try {
+      const [, action, regId] = ctx.match || [];
+      // Quyền thao tác (tuỳ chọn): hạn chế theo TELEGRAM_PAYMENT_ADMINS
+      if (!isPaymentAdmin(ctx.from?.id)) {
+        return ctx.answerCbQuery("Bạn không có quyền thực hiện thao tác này.", {
+          show_alert: true,
+        });
+      }
+
+      await ctx.answerCbQuery("Đang cập nhật…");
+
+      const update =
+        action === "pay"
+          ? { "payment.status": "Paid", "payment.paidAt": new Date() }
+          : { "payment.status": "Unpaid", "payment.paidAt": null };
+
+      const reg = await Registration.findByIdAndUpdate(
+        regId,
+        { $set: update },
+        { new: true }
+      ).lean();
+
+      if (!reg) {
+        return ctx.answerCbQuery("Không tìm thấy đăng ký.", {
+          show_alert: true,
+        });
+      }
+
+      const tour = await Tournament.findById(reg.tournament)
+        .select("_id name eventType")
+        .lean();
+
+      const msg = fmtRegMessage(reg, tour);
+      const isPaid = String(reg?.payment?.status || "") === "Paid";
+
+      // Cập nhật lại message + nút
+      try {
+        await ctx.editMessageText(msg, {
+          parse_mode: "HTML",
+          reply_markup: buildPayKeyboard(reg._id, isPaid),
+          disable_web_page_preview: true,
+        });
+      } catch (e) {
+        // Nếu edit thất bại (vd: đã xoá/tin cũ), gửi tin mới
+        await ctx.reply(msg, {
+          parse_mode: "HTML",
+          reply_markup: buildPayKeyboard(reg._id, isPaid),
+          disable_web_page_preview: true,
+        });
+      }
+
+      // 🔔 GỬI THÊM MỘT TIN NHẮN XÁC NHẬN
+      const confirmTitle = isPaid
+        ? "✅ ĐÃ XÁC NHẬN THANH TOÁN"
+        : "↩️ ĐÃ ĐÁNH DẤU CHƯA THANH TOÁN";
+
+      const et = normET(tour?.eventType);
+      const whoLine =
+        et === "single"
+          ? `• VĐV: <b>${esc(teamNameOf(reg, tour))}</b>`
+          : `• Cặp VĐV: <b>${esc(teamNameOf(reg, tour))}</b>`;
+
+      const whenLine =
+        isPaid && reg?.payment?.paidAt
+          ? `• Thời điểm: <i>${new Date(reg.payment.paidAt).toLocaleString(
+              "vi-VN"
+            )}</i>`
+          : `• Thời điểm: <i>${new Date().toLocaleString("vi-VN")}</i>`;
+
+      const confirmMsg = [
+        confirmTitle,
+        `• Mã đăng ký: <b>${esc(String(reg.code ?? "—"))}</b>`,
+        `• Giải: <b>${esc(tour?.name || "—")}</b>`,
+        whoLine,
+        whenLine,
+        `• Thao tác bởi: <i>${esc(actorLabel(ctx.from))}</i>`,
+      ].join("\n");
+
+      await ctx.reply(confirmMsg, {
+        parse_mode: "HTML",
+        reply_to_message_id: ctx.update?.callback_query?.message?.message_id,
+        disable_web_page_preview: true,
+      });
+
+      await ctx.answerCbQuery(
+        isPaid ? "Đã đánh dấu: ĐÃ thanh toán" : "Đã đánh dấu: CHƯA thanh toán"
+      );
+    } catch (e) {
+      console.error("[reg:pay|unpay] error:", e);
+      try {
+        await ctx.answerCbQuery("Có lỗi xảy ra.", { show_alert: true });
+      } catch {}
+    }
+  }); 
+
   // ===== KYC: Duyệt / Từ chối =====
   bot.action(/^kyc:(approve|reject):([a-fA-F0-9]{24})$/, async (ctx) => {
     try {
@@ -302,6 +489,7 @@ export async function initKycBot(app) {
           "Chấm điểm nhanh (single double) + tuỳ chọn --guard/--note",
       },
       { command: "point", description: "Xem điểm hiện tại (alias)" },
+      { command: "reg", description: "Tra cứu & cập nhật thanh toán đăng ký" },
     ])
     .catch((e) => console.warn("setMyCommands failed:", e?.message));
 
@@ -732,6 +920,55 @@ export async function initKycBot(app) {
     } catch (e) {
       console.error("rankget error:", e);
       return ctx.reply("❌ Có lỗi xảy ra khi lấy điểm.");
+    }
+  });
+
+  // ========================== /reg ==========================
+  bot.command(["reg", "reginfo"], async (ctx) => {
+    const args = (ctx.message?.text || "").trim().split(/\s+/).slice(1);
+    const q = args[0];
+
+    if (!q) {
+      return ctx.reply(
+        [
+          "Cách dùng:",
+          "/reg <mã đăng ký|_id>",
+          "Ví dụ:",
+          "• /reg 10025",
+          "• /reg 68c81897630cb625c458ea6f",
+        ].join("\n")
+      );
+    }
+
+    try {
+      let reg = null;
+      if (/^\d{5,}$/.test(q)) {
+        reg = await Registration.findOne({ code: Number(q) }).lean();
+      } else if (/^[a-fA-F0-9]{24}$/.test(q)) {
+        reg = await Registration.findById(q).lean();
+      } else {
+        return ctx.reply(
+          "❌ Định dạng không hợp lệ. Nhập mã số (>=5 chữ số) hoặc _id (24 hex)."
+        );
+      }
+
+      if (!reg) return ctx.reply("❌ Không tìm thấy đăng ký.");
+
+      const tour = await Tournament.findById(reg.tournament)
+        .select("_id name eventType")
+        .lean();
+
+      const msg = fmtRegMessage(reg, tour);
+      const isPaid = String(reg?.payment?.status || "") === "Paid";
+
+      await ctx.reply(msg, {
+        parse_mode: "HTML",
+        reply_markup: buildPayKeyboard(reg._id, isPaid),
+        disable_web_page_preview: true,
+      });
+    } catch (e) {
+      console.error("[/reg] error:", e);
+      return ctx.reply("❌ Có lỗi xảy ra khi tra cứu đăng ký.");
     }
   });
   // --------------------- Launch & Stop -------------------

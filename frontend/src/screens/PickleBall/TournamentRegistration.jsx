@@ -1,6 +1,5 @@
 import { useState, useMemo } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
-// ❌ Không dùng Redux auth nữa
 import {
   Avatar,
   Box,
@@ -57,6 +56,7 @@ import {
 import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
+import { getFeeAmount } from "../../utils/fee";
 
 /* ---------------- helpers ---------------- */
 const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";
@@ -137,7 +137,6 @@ const totalChipStyle = (total, cap, delta) => {
       )})`,
     };
   }
-  // total > threshold
   return {
     color: "error",
     title: `> ${fmt3(cap)} + ${fmt3(delta)} (Vượt quá chênh lệch tối đa)`,
@@ -186,6 +185,19 @@ function CheckinChip({ checkinAt }) {
   );
 }
 
+/* Badge mã đăng ký */
+function CodeBadge({ code, withLabel = true }) {
+  const text = withLabel ? `Mã đăng ký: ${code}` : String(code);
+  return (
+    <Chip
+      size="small"
+      variant="outlined"
+      label={text}
+      sx={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}
+    />
+  );
+}
+
 /* Stat item */
 function StatItem({ icon, label, value, hint }) {
   return (
@@ -226,7 +238,7 @@ function StatItem({ icon, label, value, hint }) {
   );
 }
 
-/** VĐV 1 (Bạn) — read-only, lấy từ /api/users/me/score */
+/** VĐV 1 (Bạn) */
 function SelfPlayerReadonly({ me, isSingles }) {
   if (!me?._id) return null;
   const display = me?.nickname || me?.name || "Tôi";
@@ -433,7 +445,7 @@ export default function TournamentRegistration() {
   });
   const [newPlayer, setNewPlayer] = useState(null);
 
-  // NEW: Khiếu nại + Thanh toán (QR)
+  // Khiếu nại + Thanh toán (QR)
   const [complaintDlg, setComplaintDlg] = useState({
     open: false,
     reg: null,
@@ -455,6 +467,7 @@ export default function TournamentRegistration() {
   const isDoubles = evType === "double";
   const cap = useMemo(() => getScoreCap(tour, isSingles), [tour, isSingles]);
   const delta = useMemo(() => getMaxDelta(tour), [tour]);
+
   // quyền
   const isManager = useMemo(() => {
     if (!isLoggedIn || !tour) return false;
@@ -509,7 +522,6 @@ export default function TournamentRegistration() {
 
   const playersOfReg = (r) => [r?.player1, r?.player2].filter(Boolean);
 
-  // Submit: cần me xong; nếu đôi thì cần p2
   const disableSubmit =
     saving || meLoading || !isLoggedIn || (isDoubles && !p2);
 
@@ -532,7 +544,7 @@ export default function TournamentRegistration() {
       const res = await createInvite({
         tourId: id,
         message: msg,
-        player1Id: String(me._id), // luôn là bạn
+        player1Id: String(me._id),
         ...(isDoubles ? { player2Id: p2._id } : {}),
       }).unwrap();
 
@@ -604,7 +616,6 @@ export default function TournamentRegistration() {
     }
   };
 
-  // Toggle trạng thái thanh toán của 1 đăng ký
   const togglePayment = async (r) => {
     if (!canManage) {
       toast.info("Bạn không có quyền cập nhật thanh toán.");
@@ -694,8 +705,19 @@ export default function TournamentRegistration() {
 
   // Ưu tiên cấu hình trong tour, fallback ENV
   const getQrProviderConfig = () => {
-    const bank = tour?.qrBank || tour?.bankCode || tour?.bank;
-    const acc = tour?.qrAccount || tour?.bankAccount;
+    const bank =
+      tour?.bankShortName ||
+      tour?.qrBank ||
+      tour?.bankCode ||
+      tour?.bank ||
+      import.meta.env?.VITE_QR_BANK ||
+      "";
+    const acc =
+      tour?.bankAccountNumber ||
+      tour?.qrAccount ||
+      tour?.bankAccount ||
+      import.meta.env?.VITE_QR_ACC ||
+      "";
     return { bank, acc };
   };
 
@@ -708,13 +730,17 @@ export default function TournamentRegistration() {
     const ph = maskPhone(
       r?.player1?.phone || r?.player2?.phone || me?.phone || ""
     );
-    const des = normalizeNoAccent(
-      `ND Ma giai ${id} Ma dang ky ${code} So dien thoai ${ph}`
-    );
+    const des = normalizeNoAccent(`Ma giai ${id} Ma dang ky ${code} SDT ${ph}`);
 
-    const params = new URLSearchParams({ acc, bank, des, template: "compact" });
-    const amount = r?.payment?.amount || tour?.fee || tour?.entryFee;
-    if (amount) params.set("amount", String(Math.round(Number(amount))));
+    const params = new URLSearchParams({
+      bank,
+      acc,
+      des,
+      template: "compact",
+    });
+
+    const amount = getFeeAmount(tour, r);
+    if (amount > 0) params.set("amount", String(amount));
 
     return `https://qr.sepay.vn/img?${params.toString()}`;
   };
@@ -734,12 +760,7 @@ export default function TournamentRegistration() {
       return;
     }
     try {
-      // ⚠️ Nếu backend bạn dùng tên field khác, đổi ở đây cho khớp:
-      // Ví dụ A (như mình đang dùng): { tournamentId, regId, content }
       await createComplaint({ tournamentId: id, regId, content }).unwrap();
-      // Ví dụ B (nếu backend của bạn là): { registrationId, message }
-      // await createComplaint({ registrationId: regId, message: content }).unwrap();
-
       toast.success("Đã gửi khiếu nại. BTC sẽ phản hồi sớm.");
       closeComplaint();
     } catch (e) {
@@ -941,7 +962,7 @@ export default function TournamentRegistration() {
             </Paper>
           )}
 
-      {/* FORM: VĐV1 = Bạn (read-only), chỉ chọn VĐV2 nếu là đôi */}
+      {/* FORM đăng ký */}
       <Paper variant="outlined" sx={{ p: 2, mb: 1.5, maxWidth: 760 }}>
         <Typography variant="h6" gutterBottom>
           {isAdmin ? "Tạo đăng ký (admin)" : "Đăng ký thi đấu"}
@@ -1123,9 +1144,17 @@ export default function TournamentRegistration() {
               isLoggedIn && String(r?.createdBy) === String(me?._id);
             return (
               <Paper key={r._id} sx={{ p: 2 }}>
-                <Typography variant="subtitle2">
-                  #{baseIndex + i0 + 1}
-                </Typography>
+                {/* Header card: Mã ĐK + index */}
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  justifyContent="space-between"
+                >
+                  <CodeBadge code={regCodeOf(r)} />
+                  <Typography variant="caption" color="text.secondary">
+                    #{baseIndex + i0 + 1}
+                  </Typography>
+                </Stack>
 
                 {playersOfReg(r).map((pl, idx) => (
                   <Stack
@@ -1270,6 +1299,7 @@ export default function TournamentRegistration() {
             <TableHead>
               <TableRow>
                 <TableCell sx={{ whiteSpace: "nowrap" }}>#</TableCell>
+                <TableCell sx={{ whiteSpace: "nowrap" }}>Mã đăng ký</TableCell>
                 <TableCell>{isSingles ? "VĐV" : "VĐV 1"}</TableCell>
                 {!isSingles && <TableCell>VĐV 2</TableCell>}
                 <TableCell sx={{ whiteSpace: "nowrap" }}>Tổng điểm</TableCell>
@@ -1289,8 +1319,13 @@ export default function TournamentRegistration() {
                   isLoggedIn && String(r?.createdBy) === String(me?._id);
                 return (
                   <TableRow key={r._id} hover>
+                    {/* NEW: Mã ĐK */}
+
                     <TableCell sx={{ whiteSpace: "nowrap" }}>
                       {baseIndex + i0 + 1}
+                    </TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>
+                      <CodeBadge code={regCodeOf(r)} withLabel={false} />
                     </TableCell>
 
                     <TableCell>
@@ -1474,7 +1509,7 @@ export default function TournamentRegistration() {
         userId={profileDlg.userId}
       />
 
-      {/* NEW: Dialog Khiếu nại */}
+      {/* Dialog Khiếu nại */}
       <Dialog
         open={complaintDlg.open}
         onClose={closeComplaint}
@@ -1519,7 +1554,7 @@ export default function TournamentRegistration() {
         </DialogActions>
       </Dialog>
 
-      {/* NEW: Dialog Thanh toán QR */}
+      {/* Dialog Thanh toán QR */}
       <Dialog
         open={paymentDlg.open}
         onClose={closePayment}
@@ -1540,7 +1575,7 @@ export default function TournamentRegistration() {
                 );
                 return (
                   <Typography variant="body2" sx={{ mb: 1.5 }}>
-                    {`Xin mời bạn sử dụng mã QR sau để thanh toán cho Mã đăng ký ${code} ND Mã giải ${id} Mã đăng ký ${code} Số điện thoại ${ph} nhé.`}
+                    {`Vui lòng quét QR để thanh toán cho mã đăng ký ${code}. SĐT xác nhận: ${ph}.`}
                   </Typography>
                 );
               })()}
@@ -1549,14 +1584,13 @@ export default function TournamentRegistration() {
                 const url = qrImgUrlFor(paymentDlg.reg);
                 if (!url) {
                   return (
-                    <Alert severity="warning" sx={{ textAlign: "left" }}>
-                      Chưa cấu hình thông tin tài khoản nhận tiền cho QR. Vui
-                      lòng thêm
-                      <b> bank code</b> và <b>số tài khoản</b> trong cấu hình
-                      giải (vd:
-                      <code> qrBank/qrAccount</code>) hoặc ENV{" "}
-                      <code>VITE_QR_BANK</code>,<code> VITE_QR_ACC</code>.
-                    </Alert>
+                    <>
+                      <Alert severity="info" sx={{ textAlign: "left", mb: 1 }}>
+                        Hiện chưa có mã QR thanh toán. Bạn có thể dùng mục{" "}
+                        <b>Khiếu nại</b> để liên hệ Ban tổ chức (BTC) nhận hướng
+                        dẫn thanh toán.
+                      </Alert>
+                    </>
                   );
                 }
                 return (
@@ -1573,8 +1607,7 @@ export default function TournamentRegistration() {
                       color="text.secondary"
                       sx={{ mt: 1, display: "block" }}
                     >
-                      Quét mã bằng app ngân hàng. Thông tin chuyển khoản tự điền
-                      theo QR (SePay VietQR).
+                      Quét mã QR code ở trên để thanh toán phí đăng ký giải đấu.
                     </Typography>
                   </>
                 );
@@ -1583,6 +1616,19 @@ export default function TournamentRegistration() {
           ) : null}
         </DialogContent>
         <DialogActions>
+          {/* Nếu chưa có QR: cho nút Khiếu nại nhanh */}
+          {!paymentDlg.reg || !qrImgUrlFor(paymentDlg.reg) ? (
+            <Button
+              color="warning"
+              variant="outlined"
+              onClick={() => {
+                setComplaintDlg({ open: true, reg: paymentDlg.reg, text: "" });
+              }}
+              startIcon={<ReportProblem fontSize="small" />}
+            >
+              Khiếu nại
+            </Button>
+          ) : null}
           <Button onClick={closePayment}>Đóng</Button>
         </DialogActions>
       </Dialog>

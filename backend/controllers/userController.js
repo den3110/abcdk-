@@ -912,6 +912,81 @@ export const searchUser = asyncHandler(async (req, res) => {
 
   const qDigits = rawQ.replace(/\D/g, "");
 
+  // ==== helper: lấy map { userId -> { single, double } } từ Ranking, thiếu thì fallback ScoreHistory ====
+  async function getLatestSinglesDoubles(idList = []) {
+    if (!idList?.length) return new Map();
+
+    // Lấy SINGLE mới nhất có giá trị
+    const singleAgg = await Ranking.aggregate([
+      { $match: { user: { $in: idList } } },
+      {
+        $addFields: {
+          _single: {
+            $ifNull: ["$single", { $ifNull: ["$singleScore", "$singlePoint"] }],
+          },
+          _when: {
+            $ifNull: ["$effectiveAt", { $ifNull: ["$asOf", "$updatedAt"] }],
+          },
+        },
+      },
+      { $match: { _single: { $type: "number" } } },
+      { $sort: { user: 1, _when: -1, updatedAt: -1, createdAt: -1, _id: -1 } },
+      { $group: { _id: "$user", single: { $first: "$_single" } } },
+    ]);
+
+    // Lấy DOUBLE mới nhất có giá trị
+    const doubleAgg = await Ranking.aggregate([
+      { $match: { user: { $in: idList } } },
+      {
+        $addFields: {
+          _double: {
+            $ifNull: ["$double", { $ifNull: ["$doubleScore", "$doublePoint"] }],
+          },
+          _when: {
+            $ifNull: ["$effectiveAt", { $ifNull: ["$asOf", "$updatedAt"] }],
+          },
+        },
+      },
+      { $match: { _double: { $type: "number" } } },
+      { $sort: { user: 1, _when: -1, updatedAt: -1, createdAt: -1, _id: -1 } },
+      { $group: { _id: "$user", double: { $first: "$_double" } } },
+    ]);
+
+    const map = new Map();
+    for (const r of singleAgg)
+      map.set(String(r._id), { single: r.single, double: 0 });
+    for (const r of doubleAgg) {
+      const k = String(r._id);
+      const prev = map.get(k) || { single: 0, double: 0 };
+      map.set(k, { ...prev, double: r.double });
+    }
+
+    // Fallback cho user chưa có Ranking
+    const missing = idList.filter((id) => !map.has(String(id)));
+    if (missing.length) {
+      const hist = await ScoreHistory.aggregate([
+        { $match: { user: { $in: missing } } },
+        { $sort: { user: 1, scoredAt: -1 } },
+        {
+          $group: {
+            _id: "$user",
+            single: { $first: "$single" },
+            double: { $first: "$double" },
+          },
+        },
+      ]);
+      for (const h of hist) {
+        map.set(String(h._id), {
+          single: typeof h.single === "number" ? h.single : 0,
+          double: typeof h.double === "number" ? h.double : 0,
+        });
+      }
+    }
+
+    return map;
+  }
+  // ==== end helper ====
+
   // === PHONE MODE (y như cũ) ===
   const isPhoneQuery = /^\+?\d[\d\s().-]*$/.test(rawQ) && qDigits.length >= 8;
   if (isPhoneQuery) {
@@ -925,23 +1000,7 @@ export const searchUser = asyncHandler(async (req, res) => {
     if (!users.length) return res.json([]);
 
     const idList = users.map((u) => u._id);
-    const lastScores = await ScoreHistory.aggregate([
-      { $match: { user: { $in: idList } } },
-      { $sort: { user: 1, scoredAt: -1 } },
-      {
-        $group: {
-          _id: "$user",
-          single: { $first: "$single" },
-          double: { $first: "$double" },
-        },
-      },
-    ]);
-    const scoreMap = new Map(
-      lastScores.map((s) => [
-        String(s._id),
-        { single: s.single || 0, double: s.double || 0 },
-      ])
-    );
+    const scoreMap = await getLatestSinglesDoubles(idList);
 
     return res.json(
       users.map((u) => ({
@@ -970,8 +1029,6 @@ export const searchUser = asyncHandler(async (req, res) => {
   let users = await User.find({ $or: orPrefix })
     .select("_id name nickname phone avatar province")
     .limit(200)
-    // collation hỗ trợ so sánh/equality bỏ dấu; regex thì Mongo không áp dụng collation,
-    // nhưng vẫn giữ để sort ổn định hơn:
     .collation({ locale: "vi", strength: 1 })
     .lean();
 
@@ -981,7 +1038,6 @@ export const searchUser = asyncHandler(async (req, res) => {
       $or: [
         { nickname: { $regex: escapeReg(tk), $options: "i" } },
         { name: { $regex: escapeReg(tk), $options: "i" } },
-        // province thường cần prefix là đủ; nhưng nếu muốn substring luôn thì đổi thành escapeReg(tk)
         { province: { $regex: "^" + escapeReg(tk), $options: "i" } },
       ],
     }));
@@ -996,7 +1052,7 @@ export const searchUser = asyncHandler(async (req, res) => {
 
   if (!users.length) return res.json([]);
 
-  // ===== SCORING (cải tiến để ưu tiên đủ token & đúng cụm) =====
+  // ===== SCORING (giữ nguyên) =====
   const scored = users.map((u) => {
     const fields = {
       name: String(u.name || ""),
@@ -1010,39 +1066,24 @@ export const searchUser = asyncHandler(async (req, res) => {
     };
 
     let score = 0;
-
-    // EXACT (không dấu)
     if (qNorm === norm.nick) score += 900;
     if (qNorm === norm.name) score += 800;
-
-    // PREFIX (không dấu)
     if (isPrefix(qNorm, norm.nick)) score += 700;
     if (isPrefix(qNorm, norm.name)) score += 600;
-
-    // SUBSTRING thô (giữ cụm gốc có dấu để ưu tiên "mạnh linh" liền nhau)
     if (fields.nick.toLowerCase().includes(rawQ.toLowerCase())) score += 550;
     if (fields.name.toLowerCase().includes(rawQ.toLowerCase())) score += 500;
-
-    // SUBSTRING (không dấu)
     if (norm.nick.includes(qNorm)) score += 300;
     if (norm.name.includes(qNorm)) score += 250;
-
-    // SUBSEQUENCE (không dấu, compact)
     if (isSubsequence(qCompact, norm.nick.replace(/\s+/g, ""))) score += 220;
     if (isSubsequence(qCompact, norm.name.replace(/\s+/g, ""))) score += 200;
 
-    // TOKEN COVERAGE: đủ các token trong cùng field sẽ cộng nhiều điểm
     if (qTokensNorm.length) {
       const nickHits = countTokenHits(qTokensNorm, norm.nick);
       const nameHits = countTokenHits(qTokensNorm, norm.name);
-
-      score += nickHits * 110; // mỗi token match trong nickname
-      score += nameHits * 90; // mỗi token match trong name
-
-      if (nickHits === qTokensNorm.length) score += 220; // đủ token trong nickname
-      if (nameHits === qTokensNorm.length) score += 180; // đủ token trong name
-
-      // Đúng thứ tự & sát nhau (ví dụ "mạnh linh" xuất hiện liền)
+      score += nickHits * 110;
+      score += nameHits * 90;
+      if (nickHits === qTokensNorm.length) score += 220;
+      if (nameHits === qTokensNorm.length) score += 180;
       if (qTokensRaw.length >= 2) {
         const phrase = qTokensRaw.join("\\s+");
         const rePhrase = new RegExp(phrase, "i");
@@ -1051,11 +1092,9 @@ export const searchUser = asyncHandler(async (req, res) => {
       }
     }
 
-    // PROVINCE
     if (qNorm === norm.province) score += 60;
     else if (isPrefix(qNorm, norm.province)) score += 30;
 
-    // tie-break theo độ dài gần
     score -= Math.abs(norm.nick.length - qNorm.length) * 0.2;
     score -= Math.abs(norm.name.length - qNorm.length) * 0.1;
 
@@ -1097,23 +1136,8 @@ export const searchUser = asyncHandler(async (req, res) => {
   const topUsers = ranked.slice(0, limit).map((x) => x.user);
   const idList = topUsers.map((u) => u._id);
 
-  const lastScores = await ScoreHistory.aggregate([
-    { $match: { user: { $in: idList } } },
-    { $sort: { user: 1, scoredAt: -1 } },
-    {
-      $group: {
-        _id: "$user",
-        single: { $first: "$single" },
-        double: { $first: "$double" },
-      },
-    },
-  ]);
-  const scoreMap = new Map(
-    lastScores.map((s) => [
-      String(s._id),
-      { single: s.single || 0, double: s.double || 0 },
-    ])
-  );
+  // >>> thay lấy điểm ở đây: dùng Ranking trước, fallback ScoreHistory
+  const scoreMap = await getLatestSinglesDoubles(idList);
 
   return res.json(
     ranked.slice(0, limit).map(({ user }) => ({

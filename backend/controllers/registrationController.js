@@ -234,6 +234,42 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     .sort({ createdAt: -1 })
     .lean();
 
+  // 1.1) Gán mã đăng ký (code) cho những bản ghi còn thiếu
+  // - Bắt đầu từ 10000
+  // - Không đè lên bản ghi đã có code
+  // - Gán theo thứ tự thời gian tạo (cũ -> mới)
+  const missing = regs.filter((r) => r.code == null);
+  if (missing.length) {
+    // Lấy code lớn nhất hiện có trong toàn bộ collection
+    const maxDoc = await Registration.findOne({ code: { $type: "number" } })
+      .sort({ code: -1 })
+      .select("code")
+      .lean();
+
+    let next = Math.max(9999, Number(maxDoc?.code ?? 9999)); // để ++ thành 10000 ở bản ghi đầu tiên
+
+    // Gán theo thứ tự cũ -> mới để mã tăng dần theo thời gian
+    missing.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+    for (const r of missing) {
+      next += 1;
+      // Chỉ set khi vẫn chưa có code (tránh race khi có request khác gán trước)
+      // eslint-disable-next-line no-await-in-loop
+      const upd = await Registration.updateOne(
+        { _id: r._id, $or: [{ code: { $exists: false } }, { code: null }] },
+        { $set: { code: next } }
+      );
+      if (upd.modifiedCount > 0) {
+        r.code = next; // cập nhật vào bản lean để trả về luôn
+      } else {
+        // Có thể đã được gán ở nơi khác trong lúc này -> đọc lại
+        // eslint-disable-next-line no-await-in-loop
+        const fresh = await Registration.findById(r._id).select("code").lean();
+        if (fresh?.code != null) r.code = fresh.code;
+      }
+    }
+  }
+
   // 2) gom userId từ player1/2 để query 1 lần
   const uids = new Set();
   for (const r of regs) {
@@ -251,7 +287,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
   const maskPhone = (val) => {
     if (!val) return val;
     const s = String(val);
-    if (canSeeFullPhone) return s; // không mask nếu có quyền
+    if (canSeeFullPhone) return s;
 
     if (s.length <= 6) {
       const keepHead = Math.min(1, s.length);
@@ -269,7 +305,6 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     if (!pl) return pl; // singles có thể null player2
     const u = userById.get(String(pl.user));
 
-    // nguồn nickname / fullName từ User là ưu tiên
     const nickFromUser =
       (u?.nickName && String(u.nickName).trim()) ||
       (u?.nickname && String(u.nickname).trim()) ||
@@ -279,7 +314,6 @@ export const getRegistrations = asyncHandler(async (req, res) => {
       (u?.name && String(u.name).trim()) ||
       "";
 
-    // phone ưu tiên lấy từ User rồi mask, fallback về pl.phone
     const phoneSource = u?.phone ?? pl.phone ?? "";
     const maskedPhone = maskPhone(phoneSource);
 
@@ -293,8 +327,6 @@ export const getRegistrations = asyncHandler(async (req, res) => {
         (pl.nickname && String(pl.nickname).trim()) ||
         "",
       phone: maskedPhone,
-      // score giữ nguyên (điểm đã “lock” lúc đăng ký), nếu bạn muốn sync theo đánh giá mới
-      // thì đã có logic cập nhật ở chỗ createEvaluation như mình làm trước đó.
     };
   };
 

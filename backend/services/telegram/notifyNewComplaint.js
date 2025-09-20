@@ -1,5 +1,5 @@
 // utils/notifyNewComplaint.js  (ESM)
-import { tgSend, htmlEscape } from "../../utils/telegram.js";
+import { tgSend, htmlEscape } from "../../utils/telegram.js"; // sửa import
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 const DEFAULT_CHAT_ID = process.env.TELEGRAM_CHAT_ID ?? "";
@@ -38,8 +38,8 @@ const lineForPlayer = (label, pl) => {
 
 /**
  * Gửi thông báo khi có khiếu nại mới
- * - KHÔNG dùng callback_data nữa.
- * - Dùng Reply Keyboard với 2 nút lệnh: /complaint_resolve <id>, /complaint_reject <id>
+ * - Có 2 nút inline: ✅ Đã xử lý / ❌ Từ chối
+ * - Gửi vào TELEGRAM_CHAT_ID (hoặc chatId truyền vào). KHÔNG dùng topic.
  */
 export async function notifyNewComplaint({
   tournament,
@@ -76,8 +76,6 @@ export async function notifyNewComplaint({
     "",
     "<b>Nội dung:</b>",
     `<pre>${htmlEscape(String(content || "")).slice(0, 3500)}</pre>`,
-    "",
-    "➡️ Bấm một trong hai nút lệnh bên dưới để cập nhật trạng thái.",
   ].filter(Boolean);
 
   const caption = captionLines.join("\n");
@@ -92,37 +90,23 @@ export async function notifyNewComplaint({
       ? `${FRONTEND_URL}/tournament/${tournament._id}`
       : null;
 
-  // Reply Keyboard (KHÔNG dùng inline/callback)
-  const resolveCmd = `/complaint_resolve ${String(complaint._id)}`;
-  const rejectCmd = `/complaint_reject ${String(complaint._id)}`;
-
   const reply_markup = {
-    keyboard: [
-      [{ text: resolveCmd }, { text: rejectCmd }],
+    inline_keyboard: [
       [
-        ...(regUrl
-          ? [
-              {
-                text: "👀 Xem Đăng ký",
-                web_app: undefined,
-                request_contact: false,
-              },
-            ]
-          : []),
-        ...(tourUrl
-          ? [
-              {
-                text: "🧭 Xem giải",
-                web_app: undefined,
-                request_contact: false,
-              },
-            ]
-          : []),
+        regUrl && { text: "👀 Xem Đăng ký", url: regUrl },
+        tourUrl && { text: "🧭 Xem giải", url: tourUrl },
+      ].filter(Boolean),
+      [
+        complaint?._id && {
+          text: "✅ Đã xử lý",
+          callback_data: `complaint:resolve:${String(complaint._id)}`,
+        },
+        complaint?._id && {
+          text: "❌ Từ chối",
+          callback_data: `complaint:reject:${String(complaint._id)}`,
+        },
       ].filter(Boolean),
     ].filter((row) => row.length),
-    resize_keyboard: true,
-    one_time_keyboard: true,
-    selective: false,
   };
 
   // Gửi (không topic)
@@ -130,38 +114,24 @@ export async function notifyNewComplaint({
     reply_markup,
     chat_id: chatId, // nếu không truyền, tgSend sẽ dùng env TELEGRAM_CHAT_ID
   });
-
-  // Nếu có link, gửi kèm link dạng message riêng (đỡ “fake” nút URL trong reply keyboard)
-  if (regUrl || tourUrl) {
-    const linkLines = [
-      regUrl ? `👀 Xem Đăng ký: ${regUrl}` : "",
-      tourUrl ? `🧭 Xem giải: ${tourUrl}` : "",
-    ].filter(Boolean);
-    if (linkLines.length) {
-      await tgSend(linkLines.join("\n"), {
-        chat_id: chatId,
-        reply_to_message_id: sentMsg?.message_id ?? sentMsg?.result?.message_id,
-      });
-    }
-  }
-
   return sentMsg;
 }
 
 /**
- * Gửi thông báo khi trạng thái khiếu nại thay đổi (sau khi gửi lệnh)
- * → Gửi một TIN NHẮN MỚI (có thể reply vào tin gốc nếu truyền replyToMessageId)
+ * Gửi thông báo khi trạng thái khiếu nại thay đổi (khi bấm nút)
+ * -> Gửi một tin NHẮN MỚI (có thể reply ngay dưới tin gốc nếu truyền replyToMessageId)
  */
 export async function notifyComplaintStatusChange({
   complaint,
   tournament,
   registration,
   newStatus, // "resolved" | "rejected" | "in_progress"
-  actor, // người bấm/ra lệnh
-  chatId, // chat của message gốc hoặc để trống dùng DEFAULT_CHAT_ID
-  replyToMessageId, // optional
+  actor, // cq.from (người bấm)
+  chatId, // bắt buộc: chat của message gốc
+  replyToMessageId, // optional: reply vào tin gốc
 }) {
-  if (!complaint || !tournament || !registration || !newStatus) return;
+  if (!complaint || !tournament || !registration || !newStatus || !chatId)
+    return;
 
   const code = regCodeOf(registration);
   const p1 = registration?.player1;
@@ -171,14 +141,14 @@ export async function notifyComplaintStatusChange({
     ? `@${actor.username}`
     : [actor?.first_name, actor?.last_name].filter(Boolean).join(" ") || "BTC";
 
-  const statusLabel =
-    newStatus === "resolved"
+  const statusLabel = (s) =>
+    s === "resolved"
       ? "✅ ĐÃ XỬ LÝ"
-      : newStatus === "rejected"
+      : s === "rejected"
       ? "❌ TỪ CHỐI"
-      : newStatus === "in_progress"
+      : s === "in_progress"
       ? "🔁 ĐANG XỬ LÝ"
-      : newStatus;
+      : s;
 
   const lines = [
     "🧾 <b>Cập nhật khiếu nại</b>",
@@ -189,15 +159,13 @@ export async function notifyComplaintStatusChange({
     lineForPlayer("• VĐV 1", p1),
     p2 ? lineForPlayer("• VĐV 2", p2) : undefined,
     "",
-    `📌 Trạng thái: <b>${statusLabel}</b>`,
+    `📌 Trạng thái: <b>${statusLabel(newStatus)}</b>`,
     `👤 Thao tác bởi: ${htmlEscape(actorName)}`,
     `🕒 ${new Date().toLocaleString("vi-VN")}`,
   ].filter(Boolean);
 
   await tgSend(lines.join("\n"), {
-    ...(chatId ? { chat_id: chatId } : {}),
+    chat_id: chatId,
     ...(replyToMessageId ? { reply_to_message_id: replyToMessageId } : {}),
-    // Có thể gửi kèm remove_keyboard để đóng bàn phím tạm:
-    reply_markup: { remove_keyboard: true },
   });
 }

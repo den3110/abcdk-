@@ -259,7 +259,13 @@ const getTournaments = asyncHandler(async (req, res) => {
 const getTournamentById = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  // lấy tournament
+  // Validate ID
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    res.status(400);
+    throw new Error("Invalid ID");
+  }
+
+  // Lấy tournament
   const tour = await Tournament.findById(id).lean();
   if (!tour) {
     res.status(404);
@@ -268,39 +274,79 @@ const getTournamentById = asyncHandler(async (req, res) => {
 
   const meId = req.user?._id ? String(req.user._id) : null;
 
-  // load managers
+  // Managers
   const managerRows = await TournamentManager.find({ tournament: id })
     .select("user role")
     .lean();
 
-  const managers = managerRows.map((r) => ({
-    user: r.user,
-    role: r.role,
-  }));
+  const managers = managerRows.map((r) => ({ user: r.user, role: r.role }));
 
   const amOwner = !!(meId && String(tour.createdBy) === meId);
   const amManager =
     amOwner || (!!meId && managerRows.some((r) => String(r.user) === meId));
 
-  // === NEW: thống kê đăng ký & check-in theo Registration ===
-  const [registrationsCount, checkedInCount] = await Promise.all([
+  // ---- Derive status runtime (upcoming/ongoing/finished)
+  const now = new Date();
+  const startInstant = tour.startAt || tour.startDate;
+  const endInstant = tour.endAt || tour.endDate;
+
+  let status = "upcoming";
+  if (tour.finishedAt) status = "finished";
+  else if (startInstant && now < new Date(startInstant)) status = "upcoming";
+  else if (endInstant && now > new Date(endInstant)) status = "finished";
+  else status = "ongoing";
+
+  // ---- Stats: đăng ký / check-in / đã thanh toán
+  const [registrationsCount, checkedInCount, paidCount] = await Promise.all([
     Registration.countDocuments({ tournament: id }),
+    Registration.countDocuments({ tournament: id, checkinAt: { $ne: null } }),
     Registration.countDocuments({
       tournament: id,
-      checkinAt: { $ne: null },
+      "payment.status": "Paid",
     }),
   ]);
 
-  // trả về đầy đủ tour + flags + stats
+  // ---- Chuẩn hoá thông tin thanh toán (SePay VietQR)
+  const bankShortName =
+    tour.bankShortName || tour.qrBank || tour.bankCode || tour.bank || "";
+  const bankAccountNumber =
+    tour.bankAccountNumber || tour.qrAccount || tour.bankAccount || "";
+  const bankAccountName =
+    tour.bankAccountName ||
+    tour.accountName ||
+    tour.paymentAccountName ||
+    tour.beneficiaryName ||
+    "";
+  const registrationFee = (() => {
+    const raw = tour.registrationFee ?? tour.fee ?? tour.entryFee ?? 0;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? Math.round(n) : 0;
+  })();
+
+  // Trả về
   res.json({
     ...tour,
+    status, // trạng thái tính theo thời điểm hiện tại
     managers,
     amOwner,
     amManager,
     stats: {
-      registrationsCount, // số đội đăng ký
-      checkedInCount, // số đội đã check-in
+      registrationsCount,
+      checkedInCount,
+      paidCount,
     },
+
+    // payment fields (mới)
+    bankShortName,
+    bankAccountNumber,
+    bankAccountName,
+    registrationFee,
+
+    // alias cũ để tương thích ngược (UI/logic cũ)
+    qrBank: bankShortName,
+    qrAccount: bankAccountNumber,
+    fee: registrationFee,
+    entryFee: registrationFee,
   });
 });
 
@@ -681,5 +727,3 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
 });
 
 export { getTournaments, getTournamentById };
-
-
