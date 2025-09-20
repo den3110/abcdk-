@@ -183,12 +183,13 @@ export const seedLabel = (seed) => {
     case "matchWinner": {
       const r = seed.ref?.round ?? "?";
       const t = (seed.ref?.order ?? -1) + 1;
-      return `W-R${r} #${t}`;
+      return `W-V${r}-T${t}`;
     }
+
     case "matchLoser": {
       const r = seed.ref?.round ?? "?";
       const t = (seed.ref?.order ?? -1) + 1;
-      return `L-R${r} #${t}`;
+      return `L-V${r}-T${t}`;
     }
     case "bye":
       return "BYE";
@@ -203,7 +204,7 @@ export const depLabel = (prev) => {
   if (!prev) return "TBD";
   const r = prev.round ?? "?";
   const idx = (prev.order ?? 0) + 1;
-  return `Winner of R${r} #${idx}`;
+  return `W-V${r}-T${idx}`;
 };
 
 export const resultLabel = (m) => {
@@ -220,7 +221,7 @@ export const resultLabel = (m) => {
 const displayOrder = (m) =>
   Number.isFinite(Number(m?.order)) ? Number(m.order) + 1 : "?";
 
-const matchCodeKO = (m) => `R${m?.round ?? "?"}#${displayOrder(m)}`;
+const matchCodeKO = (m) => `V${m?.round ?? "?"}-T${displayOrder(m)}`;
 
 const timeShort = (ts) => {
   if (!ts) return "";
@@ -446,6 +447,7 @@ const CustomSeed = ({
   onOpen,
   championMatchId,
   resolveSideLabel,
+  baseRoundStart = 1,
 }) => {
   const PRIMARY = "#1976d2";
   const primaryRGBA = (a) => `rgba(25,118,210,${a})`;
@@ -457,8 +459,14 @@ const CustomSeed = ({
   const nameA = resolveSideLabel?.(m, "A") ?? (m ? "—" : "Chưa có đội");
   const nameB = resolveSideLabel?.(m, "B") ?? (m ? "—" : "Chưa có đội");
 
-  const winA = m?.status === "finished" && m?.winner === "A";
-  const winB = m?.status === "finished" && m?.winner === "B";
+  // ===== BYE detection
+  const isByeWord = (s) => typeof s === "string" && /\bBYE\b/i.test(s);
+  const isByeA = isByeWord(nameA) || (m?.seedA && m.seedA.type === "bye");
+  const isByeB = isByeWord(nameB) || (m?.seedB && m.seedB.type === "bye");
+  const isByeMatch = (isByeA ? 1 : 0) + (isByeB ? 1 : 0) === 1;
+
+  const winA = !isByeMatch && m?.status === "finished" && m?.winner === "A";
+  const winB = !isByeMatch && m?.status === "finished" && m?.winner === "B";
   const isPlaceholder =
     !m && nameA === "Chưa có đội" && nameB === "Chưa có đội";
   const isChampion =
@@ -541,7 +549,11 @@ const CustomSeed = ({
   // ----- header meta -----
   const displayOrder = (mm) =>
     Number.isFinite(Number(mm?.order)) ? Number(mm.order) + 1 : "?";
-  const matchCodeKO = (mm) => `R${mm?.round ?? "?"}#${displayOrder(mm)}`;
+  const matchCodeKO = (mm) => {
+    const r = Number(mm?.round ?? 1);
+    const disp = Number.isFinite(r) ? baseRoundStart + (r - 1) : r;
+    return `V${disp}-T${displayOrder(mm)}`;
+  };
   const timeShort = (ts) => {
     if (!ts) return "";
     try {
@@ -586,14 +598,16 @@ const CustomSeed = ({
   const t = m ? timeShort(kickoffTime(m)) : "";
   const c = m ? courtName(m) : "";
   const vid = m ? hasVideo(m) : false;
-  const color = statusColors(m);
-
+  const color = isByeMatch
+    ? { bg: "#9e9e9e", fg: "#fff", key: "bye" }
+    : statusColors(m);
+  const clickable = !!m && !isByeMatch;
   return (
     <Seed mobileBreakpoint={breakpoint} style={{ fontSize: 13 }}>
       <SeedItem
-        onClick={() => m && onOpen?.(m)}
+        onClick={() => clickable && onOpen?.(m)}
         style={{
-          cursor: m ? "pointer" : "default",
+          cursor: clickable ? "pointer" : "default",
           minHeight: syncedMinH,
           boxShadow: containsHovered
             ? `0 0 0 3px ${primaryRGBA(0.45)}, 0 10px 24px ${primaryRGBA(0.35)}`
@@ -709,7 +723,11 @@ const CustomSeed = ({
           </SeedTeam>
 
           <div style={{ fontSize: 11, opacity: 0.75 }}>
-            {m
+              {/* "BYE • Tự động vào vòng sau" */}
+            {isByeMatch
+              ? 
+              ""
+              : m
               ? resultLabel(m)
               : isPlaceholder
               ? "Chưa có đội"
@@ -1567,6 +1585,62 @@ function buildRoundsWithPlaceholders(
   return res;
 }
 
+// Số vòng của từng bracket (để cộng dồn baseRoundStart)
+function roundsCountForBracket(bracket, matchesOfThis = []) {
+  const type = String(bracket?.type || "").toLowerCase();
+  if (type === "group") return 1; // vòng bảng = V1
+
+  if (type === "roundelim") {
+    // PO (cắt bớt)
+    let k =
+      Number(bracket?.meta?.maxRounds) ||
+      Number(bracket?.config?.roundElim?.maxRounds) ||
+      0;
+    if (!k) {
+      const maxR =
+        Math.max(
+          0,
+          ...(matchesOfThis || []).map((m) => Number(m.round || 1))
+        ) || 1;
+      k = Math.max(1, maxR);
+    }
+    return k;
+  }
+
+  // KO: đoán theo matches / prefill / scale
+  const roundsFromMatches = (() => {
+    const rs = (matchesOfThis || []).map((m) => Number(m.round || 1));
+    if (!rs.length) return 0;
+    const rmin = Math.min(...rs);
+    const rmax = Math.max(...rs);
+    return Math.max(1, rmax - rmin + 1);
+  })();
+
+  if (roundsFromMatches) return roundsFromMatches;
+
+  const firstPairs =
+    (Array.isArray(bracket?.prefill?.seeds) && bracket.prefill.seeds.length) ||
+    (Array.isArray(bracket?.prefill?.pairs) && bracket.prefill.pairs.length) ||
+    0;
+  if (firstPairs > 0) return Math.ceil(Math.log2(firstPairs * 2));
+
+  const scale = readBracketScale(bracket);
+  if (scale) return Math.ceil(Math.log2(scale));
+
+  return 1;
+}
+
+// Tính V bắt đầu cho bracket hiện tại = 1 + tổng vòng của các stage trước
+function computeBaseRoundStart(brackets, byBracket, current) {
+  let sum = 0;
+  for (const b of brackets) {
+    if (String(b._id) === String(current._id)) break;
+    const ms = byBracket?.[b._id] || [];
+    sum += roundsCountForBracket(b, ms);
+  }
+  return sum + 1; // bắt đầu từ V = tổng trước đó + 1
+}
+
 /* ===================== Component chính ===================== */
 export default function TournamentBracket() {
   const socket = useSocket();
@@ -1819,7 +1893,19 @@ export default function TournamentBracket() {
   // Modal viewer
   const [open, setOpen] = useState(false);
   const [activeMatchId, setActiveMatchId] = useState(null);
+  const isByeMatchObj = (m) => {
+    if (!m) return false;
+    const byeA =
+      (m.seedA && m.seedA.type === "bye") ||
+      (typeof m.seedA?.label === "string" && /\bBYE\b/i.test(m.seedA.label));
+    const byeB =
+      (m.seedB && m.seedB.type === "bye") ||
+      (typeof m.seedB?.label === "string" && /\bBYE\b/i.test(m.seedB.label));
+    return (byeA ? 1 : 0) + (byeB ? 1 : 0) === 1; // đúng 1 bên là BYE
+  };
+
   const openMatch = (m) => {
+    if (!m || isByeMatchObj(m)) return; // chặn mở nếu BYE
     setActiveMatchId(m._id);
     setOpen(true);
   };
@@ -1859,7 +1945,12 @@ export default function TournamentBracket() {
           const wp = pm.winner === "A" ? pm.pairA : pm.pairB;
           if (wp) return pairLabelWithNick(wp, eventType);
         }
-        return depLabel(prev);
+        const r = Number(prev.round ?? 1);
+        const idx = (prev.order ?? 0) + 1;
+        const disp = Number.isFinite(r)
+          ? baseRoundStartForCurrent + (r - 1)
+          : r;
+        return `W-V${disp}-T${idx}`;
       }
 
       if (seed && seed.type) return seedLabel(seed);
@@ -2103,6 +2194,11 @@ export default function TournamentBracket() {
       </Paper>
     );
   };
+
+  const baseRoundStartForCurrent = useMemo(
+    () => computeBaseRoundStart(brackets, byBracket, current),
+    [brackets, byBracket, current]
+  );
 
   if (loading) {
     return (
@@ -2873,6 +2969,7 @@ export default function TournamentBracket() {
                             onOpen={openMatch}
                             championMatchId={null}
                             resolveSideLabel={resolveSideLabel}
+                            baseRoundStart={baseRoundStartForCurrent}
                           />
                         )}
                         mobileBreakpoint={0}
@@ -2993,6 +3090,7 @@ export default function TournamentBracket() {
                             onOpen={openMatch}
                             championMatchId={finalMatchId}
                             resolveSideLabel={resolveSideLabel}
+                            baseRoundStart={baseRoundStartForCurrent}
                           />
                         )}
                         mobileBreakpoint={0}

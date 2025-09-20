@@ -9,6 +9,7 @@ import applyRatingsForMatch from "../../utils/applyRatingsForMatch.js";
 import { applyRatingForFinishedMatch } from "../../utils/applyRatingForFinishedMatch.js";
 import { onMatchFinished } from "../../services/courtQueueService.js";
 import { scheduleMatchStartSoon } from "../../utils/scheduleNotifications.js";
+import { decorateServeAndSlots } from "../../utils/liveServeUtils.js";
 
 /* Tạo 1 trận trong 1 bảng */
 export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
@@ -556,7 +557,6 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
       path: "bracket",
       select: "name type stage round rules format eventType",
     })
-    // ✅ pairA: lấy thêm thông tin cần thiết từ user (đúng theo User model bạn gửi)
     .populate({
       path: "pairA",
       populate: [
@@ -570,7 +570,6 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
         },
       ],
     })
-    // ✅ pairB: tương tự
     .populate({
       path: "pairB",
       populate: [
@@ -592,23 +591,19 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     throw new Error("Match không tồn tại");
   }
 
-  // helpers
   const toIntOrNull = (v) =>
     v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null;
 
-  // 👉 gom field quan trọng từ user “đặt thẳng” vào playerX (chỉ trong response)
   const flattenFromUser = (p = {}) => {
     const u = p.user || {};
     return {
       ...p,
-      // nickname: ưu tiên player.nickname, fallback user.nickname
       nickname:
         (p.nickname != null && p.nickname !== "" ? p.nickname : null) ??
         (u.nickname != null ? u.nickname : null),
       name: p.name ?? u.name ?? null,
       phone: p.phone ?? u.phone ?? null,
       cccd: p.cccd ?? u.cccd ?? null,
-      // chuẩn trả về cccdImages (đúng model của bạn)
       cccdImages:
         p.cccdImages && (p.cccdImages.front || p.cccdImages.back)
           ? p.cccdImages
@@ -617,7 +612,6 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     };
   };
 
-  // ✅ Chuẩn hoá Registration: nickname & flatten user fields
   const normalizeReg = (reg) => {
     if (!reg) return reg;
     return {
@@ -627,7 +621,6 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     };
   };
 
-  // ✅ Fallback rules: ưu tiên match.rules → bracket.rules → default (kèm cap)
   const mergedRules = {
     bestOf: match?.rules?.bestOf ?? match?.bracket?.rules?.bestOf ?? 3,
     pointsToWin:
@@ -637,27 +630,121 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
       true,
     cap: {
       mode:
-        match?.rules?.cap?.mode ?? match?.bracket?.rules?.cap?.mode ?? "none", // 'none' | 'hard' | 'soft'
+        match?.rules?.cap?.mode ?? match?.bracket?.rules?.cap?.mode ?? "none",
       points: toIntOrNull(
         match?.rules?.cap?.points ?? match?.bracket?.rules?.cap?.points ?? null
       ),
     },
   };
-
-  // Chuẩn hoá cap
-  if (!["none", "hard", "soft"].includes(mergedRules.cap.mode)) {
+  if (!["none", "hard", "soft"].includes(mergedRules.cap.mode))
     mergedRules.cap.mode = "none";
-  }
-  if (mergedRules.cap.mode === "none") {
-    mergedRules.cap.points = null;
+  if (mergedRules.cap.mode === "none") mergedRules.cap.points = null;
+
+  // ====== NEW: chuẩn hoá slots/base  suy luận serve.serverId/receiverId ======
+  const idOf = (p) =>
+    String(p?.user?._id || p?.user || p?._id || p?.id || "") || "";
+  const ensureBase = (reg, baseObj = {}) => {
+    const out = { ...(baseObj || {}) };
+    const p1 = idOf(reg?.player1);
+    const p2 = idOf(reg?.player2);
+    if (p1 && !out[p1]) out[p1] = 1;
+    if (p2 && !out[p2]) out[p2] = 2;
+    return out;
+  };
+  const flipSlot = (n) => (n === 1 ? 2 : 1);
+  const slotNow = (base, teamScore) =>
+    teamScore % 2 === 0 ? base : flipSlot(base);
+
+  const slotsRaw =
+    match.slots && typeof match.slots === "object"
+      ? match.slots
+      : match.meta?.slots || {};
+  const pairA = normalizeReg(match.pairA);
+  const pairB = normalizeReg(match.pairB);
+  const baseA = ensureBase(pairA, slotsRaw?.base?.A);
+  const baseB = ensureBase(pairB, slotsRaw?.base?.B);
+
+  // Lấy điểm hiện tại của ván đang chơi (last of gameScores)
+  const gs = Array.isArray(match.gameScores) ? match.gameScores : [];
+  const last = gs.length ? gs[gs.length - 1] : { a: 0, b: 0 };
+  const curA = Number(last?.a || 0);
+  const curB = Number(last?.b || 0);
+
+  const serve = { ...(match.serve || {}) };
+  // Ưu tiên slots.serverId nếu serve.serverId đang trống
+  if (!serve.serverId && slotsRaw?.serverId)
+    serve.serverId = String(slotsRaw.serverId);
+  if (!serve.receiverId && slotsRaw?.receiverId)
+    serve.receiverId = String(slotsRaw.receiverId);
+
+  // Nếu vẫn thiếu serverId nhưng có serve.server (1|2) ⇒ suy luận từ base  điểm
+  if (!serve.serverId && (serve.server === 1 || serve.server === 2)) {
+    const side = serve.side === "B" ? "B" : "A";
+    if (side === "A") {
+      const cand = [idOf(pairA?.player1), idOf(pairA?.player2)].filter(Boolean);
+      for (const uid of cand) {
+        const now = slotNow(Number(baseA[uid] || 1), curA);
+        if (now === Number(serve.server)) {
+          serve.serverId = uid;
+          break;
+        }
+      }
+    } else {
+      const cand = [idOf(pairB?.player1), idOf(pairB?.player2)].filter(Boolean);
+      for (const uid of cand) {
+        const now = slotNow(Number(baseB[uid] || 1), curB);
+        if (now === Number(serve.server)) {
+          serve.serverId = uid;
+          break;
+        }
+      }
+    }
   }
 
-  // trả về match + rules đã merge + pairA/pairB đã chuẩn hoá (KHÔNG đổi schema)
+  // Nếu thiếu receiverId nhưng đã có serverId ⇒ tìm người đội kia đứng cùng ô hiện tại
+  if (!serve.receiverId && serve.serverId) {
+    const side = serve.side === "B" ? "B" : "A";
+    const srvNow =
+      side === "A"
+        ? slotNow(Number(baseA[serve.serverId] || 1), curA)
+        : slotNow(Number(baseB[serve.serverId] || 1), curB);
+    const others =
+      side === "A"
+        ? [idOf(pairB?.player1), idOf(pairB?.player2)].filter(Boolean)
+        : [idOf(pairA?.player1), idOf(pairA?.player2)].filter(Boolean);
+    for (const uid of others) {
+      const now =
+        side === "A"
+          ? slotNow(Number(baseB[uid] || 1), curB)
+          : slotNow(Number(baseA[uid] || 1), curA);
+      if (now === srvNow) {
+        serve.receiverId = uid;
+        break;
+      }
+    }
+  }
+
+  const slotsOut = {
+    ...slotsRaw,
+    base: { A: baseA, B: baseB },
+  };
+  const enriched = decorateServeAndSlots({ ...match, pairA, pairB });
+  // trả về match  rules đã merge  pairA/pairB đã chuẩn hoá (KHÔNG đổi schema)
+  res.json({
+    ...enriched,
+    pairA,
+    pairB,
+    rules: mergedRules,
+  });
+  // Trả về match  rules đã merge  pairA/pairB đã chuẩn hoá
+  //  serve có kèm serverId/receiverId  slots.base đảm bảo đủ
   res.json({
     ...match,
-    pairA: normalizeReg(match.pairA),
-    pairB: normalizeReg(match.pairB),
+    pairA,
+    pairB,
     rules: mergedRules,
+    serve,
+    slots: slotsOut,
   });
 });
 

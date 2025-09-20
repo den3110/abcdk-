@@ -458,6 +458,34 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
             ]
           : [{ type: "Court", id: arg.courtId }],
     }),
+    createComplaint: builder.mutation({
+      // Backend A (mặc định): POST /api/tournaments/:tournamentId/registrations/:regId/complaints  { content }
+      query: ({ tournamentId, regId, content }) => ({
+        url: `/api/tournaments/${tournamentId}/registrations/${regId}/complaints`,
+        method: "POST",
+        body: { content },
+      }),
+
+      // Nếu backend của bạn là dạng B:
+      // query: ({ regId, content }) => ({
+      //   url: `/api/registrations/${regId}/complaints`,
+      //   method: 'POST',
+      //   body: { content },
+      // }),
+
+      // hoặc dạng C:
+      // query: ({ registrationId, message }) => ({
+      //   url: `/api/complaints`,
+      //   method: 'POST',
+      //   body: { registrationId, message },
+      // }),
+
+      invalidatesTags: (result, error, { regId, tournamentId }) => [
+        { type: "Registration", id: regId },
+        { type: "Tournament", id: tournamentId },
+        { type: "Complaints", id: "LIST" },
+      ],
+    }),
   }),
 });
 
@@ -510,4 +538,5 @@ export const {
   useAssignByesMutation,
   useListMyTournamentsQuery,
   useLazyGetNextByCourtQuery,
+  useCreateComplaintMutation
 } = tournamentsApiSlice;

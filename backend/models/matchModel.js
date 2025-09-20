@@ -134,6 +134,8 @@ const matchSchema = new Schema(
     serve: {
       side: { type: String, enum: ["A", "B"], default: "A" },
       server: { type: Number, enum: [1, 2], default: 2 },
+      // ⬇️ NEW: id người đang giao (ưu tiên hiển thị chấm xanh lá)
+      serverId: { type: Schema.Types.ObjectId, ref: "User", default: null },
     },
     startedAt: { type: Date, default: null },
     finishedAt: { type: Date, default: null },
@@ -175,6 +177,7 @@ const matchSchema = new Schema(
     // Stage & label
     stageIndex: { type: Number, default: 1, index: true }, // V1, V2, ...
     labelKey: { type: String, default: "" }, // ví dụ: V2#R1#3
+    meta: { type: Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }
 );

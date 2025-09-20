@@ -38,6 +38,8 @@ import {
   EditOutlined,
   Equalizer,
   Groups,
+  QrCode,
+  ReportProblem,
 } from "@mui/icons-material";
 
 import {
@@ -50,6 +52,7 @@ import {
   useManagerSetRegPaymentStatusMutation,
   useManagerDeleteRegistrationMutation,
   useManagerReplaceRegPlayerMutation,
+  useCreateComplaintMutation,
 } from "../../slices/tournamentsApiSlice";
 import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
@@ -275,6 +278,8 @@ function ActionCell({
   isOwner,
   onTogglePayment,
   onCancel,
+  onOpenComplaint,
+  onOpenPayment,
   busy,
 }) {
   return (
@@ -308,6 +313,40 @@ function ActionCell({
         </Tooltip>
       )}
 
+      {/* Nút Thanh toán (QR) — chỉ chủ đăng ký */}
+      {isOwner && (
+        <Tooltip arrow title="Thanh toán bằng mã QR">
+          <span>
+            <Button
+              size="small"
+              variant="contained"
+              onClick={() => onOpenPayment(r)}
+              startIcon={<QrCode fontSize="small" />}
+              sx={{ textTransform: "none" }}
+            >
+              Thanh toán
+            </Button>
+          </span>
+        </Tooltip>
+      )}
+
+      {/* Nút Khiếu nại — chỉ chủ đăng ký */}
+      {isOwner && (
+        <Tooltip arrow title="Gửi khiếu nại cho đăng ký này">
+          <span>
+            <Button
+              size="small"
+              variant="contained"
+              color="warning"
+              onClick={() => onOpenComplaint(r)}
+              startIcon={<ReportProblem fontSize="small" />}
+              sx={{ textTransform: "none" }}
+            >
+              Khiếu nại
+            </Button>
+          </span>
+        </Tooltip>
+      )}
       {(canManage || isOwner) && (
         <Tooltip arrow title={canManage ? "Huỷ cặp đấu" : "Huỷ đăng ký"}>
           <span>
@@ -372,6 +411,9 @@ export default function TournamentRegistration() {
   const [replacePlayer, { isLoading: replacing }] =
     useManagerReplaceRegPlayerMutation();
 
+  const [createComplaint, { isLoading: sendingComplaint }] =
+    useCreateComplaintMutation();
+
   /* ───────── local state ───────── */
   // VĐV1 là bạn (không state), chỉ cần p2 nếu giải đôi
   const [p2, setP2] = useState(null);
@@ -390,6 +432,14 @@ export default function TournamentRegistration() {
     slot: "p1",
   });
   const [newPlayer, setNewPlayer] = useState(null);
+
+  // NEW: Khiếu nại + Thanh toán (QR)
+  const [complaintDlg, setComplaintDlg] = useState({
+    open: false,
+    reg: null,
+    text: "",
+  });
+  const [paymentDlg, setPaymentDlg] = useState({ open: false, reg: null });
 
   // Public profile dialog
   const [profileDlg, setProfileDlg] = useState({ open: false, userId: null });
@@ -576,6 +626,7 @@ export default function TournamentRegistration() {
       );
     }
   };
+
   const handleInviteRespond = async (inviteId, action) => {
     if (!isLoggedIn)
       return toast.info("Vui lòng đăng nhập để phản hồi lời mời.");
@@ -617,6 +668,87 @@ export default function TournamentRegistration() {
       toast.error(e?.data?.message || e?.error || "Không thể thay VĐV");
     }
   };
+
+  // ===== Helpers for Complaint & Payment =====
+  const maskPhone = (phone) => {
+    if (!phone) return "*******???";
+    const d = String(phone).replace(/\D/g, "");
+    const tail = d.slice(-3) || "???";
+    return "*******" + tail;
+  };
+  const regCodeOf = (r) =>
+    r?.code ||
+    r?.shortCode ||
+    String(r?._id || "")
+      .slice(-5)
+      .toUpperCase();
+
+  // des của VietQR yêu cầu KHÔNG DẤU
+  const normalizeNoAccent = (s) =>
+    (s || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^\w\s-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  // Ưu tiên cấu hình trong tour, fallback ENV
+  const getQrProviderConfig = () => {
+    const bank = tour?.qrBank || tour?.bankCode || tour?.bank;
+    const acc = tour?.qrAccount || tour?.bankAccount;
+    return { bank, acc };
+  };
+
+  // Tạo ảnh QR bằng SEPay VietQR
+  const qrImgUrlFor = (r) => {
+    const { bank, acc } = getQrProviderConfig();
+    if (!bank || !acc) return null;
+
+    const code = regCodeOf(r);
+    const ph = maskPhone(
+      r?.player1?.phone || r?.player2?.phone || me?.phone || ""
+    );
+    const des = normalizeNoAccent(
+      `ND Ma giai ${id} Ma dang ky ${code} So dien thoai ${ph}`
+    );
+
+    const params = new URLSearchParams({ acc, bank, des, template: "compact" });
+    const amount = r?.payment?.amount || tour?.fee || tour?.entryFee;
+    if (amount) params.set("amount", String(Math.round(Number(amount))));
+
+    return `https://qr.sepay.vn/img?${params.toString()}`;
+  };
+
+  const openComplaint = (reg) => setComplaintDlg({ open: true, reg, text: "" });
+  const closeComplaint = () =>
+    setComplaintDlg({ open: false, reg: null, text: "" });
+  const submitComplaint = async () => {
+    const regId = complaintDlg?.reg?._id;
+    const content = complaintDlg.text?.trim();
+    if (!content) {
+      toast.info("Vui lòng nhập nội dung khiếu nại.");
+      return;
+    }
+    if (!regId) {
+      toast.error("Không tìm thấy mã đăng ký để gửi khiếu nại.");
+      return;
+    }
+    try {
+      // ⚠️ Nếu backend bạn dùng tên field khác, đổi ở đây cho khớp:
+      // Ví dụ A (như mình đang dùng): { tournamentId, regId, content }
+      await createComplaint({ tournamentId: id, regId, content }).unwrap();
+      // Ví dụ B (nếu backend của bạn là): { registrationId, message }
+      // await createComplaint({ registrationId: regId, message: content }).unwrap();
+
+      toast.success("Đã gửi khiếu nại. BTC sẽ phản hồi sớm.");
+      closeComplaint();
+    } catch (e) {
+      toast.error(e?.data?.message || e?.error || "Gửi khiếu nại thất bại");
+    }
+  };
+
+  const openPayment = (reg) => setPaymentDlg({ open: true, reg });
+  const closePayment = () => setPaymentDlg({ open: false, reg: null });
 
   /* ───────── UI guard ───────── */
   if (tourLoading) {
@@ -1122,6 +1254,8 @@ export default function TournamentRegistration() {
                     isOwner={isOwner}
                     onTogglePayment={togglePayment}
                     onCancel={handleCancel}
+                    onOpenComplaint={openComplaint}
+                    onOpenPayment={openPayment}
                     busy={{ settingPayment, deletingId: cancelingId }}
                   />
                 </Box>
@@ -1144,7 +1278,7 @@ export default function TournamentRegistration() {
                 </TableCell>
                 <TableCell sx={{ whiteSpace: "nowrap" }}>Lệ phí</TableCell>
                 <TableCell sx={{ whiteSpace: "nowrap" }}>Check-in</TableCell>
-                <TableCell sx={{ whiteSpace: "nowrap", minWidth: 140 }}>
+                <TableCell sx={{ whiteSpace: "nowrap", minWidth: 200 }}>
                   Hành động
                 </TableCell>
               </TableRow>
@@ -1239,6 +1373,8 @@ export default function TournamentRegistration() {
                         isOwner={isOwner}
                         onTogglePayment={togglePayment}
                         onCancel={handleCancel}
+                        onOpenComplaint={openComplaint}
+                        onOpenPayment={openPayment}
                         busy={{ settingPayment, deletingId: cancelingId }}
                       />
                     </TableCell>
@@ -1337,6 +1473,119 @@ export default function TournamentRegistration() {
         onClose={closeProfileDlg}
         userId={profileDlg.userId}
       />
+
+      {/* NEW: Dialog Khiếu nại */}
+      <Dialog
+        open={complaintDlg.open}
+        onClose={closeComplaint}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Khiếu nại đăng ký</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            Vui lòng mô tả chi tiết vấn đề của bạn với đăng ký này. BTC sẽ tiếp
+            nhận và phản hồi.
+          </Typography>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            minRows={4}
+            label="Nội dung khiếu nại"
+            value={complaintDlg.text}
+            onChange={(e) =>
+              setComplaintDlg((s) => ({ ...s, text: e.target.value }))
+            }
+            placeholder="Ví dụ: Sai thông tin VĐV, sai điểm trình, muốn đổi khung giờ…"
+          />
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ mt: 0.5, display: "block" }}
+          >
+            Chỉ người đã đăng ký mới có thể gửi khiếu nại từ đây.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeComplaint}>Đóng</Button>
+          <Button
+            onClick={submitComplaint}
+            variant="contained"
+            disabled={sendingComplaint || !complaintDlg.text.trim()}
+          >
+            {sendingComplaint ? "Đang gửi…" : "Gửi khiếu nại"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* NEW: Dialog Thanh toán QR */}
+      <Dialog
+        open={paymentDlg.open}
+        onClose={closePayment}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Thanh toán lệ phí</DialogTitle>
+        <DialogContent dividers sx={{ textAlign: "center" }}>
+          {paymentDlg.reg ? (
+            <>
+              {(() => {
+                const code = regCodeOf(paymentDlg.reg);
+                const ph = maskPhone(
+                  paymentDlg.reg?.player1?.phone ||
+                    paymentDlg.reg?.player2?.phone ||
+                    me?.phone ||
+                    ""
+                );
+                return (
+                  <Typography variant="body2" sx={{ mb: 1.5 }}>
+                    {`Xin mời bạn sử dụng mã QR sau để thanh toán cho Mã đăng ký ${code} ND Mã giải ${id} Mã đăng ký ${code} Số điện thoại ${ph} nhé.`}
+                  </Typography>
+                );
+              })()}
+
+              {(() => {
+                const url = qrImgUrlFor(paymentDlg.reg);
+                if (!url) {
+                  return (
+                    <Alert severity="warning" sx={{ textAlign: "left" }}>
+                      Chưa cấu hình thông tin tài khoản nhận tiền cho QR. Vui
+                      lòng thêm
+                      <b> bank code</b> và <b>số tài khoản</b> trong cấu hình
+                      giải (vd:
+                      <code> qrBank/qrAccount</code>) hoặc ENV{" "}
+                      <code>VITE_QR_BANK</code>,<code> VITE_QR_ACC</code>.
+                    </Alert>
+                  );
+                }
+                return (
+                  <>
+                    <Box sx={{ display: "grid", placeItems: "center" }}>
+                      <img
+                        src={url}
+                        alt="QR thanh toán"
+                        style={{ width: 260, height: 260, borderRadius: 8 }}
+                      />
+                    </Box>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ mt: 1, display: "block" }}
+                    >
+                      Quét mã bằng app ngân hàng. Thông tin chuyển khoản tự điền
+                      theo QR (SePay VietQR).
+                    </Typography>
+                  </>
+                );
+              })()}
+            </>
+          ) : null}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closePayment}>Đóng</Button>
+        </DialogActions>
+      </Dialog>
     </RBContainer>
   );
 }

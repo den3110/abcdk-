@@ -28,14 +28,14 @@ import cors from "cors";
 import dotenv from "dotenv";
 import { startTournamentCrons } from "./jobs/tournamentCron.js";
 import { agenda, startAgenda } from "./jobs/agenda.js";
-import { initKycBot } from "./bot/kycBot.js";
+import { initKycBot } from "./bot/telegramBot.js";
 import { initEmail } from "./services/emailService.js";
 import Agendash from "agendash";
 import { versionGate } from "./middleware/versionGate.js";
 import appVersionRouter from "./routes/appVersion.route.js";
 import { attachJwtIfPresent } from "./middleware/authMiddleware.js";
 import { maintainanceTrigger } from "./middleware/maintainance.js";
-
+import telegramRoutes from "./routes/telegramRoutes.js"
 
 dotenv.config();
 const port = process.env.PORT;
@@ -104,6 +104,7 @@ app.use("/api/push", pushTokenRoutes);
 app.use("/api/subscriptions", subscriptionsRoutes);
 app.use("/api/events", notifyRoutes);
 app.use("/api/app", appVersionRouter);
+app.use("/api/telegram", telegramRoutes);   
 
 if (process.env.NODE_ENV === "production") {
   const __dirname = path.resolve();

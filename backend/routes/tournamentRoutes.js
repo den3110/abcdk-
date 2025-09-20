@@ -30,6 +30,7 @@ import {
   listMyInvites,
   respondInvite,
 } from "../controllers/regInvitesController.js";
+import { createComplaint, listComplaints } from "../controllers/complaintsController.js";
 
 const router = express.Router();
 
@@ -63,12 +64,16 @@ router.get("/:id/managers", protect, listManagers);
 router.post("/:id/managers", protect, addManager);
 router.delete("/:id/managers/:userId", protect, removeManager);
 
-router.post(
-  "/:id/registration-invites",
-  protect,
-  createRegistrationInvite
-);
+router.post("/:id/registration-invites", protect, createRegistrationInvite);
 router.get("/get/registration-invites", protect, listMyInvites); // GLOBAL
 router.post("/registration-invites/:id/respond", protect, respondInvite);
+
+router.post(
+  "/:tournamentId/registrations/:regId/complaints",
+  protect,
+  createComplaint
+);
+
+router.get("/:tournamentId/complaints", protect, listComplaints);
 
 export default router;

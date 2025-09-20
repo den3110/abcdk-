@@ -1,13 +1,6 @@
 // server/bot/kycBot.js
 // --------------------------------------------------------------
 // Bot KYC + Chấm điểm nhanh (/rank)
-// - Giữ nguyên /start, /kyc_command, /kyc_status, /kyc_pending
-// - Thêm /rank <email|phone|nickname> <single> <double> [--guard] [--note "..."]
-//   • --guard  : chỉ ghi lịch sử, KHÔNG cập nhật Ranking
-//   • --note   : ghi chú (nên đặt ở cuối dòng)
-//   Ví dụ:
-//   /rank v1b2 3.5 3.0 --note "đánh ổn định"
-//   /rank 0987654321 4 3.5 --guard --note "để theo dõi"
 // --------------------------------------------------------------
 
 import { Telegraf } from "telegraf";
@@ -17,17 +10,15 @@ import User from "../models/userModel.js";
 import Ranking from "../models/rankingModel.js";
 import Assessment from "../models/assessmentModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
-
-import { registerKycReviewButtons } from "../services/telegram/telegramNotifyKyc.js";
+import Complaint from "../models/complaintModel.js";
+import Tournament from "../models/tournamentModel.js";
+import Registration from "../models/registrationModel.js";
+import { notifyComplaintStatusChange } from "../services/telegram/notifyNewComplaint.js";
+import { notifyKycReviewed } from "../services/telegram/telegramNotifyKyc.js";
 
 dotenv.config();
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-// ADMIN_IDS giữ lại nếu sau này muốn hạn chế, hiện tại không dùng
-const ADMIN_IDS = (process.env.TELEGRAM_ADMIN_IDS || "")
-  .split(",")
-  .map((s) => s.trim())
-  .filter(Boolean);
 
 // ======================= Utils chung ==========================
 const toPosix = (s = "") => String(s).replace(/\\/g, "/");
@@ -82,10 +73,8 @@ function normalizeImageUrl(rawPath = "") {
     .trim()
     .replace(/^http:\/\//i, "https://");
   try {
-    // URL tuyệt đối hợp lệ
-    return new URL(s).toString();
+    return new URL(s).toString(); // absolute
   } catch {
-    // Ghép từ HOST + path tương đối
     const host = (process.env.HOST || "").replace(/\/+$/, "");
     if (!host) return "";
     const path = s.startsWith("/") ? s : `/${s}`;
@@ -94,7 +83,6 @@ function normalizeImageUrl(rawPath = "") {
 }
 
 async function fetchImageAsBuffer(url) {
-  // Node < 18: dùng node-fetch nếu thiếu global fetch
   const _fetch =
     typeof fetch === "function" ? fetch : (await import("node-fetch")).default;
 
@@ -160,47 +148,8 @@ async function findUserByQuery(q) {
   return await User.findOne({ nickname: rx }).lean();
 }
 
-// ------------------ Help & Buttons cho KYC --------------------
-function buildKycHelp() {
-  return [
-    "<b>Hướng dẫn KYC Bot</b>",
-    "",
-    "Các lệnh khả dụng:",
-    "• <code>/start</code> — Giới thiệu nhanh & hiện Telegram ID",
-    "• <code>/kyc_command</code> — Danh sách toàn bộ lệnh & cách dùng",
-    "• <code>/kyc_status &lt;email|phone|nickname&gt;</code> — Tra cứu chi tiết 1 người dùng (kèm ảnh CCCD & nút duyệt/từ chối).",
-    "• <code>/kyc_pending [limit]</code> — Liệt kê người dùng đang chờ duyệt (mặc định 20, tối đa 50).",
-    "",
-    "• <code>/rank &lt;email|phone|nickname&gt; &lt;single&gt; &lt;double&gt; [--guard] [--note &quot;ghi chú...&quot;]</code>",
-    "   - Chấm nhanh điểm trình theo logic adminUpdateRanking (bỏ auth).",
-    "   - <code>--guard</code>: chỉ ghi lịch sử, KHÔNG cập nhật Ranking.",
-    "",
-    "• <code>/rank_get &lt;email|phone|nickname&gt;</code> — Xem điểm hiện tại (BXH).",
-    "   Alias: <code>/point</code>, <code>/rating</code>",
-    "",
-    "Ví dụ:",
-    "• <code>/rank v1b2 3.5 3.0 --note &quot;đánh ổn định&quot;</code>",
-    "• <code>/point v1b2</code>",
-    "",
-    "Lưu ý:",
-    "• Ảnh CCCD được gửi sau và bám (reply) vào tin nhắn KYC.",
-    "• Bot tự fallback gửi file nếu gửi ảnh lỗi.",
-  ].join("\n");
-}
-
-function buildReviewButtons(userId) {
-  return {
-    inline_keyboard: [
-      [
-        { text: "✅ Duyệt", callback_data: `kyc:approve:${userId}` },
-        { text: "❌ Từ chối", callback_data: `kyc:reject:${userId}` },
-      ],
-    ],
-  };
-}
-
 // ========================= Khởi tạo BOT =========================
-export function initKycBot(app) {
+export async function initKycBot(app) {
   if (!BOT_TOKEN) {
     console.warn("[kycBot] No TELEGRAM_BOT_TOKEN provided, bot disabled.");
     return null;
@@ -208,10 +157,12 @@ export function initKycBot(app) {
 
   const bot = new Telegraf(BOT_TOKEN);
 
-  // Không chặn quyền: ai cũng dùng được tất cả lệnh
+  // Logger callback_query (không nuốt chain)
 
-  // Log callback_query (Duyệt/Từ chối KYC)
   bot.on("callback_query", async (ctx, next) => {
+    const data = String(ctx.callbackQuery?.data || "");
+    console.log(data);
+    if (!data.startsWith("kyc:")) return next(); // <<< QUAN TRỌNG
     console.log(
       "[kycBot] callback_query:",
       ctx.callbackQuery?.data,
@@ -221,30 +172,130 @@ export function initKycBot(app) {
     return next();
   });
 
-  // Đăng ký handler nút Duyệt/Từ chối (toast & message kết quả)
-  registerKycReviewButtons(bot, {
-    UserModel: User,
-    onAfterReview: ({ user, action, reviewer }) => {
-      console.log(
-        `[kycBot] ${action.toUpperCase()} user=${user?._id} by=${reviewer?.id}`
+  // ===== KYC: Duyệt / Từ chối =====
+  bot.action(/^kyc:(approve|reject):([a-fA-F0-9]{24})$/, async (ctx) => {
+    try {
+      const [, action, userId] = ctx.match || [];
+      await ctx.answerCbQuery("Đang xử lý…");
+
+      const user = await User.findById(userId)
+        .select("_id cccdStatus verified name nickname email phone cccd")
+        .lean();
+
+      if (!user) {
+        return ctx.answerCbQuery("Không tìm thấy người dùng.", {
+          show_alert: true,
+        });
+      }
+
+      // Idempotent
+      // if (user.cccdStatus === "verified" && action === "approve") {
+      //   ctx.answerCbQuery("Đã duyệt trước đó ✅");
+      // }
+      // if (user.cccdStatus === "rejected" && action === "reject") {
+      //   ctx.answerCbQuery("Đã từ chối trước đó ❌");
+      // }
+
+      const $set =
+        action === "approve"
+          ? { cccdStatus: "verified", verified: "verified" }
+          : { cccdStatus: "rejected" };
+      const updated = await User.findByIdAndUpdate(
+        userId,
+        { $set },
+        { new: true, runValidators: true }
+      ).select("_id cccdStatus verified");
+      if (!updated) {
+        ctx.answerCbQuery("Cập nhật thất bại.", { show_alert: true });
+      }
+
+      await ctx.answerCbQuery(
+        action === "approve" ? "Đã duyệt ✅" : "Đã từ chối ❌"
       );
-      // TODO: emit socket/io, audit log...
-    },
+      await notifyKycReviewed(user, action);
+      // (tuỳ chọn) bạn có thể gửi thêm 1 message vào chat nếu muốn
+    } catch (e) {
+      console.error("[kycBot] KYC action error:", e);
+      // try {
+      //   await ctx.answerCbQuery("Có lỗi xảy ra.", { show_alert: true });
+      // } catch(e) {
+      //   console.error(e)
+      // }
+    }
   });
 
-  // Hiển thị lệnh trong menu của Telegram
+  // ===== Complaint: ĐÃ XỬ LÝ / TỪ CHỐI =====
+  bot.action(/^complaint:(resolve|reject):([a-fA-F0-9]{24})$/, async (ctx) => {
+    try {
+      const [, action, id] = ctx.match || [];
+      await ctx.answerCbQuery("Đang cập nhật…");
+
+      // 1) Tải complaint
+      const complaint = await Complaint.findById(id);
+      if (!complaint) {
+        return ctx.answerCbQuery("Không tìm thấy khiếu nại", {
+          show_alert: true,
+        });
+      }
+
+      // 2) Cập nhật trạng thái
+      const newStatus = action === "resolve" ? "resolved" : "rejected";
+      complaint.status = newStatus;
+      await complaint.save();
+
+      // 3) Load thêm để hiển thị đủ thông tin cặp (tên/nickname sđt)
+      const [tour, reg] = await Promise.all([
+        Tournament.findById(complaint.tournament).lean(),
+        Registration.findById(complaint.registration).lean(),
+      ]);
+
+      // 4) Gửi một TIN NHẮN MỚI, reply ngay dưới tin gốc
+      const chatId =
+        ctx.update?.callback_query?.message?.chat?.id ?? ctx.chat?.id;
+      const replyToMessageId = ctx.update?.callback_query?.message?.message_id;
+      await notifyComplaintStatusChange({
+        complaint: complaint.toObject?.() || complaint,
+        tournament: tour,
+        registration: reg,
+        newStatus,
+        actor: ctx.from,
+        chatId,
+        replyToMessageId, // => hiện ngay dưới tin khiếu nại
+      });
+
+      // 5) (khuyến nghị) Gỡ nút khỏi tin gốc để tránh bấm lại
+      try {
+        await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
+      } catch (e) {
+        console.warn("editMessageReplyMarkup failed:", e?.message);
+      }
+
+      // 6) Toast confirm
+      await ctx.answerCbQuery(
+        newStatus === "resolved"
+          ? "Đã đánh dấu: ĐÃ XỬ LÝ"
+          : "Đã đánh dấu: TỪ CHỐI"
+      );
+    } catch (e) {
+      console.error("[kycBot] complaint action error:", e);
+      try {
+        await ctx.answerCbQuery("Có lỗi xảy ra", { show_alert: true });
+      } catch {}
+    }
+  });
+  // Hiển thị lệnh trong menu của Telegram (đổi tên, bỏ dấu "_")
   bot.telegram
     .setMyCommands([
       { command: "start", description: "Giới thiệu & hướng dẫn nhanh" },
       {
-        command: "kyc_command",
+        command: "startkyc",
         description: "Danh sách toàn bộ lệnh & cách dùng",
       },
       {
-        command: "kyc_status",
+        command: "statuskyc",
         description: "Tra cứu người dùng (email/phone/nickname)",
       },
-      { command: "kyc_pending", description: "Danh sách KYC chờ duyệt" },
+      { command: "pendkyc", description: "Danh sách KYC chờ duyệt" },
       {
         command: "rank",
         description:
@@ -262,34 +313,55 @@ export function initKycBot(app) {
         "Bot KYC đã sẵn sàng.",
         `Your Telegram ID: <code>${esc(uid)}</code>`,
         "",
-        "Gõ <code>/kyc_command</code> để xem đầy đủ lệnh & cách dùng.",
+        "Gõ <code>/startkyc</code> để xem đầy đủ lệnh & cách dùng.",
       ].join("\n"),
       { parse_mode: "HTML" }
     );
   });
 
-  // ------------------- /kyc_command ---------------------
-  bot.command("kyc_command", async (ctx) => {
+  // ------------------- /startkyc (thay /startkyc) -------------------
+  bot.command("startkyc", async (ctx) => {
     try {
-      const msg = buildKycHelp();
+      const msg = [
+        "<b>Hướng dẫn KYC Bot</b>",
+        "",
+        "Các lệnh khả dụng:",
+        "• <code>/start</code> — Giới thiệu nhanh & hiện Telegram ID",
+        "• <code>/startkyc</code> — Danh sách toàn bộ lệnh & cách dùng",
+        "• <code>/statuskyc &lt;email|phone|nickname&gt;</code> — Tra cứu chi tiết 1 người dùng (kèm ảnh CCCD & nút duyệt/từ chối).",
+        "• <code>/pendkyc [limit]</code> — Liệt kê người dùng đang chờ duyệt (mặc định 20, tối đa 50).",
+        "",
+        "• <code>/rank &lt;email|phone|nickname&gt; &lt;single&gt; &lt;double&gt; [--guard] [--note &quot;ghi chú...&quot;]</code>",
+        "   - Chấm nhanh điểm trình theo logic adminUpdateRanking (bỏ auth).",
+        "   - <code>--guard</code>: chỉ ghi lịch sử, KHÔNG cập nhật Ranking.",
+        "",
+        "• <code>/rankget &lt;email|phone|nickname&gt;</code> — Xem điểm hiện tại.",
+        "   Alias: <code>/point</code>, <code>/rating</code>",
+        "",
+        "Ví dụ:",
+        "• <code>/rank v1b2 3.5 3.0 --note &quot;đánh ổn định&quot;</code>",
+        "• <code>/point v1b2</code>",
+        "",
+        "Lưu ý:",
+        "• Ảnh CCCD được gửi sau và bám (reply) vào tin nhắn KYC.",
+        "• Bot tự fallback gửi file nếu gửi ảnh lỗi.",
+      ].join("\n");
       await ctx.reply(msg, {
         parse_mode: "HTML",
         disable_web_page_preview: true,
       });
     } catch (e) {
-      console.error("kyc_command error:", e);
+      console.error("startkyc error:", e);
       await ctx.reply("Có lỗi xảy ra khi hiển thị hướng dẫn.");
     }
   });
 
-  // -------------------- /kyc_status <q> -----------------
-  bot.command("kyc_status", async (ctx) => {
+  // -------------------- /statuskyc <q> (thay /kyc_status) -----------------
+  bot.command("statuskyc", async (ctx) => {
     const args = (ctx.message?.text || "").split(" ").slice(1);
     const q = (args[0] || "").trim();
     if (!q) {
-      return ctx.reply(
-        "Cách dùng:\n/kyc_status <email|số điện thoại|nickname>"
-      );
+      return ctx.reply("Cách dùng:\n/statuskyc <email|số điện thoại|nickname>");
     }
 
     try {
@@ -300,7 +372,20 @@ export function initKycBot(app) {
       const infoMsg = await ctx.reply(fmtUser(u), {
         parse_mode: "HTML",
         disable_web_page_preview: true,
-        reply_markup: buildReviewButtons(String(u._id)),
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: "✅ Duyệt",
+                callback_data: `kyc:approve:${String(u._id)}`,
+              },
+              {
+                text: "❌ Từ chối",
+                callback_data: `kyc:reject:${String(u._id)}`,
+              },
+            ],
+          ],
+        },
       });
 
       // 2) Gửi ảnh sau, reply vào message trên
@@ -337,13 +422,13 @@ export function initKycBot(app) {
         }
       }
     } catch (e) {
-      console.error("kyc_status error:", e);
+      console.error("statuskyc error:", e);
       ctx.reply("Có lỗi xảy ra khi tra cứu.");
     }
   });
 
-  // -------------------- /kyc_pending [limit] -----------------
-  bot.command("kyc_pending", async (ctx) => {
+  // -------------------- /pendkyc [limit] (thay /kyc_pending) -----------------
+  bot.command("pendkyc", async (ctx) => {
     const args = (ctx.message?.text || "").split(" ").slice(1);
     const limit = Math.min(
       Math.max(parseInt(args[0] || "20", 10) || 20, 1),
@@ -377,7 +462,20 @@ export function initKycBot(app) {
           await ctx.reply(fmtUser(u), {
             parse_mode: "HTML",
             disable_web_page_preview: true,
-            reply_markup: buildReviewButtons(String(u._id)),
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: "✅ Duyệt",
+                    callback_data: `kyc:approve:${String(u._id)}`,
+                  },
+                  {
+                    text: "❌ Từ chối",
+                    callback_data: `kyc:reject:${String(u._id)}`,
+                  },
+                ],
+              ],
+            },
           });
         }
         return;
@@ -389,27 +487,38 @@ export function initKycBot(app) {
           await ctx.reply(fmtUser(u), {
             parse_mode: "HTML",
             disable_web_page_preview: true,
-            reply_markup: buildReviewButtons(String(u._id)),
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: "✅ Duyệt",
+                    callback_data: `kyc:approve:${String(u._id)}`,
+                  },
+                  {
+                    text: "❌ Từ chối",
+                    callback_data: `kyc:reject:${String(u._id)}`,
+                  },
+                ],
+              ],
+            },
           });
         }
       } else {
         await ctx.reply(
-          "Mẹo: Dùng /kyc_status <email|phone|nickname> để mở chi tiết từng hồ sơ kèm ảnh & nút duyệt."
+          "Mẹo: Dùng /statuskyc <email|phone|nickname> để mở chi tiết từng hồ sơ kèm ảnh & nút duyệt."
         );
       }
     } catch (e) {
-      console.error("kyc_pending error:", e);
+      console.error("pendkyc error:", e);
       ctx.reply("Có lỗi xảy ra khi lấy danh sách.");
     }
   });
 
   // ======================= /rank =========================
-  // /rank <q> <single> <double> [--guard] [--note "..."]
   bot.command("rank", async (ctx) => {
     const raw = ctx.message?.text || "";
-    const args = raw.split(" ").slice(1); // sau /rank
+    const args = raw.split(" ").slice(1);
 
-    // Usage
     if (args.length < 3) {
       return ctx.reply(
         [
@@ -420,18 +529,14 @@ export function initKycBot(app) {
       );
     }
 
-    // Flags:
     const guard = /(?:^|\s)--guard(?:\s|$)/i.test(raw);
-    // Lưu ý: --note nên đặt ở CUỐI dòng để bắt đúng phần ghi chú
     const noteMatch = raw.match(/--note\s+(.+)$/i);
     const note = noteMatch ? noteMatch[1].trim().replace(/^"|"$/g, "") : "";
 
-    // Ba tham số đầu: q single double
     const q = args[0];
     const singleStr = args[1];
     const doubleStr = args[2];
 
-    // Parse điểm
     let sSingle = parseNumLoose(singleStr);
     let sDouble = parseNumLoose(doubleStr);
     if (sSingle == null || sDouble == null) {
@@ -440,7 +545,6 @@ export function initKycBot(app) {
       );
     }
 
-    // (tuỳ chọn) giới hạn 2.0–8.0 (DUPR min 2.0)
     sSingle = clamp(sSingle, 2.0, 8.0);
     sDouble = clamp(sDouble, 2.0, 8.0);
 
@@ -450,7 +554,6 @@ export function initKycBot(app) {
       const userId = String(u._id);
 
       if (guard) {
-        // CHỈ ghi lịch sử (KHÔNG cập nhật Ranking) — bỏ auth
         await ScoreHistory.create({
           user: userId,
           scorer: null,
@@ -476,20 +579,15 @@ export function initKycBot(app) {
         );
       }
 
-      // === ÁP DỤNG ĐIỂM (logic adminUpdateRanking, bỏ qua auth) ===
-
-      // 1) User tồn tại?
       const userExists = await User.exists({ _id: userId });
       if (!userExists) return ctx.reply("❌ Không tìm thấy người dùng.");
 
-      // 2) Upsert Ranking
       const rank = await Ranking.findOneAndUpdate(
         { user: userId },
         { $set: { single: sSingle, double: sDouble, updatedAt: new Date() } },
         { upsert: true, new: true, setDefaultsOnInsert: true, lean: true }
       );
 
-      // 3) Nếu CHƯA có "tự chấm" meta.selfScored → tạo tự chấm (admin hỗ trợ)
       const hasSelfAssessment = await Assessment.exists({
         user: userId,
         "meta.selfScored": true,
@@ -499,7 +597,7 @@ export function initKycBot(app) {
       if (!hasSelfAssessment) {
         await Assessment.create({
           user: userId,
-          scorer: null, // bỏ auth
+          scorer: null,
           items: [],
           singleScore: sSingle,
           doubleScore: sDouble,
@@ -510,21 +608,19 @@ export function initKycBot(app) {
         createdSelfAssessment = true;
       }
 
-      // 4) Ghi lịch sử
       const baseNote = createdSelfAssessment
         ? "Admin chấm điểm và tạo tự chấm (admin hỗ trợ)"
         : "Admin chấm điểm trình";
 
       await ScoreHistory.create({
         user: userId,
-        scorer: null, // bỏ auth
+        scorer: null,
         single: sSingle,
         double: sDouble,
         note: note ? `${baseNote}. Ghi chú: ${note}` : baseNote,
         scoredAt: new Date(),
       });
 
-      // 5) Trả kết quả
       return ctx.reply(
         [
           "✅ ĐÃ CẬP NHẬT ĐIỂM",
@@ -549,15 +645,16 @@ export function initKycBot(app) {
     }
   });
 
-  bot.command(["rank_get", "point", "rating"], async (ctx) => {
+  // ==================== /rankget | /point | /rating ====================
+  bot.command(["rankget", "point", "rating"], async (ctx) => {
     const args = (ctx.message?.text || "").split(" ").slice(1);
     const q = args.join(" ").trim();
     if (!q) {
       return ctx.reply(
         [
           "Cách dùng:",
-          "/rank_get <email|phone|nickname>",
-          "Ví dụ: /rank_get v1b2",
+          "/rankget <email|phone|nickname>",
+          "Ví dụ: /rankget v1b2",
         ].join("\n")
       );
     }
@@ -572,7 +669,6 @@ export function initKycBot(app) {
         { single: 1, double: 1, updatedAt: 1 }
       ).lean();
 
-      // helper format
       const fmt1 = (v) =>
         Number.isFinite(Number(v)) ? Number(v).toFixed(1) : "—";
       const updated = rank?.updatedAt
@@ -596,7 +692,6 @@ export function initKycBot(app) {
         );
       }
 
-      // Fallback: chưa có Ranking → thử lấy bản ghi lịch sử gần nhất
       const last = await ScoreHistory.findOne(
         { user: userId },
         { single: 1, double: 1, note: 1, scoredAt: 1 }
@@ -628,7 +723,6 @@ export function initKycBot(app) {
         );
       }
 
-      // Không có Ranking & không có lịch sử
       return ctx.reply(
         [
           "ℹ️ Chưa có điểm cho người dùng này.",
@@ -636,12 +730,18 @@ export function initKycBot(app) {
         ].join("\n")
       );
     } catch (e) {
-      console.error("rank_get error:", e);
+      console.error("rankget error:", e);
       return ctx.reply("❌ Có lỗi xảy ra khi lấy điểm.");
     }
   });
-
   // --------------------- Launch & Stop -------------------
+  // XÓA WEBHOOK trước khi bật polling để tránh 409 conflict
+  try {
+    await bot.telegram.deleteWebhook({ drop_pending_updates: false });
+  } catch (e) {
+    console.warn("deleteWebhook failed:", e?.message);
+  }
+
   bot.launch().then(() => {
     console.log("[kycBot] Bot started (polling).");
   });

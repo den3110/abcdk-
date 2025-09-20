@@ -24,6 +24,7 @@ import {
   fillIdleCourtsForCluster,
 } from "../services/courtQueueService.js";
 import { broadcastState } from "../services/broadcastState.js";
+import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
 
 /**
  * Khởi tạo Socket.IO server
@@ -183,7 +184,7 @@ export function initSocket(
       // bổ sung streams từ meta nếu có
       if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
-      socket.emit("match:snapshot", toDTO(m));
+      socket.emit("match:snapshot", toDTO(decorateServeAndSlots(m)));
     });
 
     socket.on("overlay:join", ({ matchId }) => {
@@ -246,10 +247,228 @@ export function initSocket(
       }
     );
 
-    socket.on("serve:set", async ({ matchId, side, server }) => {
-      if (!ensureReferee(socket)) return;
-      await setServe(matchId, side, server, socket.user?._id, io);
+    // Payload: { matchId, side?: "A"|"B", server?: 1|2, serverId?: "<userId>" }
+    socket.on("serve:set", async ({ matchId, side, server, serverId }, ack) => {
+      try {
+        if (!ensureReferee(socket)) {
+          return ack?.({ ok: false, message: "Forbidden" });
+        }
+        if (!isObjectIdString(matchId)) {
+          return ack?.({ ok: false, message: "Invalid matchId" });
+        }
+        // phải có ít nhất 1 trường để set
+        const hasAny =
+          side !== undefined || server !== undefined || serverId !== undefined;
+        if (!hasAny) {
+          return ack?.({ ok: false, message: "Empty payload" });
+        }
+
+        // load match
+        const m = await Match.findById(matchId)
+          .populate({
+            path: "pairA",
+            select: "player1 player2",
+            populate: [
+              { path: "player1", select: "user" },
+              { path: "player2", select: "user" },
+            ],
+          })
+          .populate({
+            path: "pairB",
+            select: "player1 player2",
+            populate: [
+              { path: "player1", select: "user" },
+              { path: "player2", select: "user" },
+            ],
+          });
+
+        if (!m) return ack?.({ ok: false, message: "Match not found" });
+
+        // normalize
+        const sideU =
+          typeof side === "string" ? String(side).toUpperCase() : undefined;
+        const wantSide =
+          sideU === "A" || sideU === "B" ? sideU : m.serve?.side || "A";
+        const wantServer =
+          Number(server) === 1 || Number(server) === 2
+            ? Number(server)
+            : Number(m.serve?.server) === 1
+            ? 1
+            : 2;
+
+        // nếu có serverId thì (nếu kiểm tra) đảm bảo thuộc team tương ứng
+        const toId = (u) =>
+          String(u?.user?._id || u?.user || u?._id || u?.id || "");
+        let validServerId = null;
+        if (serverId) {
+          const aSet = new Set(
+            [m?.pairA?.player1, m?.pairA?.player2]
+              .filter(Boolean)
+              .map(toId)
+              .filter(Boolean)
+          );
+          const bSet = new Set(
+            [m?.pairB?.player1, m?.pairB?.player2]
+              .filter(Boolean)
+              .map(toId)
+              .filter(Boolean)
+          );
+          const sid = String(serverId);
+          const okOnSide =
+            (wantSide === "A" && aSet.has(sid)) ||
+            (wantSide === "B" && bSet.has(sid));
+          validServerId = okOnSide ? sid : null;
+        }
+
+        const prevServe = m.serve || { side: "A", server: 2 };
+        m.serve = { side: wantSide, server: wantServer };
+
+        // lưu serverId ở túi động slots.* để không đụng schema
+        if (validServerId) {
+          m.set("slots.serverId", validServerId, { strict: false });
+          m.set("slots.updatedAt", new Date(), { strict: false });
+          const ver = Number(m?.slots?.version || 0);
+          m.set("slots.version", ver + 1, { strict: false });
+          m.markModified("slots");
+        }
+
+        m.liveLog = m.liveLog || [];
+        m.liveLog.push({
+          type: "serve",
+          by: socket.user?._id || null,
+          payload: {
+            prevServe,
+            next: m.serve,
+            serverId: validServerId || null,
+          },
+          at: new Date(),
+        });
+        m.liveVersion = (m.liveVersion || 0) + 1;
+
+        await m.save();
+
+        // phát sự kiện cho room với DTO + nhét kèm serverId (để FE thấy ngay)
+        const fresh = await Match.findById(m._id)
+          .populate("pairA pairB referee")
+          .lean();
+        const enriched = decorateServeAndSlots(fresh);
+        const dto = toDTO(enriched);
+        io.to(`match:${matchId}`).emit("match:update", {
+          type: "serve",
+          data: dto,
+        });
+
+        ack?.({ ok: true });
+      } catch (e) {
+        console.error("[serve:set] error:", e?.message || e);
+        ack?.({ ok: false, message: e?.message || "Internal error" });
+      }
     });
+
+    // ======== SLOTS: setBase (referee/admin) ========
+    // Payload: { matchId, base: { A: { [userId]: 1|2 }, B: { [userId]: 1|2 } } }
+    socket.on("slots:setBase", async ({ matchId, base }, ack) => {
+      try {
+        if (!ensureReferee(socket)) {
+          return ack?.({ ok: false, message: "Forbidden" });
+        }
+        if (!isObjectIdString(matchId) || !base || typeof base !== "object") {
+          return ack?.({ ok: false, message: "Invalid payload" });
+        }
+
+        // Load match (doc, cần save)
+        const m = await Match.findById(matchId)
+          .populate({
+            path: "pairA",
+            select: "player1 player2",
+            populate: [
+              { path: "player1", select: "user" },
+              { path: "player2", select: "user" },
+            ],
+          })
+          .populate({
+            path: "pairB",
+            select: "player1 player2",
+            populate: [
+              { path: "player1", select: "user" },
+              { path: "player2", select: "user" },
+            ],
+          })
+          .populate({ path: "tournament", select: "eventType" });
+
+        if (!m) return ack?.({ ok: false, message: "Match not found" });
+
+        const uid = (u) =>
+          String(u?.user?._id || u?.user || u?._id || u?.id || "");
+
+        const validA = new Set(
+          [m?.pairA?.player1, m?.pairA?.player2]
+            .filter(Boolean)
+            .map(uid)
+            .filter(Boolean)
+        );
+        const validB = new Set(
+          [m?.pairB?.player1, m?.pairB?.player2]
+            .filter(Boolean)
+            .map(uid)
+            .filter(Boolean)
+        );
+
+        const in01 = (v) => v === 1 || v === 2;
+        const inputA = base?.A && typeof base.A === "object" ? base.A : {};
+        const inputB = base?.B && typeof base.B === "object" ? base.B : {};
+
+        const filteredA = {};
+        for (const [k, v] of Object.entries(inputA)) {
+          const kid = String(k);
+          if (validA.has(kid) && in01(Number(v))) filteredA[kid] = Number(v);
+        }
+        const filteredB = {};
+        for (const [k, v] of Object.entries(inputB)) {
+          const kid = String(k);
+          if (validB.has(kid) && in01(Number(v))) filteredB[kid] = Number(v);
+        }
+
+        // Yêu cầu đôi: đúng 1 người ô1 và 1 người ô2 mỗi đội (nếu đủ người)
+        const needDoubleCheck = (setValid, filtered) => {
+          if (setValid.size < 2) return true; // đội chưa đủ người → nới lỏng
+          const vals = Object.values(filtered);
+          const c1 = vals.filter((x) => x === 1).length;
+          const c2 = vals.filter((x) => x === 2).length;
+          return c1 === 1 && c2 === 1;
+        };
+        if (!needDoubleCheck(validA, filteredA))
+          return ack?.({
+            ok: false,
+            message: "Team A must have one #1 and one #2",
+          });
+        if (!needDoubleCheck(validB, filteredB))
+          return ack?.({
+            ok: false,
+            message: "Team B must have one #1 and one #2",
+          });
+
+        const nowBase = { A: filteredA, B: filteredB };
+        m.set("slots.base", nowBase, { strict: false });
+        m.set("slots.updatedAt", new Date(), { strict: false });
+        const prevVer = Number(m?.slots?.version || 0);
+        m.set("slots.version", prevVer + 1, { strict: false });
+        m.markModified("slots");
+        await m.save();
+
+        // Thông báo room
+        io.to(`match:${matchId}`).emit("match:patched", {
+          matchId: String(matchId),
+          payload: { slots: { base: nowBase } },
+        });
+
+        ack?.({ ok: true });
+      } catch (e) {
+        console.error("[slots:setBase] error:", e?.message || e);
+        ack?.({ ok: false, message: e?.message || "Internal error" });
+      }
+    });
+
     socket.on("match:started", async ({ matchId }) => {
       if (!matchId) return;
 
@@ -339,7 +558,10 @@ export function initSocket(
       // bổ sung streams từ meta nếu có
       if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
-      io.to(`match:${matchId}`).emit("match:snapshot", toDTO(m));
+      io.to(`match:${matchId}`).emit(
+        "match:snapshot",
+        toDTO(decorateServeAndSlots(m))
+      );
     });
     // (Giữ compatibility nếu FE còn dùng)
     socket.on("score:inc", async ({ matchId /*, side, delta*/ }) => {
@@ -431,7 +653,7 @@ export function initSocket(
       // bổ sung streams từ meta nếu có
       if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
-      io.to(`match:${matchId}`).emit("score:updated", toDTO(m));
+      io.to(`match:${matchId}`).emit("score:updated", toDTO(decorateServeAndSlots(m)));
     });
 
     // ========= SCHEDULER (Tournament + Bracket/Cluster) =========

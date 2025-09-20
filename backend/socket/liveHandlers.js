@@ -355,6 +355,20 @@ export async function addPoint(matchId, team, step = 1, by, io, opts = {}) {
     if (!scoredForServing) {
       // đội nhận ghi điểm → đổi lượt/đổi người theo luật hệ thống
       m.serve = onLostRallyNextServe(prevServe);
+
+      // ✅ cập nhật serve.serverId dựa trên base đã lưu
+      const base = m?.meta?.slots?.base;
+      if (base && base[m.serve.side]) {
+        const map = base[m.serve.side]; // { userId: 1|2 }
+        const wanted = Number(m.serve.server); // 1|2
+        const entry = Object.entries(map).find(
+          ([, slot]) => Number(slot) === wanted
+        );
+        m.serve.serverId = entry ? entry[0] : null;
+      } else {
+        // nếu chưa có base -> xoá id để FE fallback
+        if (m.serve.serverId) m.serve.serverId = undefined;
+      }
     } else if (!m.serve) {
       m.serve = prevServe;
     }
@@ -492,26 +506,152 @@ export async function undoLast(matchId, by, io) {
 }
 
 // ✅ optional: set serve thủ công
-export async function setServe(matchId, side, server, by, io) {
-  const m = await Match.findById(matchId);
-  if (!m) return;
-  if (!["A", "B"].includes(side)) return;
-  if (![1, 2].includes(Number(server))) return;
+export async function setServe(matchId, side, server, serverId, by, io) {
+  // --- validate đầu vào ---
+  if (!matchId) throw new Error("matchId required");
 
+  const sideU = String(side || "").toUpperCase();
+  if (!["A", "B"].includes(sideU)) throw new Error("Invalid side");
+
+  const srvNum = Number(server);
+  if (![1, 2].includes(srvNum)) throw new Error("Invalid server number");
+
+  // --- load match + người chơi để còn đối chiếu userId ---
+  const m = await Match.findById(matchId)
+    .populate({
+      path: "pairA",
+      select: "player1 player2",
+      populate: [
+        { path: "player1", select: "user" },
+        { path: "player2", select: "user" },
+      ],
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2",
+      populate: [
+        { path: "player1", select: "user" },
+        { path: "player2", select: "user" },
+      ],
+    });
+
+  if (!m) throw new Error("Match not found");
+
+  // --- helpers nhỏ ---
+  const uidOf = (p) =>
+    String(p?.user?._id || p?.user || p?._id || p?.id || "").trim();
+
+  const playersA = [uidOf(m?.pairA?.player1), uidOf(m?.pairA?.player2)].filter(
+    Boolean
+  );
+  const playersB = [uidOf(m?.pairB?.player1), uidOf(m?.pairB?.player2)].filter(
+    Boolean
+  );
+
+  // serverId (nếu có) phải thuộc đúng đội
+  if (serverId) {
+    const s = String(serverId);
+    const ok =
+      (sideU === "A" && playersA.includes(s)) ||
+      (sideU === "B" && playersB.includes(s));
+    if (!ok) throw new Error("serverId not in team " + sideU);
+  }
+
+  // --- điểm hiện tại của ván đang chơi (để tính parity) ---
+  const gs = Array.isArray(m.gameScores) ? m.gameScores : [];
+  const gi = Math.max(0, gs.length - 1);
+  const curA = Number(gs[gi]?.a || 0);
+  const curB = Number(gs[gi]?.b || 0);
+
+  // --- base map (từ slots.base), fallback p1=1, p2=2 nếu thiếu ---
+  const baseA = (m?.slots?.base?.A && { ...m.slots.base.A }) || {};
+  const baseB = (m?.slots?.base?.B && { ...m.slots.base.B }) || {};
+
+  if (playersA[0] && ![1, 2].includes(Number(baseA[playersA[0]])))
+    baseA[playersA[0]] = 1;
+  if (playersA[1] && ![1, 2].includes(Number(baseA[playersA[1]])))
+    baseA[playersA[1]] = 2;
+  if (playersB[0] && ![1, 2].includes(Number(baseB[playersB[0]])))
+    baseB[playersB[0]] = 1;
+  if (playersB[1] && ![1, 2].includes(Number(baseB[playersB[1]])))
+    baseB[playersB[1]] = 2;
+
+  const flip = (n) => (n === 1 ? 2 : 1);
+  const slotNow = (baseSlot, teamScore) =>
+    teamScore % 2 === 0 ? baseSlot : flip(baseSlot);
+
+  // --- chọn serverId nếu client không gửi: ưu tiên người có baseSlot=1 ---
+  let serverUid = serverId ? String(serverId) : "";
+  if (!serverUid) {
+    const teamList = sideU === "A" ? playersA : playersB;
+    const teamBase = sideU === "A" ? baseA : baseB;
+    serverUid =
+      teamList.find((u) => Number(teamBase[u]) === 1) || teamList[0] || "";
+  }
+
+  // --- slot hiện tại của người giao ---
+  const baseSlotOfServer =
+    sideU === "A"
+      ? Number(baseA[serverUid] || 1)
+      : Number(baseB[serverUid] || 1);
+
+  const teamScore = sideU === "A" ? curA : curB;
+  const serverSlotNow = slotNow(baseSlotOfServer, teamScore);
+
+  // --- tìm người đỡ bên còn lại: ai đang đứng CÙNG Ô với server ---
+  const otherSide = sideU === "A" ? "B" : "A";
+  const otherList = otherSide === "A" ? playersA : playersB;
+  const otherBase = otherSide === "A" ? baseA : baseB;
+  const otherScore = otherSide === "A" ? curA : curB;
+
+  let receiverUid = "";
+  for (const u of otherList) {
+    const b = Number(otherBase[u] || 1);
+    if (slotNow(b, otherScore) === serverSlotNow) {
+      receiverUid = u;
+      break;
+    }
+  }
+
+  // --- lưu serve + serverId + receiverId ---
   const prevServe = m.serve || { side: "A", server: 2 };
-  m.serve = { side, server: Number(server) };
+
+  m.set("serve.side", sideU, { strict: false });
+  m.set("serve.server", srvNum, { strict: false });
+  if (serverUid) m.set("serve.serverId", serverUid, { strict: false });
+  if (receiverUid) m.set("serve.receiverId", receiverUid, { strict: false });
+
+  // để FE tương thích: FE đang đọc receiverId từ slots.receiverId
+  m.set("slots.receiverId", receiverUid || null, { strict: false });
+  m.set("slots.serverId", serverUid || null, { strict: false });
+  m.set("slots.updatedAt", new Date(), { strict: false });
+  const prevVer = Number(m?.slots?.version || 0);
+  m.set("slots.version", prevVer + 1, { strict: false });
+  m.markModified("slots");
+
+  // log + version
   m.liveLog = m.liveLog || [];
   m.liveLog.push({
     type: "serve",
     by,
-    payload: { prevServe, next: m.serve },
+    payload: {
+      prev: prevServe,
+      next: {
+        side: sideU,
+        server: srvNum,
+        serverId: serverUid || null,
+        receiverId: receiverUid || null,
+      },
+    },
     at: new Date(),
   });
-  m.liveVersion = (m.liveVersion || 0) + 1;
+  m.liveVersion = Number(m.liveVersion || 0) + 1;
+
   await m.save();
 
+  // phát update
   const doc = await Match.findById(m._id).populate("pairA pairB referee");
-  io.to(`match:${matchId}`).emit("match:update", {
+  io?.to(`match:${matchId}`)?.emit("match:update", {
     type: "serve",
     data: toDTO(doc),
   });

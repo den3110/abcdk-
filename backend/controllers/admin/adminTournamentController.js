@@ -17,6 +17,7 @@ import {
 import { scheduleTournamentCountdown } from "../../utils/scheduleNotifications.js";
 import Bracket from "../../models/bracketModel.js"; // <-- thêm dòng này
 import { createForumTopic, createInviteLink } from "../../utils/telegram.js";
+import Match from "../../models/matchModel.js"
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -947,6 +948,94 @@ export const planAuto = expressAsyncHandler(async (req, res) => {
  *   ko: { drawSize, seeds: [{pair, A:{...}, B:{...}}], rules?, finalRules? } | null
  * }
  */
+/* ---------- Helper: tự động cho đội gặp BYE đi tiếp ---------- */
+const isByeSeed = (s) => !!s && String(s.type || "").toLowerCase() === "bye";
+/**
+ * Sau khi build bracket, tự động:
+ *  - Kết thúc các trận có 1 bên BYE (winner = bên còn lại)
+ *  - Gán seed thắng thẳng vào trận vòng sau, xóa previousA/previousB tương ứng
+ * Chạy nhiều pass để xử lý các chuỗi BYE liên tiếp (BYE→BYE→…).
+ */
+async function autoAdvanceByesForBracket(bracketId, session) {
+  if (!bracketId) return;
+
+  // Lấy toàn bộ trận của bracket
+  let matches = await Match.find({ bracket: bracketId }).session(session);
+
+  // Dễ tra cứu
+  const idOf = (x) => String(x?._id || x || "");
+  const byId = new Map(matches.map((m) => [idOf(m), m]));
+
+  // Build chỉ số "trận kế tiếp" theo previousA/B
+  const nextMap = new Map(); // matchId -> [{match,nextSide:'A'|'B'}]
+  for (const nx of matches) {
+    const pA = idOf(nx.previousA);
+    const pB = idOf(nx.previousB);
+    if (pA) {
+      if (!nextMap.has(pA)) nextMap.set(pA, []);
+      nextMap.get(pA).push({ match: nx, side: "A" });
+    }
+    if (pB) {
+      if (!nextMap.has(pB)) nextMap.set(pB, []);
+      nextMap.get(pB).push({ match: nx, side: "B" });
+    }
+  }
+
+  // Lặp vài vòng để xử lý các trường hợp dồn BYE liên tiếp
+  let changed = true;
+  let pass = 0;
+  while (changed && pass < 5) {
+    changed = false;
+    pass += 1;
+
+    for (const m of matches) {
+      // Bỏ qua trận không thuộc bracket (phòng hờ) hoặc đã kết thúc hợp lệ
+      const status = String(m.status || "").toLowerCase();
+      const aBye = isByeSeed(m.seedA);
+      const bBye = isByeSeed(m.seedB);
+
+      // Chỉ xử lý khi đúng 1 bên là BYE
+      if (aBye === bBye) continue;
+
+      const winnerSide = aBye ? "B" : "A";
+      const advSeed = aBye ? m.seedB : m.seedA; // seed đi tiếp
+
+      // 1) Kết thúc trận nếu chưa kết thúc
+      if (status !== "finished" || m.winner !== winnerSide) {
+        m.status = "finished";
+        m.winner = winnerSide;
+        m.startedAt = m.startedAt || new Date();
+        m.finishedAt = new Date();
+        // gắn flag nhẹ để dễ debug (không bắt buộc)
+        m.auto = true;
+        m.autoReason = "bye";
+        await m.save({ session });
+        changed = true;
+      }
+
+      // 2) Đẩy seed thắng vào vòng sau (nếu có trận kế tiếp)
+      const followers = nextMap.get(idOf(m)) || [];
+      for (const { match: nx, side } of followers) {
+        const sideKeySeed = side === "A" ? "seedA" : "seedB";
+        const sideKeyPrev = side === "A" ? "previousA" : "previousB";
+
+        // Nếu side của trận sau vẫn đang phụ thuộc vào trận này → gán seed trực tiếp
+        if (idOf(nx[sideKeyPrev]) === idOf(m)) {
+          nx[sideKeySeed] = advSeed; // giữ nguyên object seed (registration/groupRank/…)
+          nx[sideKeyPrev] = undefined; // bỏ phụ thuộc, hiển thị seed luôn
+          await nx.save({ session });
+          changed = true;
+        }
+      }
+    }
+
+    // refresh mảng matches cho vòng sau (đề phòng DB đã thay đổi)
+    if (changed) {
+      matches = await Match.find({ bracket: bracketId }).session(session);
+    }
+  }
+}
+
 export const planCommit = expressAsyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -961,7 +1050,6 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
     const { groups, po, ko } = req.body || {};
     const created = { groupBracket: null, poBracket: null, koBracket: null };
 
-    // ===== ONLY ADD: chuẩn hoá cap trong rules (không đổi các field khác)
     const withCap = (rules) => {
       if (!rules) return undefined;
       const rawMode = String(rules?.cap?.mode ?? "none").toLowerCase();
@@ -977,20 +1065,16 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       }
       return { ...rules, cap: { mode, points } };
     };
-    // ===== END ONLY ADD
 
-    // Xác định stage nào thực sự có
     const hasGroup = Boolean(groups?.count > 0);
     const hasPO = Boolean(po?.drawSize > 0);
     const hasKO = Boolean(ko?.drawSize > 0);
 
-    // Gán order liên tiếp từ 1 theo các stage có mặt
     let orderCounter = 1;
     const groupOrder = hasGroup ? orderCounter++ : null;
     const poOrder = hasPO ? orderCounter++ : null;
     const koOrder = hasKO ? orderCounter++ : null;
 
-    // 1) Group (hỗ trợ totalTeams / groupSizes) — NGUYÊN LOGIC CŨ
     if (hasGroup) {
       const payload = {
         tournamentId: t._id,
@@ -1003,13 +1087,12 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         groupSizes: Array.isArray(groups.groupSizes)
           ? groups.groupSizes
           : undefined,
-        rules: withCap(groups?.rules), // <— chỉ thêm chuẩn hoá cap
+        rules: withCap(groups?.rules),
         session,
       };
       created.groupBracket = await buildGroupBracket(payload);
     }
 
-    // 2) PO (roundElim – KHÔNG ép 2^n) — NGUYÊN LOGIC CŨ
     if (hasPO) {
       const firstRoundSeeds = Array.isArray(po.seeds) ? po.seeds : [];
       const { bracket } = await buildRoundElimBracket({
@@ -1020,13 +1103,15 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         drawSize: Number(po.drawSize),
         maxRounds: Math.max(1, Number(po.maxRounds || 1)),
         firstRoundSeeds,
-        rules: withCap(po?.rules), // <— chỉ thêm chuẩn hoá cap
+        rules: withCap(po?.rules),
         session,
       });
       created.poBracket = bracket;
+
+      // ⬇️ MỚI THÊM: tự động đẩy đội gặp BYE qua vòng sau
+      await autoAdvanceByesForBracket(bracket._id, session);
     }
 
-    // 3) KO chính — NGUYÊN LOGIC CŨ
     if (hasKO) {
       const firstRoundSeeds = Array.isArray(ko.seeds) ? ko.seeds : [];
       const { bracket } = await buildKnockoutBracket({
@@ -1036,11 +1121,14 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         stage: koOrder,
         drawSize: Number(ko.drawSize),
         firstRoundSeeds,
-        rules: withCap(ko?.rules), // <— chỉ thêm chuẩn hoá cap
-        finalRules: ko?.finalRules ? withCap(ko.finalRules) : null, // <— chỉ thêm chuẩn hoá cap
+        rules: withCap(ko?.rules),
+        finalRules: ko?.finalRules ? withCap(ko.finalRules) : null,
         session,
       });
       created.koBracket = bracket;
+
+      // ⬇️ MỚI THÊM: tự động đẩy đội gặp BYE qua vòng sau
+      await autoAdvanceByesForBracket(bracket._id, session);
     }
 
     await session.commitTransaction();
