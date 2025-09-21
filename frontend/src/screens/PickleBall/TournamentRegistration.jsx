@@ -238,7 +238,7 @@ function StatItem({ icon, label, value, hint }) {
   );
 }
 
-/** VĐV 1 (Bạn) */
+/** VĐV 1 (Bạn) readonly cho user thường */
 function SelfPlayerReadonly({ me, isSingles }) {
   if (!me?._id) return null;
   const display = me?.nickname || me?.name || "Tôi";
@@ -283,7 +283,7 @@ function SelfPlayerReadonly({ me, isSingles }) {
   );
 }
 
-/* Ô hành động */
+/* Ô hành động: luôn hiện Thanh toán & Khiếu nại cho mọi người */
 function ActionCell({
   r,
   canManage,
@@ -325,40 +325,35 @@ function ActionCell({
         </Tooltip>
       )}
 
-      {/* Nút Thanh toán (QR) — chỉ chủ đăng ký */}
-      {isOwner && (
-        <Tooltip arrow title="Thanh toán bằng mã QR">
-          <span>
-            <Button
-              size="small"
-              variant="contained"
-              onClick={() => onOpenPayment(r)}
-              startIcon={<QrCode fontSize="small" />}
-              sx={{ textTransform: "none" }}
-            >
-              Thanh toán
-            </Button>
-          </span>
-        </Tooltip>
-      )}
+      <Tooltip arrow title="Thanh toán bằng mã QR">
+        <span>
+          <Button
+            size="small"
+            variant="contained"
+            onClick={() => onOpenPayment(r)}
+            startIcon={<QrCode fontSize="small" />}
+            sx={{ textTransform: "none" }}
+          >
+            Thanh toán
+          </Button>
+        </span>
+      </Tooltip>
 
-      {/* Nút Khiếu nại — chỉ chủ đăng ký */}
-      {isOwner && (
-        <Tooltip arrow title="Gửi khiếu nại cho đăng ký này">
-          <span>
-            <Button
-              size="small"
-              variant="contained"
-              color="warning"
-              onClick={() => onOpenComplaint(r)}
-              startIcon={<ReportProblem fontSize="small" />}
-              sx={{ textTransform: "none" }}
-            >
-              Khiếu nại
-            </Button>
-          </span>
-        </Tooltip>
-      )}
+      <Tooltip arrow title="Gửi khiếu nại cho đăng ký này">
+        <span>
+          <Button
+            size="small"
+            variant="contained"
+            color="warning"
+            onClick={() => onOpenComplaint(r)}
+            startIcon={<ReportProblem fontSize="small" />}
+            sx={{ textTransform: "none" }}
+          >
+            Khiếu nại
+          </Button>
+        </span>
+      </Tooltip>
+
       {(canManage || isOwner) && (
         <Tooltip arrow title={canManage ? "Huỷ cặp đấu" : "Huỷ đăng ký"}>
           <span>
@@ -382,7 +377,7 @@ export default function TournamentRegistration() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
-  // Lấy "mình" + điểm từ API mới
+  // Lấy "mình" + điểm
   const { data: me, isLoading: meLoading, error: meErr } = useGetMeScoreQuery();
   const isLoggedIn = !!me?._id;
 
@@ -404,7 +399,7 @@ export default function TournamentRegistration() {
     refetch: refetchRegs,
   } = useGetRegistrationsQuery(id);
 
-  // chỉ gọi khi đã đăng nhập để tránh loop
+  // invites (nếu cần)
   const {
     data: myInvites = [],
     error: invitesErr,
@@ -427,7 +422,8 @@ export default function TournamentRegistration() {
     useCreateComplaintMutation();
 
   /* ───────── local state ───────── */
-  // VĐV1 là bạn (không state), chỉ cần p2 nếu giải đôi
+  // Admin chọn VĐV1; user thường: VĐV1 là me (readonly)
+  const [p1, setP1] = useState(null);
   const [p2, setP2] = useState(null);
   const [msg, setMsg] = useState("");
   const [cancelingId, setCancelingId] = useState(null);
@@ -483,9 +479,10 @@ export default function TournamentRegistration() {
     me?.role === "admin" ||
     (Array.isArray(me?.roles) && me.roles.includes("admin"))
   );
+  console.log(me)
   const canManage = isLoggedIn && (isManager || isAdmin);
 
-  // invites của giải hiện tại (memo)
+  // invites của giải hiện tại (memo, để dùng nếu cần)
   const pendingInvitesHere = useMemo(() => {
     if (!isLoggedIn) return [];
     return (myInvites || []).filter(
@@ -523,7 +520,10 @@ export default function TournamentRegistration() {
   const playersOfReg = (r) => [r?.player1, r?.player2].filter(Boolean);
 
   const disableSubmit =
-    saving || meLoading || !isLoggedIn || (isDoubles && !p2);
+    saving ||
+    meLoading ||
+    !isLoggedIn ||
+    (isAdmin ? !p1 || (isDoubles && !p2) : isDoubles && !p2);
 
   const formatDate = (d) => (d ? new Date(d).toLocaleDateString() : "");
   const formatRange = (a, b) => {
@@ -537,21 +537,28 @@ export default function TournamentRegistration() {
   const submit = async (e) => {
     e.preventDefault();
     if (!isLoggedIn) return toast.info("Vui lòng đăng nhập để đăng ký.");
-    if (!me?._id) return toast.error("Không xác định được VĐV 1 (bạn).");
-    if (isDoubles && !p2) return toast.error("Giải đôi cần 2 VĐV");
+
+    const player1Id = isAdmin ? p1?._id : String(me?._id);
+    if (!player1Id) {
+      return toast.error(
+        isAdmin ? "Vui lòng chọn VĐV 1." : "Không xác định được VĐV 1 (bạn)."
+      );
+    }
+    if (isDoubles && !p2?._id) return toast.error("Giải đôi cần 2 VĐV");
 
     try {
       const res = await createInvite({
         tourId: id,
         message: msg,
-        player1Id: String(me._id),
+        player1Id,
         ...(isDoubles ? { player2Id: p2._id } : {}),
       }).unwrap();
 
       if (
         res?.registration ||
         res?.mode === "direct_by_admin" ||
-        res?.mode === "direct_by_kyc"
+        res?.mode === "direct_by_kyc" ||
+        res?.mode === "direct"
       ) {
         const mode = res?.mode || "direct";
         const label =
@@ -562,6 +569,7 @@ export default function TournamentRegistration() {
             : "Trực tiếp";
         toast.success(`Đã tạo đăng ký (${label}).`);
 
+        if (isAdmin) setP1(null);
         setP2(null);
         setMsg("");
         await refetchRegs();
@@ -573,7 +581,7 @@ export default function TournamentRegistration() {
       if (err?.status === 412) {
         toast.error(
           err?.data?.message ||
-            "Bạn (hoặc đồng đội) cần hoàn tất KYC (đã xác minh) trước khi đăng ký."
+            "VĐV cần hoàn tất KYC (đã xác minh) trước khi đăng ký."
         );
       } else {
         toast.error(
@@ -751,6 +759,7 @@ export default function TournamentRegistration() {
   const submitComplaint = async () => {
     const regId = complaintDlg?.reg?._id;
     const content = complaintDlg.text?.trim();
+
     if (!content) {
       toast.info("Vui lòng nhập nội dung khiếu nại.");
       return;
@@ -759,6 +768,12 @@ export default function TournamentRegistration() {
       toast.error("Không tìm thấy mã đăng ký để gửi khiếu nại.");
       return;
     }
+    // Guest vẫn thấy nút nhưng cần đăng nhập để gửi
+    if (!isLoggedIn) {
+      toast.info("Vui lòng đăng nhập để gửi khiếu nại.");
+      return;
+    }
+
     try {
       await createComplaint({ tournamentId: id, regId, content }).unwrap();
       toast.success("Đã gửi khiếu nại. BTC sẽ phản hồi sớm.");
@@ -975,23 +990,48 @@ export default function TournamentRegistration() {
             </Box>
           ) : meErr ? (
             <Alert severity="error">Không tải được thông tin của bạn.</Alert>
-          ) : isLoggedIn ? (
-            <SelfPlayerReadonly me={me} isSingles={isSingles} />
-          ) : (
+          ) : !isLoggedIn ? (
             <Alert severity="info">
               Bạn chưa đăng nhập. Hãy đăng nhập để đăng ký.
             </Alert>
-          )}
+          ) : isAdmin ? (
+            <>
+              {/* Admin chọn VĐV 1 */}
+              <Box mt={1}>
+                <PlayerSelector
+                  label="VĐV 1"
+                  eventType={tour?.eventType}
+                  value={p1}
+                  onChange={setP1}
+                />
+              </Box>
 
-          {isDoubles && (
-            <Box mt={3}>
-              <PlayerSelector
-                label="VĐV 2"
-                eventType={tour.eventType}
-                value={p2}
-                onChange={setP2}
-              />
-            </Box>
+              {/* Admin chọn VĐV 2 nếu là đôi */}
+              {isDoubles && (
+                <Box mt={2}>
+                  <PlayerSelector
+                    label="VĐV 2"
+                    eventType={tour?.eventType}
+                    value={p2}
+                    onChange={setP2}
+                  />
+                </Box>
+              )}
+            </>
+          ) : (
+            <>
+              <SelfPlayerReadonly me={me} isSingles={isSingles} />
+              {isDoubles && (
+                <Box mt={3}>
+                  <PlayerSelector
+                    label="VĐV 2"
+                    eventType={tour?.eventType}
+                    value={p2}
+                    onChange={setP2}
+                  />
+                </Box>
+              )}
+            </>
           )}
 
           <TextField
@@ -1006,7 +1046,7 @@ export default function TournamentRegistration() {
 
           <Typography variant="caption" color="text.secondary">
             {isAdmin
-              ? "Quyền admin: tạo đăng ký trực tiếp."
+              ? "Quyền admin: chọn VĐV 1 (và VĐV 2 nếu là đôi) để tạo đăng ký trực tiếp."
               : isSingles
               ? "Giải đơn: VĐV phải KYC (đã xác minh) thì mới đăng ký được."
               : "Giải đôi: CẢ HAI VĐV phải KYC (đã xác minh) thì mới đăng ký được."}
@@ -1319,8 +1359,6 @@ export default function TournamentRegistration() {
                   isLoggedIn && String(r?.createdBy) === String(me?._id);
                 return (
                   <TableRow key={r._id} hover>
-                    {/* NEW: Mã ĐK */}
-
                     <TableCell sx={{ whiteSpace: "nowrap" }}>
                       {baseIndex + i0 + 1}
                     </TableCell>
@@ -1534,13 +1572,6 @@ export default function TournamentRegistration() {
             }
             placeholder="Ví dụ: Sai thông tin VĐV, sai điểm trình, muốn đổi khung giờ…"
           />
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ mt: 0.5, display: "block" }}
-          >
-            Chỉ người đã đăng ký mới có thể gửi khiếu nại từ đây.
-          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={closeComplaint}>Đóng</Button>

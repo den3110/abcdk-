@@ -1,8 +1,8 @@
 // utils/notifyNewComplaint.js  (ESM)
-import { tgSend, htmlEscape } from "../../utils/telegram.js"; // sửa import
+import fetch from "node-fetch"; // dùng trực tiếp cho Telegram API
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
-const DEFAULT_CHAT_ID = process.env.TELEGRAM_CHAT_ID ?? "";
+const DEFAULT_CHAT_ID = process.env.TELEGRAM_CHAT_COMPLAINT_ID ?? "";
 const FRONTEND_URL = (process.env.HOST ?? process.env.WEB_URL ?? "").replace(
   /\/+$/,
   ""
@@ -50,6 +50,7 @@ export async function notifyNewComplaint({
   chatId, // optional: override chat
 }) {
   const hasAnyChat = Boolean(chatId || DEFAULT_CHAT_ID);
+  console.log(DEFAULT_CHAT_ID)
   if (!BOT_TOKEN || !hasAnyChat) return;
   if (!registration || !tournament || !user || !complaint) return;
 
@@ -169,3 +170,90 @@ export async function notifyComplaintStatusChange({
     ...(replyToMessageId ? { reply_to_message_id: replyToMessageId } : {}),
   });
 }
+
+// Cho phép nhiều chat id ngăn cách bởi dấu phẩy
+const DEFAULT_CHAT_IDS = String(DEFAULT_CHAT_ID || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// ===== Helpers: htmlEscape & Telegram API thin client =====
+export function htmlEscape(s = "") {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+  // (Telegram HTML không cần escape ' )
+}
+
+async function tg(method, body) {
+  if (!BOT_TOKEN) throw new Error("BOT_TOKEN is missing");
+  const url = `https://api.telegram.org/bot${BOT_TOKEN}/${method}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {}),
+  });
+  const text = await res.text();
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw new Error(`Telegram response is not JSON: ${text}`);
+  }
+  if (!json.ok) {
+    const desc = json.description || "Unknown Telegram error";
+    throw new Error(desc);
+  }
+  return json.result;
+}
+
+// ===== tgSend: ưu tiên chat_id truyền vào, nếu không sẽ broadcast theo DEFAULT_CHAT_IDS =====
+export async function tgSend(
+  text,
+  {
+    chat_id, // string | number (ưu tiên nếu có)
+    message_thread_id, // topic id
+    parse_mode = "HTML",
+    disable_web_page_preview = true,
+    reply_markup,
+    reply_to_message_id,
+    disable_notification,
+    protect_content,
+  } = {}
+) {
+  // build payload chỉ với field có giá trị
+  const payload = { text };
+  if (parse_mode != null) payload.parse_mode = parse_mode;
+  if (disable_web_page_preview != null)
+    payload.disable_web_page_preview = disable_web_page_preview;
+  if (reply_markup != null) payload.reply_markup = reply_markup;
+  if (reply_to_message_id != null) payload.reply_to_message_id = reply_to_message_id;
+  if (message_thread_id != null) payload.message_thread_id = message_thread_id;
+  if (disable_notification != null) payload.disable_notification = disable_notification;
+  if (protect_content != null) payload.protect_content = protect_content;
+
+  // 1) Có chat_id -> gửi thẳng
+  if (chat_id !== undefined && chat_id !== null && String(chat_id).trim() !== "") {
+    return tg("sendMessage", { chat_id, ...payload });
+  }
+
+  // 2) Không có chat_id -> broadcast theo DEFAULT_CHAT_IDS
+  if (!DEFAULT_CHAT_IDS.length) {
+    console.warn("[telegram] No TELEGRAM_CHAT_COMPLAINT_ID configured; skip send.");
+    return null;
+  }
+
+  const results = [];
+  for (const cid of DEFAULT_CHAT_IDS) {
+    try {
+      const res = await tg("sendMessage", { chat_id: cid, ...payload });
+      results.push(res);
+    } catch (err) {
+      console.error("[telegram] sendMessage broadcast error:", cid, err?.message || err);
+    }
+  }
+  return results.length === 1 ? results[0] : results;
+}
+

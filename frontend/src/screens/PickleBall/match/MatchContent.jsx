@@ -17,6 +17,7 @@ import {
   TableRow,
   TableCell,
   TableBody,
+  IconButton,
 } from "@mui/material";
 import { useSelector } from "react-redux";
 import {
@@ -24,14 +25,25 @@ import {
   ContentCopy as ContentCopyIcon,
   OpenInNew as OpenInNewIcon,
   AccessTime as TimeIcon,
+  Edit as EditIcon,
+  Save as SaveIcon,
+  Add as AddIcon,
+  Delete as DeleteIcon,
+  CheckCircle as WinIcon,
+  Flag as StatusIcon,
+  Undo as UndoIcon,
 } from "@mui/icons-material";
+import { toast } from "react-toastify";
 import { depLabel, seedLabel, nameWithNick } from "../TournamentBracket";
 import PublicProfileDialog from "../../../components/PublicProfileDialog";
+import { useAdminPatchMatchMutation } from "../../../slices/matchesApiSlice";
 
-// ---- Sub-component: PlayerLink ----
+// ✅ RTK Query slice (đổi path/hook nếu bạn đặt khác)
+// import { useAdminPatchMatchMutation } from "slices/matchesApiSlice";
+
+/* ---------- Sub-component: PlayerLink ---------- */
 function PlayerLink({ person, onOpen }) {
   if (!person) return null;
-
   const uid =
     person?.user?._id ||
     person?.user?.id ||
@@ -65,7 +77,7 @@ function PlayerLink({ person, onOpen }) {
   );
 }
 
-/* ===================== Hooks chống nháy & tiện ích ===================== */
+/* ---------- Hooks chống nháy & tiện ích ---------- */
 function useDelayedFlag(flag, ms = 250) {
   const [show, setShow] = useState(false);
   useEffect(() => {
@@ -122,7 +134,7 @@ function useShowAfterFetch(m, loading) {
   return [display, waitingNewSelection];
 }
 
-/* ===================== Time helpers & compare ===================== */
+/* ---------- Time helpers & compare ---------- */
 function ts(x) {
   if (!x) return 0;
   const d = typeof x === "number" ? new Date(x) : new Date(String(x));
@@ -192,7 +204,7 @@ function countGamesWon(gameScores) {
   return { A, B };
 }
 
-/* ===================== Stream detect & normalize ===================== */
+/* ---------- Stream detect & normalize ---------- */
 function safeURL(url) {
   try {
     return new URL(url);
@@ -206,9 +218,9 @@ function detectEmbed(url) {
 
   const host = u.hostname.toLowerCase();
   const path = u.pathname;
-  let aspect = "16:9"; // default hint
+  let aspect = "16:9";
 
-  // YouTube: watch?v=, youtu.be, /live/:id, /shorts/:id, /embed/:id
+  // YouTube
   const ytId = (() => {
     if (host.includes("youtube.com")) {
       const v = u.searchParams.get("v");
@@ -244,7 +256,7 @@ function detectEmbed(url) {
         canEmbed: true,
         embedUrl: `https://player.vimeo.com/video/${m[1]}`,
         allow: "autoplay; fullscreen; picture-in-picture",
-        aspect, // 16:9
+        aspect,
       };
     }
   }
@@ -311,7 +323,7 @@ function detectEmbed(url) {
     }
   }
 
-  // Mặc định: thử iframe
+  // Mặc định
   return {
     kind: "iframe",
     canEmbed: true,
@@ -361,10 +373,7 @@ function normalizeStreams(m) {
     seen.add(u);
   };
 
-  // Ưu tiên: m.video là nguồn chính
   if (isNonEmptyString(m?.video)) pushUrl(m.video, { primary: true });
-
-  // Một số field quen thuộc khác
   const singles = [
     ["Video", m?.videoUrl],
     ["Stream", m?.stream],
@@ -380,18 +389,15 @@ function normalizeStreams(m) {
     ["Stream", m?.sources?.stream],
     ["URL", m?.sources?.url],
   ];
-  for (const [label, val] of singles) {
+  for (const [label, val] of singles)
     if (isNonEmptyString(val)) pushUrl(val, { label });
-  }
 
-  // Mảng string
   const asStrArray = (arr) =>
     Array.isArray(arr) ? arr.filter(isNonEmptyString) : [];
   for (const url of asStrArray(m?.videos)) pushUrl(url, { label: "Video" });
   for (const url of asStrArray(m?.links)) pushUrl(url, { label: "Link" });
   for (const url of asStrArray(m?.sources)) pushUrl(url, { label: "Nguồn" });
 
-  // Mảng object { url|href|src, label? }
   const pushList = (list) => {
     for (const it of Array.isArray(list) ? list : []) {
       const url = it?.url || it?.href || it?.src;
@@ -407,7 +413,7 @@ function normalizeStreams(m) {
   return out;
 }
 
-/* ===================== AspectBox ===================== */
+/* ---------- AspectBox ---------- */
 const supportsAR =
   typeof CSS !== "undefined" && typeof CSS.supports === "function"
     ? CSS.supports("aspect-ratio", "1 / 1")
@@ -431,7 +437,7 @@ function AspectBox({ ratio = 16 / 9, children }) {
   );
 }
 
-/* ===================== HLS loader qua CDN ===================== */
+/* ---------- HLS loader qua CDN ---------- */
 let __hlsLoaderPromise = null;
 function loadHlsFromCDN() {
   if (__hlsLoaderPromise) return __hlsLoaderPromise;
@@ -455,7 +461,7 @@ function loadHlsFromCDN() {
   return __hlsLoaderPromise;
 }
 
-/* ===================== StreamPlayer ===================== */
+/* ---------- StreamPlayer ---------- */
 function StreamPlayer({ stream }) {
   const videoRef = useRef(null);
   const [hlsError, setHlsError] = useState("");
@@ -480,7 +486,6 @@ function StreamPlayer({ stream }) {
         }
       };
 
-      // Safari hỗ trợ HLS native
       if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = stream.embedUrl;
         video.addEventListener("loadedmetadata", onMeta, { once: true });
@@ -590,8 +595,7 @@ function StreamPlayer({ stream }) {
 }
 
 /* ===================== Component chính ===================== */
-export default function MatchContent({ m, isLoading, liveLoading }) {
-  // ——— hooks cố định ở đầu component ———
+export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const { userInfo } = useSelector((s) => s.auth || {});
   const roleStr = String(userInfo?.role || "").toLowerCase();
   const roles = new Set(
@@ -680,7 +684,7 @@ export default function MatchContent({ m, isLoading, liveLoading }) {
     isEqual: isMatchEqual,
   });
 
-  // Streams: chọn stream hoạt động (primary -> có thể embed -> đầu tiên)
+  // Streams
   const streams = normalizeStreams(mm || {});
   const pickInitialIndex = (arr) => {
     if (!arr.length) return -1;
@@ -692,18 +696,24 @@ export default function MatchContent({ m, isLoading, liveLoading }) {
   };
   const [activeIdx, setActiveIdx] = useState(pickInitialIndex(streams));
   const [showPlayer, setShowPlayer] = useState(false);
-
   useEffect(() => {
     setActiveIdx(pickInitialIndex(streams));
-    setShowPlayer(false); // đổi trận -> ẩn player mặc định
+    setShowPlayer(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mm?._id]);
-
   const activeStream =
     activeIdx >= 0 && activeIdx < streams.length ? streams[activeIdx] : null;
 
-  // Status & time
-  const status = mm?.status || "scheduled";
+  // ===== Local patch (để hiển thị ngay sau khi admin lưu) =====
+  const [localPatch, setLocalPatch] = useState(null);
+  useEffect(() => {
+    setLocalPatch(null);
+  }, [mm?._id]);
+
+  const status = localPatch?.status || mm?.status || "scheduled";
+  const shownGameScores = localPatch?.gameScores ?? mm?.gameScores ?? [];
+
+  // Overlay & thời gian
   const overlayUrl =
     mm?._id && typeof window !== "undefined" && window?.location?.origin
       ? `${window.location.origin}/overlay/score?matchId=${mm._id}&theme=dark&size=md&showSets=1&autoNext=1`
@@ -720,7 +730,97 @@ export default function MatchContent({ m, isLoading, liveLoading }) {
   const showSpinner = waitingNewSelection && showSpinnerDelayed;
   const showError = !waitingNewSelection && !baseMatch;
 
-  /* ===================== RENDER ===================== */
+  const isSingle = String(mm?.tournament?.eventType).toLowerCase() === "single";
+
+  // ================== Admin helpers (RTK Query) ==================
+  const [editMode, setEditMode] = useState(false);
+  const [editScores, setEditScores] = useState(() => [
+    ...(shownGameScores || []),
+  ]);
+
+  useEffect(() => {
+    setEditScores([...(localPatch?.gameScores ?? mm?.gameScores ?? [])]);
+  }, [mm?._id, localPatch?.gameScores]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const sanitizeInt = (v) => {
+    const n = parseInt(String(v).replace(/[^\d-]/g, ""), 10);
+    if (!Number.isFinite(n) || n < 0) return 0;
+    return Math.min(n, 99);
+  };
+
+  const setCell = (idx, side, val) => {
+    setEditScores((old) => {
+      const arr = [...(Array.isArray(old) ? old : [])];
+      while (arr.length <= idx) arr.push({ a: 0, b: 0 });
+      const row = { ...(arr[idx] || { a: 0, b: 0 }) };
+      row[side] = sanitizeInt(val);
+      arr[idx] = row;
+      return arr;
+    });
+  };
+
+  const addSet = () => setEditScores((old) => [...(old || []), { a: 0, b: 0 }]);
+  const removeSet = (idx) =>
+    setEditScores((old) => (old || []).filter((_, i) => i !== idx));
+  const resetEdits = () =>
+    setEditScores([...(localPatch?.gameScores ?? mm?.gameScores ?? [])]);
+
+  // 🔌 RTK Query mutation
+  const [adminPatchMatch, { isLoading: patching }] =
+    useAdminPatchMatchMutation();
+
+  const handleSaveScores = async () => {
+    if (!isAdmin || !mm?._id) return;
+    try {
+      await adminPatchMatch({
+        id: mm._id,
+        body: { gameScores: editScores },
+      }).unwrap();
+      setLocalPatch((p) => ({ ...(p || {}), gameScores: editScores }));
+      toast.success("Đã lưu tỉ số.");
+      setEditMode(false);
+      onSaved?.();
+    } catch (e) {
+      toast.error(`Lưu tỉ số thất bại: ${e?.data?.message || e?.message || e}`);
+    }
+  };
+
+  const handleSetWinner = async (side /* 'A' | 'B' */) => {
+    if (!isAdmin || !mm?._id) return;
+    try {
+      await adminPatchMatch({
+        id: mm._id,
+        body: { winner: side, status: "finished" },
+      }).unwrap();
+      setLocalPatch((p) => ({ ...(p || {}), status: "finished" }));
+      toast.success(`Đã đặt đội ${side} thắng & kết thúc trận.`);
+      onSaved?.();
+    } catch (e) {
+      toast.error(
+        `Đặt thắng/thua thất bại: ${e?.data?.message || e?.message || e}`
+      );
+    }
+  };
+
+  const handleSetStatus = async (newStatus) => {
+    if (!isAdmin || !mm?._id) return;
+    try {
+      await adminPatchMatch({
+        id: mm._id,
+        body: { status: newStatus },
+      }).unwrap();
+      setLocalPatch((p) => ({ ...(p || {}), status: newStatus }));
+      toast.success(`Đã đổi trạng thái: ${newStatus}`);
+      onSaved?.();
+    } catch (e) {
+      toast.error(
+        `Đổi trạng thái thất bại: ${e?.data?.message || e?.message || e}`
+      );
+    }
+  };
+
+  const { A: setsA, B: setsB } = countGamesWon(shownGameScores);
+
   if (showSpinner) {
     return (
       <Box py={4} textAlign="center">
@@ -731,8 +831,6 @@ export default function MatchContent({ m, isLoading, liveLoading }) {
   if (showError)
     return <Alert severity="error">Không tải được dữ liệu trận.</Alert>;
   if (!mm) return <Box py={2} />;
-
-  const isSingle = String(mm?.tournament?.eventType).toLowerCase() === "single";
 
   return (
     <Stack spacing={2} sx={{ position: "relative" }}>
@@ -751,7 +849,7 @@ export default function MatchContent({ m, isLoading, liveLoading }) {
           : "Trận chưa diễn ra. Chưa có liên kết video."}
       </Alert>
 
-      {/* Khu video: đúng 2 nút theo yêu cầu */}
+      {/* Khu video */}
       {activeStream && (
         <Stack spacing={1}>
           <Stack direction="row" spacing={1} flexWrap="wrap">
@@ -876,18 +974,17 @@ export default function MatchContent({ m, isLoading, liveLoading }) {
 
           {/* Điểm hiện tại */}
           <Box textAlign="center" minWidth={140}>
-            {mm?.status === "live" && (
+            {status === "live" && (
               <Typography variant="caption" color="text.secondary">
                 Ván hiện tại
               </Typography>
             )}
             <Typography variant="h4" fontWeight={800}>
-              {lastGameScore(mm?.gameScores).a} –{" "}
-              {lastGameScore(mm?.gameScores).b}
+              {lastGameScore(shownGameScores).a ?? 0} –{" "}
+              {lastGameScore(shownGameScores).b ?? 0}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Sets: {countGamesWon(mm?.gameScores).A} –{" "}
-              {countGamesWon(mm?.gameScores).B}
+              Sets: {setsA} – {setsB}
             </Typography>
           </Box>
 
@@ -918,27 +1015,68 @@ export default function MatchContent({ m, isLoading, liveLoading }) {
           </Box>
         </Stack>
 
-        {!!mm?.gameScores?.length && (
+        {/* Bảng set điểm: xem hoặc sửa */}
+        {!!(editMode ? editScores?.length : shownGameScores?.length) && (
           <Table size="small" sx={{ mt: 2 }}>
             <TableHead>
               <TableRow>
                 <TableCell>Set</TableCell>
                 <TableCell align="center">A</TableCell>
                 <TableCell align="center">B</TableCell>
+                {isAdmin && editMode && <TableCell align="center" width={56} />}
               </TableRow>
             </TableHead>
             <TableBody>
-              {mm.gameScores.map((g, idx) => (
+              {(editMode ? editScores : shownGameScores).map((g, idx) => (
                 <TableRow key={idx}>
                   <TableCell>{idx + 1}</TableCell>
-                  <TableCell align="center">{g.a ?? 0}</TableCell>
-                  <TableCell align="center">{g.b ?? 0}</TableCell>
+                  <TableCell align="center">
+                    {isAdmin && editMode ? (
+                      <TextField
+                        size="small"
+                        type="number"
+                        inputProps={{ min: 0, max: 99, inputMode: "numeric" }}
+                        value={g?.a ?? 0}
+                        onChange={(e) => setCell(idx, "a", e.target.value)}
+                        sx={{ width: 88 }}
+                      />
+                    ) : (
+                      g?.a ?? 0
+                    )}
+                  </TableCell>
+                  <TableCell align="center">
+                    {isAdmin && editMode ? (
+                      <TextField
+                        size="small"
+                        type="number"
+                        inputProps={{ min: 0, max: 99, inputMode: "numeric" }}
+                        value={g?.b ?? 0}
+                        onChange={(e) => setCell(idx, "b", e.target.value)}
+                        sx={{ width: 88 }}
+                      />
+                    ) : (
+                      g?.b ?? 0
+                    )}
+                  </TableCell>
+                  {isAdmin && editMode && (
+                    <TableCell align="center">
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={() => removeSet(idx)}
+                        aria-label="Xoá set"
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
 
+        {/* Chips rule */}
         <Divider sx={{ my: 2 }} />
         <Stack
           direction="row"
@@ -957,7 +1095,143 @@ export default function MatchContent({ m, isLoading, liveLoading }) {
           {mm?.liveBy?.name && (
             <Chip size="small" label={`Trọng tài: ${mm.liveBy.name}`} />
           )}
+          <Chip
+            size="small"
+            color={
+              status === "finished"
+                ? "success"
+                : status === "live"
+                ? "primary"
+                : "default"
+            }
+            label={
+              status === "live"
+                ? "Đang diễn ra"
+                : status === "finished"
+                ? "Hoàn thành"
+                : "Dự kiến"
+            }
+          />
         </Stack>
+
+        {/* ===== Admin controls ===== */}
+        {isAdmin && (
+          <>
+            <Divider sx={{ my: 2 }} />
+            <Alert severity="warning" icon={<EditIcon />}>
+              Chế độ quản trị: chỉnh sửa tỉ số / đặt đội thắng / đổi trạng thái.
+            </Alert>
+
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              useFlexGap
+              flexWrap="wrap"
+              sx={{
+                mt: 1,
+                gap: { xs: 1, sm: 1.5 },
+                "& > *": { width: { xs: "100%", sm: "auto" } },
+              }}
+            >
+              {!editMode ? (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<EditIcon />}
+                  onClick={() => setEditMode(true)}
+                >
+                  Chỉnh sửa tỉ số
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    startIcon={<SaveIcon />}
+                    onClick={handleSaveScores}
+                    disabled={patching}
+                  >
+                    Lưu tỉ số
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<UndoIcon />}
+                    onClick={resetEdits}
+                    disabled={patching}
+                  >
+                    Hoàn tác
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<AddIcon />}
+                    onClick={addSet}
+                    disabled={patching}
+                  >
+                    Thêm set
+                  </Button>
+                  <Button
+                    variant="text"
+                    size="small"
+                    onClick={() => setEditMode(false)}
+                    disabled={patching}
+                  >
+                    Thoát chỉnh sửa
+                  </Button>
+                </>
+              )}
+
+              {/* Đặt thắng/thua nhanh */}
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<WinIcon />}
+                onClick={() => handleSetWinner("A")}
+                disabled={patching}
+              >
+                Đặt A thắng
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<WinIcon />}
+                onClick={() => handleSetWinner("B")}
+                disabled={patching}
+              >
+                Đặt B thắng
+              </Button>
+
+              {/* Đổi trạng thái */}
+              <Button
+                variant={status === "scheduled" ? "contained" : "outlined"}
+                size="small"
+                startIcon={<StatusIcon />}
+                onClick={() => handleSetStatus("scheduled")}
+                disabled={patching}
+              >
+                Chuyển Scheduled
+              </Button>
+              <Button
+                variant={status === "live" ? "contained" : "outlined"}
+                size="small"
+                startIcon={<StatusIcon />}
+                onClick={() => handleSetStatus("live")}
+                disabled={patching}
+              >
+                Chuyển Live
+              </Button>
+              <Button
+                variant={status === "finished" ? "contained" : "outlined"}
+                size="small"
+                startIcon={<StatusIcon />}
+                onClick={() => handleSetStatus("finished")}
+                disabled={patching}
+              >
+                Chuyển Finished
+              </Button>
+            </Stack>
+          </>
+        )}
       </Paper>
 
       {/* Popup hồ sơ VĐV */}

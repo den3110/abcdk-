@@ -1159,7 +1159,9 @@ export const getMeWithScore = asyncHandler(async (req, res) => {
   }
 
   const user = await User.findById(uid)
-    .select("_id name nickname phone avatar province kycStatus levelPoint")
+    .select(
+      "_id name nickname phone avatar province kycStatus levelPoint role roles isAdmin"
+    )
     .lean();
 
   if (!user) {
@@ -1179,6 +1181,13 @@ export const getMeWithScore = asyncHandler(async (req, res) => {
     scoredAt: last?.scoredAt ?? null,
   };
 
+  // Chuẩn hoá role/roles & isAdmin
+  const role = user.role ?? null;
+  const roles = Array.isArray(user.roles) ? user.roles : role ? [role] : [];
+  const isAdmin = Boolean(
+    user.isAdmin || role === "admin" || roles.includes("admin")
+  );
+
   return res.json({
     _id: user._id,
     name: user.name,
@@ -1187,6 +1196,9 @@ export const getMeWithScore = asyncHandler(async (req, res) => {
     avatar: user.avatar,
     province: user.province,
     kycStatus: user.kycStatus ?? null,
+    role, // ← thêm
+    roles, // ← thêm (tuỳ schema)
+    isAdmin, // ← thêm (tiện cho FE)
     score, // { single, double, scoredAt }
   });
 });

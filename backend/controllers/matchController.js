@@ -813,3 +813,262 @@ export const setMatchLive = asyncHandler(async (req, res) => {
     },
   });
 });
+
+/* ===================== Helpers ===================== */
+const clamp = (n, min = 0, max = 99) => Math.max(min, Math.min(max, n));
+const toInt = (v, def = 0) => {
+  const n = parseInt(String(v ?? "").replace(/[^\d-]/g, ""), 10);
+  return Number.isFinite(n) ? n : def;
+};
+
+function sanitizeGameScores(input) {
+  if (!Array.isArray(input)) return null;
+  const out = [];
+  for (const it of input) {
+    const a = clamp(toInt(it?.a, 0));
+    const b = clamp(toInt(it?.b, 0));
+    const capped = Boolean(it?.capped && (a > 0 || b > 0));
+    out.push({ a, b, capped });
+  }
+  // cắt đuôi các set rỗng ở cuối
+  while (out.length && out.at(-1).a === 0 && out.at(-1).b === 0) out.pop();
+  return out;
+}
+
+function countSets(gs = []) {
+  let A = 0,
+    B = 0;
+  for (const g of gs) {
+    const a = toInt(g?.a, 0),
+      b = toInt(g?.b, 0);
+    if (a > b) A++;
+    else if (b > a) B++;
+  }
+  return { A, B };
+}
+
+function inferWinnerFromScores(rules, gs) {
+  const bestOf = rules?.bestOf ?? 1;
+  const need = Math.floor(bestOf / 2) + 1;
+  const { A, B } = countSets(gs);
+  if (A >= need) return "A";
+  if (B >= need) return "B";
+  return ""; // chưa xác định
+}
+
+function normalizeStatusTransition(doc, incomingStatus, incomingWinner) {
+  // clone
+  const result = {
+    status: doc.status,
+    startedAt: doc.startedAt,
+    finishedAt: doc.finishedAt,
+  };
+  const now = new Date();
+
+  switch (incomingStatus) {
+    case "live":
+      result.status = "live";
+      if (!result.startedAt) result.startedAt = now;
+      result.finishedAt = null;
+      break;
+    case "finished":
+      result.status = "finished";
+      if (!result.startedAt) result.startedAt = doc.startedAt || now;
+      result.finishedAt = now;
+      break;
+    case "scheduled":
+    case "queued":
+    case "assigned":
+      result.status = incomingStatus;
+      if (incomingStatus === "scheduled") {
+        // chỉ reset finishedAt; giữ startedAt nếu bạn muốn audit, hoặc clear luôn tuỳ policy:
+        // result.startedAt = null;
+      }
+      result.finishedAt = null;
+      break;
+    default:
+      // không đổi
+      break;
+  }
+
+  // Nếu winner được đặt A/B nhưng status chưa "finished", nâng lên finished
+  if (
+    (incomingWinner === "A" || incomingWinner === "B") &&
+    result.status !== "finished"
+  ) {
+    result.status = "finished";
+    if (!result.startedAt) result.startedAt = doc.startedAt || now;
+    result.finishedAt = now;
+  }
+
+  return result;
+}
+
+function extractUserRoles(user) {
+  const roles = new Set(
+    [
+      String(user?.role || "").toLowerCase(),
+      ...(user?.roles || []).map((x) => String(x).toLowerCase()),
+      ...(user?.permissions || []).map((x) => String(x).toLowerCase()),
+    ].filter(Boolean)
+  );
+  if (user?.isAdmin) roles.add("admin");
+  return roles;
+}
+
+function canAdminMatch(user /*, match */) {
+  const r = extractUserRoles(user);
+  return (
+    r.has("admin") ||
+    r.has("superadmin") ||
+    r.has("tournament:admin") ||
+    r.has("tournament:manage")
+  );
+}
+
+/* ===================== Controllers ===================== */
+
+export const getMatchById = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    res.status(400);
+    throw new Error("Invalid match id");
+  }
+
+  const match = await Match.findById(id)
+    .populate([
+      { path: "pairA", select: "player1 player2" },
+      { path: "pairB", select: "player1 player2" },
+      {
+        path: "tournament",
+        select: "name organizers managers owner createdBy",
+      },
+      { path: "bracket", select: "name stage type" },
+      { path: "liveBy", select: "name" },
+    ])
+    .lean();
+
+  if (!match) {
+    res.status(404);
+    throw new Error("Match not found");
+  }
+
+  res.json(match);
+});
+
+export const adminPatchMatch = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    res.status(400);
+    throw new Error("Invalid match id");
+  }
+
+  // Quyền
+  if (!canAdminMatch(req.user)) {
+    res.status(403);
+    throw new Error("Bạn không có quyền chỉnh sửa trận này");
+  }
+
+  const match = await Match.findById(id);
+  if (!match) {
+    res.status(404);
+    throw new Error("Match not found");
+  }
+
+  const { gameScores, winner, status } = req.body || {};
+  const hasScoresField = Object.prototype.hasOwnProperty.call(
+    req.body,
+    "gameScores"
+  );
+  const hasWinnerField = Object.prototype.hasOwnProperty.call(
+    req.body,
+    "winner"
+  );
+  const hasStatusField = Object.prototype.hasOwnProperty.call(
+    req.body,
+    "status"
+  );
+
+  const updates = {};
+  let touchLive = false;
+
+  // 1) gameScores
+  if (hasScoresField) {
+    const cleansed = sanitizeGameScores(gameScores);
+    if (!cleansed) {
+      res.status(400);
+      throw new Error("gameScores phải là mảng [{a,b}]");
+    }
+    updates.gameScores = cleansed;
+    updates.currentGame = Math.max(0, cleansed.length - 1);
+    touchLive = true;
+  }
+
+  // 2) rules: không patch ở endpoint này
+
+  // 3) winner
+  if (hasWinnerField) {
+    const w =
+      winner === "A" ? "A" : winner === "B" ? "B" : winner === "" ? "" : null;
+    if (w === null) {
+      res.status(400);
+      throw new Error("winner phải là 'A' | 'B' | ''");
+    }
+    updates.winner = w;
+    touchLive = true;
+  }
+
+  // 4) status
+  if (hasStatusField) {
+    const allowed = ["scheduled", "queued", "assigned", "live", "finished"];
+    if (!allowed.includes(status)) {
+      res.status(400);
+      throw new Error(`status không hợp lệ: ${status}`);
+    }
+    updates.status = status; // normalize bên dưới sẽ xử lý startedAt/finishedAt
+    touchLive = true;
+  }
+
+  // 5) Reopen: nếu set status KHÁC finished mà request KHÔNG gửi winner -> clear winner
+  if (hasStatusField && status !== "finished" && !hasWinnerField) {
+    updates.winner = ""; // cho phép chuyển về live/scheduled dù DB đang có winner
+    touchLive = true;
+  }
+
+  // 6) Chỉ infer winner khi request đang set status = finished (nếu client không gửi winner)
+  if (hasStatusField && status === "finished" && !hasWinnerField) {
+    const srcScores = updates.gameScores ?? match.gameScores;
+    const w = inferWinnerFromScores(match.rules, srcScores);
+    if (w) updates.winner = w;
+  }
+
+  // 7) Normalize theo status + winner (giữ nguyên normalizeStatusTransition hiện có)
+  if (updates.status !== undefined || updates.winner !== undefined) {
+    const desiredStatus = updates.status ?? match.status;
+    const desiredWinner = updates.winner ?? match.winner;
+    const t = normalizeStatusTransition(match, desiredStatus, desiredWinner);
+    updates.status = t.status;
+    updates.startedAt = t.startedAt;
+    updates.finishedAt = t.finishedAt;
+  }
+
+  // 8) liveVersion ++ nếu có thay đổi liên quan live/score
+  if (touchLive) updates.liveVersion = (match.liveVersion || 0) + 1;
+
+  // 9) Lưu
+  match.set(updates);
+  await match.save(); // chạy pre/post save hooks
+
+  res.json({
+    _id: match._id,
+    status: match.status,
+    winner: match.winner,
+    gameScores: match.gameScores,
+    currentGame: match.currentGame,
+    startedAt: match.startedAt,
+    finishedAt: match.finishedAt,
+    liveVersion: match.liveVersion,
+    rules: match.rules,
+    updatedAt: match.updatedAt,
+  });
+});
