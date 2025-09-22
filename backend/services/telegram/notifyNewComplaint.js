@@ -19,6 +19,10 @@ const displayName = (pl) =>
 
 const getPhone = (pl) => pl?.phone || pl?.user?.phone || "";
 
+const getScore = (pl) => {
+  return "Điểm trình: " + pl?.score || parseInt(pl?.score) || "0";
+};
+
 const regCodeOf = (reg) =>
   reg?.code ||
   reg?.shortCode ||
@@ -31,9 +35,12 @@ const lineForPlayer = (label, pl) => {
   if (!pl) return `${label}: <i>Chưa có</i>`;
   const name = displayName(pl);
   const phone = getPhone(pl);
+  const score = getScore(pl);
   return phone
-    ? `${label}: <b>${htmlEscape(name)}</b> — ${htmlEscape(phone)}`
-    : `${label}: <b>${htmlEscape(name)}</b>`;
+    ? `${label}: <b>${htmlEscape(name)}</b> — ${htmlEscape(
+        phone
+      )} — ${htmlEscape(score)}`
+    : `${label}: <b>${htmlEscape(name)}</b> — ${htmlEscape(score)}`;
 };
 
 /**
@@ -50,7 +57,7 @@ export async function notifyNewComplaint({
   chatId, // optional: override chat
 }) {
   const hasAnyChat = Boolean(chatId || DEFAULT_CHAT_ID);
-  console.log(DEFAULT_CHAT_ID)
+  console.log(DEFAULT_CHAT_ID);
   if (!BOT_TOKEN || !hasAnyChat) return;
   if (!registration || !tournament || !user || !complaint) return;
 
@@ -84,11 +91,11 @@ export async function notifyNewComplaint({
   // Link tiện dụng (nếu có FRONTEND_URL)
   const regUrl =
     FRONTEND_URL && registration?._id && tournament?._id
-      ? `${FRONTEND_URL}/tournament/${tournament._id}/registration/${registration._id}`
+      ? `${FRONTEND_URL}/tournament/${tournament._id}/register`
       : null;
   const tourUrl =
     FRONTEND_URL && tournament?._id
-      ? `${FRONTEND_URL}/tournament/${tournament._id}`
+      ? `${FRONTEND_URL}/tournament/${tournament._id}/bracket`
       : null;
 
   const reply_markup = {
@@ -229,19 +236,27 @@ export async function tgSend(
   if (disable_web_page_preview != null)
     payload.disable_web_page_preview = disable_web_page_preview;
   if (reply_markup != null) payload.reply_markup = reply_markup;
-  if (reply_to_message_id != null) payload.reply_to_message_id = reply_to_message_id;
+  if (reply_to_message_id != null)
+    payload.reply_to_message_id = reply_to_message_id;
   if (message_thread_id != null) payload.message_thread_id = message_thread_id;
-  if (disable_notification != null) payload.disable_notification = disable_notification;
+  if (disable_notification != null)
+    payload.disable_notification = disable_notification;
   if (protect_content != null) payload.protect_content = protect_content;
 
   // 1) Có chat_id -> gửi thẳng
-  if (chat_id !== undefined && chat_id !== null && String(chat_id).trim() !== "") {
+  if (
+    chat_id !== undefined &&
+    chat_id !== null &&
+    String(chat_id).trim() !== ""
+  ) {
     return tg("sendMessage", { chat_id, ...payload });
   }
 
   // 2) Không có chat_id -> broadcast theo DEFAULT_CHAT_IDS
   if (!DEFAULT_CHAT_IDS.length) {
-    console.warn("[telegram] No TELEGRAM_CHAT_COMPLAINT_ID configured; skip send.");
+    console.warn(
+      "[telegram] No TELEGRAM_CHAT_COMPLAINT_ID configured; skip send."
+    );
     return null;
   }
 
@@ -251,9 +266,12 @@ export async function tgSend(
       const res = await tg("sendMessage", { chat_id: cid, ...payload });
       results.push(res);
     } catch (err) {
-      console.error("[telegram] sendMessage broadcast error:", cid, err?.message || err);
+      console.error(
+        "[telegram] sendMessage broadcast error:",
+        cid,
+        err?.message || err
+      );
     }
   }
   return results.length === 1 ? results[0] : results;
 }
-

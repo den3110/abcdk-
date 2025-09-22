@@ -102,7 +102,7 @@ export async function createComplaint(req, res, next) {
 
     // Thông báo Telegram bằng helper riêng
     try {
-      await notifyNewComplaint({
+      notifyNewComplaint({
         tournament: tour,
         registration: reg,
         user: req.user,
