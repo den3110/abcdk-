@@ -118,28 +118,26 @@ const totalChipStyle = (total, cap, delta) => {
   if (!hasCap || !Number.isFinite(total)) {
     return { color: "default", title: "Không có giới hạn" };
   }
-  const threshold = cap + (Number.isFinite(delta) ? delta : 0);
+
+  const d = Number.isFinite(delta) && delta > 0 ? Number(delta) : 0;
+  const threshold = cap + d;
 
   if (total <= cap) {
     return { color: "success", title: `≤ ${fmt3(cap)} (Hợp lệ)` };
   }
-  if (total === threshold) {
+
+  if (d > 0 && total <= threshold) {
     return {
       color: "warning",
-      title: `= ${fmt3(cap)} + ${fmt3(delta)} (Chạm ngưỡng tối đa)`,
+      title: `> ${fmt3(cap)} và ≤ ${fmt3(cap)} + ${fmt3(
+        d
+      )} (Trong ngưỡng chênh lệch cho phép)`,
     };
   }
-  if (total < threshold) {
-    return {
-      color: "error",
-      title: `Trong vùng vượt cap nhưng < cap + Δ (${fmt3(cap)} + ${fmt3(
-        delta
-      )})`,
-    };
-  }
+
   return {
     color: "error",
-    title: `> ${fmt3(cap)} + ${fmt3(delta)} (Vượt quá chênh lệch tối đa)`,
+    title: `> ${fmt3(cap)} + ${fmt3(d)} (Vượt quá mức cho phép)`,
   };
 };
 
@@ -479,7 +477,7 @@ export default function TournamentRegistration() {
     me?.role === "admin" ||
     (Array.isArray(me?.roles) && me.roles.includes("admin"))
   );
-  console.log(me)
+  console.log(me);
   const canManage = isLoggedIn && (isManager || isAdmin);
 
   // invites của giải hiện tại (memo, để dùng nếu cần)

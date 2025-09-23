@@ -33,6 +33,7 @@ import {
   DialogTitle,
   DialogContent,
   GlobalStyles,
+  Tooltip,
 } from "@mui/material";
 import {
   Close as CloseIcon,
@@ -44,6 +45,9 @@ import {
   CheckCircle as CheckIcon,
   Place as PlaceIcon,
   Info as InfoIcon,
+  ZoomIn as ZoomInIcon,
+  ZoomOut as ZoomOutIcon,
+  RestartAlt as ResetZoomIcon,
 } from "@mui/icons-material";
 import { Bracket, Seed, SeedItem, SeedTeam } from "react-brackets";
 import { useParams, useSearchParams } from "react-router-dom";
@@ -1647,7 +1651,18 @@ export default function TournamentBracket() {
   const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
   const { id: tourId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
-
+  const [zoom, setZoom] = useState(1);
+  const zoomIn = useCallback(
+    () =>
+      setZoom((z) => clamp(parseFloat((z + Z_STEP).toFixed(2)), Z_MIN, Z_MAX)),
+    []
+  );
+  const zoomOut = useCallback(
+    () =>
+      setZoom((z) => clamp(parseFloat((z - Z_STEP).toFixed(2)), Z_MIN, Z_MAX)),
+    []
+  );
+  const zoomReset = useCallback(() => setZoom(1), []);
   const {
     data: tour,
     isLoading: l1,
@@ -2255,6 +2270,78 @@ export default function TournamentBracket() {
       </Paper>
     );
   };
+
+  /* ===================== Zoom controls ===================== */
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const Z_MIN = 0.1;
+  const Z_MAX = 2.0;
+  const Z_STEP = 0.1;
+
+  function ZoomControls({
+    zoom,
+    onZoomIn,
+    onZoomOut,
+    onReset,
+    mobileFixed = true,
+    mobileBottomGap = 80, // px: nhích lên khỏi bottom menu
+  }) {
+    return (
+      <Paper
+        elevation={2}
+        sx={{
+          // Mobile: fixed góc dưới-phải; Desktop: absolute góc trên-phải
+          position: { xs: mobileFixed ? "fixed" : "absolute", sm: "absolute" },
+          right: { xs: 12, sm: 8 },
+          bottom: {
+            xs: mobileFixed
+              ? `calc(env(safe-area-inset-bottom) + ${mobileBottomGap}px)`
+              : "auto",
+            sm: "auto",
+          },
+          top: { xs: mobileFixed ? "auto" : -50, sm: -50 },
+          zIndex: 1300, // nổi trên bottom nav
+          borderRadius: 2,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 0.5,
+        }}
+      >
+        <Tooltip title="Thu nhỏ (−)">
+          <span>
+            <IconButton
+              size="small"
+              onClick={onZoomOut}
+              disabled={zoom <= Z_MIN}
+            >
+              <ZoomOutIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Typography
+          variant="caption"
+          sx={{ minWidth: 46, textAlign: "center" }}
+        >
+          {Math.round(zoom * 100)}%
+        </Typography>
+        <Tooltip title="Phóng to (+)">
+          <span>
+            <IconButton
+              size="small"
+              onClick={onZoomIn}
+              disabled={zoom >= Z_MAX}
+            >
+              <ZoomInIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="Về 100%">
+          <IconButton size="small" onClick={onReset}>
+            <ResetZoomIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Paper>
+    );
+  }
 
   if (loading) {
     return (
@@ -3011,27 +3098,50 @@ export default function TournamentBracket() {
                     },
                   }}
                 />
-                <Box
-                  className="re-bracket"
-                  sx={{ overflowX: { xs: "auto", sm: "visible" }, pb: 1 }}
-                >
-                  <HighlightProvider>
-                    <HeightSyncProvider roundsKey={roundsKeyRE}>
-                      <Bracket
-                        rounds={reRounds}
-                        renderSeedComponent={(props) => (
-                          <CustomSeed
-                            {...props}
-                            onOpen={openMatch}
-                            championMatchId={null}
-                            resolveSideLabel={resolveSideLabel}
-                            baseRoundStart={baseRoundStartForCurrent}
+                <Box sx={{ position: "relative" }}>
+                  <ZoomControls
+                    zoom={zoom}
+                    onZoomIn={zoomIn}
+                    onZoomOut={zoomOut}
+                    onReset={zoomReset}
+                    mobileFixed
+                    mobileBottomGap={80}
+                  />
+                  <Box
+                    sx={{
+                      overflow: "auto",
+                      pb: 1,
+                      // tối ưu scroll khi phóng to
+                      borderRadius: 1,
+                    }}
+                  >
+                    <Box
+                      className="re-bracket"
+                      sx={{
+                        display: "inline-block",
+                        transform: `scale(${zoom})`,
+                        transformOrigin: "0 0",
+                      }}
+                    >
+                      <HighlightProvider>
+                        <HeightSyncProvider roundsKey={roundsKeyRE}>
+                          <Bracket
+                            rounds={reRounds}
+                            renderSeedComponent={(props) => (
+                              <CustomSeed
+                                {...props}
+                                onOpen={openMatch}
+                                championMatchId={null}
+                                resolveSideLabel={resolveSideLabel}
+                                baseRoundStart={baseRoundStartForCurrent}
+                              />
+                            )}
+                            mobileBreakpoint={0}
                           />
-                        )}
-                        mobileBreakpoint={0}
-                      />
-                    </HeightSyncProvider>
-                  </HighlightProvider>
+                        </HeightSyncProvider>
+                      </HighlightProvider>
+                    </Box>
+                  </Box>
                 </Box>
                 {!currentMatches.length && (
                   <Typography variant="caption" color="text.secondary">
@@ -3135,24 +3245,43 @@ export default function TournamentBracket() {
                   </Alert>
                 )}
 
-                <Box sx={{ overflowX: { xs: "auto", sm: "visible" }, pb: 1 }}>
-                  <HighlightProvider>
-                    <HeightSyncProvider roundsKey={roundsKeyKO}>
-                      <Bracket
-                        rounds={roundsToRender}
-                        renderSeedComponent={(props) => (
-                          <CustomSeed
-                            {...props}
-                            onOpen={openMatch}
-                            championMatchId={finalMatchId}
-                            resolveSideLabel={resolveSideLabel}
-                            baseRoundStart={baseRoundStartForCurrent}
+                <Box sx={{ position: "relative" }}>
+                  <ZoomControls
+                    zoom={zoom}
+                    onZoomIn={zoomIn}
+                    onZoomOut={zoomOut}
+                    onReset={zoomReset}
+                    mobileFixed
+                    mobileBottomGap={80}
+                  />
+                  <Box sx={{ overflow: "auto", pb: 1, borderRadius: 1 }}>
+                    <Box
+                      className="ko-bracket"
+                      sx={{
+                        display: "inline-block",
+                        transform: `scale(${zoom})`,
+                        transformOrigin: "0 0",
+                      }}
+                    >
+                      <HighlightProvider>
+                        <HeightSyncProvider roundsKey={roundsKeyKO}>
+                          <Bracket
+                            rounds={roundsToRender}
+                            renderSeedComponent={(props) => (
+                              <CustomSeed
+                                {...props}
+                                onOpen={openMatch}
+                                championMatchId={finalMatchId}
+                                resolveSideLabel={resolveSideLabel}
+                                baseRoundStart={baseRoundStartForCurrent}
+                              />
+                            )}
+                            mobileBreakpoint={0}
                           />
-                        )}
-                        mobileBreakpoint={0}
-                      />
-                    </HeightSyncProvider>
-                  </HighlightProvider>
+                        </HeightSyncProvider>
+                      </HighlightProvider>
+                    </Box>
+                  </Box>
                 </Box>
 
                 {currentMatches.length === 0 && prefillRounds && (
