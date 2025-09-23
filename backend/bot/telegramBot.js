@@ -16,6 +16,7 @@ import Registration from "../models/registrationModel.js";
 import { notifyComplaintStatusChange } from "../services/telegram/notifyNewComplaint.js";
 import { notifyKycReviewed } from "../services/telegram/telegramNotifyKyc.js";
 import SportConnectService from "../services/sportconnect.service.js";
+import { replySafe } from "../utils/telegramSafe.js";
 
 dotenv.config();
 
@@ -329,7 +330,24 @@ export async function initKycBot(app) {
     return null;
   }
 
-  const bot = new Telegraf(BOT_TOKEN);
+  const handlerTimeout =
+    process.env.TELEGRAM_HANDLER_TIMEOUT_MS === "0"
+      ? 0
+      : Number(process.env.TELEGRAM_HANDLER_TIMEOUT_MS || 0); // 0 = disable
+  const bot = new Telegraf(BOT_TOKEN, { handlerTimeout });
+
+  // Nuốt lỗi toàn cục để không crash server
+  bot.catch(async (err, ctx) => {
+    const name = err?.name || "Error";
+    const msg = err?.message || err;
+    console.warn("[bot.catch]", name, msg);
+    // Đừng spam trả lời khi 429 hoặc timeout
+    if (name === "TimeoutError") return;
+    if (err?.response?.error_code === 429) return;
+    try {
+      await ctx?.reply?.("⚠️ Bot đang bận hoặc bị giới hạn, thử lại sau nhé.");
+    } catch (_) {}
+  });
 
   // Logger callback_query (không nuốt chain)
 
@@ -575,7 +593,10 @@ export async function initKycBot(app) {
       },
       { command: "point", description: "Xem điểm hiện tại (alias)" },
       { command: "reg", description: "Tra cứu & cập nhật thanh toán đăng ký" },
-      { command: "spc", description: "SportConnect LevelPoint: /spc <phone>" },
+      {
+        command: "spc",
+        description: "SportConnect LevelPoint: /spc <phone|tên>",
+      },
     ])
     .catch((e) => console.warn("setMyCommands failed:", e?.message));
 
@@ -1059,18 +1080,21 @@ export async function initKycBot(app) {
   });
 
   //  /spc <phone> ==========================
-  // ========================== /spc <phone> [--debug] ==========================
+  // ========================== /spc <query> [--debug] ==========================
   bot.command("spc", async (ctx) => {
-    const args = (ctx.message?.text || "").trim().split(/\s+/).slice(1);
-    const phone = (args[0] || "").trim();
-    const debug = args.some((a) => a.toLowerCase() === "--debug");
+    const raw = ctx.message?.text || "";
+    const after = raw.replace(/^\/spc(?:@\w+)?\s*/i, "");
+    const debug = /(?:^|\s)--debug(?:\s|$)/i.test(after);
+    const query = after.replace(/(?:^|\s)--debug(?:\s|$)/gi, "").trim();
 
-    if (!phone) {
-      return ctx.reply(
+    if (!query) {
+      return replySafe(
+        ctx,
         [
           "Cách dùng:",
-          "/spc <số điện thoại> [--debug]",
-          "VD: /spc 0888698383 --debug",
+          "/spc <chuỗi tìm kiếm> [--debug]",
+          "VD: /spc 0888698383",
+          "VD: /spc Quân nông cống --debug",
         ].join("\n")
       );
     }
@@ -1078,7 +1102,7 @@ export async function initKycBot(app) {
     try {
       const { status, data, proxyUrl } =
         await SportConnectService.listLevelPoint({
-          searchCriterial: phone,
+          searchCriterial: query,
           sportId: 2,
           page: 0,
           waitingInformation: "",
@@ -1086,7 +1110,8 @@ export async function initKycBot(app) {
 
       const arr = Array.isArray(data?.data) ? data.data : [];
       if (!arr.length) {
-        return ctx.reply(
+        return replySafe(
+          ctx,
           [
             "❌ Không tìm thấy dữ liệu trên SportConnect.",
             debug
@@ -1098,26 +1123,43 @@ export async function initKycBot(app) {
         );
       }
 
-      // Chỉ gửi TEXT, không gửi ảnh
+      // Gửi TEXT theo từng bản ghi, dùng replySafe để auto retry nếu 429
       const total = arr.length;
+      const parts = [];
       for (let i = 0; i < arr.length; i++) {
         const it = arr[i];
-        const caption = renderSpcCaption(it, {
+        const cap = renderSpcCaption(it, {
           index: i + 1,
           total,
           proxyUrl,
           status,
           debug,
         });
-
-        await ctx.reply(caption, {
+        parts.push(cap);
+      }
+      // Gộp theo giới hạn ~3900 ký tự
+      let buffer = "";
+      for (const p of parts) {
+        if ((buffer + "\n\n" + p).length > 3900) {
+          await replySafe(ctx, buffer, {
+            parse_mode: "HTML",
+            disable_web_page_preview: true,
+          });
+          buffer = p;
+        } else {
+          buffer = buffer ? buffer + "\n\n" + p : p;
+        }
+      }
+      if (buffer) {
+        await replySafe(ctx, buffer, {
           parse_mode: "HTML",
           disable_web_page_preview: true,
         });
       }
     } catch (e) {
       console.error("[/spc] error:", e);
-      return ctx.reply("❌ Có lỗi xảy ra khi gọi SportConnect.");
+      // dùng replySafe để tránh tiếp tục 429 ở thông báo lỗi
+      return replySafe(ctx, "❌ Có lỗi xảy ra khi gọi SportConnect.");
     }
   });
 

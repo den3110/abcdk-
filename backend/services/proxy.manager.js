@@ -84,7 +84,6 @@ export class ProxyManager extends EventEmitter {
           this.cooldownSec = 0;
           const httpUrl = toProxyUrl(data?.proxyhttp, "http");
           const socksUrl = toProxyUrl(data?.proxysocks5, "socks5h");
-
           const newItems = [];
           if (socksUrl)
             newItems.push({

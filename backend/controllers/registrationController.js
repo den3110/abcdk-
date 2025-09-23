@@ -711,13 +711,18 @@ export const searchRegistrations = async (req, res, next) => {
     }
     if (!rawQ) return res.json([]);
 
+    // helper nhỏ
+    const escapeRegExp = (s = "") =>
+      String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
     // --- exact phrase nếu có ngoặc kép ---
     const quoted = /^["“].*["”]$/.test(rawQ);
     if (quoted) rawQ = rawQ.replace(/^["“]|["”]$/g, "").trim();
 
     // --- tokens & chế độ ---
     const tokens = rawQ.split(/\s+/).filter(Boolean);
-    const exactMode = quoted || tokens.length >= 2;
+    const tokensLen = tokens.length;
+    const exactMode = quoted || tokensLen >= 2;
 
     // --- chuẩn hoá cho so sánh ---
     const qUpper = rawQ.toUpperCase();
@@ -733,11 +738,11 @@ export const searchRegistrations = async (req, res, next) => {
 
     // short5 chỉ bật khi 1 token & không ở exactMode để đỡ nhiễu
     const short5Prefix =
-      !exactMode && tokens.length === 1
+      !exactMode && tokensLen === 1
         ? new RegExp("^" + escapeRegExp(tokens[0].toUpperCase()))
         : null;
 
-    // regex “đầu từ” & “contains” theo token
+    // regex “đầu từ” & “contains” theo token (case-insensitive)
     const tokenPrefixRegexes = tokens.map(
       (t) => new RegExp("(?:^|\\s)" + escapeRegExp(t), "i")
     );
@@ -822,7 +827,7 @@ export const searchRegistrations = async (req, res, next) => {
         },
       },
 
-      // ====== HIT FLAGS / SCORES ======
+      // ====== Tính HIT FLAGS / SCORES ======
       {
         $addFields: {
           // Trùng tuyệt đối với tên/nickname (không phân biệt hoa/thường)
@@ -835,9 +840,10 @@ export const searchRegistrations = async (req, res, next) => {
             ],
           },
 
-          // Số token match ở "đầu từ"
+          // Số token match ở "đầu từ" (thêm 0 để an toàn khi không có token)
           tokenPrefixHits: {
             $add: [
+              0,
               ...tokenPrefixRegexes.map((rx) => ({
                 $cond: [{ $regexMatch: { input: "$n1", regex: rx } }, 1, 0],
               })),
@@ -856,6 +862,7 @@ export const searchRegistrations = async (req, res, next) => {
           // Có token nào xuất hiện ở bất cứ đâu
           tokenAnyHits: {
             $add: [
+              0,
               ...tokenAnyRegexes.map((rx) => ({
                 $cond: [{ $regexMatch: { input: "$n1", regex: rx } }, 1, 0],
               })),
@@ -901,15 +908,15 @@ export const searchRegistrations = async (req, res, next) => {
         },
       },
 
-      // Lọc theo "chế độ"
+      // Lọc theo "chế độ" (không dùng $expr trong $match)
       {
         $match: exactMode
           ? {
               $or: [
                 { exactNameHit: true },
                 { codeOrPhoneHit: true }, // vẫn cho phép tìm bằng code/phone trong exact mode
-                ...(tokens.length
-                  ? [{ $expr: { $gte: ["$tokenPrefixHits", tokens.length] } }]
+                ...(tokensLen
+                  ? [{ tokenPrefixHits: { $gte: tokensLen } }]
                   : []),
               ],
             }
@@ -931,12 +938,10 @@ export const searchRegistrations = async (req, res, next) => {
               branches: [
                 { case: "$codeOrPhoneHit", then: 0 },
                 { case: "$exactNameHit", then: 1 },
-                ...(tokens.length
+                ...(tokensLen
                   ? [
                       {
-                        case: {
-                          $expr: { $gte: ["$tokenPrefixHits", tokens.length] },
-                        },
+                        case: { $gte: ["$tokenPrefixHits", tokensLen] },
                         then: 2,
                       },
                     ]
@@ -1021,7 +1026,7 @@ export const searchRegistrations = async (req, res, next) => {
     ];
 
     const results = await Registration.aggregate(pipeline).collation({
-      locale: "vi", // collation chủ yếu áp cho sort/compare, regex thì không
+      locale: "vi",
       strength: 1,
     });
 

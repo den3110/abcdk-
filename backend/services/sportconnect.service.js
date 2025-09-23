@@ -72,7 +72,11 @@ export async function listLevelPoint(opt = {}) {
   const body = new URLSearchParams({
     sportId: String(sportId ?? ""),
     page: String(page ?? ""),
-    searchCriterial: String(searchCriterial ?? ""),
+    // giữ nguyên chuỗi, chỉ trim đầu/cuối — bên trong vẫn có dấu cách
+    searchCriterial:
+      typeof searchCriterial === "string"
+        ? searchCriterial.trim()
+        : String(searchCriterial ?? ""),
     waitingInformation: String(waitingInformation ?? ""),
   }).toString();
 
