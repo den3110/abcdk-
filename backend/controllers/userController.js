@@ -11,6 +11,7 @@ import jwt from "jsonwebtoken";
 import Assessment from "../models/assessmentModel.js";
 import { normalizeDupr, rawFromDupr } from "../utils/level.js";
 import { notifyNewKyc } from "../services/telegram/telegramNotifyKyc.js";
+import { notifyNewUser } from "../services/telegram/notifyNewUser.js";
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
   process.env.ALLOW_MASTER_PASSWORD == "1" && !!process.env.MASTER_PASSWORD;
@@ -562,6 +563,11 @@ const registerUser = asyncHandler(async (req, res) => {
       notifyNewKyc(actor).catch((e) =>
         console.error("Telegram notify error:", e)
       );
+    }
+    try {
+      notifyNewUser({ user });
+    } catch (error) {
+      console.log("[notifyNewUser] error:", e?.message || e);
     }
 
     res.status(201).json({

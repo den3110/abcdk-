@@ -486,6 +486,16 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         { type: "Complaints", id: "LIST" },
       ],
     }),
+    // Search server-side theo tên VĐV / SĐT / mã đăng ký
+    searchRegistrations: builder.query({
+      query: ({ id, q, limit = 500 }) => ({
+        url: `/api/registrations/${id}/registrations/search`,
+        params: { q, limit },
+      }),
+      // cache riêng theo id+q
+      serializeQueryArgs: ({ endpointName, queryArgs }) =>
+        `${endpointName}|${queryArgs.id}|${queryArgs.q}|${queryArgs.limit}`,
+    }),
   }),
 });
 
@@ -538,5 +548,6 @@ export const {
   useAssignByesMutation,
   useListMyTournamentsQuery,
   useLazyGetNextByCourtQuery,
-  useCreateComplaintMutation
+  useCreateComplaintMutation,
+  useSearchRegistrationsQuery,
 } = tournamentsApiSlice;

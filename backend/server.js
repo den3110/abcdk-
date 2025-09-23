@@ -35,6 +35,7 @@ import { versionGate } from "./middleware/versionGate.js";
 import appVersionRouter from "./routes/appVersion.route.js";
 import { attachJwtIfPresent } from "./middleware/authMiddleware.js";
 import { maintainanceTrigger } from "./middleware/maintainance.js";
+import sportconnectRoutes from "./routes/sportconnect.routes.js";
 import telegramRoutes from "./routes/telegramRoutes.js"
 
 dotenv.config();
@@ -105,6 +106,7 @@ app.use("/api/subscriptions", subscriptionsRoutes);
 app.use("/api/events", notifyRoutes);
 app.use("/api/app", appVersionRouter);
 app.use("/api/telegram", telegramRoutes);   
+app.use("/api/sportconnect", sportconnectRoutes);
 
 if (process.env.NODE_ENV === "production") {
   const __dirname = path.resolve();

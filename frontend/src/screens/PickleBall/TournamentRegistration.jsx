@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
 import {
   Avatar,
@@ -27,6 +27,7 @@ import {
   DialogActions,
   Alert,
   Pagination,
+  InputAdornment,
 } from "@mui/material";
 import { Container as RBContainer } from "react-bootstrap";
 import { toast } from "react-toastify";
@@ -39,6 +40,8 @@ import {
   Groups,
   QrCode,
   ReportProblem,
+  Search,
+  Clear,
 } from "@mui/icons-material";
 
 import {
@@ -52,6 +55,8 @@ import {
   useManagerDeleteRegistrationMutation,
   useManagerReplaceRegPlayerMutation,
   useCreateComplaintMutation,
+  // 🔎 hook search mới
+  useSearchRegistrationsQuery,
 } from "../../slices/tournamentsApiSlice";
 import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
@@ -113,11 +118,6 @@ const getMaxDelta = (tour) => {
 };
 
 /** Quyết định màu & tooltip cho chip Tổng điểm */
-/** Quyết định màu & tooltip cho chip Tổng điểm
- *  - Xanh (success): total <  cap + Δ
- *  - Vàng (warning): total == cap + Δ
- *  - Đỏ  (error):   total >  cap + Δ
- */
 const totalChipStyle = (total, cap, delta) => {
   const hasCap = Number.isFinite(cap) && cap > 0;
   if (!hasCap || !Number.isFinite(total)) {
@@ -508,19 +508,45 @@ export default function TournamentRegistration() {
     }
   }, [location?.pathname, id]);
 
+  /* ───────── SEARCH state + query ───────── */
+  const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q.trim()), 350);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const {
+    data: searchedRegs = [],
+    isLoading: searching,
+    isFetching: searchingFetching,
+    error: searchErr,
+  } = useSearchRegistrationsQuery({ id, q: debouncedQ }, { skip: !debouncedQ });
+
   /* ───────── derived helpers ───────── */
-  const regCount = regs?.length ?? 0;
+  // Tổng số toàn bộ (không phụ thuộc search) để hiển thị ở khu "Thông tin giải"
+  const overallRegCount = regs?.length ?? 0;
   const paidCount = useMemo(
-    () => regs.filter((r) => r?.payment?.status === "Paid").length,
+    () => (regs || []).filter((r) => r?.payment?.status === "Paid").length,
     [regs]
   );
 
-  const totalPages = Math.max(1, Math.ceil(regCount / pageSize));
+  const totalPages = Math.max(1, Math.ceil(overallRegCount / pageSize));
   const baseIndex = (page - 1) * pageSize;
   const paginatedRegs = useMemo(
     () => regs.slice(baseIndex, baseIndex + pageSize),
     [regs, baseIndex, pageSize]
   );
+
+  // Dataset hiển thị theo search
+  const searchingActive = !!debouncedQ;
+  const listRegs = searchingActive ? searchedRegs || [] : regs || [];
+  const regCount = listRegs?.length ?? 0;
+
+  const listLoading = searchingActive
+    ? searching || searchingFetching
+    : regsLoading;
+  const listError = searchingActive ? searchErr : regsErr;
 
   const playersOfReg = (r) => [r?.player1, r?.player2].filter(Boolean);
 
@@ -945,16 +971,8 @@ export default function TournamentRegistration() {
               <Grid item xs={12} sm={6}>
                 <StatItem
                   icon={<Groups fontSize="small" />}
-                  label={isSingles ? "Số VĐV dự kiến" : "Số đội dự kiến"}
-                  value={fmt3(tour?.maxPairs ?? 0)}
-                  hint="Tối đa số cặp (đôi)"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <StatItem
-                  icon={<Groups fontSize="small" />}
                   label={isSingles ? "Số VĐV đã đăng ký" : "Số đội đã đăng ký"}
-                  value={fmt3(regCount)}
+                  value={fmt3(overallRegCount)}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
@@ -1173,18 +1191,61 @@ export default function TournamentRegistration() {
         />
       </Stack>
 
-      {regsLoading ? (
+      {/* Search box */}
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={1}
+        alignItems={{ xs: "stretch", sm: "center" }}
+        sx={{ mb: 1 }}
+      >
+        <TextField
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Tìm theo VĐV, SĐT, mã đăng ký…"
+          size="small"
+          sx={{ maxWidth: 420 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <Search fontSize="small" />
+              </InputAdornment>
+            ),
+            endAdornment: q ? (
+              <InputAdornment position="end">
+                <IconButton size="small" onClick={() => setQ("")}>
+                  <Clear fontSize="small" />
+                </IconButton>
+              </InputAdornment>
+            ) : null,
+          }}
+        />
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ whiteSpace: "nowrap" }}
+        >
+          {debouncedQ
+            ? listLoading
+              ? "Đang tìm…"
+              : listError
+              ? "Tìm kiếm lỗi!"
+              : `Kết quả: ${regCount}`
+            : ""}
+        </Typography>
+      </Stack>
+
+      {listLoading ? (
         <CircularProgress />
-      ) : regsErr ? (
+      ) : listError ? (
         <Alert severity="error">
-          {regsErr?.data?.message || regsErr?.error || "Lỗi tải danh sách"}
+          {listError?.data?.message || listError?.error || "Lỗi tải danh sách"}
         </Alert>
-      ) : regs.length === 0 ? (
+      ) : regCount === 0 ? (
         <Typography color="text.secondary">Danh sách đăng ký trống!</Typography>
       ) : isMobile ? (
         // mobile cards
         <Stack spacing={2}>
-          {paginatedRegs.map((r, i0) => {
+          {listRegs.map((r, i) => {
             const isOwner =
               isLoggedIn && String(r?.createdBy) === String(me?._id);
             return (
@@ -1197,7 +1258,7 @@ export default function TournamentRegistration() {
                 >
                   <CodeBadge code={regCodeOf(r)} />
                   <Typography variant="caption" color="text.secondary">
-                    #{baseIndex + i0 + 1}
+                    #{i + 1}
                   </Typography>
                 </Stack>
 
@@ -1359,14 +1420,12 @@ export default function TournamentRegistration() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {paginatedRegs.map((r, i0) => {
+              {listRegs.map((r, i) => {
                 const isOwner =
                   isLoggedIn && String(r?.createdBy) === String(me?._id);
                 return (
                   <TableRow key={r._id} hover>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>
-                      {baseIndex + i0 + 1}
-                    </TableCell>
+                    <TableCell sx={{ whiteSpace: "nowrap" }}>{i + 1}</TableCell>
                     <TableCell sx={{ whiteSpace: "nowrap" }}>
                       <CodeBadge code={regCodeOf(r)} withLabel={false} />
                     </TableCell>
@@ -1464,8 +1523,8 @@ export default function TournamentRegistration() {
         </TableContainer>
       )}
 
-      {/* Pagination */}
-      {!regsLoading && !regsErr && regCount > 0 && (
+      {/* Pagination (tuỳ chọn bật lại nếu cần) */}
+      {/* {!listLoading && !listError && regCount > 0 && (
         <Stack
           direction={{ xs: "column", md: "row" }}
           spacing={1.5}
@@ -1482,7 +1541,7 @@ export default function TournamentRegistration() {
             />
           </Stack>
         </Stack>
-      )}
+      )} */}
 
       {/* Preview ảnh */}
       <Dialog

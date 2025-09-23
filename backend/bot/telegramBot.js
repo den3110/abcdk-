@@ -15,6 +15,7 @@ import Tournament from "../models/tournamentModel.js";
 import Registration from "../models/registrationModel.js";
 import { notifyComplaintStatusChange } from "../services/telegram/notifyNewComplaint.js";
 import { notifyKycReviewed } from "../services/telegram/telegramNotifyKyc.js";
+import SportConnectService from "../services/sportconnect.service.js";
 
 dotenv.config();
 
@@ -169,6 +170,90 @@ function normalizeImageUrl(rawPath = "") {
     const path = s.startsWith("/") ? s : `/${s}`;
     return `${host}${path}`;
   }
+}
+
+function sendJsonChunked(ctx, obj, prefix = "") {
+  let text;
+  try {
+    text = JSON.stringify(obj, null, 2);
+  } catch {
+    text = String(obj ?? "");
+  }
+  // Escape HTML cho parse_mode: "HTML"
+  const escText = esc(text);
+  const max = 3800; // chừa chỗ cho <pre><code>...</code></pre>
+  if (prefix) {
+    ctx.reply(prefix, { parse_mode: "HTML", disable_web_page_preview: true });
+  }
+  for (let i = 0; i < escText.length; i += max) {
+    const chunk = escText.slice(i, i + max);
+    ctx.reply(`<pre><code>${chunk}</code></pre>`, {
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    });
+  }
+}
+
+// --- Helpers cho /spc ---
+function parseDotNetDate(s) {
+  // "/Date(1758534749547)/" -> Date
+  if (!s) return null;
+  const m = String(s).match(/\/Date\((\d+)\)\//);
+  return m ? new Date(Number(m[1])) : null;
+}
+function fmtTimeVN(d) {
+  return d ? d.toLocaleString("vi-VN") : "—";
+}
+function fmt1(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? (Math.round(n * 100) / 100).toFixed(2) : "—";
+}
+function fmtGender(g) {
+  if (g === 1) return "Nam";
+  if (g === 2) return "Nữ";
+  return "—";
+}
+function sportNameById(id) {
+  // tùy hệ thống SC: 1 Tennis? 2 Pickleball? (bạn điều chỉnh nếu cần)
+  if (String(id) === "2") return "Pickleball";
+  if (String(id) === "1") return "Tennis";
+  return String(id ?? "—");
+}
+
+/** Render 1 bản ghi theo format đẹp (caption) */
+function renderSpcCaption(
+  it,
+  { index = 1, total = 1, proxyUrl, status, debug = false } = {}
+) {
+  const when = parseDotNetDate(it?.ThoiGianCham);
+  const joined = parseDotNetDate(it?.JoinDate);
+
+  const lines = [
+    `🏸 <b>SportConnect • LevelPoint</b> ${
+      total > 1 ? `(#${index}/${total})` : ""
+    }`,
+    `🆔 ID: <b>${esc(it?.ID ?? it?.MaskId ?? "—")}</b>`,
+    `👤 Họ tên: <b>${esc(it?.HoVaTen || "—")}</b>`,
+    it?.NickName ? `🏷 Nickname: <i>${esc(String(it.NickName).trim())}</i>` : "",
+    `⚧ Giới tính: <b>${esc(fmtGender(it?.GioiTinh))}</b>`,
+    it?.TenTinhThanh ? `📍 Tỉnh/TP: <b>${esc(it.TenTinhThanh)}</b>` : "",
+    it?.SoDienThoai ? `📞 SĐT: <b>${esc(it.SoDienThoai)}</b>` : "",
+    `🥇 Điểm: <b>Single ${fmt1(it?.DiemDon)}</b> • <b>Double ${fmt1(
+      it?.DiemDoi
+    )}</b>`,
+    `🏟 Môn: <b>${esc(sportNameById(it?.IDMonTheThao))}</b>`,
+    it?.DienGiai ? `📝 Ghi chú: <i>${esc(it.DienGiai)}</i>` : "",
+    when ? `🕒 Chấm: <i>${fmtTimeVN(when)}</i>` : "",
+    joined ? `📅 Tham gia: <i>${fmtTimeVN(joined)}</i>` : "",
+    debug ? "" : "",
+    debug
+      ? `\n<b>Debug</b> • Status: <code>${esc(String(status ?? ""))}</code>${
+          proxyUrl ? ` • Proxy: <code>${esc(proxyUrl)}</code>` : ""
+        }`
+      : "",
+  ].filter(Boolean);
+
+  return lines.join("\n");
 }
 
 async function fetchImageAsBuffer(url) {
@@ -357,7 +442,7 @@ export async function initKycBot(app) {
         await ctx.answerCbQuery("Có lỗi xảy ra.", { show_alert: true });
       } catch {}
     }
-  }); 
+  });
 
   // ===== KYC: Duyệt / Từ chối =====
   bot.action(/^kyc:(approve|reject):([a-fA-F0-9]{24})$/, async (ctx) => {
@@ -490,6 +575,7 @@ export async function initKycBot(app) {
       },
       { command: "point", description: "Xem điểm hiện tại (alias)" },
       { command: "reg", description: "Tra cứu & cập nhật thanh toán đăng ký" },
+      { command: "spc", description: "SportConnect LevelPoint: /spc <phone>" },
     ])
     .catch((e) => console.warn("setMyCommands failed:", e?.message));
 
@@ -971,6 +1057,70 @@ export async function initKycBot(app) {
       return ctx.reply("❌ Có lỗi xảy ra khi tra cứu đăng ký.");
     }
   });
+
+  //  /spc <phone> ==========================
+  // ========================== /spc <phone> [--debug] ==========================
+  bot.command("spc", async (ctx) => {
+    const args = (ctx.message?.text || "").trim().split(/\s+/).slice(1);
+    const phone = (args[0] || "").trim();
+    const debug = args.some((a) => a.toLowerCase() === "--debug");
+
+    if (!phone) {
+      return ctx.reply(
+        [
+          "Cách dùng:",
+          "/spc <số điện thoại> [--debug]",
+          "VD: /spc 0888698383 --debug",
+        ].join("\n")
+      );
+    }
+
+    try {
+      const { status, data, proxyUrl } =
+        await SportConnectService.listLevelPoint({
+          searchCriterial: phone,
+          sportId: 2,
+          page: 0,
+          waitingInformation: "",
+        });
+
+      const arr = Array.isArray(data?.data) ? data.data : [];
+      if (!arr.length) {
+        return ctx.reply(
+          [
+            "❌ Không tìm thấy dữ liệu trên SportConnect.",
+            debug
+              ? `Status: ${status}${proxyUrl ? ` • Proxy: ${proxyUrl}` : ""}`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n")
+        );
+      }
+
+      // Chỉ gửi TEXT, không gửi ảnh
+      const total = arr.length;
+      for (let i = 0; i < arr.length; i++) {
+        const it = arr[i];
+        const caption = renderSpcCaption(it, {
+          index: i + 1,
+          total,
+          proxyUrl,
+          status,
+          debug,
+        });
+
+        await ctx.reply(caption, {
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+        });
+      }
+    } catch (e) {
+      console.error("[/spc] error:", e);
+      return ctx.reply("❌ Có lỗi xảy ra khi gọi SportConnect.");
+    }
+  });
+
   // --------------------- Launch & Stop -------------------
   // XÓA WEBHOOK trước khi bật polling để tránh 409 conflict
   try {

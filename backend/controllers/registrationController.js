@@ -694,3 +694,339 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
   await reg.save();
   res.json({ message: "Đã thay VĐV", registration: reg });
 });
+
+const { ObjectId } = mongoose.Types;
+
+const escapeRegExp = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// ====== SEARCH (GET /api/tournaments/:id/registrations/search?q=...) ======
+export const searchRegistrations = async (req, res, next) => {
+  try {
+    const { id } = req.params; // tournament id
+    let rawQ = String(req.query.q || "").trim();
+    const limit = Math.min(Number(req.query.limit || 200), 500);
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Tournament id không hợp lệ" });
+    }
+    if (!rawQ) return res.json([]);
+
+    // --- exact phrase nếu có ngoặc kép ---
+    const quoted = /^["“].*["”]$/.test(rawQ);
+    if (quoted) rawQ = rawQ.replace(/^["“]|["”]$/g, "").trim();
+
+    // --- tokens & chế độ ---
+    const tokens = rawQ.split(/\s+/).filter(Boolean);
+    const exactMode = quoted || tokens.length >= 2;
+
+    // --- chuẩn hoá cho so sánh ---
+    const qUpper = rawQ.toUpperCase();
+    const qDigits = (rawQ.match(/\d/g) || []).join("");
+
+    // phone: yêu cầu >=6 số để giảm nhiễu
+    const phoneRegex = qDigits.length >= 6 ? new RegExp(qDigits) : null;
+
+    // code: nếu toàn số -> exact, nếu có số thì cho phép prefix (codeStr)
+    const codeExact = /^\d+$/.test(rawQ) ? Number(rawQ) : undefined;
+    const codePrefixRegex =
+      qDigits.length >= 2 ? new RegExp("^" + escapeRegExp(qDigits)) : null;
+
+    // short5 chỉ bật khi 1 token & không ở exactMode để đỡ nhiễu
+    const short5Prefix =
+      !exactMode && tokens.length === 1
+        ? new RegExp("^" + escapeRegExp(tokens[0].toUpperCase()))
+        : null;
+
+    // regex “đầu từ” & “contains” theo token
+    const tokenPrefixRegexes = tokens.map(
+      (t) => new RegExp("(?:^|\\s)" + escapeRegExp(t), "i")
+    );
+    const tokenAnyRegexes = tokens.map((t) => new RegExp(escapeRegExp(t), "i"));
+
+    const pipeline = [
+      { $match: { tournament: new ObjectId(id) } },
+
+      // Join User cho player1 & player2
+      {
+        $lookup: {
+          from: "users",
+          localField: "player1.user",
+          foreignField: "_id",
+          as: "u1",
+        },
+      },
+      { $unwind: { path: "$u1", preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: "users",
+          localField: "player2.user",
+          foreignField: "_id",
+          as: "u2",
+        },
+      },
+      { $unwind: { path: "$u2", preserveNullAndEmptyArrays: true } },
+
+      // Các field phụ để so sánh/xếp hạng
+      {
+        $addFields: {
+          n1: {
+            $toUpper: {
+              $trim: {
+                input: {
+                  $ifNull: ["$u1.fullName", { $ifNull: ["$u1.name", ""] }],
+                },
+                chars: " ",
+              },
+            },
+          },
+          n1Nick: {
+            $toUpper: {
+              $ifNull: ["$u1.nickname", { $ifNull: ["$u1.nickName", ""] }],
+            },
+          },
+          n2: {
+            $toUpper: {
+              $trim: {
+                input: {
+                  $ifNull: ["$u2.fullName", { $ifNull: ["$u2.name", ""] }],
+                },
+                chars: " ",
+              },
+            },
+          },
+          n2Nick: {
+            $toUpper: {
+              $ifNull: ["$u2.nickname", { $ifNull: ["$u2.nickName", ""] }],
+            },
+          },
+
+          // fallback phone: User > snapshot
+          p1Phone: { $ifNull: ["$u1.phone", "$player1.phone"] },
+          p2Phone: { $ifNull: ["$u2.phone", "$player2.phone"] },
+
+          _idStr: { $toString: "$_id" },
+          codeStr: { $toString: "$code" },
+        },
+      },
+      {
+        $addFields: {
+          short5: {
+            $toUpper: {
+              $substrCP: [
+                "$_idStr",
+                { $subtract: [{ $strLenCP: "$_idStr" }, 5] },
+                5,
+              ],
+            },
+          },
+        },
+      },
+
+      // ====== HIT FLAGS / SCORES ======
+      {
+        $addFields: {
+          // Trùng tuyệt đối với tên/nickname (không phân biệt hoa/thường)
+          exactNameHit: {
+            $or: [
+              { $eq: ["$n1", qUpper] },
+              { $eq: ["$n1Nick", qUpper] },
+              { $eq: ["$n2", qUpper] },
+              { $eq: ["$n2Nick", qUpper] },
+            ],
+          },
+
+          // Số token match ở "đầu từ"
+          tokenPrefixHits: {
+            $add: [
+              ...tokenPrefixRegexes.map((rx) => ({
+                $cond: [{ $regexMatch: { input: "$n1", regex: rx } }, 1, 0],
+              })),
+              ...tokenPrefixRegexes.map((rx) => ({
+                $cond: [{ $regexMatch: { input: "$n1Nick", regex: rx } }, 1, 0],
+              })),
+              ...tokenPrefixRegexes.map((rx) => ({
+                $cond: [{ $regexMatch: { input: "$n2", regex: rx } }, 1, 0],
+              })),
+              ...tokenPrefixRegexes.map((rx) => ({
+                $cond: [{ $regexMatch: { input: "$n2Nick", regex: rx } }, 1, 0],
+              })),
+            ],
+          },
+
+          // Có token nào xuất hiện ở bất cứ đâu
+          tokenAnyHits: {
+            $add: [
+              ...tokenAnyRegexes.map((rx) => ({
+                $cond: [{ $regexMatch: { input: "$n1", regex: rx } }, 1, 0],
+              })),
+              ...tokenAnyRegexes.map((rx) => ({
+                $cond: [{ $regexMatch: { input: "$n1Nick", regex: rx } }, 1, 0],
+              })),
+              ...tokenAnyRegexes.map((rx) => ({
+                $cond: [{ $regexMatch: { input: "$n2", regex: rx } }, 1, 0],
+              })),
+              ...tokenAnyRegexes.map((rx) => ({
+                $cond: [{ $regexMatch: { input: "$n2Nick", regex: rx } }, 1, 0],
+              })),
+            ],
+          },
+
+          // code / phone / short5
+          codeOrPhoneHit: {
+            $or: [
+              ...(Number.isFinite(codeExact)
+                ? [{ $eq: ["$code", codeExact] }]
+                : []),
+              ...(codePrefixRegex
+                ? [
+                    {
+                      $regexMatch: {
+                        input: "$codeStr",
+                        regex: codePrefixRegex,
+                      },
+                    },
+                  ]
+                : []),
+              ...(phoneRegex
+                ? [
+                    { $regexMatch: { input: "$p1Phone", regex: phoneRegex } },
+                    { $regexMatch: { input: "$p2Phone", regex: phoneRegex } },
+                  ]
+                : []),
+              ...(short5Prefix
+                ? [{ $regexMatch: { input: "$short5", regex: short5Prefix } }]
+                : []),
+            ],
+          },
+        },
+      },
+
+      // Lọc theo "chế độ"
+      {
+        $match: exactMode
+          ? {
+              $or: [
+                { exactNameHit: true },
+                { codeOrPhoneHit: true }, // vẫn cho phép tìm bằng code/phone trong exact mode
+                ...(tokens.length
+                  ? [{ $expr: { $gte: ["$tokenPrefixHits", tokens.length] } }]
+                  : []),
+              ],
+            }
+          : {
+              $or: [
+                { codeOrPhoneHit: true },
+                { exactNameHit: true },
+                { tokenPrefixHits: { $gt: 0 } },
+                { tokenAnyHits: { $gt: 0 } },
+              ],
+            },
+      },
+
+      // Ranking: 0 (code/phone) < 1 (exact name) < 2 (all tokens as word-prefix) < 3 (any token)
+      {
+        $addFields: {
+          rank: {
+            $switch: {
+              branches: [
+                { case: "$codeOrPhoneHit", then: 0 },
+                { case: "$exactNameHit", then: 1 },
+                ...(tokens.length
+                  ? [
+                      {
+                        case: {
+                          $expr: { $gte: ["$tokenPrefixHits", tokens.length] },
+                        },
+                        then: 2,
+                      },
+                    ]
+                  : []),
+                { case: { $gt: ["$tokenAnyHits", 0] }, then: 3 },
+              ],
+              default: 9,
+            },
+          },
+        },
+      },
+
+      { $sort: { rank: 1, createdAt: -1 } },
+      { $limit: limit },
+
+      // Trả player từ User (fallback snapshot), score vẫn là snapshot
+      {
+        $addFields: {
+          player1Mixed: {
+            user: "$player1.user",
+            phone: { $ifNull: ["$u1.phone", "$player1.phone"] },
+            fullName: {
+              $ifNull: [
+                "$u1.fullName",
+                { $ifNull: ["$u1.name", "$player1.fullName"] },
+              ],
+            },
+            nickName: {
+              $ifNull: [
+                "$u1.nickname",
+                { $ifNull: ["$u1.nickName", "$player1.nickName"] },
+              ],
+            },
+            avatar: { $ifNull: ["$u1.avatar", "$player1.avatar"] },
+            score: "$player1.score",
+          },
+          player2Mixed: {
+            $cond: [
+              { $ifNull: ["$player2", false] },
+              {
+                user: "$player2.user",
+                phone: { $ifNull: ["$u2.phone", "$player2.phone"] },
+                fullName: {
+                  $ifNull: [
+                    "$u2.fullName",
+                    { $ifNull: ["$u2.name", "$player2.fullName"] },
+                  ],
+                },
+                nickName: {
+                  $ifNull: [
+                    "$u2.nickname",
+                    { $ifNull: ["$u2.nickName", "$player2.nickName"] },
+                  ],
+                },
+                avatar: { $ifNull: ["$u2.avatar", "$player2.avatar"] },
+                score: "$player2.score",
+              },
+              null,
+            ],
+          },
+        },
+      },
+
+      {
+        $project: {
+          _id: 1,
+          tournament: 1,
+          createdBy: 1,
+          createdAt: 1,
+          code: 1,
+          checkinAt: 1,
+          payment: 1,
+
+          player1: "$player1Mixed",
+          player2: "$player2Mixed",
+
+          // giữ snapshot để đối chiếu nếu cần
+          player1Snapshot: "$player1",
+          player2Snapshot: "$player2",
+        },
+      },
+    ];
+
+    const results = await Registration.aggregate(pipeline).collation({
+      locale: "vi", // collation chủ yếu áp cho sort/compare, regex thì không
+      strength: 1,
+    });
+
+    return res.json(results);
+  } catch (err) {
+    return next(err);
+  }
+};
