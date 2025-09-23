@@ -113,6 +113,11 @@ const getMaxDelta = (tour) => {
 };
 
 /** Quyết định màu & tooltip cho chip Tổng điểm */
+/** Quyết định màu & tooltip cho chip Tổng điểm
+ *  - Xanh (success): total <  cap + Δ
+ *  - Vàng (warning): total == cap + Δ
+ *  - Đỏ  (error):   total >  cap + Δ
+ */
 const totalChipStyle = (total, cap, delta) => {
   const hasCap = Number.isFinite(cap) && cap > 0;
   if (!hasCap || !Number.isFinite(total)) {
@@ -121,23 +126,25 @@ const totalChipStyle = (total, cap, delta) => {
 
   const d = Number.isFinite(delta) && delta > 0 ? Number(delta) : 0;
   const threshold = cap + d;
+  const EPS = 1e-6; // tránh lỗi so sánh số thực
 
-  if (total <= cap) {
-    return { color: "success", title: `≤ ${fmt3(cap)} (Hợp lệ)` };
+  if (total > threshold + EPS) {
+    return {
+      color: "error",
+      title: `> ${fmt3(cap)} + ${fmt3(d)} (Vượt quá mức cho phép)`,
+    };
   }
 
-  if (d > 0 && total <= threshold) {
+  if (Math.abs(total - threshold) <= EPS) {
     return {
       color: "warning",
-      title: `> ${fmt3(cap)} và ≤ ${fmt3(cap)} + ${fmt3(
-        d
-      )} (Trong ngưỡng chênh lệch cho phép)`,
+      title: `= ${fmt3(cap)} + ${fmt3(d)} (Chạm ngưỡng tối đa)`,
     };
   }
 
   return {
-    color: "error",
-    title: `> ${fmt3(cap)} + ${fmt3(d)} (Vượt quá mức cho phép)`,
+    color: "success",
+    title: `< ${fmt3(cap)} + ${fmt3(d)} (Hợp lệ)`,
   };
 };
 
