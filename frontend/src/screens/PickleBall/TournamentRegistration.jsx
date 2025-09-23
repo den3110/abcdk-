@@ -148,6 +148,52 @@ const totalChipStyle = (total, cap, delta) => {
   };
 };
 
+/* ====== HTTPS forcing helpers ====== */
+// Ép https khi KHÔNG phải localhost / LAN
+const shouldForceHttps = (() => {
+  if (typeof window === "undefined") return false;
+  const h = window.location.hostname || "";
+  const isLocal =
+    /(^localhost$)|(^127\.)|(^10\.)|(^192\.168\.)|(^172\.(1[6-9]|2\d|3[0-1])\.)|(\.local$)|(\.lan$)/i.test(
+      h
+    );
+  return !isLocal;
+})();
+
+/** Nếu là URL tuyệt đối http(s), đổi sang https (trừ host local/LAN) */
+const toHttpsIfNeeded = (u) => {
+  if (!shouldForceHttps || !u || typeof u !== "string") return u;
+  try {
+    if (u.startsWith("//")) return "https:" + u; // //domain/path
+    if (!/^https?:\/\//i.test(u)) return u; // relative, data:, blob:...
+    const url = new URL(u);
+    const isPrivate =
+      /(^localhost$)|(^127\.)|(^10\.)|(^192\.168\.)|(^172\.(1[6-9]|2\d|3[0-1])\.)|(\.local$)|(\.lan$)/i.test(
+        url.hostname
+      );
+    if (url.protocol === "http:" && !isPrivate) {
+      url.protocol = "https:";
+      return url.toString();
+    }
+  } catch {}
+  return u;
+};
+
+/** Bọc cho src ảnh/video */
+const safeSrc = (u) => toHttpsIfNeeded(u);
+
+/** Sửa các src/href trong HTML chèn vào (http -> https, // -> https://) */
+const fixHtmlHttps = (html) => {
+  if (!shouldForceHttps || !html) return html || "";
+  try {
+    return String(html)
+      .replace(/(\s(?:href|src)=["'])http:\/\//gi, "$1https://")
+      .replace(/(\s(?:href|src)=["'])\/\/([^"']+)["']/gi, '$1https://$2"');
+  } catch {
+    return html;
+  }
+};
+
 function PaymentChip({ status, paidAt }) {
   const isPaid = status === "Paid";
   return (
@@ -262,7 +308,10 @@ function SelfPlayerReadonly({ me, isSingles }) {
         VĐV 1 (Bạn)
       </Typography>
       <Stack direction="row" spacing={1.5} alignItems="center">
-        <Avatar src={me?.avatar || PLACE} />
+        <Avatar
+          src={safeSrc(me?.avatar || PLACE)}
+          imgProps={{ onError: (e) => (e.currentTarget.src = PLACE) }}
+        />
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography variant="body2" noWrap title={display}>
             {display}
@@ -691,7 +740,7 @@ export default function TournamentRegistration() {
   };
 
   const openPreview = (src, name) =>
-    setImgPreview({ open: true, src, name: name || "" });
+    setImgPreview({ open: true, src: safeSrc(src), name: name || "" });
   const closePreview = () => setImgPreview({ open: false, src: "", name: "" });
 
   const openReplace = (reg, slot) => {
@@ -849,7 +898,10 @@ export default function TournamentRegistration() {
           cursor: "zoom-in",
         }}
       >
-        <Avatar src={player?.avatar || PLACE} />
+        <Avatar
+          src={safeSrc(player?.avatar || PLACE)}
+          imgProps={{ onError: (e) => (e.currentTarget.src = PLACE) }}
+        />
       </Box>
 
       <Box
@@ -1122,7 +1174,9 @@ export default function TournamentRegistration() {
                   },
                   overflowX: "auto",
                 }}
-                dangerouslySetInnerHTML={{ __html: tour.contactHtml }}
+                dangerouslySetInnerHTML={{
+                  __html: fixHtmlHttps(tour.contactHtml),
+                }}
               />
             </Box>
           )}
@@ -1144,7 +1198,9 @@ export default function TournamentRegistration() {
                   },
                   overflowX: "auto",
                 }}
-                dangerouslySetInnerHTML={{ __html: tour.contentHtml }}
+                dangerouslySetInnerHTML={{
+                  __html: fixHtmlHttps(tour.contentHtml),
+                }}
               />
             </Box>
           )}
@@ -1281,7 +1337,12 @@ export default function TournamentRegistration() {
                         cursor: "zoom-in",
                       }}
                     >
-                      <Avatar src={pl?.avatar || PLACE} />
+                      <Avatar
+                        src={safeSrc(pl?.avatar || PLACE)}
+                        imgProps={{
+                          onError: (e) => (e.currentTarget.src = PLACE),
+                        }}
+                      />
                     </Box>
 
                     <Box
@@ -1556,7 +1617,7 @@ export default function TournamentRegistration() {
           sx={{ display: "flex", justifyContent: "center" }}
         >
           <img
-            src={imgPreview.src || PLACE}
+            src={safeSrc(imgPreview.src || PLACE)}
             alt={imgPreview.name || "player"}
             style={{
               width: "100%",
@@ -1564,6 +1625,7 @@ export default function TournamentRegistration() {
               objectFit: "contain",
               borderRadius: 8,
             }}
+            onError={(e) => (e.currentTarget.src = PLACE)}
           />
         </DialogContent>
         <DialogActions>
@@ -1676,7 +1738,7 @@ export default function TournamentRegistration() {
               })()}
 
               {(() => {
-                const url = qrImgUrlFor(paymentDlg.reg);
+                const url = safeSrc(qrImgUrlFor(paymentDlg.reg));
                 if (!url) {
                   return (
                     <>
@@ -1695,6 +1757,7 @@ export default function TournamentRegistration() {
                         src={url}
                         alt="QR thanh toán"
                         style={{ width: 260, height: 260, borderRadius: 8 }}
+                        onError={(e) => (e.currentTarget.src = PLACE)}
                       />
                     </Box>
                     <Typography
@@ -1712,7 +1775,7 @@ export default function TournamentRegistration() {
         </DialogContent>
         <DialogActions>
           {/* Nếu chưa có QR: cho nút Khiếu nại nhanh */}
-          {!paymentDlg.reg || !qrImgUrlFor(paymentDlg.reg) ? (
+          {!paymentDlg.reg || !safeSrc(qrImgUrlFor(paymentDlg.reg)) ? (
             <Button
               color="warning"
               variant="outlined"
