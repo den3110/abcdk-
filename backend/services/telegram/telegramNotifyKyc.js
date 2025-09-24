@@ -1,15 +1,126 @@
 // server/services/telegramNotify.js
 import fetch from "node-fetch";
 import dotenv from "dotenv";
-import { CATEGORY, EVENTS, publishNotification } from "../notifications/notificationHub.js";
+import OpenAI from "openai";
+import FormData from "form-data";
+import {
+  CATEGORY,
+  EVENTS,
+  publishNotification,
+} from "../notifications/notificationHub.js";
+import { stripVN } from "../../utils/cccdParsing.js";
+
 dotenv.config();
+
+// ---- KYC auto flags (from System Settings) ----
+let __settingsCache = { ts: 0, val: null };
+const SETTINGS_TTL_MS = 10_000;
+
+async function getKycAutoFlag() {
+  const now = Date.now();
+  if (!__settingsCache.val || now - __settingsCache.ts > SETTINGS_TTL_MS) {
+    try {
+      const Sys = (await import("../../models/systemSettingsModel.js"))
+        .default;
+      const s = (await Sys.findById("system").lean()) || {};
+      __settingsCache = {
+        ts: now,
+        val: {
+          // ON khi cả kyc.enabled và kyc.autoApprove đều true
+          autoKycOn: !!(s?.kyc?.enabled && s?.kyc?.autoApprove),
+          // faceMatchThreshold vẫn để nguyên ở schema nhưng KHÔNG dùng ở đây
+        },
+      };
+    } catch {
+      __settingsCache = { ts: now, val: { autoKycOn: false } };
+    }
+  }
+  return __settingsCache.val;
+}
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const DEFAULT_CHAT_ID = process.env.TELEGRAM_CHAT_ID; // group/private chat id
-const HOST = (process.env.HOST || "").replace(/\/+$/, ""); // ví dụ: https://pickletour.vn
+const HOST =
+  process.env.NODE_ENV === "production"
+    ? (process.env.HOST || "").replace(/\/+$/, "")
+    : "http://localhost:5001"; // ví dụ: https://pickletour.vn
 const toPosix = (s = "") => s.replace(/\\/g, "/");
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// ---------------- Core API helpers ----------------
+// ---------------- utils ----------------
+function escapeHtml(s = "") {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Public absolute URL if possible; keep http for localhost/dev
+function normalizeImageUrl(raw = "") {
+  if (!raw) return "";
+  let s = String(raw).trim();
+  try {
+    const u = new URL(s); // absolute
+    return u.toString();
+  } catch {
+    if (!HOST) return "";
+    const path = s.startsWith("/") ? s : `/${s}`;
+    return `${HOST}${path}`;
+  }
+}
+
+function isHttpUrl(u) {
+  try {
+    const x = new URL(u);
+    return x.protocol === "http:" || x.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+// true nếu URL là localhost hoặc IP nội bộ -> không public
+function isLocalish(u) {
+  try {
+    const { hostname } = new URL(u);
+    if (!hostname) return true;
+    if (hostname === "localhost") return true;
+    if (hostname === "::1") return true;
+    if (/^127\./.test(hostname)) return true;
+    if (/^10\./.test(hostname)) return true;
+    if (/^192\.168\./.test(hostname)) return true;
+    const m = hostname.match(/^172\.(\d+)\./);
+    if (m) {
+      const n = +m[1];
+      if (n >= 16 && n <= 31) return true;
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+async function fetchImageAsBuffer(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status} when fetching ${url}`);
+  const ct = r.headers.get("content-type") || "application/octet-stream";
+  const ab = await r.arrayBuffer();
+  const buf = Buffer.from(ab);
+  // đoán tên file
+  let filename = "image";
+  try {
+    const u = new URL(url);
+    const base = u.pathname.split("/").pop() || "image";
+    filename = base;
+  } catch {}
+  return { buffer: buf, contentType: ct, filename };
+}
+
+function bufferToDataUrl(buffer, contentType = "image/jpeg") {
+  const b64 = buffer.toString("base64");
+  return `data:${contentType};base64,${b64}`;
+}
+
+// ---------------- Core Telegram helpers ----------------
 async function tgApi(method, body) {
   if (!BOT_TOKEN || !DEFAULT_CHAT_ID) return { ok: false, skipped: true };
   const url = `https://api.telegram.org/bot${BOT_TOKEN}/${method}`;
@@ -35,8 +146,72 @@ export async function tgSend(text, opts = {}) {
     text,
     parse_mode: "HTML",
     disable_web_page_preview: true,
-    ...opts, // có thể truyền reply_to_message_id, reply_markup, ...
+    ...opts, // reply_to_message_id, reply_markup, ...
   });
+}
+
+// Multipart upload (buffer) cho sendPhoto
+async function tgSendPhotoFile({
+  buffer,
+  filename = "photo.jpg",
+  caption,
+  reply_to_message_id,
+}) {
+  if (!BOT_TOKEN || !DEFAULT_CHAT_ID) return { ok: false, skipped: true };
+  const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`;
+  const form = new FormData();
+  form.append("chat_id", DEFAULT_CHAT_ID);
+  if (caption) form.append("caption", caption);
+  form.append("parse_mode", "HTML");
+  if (reply_to_message_id)
+    form.append("reply_to_message_id", String(reply_to_message_id));
+  form.append("photo", buffer, { filename });
+  const res = await fetch(url, {
+    method: "POST",
+    body: form,
+    headers: form.getHeaders?.(),
+  });
+  const text = await res.text();
+  let json = {};
+  try {
+    json = JSON.parse(text);
+  } catch {}
+  if (!res.ok || json?.ok === false) {
+    console.error(`Telegram sendPhoto(file) failed: ${res.status} ${text}`);
+  }
+  return json;
+}
+
+// Multipart upload (buffer) cho sendDocument
+async function tgSendDocumentFile({
+  buffer,
+  filename = "file.jpg",
+  caption,
+  reply_to_message_id,
+}) {
+  if (!BOT_TOKEN || !DEFAULT_CHAT_ID) return { ok: false, skipped: true };
+  const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendDocument`;
+  const form = new FormData();
+  form.append("chat_id", DEFAULT_CHAT_ID);
+  if (caption) form.append("caption", caption);
+  form.append("parse_mode", "HTML");
+  if (reply_to_message_id)
+    form.append("reply_to_message_id", String(reply_to_message_id));
+  form.append("document", buffer, { filename });
+  const res = await fetch(url, {
+    method: "POST",
+    body: form,
+    headers: form.getHeaders?.(),
+  });
+  const text = await res.text();
+  let json = {};
+  try {
+    json = JSON.parse(text);
+  } catch {}
+  if (!res.ok || json?.ok === false) {
+    console.error(`Telegram sendDocument(file) failed: ${res.status} ${text}`);
+  }
+  return json;
 }
 
 async function tgSendPhotoUrl({
@@ -70,45 +245,289 @@ async function tgSendDocumentUrl({
   });
 }
 
-function normalizeImageUrl(raw = "") {
-  if (!raw) return "";
-  let s = String(raw)
-    .trim()
-    .replace(/^http:\/\//i, "https://");
-  try {
-    const u = new URL(s); // absolute
-    return u.toString();
-  } catch {
-    if (!HOST) return "";
-    const path = s.startsWith("/") ? s : `/${s}`;
-    return `${HOST}${path}`;
+// ---------------- Auto KYC (OpenAI Vision) ----------------
+const CCCD_JSON_SCHEMA = {
+  name: "cccd_extract",
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      idNumber: { type: ["string", "null"] },
+      fullName: { type: ["string", "null"] },
+      dob: { type: ["string", "null"], description: "yyyy-mm-dd" },
+      sex: { type: ["string", "null"] },
+      nationality: { type: ["string", "null"] },
+      hometown: { type: ["string", "null"] },
+      residence: { type: ["string", "null"] },
+      expiry: { type: ["string", "null"], description: "yyyy-mm-dd" },
+      notes: { type: ["string", "null"] },
+    },
+    required: [
+      "idNumber",
+      "fullName",
+      "dob",
+      "sex",
+      "nationality",
+      "hometown",
+      "residence",
+      "expiry",
+      "notes",
+    ],
+  },
+  strict: true,
+};
+
+function normName(s = "") {
+  return stripVN(String(s).trim()).replace(/\s+/g, " ").toUpperCase();
+}
+function normId(s = "") {
+  return String(s || "").replace(/\D+/g, "");
+}
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+function ymdUTC(date) {
+  const y = date.getUTCFullYear();
+  const m = date.getUTCMonth() + 1;
+  const d = date.getUTCDate();
+  return `${y}-${pad2(m)}-${pad2(d)}`;
+}
+
+function normDOB(value) {
+  if (value === null || value === undefined) return null;
+
+  // Nếu là Date object
+  if (value instanceof Date && !isNaN(value)) {
+    return ymdUTC(value);
   }
+
+  const s = String(value).trim();
+  if (!s) return null;
+
+  // dd/mm/yyyy hoặc dd-mm-yyyy hoặc dd.mm.yyyy
+  const m1 = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);
+  if (m1) {
+    const d = +m1[1],
+      mo = +m1[2],
+      y = +m1[3];
+    if (d >= 1 && d <= 31 && mo >= 1 && mo <= 12) {
+      return `${y}-${pad2(mo)}-${pad2(d)}`;
+    }
+  }
+
+  // yyyy-mm-dd (đã chuẩn)
+  const m2 = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m2) return s;
+
+  // ISO 8601 (vd: 1991-03-26T00:00:00.000Z) hoặc chuỗi date parse được
+  const d = new Date(s);
+  if (!isNaN(d)) {
+    return ymdUTC(d); // dùng UTC để không lệch ngày do timezone
+  }
+
+  return null;
+}
+
+async function openaiExtractFromImageUrl(imageUrl, detail = "low") {
+  if (!openai.apiKey) throw new Error("Missing OPENAI_API_KEY");
+
+  // Nếu URL local/private -> tải buffer và đổi sang data URL
+  let imagePart;
+  if (isHttpUrl(imageUrl) && !isLocalish(imageUrl)) {
+    imagePart = { type: "image_url", image_url: { url: imageUrl, detail } };
+  } else {
+    const { buffer, contentType } = await fetchImageAsBuffer(imageUrl);
+    const dataUrl = bufferToDataUrl(buffer, contentType);
+    imagePart = { type: "image_url", image_url: { url: dataUrl, detail } };
+  }
+
+  const systemPrompt =
+    "Bạn là trợ lý trích xuất trường từ ảnh Căn cước công dân Việt Nam. " +
+    "Chỉ dựa trên nội dung nhìn thấy; không suy đoán. " +
+    "Chuẩn hoá dd/mm/yyyy thành yyyy-mm-dd. Trả JSON đúng schema.";
+  const userPrompt =
+    "Trích xuất: idNumber (Số/No.), fullName (Họ và tên), dob (Ngày sinh). " +
+    "Nếu không thấy rõ thì để null.";
+
+  const resp = await openai.chat.completions.create({
+    model: "gpt-4o",
+    response_format: { type: "json_schema", json_schema: CCCD_JSON_SCHEMA },
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: [{ type: "text", text: userPrompt }, imagePart],
+      },
+    ],
+  });
+
+  const msg = resp.choices?.[0]?.message;
+  const jsonText =
+    typeof msg?.content === "string"
+      ? msg.content
+      : msg?.content?.find?.(
+          (p) => p.type === "output_text" || p.type === "text"
+        )?.text;
+
+  let data = {};
+  try {
+    data = JSON.parse(jsonText || "{}");
+  } catch {}
+
+  return {
+    idNumber: normId(data.idNumber),
+    fullName: data.fullName ? normName(data.fullName) : null,
+    dob: normDOB(data.dob),
+    _usage: resp.usage,
+  };
+}
+
+function buildMatchReport(extracted, user) {
+  const userName = normName(user?.name || "");
+  const userDob = normDOB(user?.dob || user?.birthday || "");
+  const userCccd = normId(user?.cccd || user?.citizenId || "");
+
+  const nameOK =
+    extracted.fullName && userName && extracted.fullName === userName;
+  const dobOK = extracted.dob && userDob && extracted.dob === userDob;
+  const idOK =
+    extracted.idNumber && userCccd && extracted.idNumber === userCccd;
+
+  const allOK = !!(nameOK && dobOK && idOK);
+  return {
+    allOK,
+    nameOK,
+    dobOK,
+    idOK,
+    wanted: { name: userName, dob: userDob, id: userCccd },
+    got: {
+      name: extracted.fullName,
+      dob: extracted.dob,
+      id: extracted.idNumber,
+    },
+  };
 }
 
 // ---------------- Public APIs ----------------
-
-// Gọi từ controller nộp KYC
-// Yêu cầu mới:
-// - LUÔN gửi tin nhắn KYC (text + buttons) TRƯỚC.
-// - Sau đó mới gửi ảnh CCCD (mặt trước/mặt sau), reply vào message KYC.
-// - Nếu sendPhoto lỗi -> fallback sendDocument (URL). Nếu vẫn lỗi -> bỏ qua ảnh đó.
 export async function notifyNewKyc(user) {
   if (!user || !BOT_TOKEN || !DEFAULT_CHAT_ID) return;
 
+  // Đọc cờ auto duyệt/từ chối
+  const { autoKycOn } = await getKycAutoFlag();
+  console.log(autoKycOn)
+  const frontUrl = normalizeImageUrl(toPosix(user?.cccdImages?.front || ""));
+  const backUrl = normalizeImageUrl(toPosix(user?.cccdImages?.back || ""));
+
+  let auto = { status: "pending", reason: "", report: null, usage: null };
+
+  try {
+    if (frontUrl && process.env.OPENAI_API_KEY) {
+      const extracted = await openaiExtractFromImageUrl(frontUrl, "low");
+      auto.usage = extracted._usage || null;
+      const report = buildMatchReport(extracted, user);
+      auto.report = report;
+
+      // ❗Chỉ auto duyệt/từ chối khi autoKycOn = true
+      if (autoKycOn) {
+        const UM = (await import("../../models/userModel.js")).default;
+        if (report.allOK) {
+          auto.status = "approved";
+          auto.reason =
+            "Thông tin CCCD trùng khớp (họ tên, ngày sinh, số CCCD).";
+          await UM.findByIdAndUpdate(
+            user._id,
+            { $set: { cccdStatus: "verified", verified: "verified" } },
+            { new: false }
+          ).lean();
+          try {
+            await publishNotification(EVENTS.KYC_APPROVED, {
+              userId: String(user._id),
+              topicType: "user",
+              topicId: String(user._id),
+              category: CATEGORY.KYC,
+            });
+          } catch (e) {
+            console.error("[notifyNewKyc] publish APPROVED error:", e?.message);
+          }
+        } else {
+          auto.status = "rejected";
+          auto.reason = "Thông tin CCCD KHÔNG khớp với hồ sơ gửi.";
+          await UM.findByIdAndUpdate(
+            user._id,
+            { $set: { cccdStatus: "rejected" } },
+            { new: false }
+          ).lean();
+          try {
+            await publishNotification(EVENTS.KYC_REJECTED, {
+              userId: String(user._id),
+              topicType: "user",
+              topicId: String(user._id),
+              category: CATEGORY.KYC,
+              reason: auto.reason,
+            });
+          } catch (e) {
+            console.error("[notifyNewKyc] publish REJECTED error:", e?.message);
+          }
+        }
+      } else {
+        // Auto OFF → luôn để pending, không cập nhật DB
+        auto.status = "pending";
+        auto.reason = "Auto review đang tắt. Chờ người duyệt.";
+      }
+    } else {
+      auto.status = "pending";
+      auto.reason = !frontUrl ? "Thiếu ảnh mặt trước" : "Thiếu OPENAI_API_KEY";
+    }
+  } catch (e) {
+    console.error("[kyc-auto] error:", e?.message);
+    auto.status = "pending";
+    auto.reason = "Lỗi khi trích xuất CCCD (để Chờ KYC).";
+  }
+
+  // 2) Gửi tin nhắn KYC (text + buttons)
+  const statusText =
+    auto.status === "approved"
+      ? "✅ <b>TỰ ĐỘNG DUYỆT</b>"
+      : auto.status === "rejected"
+      ? "❌ <b>TỰ ĐỘNG TỪ CHỐI</b>"
+      : "⏳ <b>Chờ KYC</b>";
+
+  const reportLines = [];
+  if (auto.report) {
+    const { wanted, got, nameOK, dobOK, idOK } = auto.report;
+    console.log(wanted);
+    reportLines.push(
+      "🔎 <b>Kết quả so khớp</b>",
+      `• Họ tên: ${nameOK ? "✅" : "❌"} <code>${escapeHtml(
+        got.name || "—"
+      )}</code> (kỳ vọng: <code>${escapeHtml(wanted.name || "—")}</code>)`,
+      `• Ngày sinh: ${dobOK ? "✅" : "❌"} <code>${escapeHtml(
+        got.dob || "—"
+      )}</code> (kỳ vọng: <code>${escapeHtml(wanted.dob || "—")}</code>)`,
+      `• Số CCCD: ${idOK ? "✅" : "❌"} <code>${escapeHtml(
+        got.id || "—"
+      )}</code> (kỳ vọng: <code>${escapeHtml(wanted.id || "—")}</code>)`
+    );
+  } else if (auto.reason) {
+    reportLines.push(`ℹ️ ${escapeHtml(auto.reason)}`);
+  }
+
   const captionLines = [
     "🆕 <b>KYC mới</b>",
-    `👤 <b>${user?.name || "Ẩn danh"}</b>${
-      user?.nickname ? " <i>(" + user.nickname + ")</i>" : ""
+    `👤 <b>${escapeHtml(user?.name || "Ẩn danh")}</b>${
+      user?.nickname ? " <i>(" + escapeHtml(user.nickname) + ")</i>" : ""
     }`,
-    user?.email ? `✉️ ${user.email}` : "",
-    user?.phone ? `📞 ${user.phone}` : "",
-    user?.province ? `📍 ${user.province}` : "",
-    user?.cccd ? `🪪 CCCD: <code>${user.cccd}</code>` : "",
+    user?.email ? `✉️ ${escapeHtml(user.email)}` : "",
+    user?.phone ? `📞 ${escapeHtml(user.phone)}` : "",
+    user?.province ? `📍 ${escapeHtml(user.province)}` : "",
+    user?.cccd ? `🪪 CCCD: <code>${escapeHtml(user.cccd)}</code>` : "",
     user?.createdAt
       ? `🕒 ${new Date(user.createdAt).toLocaleString("vi-VN")}`
       : "",
     "",
-    "Trạng thái: <b>Chờ KYC</b>",
+    `Trạng thái: ${statusText}`,
+    ...(reportLines.length ? ["", ...reportLines] : []),
   ].filter(Boolean);
   const caption = captionLines.join("\n");
 
@@ -121,43 +540,55 @@ export async function notifyNewKyc(user) {
     ],
   };
 
-  const frontUrl = normalizeImageUrl(toPosix(user?.cccdImages?.front || ""));
-  const backUrl = normalizeImageUrl(toPosix(user?.cccdImages?.back || ""));
-
-  // 1) GỬI TIN NHẮN KYC TRƯỚC
   const sentMsg = await tgSend(caption, { reply_markup });
   const replyToId = sentMsg?.result?.message_id;
 
-  // 2) SAU ĐÓ GỬI ẢNH (reply vào tin nhắn vừa gửi)
+  // 3) Gửi ảnh (reply vào tin nhắn vừa gửi)
   async function sendOnePhoto(url, label) {
     if (!url) return;
-    // Thử sendPhoto trước
-    const r = await tgSendPhotoUrl({
-      photo: url,
-      caption: label,
-      reply_to_message_id: replyToId,
-    });
-    if (r?.ok) return r;
-
-    // Fallback: sendDocument (URL)
-    const r2 = await tgSendDocumentUrl({
-      document: url,
-      caption: label,
-      reply_to_message_id: replyToId,
-    });
-    if (!r2?.ok) {
-      console.error("Failed to send photo/document for:", url);
+    if (isHttpUrl(url) && !isLocalish(url)) {
+      // URL public -> gửi bằng URL
+      const r = await tgSendPhotoUrl({
+        photo: url,
+        caption: label,
+        reply_to_message_id: replyToId,
+      });
+      if (r?.ok) return r;
+      const r2 = await tgSendDocumentUrl({
+        document: url,
+        caption: label,
+        reply_to_message_id: replyToId,
+      });
+      if (!r2?.ok) console.error("Failed to send photo/document for:", url);
+      return r2;
+    } else {
+      // URL local/private -> tải về rồi upload file
+      try {
+        const { buffer, filename } = await fetchImageAsBuffer(url);
+        const r = await tgSendPhotoFile({
+          buffer,
+          filename,
+          caption: label,
+          reply_to_message_id: replyToId,
+        });
+        if (r?.ok) return r;
+        const r2 = await tgSendDocumentFile({
+          buffer,
+          filename,
+          caption: label,
+          reply_to_message_id: replyToId,
+        });
+        if (!r2?.ok)
+          console.error("Failed to send photo/document(file) for:", url);
+        return r2;
+      } catch (e) {
+        console.error("sendOnePhoto(local) error:", e?.message);
+      }
     }
-    return r2;
   }
 
-  // Gửi mặt trước rồi mặt sau (nếu có)
-  if (frontUrl) {
-    await sendOnePhoto(frontUrl, "CCCD - Mặt trước");
-  }
-  if (backUrl) {
-    await sendOnePhoto(backUrl, "CCCD - Mặt sau");
-  }
+  if (frontUrl) await sendOnePhoto(frontUrl, "CCCD - Mặt trước");
+  if (backUrl) await sendOnePhoto(backUrl, "CCCD - Mặt sau");
 }
 
 // (tuỳ chọn) Thông báo khi duyệt/từ chối
@@ -166,12 +597,12 @@ export async function notifyKycReviewed(user, action) {
   const tag = map[action] || action;
   const text = [
     `🔔 <b>Kết quả KYC</b>: ${tag}`,
-    `👤 ${user?.name || "—"}${
-      user?.nickname ? " (" + user.nickname + ")" : ""
+    `👤 ${escapeHtml(user?.name || "—")}${
+      user?.nickname ? " (" + escapeHtml(user.nickname) + ")" : ""
     }`,
-    user?.email ? `✉️ ${user.email}` : "",
-    user?.phone ? `📞 ${user.phone}` : "",
-    user?.cccd ? `🪪 ${user.cccd}` : "",
+    user?.email ? `✉️ ${escapeHtml(user.email)}` : "",
+    user?.phone ? `📞 ${escapeHtml(user.phone)}` : "",
+    user?.cccd ? `🪪 ${escapeHtml(user.cccd)}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -179,7 +610,6 @@ export async function notifyKycReviewed(user, action) {
 }
 
 // ---------------- Register callback buttons ----------------
-// KHÔNG xoá nút sau khi bấm; Idempotent nếu bấm lại.
 export function registerKycReviewButtons(
   bot,
   { UserModel, onAfterReview } = {}
@@ -196,17 +626,18 @@ export function registerKycReviewButtons(
         return ctx.answerCbQuery("Callback không hợp lệ.");
       }
 
-      // ⚠️ Nếu dự án của bạn dùng models/User.js, nên sửa path dưới đây cho đúng:
-      const UM =
-        UserModel || (await import("../../models/userModel")).default; // <- chỉnh path nếu cần
-      const user = await UM.findById(userId).select("_id cccdStatus verified name nickname email phone cccd").lean();
+      const UM = UserModel || (await import("../../models/userModel")).default; // <- chỉnh path nếu cần
+      const user = await UM.findById(userId)
+        .select("_id cccdStatus verified name nickname email phone cccd")
+        .lean();
 
       if (!user) {
-        await ctx.answerCbQuery("Không tìm thấy người dùng.", { show_alert: true });
+        await ctx.answerCbQuery("Không tìm thấy người dùng.", {
+          show_alert: true,
+        });
         return;
       }
 
-      // Idempotent
       if (user.cccdStatus === "verified" && action === "approve") {
         await ctx.answerCbQuery("Đã duyệt trước đó ✅");
         return;
@@ -216,7 +647,6 @@ export function registerKycReviewButtons(
         return;
       }
 
-      // Cập nhật trạng thái (duyệt -> set cả verified tổng)
       const $set =
         action === "approve"
           ? { cccdStatus: "verified", verified: "verified" }
@@ -233,7 +663,6 @@ export function registerKycReviewButtons(
         return;
       }
 
-      // Gửi push qua app (bọc try/catch riêng, tránh ảnh hưởng trải nghiệm Telegram)
       try {
         if (action === "approve") {
           await publishNotification(EVENTS.KYC_APPROVED, {
@@ -257,7 +686,6 @@ export function registerKycReviewButtons(
         console.error("[kycBot] publishNotification error:", err?.message);
       }
 
-      // Thông báo trong Telegram group
       try {
         await ctx.answerCbQuery(
           action === "approve" ? "Đã duyệt ✅" : "Đã từ chối ❌"
@@ -267,7 +695,6 @@ export function registerKycReviewButtons(
         console.error("[kycBot] telegram notify error:", err?.message);
       }
 
-      // Hook sau khi duyệt (tuỳ chọn)
       if (typeof onAfterReview === "function") {
         try {
           await onAfterReview({ user: updated, action, reviewer: ctx.from });

@@ -751,19 +751,16 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     incoming.bankShortName = String(incoming.bankShortName || "").trim();
   }
   if (Object.prototype.hasOwnProperty.call(incoming, "bankAccountNumber")) {
-    // chỉ giữ digits; để trống nếu null/undefined
     incoming.bankAccountNumber = String(
       incoming.bankAccountNumber || ""
     ).replace(/\D/g, "");
   }
   if (Object.prototype.hasOwnProperty.call(incoming, "bankAccountName")) {
-    // trim & gom khoảng trắng
     incoming.bankAccountName = String(incoming.bankAccountName || "")
       .replace(/\s+/g, " ")
       .trim();
   }
   if (Object.prototype.hasOwnProperty.call(incoming, "registrationFee")) {
-    // chấp nhận số/chuỗi; loại dấu phẩy/ký tự khác; không âm; làm tròn xuống
     const raw = String(incoming.registrationFee ?? "").replace(/[^0-9.-]/g, "");
     const fee = Number(raw);
     incoming.registrationFee =
@@ -786,8 +783,8 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
   }
   if (payload._meta) delete payload._meta;
 
-  // Update chính (bật runValidators để áp schema rules bank/STK/fee)
-  const t = await Tournament.findByIdAndUpdate(
+  // Update chính
+  let t = await Tournament.findByIdAndUpdate(
     req.params.id,
     { $set: payload },
     { new: true, runValidators: true, context: "query" }
@@ -798,108 +795,153 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     throw new Error("Tournament not found");
   }
 
-  // Cascade noRankDelta (đồng bộ)
-  if (
-    Object.prototype.hasOwnProperty.call(payload, "noRankDelta") &&
-    payload.noRankDelta === true
-  ) {
-    try {
-      await Bracket.updateMany(
-        { tournament: t._id },
-        { $set: { noRankDelta: true } }
-      );
-    } catch (e) {
-      console.log("Failed to cascade noRankDelta to brackets:", e);
+  // === NEW: Auto-derive status theo thời gian ===
+  // Dùng timezone của giải, so sánh bao gồm biên:
+  // - now < start  => upcoming
+  // - start <= now <= end => ongoing
+  // - now > end   => finished (+ finishedAt = now)
+  (function autoDeriveStatus() {
+    const tz = t.timezone || "Asia/Ho_Chi_Minh";
+    const now = DateTime.now().setZone(tz);
+    const start = t.startDate
+      ? DateTime.fromJSDate(t.startDate).setZone(tz)
+      : null;
+    const end = t.endDate ? DateTime.fromJSDate(t.endDate).setZone(tz) : null;
+
+    let nextStatus = t.status;
+    if (start && end) {
+      if (now < start) nextStatus = "upcoming";
+      else if (now > end) nextStatus = "finished";
+      else nextStatus = "ongoing";
+    } else if (start) {
+      nextStatus = now >= start ? "ongoing" : "upcoming";
+    } else if (end) {
+      nextStatus = now <= end ? "ongoing" : "finished";
     }
-  }
 
-  // ✅ Trả về ngay
-  res.json(t);
+    const shouldSetFinishedAt = nextStatus === "finished";
+    const finishedAt = shouldSetFinishedAt ? now.toJSDate() : null;
 
-  // ---- Tác vụ nền (không await) ----
-
-  // 1) Lên lịch đếm ngược
-  setImmediate(() => {
-    scheduleTournamentCountdown(t).catch((e) => {
-      console.error(
-        "[adminUpdateTournament] scheduleTournamentCountdown failed:",
-        e?.message || e,
-        { tournamentId: String(t._id) }
+    // Chỉ patch nếu khác hiện tại (tránh update thừa)
+    if (
+      nextStatus !== t.status ||
+      (shouldSetFinishedAt && !t.finishedAt) ||
+      (!shouldSetFinishedAt && t.finishedAt)
+    ) {
+      // Cập nhật vào DB và object trả về
+      // (không đụng tới start/end, chỉ status & finishedAt)
+      // Lưu ý: updateOne nhanh, không kích hoạt vòng recomputeUTC
+      // vì không thay đổi mốc thời gian.
+      // Nếu muốn bật hooks, có thể dùng findByIdAndUpdate.
+      t.status = nextStatus;
+      t.finishedAt = finishedAt;
+      // đồng bộ DB (không await cũng được, nhưng để chắc chắn response nhất quán thì await)
+      // nếu muốn tối ưu latency có thể bỏ await.
+      // Ở đây mình giữ await để res.json phản ánh đúng.
+      return Tournament.updateOne(
+        { _id: t._id },
+        { $set: { status: nextStatus, finishedAt } }
       );
-    });
-  });
-
-  // 2) Auto-create forum topic nếu chưa có (hoặc ép tạo)
-  const tele = t.tele || {};
-  const teleEnabled = tele.enabled !== false;
-  const hasTopic = !!tele.topicId;
-  const forceCreate =
-    String(req.query?.forceCreateTopic || "0").trim() === "1" ||
-    String(req.body?.forceCreateTopic || "0").trim() === "1";
-
-  if ((teleEnabled && !hasTopic) || forceCreate) {
-    const hubChatId = tele.hubChatId || process.env.TELEGRAM_HUB_CHAT_ID;
-    if (!hubChatId) {
+    }
+    return Promise.resolve();
+  })()
+    .catch((e) => {
       console.error(
-        "[adminUpdateTournament] Missing hubChatId for topic creation",
+        "[adminUpdateTournament] autoDeriveStatus failed:",
+        e?.message || e,
         {
           tournamentId: String(t._id),
-          hasTele: !!t.tele,
         }
       );
-    } else {
-      setImmediate(async () => {
-        try {
-          // ⚠️ DÙNG t.name
-          const topicId = await createForumTopic({
-            chatId: hubChatId,
-            name: t.name,
-          });
+    })
+    .finally(async () => {
+      // ✅ Trả về ngay (đã có status mới trong `t` nếu có đổi)
+      res.json(t);
 
-          let inviteLink = tele.inviteLink;
-          try {
-            inviteLink =
-              inviteLink ||
-              (await createInviteLink({ chatId: hubChatId, name: t.name }));
-          } catch (ie) {
-            console.error(
-              "[adminUpdateTournament] createInviteLink failed (non-fatal):",
-              ie?.message || ie,
-              { tournamentId: String(t._id) }
-            );
-          }
+      // ---- Tác vụ nền (không await) ----
 
-          await Tournament.updateOne(
-            { _id: t._id },
+      // 1) Lên lịch đếm ngược
+      setImmediate(() => {
+        scheduleTournamentCountdown(t).catch((e) => {
+          console.error(
+            "[adminUpdateTournament] scheduleTournamentCountdown failed:",
+            e?.message || e,
+            { tournamentId: String(t._id) }
+          );
+        });
+      });
+
+      // 2) Auto-create forum topic nếu cần
+      const tele = t.tele || {};
+      const teleEnabled = tele.enabled !== false;
+      const hasTopic = !!tele.topicId;
+      const forceCreate =
+        String(req.query?.forceCreateTopic || "0").trim() === "1" ||
+        String(req.body?.forceCreateTopic || "0").trim() === "1";
+
+      if ((teleEnabled && !hasTopic) || forceCreate) {
+        const hubChatId = tele.hubChatId || process.env.TELEGRAM_HUB_CHAT_ID;
+        if (!hubChatId) {
+          console.error(
+            "[adminUpdateTournament] Missing hubChatId for topic creation",
             {
-              $set: {
-                tele: {
-                  ...tele,
-                  hubChatId,
-                  topicId,
-                  inviteLink,
-                  enabled: teleEnabled,
-                },
-              },
+              tournamentId: String(t._id),
+              hasTele: !!t.tele,
             }
           );
+        } else {
+          setImmediate(async () => {
+            try {
+              const topicId = await createForumTopic({
+                chatId: hubChatId,
+                name: t.name,
+              });
 
-          console.log("[adminUpdateTournament] created forum topic", {
-            tournamentId: String(t._id),
-            topicId,
-            hubChatId,
-            name: t.name,
+              let inviteLink = tele.inviteLink;
+              try {
+                inviteLink =
+                  inviteLink ||
+                  (await createInviteLink({ chatId: hubChatId, name: t.name }));
+              } catch (ie) {
+                console.error(
+                  "[adminUpdateTournament] createInviteLink failed (non-fatal):",
+                  ie?.message || ie,
+                  { tournamentId: String(t._id) }
+                );
+              }
+
+              await Tournament.updateOne(
+                { _id: t._id },
+                {
+                  $set: {
+                    tele: {
+                      ...tele,
+                      hubChatId,
+                      topicId,
+                      inviteLink,
+                      enabled: teleEnabled,
+                    },
+                  },
+                }
+              );
+
+              console.log("[adminUpdateTournament] created forum topic", {
+                tournamentId: String(t._id),
+                topicId,
+                hubChatId,
+                name: t.name,
+              });
+            } catch (e) {
+              console.error(
+                "[adminUpdateTournament] ensure topic failed:",
+                e?.message || e,
+                { tournamentId: String(t._id), name: t.name }
+              );
+            }
           });
-        } catch (e) {
-          console.error(
-            "[adminUpdateTournament] ensure topic failed:",
-            e?.message || e,
-            { tournamentId: String(t._id), name: t.name }
-          );
         }
-      });
-    }
-  }
+      }
+    });
 });
 
 export const getTournamentById = expressAsyncHandler(async (req, res) => {

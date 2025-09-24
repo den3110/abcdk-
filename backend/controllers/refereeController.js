@@ -1003,7 +1003,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     const pipeline = [
       { $match: { $and: andClauses } },
 
-      // Chuẩn hoá & bucket theo status (ưu tiên theo: live→assigned→queued→scheduled→finished)
+      // Chuẩn hoá & bucket theo status
       {
         $addFields: {
           normalizedStatus: {
@@ -1052,7 +1052,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      // Lấy stage/type để sort theo bracket và xác định group vs KO/PO/double
+      // Lấy stage/type để sort theo bracket
       {
         $lookup: {
           from: "brackets",
@@ -1178,7 +1178,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      // === SORT: ưu tiên STATUS trước → rồi bracket(stage) → mã trận
+      // SORT: status → stage → mã
       {
         $sort: {
           _bucketPrio: 1,
@@ -1270,7 +1270,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      // groupCtx cho bảng (giữ nguyên để trả về groupKey / codeGroup như cũ)
+      // groupCtx cho bảng
       {
         $addFields: {
           _groupCtx: {
@@ -1399,7 +1399,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      // populate Registration A/B (giữ nguyên)
+      // populate Registration A/B
       {
         $lookup: {
           from: "registrations",
@@ -1454,7 +1454,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       },
       { $unwind: { path: "$pairBReg", preserveNullAndEmptyArrays: true } },
 
-      /* === lookup User để fallback nickname (giữ nguyên) === */
+      // lookup User để fallback nickname
       {
         $lookup: {
           from: "users",
@@ -1513,7 +1513,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      // Project kết quả (y nguyên cấu trúc)
+      // Project kết quả cơ bản
       {
         $project: {
           _id: 0,
@@ -1526,7 +1526,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                 _id: "$$it._id",
                 code: "$$it.code",
                 codeGroup: "$$it.codeGroup",
-                codeResolved: { $ifNull: ["$$it.codeGroup", "$$it.code"] },
+                codeResolved: { $ifNull: ["$$it.codeGroup", "$$it.code"] }, // sẽ ghi đè ở Node với KO/PO
                 labelKey: "$$it.labelKey",
                 status: "$$it.status",
                 sortBucket: "$$it._bucketLabel",
@@ -1611,8 +1611,159 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     const items = result[0]?.items || [];
     const total = result[0]?.total || 0;
 
+    // =======================
+    // TÍNH VÒNG CHUẨN (globalRound/globalCode) CHO KO/PO
+    // =======================
+    // Lấy toàn bộ brackets của giải để cộng dồn số vòng
+    const allBrackets = await Bracket.find({ tournament: tid })
+      .select(
+        "_id tournament type stage order prefill ko meta config drawRounds"
+      )
+      .lean();
+
+    // Lấy max(round) quan sát được cho mỗi bracket
+    const maxRoundByBracket = new Map();
+    await Promise.all(
+      allBrackets.map(async (b) => {
+        const doc = await Match.findOne({ bracket: b._id })
+          .sort({ round: -1 })
+          .select("round")
+          .lean();
+        maxRoundByBracket.set(String(b._id), Number(doc?.round) || 0);
+      })
+    );
+
+    const teamsFromRoundKey = (k) => {
+      if (!k) return 0;
+      const up = String(k).toUpperCase();
+      if (up === "F") return 2;
+      if (up === "SF") return 4;
+      if (up === "QF") return 8;
+      const m = /^R(\d+)$/i.exec(up);
+      return m ? parseInt(m[1], 10) : 0;
+    };
+    const ceilPow2 = (n) =>
+      Math.pow(2, Math.ceil(Math.log2(Math.max(1, n || 1))));
+    const readBracketScale = (br) => {
+      const fromKey =
+        teamsFromRoundKey(br?.ko?.startKey) ||
+        teamsFromRoundKey(br?.prefill?.roundKey);
+      const fromPrefillPairs = Array.isArray(br?.prefill?.pairs)
+        ? br.prefill.pairs.length * 2
+        : 0;
+      const fromPrefillSeeds = Array.isArray(br?.prefill?.seeds)
+        ? br.prefill.seeds.length * 2
+        : 0;
+      const cands = [
+        br?.drawScale,
+        br?.targetScale,
+        br?.maxSlots,
+        br?.capacity,
+        br?.size,
+        br?.scale,
+        br?.meta?.drawSize,
+        br?.meta?.scale,
+        fromKey,
+        fromPrefillPairs,
+        fromPrefillSeeds,
+      ]
+        .map(Number)
+        .filter((x) => Number.isFinite(x) && x >= 2);
+      if (!cands.length) return 0;
+      return ceilPow2(Math.max(...cands));
+    };
+
+    const roundsCountForBracket = (br) => {
+      const type = String(br?.type || "").toLowerCase();
+      const bid = String(br?._id || "");
+      if (!bid) return 1;
+
+      if (type === "group" || type === "roundrobin") return 1;
+
+      if (type === "roundelim" || type === "po") {
+        let k =
+          Number(br?.meta?.maxRounds) ||
+          Number(br?.config?.roundElim?.maxRounds) ||
+          0;
+        if (!k) {
+          const rFromMatches = maxRoundByBracket.get(bid) || 0;
+          k = rFromMatches || 1;
+        }
+        return Math.max(1, k);
+      }
+
+      // knockout / ko
+      const rFromMatches = maxRoundByBracket.get(bid) || 0;
+      if (rFromMatches) return Math.max(1, rFromMatches);
+
+      const firstPairs =
+        (Array.isArray(br?.prefill?.seeds) && br.prefill.seeds.length) ||
+        (Array.isArray(br?.prefill?.pairs) && br.prefill.pairs.length) ||
+        0;
+      if (firstPairs > 0) return Math.ceil(Math.log2(firstPairs * 2));
+
+      const scale = readBracketScale(br);
+      if (scale) return Math.ceil(Math.log2(scale));
+
+      const drawRounds = Number(br?.drawRounds || 0);
+      if (drawRounds) return Math.max(1, drawRounds);
+
+      return 1;
+    };
+
+    // Sắp xếp bracket theo order ↑, stage ↑ rồi cộng dồn
+    const sortedBrs = allBrackets.slice().sort((a, b) => {
+      const ao = Number.isFinite(a?.order) ? a.order : 9999;
+      const bo = Number.isFinite(b?.order) ? b.order : 9999;
+      if (ao !== bo) return ao - bo;
+      const as = Number.isFinite(a?.stage) ? a.stage : 9999;
+      const bs = Number.isFinite(b?.stage) ? b.stage : 9999;
+      if (as !== bs) return as - bs;
+      return String(a._id).localeCompare(String(b._id));
+    });
+
+    const offsetByBracket = new Map();
+    let acc = 0;
+    for (const b of sortedBrs) {
+      offsetByBracket.set(String(b._id), acc);
+      acc += roundsCountForBracket(b);
+    }
+
+    // Map kết quả: group giữ nguyên codeGroup; KO/PO dùng global V…
+    const mapped = items.map((it) => {
+      const br = it.bracket || {};
+      const bid = String(br?._id || "");
+      const t = String(br?.type || "").toLowerCase();
+
+      if (t === "group" || t === "roundrobin") {
+        const base = (offsetByBracket.get(bid) || 0) + 1;
+        return {
+          ...it,
+          globalRound: base, // optional cho FE
+          globalCode: null, // không dùng cho vòng bảng
+          codeResolved: it.codeGroup || it.code || null, // giữ nguyên
+        };
+      }
+
+      const base = offsetByBracket.get(bid) || 0;
+      const local = Number.isFinite(Number(it?.round)) ? Number(it.round) : 1;
+      const globalRound = base + local;
+      const tIdx = Number.isFinite(Number(it?.order))
+        ? Number(it.order) + 1
+        : null;
+      const globalCode = `V${globalRound}${tIdx ? `-T${tIdx}` : ""}`;
+
+      return {
+        ...it,
+        globalRound,
+        globalCode,
+        codeResolved: globalCode,
+        code: globalCode,
+      };
+    });
+
     res.json({
-      items,
+      items: mapped,
       total,
       page: p,
       pageSize: ps,

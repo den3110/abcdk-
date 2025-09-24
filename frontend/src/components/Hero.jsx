@@ -10,8 +10,6 @@ import {
 } from "../slices/cmsApiSlice";
 
 const fallbackImg = `${import.meta.env.BASE_URL}hero.jpg`;
-
-// 👉 đường dẫn ảnh badge cục bộ (đặt file vào public/badges/*)
 const APPSTORE_BADGE = `${import.meta.env.BASE_URL}app-store-badge.svg`;
 const PLAY_BADGE = `${import.meta.env.BASE_URL}google-play-badge.svg`;
 
@@ -38,7 +36,13 @@ const CONTACT_FALLBACK = {
     youtube: "https://youtube.com",
     zalo: "#",
   },
-  apps: { appStore: "", playStore: "" },
+  apps: {
+    appStore: "",
+    playStore: "",
+    // thêm 2 field APK
+    apkPickleTour: "",
+    apkReferee: "",
+  },
 };
 
 const SkeletonBar = ({ w = "100%", h = 20, r = 8, style = {} }) => (
@@ -53,7 +57,7 @@ const SkeletonBar = ({ w = "100%", h = 20, r = 8, style = {} }) => (
   />
 );
 
-// Icon SVG nội bộ
+// Icon helper
 const Icon = ({ path, size = 18, className = "" }) => (
   <svg
     width={size}
@@ -69,7 +73,6 @@ const Icon = ({ path, size = 18, className = "" }) => (
     {path}
   </svg>
 );
-
 const ILocation = (props) => (
   <Icon
     {...props}
@@ -129,6 +132,18 @@ const IChat = (props) => (
     }
   />
 );
+const IDownload = (props) => (
+  <Icon
+    {...props}
+    path={
+      <>
+        <path d="M12 3v12" />
+        <path d="m8 11 4 4 4-4" />
+        <path d="M6 19h12" />
+      </>
+    }
+  />
+);
 
 const ContactSkeleton = () => (
   <Card className="shadow-sm rounded-4 border-0">
@@ -161,7 +176,6 @@ const Hero = () => {
   const isLoggedIn = !!userInfo;
   const userId = userInfo?._id || userInfo?.id;
 
-  // Hero content
   const { data: latest, isFetching } = useGetLatestAssessmentQuery(userId, {
     skip: !userId,
   });
@@ -194,7 +208,6 @@ const Hero = () => {
   const needKyc =
     isLoggedIn && (userInfo?.cccdStatus || "unverified") !== "verified";
 
-  // Contact content
   const {
     data: contactRes,
     isLoading: contactLoading,
@@ -209,6 +222,8 @@ const Hero = () => {
 
   const hasAppStore = !!contactInfo?.apps?.appStore;
   const hasPlayStore = !!contactInfo?.apps?.playStore;
+  const hasApkPickleTour = !!contactInfo?.apps?.apkPickleTour;
+  const hasApkReferee = !!contactInfo?.apps?.apkReferee;
 
   return (
     <>
@@ -457,46 +472,84 @@ const Hero = () => {
                       )}
                     </div>
 
-                    {/* Tải ứng dụng — dùng badge ảnh chuẩn */}
-                    {(hasAppStore || hasPlayStore) && (
+                    {(hasAppStore ||
+                      hasPlayStore ||
+                      hasApkPickleTour ||
+                      hasApkReferee) && (
                       <div>
                         <h6 className="fw-semibold mb-2">Tải ứng dụng</h6>
-                        <div className="d-flex flex-column gap-2">
-                          {hasAppStore && (
-                            <a
-                              href={contactInfo.apps.appStore}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="d-inline-block"
-                              aria-label="Tải trên App Store"
-                            >
-                              <img
-                                src={APPSTORE_BADGE}
-                                alt="Download on the App Store"
-                                height={40}
-                                style={{ display: "block" }}
-                                loading="lazy"
-                              />
-                            </a>
-                          )}
-                          {hasPlayStore && (
-                            <a
-                              href={contactInfo.apps.playStore}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="d-inline-block"
-                              aria-label="Tải trên Google Play"
-                            >
-                              <img
-                                src={PLAY_BADGE}
-                                alt="Get it on Google Play"
-                                height={40}
-                                style={{ display: "block" }}
-                                loading="lazy"
-                              />
-                            </a>
-                          )}
-                        </div>
+
+                        {(hasAppStore || hasPlayStore) && (
+                          <div className="d-flex flex-column gap-2 mb-2">
+                            {hasAppStore && (
+                              <a
+                                href={contactInfo.apps.appStore}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="d-inline-block"
+                                aria-label="Tải trên App Store"
+                              >
+                                <img
+                                  src={APPSTORE_BADGE}
+                                  alt="Download on the App Store"
+                                  height={40}
+                                  style={{ display: "block" }}
+                                  loading="lazy"
+                                />
+                              </a>
+                            )}
+                            {hasPlayStore && (
+                              <a
+                                href={contactInfo.apps.playStore}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="d-inline-block"
+                                aria-label="Tải trên Google Play"
+                              >
+                                <img
+                                  src={PLAY_BADGE}
+                                  alt="Get it on Google Play"
+                                  height={40}
+                                  style={{ display: "block" }}
+                                  loading="lazy"
+                                />
+                              </a>
+                            )}
+                          </div>
+                        )}
+
+                        {/* APK download (sideload) — dùng <a download> để ép tải */}
+                        {(hasApkPickleTour || hasApkReferee) && (
+                          <>
+                            <div className="text-muted small mb-2">
+                              Tải trực tiếp (APK)
+                            </div>
+                            <div className="d-flex flex-column gap-2">
+                              {hasApkPickleTour && (
+                                <a
+                                  href={contactInfo.apps.apkPickleTour}
+                                  download="PickleTour.apk"
+                                  className="btn btn-dark d-inline-flex align-items-center gap-2"
+                                  type="application/vnd.android.package-archive"
+                                  aria-label="Tải APK PickleTour"
+                                >
+                                  <IDownload /> APK PickleTour
+                                </a>
+                              )}
+                              {hasApkReferee && (
+                                <a
+                                  href={contactInfo.apps.apkReferee}
+                                  download="Referee.apk"
+                                  className="btn btn-dark d-inline-flex align-items-center gap-2"
+                                  type="application/vnd.android.package-archive"
+                                  aria-label="Tải APK Trọng tài"
+                                >
+                                  <IDownload /> APK Trọng tài
+                                </a>
+                              )}
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
                   </Col>

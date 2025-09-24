@@ -280,6 +280,145 @@ export const authUserWeb = asyncHandler(async (req, res) => {
 // @desc    Register a new user
 // @route   POST /api/users
 // @access  Public
+
+// ==== Helpers: Registration gate + Client context ====
+
+// Cache 10s để giảm hit DB
+let __regCache = { ts: 0, open: true };
+const REG_TTL_MS = 10_000;
+
+async function isRegistrationOpen() {
+  const now = Date.now();
+  if (now - __regCache.ts < REG_TTL_MS) return __regCache.open;
+
+  try {
+    const Sys = (await import("../models/systemSettingsModel.js")).default;
+    const s = (await Sys.findById("system").lean()) || {};
+    __regCache = {
+      ts: now,
+      open: s?.registration?.open !== false, // default: true
+    };
+  } catch {
+    __regCache = { ts: now, open: true };
+  }
+  return __regCache.open;
+}
+
+// Lấy IP client (ưu tiên chuỗi X-Forwarded-For)
+function getIpInfo(req) {
+  const xff = (req.headers["x-forwarded-for"] || "").toString();
+  const chain = xff
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const cf = req.headers["cf-connecting-ip"];
+  const xr = req.headers["x-real-ip"];
+  const ip =
+    chain[0] ||
+    (typeof cf === "string" ? cf : "") ||
+    (typeof xr === "string" ? xr : "") ||
+    req.ip ||
+    (req.socket && req.socket.remoteAddress) ||
+    "";
+  return { ip, xffChain: chain };
+}
+
+// Rất gọn: đoán platform/web/app & thông tin thiết bị từ UA + header tuỳ chọn
+function parseUserAgent(ua = "") {
+  ua = String(ua || "");
+  const isMobile = /Mobile|iPhone|Android|iPad|iPod|Windows Phone/i.test(ua);
+  const isTablet = /iPad|Tablet/i.test(ua);
+  const deviceType = isTablet ? "tablet" : isMobile ? "mobile" : "desktop";
+
+  let os = "Unknown";
+  if (/Windows NT/i.test(ua)) os = "Windows";
+  else if (/Android/i.test(ua)) os = "Android";
+  else if (/(iPhone|iPad|iPod|iOS)/i.test(ua)) os = "iOS";
+  else if (/Mac OS X|Macintosh/i.test(ua)) os = "macOS";
+  else if (/Linux/i.test(ua)) os = "Linux";
+
+  let browser = "Unknown";
+  if (/Edg\//i.test(ua)) browser = "Edge";
+  else if (/Chrome\/|CriOS\//i.test(ua)) browser = "Chrome";
+  else if (/Safari\//i.test(ua) && !/Chrome|CriOS/i.test(ua))
+    browser = "Safari";
+  else if (/Firefox\//i.test(ua)) browser = "Firefox";
+
+  // đoán model đơn giản
+  let model = "";
+  const mAndroid = ua.match(/; ?([A-Z0-9\-_ ]+ Build)/i);
+  if (mAndroid) model = mAndroid[1].replace(/ Build$/i, "");
+  const mIOS = ua.match(/\((iPhone|iPad|iPod)[^)]+\)/i);
+  if (!model && mIOS) model = mIOS[1];
+
+  return { deviceType, os, browser, model, ua };
+}
+
+function extractClientContext(req) {
+  const { ip, xffChain } = getIpInfo(req);
+  const ua = String(req.headers["user-agent"] || "");
+  const info = parseUserAgent(ua);
+
+  // platform: ưu tiên header app, fallback theo UA
+  const hp = (
+    req.headers["x-client-platform"] ||
+    req.headers["x-platform"] ||
+    ""
+  )
+    .toString()
+    .toLowerCase();
+  let platform =
+    hp ||
+    (/(okhttp|CFNetwork|Darwin|cordova|wkp|flutter)/i.test(ua) ? "app" : "web");
+
+  const appVersion = (
+    req.headers["x-app-version"] ||
+    req.headers["x-build"] ||
+    ""
+  ).toString();
+  const deviceModel =
+    (req.headers["x-device-model"] || "").toString() || info.model;
+
+  // nguồn web
+  const referer = (req.headers["referer"] || "").toString();
+  const origin = (req.headers["origin"] || "").toString();
+
+  // địa lý từ header CDN (nếu có)
+  const country = (
+    req.headers["x-vercel-ip-country"] ||
+    req.headers["cf-ipcountry"] ||
+    ""
+  ).toString();
+  const city = (req.headers["x-vercel-ip-city"] || "").toString();
+  const lat = (req.headers["x-vercel-ip-latitude"] || "").toString();
+  const lon = (req.headers["x-vercel-ip-longitude"] || "").toString();
+
+  return {
+    platform, // "web" | "app"
+    appVersion,
+    device: {
+      type: info.deviceType,
+      os: info.os,
+      browser: info.browser,
+      model: deviceModel,
+      ua: info.ua,
+    },
+    web: { referer, origin },
+    ip: { client: ip, chain: xffChain },
+    geo: { country, city, latitude: lat, longitude: lon },
+  };
+}
+
+// Giả định bạn đã import đủ: mongoose, jwt, asyncHandler, User, Ranking,
+// generateToken, notifyNewKyc, notifyNewUser
+// và đã có sẵn 2 helper:
+//   - isRegistrationOpen(): Promise<boolean>
+//   - extractClientContext(req): { platform, appVersion, device, web, ip, geo }
+
+// Giả định đã import: mongoose, jwt, asyncHandler, User, Ranking,
+// generateToken, notifyNewKyc, notifyNewUser
+// Helpers có sẵn: isRegistrationOpen(), extractClientContext(req)
+
 const registerUser = asyncHandler(async (req, res) => {
   // ===== Nhận & chuẩn hoá đầu vào =====
   let {
@@ -293,7 +432,7 @@ const registerUser = asyncHandler(async (req, res) => {
     avatar,
     province,
     gender,
-    cccdImages, // 👈 nhận thêm
+    cccdImages, // object hoặc JSON string
   } = req.body || {};
 
   const normStr = (v) => (typeof v === "string" ? v.trim() : v);
@@ -404,6 +543,13 @@ const registerUser = asyncHandler(async (req, res) => {
     });
   }
 
+  // 🚪 GATE: cho phép/không cho phép đăng ký (áp dụng NEW signup)
+  const regOpen = await isRegistrationOpen();
+  if (!regOpen) {
+    res.status(403);
+    throw new Error("Đăng ký đang tạm đóng");
+  }
+
   // ===== VALIDATION bắt buộc tối thiểu =====
   if (!nickname) {
     res.status(400);
@@ -475,17 +621,20 @@ const registerUser = asyncHandler(async (req, res) => {
     }
   }
 
-  // ✅ YÊU CẦU: nếu đã gửi CCCD thì BẮT BUỘC phải có đủ 2 ảnh
+  // ✅ Nếu đã gửi CCCD thì BẮT BUỘC phải có đủ 2 ảnh
   if (cccd) {
     if (!hasBothCccdImages) {
       res.status(400);
       throw new Error("Cần cung cấp đủ 2 ảnh CCCD (mặt trước và mặt sau)");
     }
   } else {
-    // Không có CCCD → bỏ qua ảnh nếu lỡ gửi (không ảnh hưởng luồng khác)
+    // Không có CCCD → bỏ ảnh nếu có
     cccdFront = "";
     cccdBack = "";
   }
+
+  // Thu thập ngữ cảnh đăng ký (nền tảng, thiết bị, IP, geo, nguồn)
+  const signupCtx = extractClientContext(req);
 
   // ===== Transaction tạo user + ranking =====
   const session = await mongoose.startSession();
@@ -496,24 +645,20 @@ const registerUser = asyncHandler(async (req, res) => {
         nickname,
         password, // pre-save hook sẽ hash
         avatar: avatar || "",
+        signupMeta: signupCtx, // ⬅️ LƯU TRỰC TIẾP VÀO MODEL USER
       };
       if (email) doc.email = email;
       if (phone) doc.phone = phone;
       if (name) doc.name = name;
-      if (dob) doc.dob = dob;
+      if (dob) doc.dob = dob; // cast sang Date bởi mongoose
       if (province) doc.province = province;
       if (gender) doc.gender = gender || "unspecified";
 
       if (cccd) {
         doc.cccd = cccd;
-        // đủ 2 ảnh → pending + lưu ảnh
-        doc.cccdImages = {
-          front: cccdFront || "",
-          back: cccdBack || "",
-        };
+        doc.cccdImages = { front: cccdFront || "", back: cccdBack || "" };
         doc.cccdStatus = "pending";
       }
-      // nếu không có CCCD: giữ mặc định schema (unverified, images rỗng)
 
       const created = await User.create([doc], { session });
       user = created[0];
@@ -557,9 +702,9 @@ const registerUser = asyncHandler(async (req, res) => {
       { expiresIn: "30d" }
     );
 
-    // 🔔 Chỉ notify khi có CCCD + đủ ảnh (mặt trước & sau)
+    // 🔔 Notify KYC nếu có đủ ảnh CCCD
     if (user?.cccd && user?.cccdImages?.front && user?.cccdImages?.back) {
-      const actor = user; // route public nên fallback sang user mới tạo
+      const actor = user;
       notifyNewKyc(actor).catch((e) =>
         console.error("Telegram notify error:", e)
       );
@@ -567,7 +712,7 @@ const registerUser = asyncHandler(async (req, res) => {
     try {
       notifyNewUser({ user });
     } catch (error) {
-      console.log("[notifyNewUser] error:", e?.message || e);
+      console.log("[notifyNewUser] error:", error?.message || error);
     }
 
     res.status(201).json({
@@ -580,10 +725,12 @@ const registerUser = asyncHandler(async (req, res) => {
       avatar: user.avatar || "",
       cccd: user.cccd || "",
       cccdStatus: user.cccdStatus || "unverified",
-      cccdImages: user.cccdImages || { front: "", back: "" }, // trả kèm
+      cccdImages: user.cccdImages || { front: "", back: "" },
       province: user.province || "",
       gender: user.gender || "unspecified",
       token,
+      // Nếu cần trả kèm tóm tắt nền tảng:
+      // signup: { platform: signupCtx.platform, device: signupCtx.device, ip: signupCtx.ip, geo: signupCtx.geo },
     });
   } catch (err) {
     if (err?.code === 11000) {

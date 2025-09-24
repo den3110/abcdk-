@@ -5,6 +5,66 @@ import UserLogin from "./userLoginModel.js"; // dùng để proxy recordLogin
 
 const ALLOWED_SPORTS = ["pickleball", "tennis"];
 
+/* ---------- Signup meta (nền tảng đăng ký) ---------- */
+const SignupDeviceSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: ["mobile", "tablet", "desktop", "unknown"],
+      default: "unknown",
+    },
+    os: { type: String, default: "Unknown", trim: true },
+    browser: { type: String, default: "Unknown", trim: true },
+    model: { type: String, default: "", trim: true },
+    ua: { type: String, default: "", trim: true },
+  },
+  { _id: false }
+);
+
+const SignupWebSchema = new mongoose.Schema(
+  {
+    referer: { type: String, default: "", trim: true },
+    origin: { type: String, default: "", trim: true },
+  },
+  { _id: false }
+);
+
+const SignupIpSchema = new mongoose.Schema(
+  {
+    client: { type: String, default: "", trim: true },
+    chain: { type: [String], default: [] },
+  },
+  { _id: false }
+);
+
+const SignupGeoSchema = new mongoose.Schema(
+  {
+    country: { type: String, default: "", trim: true },
+    city: { type: String, default: "", trim: true },
+    latitude: { type: String, default: "", trim: true }, // để string cho an toàn parse từ header CDN
+    longitude: { type: String, default: "", trim: true },
+  },
+  { _id: false }
+);
+
+const SignupMetaSchema = new mongoose.Schema(
+  {
+    platform: {
+      type: String,
+      enum: ["web", "app", "unknown"],
+      default: "unknown",
+    },
+    appVersion: { type: String, default: "", trim: true },
+    device: { type: SignupDeviceSchema, default: () => ({}) },
+    web: { type: SignupWebSchema, default: () => ({}) },
+    ip: { type: SignupIpSchema, default: () => ({}) },
+    geo: { type: SignupGeoSchema, default: () => ({}) },
+    registeredAt: { type: Date, default: Date.now }, // thời điểm ghi nhận meta
+  },
+  { _id: false }
+);
+
+/* ---------- Evaluator ---------- */
 const EvaluatorSchema = new mongoose.Schema(
   {
     enabled: { type: Boolean, default: false },
@@ -81,6 +141,9 @@ const userSchema = new mongoose.Schema(
     /* ------- Năng lực chấm trình ------- */
     evaluator: { type: EvaluatorSchema, default: () => ({}) },
 
+    /* ------- Đăng ký: metadata nền tảng ------- */
+    signupMeta: { type: SignupMetaSchema, default: () => ({}) },
+
     // soft delete
     isDeleted: { type: Boolean, default: false, index: true },
     deletedAt: { type: Date },
@@ -107,8 +170,9 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
-/* ---------- Validate logic cho evaluator ---------- */
+/* ---------- Validate logic cho evaluator & signupMeta ---------- */
 userSchema.pre("validate", function (next) {
+  // Evaluator validation (giữ nguyên)
   if (this.role !== "admin" && this.evaluator?.enabled) {
     const provinces = Array.from(
       new Set(
@@ -136,6 +200,41 @@ userSchema.pre("validate", function (next) {
       ? sports
       : ["pickleball"];
   }
+
+  // Signup meta normalization
+  if (this.signupMeta) {
+    // platform
+    const allowedPlatforms = ["web", "app", "unknown"];
+    if (!allowedPlatforms.includes(this.signupMeta.platform)) {
+      this.signupMeta.platform = "unknown";
+    }
+
+    // device.type
+    const dt = this.signupMeta.device?.type;
+    const allowedTypes = ["mobile", "tablet", "desktop", "unknown"];
+    if (!allowedTypes.includes(dt)) {
+      this.signupMeta.device = this.signupMeta.device || {};
+      this.signupMeta.device.type = "unknown";
+    }
+
+    // cap độ dài UA để tránh document quá lớn (tuỳ chọn)
+    if (this.signupMeta.device?.ua && this.signupMeta.device.ua.length > 1024) {
+      this.signupMeta.device.ua = this.signupMeta.device.ua.slice(0, 1024);
+    }
+
+    // unique + lọc trống cho ip.chain
+    if (Array.isArray(this.signupMeta.ip?.chain)) {
+      const uniq = Array.from(
+        new Set(
+          this.signupMeta.ip.chain
+            .map((s) => String(s || "").trim())
+            .filter(Boolean)
+        )
+      );
+      this.signupMeta.ip.chain = uniq.slice(0, 20); // cắt bớt nếu chuỗi quá dài
+    }
+  }
+
   next();
 });
 
@@ -218,9 +317,14 @@ userSchema.index(
 );
 userSchema.index({ role: 1 }, { name: "idx_role" });
 
-/* ---------- (ĐÃ BỎ) index login khỏi User ----------
-userSchema.index({ lastLoginAt: -1 }, { name: "idx_last_login" });
-userSchema.index({ "loginHistory.at": -1 }, { name: "idx_login_at" });
-*/
+// 👇 Index phục vụ thống kê/loc đăng ký
+userSchema.index(
+  { "signupMeta.platform": 1, createdAt: -1 },
+  { name: "idx_signup_platform" }
+);
+userSchema.index(
+  { "signupMeta.ip.client": 1, createdAt: -1 },
+  { name: "idx_signup_ip" }
+);
 
 export default mongoose.model("User", userSchema);

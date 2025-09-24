@@ -106,7 +106,14 @@ import {
   getAdminBracketById,
   insertRegIntoGroupSlot,
 } from "../controllers/admin/adminBracketController.js";
-import { getUsersVersion, getVersionStats } from "../controllers/admin/adminVersions.route.js";
+import {
+  getUsersVersion,
+  getVersionStats,
+} from "../controllers/admin/adminVersions.route.js";
+import {
+  getSystemSettings,
+  updateSystemSettings,
+} from "../controllers/systemSettings.controller.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -543,5 +550,8 @@ router.get(
 
 router.get("/versions/stats", protect, authorize("admin"), getVersionStats);
 router.get("/versions/by-user", protect, authorize("admin"), getUsersVersion);
+
+router.get("/settings", protect, authorize("admin"), getSystemSettings);
+router.put("/settings", protect, authorize("admin"), updateSystemSettings);
 
 export default router;

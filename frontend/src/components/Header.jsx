@@ -1,8 +1,10 @@
 // src/components/Header.jsx
-import React, { useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { ArrowBackIosNew as BackIcon } from "@mui/icons-material";
+import { logout } from "../slices/authSlice";
+import { useLogoutMutation } from "../slices/usersApiSlice";
+
 import {
   AppBar,
   Toolbar,
@@ -16,15 +18,13 @@ import {
   Tooltip,
   useTheme,
   useMediaQuery,
-  Divider,
 } from "@mui/material";
+
 import {
-  Menu as MenuIcon,
+  ArrowBackIosNew as BackIcon,
   Login as LoginIcon,
   HowToReg as HowToRegIcon,
 } from "@mui/icons-material";
-import { useLogoutMutation } from "../slices/usersApiSlice";
-import { logout } from "../slices/authSlice";
 
 // Chỉ Pickleball
 const navConfig = [
@@ -39,15 +39,19 @@ const navConfig = [
 
 const Header = () => {
   const location = useLocation();
+  const navigate = useNavigate();
+  const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
   const isAdmin = userInfo?.role === "admin" || userInfo?.isAdmin === true;
-  const dispatch = useDispatch();
-  const navigate = useNavigate();
-  const [logoutApiCall] = useLogoutMutation();
-  const [canGoBack, setCanGoBack] = useState(false);
 
-  // Các tab gốc của MobileBottomNav – đứng ở các path này thì ẩn nút back
-  const BOTTOM_NAV_TABS = React.useMemo(
+  const [logoutApiCall] = useLogoutMutation();
+
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
+  // Điều hướng back cho mobile
+  const [canGoBack, setCanGoBack] = useState(false);
+  const BOTTOM_NAV_TABS = useMemo(
     () =>
       new Set([
         "/", // Trang chủ
@@ -59,20 +63,15 @@ const Header = () => {
     []
   );
   const isOnBottomNavTab = BOTTOM_NAV_TABS.has(location.pathname);
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
-  const [mobileAnchor, setMobileAnchor] = useState(null);
+  // Anchor cho menu user (chỉ desktop)
   const [userAnchor, setUserAnchor] = useState(null);
-
-  const openMobileMenu = (e) => setMobileAnchor(e.currentTarget);
-  const closeMobileMenu = () => setMobileAnchor(null);
-
   const openUserMenu = (e) => setUserAnchor(e.currentTarget);
   const closeUserMenu = () => setUserAnchor(null);
 
   const logoutHandler = async () => {
     try {
+      setUserAnchor(null); // đóng trước khi điều hướng
       await logoutApiCall().unwrap();
       dispatch(logout());
       navigate("/login");
@@ -81,25 +80,36 @@ const Header = () => {
     }
   };
 
-  React.useEffect(() => {
+  // Tính toán khả năng back mỗi lần đổi route
+  useEffect(() => {
     try {
       const st = window.history?.state;
       if (st && typeof st.idx === "number") {
         setCanGoBack(st.idx > 0);
       } else {
-        // referrer khác rỗng => có trang trước (kể cả từ ngoài app)
         setCanGoBack(Boolean(document.referrer));
       }
     } catch {
       setCanGoBack(false);
     }
-    // dùng location.key để update theo từng lần chuyển route
   }, [location.key]);
+
+  // Đóng user menu khi đổi route hoặc trạng thái đăng nhập thay đổi
+  useEffect(() => {
+    setUserAnchor(null);
+  }, [location.pathname, !!userInfo]);
+
+  const avatarInitial =
+    (userInfo?.name || userInfo?.nickname || userInfo?.email || "?")
+      .toString()
+      .trim()
+      .charAt(0)
+      .toUpperCase() || "?";
 
   return (
     <AppBar position="static" color="primary" elevation={2}>
       <Toolbar sx={{ px: { xs: 2, sm: 3 }, justifyContent: "space-between" }}>
-        {/* Logo + Nav */}
+        {/* Trái: Back (mobile) + Logo + Nav desktop */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
           {isMobile && canGoBack && !isOnBottomNavTab && (
             <IconButton
@@ -109,7 +119,6 @@ const Header = () => {
               sx={{
                 mr: 0.5,
                 color: "inherit",
-                // cảm giác iOS: hit area lớn, icon nhỏ gọn
                 p: 1,
                 "& .MuiSvgIcon-root": { fontSize: 18 },
               }}
@@ -117,6 +126,7 @@ const Header = () => {
               <BackIcon />
             </IconButton>
           )}
+
           <Typography
             variant="h6"
             component={Link}
@@ -141,13 +151,6 @@ const Header = () => {
                 </Button>
               ))}
 
-            {/* <Button
-              component={Link}
-              to="/contact"
-              sx={{ color: "white", textTransform: "none" }}
-            >
-              Liên hệ
-            </Button> */}
             {userInfo && (
               <Button
                 component={Link}
@@ -157,6 +160,7 @@ const Header = () => {
                 Giải của tôi
               </Button>
             )}
+
             {isAdmin && (
               <Button
                 component={Link}
@@ -169,39 +173,52 @@ const Header = () => {
           </Box>
         </Box>
 
-        {/* User controls */}
+        {/* Phải: User controls (desktop). Trên mobile: không hiển thị menu nào */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           {userInfo ? (
             <>
-              {/* ẨN avatar + dropdown của user trên mobile */}
+              {/* Avatar + dropdown (ẩn trên mobile) */}
               <Box sx={{ display: { xs: "none", md: "inline-flex" } }}>
                 <Tooltip title="Tài khoản">
-                  <IconButton onClick={openUserMenu} sx={{ p: 0 }}>
-                    <Avatar alt={userInfo.name} src={userInfo.avatar || ""}>
-                      {userInfo.name?.charAt(0).toUpperCase()}
+                  <IconButton
+                    onClick={openUserMenu}
+                    sx={{ p: 0 }}
+                    aria-haspopup="menu"
+                    aria-controls={
+                      Boolean(userAnchor) ? "user-menu" : undefined
+                    }
+                    aria-expanded={Boolean(userAnchor) ? "true" : undefined}
+                  >
+                    <Avatar alt={userInfo?.name} src={userInfo?.avatar || ""}>
+                      {avatarInitial}
                     </Avatar>
                   </IconButton>
                 </Tooltip>
               </Box>
 
-              <Menu
-                anchorEl={userAnchor}
-                open={Boolean(userAnchor)}
-                onClose={closeUserMenu}
-                anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-                transformOrigin={{ vertical: "top", horizontal: "right" }}
-              >
-                <MenuItem
-                  component={Link}
-                  to="/profile"
-                  onClick={closeUserMenu}
+              {/* Chỉ render Menu khi có anchor (tránh rơi về (0,0)) */}
+              {Boolean(userAnchor) && (
+                <Menu
+                  id="user-menu"
+                  anchorEl={userAnchor}
+                  open
+                  onClose={closeUserMenu}
+                  anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+                  transformOrigin={{ vertical: "top", horizontal: "right" }}
                 >
-                  Tài khoản của tôi
-                </MenuItem>
-                <MenuItem onClick={logoutHandler}>Đăng xuất</MenuItem>
-              </Menu>
+                  <MenuItem
+                    component={Link}
+                    to="/profile"
+                    onClick={closeUserMenu}
+                  >
+                    Tài khoản của tôi
+                  </MenuItem>
+                  <MenuItem onClick={logoutHandler}>Đăng xuất</MenuItem>
+                </Menu>
+              )}
             </>
           ) : (
+            // Nút đăng nhập/đăng ký (chỉ desktop)
             <Box sx={{ display: { xs: "none", md: "flex" }, gap: 1 }}>
               <Button
                 component={Link}
@@ -223,54 +240,9 @@ const Header = () => {
               </Button>
             </Box>
           )}
-
-          {/* Hamburger menu (mobile) */}
+          {/* ❌ Không có hamburger / mobile menu nữa */}
         </Box>
       </Toolbar>
-
-      {/* Mobile menu */}
-      <Menu
-        anchorEl={mobileAnchor}
-        open={Boolean(mobileAnchor)}
-        onClose={closeMobileMenu}
-        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-        transformOrigin={{ vertical: "top", horizontal: "left" }}
-        sx={{ display: { xs: "block", md: "none" } }}
-      >
-        {navConfig.map((item) => (
-          <Box key={item.label}>
-            <MenuItem disabled>{item.label}</MenuItem>
-            {item.submenu.map((sub) => (
-              <MenuItem
-                key={sub.path}
-                component={Link}
-                to={sub.path}
-                onClick={closeMobileMenu}
-                sx={{ pl: 4 }}
-              >
-                {sub.label}
-              </MenuItem>
-            ))}
-          </Box>
-        ))}
-        <Divider />
-        <MenuItem component={Link} to="/contact" onClick={closeMobileMenu}>
-          Liên hệ
-        </MenuItem>
-
-        {!userInfo && (
-          <>
-            <MenuItem component={Link} to="/login" onClick={closeMobileMenu}>
-              <LoginIcon fontSize="small" sx={{ mr: 1 }} />
-              Đăng nhập
-            </MenuItem>
-            <MenuItem component={Link} to="/register" onClick={closeMobileMenu}>
-              <HowToRegIcon fontSize="small" sx={{ mr: 1 }} />
-              Đăng ký
-            </MenuItem>
-          </>
-        )}
-      </Menu>
     </AppBar>
   );
 };

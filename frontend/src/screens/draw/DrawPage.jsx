@@ -1097,6 +1097,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
   reveals,
   targetInfo, // { groupCode, slotIndex } | null
 }) {
+  const HEADER_H = 52;
   // Bảng màu cơ bản + sinh màu vô hạn (không trùng) bằng golden-angle
   const pairPalette = useMemo(
     () => [
@@ -1136,6 +1137,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
   );
 
   const [deck, setDeck] = useState(initialDeck);
+
   const initialCountRef = useRef(initialDeck.length);
   useEffect(() => {
     if (open) {
@@ -1153,31 +1155,81 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
     h: 168,
     gap: 12,
   });
+
+  // bên trong CardDeckOverlay
+  const slots =
+    layout.slots || layout.rows * layout.cols || initialCountRef.current;
+
+  const displayDeck = useMemo(() => {
+    const N = deck.length;
+    if (N >= slots) return deck.slice(0, slots);
+    const pad = Array.from({ length: slots - N }, (_, i) => ({
+      key: `ghost-${i}`,
+      label: "", // hiển thị trống
+      flipped: true, // mặt trước để giữ viền/khung, nhưng không nội dung
+      meta: null,
+      pairId: null,
+      pairColor: null,
+      ghost: true, // cờ nhận diện ô trống
+    }));
+    return deck.concat(pad);
+  }, [deck, slots]);
+  // đặt trong CardDeckOverlay
+  const pickGridRectangle = (N, W, H, GAP, AR) => {
+    let M = N % 2 === 1 ? N + 1 : N; // nếu lẻ → cộng 1
+    let best = null;
+
+    // duyệt quanh phương án tốt (M..M+6) để dễ tìm lưới gần-vuông nhất nhưng vẫn fit
+    for (let m = M; m <= M + 6; m++) {
+      const r0 = Math.floor(Math.sqrt(m));
+      for (let r = Math.max(1, r0 - 2); r <= r0 + 2; r++) {
+        const c = Math.ceil(m / r);
+
+        const widthLimit = (W - GAP * (c - 1)) / c;
+        const heightLimit = (H - GAP * (r - 1)) / r;
+        if (widthLimit <= 0 || heightLimit <= 0) continue;
+
+        // thẻ phải fit cả chiều rộng và chiều cao
+        const cardH = Math.min(heightLimit, widthLimit / AR);
+        const cardW = cardH * AR;
+        if (cardH <= 0 || cardW <= 0) continue;
+
+        const score = cardH * cardW; // ưu tiên thẻ to nhất (vẫn fit)
+        const cand = { rows: r, cols: c, w: cardW, h: cardH, m };
+        if (!best || score > best.w * best.h) best = cand;
+      }
+    }
+    return best;
+  };
+
   const computeLayout = useCallback(() => {
     const GAP = 12,
-      AR = 130 / 180,
-      N = Math.max(1, initialCountRef.current || 1);
+      AR = 130 / 180; // w/h thẻ
     const el = gridRef.current;
     if (!el) return;
-    const W = el.clientWidth,
-      H = el.clientHeight;
-    let best = { cols: 1, rows: N, w: Math.min(130, W), h: Math.min(180, H) };
-    for (let cols = 1; cols <= N; cols++) {
-      const rows = Math.ceil(N / cols);
-      const cardW = (W - GAP * (cols - 1)) / cols;
-      const cardH = cardW / AR;
-      const needH = rows * cardH + GAP * (rows - 1);
-      if (needH <= H && cardW > best.w)
-        best = { cols, rows, w: cardW, h: cardH };
+
+    const W = el.clientWidth || window.innerWidth || 0;
+    // nếu overlay nằm trong flex:1 mà clientHeight=0 (hiếm), fallback chiều cao màn hình trừ header
+    const headerH = 56; // ước lượng header của overlay
+    const H =
+      el.clientHeight && el.clientHeight > 0
+        ? el.clientHeight
+        : Math.max(200, (window.innerHeight || 0) - headerH - 24);
+
+    const N = Math.max(1, initialCountRef.current || cards.length || 1);
+    const best = pickGridRectangle(N, W, H, GAP, AR);
+    if (best) {
+      setLayout({
+        cols: best.cols,
+        rows: best.rows,
+        w: Math.floor(best.w),
+        h: Math.floor(best.h),
+        gap: GAP,
+        slots: best.rows * best.cols, // tổng ô cố định của lưới
+      });
     }
-    if (!best || best.w <= 0) {
-      const cols = Math.ceil(Math.sqrt(N));
-      const rows = Math.ceil(N / cols);
-      const cardH = (H - GAP * (rows - 1)) / rows;
-      const cardW = cardH * (130 / 180);
-      setLayout({ cols, rows, w: cardW, h: cardH, gap: GAP });
-    } else setLayout({ ...best, gap: GAP });
-  }, []);
+  }, [cards.length]);
+
   useEffect(() => {
     if (!open) return;
     computeLayout();
@@ -1297,22 +1349,48 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
       }}
     >
       {/* Header */}
-      <Stack direction="row" alignItems="center" sx={{ p: 1.25, px: 2 }}>
-        <Typography fontWeight={800} sx={{ letterSpacing: 1 }}>
+
+      <Stack
+        direction="row"
+        alignItems="center"
+        sx={{
+          p: 1.25,
+          px: 2,
+          minHeight: HEADER_H,
+          height: HEADER_H,
+          flexWrap: "nowrap",
+        }}
+      >
+        <Typography
+          noWrap
+          sx={{ fontWeight: 800, letterSpacing: 1, mr: 1, minWidth: 0 }}
+        >
           Bốc thăm kiểu Thẻ bài {mode === "group" ? "— Vòng bảng" : "— KO / PO"}
         </Typography>
+
         <Chip size="small" sx={{ ml: 1 }} label={`Còn: ${remaining}`} />
-        <Box sx={{ flex: 1 }} />
-        {/* ĐANG BỐC VÀO BẢNG NÀO */}
+
+        <Box sx={{ flex: 1, minWidth: 0 }} />
+
         {mode === "group" && targetInfo && (
           <Chip
-            sx={{ mr: 1, color: "#fff" }}
             variant="outlined"
+            sx={{
+              mr: 1,
+              color: "#fff",
+              maxWidth: 320,
+              "& .MuiChip-label": {
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              },
+            }}
             label={`ĐANG BỐC: Bảng ${targetInfo.groupCode} · Slot ${
               Number(targetInfo.slotIndex) + 1
             }`}
           />
         )}
+
         <Tooltip title="Đóng">
           <IconButton onClick={onClose} sx={{ color: "#fff" }}>
             <CloseIcon />
@@ -1322,10 +1400,37 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
 
       {/* Pair banner (KO/PO) */}
       {mode !== "group" && lastPair && (
-        <Box sx={{ textAlign: "center", mb: 1, fontWeight: 800, fontSize: 18 }}>
-          {lastPair[0]}{" "}
-          <span style={{ opacity: 0.7, margin: "0 10px" }}>VS</span>{" "}
-          {lastPair[1]}
+        <Box
+          sx={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            bottom: 10, // đặt ở dưới để không đè lên hàng thẻ đầu
+            textAlign: "center",
+            pointerEvents: "none",
+            zIndex: 3,
+          }}
+        >
+          <Box
+            sx={{
+              display: "inline-block",
+              px: 1.25,
+              py: 0.5,
+              borderRadius: 999,
+              bgcolor: "rgba(0,0,0,.35)",
+              border: "1px solid rgba(255,255,255,.18)",
+              fontWeight: 800,
+              fontSize: 14,
+              maxWidth: "min(90vw, 720px)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {lastPair[0]}{" "}
+            <span style={{ opacity: 0.7, margin: "0 10px" }}>VS</span>{" "}
+            {lastPair[1]}
+          </Box>
         </Box>
       )}
 
@@ -1335,24 +1440,23 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         sx={{
           flex: 1,
           display: "grid",
-          gridTemplateColumns: `repeat(${layout.cols}, ${Math.max(
-            70,
-            layout.w
-          )}px)`,
-          gridAutoRows: `${Math.max(95, layout.h)}px`,
+          gridTemplateColumns: `repeat(${layout.cols}, ${layout.w}px)`,
+          gridAutoRows: `${layout.h}px`,
           gap: `${layout.gap}px`,
           p: 16,
           alignContent: "center",
           justifyContent: "center",
           overflow: "hidden",
+          position: "relative",
         }}
       >
-        {deck.map((c, idx) => {
-          const isHovered = hoverIdx === idx;
+        {displayDeck.map((c, idx) => {
+          const isGhost = c.ghost;
+          const isHovered = !isGhost && hoverIdx === idx;
 
-          // Nếu đang hover một thẻ thuộc cặp → thẻ còn lại cũng sáng
-          const hoveredCard = hoverIdx != null ? deck[hoverIdx] : null;
+          const hoveredCard = hoverIdx != null ? displayDeck[hoverIdx] : null;
           const mateHighlighted =
+            !isGhost &&
             hoveredCard &&
             hoveredCard.pairId != null &&
             c.pairId != null &&
@@ -1374,7 +1478,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
               : 1;
 
           const glow =
-            isHovered || mateHighlighted
+            !isGhost && (isHovered || mateHighlighted)
               ? `0 0 0 3px rgba(255,255,255,0.18), 0 0 22px 2px ${
                   c.pairColor || "rgba(255,255,255,.45)"
                 }`
@@ -1383,16 +1487,22 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
           return (
             <Box
               key={c.key}
-              onMouseEnter={() => setHover(idx)}
+              onMouseEnter={() => !isGhost && setHover(idx)}
               onMouseLeave={clearHover}
-              onClick={() => !busy && !c.flipped && flipCard(idx)}
+              onClick={() => !isGhost && !busy && !c.flipped && flipCard(idx)}
               sx={{
-                width: `${Math.max(70, layout.w)}px`,
-                height: `${Math.max(95, layout.h)}px`,
+                width: `${layout.w}px`,
+                height: `${layout.h}px`,
                 perspective: "1000px",
-                cursor: busy || c.flipped ? "default" : "pointer",
+                cursor: isGhost
+                  ? "default"
+                  : busy || c.flipped
+                  ? "default"
+                  : "pointer",
                 transition: "transform .18s ease",
-                transform: isHovered ? "translateY(-2px)" : "none",
+                transform: !isGhost && isHovered ? "translateY(-2px)" : "none",
+                opacity: isGhost ? 0.35 : 1, // ô trống mờ
+                pointerEvents: isGhost ? "none" : "auto",
               }}
             >
               <Box
@@ -1405,7 +1515,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                   transform: c.flipped ? "rotateY(180deg)" : "rotateY(0deg)",
                 }}
               >
-                {/* Mặt sau */}
+                {/* Back */}
                 <Box
                   sx={{
                     position: "absolute",
@@ -1413,22 +1523,29 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                     backfaceVisibility: "hidden",
                     borderRadius: 10,
                     border: "1px solid rgba(255,255,255,.14)",
-                    background: "linear-gradient(145deg, #3b3b4f, #1f1f27)",
-                    boxShadow:
-                      "0 14px 28px rgba(0,0,0,.35) inset, 0 10px 22px rgba(0,0,0,.45)",
+                    background: isGhost
+                      ? "linear-gradient(145deg, rgba(255,255,255,.04), rgba(255,255,255,.02))"
+                      : "linear-gradient(145deg, #3b3b4f, #1f1f27)",
+                    boxShadow: isGhost
+                      ? "none"
+                      : "0 14px 28px rgba(0,0,0,.35) inset, 0 10px 22px rgba(0,0,0,.45)",
                     display: "grid",
                     placeItems: "center",
                   }}
                 >
-                  <Box sx={{ textAlign: "center", opacity: 0.95 }}>
-                    <Box sx={{ fontSize: 30, fontWeight: 900, mb: 0.5 }}>?</Box>
-                    <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                      Nhấn để lật
-                    </Typography>
-                  </Box>
+                  {!isGhost && (
+                    <Box sx={{ textAlign: "center", opacity: 0.95 }}>
+                      <Box sx={{ fontSize: 30, fontWeight: 900, mb: 0.5 }}>
+                        ?
+                      </Box>
+                      <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                        Nhấn để lật
+                      </Typography>
+                    </Box>
+                  )}
                 </Box>
 
-                {/* Mặt trước */}
+                {/* Front */}
                 <Box
                   sx={{
                     position: "absolute",
@@ -1446,21 +1563,22 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                     boxShadow: glow,
                   }}
                 >
-                  <Box sx={{ px: 0.5 }}>
-                    <Typography sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-                      {c.label || "…"}
-                    </Typography>
-                    {/* Vòng bảng: hiển thị Bảng/Slot ngay trên thẻ */}
-                    {mode === "group" && c.meta?.groupCode != null && (
-                      <Typography
-                        variant="caption"
-                        sx={{ opacity: 0.85, display: "block", mt: 0.5 }}
-                      >
-                        Bảng {c.meta.groupCode} • Slot{" "}
-                        {Number(c.meta.slotIndex) + 1}
+                  {!isGhost && (
+                    <Box sx={{ px: 0.5 }}>
+                      <Typography sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                        {c.label || "…"}
                       </Typography>
-                    )}
-                  </Box>
+                      {mode === "group" && c.meta?.groupCode != null && (
+                        <Typography
+                          variant="caption"
+                          sx={{ opacity: 0.85, display: "block", mt: 0.5 }}
+                        >
+                          Bảng {c.meta.groupCode} • Slot{" "}
+                          {Number(c.meta.slotIndex) + 1}
+                        </Typography>
+                      )}
+                    </Box>
+                  )}
                 </Box>
               </Box>
             </Box>

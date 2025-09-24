@@ -44,6 +44,7 @@ import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import "../index.css";
 import Forbidden403 from "./screens/403.jsx";
 import ServiceUnavailable from "./screens/503.jsx";
+import PublicProfilePage from "./screens/PublicProfilePage.jsx";
 
 dayjs.locale("vi");
 
@@ -88,6 +89,7 @@ const router = createBrowserRouter(
           path="/reset-password/:token"
           element={<ResetPasswordScreen />}
         />
+        <Route path="/user/:id" element={<PublicProfilePage />} />
         <Route path="" element={<PrivateRoute />}>
           <Route path="/tournament/:id/draw" element={<DrawPage />} />
           <Route
