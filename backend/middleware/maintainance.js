@@ -11,6 +11,8 @@ const BYPASS_PATTERNS = (process.env.MAINTENANCE_BYPASS_HOSTS || "")
   .map((s) => s.trim())
   .filter(Boolean);
 
+console.log(process.env.MAINTENANCE_BYPASS_HOSTS)
+
 // Chuyển wildcard pattern (vd: "*.admin.example.com") sang RegExp
 function wildcardToRegExp(pattern) {
   const esc = pattern
@@ -87,6 +89,7 @@ function isBypassedHost(host) {
 export async function maintainanceTrigger(req, res, next) {
   try {
     const host = extractHost(req);
+    console.log(host)
     if (isBypassedHost(host)) return next();
 
     const { enabled, message } = await getMaintenanceState();
