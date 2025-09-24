@@ -4,6 +4,11 @@ import {
   getVersion,
   upsertConfig,
 } from "../controllers/appVersion.controller.js";
+import {
+  authorize,
+  protect,
+  protectJwt,
+} from "../middleware/authMiddleware.js";
 // import { requireAdmin } from "../middlewares/auth.js"; // nếu có
 
 const router = Router();
@@ -12,6 +17,6 @@ const router = Router();
 // app.use(versionGate);
 
 router.get("/version", getVersion);
-router.post("/version", /* requireAdmin, */ upsertConfig);
+router.post("/version",protect, authorize("admin"), upsertConfig);
 
 export default router;

@@ -109,7 +109,7 @@ import {
 import {
   getUsersVersion,
   getVersionStats,
-} from "../controllers/admin/adminVersions.route.js";
+} from "../controllers/admin/adminVersions.controller.js";
 import {
   getSystemSettings,
   updateSystemSettings,

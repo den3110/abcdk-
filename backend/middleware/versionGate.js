@@ -3,7 +3,7 @@ import AppConfig from "../models/appConfigModel.js";
 import DeviceInstallation from "../models/deviceInstallationModel.js";
 import crypto from "crypto";
 
-const MEMO_TTL = 30_000;
+const MEMO_TTL = 10_000;
 let _memo = { ts: 0, cfg: null };
 
 function hashToPercent(s) {
