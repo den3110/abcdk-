@@ -113,21 +113,30 @@ app.use("/api/sportconnect", sportconnectRoutes);
 app.use("/api/cccd", cccdRoutes);
 app.use("/api/files", fileRoutes);
 
-// Public download by id -> always attachment with original filename
 app.get("/dl/file/:id", async (req, res) => {
   try {
-    const { id } = req.params;
-    const doc = await FileAsset.findById(id);
+    const doc = await FileAsset.findById(req.params.id);
     if (!doc) return res.status(404).send("File không tồn tại");
 
-    if (!doc.isPublic) return res.status(403).send("File chưa public");
+    // Tên file hiển thị khi tải về
+    const downloadName = doc.originalName || doc.fileName || "download.bin";
 
-    const filePath = doc.path || path.resolve("uploads/public", doc.fileName);
-    if (!fs.existsSync(filePath))
-      return res.status(404).send("Không tìm thấy file trên máy chủ");
+    // Header nội dung + ép tải
+    res.setHeader("Content-Type", doc.mime || "application/octet-stream");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${encodeURIComponent(downloadName)}"`
+    );
 
-    // Force download with the original file name
-    res.download(filePath, doc.originalName || doc.fileName);
+    // Chuyển nội bộ cho Nginx đọc file từ đĩa (KHÔNG qua Node)
+    // "fileName" là tên đã lưu trong uploads/public
+    const accelPath = `/_protected_uploads/${encodeURIComponent(doc.fileName)}`;
+    res.setHeader("X-Accel-Redirect", accelPath);
+
+    // (tuỳ chọn) cho resume/caching
+    res.setHeader("Accept-Ranges", "bytes");
+
+    res.end();
   } catch (e) {
     console.error("/dl/file error", e);
     res.status(500).send("Lỗi tải file");
