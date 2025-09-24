@@ -89,7 +89,6 @@ function isBypassedHost(host) {
 export async function maintainanceTrigger(req, res, next) {
   try {
     const host = extractHost(req);
-    console.log(host)
     if (isBypassedHost(host)) return next();
 
     const { enabled, message } = await getMaintenanceState();
