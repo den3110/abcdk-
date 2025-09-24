@@ -41,6 +41,7 @@ import cccdRoutes from "./routes/cccd.routes.js";
 import fileRoutes from "./routes/fileRoutes.js";
 import FileAsset from "./models/fileAssetModel.js";
 import { loadSettings } from "./middleware/settings.middleware.js";
+import fs from "fs"
 
 dotenv.config();
 const port = process.env.PORT;
