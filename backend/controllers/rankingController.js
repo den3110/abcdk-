@@ -13,20 +13,34 @@ export const getRankings = asyncHandler(async (req, res) => {
   const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 10, 10)));
   const keywordRaw = String(req.query.keyword ?? "").trim();
 
-  // ✅ xác định quyền admin (tuỳ theo middleware của bạn)
+  // ✅ xác định quyền admin
   const isAdmin =
     String(req.user?.role || "").toLowerCase() === "admin" ||
     !!req.user?.isAdmin;
 
+  // ===== Helpers =====
   const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const stripSpaces = (s) => s.replace(/\s+/g, "");
   const digitsOnly = (s) => s.replace(/\D+/g, "");
 
+  // ===== Lọc theo người dùng nếu có keyword =====
   let userIdsFilter = null;
   if (keywordRaw) {
     const orConds = [];
-    orConds.push({ nickname: { $regex: keywordRaw, $options: "i" } });
 
+    // 🔎 Tên & nickname: khớp linh hoạt theo thứ tự từ (vd: "nguyen van a" -> "nguyen.*van.*a")
+    const namePattern = keywordRaw
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(escapeRegExp)
+      .join(".*");
+
+    if (namePattern) {
+      orConds.push({ name: { $regex: namePattern, $options: "i" } });
+      orConds.push({ nickname: { $regex: namePattern, $options: "i" } });
+    }
+
+    // ✉️ Email: khớp toàn bộ, bỏ khoảng trắng
     const emailCandidate = stripSpaces(keywordRaw);
     if (emailCandidate.includes("@")) {
       orConds.push({
@@ -34,6 +48,7 @@ export const getRankings = asyncHandler(async (req, res) => {
       });
     }
 
+    // 📞 SĐT/CCCD: cho phép có/không khoảng trắng giữa các số
     const phoneDigits = digitsOnly(keywordRaw);
     if (phoneDigits.length >= 9) {
       const phonePattern = `^${phoneDigits.split("").join("\\s*")}$`;
@@ -41,20 +56,26 @@ export const getRankings = asyncHandler(async (req, res) => {
       orConds.push({ cccd: { $regex: phonePattern } });
     }
 
-    const rawIds = await User.find({ $or: orConds }, { _id: 1 }).lean();
-    const ids = rawIds
-      .map((d) => d?._id)
-      .filter((id) => mongoose.isValidObjectId(id));
-    if (ids.length === 0) return res.json({ docs: [], totalPages: 0, page });
-    userIdsFilter = ids;
+    if (orConds.length > 0) {
+      const rawIds = await User.find({ $or: orConds }, { _id: 1 }).lean();
+      const ids = rawIds
+        .map((d) => d?._id)
+        .filter((id) => mongoose.isValidObjectId(id));
+
+      if (ids.length === 0) {
+        return res.json({ docs: [], totalPages: 0, page });
+      }
+      userIdsFilter = ids;
+    }
   }
 
   const matchStage = {
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
   };
+
   const now = new Date();
 
-  // ✅ project động theo quyền
+  // ===== Project động theo quyền =====
   const baseUserProject = {
     _id: 1,
     nickname: 1,
@@ -67,18 +88,18 @@ export const getRankings = asyncHandler(async (req, res) => {
     dob: 1,
   };
   const adminExtraProject = {
-    // chỉ admin mới nhận các trường nhạy cảm/chi tiết
     name: 1,
     email: 1,
     phone: 1,
     cccd: 1,
-    cccdImages: 1, // {front, back}
+    cccdImages: 1,
     note: 1,
   };
   const userProject = isAdmin
     ? { ...baseUserProject, ...adminExtraProject }
     : baseUserProject;
 
+  // ===== Aggregate =====
   const agg = await Ranking.aggregate([
     { $match: matchStage },
     { $match: { user: { $type: "objectId" } } },
@@ -101,6 +122,7 @@ export const getRankings = asyncHandler(async (req, res) => {
         ],
 
         docs: [
+          // Chuẩn hoá điểm
           {
             $addFields: {
               points: { $ifNull: ["$points", 0] },
@@ -110,11 +132,12 @@ export const getRankings = asyncHandler(async (req, res) => {
               reputation: { $ifNull: ["$reputation", 0] },
             },
           },
+          // Lấy bản ghi mới nhất cho mỗi user
           { $sort: { user: 1, updatedAt: -1, _id: 1 } },
           { $group: { _id: "$user", doc: { $first: "$$ROOT" } } },
           { $replaceRoot: { newRoot: "$doc" } },
 
-          // 🔁 join user với project theo quyền
+          // Join user theo quyền
           {
             $lookup: {
               from: "users",
@@ -126,7 +149,7 @@ export const getRankings = asyncHandler(async (req, res) => {
           },
           { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
 
-          // (các lookup + addFields khác giữ nguyên)
+          // Đếm số giải đã kết thúc mà user từng đăng ký
           {
             $lookup: {
               from: "registrations",
@@ -208,7 +231,7 @@ export const getRankings = asyncHandler(async (req, res) => {
             },
           },
 
-          // ... phần assessments & color giữ nguyên ...
+          // Assessments (official/self)
           {
             $lookup: {
               from: "assessments",
@@ -236,6 +259,7 @@ export const getRankings = asyncHandler(async (req, res) => {
               hasOfficial: { $gt: [{ $size: "$assOfficial" }, 0] },
             },
           },
+
           {
             $lookup: {
               from: "assessments",
@@ -267,6 +291,7 @@ export const getRankings = asyncHandler(async (req, res) => {
           },
           { $addFields: { hasSelf: { $gt: [{ $size: "$assSelf" }, 0] } } },
 
+          // Màu/tier + reputation
           {
             $addFields: {
               isGold: { $or: [{ $gt: ["$totalTours", 0] }, "$hasOfficial"] },
@@ -304,6 +329,7 @@ export const getRankings = asyncHandler(async (req, res) => {
             },
           },
 
+          // Sắp xếp & phân trang
           {
             $sort: {
               colorRank: 1,
@@ -317,6 +343,7 @@ export const getRankings = asyncHandler(async (req, res) => {
           { $skip: page * limit },
           { $limit: limit },
 
+          // Trả trường cuối
           {
             $project: {
               user: 1,
