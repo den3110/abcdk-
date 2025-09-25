@@ -115,7 +115,7 @@ export const getRatingHistory = asyncHandler(async (req, res) => {
       scoredAt: r.scoredAt,
       single: r.single,
       double: r.double,
-      note: r.note,
+      note: noteForClient,
       scorer: scorerForClient,
       user: r.user
         ? {
