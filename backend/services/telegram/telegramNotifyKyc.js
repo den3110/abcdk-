@@ -20,8 +20,7 @@ async function getKycAutoFlag() {
   const now = Date.now();
   if (!__settingsCache.val || now - __settingsCache.ts > SETTINGS_TTL_MS) {
     try {
-      const Sys = (await import("../../models/systemSettingsModel.js"))
-        .default;
+      const Sys = (await import("../../models/systemSettingsModel.js")).default;
       const s = (await Sys.findById("system").lean()) || {};
       __settingsCache = {
         ts: now,
@@ -342,16 +341,30 @@ async function openaiExtractFromImageUrl(imageUrl, detail = "low") {
     imagePart = { type: "image_url", image_url: { url: dataUrl, detail } };
   }
 
-  const systemPrompt =
-    "Bạn là trợ lý trích xuất trường từ ảnh Căn cước công dân Việt Nam. " +
-    "Chỉ dựa trên nội dung nhìn thấy; không suy đoán. " +
-    "Chuẩn hoá dd/mm/yyyy thành yyyy-mm-dd. Trả JSON đúng schema.";
-  const userPrompt =
-    "Trích xuất: idNumber (Số/No.), fullName (Họ và tên), dob (Ngày sinh). " +
-    "Nếu không thấy rõ thì để null.";
+  const systemPrompt = [
+    "Bạn là trình TRÍCH XUẤT CHÍNH XÁC CAO từ ảnh Căn cước công dân Việt Nam.",
+    "YÊU CẦU: tuyệt đối không suy đoán; nếu bất kỳ ký tự nào mơ hồ → trả null cho trường đó.",
+    "Ưu tiên đọc đúng vùng 'Số/No.' trên mặt trước. idNumber phải là DÃY SỐ THUẦN, liền nhau, không khoảng trắng.",
+    "CHỐNG NHẦM LẪN ký tự: 0≠9, O≠0, 1≠7, 3≠8, 5≠S, 2≠Z, 6≠G.",
+    "Nếu không chắc chắn 100% về một chữ số trong idNumber → idNumber=null.",
+    "Nếu thấy dạng ngày dd/mm/yyyy → đổi sang yyyy-mm-dd.",
+    "Không dùng suy luận ngữ nghĩa hay dự đoán theo tên; CHỈ dựa vào pixel nhìn thấy.",
+    "Không đọc từ mã QR, không đọc từ vùng mờ/che phản quang.",
+    "Nếu idNumber khác độ dài chuẩn (ưu tiên 12), coi là không chắc → idNumber=null.",
+    "fullName: viết HOA, BỎ DẤU (chuẩn hoá bởi hệ thống phía sau).",
+  ].join(" ");
+
+  const userPrompt = [
+    "Nhiệm vụ: Trích xuất JSON theo schema, với các field:",
+    "- idNumber (Số/No., chỉ số; nếu mơ hồ bất kỳ ký tự → null)",
+    "- fullName (HỌ VÀ TÊN, nguyên văn; nếu mờ → null)",
+    "- dob (Ngày sinh, format yyyy-mm-dd; nếu mờ → null)",
+    "Chỉ trả JSON đúng schema. Không mô tả thêm.",
+  ].join(" ");
 
   const resp = await openai.chat.completions.create({
     model: "gpt-4o",
+    temperature: 0,
     response_format: { type: "json_schema", json_schema: CCCD_JSON_SCHEMA },
     messages: [
       { role: "system", content: systemPrompt },
@@ -415,7 +428,7 @@ export async function notifyNewKyc(user) {
 
   // Đọc cờ auto duyệt/từ chối
   const { autoKycOn } = await getKycAutoFlag();
-  console.log(autoKycOn)
+  // console.log(autoKycOn);
   const frontUrl = normalizeImageUrl(toPosix(user?.cccdImages?.front || ""));
   const backUrl = normalizeImageUrl(toPosix(user?.cccdImages?.back || ""));
 
@@ -423,7 +436,7 @@ export async function notifyNewKyc(user) {
 
   try {
     if (frontUrl && process.env.OPENAI_API_KEY) {
-      const extracted = await openaiExtractFromImageUrl(frontUrl, "low");
+      const extracted = await openaiExtractFromImageUrl(frontUrl, "auto");
       auto.usage = extracted._usage || null;
       const report = buildMatchReport(extracted, user);
       auto.report = report;

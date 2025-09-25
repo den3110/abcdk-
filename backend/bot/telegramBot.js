@@ -582,7 +582,7 @@ export async function initKycBot(app) {
         description: "Danh sách toàn bộ lệnh & cách dùng",
       },
       {
-        command: "statuskyc",
+        command: "findkyc",
         description: "Tra cứu người dùng (email/phone/nickname)",
       },
       { command: "pendkyc", description: "Danh sách KYC chờ duyệt" },
@@ -623,7 +623,7 @@ export async function initKycBot(app) {
         "Các lệnh khả dụng:",
         "• <code>/start</code> — Giới thiệu nhanh & hiện Telegram ID",
         "• <code>/startkyc</code> — Danh sách toàn bộ lệnh & cách dùng",
-        "• <code>/statuskyc &lt;email|phone|nickname&gt;</code> — Tra cứu chi tiết 1 người dùng (kèm ảnh CCCD & nút duyệt/từ chối).",
+        "• <code>/findkyc &lt;email|phone|nickname&gt;</code> — Tra cứu chi tiết 1 người dùng (kèm ảnh CCCD & nút duyệt/từ chối).",
         "• <code>/pendkyc [limit]</code> — Liệt kê người dùng đang chờ duyệt (mặc định 20, tối đa 50).",
         "",
         "• <code>/rank &lt;email|phone|nickname&gt; &lt;single&gt; &lt;double&gt; [--guard] [--note &quot;ghi chú...&quot;]</code>",
@@ -651,12 +651,12 @@ export async function initKycBot(app) {
     }
   });
 
-  // -------------------- /statuskyc <q> (thay /kyc_status) -----------------
-  bot.command("statuskyc", async (ctx) => {
+  // -------------------- /findkyc <q> (thay /kyc_status) -----------------
+  bot.command("findkyc", async (ctx) => {
     const args = (ctx.message?.text || "").split(" ").slice(1);
     const q = (args[0] || "").trim();
     if (!q) {
-      return ctx.reply("Cách dùng:\n/statuskyc <email|số điện thoại|nickname>");
+      return ctx.reply("Cách dùng:\n/findkyc <email|số điện thoại|nickname>");
     }
 
     try {
@@ -717,7 +717,7 @@ export async function initKycBot(app) {
         }
       }
     } catch (e) {
-      console.error("statuskyc error:", e);
+      console.error("findkyc error:", e);
       ctx.reply("Có lỗi xảy ra khi tra cứu.");
     }
   });
@@ -800,7 +800,7 @@ export async function initKycBot(app) {
         }
       } else {
         await ctx.reply(
-          "Mẹo: Dùng /statuskyc <email|phone|nickname> để mở chi tiết từng hồ sơ kèm ảnh & nút duyệt."
+          "Mẹo: Dùng /findkyc <email|phone|nickname> để mở chi tiết từng hồ sơ kèm ảnh & nút duyệt."
         );
       }
     } catch (e) {
