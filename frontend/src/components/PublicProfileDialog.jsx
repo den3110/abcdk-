@@ -70,38 +70,27 @@ const safe = (v, fallback = TEXT_PLACE) =>
 const num = (v, digits = 3) =>
   Number.isFinite(v) ? v.toFixed(digits) : TEXT_PLACE;
 
-// lấy số hợp lệ đầu tiên trong danh sách field
-const firstFiniteNumber = (...vals) => {
-  for (const v of vals) {
+const getSPC = (base) => {
+  const s = base?.spc;
+  if (!s || typeof s !== "object") return null;
+
+  const toNum = (v) => {
     const n = Number(v);
-    if (Number.isFinite(n)) return n;
-  }
-  return null;
-};
+    return Number.isFinite(n) ? n : null;
+  };
 
-// gom metadata Sport Connect từ nhiều khả năng key khác nhau
-const getSportConnectMeta = (base) => {
-  const sc =
-    base?.sportConnect ||
-    base?.sport_connect ||
-    base?.sportconnect ||
-    base?.integrations?.sportConnect ||
-    base?.integrations?.sport_connect ||
-    {};
-
-  const points = firstFiniteNumber(
-    sc?.points,
-    base?.sportConnectPoints,
-    base?.scPoints,
-    sc?.rating,
-    sc?.score
-  );
-
-  const rank = sc?.rank ?? sc?.level ?? sc?.tier ?? null;
-  const account =
-    sc?.username ?? sc?.user ?? sc?.account ?? sc?.id ?? sc?.userId ?? null;
-
-  return { points, rank, account };
+  const m = s.meta || {};
+  return {
+    single: toNum(s.single),
+    double: toNum(s.double),
+    meta: {
+      sportId: m.sportId ?? null,
+      description: m.description ?? null,
+      scoredAt: m.scoredAt ?? null,
+      joinDate: m.joinDate ?? null,
+      source: m.source ?? null,
+    },
+  };
 };
 
 /* ---------- prefer nickname everywhere ---------- */
@@ -561,21 +550,50 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             />
             <InfoRow label="Provider" value={base?.provider} />
             <InfoRow label="ID" value={base?._id} />
+            <Typography variant="subtitle2" gutterBottom fontWeight={"bold"}>
+              Thông tin sport connect
+            </Typography>
             {(() => {
-              const sc = getSportConnectMeta(base);
+              const sc = getSPC(base);
+              if (!sc) return null;
+
               return (
                 <>
-                  {Number.isFinite(sc.points) && (
-                    <InfoRow label="Sport Connect — Điểm" value={sc.points} />
+                  {/* Điểm */}
+                  {Number.isFinite(sc.single) && (
+                    <InfoRow
+                      label="Sport Connect — Điểm đơn"
+                      value={num(sc.single)}
+                    />
                   )}
-                  {sc.rank && (
-                    <InfoRow label="Sport Connect — Hạng" value={sc.rank} />
+                  {Number.isFinite(sc.double) && (
+                    <InfoRow
+                      label="Sport Connect — Điểm đôi"
+                      value={num(sc.double)}
+                    />
                   )}
-                  {sc.account && (
-                    <InfoRowWithCopy
-                      label="Sport Connect — Account"
-                      value={sc.account}
-                      copyLabel="Sport Connect account"
+
+                  {/* Meta */}
+                  <InfoRow
+                    label="Sport Connect  — Mô tả"
+                    value={sc.meta.description}
+                  />
+                  <InfoRow
+                    label="Sport Connect  — Cập nhật"
+                    value={fmtDT(sc.meta.scoredAt)}
+                  />
+                  <InfoRow
+                    label="Sport Connect  — Tham gia"
+                    value={fmtDT(sc.meta.joinDate)}
+                  />
+                  <InfoRow
+                    label="Sport Connect  — Nguồn"
+                    value={sc.meta.source}
+                  />
+                  {sc.meta.sportId != null && (
+                    <InfoRow
+                      label="Sport Connect  — sportId"
+                      value={String(sc.meta.sportId)}
                     />
                   )}
                 </>
