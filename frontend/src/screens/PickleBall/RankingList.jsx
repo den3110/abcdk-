@@ -1,5 +1,5 @@
 // RankingList.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   Container,
   Typography,
@@ -34,10 +34,13 @@ import {
   Toolbar,
   IconButton,
   Grid,
+  InputAdornment,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import VerifiedIcon from "@mui/icons-material/HowToReg";
 import CancelIcon from "@mui/icons-material/Cancel";
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
 
 import { Link, useSearchParams } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
@@ -152,6 +155,8 @@ const canViewKycAdmin = (me, status) =>
   me?.role === "admin" && (status === "verified" || status === "pending");
 
 const numOrUndef = (v) => (Number.isFinite(Number(v)) ? Number(v) : undefined);
+
+// baseline từ user/ranking
 const getBaselineScores = (u, r) => {
   const singleFromR = numOrUndef(r?.single);
   const doubleFromR = numOrUndef(r?.double);
@@ -182,11 +187,14 @@ export default function RankingList() {
   const { keyword, page } = useSelector((s) => s?.rankingUi || {});
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // ---------- Debounced input state ----------
+  const [searchInput, setSearchInput] = useState(keyword || "");
+
+  // query theo redux keyword + page
   const {
     data = { docs: [], totalPages: 0 },
     isLoading,
     error,
-    refetch,
   } = useGetRankingsQuery({ keyword, page });
 
   const { docs: list, totalPages } = data;
@@ -194,7 +202,7 @@ export default function RankingList() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme?.breakpoints?.down("sm"));
   const isDesktop = useMediaQuery(theme?.breakpoints?.up("md"));
-  const DRAWER_WIDTH_DESKTOP = 380; // ← đổi 350/400 theo ý bạn
+  const DRAWER_WIDTH_DESKTOP = 380;
 
   // token
   const token = useSelector(
@@ -216,39 +224,89 @@ export default function RankingList() {
   const me = meData || null;
   const canSelfAssess = !me || me.isScoreVerified === false;
 
-  // URL -> Redux
+  // =================== URL -> Redux & Input ===================
   useEffect(() => {
     const urlPage = parsePageFromParams(searchParams);
     if (urlPage !== page) dispatch(setPage(urlPage));
+
     const urlQ = parseKeywordFromParams(searchParams);
-    if ((urlQ || "") !== (keyword || "")) dispatch(setKeyword(urlQ));
+    if ((urlQ || "") !== (keyword || "")) {
+      dispatch(setKeyword(urlQ));
+    }
+    // sync vào input (không gây loop)
+    if ((urlQ || "") !== (searchInput || "")) {
+      setSearchInput(urlQ || "");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  // Redux -> URL
+  // =================== Redux -> URL (CHỈ page) ===================
   useEffect(() => {
     const curPageParam = searchParams.get("page");
     const desiredPageParam = page > 0 ? String(page + 1) : null;
-    const curQ = searchParams.get("q") ?? "";
-    const desiredQ = keyword || "";
-    const needPageUpdate = curPageParam !== desiredPageParam;
-    const needQUpdate = curQ !== desiredQ;
-    if (needPageUpdate || needQUpdate) {
+    if (curPageParam !== desiredPageParam) {
       const next = new URLSearchParams(searchParams);
       if (desiredPageParam) next.set("page", desiredPageParam);
       else next.delete("page");
-      if (desiredQ) next.set("q", desiredQ);
-      else next.delete("q");
       setSearchParams(next);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, keyword]);
+  }, [page]);
 
-  // debounce refetch theo keyword
+  // =================== Debounce searchInput -> keyword ===================
   useEffect(() => {
-    const t = setTimeout(refetch, 300);
-    return () => clearTimeout(t);
-  }, [keyword, refetch]);
+    const handler = setTimeout(() => {
+      if ((searchInput || "") !== (keyword || "")) {
+        // cập nhật redux
+        dispatch(setKeyword(searchInput || ""));
+        dispatch(setPage(0));
+        // cập nhật URL (q + xoá page)
+        const next = new URLSearchParams(searchParams);
+        if (searchInput) next.set("q", searchInput);
+        else next.delete("q");
+        next.delete("page");
+        setSearchParams(next);
+      }
+    }, 400); // ⏱ debounce 400ms
+
+    return () => clearTimeout(handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput]);
+
+  // =================== Immediate search on Enter ===================
+  const doImmediateSearch = useCallback(() => {
+    if ((searchInput || "") === (keyword || "")) return;
+    dispatch(setKeyword(searchInput || ""));
+    dispatch(setPage(0));
+    const next = new URLSearchParams(searchParams);
+    if (searchInput) next.set("q", searchInput);
+    else next.delete("q");
+    next.delete("page");
+    setSearchParams(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput, keyword, dispatch, searchParams, setSearchParams]);
+
+  const handleInputKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      doImmediateSearch();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      if (searchInput) setSearchInput("");
+    }
+  };
+
+  const handleClear = () => {
+    if (!searchInput && !keyword) return;
+    setSearchInput("");
+    // cũng clear ngay lập tức để UI phản hồi nhanh
+    dispatch(setKeyword(""));
+    dispatch(setPage(0));
+    const next = new URLSearchParams(searchParams);
+    next.delete("q");
+    next.delete("page");
+    setSearchParams(next);
+  };
 
   // Profile dialog
   const [openProfile, setOpenProfile] = useState(false);
@@ -288,7 +346,7 @@ export default function RankingList() {
   // patch điểm tạm
   const [patchMap, setPatchMap] = useState({});
   const getPatched = (r, u) => {
-    const p = patchMap[u?._id || ""];
+    const p = patchMap[u?._id || ""] || {};
     return {
       single: p?.single ?? r?.single,
       double: p?.double ?? r?.double,
@@ -296,25 +354,8 @@ export default function RankingList() {
     };
   };
 
-  const getBaselineScores2 = (u, r) => {
-    const singleFromR = numOrUndef(r?.single);
-    const doubleFromR = numOrUndef(r?.double);
-    const singleFromU =
-      numOrUndef(u?.localRatings?.singles) ??
-      numOrUndef(u?.ratingSingle) ??
-      undefined;
-    const doubleFromU =
-      numOrUndef(u?.localRatings?.doubles) ??
-      numOrUndef(u?.ratingDouble) ??
-      undefined;
-    return {
-      single: singleFromR ?? singleFromU,
-      double: doubleFromR ?? doubleFromU,
-    };
-  };
-
   const openGrade = (u, r) => {
-    const base = getBaselineScores2(u, r);
+    const base = getBaselineScores(u, r);
     setGradeDlg({
       open: true,
       userId: u?._id,
@@ -452,9 +493,31 @@ export default function RankingList() {
         label="Tìm kiếm"
         variant="outlined"
         size="small"
-        value={keyword || ""}
-        onChange={(e) => dispatch(setKeyword(e?.target?.value))}
-        sx={{ mb: 2, width: 300 }}
+        value={searchInput}
+        onChange={(e) => setSearchInput(e.target.value)}
+        onKeyDown={handleInputKeyDown}
+        sx={{ mb: 2, width: 320 }}
+        inputProps={{ maxLength: 120 }}
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <SearchIcon fontSize="small" />
+            </InputAdornment>
+          ),
+          endAdornment: (searchInput || keyword) && (
+            <InputAdornment position="end">
+              <IconButton
+                aria-label="clear"
+                onClick={handleClear}
+                edge="end"
+                size="small"
+              >
+                <ClearIcon fontSize="small" />
+              </IconButton>
+            </InputAdornment>
+          ),
+        }}
+        placeholder="Nick, tỉnh, số CCCD, ..."
       />
 
       {error ? (
@@ -577,19 +640,15 @@ export default function RankingList() {
         <Stack spacing={2}>
           {list?.map((r) => {
             const u = r?.user || {};
-            const effectiveStatus = cccdPatch[u?._id] || u?.cccdStatus; // patched
+            const effectiveStatus =
+              (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
             const badge = cccdBadge(effectiveStatus);
             const avatarSrc = u?.avatar || PLACE;
             const tierHex = HEX[r?.tierColor] || HEX.grey;
             const age = calcAge(u);
             const canGrade = canGradeUser(me, u?.province);
 
-            const p = (id) => patchMap[id || ""] || {};
-            const patched = {
-              single: p(u?._id)?.single ?? r?.single,
-              double: p(u?._id)?.double ?? r?.double,
-              updatedAt: p(u?._id)?.updatedAt ?? r?.updatedAt,
-            };
+            const patched = getPatched(r, u);
 
             // ✅ chỉ admin + CCCD pending/verified mới thấy nút KYC
             const allowKyc = canViewKycAdmin(me, effectiveStatus);
@@ -727,19 +786,15 @@ export default function RankingList() {
             <TableBody>
               {list?.map((r, idx) => {
                 const u = r?.user || {};
-                const effectiveStatus = cccdPatch[u?._id] || u?.cccdStatus; // patched
+                const effectiveStatus =
+                  (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
                 const badge = cccdBadge(effectiveStatus);
                 const avatarSrc = u?.avatar || PLACE;
                 const tierHex = HEX[r?.tierColor] || HEX.grey;
                 const age = calcAge(u);
                 const canGrade = canGradeUser(me, u?.province);
 
-                const p = (id) => patchMap[id || ""] || {};
-                const patched = {
-                  single: p(u?._id)?.single ?? r?.single,
-                  double: p(u?._id)?.double ?? r?.double,
-                  updatedAt: p(u?._id)?.updatedAt ?? r?.updatedAt,
-                };
+                const patched = getPatched(r, u);
 
                 // ✅ chỉ admin + CCCD pending/verified mới thấy nút KYC
                 const allowKyc = canViewKycAdmin(me, effectiveStatus);

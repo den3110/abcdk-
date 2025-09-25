@@ -496,6 +496,9 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       serializeQueryArgs: ({ endpointName, queryArgs }) =>
         `${endpointName}|${queryArgs.id}|${queryArgs.q}|${queryArgs.limit}`,
     }),
+    verifyManager: builder.query({
+      query: (tid) => `/api/tournaments/${tid}/is-manager`,
+    }),
   }),
 });
 
@@ -550,4 +553,6 @@ export const {
   useLazyGetNextByCourtQuery,
   useCreateComplaintMutation,
   useSearchRegistrationsQuery,
+  useLazySearchRegistrationsQuery,
+  useVerifyManagerQuery
 } = tournamentsApiSlice;

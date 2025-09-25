@@ -39,6 +39,23 @@ import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 /* ---------- helpers ---------- */
 
 function displayMatchCode(m) {
+  // 1) Ưu tiên globalCode nếu có (kể cả 0 hoặc số)
+  const gc = m?.globalCode;
+  const hasGc =
+    gc === 0 ||
+    typeof gc === "number" ||
+    (typeof gc === "string" && gc.trim() !== "");
+  if (hasGc) return String(gc).trim();
+
+  // 2) Fallback sang code nếu có
+  const code = m?.code;
+  const hasCode =
+    code === 0 ||
+    typeof code === "number" ||
+    (typeof code === "string" && code.trim() !== "");
+  if (hasCode) return String(code).trim();
+
+  // 3) Cuối cùng mới dựng từ bracket.order + order như logic cũ
   const bo = m?.bracket?.order;
   const ord = m?.order;
 
@@ -51,7 +68,6 @@ function displayMatchCode(m) {
 
   if (hasBo && hasOrd) {
     const boTxt = Number.isFinite(Number(bo)) ? String(Number(bo)) : String(bo);
-    // +1 cho phần order nếu là số; nếu không phải số thì giữ nguyên
     const ordNum = Number(ord);
     const ordTxt = Number.isFinite(ordNum) ? String(ordNum) : String(ord);
     return `R${boTxt}#${ordTxt}`;
@@ -61,9 +77,10 @@ function displayMatchCode(m) {
     const ordTxt = Number.isFinite(ordNum) ? String(ordNum) : String(ord);
     return `#${ordTxt}`;
   }
-  return m?.code || "Trận";
-}
 
+  // 4) Nếu không có gì, trả label mặc định
+  return "Trận";
+}
 function matchCodeByOrder(m) {
   const o = m?.order;
   if (o === 0 || o) {

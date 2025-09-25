@@ -842,6 +842,7 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
 
       return {
         ...m,
+        
         courtId,
         courtName,
         courtStatus,
@@ -851,6 +852,7 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
         // NEW:
         globalRound,
         globalCode,
+        code: globalCode,
       };
     });
 

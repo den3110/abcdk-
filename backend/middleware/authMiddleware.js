@@ -2,9 +2,12 @@
 import jwt from "jsonwebtoken";
 import asyncHandler from "express-async-handler";
 import User from "../models/userModel.js";
-import Match from "../models/matchModel.js"
-import Tournament from "../models/tournamentModel.js"
+import Match from "../models/matchModel.js";
+import Tournament from "../models/tournamentModel.js";
+import TournamentManager from "../models/tournamentManagerModel.js"
 import mongoose from "mongoose";
+
+const isValidId = (v) => !!v && mongoose.isValidObjectId(String(v));
 
 /* ----------------------------------------------------------
  | Tiện ích lấy JWT:
@@ -141,7 +144,7 @@ export async function optionalAuth(req, res, next) {
       if (u) {
         req.user = {
           _id: String(u._id),
-          roles: Array.isArray(u.roles) ? u.roles : (u.role ? [u.role] : []),
+          roles: Array.isArray(u.roles) ? u.roles : u.role ? [u.role] : [],
           role: u.role,
           isAdmin: !!u.isAdmin,
         };
@@ -154,65 +157,99 @@ export async function optionalAuth(req, res, next) {
 }
 
 export const isManagerTournament = asyncHandler(async (req, res, next) => {
-  // Yêu cầu đã có req.user (thường đặt sau protect)
   if (!req.user?._id) {
     res.status(401);
     throw new Error("Not authorized – no user");
   }
 
-  // Lấy matchId từ params
-  const matchId = req.params?.id || req.params?.matchId;
-  if (!mongoose.isValidObjectId(matchId)) {
-    res.status(400);
-    throw new Error("Invalid match id");
+  const uid = String(req.user._id);
+
+  // 1) Nếu có matchId → ưu tiên suy ra tournament từ match
+  const matchIdParam =
+    req.params?.matchId ||
+    // nhiều route cũ dùng :id cho match → thử luôn nhưng chỉ coi là match nếu tồn tại
+    (isValidId(req.params?.id) ? req.params.id : null);
+
+  let matchDoc = null;
+  let tournamentId = null;
+
+  if (isValidId(matchIdParam)) {
+    matchDoc = await Match.findById(matchIdParam);
+    if (!matchDoc) {
+      res.status(404);
+      throw new Error("Match not found");
+    }
+    if (!isValidId(matchDoc.tournament)) {
+      res.status(500);
+      throw new Error("Match has no valid tournament");
+    }
+    tournamentId = String(matchDoc.tournament);
   }
 
-  // Tìm match
-  const match = await Match.findById(matchId);
-  if (!match) {
-    res.status(404);
-    throw new Error("Match not found");
+  // 2) Nếu chưa có tournamentId, lấy trực tiếp từ params/body/query
+  if (!tournamentId) {
+    const p =
+      req.params?.tournamentId ||
+      req.params?.tournament ||
+      req.params?.tid ||
+      req.body?.tournamentId ||
+      req.body?.tournament ||
+      req.query?.tournamentId ||
+      req.query?.tournament;
+    if (!isValidId(p)) {
+      res.status(400);
+      throw new Error("Missing or invalid tournament id");
+    }
+    tournamentId = String(p);
   }
 
-  // Admin luôn pass
-  const isAdmin =
-    req.user.isAdmin ||
-    req.user.role === "admin" ||
-    (Array.isArray(req.user.roles) && req.user.roles.includes("admin"));
-  if (isAdmin) {
-    req.match = match;
-    return next();
-  }
-
-  // Kiểm tra owner/manager của tournament chứa match này
-  const t = await Tournament.findById(match.tournament)
-    .select("createdBy managers")
+  // 3) Tải tournament (để kiểm owner)
+  const tournament = await Tournament.findById(tournamentId)
+    .select("_id createdBy")
     .lean();
-  if (!t) {
+  if (!tournament) {
     res.status(404);
     throw new Error("Tournament not found");
   }
 
-  const uid = String(req.user._id);
-  const isOwner = String(t.createdBy) === uid;
+  // 4) Quyền admin luôn pass
+  const isAdmin =
+    req.user.isAdmin === true ||
+    req.user.role === "admin" ||
+    (Array.isArray(req.user.roles) && req.user.roles.includes("admin"));
 
-  const isManager = Array.isArray(t.managers)
-    ? t.managers.some((m) => {
-        const v =
-          typeof m === "object" && m !== null
-            ? (m.user ?? m._id ?? m)
-            : m;
-        return String(v) === uid;
-      })
-    : false;
-
-  if (!isOwner && !isManager) {
-    res.status(403);
-    throw new Error("Forbidden");
+  if (isAdmin) {
+    req.tournament = tournament; // lean
+    if (matchDoc) req.match = matchDoc; // doc thật để controller sử dụng
+    return next();
   }
 
-  // Gắn doc để controller dùng
-  req.match = match;
+  // 5) Owner?
+  const isOwner = String(tournament.createdBy) === uid;
+  if (isOwner) {
+    req.tournament = tournament;
+    if (matchDoc) req.match = matchDoc;
+    return next();
+  }
+
+  // 6) Manager? (theo bảng TournamentManager)
+  const tm = await TournamentManager.findOne({
+    tournament: tournament._id,
+    user: uid,
+  })
+    .select("_id")
+    .lean();
+
+  const isManager = !!tm;
+
+  if (!isManager) {
+    res.status(403);
+    throw new Error("Forbidden – require tournament manager/owner/admin");
+  }
+
+  // 7) Pass và gắn doc
+  req.tournament = tournament;
+  if (matchDoc) req.match = matchDoc;
   return next();
 });
 

@@ -26,7 +26,6 @@ import {
   DialogContent,
   DialogActions,
   Alert,
-  Pagination,
   InputAdornment,
 } from "@mui/material";
 import { Container as RBContainer } from "react-bootstrap";
@@ -42,7 +41,13 @@ import {
   ReportProblem,
   Search,
   Clear,
+  Verified as VerifiedIcon, // ✅ NEW
+  HourglassBottom as PendingIcon, // ✅ NEW
+  Block as RejectedIcon, // ✅ NEW
+  HelpOutline as UnverifiedIcon, // ✅ NEW
+  
 } from "@mui/icons-material";
+import DangerousSharpIcon from '@mui/icons-material/DangerousSharp';
 
 import {
   useGetTournamentQuery,
@@ -55,7 +60,7 @@ import {
   useManagerDeleteRegistrationMutation,
   useManagerReplaceRegPlayerMutation,
   useCreateComplaintMutation,
-  // 🔎 hook search mới
+  // 🔎 hook search
   useSearchRegistrationsQuery,
 } from "../../slices/tournamentsApiSlice";
 import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
@@ -126,7 +131,7 @@ const totalChipStyle = (total, cap, delta) => {
 
   const d = Number.isFinite(delta) && delta > 0 ? Number(delta) : 0;
   const threshold = cap + d;
-  const EPS = 1e-6; // tránh lỗi so sánh số thực
+  const EPS = 1e-6;
 
   if (total > threshold + EPS) {
     return {
@@ -194,6 +199,65 @@ const fixHtmlHttps = (html) => {
   }
 };
 
+/* ==================== NEW: Badge KYC ==================== */
+/** Map status -> icon + màu + tooltip */
+const kycMeta = (status) => {
+  const s = String(status || "").toLowerCase();
+  switch (s) {
+    case "verified":
+      return {
+        icon: <VerifiedIcon fontSize="inherit" />,
+        color: "success.main",
+        tip: "Đã KYC (CCCD: Xác thực)",
+      };
+    case "pending":
+      return {
+        icon: <PendingIcon fontSize="inherit" />,
+        color: "warning.main",
+        tip: "Đang chờ duyệt KYC (CCCD: Chờ xác thực)",
+      };
+    // case "rejected":
+    //   return {
+    //     icon: <RejectedIcon fontSize="inherit" />,
+    //     color: "error.main",
+    //     tip: "KYC bị từ chối (CCCD: rejected)",
+    //   };
+    default:
+      return {
+        icon: <DangerousSharpIcon fontSize="inherit" />,
+        color: "text.disabled",
+        tip: "Chưa xác thực (CCCD: Chưa xác thực)",
+      };
+  }
+};
+
+function VerifyBadge({ status, sx }) {
+  const { icon, color, tip } = kycMeta(status);
+  return (
+    <Tooltip arrow title={tip}>
+      <Box
+        component="span"
+        sx={{
+          display: "inline-flex",
+          alignItems: "center",
+          lineHeight: 0,
+          ml: 0.5,
+          color,
+          fontSize: 18,
+          verticalAlign: "middle",
+          ...sx,
+        }}
+      >
+        {icon}
+      </Box>
+    </Tooltip>
+  );
+}
+
+/** Helper lấy status từ player (ưu tiên kycStatus, fallback cccdStatus) */
+const kycOf = (pl) => pl?.kycStatus || pl?.cccdStatus || "unverified";
+
+/* ==================== Chips nhỏ ==================== */
 function PaymentChip({ status, paidAt }) {
   const isPaid = status === "Paid";
   return (
@@ -533,10 +597,9 @@ export default function TournamentRegistration() {
     me?.role === "admin" ||
     (Array.isArray(me?.roles) && me.roles.includes("admin"))
   );
-  console.log(me);
   const canManage = isLoggedIn && (isManager || isAdmin);
 
-  // invites của giải hiện tại (memo, để dùng nếu cần)
+  // invites của giải hiện tại
   const pendingInvitesHere = useMemo(() => {
     if (!isLoggedIn) return [];
     return (myInvites || []).filter(
@@ -885,6 +948,7 @@ export default function TournamentRegistration() {
   }
   if (!tour) return null;
 
+  /* ==================== PlayerCell (DESKTOP) ==================== */
   const PlayerCell = ({ player, onEdit, canEdit }) => (
     <Stack direction="row" spacing={1} alignItems="center">
       <Box
@@ -913,8 +977,21 @@ export default function TournamentRegistration() {
         onClick={() => openProfileByPlayer(player)}
         title="Xem hồ sơ"
       >
-        <Typography variant="body2" noWrap>
-          {displayName(player)}
+        <Typography
+          variant="body2"
+          noWrap
+          sx={{ display: "flex", alignItems: "center", gap: 0.25 }}
+        >
+          <span
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {displayName(player)}
+          </span>
+          <VerifyBadge status={kycOf(player)} />
         </Typography>
         <Typography variant="caption" color="text.secondary" noWrap>
           {player?.phone}
@@ -1354,8 +1431,25 @@ export default function TournamentRegistration() {
                       onClick={() => openProfileByPlayer(pl)}
                       title="Xem hồ sơ"
                     >
-                      <Typography variant="body2" noWrap>
-                        {displayName(pl)}
+                      <Typography
+                        variant="body2"
+                        noWrap
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 0.25,
+                        }}
+                      >
+                        <span
+                          style={{
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {displayName(pl)}
+                        </span>
+                        <VerifyBadge status={kycOf(pl)} />
                       </Typography>
                       <Typography
                         variant="caption"
@@ -1583,26 +1677,6 @@ export default function TournamentRegistration() {
           </Table>
         </TableContainer>
       )}
-
-      {/* Pagination (tuỳ chọn bật lại nếu cần) */}
-      {/* {!listLoading && !listError && regCount > 0 && (
-        <Stack
-          direction={{ xs: "column", md: "row" }}
-          spacing={1.5}
-          alignItems={{ xs: "center", md: "center" }}
-          justifyContent="center"
-          sx={{ mt: 2 }}
-        >
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Pagination
-              color="primary"
-              page={page}
-              count={totalPages}
-              onChange={(_, p) => setPage(p)}
-            />
-          </Stack>
-        </Stack>
-      )} */}
 
       {/* Preview ảnh */}
       <Dialog

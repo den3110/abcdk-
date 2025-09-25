@@ -55,7 +55,9 @@ function evaluateGameFinish(aRaw, bRaw, rules) {
   }
   return { finished: false, winner: null, capped: false };
 }
+
 export const toDTO = (m) => {
+  // -------- Tournament (lite) --------
   const tournament = m.tournament
     ? {
         _id: m.tournament._id || m.tournament,
@@ -66,17 +68,55 @@ export const toDTO = (m) => {
       }
     : undefined;
 
+  // -------- Bracket (đủ field để FE tính V/B) --------
   const bracket = m.bracket
     ? {
         _id: m.bracket._id || m.bracket,
-        type: (m.bracket.type || "").toLowerCase(),
+        type: (m.bracket.type || "").toLowerCase(), // "group" / "knockout" / ...
         name: m.bracket.name || "",
         order: m.bracket.order ?? undefined,
+        stage: m.bracket.stage ?? undefined,
+        drawRounds: m.bracket.drawRounds ?? 0,
+        drawStatus: m.bracket.drawStatus || undefined,
+        // meta cho tính rounds/scale
+        meta: {
+          drawSize: Number(m.bracket?.meta?.drawSize) || 0,
+          maxRounds: Number(m.bracket?.meta?.maxRounds) || 0,
+          expectedFirstRoundMatches:
+            Number(m.bracket?.meta?.expectedFirstRoundMatches) || 0,
+        },
+        // groups để map B-index
+        groups: Array.isArray(m.bracket.groups)
+          ? m.bracket.groups.map((g) => ({
+              _id: g._id || g.id || undefined,
+              name: g.name || g.label || g.key || "",
+              expectedSize: Number.isFinite(g.expectedSize)
+                ? g.expectedSize
+                : undefined,
+            }))
+          : [],
+        // nếu cần FE hiển thị luật mặc định
+        config: m.bracket.config
+          ? {
+              rules: m.bracket.config.rules || undefined,
+              roundElim: m.bracket.config.roundElim || undefined,
+              roundRobin: m.bracket.config.roundRobin || undefined,
+              doubleElim: m.bracket.config.doubleElim || undefined,
+              swiss: m.bracket.config.swiss || undefined,
+              gsl: m.bracket.config.gsl || undefined,
+            }
+          : undefined,
+        scheduler: m.bracket.scheduler || undefined,
+        drawSettings: m.bracket.drawSettings || undefined,
         overlay: m.bracket.overlay || undefined,
+        noRankDelta:
+          typeof m.bracket.noRankDelta === "boolean"
+            ? m.bracket.noRankDelta
+            : undefined,
       }
     : undefined;
 
-  // Fallback overlay: ưu tiên overlay tại match (nếu có & non-empty) → bracket → tournament
+  // -------- Overlay fallback: match → bracket → tournament --------
   const overlayFromMatch =
     m.overlay && typeof m.overlay === "object" && Object.keys(m.overlay).length
       ? m.overlay
@@ -84,7 +124,7 @@ export const toDTO = (m) => {
   const overlay =
     overlayFromMatch ?? bracket?.overlay ?? tournament?.overlay ?? undefined;
 
-  // Media
+  // -------- Media --------
   const primaryVideo =
     typeof m.video === "string" && m.video.trim().length ? m.video.trim() : "";
   const videoUrl = typeof m.videoUrl === "string" ? m.videoUrl : undefined;
@@ -95,7 +135,7 @@ export const toDTO = (m) => {
     ? m.meta.streams
     : undefined;
 
-  // Chuẩn hoá tên nick cho user (referees/liveBy)
+  // -------- Users (lite) --------
   const normUserLite = (u) => {
     if (!u) return null;
     const nickname =
@@ -103,18 +143,15 @@ export const toDTO = (m) => {
       (u.nickName && String(u.nickName).trim()) ||
       "";
     return { _id: u._id, name: u.name || u.fullName || "", nickname };
-    // nếu cần avatar/email thì bổ sung tại đây
   };
 
-  // referees: luôn trả về mảng (kể cả rỗng)
   const referees = Array.isArray(m.referee)
     ? m.referee.map(normUserLite).filter(Boolean)
     : [];
 
-  // liveBy: user đang điều khiển bảng điểm
   const liveBy = m.liveBy ? normUserLite(m.liveBy) : null;
 
-  // 🆕 Court + fallback keys cho FE normalize
+  // -------- Court (lite + fallback) --------
   const courtObj = m.court
     ? {
         _id: m.court._id || m.court,
@@ -131,14 +168,33 @@ export const toDTO = (m) => {
       }
     : undefined;
 
+  // -------- Format & Pool (đặc biệt phục vụ B-index) --------
+  const format = (m.format || "").toLowerCase() || undefined; // "group" theo mẫu
+  const rrRound = Number.isFinite(Number(m.rrRound))
+    ? Number(m.rrRound)
+    : undefined;
+  const pool =
+    m.pool && (m.pool.id || m.pool._id || m.pool.name)
+      ? {
+          id: m.pool.id || m.pool._id || undefined,
+          name: m.pool.name || undefined, // "A" / "B" / ...
+        }
+      : undefined;
+
+  // -------- Build DTO --------
   return {
     _id: m._id,
     status: m.status,
     winner: m.winner,
 
-    // top-level dùng cho tiêu đề R#/order
+    // vòng và thứ tự trong vòng
     round: m.round,
+    rrRound, // <-- RR/Group round theo mẫu
     order: m.order,
+
+    // format & pool để FE build mã Vx-Bx-Tx
+    format,
+    pool,
 
     rules: m.rules || {},
     currentGame: m.currentGame ?? 0,
@@ -153,22 +209,23 @@ export const toDTO = (m) => {
     previousB: m.previousB || null,
     nextMatch: m.nextMatch || null,
 
-    // ⭐ thay vì 1 referee, trả về danh sách
+    // referee list
     referees,
-    // referee: referees[0] || null, // nếu cần backward-compat
+    // live controller
+    liveBy,
 
     // thời gian
     scheduledAt: m.scheduledAt || null,
-    // nếu bạn còn dùng startAt, có thể map thêm:
-    startAt: m.startAt || undefined,
+    startAt: m.startAt || undefined, // giữ nếu backend còn dùng
     startedAt: m.startedAt || null,
     finishedAt: m.finishedAt || null,
 
     version: m.liveVersion ?? 0,
 
-    // serve mặc định
+    // giao ban đầu
     serve: m.serve || { side: "A", server: 2 },
 
+    // liên kết
     tournament,
     bracket,
     bracketType: bracket?.type || undefined,
@@ -181,19 +238,15 @@ export const toDTO = (m) => {
     stream,
     streams,
 
-    // ⭐ expose liveBy cho FE
-    liveBy,
-
-    // 🆕 court (object đầy đủ)
+    // court (đầy đủ + fallback keys)
     court: courtObj || null,
-
-    // 🆕 fallback keys — phù hợp với FE normalize đang đọc p.courtId / p.courtName / p.courtNo
     courtId: courtObj?._id || undefined,
     courtName: courtObj?.name || undefined,
     courtNo: courtObj?.number ?? undefined,
 
-    // optional: label của match nếu bạn dùng làm hiển thị nhanh
+    // hiển thị phụ
     label: m.label || undefined,
+    managers: m.managers,
   };
 };
 

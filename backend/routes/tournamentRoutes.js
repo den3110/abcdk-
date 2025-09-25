@@ -24,6 +24,7 @@ import {
   addManager,
   listManagers,
   removeManager,
+  verifyTournamentManager,
 } from "../controllers/tournamentManagerController.js";
 import {
   createRegistrationInvite,
@@ -75,5 +76,6 @@ router.post(
 );
 
 router.get("/:tournamentId/complaints", protect, listComplaints);
+router.get("/:tid/is-manager", protect, verifyTournamentManager);
 
 export default router;

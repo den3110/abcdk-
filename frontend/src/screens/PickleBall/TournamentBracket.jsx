@@ -8,6 +8,7 @@ import {
   useLayoutEffect,
   useContext,
   createContext,
+  useDeferredValue,
 } from "react";
 import PropTypes from "prop-types";
 import {
@@ -246,7 +247,7 @@ const kickoffTime = (m) => {
   return m?.scheduledAt || m?.assignedAt || null;
 };
 
-const courtName = (mm) => pickName(mm?.venue) || pickName(mm?.court) || "";
+const courtName = (mm) => pickName(mm?.court) || pickName(mm?.venue) || "";
 
 // nhận dạng có stream
 const hasVideo = (m) =>
@@ -269,6 +270,31 @@ const statusColors = (m) => {
     (m?.pairA || m?.pairB) && (m?.assignedAt || m?.court || m?.scheduledAt);
   if (ready) return { bg: "#f9a825", fg: "#111", key: "ready" }; // vàng
   return { bg: "#9e9e9e", fg: "#fff", key: "planned" }; // xám
+};
+
+// ===== Badge màu cho cột "Mã" (chỉ áp dụng TRẬN TRONG BẢNG) =====
+const matchStateKey = (m) => {
+  if (!m) return "planned";
+  const st = String(m.status || "").toLowerCase();
+  if (st === "live") return "live";
+  if (st === "finished") return "done";
+  // "chuẩn bị" = đã gán sân nhưng chưa thi đấu
+  if (m.court) return "ready";
+  return "planned";
+};
+
+const codeBadge = (m) => {
+  const key = matchStateKey(m);
+  switch (key) {
+    case "live":
+      return { bg: "#ef6c00", fg: "#fff" }; // cam
+    case "done":
+      return { bg: "#2e7d32", fg: "#fff" }; // xanh lục
+    case "ready":
+      return { bg: "#f9a825", fg: "#111" }; // vàng
+    default:
+      return { bg: "transparent", fg: "inherit", border: true }; // mặc định
+  }
 };
 
 const ceilPow2 = (n) => Math.pow(2, Math.ceil(Math.log2(Math.max(1, n || 1))));
@@ -575,7 +601,7 @@ const CustomSeed = ({
       return mm?.startedAt || mm?.scheduledAt || mm?.assignedAt || null;
     return mm?.scheduledAt || mm?.assignedAt || null;
   };
-  const courtName = (mm) => pickName(mm?.venue) || pickName(mm?.court) || "";
+  const courtName = (mm) => pickName(mm?.court) || pickName(mm?.venue) || "";
   const hasVideo = (mm) => {
     return !!(
       mm?.video ||
@@ -1866,6 +1892,34 @@ export default function TournamentBracket() {
     queueUpsert,
   ]);
 
+  // Giữ nhãn sân ổn định theo matchId
+  const courtLabelRef = useRef(new Map());
+  const getStickyCourt = useCallback((m) => {
+    const id = String(m?._id || "");
+    const fresh = courtName(m); // từ helper đã sửa ở bước 1
+    const prev = courtLabelRef.current.get(id) || "";
+    const st = String(m?.status || "").toLowerCase();
+
+    // Có giá trị mới khác rỗng → cập nhật & dùng luôn
+    if (fresh && fresh !== prev) {
+      courtLabelRef.current.set(id, fresh);
+      return fresh;
+    }
+
+    // Đang LIVE mà giá trị mới rỗng → giữ nhãn cũ để tránh nháy
+    if (st === "live" && !fresh) {
+      return prev || "";
+    }
+
+    // Không LIVE: cho phép về rỗng/clear
+    if (st !== "live") {
+      if (fresh) courtLabelRef.current.set(id, fresh);
+      else courtLabelRef.current.delete(id);
+    }
+
+    return fresh || prev || "";
+  }, []);
+
   const matchesMerged = useMemo(
     () =>
       Array.from(liveMapRef.current.values()).filter(
@@ -2070,20 +2124,73 @@ export default function TournamentBracket() {
     return buildEmptyRoundsByScale(scale);
   }, []);
 
-  const liveSpotlight = useMemo(() => {
-    if (!current || current.type !== "group") return [];
-    return (currentMatches || [])
-      .filter((m) => String(m.status || "").toLowerCase() === "live")
-      .sort((a, b) => {
-        // Ưu tiên sân có 'order' nhỏ trước, sau đó đến thời gian / updatedAt
-        const ao = a?.court?.order ?? 9999;
-        const bo = b?.court?.order ?? 9999;
-        if (ao !== bo) return ao - bo;
-        const at = new Date(a.updatedAt || a.scheduledAt || 0).getTime();
-        const bt = new Date(b.updatedAt || b.scheduledAt || 0).getTime();
-        return bt - at; // mới cập nhật lên trước
+  function useStableLiveSpotlight(current, currentMatches) {
+    // Lưu thứ tự các match LIVE theo id, chỉ thay khi ra/vào danh sách
+    const orderRef = useRef([]); // array of ids theo thứ tự hiển thị
+    const metaRef = useRef(new Map()); // optional: lưu meta nhẹ (court.order) nếu muốn tinh chỉnh
+
+    // Lọc match LIVE (KHÔNG sort theo updatedAt để tránh nhảy)
+    const liveNow = useMemo(() => {
+      if (!current || current.type !== "group") return [];
+      return (currentMatches || []).filter(
+        (m) => String(m.status || "").toLowerCase() === "live"
+      );
+    }, [current, currentMatches]);
+
+    // Map id -> match cho truy hồi nhanh
+    const id2m = useMemo(() => {
+      const mp = new Map();
+      liveNow.forEach((m) => mp.set(String(m._id), m));
+      return mp;
+    }, [liveNow]);
+
+    // Comparator KHỞI TẠO (chỉ dùng cho trận mới xuất hiện lần đầu)
+    const cmpInit = useCallback((a, b) => {
+      const ao = a?.court?.order ?? 9999;
+      const bo = b?.court?.order ?? 9999;
+      if (ao !== bo) return ao - bo;
+
+      // Ưu tiên lịch dự kiến/được gán — ổn định hơn updatedAt
+      const at = new Date(a.scheduledAt || a.assignedAt || 0).getTime();
+      const bt = new Date(b.scheduledAt || b.assignedAt || 0).getTime();
+      return at - bt;
+    }, []);
+
+    // Cập nhật orderRef ổn định theo liveNow
+    useEffect(() => {
+      const curIds = new Set(liveNow.map((m) => String(m._id)));
+
+      // 1) Bỏ các id không còn LIVE
+      orderRef.current = orderRef.current.filter((id) => curIds.has(id));
+
+      // 2) Thêm các id mới (sort 1 lần theo cmpInit rồi append)
+      const missing = liveNow
+        .filter((m) => !orderRef.current.includes(String(m._id)))
+        .sort(cmpInit)
+        .map((m) => String(m._id));
+
+      if (missing.length) {
+        orderRef.current.push(...missing);
+      }
+
+      // (Optional) Lưu meta nhẹ để sau này nếu muốn đổi court mạnh thì có thể
+      const meta = metaRef.current;
+      liveNow.forEach((m) => {
+        meta.set(String(m._id), { courtOrder: m?.court?.order ?? null });
       });
-  }, [current, currentMatches]);
+    }, [liveNow, cmpInit]);
+
+    // Xuất danh sách theo thứ tự ổn định
+    return useMemo(
+      () => orderRef.current.map((id) => id2m.get(id)).filter(Boolean),
+      [id2m]
+    );
+  }
+
+  // Giữ thứ tự ổn định, không đổi vị trí chỉ vì updatedAt thay đổi
+  const liveSpotlightStable = useStableLiveSpotlight(current, currentMatches);
+  // Làm mượt: tránh re-render liên tiếp khi socket dồn cập nhật
+  const liveSpotlight = useDeferredValue(liveSpotlightStable);
   // Render “LIVE spotlight” cho vòng bảng
   const renderLiveSpotlight = () => {
     if (!liveSpotlight.length) return null;
@@ -2130,7 +2237,7 @@ export default function TournamentBracket() {
       const code = `#V${stageNo}-B${bIndex}#${seq}`;
 
       const time = formatTime(pickGroupKickoffTime(m));
-      const court = courtName(m);
+      const court = getStickyCourt(m);
       const score = scoreLabel(m);
       return {
         id: String(m._id),
@@ -2225,7 +2332,24 @@ export default function TournamentBracket() {
                     alignItems="center"
                     justifyContent="space-between"
                   >
-                    <Chip size="small" color="default" label={r.code} />
+                    {(() => {
+                      const badge = codeBadge(r.match);
+                      return (
+                        <Chip
+                          size="small"
+                          label={r.code}
+                          sx={{
+                            fontWeight: 700,
+                            bgcolor: badge.bg,
+                            color: badge.fg,
+                            ...(badge.border
+                              ? { border: "1px solid", borderColor: "divider" }
+                              : {}),
+                          }}
+                        />
+                      );
+                    })()}
+
                     <Typography
                       variant="subtitle2"
                       sx={{ fontWeight: 800, ml: 1 }}
@@ -2299,7 +2423,7 @@ export default function TournamentBracket() {
             sm: "auto",
           },
           top: { xs: mobileFixed ? "auto" : -50, sm: -50 },
-          zIndex: 1300, // nổi trên bottom nav
+          zIndex: 1000, // nổi trên bottom nav
           borderRadius: 2,
           display: "inline-flex",
           alignItems: "center",
@@ -2559,7 +2683,49 @@ export default function TournamentBracket() {
                             }}
                           >
                             <TableCell sx={{ whiteSpace: "nowrap" }}>
-                              {r.code}
+                              {(() => {
+                                const badge = codeBadge(r.match);
+                                const state = matchStateKey(r.match);
+                                const tip =
+                                  state === "live"
+                                    ? `Đang diễn ra${
+                                        r.score ? ` • Tỷ số: ${r.score}` : ""
+                                      }${r.court ? ` • Sân: ${r.court}` : ""}${
+                                        r.time ? ` • Giờ: ${r.time}` : ""
+                                      }`
+                                    : state === "done"
+                                    ? `Đã kết thúc${
+                                        r.score ? ` • Tỷ số: ${r.score}` : ""
+                                      }${r.court ? ` • Sân: ${r.court}` : ""}${
+                                        r.time ? ` • Giờ: ${r.time}` : ""
+                                      }`
+                                    : state === "ready"
+                                    ? `Chuẩn bị (đã gán sân)${
+                                        r.court ? ` • Sân: ${r.court}` : ""
+                                      }${r.time ? ` • Giờ: ${r.time}` : ""}`
+                                    : `Dự kiến${
+                                        r.time ? ` • Giờ: ${r.time}` : ""
+                                      }`;
+                                return (
+                                  <Tooltip title={tip} arrow>
+                                    <Chip
+                                      size="small"
+                                      label={r.code}
+                                      sx={{
+                                        fontWeight: 700,
+                                        bgcolor: badge.bg,
+                                        color: badge.fg,
+                                        ...(badge.border
+                                          ? {
+                                              border: "1px solid",
+                                              borderColor: "divider",
+                                            }
+                                          : {}),
+                                      }}
+                                    />
+                                  </Tooltip>
+                                );
+                              })()}
                             </TableCell>
                             <TableCell sx={{ wordBreak: "break-word" }}>
                               {r.aName} <b style={{ opacity: 0.6 }}>vs</b>{" "}
@@ -2618,7 +2784,26 @@ export default function TournamentBracket() {
                             alignItems="center"
                             justifyContent="space-between"
                           >
-                            <Chip size="small" color="default" label={r.code} />
+                            {(() => {
+                              const badge = codeBadge(r.match);
+                              return (
+                                <Chip
+                                  size="small"
+                                  label={r.code}
+                                  sx={{
+                                    fontWeight: 700,
+                                    bgcolor: badge.bg,
+                                    color: badge.fg,
+                                    ...(badge.border
+                                      ? {
+                                          border: "1px solid",
+                                          borderColor: "divider",
+                                        }
+                                      : {}),
+                                  }}
+                                />
+                              );
+                            })()}
                             <Typography
                               variant="subtitle2"
                               sx={{ fontWeight: 800, ml: 1 }}

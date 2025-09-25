@@ -1,5 +1,5 @@
 // src/screens/PickleBall/match/MatchContent.jsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import {
   Alert,
   Box,
@@ -18,6 +18,12 @@ import {
   TableCell,
   TableBody,
   IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Autocomplete,
+  InputAdornment,
 } from "@mui/material";
 import { useSelector } from "react-redux";
 import {
@@ -32,14 +38,23 @@ import {
   CheckCircle as WinIcon,
   Flag as StatusIcon,
   Undo as UndoIcon,
+  Group as GroupIcon,
+  Search as SearchIcon,
+  SwapHoriz as SwapIcon,
+  Clear as ClearIcon,
 } from "@mui/icons-material";
+// import { skipToken } from "@reduxjs/toolkit/query";
 import { toast } from "react-toastify";
 import { depLabel, seedLabel, nameWithNick } from "../TournamentBracket";
 import PublicProfileDialog from "../../../components/PublicProfileDialog";
 import { useAdminPatchMatchMutation } from "../../../slices/matchesApiSlice";
 
-// ✅ RTK Query slice (đổi path/hook nếu bạn đặt khác)
-// import { useAdminPatchMatchMutation } from "slices/matchesApiSlice";
+import { useLocation, useParams } from "react-router-dom";
+import { skipToken } from "@reduxjs/toolkit/query";
+import {
+  useLazySearchRegistrationsQuery,
+  useVerifyManagerQuery, // 👈 NEW
+} from "../../../slices/tournamentsApiSlice";
 
 /* ---------- Sub-component: PlayerLink ---------- */
 function PlayerLink({ person, onOpen }) {
@@ -594,6 +609,220 @@ function StreamPlayer({ stream }) {
   }
 }
 
+/* ---------- Helpers chọn đội ---------- */
+const idOf = (x) => x?._id || x?.id || x?.value || x || null;
+
+function pairLabel(reg, isSingle) {
+  if (!reg) return "—";
+  const p1 = reg?.player1 || reg?.players?.[0] || reg?.p1;
+  const p2 = reg?.player2 || reg?.players?.[1] || reg?.p2;
+
+  const display = (p = {}) => {
+    const name = p.fullName || p.name || "";
+    const nick = p.nickName || p.nickname || "";
+    return nick ? `${nick}` : name || nick || "";
+  };
+
+  const n1 = display(p1);
+  const n2 = !isSingle && p2 ? display(p2) : null;
+  const code =
+    reg?.code ||
+    reg?.shortCode ||
+    String(reg?._id || reg?.id || reg)
+      .slice(-5)
+      .toUpperCase();
+
+  return [n1, n2].filter(Boolean).join(" & ") || code || "—";
+}
+
+function useDebounced(value, delay = 400) {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return v;
+}
+
+function EditTeamsDialog({
+  open,
+  onClose,
+  matchId,
+  tournamentId,
+  bracketId, // có cũng không dùng với BE route hiện tại, giữ để không vỡ props
+  isSingle,
+  defaultA,
+  defaultB,
+  onSaved,
+  patchMatch,
+  patching,
+}) {
+  const { tournamentId: tidParam, tid, tId, id: idParam } = useParams();
+  const location = useLocation();
+  const qs = new URLSearchParams(location.search);
+  const tidQuery =
+    qs.get("tournamentId") || qs.get("tournament") || qs.get("tid");
+  const effectiveTid =
+    tournamentId || tidParam || tid || tId || idParam || tidQuery || null;
+  const [selA, setSelA] = useState(defaultA || null);
+  const [selB, setSelB] = useState(defaultB || null);
+  const [q, setQ] = useState("");
+  const dq = useDebounced(q, 400);
+
+  useEffect(() => {
+    if (open) {
+      setSelA(defaultA || null);
+      setSelB(defaultB || null);
+      setQ("");
+    }
+  }, [open, defaultA, defaultB]);
+
+  // ✅ gọi đúng route mới: /api/registrations/:id/search
+  const [triggerSearch, { data = [], isFetching }] =
+    useLazySearchRegistrationsQuery();
+
+  useEffect(() => {
+    if (!open) return;
+    if (!effectiveTid) return;
+    // Gọi mỗi khi mở dialog hoặc query đổi
+    triggerSearch({ id: effectiveTid, q: dq, limit: 200 });
+  }, [open, effectiveTid, dq, triggerSearch]);
+
+  const options = data; // ✅ BE trả array
+
+  const handleSwap = () => {
+    const a = selA;
+    setSelA(selB);
+    setSelB(a);
+  };
+
+  const handleClear = () => {
+    setSelA(null);
+    setSelB(null);
+  };
+
+  const handleSave = async () => {
+    try {
+      await patchMatch({
+        pairA: idOf(selA),
+        pairB: idOf(selB),
+      });
+      onSaved?.(selA, selB);
+      onClose?.();
+    } catch (e) {
+      console.log(e);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullWidth
+      maxWidth="md"
+      scroll="paper"
+      PaperProps={{
+        sx: {
+          height: { xs: "85vh", md: "75vh" }, // 👈 cao hơn
+        },
+      }}
+    >
+      <DialogTitle>Chỉnh đội A / B</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2}>
+          {/* <TextField
+            size="small"
+            placeholder='Tìm đăng ký / vận động viên… (hỗ trợ: "cụm từ")'
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+            }}
+            helperText="Gõ để tìm theo tên, nick, mã, đuôi ID (short5) hoặc số điện thoại (≥6 số)."
+          /> */}
+
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
+            <Box flex={1}>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Chọn đội A
+              </Typography>
+              <Autocomplete
+                disablePortal
+                loading={isFetching}
+                options={options}
+                value={selA}
+                onChange={(_, v) => setSelA(v)}
+                getOptionLabel={(o) => pairLabel(o, isSingle)}
+                isOptionEqualToValue={(o, v) => idOf(o) === idOf(v)}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    size="small"
+                    placeholder="Chọn đội A"
+                  />
+                )}
+              />
+            </Box>
+
+            <Box flex={1}>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Chọn đội B
+              </Typography>
+              <Autocomplete
+                disablePortal
+                loading={isFetching}
+                options={options}
+                value={selB}
+                onChange={(_, v) => setSelB(v)}
+                getOptionLabel={(o) => pairLabel(o, isSingle)}
+                isOptionEqualToValue={(o, v) => idOf(o) === idOf(v)}
+                renderInput={(params) => (
+                  <TextField
+                    {...params}
+                    size="small"
+                    placeholder="Chọn đội B"
+                  />
+                )}
+              />
+            </Box>
+          </Stack>
+
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<SwapIcon />}
+              onClick={handleSwap}
+            >
+              Đổi A ↔ B
+            </Button>
+            <Button
+              variant="text"
+              size="small"
+              startIcon={<ClearIcon />}
+              onClick={handleClear}
+            >
+              Xoá chọn
+            </Button>
+          </Stack>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose} disabled={patching}>
+          Huỷ
+        </Button>
+        <Button onClick={handleSave} variant="contained" disabled={patching}>
+          Lưu đội
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 /* ===================== Component chính ===================== */
 export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const { userInfo } = useSelector((s) => s.auth || {});
@@ -604,63 +833,40 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       .map((x) => String(x).toLowerCase())
   );
 
+  // ✅ Admin: tận dụng cờ/role
   const isAdmin = !!(
     userInfo?.isAdmin ||
     roleStr === "admin" ||
     roles.has("admin") ||
-    roles.has("superadmin") ||
-    roles.has("tournament:admin")
+    roles.has("superadmin")
   );
-
+  const { tournamentId: tidParam, id: idParam, tid } = useParams();
+  const location = useLocation();
+  const qs = new URLSearchParams(location.search);
+  const tidQuery = qs.get("tournamentId") || qs.get("tournament") || null;
+  // Lấy thông tin tournament
   const tour =
     m?.tournament && typeof m.tournament === "object" ? m.tournament : null;
 
-  const ownerId =
-    (tour?.owner &&
-      (tour.owner._id || tour.owner.id || tour.owner.userId || tour.owner)) ||
-    (tour?.createdBy &&
-      (tour.createdBy._id ||
-        tour.createdBy.id ||
-        tour.createdBy.userId ||
-        tour.createdBy)) ||
-    (tour?.organizer &&
-      (tour.organizer._id ||
-        tour.organizer.id ||
-        tour.organizer.userId ||
-        tour.organizer)) ||
+  // 👇 tournamentId dùng chung (verify dialogs)
+  const tournamentId =
+    tidParam ||
+    idParam ||
+    tidQuery ||
+    tour?._id ||
+    tour?.id ||
+    m?.tournament?._id ||
+    m?.tournament?.id ||
     null;
 
-  const managerIds = new Set(
-    [
-      ...(tour?.managers || []),
-      ...(tour?.organizers || []),
-      ...(tour?.staff || []),
-      ...(tour?.moderators || []),
-    ]
-      .map((u) =>
-        typeof u === "string"
-          ? u
-          : u?._id || u?.id || u?.userId || u?.uid || u?.email
-      )
-      .filter(Boolean)
+  // ✅ Manager: xác thực qua API (admin/creator/manager đều pass)
+  const { data: verifyRes, isFetching: verifyingMgr } = useVerifyManagerQuery(
+    tournamentId ? tournamentId : skipToken
   );
+  const isManager = !!verifyRes?.isManager;
 
-  const canManageFlag =
-    m?.permissions?.canManage ||
-    tour?.permissions?.canManage ||
-    userInfo?.permissions?.includes?.("tournament:manage");
-
-  const isManager = !!(
-    tour &&
-    (managerIds.has(
-      userInfo?._id || userInfo?.id || userInfo?.userId || userInfo?.uid
-    ) ||
-      ownerId ===
-        (userInfo?._id || userInfo?.id || userInfo?.userId || userInfo?.uid) ||
-      canManageFlag)
-  );
-
-  const canSeeOverlay = isAdmin || isManager;
+  // ✅ Quyền chỉnh sửa: admin hoặc (creator/manager theo verifyRes)
+  const canEdit = isAdmin || isManager;
 
   // Popup hồ sơ
   const [profileOpen, setProfileOpen] = useState(false);
@@ -704,7 +910,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const activeStream =
     activeIdx >= 0 && activeIdx < streams.length ? streams[activeIdx] : null;
 
-  // ===== Local patch (để hiển thị ngay sau khi admin lưu) =====
+  // ===== Local patch (để hiển thị ngay sau khi lưu) =====
   const [localPatch, setLocalPatch] = useState(null);
   useEffect(() => {
     setLocalPatch(null);
@@ -718,12 +924,27 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     mm?._id && typeof window !== "undefined" && window?.location?.origin
       ? `${window.location.origin}/overlay/score?matchId=${mm._id}&theme=dark&size=md&showSets=1&autoNext=1`
       : "";
-  const displayTime = toDateSafe(pickDisplayTime(mm));
-  const timeLabel =
-    displayTime && status !== "finished"
-      ? `Giờ đấu: ${formatClock(displayTime)}`
-      : displayTime && status === "finished"
-      ? `Bắt đầu: ${formatClock(displayTime)}`
+  // Thời điểm: bắt đầu / dự kiến / kết thúc
+  const startedAt = toDateSafe(mm?.startedAt);
+  const scheduledAt = toDateSafe(mm?.scheduledAt || mm?.assignedAt);
+  const finishedAt = toDateSafe(mm?.finishedAt);
+
+  // Chip "bắt đầu/giờ đấu"
+  const startLabel =
+    status === "finished" || status === "live"
+      ? startedAt
+        ? `Bắt đầu: ${formatClock(startedAt)}`
+        : scheduledAt
+        ? `Giờ đấu: ${formatClock(scheduledAt)}`
+        : null
+      : scheduledAt
+      ? `Giờ đấu: ${formatClock(scheduledAt)}`
+      : null;
+
+  // Chip "kết thúc" (chỉ khi đã kết thúc và có finishedAt)
+  const endLabel =
+    status === "finished" && finishedAt
+      ? `Kết thúc: ${formatClock(finishedAt)}`
       : null;
 
   // Flags render
@@ -770,7 +991,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     useAdminPatchMatchMutation();
 
   const handleSaveScores = async () => {
-    if (!isAdmin || !mm?._id) return;
+    if (!canEdit || !mm?._id) return;
     try {
       await adminPatchMatch({
         id: mm._id,
@@ -786,7 +1007,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   };
 
   const handleSetWinner = async (side /* 'A' | 'B' */) => {
-    if (!isAdmin || !mm?._id) return;
+    if (!canEdit || !mm?._id) return;
     try {
       await adminPatchMatch({
         id: mm._id,
@@ -803,7 +1024,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   };
 
   const handleSetStatus = async (newStatus) => {
-    if (!isAdmin || !mm?._id) return;
+    if (!canEdit || !mm?._id) return;
     try {
       await adminPatchMatch({
         id: mm._id,
@@ -819,7 +1040,46 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     }
   };
 
-  const { A: setsA, B: setsB } = countGamesWon(shownGameScores);
+  // ====== Edit Teams (A/B) ======
+  const [teamsOpen, setTeamsOpen] = useState(false);
+
+  const bracketId = idOf(
+    m?.bracket && typeof m.bracket === "object" ? m.bracket : m?.bracket
+  );
+
+  const patchTeams = async (body) => {
+    try {
+      await adminPatchMatch({ id: mm._id, body }).unwrap();
+      toast.success("Đã lưu đội A/B. Reload trang để áp dụng");
+    } catch (e) {
+      const msg = e?.data?.message || e?.message || "Lỗi không xác định";
+      toast.error(`Lưu đội thất bại: ${msg}`);
+      throw e;
+    }
+  };
+
+  const handleTeamsSavedLocal = (newA, newB) => {
+    setLocalPatch((p) => ({
+      ...(p || {}),
+      pairA: newA
+        ? {
+            _id: idOf(newA),
+            player1: newA.player1,
+            player2: newA.player2,
+            code: newA.code,
+          }
+        : null,
+      pairB: newB
+        ? {
+            _id: idOf(newB),
+            player1: newB.player1,
+            player2: newB.player2,
+            code: newB.code,
+          }
+        : null,
+    }));
+    onSaved?.();
+  };
 
   if (showSpinner) {
     return (
@@ -831,6 +1091,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   if (showError)
     return <Alert severity="error">Không tải được dữ liệu trận.</Alert>;
   if (!mm) return <Box py={2} />;
+
+  const canSeeOverlay = canEdit; // hoặc cho mọi user xem, tuỳ yêu cầu
 
   return (
     <Stack spacing={2} sx={{ position: "relative" }}>
@@ -984,7 +1246,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               {lastGameScore(shownGameScores).b ?? 0}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Sets: {setsA} – {setsB}
+              Sets: {countGamesWon(shownGameScores).A} –{" "}
+              {countGamesWon(shownGameScores).B}
             </Typography>
           </Box>
 
@@ -1023,7 +1286,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 <TableCell>Set</TableCell>
                 <TableCell align="center">A</TableCell>
                 <TableCell align="center">B</TableCell>
-                {isAdmin && editMode && <TableCell align="center" width={56} />}
+                {canEdit && editMode && <TableCell align="center" width={56} />}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1031,7 +1294,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 <TableRow key={idx}>
                   <TableCell>{idx + 1}</TableCell>
                   <TableCell align="center">
-                    {isAdmin && editMode ? (
+                    {canEdit && editMode ? (
                       <TextField
                         size="small"
                         type="number"
@@ -1045,7 +1308,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                     )}
                   </TableCell>
                   <TableCell align="center">
-                    {isAdmin && editMode ? (
+                    {canEdit && editMode ? (
                       <TextField
                         size="small"
                         type="number"
@@ -1058,7 +1321,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                       g?.b ?? 0
                     )}
                   </TableCell>
-                  {isAdmin && editMode && (
+                  {canEdit && editMode && (
                     <TableCell align="center">
                       <IconButton
                         size="small"
@@ -1083,8 +1346,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
           flexWrap="wrap"
           sx={{ gap: 1, alignItems: "center" }}
         >
-          {timeLabel && (
-            <Chip size="small" icon={<TimeIcon />} label={timeLabel} />
+          {startLabel && (
+            <Chip size="small" icon={<TimeIcon />} label={startLabel} />
+          )}
+          {endLabel && (
+            <Chip size="small" icon={<TimeIcon />} label={endLabel} />
           )}
           <Chip size="small" label={`BO: ${mm.rules?.bestOf ?? 3}`} />
           <Chip
@@ -1114,12 +1380,13 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
           />
         </Stack>
 
-        {/* ===== Admin controls ===== */}
-        {isAdmin && (
+        {/* ===== Admin/Manager controls ===== */}
+        {canEdit && (
           <>
             <Divider sx={{ my: 2 }} />
             <Alert severity="warning" icon={<EditIcon />}>
-              Chế độ quản trị: chỉnh sửa tỉ số / đặt đội thắng / đổi trạng thái.
+              Chế độ quản trị: chỉnh sửa tỉ số / đặt đội thắng / đổi trạng thái
+              / <b>chỉnh đội A/B</b>.
             </Alert>
 
             <Stack
@@ -1148,7 +1415,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                     size="small"
                     startIcon={<SaveIcon />}
                     onClick={handleSaveScores}
-                    disabled={patching}
+                    disabled={patching || verifyingMgr || !canEdit}
                   >
                     Lưu tỉ số
                   </Button>
@@ -1157,7 +1424,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                     size="small"
                     startIcon={<UndoIcon />}
                     onClick={resetEdits}
-                    disabled={patching}
+                    disabled={patching || verifyingMgr || !canEdit}
                   >
                     Hoàn tác
                   </Button>
@@ -1166,7 +1433,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                     size="small"
                     startIcon={<AddIcon />}
                     onClick={addSet}
-                    disabled={patching}
+                    disabled={patching || verifyingMgr || !canEdit}
                   >
                     Thêm set
                   </Button>
@@ -1174,7 +1441,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                     variant="text"
                     size="small"
                     onClick={() => setEditMode(false)}
-                    disabled={patching}
+                    disabled={patching || verifyingMgr || !canEdit}
                   >
                     Thoát chỉnh sửa
                   </Button>
@@ -1187,7 +1454,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 size="small"
                 startIcon={<WinIcon />}
                 onClick={() => handleSetWinner("A")}
-                disabled={patching}
+                disabled={patching || verifyingMgr || !canEdit}
               >
                 Đặt A thắng
               </Button>
@@ -1196,7 +1463,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 size="small"
                 startIcon={<WinIcon />}
                 onClick={() => handleSetWinner("B")}
-                disabled={patching}
+                disabled={patching || verifyingMgr || !canEdit}
               >
                 Đặt B thắng
               </Button>
@@ -1207,7 +1474,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 size="small"
                 startIcon={<StatusIcon />}
                 onClick={() => handleSetStatus("scheduled")}
-                disabled={patching}
+                disabled={patching || verifyingMgr || !canEdit}
               >
                 Chuyển Scheduled
               </Button>
@@ -1216,7 +1483,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 size="small"
                 startIcon={<StatusIcon />}
                 onClick={() => handleSetStatus("live")}
-                disabled={patching}
+                disabled={patching || verifyingMgr || !canEdit}
               >
                 Chuyển Live
               </Button>
@@ -1225,14 +1492,40 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 size="small"
                 startIcon={<StatusIcon />}
                 onClick={() => handleSetStatus("finished")}
-                disabled={patching}
+                disabled={patching || verifyingMgr || !canEdit}
               >
                 Chuyển Finished
+              </Button>
+
+              {/* ✅ Chỉnh đội A/B */}
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<GroupIcon />}
+                onClick={() => setTeamsOpen(true)}
+                disabled={patching || verifyingMgr || !mm?._id || !canEdit}
+              >
+                Chỉnh đội A/B
               </Button>
             </Stack>
           </>
         )}
       </Paper>
+
+      {/* Dialog chọn đội */}
+      <EditTeamsDialog
+        open={teamsOpen}
+        onClose={() => setTeamsOpen(false)}
+        matchId={mm?._id}
+        tournamentId={tournamentId}
+        bracketId={bracketId}
+        isSingle={isSingle}
+        defaultA={mm?.pairA || null}
+        defaultB={mm?.pairB || null}
+        onSaved={handleTeamsSavedLocal}
+        patchMatch={patchTeams}
+        patching={patching}
+      />
 
       {/* Popup hồ sơ VĐV */}
       <PublicProfileDialog

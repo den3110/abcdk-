@@ -157,4 +157,12 @@ tournamentSchema.post("findOneAndUpdate", async function (doc, next) {
 tournamentSchema.index({ status: 1, endAt: 1 });
 tournamentSchema.index({ status: 1, startAt: 1 });
 
+// 👇 virtual populate: các manager của giải đấu
+// tournamentSchema.virtual('managers', {
+//   ref: 'TournamentManager',
+//   localField: '_id',
+//   foreignField: 'tournament',
+//   justOne: false,
+// });
+
 export default mongoose.model("Tournament", tournamentSchema);

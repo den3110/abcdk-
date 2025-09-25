@@ -13,6 +13,6 @@ const router = express.Router();
 
 router.patch("/:id/live", protect, isManagerTournament, setMatchLive);
 
-router.patch("/:id/admin", protect, authorize("admin"), adminPatchMatch);
+router.patch("/:id/admin", protect, isManagerTournament, adminPatchMatch);
 
 export default router;

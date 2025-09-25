@@ -2,6 +2,8 @@
 import TournamentManager from "../models/tournamentManagerModel.js";
 import User from "../models/userModel.js";
 import Tournament from "../models/tournamentModel.js";
+import asyncHandler from "express-async-handler";
+import mongoose from "mongoose";
 
 /** helper: kiểm tra quyền admin hoặc chủ giải (tuỳ bạn có field owner/organizer) */
 async function canManageManagers(reqUser, tournamentId) {
@@ -69,3 +71,51 @@ export async function isTournamentManager(userId, tournamentId) {
   });
   return !!exist;
 }
+
+
+const isOID = (v) => mongoose.isValidObjectId(String(v || ""));
+const OID = (v) => new mongoose.Types.ObjectId(String(v));
+
+/**
+ * GET /api/tournaments/:tid/is-manager?user=<userId>
+ * - Nếu không truyền ?user= thì mặc định dùng req.user._id
+ * - Tiêu chí "manager" TRUE nếu:
+ *    + có bản ghi TournamentManager(tournament, user)
+ *    + HOẶC user là admin hệ thống
+ *    + HOẶC user là người tạo giải (createdBy)
+ */
+export const verifyTournamentManager = asyncHandler(async (req, res) => {
+  const tid = req.params.tid || req.params.id;
+  const userId = req.query.user || req.query.userId || req.user?._id;
+
+  if (!tid || !userId) {
+    res.status(400);
+    throw new Error("Thiếu tournament id hoặc user id");
+  }
+  if (!isOID(tid) || !isOID(userId)) {
+    res.status(400);
+    throw new Error("ID không hợp lệ");
+  }
+
+  const [tm, t] = await Promise.all([
+    TournamentManager.findOne({
+      tournament: OID(tid),
+      user: OID(userId),
+    })
+      .select("_id role createdBy createdAt")
+      .lean(),
+    Tournament.findById(tid).select("_id createdBy").lean(),
+  ]);
+
+  const isAdmin = req.user?.role === "admin";
+  const isCreator = !!t && String(t.createdBy) === String(userId);
+  const isManager = !!(tm || isCreator || isAdmin);
+
+  res.json({
+    tournamentId: String(tid),
+    userId: String(userId),
+    isManager,
+    via: tm ? "manager" : isCreator ? "creator" : isAdmin ? "admin" : "none",
+    managerRecord: tm || null,
+  });
+});

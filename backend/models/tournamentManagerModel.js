@@ -21,6 +21,8 @@ const tournamentManagerSchema = new mongoose.Schema(
   { timestamps: true, strict: true }
 );
 
+
+
 // 1 user chỉ quản lý 1 giải một lần
 tournamentManagerSchema.index({ tournament: 1, user: 1 }, { unique: true });
 

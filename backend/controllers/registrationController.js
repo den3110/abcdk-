@@ -229,40 +229,31 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     if (isMgr) canSeeFullPhone = true;
   }
 
-  // 1) lấy registrations (lean để mutate nhẹ)
+  // 1) lấy registrations
   const regs = await Registration.find({ tournament: tourId })
     .sort({ createdAt: -1 })
     .lean();
 
-  // 1.1) Gán mã đăng ký (code) cho những bản ghi còn thiếu
-  // - Bắt đầu từ 10000
-  // - Không đè lên bản ghi đã có code
-  // - Gán theo thứ tự thời gian tạo (cũ -> mới)
+  // 1.1) Gán mã đăng ký cho bản thiếu
   const missing = regs.filter((r) => r.code == null);
   if (missing.length) {
-    // Lấy code lớn nhất hiện có trong toàn bộ collection
     const maxDoc = await Registration.findOne({ code: { $type: "number" } })
       .sort({ code: -1 })
       .select("code")
       .lean();
 
-    let next = Math.max(9999, Number(maxDoc?.code ?? 9999)); // để ++ thành 10000 ở bản ghi đầu tiên
-
-    // Gán theo thứ tự cũ -> mới để mã tăng dần theo thời gian
+    let next = Math.max(9999, Number(maxDoc?.code ?? 9999));
     missing.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-
     for (const r of missing) {
       next += 1;
-      // Chỉ set khi vẫn chưa có code (tránh race khi có request khác gán trước)
       // eslint-disable-next-line no-await-in-loop
       const upd = await Registration.updateOne(
         { _id: r._id, $or: [{ code: { $exists: false } }, { code: null }] },
         { $set: { code: next } }
       );
       if (upd.modifiedCount > 0) {
-        r.code = next; // cập nhật vào bản lean để trả về luôn
+        r.code = next;
       } else {
-        // Có thể đã được gán ở nơi khác trong lúc này -> đọc lại
         // eslint-disable-next-line no-await-in-loop
         const fresh = await Registration.findById(r._id).select("code").lean();
         if (fresh?.code != null) r.code = fresh.code;
@@ -270,18 +261,31 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     }
   }
 
-  // 2) gom userId từ player1/2 để query 1 lần
+  // 2) gom userId từ player1/2
   const uids = new Set();
   for (const r of regs) {
     if (r?.player1?.user) uids.add(String(r.player1.user));
     if (r?.player2?.user) uids.add(String(r.player2.user));
   }
 
-  // 3) query User, chỉ lấy field cần thiết
+  // 3) query User: lấy thêm verified & cccdStatus
   const users = await User.find({ _id: { $in: [...uids] } })
-    .select("_id avatar fullName name nickName nickname phone")
+    .select(
+      "_id avatar fullName name nickName nickname phone verified cccdStatus"
+    )
     .lean();
   const userById = new Map(users.map((u) => [String(u._id), u]));
+
+  // Helper quyết định trạng thái xác thực cuối cùng (ưu tiên cccdStatus)
+  const finalKycStatusOf = (u) => {
+    const c = String(u?.cccdStatus || "").toLowerCase();
+    if (["verified", "pending", "rejected"].includes(c)) return c;
+    // cccdStatus = 'unverified' hoặc không có -> fallback verified legacy
+    const v = String(u?.verified || "").toLowerCase(); // 'verified' | 'pending'
+    if (v === "verified") return "verified";
+    if (v === "pending") return "pending";
+    return "unverified";
+  };
 
   // 4) helper ẩn số (tùy quyền)
   const maskPhone = (val) => {
@@ -300,9 +304,9 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     return `${s.slice(0, 3)}****${s.slice(-3)}`;
   };
 
-  // 5) hợp nhất từ User (override avatar/fullName/nickName/phone)
+  // 5) hợp nhất từ User + gán kycStatus
   const enrichPlayer = (pl) => {
-    if (!pl) return pl; // singles có thể null player2
+    if (!pl) return pl;
     const u = userById.get(String(pl.user));
 
     const nickFromUser =
@@ -317,6 +321,10 @@ export const getRegistrations = asyncHandler(async (req, res) => {
     const phoneSource = u?.phone ?? pl.phone ?? "";
     const maskedPhone = maskPhone(phoneSource);
 
+    // ✅ Trạng thái xác thực cuối cùng
+    const kycStatus = finalKycStatusOf(u);
+    const isVerified = kycStatus === "verified";
+
     return {
       ...pl,
       avatar: u?.avatar ?? pl?.avatar ?? null,
@@ -327,6 +335,12 @@ export const getRegistrations = asyncHandler(async (req, res) => {
         (pl.nickname && String(pl.nickname).trim()) ||
         "",
       phone: maskedPhone,
+
+      // 👇 Thêm các field để FE dùng hiển thị badge
+      cccdStatus: u?.cccdStatus || "unverified",
+      verifiedLegacy: u?.verified || "pending",
+      kycStatus, // 'verified' | 'pending' | 'rejected' | 'unverified'
+      isVerified, // boolean nhanh gọn
     };
   };
 
@@ -703,46 +717,142 @@ const escapeRegExp = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 export const searchRegistrations = async (req, res, next) => {
   try {
     const { id } = req.params; // tournament id
-    let rawQ = String(req.query.q || "").trim();
-    const limit = Math.min(Number(req.query.limit || 200), 500);
+    let rawQ = String(req.query.q ?? "").trim();
+    const limit = Math.min(Number(req.query.limit ?? 200), 500);
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Tournament id không hợp lệ" });
     }
-    if (!rawQ) return res.json([]);
 
-    // helper nhỏ
+    // Helper
     const escapeRegExp = (s = "") =>
       String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-    // --- exact phrase nếu có ngoặc kép ---
+    // === Nếu không có q: trả tất cả trong giải (giới hạn limit) ===
+    if (!rawQ) {
+      const results = await Registration.aggregate([
+        { $match: { tournament: new ObjectId(id) } },
+
+        // Join user cho player1 & player2
+        {
+          $lookup: {
+            from: "users",
+            localField: "player1.user",
+            foreignField: "_id",
+            as: "u1",
+          },
+        },
+        { $unwind: { path: "$u1", preserveNullAndEmptyArrays: true } },
+        {
+          $lookup: {
+            from: "users",
+            localField: "player2.user",
+            foreignField: "_id",
+            as: "u2",
+          },
+        },
+        { $unwind: { path: "$u2", preserveNullAndEmptyArrays: true } },
+
+        // Trả player mixed để UI hiển thị
+        {
+          $addFields: {
+            player1Mixed: {
+              user: "$player1.user",
+              phone: { $ifNull: ["$u1.phone", "$player1.phone"] },
+              fullName: {
+                $ifNull: [
+                  "$u1.fullName",
+                  { $ifNull: ["$u1.name", "$player1.fullName"] },
+                ],
+              },
+              nickName: {
+                $ifNull: [
+                  "$u1.nickname",
+                  { $ifNull: ["$u1.nickName", "$player1.nickName"] },
+                ],
+              },
+              avatar: { $ifNull: ["$u1.avatar", "$player1.avatar"] },
+              score: "$player1.score",
+            },
+            player2Mixed: {
+              $cond: [
+                { $ifNull: ["$player2", false] },
+                {
+                  user: "$player2.user",
+                  phone: { $ifNull: ["$u2.phone", "$player2.phone"] },
+                  fullName: {
+                    $ifNull: [
+                      "$u2.fullName",
+                      { $ifNull: ["$u2.name", "$player2.fullName"] },
+                    ],
+                  },
+                  nickName: {
+                    $ifNull: [
+                      "$u2.nickname",
+                      { $ifNull: ["$u2.nickName", "$player2.nickName"] },
+                    ],
+                  },
+                  avatar: { $ifNull: ["$u2.avatar", "$player2.avatar"] },
+                  score: "$player2.score",
+                },
+                null,
+              ],
+            },
+          },
+        },
+
+        {
+          $project: {
+            _id: 1,
+            tournament: 1,
+            createdBy: 1,
+            createdAt: 1,
+            code: 1,
+            checkinAt: 1,
+            payment: 1,
+            player1: "$player1Mixed",
+            player2: "$player2Mixed",
+            // giữ snapshot nếu cần
+            player1Snapshot: "$player1",
+            player2Snapshot: "$player2",
+          },
+        },
+        { $sort: { createdAt: -1 } },
+        { $limit: limit },
+      ]).collation({ locale: "vi", strength: 1 });
+
+      return res.json(results);
+    }
+
+    // === Có q: build điều kiện tìm kiếm theo từng VĐV (tên & nickname) ===
+
+    // exact phrase nếu có ngoặc kép
     const quoted = /^["“].*["”]$/.test(rawQ);
     if (quoted) rawQ = rawQ.replace(/^["“]|["”]$/g, "").trim();
 
-    // --- tokens & chế độ ---
+    // tokens & chế độ
     const tokens = rawQ.split(/\s+/).filter(Boolean);
     const tokensLen = tokens.length;
     const exactMode = quoted || tokensLen >= 2;
 
-    // --- chuẩn hoá cho so sánh ---
     const qUpper = rawQ.toUpperCase();
     const qDigits = (rawQ.match(/\d/g) || []).join("");
 
-    // phone: yêu cầu >=6 số để giảm nhiễu
+    // phone
     const phoneRegex = qDigits.length >= 6 ? new RegExp(qDigits) : null;
 
-    // code: nếu toàn số -> exact, nếu có số thì cho phép prefix (codeStr)
+    // code
     const codeExact = /^\d+$/.test(rawQ) ? Number(rawQ) : undefined;
     const codePrefixRegex =
       qDigits.length >= 2 ? new RegExp("^" + escapeRegExp(qDigits)) : null;
 
-    // short5 chỉ bật khi 1 token & không ở exactMode để đỡ nhiễu
+    // short5
     const short5Prefix =
       !exactMode && tokensLen === 1
         ? new RegExp("^" + escapeRegExp(tokens[0].toUpperCase()))
         : null;
 
-    // regex “đầu từ” & “contains” theo token (case-insensitive)
+    // regex token
     const tokenPrefixRegexes = tokens.map(
       (t) => new RegExp("(?:^|\\s)" + escapeRegExp(t), "i")
     );
@@ -751,7 +861,7 @@ export const searchRegistrations = async (req, res, next) => {
     const pipeline = [
       { $match: { tournament: new ObjectId(id) } },
 
-      // Join User cho player1 & player2
+      // Join user cho player1 & player2
       {
         $lookup: {
           from: "users",
@@ -771,7 +881,7 @@ export const searchRegistrations = async (req, res, next) => {
       },
       { $unwind: { path: "$u2", preserveNullAndEmptyArrays: true } },
 
-      // Các field phụ để so sánh/xếp hạng
+      // Các field chuẩn hoá để so sánh
       {
         $addFields: {
           n1: {
@@ -805,7 +915,7 @@ export const searchRegistrations = async (req, res, next) => {
             },
           },
 
-          // fallback phone: User > snapshot
+          // fallback phone: user > snapshot
           p1Phone: { $ifNull: ["$u1.phone", "$player1.phone"] },
           p2Phone: { $ifNull: ["$u2.phone", "$player2.phone"] },
 
@@ -827,10 +937,9 @@ export const searchRegistrations = async (req, res, next) => {
         },
       },
 
-      // ====== Tính HIT FLAGS / SCORES ======
+      // ====== HIT FLAGS / SCORES (theo TỪNG VĐV) ======
       {
         $addFields: {
-          // Trùng tuyệt đối với tên/nickname (không phân biệt hoa/thường)
           exactNameHit: {
             $or: [
               { $eq: ["$n1", qUpper] },
@@ -840,7 +949,6 @@ export const searchRegistrations = async (req, res, next) => {
             ],
           },
 
-          // Số token match ở "đầu từ" (thêm 0 để an toàn khi không có token)
           tokenPrefixHits: {
             $add: [
               0,
@@ -859,7 +967,6 @@ export const searchRegistrations = async (req, res, next) => {
             ],
           },
 
-          // Có token nào xuất hiện ở bất cứ đâu
           tokenAnyHits: {
             $add: [
               0,
@@ -878,7 +985,6 @@ export const searchRegistrations = async (req, res, next) => {
             ],
           },
 
-          // code / phone / short5
           codeOrPhoneHit: {
             $or: [
               ...(Number.isFinite(codeExact)
@@ -908,13 +1014,13 @@ export const searchRegistrations = async (req, res, next) => {
         },
       },
 
-      // Lọc theo "chế độ" (không dùng $expr trong $match)
+      // Lọc theo chế độ
       {
         $match: exactMode
           ? {
               $or: [
                 { exactNameHit: true },
-                { codeOrPhoneHit: true }, // vẫn cho phép tìm bằng code/phone trong exact mode
+                { codeOrPhoneHit: true },
                 ...(tokensLen
                   ? [{ tokenPrefixHits: { $gte: tokensLen } }]
                   : []),
@@ -930,7 +1036,7 @@ export const searchRegistrations = async (req, res, next) => {
             },
       },
 
-      // Ranking: 0 (code/phone) < 1 (exact name) < 2 (all tokens as word-prefix) < 3 (any token)
+      // Xếp hạng
       {
         $addFields: {
           rank: {
@@ -957,7 +1063,7 @@ export const searchRegistrations = async (req, res, next) => {
       { $sort: { rank: 1, createdAt: -1 } },
       { $limit: limit },
 
-      // Trả player từ User (fallback snapshot), score vẫn là snapshot
+      // Trả player mixed (gộp user + snapshot)
       {
         $addFields: {
           player1Mixed: {
@@ -1018,7 +1124,6 @@ export const searchRegistrations = async (req, res, next) => {
           player1: "$player1Mixed",
           player2: "$player2Mixed",
 
-          // giữ snapshot để đối chiếu nếu cần
           player1Snapshot: "$player1",
           player2Snapshot: "$player2",
         },
@@ -1027,7 +1132,7 @@ export const searchRegistrations = async (req, res, next) => {
 
     const results = await Registration.aggregate(pipeline).collation({
       locale: "vi",
-      strength: 1,
+      strength: 1, // ignore case + accents cho so sánh thường; (regex vẫn phân biệt dấu)
     });
 
     return res.json(results);

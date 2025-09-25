@@ -12,5 +12,6 @@ export async function isTournamentManager(userId, tournamentId) {
 export async function canManageTournament(user, tournamentId) {
   if (!user) return false;
   if (user.role === "admin") return true;
-  return await isTournamentManager(user._id, tournamentId);
+  const check = await isTournamentManager(user._id, tournamentId);
+  return check;
 }

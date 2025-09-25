@@ -1,6 +1,7 @@
 import asyncHandler from "express-async-handler";
 import Match from "../models/matchModel.js";
 import mongoose from "mongoose";
+import Registration from "../models/registrationModel.js";
 
 // controllers/matchController.js
 const getMatchesByTournament = asyncHandler(async (req, res) => {
@@ -52,7 +53,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
   const pipeline = [
     { $match: { tournament: new mongoose.Types.ObjectId(id) } },
 
-    // ===== Tournament (ngày/giờ, eventType nếu cần) =====
+    // ===== Tournament =====
     {
       $lookup: {
         from: "tournaments",
@@ -63,7 +64,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $unwind: "$_tour" },
 
-    // ===== Bracket (để lấy type/stage/order) =====
+    // ===== Bracket hiện tại =====
     {
       $lookup: {
         from: "brackets",
@@ -74,7 +75,203 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $addFields: { _br: { $arrayElemAt: ["$_br", 0] } } },
 
-    // ===== Registration pairs =====
+    // ===== Lấy toàn bộ brackets & tính _span (số vòng chiếm dụng) =====
+    {
+      $lookup: {
+        from: "brackets",
+        let: { tId: "$tournament" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$tournament", "$$tId"] } } },
+
+          // ---- Chuẩn hoá type về 3 nhóm: group / roundelim (PO) / knockout (KO)
+          {
+            $addFields: {
+              __typeRaw: { $toLower: { $ifNull: ["$type", ""] } },
+              __tNorm: {
+                $switch: {
+                  branches: [
+                    {
+                      case: {
+                        $in: [
+                          { $toLower: { $ifNull: ["$type", ""] } },
+                          [
+                            "group",
+                            "round_robin",
+                            "round-robin",
+                            "rr",
+                            "gsl",
+                            "swiss",
+                          ],
+                        ],
+                      },
+                      then: "group",
+                    },
+                    {
+                      case: {
+                        $in: [
+                          { $toLower: { $ifNull: ["$type", ""] } },
+                          ["po", "roundelim", "round_elim", "round-elim"],
+                        ],
+                      },
+                      then: "roundelim",
+                    },
+                    {
+                      case: {
+                        $in: [
+                          { $toLower: { $ifNull: ["$type", ""] } },
+                          [
+                            "knockout",
+                            "ko",
+                            "single_elim",
+                            "single-elim",
+                            "singleelimination",
+                          ],
+                        ],
+                      },
+                      then: "knockout",
+                    },
+                  ],
+                  default: { $toLower: { $ifNull: ["$type", ""] } },
+                },
+              },
+            },
+          },
+
+          // ---- Lấy số vòng từ matches: max(round) + số round distinct
+          {
+            $lookup: {
+              from: "matches",
+              let: { bid: "$_id" },
+              pipeline: [
+                { $match: { $expr: { $eq: ["$bracket", "$$bid"] } } },
+                {
+                  $group: {
+                    _id: null,
+                    maxRound: { $max: { $ifNull: ["$round", 0] } },
+                    roundsSet: { $addToSet: { $ifNull: ["$round", 0] } },
+                  },
+                },
+                {
+                  $project: {
+                    _id: 0,
+                    maxRound: 1,
+                    roundCount: { $size: "$roundsSet" },
+                  },
+                },
+              ],
+              as: "_mx",
+            },
+          },
+          {
+            $addFields: {
+              _mxAgg: { $arrayElemAt: ["$_mx", 0] },
+              _mxMaxRound: {
+                $ifNull: [{ $arrayElemAt: ["$_mx.maxRound", 0] }, 0],
+              },
+              _mxRoundCount: {
+                $ifNull: [{ $arrayElemAt: ["$_mx.roundCount", 0] }, 0],
+              },
+            },
+          },
+          {
+            $addFields: {
+              _roundsFromMatches: { $max: ["$_mxMaxRound", "$_mxRoundCount"] },
+            },
+          },
+
+          // ---- Fallback từ meta/config
+          {
+            $addFields: {
+              _metaRounds: {
+                $max: [
+                  { $ifNull: ["$meta.maxRounds", 0] },
+                  { $ifNull: ["$drawRounds", 0] },
+                ],
+              },
+              _reCutRounds: {
+                $ifNull: ["$config.roundElim.cutRounds", 0],
+              },
+            },
+          },
+
+          // ---- Quy tắc tính _span
+          {
+            $addFields: {
+              _span: {
+                $switch: {
+                  branches: [
+                    // Group-like: luôn là 1
+                    { case: { $eq: ["$__tNorm", "group"] }, then: 1 },
+                    // RoundElim (PO): ưu tiên matches, rồi cutRounds/meta; min 1
+                    {
+                      case: { $eq: ["$__tNorm", "roundelim"] },
+                      then: {
+                        $max: [
+                          1,
+                          "$_roundsFromMatches",
+                          "$_reCutRounds",
+                          "$_metaRounds",
+                        ],
+                      },
+                    },
+                    // Knockout (KO): ưu tiên matches, rồi meta/drawRounds; min 1
+                    {
+                      case: { $eq: ["$__tNorm", "knockout"] },
+                      then: {
+                        $max: [1, "$_roundsFromMatches", "$_metaRounds"],
+                      },
+                    },
+                  ],
+                  default: 1,
+                },
+              },
+            },
+          },
+
+          { $project: { _id: 1, stage: 1, order: 1, _span: 1 } },
+          { $sort: { stage: 1, order: 1, _id: 1 } },
+        ],
+        as: "_allBrs",
+      },
+    },
+
+    // ===== Tính base V cho bracket hiện tại: 1 + SUM(_span) các bracket trước
+    {
+      $addFields: {
+        _brIds: { $map: { input: "$_allBrs", as: "b", in: "$$b._id" } },
+        _spans: { $map: { input: "$_allBrs", as: "b", in: "$$b._span" } },
+      },
+    },
+    { $addFields: { _curIndex: { $indexOfArray: ["$_brIds", "$_br._id"] } } },
+    {
+      $addFields: {
+        _baseSum: {
+          $let: {
+            vars: {
+              arr: {
+                $cond: [
+                  { $gt: ["$_curIndex", 0] },
+                  { $slice: ["$_spans", 0, "$_curIndex"] },
+                  [],
+                ],
+              },
+            },
+            in: {
+              $reduce: {
+                input: "$$arr",
+                initialValue: 0,
+                in: { $add: ["$$value", "$$this"] },
+              },
+            },
+          },
+        },
+      },
+    },
+    { $addFields: { _baseRoundStart: { $add: [1, "$_baseSum"] } } },
+
+    // ===== Registrations / Users / Court / Time … (giữ nguyên như bạn đang có) =====
+    // -- (đoạn dưới giống hệt bản trước của bạn, mình không đổi gì ngoài giữ gọn)
+
     {
       $lookup: {
         from: "registrations",
@@ -97,8 +294,6 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
         _rb: { $arrayElemAt: ["$_rb", 0] },
       },
     },
-
-    // ===== Users cho từng player (để lấy nickname) =====
     {
       $lookup: {
         from: "users",
@@ -136,7 +331,6 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $addFields: { _rb_u2: { $arrayElemAt: ["$_rb_u2", 0] } } },
 
-    // ===== Referees & liveBy =====
     {
       $lookup: {
         from: "users",
@@ -155,7 +349,6 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $addFields: { _liveBy: { $arrayElemAt: ["$_liveBy", 0] } } },
 
-    // ===== Court =====
     {
       $lookup: {
         from: "courts",
@@ -166,7 +359,6 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $addFields: { _court: { $arrayElemAt: ["$_court", 0] } } },
 
-    // ===== Ngày/giờ =====
     {
       $addFields: {
         _todayStr: {
@@ -186,7 +378,6 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
             timezone: TZ,
           },
         },
-
         _schedDate: {
           $cond: [
             { $ifNull: ["$scheduledAt", false] },
@@ -217,7 +408,6 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $addFields: { _tourUpcoming: { $lt: ["$_todayStr", "$_startStr"] } } },
 
-    // ===== Set cuối =====
     {
       $addFields: {
         _lastSet: {
@@ -230,7 +420,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // ===== Nickname cho từng player (ưu tiên nickname) =====
+    // Team labels (nickname)
     {
       $addFields: {
         _p1aNick: {
@@ -371,8 +561,6 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
         },
       },
     },
-
-    // ===== Team label theo nickname (đánh đơn sẽ chỉ hiện p1) =====
     {
       $addFields: {
         _team1: {
@@ -468,7 +656,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // ===== Output date/time (nếu chưa diễn ra dùng ngày mở reg) =====
+    // ===== Date/time output =====
     {
       $addFields: {
         _outDate: { $cond: ["$_tourUpcoming", "$_openStr", "$_schedDate"] },
@@ -478,7 +666,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // ===== Nickname cho liveBy & referee list =====
+    // ===== referee/liveBy nick =====
     {
       $addFields: {
         _liveNick: {
@@ -540,19 +728,68 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // ===== Khóa sort theo BRACKET → MATCH =====
+    // ===== Ưu tiên group-code nếu có =====
+    {
+      $addFields: {
+        _codeCandidates: [
+          { $ifNull: ["$codeResolved", ""] },
+          { $ifNull: ["$globalCodeV", ""] },
+          { $ifNull: ["$globalCode", ""] },
+          { $ifNull: ["$code", ""] },
+        ],
+      },
+    },
+    {
+      $addFields: {
+        _groupCode: {
+          $let: {
+            vars: { arr: "$_codeCandidates" },
+            in: {
+              $reduce: {
+                input: "$$arr",
+                initialValue: "",
+                in: {
+                  $cond: [
+                    { $ne: ["$$value", ""] },
+                    "$$value",
+                    {
+                      $cond: [
+                        {
+                          $regexMatch: {
+                            input: "$$this",
+                            regex: "^#?V\\d+-B[\\w-]+#\\d+$",
+                          },
+                        },
+                        {
+                          $cond: [
+                            { $eq: [{ $substrCP: ["$$this", 0, 1] }, "#"] },
+                            "$$this",
+                            { $concat: ["#", "$$this"] },
+                          ],
+                        },
+                        "",
+                      ],
+                    },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // ===== Sort =====
     {
       $addFields: {
         _brStage: { $ifNull: ["$_br.stage", 9999] },
         _brOrder: { $ifNull: ["$_br.order", 9999] },
         _sortSchedDate: { $ifNull: ["$_schedDate", "9999-12-31"] },
         _sortSchedTime: { $ifNull: ["$_schedTime", "23:59"] },
-        _roundSafe: { $ifNull: ["$round", 9999] },
-        _orderSafe: { $ifNull: ["$order", 9999] },
+        _roundSafe: { $ifNull: ["$round", 1] },
+        _orderSafe: { $ifNull: ["$order", 0] },
       },
     },
-
-    // ===== Sắp xếp: BRACKET trước, rồi round/order/time =====
     {
       $sort: {
         _brStage: 1,
@@ -564,42 +801,52 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // ===== Project output cho FE =====
+    // ===== Project =====
     {
       $project: {
         _id: 1,
+
         code: {
-          $ifNull: [
-            "$code",
+          $cond: [
+            { $gt: [{ $strLenCP: "$_groupCode" }, 0] },
+            "$_groupCode",
             {
-              $concat: [
-                "M-",
-                { $toString: { $ifNull: ["$round", 0] } },
-                "-",
-                { $toString: { $ifNull: ["$order", 0] } },
-              ],
+              $let: {
+                vars: {
+                  dispRound: {
+                    $add: [
+                      "$_baseRoundStart",
+                      { $add: [{ $ifNull: ["$round", 1] }, -1] },
+                    ],
+                  },
+                  order1: { $add: [{ $ifNull: ["$order", 0] }, 1] },
+                },
+                in: {
+                  $concat: [
+                    "V",
+                    { $toString: "$$dispRound" },
+                    "-T",
+                    { $toString: "$$order1" },
+                  ],
+                },
+              },
             },
           ],
         },
 
-        // Bracket info
         bracketId: "$_br._id",
         bracketName: "$_br.name",
         bracketType: "$_br.type",
 
-        // Date/time
         date: "$_outDate",
         time: "$_outTime",
 
-        // Team labels (nickname-based)
         team1: "$_team1",
         team2: "$_team2",
 
-        // Score (last set)
         score1: { $ifNull: ["$_lastSet.a", 0] },
         score2: { $ifNull: ["$_lastSet.b", 0] },
 
-        // Field label
         field: {
           $let: {
             vars: {
@@ -617,7 +864,6 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
           },
         },
 
-        // Referee string (ưu tiên liveBy)
         referee: {
           $let: {
             vars: { live: "$_liveNick", joined: "$_refereeJoined" },
@@ -645,6 +891,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
  * GET /api/matches/:id
  * Public: trả về match đã populate những phần FE cần
  */
+
 export const getMatchPublic = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -652,6 +899,7 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
   }
 
   const match = await Match.findById(id)
+    // ===== Pairs A/B + players (giữ như bạn đang dùng) =====
     .populate({
       path: "pairA",
       select: "player1 player2 seed label teamName",
@@ -684,26 +932,57 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
         },
       ],
     })
-    // referee giờ là array<ObjectId> — populate bình thường
+
+    // ===== Referees (array) & liveBy =====
     .populate({ path: "referee", select: "name fullName nickname nickName" })
-    // ⭐ NEW: lấy thông tin người đang live (user)
     .populate({ path: "liveBy", select: "name nickname nickName" })
+
+    // ===== Trước/Sau =====
     .populate({ path: "previousA", select: "round order" })
     .populate({ path: "previousB", select: "round order" })
     .populate({ path: "nextMatch", select: "_id" })
+
+    // ===== ⭐ Bracket: lấy thêm trường để FE tính V/bảng, rules, ... =====
+    .populate({
+      path: "bracket",
+      select: [
+        "name",
+        "type",
+        "stage",
+        "order",
+        "drawRounds",
+        "meta.drawSize",
+        "meta.maxRounds",
+        "meta.expectedFirstRoundMatches",
+        "groups._id",
+        "groups.name",
+        "groups.expectedSize",
+        "drawStatus",
+        "noRankDelta",
+        "scheduler",
+        "drawSettings",
+        // config.*
+        "config.rules",
+        "config.roundRobin",
+        "config.doubleElim",
+        "config.swiss",
+        "config.gsl",
+        "config.roundElim",
+      ].join(" "),
+    })
     .lean();
 
   if (!match) {
     return res.status(404).json({ message: "Match not found" });
   }
 
-  // Helper: chuẩn hoá nickname cho player (và user nếu cần)
+  // ===== Helpers =====
+  const pickTrim = (v) => (v && String(v).trim()) || "";
   const fillNick = (p) => {
     if (!p) return p;
-    const pick = (v) => (v && String(v).trim()) || "";
-    const primary = pick(p.nickname) || pick(p.nickName);
+    const primary = pickTrim(p.nickname) || pickTrim(p.nickName);
     const fromUser = p.user
-      ? pick(p.user.nickname) || pick(p.user.nickName)
+      ? pickTrim(p.user.nickname) || pickTrim(p.user.nickName)
       : "";
     const n = primary || fromUser || "";
     if (n) {
@@ -713,6 +992,7 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     return p;
   };
 
+  // Chuẩn hoá nickname cho players
   if (match.pairA) {
     match.pairA.player1 = fillNick(match.pairA.player1);
     match.pairA.player2 = fillNick(match.pairA.player2);
@@ -722,29 +1002,22 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     match.pairB.player2 = fillNick(match.pairB.player2);
   }
 
-  // ⭐ NEW: chuẩn hoá liveBy để luôn có { _id, name, nickname }
+  // liveBy → chuẩn hoá { _id, name, nickname }
   if (match.liveBy) {
     const lb = match.liveBy;
-    const nickname =
-      (lb.nickname && String(lb.nickname).trim()) ||
-      (lb.nickName && String(lb.nickName).trim()) ||
-      "";
     match.liveBy = {
       _id: lb._id,
       name: lb.name || "",
-      nickname, // luôn expose key 'nickname'
+      nickname: pickTrim(lb.nickname) || pickTrim(lb.nickName) || "",
     };
   }
 
-  // Chuẩn hoá referee (array) — vẫn giữ mỗi item chỉ có {_id, name, nickname}
+  // referee[] → chuẩn hoá { _id, name, nickname }
   if (Array.isArray(match.referee)) {
     match.referee = match.referee.map((r) => ({
       _id: r._id,
       name: r.name || r.fullName || "",
-      nickname:
-        (r.nickname && String(r.nickname).trim()) ||
-        (r.nickName && String(r.nickName).trim()) ||
-        "",
+      nickname: pickTrim(r.nickname) || pickTrim(r.nickName) || "",
     }));
   }
 
@@ -753,7 +1026,36 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     match.streams = match.meta.streams;
   }
 
-  res.json(match);
+  // ===== ⭐ Chuẩn hoá bracket một chút cho FE (optional) =====
+  if (match.bracket) {
+    const b = match.bracket;
+
+    // Đảm bảo groups luôn là [] để FE dễ duyệt
+    if (!Array.isArray(b.groups)) b.groups = [];
+
+    // Đồng nhất key hiển thị meta (nếu thiếu)
+    b.meta = b.meta || {};
+    if (typeof b.meta.drawSize !== "number") b.meta.drawSize = 0;
+    if (typeof b.meta.maxRounds !== "number") b.meta.maxRounds = 0;
+    if (typeof b.meta.expectedFirstRoundMatches !== "number")
+      b.meta.expectedFirstRoundMatches = 0;
+
+    // Giữ nguyên config.rules… nếu không có cũng trả về object rỗng
+    b.config = b.config || {};
+    b.config.rules = b.config.rules || {};
+    b.config.roundRobin = b.config.roundRobin || {};
+    b.config.doubleElim = b.config.doubleElim || {};
+    b.config.swiss = b.config.swiss || {};
+    b.config.gsl = b.config.gsl || {};
+    b.config.roundElim = b.config.roundElim || {};
+
+    // Đảm bảo các cờ khác
+    if (typeof b.noRankDelta !== "boolean") b.noRankDelta = false;
+    b.scheduler = b.scheduler || {};
+    b.drawSettings = b.drawSettings || {};
+  }
+
+  return res.json(match);
 });
 
 export { getMatchesByTournament };
@@ -963,11 +1265,10 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     throw new Error("Invalid match id");
   }
 
-  // Quyền
-  if (!canAdminMatch(req.user)) {
-    res.status(403);
-    throw new Error("Bạn không có quyền chỉnh sửa trận này");
-  }
+  // if (!canAdminMatch(req.user)) {
+  //   res.status(403);
+  //   throw new Error("Bạn không có quyền chỉnh sửa trận này");
+  // }
 
   const match = await Match.findById(id);
   if (!match) {
@@ -975,7 +1276,8 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     throw new Error("Match not found");
   }
 
-  const { gameScores, winner, status } = req.body || {};
+  const { gameScores, winner, status, pairA, pairB } = req.body || {};
+
   const hasScoresField = Object.prototype.hasOwnProperty.call(
     req.body,
     "gameScores"
@@ -992,6 +1294,84 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
   const updates = {};
   let touchLive = false;
 
+  const normPairInput = async (val, sideLabel) => {
+    if (typeof val === "undefined")
+      return { provided: false, value: undefined };
+    if (val === null || val === "") return { provided: true, value: null };
+
+    const rawId = String(val?._id || val?.id || val || "").trim();
+    if (!mongoose.isValidObjectId(rawId)) {
+      throw new Error(
+        sideLabel === "A"
+          ? "pairA không hợp lệ"
+          : sideLabel === "B"
+          ? "pairB không hợp lệ"
+          : "pair id không hợp lệ"
+      );
+    }
+
+    const reg = await Registration.findById(rawId).select("_id tournament");
+    if (!reg) {
+      throw new Error(
+        sideLabel === "A"
+          ? "Registration cho pairA không tồn tại"
+          : "Registration cho pairB không tồn tại"
+      );
+    }
+    if (String(reg.tournament) !== String(match.tournament)) {
+      throw new Error(
+        sideLabel === "A"
+          ? "pairA không thuộc cùng giải (tournament)"
+          : "pairB không thuộc cùng giải (tournament)"
+      );
+    }
+    return { provided: true, value: reg._id };
+  };
+
+  // Chuẩn hoá A/B (nếu được gửi)
+  try {
+    var A = await normPairInput(pairA, "A");
+    var B = await normPairInput(pairB, "B");
+  } catch (e) {
+    res.status(400);
+    throw e;
+  }
+
+  if (
+    A?.provided &&
+    B?.provided &&
+    A.value &&
+    B.value &&
+    String(A.value) === String(B.value)
+  ) {
+    res.status(400);
+    throw new Error("pairA và pairB không được trùng nhau");
+  }
+
+  const willSetA = A?.provided;
+  const willSetB = B?.provided;
+
+  const newA = willSetA
+    ? A.value === null
+      ? null
+      : new mongoose.Types.ObjectId(A.value)
+    : match.pairA;
+  const newB = willSetB
+    ? B.value === null
+      ? null
+      : new mongoose.Types.ObjectId(B.value)
+    : match.pairB;
+
+  const changedA = willSetA && String(newA ?? "") !== String(match.pairA ?? "");
+  const changedB = willSetB && String(newB ?? "") !== String(match.pairB ?? "");
+  const teamsChanged = changedA || changedB;
+
+  if (teamsChanged) {
+    updates.pairA = newA;
+    updates.pairB = newB;
+    touchLive = true; // bump live
+  }
+
   // 1) gameScores
   if (hasScoresField) {
     const cleansed = sanitizeGameScores(gameScores);
@@ -1003,8 +1383,6 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     updates.currentGame = Math.max(0, cleansed.length - 1);
     touchLive = true;
   }
-
-  // 2) rules: không patch ở endpoint này
 
   // 3) winner
   if (hasWinnerField) {
@@ -1025,24 +1403,24 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
       res.status(400);
       throw new Error(`status không hợp lệ: ${status}`);
     }
-    updates.status = status; // normalize bên dưới sẽ xử lý startedAt/finishedAt
+    updates.status = status;
     touchLive = true;
   }
 
-  // 5) Reopen: nếu set status KHÁC finished mà request KHÔNG gửi winner -> clear winner
+  // 5) reopen -> clear winner nếu không finished và client không gửi winner
   if (hasStatusField && status !== "finished" && !hasWinnerField) {
-    updates.winner = ""; // cho phép chuyển về live/scheduled dù DB đang có winner
+    updates.winner = "";
     touchLive = true;
   }
 
-  // 6) Chỉ infer winner khi request đang set status = finished (nếu client không gửi winner)
+  // 6) infer winner nếu set finished nhưng không gửi winner
   if (hasStatusField && status === "finished" && !hasWinnerField) {
     const srcScores = updates.gameScores ?? match.gameScores;
     const w = inferWinnerFromScores(match.rules, srcScores);
     if (w) updates.winner = w;
   }
 
-  // 7) Normalize theo status + winner (giữ nguyên normalizeStatusTransition hiện có)
+  // 7) normalize theo status + winner
   if (updates.status !== undefined || updates.winner !== undefined) {
     const desiredStatus = updates.status ?? match.status;
     const desiredWinner = updates.winner ?? match.winner;
@@ -1052,15 +1430,19 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     updates.finishedAt = t.finishedAt;
   }
 
-  // 8) liveVersion ++ nếu có thay đổi liên quan live/score
+  // 8) bump liveVersion nếu có thay đổi liên quan live/score/teams
   if (touchLive) updates.liveVersion = (match.liveVersion || 0) + 1;
 
-  // 9) Lưu
+  // 9) save
   match.set(updates);
-  await match.save(); // chạy pre/post save hooks
+  await match.save();
+
+  const tournamentId = String(match.tournament);
 
   res.json({
     _id: match._id,
+    tournament: match.tournament, // 👈 thêm
+    tournamentId, // 👈 thêm (string)
     status: match.status,
     winner: match.winner,
     gameScores: match.gameScores,
@@ -1069,6 +1451,8 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     finishedAt: match.finishedAt,
     liveVersion: match.liveVersion,
     rules: match.rules,
+    pairA: match.pairA,
+    pairB: match.pairB,
     updatedAt: match.updatedAt,
   });
 });

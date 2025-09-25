@@ -88,7 +88,7 @@ const baseQuery = async (args, api, extraOptions) => {
 export const apiSlice = createApi({
   reducerPath: "api",
   baseQuery,
-  tagTypes: ["User"],
+  tagTypes: ["User", "Match", "Bracket", "Tournament", "Registration", "TournamentMatches"],
   endpoints: () => ({}),
 });
 

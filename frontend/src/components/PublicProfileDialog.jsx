@@ -483,7 +483,9 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
       open={snack.open}
       autoHideDuration={2000}
       onClose={closeSnack}
-      anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      anchorOrigin={{ vertical: "top", horizontal: "right" }}
+      disablePortal={false} // mặc định đã false, thêm cho chắc
+      sx={{ zIndex: (theme) => theme.zIndex.tooltip + 9999 }} // max an toàn trên web
     >
       <Alert
         onClose={closeSnack}
