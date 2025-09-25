@@ -101,6 +101,13 @@ export const userApiSlice = apiSlice.injectEndpoints({
         { type: "RatingHistory", id: userId },
       ],
     }),
+    getUserAchievements: builder.query({
+      query: (userId) => `/api/users/${userId}/achievements`,
+      providesTags: (res, err, id) => [
+        { type: "User", id },
+        { type: "Achievements", id },
+      ],
+    }),
   }),
 });
 
@@ -120,4 +127,5 @@ export const {
   useResetPasswordMutation,
   useGetMeScoreQuery,
   useDeleteRatingHistoryMutation,
+  useGetUserAchievementsQuery,
 } = userApiSlice;

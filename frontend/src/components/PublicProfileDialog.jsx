@@ -32,6 +32,7 @@ import {
   Card,
   CardContent,
   Snackbar,
+  Grid,
 } from "@mui/material";
 import DeleteOutlineOutlinedIcon from "@mui/icons-material/DeleteOutlineOutlined";
 import CloseIcon from "@mui/icons-material/Close";
@@ -42,6 +43,18 @@ import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import SecurityIcon from "@mui/icons-material/Security";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
+import EmojiEventsOutlinedIcon from "@mui/icons-material/EmojiEventsOutlined";
+import WhatshotIcon from "@mui/icons-material/Whatshot";
+import SportsScoreIcon from "@mui/icons-material/SportsScore";
+// Thêm (hoặc gộp) các imports icon ở đầu file:
+import TrophyIcon from "@mui/icons-material/EmojiEvents";
+import StreakIcon from "@mui/icons-material/Whatshot";
+import MatchesIcon from "@mui/icons-material/SportsTennis";
+import BestIcon from "@mui/icons-material/MilitaryTech";
+import LeaderboardIcon from "@mui/icons-material/Leaderboard";
+import TableChartIcon from "@mui/icons-material/TableChart";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import InboxIcon from "@mui/icons-material/Inbox";
 import { useSelector } from "react-redux";
 
 import {
@@ -49,6 +62,7 @@ import {
   useGetRatingHistoryQuery,
   useGetMatchHistoryQuery,
   useDeleteRatingHistoryMutation,
+  useGetUserAchievementsQuery,
 } from "../slices/usersApiSlice";
 
 /* ---------- placeholders ---------- */
@@ -60,6 +74,7 @@ const VIDEO_PLACE = (
 
 /* ---------- small utils ---------- */
 const tz = { timeZone: "Asia/Bangkok" };
+const sameId = (a, b) => String(a ?? "") === String(b ?? "");
 const fmtDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString("vi-VN", tz) : TEXT_PLACE;
 const fmtDT = (iso) =>
@@ -183,6 +198,31 @@ function InfoSkeleton() {
 
       <Skeleton variant="text" width={100} />
       <Skeleton variant="rounded" height={84} />
+    </Stack>
+  );
+}
+
+function AchievementsSkeleton() {
+  return (
+    <Stack spacing={2}>
+      <Typography variant="subtitle1" fontWeight={600}>
+        Thành tích
+      </Typography>
+      <Stack direction="row" spacing={2} useFlexGap flexWrap="wrap">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <Paper
+            key={i}
+            variant="outlined"
+            style={{ padding: 16, borderRadius: 12, width: 220 }}
+          >
+            <Skeleton variant="text" width={120} />
+            <Skeleton variant="text" width={80} />
+            <Skeleton variant="rounded" height={10} />
+          </Paper>
+        ))}
+      </Stack>
+      <Skeleton variant="rounded" height={180} />
+      <Skeleton variant="rounded" height={220} />
     </Stack>
   );
 }
@@ -1697,6 +1737,405 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
     );
   }
 
+  function AchievementsSection() {
+    const { data, isLoading, isFetching, error, refetch } =
+      useGetUserAchievementsQuery(userId, { skip: !open });
+
+    if (isLoading || isFetching) return <AchievementsSkeleton />;
+    if (error)
+      return (
+        <Alert severity="error">
+          {error?.data?.message || error?.error || "Lỗi tải dữ liệu thành tích"}
+        </Alert>
+      );
+
+    const sum = data?.summary || {};
+    const perT = Array.isArray(data?.perTournament) ? data.perTournament : [];
+    const perB = Array.isArray(data?.perBracket) ? data.perBracket : [];
+
+    const fmtRate = (v) => (Number.isFinite(v) ? `${v.toFixed(1)}%` : "—");
+
+    // Card KPI nhỏ gọn, responsive
+    const KpiCard = ({ icon, title, value, sub }) => (
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 2,
+          borderRadius: 2,
+          width: "100%",
+          display: "flex",
+          flexDirection: "column",
+          gap: 0.5,
+        }}
+      >
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <Box
+            sx={{
+              width: 32,
+              height: 32,
+              borderRadius: "50%",
+              display: "grid",
+              placeItems: "center",
+              bgcolor: "action.hover",
+            }}
+          >
+            {icon}
+          </Box>
+          <Typography variant="subtitle2" fontWeight={700} noWrap>
+            {title}
+          </Typography>
+        </Stack>
+        <Typography
+          variant="h4"
+          fontWeight={800}
+          sx={{ mt: 0.5 }}
+          // co chữ trên màn nhỏ
+        >
+          {value}
+        </Typography>
+        {sub ? (
+          <Typography variant="caption" color="text.secondary" noWrap>
+            {sub}
+          </Typography>
+        ) : null}
+      </Paper>
+    );
+
+    // đặt trước `return` trong AchievementsSection
+    const topColor = (k) => {
+      if (!Number.isFinite(k)) return "default";
+      if (k === 1) return "success";
+      if (k === 2) return "warning";
+      if (k <= 4) return "secondary";
+      if (k <= 8) return "info";
+      return "default";
+    };
+
+    const topVariant = (k) =>
+      Number.isFinite(k) && k <= 8 ? "filled" : "outlined";
+
+    const topIcon = (k) => {
+      if (!Number.isFinite(k)) return undefined;
+      if (k === 1) return <TrophyIcon fontSize="small" />;
+      if (k === 2) return <BestIcon fontSize="small" />;
+      if (k <= 4) return <BestIcon fontSize="small" />; // có thể đổi icon khác nếu thích
+      if (k <= 8) return <LeaderboardIcon fontSize="small" />;
+      return undefined;
+    };
+
+    return (
+      <Stack spacing={2}>
+        <Typography variant="subtitle1" fontWeight={600}>
+          Thành tích
+        </Typography>
+
+        {/* KPIs: dùng Grid để responsive (4 cột desktop, 2 cột tablet, 1 cột mobile) */}
+        <Grid container spacing={2}>
+          <Grid
+            item
+            xs={12}
+            sm={6}
+            md={3}
+            sx={{ width: isMobile ? "100%" : "auto" }}
+          >
+            <KpiCard
+              icon={<MatchesIcon fontSize="small" />}
+              title="Tổng trận có kết quả"
+              value={sum.totalPlayed ?? 0}
+              sub={
+                <>
+                  Thắng {sum.wins ?? 0} / Thua {sum.losses ?? 0} —{" "}
+                  {fmtRate(sum.winRate)}
+                </>
+              }
+            />
+          </Grid>
+          <Grid
+            item
+            xs={12}
+            sm={6}
+            md={3}
+            sx={{ width: isMobile ? "100%" : "auto" }}
+          >
+            <KpiCard
+              icon={<TrophyIcon fontSize="small" />}
+              title="Danh hiệu"
+              value={sum.titles ?? 0}
+              sub={
+                <>
+                  Finals: {sum.finals ?? 0} • Podiums: {sum.podiums ?? 0}
+                </>
+              }
+            />
+          </Grid>
+          <Grid
+            item
+            xs={12}
+            sm={6}
+            md={3}
+            sx={{ width: isMobile ? "100%" : "auto" }}
+          >
+            <KpiCard
+              icon={<BestIcon fontSize="small" />}
+              title="Thành tích cao nhất"
+              value={sum.careerBestLabel ?? "—"}
+              sub={<>Top cao nhất: {sum.careerBestLabel ?? 0}</>}
+            />
+          </Grid>
+          <Grid
+            item
+            xs={12}
+            sm={6}
+            md={3}
+            sx={{ width: isMobile ? "100%" : "auto" }}
+          >
+            <KpiCard
+              icon={<StreakIcon fontSize="small" />}
+              title="Streak"
+              value={sum.currentStreak ?? 0}
+              sub={<>Dài nhất: {sum.longestWinStreak ?? 0}</>}
+            />
+          </Grid>
+        </Grid>
+
+        {/* Top theo giải (kết quả tốt nhất mỗi giải) */}
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+          <Stack
+            direction="row"
+            alignItems="center"
+            justifyContent="space-between"
+            mb={1}
+            gap={1}
+          >
+            <Stack direction="row" spacing={1} alignItems="center">
+              <LeaderboardIcon fontSize="small" />
+              <Typography variant="subtitle2">
+                Top theo giải (kết quả tốt nhất mỗi giải)
+              </Typography>
+            </Stack>
+
+            {/* Desktop: Button; Mobile: IconButton */}
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <Box sx={{ display: { xs: "none", sm: "block" } }}>
+                <Button
+                  size="small"
+                  startIcon={<RefreshIcon />}
+                  onClick={() => refetch()}
+                >
+                  Làm mới
+                </Button>
+              </Box>
+              <IconButton
+                size="small"
+                onClick={() => refetch()}
+                sx={{ display: { xs: "inline-flex", sm: "none" } }}
+                aria-label="Làm mới"
+              >
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+            </Stack>
+          </Stack>
+
+          {perT.length ? (
+            <TableContainer
+              sx={{
+                width: "100%",
+                overflowX: "auto",
+                "& th, & td": { whiteSpace: "nowrap" }, // không xuống dòng, cho phép kéo ngang
+              }}
+            >
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Giải</TableCell>
+                    <TableCell>Bracket</TableCell>
+                    <TableCell
+                      align="right"
+                      sx={{ display: { xs: "none", sm: "table-cell" } }}
+                    >
+                      Draw
+                    </TableCell>
+                    <TableCell align="right">Top</TableCell>
+                    <TableCell
+                      sx={{ display: { xs: "none", md: "table-cell" } }}
+                    >
+                      Giai đoạn
+                    </TableCell>
+                    <TableCell
+                      sx={{ display: { xs: "none", md: "table-cell" } }}
+                    >
+                      Cuối cùng
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {perT.map((r, i) => (
+                    <TableRow key={i} hover>
+                      <TableCell>{r.tournamentName}</TableCell>
+                      <TableCell>{r.bracketName}</TableCell>
+                      <TableCell
+                        align="right"
+                        sx={{ display: { xs: "none", sm: "table-cell" } }}
+                      >
+                        {r.drawSize}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Chip
+                          size="small"
+                          color={topColor(r.topK)}
+                          icon={topIcon(r.topK)}
+                          label={
+                            r.positionLabel || (r.topK ? `Top ${r.topK}` : "—")
+                          }
+                          variant={topVariant(r.topK)}
+                        />
+                      </TableCell>
+                      <TableCell
+                        sx={{ display: { xs: "none", md: "table-cell" } }}
+                      >
+                        {r.season ?? "—"}
+                      </TableCell>
+                      <TableCell
+                        sx={{ display: { xs: "none", md: "table-cell" } }}
+                      >
+                        {r.lastMatchAt ? fmtDT(r.lastMatchAt) : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : (
+            <Stack
+              alignItems="center"
+              justifyContent="center"
+              spacing={1}
+              sx={{ py: 3, color: "text.secondary" }}
+            >
+              <InboxIcon />
+              <Typography variant="body2">Chưa có dữ liệu</Typography>
+            </Stack>
+          )}
+        </Paper>
+
+        {/* Chi tiết theo Bracket */}
+        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+          <Stack direction="row" alignItems="center" spacing={1} mb={1}>
+            <TableChartIcon fontSize="small" />
+            <Typography variant="subtitle2">Chi tiết theo Bracket</Typography>
+          </Stack>
+
+          {perB.length ? (
+            <TableContainer
+              sx={{
+                width: "100%",
+                overflowX: "auto",
+                "& th, & td": { whiteSpace: "nowrap" },
+              }}
+            >
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Giải</TableCell>
+                    <TableCell>Bracket</TableCell>
+                    <TableCell
+                      align="right"
+                      sx={{ display: { xs: "none", sm: "table-cell" } }}
+                    >
+                      Draw
+                    </TableCell>
+                    <TableCell align="right">Top</TableCell>
+                    <TableCell
+                      align="right"
+                      sx={{ display: { xs: "none", md: "table-cell" } }}
+                    >
+                      W
+                    </TableCell>
+                    <TableCell
+                      align="right"
+                      sx={{ display: { xs: "none", md: "table-cell" } }}
+                    >
+                      L
+                    </TableCell>
+                    <TableCell
+                      align="right"
+                      sx={{ display: { xs: "none", md: "table-cell" } }}
+                    >
+                      WR
+                    </TableCell>
+                    <TableCell
+                      sx={{ display: { xs: "none", md: "table-cell" } }}
+                    >
+                      Hoàn tất
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {perB.map((r, i) => (
+                    <TableRow key={i} hover>
+                      <TableCell>{r.tournamentName}</TableCell>
+                      <TableCell>{r.bracketName}</TableCell>
+                      <TableCell
+                        align="right"
+                        sx={{ display: { xs: "none", sm: "table-cell" } }}
+                      >
+                        {r.drawSize}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Chip
+                          size="small"
+                          color={topColor(r.topK)}
+                          icon={topIcon(r.topK)}
+                          label={
+                            r.positionLabel || (r.topK ? `Top ${r.topK}` : "—")
+                          }
+                          variant={topVariant(r.topK)}
+                        />
+                      </TableCell>
+                      <TableCell
+                        align="right"
+                        sx={{ display: { xs: "none", md: "table-cell" } }}
+                      >
+                        {r.stats?.wins ?? 0}
+                      </TableCell>
+                      <TableCell
+                        align="right"
+                        sx={{ display: { xs: "none", md: "table-cell" } }}
+                      >
+                        {r.stats?.losses ?? 0}
+                      </TableCell>
+                      <TableCell
+                        align="right"
+                        sx={{ display: { xs: "none", md: "table-cell" } }}
+                      >
+                        {fmtRate(r.stats?.winRate)}
+                      </TableCell>
+                      <TableCell
+                        sx={{ display: { xs: "none", md: "table-cell" } }}
+                      >
+                        {r.finished ? "✓" : "—"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          ) : (
+            <Stack
+              alignItems="center"
+              justifyContent="center"
+              spacing={1}
+              sx={{ py: 3, color: "text.secondary" }}
+            >
+              <InboxIcon />
+              <Typography variant="body2">Chưa có dữ liệu</Typography>
+            </Stack>
+          )}
+        </Paper>
+      </Stack>
+    );
+  }
+
   /* ---------- Mobile: Drawer ---------- */
   if (isMobile) {
     return (
@@ -1729,12 +2168,21 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           <Tabs
             value={tab}
             onChange={(_, v) => setTab(v)}
-            variant="fullWidth"
-            sx={{ mb: 1 }}
+            variant="scrollable"
+            scrollButtons="auto"
+            allowScrollButtonsMobile
+            sx={{
+              mb: 1,
+              "& .MuiTab-wrapper": {
+                whiteSpace: "nowrap",
+                textTransform: "none",
+              },
+            }}
           >
             <Tab label="Thông tin" />
             <Tab label="Điểm trình" />
             <Tab label="Thi đấu" />
+            <Tab label="Thành tích" />
           </Tabs>
 
           <Box
@@ -1748,6 +2196,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             {tab === 0 && <InfoSection />}
             {tab === 1 && <RatingTable />}
             {tab === 2 && <MatchSection isMobileView />}
+            {tab === 3 && <AchievementsSection />}
           </Box>
         </Drawer>
 
@@ -1808,6 +2257,8 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           <RatingTable />
           <Divider sx={{ my: 3 }} />
           <MatchSection isMobileView={false} />
+          <AchievementsSection />
+          <Divider sx={{ my: 3 }} />
         </DialogContent>
 
         <DialogActions sx={{ p: 2 }}>

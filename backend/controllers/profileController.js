@@ -4,8 +4,9 @@ import ScoreHistory from "../models/scoreHistoryModel.js";
 import Match from "../models/matchModel.js";
 import Registration from "../models/registrationModel.js";
 import Tournament from "../models/tournamentModel.js";
-import Bracket from "../models/bracketModel.js"
+import Bracket from "../models/bracketModel.js";
 import User from "../models/userModel.js";
+import mongoose from "mongoose";
 
 /**
  * GET /api/score-history/:id?page=1
@@ -206,6 +207,9 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
     return arr.slice(start, start + limit);
   };
 
+  // ✅ FIX: helper check ObjectId
+  const isOID = (v) => mongoose.Types.ObjectId.isValid(String(v ?? ""));
+
   // 1) Lấy các registration mà user tham gia
   const myRegs = await Registration.find({
     $or: [{ "player1.user": userId }, { "player2.user": userId }],
@@ -255,7 +259,7 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
   }
 
   const histRows = await ScoreHistory.find({ user: { $in: [...allUserIds] } })
-    .sort({ scoredAt: 1, _id: 1 }) // tăng dần để tìm pre/post theo thời điểm
+    .sort({ scoredAt: 1, _id: 1 })
     .select("user single double scoredAt")
     .lean();
 
@@ -267,7 +271,6 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
     .lean();
   const userById = new Map(users.map((u) => [String(u._id), u]));
 
-  // ★ NEW: helper chuẩn hoá nickname/ avatar và ghi đè lên base
   function attachNick(p, base) {
     const u = userById.get(String(p?.user));
     const nickname =
@@ -281,38 +284,30 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
       base?.name ||
       base?.fullName ||
       "N/A";
-
     const avatar = u?.avatar || p?.avatar || base?.avatar || "";
-    return {
-      ...base,
-      nickname,
-      avatar,
-    };
+    return { ...base, nickname, avatar };
   }
 
   /* ==========================================================
      NEW: TÍNH "R" TOÀN GIẢI (cộng dồn qua các bracket theo stage)
-     - group -> tính là 1 vòng
-     - roundElim/knockout -> dùng số round thực tế xuất hiện trong bảng (nếu không có thì fallback 1)
-     - Thứ tự bracket: stage ASC, sau đó createdAt ASC, sau đó _id
   ========================================================== */
 
-  // Lấy tất cả tournamentId trong tập matches (user)
+  // ✅ FIX: chỉ tính các tournament là ObjectId hợp lệ
   const tournamentIds = [
     ...new Set(
       matches
-        .map((m) => String(m.tournament?._id || m.tournament))
-        .filter(Boolean)
+        .map((m) => m?.tournament?._id || m?.tournament)
+        .filter((id) => isOID(id))
+        .map((id) => String(id))
     ),
   ];
 
   // Nạp toàn bộ bracket của mỗi tournament
   const bracketsByTournament = new Map(); // tId -> [brackets]
   for (const tId of tournamentIds) {
-    const bks = await Bracket.find({ tournament: tId })
+    const bks = await Bracket.find({ tournament: tId }) // tId đã chắc chắn hợp lệ
       .select("_id type stage createdAt")
       .lean();
-    // sort theo stage, createdAt, _id
     bks.sort((a, b) => {
       const sa = Number(a.stage ?? 0);
       const sb = Number(b.stage ?? 0);
@@ -333,8 +328,9 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
       .lean();
     const map = new Map();
     for (const tm of tMatches) {
+      // ✅ FIX: bỏ bracket không hợp lệ (null/"null"/rỗng)
+      if (!isOID(tm?.bracket)) continue;
       const brId = String(tm.bracket);
-      if (!brId) continue;
       const r = Number(tm.round ?? 1);
       if (!map.has(brId)) map.set(brId, new Set());
       map.get(brId).add(r);
@@ -346,16 +342,16 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
       const brId = String(b._id);
       const type = String(b.type || "").toLowerCase();
       if (type === "group") {
-        countMap.set(brId, 1); // group = 1 vòng
+        countMap.set(brId, 1);
       } else {
         const c = map.get(brId)?.size || 0;
-        countMap.set(brId, Math.max(1, c)); // nếu chưa có round nào -> 1
+        countMap.set(brId, Math.max(1, c));
       }
     }
     roundsCountMapByTournament.set(String(tId), countMap);
   }
 
-  // Tính baseStart (R bắt đầu) cho từng bracket: base = 1 + tổng vòng các bracket trước
+  // Tính baseStart (R bắt đầu) cho từng bracket
   const baseStartByTournament = new Map(); // tId -> Map(brId -> baseStart)
   for (const tId of tournamentIds) {
     const bks = bracketsByTournament.get(String(tId)) || [];
@@ -364,7 +360,7 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
     let acc = 0;
     for (const b of bks) {
       const brId = String(b._id);
-      baseMap.set(brId, acc + 1); // bắt đầu tính từ 1
+      baseMap.set(brId, acc + 1);
       acc += cntMap.get(brId) || 1;
     }
     baseStartByTournament.set(String(tId), baseMap);
@@ -372,8 +368,19 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
 
   // Helper build mã trận mới: R{globalRound}-T{order+1}
   const buildGlobalRCode = (m) => {
-    const tId = String(m.tournament?._id || m.tournament || "");
-    const brId = String(m.bracket?._id || m.bracket || "");
+    const tRaw = m?.tournament?._id || m?.tournament;
+    const bRaw = m?.bracket?._id || m?.bracket;
+
+    // ✅ FIX: fallback an toàn nếu thiếu tournament/bracket
+    if (!isOID(tRaw) || !isOID(bRaw)) {
+      const tIndex = Number.isFinite(Number(m.order))
+        ? Number(m.order) + 1
+        : "?";
+      return `V?-T${tIndex}`;
+    }
+
+    const tId = String(tRaw);
+    const brId = String(bRaw);
     const baseMap = baseStartByTournament.get(tId);
     const base = baseMap?.get(brId) ?? 1;
 
@@ -385,7 +392,7 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
     return `V${globalRound}-T${tIndex}`;
   };
 
-  // 4) Build kết quả cho FE (GIỮ NGUYÊN logic điểm), chỉ thay CODE
+  // 4) Build kết quả cho FE
   const out = matches.map((m) => {
     const tour = m.tournament || {};
     const typeKey = tour.eventType === "single" ? "single" : "double";
@@ -404,7 +411,6 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
       .filter(Boolean)
       .map((p) => attachNick(p, decoratePlayer(p, histMap, when, typeKey)));
 
-    // ★ NEW: mã trận theo "R" toàn giải (override cả m.code cũ)
     const code = buildGlobalRCode(m);
 
     return {
@@ -415,7 +421,7 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
       team1,
       team2,
       scoreText: buildScoreText(m.gameScores) || "—",
-      winner: m.winner || "", // "A" | "B" | ""
+      winner: m.winner || "",
       video: m.video || "",
     };
   });

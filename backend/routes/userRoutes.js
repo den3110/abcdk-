@@ -30,6 +30,7 @@ import {
   verifyResetOtp,
 } from "../controllers/passwordController.js";
 import { simpleRateLimit } from "../middleware/rateLimit.js";
+import { getUserAchievements } from "../controllers/achievements.controller.js";
 
 const router = express.Router();
 
@@ -39,6 +40,7 @@ router.post("/auth/web", authUserWeb); // web
 router.post("/logout", logoutUser);
 router.get("/:id/public", passProtect, getPublicProfile);
 router.get("/:id/ratings", passProtect, getRatingHistory);
+router.get("/:userId/achievements", passProtect, getUserAchievements);
 router.get("/:id/matches", getMatchHistory);
 router.get("/me/score", protect, getMeWithScore);
 
