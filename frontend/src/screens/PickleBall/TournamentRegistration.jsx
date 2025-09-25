@@ -255,7 +255,7 @@ function VerifyBadge({ status, sx }) {
 }
 
 /** Helper lấy status từ player (ưu tiên kycStatus, fallback cccdStatus) */
-const kycOf = (pl) => pl?.kycStatus || pl?.cccdStatus || "unverified";
+const kycOf = (pl) => pl?.cccdStatus || "unverified";
 
 /* ==================== Chips nhỏ ==================== */
 function PaymentChip({ status, paidAt }) {
