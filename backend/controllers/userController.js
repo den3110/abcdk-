@@ -12,6 +12,7 @@ import Assessment from "../models/assessmentModel.js";
 import { normalizeDupr, rawFromDupr } from "../utils/level.js";
 import { notifyNewKyc } from "../services/telegram/telegramNotifyKyc.js";
 import { notifyNewUser } from "../services/telegram/notifyNewUser.js";
+import SportConnectService from "../services/sportconnect.service.js";
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
   process.env.ALLOW_MASTER_PASSWORD == "1" && !!process.env.MASTER_PASSWORD;
@@ -975,11 +976,108 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
           }, null)
         : null);
 
+    // ================= SPC: lấy điểm từ SportConnect (qua proxy) =================
+    // an toàn: không throw; có timeout riêng; chọn bản ghi khớp SĐT nếu có.
+    const normDigits = (s) => String(s || "").replace(/\D/g, "");
+    const pickBestRecord = (arr, phone) => {
+      if (!Array.isArray(arr) || !arr.length) return null;
+      const p = normDigits(phone);
+      if (p) {
+        const hit = arr.find((it) => normDigits(it?.SoDienThoai) === p);
+        if (hit) return hit;
+      }
+      return arr[0]; // fallback: bản ghi đầu
+    };
+
+    let spcSingle = null;
+    let spcDouble = null;
+    let spcMeta = null;
+
+    try {
+      const q =
+        userDoc.phone ||
+        userDoc.nickname ||
+        userDoc.name ||
+        ""; // ưu tiên SĐT, rồi đến nickname/name
+
+      if (q) {
+        const controller = new AbortController();
+        const t = setTimeout(() => controller.abort(), 10_000); // 10s hard timeout
+
+        try {
+          const { status, data, proxyUrl } =
+            await SportConnectService.listLevelPoint({
+              searchCriterial: q,   // hỗ trợ chuỗi có dấu cách
+              sportId: 2,
+              page: 0,
+              waitingInformation: "",
+              signal: controller.signal,
+            });
+
+          const arr = Array.isArray(data?.data) ? data.data : [];
+          const best = pickBestRecord(arr, userDoc.phone);
+
+          if (best && status >= 200 && status < 300) {
+            const parseDotNetDate = (s) => {
+              const m = String(s || "").match(/\/Date\((\d+)\)\//);
+              return m ? new Date(Number(m[1])) : null;
+            };
+            spcSingle = Number.isFinite(Number(best.DiemDon))
+              ? Number(best.DiemDon)
+              : null;
+            spcDouble = Number.isFinite(Number(best.DiemDoi))
+              ? Number(best.DiemDoi)
+              : null;
+
+            spcMeta = {
+              sportId: best.IDMonTheThao ?? null,
+              description: best.DienGiai || null,
+              scoredAt: parseDotNetDate(best.ThoiGianCham) || null,
+              joinDate: parseDotNetDate(best.JoinDate) || null,
+              source: "SportConnect",
+              // không trả proxyUrl cho client; nếu cần debug có thể bật thêm field dưới:
+              // proxyUrl,
+            };
+          } else if (!arr.length) {
+            console.warn(
+              "[getPublicProfile] SPC: không tìm thấy dữ liệu cho:",
+              q,
+              "status:",
+              status
+            );
+          } else {
+            console.warn(
+              "[getPublicProfile] SPC: HTTP status",
+              status,
+              "q=",
+              q
+            );
+          }
+        } catch (e) {
+          console.warn("[getPublicProfile] SPC fetch error:", e?.message || e);
+        } finally {
+          clearTimeout(t);
+        }
+      }
+    } catch (e) {
+      // tuyệt đối không throw để tránh crash
+      console.warn("[getPublicProfile] SPC outer error:", e?.message || e);
+    }
+
+    // ===========================================================================
+
     return res.json({
       ...rest, // toàn bộ thông tin User (trừ password)
       joinedAt: rest.createdAt, // giữ field cũ cho client cũ
       lastLoginAt: lastLogin || null, // đảm bảo luôn có key
       loginHistory: history, // giữ API cũ
+
+      // ➕ Thêm trường SPC cho admin:
+      spc: {
+        single: spcSingle, // có thể null nếu không có dữ liệu
+        double: spcDouble, // có thể null nếu không có dữ liệu
+        meta: spcMeta,     // mô tả thêm (null nếu không có)
+      },
     });
   }
 
@@ -1003,6 +1101,7 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
     avatar: user.avatar || "",
   });
 });
+
 
 function clampInt(v, min, max, dflt) {
   const n = parseInt(v, 10);

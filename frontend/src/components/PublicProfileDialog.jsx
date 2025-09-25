@@ -70,6 +70,40 @@ const safe = (v, fallback = TEXT_PLACE) =>
 const num = (v, digits = 3) =>
   Number.isFinite(v) ? v.toFixed(digits) : TEXT_PLACE;
 
+// lấy số hợp lệ đầu tiên trong danh sách field
+const firstFiniteNumber = (...vals) => {
+  for (const v of vals) {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+};
+
+// gom metadata Sport Connect từ nhiều khả năng key khác nhau
+const getSportConnectMeta = (base) => {
+  const sc =
+    base?.sportConnect ||
+    base?.sport_connect ||
+    base?.sportconnect ||
+    base?.integrations?.sportConnect ||
+    base?.integrations?.sport_connect ||
+    {};
+
+  const points = firstFiniteNumber(
+    sc?.points,
+    base?.sportConnectPoints,
+    base?.scPoints,
+    sc?.rating,
+    sc?.score
+  );
+
+  const rank = sc?.rank ?? sc?.level ?? sc?.tier ?? null;
+  const account =
+    sc?.username ?? sc?.user ?? sc?.account ?? sc?.id ?? sc?.userId ?? null;
+
+  return { points, rank, account };
+};
+
 /* ---------- prefer nickname everywhere ---------- */
 const preferNick = (p) =>
   (p?.nickname && String(p.nickname).trim()) ||
@@ -527,6 +561,26 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
             />
             <InfoRow label="Provider" value={base?.provider} />
             <InfoRow label="ID" value={base?._id} />
+            {(() => {
+              const sc = getSportConnectMeta(base);
+              return (
+                <>
+                  {Number.isFinite(sc.points) && (
+                    <InfoRow label="Sport Connect — Điểm" value={sc.points} />
+                  )}
+                  {sc.rank && (
+                    <InfoRow label="Sport Connect — Hạng" value={sc.rank} />
+                  )}
+                  {sc.account && (
+                    <InfoRowWithCopy
+                      label="Sport Connect — Account"
+                      value={sc.account}
+                      copyLabel="Sport Connect account"
+                    />
+                  )}
+                </>
+              );
+            })()}
           </Stack>
         </Box>
       )}
