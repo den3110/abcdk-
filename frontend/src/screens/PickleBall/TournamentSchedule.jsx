@@ -39,19 +39,17 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import {
   useGetTournamentQuery,
   useListPublicMatchesByTournamentQuery,
-  useListTournamentBracketsQuery, // ⟵ để subscribe draw rooms như Bracket
+  useListTournamentBracketsQuery,
 } from "../../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
 
 /* ---------- helpers ---------- */
-// Có giá trị không (chấp nhận 0, number, string non-empty)
 const hasVal = (v) =>
   v === 0 ||
   typeof v === "number" ||
   (typeof v === "string" && v.trim() !== "");
 
-// Có phải trận vòng bảng?
 function isGroupMatch(m) {
   const t = String(m?.bracket?.type || m?.type || "")
     .toLowerCase()
@@ -63,8 +61,6 @@ function isGroupMatch(m) {
     t === "rr"
   );
 }
-
-// round → số vòng (ưu tiên m.round)
 function normRound(m) {
   const r = m?.round ?? m?.stageRound ?? m?.r;
   if (!hasVal(r)) return "";
@@ -72,7 +68,20 @@ function normRound(m) {
   return Number.isFinite(n) ? String(n) : String(r).trim();
 }
 
-// group/pool → A,B,C... thành số (A=1, B=2,...). Nếu có số sẵn thì dùng số đó.
+// ===== Group helpers (ổn định B) =====
+function buildGroupIndex(bracket) {
+  const byRegId = new Map();
+  const order = new Map();
+  (bracket?.groups || []).forEach((g, idx) => {
+    const key = String(g.name || g.code || g._id || `${idx + 1}`);
+    order.set(key, idx + 1); // Bảng 1,2,3...
+    (g?.regIds || []).forEach((rid) => {
+      if (rid) byRegId.set(String(rid), key);
+    });
+  });
+  return { byRegId, order };
+}
+
 function normGroup(m) {
   let g =
     m?.groupLabel ??
@@ -84,87 +93,37 @@ function normGroup(m) {
     m?.group ??
     m?.pool;
 
-  // fallback: bắt nhãn từ tên bracket "Bảng A" / "Group B"
   if (!hasVal(g) && typeof m?.bracket?.name === "string") {
     const mm =
       m.bracket.name.match(/bảng\s*([A-Za-z0-9]+)/i) ||
       m.bracket.name.match(/group\s*([A-Za-z0-9]+)/i);
     if (mm?.[1]) g = mm[1];
   }
-
   if (!hasVal(g)) return "";
 
   const s = String(g).trim().toUpperCase();
-
-  // Nếu có số trong nhãn thì lấy số đó (vd "Bảng 3" -> "3", "G02" -> "2")
   const digits = s.match(/\d+/)?.[0];
   if (digits) return String(Number(digits));
-
-  // Nếu chỉ là 1 chữ cái A-Z -> map A=1, B=2,...
   if (/^[A-Z]$/.test(s)) return String(s.charCodeAt(0) - 64);
-
-  // Nếu có chữ đơn lẻ A-Z đứng riêng (phòng khi nhãn dạng "Nhóm A")
   const letter = s.match(/\b([A-Z])\b/);
   if (letter) return String(letter[1].charCodeAt(0) - 64);
-
-  // fallback: giữ nguyên nhưng bỏ khoảng trắng
   return s.replace(/\s+/g, "");
 }
-
-// t (match no) → ưu tiên matchNo → order → seq → (cuối cùng lôi số từ code/globalCode)
-// Sau khi lấy được số, HIỂN THỊ T = số + 1
 function normMatchNo(m) {
   const cand = m?.matchNo ?? m?.order ?? m?.seq;
-
-  // 1) Nếu có trường số trực tiếp
   if (hasVal(cand)) {
     const n = Number(cand);
-    if (Number.isFinite(n)) return String(n + 1); // +1
-    // Nếu không phải số thuần, thử rút số trong chuỗi
+    if (Number.isFinite(n)) return String(n + 1);
     const d = String(cand).match(/\d+/)?.[0];
-    if (d) return String(Number(d) + 1); // +1
-    return String(cand).trim(); // không cộng được thì trả nguyên
+    if (d) return String(Number(d) + 1);
+    return String(cand).trim();
   }
-
-  // 2) Fallback: rút số từ code/globalCode
   const code = hasVal(m?.code) ? m.code : m?.globalCode;
   if (hasVal(code)) {
     const d = String(code).match(/\d+/)?.[0];
-    if (d) return String(Number(d) + 1); // +1
+    if (d) return String(Number(d) + 1);
   }
-
-  // 3) Không có gì để tính → trả rỗng để displayMatchCode tự fallback
   return "";
-}
-
-// HIỂN THỊ: knockout => "V{round}-T{no}", group => "V{round}-B{group}-T{no}"
-function displayMatchCode(m) {
-  const V = normRound(m);
-  const T = normMatchNo(m);
-
-  if (isGroupMatch(m)) {
-    const B = normGroup(m);
-    const parts = [];
-    if (V) parts.push(`V${V}`);
-    if (B) parts.push(`B${B}`);
-    if (T) parts.push(`T${T}`);
-    return parts.length ? parts.join("-") : "Trận";
-  }
-
-  const parts = [];
-  if (V) parts.push(`V${V}`);
-  if (T) parts.push(`T${T}`);
-  return parts.length ? parts.join("-") : "Trận";
-}
-
-function matchCodeByOrder(m) {
-  const o = m?.order;
-  if (o === 0 || o) {
-    const n = Number(o);
-    const ordTxt = Number.isFinite(n) ? String(n).padStart(2, "0") : String(o);
-    return `#${ordTxt}`; // ví dụ: #01, #12
-  }
-  return m?.code || "Trận";
 }
 
 const isLive = (m) =>
@@ -223,10 +182,8 @@ function courtNameOf(m) {
     "Chưa phân sân"
   );
 }
-const hasCourtAssigned = (m) =>
-  !!((m?.courtName && m.courtName.trim()) || m?.court?.name || m?.courtLabel);
 
-/* ---------- Chips ---------- */
+/* ---------- Chip row ---------- */
 function ChipRow({ children, sx }) {
   return (
     <Box
@@ -286,6 +243,100 @@ function SectionTitle({ children, right }) {
   );
 }
 
+/* ======== Bracket helpers để tính V tổng hợp ======== */
+const ceilPow2 = (n) => Math.pow(2, Math.ceil(Math.log2(Math.max(1, n || 1))));
+const readBracketScale = (br) => {
+  const teamsFromRoundKey = (k) => {
+    if (!k) return 0;
+    const up = String(k).toUpperCase();
+    if (up === "F") return 2;
+    if (up === "SF") return 4;
+    if (up === "QF") return 8;
+    if (/^R\d+$/i.test(up)) return parseInt(up.slice(1), 10);
+    return 0;
+  };
+  const fromKey =
+    teamsFromRoundKey(br?.ko?.startKey) ||
+    teamsFromRoundKey(br?.prefill?.roundKey);
+
+  const fromPrefillPairs = Array.isArray(br?.prefill?.pairs)
+    ? br.prefill.pairs.length * 2
+    : 0;
+  const fromPrefillSeeds = Array.isArray(br?.prefill?.seeds)
+    ? br.prefill.seeds.length * 2
+    : 0;
+
+  const cands = [
+    br?.drawScale,
+    br?.targetScale,
+    br?.maxSlots,
+    br?.capacity,
+    br?.size,
+    br?.scale,
+    br?.meta?.drawSize,
+    br?.meta?.scale,
+    fromKey,
+    fromPrefillPairs,
+    fromPrefillSeeds,
+  ]
+    .map((x) => Number(x))
+    .filter((x) => Number.isFinite(x) && x >= 2);
+  if (!cands.length) return 0;
+  return ceilPow2(Math.max(...cands));
+};
+
+function roundsCountForBracket(bracket, matchesOfThis = []) {
+  const type = String(bracket?.type || "").toLowerCase();
+  if (type === "group") return 1;
+
+  if (type === "roundElim") {
+    let k =
+      Number(bracket?.meta?.maxRounds) ||
+      Number(bracket?.config?.roundElim?.maxRounds) ||
+      0;
+    if (!k) {
+      const maxR =
+        Math.max(
+          0,
+          ...(matchesOfThis || []).map((m) => Number(m.round || 1))
+        ) || 1;
+      k = Math.max(1, maxR);
+    }
+    return k;
+  }
+
+  const roundsFromMatches = (() => {
+    const rs = (matchesOfThis || []).map((m) => Number(m.round || 1));
+    if (!rs.length) return 0;
+    const rmin = Math.min(...rs);
+    const rmax = Math.max(...rs);
+    return Math.max(1, rmax - rmin + 1);
+  })();
+  if (roundsFromMatches) return roundsFromMatches;
+
+  const firstPairs =
+    (Array.isArray(bracket?.prefill?.seeds) && bracket.prefill.seeds.length) ||
+    (Array.isArray(bracket?.prefill?.pairs) && bracket.prefill.pairs.length) ||
+    0;
+  if (firstPairs > 0) return Math.ceil(Math.log2(firstPairs * 2));
+
+  const scale = readBracketScale(bracket);
+  if (scale) return Math.ceil(Math.log2(scale));
+
+  return 1;
+}
+
+function computeBaseRoundStart(brackets, byBracket, current) {
+  let sum = 0;
+  for (const b of brackets) {
+    if (String(b._id) === String(current._id)) break;
+    const ms = byBracket?.[b._id] || [];
+    sum += roundsCountForBracket(b, ms);
+  }
+  return sum + 1; // V bắt đầu của bracket hiện tại
+}
+
+/* ---------- Court card ---------- */
 function CourtCard({ court, onOpenMatch }) {
   const hasLive = court.live.length > 0;
   const hasQueue = court.queue.length > 0;
@@ -340,12 +391,7 @@ function CourtCard({ court, onOpenMatch }) {
             bgcolor: (t) =>
               t.palette.mode === "light" ? "success.50" : "success.900",
             cursor: "pointer",
-            transition: "transform .12s ease, box-shadow .12s ease",
-            "&:hover": { transform: "translateY(-1px)", boxShadow: 1 },
-            "&:focus-visible": {
-              outline: "2px solid",
-              outlineColor: "primary.main",
-            },
+            // ❌ bỏ hiệu ứng hover/transform để mã trận không "nháy"
           }}
         >
           <Stack
@@ -356,7 +402,10 @@ function CourtCard({ court, onOpenMatch }) {
           >
             <Stack direction="row" alignItems="center" gap={0.75}>
               <PlayArrowIcon fontSize="small" />
-              <Typography fontWeight={700}>{displayMatchCode(m)}</Typography>
+              {/* Mã trận: không animation */}
+              <Typography fontWeight={700} sx={{ transition: "none" }}>
+                {m.__displayCode}
+              </Typography>
             </Stack>
 
             <Typography sx={{ opacity: 0.9 }}>
@@ -380,12 +429,7 @@ function CourtCard({ court, onOpenMatch }) {
             <ListItem key={m._id} disableGutters>
               <ListItemButton
                 onClick={() => onOpenMatch?.(m._id)}
-                sx={{
-                  px: 0,
-                  py: 0.5,
-                  borderRadius: 1,
-                  "&:hover": { bgcolor: "action.hover" },
-                }}
+                sx={{ px: 0, py: 0.5, borderRadius: 1 }}
               >
                 <ListItemIcon sx={{ minWidth: 28 }}>
                   <ScheduleIcon fontSize="small" />
@@ -398,8 +442,8 @@ function CourtCard({ court, onOpenMatch }) {
                       gap={1}
                       flexWrap="wrap"
                     >
-                      <Typography fontWeight={700}>
-                        {displayMatchCode(m)}
+                      <Typography fontWeight={700} sx={{ transition: "none" }}>
+                        {m.__displayCode}
                       </Typography>
                       <Typography sx={{ opacity: 0.9 }}>
                         {teamNameFrom(m, "A")} vs {teamNameFrom(m, "B")}
@@ -475,7 +519,9 @@ function MatchRow({ m, onOpenMatch }) {
               gap={1}
               flexWrap="wrap"
             >
-              <Typography fontWeight={700}>{displayMatchCode(m)}</Typography>
+              <Typography fontWeight={700} sx={{ transition: "none" }}>
+                {m.__displayCode}
+              </Typography>
               <Typography sx={{ opacity: 0.9 }}>
                 {teamNameFrom(m, "A")} vs {teamNameFrom(m, "B")}
               </Typography>
@@ -512,10 +558,9 @@ export default function TournamentSchedule() {
 
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all"); // all | live | upcoming | finished
-
-  // Viewer state
   const [viewerOpen, setViewerOpen] = useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState(null);
+
   const openViewer = (mid) => {
     setSelectedMatchId(mid);
     setViewerOpen(true);
@@ -525,7 +570,6 @@ export default function TournamentSchedule() {
     setSelectedMatchId(null);
   };
 
-  // Queries
   const {
     data: tournament,
     isLoading: tLoading,
@@ -556,10 +600,8 @@ export default function TournamentSchedule() {
 
   /* ===== Realtime layer (giống Bracket) ===== */
   const socket = useSocket();
-
   const liveMapRef = useRef(new Map()); // id → match
   const [liveBump, setLiveBump] = useState(0);
-
   const pendingRef = useRef(new Map());
   const rafRef = useRef(null);
 
@@ -581,7 +623,7 @@ export default function TournamentSchedule() {
     (incRaw) => {
       const inc = incRaw?.data ?? incRaw?.match ?? incRaw;
       if (!inc?._id) return;
-      // Chuẩn hoá nhẹ cho court/venue/location giống Bracket
+
       const normalizeEntity = (v) => {
         if (v == null) return v;
         if (typeof v === "string" || typeof v === "number") return v;
@@ -601,8 +643,7 @@ export default function TournamentSchedule() {
       if (inc.venue) inc.venue = normalizeEntity(inc.venue);
       if (inc.location) inc.location = normalizeEntity(inc.location);
 
-      const idStr = String(inc._id);
-      pendingRef.current.set(idStr, inc);
+      pendingRef.current.set(String(inc._id), inc);
       if (rafRef.current) return;
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
@@ -612,7 +653,6 @@ export default function TournamentSchedule() {
     [flushPending]
   );
 
-  // Seed initial live map from API list
   useEffect(() => {
     const mp = new Map();
     const list = matchesResp?.list || [];
@@ -621,7 +661,6 @@ export default function TournamentSchedule() {
     setLiveBump((x) => x + 1);
   }, [matchesResp]);
 
-  // Socket wiring: subscribe draw rooms + join all matches + receive updates
   useEffect(() => {
     if (!socket) return;
     const bracketIds = (brackets || [])
@@ -636,18 +675,14 @@ export default function TournamentSchedule() {
         bracketIds.forEach((bid) =>
           socket.emit("draw:subscribe", { bracketId: bid })
         );
-      } catch (e) {
-        console.log(e);
-      }
+      } catch {}
     };
     const unsubscribeDrawRooms = () => {
       try {
         bracketIds.forEach((bid) =>
           socket.emit("draw:unsubscribe", { bracketId: bid })
         );
-      } catch (e) {
-        console.log(e);
-      }
+      } catch {}
     };
 
     const joined = new Set();
@@ -660,9 +695,7 @@ export default function TournamentSchedule() {
             joined.add(mid);
           }
         });
-      } catch (e) {
-        console.log(e);
-      }
+      } catch {}
     };
 
     const onUpsert = (payload) => queueUpsert(payload);
@@ -685,7 +718,6 @@ export default function TournamentSchedule() {
     };
 
     socket.on("connect", onConnected);
-
     socket.on("match:update", onUpsert);
     socket.on("match:snapshot", onUpsert);
     socket.on("score:updated", onUpsert);
@@ -693,7 +725,6 @@ export default function TournamentSchedule() {
     socket.on("draw:refilled", onRefilled);
     socket.on("bracket:updated", onRefilled);
 
-    // chạy ngay lần đầu
     onConnected();
 
     return () => {
@@ -721,7 +752,7 @@ export default function TournamentSchedule() {
     queueUpsert,
   ]);
 
-  // Dữ liệu matches đã merge realtime
+  /* ===== Dữ liệu đã merge realtime ===== */
   const matches = useMemo(
     () =>
       Array.from(liveMapRef.current.values()).filter(
@@ -731,18 +762,111 @@ export default function TournamentSchedule() {
     [id, liveBump]
   );
 
-  // Sort tổng hợp
+  // Gom theo bracket để tính offset V
+  const byBracket = useMemo(() => {
+    const m = {};
+    (brackets || []).forEach((b) => (m[b._id] = []));
+    (matches || []).forEach((mt) => {
+      const bid = mt?.bracket?._id || mt?.bracket;
+      if (!bid) return;
+      if (!m[bid]) m[bid] = [];
+      m[bid].push(mt);
+    });
+    return m;
+  }, [brackets, matches]);
+
+  const baseRoundStartMap = useMemo(() => {
+    const mp = new Map();
+    (brackets || []).forEach((b) => {
+      mp.set(
+        String(b._id),
+        computeBaseRoundStart(brackets || [], byBracket, b)
+      );
+    });
+    return mp;
+  }, [brackets, byBracket]);
+
+  // sau khi đã có `brackets`
+  const groupMaps = useMemo(() => {
+    const mp = new Map();
+    (brackets || []).forEach((b) => mp.set(String(b._id), buildGroupIndex(b)));
+    return mp;
+  }, [brackets]);
+
+  // helper: suy ra số B (1,2,3,...) từ match (ưu tiên map nhóm)
+  const groupNumberFromMatch = useCallback(
+    (m) => {
+      const bid = String(m?.bracket?._id || m?.bracket || "");
+      const maps = groupMaps.get(bid);
+      if (!maps) return null;
+      const aId = m?.pairA?._id && String(m.pairA._id);
+      const bId = m?.pairB?._id && String(m.pairB._id);
+      const ga = aId && maps.byRegId.get(aId);
+      const gb = bId && maps.byRegId.get(bId);
+      if (ga && gb && ga === gb) {
+        return maps.order.get(ga) ?? null; // trả về số 1..N
+      }
+      return null;
+    },
+    [groupMaps]
+  );
+  const codeStickyRef = useRef(new Map());
+
+  // Tính & gán __displayCode cho từng match (tránh lặp lại logic)
+  const matchesWithCode = useMemo(() => {
+    return (matches || []).map((m) => {
+      const T = normMatchNo(m);
+      let label = "Trận";
+
+      if (isGroupMatch(m)) {
+        const stageNo = Number(m?.bracket?.stage ?? m?.stage ?? 1) || 1;
+
+        // Ưu tiên suy ra số B ổn định từ bracket; fallback normGroup
+        const bFromMap = groupNumberFromMatch(m);
+        const B = (bFromMap != null ? String(bFromMap) : normGroup(m)) || "";
+
+        const parts = [];
+        if (stageNo) parts.push(`V${stageNo}`);
+        if (B) parts.push(`B${B}`);
+        if (T) parts.push(`T${T}`);
+        const candidate = parts.length ? parts.join("-") : "Trận";
+
+        // ❗Không downgrade: nếu trước đó có B mà lần này mất B → giữ mã cũ
+        const prev = codeStickyRef.current.get(m._id);
+        const candHasB = candidate.includes("-B");
+        const prevHasB = typeof prev === "string" && prev.includes("-B");
+        label = !candHasB && prevHasB ? prev : candidate;
+
+        // Cập nhật cache nếu: (a) lần đầu, hoặc (b) candidate đã có B
+        if (!prev || candHasB) codeStickyRef.current.set(m._id, label);
+      } else {
+        // KO/PO: dùng baseRoundStart để ra V đúng
+        const bid = String(m?.bracket?._id || m?.bracket || "");
+        const base = baseRoundStartMap.get(bid) || 1;
+        const rNum = Number(m?.round ?? 1);
+        const Vdisp = Number.isFinite(rNum) ? base + (rNum - 1) : rNum || 1;
+
+        const parts = [];
+        if (Vdisp) parts.push(`V${Vdisp}`);
+        if (T) parts.push(`T${T}`);
+        label = parts.length ? parts.join("-") : "Trận";
+      }
+
+      return { ...m, __displayCode: label };
+    });
+  }, [matches, baseRoundStartMap, groupNumberFromMatch]);
+
+  // thay các danh sách sử dụng nguồn matchesWithCode
   const allSorted = useMemo(() => {
-    return [...matches].sort((a, b) => {
+    return [...matchesWithCode].sort((a, b) => {
       const ak = orderKey(a);
       const bk = orderKey(b);
       for (let i = 0; i < ak.length; i++)
         if (ak[i] !== bk[i]) return ak[i] - bk[i];
       return 0;
     });
-  }, [matches]);
+  }, [matchesWithCode]);
 
-  // Filter danh sách bên phải
   const filteredAll = useMemo(() => {
     const qnorm = q.trim().toLowerCase();
     return allSorted.filter((m) => {
@@ -754,9 +878,8 @@ export default function TournamentSchedule() {
         return false;
       if (status === "finished" && !isFinished(m)) return false;
       if (!qnorm) return true;
-      const formattedCode = displayMatchCode(m);
       const hay = [
-        formattedCode,
+        m.__displayCode,
         teamNameFrom(m, "A"),
         teamNameFrom(m, "B"),
         m.bracket?.name,
@@ -769,25 +892,15 @@ export default function TournamentSchedule() {
     });
   }, [allSorted, q, status]);
 
-  // Group theo sân cho cột trái:
-  // - LIVE: status live
-  // - QUEUE: mọi trận CHƯA KẾT THÚC (kể cả assigned/queued/scheduled...), bao gồm cả "Chưa phân sân"
-  // - KHÔNG hiện trận đã diễn ra (finished)
   const courts = useMemo(() => {
     const map = new Map();
     allSorted.forEach((m) => {
-      const name = courtNameOf(m); // "Chưa phân sân" nếu chưa có sân
+      const name = courtNameOf(m);
       if (!map.has(name)) map.set(name, { live: [], queue: [] });
-
-      if (isLive(m)) {
-        map.get(name).live.push(m);
-      } else if (!isFinished(m)) {
-        // chỉ lấy trận chưa kết thúc
-        map.get(name).queue.push(m);
-      }
+      if (isLive(m)) map.get(name).live.push(m);
+      else if (!isFinished(m)) map.get(name).queue.push(m);
     });
 
-    // sort trong từng sân theo orderKey
     const byKey = (a, b) => {
       const ak = orderKey(a);
       const bk = orderKey(b);
@@ -805,14 +918,12 @@ export default function TournamentSchedule() {
       ...data,
     }));
 
-    // Sắp xếp: tất cả sân thật trước, "Chưa phân sân" xuống cuối, ưu tiên số trong tên sân
     const isUnassigned = (n) =>
       String(n).toLowerCase().includes("chưa phân sân");
     const natNum = (s) => {
       const d = String(s).match(/\d+/)?.[0];
       return d ? Number(d) : Number.POSITIVE_INFINITY;
     };
-
     entries.sort((a, b) => {
       const au = isUnassigned(a.name);
       const bu = isUnassigned(b.name);
@@ -822,7 +933,6 @@ export default function TournamentSchedule() {
       if (an !== bn) return an - bn;
       return a.name.localeCompare(b.name, "vi");
     });
-
     return entries;
   }, [allSorted]);
 
@@ -832,10 +942,7 @@ export default function TournamentSchedule() {
     <Container
       maxWidth="lg"
       disableGutters
-      sx={{
-        px: { sm: 2 },
-        py: { xs: 2, sm: 3 },
-      }}
+      sx={{ px: { sm: 2 }, py: { xs: 2, sm: 3 } }}
     >
       {/* header */}
       <SectionTitle
@@ -854,7 +961,7 @@ export default function TournamentSchedule() {
         Lịch thi đấu {tournament?.name ? `– ${tournament.name}` : ""}
       </SectionTitle>
 
-      {/* filters (sticky on mobile) */}
+      {/* filters */}
       <Box
         sx={{
           position: { xs: "sticky", md: "static" },
@@ -1033,7 +1140,6 @@ export default function TournamentSchedule() {
         </Grid>
       )}
 
-      {/* Viewer */}
       <ResponsiveMatchViewer
         open={viewerOpen}
         matchId={selectedMatchId}

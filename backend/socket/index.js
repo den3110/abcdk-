@@ -684,10 +684,14 @@ export function initSocket(
       // bổ sung streams từ meta nếu có
       if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
-      io.to(`match:${matchId}`).emit(
-        "score:updated",
-        toDTO(decorateServeAndSlots(m))
-      );
+      const dto = toDTO(decorateServeAndSlots(m));
+      // unified channel để FE bắt được và refetch/hiển thị ngay
+      io.to(`match:${matchId}`).emit("match:update", {
+        type: "score",
+        data: dto,
+      });
+      // (tuỳ chọn giữ tương thích cũ 1-2 tuần)
+      io.to(`match:${matchId}`).emit("score:updated", dto);
     });
 
     // ========= SCHEDULER (Tournament + Bracket/Cluster) =========
@@ -877,7 +881,7 @@ export function initSocket(
       }
     );
 
-      async function populateMatchForEmit(matchId) {
+    async function populateMatchForEmit(matchId) {
       const m = await Match.findById(matchId)
         .populate({
           path: "pairA",

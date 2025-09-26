@@ -282,19 +282,62 @@ export const getMatchesByBracket = expressAsyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Invalid bracket id" });
   }
 
-  // ===== optional filters (không đổi structure response) =====
-  const {
-    status, // ví dụ: "finished" hoặc "queued,assigned"
-    type, // "group" | "ko" | "po" | ...
-    round, // số
-    rrRound, // số
-    stage, // stageIndex (số)
-    limit, // số lượng trả về
-    skip, // bỏ qua N bản ghi
-  } = req.query;
+  const { status, type, round, rrRound, stage, limit, skip } = req.query;
 
+  // ===== load bracket hiện tại để biết type/order/tournament
+  const br = await Bracket.findById(bracketId)
+    .select("_id tournament type order")
+    .lean();
+  if (!br) return res.status(404).json({ message: "Bracket not found" });
+
+  const GROUP_TYPES = new Set(["group", "round_robin", "gsl"]);
+  const isGroupBracket = GROUP_TYPES.has(String(br.type || "").toLowerCase());
+
+  // ===== tính elimOffset: tổng số "vòng" của các bracket non-group đứng trước (order < current)
+  let elimOffset = 0;
+  if (!isGroupBracket && Number.isFinite(Number(br.order))) {
+    // 1) Lấy danh sách prev brackets cùng tournament, order < current
+    const prevBrs = await Bracket.find({
+      tournament: br.tournament,
+      order: { $lt: br.order },
+    })
+      .select("_id type meta.maxRounds")
+      .lean();
+
+    // 2) Chỉ giữ non-group
+    const prevElim = prevBrs.filter(
+      (b) => !GROUP_TYPES.has(String(b.type || "").toLowerCase())
+    );
+
+    if (prevElim.length) {
+      const prevIds = prevElim.map((b) => b._id);
+
+      // 3) Lấy max(round) theo bracket từ collection Match (nếu đã tạo trận)
+      const maxRoundsAgg = await Match.aggregate([
+        { $match: { bracket: { $in: prevIds } } },
+        {
+          $group: {
+            _id: "$bracket",
+            maxRound: { $max: { $ifNull: ["$round", 0] } },
+          },
+        },
+      ]).allowDiskUse(true);
+
+      const maxRoundMap = new Map(
+        maxRoundsAgg.map((x) => [String(x._id), Number(x.maxRound || 0)])
+      );
+
+      // 4) Cộng dồn theo từng bracket: max(meta.maxRounds, max(round))
+      elimOffset = prevElim.reduce((sum, b) => {
+        const metaRounds = Number(b?.meta?.maxRounds || 0);
+        const aggRounds = maxRoundMap.get(String(b._id)) || 0;
+        return sum + Math.max(metaRounds, aggRounds);
+      }, 0);
+    }
+  }
+
+  // ===== filters như cũ
   const filter = { bracket: new mongoose.Types.ObjectId(bracketId) };
-
   if (status) {
     const arr = String(status)
       .split(",")
@@ -317,9 +360,9 @@ export const getMatchesByBracket = expressAsyncHandler(async (req, res) => {
     filter.stageIndex = Number.isFinite(st) ? st : stage;
   }
 
-  // ===== query chính (giữ nguyên sort & cấu trúc trả về) =====
+  // ===== query chính
   let q = Match.find(filter)
-    .sort({ round: 1, order: 1, createdAt: 1 }) // giữ nguyên thứ tự cũ
+    .sort({ round: 1, order: 1, createdAt: 1 })
     .populate({
       path: "pairA",
       select: "player1 player2",
@@ -342,21 +385,76 @@ export const getMatchesByBracket = expressAsyncHandler(async (req, res) => {
     })
     .lean({ virtuals: true });
 
-  // Cho dataset lớn: cho phép sort dùng disk
   if (typeof q.allowDiskUse === "function") q = q.allowDiskUse(true);
 
-  // Optional limit/skip (không thay đổi cấu trúc response)
   const lim = parseInt(limit, 10);
   const sk = parseInt(skip, 10);
   if (Number.isFinite(sk) && sk > 0) q = q.skip(sk);
   if (Number.isFinite(lim) && lim > 0) q = q.limit(Math.min(lim, 1000));
 
-  // (Tùy chọn) Nếu đã tạo index có tên, có thể bật hint để tối ưu:
-  // q = q.hint({ bracket: 1, round: 1, order: 1, createdAt: 1 });
-
   const matches = await q;
-  return res.json(matches); // GIỮ Y NGUYÊN cấu trúc cũ
+
+  // ===== helpers
+  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : undefined);
+
+  const detectB = (m) => {
+    // Ưu tiên pool.name: "A" → 1, "B" → 2 ...
+    const key = (m?.pool?.name || "").toString().trim();
+    if (key) {
+      const c = key.toUpperCase().charCodeAt(0);
+      if (c >= 65 && c <= 90) return c - 64; // A=1
+    }
+    // fallback các field cũ (0-based → +1)
+    const cand = [
+      ["groupIndex", true],
+      ["group", false],
+      ["poolIndex", true],
+      ["pool", false],
+      ["rrGroup", false],
+      ["gIndex", true],
+      ["meta?.groupIndex", true],
+      ["meta?.group", false],
+    ];
+    for (const [k, zero] of cand) {
+      let v;
+      if (k.includes("meta?.")) v = m?.meta?.[k.split("?.")[1]];
+      else v = m?.[k];
+      if (num(v) !== undefined) return zero ? num(v) + 1 : Math.max(1, num(v));
+    }
+    return 1;
+  };
+
+  // T luôn +1
+  const detectT = (m, idx) => {
+    const base =
+      num(m?.order) ??
+      num(m?.no) ??
+      num(m?.matchNo) ??
+      num(m?.index) ??
+      (Number.isFinite(idx) ? idx : 0);
+    return (base ?? 0) + 1;
+  };
+
+  // V cho group = 1; non-group = elimOffset + (round || 1)
+  const detectV = (m) => {
+    if (isGroupBracket) return 1;
+    const r = num(m?.round) ?? 1;
+    return elimOffset + r;
+  };
+
+  const withCode = matches.map((m, idx) => {
+    const V = detectV(m);
+    const T = detectT(m, idx);
+    if (isGroupBracket) {
+      const B = detectB(m);
+      return { ...m, code: `V${V}-B${B}-T${T}` };
+    }
+    return { ...m, code: `V${V}-T${T}` };
+  });
+
+  return res.json(withCode);
 });
+
 /* Trọng tài cập nhật điểm */
 export const refereeUpdateScore = expressAsyncHandler(async (req, res) => {
   const { matchId } = req.params;
@@ -779,7 +877,8 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
       ...p,
       nickname:
         (p.nickname != null && p.nickname !== "" ? p.nickname : null) ??
-        (u.nickname != null ? u.nickname : null),
+        u.nickname ??
+        null,
       name: p.name ?? u.name ?? null,
       phone: p.phone ?? u.phone ?? null,
       cccd: p.cccd ?? u.cccd ?? null,
@@ -791,14 +890,14 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     };
   };
 
-  const normalizeReg = (reg) => {
-    if (!reg) return reg;
-    return {
-      ...reg,
-      player1: flattenFromUser(reg.player1 || {}),
-      player2: flattenFromUser(reg.player2 || {}),
-    };
-  };
+  const normalizeReg = (reg) =>
+    reg
+      ? {
+          ...reg,
+          player1: flattenFromUser(reg.player1 || {}),
+          player2: flattenFromUser(reg.player2 || {}),
+        }
+      : reg;
 
   const mergedRules = {
     bestOf: match?.rules?.bestOf ?? match?.bracket?.rules?.bestOf ?? 3,
@@ -819,7 +918,6 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     mergedRules.cap.mode = "none";
   if (mergedRules.cap.mode === "none") mergedRules.cap.points = null;
 
-  // ====== NEW: chuẩn hoá slots/base  suy luận serve.serverId/receiverId ======
   const idOf = (p) =>
     String(p?.user?._id || p?.user || p?._id || p?.id || "") || "";
   const ensureBase = (reg, baseObj = {}) => {
@@ -843,44 +941,35 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
   const baseA = ensureBase(pairA, slotsRaw?.base?.A);
   const baseB = ensureBase(pairB, slotsRaw?.base?.B);
 
-  // Lấy điểm hiện tại của ván đang chơi (last of gameScores)
   const gs = Array.isArray(match.gameScores) ? match.gameScores : [];
   const last = gs.length ? gs[gs.length - 1] : { a: 0, b: 0 };
   const curA = Number(last?.a || 0);
   const curB = Number(last?.b || 0);
 
   const serve = { ...(match.serve || {}) };
-  // Ưu tiên slots.serverId nếu serve.serverId đang trống
   if (!serve.serverId && slotsRaw?.serverId)
     serve.serverId = String(slotsRaw.serverId);
   if (!serve.receiverId && slotsRaw?.receiverId)
     serve.receiverId = String(slotsRaw.receiverId);
 
-  // Nếu vẫn thiếu serverId nhưng có serve.server (1|2) ⇒ suy luận từ base  điểm
   if (!serve.serverId && (serve.server === 1 || serve.server === 2)) {
     const side = serve.side === "B" ? "B" : "A";
-    if (side === "A") {
-      const cand = [idOf(pairA?.player1), idOf(pairA?.player2)].filter(Boolean);
-      for (const uid of cand) {
-        const now = slotNow(Number(baseA[uid] || 1), curA);
-        if (now === Number(serve.server)) {
-          serve.serverId = uid;
-          break;
-        }
-      }
-    } else {
-      const cand = [idOf(pairB?.player1), idOf(pairB?.player2)].filter(Boolean);
-      for (const uid of cand) {
-        const now = slotNow(Number(baseB[uid] || 1), curB);
-        if (now === Number(serve.server)) {
-          serve.serverId = uid;
-          break;
-        }
+    const cand =
+      side === "A"
+        ? [idOf(pairA?.player1), idOf(pairA?.player2)].filter(Boolean)
+        : [idOf(pairB?.player1), idOf(pairB?.player2)].filter(Boolean);
+    for (const uid of cand) {
+      const now =
+        side === "A"
+          ? slotNow(Number(baseA[uid] || 1), curA)
+          : slotNow(Number(baseB[uid] || 1), curB);
+      if (now === Number(serve.server)) {
+        serve.serverId = uid;
+        break;
       }
     }
   }
 
-  // Nếu thiếu receiverId nhưng đã có serverId ⇒ tìm người đội kia đứng cùng ô hiện tại
   if (!serve.receiverId && serve.serverId) {
     const side = serve.side === "B" ? "B" : "A";
     const srvNow =
@@ -903,22 +992,16 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  const slotsOut = {
-    ...slotsRaw,
-    base: { A: baseA, B: baseB },
-  };
-  const enriched = decorateServeAndSlots({ ...match, pairA, pairB });
-  // trả về match  rules đã merge  pairA/pairB đã chuẩn hoá (KHÔNG đổi schema)
-  res.json({
+  const slotsOut = { ...slotsRaw, base: { A: baseA, B: baseB } };
+
+  // Nếu cần enrich thêm:
+  const enriched = decorateServeAndSlots
+    ? decorateServeAndSlots({ ...match, pairA, pairB, serve, slots: slotsOut })
+    : match;
+
+  // ✅ Trả về MỘT lần duy nhất
+  return res.json({
     ...enriched,
-    pairA,
-    pairB,
-    rules: mergedRules,
-  });
-  // Trả về match  rules đã merge  pairA/pairB đã chuẩn hoá
-  //  serve có kèm serverId/receiverId  slots.base đảm bảo đủ
-  res.json({
-    ...match,
     pairA,
     pairB,
     rules: mergedRules,

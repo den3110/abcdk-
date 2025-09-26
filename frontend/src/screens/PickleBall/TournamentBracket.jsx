@@ -619,7 +619,7 @@ const CustomSeed = ({
     if (st === "live") return { bg: "#ef6c00", fg: "#fff", key: "live" };
     const ready =
       (mm?.pairA || mm?.pairB) &&
-      (mm?.assignedAt || mm?.court || mm?.scheduledAt);
+      (mm?.court);
     if (ready) return { bg: "#f9a825", fg: "#111", key: "ready" };
     return { bg: "#9e9e9e", fg: "#fff", key: "planned" };
   };

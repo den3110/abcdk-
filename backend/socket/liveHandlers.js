@@ -7,6 +7,7 @@ import usersOfReg from "../utils/usersOfReg.js";
 import latestSnapshot from "../utils/getLastestSnapshot.js";
 import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
 import { onMatchFinished } from "../services/courtQueueService.js";
+import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
 
 // ===== CAP-AWARE helpers =====
 function isFinitePos(n) {
@@ -505,10 +506,95 @@ export async function addPoint(matchId, team, step = 1, by, io, opts = {}) {
     console.error("[rating] applyRatingForFinishedMatch error:", err);
   }
 
-  const doc = await Match.findById(m._id).populate("pairA pairB referee");
+  const doc = await Match.findById(matchId)
+    .populate({
+      path: "pairA",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          // có đủ các tên + user.nickname để FE fallback
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    // referee là mảng
+    .populate({
+      path: "referee",
+      select: "name fullName nickname nickName",
+    })
+    // người đang điều khiển live
+    .populate({ path: "liveBy", select: "name fullName nickname nickName" })
+    .populate({ path: "previousA", select: "round order" })
+    .populate({ path: "previousB", select: "round order" })
+    .populate({ path: "nextMatch", select: "_id" })
+    .populate({
+      path: "tournament",
+      select: "name image eventType overlay",
+    })
+    // 🆕 BRACKET: gửi đủ groups + meta + config như mẫu JSON bạn đưa
+    .populate({
+      path: "bracket",
+      select: [
+        "noRankDelta",
+        "name",
+        "type",
+        "stage",
+        "order",
+        "drawRounds",
+        "drawStatus",
+        "scheduler",
+        "drawSettings",
+        // meta.*
+        "meta.drawSize",
+        "meta.maxRounds",
+        "meta.expectedFirstRoundMatches",
+        // groups[]
+        "groups._id",
+        "groups.name",
+        "groups.expectedSize",
+        // rules + các config khác để FE tham chiếu
+        "config.rules",
+        "config.doubleElim",
+        "config.roundRobin",
+        "config.swiss",
+        "config.gsl",
+        "config.roundElim",
+        // nếu bạn có overlay ở bracket thì giữ lại
+        "overlay",
+      ].join(" "),
+    })
+    // 🆕 court để FE auto-next theo sân
+    .populate({
+      path: "court",
+      select: "name number code label zone area venue building floor",
+    })
+    .lean();
   io?.to(`match:${matchId}`)?.emit("match:update", {
     type: "point",
-    data: toDTO(doc),
+    data: toDTO(decorateServeAndSlots(doc)),
   });
 }
 

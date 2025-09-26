@@ -77,6 +77,14 @@ export function decorateServeAndSlots(match) {
   }
 
   // gắn vào response
+  // Nếu thiếu số người giao (#1/#2) mà đã biết serverId → suy ra từ base điểm
+  if (serve.server !== 1 && serve.server !== 2 && serverId) {
+    const sideNow = serve.side === "B" ? "B" : "A";
+    const bmap = sideNow === "B" ? baseB : baseA;
+    const score = sideNow === "B" ? curB : curA;
+    serve.server = slotNow(Number(bmap[serverId] || 1), score); // → 1 hoặc 2
+  }
+
   clone.serve = {
     ...(serve || {}),
     serverId: serverId || undefined,

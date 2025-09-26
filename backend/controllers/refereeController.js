@@ -15,6 +15,8 @@ import {
   publishNotification,
 } from "../services/notifications/notificationHub.js";
 import Court from "../models/courtModel.js";
+import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
+import { broadcastState } from "../services/broadcastState.js";
 
 /* ───────── helpers ───────── */
 function isGameWin(a = 0, b = 0, rules) {
@@ -1908,6 +1910,120 @@ export async function listCourtsForMatch(req, res, next) {
   }
 }
 
+async function populateMatchForEmit(matchId) {
+  const m = await Match.findById(matchId)
+    .populate({
+      path: "pairA",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          // có đủ các tên + user.nickname để FE fallback
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    // referee là mảng (nếu schema của bạn là 'referees' thì đổi path tương ứng)
+    .populate({
+      path: "referee",
+      select: "name fullName nickname nickName",
+    })
+    // người đang điều khiển live
+    .populate({ path: "liveBy", select: "name fullName nickname nickName" })
+    .populate({ path: "previousA", select: "round order" })
+    .populate({ path: "previousB", select: "round order" })
+    .populate({ path: "nextMatch", select: "_id" })
+    .populate({
+      path: "tournament",
+      select: "name image eventType overlay",
+    })
+    .populate({
+      // gửi đủ groups + meta + config như mẫu JSON
+      path: "bracket",
+      select: [
+        "noRankDelta",
+        "name",
+        "type",
+        "stage",
+        "order",
+        "drawRounds",
+        "drawStatus",
+        "scheduler",
+        "drawSettings",
+        "meta.drawSize",
+        "meta.maxRounds",
+        "meta.expectedFirstRoundMatches",
+        "groups._id",
+        "groups.name",
+        "groups.expectedSize",
+        "config.rules",
+        "config.doubleElim",
+        "config.roundRobin",
+        "config.swiss",
+        "config.gsl",
+        "config.roundElim",
+        "overlay",
+      ].join(" "),
+    })
+    .populate({
+      path: "court",
+      select: "name number code label zone area venue building floor order",
+    })
+    .lean();
+
+  if (!m) return null;
+
+  // Helper: set nickname ưu tiên từ user nếu thiếu
+  const fillNick = (p) => {
+    if (!p) return p;
+    const pick = (v) => (v && String(v).trim()) || "";
+    const primary = pick(p.nickname) || pick(p.nickName);
+    const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+    const n = primary || fromUser || "";
+    if (n) {
+      p.nickname = n;
+      p.nickName = n;
+    }
+    return p;
+  };
+
+  if (m.pairA) {
+    m.pairA.player1 = fillNick(m.pairA.player1);
+    m.pairA.player2 = fillNick(m.pairA.player2);
+  }
+  if (m.pairB) {
+    m.pairB.player1 = fillNick(m.pairB.player1);
+    m.pairB.player2 = fillNick(m.pairB.player2);
+  }
+
+  // bổ sung streams từ meta nếu có
+  if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
+  return m;
+}
+
 /* ===================== ASSIGN / UNASSIGN ===================== */
 
 /**
@@ -1928,10 +2044,26 @@ export async function listCourtsForMatch(req, res, next) {
 export async function assignCourtToMatch(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
+
+  const io = req.app?.get?.("io"); // socket.io instance
+
+  const emitMatchSnapshot = async (matchId) => {
+    if (!io) return;
+    try {
+      const mFull = await populateMatchForEmit(matchId);
+      if (!mFull) return;
+      const dto = toDTO(decorateServeAndSlots(mFull));
+      io.to(`match:${String(mFull._id)}`).emit("match:snapshot", dto);
+      io.to(`match:${String(mFull._id)}`).emit("match:update", dto);
+    } catch (e) {
+      console.error("[emit] match snapshot error:", e?.message);
+    }
+  };
+
   try {
     const { matchId } = req.params;
     const {
-      courtId, // có thể null => bỏ gán
+      courtId, // null/undefined => UNASSIGN
       force = false,
       allowReassignLive = false,
     } = req.body || {};
@@ -1940,13 +2072,14 @@ export async function assignCourtToMatch(req, res, next) {
       return res.status(400).json({ message: "matchId không hợp lệ" });
     }
 
-    // ===== Fetch match =====
+    // ===== Load match =====
     const m = await Match.findById(matchId).session(session);
     if (!m) return res.status(404).json({ message: "Không tìm thấy trận" });
 
-    // ===== UNASSIGN (courtId null/undefined) =====
+    /* =========================
+     * UNASSIGN (courtId null)
+     * ========================= */
     if (!courtId) {
-      // Không cho bỏ gán nếu đã live (trừ khi force/allowReassignLive)
       if (m.status === "live" && !(allowReassignLive || force)) {
         return res.status(409).json({
           message:
@@ -1954,13 +2087,17 @@ export async function assignCourtToMatch(req, res, next) {
         });
       }
 
-      // Trả sân cũ (nếu đang cột với match này)
+      let oldClusterKey = "Main";
+      // Trả sân cũ nếu đang cột với match
       if (m.court) {
         const old = await Court.findById(m.court).session(session);
-        if (old && String(old.currentMatch) === String(m._id)) {
-          old.currentMatch = null;
-          old.status = "idle";
-          await old.save({ session });
+        if (old) {
+          oldClusterKey = old.cluster || "Main";
+          if (String(old.currentMatch) === String(m._id)) {
+            old.currentMatch = null;
+            old.status = "idle";
+            await old.save({ session });
+          }
         }
       }
 
@@ -1970,11 +2107,21 @@ export async function assignCourtToMatch(req, res, next) {
       m.courtCluster = "Main";
       m.assignedAt = null;
       if (m.status !== "live" && m.status !== "finished") {
-        m.status = "queued"; // hoặc "scheduled" tuỳ workflow của bạn
+        m.status = "queued"; // hoặc "scheduled" tùy workflow
       }
       await m.save({ session });
 
       await session.commitTransaction();
+      session.endSession();
+
+      // Socket emit
+      await emitMatchSnapshot(m._id);
+      if (io) {
+        await broadcastState(io, String(m.tournament), {
+          bracket: m.bracket,
+          cluster: oldClusterKey,
+        });
+      }
 
       const matchFresh = await Match.findById(m._id)
         .populate("court", "name cluster status")
@@ -1982,7 +2129,9 @@ export async function assignCourtToMatch(req, res, next) {
       return res.json({ ok: true, match: matchFresh, court: null });
     }
 
-    // ===== ASSIGN (courtId có giá trị) =====
+    /* =========================
+     * ASSIGN (courtId provided)
+     * ========================= */
     if (!mongoose.isValidObjectId(courtId)) {
       return res.status(400).json({ message: "courtId không hợp lệ" });
     }
@@ -2008,50 +2157,70 @@ export async function assignCourtToMatch(req, res, next) {
         .json({ message: "Sân đang bảo trì/không sẵn sàng" });
     }
 
-    // Nếu trận đang live mà không cho phép đổi sân
     if (m.status === "live" && !(allowReassignLive || force)) {
-      return res.status(409).json({
-        message: "Trận đang live, không thể đổi sân (allowReassignLive=false)",
-      });
+      return res
+        .status(409)
+        .json({
+          message:
+            "Trận đang live, không thể đổi sân (allowReassignLive=false)",
+        });
     }
 
-    // Nếu court đang bận: kiểm tra thực sự còn bận không
-    // - Nếu currentMatch đã finished => coi như trống, dọn sân về idle trước khi gán
+    // Xử lý sân đang bận
+    // - Nếu currentMatch đã finished => dọn sân
+    // - Nếu chưa finished:
+    //     + !force => 409
+    //     + force  => đẩy trận đang chiếm sân về queued (sẽ emit sau commit)
+    let replacedMatchId = null;
     if (
       c.currentMatch &&
       String(c.currentMatch) !== String(m._id) &&
-      COURT_BUSY.has(c.status) &&
-      !force
+      COURT_BUSY.has(c.status)
     ) {
-      const cm = await Match.findById(c.currentMatch)
-        .select("status")
-        .session(session);
+      const cm = await Match.findById(c.currentMatch).session(session);
       if (cm && cm.status === "finished") {
-        // dọn sân vì trận trước đã kết thúc
         c.currentMatch = null;
         c.status = "idle";
         await c.save({ session });
-      } else {
-        return res.status(409).json({
-          message: "Sân đang bận với trận khác",
-          currentMatch: c.currentMatch,
-        });
+      } else if (cm && cm.status !== "finished") {
+        if (!force) {
+          return res.status(409).json({
+            message: "Sân đang bận với trận khác",
+            currentMatch: c.currentMatch,
+          });
+        }
+        // replace: đẩy trận đang chiếm sân về queued & clear court
+        cm.status = "queued";
+        cm.set("court", undefined, { strict: false });
+        cm.set("courtLabel", undefined, { strict: false });
+        cm.set("courtCluster", undefined, { strict: false });
+        cm.set("assignedAt", undefined, { strict: false });
+        await cm.save({ session });
+        replacedMatchId = String(cm._id);
       }
     }
 
-    // Nếu đang đổi từ court khác sang court này: trả court cũ (nếu còn cột với match)
+    // Nếu đang chuyển từ sân khác → trả sân cũ
+    let prevClusterKey = null;
     if (m.court && String(m.court) !== String(c._id)) {
       const old = await Court.findById(m.court).session(session);
-      if (old && String(old.currentMatch) === String(m._id)) {
-        old.currentMatch = null;
-        old.status = "idle";
-        await old.save({ session });
+      if (old) {
+        prevClusterKey = old.cluster || "Main";
+        if (String(old.currentMatch) === String(m._id)) {
+          old.currentMatch = null;
+          old.status = "idle";
+          await old.save({ session });
+        }
       }
     }
 
     // Cập nhật match
+    const courtLabelGuess =
+      c.name ||
+      c.label ||
+      (Number.isInteger(c.order) ? `Sân ${c.order}` : "Sân");
     m.court = c._id;
-    m.courtLabel = c.name || "";
+    m.courtLabel = courtLabelGuess;
     m.courtCluster = c.cluster || "Main";
     m.assignedAt = new Date();
     if (m.status !== "live") m.status = "assigned";
@@ -2063,13 +2232,34 @@ export async function assignCourtToMatch(req, res, next) {
     await c.save({ session });
 
     await session.commitTransaction();
+    session.endSession();
+
+    // ===== SOCKET EMIT =====
+    await emitMatchSnapshot(m._id); // match mới gán sân
+    if (replacedMatchId) {
+      await emitMatchSnapshot(replacedMatchId); // match bị đẩy khỏi sân (force)
+    }
+    if (io) {
+      // broadcast cluster mới
+      await broadcastState(io, String(m.tournament), {
+        bracket: m.bracket,
+        cluster: c.cluster || "Main",
+      });
+      // broadcast cluster cũ (nếu có) để dọn UI
+      if (prevClusterKey && prevClusterKey !== (c.cluster || "Main")) {
+        await broadcastState(io, String(m.tournament), {
+          bracket: m.bracket,
+          cluster: prevClusterKey,
+        });
+      }
+    }
 
     const [matchFresh, courtFresh] = await Promise.all([
       Match.findById(m._id).populate("court", "name cluster status").lean(),
       Court.findById(c._id).lean(),
     ]);
 
-    res.json({ ok: true, match: matchFresh, court: courtFresh });
+    return res.json({ ok: true, match: matchFresh, court: courtFresh });
   } catch (e) {
     try {
       await session.abortTransaction();
@@ -2090,9 +2280,28 @@ export async function assignCourtToMatch(req, res, next) {
  *     + nếu match.live → 409 (không cho unassign khi đang live)
  *     + nếu match.assigned → chuyển về toStatus (mặc định queued)
  */
+// Controller: bỏ gán sân + emit socket realtime
+
 export async function unassignCourtFromMatch(req, res, next) {
   const session = await mongoose.startSession();
   session.startTransaction();
+
+  const io = req.app?.get?.("io"); // socket.io instance
+
+  // helper emit snapshot cho 1 match
+  const emitMatchSnapshot = async (matchId) => {
+    if (!io) return;
+    try {
+      const mFull = await populateMatchForEmit(matchId);
+      if (!mFull) return;
+      const dto = toDTO(decorateServeAndSlots(mFull));
+      io.to(`match:${String(mFull._id)}`).emit("match:snapshot", dto);
+      io.to(`match:${String(mFull._id)}`).emit("match:update", dto);
+    } catch (e) {
+      console.error("[emit] match snapshot error:", e?.message);
+    }
+  };
+
   try {
     const { matchId } = req.params;
     const { toStatus } = req.body || {};
@@ -2114,20 +2323,26 @@ export async function unassignCourtFromMatch(req, res, next) {
     }
 
     let courtFresh = null;
+    let oldClusterKey = "Main";
 
     if (m.court) {
       const c = await Court.findById(m.court).session(session);
-      if (c && String(c.currentMatch) === String(m._id)) {
-        c.currentMatch = null;
-        c.status = "idle";
-        await c.save({ session });
-        courtFresh = c.toObject();
+      if (c) {
+        oldClusterKey = c.cluster || "Main";
+        if (String(c.currentMatch) === String(m._id)) {
+          c.currentMatch = null;
+          c.status = "idle";
+          await c.save({ session });
+          courtFresh = c.toObject();
+        }
       }
     }
 
+    // clear court on match
     m.court = null;
     m.courtLabel = "";
-    // chỉ đưa về queued nếu đang assigned
+    m.courtCluster = "Main";
+    // chỉ đưa về queued/scheduled nếu đang assigned
     if (m.status === "assigned") {
       m.status = ["queued", "scheduled"].includes(toStatus)
         ? toStatus
@@ -2136,9 +2351,19 @@ export async function unassignCourtFromMatch(req, res, next) {
     await m.save({ session });
 
     await session.commitTransaction();
+    session.endSession();
+
+    // ===== SOCKET EMIT =====
+    await emitMatchSnapshot(m._id);
+    if (io) {
+      await broadcastState(io, String(m.tournament), {
+        bracket: m.bracket,
+        cluster: oldClusterKey, // cụm vừa giải phóng sân
+      });
+    }
 
     const matchFresh = await Match.findById(m._id).lean();
-    res.json({ ok: true, match: matchFresh, court: courtFresh });
+    return res.json({ ok: true, match: matchFresh, court: courtFresh });
   } catch (e) {
     try {
       await session.abortTransaction();
