@@ -382,7 +382,7 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
   const pageSize = 10;
   const page = Math.max(Number(req.query.page) || 1, 1);
 
-  // ── Build keyword filter: name + nickname + phone
+  // ── Build keyword filter: name + nickname + phone + email (+ domain suffix)
   const kw = (req.query.keyword || "").trim();
   const escapeRegex = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const rx = kw ? new RegExp(escapeRegex(kw), "i") : null;
@@ -390,15 +390,23 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
   const conds = [];
 
   if (kw) {
-    conds.push({
-      $or: [
-        { name: rx }, // họ tên
-        { nickname: rx }, // nickname
-        { phone: rx }, // số điện thoại
-        // Nếu muốn tìm theo email, mở dòng dưới:
-        // { email: rx },
-      ],
-    });
+    const orList = [
+      { name: rx }, // họ tên
+      { nickname: rx }, // nickname
+      { phone: rx }, // số điện thoại
+      { email: rx }, // email: cho phép tìm theo một phần, ví dụ "alice@" hoặc "@example.com"
+    ];
+
+    // Nếu người dùng gõ dạng "@example.com" → ưu tiên match theo hậu tố domain (kết thúc bằng domain)
+    if (kw.startsWith("@")) {
+      const domain = kw.slice(1).trim(); // "example.com"
+      if (domain) {
+        const rxDomainSuffix = new RegExp(`@${escapeRegex(domain)}$`, "i");
+        orList.push({ email: rxDomainSuffix });
+      }
+    }
+
+    conds.push({ $or: orList });
   }
 
   // ── role filter (nếu có)
