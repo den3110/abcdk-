@@ -1052,13 +1052,14 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         },
       },
 
-      // Lấy stage/type để sort theo bracket
+      // Lấy stage/type (và order) để sort theo bracket
       {
         $lookup: {
           from: "brackets",
           localField: "bracket",
           foreignField: "_id",
-          pipeline: [{ $project: { _id: 1, type: 1, stage: 1 } }],
+          // CHANGED: thêm 'order' để sort ổn định giữa các bracket cùng stage
+          pipeline: [{ $project: { _id: 1, type: 1, stage: 1, order: 1 } }],
           as: "__br4sort",
         },
       },
@@ -1067,10 +1068,11 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         $addFields: {
           _brType: "$__br4sort.type",
           _brStageOrder: { $ifNull: ["$__br4sort.stage", 1] },
+          _brOrder: { $ifNull: ["$__br4sort.order", 9999] }, // CHANGED: mới thêm
         },
       },
 
-      // === TÍNH groupIndex sớm để SORT đúng "v{stage}-b{group}#{order}" ===
+      // === TÍNH groupIndex sớm để SORT đúng theo bảng ===
       {
         $lookup: {
           from: "brackets",
@@ -1167,22 +1169,30 @@ export async function listRefereeMatchesByTournament(req, res, next) {
       // Khóa sort theo "mã trận"
       {
         $addFields: {
+          // CHANGED: với bracket 'group' => ưu tiên order (trận số) trước, rồi tới groupIndex
           _codeK1: {
             $cond: [
               { $eq: ["$_brType", "group"] },
-              { $ifNull: ["$groupIndex", 99999] },
-              "$_roundSafe",
+              "$_orderSafe", // trận 1,2,3,... trước
+              "$_roundSafe", // KO/PO giữ nguyên
             ],
           },
-          _codeK2: "$_orderSafe",
+          _codeK2: {
+            $cond: [
+              { $eq: ["$_brType", "group"] },
+              { $ifNull: ["$groupIndex", 99999] }, // rồi mới đến bảng 1,2,3,...
+              "$_orderSafe", // KO/PO giữ nguyên
+            ],
+          },
         },
       },
 
-      // SORT: status → stage → mã
+      // SORT: status → stage → bracket.order → (interleave key) → _id
       {
         $sort: {
           _bucketPrio: 1,
           _brStageOrder: 1,
+          _brOrder: 1, // CHANGED: ổn định giữa các bracket cùng stage
           _codeK1: 1,
           _codeK2: 1,
           _id: 1,
@@ -1385,12 +1395,12 @@ export async function listRefereeMatchesByTournament(req, res, next) {
               { $ifNull: ["$_groupCtx", false] },
               {
                 $concat: [
-                  "#V",
+                  "V",
                   { $toString: { $ifNull: ["$bracket.stage", 1] } },
                   "-B",
                   { $toString: { $add: ["$_groupCtx.idx", 1] } },
-                  "#",
-                  { $toString: "$_orderDisplay" },
+                  "-T",
+                  { $toString: "$_orderDisplay" }, // FE có thể render thành T1/T2 nếu muốn
                 ],
               },
               null,
@@ -1526,7 +1536,7 @@ export async function listRefereeMatchesByTournament(req, res, next) {
                 _id: "$$it._id",
                 code: "$$it.code",
                 codeGroup: "$$it.codeGroup",
-                codeResolved: { $ifNull: ["$$it.codeGroup", "$$it.code"] }, // sẽ ghi đè ở Node với KO/PO
+                codeResolved: { $ifNull: ["$$it.codeGroup", "$$it.code"] },
                 labelKey: "$$it.labelKey",
                 status: "$$it.status",
                 sortBucket: "$$it._bucketLabel",
@@ -1614,14 +1624,12 @@ export async function listRefereeMatchesByTournament(req, res, next) {
     // =======================
     // TÍNH VÒNG CHUẨN (globalRound/globalCode) CHO KO/PO
     // =======================
-    // Lấy toàn bộ brackets của giải để cộng dồn số vòng
     const allBrackets = await Bracket.find({ tournament: tid })
       .select(
         "_id tournament type stage order prefill ko meta config drawRounds"
       )
       .lean();
 
-    // Lấy max(round) quan sát được cho mỗi bracket
     const maxRoundByBracket = new Map();
     await Promise.all(
       allBrackets.map(async (b) => {
@@ -1739,9 +1747,10 @@ export async function listRefereeMatchesByTournament(req, res, next) {
         const base = (offsetByBracket.get(bid) || 0) + 1;
         return {
           ...it,
-          globalRound: base, // optional cho FE
-          globalCode: null, // không dùng cho vòng bảng
-          codeResolved: it.codeGroup || it.code || null, // giữ nguyên
+          globalRound: base,
+          globalCode: null,
+          codeResolved: it.codeGroup || it.code || null,
+          code: it.codeGroup || it.code || null,
         };
       }
 

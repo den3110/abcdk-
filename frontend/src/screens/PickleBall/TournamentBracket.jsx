@@ -173,7 +173,7 @@ export const seedLabel = (seed) => {
       const st = seed.ref?.stage ?? seed.ref?.stageIndex ?? "?";
       const g = seed.ref?.groupCode;
       const r = seed.ref?.rank ?? "?";
-      return g ? `V${st}-B${g}-#${r}` : `V${st}-#${r}`;
+      return g ? `V${st}-B${g}-T${r}` : `V${st}-T${r}`;
     }
     case "stageMatchWinner": {
       const r = seed.ref?.round ?? "?";
@@ -1303,7 +1303,7 @@ function buildGroupPlaceholderMatches({
   return pairs.map(([i, j], idx) => {
     const nameA = `Đội ${teamStartIndex + (i - 1)}`;
     const nameB = `Đội ${teamStartIndex + (j - 1)}`;
-    const code = `#V${stageNo}-B${groupIndexOneBased}#${idx + 1}`;
+    const code = `V${stageNo}-B${groupIndexOneBased}-T${idx + 1}`;
     return {
       _id: `pf-${groupKey}-${idx + 1}`,
       isPlaceholder: true,
@@ -2234,7 +2234,7 @@ export default function TournamentBracket() {
       const bName = resolveSideLabel(m, "B");
       const bIndex = groupOrderMap.get(gKey) ?? "?";
       const seq = seqIndexByMatchId.get(String(m._id)) ?? "?";
-      const code = `#V${stageNo}-B${bIndex}#${seq}`;
+      const code = `V${stageNo}-B${bIndex}-T${seq}`;
 
       const time = formatTime(pickGroupKickoffTime(m));
       const court = getStickyCourt(m);
@@ -2553,7 +2553,7 @@ export default function TournamentBracket() {
           let matchRows = [];
           if (realMatches.length) {
             matchRows = realMatches.map((m, idx) => {
-              const code = `#V${stageNo}-B${labelNumeric}#${idx + 1}`;
+              const code = `V${stageNo}-B${labelNumeric}-T${idx + 1}`;
               const aName = resolveSideLabel(m, "A");
               const bName = resolveSideLabel(m, "B");
               const time = formatTime(pickGroupKickoffTime(m));

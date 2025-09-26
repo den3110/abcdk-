@@ -1,5 +1,11 @@
 // src/pages/TournamentSchedule.jsx
-import React, { useMemo, useState } from "react";
+import React, {
+  useMemo,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+} from "react";
 import { useParams, Link as RouterLink } from "react-router-dom";
 import {
   Box,
@@ -33,54 +39,124 @@ import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import {
   useGetTournamentQuery,
   useListPublicMatchesByTournamentQuery,
+  useListTournamentBracketsQuery, // ⟵ để subscribe draw rooms như Bracket
 } from "../../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
+import { useSocket } from "../../context/SocketContext";
 
 /* ---------- helpers ---------- */
+// Có giá trị không (chấp nhận 0, number, string non-empty)
+const hasVal = (v) =>
+  v === 0 ||
+  typeof v === "number" ||
+  (typeof v === "string" && v.trim() !== "");
 
-function displayMatchCode(m) {
-  // 1) Ưu tiên globalCode nếu có (kể cả 0 hoặc số)
-  const gc = m?.globalCode;
-  const hasGc =
-    gc === 0 ||
-    typeof gc === "number" ||
-    (typeof gc === "string" && gc.trim() !== "");
-  if (hasGc) return String(gc).trim();
-
-  // 2) Fallback sang code nếu có
-  const code = m?.code;
-  const hasCode =
-    code === 0 ||
-    typeof code === "number" ||
-    (typeof code === "string" && code.trim() !== "");
-  if (hasCode) return String(code).trim();
-
-  // 3) Cuối cùng mới dựng từ bracket.order + order như logic cũ
-  const bo = m?.bracket?.order;
-  const ord = m?.order;
-
-  const hasBo =
-    bo === 0 || typeof bo === "number" || (typeof bo === "string" && bo !== "");
-  const hasOrd =
-    ord === 0 ||
-    typeof ord === "number" ||
-    (typeof ord === "string" && ord !== "");
-
-  if (hasBo && hasOrd) {
-    const boTxt = Number.isFinite(Number(bo)) ? String(Number(bo)) : String(bo);
-    const ordNum = Number(ord);
-    const ordTxt = Number.isFinite(ordNum) ? String(ordNum) : String(ord);
-    return `R${boTxt}#${ordTxt}`;
-  }
-  if (hasOrd) {
-    const ordNum = Number(ord);
-    const ordTxt = Number.isFinite(ordNum) ? String(ordNum) : String(ord);
-    return `#${ordTxt}`;
-  }
-
-  // 4) Nếu không có gì, trả label mặc định
-  return "Trận";
+// Có phải trận vòng bảng?
+function isGroupMatch(m) {
+  const t = String(m?.bracket?.type || m?.type || "")
+    .toLowerCase()
+    .trim();
+  return (
+    t.includes("group") ||
+    t.includes("roundrobin") ||
+    t.includes("round-robin") ||
+    t === "rr"
+  );
 }
+
+// round → số vòng (ưu tiên m.round)
+function normRound(m) {
+  const r = m?.round ?? m?.stageRound ?? m?.r;
+  if (!hasVal(r)) return "";
+  const n = Number(r);
+  return Number.isFinite(n) ? String(n) : String(r).trim();
+}
+
+// group/pool → A,B,C... thành số (A=1, B=2,...). Nếu có số sẵn thì dùng số đó.
+function normGroup(m) {
+  let g =
+    m?.groupLabel ??
+    m?.group?.label ??
+    m?.poolLabel ??
+    m?.pool?.label ??
+    m?.group?.name ??
+    m?.pool?.name ??
+    m?.group ??
+    m?.pool;
+
+  // fallback: bắt nhãn từ tên bracket "Bảng A" / "Group B"
+  if (!hasVal(g) && typeof m?.bracket?.name === "string") {
+    const mm =
+      m.bracket.name.match(/bảng\s*([A-Za-z0-9]+)/i) ||
+      m.bracket.name.match(/group\s*([A-Za-z0-9]+)/i);
+    if (mm?.[1]) g = mm[1];
+  }
+
+  if (!hasVal(g)) return "";
+
+  const s = String(g).trim().toUpperCase();
+
+  // Nếu có số trong nhãn thì lấy số đó (vd "Bảng 3" -> "3", "G02" -> "2")
+  const digits = s.match(/\d+/)?.[0];
+  if (digits) return String(Number(digits));
+
+  // Nếu chỉ là 1 chữ cái A-Z -> map A=1, B=2,...
+  if (/^[A-Z]$/.test(s)) return String(s.charCodeAt(0) - 64);
+
+  // Nếu có chữ đơn lẻ A-Z đứng riêng (phòng khi nhãn dạng "Nhóm A")
+  const letter = s.match(/\b([A-Z])\b/);
+  if (letter) return String(letter[1].charCodeAt(0) - 64);
+
+  // fallback: giữ nguyên nhưng bỏ khoảng trắng
+  return s.replace(/\s+/g, "");
+}
+
+// t (match no) → ưu tiên matchNo → order → seq → (cuối cùng lôi số từ code/globalCode)
+// Sau khi lấy được số, HIỂN THỊ T = số + 1
+function normMatchNo(m) {
+  const cand = m?.matchNo ?? m?.order ?? m?.seq;
+
+  // 1) Nếu có trường số trực tiếp
+  if (hasVal(cand)) {
+    const n = Number(cand);
+    if (Number.isFinite(n)) return String(n + 1); // +1
+    // Nếu không phải số thuần, thử rút số trong chuỗi
+    const d = String(cand).match(/\d+/)?.[0];
+    if (d) return String(Number(d) + 1); // +1
+    return String(cand).trim(); // không cộng được thì trả nguyên
+  }
+
+  // 2) Fallback: rút số từ code/globalCode
+  const code = hasVal(m?.code) ? m.code : m?.globalCode;
+  if (hasVal(code)) {
+    const d = String(code).match(/\d+/)?.[0];
+    if (d) return String(Number(d) + 1); // +1
+  }
+
+  // 3) Không có gì để tính → trả rỗng để displayMatchCode tự fallback
+  return "";
+}
+
+// HIỂN THỊ: knockout => "V{round}-T{no}", group => "V{round}-B{group}-T{no}"
+function displayMatchCode(m) {
+  const V = normRound(m);
+  const T = normMatchNo(m);
+
+  if (isGroupMatch(m)) {
+    const B = normGroup(m);
+    const parts = [];
+    if (V) parts.push(`V${V}`);
+    if (B) parts.push(`B${B}`);
+    if (T) parts.push(`T${T}`);
+    return parts.length ? parts.join("-") : "Trận";
+  }
+
+  const parts = [];
+  if (V) parts.push(`V${V}`);
+  if (T) parts.push(`T${T}`);
+  return parts.length ? parts.join("-") : "Trận";
+}
+
 function matchCodeByOrder(m) {
   const o = m?.order;
   if (o === 0 || o) {
@@ -97,9 +173,14 @@ const isLive = (m) =>
   );
 const isFinished = (m) => String(m?.status || "").toLowerCase() === "finished";
 const isScheduled = (m) =>
-  ["scheduled", "upcoming", "pending", "queued", "assigning"].includes(
-    String(m?.status || "").toLowerCase()
-  );
+  [
+    "scheduled",
+    "upcoming",
+    "pending",
+    "queued",
+    "assigning",
+    "assigned",
+  ].includes(String(m?.status || "").toLowerCase());
 
 function orderKey(m) {
   const bo = m?.bracket?.order ?? 9999;
@@ -142,6 +223,8 @@ function courtNameOf(m) {
     "Chưa phân sân"
   );
 }
+const hasCourtAssigned = (m) =>
+  !!((m?.courtName && m.courtName.trim()) || m?.court?.name || m?.courtLabel);
 
 /* ---------- Chips ---------- */
 function ChipRow({ children, sx }) {
@@ -203,7 +286,10 @@ function SectionTitle({ children, right }) {
   );
 }
 
-function CourtCard({ court, queueLimit = 4, onOpenMatch }) {
+function CourtCard({ court, onOpenMatch }) {
+  const hasLive = court.live.length > 0;
+  const hasQueue = court.queue.length > 0;
+
   return (
     <Box
       sx={{
@@ -224,10 +310,10 @@ function CourtCard({ court, queueLimit = 4, onOpenMatch }) {
           {court.name}
         </Typography>
         <ChipRow sx={{ px: 0 }}>
-          {court.live.length > 0 && (
+          {hasLive && (
             <Chip size="small" color="success" label="ĐANG DIỄN RA" />
           )}
-          {court.queue.length > 0 && (
+          {hasQueue && (
             <Chip
               size="small"
               color="warning"
@@ -238,7 +324,7 @@ function CourtCard({ court, queueLimit = 4, onOpenMatch }) {
         </ChipRow>
       </Stack>
 
-      {/* live matches – clickable */}
+      {/* LIVE */}
       {court.live.map((m) => (
         <Box
           key={m._id}
@@ -287,57 +373,59 @@ function CourtCard({ court, queueLimit = 4, onOpenMatch }) {
         </Box>
       ))}
 
-      {/* queue – clickable rows */}
-      {court.queue.slice(0, queueLimit).map((m) => (
-        <List dense disablePadding key={m._id}>
-          <ListItem disableGutters>
-            <ListItemButton
-              onClick={() => onOpenMatch?.(m._id)}
-              sx={{
-                px: 0,
-                py: 0.5,
-                borderRadius: 1,
-                "&:hover": { bgcolor: "action.hover" },
-              }}
-            >
-              <ListItemIcon sx={{ minWidth: 28 }}>
-                <ScheduleIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText
-                primary={
-                  <Stack
-                    direction={{ xs: "column", sm: "row" }}
-                    alignItems={{ xs: "flex-start", sm: "center" }}
-                    gap={1}
-                    flexWrap="wrap"
-                  >
-                    <Typography fontWeight={700}>
-                      {displayMatchCode(m)}
-                    </Typography>
-                    <Typography sx={{ opacity: 0.9 }}>
-                      {teamNameFrom(m, "A")} vs {teamNameFrom(m, "B")}
-                    </Typography>
-                  </Stack>
-                }
-                secondary={
-                  <ChipRow>
-                    <Chip
-                      size="small"
-                      variant="outlined"
-                      label={m.bracket?.name || m.phase || "—"}
-                    />
-                    <Chip
-                      size="small"
-                      variant="outlined"
-                      label={courtNameOf(m)}
-                    />
-                  </ChipRow>
-                }
-              />
-            </ListItemButton>
-          </ListItem>
+      {/* QUEUE (KHÔNG hiển thị finished) */}
+      {court.queue.length > 0 && (
+        <List dense disablePadding>
+          {court.queue.map((m) => (
+            <ListItem key={m._id} disableGutters>
+              <ListItemButton
+                onClick={() => onOpenMatch?.(m._id)}
+                sx={{
+                  px: 0,
+                  py: 0.5,
+                  borderRadius: 1,
+                  "&:hover": { bgcolor: "action.hover" },
+                }}
+              >
+                <ListItemIcon sx={{ minWidth: 28 }}>
+                  <ScheduleIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText
+                  primary={
+                    <Stack
+                      direction={{ xs: "column", sm: "row" }}
+                      alignItems={{ xs: "flex-start", sm: "center" }}
+                      gap={1}
+                      flexWrap="wrap"
+                    >
+                      <Typography fontWeight={700}>
+                        {displayMatchCode(m)}
+                      </Typography>
+                      <Typography sx={{ opacity: 0.9 }}>
+                        {teamNameFrom(m, "A")} vs {teamNameFrom(m, "B")}
+                      </Typography>
+                    </Stack>
+                  }
+                  secondary={
+                    <ChipRow>
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={m.bracket?.name || m.phase || "—"}
+                      />
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        label={courtNameOf(m)}
+                      />
+                    </ChipRow>
+                  }
+                />
+              </ListItemButton>
+            </ListItem>
+          ))}
         </List>
-      ))}
+      )}
     </Box>
   );
 }
@@ -418,13 +506,16 @@ function MatchRow({ m, onOpenMatch }) {
 /* ---------- Page ---------- */
 export default function TournamentSchedule() {
   const { id } = useParams();
+  const theme = useTheme();
+  const upSm = useMediaQuery(theme.breakpoints.up("sm"));
+  const upMd = useMediaQuery(theme.breakpoints.up("md"));
+
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all"); // all | live | upcoming | finished
 
-  // state để mở viewer
+  // Viewer state
   const [viewerOpen, setViewerOpen] = useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState(null);
-
   const openViewer = (mid) => {
     setSelectedMatchId(mid);
     setViewerOpen(true);
@@ -434,31 +525,213 @@ export default function TournamentSchedule() {
     setSelectedMatchId(null);
   };
 
-  const theme = useTheme();
-  const upSm = useMediaQuery(theme.breakpoints.up("sm"));
-  const upMd = useMediaQuery(theme.breakpoints.up("md"));
-
+  // Queries
   const {
     data: tournament,
     isLoading: tLoading,
     error: tError,
   } = useGetTournamentQuery(id);
+
   const {
     data: matchesResp,
     isLoading: mLoading,
     error: mError,
+    refetch: refetchMatches,
   } = useListPublicMatchesByTournamentQuery({
     tid: id,
-    params: { limit: 500 },
+    params: { limit: 1000 },
   });
+
+  const { data: brackets = [], refetch: refetchBrackets } =
+    useListTournamentBracketsQuery(id, {
+      refetchOnMountOrArgChange: true,
+      refetchOnFocus: true,
+      refetchOnReconnect: true,
+    });
 
   const loading = tLoading || mLoading;
   const errorMsg =
     (tError && (tError.data?.message || tError.error)) ||
     (mError && (mError.data?.message || mError.error));
 
-  const matches = useMemo(() => matchesResp?.list ?? [], [matchesResp]);
+  /* ===== Realtime layer (giống Bracket) ===== */
+  const socket = useSocket();
 
+  const liveMapRef = useRef(new Map()); // id → match
+  const [liveBump, setLiveBump] = useState(0);
+
+  const pendingRef = useRef(new Map());
+  const rafRef = useRef(null);
+
+  const flushPending = useCallback(() => {
+    if (!pendingRef.current.size) return;
+    const mp = liveMapRef.current;
+    for (const [id, inc] of pendingRef.current) {
+      const cur = mp.get(id);
+      const vNew = Number(inc?.liveVersion ?? inc?.version ?? 0);
+      const vOld = Number(cur?.liveVersion ?? cur?.version ?? 0);
+      const merged = !cur || vNew >= vOld ? { ...(cur || {}), ...inc } : cur;
+      mp.set(id, merged);
+    }
+    pendingRef.current.clear();
+    setLiveBump((x) => x + 1);
+  }, []);
+
+  const queueUpsert = useCallback(
+    (incRaw) => {
+      const inc = incRaw?.data ?? incRaw?.match ?? incRaw;
+      if (!inc?._id) return;
+      // Chuẩn hoá nhẹ cho court/venue/location giống Bracket
+      const normalizeEntity = (v) => {
+        if (v == null) return v;
+        if (typeof v === "string" || typeof v === "number") return v;
+        if (typeof v === "object") {
+          return {
+            _id: v._id ?? (typeof v.id === "string" ? v.id : undefined),
+            name:
+              (typeof v.name === "string" && v.name) ||
+              (typeof v.label === "string" && v.label) ||
+              (typeof v.title === "string" && v.title) ||
+              "",
+          };
+        }
+        return v;
+      };
+      if (inc.court) inc.court = normalizeEntity(inc.court);
+      if (inc.venue) inc.venue = normalizeEntity(inc.venue);
+      if (inc.location) inc.location = normalizeEntity(inc.location);
+
+      const idStr = String(inc._id);
+      pendingRef.current.set(idStr, inc);
+      if (rafRef.current) return;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        flushPending();
+      });
+    },
+    [flushPending]
+  );
+
+  // Seed initial live map from API list
+  useEffect(() => {
+    const mp = new Map();
+    const list = matchesResp?.list || [];
+    for (const m of list) if (m?._id) mp.set(String(m._id), m);
+    liveMapRef.current = mp;
+    setLiveBump((x) => x + 1);
+  }, [matchesResp]);
+
+  // Socket wiring: subscribe draw rooms + join all matches + receive updates
+  useEffect(() => {
+    if (!socket) return;
+    const bracketIds = (brackets || [])
+      .map((b) => String(b._id))
+      .filter(Boolean);
+    const matchIds = (matchesResp?.list || [])
+      .map((m) => String(m._id))
+      .filter(Boolean);
+
+    const subscribeDrawRooms = () => {
+      try {
+        bracketIds.forEach((bid) =>
+          socket.emit("draw:subscribe", { bracketId: bid })
+        );
+      } catch (e) {
+        console.log(e);
+      }
+    };
+    const unsubscribeDrawRooms = () => {
+      try {
+        bracketIds.forEach((bid) =>
+          socket.emit("draw:unsubscribe", { bracketId: bid })
+        );
+      } catch (e) {
+        console.log(e);
+      }
+    };
+
+    const joined = new Set();
+    const joinAllMatches = () => {
+      try {
+        matchIds.forEach((mid) => {
+          if (!joined.has(mid)) {
+            socket.emit("match:join", { matchId: mid });
+            socket.emit("match:snapshot:request", { matchId: mid });
+            joined.add(mid);
+          }
+        });
+      } catch (e) {
+        console.log(e);
+      }
+    };
+
+    const onUpsert = (payload) => queueUpsert(payload);
+    const onRemove = (payload) => {
+      const id = String(payload?.id ?? payload?._id ?? "");
+      if (!id) return;
+      if (liveMapRef.current.has(id)) {
+        liveMapRef.current.delete(id);
+        setLiveBump((x) => x + 1);
+      }
+    };
+    const onRefilled = () => {
+      refetchMatches();
+      refetchBrackets();
+    };
+
+    const onConnected = () => {
+      subscribeDrawRooms();
+      joinAllMatches();
+    };
+
+    socket.on("connect", onConnected);
+
+    socket.on("match:update", onUpsert);
+    socket.on("match:snapshot", onUpsert);
+    socket.on("score:updated", onUpsert);
+    socket.on("match:deleted", onRemove);
+    socket.on("draw:refilled", onRefilled);
+    socket.on("bracket:updated", onRefilled);
+
+    // chạy ngay lần đầu
+    onConnected();
+
+    return () => {
+      socket.off("connect", onConnected);
+      socket.off("match:update", onUpsert);
+      socket.off("match:snapshot", onUpsert);
+      socket.off("score:updated", onUpsert);
+      socket.off("match:deleted", onRemove);
+      socket.off("draw:refilled", onRefilled);
+      socket.off("bracket:updated", onRefilled);
+      unsubscribeDrawRooms();
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    socket,
+    id,
+    brackets,
+    matchesResp,
+    refetchMatches,
+    refetchBrackets,
+    queueUpsert,
+  ]);
+
+  // Dữ liệu matches đã merge realtime
+  const matches = useMemo(
+    () =>
+      Array.from(liveMapRef.current.values()).filter(
+        (m) => String(m?.tournament?._id || m?.tournament) === String(id)
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [id, liveBump]
+  );
+
+  // Sort tổng hợp
   const allSorted = useMemo(() => {
     return [...matches].sort((a, b) => {
       const ak = orderKey(a);
@@ -469,6 +742,7 @@ export default function TournamentSchedule() {
     });
   }, [matches]);
 
+  // Filter danh sách bên phải
   const filteredAll = useMemo(() => {
     const qnorm = q.trim().toLowerCase();
     return allSorted.filter((m) => {
@@ -495,25 +769,61 @@ export default function TournamentSchedule() {
     });
   }, [allSorted, q, status]);
 
-  // group by court
+  // Group theo sân cho cột trái:
+  // - LIVE: status live
+  // - QUEUE: mọi trận CHƯA KẾT THÚC (kể cả assigned/queued/scheduled...), bao gồm cả "Chưa phân sân"
+  // - KHÔNG hiện trận đã diễn ra (finished)
   const courts = useMemo(() => {
     const map = new Map();
     allSorted.forEach((m) => {
-      const name = courtNameOf(m);
+      const name = courtNameOf(m); // "Chưa phân sân" nếu chưa có sân
       if (!map.has(name)) map.set(name, { live: [], queue: [] });
-      if (isLive(m)) map.get(name).live.push(m);
-      else if (isScheduled(m)) map.get(name).queue.push(m);
+
+      if (isLive(m)) {
+        map.get(name).live.push(m);
+      } else if (!isFinished(m)) {
+        // chỉ lấy trận chưa kết thúc
+        map.get(name).queue.push(m);
+      }
     });
+
+    // sort trong từng sân theo orderKey
+    const byKey = (a, b) => {
+      const ak = orderKey(a);
+      const bk = orderKey(b);
+      for (let i = 0; i < ak.length; i++)
+        if (ak[i] !== bk[i]) return ak[i] - bk[i];
+      return 0;
+    };
     map.forEach((v) => {
-      v.queue.sort((a, b) => {
-        const ak = orderKey(a);
-        const bk = orderKey(b);
-        for (let i = 0; i < ak.length; i++)
-          if (ak[i] !== bk[i]) return ak[i] - bk[i];
-        return 0;
-      });
+      v.live.sort(byKey);
+      v.queue.sort(byKey);
     });
-    return Array.from(map.entries()).map(([name, data]) => ({ name, ...data }));
+
+    const entries = Array.from(map.entries()).map(([name, data]) => ({
+      name,
+      ...data,
+    }));
+
+    // Sắp xếp: tất cả sân thật trước, "Chưa phân sân" xuống cuối, ưu tiên số trong tên sân
+    const isUnassigned = (n) =>
+      String(n).toLowerCase().includes("chưa phân sân");
+    const natNum = (s) => {
+      const d = String(s).match(/\d+/)?.[0];
+      return d ? Number(d) : Number.POSITIVE_INFINITY;
+    };
+
+    entries.sort((a, b) => {
+      const au = isUnassigned(a.name);
+      const bu = isUnassigned(b.name);
+      if (au !== bu) return au ? 1 : -1;
+      const an = natNum(a.name);
+      const bn = natNum(b.name);
+      if (an !== bn) return an - bn;
+      return a.name.localeCompare(b.name, "vi");
+    });
+
+    return entries;
   }, [allSorted]);
 
   const queueLimit = upMd ? 6 : upSm ? 4 : 3;
@@ -523,7 +833,6 @@ export default function TournamentSchedule() {
       maxWidth="lg"
       disableGutters
       sx={{
-        // không padding ở mobile, thêm lại từ sm+
         px: { sm: 2 },
         py: { xs: 2, sm: 3 },
       }}
@@ -556,7 +865,7 @@ export default function TournamentSchedule() {
           borderColor: { xs: "divider", md: "transparent" },
           p: { xs: 1, sm: 0 },
           mb: 2,
-          borderRadius: { xs: 0, md: 2 }, // 0 ở mobile để sát mép
+          borderRadius: { xs: 0, md: 2 },
           boxShadow: { xs: 1, md: 0 },
         }}
       >
@@ -585,7 +894,7 @@ export default function TournamentSchedule() {
       </Box>
 
       {/* loading / error */}
-      {loading && (
+      {(tLoading || mLoading) && (
         <Box my={3}>
           <Grid container spacing={{ xs: 0, md: 2 }}>
             <Grid item xs={12} md={5}>
@@ -660,7 +969,7 @@ export default function TournamentSchedule() {
               <CardHeader
                 avatar={<StadiumIcon color="primary" />}
                 title="Các trận đấu trên sân"
-                subheader="Đang diễn ra & hàng chờ"
+                subheader="Đang diễn ra & hàng chờ (không hiển thị đã diễn ra)"
                 sx={{
                   "& .MuiCardHeader-avatar": { mr: 1 },
                   "& .MuiCardHeader-title": { fontWeight: 700 },
@@ -678,7 +987,6 @@ export default function TournamentSchedule() {
                     <CourtCard
                       key={c.name}
                       court={c}
-                      queueLimit={queueLimit}
                       onOpenMatch={openViewer}
                     />
                   ))}
