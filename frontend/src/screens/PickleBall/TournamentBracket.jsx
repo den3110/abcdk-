@@ -676,6 +676,7 @@ const CustomSeed = ({
         }}
       >
         <div
+          className="champion-tour"
           ref={wrapRef}
           style={{ position: "relative", display: "grid", gap: 6 }}
         >
@@ -709,6 +710,7 @@ const CustomSeed = ({
 
           {m && (
             <div
+              className="header-seed"
               style={{
                 display: "flex",
                 alignItems: "center",

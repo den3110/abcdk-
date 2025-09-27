@@ -81,6 +81,22 @@ export const upsertCourts = asyncHandler(async (req, res) => {
   const { tournamentId } = req.params;
   const { bracket, names, count } = req.body || {};
 
+  // NEW: cho phép nhận nhiều khóa để linh hoạt từ FE
+  const rawAutoAssign =
+    req.body?.autoAssign ??
+    req.body?.assignOnCreate ??
+    req.body?.enableAutoAssign ??
+    false;
+
+  // NEW: parse bool thân thiện "true"/"1"/true
+  const toBool = (v) =>
+    v === true ||
+    v === 1 ||
+    v === "1" ||
+    (typeof v === "string" && v.toLowerCase() === "true");
+
+  const autoAssign = toBool(rawAutoAssign);
+
   if (!mongoose.isValidObjectId(tournamentId)) {
     return res.status(400).json({ message: "Invalid tournament id" });
   }
@@ -168,21 +184,25 @@ export const upsertCourts = asyncHandler(async (req, res) => {
 
   if (bulk.length) await Court.bulkWrite(bulk, { ordered: false });
 
-  // rebuild & fill hàng đợi chỉ cho BRACKET này (dùng clusterKey = bracketId)
-  try {
-    await buildGroupsRotationQueue({ tournamentId, cluster: clusterKey });
-    await fillIdleCourtsForCluster({ tournamentId, cluster: clusterKey });
-  } catch (e) {
-    // không chặn response nếu service hàng đợi lỗi nhẹ
-    console.error("[queue] rebuild/fill error:", e?.message || e);
+  // NEW: chỉ rebuild & fill hàng đợi khi autoAssign = true
+  if (autoAssign) {
+    try {
+      await buildGroupsRotationQueue({ tournamentId, cluster: clusterKey });
+      await fillIdleCourtsForCluster({ tournamentId, cluster: clusterKey });
+    } catch (e) {
+      // không chặn response nếu service hàng đợi lỗi nhẹ
+      console.error("[queue] rebuild/fill error:", e?.message || e);
+    }
   }
 
   const items = await Court.find({ tournament: tid, bracket: bid })
     .sort({ order: 1 })
     .lean();
 
-  return res.json({ items });
+  // NEW: trả về meta cho FE biết lần này có áp dụng autoAssign hay không
+  return res.json({ items, meta: { autoAssignApplied: autoAssign } });
 });
+
 
 export const buildGroupsQueueHttp = asyncHandler(async (req, res) => {
   const { tournamentId } = req.params;

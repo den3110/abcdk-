@@ -3,11 +3,8 @@
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
-  // ⬇️ RTK Query hooks (giữ nguyên nếu bạn đã có)
   useGetOverlaySnapshotQuery,
   useLazyGetTournamentQuery,
-  // ⬇️ NEW: lazy API để lấy trận kế tiếp theo sân (1 API duy nhất, dùng slice)
-  // Endpoint gợi ý: GET /api/courts/:courtId/next?after=:matchId  → { matchId: "..." }
   useLazyGetNextByCourtQuery,
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
@@ -54,6 +51,67 @@ const codeToRoundLabel = (code) => {
   return rc;
 };
 
+const parseRoundSize = (roundCode) => {
+  if (!roundCode) return null;
+  const m = String(roundCode)
+    .toUpperCase()
+    .match(/^R(\d+)$/);
+  return m ? +m[1] : null;
+};
+
+const labelForRoundSize = (size) => {
+  if (!size) return "";
+  if (size >= 16) return `Vòng ${size} đội`;
+  if (size === 8) return "Tứ kết";
+  if (size === 4) return "Bán kết";
+  if (size === 2) return "Chung kết";
+  return `Vòng ${size}`;
+};
+
+// Ưu tiên roundName, rồi QF/SF/F, rồi R\d+
+const canonicalRoundLabel = (data) => {
+  const byName = readStr(data?.roundName);
+  if (byName) return byName;
+
+  const rc = String(data?.roundCode || "").toUpperCase();
+  if (rc === "QF") return "Tứ kết";
+  if (rc === "SF") return "Bán kết";
+  if (rc === "F" || rc === "GF") return "Chung kết";
+
+  const m = rc.match(/^R(\d+)$/);
+  if (m) return labelForRoundSize(+m[1]);
+
+  return "";
+};
+
+// Chip phase theo yêu cầu: group / play-off / knockout
+const phaseLabelFromData = (data) => {
+  const bt = (data?.bracketType || data?.bracket?.type || "").toLowerCase();
+  if (bt === "group") return "Vòng bảng";
+
+  const roundLabel = canonicalRoundLabel(data);
+
+  if (bt === "po" || bt === "playoff" || bt === "play-offs") {
+    return roundLabel || "Vòng PO";
+  }
+
+  if (
+    bt === "ko" ||
+    bt === "knockout" ||
+    bt === "single" ||
+    bt === "singleelimination" ||
+    bt === "double" ||
+    bt === "doubleelimination"
+  ) {
+    return roundLabel
+      ? `${roundLabel}`
+      : "Vòng loại trực tiếp";
+  }
+
+  // fallback
+  return roundLabel || "";
+};
+
 const regDisplayNick = (reg, evType) => {
   if (!reg) return "—";
   if (evType === "single") return preferNick(reg?.player1) || "N/A";
@@ -81,7 +139,8 @@ function normalizePayload(p) {
     p?.roundCode ||
     p?.round_code ||
     (p?.roundSize ? `R${p.roundSize}` : "") ||
-    (p?.round_size ? `R${p.round_size}` : "") || p?.round;
+    (p?.round_size ? `R${p.round_size}` : "") ||
+    p?.round;
   const roundName =
     p?.roundName || p?.round_name || codeToRoundLabel(roundCode) || "";
   const roundNumber = Number.isFinite(+p?.round) ? +p?.round : undefined;
@@ -284,19 +343,20 @@ export default function ScoreOverlay() {
   const navigate = useNavigate();
 
   const matchId = q.get("matchId") || "";
-  const autoNext = parseQPBool(q.get("autoNext")); // true khi autoNext=1|true|on
+  const autoNext = parseQPBool(q.get("autoNext"));
 
   const {
     data: snapRaw,
-    isLoading: snapLoading,
-    isFetching: snapFetching,
+    // isLoading: snapLoading,
+    // isFetching: snapFetching,
   } = useGetOverlaySnapshotQuery(matchId, {
     skip: !matchId,
     refetchOnMountOrArgChange: true,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+    pollingInterval: 3000, // poll mỗi 3s
   });
   const [getTournament] = useLazyGetTournamentQuery();
-
-  // ⬇️ Lazy RTK Query duy nhất để lấy trận kế theo sân
   const [getNextByCourt] = useLazyGetNextByCourtQuery();
 
   const [data, setData] = useState(null);
@@ -386,15 +446,12 @@ export default function ScoreOverlay() {
 
   /* ---------- Merge: BE overlay > QP > default ---------- */
   const effective = useMemo(() => {
-    const theme = (
-      (firstDefined(overlayBE?.theme, q.get("theme"), "dark") || "dark") + ""
+    const theme = String(
+      firstDefined(overlayBE?.theme, q.get("theme"), "dark")
     ).toLowerCase();
-    const size = (
-      (firstDefined(
-        overlayBE?.size,
-        (q.get("size") || "md").toLowerCase(),
-        "md"
-      ) || "md") + ""
+
+    const size = String(
+      firstDefined(overlayBE?.size, q.get("size") || "md", "md")
     ).toLowerCase();
 
     const accentA = firstDefined(
@@ -408,9 +465,10 @@ export default function ScoreOverlay() {
       "#4F46E5"
     );
 
-    const corner = (
-      (firstDefined(overlayBE?.corner, q.get("corner"), "tl") || "tl") + ""
+    const corner = String(
+      firstDefined(overlayBE?.corner, q.get("corner"), "tl")
     ).toLowerCase();
+
     const rounded = Number(
       firstDefined(overlayBE?.rounded, q.get("rounded"), 18)
     );
@@ -509,15 +567,11 @@ export default function ScoreOverlay() {
   }, [effective]);
 
   /* ---------- Gate hiển thị ---------- */
-  const apiSettled = !snapLoading && !snapFetching;
-  const ready = apiSettled && !!data;
+  const ready = !!(data || snapRaw);
 
   /* ---------- Data hiển thị ---------- */
   const tourName = data?.tournament?.name || "";
   const rawStatus = (data?.status || "").toUpperCase();
-  const isFinished = rawStatus === "FINISHED";
-  const badgeClass = isFinished ? "ft" : rawStatus === "LIVE" ? "live" : "";
-
   const nameA = teamNameFull(data?.teams?.A) || "Team A";
   const nameB = teamNameFull(data?.teams?.B) || "Team B";
 
@@ -565,6 +619,7 @@ export default function ScoreOverlay() {
   );
 
   const roundLabel = knockoutRoundLabel(data);
+  const phaseText = phaseLabelFromData(data);
 
   const wrapStyle = {
     position: "fixed",
@@ -573,56 +628,79 @@ export default function ScoreOverlay() {
     zIndex: 2147483647,
   };
 
-  /* ---------- Auto-next theo sân khi FT ---------- */
-  const lastAutoNextFor = useRef(null);
+  /* ---------- Auto-next theo sân khi FT (poll 3s) ---------- */
+  const pollRef = useRef(null);
   useEffect(() => {
-    if (!autoNext) return; // không bật
-    if (!data?.matchId) return;
-    const finished = String(data?.status || "").toUpperCase() === "FINISHED";
-    if (!finished) return;
+    if (!autoNext) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
 
-    const cid = data?.court?.id || data?.courtId;
-    if (!cid) return; // không có sân → bỏ
+    const finished = String(rawStatus) === "FINISHED";
+    const cid = data?.court?.id || data?.courtId || null;
+    const afterId = data?.matchId || matchId || null;
 
-    // Tránh xử lý lặp cho cùng 1 match
-    if (lastAutoNextFor.current === data.matchId) return;
-    lastAutoNextFor.current = data.matchId;
+    if (!finished || !cid || !afterId) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
 
-    let cancelled = false;
-    (async () => {
+    if (pollRef.current) return;
+
+    let inFlight = false;
+    const tick = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const next = await getNextByCourt({
           courtId: cid,
-          after: data.matchId,
+          after: afterId,
         }).unwrap();
         const nextId =
           next?.matchId || next?._id || next?.data?.matchId || next?.data?._id;
-        if (cancelled || !nextId || nextId === data.matchId) return;
 
-        const params = new URLSearchParams(window.location.search);
-        params.set("matchId", nextId);
-        // preserve autoNext để chuỗi tiếp tục
-        params.set("autoNext", "1");
-        navigate(
-          {
-            pathname: window.location.pathname,
-            search: `?${params.toString()}`,
-          },
-          { replace: true }
-        );
+        if (nextId && nextId !== afterId) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+
+          const params = new URLSearchParams(window.location.search);
+          params.set("matchId", nextId);
+          params.set("autoNext", "1");
+          navigate(
+            {
+              pathname: window.location.pathname,
+              search: `?${params.toString()}`,
+            },
+            { replace: true }
+          );
+        }
       } catch {
-        // không có next hoặc lỗi → bỏ qua
+        // ignore; keep polling
+      } finally {
+        inFlight = false;
       }
-    })();
+    };
 
+    pollRef.current = setInterval(tick, 3000);
     return () => {
-      cancelled = true;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
     };
   }, [
     autoNext,
-    data?.status,
-    data?.matchId,
+    rawStatus,
     data?.court?.id,
+    data?.courtId,
+    data?.matchId,
+    matchId,
     getNextByCourt,
     navigate,
   ]);
@@ -630,8 +708,17 @@ export default function ScoreOverlay() {
   if (!ready) return null;
 
   return (
-    <div style={wrapStyle} data-ovl="">
+    <div
+      className="ovl-wrap"
+      style={wrapStyle}
+      data-ovl=""
+      data-theme={effective.theme}
+      data-size={effective.size}
+      data-bracket-type={data?.bracketType || ""}
+      data-round-code={data?.roundCode || ""}
+    >
       <div
+        className={`ovl ovl--${effective.theme} ovl--${effective.size} ovl-card`}
         data-theme={effective.theme}
         style={{
           ...styles.card,
@@ -640,8 +727,9 @@ export default function ScoreOverlay() {
         }}
       >
         {/* Meta */}
-        <div style={styles.meta}>
+        <div className="ovl-meta" style={styles.meta}>
           <span
+            className="ovl-meta-left ovl-brand"
             title={tourName}
             style={{
               minWidth: 0,
@@ -655,6 +743,7 @@ export default function ScoreOverlay() {
           >
             {effective.logoUrl ? (
               <img
+                className="ovl-logo"
                 src={effective.logoUrl}
                 alt="logo"
                 style={{
@@ -665,63 +754,84 @@ export default function ScoreOverlay() {
                 }}
               />
             ) : null}
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+            <span
+              className="ovl-tournament"
+              style={{ overflow: "hidden", textOverflow: "ellipsis" }}
+            >
               {tourName || "—"}
             </span>
           </span>
+
+          {/* CHIP PHASE */}
           <span
+            className="ovl-meta-right"
             style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
           >
-            {roundLabel ? (
-              <span style={{ color: "var(--muted)" }}>Vòng {roundLabel}</span>
+            {phaseText ? (
+              <span
+                className="ovl-phase chip"
+                style={{ ...styles.badge, ...styles.badgePhase }}
+              >
+                {phaseText}
+              </span>
             ) : null}
-            <span
-              style={{
-                ...styles.badge,
-                ...(badgeClass === "ft"
-                  ? styles.badgeFt
-                  : badgeClass === "live"
-                  ? styles.badgeLive
-                  : {}),
-              }}
-            >
-              {badgeClass === "ft" ? "FT" : rawStatus || "—"}
-            </span>
           </span>
         </div>
 
         {/* Team A */}
-        <div style={styles.row}>
-          <div style={styles.team}>
-            <span style={{ ...styles.pill, background: "var(--accent-a)" }} />
-            <span style={styles.name} title={nameA}>
+        <div className="ovl-row ovl-row--a" style={styles.row} data-team="A">
+          <div
+            className="ovl-team ovl-team--a"
+            style={styles.team}
+            data-team="A"
+          >
+            <span
+              className="ovl-pill ovl-pill--a"
+              style={{ ...styles.pill, background: "var(--accent-a)" }}
+            />
+            <span className="ovl-name" style={styles.name} title={nameA}>
               {nameA}
             </span>
-            {serveSide === "A" && <ServeBalls count={serveCount} />}
+            {serveSide === "A" && <ServeBalls count={serveCount} team="A" />}
           </div>
-          <div style={styles.score}>{scoreA}</div>
+          <div className="ovl-score ovl-score--a" style={styles.score}>
+            {scoreA}
+          </div>
         </div>
 
         {/* Team B */}
-        <div style={styles.row}>
-          <div style={styles.team}>
-            <span style={{ ...styles.pill, background: "var(--accent-b)" }} />
-            <span style={styles.name} title={nameB}>
+        <div className="ovl-row ovl-row--b" style={styles.row} data-team="B">
+          <div
+            className="ovl-team ovl-team--b"
+            style={styles.team}
+            data-team="B"
+          >
+            <span
+              className="ovl-pill ovl-pill--b"
+              style={{ ...styles.pill, background: "var(--accent-b)" }}
+            />
+            <span className="ovl-name" style={styles.name} title={nameB}>
               {nameB}
             </span>
-            {serveSide === "B" && <ServeBalls count={serveCount} />}
+            {serveSide === "B" && <ServeBalls count={serveCount} team="B" />}
           </div>
-          <div style={styles.score}>{scoreB}</div>
+          <div className="ovl-score ovl-score--b" style={styles.score}>
+            {scoreB}
+          </div>
         </div>
 
         {/* Bảng set */}
         {effective.showSets && (
-          <div style={styles.tableWrap}>
-            <div style={styles.tableRowHeader}>
-              <div style={{ ...styles.th, ...styles.thHidden }} />
+          <div className="ovl-sets" style={styles.tableWrap}>
+            <div className="ovl-sets-head" style={styles.tableRowHeader}>
+              <div
+                className="ovl-sets-head-gap"
+                style={{ ...styles.th, ...styles.thHidden }}
+              />
               {setSummary.map((s, i) => (
                 <div
                   key={`h-${i}`}
+                  className={`ovl-th ${i === gi ? "ovl-th--active" : ""}`}
                   style={{
                     ...styles.th,
                     ...(i === gi ? styles.thActive : null),
@@ -732,50 +842,82 @@ export default function ScoreOverlay() {
               ))}
             </div>
 
-            <div style={styles.tableRow}>
-              <div style={{ ...styles.tdTeam, color: "var(--muted)" }}>A</div>
-              {setSummary.map((s, i) => (
-                <div
-                  key={`a-${i}`}
-                  style={{
-                    ...styles.td,
-                    ...(s.winner === "A"
-                      ? {
-                          background: "var(--accent-a)",
-                          color: "#fff",
-                          borderColor: "transparent",
-                        }
-                      : i === gi
-                      ? styles.cellActive
-                      : {}),
-                  }}
-                >
-                  {Number.isFinite(s.a) ? s.a : "–"}
-                </div>
-              ))}
+            <div
+              className="ovl-sets-row ovl-sets-row--a"
+              style={styles.tableRow}
+              data-team="A"
+            >
+              <div
+                className="ovl-sets-label ovl-sets-label--a"
+                style={{ ...styles.tdTeam, color: "var(--muted)" }}
+              >
+                A
+              </div>
+              {setSummary.map((s, i) => {
+                const isWin = s.winner === "A";
+                const isCur = i === gi;
+                return (
+                  <div
+                    key={`a-${i}`}
+                    className={`ovl-td ${
+                      isWin ? "ovl-td--win ovl-td--a" : ""
+                    } ${isCur ? "ovl-td--active" : ""}`}
+                    style={{
+                      ...styles.td,
+                      ...(isWin
+                        ? {
+                            background: "var(--accent-a)",
+                            color: "#fff",
+                            borderColor: "transparent",
+                          }
+                        : isCur
+                        ? styles.cellActive
+                        : {}),
+                    }}
+                  >
+                    {Number.isFinite(s.a) ? s.a : "–"}
+                  </div>
+                );
+              })}
             </div>
 
-            <div style={styles.tableRow}>
-              <div style={{ ...styles.tdTeam, color: "var(--muted)" }}>B</div>
-              {setSummary.map((s, i) => (
-                <div
-                  key={`b-${i}`}
-                  style={{
-                    ...styles.td,
-                    ...(s.winner === "B"
-                      ? {
-                          background: "var(--accent-b)",
-                          color: "#fff",
-                          borderColor: "transparent",
-                        }
-                      : i === gi
-                      ? styles.cellActive
-                      : {}),
-                  }}
-                >
-                  {Number.isFinite(s.b) ? s.b : "–"}
-                </div>
-              ))}
+            <div
+              className="ovl-sets-row ovl-sets-row--b"
+              style={styles.tableRow}
+              data-team="B"
+            >
+              <div
+                className="ovl-sets-label ovl-sets-label--b"
+                style={{ ...styles.tdTeam, color: "var(--muted)" }}
+              >
+                B
+              </div>
+              {setSummary.map((s, i) => {
+                const isWin = s.winner === "B";
+                const isCur = i === gi;
+                return (
+                  <div
+                    key={`b-${i}`}
+                    className={`ovl-td ${
+                      isWin ? "ovl-td--win ovl-td--b" : ""
+                    } ${isCur ? "ovl-td--active" : ""}`}
+                    style={{
+                      ...styles.td,
+                      ...(isWin
+                        ? {
+                            background: "var(--accent-b)",
+                            color: "#fff",
+                            borderColor: "transparent",
+                          }
+                        : isCur
+                        ? styles.cellActive
+                        : {}),
+                    }}
+                  >
+                    {Number.isFinite(s.b) ? s.b : "–"}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -908,16 +1050,24 @@ const styles = {
   },
   badgeFt: { background: "#16a34a" },
   badgeLive: { background: "#ef4444" },
+  badgePhase: {
+    background: "#334155", // slate-700
+  },
 };
 
 /* ---------------- ServeBalls ---------------- */
-function ServeBalls({ count = 1 }) {
+function ServeBalls({ count = 1, team }) {
   const n = Math.max(1, Math.min(2, Number(count) || 1));
   return (
-    <span style={styles.serve}>
-      <span style={styles.ballsWrap}>
+    <span
+      className={`ovl-serve ${
+        team ? `ovl-serve--${String(team).toLowerCase()}` : ""
+      }`}
+      style={styles.serve}
+    >
+      <span className="ovl-serve-balls" style={styles.ballsWrap}>
         {Array.from({ length: n }).map((_, i) => (
-          <span key={i} style={styles.ball} />
+          <span key={i} className="ovl-serve-ball" style={styles.ball} />
         ))}
       </span>
     </span>

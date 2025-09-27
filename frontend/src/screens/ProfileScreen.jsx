@@ -166,7 +166,7 @@ export default function ProfileScreen() {
     () =>
       avatarPreview ||
       form.avatar ||
-      "https://dummyimage.com/400x400/cccccc/ffffff&text=?",
+      "https://dummyimage.com/400x400/cccccc/ffffff&text=",
     [avatarPreview, form.avatar]
   );
 

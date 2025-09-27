@@ -244,12 +244,13 @@ async function loadMatchWithNickForEmit(matchId) {
       populate: [
         {
           path: "player1",
-          select: "nickname nickName user",
+          // bổ sung fullName/name/shortName + user.nickname để FE fallback
+          select: "fullName name shortName nickname nickName user",
           populate: { path: "user", select: "nickname nickName" },
         },
         {
           path: "player2",
-          select: "nickname nickName user",
+          select: "fullName name shortName nickname nickName user",
           populate: { path: "user", select: "nickname nickName" },
         },
       ],
@@ -260,23 +261,62 @@ async function loadMatchWithNickForEmit(matchId) {
       populate: [
         {
           path: "player1",
-          select: "nickname nickName user",
+          select: "fullName name shortName nickname nickName user",
           populate: { path: "user", select: "nickname nickName" },
         },
         {
           path: "player2",
-          select: "nickname nickName user",
+          select: "fullName name shortName nickname nickName user",
           populate: { path: "user", select: "nickname nickName" },
         },
       ],
     })
+    // referee là mảng
     .populate({ path: "referee", select: "name fullName nickname nickName" })
+    // 🆕 người đang điều khiển live (đồng bộ với chỗ khác)
+    .populate({ path: "liveBy", select: "name fullName nickname nickName" })
     .populate({ path: "previousA", select: "round order" })
     .populate({ path: "previousB", select: "round order" })
     .populate({ path: "nextMatch", select: "_id" })
-    // tuỳ ý giữ/loại các populate dưới nếu muốn payload gọn hơn
+    // tournament kèm overlay để FE pickOverlay
     .populate({ path: "tournament", select: "name image eventType overlay" })
-    .populate({ path: "bracket", select: "type name order overlay" })
+    // 🆕 BRACKET: mở rộng như các handler khác (meta, groups, config, overlay...)
+    .populate({
+      path: "bracket",
+      select: [
+        "noRankDelta",
+        "name",
+        "type",
+        "stage",
+        "order",
+        "drawRounds",
+        "drawStatus",
+        "scheduler",
+        "drawSettings",
+        // meta.*
+        "meta.drawSize",
+        "meta.maxRounds",
+        "meta.expectedFirstRoundMatches",
+        // groups[]
+        "groups._id",
+        "groups.name",
+        "groups.expectedSize",
+        // config.*
+        "config.rules",
+        "config.doubleElim",
+        "config.roundRobin",
+        "config.swiss",
+        "config.gsl",
+        "config.roundElim",
+        // overlay (nếu có)
+        "overlay",
+      ].join(" "),
+    })
+    // 🆕 court để FE auto-next theo sân
+    .populate({
+      path: "court",
+      select: "name number code label zone area venue building floor",
+    })
     .lean();
 
   if (!m) return null;
@@ -291,7 +331,7 @@ async function loadMatchWithNickForEmit(matchId) {
       p.nickname = n;
       p.nickName = n;
     }
-    // nếu muốn gọn payload:
+    // nếu muốn gọn payload có thể bỏ user:
     // if (p.user) delete p.user;
     return p;
   };
@@ -305,6 +345,7 @@ async function loadMatchWithNickForEmit(matchId) {
     m.pairB.player2 = fillNick(m.pairB.player2);
   }
 
+  // fallback streams từ meta nếu chưa có
   if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
   return m;
@@ -718,31 +759,122 @@ export const patchStatus = asyncHandler(async (req, res) => {
 
   // Lấy snapshot đầy đủ cho client
   const m = await Match.findById(match._id)
-    .populate({ path: "pairA", select: "player1 player2" })
-    .populate({ path: "pairB", select: "player1 player2" })
-    .populate({ path: "referee", select: "name fullName nickname" })
+    .populate({
+      path: "pairA",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          // bổ sung fullName/name/shortName + user.nickname để FE fallback
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({ path: "referee", select: "name fullName nickname nickName" })
     .populate({ path: "previousA", select: "round order" })
     .populate({ path: "previousB", select: "round order" })
     .populate({ path: "nextMatch", select: "_id" })
     .populate({ path: "tournament", select: "name image eventType overlay" })
-    .populate({ path: "bracket", select: "type name order overlay" })
-    // 🆕 lấy thêm court
+    // 🆕 BRACKET: mở rộng meta/groups/config/overlay như các handler khác
+    .populate({
+      path: "bracket",
+      select: [
+        "noRankDelta",
+        "name",
+        "type",
+        "stage",
+        "order",
+        "drawRounds",
+        "drawStatus",
+        "scheduler",
+        "drawSettings",
+        // meta.*
+        "meta.drawSize",
+        "meta.maxRounds",
+        "meta.expectedFirstRoundMatches",
+        // groups[]
+        "groups._id",
+        "groups.name",
+        "groups.expectedSize",
+        // config.*
+        "config.rules",
+        "config.doubleElim",
+        "config.roundRobin",
+        "config.swiss",
+        "config.gsl",
+        "config.roundElim",
+        // overlay
+        "overlay",
+      ].join(" "),
+    })
+    // 🆕 court để FE auto-next theo sân
     .populate({
       path: "court",
       select: "name number code label zone area venue building floor",
     })
-    // 🆕 nếu bạn muốn FE hiển thị ai đang điều khiển bảng điểm
-    .populate({ path: "liveBy", select: "name fullName nickname" })
-    // 🆕 mở rộng select để DTO có đủ dữ liệu (giữ các field cũ)
+    // 🆕 ai đang điều khiển bảng điểm
+    .populate({ path: "liveBy", select: "name fullName nickname nickName" })
+    // 🆕 mở rộng select để DTO có đủ dữ liệu (GIỮ cái cũ + thêm mới)
     .select(
-      "label court scheduledAt startAt startedAt finishedAt status " +
-        "tournament bracket rules currentGame gameScores round order " +
-        "seedA seedB winner serve overlay video videoUrl stream streams " +
+      "label managers court courtLabel courtCluster " +
+        "scheduledAt startAt startedAt finishedAt status " +
+        "tournament bracket rules currentGame gameScores " +
+        "round order code roundCode roundName " + // ⬅️ THÊM MỚI ở đây
+        "seedA seedB previousA previousB nextMatch winner serve overlay " +
+        "video videoUrl stream streams meta " +
+        "format rrRound pool " +
         "liveBy liveVersion"
     )
     .lean();
 
   if (m) {
+    // 🧩 Nickname fallback từ user.nickname nếu player.nickname trống
+    const pick = (v) => (v && String(v).trim()) || "";
+    const fillNick = (p) => {
+      if (!p) return p;
+      const primary = pick(p.nickname) || pick(p.nickName);
+      const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+      const n = primary || fromUser || "";
+      if (n) {
+        p.nickname = n;
+        p.nickName = n;
+      }
+      return p;
+    };
+    if (m.pairA) {
+      m.pairA.player1 = fillNick(m.pairA.player1);
+      m.pairA.player2 = fillNick(m.pairA.player2);
+    }
+    if (m.pairB) {
+      m.pairB.player1 = fillNick(m.pairB.player1);
+      m.pairB.player2 = fillNick(m.pairB.player2);
+    }
+
+    // 🧩 Fallback streams từ meta nếu chưa có
+    if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
     io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
   }
 
@@ -793,11 +925,14 @@ export const patchWinner = asyncHandler(async (req, res) => {
   }
 
   await match.save();
-
+  const mFull = await populateMatchForEmit(id);
+  if (!mFull) return;
+  const dto = toDTO(decorateServeAndSlots(mFull));
   // === EMIT ra room trận (client xem live) ===
   io?.to(`match:${id}`).emit("score:updated", { matchId: id });
   io?.to(`match:${id}`).emit("winner:updated", { matchId: id, winner });
   io?.to(`match:${id}`).emit("match:patched", { matchId: id });
+  io?.to(`match:${id}`).emit("match:update", dto);
 
   // === EMIT ra room scheduler (trang điều phối sân đang join) ===
   // BE của bạn khi nhận "scheduler:join" nhiều khả năng join vào room dạng này:
@@ -2158,12 +2293,9 @@ export async function assignCourtToMatch(req, res, next) {
     }
 
     if (m.status === "live" && !(allowReassignLive || force)) {
-      return res
-        .status(409)
-        .json({
-          message:
-            "Trận đang live, không thể đổi sân (allowReassignLive=false)",
-        });
+      return res.status(409).json({
+        message: "Trận đang live, không thể đổi sân (allowReassignLive=false)",
+      });
     }
 
     // Xử lý sân đang bận

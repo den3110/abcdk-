@@ -1278,7 +1278,6 @@ export const adminUpdateMatch = expressAsyncHandler(async (req, res) => {
 
 export const searchUserMatches = expressAsyncHandler(async (req, res) => {
   const tournamentId = req.query.tournamentId;
-  // q có thể là array nếu params trùng; ép về string
   const qRaw = Array.isArray(req.query.q) ? req.query.q[0] : req.query.q;
   const q = (qRaw || "").trim();
   if (!q)
@@ -1288,13 +1287,11 @@ export const searchUserMatches = expressAsyncHandler(async (req, res) => {
   }
 
   const TZ = "Asia/Bangkok";
-  const qLower = q.toLowerCase();
+  const toId = (v) => new mongoose.Types.ObjectId(String(v));
 
-  // 1) Tìm registrations khớp SĐT hoặc nickname (case-insensitive)
+  /* ================= 1) Tìm registration theo SĐT / nickname ================= */
   const regs = await Registration.aggregate([
-    { $match: { tournament: new mongoose.Types.ObjectId(tournamentId) } },
-
-    // lookup users để lấy nickname (mảng)
+    { $match: { tournament: toId(tournamentId) } },
     {
       $lookup: {
         from: "users",
@@ -1311,16 +1308,12 @@ export const searchUserMatches = expressAsyncHandler(async (req, res) => {
         as: "_u2",
       },
     },
-
-    // ✅ Stage 1: ép mảng -> object
     {
       $addFields: {
         _u1: { $arrayElemAt: ["$_u1", 0] },
         _u2: { $arrayElemAt: ["$_u2", 0] },
       },
     },
-
-    // ✅ Stage 2: mới dùng nickname/phone để match (tránh BSON array -> string)
     {
       $addFields: {
         _matchPhone: {
@@ -1328,15 +1321,23 @@ export const searchUserMatches = expressAsyncHandler(async (req, res) => {
         },
         _matchNick: {
           $or: [
-            { $eq: [{ $toLower: { $ifNull: ["$_u1.nickname", ""] } }, qLower] },
-            { $eq: [{ $toLower: { $ifNull: ["$_u2.nickname", ""] } }, qLower] },
+            {
+              $eq: [
+                { $toLower: { $ifNull: ["$_u1.nickname", ""] } },
+                q.toLowerCase(),
+              ],
+            },
+            {
+              $eq: [
+                { $toLower: { $ifNull: ["$_u2.nickname", ""] } },
+                q.toLowerCase(),
+              ],
+            },
           ],
         },
       },
     },
-
     { $match: { $or: [{ _matchPhone: true }, { _matchNick: true }] } },
-
     {
       $project: {
         _id: 1,
@@ -1351,205 +1352,466 @@ export const searchUserMatches = expressAsyncHandler(async (req, res) => {
     },
   ]);
 
-  if (!regs.length) {
-    return res.json({ query: q, results: [] });
+  if (!regs.length) return res.json({ query: q, results: [] });
+
+  /* ================= 2) Build bucket như listTournamentMatches ================= */
+  const allBrackets = await Bracket.find({ tournament: tournamentId })
+    .select(
+      "_id name type stage order prefill meta config drawRounds groups._id groups.name"
+    )
+    .lean();
+
+  const roundsAgg = await Match.aggregate([
+    { $match: { tournament: toId(tournamentId) } },
+    { $group: { _id: "$bracket", maxRound: { $max: "$round" } } },
+  ]);
+  const maxRoundByBracket = new Map(
+    roundsAgg.map((r) => [String(r._id), Number(r.maxRound) || 0])
+  );
+
+  const tkey = (t) => String(t || "").toLowerCase();
+  const isGroupish = (t) => {
+    const k = tkey(t);
+    return k === "group" || k === "round_robin" || k === "gsl";
+  };
+  const teamsFromRoundKey = (k) => {
+    if (!k) return 0;
+    const up = String(k).toUpperCase();
+    if (up === "F") return 2;
+    if (up === "SF") return 4;
+    if (up === "QF") return 8;
+    const m = /^R(\d+)$/i.exec(up);
+    return m ? parseInt(m[1], 10) : 0;
+  };
+  const ceilPow2 = (n) =>
+    Math.pow(2, Math.ceil(Math.log2(Math.max(1, n || 1))));
+  const readBracketScale = (br) => {
+    const fromKey = teamsFromRoundKey(br?.prefill?.roundKey);
+    const fromPrefillPairs = Array.isArray(br?.prefill?.pairs)
+      ? br.prefill.pairs.length * 2
+      : 0;
+    const fromPrefillSeeds = Array.isArray(br?.prefill?.seeds)
+      ? br.prefill.seeds.length * 2
+      : 0;
+    const cands = [
+      br?.drawScale,
+      br?.targetScale,
+      br?.maxSlots,
+      br?.capacity,
+      br?.size,
+      br?.scale,
+      br?.meta?.drawSize,
+      br?.meta?.scale,
+      fromKey,
+      fromPrefillPairs,
+      fromPrefillSeeds,
+    ]
+      .map(Number)
+      .filter((x) => Number.isFinite(x) && x >= 2);
+    return cands.length ? ceilPow2(Math.max(...cands)) : 0;
+  };
+  const roundsCountForBracket = (br) => {
+    const type = tkey(br?.type);
+    const bid = String(br?._id || "");
+    if (isGroupish(type)) return 1;
+    if (["roundelim", "po", "playoff"].includes(type)) {
+      let k =
+        Number(br?.meta?.maxRounds) ||
+        Number(br?.config?.roundElim?.maxRounds) ||
+        0;
+      if (!k) k = maxRoundByBracket.get(bid) || 1;
+      return Math.max(1, k);
+    }
+    const rFromMatches = maxRoundByBracket.get(bid) || 0;
+    if (rFromMatches) return Math.max(1, rFromMatches);
+    const firstPairs =
+      (Array.isArray(br?.prefill?.seeds) && br.prefill.seeds.length) ||
+      (Array.isArray(br?.prefill?.pairs) && br.prefill.pairs.length) ||
+      0;
+    if (firstPairs > 0) return Math.ceil(Math.log2(firstPairs * 2));
+    const scale = readBracketScale(br);
+    if (scale) return Math.ceil(Math.log2(scale));
+    const drawRounds = Number(br?.drawRounds || 0);
+    return drawRounds ? Math.max(1, drawRounds) : 1;
+  };
+
+  const groupBrs = allBrackets.filter((b) => isGroupish(b.type));
+  const nonGroupBrs = allBrackets.filter((b) => !isGroupish(b.type));
+  const stageVal = (b) => (Number.isFinite(b?.stage) ? Number(b.stage) : 9999);
+
+  const buckets = [];
+  if (groupBrs.length) {
+    buckets.push({
+      key: "group",
+      isGroup: true,
+      brs: groupBrs,
+      spanRounds: 1,
+      stageHint: 1,
+      orderHint: Math.min(...groupBrs.map((b) => Number(b?.order ?? 0))),
+    });
+  }
+  const byStage = new Map();
+  for (const b of nonGroupBrs) {
+    const s = stageVal(b);
+    if (!byStage.has(s)) byStage.set(s, []);
+    byStage.get(s).push(b);
+  }
+  const stageKeys = Array.from(byStage.keys()).sort((a, b) => a - b);
+  for (const s of stageKeys) {
+    const brs = byStage.get(s);
+    const span = Math.max(...brs.map((b) => roundsCountForBracket(b))) || 1;
+    buckets.push({
+      key: `stage-${s}`,
+      isGroup: false,
+      brs,
+      spanRounds: span,
+      stageHint: s,
+      orderHint: Math.min(...brs.map((b) => Number(b?.order ?? 0))),
+    });
+  }
+  buckets.sort((a, b) => {
+    if (a.isGroup && !b.isGroup) return -1;
+    if (!a.isGroup && b.isGroup) return 1;
+    if (a.stageHint !== b.stageHint) return a.stageHint - b.stageHint;
+    return a.orderHint - b.orderHint;
+  });
+
+  const baseByBracketId = new Map();
+  let acc = 0;
+  for (const bucket of buckets) {
+    for (const br of bucket.brs) baseByBracketId.set(String(br._id), acc);
+    acc += bucket.spanRounds;
   }
 
-  // 2) Lấy tất cả matches chứa các registration này
+  /* ================= 3) Lấy matches của các reg ================= */
   const regIds = regs.map((r) => r._id);
-  const matches = await Match.aggregate([
-    {
-      $match: {
-        tournament: new mongoose.Types.ObjectId(tournamentId),
-        $or: [{ pairA: { $in: regIds } }, { pairB: { $in: regIds } }],
-      },
-    },
+  const listRaw = await Match.find({
+    tournament: tournamentId,
+    $or: [{ pairA: { $in: regIds } }, { pairB: { $in: regIds } }],
+  })
+    .populate({
+      path: "bracket",
+      select:
+        "name type stage order prefill meta config drawRounds groups._id groups.name",
+    })
+    .populate({ path: "referee", select: "name nickname" }) // <-- referee là ARRAY
+    .populate({ path: "court", select: "name status order bracket cluster" })
+    .select(
+      "_id tournament bracket pairA pairB branch phase round order labelKey orderInGroup groupNo groupIndex groupIdx group groupCode pool poolKey poolLabel meta scheduledAt assignedAt startedAt finishedAt gameScores status court courtLabel courtCluster referee createdAt matchNo index"
+    )
+    .sort({ round: 1, order: 1, createdAt: 1 })
+    .lean();
 
-    // court / referee
-    {
-      $lookup: {
-        from: "courts",
-        localField: "court",
-        foreignField: "_id",
-        as: "_court",
-      },
-    },
-    { $addFields: { _court: { $arrayElemAt: ["$_court", 0] } } },
-    {
-      $lookup: {
-        from: "users",
-        localField: "referee",
-        foreignField: "_id",
-        as: "_ref",
-      },
-    },
-    { $addFields: { _ref: { $arrayElemAt: ["$_ref", 0] } } },
+  /* ================= Helpers build code giống listTournamentMatches ================= */
+  const safeInt = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const alphaToNum = (s) => {
+    const m = String(s || "")
+      .trim()
+      .match(/^[A-Za-z]/);
+    if (!m) return undefined;
+    return m[0].toUpperCase().charCodeAt(0) - 64; // A=1, B=2,...
+  };
+  const getGroupNo = (m, br) => {
+    // 1) từ pool.name hoặc pool.key hoặc groupCode
+    const poolName = m?.pool?.name || m?.pool?.key || m?.groupCode || "";
+    if (poolName) {
+      const num = String(poolName).match(/\d+/);
+      if (num) return parseInt(num[0], 10);
+      const a = alphaToNum(poolName);
+      if (a) return a;
+    }
+    // 2) map theo _id / name trong bracket.groups
+    const groups = Array.isArray(br?.groups) ? br.groups : [];
+    if (groups.length) {
+      if (m?.pool?.id) {
+        const i = groups.findIndex((g) => String(g?._id) === String(m.pool.id));
+        if (i >= 0) return i + 1;
+      }
+      if (poolName) {
+        const i = groups.findIndex(
+          (g) =>
+            String(g?.name || "")
+              .trim()
+              .toUpperCase() === String(poolName).trim().toUpperCase()
+        );
+        if (i >= 0) return i + 1;
+      }
+    }
+    // 3) các field số trực tiếp
+    const direct = [
+      m?.groupNo,
+      m?.groupIndex,
+      m?.groupIdx,
+      m?.group,
+      m?.meta?.groupNo,
+      m?.meta?.groupIndex,
+      m?.meta?.pool,
+      m?.group?.no,
+      m?.group?.index,
+      m?.group?.order,
+      m?.pool?.index,
+      m?.pool?.no,
+      m?.pool?.order,
+    ];
+    for (const c of direct) {
+      const n = safeInt(c);
+      if (typeof n === "number") return n <= 0 ? 1 : n;
+    }
+    return undefined;
+  };
+  const getGroupT = (m) => {
+    const lk = String(m?.labelKey || "");
+    const mk = lk.match(/#(\d+)\s*$/);
+    if (mk) return parseInt(mk[1], 10);
+    const oig = safeInt(m?.orderInGroup) ?? safeInt(m?.meta?.orderInGroup);
+    if (typeof oig === "number") return oig + 1;
+    const ord = safeInt(m?.order);
+    if (typeof ord === "number") return ord + 1;
+    return 1;
+  };
+  const getNonGroupT = (m) => {
+    const lk = String(m?.labelKey || "");
+    const mk = lk.match(/#(\d+)\s*$/);
+    if (mk) return parseInt(mk[1], 10);
+    const ord =
+      safeInt(m?.order) ??
+      safeInt(m?.meta?.order) ??
+      safeInt(m?.matchNo) ??
+      safeInt(m?.index) ??
+      0;
+    return ord + 1;
+  };
 
-    // tách ngày / giờ từ scheduledAt
-    {
-      $addFields: {
-        _todayStr: {
-          $dateToString: { date: "$$NOW", format: "%Y-%m-%d", timezone: TZ },
-        },
-        _schedDate: {
-          $cond: [
-            { $ifNull: ["$scheduledAt", false] },
-            {
-              $dateToString: {
-                date: "$scheduledAt",
-                format: "%Y-%m-%d",
-                timezone: TZ,
-              },
-            },
-            null,
-          ],
-        },
-        _schedTime: {
-          $cond: [
-            { $ifNull: ["$scheduledAt", false] },
-            {
-              $dateToString: {
-                date: "$scheduledAt",
-                format: "%H:%M",
-                timezone: TZ,
-              },
-            },
-            null,
-          ],
-        },
+  const fmtDate = (d) => {
+    if (!d) return null;
+    try {
+      const ds = new Date(d);
+      const y = new Intl.DateTimeFormat("en-CA", {
+        timeZone: TZ,
+        year: "numeric",
+      }).format(ds);
+      const m = new Intl.DateTimeFormat("en-CA", {
+        timeZone: TZ,
+        month: "2-digit",
+      }).format(ds);
+      const dd = new Intl.DateTimeFormat("en-CA", {
+        timeZone: TZ,
+        day: "2-digit",
+      }).format(ds);
+      return `${y}-${m}-${dd}`;
+    } catch {
+      return null;
+    }
+  };
+  const fmtTime = (d) => {
+    if (!d) return null;
+    try {
+      const ds = new Date(d);
+      const hh = new Intl.DateTimeFormat("en-GB", {
+        timeZone: TZ,
+        hour: "2-digit",
+        hour12: false,
+      }).format(ds);
+      const mm = new Intl.DateTimeFormat("en-GB", {
+        timeZone: TZ,
+        minute: "2-digit",
+      }).format(ds);
+      return `${hh}:${mm}`;
+    } catch {
+      return null;
+    }
+  };
+  const isTodayLocal = (d) => {
+    if (!d) return false;
+    const today = fmtDate(new Date());
+    return fmtDate(d) === today;
+  };
+
+  /* ================= 4) Build list với code + thông tin thêm ================= */
+  const refToDTO = (u) => ({
+    _id: u?._id || null,
+    name: u?.name || "",
+    nickname: u?.nickname || "",
+  });
+
+  const list = listRaw.map((m) => {
+    const br = m.bracket || {};
+    const bid = String(br?._id || "");
+    const groupStage = isGroupish(br?.type);
+
+    const base = baseByBracketId.get(bid) ?? 0;
+    const localRound = groupStage ? 1 : Number.isFinite(m.round) ? m.round : 1;
+    const globalRound = base + localRound;
+
+    const groupIndex = groupStage ? getGroupNo(m, br) : undefined;
+    const tOrder = groupStage ? getGroupT(m) : getNonGroupT(m);
+
+    const code = groupStage
+      ? `V1-${groupIndex ? `B${groupIndex}` : "B?"}-T${tOrder}`
+      : `V${globalRound}-T${tOrder}`;
+
+    const lastSet =
+      Array.isArray(m.gameScores) && m.gameScores.length
+        ? m.gameScores[m.gameScores.length - 1]
+        : { a: 0, b: 0 };
+
+    const date = fmtDate(m.scheduledAt);
+    const time = fmtTime(m.scheduledAt);
+    const statusVN =
+      m.status === "finished"
+        ? "Hoàn thành"
+        : m.status === "live"
+        ? "Đang thi đấu"
+        : m.scheduledAt && isTodayLocal(m.scheduledAt)
+        ? "Chuẩn bị"
+        : "Dự kiến";
+    const statusColor =
+      m.status === "finished"
+        ? "success"
+        : m.status === "live"
+        ? "warning"
+        : m.scheduledAt && isTodayLocal(m.scheduledAt)
+        ? "info"
+        : "default";
+
+    const regOwner =
+      String(m.pairA) && regIds.some((rid) => String(rid) === String(m.pairA))
+        ? m.pairA
+        : m.pairB;
+
+    const referees = Array.isArray(m.referee) ? m.referee.map(refToDTO) : [];
+
+    return {
+      _id: m._id,
+      code,
+      globalRound,
+      globalCode: `V${globalRound}`,
+
+      // bracket chi tiết
+      bracket: {
+        _id: br?._id || null,
+        name: br?.name || "",
+        type: br?.type || "",
+        stage: Number.isFinite(br?.stage) ? Number(br.stage) : 0,
+        order: Number.isFinite(br?.order) ? Number(br.order) : 0,
       },
-    },
 
-    // set cuối (mặc định 0-0)
-    {
-      $addFields: {
-        _lastSet: {
-          $cond: [
-            { $gt: [{ $size: "$gameScores" }, 0] },
-            { $arrayElemAt: ["$gameScores", -1] },
-            { a: 0, b: 0 },
-          ],
-        },
+      // group
+      groupLabel: groupStage ? (groupIndex ? `B${groupIndex}` : "B?") : "",
+      groupIndex,
+
+      // trọng tài (array)
+      referees,
+      refereeNames: referees
+        .map((r) => r.name || r.nickname)
+        .filter(Boolean)
+        .join(", "),
+
+      // thời gian (ISO + local)
+      scheduledAtISO: m.scheduledAt
+        ? new Date(m.scheduledAt).toISOString()
+        : null,
+      assignedAtISO: m.assignedAt ? new Date(m.assignedAt).toISOString() : null,
+      startedAtISO: m.startedAt ? new Date(m.startedAt).toISOString() : null,
+      finishedAtISO: m.finishedAt ? new Date(m.finishedAt).toISOString() : null,
+      date, // "YYYY-MM-DD" theo Asia/Bangkok
+      time, // "HH:mm" theo Asia/Bangkok
+      isToday: !!(m.scheduledAt && isTodayLocal(m.scheduledAt)),
+
+      // sân bãi
+      court: {
+        _id:
+          m.court?._id || (mongoose.isValidObjectId(m.court) ? m.court : null),
+        name: m.court?.name || m.courtLabel || "",
+        status: m.court?.status || "",
+        order: Number.isFinite(m.court?.order) ? m.court.order : null,
+        bracket: m.court?.bracket || null,
+        cluster: m.court?.cluster || m.courtCluster || "",
       },
-    },
+      field: m.court?.name || m.courtLabel || "Chưa xác định", // giữ field cũ cho FE
 
-    // map status -> nhãn + màu
-    {
-      $addFields: {
-        _statusVN: {
-          $cond: [
-            { $eq: ["$status", "finished"] },
-            "Hoàn thành",
-            {
-              $cond: [
-                { $eq: ["$status", "live"] },
-                "Đang thi đấu",
-                {
-                  $cond: [
-                    {
-                      $and: [
-                        { $ifNull: ["$scheduledAt", false] },
-                        { $eq: ["$_todayStr", "$_schedDate"] },
-                      ],
-                    },
-                    "Chuẩn bị",
-                    "Dự kiến",
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-        _statusColor: {
-          $cond: [
-            { $eq: ["$status", "finished"] },
-            "success",
-            {
-              $cond: [
-                { $eq: ["$status", "live"] },
-                "warning",
-                {
-                  $cond: [
-                    {
-                      $and: [
-                        { $ifNull: ["$scheduledAt", false] },
-                        { $eq: ["$_todayStr", "$_schedDate"] },
-                      ],
-                    },
-                    "info",
-                    "default",
-                  ],
-                },
-              ],
-            },
-          ],
-        },
-      },
-    },
+      // trạng thái
+      status: statusVN,
+      statusColor,
 
-    // regOwner: trận này thuộc reg nào (A/B)
-    {
-      $addFields: {
-        regOwner: { $cond: [{ $in: ["$pairA", regIds] }, "$pairA", "$pairB"] },
-      },
-    },
+      // điểm set cuối
+      score1: Number.isFinite(lastSet?.a) ? lastSet.a : 0,
+      score2: Number.isFinite(lastSet?.b) ? lastSet.b : 0,
 
-    // shape FE
-    {
-      $project: {
-        _id: 1,
-        code: {
-          $ifNull: [
-            "$code",
-            {
-              $concat: [
-                "M-",
-                { $toString: "$round" },
-                "-",
-                { $toString: "$order" },
-              ],
-            },
-          ],
-        },
-        date: "$_schedDate",
-        time: "$_schedTime",
-        score1: { $ifNull: ["$_lastSet.a", 0] },
-        score2: { $ifNull: ["$_lastSet.b", 0] },
-        field: {
-          $let: {
-            vars: {
-              label: {
-                $ifNull: ["$_court.name", { $ifNull: ["$courtLabel", ""] }],
-              },
-            },
-            in: {
-              $cond: [
-                { $gt: [{ $strLenCP: "$$label" }, 0] },
-                "$$label",
-                "Chưa xác định",
-              ],
-            },
-          },
-        },
-        referee: { $ifNull: ["$_ref.name", ""] },
-        status: "$_statusVN",
-        statusColor: "$_statusColor",
-        pairA: 1,
-        pairB: 1,
-        regOwner: 1,
-      },
-    },
+      // giữ vài field gốc
+      branch: m.branch || "",
+      phase: m.phase ?? null,
+      round: Number.isFinite(m.round) ? m.round : groupStage ? 1 : 1,
 
-    { $sort: { date: 1, time: 1, code: 1 } },
-  ]);
+      // phục vụ sort
+      tOrder,
 
-  // 3) Gom matches theo registration
+      pairA: m.pairA,
+      pairB: m.pairB,
+      regOwner,
+    };
+  });
+
+  /* ================= 5) Sort: bracket trước, rồi B/T, rồi giờ ================ */
+  list.sort((a, b) => {
+    const aGroup = isGroupish(a.bracket?.type);
+    const bGroup = isGroupish(b.bracket?.type);
+    if (aGroup !== bGroup) return aGroup ? -1 : 1;
+
+    const as = a.bracket?.stage ?? 9999;
+    const bs = b.bracket?.stage ?? 9999;
+    if (as !== bs) return as - bs;
+
+    const ao = a.bracket?.order ?? 9999;
+    const bo = b.bracket?.order ?? 9999;
+    if (ao !== bo) return ao - bo;
+
+    if (a.globalRound !== b.globalRound) return a.globalRound - b.globalRound;
+
+    if (aGroup && bGroup) {
+      const ai = a.groupIndex ?? 1e9;
+      const bi = b.groupIndex ?? 1e9;
+      if (ai !== bi) return ai - bi;
+    }
+
+    if (a.tOrder !== b.tOrder) return a.tOrder - b.tOrder;
+
+    const ad = a.date || "";
+    const bd = b.date || "";
+    if (ad !== bd) return ad < bd ? -1 : 1;
+
+    const at = a.time || "";
+    const bt = b.time || "";
+    if (at !== bt) return at < bt ? -1 : 1;
+
+    return String(a._id).localeCompare(String(b._id));
+  });
+
+  /* ================= 6) Gom theo registration ================= */
+  const pickName = (p, fallback) =>
+    (
+      p?.teamName ||
+      p?.nickName ||
+      p?.nickname ||
+      p?.shortName ||
+      p?.name ||
+      p?.fullName ||
+      fallback ||
+      ""
+    ).trim();
+
   const resultMap = new Map(
     regs.map((r) => [
       String(r._id),
       {
         regId: r._id,
-        teamLabel: `${r.player1.fullName} & ${r.player2.fullName}`,
+        teamLabel: `${pickName(r.player1, r.nickname1)} & ${pickName(
+          r.player2,
+          r.nickname2
+        )}`,
         paid: r.payment?.status === "Paid",
         checkinAt: r.checkinAt || null,
         matches: [],
@@ -1557,15 +1819,12 @@ export const searchUserMatches = expressAsyncHandler(async (req, res) => {
     ])
   );
 
-  for (const m of matches) {
+  for (const m of list) {
     const rid = String(m.regOwner);
     if (resultMap.has(rid)) resultMap.get(rid).matches.push(m);
   }
 
-  res.json({
-    query: q,
-    results: Array.from(resultMap.values()),
-  });
+  res.json({ query: q, results: Array.from(resultMap.values()) });
 });
 
 export const userCheckinRegistration = expressAsyncHandler(async (req, res) => {

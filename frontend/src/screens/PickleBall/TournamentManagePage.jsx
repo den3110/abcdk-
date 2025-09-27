@@ -1,6 +1,6 @@
 // src/pages/admin/TournamentManagePage.jsx
 /* eslint-disable react/prop-types */
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
@@ -35,6 +35,9 @@ import {
   Divider,
   Skeleton,
   CircularProgress,
+  Menu,
+  ListItemIcon,
+  ListItemText,
 } from "@mui/material";
 import {
   Edit as EditIcon,
@@ -43,6 +46,9 @@ import {
   Search as SearchIcon,
   Sort as SortIcon,
   Sports as SportsIcon,
+  FileDownload as FileDownloadIcon,
+  PictureAsPdf as PictureAsPdfIcon,
+  Description as DescriptionIcon,
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 
@@ -55,6 +61,10 @@ import {
 
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
+
+import pdfMake from "pdfmake/build/pdfmake";
+import { vfs as pdfFonts } from "pdfmake/build/vfs_fonts";
+pdfMake.vfs = pdfFonts; // gắn vfs một lần ở top-level
 
 /* ---------- helpers ---------- */
 const TYPE_LABEL = (t) => {
@@ -161,6 +171,44 @@ function MatchCardSkeleton() {
     </Card>
   );
 }
+
+/* ---------- EXPORT HELPERS ---------- */
+
+// text trạng thái cho export (thay vì Chip)
+const statusText = (st) => {
+  const map = {
+    scheduled: "Chưa xếp",
+    queued: "Trong hàng chờ",
+    assigned: "Đã gán sân",
+    live: "Đang thi đấu",
+    finished: "Đã kết thúc",
+  };
+  return map[String(st || "").toLowerCase()] || st || "—";
+};
+
+// tải blob xuống máy
+const downloadBlob = (blob, filename) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+};
+
+// gom rows cho 1 bracket, dùng đúng filterSortMatches ở dưới
+const buildRowsForBracket = (matches, { matchCode, pairLabel, roundLabel }) =>
+  matches.map((m) => [
+    matchCode(m),
+    pairLabel(m?.pairA),
+    pairLabel(m?.pairB),
+    roundLabel(m),
+    Number.isFinite(m?.order) ? `T${m.order + 1}` : "—",
+    statusText(m?.status),
+    m?.video || "",
+  ]);
 
 /* ---------- Component ---------- */
 export default function TournamentManagePage() {
@@ -405,6 +453,223 @@ export default function TournamentManagePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, id, brackets, allMatches, refetchMatches, refetchBrackets]);
 
+  /* ---------- Export menu state ---------- */
+  const [exportAnchor, setExportAnchor] = useState(null);
+  const [exporting, setExporting] = useState(false);
+  const openExportMenu = (e) => setExportAnchor(e.currentTarget);
+  const closeExportMenu = () => setExportAnchor(null);
+
+  // NEW: build data theo tab hiện tại, group theo từng bracket
+  const buildExportPayload = () => {
+    const payload = [];
+    for (const b of bracketsOfTab) {
+      const bid = String(b?._id);
+      const matches = (allMatches || []).filter((m) => {
+        const mid = m?.bracket?._id || m?.bracket;
+        return String(mid) === bid;
+      });
+      const list = filterSortMatches(matches);
+      payload.push({
+        bracket: b,
+        rows: buildRowsForBracket(list, { matchCode, pairLabel, roundLabel }),
+      });
+    }
+    return payload;
+  };
+
+  // NEW: Export PDF
+  const handleExportPDF = async () => {
+    try {
+      setExporting(true);
+
+      const data = buildExportPayload();
+      const title = `Quản lý giải: ${tour?.name || ""}`;
+      const sub = `Loại: ${TYPE_LABEL(
+        tab
+      )} • Xuất lúc: ${new Date().toLocaleString()}`;
+
+      const content = [
+        { text: title, style: "title" },
+        { text: sub, margin: [0, 2, 0, 10], style: "sub" },
+      ];
+
+      data.forEach((sec, idx) => {
+        content.push({
+          text: `${sec.bracket?.name || "Bracket"} — ${TYPE_LABEL(
+            sec.bracket?.type
+          )}`,
+          style: "h2",
+          margin: [0, idx === 0 ? 0 : 8, 0, 6],
+        });
+
+        const tableBody = [
+          ["Mã", "Cặp A", "Cặp B", "Vòng", "Thứ tự", "Trạng thái", "Video"],
+          ...sec.rows.map((r) =>
+            r.map((cell) => (cell == null ? "" : String(cell)))
+          ),
+        ];
+
+        content.push({
+          table: {
+            headerRows: 1,
+            widths: [50, 120, 120, 40, 45, 70, "*"],
+            body: tableBody,
+          },
+          layout: "lightHorizontalLines",
+          fontSize: 9,
+        });
+      });
+
+      const docDefinition = {
+        pageSize: "A4",
+        pageMargins: [30, 30, 30, 40],
+        defaultStyle: { font: "Roboto", fontSize: 10 }, // Roboto có tiếng Việt
+        styles: {
+          title: { fontSize: 16, bold: true },
+          sub: { fontSize: 9, color: "#666" },
+          h2: { fontSize: 12, bold: true },
+        },
+        content,
+        footer: (currentPage, pageCount) => ({
+          text: `Trang ${currentPage}/${pageCount}`,
+          alignment: "left",
+          margin: [30, 0, 0, 20],
+          fontSize: 9,
+          color: "#666",
+        }),
+      };
+
+      const fname = `tournament_${(tour?.name || "export")
+        .replace(/[^\p{L}\p{N}]+/gu, "_")
+        .replace(/^_+|_+$/g, "")
+        .toLowerCase()}_${tab}_${new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[:T]/g, "-")}.pdf`;
+
+      pdfMake.createPdf(docDefinition).download(fname);
+    } catch (e) {
+      toast.error("Xuất PDF thất bại");
+      console.error(e);
+    } finally {
+      setExporting(false);
+      closeExportMenu();
+    }
+  };
+  // NEW: Export Word (.docx)
+  const handleExportWord = async () => {
+    try {
+      setExporting(true);
+      const docx = await import("docx");
+      const {
+        Document,
+        Packer,
+        Paragraph,
+        TextRun,
+        HeadingLevel,
+        Table,
+        TableRow,
+        TableCell,
+        WidthType,
+      } = docx;
+
+      const data = buildExportPayload();
+
+      const sections = [];
+
+      // Tiêu đề chung
+      sections.push(
+        new Paragraph({
+          text: `Quản lý giải: ${tour?.name || ""}`,
+          heading: HeadingLevel.TITLE,
+        }),
+        new Paragraph({
+          children: [
+            new TextRun({ text: `Loại: ${TYPE_LABEL(tab)}`, size: 18 }),
+            new TextRun({
+              text: ` • Xuất lúc: ${new Date().toLocaleString()}`,
+              size: 18,
+            }),
+          ],
+        }),
+        new Paragraph({ text: "" })
+      );
+
+      // Từng bracket -> heading + table
+      data.forEach((sec) => {
+        sections.push(
+          new Paragraph({
+            text: `${sec.bracket?.name || "Bracket"} — ${TYPE_LABEL(
+              sec.bracket?.type
+            )}`,
+            heading: HeadingLevel.HEADING_2,
+          })
+        );
+
+        const headCells = [
+          "Mã",
+          "Cặp A",
+          "Cặp B",
+          "Vòng",
+          "Thứ tự",
+          "Trạng thái",
+          "Video",
+        ].map(
+          (t) =>
+            new TableCell({
+              children: [new Paragraph({ text: t })],
+            })
+        );
+
+        const rows = [
+          new TableRow({ children: headCells }),
+          ...sec.rows.map(
+            (r) =>
+              new TableRow({
+                children: r.map(
+                  (cell) =>
+                    new TableCell({
+                      width: { size: 1, type: WidthType.AUTO },
+                      children: [new Paragraph({ text: String(cell || "") })],
+                    })
+                ),
+              })
+          ),
+        ];
+
+        sections.push(
+          new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows,
+          }),
+          new Paragraph({ text: "" })
+        );
+      });
+
+      const doc = new Document({
+        sections: [{ properties: {}, children: sections }],
+      });
+
+      const blob = await Packer.toBlob(doc);
+
+      const fname = `tournament_${(tour?.name || "export")
+        .replace(/[^\p{L}\p{N}]+/gu, "_")
+        .replace(/^_+|_+$/g, "")
+        .toLowerCase()}_${tab}_${new Date()
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[:T]/g, "-")}.docx`;
+
+      downloadBlob(blob, fname);
+    } catch (e) {
+      toast.error("Xuất Word thất bại");
+      console.error(e);
+    } finally {
+      setExporting(false);
+      closeExportMenu();
+    }
+  };
+
   /* ---------- guards ---------- */
   // Chỉ chặn khi tour hoặc brackets đang load
   if (tourLoading || brLoading) {
@@ -451,6 +716,46 @@ export default function TournamentManagePage() {
           Quản lý giải: {tour?.name}
         </Typography>
         <Stack direction="row" spacing={1}>
+          {/* NEW: Export */}
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<FileDownloadIcon />}
+            onClick={openExportMenu}
+            disabled={exporting || bracketsOfTab.length === 0}
+          >
+            Xuất file
+          </Button>
+          <Menu
+            anchorEl={exportAnchor}
+            open={Boolean(exportAnchor)}
+            onClose={closeExportMenu}
+            keepMounted
+          >
+            <MenuItem
+              onClick={handleExportPDF}
+              disabled={exporting || bracketsOfTab.length === 0}
+            >
+              <ListItemIcon>
+                <PictureAsPdfIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText
+                primary={exporting ? "Đang xuất PDF…" : "Xuất PDF"}
+              />
+            </MenuItem>
+            <MenuItem
+              onClick={handleExportWord}
+              disabled={exporting || bracketsOfTab.length === 0}
+            >
+              <ListItemIcon>
+                <DescriptionIcon fontSize="small" />
+              </ListItemIcon>
+              <ListItemText
+                primary={exporting ? "Đang xuất Word…" : "Xuất Word (.docx)"}
+              />
+            </MenuItem>
+          </Menu>
+
           <Button
             component={Link}
             to={`/tournament/${id}`}

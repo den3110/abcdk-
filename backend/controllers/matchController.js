@@ -64,7 +64,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $unwind: "$_tour" },
 
-    // ===== Bracket hiện tại =====
+    // ===== Bracket hiện tại (kèm groups) =====
     {
       $lookup: {
         from: "brackets",
@@ -75,69 +75,27 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $addFields: { _br: { $arrayElemAt: ["$_br", 0] } } },
 
-    // ===== Lấy toàn bộ brackets & tính _span (số vòng chiếm dụng) =====
+    // ===== Lấy toàn bộ brackets & tính _span (group bucket lên trước) =====
     {
       $lookup: {
         from: "brackets",
         let: { tId: "$tournament" },
         pipeline: [
           { $match: { $expr: { $eq: ["$tournament", "$$tId"] } } },
-
-          // ---- Chuẩn hoá type về 3 nhóm: group / roundelim (PO) / knockout (KO)
+          { $addFields: { __tNorm: { $toLower: { $ifNull: ["$type", ""] } } } },
           {
             $addFields: {
-              __typeRaw: { $toLower: { $ifNull: ["$type", ""] } },
-              __tNorm: {
-                $switch: {
-                  branches: [
-                    {
-                      case: {
-                        $in: [
-                          { $toLower: { $ifNull: ["$type", ""] } },
-                          [
-                            "group",
-                            "round_robin",
-                            "round-robin",
-                            "rr",
-                            "gsl",
-                            "swiss",
-                          ],
-                        ],
-                      },
-                      then: "group",
-                    },
-                    {
-                      case: {
-                        $in: [
-                          { $toLower: { $ifNull: ["$type", ""] } },
-                          ["po", "roundelim", "round_elim", "round-elim"],
-                        ],
-                      },
-                      then: "roundelim",
-                    },
-                    {
-                      case: {
-                        $in: [
-                          { $toLower: { $ifNull: ["$type", ""] } },
-                          [
-                            "knockout",
-                            "ko",
-                            "single_elim",
-                            "single-elim",
-                            "singleelimination",
-                          ],
-                        ],
-                      },
-                      then: "knockout",
-                    },
-                  ],
-                  default: { $toLower: { $ifNull: ["$type", ""] } },
-                },
+              __isGroup: {
+                $in: ["$__tNorm", ["group", "round_robin", "gsl", "swiss"]],
+              },
+              __isRoundElim: {
+                $in: [
+                  "$__tNorm",
+                  ["po", "roundelim", "round_elim", "round-elim"],
+                ],
               },
             },
           },
-
-          // ---- Lấy số vòng từ matches: max(round) + số round distinct
           {
             $lookup: {
               from: "matches",
@@ -162,49 +120,32 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
               as: "_mx",
             },
           },
+          { $addFields: { _mxAgg: { $arrayElemAt: ["$_mx", 0] } } },
           {
             $addFields: {
-              _mxAgg: { $arrayElemAt: ["$_mx", 0] },
-              _mxMaxRound: {
-                $ifNull: [{ $arrayElemAt: ["$_mx.maxRound", 0] }, 0],
+              _roundsFromMatches: {
+                $max: [
+                  { $ifNull: ["$_mxAgg.maxRound", 0] },
+                  { $ifNull: ["$_mxAgg.roundCount", 0] },
+                ],
               },
-              _mxRoundCount: {
-                $ifNull: [{ $arrayElemAt: ["$_mx.roundCount", 0] }, 0],
-              },
-            },
-          },
-          {
-            $addFields: {
-              _roundsFromMatches: { $max: ["$_mxMaxRound", "$_mxRoundCount"] },
-            },
-          },
-
-          // ---- Fallback từ meta/config
-          {
-            $addFields: {
               _metaRounds: {
                 $max: [
                   { $ifNull: ["$meta.maxRounds", 0] },
                   { $ifNull: ["$drawRounds", 0] },
                 ],
               },
-              _reCutRounds: {
-                $ifNull: ["$config.roundElim.cutRounds", 0],
-              },
+              _reCutRounds: { $ifNull: ["$config.roundElim.cutRounds", 0] },
             },
           },
-
-          // ---- Quy tắc tính _span
           {
             $addFields: {
               _span: {
                 $switch: {
                   branches: [
-                    // Group-like: luôn là 1
-                    { case: { $eq: ["$__tNorm", "group"] }, then: 1 },
-                    // RoundElim (PO): ưu tiên matches, rồi cutRounds/meta; min 1
+                    { case: "$__isGroup", then: 1 },
                     {
-                      case: { $eq: ["$__tNorm", "roundelim"] },
+                      case: "$__isRoundElim",
                       then: {
                         $max: [
                           1,
@@ -214,9 +155,8 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
                         ],
                       },
                     },
-                    // Knockout (KO): ưu tiên matches, rồi meta/drawRounds; min 1
                     {
-                      case: { $eq: ["$__tNorm", "knockout"] },
+                      case: { $not: "$__isGroup" },
                       then: {
                         $max: [1, "$_roundsFromMatches", "$_metaRounds"],
                       },
@@ -227,15 +167,14 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
               },
             },
           },
-
-          { $project: { _id: 1, stage: 1, order: 1, _span: 1 } },
-          { $sort: { stage: 1, order: 1, _id: 1 } },
+          { $sort: { __isGroup: -1, stage: 1, order: 1, _id: 1 } }, // group trước
+          { $project: { _id: 1, stage: 1, order: 1, _span: 1, __isGroup: 1 } },
         ],
         as: "_allBrs",
       },
     },
 
-    // ===== Tính base V cho bracket hiện tại: 1 + SUM(_span) các bracket trước
+    // ===== Base round start (V1 = bucket đầu) =====
     {
       $addFields: {
         _brIds: { $map: { input: "$_allBrs", as: "b", in: "$$b._id" } },
@@ -269,9 +208,17 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $addFields: { _baseRoundStart: { $add: [1, "$_baseSum"] } } },
 
-    // ===== Registrations / Users / Court / Time … (giữ nguyên như bạn đang có) =====
-    // -- (đoạn dưới giống hệt bản trước của bạn, mình không đổi gì ngoài giữ gọn)
+    // ===== Type hiện tại =====
+    { $addFields: { _typeNorm: { $toLower: { $ifNull: ["$_br.type", ""] } } } },
+    {
+      $addFields: {
+        _isGroupType: {
+          $in: ["$_typeNorm", ["group", "round_robin", "gsl", "swiss"]],
+        },
+      },
+    },
 
+    // ===== Join registrations/users/court/referees =====
     {
       $lookup: {
         from: "registrations",
@@ -294,6 +241,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
         _rb: { $arrayElemAt: ["$_rb", 0] },
       },
     },
+
     {
       $lookup: {
         from: "users",
@@ -312,6 +260,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
     { $addFields: { _ra_u2: { $arrayElemAt: ["$_ra_u2", 0] } } },
+
     {
       $lookup: {
         from: "users",
@@ -359,6 +308,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $addFields: { _court: { $arrayElemAt: ["$_court", 0] } } },
 
+    // ===== Time helpers =====
     {
       $addFields: {
         _todayStr: {
@@ -408,11 +358,12 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
     },
     { $addFields: { _tourUpcoming: { $lt: ["$_todayStr", "$_startStr"] } } },
 
+    // ===== Set cuối =====
     {
       $addFields: {
         _lastSet: {
           $cond: [
-            { $gt: [{ $size: "$gameScores" }, 0] },
+            { $gt: [{ $size: { $ifNull: ["$gameScores", []] } }, 0] },
             { $arrayElemAt: ["$gameScores", -1] },
             { a: 0, b: 0 },
           ],
@@ -420,7 +371,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // Team labels (nickname)
+    // ===== Team labels (rút gọn phần nickname) =====
     {
       $addFields: {
         _p1aNick: {
@@ -448,7 +399,14 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
                           ],
                         },
                         "$$u.name",
-                        { $ifNull: ["$$r.fullName", "??"] },
+                        {
+                          $convert: {
+                            input: "$$r.fullName",
+                            to: "string",
+                            onError: "??",
+                            onNull: "??",
+                          },
+                        },
                       ],
                     },
                   ],
@@ -482,7 +440,14 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
                           ],
                         },
                         "$$u.name",
-                        { $ifNull: ["$$r.fullName", ""] },
+                        {
+                          $convert: {
+                            input: "$$r.fullName",
+                            to: "string",
+                            onError: "",
+                            onNull: "",
+                          },
+                        },
                       ],
                     },
                   ],
@@ -516,7 +481,14 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
                           ],
                         },
                         "$$u.name",
-                        { $ifNull: ["$$r.fullName", "??"] },
+                        {
+                          $convert: {
+                            input: "$$r.fullName",
+                            to: "string",
+                            onError: "??",
+                            onNull: "??",
+                          },
+                        },
                       ],
                     },
                   ],
@@ -550,7 +522,14 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
                           ],
                         },
                         "$$u.name",
-                        { $ifNull: ["$$r.fullName", ""] },
+                        {
+                          $convert: {
+                            input: "$$r.fullName",
+                            to: "string",
+                            onError: "",
+                            onNull: "",
+                          },
+                        },
                       ],
                     },
                   ],
@@ -728,49 +707,87 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // ===== Ưu tiên group-code nếu có =====
+    // ===== SUY LUẬN GROUP NO + T ORDER (và FIX $indexOfCP) =====
+    // Chuẩn hoá inputs cho group no
     {
       $addFields: {
-        _codeCandidates: [
-          { $ifNull: ["$codeResolved", ""] },
-          { $ifNull: ["$globalCodeV", ""] },
-          { $ifNull: ["$globalCode", ""] },
-          { $ifNull: ["$code", ""] },
-        ],
+        _poolNameStr: {
+          $convert: {
+            input: { $ifNull: ["$pool.name", { $ifNull: ["$groupCode", ""] }] },
+            to: "string",
+            onError: "",
+            onNull: "",
+          },
+        },
+        _br_group_names: {
+          $map: {
+            input: { $ifNull: ["$_br.groups", []] },
+            as: "g",
+            in: {
+              $convert: {
+                input: { $ifNull: ["$$g.name", ""] },
+                to: "string",
+                onError: "",
+                onNull: "",
+              },
+            },
+          },
+        },
+        _br_group_ids: {
+          $map: {
+            input: { $ifNull: ["$_br.groups", []] },
+            as: "g",
+            in: "$$g._id",
+          },
+        },
+      },
+    },
+    // Trích số từ tên bảng (A1/B2/… hoặc "Bảng 3")
+    {
+      $addFields: {
+        _rxDigits: { $regexFind: { input: "$_poolNameStr", regex: "\\d+" } },
       },
     },
     {
       $addFields: {
-        _groupCode: {
+        _numFromName: {
+          $convert: {
+            input: "$_rxDigits.match",
+            to: "int",
+            onError: null,
+            onNull: null,
+          },
+        },
+      },
+    },
+
+    // LẤY CHỮ CÁI ĐẦU AN TOÀN → luôn là chuỗi 1 ký tự hoặc ""
+    {
+      $addFields: {
+        _alphaChar: { $substrCP: [{ $toUpper: "$_poolNameStr" }, 0, 1] },
+      },
+    },
+    {
+      $addFields: {
+        _alphaIndex: {
           $let: {
-            vars: { arr: "$_codeCandidates" },
+            vars: {
+              ch: {
+                $convert: {
+                  input: "$_alphaChar",
+                  to: "string",
+                  onError: "",
+                  onNull: "",
+                },
+              },
+            },
             in: {
-              $reduce: {
-                input: "$$arr",
-                initialValue: "",
+              $let: {
+                vars: {
+                  pos: { $indexOfCP: ["ABCDEFGHIJKLMNOPQRSTUVWXYZ", "$$ch"] },
+                },
                 in: {
-                  $cond: [
-                    { $ne: ["$$value", ""] },
-                    "$$value",
-                    {
-                      $cond: [
-                        {
-                          $regexMatch: {
-                            input: "$$this",
-                            regex: "^#?V\\d+-B[\\w-]+#\\d+$",
-                          },
-                        },
-                        {
-                          $cond: [
-                            { $eq: [{ $substrCP: ["$$this", 0, 1] }, "#"] },
-                            "$$this",
-                            { $concat: ["#", "$$this"] },
-                          ],
-                        },
-                        "",
-                      ],
-                    },
-                  ],
+                  $cond: [{ $gte: ["$$pos", 0] }, { $add: ["$$pos", 1] }, null],
                 },
               },
             },
@@ -779,7 +796,220 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // ===== Sort =====
+    // Map theo groups trong bracket
+    {
+      $addFields: {
+        _idxById: {
+          $let: {
+            vars: { key: { $ifNull: ["$pool.id", null] } },
+            in: {
+              $let: {
+                vars: { pos: { $indexOfArray: ["$_br_group_ids", "$$key"] } },
+                in: {
+                  $cond: [{ $gte: ["$$pos", 0] }, { $add: ["$$pos", 1] }, null],
+                },
+              },
+            },
+          },
+        },
+        _idxByName: {
+          $let: {
+            vars: { key: "$_poolNameStr" },
+            in: {
+              $let: {
+                vars: { pos: { $indexOfArray: ["$_br_group_names", "$$key"] } },
+                in: {
+                  $cond: [{ $gte: ["$$pos", 0] }, { $add: ["$$pos", 1] }, null],
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // Các ứng viên số bảng trực tiếp
+    {
+      $addFields: {
+        _candNums: [
+          "$groupNo",
+          "$groupIndex",
+          "$groupIdx",
+          "$group",
+          "$meta.groupNo",
+          "$meta.groupIndex",
+          "$meta.pool",
+          "$group.no",
+          "$group.index",
+          "$group.order",
+          "$pool.index",
+          "$pool.no",
+          "$pool.order",
+        ],
+      },
+    },
+    {
+      $addFields: {
+        _candNumsConv: {
+          $map: {
+            input: "$_candNums",
+            as: "c",
+            in: {
+              $convert: {
+                input: "$$c",
+                to: "int",
+                onError: null,
+                onNull: null,
+              },
+            },
+          },
+        },
+        _candNumsFiltered: {
+          $filter: {
+            input: "$_candNumsConv",
+            as: "n",
+            cond: { $and: [{ $ne: ["$$n", null] }, { $gte: ["$$n", 1] }] },
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        _idxFromDirect: { $arrayElemAt: ["$_candNumsFiltered", 0] },
+      },
+    },
+
+    // Group index cuối cùng
+    {
+      $addFields: {
+        _groupIndexFinal: {
+          $cond: [
+            "$_isGroupType",
+            {
+              $ifNull: [
+                "$_idxById",
+                {
+                  $ifNull: [
+                    "$_idxByName",
+                    {
+                      $ifNull: [
+                        "$_numFromName",
+                        { $ifNull: ["$_alphaIndex", "$_idxFromDirect"] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+            null,
+          ],
+        },
+      },
+    },
+
+    // === Lấy T từ labelKey qua captures[0] (không dính dấu '#') ===
+    {
+      $addFields: {
+        _rxEndHash: {
+          $regexFind: {
+            input: {
+              $convert: {
+                input: "$labelKey",
+                to: "string",
+                onError: "",
+                onNull: "",
+              },
+            },
+            regex: "#(\\d+)\\s*$",
+          },
+        },
+      },
+    },
+    {
+      $addFields: {
+        _tFromLabel: {
+          $convert: {
+            input: { $arrayElemAt: ["$_rxEndHash.captures", 0] },
+            to: "int",
+            onError: null,
+            onNull: null,
+          },
+        },
+      },
+    },
+
+    // === Fallback: mặc định 0 rồi +1 → luôn tối thiểu T1 (không còn T0) ===
+    {
+      $addFields: {
+        _tOrderGroup: {
+          $ifNull: [
+            "$_tFromLabel",
+            {
+              $let: {
+                vars: {
+                  oig: {
+                    $convert: {
+                      input: {
+                        $ifNull: ["$orderInGroup", "$meta.orderInGroup"],
+                      },
+                      to: "int",
+                      onError: null,
+                      onNull: null,
+                    },
+                  },
+                },
+                in: {
+                  $cond: [{ $ne: ["$$oig", null] }, { $add: ["$$oig", 1] }, 1],
+                },
+              },
+            },
+          ],
+        },
+        _tOrderKO: {
+          $ifNull: [
+            "$_tFromLabel",
+            {
+              $let: {
+                vars: {
+                  base: {
+                    $convert: {
+                      input: {
+                        $ifNull: [
+                          "$order",
+                          {
+                            $ifNull: [
+                              "$meta.order",
+                              {
+                                $ifNull: [
+                                  "$matchNo",
+                                  { $ifNull: ["$index", null] },
+                                ],
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                      to: "int",
+                      onError: null,
+                      onNull: null,
+                    },
+                  },
+                },
+                in: {
+                  $cond: [
+                    { $ne: ["$$base", null] },
+                    { $add: ["$$base", 1] },
+                    1,
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      },
+    },
+
+    // ===== Sort keys =====
     {
       $addFields: {
         _brStage: { $ifNull: ["$_br.stage", 9999] },
@@ -801,32 +1031,52 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
       },
     },
 
-    // ===== Project =====
+    // ===== Project: code chuẩn + thông tin kèm theo =====
     {
       $project: {
         _id: 1,
-
         code: {
           $cond: [
-            { $gt: [{ $strLenCP: "$_groupCode" }, 0] },
-            "$_groupCode",
+            "$_isGroupType",
             {
               $let: {
                 vars: {
-                  dispRound: {
+                  b: "$_groupIndexFinal",
+                  t: { $ifNull: ["$_tOrderGroup", 1] },
+                },
+                in: {
+                  $concat: [
+                    "V1-",
+                    {
+                      $cond: [
+                        { $ne: ["$$b", null] },
+                        { $concat: ["B", { $toString: "$$b" }] },
+                        "B?",
+                      ],
+                    },
+                    "-T",
+                    { $toString: "$$t" },
+                  ],
+                },
+              },
+            },
+            {
+              $let: {
+                vars: {
+                  disp: {
                     $add: [
                       "$_baseRoundStart",
                       { $add: [{ $ifNull: ["$round", 1] }, -1] },
                     ],
                   },
-                  order1: { $add: [{ $ifNull: ["$order", 0] }, 1] },
+                  t: { $ifNull: ["$_tOrderKO", 1] },
                 },
                 in: {
                   $concat: [
                     "V",
-                    { $toString: "$$dispRound" },
+                    { $toString: "$$disp" },
                     "-T",
-                    { $toString: "$$order1" },
+                    { $toString: "$$t" },
                   ],
                 },
               },
@@ -834,19 +1084,31 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
           ],
         },
 
+        // Bracket
         bracketId: "$_br._id",
         bracketName: "$_br.name",
         bracketType: "$_br.type",
+        bracketStage: "$_br.stage",
+        bracketOrder: "$_br.order",
 
+        // Time
         date: "$_outDate",
         time: "$_outTime",
+        scheduledAtISO: {
+          $cond: [
+            { $ifNull: ["$scheduledAt", false] },
+            { $toString: "$scheduledAt" },
+            null,
+          ],
+        },
 
+        // Teams & scores
         team1: "$_team1",
         team2: "$_team2",
-
         score1: { $ifNull: ["$_lastSet.a", 0] },
         score2: { $ifNull: ["$_lastSet.b", 0] },
 
+        // Court
         field: {
           $let: {
             vars: {
@@ -864,6 +1126,7 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
           },
         },
 
+        // Referee
         referee: {
           $let: {
             vars: { live: "$_liveNick", joined: "$_refereeJoined" },
@@ -876,7 +1139,15 @@ export const getTournamentMatchesForCheckin = asyncHandler(async (req, res) => {
             },
           },
         },
+        referees: {
+          $map: {
+            input: { $ifNull: ["$_ref", []] },
+            as: "r",
+            in: { _id: "$$r._id", name: "$$r.name", nickname: "$$r.nickname" },
+          },
+        },
 
+        // Status
         status: "$_statusVN",
         statusColor: "$_statusColor",
       },

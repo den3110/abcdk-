@@ -186,6 +186,8 @@ export function initSocket(
 
       if (!m) return;
 
+      // ====== giữ nguyên code cũ ở dưới, chỉ bổ sung nhẹ (không xoá gì) ======
+
       // Helper: lấy nickname ưu tiên player.nickname/nickName;
       // nếu thiếu HOẶC chuỗi rỗng => fallback sang user.nickname/user.nickName.
       const fillNick = (p) => {
@@ -215,6 +217,76 @@ export function initSocket(
       // bổ sung streams từ meta nếu có
       if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
+      // 🔹 ADDED: fallback rules để DTO/FE luôn có giá trị an toàn
+      m.rules = {
+        bestOf: Number(m?.rules?.bestOf ?? 3),
+        pointsToWin: Number(m?.rules?.pointsToWin ?? 11),
+        winByTwo: Boolean(m?.rules?.winByTwo ?? true),
+        ...(m.rules?.cap ? { cap: m.rules.cap } : {}),
+      };
+
+      // 🔹 ADDED: fallback serve
+      if (
+        !m?.serve ||
+        (!m.serve.side && !m.serve.server && !m.serve.playerIndex)
+      ) {
+        m.serve = { side: "A", server: 1, playerIndex: 1 };
+      } else {
+        m.serve.side = (m.serve.side || "A").toUpperCase() === "B" ? "B" : "A";
+        m.serve.server =
+          Number(m.serve.server ?? m.serve.playerIndex ?? 1) || 1;
+        m.serve.playerIndex =
+          Number(m.serve.playerIndex ?? m.serve.server ?? 1) || 1;
+      }
+
+      // 🔹 ADDED: gameScores tối thiểu 1 phần tử
+      if (!Array.isArray(m.gameScores) || !m.gameScores.length) {
+        m.gameScores = [{ a: 0, b: 0 }];
+      }
+
+      // 🔹 ADDED: overlay root (để DTO có thể ưu tiên match.overlay)
+      if (!m.overlay) {
+        m.overlay =
+          m?.overlay ||
+          m?.tournament?.overlay ||
+          m?.bracket?.overlay ||
+          undefined;
+      }
+
+      // 🔹 ADDED: roundCode fallback (để FE hiển thị “Tứ kết/Bán kết/Chung kết”)
+      if (!m.roundCode) {
+        const drawSize =
+          Number(m?.bracket?.meta?.drawSize) ||
+          (Number.isInteger(m?.bracket?.drawRounds)
+            ? 1 << m.bracket.drawRounds
+            : 0);
+        if (drawSize && Number.isInteger(m?.round) && m.round >= 1) {
+          const roundSize = Math.max(
+            2,
+            Math.floor(drawSize / Math.pow(2, m.round - 1))
+          );
+          m.roundCode = `R${roundSize}`;
+        }
+      }
+
+      // 🔹 ADDED: court fallback field (courtId/courtName/courtNo) để FE cũ/auto-next dùng được
+      const courtId = m?.court?._id || m?.courtId || null;
+      const courtNumber = m?.court?.number ?? m?.courtNo ?? undefined;
+      const courtName =
+        m?.court?.name ??
+        m?.courtName ??
+        (courtNumber != null ? `Sân ${courtNumber}` : "");
+      // không thay đổi m.court hiện có; chỉ bổ sung key rời
+      m.courtId = courtId || undefined;
+      m.courtName = courtName || undefined;
+      m.courtNo = courtNumber ?? undefined;
+
+      // 🔹 ADDED: bracketType (giữ nguyên, chỉ bổ sung nếu thiếu)
+      if (!m.bracketType) {
+        m.bracketType = m?.bracket?.type || m?.format || m?.bracketType || "";
+      }
+
+      // ✅ giữ nguyên emit cũ
       socket.emit("match:snapshot", toDTO(decorateServeAndSlots(m)));
     });
 
@@ -551,12 +623,54 @@ export function initSocket(
           path: "tournament",
           select: "name image eventType overlay",
         })
-        .populate({ path: "bracket", select: "type name order overlay" })
+        // 🆕 BRACKET: bổ sung đủ groups + meta + config (giữ cái cũ, chỉ add thêm)
+        .populate({
+          path: "bracket",
+          select: [
+            "noRankDelta",
+            "name",
+            "type",
+            "stage",
+            "order",
+            "drawRounds",
+            "drawStatus",
+            "scheduler",
+            "drawSettings",
+            // meta.*
+            "meta.drawSize",
+            "meta.maxRounds",
+            "meta.expectedFirstRoundMatches",
+            // groups[]
+            "groups._id",
+            "groups.name",
+            "groups.expectedSize",
+            // rules + các config khác để FE tham chiếu
+            "config.rules",
+            "config.doubleElim",
+            "config.roundRobin",
+            "config.swiss",
+            "config.gsl",
+            "config.roundElim",
+            // nếu có overlay ở bracket thì giữ
+            "overlay",
+          ].join(" "),
+        })
         // 🆕 lấy thêm court để FE auto-next theo sân
         .populate({
           path: "court",
           select: "name number code label zone area venue building floor",
         })
+        // 🆕 mở rộng select để DTO có đủ dữ liệu (GIỮ field cũ, chỉ thêm mới)
+        .select(
+          "label managers court courtLabel courtCluster " +
+            "scheduledAt startAt startedAt finishedAt status " +
+            "tournament bracket rules currentGame gameScores " +
+            "round order code roundCode roundName " + // ← thêm round identifiers
+            "seedA seedB previousA previousB nextMatch winner serve overlay " +
+            "video videoUrl stream streams meta " + // meta để fallback streams
+            "format rrRound pool " + // ← thêm format/pool/rrRound
+            "liveBy liveVersion"
+        )
         .lean();
 
       if (!m) return;
@@ -594,6 +708,7 @@ export function initSocket(
         toDTO(decorateServeAndSlots(m))
       );
     });
+
     // (Giữ compatibility nếu FE còn dùng)
     socket.on("score:inc", async ({ matchId /*, side, delta*/ }) => {
       if (!matchId) return;
@@ -605,7 +720,7 @@ export function initSocket(
           populate: [
             {
               path: "player1",
-              // 🆕 thêm fullName/name/shortName + giữ user.nickname
+              // đủ các tên + user.nickname để FE fallback
               select: "fullName name shortName nickname nickName user",
               populate: { path: "user", select: "nickname nickName" },
             },
@@ -632,22 +747,54 @@ export function initSocket(
             },
           ],
         })
-        // 🆕 bổ sung nickName (viết hoa N) để an toàn schema
+        // referee là mảng
         .populate({
           path: "referee",
           select: "name fullName nickname nickName",
         })
+        // người đang điều khiển live
+        .populate({ path: "liveBy", select: "name fullName nickname nickName" })
         .populate({ path: "previousA", select: "round order" })
         .populate({ path: "previousB", select: "round order" })
         .populate({ path: "nextMatch", select: "_id" })
-        // 🆕 liveBy thêm fullName/nickName
-        .populate({ path: "liveBy", select: "name fullName nickname nickName" })
+        // tournament kèm overlay (để pickOverlay)
         .populate({
           path: "tournament",
           select: "name image eventType overlay",
         })
-        .populate({ path: "bracket", select: "type name order overlay" })
-        // 🆕 lấy thêm court để FE auto-next theo sân
+        // 🔼 BỔ SUNG: BRACKET đầy đủ cho toDTO (meta, groups, config, overlay...)
+        .populate({
+          path: "bracket",
+          select: [
+            "noRankDelta",
+            "name",
+            "type",
+            "stage",
+            "order",
+            "drawRounds",
+            "drawStatus",
+            "scheduler",
+            "drawSettings",
+            // meta.*
+            "meta.drawSize",
+            "meta.maxRounds",
+            "meta.expectedFirstRoundMatches",
+            // groups[]
+            "groups._id",
+            "groups.name",
+            "groups.expectedSize",
+            // config.*
+            "config.rules",
+            "config.doubleElim",
+            "config.roundRobin",
+            "config.swiss",
+            "config.gsl",
+            "config.roundElim",
+            // overlay (nếu có)
+            "overlay",
+          ].join(" "),
+        })
+        // court để FE auto-next theo sân
         .populate({
           path: "court",
           select: "name number code label zone area venue building floor",
@@ -656,7 +803,7 @@ export function initSocket(
 
       if (!m) return;
 
-      // Helper: ưu tiên player.nickname/nickName; nếu thiếu HOẶC rỗng -> fallback user.nickname/user.nickName
+      // Ưu tiên player.nickname/nickName; thiếu/empty -> fallback user.nickname/nickName
       const fillNick = (p) => {
         if (!p) return p;
         const pick = (v) => (v && String(v).trim()) || "";
@@ -667,11 +814,8 @@ export function initSocket(
           p.nickname = n;
           p.nickName = n;
         }
-        // Tuỳ chọn: không cần mang user về FE
-        // if (p.user) delete p.user;
         return p;
       };
-
       if (m.pairA) {
         m.pairA.player1 = fillNick(m.pairA.player1);
         m.pairA.player2 = fillNick(m.pairA.player2);
@@ -684,16 +828,17 @@ export function initSocket(
       // bổ sung streams từ meta nếu có
       if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
+      // giữ nguyên DTO của bạn
       const dto = toDTO(decorateServeAndSlots(m));
-      // unified channel để FE bắt được và refetch/hiển thị ngay
+
+      // unified channel để FE bắt được và hiển thị ngay
       io.to(`match:${matchId}`).emit("match:update", {
         type: "score",
         data: dto,
       });
-      // (tuỳ chọn giữ tương thích cũ 1-2 tuần)
+      // (tuỳ chọn giữ tương thích cũ)
       io.to(`match:${matchId}`).emit("score:updated", dto);
     });
-
     // ========= SCHEDULER (Tournament + Bracket/Cluster) =========
     socket.on(
       "scheduler:join",
