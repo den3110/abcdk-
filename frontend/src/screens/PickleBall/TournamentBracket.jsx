@@ -212,6 +212,34 @@ export const depLabel = (prev) => {
   return `W-V${r}-T${idx}`;
 };
 
+
+// --- Helpers chỉnh nhãn W/L theo vòng hiện tại ---
+function getRoundNumber(m) {
+  const n =
+    m?.round ??
+    m?.meta?.round ??
+    m?.roundIndex ??
+    m?.meta?.roundIndex ??
+    m?.koRound ??
+    m?.drawRound ??
+    null;
+  return Number.isFinite(Number(n)) ? Number(n) : null;
+}
+
+function fixDepLabelForMatch(m, prevDep) {
+  const base = depLabel(prevDep);
+  const r = getRoundNumber(m);
+  if (!base || !r || r <= 1) return base;
+
+  const expectedPrev = r - 1; // trận này lấy winner từ vòng trước
+  // Chuẩn hoá mọi pattern W/L-Vx-Ty về W/L-V{r-1}-Ty
+  return String(base).replace(/\b([WL])-V(\d+)-T(\d+)\b/g, (_s, wl, v, t) => {
+    const vNum = Number(v);
+    if (vNum === expectedPrev) return _s;
+    return `${wl}-V${expectedPrev}-T${t}`;
+  });
+}
+
 export const resultLabel = (m) => {
   if (m?.status === "finished") {
     if (m?.winner === "A") return "Đội A thắng";

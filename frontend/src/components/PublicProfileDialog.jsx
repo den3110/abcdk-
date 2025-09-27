@@ -830,7 +830,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
               <InfoRow label="Cập nhật" value={fmtDT(base?.updatedAt)} />
               <InfoRow
                 label="Đăng nhập lần cuối"
-                value={base?.lastLogin ? fmtDT(base?.lastLogin) : "—"}
+                value={base?.lastLoginAt ? fmtDT(base?.lastLoginAt) : "—"}
               />
               <InfoRow label="Provider" value={base?.provider} />
               <InfoRow label="ID" value={base?._id} />

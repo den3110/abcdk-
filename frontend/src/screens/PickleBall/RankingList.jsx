@@ -53,7 +53,7 @@ import { useCreateEvaluationMutation } from "../../slices/evaluationsApiSlice";
 import { useReviewKycMutation } from "../../slices/adminApiSlice";
 import { skipToken } from "@reduxjs/toolkit/query";
 
-const PLACE = "https://dummyimage.com/40x40/cccccc/ffffff&text=?";
+const PLACE = "https://dummyimage.com/40x40/cccccc/ffffff&text=";
 const HEX = {
   green: "#2e7d32",
   blue: "#1976d2",
@@ -643,7 +643,7 @@ export default function RankingList() {
             const effectiveStatus =
               (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
             const badge = cccdBadge(effectiveStatus);
-            const avatarSrc = u?.avatar || PLACE;
+            const avatarSrc = u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
             const tierHex = HEX[r?.tierColor] || HEX.grey;
             const age = calcAge(u);
             const canGrade = canGradeUser(me, u?.province);
@@ -789,7 +789,7 @@ export default function RankingList() {
                 const effectiveStatus =
                   (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
                 const badge = cccdBadge(effectiveStatus);
-                const avatarSrc = u?.avatar || PLACE;
+                const avatarSrc = u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
                 const tierHex = HEX[r?.tierColor] || HEX.grey;
                 const age = calcAge(u);
                 const canGrade = canGradeUser(me, u?.province);
