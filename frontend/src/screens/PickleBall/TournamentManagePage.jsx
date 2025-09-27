@@ -1,6 +1,6 @@
 // src/pages/admin/TournamentManagePage.jsx
 /* eslint-disable react/prop-types */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
@@ -53,6 +53,7 @@ import {
 } from "../../slices/tournamentsApiSlice";
 
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
+import { useSocket } from "../../context/SocketContext";
 
 /* ---------- helpers ---------- */
 const TYPE_LABEL = (t) => {
@@ -83,7 +84,27 @@ const pairLabel = (pair) => {
   return ps.join(" / ") || "—";
 };
 
-const matchCode = (m) => m?.code || `R${m?.round ?? "?"}-${m?.order ?? "?"}`;
+/** ===== Tin cậy mã từ BE ===== */
+const matchCode = (m) => {
+  if (!m) return "—";
+  if (m.code) return m.code; // BE đã chuẩn hoá: V1-Bx-Ty | Vn-Tk
+  // Fallback an toàn nếu BE chưa set code:
+  const r = Number.isFinite(m?.globalRound)
+    ? m.globalRound
+    : Number.isFinite(m?.round)
+    ? m.round
+    : "?";
+  const t = Number.isFinite(m?.order) ? m.order + 1 : undefined;
+  return `V${r}${t ? `-T${t}` : ""}`;
+};
+
+const roundLabel = (m) => {
+  if (!m) return "—";
+  if (m.globalCode) return m.globalCode; // "V1", "V2", ...
+  if (Number.isFinite(m?.globalRound)) return `V${m.globalRound}`;
+  if (Number.isFinite(m?.round)) return `V${m.round}`;
+  return "—";
+};
 
 const statusChip = (st) => {
   const map = {
@@ -107,15 +128,19 @@ export default function TournamentManagePage() {
     isLoading: tourLoading,
     error: tourErr,
   } = useGetTournamentQuery(id);
+
   const {
     data: brackets = [],
     isLoading: brLoading,
     error: brErr,
+    refetch: refetchBrackets,
   } = useAdminGetBracketsQuery(id);
+
   const {
     data: matchPage,
     isLoading: mLoading,
     error: mErr,
+    refetch: refetchMatches,
   } = useAdminListMatchesByTournamentQuery({
     tid: id,
     page: 1,
@@ -200,33 +225,50 @@ export default function TournamentManagePage() {
   const allMatches = matchPage?.list || [];
 
   const filterSortMatches = (list) => {
+    const norm = (s) =>
+      String(s || "")
+        .toLowerCase()
+        .replace(/[-\s]/g, "");
+
     const filtered = list
       .filter((m) => {
         if (!q.trim()) return true;
-        const kw = q.trim().toLowerCase();
-        const text = [
-          matchCode(m),
-          pairLabel(m?.pairA),
-          pairLabel(m?.pairB),
-          m?.status,
-          m?.video,
-        ]
-          .join(" ")
-          .toLowerCase();
+        const kw = norm(q);
+        const code = norm(matchCode(m));
+        const text = norm(
+          [
+            code,
+            pairLabel(m?.pairA),
+            pairLabel(m?.pairB),
+            m?.status,
+            m?.video,
+          ].join(" ")
+        );
         return text.includes(kw);
       })
       .sort((a, b) => {
         const dir = sortDir === "asc" ? 1 : -1;
-        if (sortKey === "order")
-          return ((a?.order ?? 0) - (b?.order ?? 0)) * dir;
+        if (sortKey === "order") {
+          const ao = Number.isFinite(a?.order) ? a.order : 0;
+          const bo = Number.isFinite(b?.order) ? b.order : 0;
+          return (ao - bo) * dir;
+        }
         if (sortKey === "time") {
           const ta = new Date(a?.scheduledAt || a?.createdAt || 0).getTime();
           const tb = new Date(b?.scheduledAt || b?.createdAt || 0).getTime();
           return (ta - tb) * dir;
         }
-        if ((a?.round ?? 0) !== (b?.round ?? 0))
-          return ((a?.round ?? 0) - (b?.round ?? 0)) * dir;
-        return ((a?.order ?? 0) - (b?.order ?? 0)) * dir;
+        // sort by globalRound nếu có; fallback round
+        const ar = Number.isFinite(a?.globalRound)
+          ? a.globalRound
+          : a?.round ?? 0;
+        const brd = Number.isFinite(b?.globalRound)
+          ? b.globalRound
+          : b?.round ?? 0;
+        if (ar !== brd) return (ar - brd) * dir;
+        const ao = Number.isFinite(a?.order) ? a.order : 0;
+        const bo = Number.isFinite(b?.order) ? b.order : 0;
+        return (ao - bo) * dir;
       });
     return filtered;
   };
@@ -254,6 +296,78 @@ export default function TournamentManagePage() {
       toast.error(e?.data?.message || e?.error || "Không lưu được link video");
     }
   };
+
+  /* ====== Socket realtime: emit/on giống TournamentSchedule ====== */
+  const socket = useSocket();
+  const joinedRef = useRef(new Set());
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const bracketIds = (brackets || [])
+      .map((b) => String(b._id))
+      .filter(Boolean);
+    const matchIds = (allMatches || [])
+      .map((m) => String(m._id))
+      .filter(Boolean);
+
+    const subscribeRooms = () => {
+      try {
+        // theo dõi thay đổi draw/bracket
+        bracketIds.forEach((bid) =>
+          socket.emit("draw:subscribe", { bracketId: bid })
+        );
+        // join từng trận và xin snapshot
+        matchIds.forEach((mid) => {
+          if (!joinedRef.current.has(mid)) {
+            socket.emit("match:join", { matchId: mid });
+            socket.emit("match:snapshot:request", { matchId: mid });
+            joinedRef.current.add(mid);
+          }
+        });
+      } catch {}
+    };
+
+    const onConnected = () => subscribeRooms();
+
+    const onMatchTouched = () => {
+      // có update điểm/trạng thái → làm tươi danh sách
+      refetchMatches();
+    };
+    const onRefilled = () => {
+      // bốc thăm/điều chỉnh khung → làm tươi cả brackets + matches
+      refetchBrackets?.();
+      refetchMatches();
+    };
+
+    socket.on("connect", onConnected);
+    socket.on("match:update", onMatchTouched);
+    socket.on("match:snapshot", onMatchTouched);
+    socket.on("score:updated", onMatchTouched);
+    socket.on("match:deleted", onMatchTouched);
+    socket.on("draw:refilled", onRefilled);
+    socket.on("bracket:updated", onRefilled);
+
+    // chạy ngay
+    subscribeRooms();
+
+    return () => {
+      socket.off("connect", onConnected);
+      socket.off("match:update", onMatchTouched);
+      socket.off("match:snapshot", onMatchTouched);
+      socket.off("score:updated", onMatchTouched);
+      socket.off("match:deleted", onMatchTouched);
+      socket.off("draw:refilled", onRefilled);
+      socket.off("bracket:updated", onRefilled);
+      // rời draw rooms
+      try {
+        bracketIds.forEach((bid) =>
+          socket.emit("draw:unsubscribe", { bracketId: bid })
+        );
+      } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, id, brackets, allMatches, refetchMatches, refetchBrackets]);
 
   /* ---------- guards ---------- */
   if (tourLoading || brLoading || mLoading) {
@@ -358,9 +472,9 @@ export default function TournamentManagePage() {
                 </InputAdornment>
               ),
             }}
-            sx={{ minWidth: 160 }}
+            sx={{ minWidth: 200 }}
           >
-            <MenuItem value="round">Vòng (round → order)</MenuItem>
+            <MenuItem value="round">Vòng (global → order)</MenuItem>
             <MenuItem value="order">Thứ tự (order)</MenuItem>
             <MenuItem value="time">Thời gian</MenuItem>
           </TextField>
@@ -430,7 +544,7 @@ export default function TournamentManagePage() {
                 </Stack>
               </Box>
 
-              {/* ===== Desktop: giữ nguyên bảng ===== */}
+              {/* ===== Desktop ===== */}
               <Box sx={{ display: { xs: "none", md: "block" } }}>
                 <TableContainer>
                   <Table size="small">
@@ -477,10 +591,12 @@ export default function TournamentManagePage() {
                             <TableCell>{pairLabel(m?.pairA)}</TableCell>
                             <TableCell>{pairLabel(m?.pairB)}</TableCell>
                             <TableCell sx={{ whiteSpace: "nowrap" }}>
-                              {m?.round ?? "—"}
+                              {roundLabel(m)}
                             </TableCell>
                             <TableCell sx={{ whiteSpace: "nowrap" }}>
-                              {m?.order ?? "—"}
+                              {Number.isFinite(m?.order)
+                                ? `T${m.order + 1}`
+                                : "—"}
                             </TableCell>
                             <TableCell>{statusChip(m?.status)}</TableCell>
                             <TableCell>
@@ -561,7 +677,7 @@ export default function TournamentManagePage() {
                 </TableContainer>
               </Box>
 
-              {/* ===== Mobile: Card Grid 2 cột (xs=6) – không full width ===== */}
+              {/* ===== Mobile ===== */}
               <Box sx={{ display: { xs: "block", md: "none" } }}>
                 <Box p={2} pt={1}>
                   {list.length === 0 ? (
@@ -609,17 +725,12 @@ export default function TournamentManagePage() {
                                     spacing={0.5}
                                     flexWrap="wrap"
                                   >
-                                    {typeof m?.round === "number" && (
-                                      <Chip
-                                        size="small"
-                                        label={`R${m.round}`}
-                                      />
-                                    )}
-                                    {typeof m?.order === "number" && (
+                                    <Chip size="small" label={roundLabel(m)} />
+                                    {Number.isFinite(m?.order) && (
                                       <Chip
                                         size="small"
                                         variant="outlined"
-                                        label={`#${m.order}`}
+                                        label={`T${m.order + 1}`}
                                       />
                                     )}
                                   </Stack>
@@ -751,10 +862,7 @@ export default function TournamentManagePage() {
         fullWidth
       >
         <DialogTitle>
-          {videoDlg?.match
-            ? videoDlg.match.code || matchCode(videoDlg.match)
-            : ""}{" "}
-          — Link video
+          {videoDlg?.match ? matchCode(videoDlg.match) : ""} — Link video
         </DialogTitle>
         <DialogContent dividers>
           <TextField
