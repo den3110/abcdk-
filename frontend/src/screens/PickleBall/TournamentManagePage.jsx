@@ -8,7 +8,6 @@ import {
   Box,
   Button,
   Chip,
-  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -34,6 +33,8 @@ import {
   CardHeader,
   CardContent,
   Divider,
+  Skeleton,
+  CircularProgress,
 } from "@mui/material";
 import {
   Edit as EditIcon,
@@ -87,8 +88,7 @@ const pairLabel = (pair) => {
 /** ===== Tin cậy mã từ BE ===== */
 const matchCode = (m) => {
   if (!m) return "—";
-  if (m.code) return m.code; // BE đã chuẩn hoá: V1-Bx-Ty | Vn-Tk
-  // Fallback an toàn nếu BE chưa set code:
+  if (m.code) return m.code; // BE đã chuẩn hoá
   const r = Number.isFinite(m?.globalRound)
     ? m.globalRound
     : Number.isFinite(m?.round)
@@ -118,11 +118,56 @@ const statusChip = (st) => {
   return <Chip size="small" color={v.color} label={v.label} />;
 };
 
+/* ---------- LIST skeletons ONLY ---------- */
+function TableSkeletonRows({ rows = 8, cols = 8 }) {
+  return (
+    <TableBody>
+      {Array.from({ length: rows }).map((_, r) => (
+        <TableRow key={r}>
+          {Array.from({ length: cols }).map((__, c) => (
+            <TableCell key={c}>
+              <Skeleton variant="text" />
+            </TableCell>
+          ))}
+        </TableRow>
+      ))}
+    </TableBody>
+  );
+}
+
+function MatchCardSkeleton() {
+  return (
+    <Card variant="outlined" sx={{ height: "100%" }}>
+      <CardHeader
+        sx={{ py: 1.2 }}
+        avatar={<Skeleton variant="circular" width={24} height={24} />}
+        title={<Skeleton variant="text" width="60%" />}
+        subheader={
+          <Stack direction="row" spacing={0.5}>
+            <Skeleton variant="rounded" width={60} height={22} />
+            <Skeleton variant="rounded" width={48} height={22} />
+          </Stack>
+        }
+        action={<Skeleton variant="circular" width={28} height={28} />}
+      />
+      <Divider />
+      <CardContent sx={{ py: 1.25 }}>
+        <Stack spacing={0.5}>
+          <Skeleton variant="text" width="90%" />
+          <Skeleton variant="text" width="85%" />
+          <Skeleton variant="rounded" width={120} height={24} />
+        </Stack>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ---------- Component ---------- */
 export default function TournamentManagePage() {
   const { id } = useParams();
   const me = useSelector((s) => s.auth?.userInfo || null);
 
-  // Tournament + Brackets + Matches
+  // Queries
   const {
     data: tour,
     isLoading: tourLoading,
@@ -138,7 +183,7 @@ export default function TournamentManagePage() {
 
   const {
     data: matchPage,
-    isLoading: mLoading,
+    isLoading: mLoading, // chỉ dùng để skeleton list
     error: mErr,
     refetch: refetchMatches,
   } = useAdminListMatchesByTournamentQuery({
@@ -297,7 +342,7 @@ export default function TournamentManagePage() {
     }
   };
 
-  /* ====== Socket realtime: emit/on giống TournamentSchedule ====== */
+  /* ====== Socket realtime (giữ như cũ) ====== */
   const socket = useSocket();
   const joinedRef = useRef(new Set());
 
@@ -313,11 +358,9 @@ export default function TournamentManagePage() {
 
     const subscribeRooms = () => {
       try {
-        // theo dõi thay đổi draw/bracket
         bracketIds.forEach((bid) =>
           socket.emit("draw:subscribe", { bracketId: bid })
         );
-        // join từng trận và xin snapshot
         matchIds.forEach((mid) => {
           if (!joinedRef.current.has(mid)) {
             socket.emit("match:join", { matchId: mid });
@@ -329,15 +372,10 @@ export default function TournamentManagePage() {
     };
 
     const onConnected = () => subscribeRooms();
-
-    const onMatchTouched = () => {
-      // có update điểm/trạng thái → làm tươi danh sách
-      refetchMatches();
-    };
+    const onMatchTouched = () => refetchMatches?.();
     const onRefilled = () => {
-      // bốc thăm/điều chỉnh khung → làm tươi cả brackets + matches
       refetchBrackets?.();
-      refetchMatches();
+      refetchMatches?.();
     };
 
     socket.on("connect", onConnected);
@@ -348,7 +386,6 @@ export default function TournamentManagePage() {
     socket.on("draw:refilled", onRefilled);
     socket.on("bracket:updated", onRefilled);
 
-    // chạy ngay
     subscribeRooms();
 
     return () => {
@@ -359,7 +396,6 @@ export default function TournamentManagePage() {
       socket.off("match:deleted", onMatchTouched);
       socket.off("draw:refilled", onRefilled);
       socket.off("bracket:updated", onRefilled);
-      // rời draw rooms
       try {
         bracketIds.forEach((bid) =>
           socket.emit("draw:unsubscribe", { bracketId: bid })
@@ -370,7 +406,8 @@ export default function TournamentManagePage() {
   }, [socket, id, brackets, allMatches, refetchMatches, refetchBrackets]);
 
   /* ---------- guards ---------- */
-  if (tourLoading || brLoading || mLoading) {
+  // Chỉ chặn khi tour hoặc brackets đang load
+  if (tourLoading || brLoading) {
     return (
       <Box p={3} textAlign="center">
         <CircularProgress />
@@ -403,6 +440,7 @@ export default function TournamentManagePage() {
   /* ---------- UI ---------- */
   return (
     <Box p={{ xs: 2, md: 3 }}>
+      {/* Header */}
       <Stack
         direction="row"
         alignItems="center"
@@ -433,6 +471,7 @@ export default function TournamentManagePage() {
       </Stack>
 
       <Paper variant="outlined" sx={{ mb: 2 }}>
+        {/* Tabs (không skeleton) */}
         <Tabs
           value={tab}
           onChange={(_, v) => setTab(v)}
@@ -444,6 +483,7 @@ export default function TournamentManagePage() {
           ))}
         </Tabs>
 
+        {/* Filter bar (không skeleton) */}
         <Box p={2} display="flex" gap={1} flexWrap="wrap" alignItems="center">
           <TextField
             size="small"
@@ -498,6 +538,7 @@ export default function TournamentManagePage() {
         </Box>
       </Paper>
 
+      {/* Bracket list */}
       {bracketsOfTab.length === 0 ? (
         <Alert severity="info">
           Chưa có bracket thuộc loại {TYPE_LABEL(tab)}.
@@ -568,111 +609,115 @@ export default function TournamentManagePage() {
                         </TableCell>
                       </TableRow>
                     </TableHead>
-                    <TableBody>
-                      {list.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={8} align="center">
-                            <Typography color="text.secondary">
-                              Chưa có trận nào.
-                            </Typography>
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        list.map((m) => (
-                          <TableRow
-                            key={m._id}
-                            hover
-                            onClick={() => openMatch(m._id)}
-                            sx={{ cursor: "pointer" }}
-                          >
-                            <TableCell sx={{ whiteSpace: "nowrap" }}>
-                              {matchCode(m)}
+
+                    {/* ⬇️ chỉ skeleton cho list */}
+                    {mLoading ? (
+                      <TableSkeletonRows rows={8} cols={8} />
+                    ) : (
+                      <TableBody>
+                        {list.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={8} align="center">
+                              <Typography color="text.secondary">
+                                Chưa có trận nào.
+                              </Typography>
                             </TableCell>
-                            <TableCell>{pairLabel(m?.pairA)}</TableCell>
-                            <TableCell>{pairLabel(m?.pairB)}</TableCell>
-                            <TableCell sx={{ whiteSpace: "nowrap" }}>
-                              {roundLabel(m)}
-                            </TableCell>
-                            <TableCell sx={{ whiteSpace: "nowrap" }}>
-                              {Number.isFinite(m?.order)
-                                ? `T${m.order + 1}`
-                                : "—"}
-                            </TableCell>
-                            <TableCell>{statusChip(m?.status)}</TableCell>
-                            <TableCell>
-                              {m?.video ? (
-                                <Stack
-                                  direction="row"
-                                  spacing={1}
-                                  alignItems="center"
-                                  flexWrap="wrap"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
+                          </TableRow>
+                        ) : (
+                          list.map((m) => (
+                            <TableRow
+                              key={m._id}
+                              hover
+                              onClick={() => openMatch(m._id)}
+                              sx={{ cursor: "pointer" }}
+                            >
+                              <TableCell sx={{ whiteSpace: "nowrap" }}>
+                                {matchCode(m)}
+                              </TableCell>
+                              <TableCell>{pairLabel(m?.pairA)}</TableCell>
+                              <TableCell>{pairLabel(m?.pairB)}</TableCell>
+                              <TableCell sx={{ whiteSpace: "nowrap" }}>
+                                {roundLabel(m)}
+                              </TableCell>
+                              <TableCell sx={{ whiteSpace: "nowrap" }}>
+                                {Number.isFinite(m?.order)
+                                  ? `T${m.order + 1}`
+                                  : "—"}
+                              </TableCell>
+                              <TableCell>{statusChip(m?.status)}</TableCell>
+                              <TableCell onClick={(e) => e.stopPropagation()}>
+                                {m?.video ? (
+                                  <Stack
+                                    direction="row"
+                                    spacing={1}
+                                    alignItems="center"
+                                    flexWrap="wrap"
+                                  >
+                                    <Chip
+                                      size="small"
+                                      color="success"
+                                      variant="outlined"
+                                      label="đã gắn"
+                                    />
+                                    <Tooltip title={m.video} arrow>
+                                      <IconButton
+                                        size="small"
+                                        component="a"
+                                        href={m.video}
+                                        target="_blank"
+                                        rel="noopener"
+                                      >
+                                        <OpenInNewIcon fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </Stack>
+                                ) : (
                                   <Chip
                                     size="small"
-                                    color="success"
                                     variant="outlined"
-                                    label="đã gắn"
+                                    label="chưa có"
                                   />
-                                  <Tooltip title={m.video} arrow>
-                                    <IconButton
-                                      size="small"
-                                      component="a"
-                                      href={m.video}
-                                      target="_blank"
-                                      rel="noopener"
-                                      onClick={(e) => e.stopPropagation()}
-                                    >
-                                      <OpenInNewIcon fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                </Stack>
-                              ) : (
-                                <Chip
-                                  size="small"
-                                  variant="outlined"
-                                  label="chưa có"
-                                />
-                              )}
-                            </TableCell>
-                            <TableCell sx={{ whiteSpace: "nowrap" }}>
-                              <Tooltip title="Gán / sửa link video" arrow>
-                                <span>
-                                  <IconButton
-                                    size="small"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      openVideoDlg(m);
-                                    }}
-                                  >
-                                    <EditIcon fontSize="small" />
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
-                              {m?.video && (
-                                <Tooltip title="Xoá link video" arrow>
+                                )}
+                              </TableCell>
+                              <TableCell sx={{ whiteSpace: "nowrap" }}>
+                                <Tooltip title="Gán / sửa link video" arrow>
                                   <span>
                                     <IconButton
                                       size="small"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        setVideoDlg({
-                                          open: true,
-                                          match: m,
-                                          url: "",
-                                        });
+                                        openVideoDlg(m);
                                       }}
                                     >
-                                      <LinkOffIcon fontSize="small" />
+                                      <EditIcon fontSize="small" />
                                     </IconButton>
                                   </span>
                                 </Tooltip>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
+                                {m?.video && (
+                                  <Tooltip title="Xoá link video" arrow>
+                                    <span>
+                                      <IconButton
+                                        size="small"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setVideoDlg({
+                                            open: true,
+                                            match: m,
+                                            url: "",
+                                          });
+                                        }}
+                                      >
+                                        <LinkOffIcon fontSize="small" />
+                                      </IconButton>
+                                    </span>
+                                  </Tooltip>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    )}
                   </Table>
                 </TableContainer>
               </Box>
@@ -680,7 +725,15 @@ export default function TournamentManagePage() {
               {/* ===== Mobile ===== */}
               <Box sx={{ display: { xs: "block", md: "none" } }}>
                 <Box p={2} pt={1}>
-                  {list.length === 0 ? (
+                  {mLoading ? (
+                    <Grid container spacing={1.2}>
+                      {Array.from({ length: 6 }).map((_, k) => (
+                        <Grid key={k} item width={"100%"} xs={6}>
+                          <MatchCardSkeleton />
+                        </Grid>
+                      ))}
+                    </Grid>
+                  ) : list.length === 0 ? (
                     <Typography color="text.secondary" align="center" py={2}>
                       Chưa có trận nào.
                     </Typography>
