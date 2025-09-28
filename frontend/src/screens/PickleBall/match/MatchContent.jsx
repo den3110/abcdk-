@@ -870,6 +870,15 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const isManager = !!verifyRes?.isManager;
   const canEdit = isAdmin || isManager;
 
+  // Profile dialog (chỉ cần userId)
+const [profileUserId, setProfileUserId] = useState(null);
+const openProfile = (uid) => {
+  if (!uid) return;
+  const norm = uid?._id || uid?.id || uid?.userId || uid?.uid || uid || null;
+  if (norm) setProfileUserId(String(norm));
+};
+const closeProfile = () => setProfileUserId(null);
+
   const socketCtx = useSocket();
   const socket = socketCtx?.socket || socketCtx;
 
@@ -1288,11 +1297,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             </Typography>
             {mm?.pairA ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                <PlayerLink person={mm.pairA?.player1} onOpen={() => {}} />
+                <PlayerLink person={mm.pairA?.player1} onOpen={openProfile} />
                 {!isSingle && mm.pairA?.player2 && (
                   <>
                     {" "}
-                    & <PlayerLink person={mm.pairA.player2} onOpen={() => {}} />
+                    & <PlayerLink person={mm.pairA.player2} onOpen={openProfile} />
                   </>
                 )}
               </Typography>
@@ -1331,11 +1340,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             </Typography>
             {mm?.pairB ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                <PlayerLink person={mm.pairB?.player1} onOpen={() => {}} />
+                <PlayerLink person={mm.pairB?.player1} onOpen={openProfile} />
                 {!isSingle && mm.pairB?.player2 && (
                   <>
                     {" "}
-                    & <PlayerLink person={mm.pairB.player2} onOpen={() => {}} />
+                    & <PlayerLink person={mm.pairB.player2} onOpen={openProfile} />
                   </>
                 )}
               </Typography>
@@ -1594,7 +1603,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       />
 
       {/* Popup hồ sơ VĐV (nếu bạn cần dùng, có thể bật lại openProfile ở trên) */}
-      {/* <PublicProfileDialog open={Boolean(profileUserId)} onClose={closeProfile} userId={profileUserId} /> */}
+      <PublicProfileDialog open={Boolean(profileUserId)} onClose={closeProfile} userId={profileUserId} />
     </Stack>
   );
 }
