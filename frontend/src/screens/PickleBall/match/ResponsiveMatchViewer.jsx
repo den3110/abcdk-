@@ -1,4 +1,5 @@
-import React from "react";
+// src/screens/PickleBall/match/ResponsiveMatchViewer.jsx
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Chip,
@@ -32,19 +33,16 @@ const ceilPow2 = (n) =>
 const estimateRoundsForBracket = (b) => {
   if (!b) return 1;
 
-  // Ưu tiên số vòng đã cấu hình sẵn
   const fromMetaRounds =
     Number(b?.meta?.maxRounds) || Number(b?.drawRounds) || Number(b?.rounds);
   if (fromMetaRounds) return Math.max(1, fromMetaRounds);
 
-  // Nếu có meta.drawSize → rounds = log2(ceilPow2(drawSize))
   const metaDrawSize = Number(b?.meta?.drawSize) || 0;
   if (metaDrawSize >= 2) {
     const scale = ceilPow2(metaDrawSize);
     return Math.ceil(Math.log2(scale));
   }
 
-  // Nếu Round Elim có drawSize
   const reDraw = Number(b?.config?.roundElim?.drawSize) || 0;
   if (reDraw >= 2) {
     const scale = ceilPow2(reDraw);
@@ -117,17 +115,14 @@ const extractIndexFromToken = (token) => {
   const s = String(token || "").trim();
   if (!s) return null;
 
-  // 1 ký tự chữ
   if (/^[A-Za-z]$/.test(s)) return letterToIndex(s);
 
-  // tìm chữ cái đơn lẻ trong chuỗi “Group A”, “Bảng C”
   const m1 = s.match(/\b([A-Za-z])\b/);
   if (m1?.[1]) {
     const idx = letterToIndex(m1[1]);
     if (idx) return idx;
   }
 
-  // số
   const m2 = s.match(/\b(\d+)\b/);
   if (m2?.[1]) return Number(m2[1]);
 
@@ -139,15 +134,12 @@ const groupNameCandidates = (g) =>
     Boolean
   );
 
-/** Trả về chỉ số bảng (1-based) nếu xác định được — theo mẫu dữ liệu bạn đưa */
+/** Trả về chỉ số bảng (1-based) nếu xác định được */
 const resolveGroupIndex = (m, brackets) => {
-  // ✳️ 0) Ưu tiên từ m.pool
   if (m?.pool) {
-    // name: "A" / "B" / "1" ...
     const byName = extractIndexFromToken(m.pool.name);
     if (Number.isFinite(byName) && byName > 0) return byName;
 
-    // id: map với groups
     const poolId = m.pool.id || m.pool._id || null;
     if (poolId) {
       const br = getBracketForMatch(m, brackets);
@@ -161,9 +153,8 @@ const resolveGroupIndex = (m, brackets) => {
     }
   }
 
-  // ✳️ 1) numeric signals trên match (giữ phòng hờ hệ khác)
   const numericCandidates = [
-    m?.groupIndex != null ? Number(m.groupIndex) + 1 : null, // zero-based
+    m?.groupIndex != null ? Number(m.groupIndex) + 1 : null,
     Number(m?.groupNo) || null,
     Number(m?.poolNo) || null,
     Number(m?.meta?.groupNo) || null,
@@ -171,7 +162,6 @@ const resolveGroupIndex = (m, brackets) => {
   ].filter((x) => Number.isFinite(x) && x > 0);
   if (numericCandidates.length) return numericCandidates[0];
 
-  // ✳️ 2) text signals phòng hờ
   const textSignals = [
     m?.groupLabel,
     m?.groupName,
@@ -190,13 +180,11 @@ const resolveGroupIndex = (m, brackets) => {
     if (Number.isFinite(idx) && idx > 0) return idx;
   }
 
-  // ✳️ 3) lấy từ chính bracket của match (ưu tiên), fallback list
   const br = getBracketForMatch(m, brackets);
   const groups = Array.isArray(br?.groups) ? br.groups : [];
 
-  if (groups.length === 1) return 1; // tránh null
+  if (groups.length === 1) return 1;
 
-  // map theo tên (exact lowercase)
   if (groups.length && textSignals.length) {
     for (const t of textSignals) {
       const needle = String(t || "")
@@ -214,13 +202,11 @@ const resolveGroupIndex = (m, brackets) => {
     }
   }
 
-  // chữ cái A/B/C suy từ text
   for (const t of textSignals) {
     const li = letterToIndex(t);
     if (li) return li;
   }
 
-  // ✳️ 4) bó tay → null
   return null;
 };
 
@@ -242,7 +228,6 @@ const makeMatchCode = (m, brackets) => {
 
   const displayRound = baseRoundStart + (roundIdx - 1);
 
-  // Nhận diện nhóm: theo type hoặc theo format: "group" trong mẫu
   const typeOrFormat = normalizeType(br?.type || m?.type || m?.format);
   if (isGroupType(typeOrFormat) || normalizeType(m?.format) === "group") {
     const bIdx = resolveGroupIndex(m, brackets);
@@ -253,7 +238,57 @@ const makeMatchCode = (m, brackets) => {
 };
 
 /* =========================
- * ResponsiveMatchViewer
+ * Hook: LOCK match theo matchId (chỉ nhận data đúng id)
+ * ========================= */
+function useLockedDialogMatch({
+  open,
+  matchId,
+  base,
+  live,
+  isLoadingBase,
+  isLoadingLive,
+}) {
+  const lockedId = String(matchId || "");
+  const [mm, setMm] = useState(null);
+
+  // Reset khi đổi match hoặc đóng dialog
+  useEffect(() => {
+    if (!open || !lockedId) {
+      setMm(null);
+      return;
+    }
+    // khi mở lại thì cho phép nhận dữ liệu mới đúng id
+    // (mm sẽ được set ở effect dưới)
+  }, [open, lockedId]);
+
+  // Nhận dữ liệu nhưng chỉ khi _id trùng matchId
+  useEffect(() => {
+    if (!open || !lockedId) return;
+
+    const pick = (cand) => {
+      const id = String(cand?._id || cand?.id || "");
+      return id && id === lockedId ? cand : null;
+    };
+
+    // Ưu tiên live nếu đúng id, nếu không thì base
+    const next = pick(live) || pick(base);
+    if (!next) return;
+
+    setMm((prev) => {
+      // nếu cùng id thì cập nhật, không cần so sánh sâu
+      if (!prev) return next;
+      const prevId = String(prev?._id || prev?.id || "");
+      return prevId === lockedId ? next : prev;
+    });
+  }, [open, lockedId, base, live]);
+
+  const loading = (!mm && (isLoadingBase || isLoadingLive)) || (!mm && open);
+
+  return { mm, loading };
+}
+
+/* =========================
+ * ResponsiveMatchViewer (đã khóa theo matchId)
  * ========================= */
 function ResponsiveMatchViewer({ open, matchId, onClose }) {
   const theme = useTheme();
@@ -261,30 +296,45 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
   const { userInfo } = useSelector((s) => s.auth || {});
   const token = userInfo?.token;
 
-  // Match (public) + live overlay
-  const { data: base, isLoading } = useGetMatchPublicQuery(matchId, {
+  // Queries
+  const {
+    data: base,
+    isLoading: isLoadingBase,
+    refetch: refetchBase,
+  } = useGetMatchPublicQuery(matchId, {
     skip: !matchId || !open,
   });
-  const { loading: liveLoading, data: live } = useLiveMatch(
+  const { loading: isLoadingLive, data: live } = useLiveMatch(
     open ? matchId : null,
     token
   );
-  const m = live || base;
-  const status = m?.status || "scheduled";
 
-  // Lấy tournamentId để fetch brackets (tính offset V)
-  const tournamentId =
-    (base?.tournament?._id ||
-      base?.tournament ||
-      live?.tournament?._id ||
-      live?.tournament) ??
-    null;
-
-  const { data: brackets = [] } = useListTournamentBracketsQuery(tournamentId, {
-    skip: !tournamentId,
+  // LOCK: chỉ lấy data trùng matchId
+  const { mm, loading } = useLockedDialogMatch({
+    open,
+    matchId,
+    base,
+    live,
+    isLoadingBase,
+    isLoadingLive,
   });
 
-  const code = m ? makeMatchCode(m, brackets) : "";
+  // TournamentId cho brackets dựa trên match đã LOCK
+  const tournamentId = useMemo(() => {
+    if (!mm) return null;
+    if (mm.tournament && typeof mm.tournament === "object") {
+      return mm.tournament._id || mm.tournament.id || null;
+    }
+    return mm.tournament || null;
+  }, [mm]);
+
+  const { data: brackets = [], refetch: refetchBrackets } =
+    useListTournamentBracketsQuery(tournamentId, {
+      skip: !tournamentId,
+    });
+
+  const code = mm ? makeMatchCode(mm, brackets) : "";
+  const status = mm?.status || "scheduled";
 
   const StatusChip = (
     <Chip
@@ -306,6 +356,12 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
       }
     />
   );
+
+  const handleSaved = () => {
+    // Refetch dữ liệu public + brackets; UI trong dialog không bị nhảy vì đã LOCK theo matchId
+    refetchBase?.();
+    refetchBrackets?.();
+  };
 
   if (isMobile) {
     return (
@@ -359,9 +415,11 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
 
           <Box sx={{ overflowY: "auto", pr: { md: 1 }, pb: 1 }}>
             <MatchContent
-              m={m}
-              isLoading={isLoading}
-              liveLoading={liveLoading}
+              key={String(matchId || "")} // remount khi đổi trận
+              m={mm}
+              isLoading={loading}
+              liveLoading={false}
+              onSaved={handleSaved}
             />
           </Box>
         </Box>
@@ -382,7 +440,13 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
         </IconButton>
       </DialogTitle>
       <DialogContent dividers>
-        <MatchContent m={m} isLoading={isLoading} liveLoading={liveLoading} />
+        <MatchContent
+          key={String(matchId || "")} // remount khi đổi trận
+          m={mm}
+          isLoading={loading}
+          liveLoading={false}
+          onSaved={handleSaved}
+        />
       </DialogContent>
     </Dialog>
   );

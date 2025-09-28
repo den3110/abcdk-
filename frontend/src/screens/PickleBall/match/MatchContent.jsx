@@ -54,144 +54,24 @@ import {
   useLazySearchRegistrationsQuery,
   useVerifyManagerQuery,
 } from "../../../slices/tournamentsApiSlice";
+import { useSocket } from "../../../context/SocketContext";
 
-// --- helper: lấy V hiện tại từ m (nếu có) ---
-function extractCurrentV(m) {
-  const tryStrings = [
-    m?.code,
-    m?.name,
-    m?.label,
-    m?.displayCode,
-    m?.displayName,
-    m?.matchCode,
-    m?.slotCode,
-    m?.bracketCode,
-    m?.bracketLabel,
-    m?.meta?.code,
-    m?.meta?.label,
-  ];
-  for (const s of tryStrings) {
-    if (typeof s === "string") {
-      const k = s.match(/\bV(\d+)-T(\d+)\b/i);
-      if (k) return parseInt(k[1], 10);
-    }
-  }
-  // một vài fallback số (nếu BE có)
-  const nums = [m?.v, m?.V, m?.roundV, m?.meta?.v]
-    .map((x) => Number(x))
-    .filter((n) => Number.isFinite(n));
-  return nums.length ? nums[0] : null;
-}
+/* ====================== utils ====================== */
+const sid = (x) => {
+  if (!x) return "";
+  const v = x?._id ?? x?.id ?? x;
+  return v ? String(v) : "";
+};
+const getMatchIdFromPayload = (payload = {}) =>
+  sid(payload.matchId) ||
+  sid(payload.match) ||
+  sid(payload.id) ||
+  sid(payload._id) ||
+  sid(payload?.data?.matchId) ||
+  sid(payload?.data?.match) ||
+  "";
+const isSameId = (a, b) => a && b && String(a) === String(b);
 
-// --- helper: chuẩn hoá nhãn previousA/B ---
-function smartDepLabel(m, prevDep) {
-  const raw = depLabel(prevDep); // dùng hàm sẵn có của bạn
-  const currV = extractCurrentV(m);
-  return String(raw).replace(/\b([WL])-V(\d+)-T(\d+)\b/gi, (_s, wl, v, t) => {
-    const pv = parseInt(v, 10);
-    // Nếu biết V hiện tại (ví dụ đang là V6-T1) => previous phải là V5
-    // Nếu không biết => fallback cộng +2 (đúng với case bạn nói là "chưa cộng vòng")
-    const newV = currV != null ? Math.max(1, currV - 1) : pv + 2;
-    return `${wl}-V${newV}-T${t}`;
-  });
-}
-
-/* ====================== Sub: PlayerLink ====================== */
-function PlayerLink({ person, onOpen }) {
-  if (!person) return null;
-  const uid =
-    person?.user?._id ||
-    person?.user?.id ||
-    person?.user ||
-    person?._id ||
-    person?.id ||
-    null;
-
-  const handleClick = () => {
-    if (!uid) return;
-    onOpen?.(uid);
-  };
-
-  return (
-    <MuiLink
-      component="button"
-      underline="hover"
-      onClick={handleClick}
-      sx={{
-        p: 0,
-        m: 0,
-        font: "inherit",
-        color: "inherit",
-        cursor: "pointer",
-        "&:hover": { textDecorationColor: "inherit" },
-      }}
-      title={nameWithNick(person)}
-    >
-      {nameWithNick(person)}
-    </MuiLink>
-  );
-}
-
-/* ====================== Anti-flicker hooks ====================== */
-function useDelayedFlag(flag, ms = 250) {
-  const [show, setShow] = useState(false);
-  useEffect(() => {
-    let t;
-    if (flag) t = setTimeout(() => setShow(true), ms);
-    else setShow(false);
-    return () => clearTimeout(t);
-  }, [flag, ms]);
-  return show;
-}
-
-function useThrottledStable(
-  value,
-  { interval = 280, isEqual = (a, b) => a === b } = {}
-) {
-  const [display, setDisplay] = useState(value ?? null);
-  const latestRef = useRef(value);
-  const timerRef = useRef(null);
-  const mountedRef = useRef(false);
-
-  useEffect(() => {
-    latestRef.current = value;
-    if (!mountedRef.current) {
-      mountedRef.current = true;
-      setDisplay(value ?? null);
-      return;
-    }
-    if (isEqual(value, display)) return;
-    if (timerRef.current) return;
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null;
-      setDisplay(latestRef.current ?? null);
-    }, interval);
-  }, [value, display, interval, isEqual]);
-
-  useEffect(() => () => timerRef.current && clearTimeout(timerRef.current), []);
-  return display;
-}
-
-function useShowAfterFetch(m, loading) {
-  const [display, setDisplay] = useState(null);
-  const shownIdRef = useRef(null);
-  const selectedId = m?._id ?? null;
-
-  useEffect(() => {
-    if (loading) {
-      if (selectedId !== shownIdRef.current) setDisplay(null);
-      return;
-    }
-    setDisplay(m ?? null);
-    shownIdRef.current = selectedId;
-  }, [selectedId, loading, m]);
-
-  const waitingNewSelection =
-    loading || (selectedId && selectedId !== shownIdRef.current);
-  return [display, waitingNewSelection];
-}
-
-/* ====================== Time & compare helpers ====================== */
 function ts(x) {
   if (!x) return 0;
   const d = typeof x === "number" ? new Date(x) : new Date(String(x));
@@ -211,6 +91,7 @@ function formatClock(d) {
   const MM = pad(d.getMonth() + 1);
   return `${hh}:${mm} • ${dd}/${MM}`;
 }
+
 function isMatchEqual(a, b) {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -244,21 +125,44 @@ function isMatchEqual(a, b) {
 
   return saA === saB && sbA === sbB && paA === paB && pbA === pbB;
 }
-function lastGameScore(gameScores) {
-  if (!Array.isArray(gameScores) || !gameScores.length) return { a: 0, b: 0 };
-  return gameScores[gameScores.length - 1] || { a: 0, b: 0 };
-}
-function countGamesWon(gameScores) {
-  let A = 0,
-    B = 0;
-  for (const g of gameScores || []) {
-    if ((g?.a ?? 0) > (g?.b ?? 0)) A++;
-    else if ((g?.b ?? 0) > (g?.a ?? 0)) B++;
+
+/* ====================== current V helpers (label fix) ====================== */
+function extractCurrentV(m) {
+  const tryStrings = [
+    m?.code,
+    m?.name,
+    m?.label,
+    m?.displayCode,
+    m?.displayName,
+    m?.matchCode,
+    m?.slotCode,
+    m?.bracketCode,
+    m?.bracketLabel,
+    m?.meta?.code,
+    m?.meta?.label,
+  ];
+  for (const s of tryStrings) {
+    if (typeof s === "string") {
+      const k = s.match(/\bV(\d+)-T(\d+)\b/i);
+      if (k) return parseInt(k[1], 10);
+    }
   }
-  return { A, B };
+  const nums = [m?.v, m?.V, m?.roundV, m?.meta?.v]
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n));
+  return nums.length ? nums[0] : null;
+}
+function smartDepLabel(m, prevDep) {
+  const raw = depLabel(prevDep);
+  const currV = extractCurrentV(m);
+  return String(raw).replace(/\b([WL])-V(\d+)-T(\d+)\b/gi, (_s, wl, v, t) => {
+    const pv = parseInt(v, 10);
+    const newV = currV != null ? Math.max(1, currV - 1) : pv + 2;
+    return `${wl}-V${newV}-T${t}`;
+  });
 }
 
-/* ====================== Streams & player ====================== */
+/* ====================== stream helpers ====================== */
 function safeURL(url) {
   try {
     return new URL(url);
@@ -376,7 +280,6 @@ function detectEmbed(url) {
     }
   }
 
-  // Default
   return {
     kind: "iframe",
     canEmbed: true,
@@ -644,32 +547,42 @@ function StreamPlayer({ stream }) {
   }
 }
 
-/* ====================== Label fix: W/L-V(round-1) ====================== */
-function getRoundNumber(m) {
-  const n =
-    m?.round ??
-    m?.meta?.round ??
-    m?.roundIndex ??
-    m?.meta?.roundIndex ??
-    m?.koRound ??
-    m?.drawRound ??
+/* ====================== PlayerLink & team helpers ====================== */
+function PlayerLink({ person, onOpen }) {
+  if (!person) return null;
+  const uid =
+    person?.user?._id ||
+    person?.user?.id ||
+    person?.user ||
+    person?._id ||
+    person?.id ||
     null;
-  return Number.isFinite(Number(n)) ? Number(n) : null;
-}
 
-function fixDepLabelForMatch(m, prevDep) {
-  const base = depLabel(prevDep);
-  const r = getRoundNumber(m);
-  if (!base || !r || r <= 1) return base;
-  const expectedPrev = r - 1;
-  return String(base).replace(/\b([WL])-V(\d+)-T(\d+)\b/g, (_s, wl, _v, t) => {
-    return `${wl}-V${expectedPrev}-T${t}`;
-  });
-}
+  const handleClick = () => {
+    if (!uid) return;
+    onOpen?.(uid);
+  };
 
-/* ====================== Team select helpers ====================== */
+  return (
+    <MuiLink
+      component="button"
+      underline="hover"
+      onClick={handleClick}
+      sx={{
+        p: 0,
+        m: 0,
+        font: "inherit",
+        color: "inherit",
+        cursor: "pointer",
+        "&:hover": { textDecorationColor: "inherit" },
+      }}
+      title={nameWithNick(person)}
+    >
+      {nameWithNick(person)}
+    </MuiLink>
+  );
+}
 const idOf = (x) => x?._id || x?.id || x?.value || x || null;
-
 function pairLabel(reg, isSingle) {
   if (!reg) return "—";
   const p1 = reg?.player1 || reg?.players?.[0] || reg?.p1;
@@ -692,7 +605,6 @@ function pairLabel(reg, isSingle) {
 
   return [n1, n2].filter(Boolean).join(" & ") || code || "—";
 }
-
 function useDebounced(value, delay = 400) {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -870,7 +782,55 @@ function EditTeamsDialog({
   );
 }
 
-/* ====================== Main: MatchContent ====================== */
+/* ====================== Anti-flicker ====================== */
+function useDelayedFlag(flag, ms = 250) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    let t;
+    if (flag) t = setTimeout(() => setShow(true), ms);
+    else setShow(false);
+    return () => clearTimeout(t);
+  }, [flag, ms]);
+  return show;
+}
+
+/* ====================== LOCK: chỉ cập nhật đúng match đang mở ====================== */
+/**
+ * Khóa vào match đầu tiên có id trong props m. Trong suốt vòng đời component,
+ * chỉ nhận update cho đúng lockedId. Nếu parent truyền m của match khác, sẽ BỎ QUA,
+ * tránh “nhảy” sang trận khác giữa chừng.
+ */
+function useLockedMatch(m, { loading }) {
+  const [lockedId, setLockedId] = useState(() => (m?._id ? String(m._id) : ""));
+  const [view, setView] = useState(() => (m?._id ? m : null));
+
+  // Khi có dữ liệu đầu tiên => khóa lại
+  useEffect(() => {
+    if (!lockedId && m?._id) {
+      setLockedId(String(m._id));
+      setView(m);
+    }
+  }, [m?._id, lockedId, m]);
+
+  // Nếu props m update cùng lockedId => cập nhật view
+  useEffect(() => {
+    if (!m) return;
+    if (lockedId && String(m._id) === String(lockedId)) {
+      setView((prev) => (isMatchEqual(prev, m) ? prev : m));
+    } else if (!lockedId && m?._id) {
+      // Trường hợp hiếm khi lock chưa set
+      setLockedId(String(m._id));
+      setView(m);
+    }
+  }, [m, lockedId]);
+
+  // Nếu parent đang loading và chưa có view => show spinner
+  const waiting = loading && !view;
+
+  return { lockedId, view, setView, waiting };
+}
+
+/* ====================== Main ====================== */
 export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const { userInfo } = useSelector((s) => s.auth || {});
   const roleStr = String(userInfo?.role || "").toLowerCase();
@@ -910,66 +870,74 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const isManager = !!verifyRes?.isManager;
   const canEdit = isAdmin || isManager;
 
-  // Profile dialog (chỉ cần userId)
-  const [profileUserId, setProfileUserId] = useState(null);
-  const openProfile = (uid) => {
-    if (!uid) return;
-    const norm = uid?._id || uid?.id || uid?.userId || uid?.uid || uid || null;
-    if (norm) setProfileUserId(String(norm));
-  };
-  const closeProfile = () => setProfileUserId(null);
+  const socketCtx = useSocket();
+  const socket = socketCtx?.socket || socketCtx;
 
-  // Anti-flicker pipeline
+  // LOCKED VIEW
   const loading = Boolean(isLoading || liveLoading);
-  const [baseMatch, waitingNewSelection] = useShowAfterFetch(m, loading);
-  const showSpinnerDelayed = useDelayedFlag(waitingNewSelection, 250);
-  const mm = useThrottledStable(baseMatch, {
-    interval: 280,
-    isEqual: isMatchEqual,
+  const {
+    lockedId,
+    view: mm,
+    setView,
+    waiting,
+  } = useLockedMatch(m, {
+    loading,
   });
+  const showSpinnerDelayed = useDelayedFlag(waiting, 250);
+
+  // Local patch: chỉ ghi đè field cần thiết (scores/status/teams), giữ nguyên id
+  const [localPatch, setLocalPatch] = useState(null);
+  useEffect(() => {
+    // Reset local patch khi đổi trận (lockedId đổi)
+    setLocalPatch(null);
+  }, [lockedId]);
+
+  // Hiển thị dựa trên view + localPatch
+  const status = localPatch?.status || mm?.status || "scheduled";
+  const shownGameScores = localPatch?.gameScores ?? mm?.gameScores ?? [];
 
   // Streams
-  const streams = normalizeStreams(mm || {});
-  const pickInitialIndex = (arr) => {
+  const streams = normalizeStreams(
+    localPatch ? { ...mm, ...localPatch } : mm || {}
+  );
+  const [activeIdx, setActiveIdx] = useState(() => {
+    const arr = streams;
     if (!arr.length) return -1;
     const primary = arr.findIndex((s) => s.primary);
     if (primary >= 0) return primary;
     const emb = arr.findIndex((s) => s.canEmbed);
     if (emb >= 0) return emb;
     return 0;
-  };
-  const [activeIdx, setActiveIdx] = useState(pickInitialIndex(streams));
+  });
   const [showPlayer, setShowPlayer] = useState(false);
-
   useEffect(() => {
-    setActiveIdx(pickInitialIndex(streams));
+    // Khi đổi trận (lockedId), chọn lại stream mặc định
+    const arr = normalizeStreams(mm || {});
+    const pick = () => {
+      if (!arr.length) return -1;
+      const p = arr.findIndex((s) => s.primary);
+      if (p >= 0) return p;
+      const e = arr.findIndex((s) => s.canEmbed);
+      if (e >= 0) return e;
+      return 0;
+    };
+    setActiveIdx(pick());
     setShowPlayer(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mm?._id]);
+  }, [lockedId]); // chỉ khi đổi trận
 
   const activeStream =
     activeIdx >= 0 && activeIdx < streams.length ? streams[activeIdx] : null;
 
-  // Local patch để UI phản hồi ngay
-  const [localPatch, setLocalPatch] = useState(null);
-  useEffect(() => {
-    setLocalPatch(null);
-  }, [mm?._id]);
-
-  const status = localPatch?.status || mm?.status || "scheduled";
-  const shownGameScores = localPatch?.gameScores ?? mm?.gameScores ?? [];
-
-  // Overlay
+  // Overlay URL (tham khảo)
   const overlayUrl =
-    mm?._id && typeof window !== "undefined" && window?.location?.origin
-      ? `${window.location.origin}/overlay/score?matchId=${mm._id}&theme=dark&size=md&showSets=1&autoNext=1`
+    lockedId && typeof window !== "undefined" && window?.location?.origin
+      ? `${window.location.origin}/overlay/score?matchId=${lockedId}&theme=dark&size=md&showSets=1&autoNext=1`
       : "";
 
-  // Thời gian
+  // Time labels
   const startedAt = toDateSafe(mm?.startedAt);
   const scheduledAt = toDateSafe(mm?.scheduledAt || mm?.assignedAt);
   const finishedAt = toDateSafe(mm?.finishedAt);
-
   const startLabel =
     status === "finished" || status === "live"
       ? startedAt
@@ -980,26 +948,22 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       : scheduledAt
       ? `Giờ đấu: ${formatClock(scheduledAt)}`
       : null;
-
   const endLabel =
     status === "finished" && finishedAt
       ? `Kết thúc: ${formatClock(finishedAt)}`
       : null;
 
-  const showSpinner = waitingNewSelection && showSpinnerDelayed;
-  const showError = !waitingNewSelection && !baseMatch;
+  const isSingle =
+    String(mm?.tournament?.eventType || "").toLowerCase() === "single";
 
-  const isSingle = String(mm?.tournament?.eventType).toLowerCase() === "single";
-
-  // Sửa tỉ số
+  // ====== Edit scores ======
   const [editMode, setEditMode] = useState(false);
   const [editScores, setEditScores] = useState(() => [
     ...(shownGameScores || []),
   ]);
   useEffect(() => {
     setEditScores([...(localPatch?.gameScores ?? mm?.gameScores ?? [])]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mm?._id, localPatch?.gameScores]);
+  }, [lockedId, localPatch?.gameScores, mm?.gameScores]);
 
   const sanitizeInt = (v) => {
     const n = parseInt(String(v).replace(/[^\d-]/g, ""), 10);
@@ -1022,31 +986,30 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const resetEdits = () =>
     setEditScores([...(localPatch?.gameScores ?? mm?.gameScores ?? [])]);
 
-  // Patch API
   const [adminPatchMatch, { isLoading: patching }] =
     useAdminPatchMatchMutation();
 
   const handleSaveScores = async () => {
-    if (!canEdit || !mm?._id) return;
+    if (!canEdit || !lockedId) return;
     try {
       await adminPatchMatch({
-        id: mm._id,
+        id: lockedId,
         body: { gameScores: editScores },
       }).unwrap();
       setLocalPatch((p) => ({ ...(p || {}), gameScores: editScores }));
       toast.success("Đã lưu tỉ số.");
       setEditMode(false);
-      onSaved?.();
+      onSaved?.(); // cho parent refetch list (không ảnh hưởng dialog vì đã lock)
     } catch (e) {
       toast.error(`Lưu tỉ số thất bại: ${e?.data?.message || e?.message || e}`);
     }
   };
 
   const handleSetWinner = async (side /* 'A' | 'B' */) => {
-    if (!canEdit || !mm?._id) return;
+    if (!canEdit || !lockedId) return;
     try {
       await adminPatchMatch({
-        id: mm._id,
+        id: lockedId,
         body: { winner: side, status: "finished" },
       }).unwrap();
       setLocalPatch((p) => ({ ...(p || {}), status: "finished" }));
@@ -1060,10 +1023,10 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   };
 
   const handleSetStatus = async (newStatus) => {
-    if (!canEdit || !mm?._id) return;
+    if (!canEdit || !lockedId) return;
     try {
       await adminPatchMatch({
-        id: mm._id,
+        id: lockedId,
         body: { status: newStatus },
       }).unwrap();
       setLocalPatch((p) => ({ ...(p || {}), status: newStatus }));
@@ -1078,13 +1041,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
   // Chỉnh đội
   const [teamsOpen, setTeamsOpen] = useState(false);
-  const bracketId = idOf(
-    m?.bracket && typeof m.bracket === "object" ? m.bracket : m?.bracket
-  );
-
   const patchTeams = async (body) => {
     try {
-      await adminPatchMatch({ id: mm._id, body }).unwrap();
+      await adminPatchMatch({ id: lockedId, body }).unwrap();
       toast.success("Đã lưu đội A/B. Reload trang để áp dụng");
     } catch (e) {
       const msg = e?.data?.message || e?.message || "Lỗi không xác định";
@@ -1092,8 +1051,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       throw e;
     }
   };
-
   const handleTeamsSavedLocal = (newA, newB) => {
+    // Cập nhật view tại chỗ, vẫn giữ lockedId
     setLocalPatch((p) => ({
       ...(p || {}),
       pairA: newA
@@ -1116,17 +1075,101 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     onSaved?.();
   };
 
-  if (showSpinner) {
+  /* ====================== Socket: chỉ nghe đúng lockedId ====================== */
+  const onSavedRef = useRef(onSaved);
+  useEffect(() => {
+    onSavedRef.current = onSaved;
+  }, [onSaved]);
+
+  const debouncedRefreshRef = useRef(null);
+  const debouncedRefresh = () => {
+    if (debouncedRefreshRef.current) clearTimeout(debouncedRefreshRef.current);
+    debouncedRefreshRef.current = setTimeout(() => {
+      onSavedRef.current?.();
+    }, 200);
+  };
+
+  const applyLocalScoreIfAny = (payload = {}) => {
+    const gameScores =
+      payload.gameScores ??
+      payload.scores ??
+      payload.data?.gameScores ??
+      payload.data?.scores;
+    if (Array.isArray(gameScores)) {
+      setLocalPatch((p) => ({ ...(p || {}), gameScores }));
+    }
+  };
+
+  useEffect(() => {
+    if (!socket || !lockedId) return;
+
+    const forThis = (payload) =>
+      isSameId(getMatchIdFromPayload(payload), lockedId);
+
+    const SCORE_EVENTS = [
+      "score:updated",
+      "score:patched",
+      "score:added",
+      "score:undone",
+    ];
+    const REFRESH_EVENTS = [
+      "match:patched",
+      "match:started",
+      "match:finished",
+      "match:forfeited",
+      "draw:matchUpdated",
+      "match:teamsUpdated",
+    ];
+    const SERVE_EVENTS = ["serve:set", "match:serveSet"];
+
+    const onScore = (payload = {}) => {
+      if (!forThis(payload)) return;
+      applyLocalScoreIfAny(payload); // cập nhật tại chỗ để không nháy
+      const hasScores = Array.isArray(
+        payload.gameScores ??
+          payload.scores ??
+          payload?.data?.gameScores ??
+          payload?.data?.scores
+      );
+      if (!hasScores) debouncedRefresh();
+    };
+
+    const onGenericRefresh = (payload = {}) => {
+      if (!forThis(payload)) return;
+      debouncedRefresh();
+    };
+
+    const onServe = (payload = {}) => {
+      if (!forThis(payload)) return;
+      debouncedRefresh();
+    };
+
+    SCORE_EVENTS.forEach((ev) => socket.on(ev, onScore));
+    REFRESH_EVENTS.forEach((ev) => socket.on(ev, onGenericRefresh));
+    SERVE_EVENTS.forEach((ev) => socket.on(ev, onServe));
+
+    return () => {
+      SCORE_EVENTS.forEach((ev) => socket.off(ev, onScore));
+      REFRESH_EVENTS.forEach((ev) => socket.off(ev, onGenericRefresh));
+      SERVE_EVENTS.forEach((ev) => socket.off(ev, onServe));
+      if (debouncedRefreshRef.current) {
+        clearTimeout(debouncedRefreshRef.current);
+        debouncedRefreshRef.current = null;
+      }
+    };
+  }, [socket, lockedId]);
+
+  /* ====================== Render ====================== */
+  if (waiting && showSpinnerDelayed) {
     return (
       <Box py={4} textAlign="center">
         <CircularProgress />
       </Box>
     );
   }
-  if (showError) {
+  if (!mm) {
     return <Alert severity="error">Không tải được dữ liệu trận.</Alert>;
   }
-  if (!mm) return <Box py={2} />;
 
   const canSeeOverlay = canEdit;
 
@@ -1135,16 +1178,12 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       {/* Header trạng thái */}
       <Alert icon={<PlayIcon />} severity="info">
         {status === "live"
-          ? streams.length
+          ? normalizeStreams(localPatch ? { ...mm, ...localPatch } : mm).length
             ? "Trận đang live — bạn có thể mở liên kết hoặc xem trong nền."
             : "Trận đang live — chưa có link."
           : status === "finished"
-          ? streams.length
-            ? "Trận đã diễn ra — bạn có thể mở liên kết hoặc xem lại trong nền."
-            : "Trận đã diễn ra. Chưa có liên kết video."
-          : streams.length
-          ? "Trận chưa diễn ra — đã có liên kết sẵn."
-          : "Trận chưa diễn ra. Chưa có liên kết video."}
+          ? "Trận đã diễn ra."
+          : "Trận chưa diễn ra."}
       </Alert>
 
       {/* Khu video */}
@@ -1225,8 +1264,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               </Stack>
             </Stack>
             <Typography variant="caption" color="text.secondary">
-              Mẹo: dán link này vào OBS/StreamYard (Browser Source) để hiển thị
-              tỉ số ở góc màn hình.
+              Dán link vào OBS/StreamYard (Browser Source) để hiển thị tỉ số.
             </Typography>
           </Stack>
         </Paper>
@@ -1250,15 +1288,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             </Typography>
             {mm?.pairA ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                <PlayerLink person={mm.pairA?.player1} onOpen={openProfile} />
+                <PlayerLink person={mm.pairA?.player1} onOpen={() => {}} />
                 {!isSingle && mm.pairA?.player2 && (
                   <>
                     {" "}
-                    &{" "}
-                    <PlayerLink
-                      person={mm.pairA.player2}
-                      onOpen={openProfile}
-                    />
+                    & <PlayerLink person={mm.pairA.player2} onOpen={() => {}} />
                   </>
                 )}
               </Typography>
@@ -1279,12 +1313,14 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               </Typography>
             )}
             <Typography variant="h4" fontWeight={800}>
-              {lastGameScore(shownGameScores).a ?? 0} –{" "}
-              {lastGameScore(shownGameScores).b ?? 0}
+              {shownGameScores?.[shownGameScores.length - 1]?.a ?? 0} –{" "}
+              {shownGameScores?.[shownGameScores.length - 1]?.b ?? 0}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Sets: {countGamesWon(shownGameScores).A} –{" "}
-              {countGamesWon(shownGameScores).B}
+              Sets:{" "}
+              {shownGameScores.filter((g) => (g?.a ?? 0) > (g?.b ?? 0)).length}{" "}
+              –{" "}
+              {shownGameScores.filter((g) => (g?.b ?? 0) > (g?.a ?? 0)).length}
             </Typography>
           </Box>
 
@@ -1295,15 +1331,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             </Typography>
             {mm?.pairB ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                <PlayerLink person={mm.pairB?.player1} onOpen={openProfile} />
+                <PlayerLink person={mm.pairB?.player1} onOpen={() => {}} />
                 {!isSingle && mm.pairB?.player2 && (
                   <>
                     {" "}
-                    &{" "}
-                    <PlayerLink
-                      person={mm.pairB.player2}
-                      onOpen={openProfile}
-                    />
+                    & <PlayerLink person={mm.pairB.player2} onOpen={() => {}} />
                   </>
                 )}
               </Typography>
@@ -1539,7 +1571,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 size="small"
                 startIcon={<GroupIcon />}
                 onClick={() => setTeamsOpen(true)}
-                disabled={patching || verifyingMgr || !mm?._id || !canEdit}
+                disabled={patching || verifyingMgr || !lockedId || !canEdit}
               >
                 Chỉnh đội A/B
               </Button>
@@ -1554,19 +1586,15 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         onClose={() => setTeamsOpen(false)}
         tournamentId={tournamentId}
         isSingle={isSingle}
-        defaultA={mm?.pairA || null}
-        defaultB={mm?.pairB || null}
+        defaultA={localPatch?.pairA ?? mm?.pairA ?? null}
+        defaultB={localPatch?.pairB ?? mm?.pairB ?? null}
         onSaved={handleTeamsSavedLocal}
         patchMatch={patchTeams}
         patching={patching}
       />
 
-      {/* Popup hồ sơ VĐV */}
-      <PublicProfileDialog
-        open={Boolean(profileUserId)}
-        onClose={closeProfile}
-        userId={profileUserId}
-      />
+      {/* Popup hồ sơ VĐV (nếu bạn cần dùng, có thể bật lại openProfile ở trên) */}
+      {/* <PublicProfileDialog open={Boolean(profileUserId)} onClose={closeProfile} userId={profileUserId} /> */}
     </Stack>
   );
 }
