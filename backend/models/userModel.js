@@ -76,6 +76,15 @@ const EvaluatorSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// ADD: phạm vi trọng tài theo giải
+const RefereeScopeSchema = new mongoose.Schema(
+  {
+    // Danh sách giải được phép chấm
+    tournaments: [{ type: mongoose.Schema.Types.ObjectId, ref: "Tournament" }],
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema(
   {
     /* ------- Thông tin cơ bản ------- */
@@ -140,7 +149,7 @@ const userSchema = new mongoose.Schema(
 
     /* ------- Năng lực chấm trình ------- */
     evaluator: { type: EvaluatorSchema, default: () => ({}) },
-
+    referee: { type: RefereeScopeSchema, default: () => ({ tournaments: [] }) },
     /* ------- Đăng ký: metadata nền tảng ------- */
     signupMeta: { type: SignupMetaSchema, default: () => ({}) },
 
@@ -201,6 +210,15 @@ userSchema.pre("validate", function (next) {
       : ["pickleball"];
   }
 
+  // ADD: chuẩn hoá referee.tournaments (lọc rỗng, dedupe, ép ObjectId)
+  if (this.referee && Array.isArray(this.referee.tournaments)) {
+    const ids = this.referee.tournaments
+      .map((x) => (mongoose.Types.ObjectId.isValid(x) ? String(x) : ""))
+      .filter(Boolean);
+    const uniq = Array.from(new Set(ids));
+    this.referee.tournaments = uniq.map((s) => new mongoose.Types.ObjectId(s));
+  }
+
   // Signup meta normalization
   if (this.signupMeta) {
     // platform
@@ -255,6 +273,26 @@ userSchema.methods.canGradeUser = function (targetUserOrProvince) {
       : targetUserOrProvince?.province;
   return this.canGradeProvince(province);
 };
+
+// ADD: check trọng tài được chấm giải nào
+userSchema.methods.isRefereeForTournament = function (tournamentId) {
+  if (this.role === "admin") return true; // admin full quyền
+  if (this.role !== "referee") return false;
+  if (!tournamentId) return false;
+  const tid = String(tournamentId);
+  return (this.referee?.tournaments || []).some((t) => String(t) === tid);
+};
+
+// (tuỳ chọn) Tìm danh sách trọng tài của 1 giải
+userSchema.statics.findRefereesForTournament = function (tournamentId) {
+  if (!mongoose.Types.ObjectId.isValid(tournamentId)) return Promise.resolve([]);
+  return this.find({
+    isDeleted: { $ne: true },
+    role: "referee",
+    "referee.tournaments": tournamentId,
+  }).select("name nickname fullName email province");
+};
+
 userSchema.statics.findEvaluatorsForProvince = function (province) {
   const p = String(province || "").trim();
   if (!p) return Promise.resolve([]);

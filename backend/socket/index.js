@@ -25,6 +25,28 @@ import {
 } from "../services/courtQueueService.js";
 import { broadcastState } from "../services/broadcastState.js";
 import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
+import {
+  addConnection,
+  emitSummary,
+  refreshHeartbeat,
+  removeConnection,
+  sweepStaleSockets,
+} from "../services/presenceService.js";
+
+function guessClientType(socket) {
+  try {
+    const raw = socket.handshake.query?.client || "";
+    if (raw) return String(raw).toLowerCase();
+    const ua = String(
+      socket.handshake.headers["user-agent"] || ""
+    ).toLowerCase();
+    if (ua.includes("android") || ua.includes("iphone")) return "app";
+    return "web";
+  } catch (e) {
+    console.error("[socket] guessClientType error:", e);
+    return "web";
+  }
+}
 
 /**
  * Khởi tạo Socket.IO server
@@ -58,21 +80,64 @@ export function initSocket(
   })();
 
   // Lightweight auth: put user info on socket if token is valid
+  // Auth middleware: set BOTH socket.data.* and socket.user (compat)
+  function extractUserId(p) {
+    return (
+      p?.id ||
+      p?._id ||
+      p?.userId ||
+      p?.user?.id ||
+      p?.user?._id ||
+      p?.data?.id ||
+      p?.data?._id ||
+      p?.sub ||
+      p?.uid ||
+      null
+    );
+  }
   io.use((socket, next) => {
     try {
-      const token =
-        socket.handshake.auth?.token?.replace("Bearer ", "") ||
-        socket.handshake.headers?.authorization?.replace("Bearer ", "");
-      if (token) {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        socket.user = { _id: decoded.userId, role: decoded.role };
-      } else {
+      const rawAuth = socket.handshake.auth?.token || "";
+      const rawHeader = socket.handshake.headers?.authorization || "";
+      const headerToken = rawHeader.startsWith("Bearer ")
+        ? rawHeader.slice(7)
+        : null;
+      const token = rawAuth.startsWith("Bearer ")
+        ? rawAuth.slice(7)
+        : rawAuth || headerToken;
+      if (!token) {
         socket.user = null;
+        socket.data.userId = null;
+        socket.data.role = null;
+        socket.data.client = guessClientType(socket);
+        return next();
       }
-      next();
-    } catch {
+      const payload = jwt.verify(token, process.env.JWT_SECRET);
+      const uid = extractUserId(payload);
+      if (!uid) {
+        console.warn(
+          "[socket] JWT ok nhưng không tìm thấy userId trong payload:",
+          payload
+        );
+        socket.user = null;
+        socket.data.userId = null;
+        socket.data.role = null;
+        socket.data.client = guessClientType(socket);
+        return next();
+      }
+      socket.data.userId = String(uid);
+      socket.data.role = payload?.role || null;
+      socket.data.client = guessClientType(socket);
+      // giữ tương thích cho các đoạn code đang dùng socket.user
+      socket.user = { _id: socket.data.userId, role: socket.data.role };
+      return next();
+    } catch (e) {
+      console.error("[socket] auth error:", e?.message || e);
       socket.user = null;
-      next();
+      socket.data.userId = null;
+      socket.data.role = null;
+      socket.data.client = guessClientType(socket);
+      return next();
     }
   });
 
@@ -91,7 +156,52 @@ export function initSocket(
   // Scheduler state broadcaster (ưu tiên bracket)
   // ---------------- Broadcaster (ĐÃ SỬA) ----------------
 
-  io.on("connection", (socket) => {
+  io.on("connection", async (socket) => {
+    const userId = String(socket?.data?.userId || socket?.user?._id || "");
+    const client = socket?.data?.client || guessClientType(socket);
+    if (!userId) {
+      console.warn(
+        "[socket] connected nhưng không có userId -> presence sẽ không tăng"
+      );
+    } else {
+      console.log(
+        "[socket] connected:",
+        socket.id,
+        "uid=",
+        userId,
+        "client=",
+        client
+      );
+    }
+
+    try {
+      if (userId) {
+        await addConnection({ userId, socketId: socket.id, client });
+        await emitSummary(io);
+      }
+    } catch (e) {
+      console.error("[socket] on connect addConnection error:", e);
+    }
+
+    // nhận subscribe realtime từ admin tab
+    socket.on("presence:watch", async () => {
+      try {
+        socket.join("presence:watchers");
+        await emitSummary(io, socket.id); // gửi riêng cho socket này
+      } catch (e) {
+        console.error("[socket] presence:watch error:", e);
+      }
+    });
+
+    // heartbeat từ client (app/web gửi mỗi 10s)
+    socket.on("presence:ping", async () => {
+      try {
+        await refreshHeartbeat(socket.id);
+      } catch (e) {
+        console.error("[socket] presence:ping error:", e);
+      }
+    });
+
     // ========= MATCH ROOMS =========
     socket.on("match:join", async ({ matchId }) => {
       if (!matchId) return;
@@ -1365,7 +1475,28 @@ export function initSocket(
     socket.on("draw:unsubscribe", ({ bracketId }) => {
       if (bracketId) socket.leave(`draw:${String(bracketId)}`);
     });
+
+    socket.on("disconnect", async () => {
+      try {
+        if (userId) {
+          await removeConnection({ userId, socketId: socket.id, client });
+          await emitSummary(io);
+        }
+      } catch (e) {
+        console.error("[socket] disconnect removeConnection error:", e);
+      }
+    });
   });
+
+  // ===== Sweeper định kỳ cho socket “chết” không kịp disconnect =====
+  const SWEEP_EVERY_MS = +(process.env.PRESENCE_SWEEP_MS || 30000);
+  setInterval(async () => {
+    try {
+      await sweepStaleSockets({ batch: 500 });
+    } catch (e) {
+      console.error("[socket] sweepStaleSockets timer error:", e);
+    }
+  }, SWEEP_EVERY_MS);
 
   return io;
 }

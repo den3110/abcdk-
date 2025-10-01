@@ -499,6 +499,107 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
     verifyManager: builder.query({
       query: (tid) => `/api/tournaments/${tid}/is-manager`,
     }),
+    adminSearchReferees: builder.query({
+      query: ({ tid, q = "", limit = 50 } = {}) => {
+        const params = new URLSearchParams();
+        if (q) params.set("q", q);
+        if (limit) params.set("limit", String(limit));
+        if (tid) params.set("tid", String(tid));
+        return {
+          url: `/api/admin/referees/search?${params.toString()}`,
+          method: "GET",
+        };
+      },
+      // Giữ cache ngắn để search mượt
+      keepUnusedDataFor: 30,
+      // Đảm bảo cache key phụ thuộc đúng tham số
+      serializeQueryArgs: ({ endpointName, queryArgs }) => {
+        const { tid = "", q = "", limit = 50 } = queryArgs || {};
+        return `${endpointName}:${tid}:${q}:${limit}`;
+      },
+      // Response là mảng user → trả thẳng
+      transformResponse: (res) => (Array.isArray(res) ? res : res?.data || []),
+      providesTags: (result) =>
+        result
+          ? [
+              { type: "RefereeSearch", id: "LIST" },
+              ...result.map((u) => ({ type: "RefereeSearch", id: u._id })),
+            ]
+          : [{ type: "RefereeSearch", id: "LIST" }],
+    }),
+    adminAssignMatchToCourt: builder.mutation({
+      /**
+       * @param {{ tid: string, matchId: string, courtId: string }} args
+       */
+      async queryFn(args, _api, _extra, baseQuery) {
+        const { tid, matchId, courtId } = args || {};
+        if (!tid || !matchId || !courtId) {
+          return {
+            error: {
+              status: 400,
+              data: { message: "tid, matchId và courtId là bắt buộc" },
+            },
+          };
+        }
+        const result = await baseQuery({
+          url: `/api/admin/tournaments/${tid}/matches/${matchId}/court`,
+          method: "POST",
+          body: { courtId },
+        });
+        if (result.error) return { error: result.error };
+        return { data: result.data };
+      },
+      invalidatesTags: (result, error, { tid, matchId }) => {
+        const tags = [];
+        if (tid) tags.push({ type: "MatchesByTournament", id: tid });
+        if (tid) tags.push({ type: "Courts", id: tid });
+        if (matchId) tags.push({ type: "Match", id: matchId });
+        return tags;
+      },
+    }),
+
+    /* ================== BỎ GÁN SÂN CỦA TRẬN ================== */
+    adminClearMatchCourt: builder.mutation({
+      /**
+       * @param {{ tid: string, matchId: string }} args
+       */
+      async queryFn(args, _api, _extra, baseQuery) {
+        const { tid, matchId } = args || {};
+        if (!tid || !matchId) {
+          return {
+            error: {
+              status: 400,
+              data: { message: "tid và matchId là bắt buộc" },
+            },
+          };
+        }
+        const result = await baseQuery({
+          url: `/api/admin/tournaments/${tid}/matches/${matchId}/court`,
+          method: "DELETE",
+        });
+        if (result.error) return { error: result.error };
+        return { data: result.data };
+      },
+      invalidatesTags: (result, error, { tid, matchId }) => {
+        const tags = [];
+        if (tid) tags.push({ type: "MatchesByTournament", id: tid });
+        if (tid) tags.push({ type: "Courts", id: tid });
+        if (matchId) tags.push({ type: "Match", id: matchId });
+        return tags;
+      },
+    }),
+    adminGetMatchReferees: builder.query({
+      /**
+       * @param {{ tid: string, matchId: string }} args
+       */
+      query: ({ tid, matchId }) =>
+        `/api/admin/tournaments/${tid}/matches/${matchId}/referees`,
+      providesTags: (result, error, { matchId }) => [
+        { type: 'MatchReferees', id: matchId },
+      ],
+      // Optional: chuẩn hoá data
+      transformResponse: (res) => Array.isArray(res) ? res : (res?.referees || []),
+    }),
   }),
 });
 
@@ -554,5 +655,9 @@ export const {
   useCreateComplaintMutation,
   useSearchRegistrationsQuery,
   useLazySearchRegistrationsQuery,
-  useVerifyManagerQuery
+  useVerifyManagerQuery,
+  useAdminSearchRefereesQuery,
+  useAdminAssignMatchToCourtMutation,
+  useAdminClearMatchCourtMutation,
+  useAdminGetMatchRefereesQuery
 } = tournamentsApiSlice;

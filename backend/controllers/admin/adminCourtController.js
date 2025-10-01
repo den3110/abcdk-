@@ -3,12 +3,14 @@ import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import Court from "../../models/courtModel.js";
 import Match from "../../models/matchModel.js";
+import Bracket from "../../models/bracketModel.js";
 import {
   buildGroupsRotationQueue,
   assignNextToCourt,
   freeCourtAndAssignNext,
   fillIdleCourtsForCluster,
 } from "../../services/courtQueueService.js";
+import { canManageTournament } from "../../utils/tournamentAuth.js";
 
 /**
  * Upsert danh sách sân cho 1 giải + bracket
@@ -202,7 +204,6 @@ export const upsertCourts = asyncHandler(async (req, res) => {
   // NEW: trả về meta cho FE biết lần này có áp dụng autoAssign hay không
   return res.json({ items, meta: { autoAssignApplied: autoAssign } });
 });
-
 
 export const buildGroupsQueueHttp = asyncHandler(async (req, res) => {
   const { tournamentId } = req.params;
@@ -504,7 +505,6 @@ export const resetCourtsHttp = asyncHandler(async (req, res) => {
   }
 });
 
-
 export const MATCH_BASE_SELECT =
   "_id tournament bracket format type status queueOrder " +
   "court courtLabel pool rrRound round order code labelKey " +
@@ -521,12 +521,14 @@ export const displayLabelKey = (m) => {
 };
 
 const nameOfPerson = (p) =>
-  (p?.nickName ||
+  (
+    p?.nickName ||
     p?.nickname ||
     p?.fullName ||
     p?.displayName ||
     p?.name ||
-    "").trim();
+    ""
+  ).trim();
 
 export const nameOfPair = (pair) => {
   if (!pair) return "";
@@ -592,4 +594,165 @@ export async function fetchSchedulerMatches({
     pairAName: m.pairA ? nameOfPair(m.pairA) : "",
     pairBName: m.pairB ? nameOfPair(m.pairB) : "",
   }));
+}
+
+/**
+ * GET /api/admin/tournaments/:tid/courts?bracket=<bid>&q=&cluster=&limit=&page=
+ * Trả về: Array<Court> (populate currentMatch: _id, code, round, order, globalRound)
+ */
+
+/** Chuẩn hóa mã trận cho FE hiển thị */
+function poolIndexFromName(poolName, bracket) {
+  const name = String(poolName || "")
+    .trim()
+    .toUpperCase();
+  if (!name) return undefined;
+
+  // map theo groups trong bracket
+  if (Array.isArray(bracket?.groups) && bracket.groups.length > 0) {
+    const idx = bracket.groups.findIndex((g) => {
+      const gn = String(g?.name ?? g?.key ?? "")
+        .trim()
+        .toUpperCase();
+      return gn === name;
+    });
+    if (idx >= 0) return idx + 1; // 1-based
+  }
+
+  // A..Z -> 1..26
+  if (/^[A-Z]$/.test(name)) return name.charCodeAt(0) - 64;
+
+  // "1", "2", ... -> số
+  if (/^\d+$/.test(name)) return parseInt(name, 10);
+
+  return undefined;
+}
+
+/** Tạo mã hiển thị cho trận theo thể thức:
+ *  - Group/RR/GSL: V{v}-B{poolIndex}-T{order+1}
+ *  - Swiss:        V{v}-T{order+1}
+ *  - Khác (KO...): V{v}-T{order+1}
+ * Trả { displayCode, code } (code = displayCode để FE dùng thống nhất)
+ */
+function makeCodes(match, bracket) {
+  if (!match) return { displayCode: "", code: "" };
+
+  const fmt = String(match.format || "").toLowerCase();
+  const ord1 = Number.isFinite(match?.order) ? match.order + 1 : undefined;
+  const firstFinite = (...xs) => xs.find((n) => Number.isFinite(n));
+  const segs = [];
+
+  if (["group", "round_robin", "gsl"].includes(fmt)) {
+    const v = firstFinite(match?.rrRound, match?.round, match?.globalRound);
+    const poolName = match?.pool?.name ?? match?.pool?.key ?? "";
+    const pIndex = poolIndexFromName(poolName, bracket);
+
+    if (Number.isFinite(v)) segs.push(`V${v}`);
+    if (Number.isFinite(pIndex)) segs.push(`B${pIndex}`); // KHÔNG dùng A/B, mà dùng số thứ tự
+    if (Number.isFinite(ord1)) segs.push(`T${ord1}`);
+
+    const out = segs.join("-");
+    return {
+      displayCode: out || String(match.code || ""),
+      code: out || String(match.code || ""),
+    };
+  }
+
+  if (fmt === "swiss") {
+    const v = firstFinite(match?.swissRound, match?.round, match?.globalRound);
+    if (Number.isFinite(v)) segs.push(`V${v}`);
+    if (Number.isFinite(ord1)) segs.push(`T${ord1}`);
+    const out = segs.join("-");
+    return {
+      displayCode: out || String(match.code || ""),
+      code: out || String(match.code || ""),
+    };
+  }
+
+  // KO / default
+  const v = firstFinite(match?.globalRound, match?.round);
+  if (Number.isFinite(v)) segs.push(`V${v}`);
+  if (Number.isFinite(ord1)) segs.push(`T${ord1}`);
+  const out = segs.join("-");
+  return {
+    displayCode: out || String(match.code || ""),
+    code: out || String(match.code || ""),
+  };
+}
+
+export async function listCourtsByTournament(req, res) {
+  try {
+    const { tid } = req.params;
+    const { bracket: bid, q = "", cluster = "", limit, page } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(tid)) {
+      return res.status(400).json({ message: "Invalid tournament id" });
+    }
+
+    const me = req.user;
+    const isAdmin = me?.role === "admin";
+    const ownerOrMgr = await canManageTournament(me?._id, tid);
+    if (!isAdmin && !ownerOrMgr) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    if (!bid || !mongoose.Types.ObjectId.isValid(bid)) {
+      return res
+        .status(400)
+        .json({ message: "Query 'bracket' is required and must be ObjectId" });
+    }
+
+    // Lấy bracket kèm groups để map pool -> chỉ số
+    const bracket = await Bracket.findOne({ _id: bid, tournament: tid })
+      .select("_id groups.name groups.key")
+      .lean();
+    if (!bracket) {
+      return res
+        .status(404)
+        .json({ message: "Bracket not found in this tournament" });
+    }
+
+    // Filter
+    const where = { tournament: tid, bracket: bid };
+    const qTrim = String(q || "").trim();
+    const clusterTrim = String(cluster || "").trim();
+
+    if (qTrim) {
+      where.name = { $regex: qTrim.replace(/\s+/g, ".*"), $options: "i" };
+    }
+    if (clusterTrim) {
+      where.cluster = { $regex: `^${clusterTrim}$`, $options: "i" };
+    }
+
+    const lim = Number.isFinite(Number(limit))
+      ? Math.max(1, Number(limit))
+      : 200;
+    const pg = Number.isFinite(Number(page)) ? Math.max(1, Number(page)) : 1;
+
+    const docs = await Court.find(where)
+      .sort({ order: 1, createdAt: 1 })
+      .skip((pg - 1) * lim)
+      .limit(lim)
+      .populate({
+        path: "currentMatch",
+        model: Match,
+        select:
+          "_id code format pool.name pool.key rrRound swissRound round order globalRound",
+      })
+      .lean();
+
+    // Gắn code + displayCode theo yêu cầu
+    for (const c of docs) {
+      if (c.currentMatch) {
+        const { code, displayCode } = makeCodes(c.currentMatch, bracket);
+        c.currentMatch.displayCode = displayCode;
+        c.currentMatch.code = code; // override trong payload response
+      }
+    }
+
+    return res.json(docs);
+  } catch (err) {
+    console.error("[listCourtsByTournament] error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
 }

@@ -212,7 +212,6 @@ export const depLabel = (prev) => {
   return `W-V${r}-T${idx}`;
 };
 
-
 // --- Helpers chỉnh nhãn W/L theo vòng hiện tại ---
 function getRoundNumber(m) {
   const n =
@@ -645,9 +644,7 @@ const CustomSeed = ({
     const st = String(mm?.status || "").toLowerCase();
     if (st === "finished") return { bg: "#2e7d32", fg: "#fff", key: "done" };
     if (st === "live") return { bg: "#ef6c00", fg: "#fff", key: "live" };
-    const ready =
-      (mm?.pairA || mm?.pairB) &&
-      (mm?.court);
+    const ready = (mm?.pairA || mm?.pairB) && mm?.court;
     if (ready) return { bg: "#f9a825", fg: "#111", key: "ready" };
     return { bg: "#9e9e9e", fg: "#fff", key: "planned" };
   };
@@ -907,6 +904,16 @@ function lastGameScoreLocal(gameScores) {
   if (!Array.isArray(gameScores) || !gameScores.length) return { a: 0, b: 0 };
   return gameScores[gameScores.length - 1] || { a: 0, b: 0 };
 }
+
+// BO1 detector: ưu tiên metadata nếu có, fallback theo số gameScores
+function isBO1(m) {
+  const bestOf = Number(m?.bestOf ?? m?.meta?.bestOf ?? m?.config?.bestOf ?? 0);
+  const winsTo = Number(m?.winsTo ?? m?.meta?.winsTo ?? m?.config?.winsTo ?? 0);
+  if (bestOf === 1 || winsTo === 1) return true;
+  const nGames = Array.isArray(m?.gameScores) ? m.gameScores.length : 0;
+  return nGames === 1;
+}
+
 function countGamesWonLocal(gameScores) {
   let A = 0,
     B = 0;
@@ -1305,19 +1312,43 @@ function pickGroupKickoffTime(m) {
 function scoreLabel(m) {
   if (!m) return "";
   const st = String(m.status || "").toLowerCase();
+  const games = Array.isArray(m.gameScores) ? m.gameScores : [];
+
   if (st === "finished") {
-    const gw = countGamesWonLocal(m.gameScores || []);
-    if (gw.A || gw.B) return `${gw.A}-${gw.B}`;
-    if (Number.isFinite(m.scoreA) && Number.isFinite(m.scoreB))
+    // BO1: luôn hiển thị điểm game (vd 21-18), không hiển thị 1-0
+    if (isBO1(m)) {
+      const g = games.length ? games[games.length - 1] : {};
+      if (Number.isFinite(g?.a) && Number.isFinite(g?.b)) {
+        return `${g.a}-${g.b}`;
+      }
+      // fallback nếu backend lưu ở scoreA/scoreB
+      if (Number.isFinite(m.scoreA) && Number.isFinite(m.scoreB)) {
+        return `${m.scoreA}-${m.scoreB}`;
+      }
+      return "Kết thúc";
+    }
+
+    // BO3/BO5...: hiển thị số set thắng
+    const gw = countGamesWonLocal(games);
+    if (Number.isFinite(gw.A) && Number.isFinite(gw.B)) {
+      return `${gw.A}-${gw.B}`;
+    }
+    // fallback
+    if (Number.isFinite(m.scoreA) && Number.isFinite(m.scoreB)) {
       return `${m.scoreA}-${m.scoreB}`;
+    }
     return "Kết thúc";
   }
+
   if (st === "live") {
-    const g = lastGameScoreLocal(m.gameScores || []);
-    if (Number.isFinite(g.a) && Number.isFinite(g.b))
+    // LIVE: hiển thị điểm game hiện tại (đang đánh)
+    const g = lastGameScoreLocal(games);
+    if (Number.isFinite(g.a) && Number.isFinite(g.b)) {
       return `${g.a}-${g.b} (live)`;
+    }
     return "LIVE";
   }
+
   return "";
 }
 

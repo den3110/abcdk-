@@ -7,7 +7,11 @@ import {
   reviewUserKyc,
   updateUserInfo,
 } from "../controllers/admin/adminController.js";
-import { protect, authorize } from "../middleware/authMiddleware.js";
+import {
+  protect,
+  authorize,
+  isManagerTournament,
+} from "../middleware/authMiddleware.js";
 import { adminLogin } from "../controllers/admin/adminAuthController.js";
 import {
   adminUpdateRanking,
@@ -25,9 +29,11 @@ import {
   finishTournament,
   getTournamentById,
   getTournaments,
+  listTournamentRefereesInScope,
   planAuto,
   planCommit,
   updateTournamentOverlay,
+  upsertTournamentReferees,
 } from "../controllers/admin/adminTournamentController.js";
 import {
   adminCheckin,
@@ -73,9 +79,12 @@ import {
 } from "../controllers/matchBatchController.js";
 import { autoGenerateRegistrations } from "../controllers/registrationAutoController.js";
 import {
+  assignMatchToCourt,
+  clearMatchCourt,
   getMatchAdmin,
   getMatchLogs,
   getMatchRatingChanges,
+  getMatchReferees,
   previewRatingDelta,
   resetMatchScores,
 } from "../controllers/admin/adminMatchController.js";
@@ -86,6 +95,7 @@ import {
   fetchSchedulerMatches,
   freeCourtHttp,
   getSchedulerState,
+  listCourtsByTournament,
   resetCourtsHttp,
   upsertCourts,
 } from "../controllers/admin/adminCourtController.js";
@@ -114,6 +124,13 @@ import {
   getSystemSettings,
   updateSystemSettings,
 } from "../controllers/systemSettings.controller.js";
+import {
+  getPresenceOfUser,
+  getPresenceSummary,
+  listPresenceUsers,
+  searchPresenceUsers,
+} from "../controllers/admin/adminStatsController.js";
+import { searchUsersForRefereeAssign } from "../controllers/admin/refereeController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -126,6 +143,29 @@ router.get(
   protect,
   authorize("admin", "referee"),
   adminGetMatchById
+);
+
+router.get("/tournaments/:id/referees", protect, listTournamentRefereesInScope);
+
+router.post("/tournaments/:tid/referees", protect, upsertTournamentReferees);
+
+router.get("/referees/search", protect, searchUsersForRefereeAssign);
+router.get("/tournaments/:tid/courts", protect, listCourtsByTournament);
+
+// POST   /api/admin/tournaments/:tid/matches/:mid/court  -> gán sân
+router.post(
+  "/tournaments/:tid/matches/:mid/court",
+  protect,
+  assignMatchToCourt
+);
+
+// DELETE /api/admin/tournaments/:tid/matches/:mid/court  -> bỏ gán sân
+router.delete("/tournaments/:tid/matches/:mid/court", protect, clearMatchCourt);
+
+router.get(
+  "/tournaments/:tid/matches/:mid/referees",
+  protect,
+  getMatchReferees
 );
 
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
@@ -553,5 +593,25 @@ router.get("/versions/by-user", protect, authorize("admin"), getUsersVersion);
 
 router.get("/settings", protect, authorize("admin"), getSystemSettings);
 router.put("/settings", protect, authorize("admin"), updateSystemSettings);
+
+router.get("/stats/presence", protect, authorize("admin"), getPresenceSummary);
+router.get(
+  "/stats/presence/users",
+  protect,
+  authorize("admin"),
+  listPresenceUsers
+);
+router.get(
+  "/stats/presence/search",
+  protect,
+  authorize("admin"),
+  searchPresenceUsers
+);
+router.get(
+  "/stats/presence/user/:id",
+  protect,
+  authorize("admin"),
+  getPresenceOfUser
+);
 
 export default router;

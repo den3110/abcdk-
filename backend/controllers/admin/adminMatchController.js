@@ -1,9 +1,12 @@
 import asyncHandler from "express-async-handler";
 import Match from "../../models/matchModel.js";
 import RatingChange from "../../models/ratingChangeModel.js";
-import Bracket from "../../models/bracketModel.js"
+import Bracket from "../../models/bracketModel.js";
 import { computeRatingPreviewFromParams } from "../../utils/applyRatingForFinishedMatch.js";
 import mongoose from "mongoose";
+import Court from "../../models/courtModel.js";
+import User from "../../models/userModel.js";
+import { canManageTournament } from "../../utils/tournamentAuth.js";
 
 /** Chuẩn hoá DTO match (đủ dữ liệu để render) */
 const toDTO = (m) => ({
@@ -320,3 +323,235 @@ export const resetMatchScores = asyncHandler(async (req, res) => {
     liveVersion: match.liveVersion,
   });
 });
+
+
+/**
+ * POST /api/admin/tournaments/:tid/matches/:mid/court
+ * body: { courtId: string }
+ * - Gán court cho match
+ */
+export async function assignMatchToCourt(req, res) {
+  try {
+    const { tid, mid } = req.params;
+    const { courtId } = req.body || {};
+
+    if (!mongoose.Types.ObjectId.isValid(tid)) {
+      return res.status(400).json({ message: "Invalid tournament id" });
+    }
+    if (!mongoose.Types.ObjectId.isValid(mid)) {
+      return res.status(400).json({ message: "Invalid match id" });
+    }
+    if (!mongoose.Types.ObjectId.isValid(courtId)) {
+      return res.status(400).json({ message: "Invalid court id" });
+    }
+    const me = req.user;
+    const isAdmin = me?.role === "admin";
+    const ownerOrMgr = await canManageTournament(me?._id, tid);
+    if (!isAdmin && !ownerOrMgr) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    // Load match + validate thuộc giải
+    const match = await Match.findById(mid)
+      .select(
+        "_id tournament bracket status court courtLabel courtCluster assignedAt"
+      )
+      .lean();
+    if (!match) return res.status(404).json({ message: "Match not found" });
+    if (String(match.tournament) !== String(tid)) {
+      return res.status(400).json({ message: "Match not in this tournament" });
+    }
+
+    // Load court + validate cùng giải + cùng bracket
+    const court = await Court.findById(courtId)
+      .select(
+        "_id tournament bracket name cluster status currentMatch isActive"
+      )
+      .lean();
+    if (!court) return res.status(404).json({ message: "Court not found" });
+    if (String(court.tournament) !== String(tid)) {
+      return res.status(400).json({ message: "Court not in this tournament" });
+    }
+    if (String(court.bracket) !== String(match.bracket)) {
+      return res
+        .status(400)
+        .json({ message: "Court and match must be in the same bracket" });
+    }
+    if (court.isActive === false) {
+      return res.status(409).json({ message: "Court is inactive" });
+    }
+
+    // Nếu sân đang gắn trận khác -> từ chối
+    if (court.currentMatch && String(court.currentMatch) !== String(mid)) {
+      return res
+        .status(409)
+        .json({ message: "Court is already assigned to another match" });
+    }
+
+    // Nếu trận đã gắn sân A → bỏ gán ở sân A trước khi gán sân B
+    if (match.court && String(match.court) !== String(courtId)) {
+      await Court.updateOne(
+        { _id: match.court, currentMatch: match._id },
+        { $set: { currentMatch: null, status: "idle" } }
+      );
+    }
+
+    // Cập nhật match
+    const nextStatus =
+      match.status === "scheduled" || match.status === "queued"
+        ? "assigned"
+        : match.status;
+
+    const updatedMatch = await Match.findByIdAndUpdate(
+      mid,
+      {
+        $set: {
+          court: court._id,
+          courtLabel: court.name,
+          courtCluster: court.cluster || "Main",
+          status: nextStatus,
+          assignedAt: new Date(),
+        },
+      },
+      { new: true }
+    ).select("_id code status court courtLabel courtCluster assignedAt");
+
+    // Cập nhật court
+    await Court.findByIdAndUpdate(court._id, {
+      $set: {
+        currentMatch: updatedMatch._id,
+        status: updatedMatch.status === "live" ? "live" : "assigned",
+      },
+    });
+
+    return res.json({ ok: true, match: updatedMatch });
+  } catch (err) {
+    console.error("[assignMatchToCourt] error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+}
+
+/**
+ * DELETE /api/admin/tournaments/:tid/matches/:mid/court
+ * - Bỏ gán court của match
+ */
+export async function clearMatchCourt(req, res) {
+  try {
+    const { tid, mid } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(tid)) {
+      return res.status(400).json({ message: "Invalid tournament id" });
+    }
+    if (!mongoose.Types.ObjectId.isValid(mid)) {
+      return res.status(400).json({ message: "Invalid match id" });
+    }
+    const me = req.user;
+    const isAdmin = me?.role === "admin";
+    const ownerOrMgr = await canManageTournament(me?._id, tid);
+    if (!isAdmin && !ownerOrMgr) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    const match = await Match.findById(mid)
+      .select("_id tournament status court courtLabel")
+      .lean();
+    if (!match) return res.status(404).json({ message: "Match not found" });
+    if (String(match.tournament) !== String(tid)) {
+      return res.status(400).json({ message: "Match not in this tournament" });
+    }
+
+    // Gỡ currentMatch của court nếu đang trỏ tới match này
+    if (match.court) {
+      await Court.updateOne(
+        { _id: match.court, currentMatch: match._id },
+        { $set: { currentMatch: null, status: "idle" } }
+      );
+    }
+
+    // Nếu đang ở trạng thái "assigned" (chỉ vì có sân) → đưa về "queued"
+    const next = match.status === "assigned" ? { status: "queued" } : {};
+    const updatedMatch = await Match.findByIdAndUpdate(
+      mid,
+      {
+        $set: {
+          ...next,
+          court: null,
+          courtLabel: "",
+          assignedAt: null,
+        },
+      },
+      { new: true }
+    ).select("_id code status court courtLabel assignedAt");
+
+    return res.json({ ok: true, match: updatedMatch });
+  } catch (err) {
+    console.error("[clearMatchCourt] error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+}
+
+/**
+ * GET /api/admin/tournaments/:tid/matches/:mid/referees
+ * Trả về danh sách user đang được gán làm trọng tài của trận.
+ */
+export async function getMatchReferees(req, res) {
+  try {
+    const { tid, mid } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(tid)) {
+      return res.status(400).json({ message: "Invalid tournament id" });
+    }
+    if (!mongoose.Types.ObjectId.isValid(mid)) {
+      return res.status(400).json({ message: "Invalid match id" });
+    }
+
+    // Quyền: admin hoặc quản lý giải
+    const me = req.user;
+    const isAdmin = me?.role === "admin";
+    console.log(me._id)
+    const ownerOrMgr = await canManageTournament(me?._id, tid);
+    if (!isAdmin && !ownerOrMgr) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    // Tìm match đúng giải (ưu tiên bằng tournament trực tiếp)
+    let match = await Match.findOne({ _id: mid, tournament: tid })
+      .select("_id tournament bracket referee")
+      .populate({
+        path: "referee", // ✅ đúng field trong schema
+        model: "User",
+        select:
+          "_id name nickname displayName fullName email phone province avatar",
+      })
+      .lean();
+
+    // fallback: dữ liệu cũ thiếu tournament → kiểm tra qua bracket
+    if (!match) {
+      const m2 = await Match.findById(mid).select("_id bracket").lean();
+      if (!m2) return res.status(404).json({ message: "Match not found" });
+
+      const br = await Bracket.findById(m2.bracket).select("tournament").lean();
+      if (!br || String(br.tournament) !== String(tid)) {
+        return res
+          .status(404)
+          .json({ message: "Match not found in this tournament" });
+      }
+
+      match = await Match.findById(mid)
+        .select("_id tournament bracket referee")
+        .populate({
+          path: "referee",
+          model: "User",
+          select:
+            "_id name nickname displayName fullName email phone province avatar",
+        })
+        .lean();
+      if (!match) return res.status(404).json({ message: "Match not found" });
+    }
+
+    const referees = Array.isArray(match.referee) ? match.referee : [];
+    return res.json(referees);
+  } catch (err) {
+    console.error("[getMatchReferees] error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+}

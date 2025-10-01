@@ -19,6 +19,9 @@ import Bracket from "../../models/bracketModel.js"; // <-- thêm dòng này
 import { createForumTopic, createInviteLink } from "../../utils/telegram.js";
 import Match from "../../models/matchModel.js";
 import dotenv from "dotenv";
+import User from "../../models/userModel.js";
+import { canManageTournament } from "../../utils/tournamentAuth.js";
+
 dotenv.config();
 
 /* -------------------------- Sanitize cấu hình -------------------------- */
@@ -1305,3 +1308,177 @@ export const updateTournamentOverlay = expressAsyncHandler(async (req, res) => {
   await t.save();
   res.json({ ok: true, overlay: t.overlay });
 });
+
+/**
+ * GET /admin/tournaments/:id/referees?q=&limit=100
+ * Trả về danh sách user có role='referee' và có trong referee.tournaments của giải.
+ */
+export const listTournamentRefereesInScope = expressAsyncHandler(
+  async (req, res) => {
+    const { id } = req.params;
+    const me = req.user;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid tournament id" });
+    }
+
+    // Quyền
+    const isAdmin = me?.role === "admin";
+    const ownerOrMgr = await canManageTournament(me?._id, id);
+    if (!isAdmin && !ownerOrMgr) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    // Query params
+    const qRaw = String(req.query?.q || "").trim();
+    const limit = Math.min(
+      Math.max(parseInt(req.query?.limit, 10) || 50, 1),
+      200
+    );
+
+    // Điều kiện tìm kiếm
+    const orQ = [];
+    if (qRaw) {
+      // escape regex
+      const esc = qRaw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rx = new RegExp(esc, "i");
+      orQ.push(
+        { nickname: rx },
+        { nickName: rx },
+        { name: rx },
+        { fullName: rx },
+        { email: rx },
+        { phone: rx }
+      );
+    }
+
+    const items = await User.find({
+      isDeleted: { $ne: true },
+      role: "referee",
+      "referee.tournaments": new mongoose.Types.ObjectId(id),
+      ...(orQ.length ? { $or: orQ } : {}),
+    })
+      .select("name fullName nickname nickName email phone avatar province")
+      .sort({ nickname: 1, name: 1, createdAt: -1 })
+      .limit(limit)
+      // giúp sort/so khớp tiếng Việt dễ chịu hơn (nếu MongoDB bật collation vi)
+      .collation({ locale: "vi", strength: 1 })
+      .lean();
+
+    res.json({ items });
+  }
+);
+
+/**
+ * POST /api/admin/tournaments/:tid/referees
+ * Body:
+ *  - { set: string[] }                // REPLACE toàn bộ danh sách
+ *    hoặc
+ *  - { add: string[], remove: string[] } // PATCH cộng/trừ
+ *
+ * Trả về danh sách trọng tài của giải sau khi cập nhật.
+ */
+
+const asObjId = (id) => new mongoose.Types.ObjectId(id);
+const isValidId = (id) => mongoose.isValidObjectId(id);
+const normIds = (arr) =>
+  Array.from(
+    new Set(
+      (Array.isArray(arr) ? arr : [])
+        .map((x) => (isValidId(x) ? String(x) : ""))
+        .filter(Boolean)
+    )
+  );
+
+export const upsertTournamentReferees = async (req, res, next) => {
+  try {
+    const { tid } = req.params;
+    if (!isValidId(tid)) {
+      return res.status(400).json({ message: "Invalid tournament id" });
+    }
+
+    const me = req.user;
+    const isAdmin = me?.role === "admin";
+    const ownerOrMgr = await canManageTournament(me?._id, tid);
+    if (!isAdmin && !ownerOrMgr) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+    const TID = asObjId(tid);
+
+    const { set, add = [], remove = [] } = req.body || {};
+    const addIds = Array.isArray(set) ? normIds(set) : normIds(add);
+    const removeIds = Array.isArray(set) ? [] : normIds(remove);
+
+    // Nếu là chế độ REPLACE, tính toAdd/toRemove so với current
+    if (Array.isArray(set)) {
+      const current = await User.find({
+        isDeleted: { $ne: true },
+        "referee.tournaments": TID,
+      })
+        .select("_id")
+        .lean();
+
+      const curSet = new Set(current.map((u) => String(u._id)));
+      const nextSet = new Set(addIds);
+
+      const toAdd = Array.from(nextSet).filter((id) => !curSet.has(id));
+      const toRemove = Array.from(curSet).filter((id) => !nextSet.has(id));
+
+      // add tournament id vào referee.tournaments
+      if (toAdd.length) {
+        await User.updateMany(
+          { _id: { $in: toAdd } },
+          { $addToSet: { "referee.tournaments": TID } }
+        );
+        // promote thành role=referee nếu đang là user (không đụng admin)
+        await User.updateMany(
+          { _id: { $in: toAdd }, role: { $nin: ["admin", "referee"] } },
+          { $set: { role: "referee" } }
+        );
+      }
+      // pull tournament id khỏi referee.tournaments
+      if (toRemove.length) {
+        await User.updateMany(
+          { _id: { $in: toRemove } },
+          { $pull: { "referee.tournaments": TID } }
+        );
+      }
+    } else {
+      // PATCH: add / remove
+      if (addIds.length) {
+        await User.updateMany(
+          { _id: { $in: addIds } },
+          { $addToSet: { "referee.tournaments": TID } }
+        );
+        await User.updateMany(
+          { _id: { $in: addIds }, role: { $nin: ["admin", "referee"] } },
+          { $set: { role: "referee" } }
+        );
+      }
+      if (removeIds.length) {
+        await User.updateMany(
+          { _id: { $in: removeIds } },
+          { $pull: { "referee.tournaments": TID } }
+        );
+      }
+    }
+
+    // (Optional) Hạ cấp role nếu ref.tournaments rỗng:
+    // await User.updateMany(
+    //   { role: "referee", "referee.tournaments": { $size: 0 } },
+    //   { $set: { role: "user" } }
+    // );
+
+    // Trả về danh sách sau cập nhật
+    const list = await User.find({
+      isDeleted: { $ne: true },
+      "referee.tournaments": TID,
+    })
+      .select("_id name nickname email phone avatar role province")
+      .lean();
+
+    res.json(list);
+  } catch (err) {
+    next(err);
+  }
+};

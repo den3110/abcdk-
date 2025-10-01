@@ -1,4 +1,5 @@
 // src/pages/TournamentSchedule.jsx
+/* eslint-disable react/prop-types */
 import React, {
   useMemo,
   useState,
@@ -36,13 +37,17 @@ import ScheduleIcon from "@mui/icons-material/Schedule";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import StadiumIcon from "@mui/icons-material/Stadium";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+
 import {
   useGetTournamentQuery,
   useListPublicMatchesByTournamentQuery,
   useListTournamentBracketsQuery,
+  useVerifyManagerQuery,
 } from "../../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
+import { skipToken } from "@reduxjs/toolkit/query";
+import { useSelector } from "react-redux";
 
 /* ---------- helpers ---------- */
 const hasVal = (v) =>
@@ -391,7 +396,6 @@ function CourtCard({ court, onOpenMatch }) {
             bgcolor: (t) =>
               t.palette.mode === "light" ? "success.50" : "success.900",
             cursor: "pointer",
-            // ❌ bỏ hiệu ứng hover/transform để mã trận không "nháy"
           }}
         >
           <Stack
@@ -402,7 +406,6 @@ function CourtCard({ court, onOpenMatch }) {
           >
             <Stack direction="row" alignItems="center" gap={0.75}>
               <PlayArrowIcon fontSize="small" />
-              {/* Mã trận: không animation */}
               <Typography fontWeight={700} sx={{ transition: "none" }}>
                 {m.__displayCode}
               </Typography>
@@ -551,7 +554,25 @@ function MatchRow({ m, onOpenMatch }) {
 
 /* ---------- Page ---------- */
 export default function TournamentSchedule() {
+  const { userInfo } = useSelector((s) => s.auth || {});
+  const roleStr = String(userInfo?.role || "").toLowerCase();
+  const roles = new Set(
+    [...(userInfo?.roles || []), ...(userInfo?.permissions || [])]
+      .filter(Boolean)
+      .map((x) => String(x).toLowerCase())
+  );
+  const isAdmin = !!(
+    userInfo?.isAdmin ||
+    roleStr === "admin" ||
+    roles.has("admin") ||
+    roles.has("superadmin")
+  );
   const { id } = useParams();
+  const { data: verifyRes, isFetching: verifyingMgr } = useVerifyManagerQuery(
+    id ? id : skipToken
+  );
+  const isManager = !!verifyRes?.isManager;
+  const canEdit = isAdmin || isManager;
   const theme = useTheme();
   const upSm = useMediaQuery(theme.breakpoints.up("sm"));
   const upMd = useMediaQuery(theme.breakpoints.up("md"));
@@ -598,22 +619,45 @@ export default function TournamentSchedule() {
     (tError && (tError.data?.message || tError.error)) ||
     (mError && (mError.data?.message || mError.error));
 
-  /* ===== Realtime layer (giống Bracket) ===== */
+  /* ===== Realtime layer (fixed) ===== */
   const socket = useSocket();
   const liveMapRef = useRef(new Map()); // id → match
   const [liveBump, setLiveBump] = useState(0);
   const pendingRef = useRef(new Map());
   const rafRef = useRef(null);
 
+  // NEW: nhớ state subscribe/join giữa các render
+  const subscribedBracketsRef = useRef(new Set()); // Set<bracketId>
+  const joinedMatchesRef = useRef(new Set()); // Set<matchId>
+
+  // NEW: khóa ổn định; effect chỉ rerun khi danh sách id THỰC SỰ đổi
+  const bracketsKey = useMemo(
+    () =>
+      (brackets || [])
+        .map((b) => String(b._id))
+        .filter(Boolean)
+        .sort()
+        .join(","),
+    [brackets]
+  );
+  const matchesKey = useMemo(
+    () =>
+      ((matchesResp?.list || []).map((m) => String(m._id)) || [])
+        .filter(Boolean)
+        .sort()
+        .join(","),
+    [matchesResp]
+  );
+
   const flushPending = useCallback(() => {
     if (!pendingRef.current.size) return;
     const mp = liveMapRef.current;
-    for (const [id, inc] of pendingRef.current) {
-      const cur = mp.get(id);
+    for (const [mid, inc] of pendingRef.current) {
+      const cur = mp.get(mid);
       const vNew = Number(inc?.liveVersion ?? inc?.version ?? 0);
       const vOld = Number(cur?.liveVersion ?? cur?.version ?? 0);
       const merged = !cur || vNew >= vOld ? { ...(cur || {}), ...inc } : cur;
-      mp.set(id, merged);
+      mp.set(mid, merged);
     }
     pendingRef.current.clear();
     setLiveBump((x) => x + 1);
@@ -653,6 +697,7 @@ export default function TournamentSchedule() {
     [flushPending]
   );
 
+  // 1) Đồng bộ state ban đầu từ API vào liveMap
   useEffect(() => {
     const mp = new Map();
     const list = matchesResp?.list || [];
@@ -661,42 +706,23 @@ export default function TournamentSchedule() {
     setLiveBump((x) => x + 1);
   }, [matchesResp]);
 
+  // Helper diff 2 tập id
+  const diffSet = (currentSet, nextArr) => {
+    const nextSet = new Set(nextArr);
+    const added = [];
+    const removed = [];
+    nextSet.forEach((id) => {
+      if (!currentSet.has(id)) added.push(id);
+    });
+    currentSet.forEach((id) => {
+      if (!nextSet.has(id)) removed.push(id);
+    });
+    return { added, removed, nextSet };
+  };
+
+  // 2) Đăng ký listeners CHỈ 1 lần cho mỗi mount của effect
   useEffect(() => {
     if (!socket) return;
-    const bracketIds = (brackets || [])
-      .map((b) => String(b._id))
-      .filter(Boolean);
-    const matchIds = (matchesResp?.list || [])
-      .map((m) => String(m._id))
-      .filter(Boolean);
-
-    const subscribeDrawRooms = () => {
-      try {
-        bracketIds.forEach((bid) =>
-          socket.emit("draw:subscribe", { bracketId: bid })
-        );
-      } catch {}
-    };
-    const unsubscribeDrawRooms = () => {
-      try {
-        bracketIds.forEach((bid) =>
-          socket.emit("draw:unsubscribe", { bracketId: bid })
-        );
-      } catch {}
-    };
-
-    const joined = new Set();
-    const joinAllMatches = () => {
-      try {
-        matchIds.forEach((mid) => {
-          if (!joined.has(mid)) {
-            socket.emit("match:join", { matchId: mid });
-            socket.emit("match:snapshot:request", { matchId: mid });
-            joined.add(mid);
-          }
-        });
-      } catch {}
-    };
 
     const onUpsert = (payload) => queueUpsert(payload);
     const onRemove = (payload) => {
@@ -711,10 +737,15 @@ export default function TournamentSchedule() {
       refetchMatches();
       refetchBrackets();
     };
-
     const onConnected = () => {
-      subscribeDrawRooms();
-      joinAllMatches();
+      // Re-join những thứ đã nhớ (không nhân bản)
+      subscribedBracketsRef.current.forEach((bid) =>
+        socket.emit("draw:subscribe", { bracketId: bid })
+      );
+      joinedMatchesRef.current.forEach((mid) => {
+        socket.emit("match:join", { matchId: mid });
+        socket.emit("match:snapshot:request", { matchId: mid });
+      });
     };
 
     socket.on("connect", onConnected);
@@ -725,7 +756,7 @@ export default function TournamentSchedule() {
     socket.on("draw:refilled", onRefilled);
     socket.on("bracket:updated", onRefilled);
 
-    onConnected();
+    // KHÔNG gọi onConnected() thủ công ở đây
 
     return () => {
       socket.off("connect", onConnected);
@@ -735,22 +766,70 @@ export default function TournamentSchedule() {
       socket.off("match:deleted", onRemove);
       socket.off("draw:refilled", onRefilled);
       socket.off("bracket:updated", onRefilled);
-      unsubscribeDrawRooms();
+
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
+    // chỉ phụ thuộc thứ cần thiết
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    socket,
-    id,
-    brackets,
-    matchesResp,
-    refetchMatches,
-    refetchBrackets,
-    queueUpsert,
-  ]);
+  }, [socket, queueUpsert, refetchMatches, refetchBrackets]);
+
+  // 3) Đồng bộ SUBSCRIBE BRACKETS theo diff (không spam)
+  useEffect(() => {
+    if (!socket) return;
+
+    const nextIds =
+      (brackets || []).map((b) => String(b._id)).filter(Boolean) ?? [];
+    const { added, removed, nextSet } = diffSet(
+      subscribedBracketsRef.current,
+      nextIds
+    );
+
+    added.forEach((bid) => socket.emit("draw:subscribe", { bracketId: bid }));
+    removed.forEach((bid) =>
+      socket.emit("draw:unsubscribe", { bracketId: bid })
+    );
+
+    subscribedBracketsRef.current = nextSet;
+
+    return () => {
+      // Khi unmount page: rời tất cả bracket rooms hiện có
+      nextSet.forEach((bid) =>
+        socket.emit("draw:unsubscribe", { bracketId: bid })
+      );
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, bracketsKey]);
+
+  // 4) Đồng bộ JOIN/LEAVE MATCHES theo diff (không spam)
+  useEffect(() => {
+    if (!socket) return;
+
+    const nextIds =
+      (matchesResp?.list || []).map((m) => String(m._id)).filter(Boolean) ?? [];
+    const { added, removed, nextSet } = diffSet(
+      joinedMatchesRef.current,
+      nextIds
+    );
+
+    added.forEach((mid) => {
+      socket.emit("match:join", { matchId: mid });
+      socket.emit("match:snapshot:request", { matchId: mid });
+    });
+
+    // Nếu server có hỗ trợ match:leave
+    removed.forEach((mid) => socket.emit("match:leave", { matchId: mid }));
+
+    joinedMatchesRef.current = nextSet;
+
+    return () => {
+      // Khi unmount page: rời tất cả match rooms hiện có
+      nextSet.forEach((mid) => socket.emit("match:leave", { matchId: mid }));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, matchesKey]);
 
   /* ===== Dữ liệu đã merge realtime ===== */
   const matches = useMemo(
@@ -831,13 +910,12 @@ export default function TournamentSchedule() {
         if (T) parts.push(`T${T}`);
         const candidate = parts.length ? parts.join("-") : "Trận";
 
-        // ❗Không downgrade: nếu trước đó có B mà lần này mất B → giữ mã cũ
+        // Không downgrade: nếu trước đó có B mà lần này mất B → giữ mã cũ
         const prev = codeStickyRef.current.get(m._id);
         const candHasB = candidate.includes("-B");
         const prevHasB = typeof prev === "string" && prev.includes("-B");
         label = !candHasB && prevHasB ? prev : candidate;
 
-        // Cập nhật cache nếu: (a) lần đầu, hoặc (b) candidate đã có B
         if (!prev || candHasB) codeStickyRef.current.set(m._id, label);
       } else {
         // KO/PO: dùng baseRoundStart để ra V đúng
@@ -947,15 +1025,27 @@ export default function TournamentSchedule() {
       {/* header */}
       <SectionTitle
         right={
-          <Button
-            component={RouterLink}
-            to={`/tournament/${id}/bracket`}
-            variant="outlined"
-            size="small"
-            startIcon={<ArrowBackIcon />}
-          >
-            Về sơ đồ
-          </Button>
+          <Box sx={{ display: "flex", gap: 2 }}>
+            {canEdit && (
+              <Button
+                component={RouterLink}
+                to={`/tournament/${id}/manage`}
+                variant="outlined"
+                size="small"
+              >
+                Quản lý giải
+              </Button>
+            )}
+            <Button
+              component={RouterLink}
+              to={`/tournament/${id}/bracket`}
+              variant="outlined"
+              size="small"
+              startIcon={<ArrowBackIcon />}
+            >
+              Về sơ đồ
+            </Button>
+          </Box>
         }
       >
         Lịch thi đấu {tournament?.name ? `– ${tournament.name}` : ""}
