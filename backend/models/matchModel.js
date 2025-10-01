@@ -2,6 +2,7 @@
 import mongoose from "mongoose";
 import seedSourceSchema from "./seedSourceSchema.js";
 import Bracket from "./bracketModel.js";
+import Court from "./courtModel.js";
 
 const { Schema } = mongoose;
 
@@ -442,6 +443,19 @@ async function triggerAutoFeedGroupRank(doc, { log = false } = {}) {
   }
 }
 
+// đặt dưới nhóm Helpers khác
+async function releaseCourtFromFinishedMatch(doc) {
+  try {
+    if (!doc?.court) return;
+    await Court.updateOne(
+      { _id: doc.court, currentMatch: doc._id }, // chỉ free nếu sân đang giữ đúng match này
+      { $set: { status: "idle" }, $unset: { currentMatch: "" } }
+    );
+  } catch (e) {
+    console.error("[court] release on finish failed:", e?.message || e);
+  }
+}
+
 // Lấy danh sách userIds của 2 đôi để tránh trùng trận
 matchSchema.methods.computeParticipants = async function () {
   if (!this.pairA && !this.pairB) return;
@@ -586,6 +600,13 @@ matchSchema.post("save", async function (doc, next) {
           });
         }
       }
+      if (doc.status === "finished") {
+        try {
+          await releaseCourtFromFinishedMatch(doc);
+        } catch (error) {
+          console.log(error);
+        }
+      }
     } catch (e) {
       console.error(
         "[autoFeedGroupRank] schedule post-save error:",
@@ -683,6 +704,14 @@ matchSchema.post("findOneAndUpdate", async function (res) {
         "[autoFeedGroupRank] schedule post-update error:",
         e?.message
       );
+    }
+
+    try {
+      if (fresh.status === "finished") {
+        await releaseCourtFromFinishedMatch(fresh);
+      }
+    } catch (error) {
+      console.log(error);
     }
   } catch (err) {
     console.error("[Match post(findOneAndUpdate)] propagate error:", err);

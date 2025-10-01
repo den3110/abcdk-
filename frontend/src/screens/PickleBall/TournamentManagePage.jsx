@@ -42,7 +42,6 @@ import {
   Menu,
   ListItemIcon,
   ListItemText,
-  // NEW for manage referees dialog
   Dialog,
   DialogTitle,
   DialogContent,
@@ -67,7 +66,6 @@ import {
   Stadium as StadiumIcon,
   HowToReg as RefereeIcon,
   Movie as MovieIcon,
-  // NEW icons
   PersonSearch as PersonSearchIcon,
   Add as AddIcon,
   RemoveCircleOutline as RemoveIcon,
@@ -79,11 +77,9 @@ import {
   useAdminGetBracketsQuery,
   useAdminListMatchesByTournamentQuery,
   useAdminSetMatchLiveUrlMutation,
-  // NEW: search referees (role=referee) by keyword
   useAdminSearchRefereesQuery,
 } from "../../slices/tournamentsApiSlice";
 
-// NEW: tournament-level referees slice
 import {
   useListTournamentRefereesQuery,
   useUpsertTournamentRefereesMutation,
@@ -125,6 +121,28 @@ const pairLabel = (pair) => {
   return ps.join(" / ") || "—";
 };
 
+const isMongoId = (s) => typeof s === "string" && /^[a-f0-9]{24}$/i.test(s);
+
+const courtLabel = (m) => {
+  // hỗ trợ nhiều kiểu dữ liệu sân có thể có
+  const c = m?.courtAssigned || m?.assignedCourt || m?.court || null; // các tên có thể gặp
+  const directName =
+    m?.courtName || m?.courtLabel || m?.courtCode || m?.courtTitle || null;
+
+  if (directName && String(directName).trim()) return String(directName).trim();
+  if (!c) return "—";
+  if (typeof c === "string") {
+    if (!c.trim() || isMongoId(c)) return "—";
+    return c.trim();
+  }
+  if (c.name) return c.name;
+  if (c.label) return c.label;
+  if (c.code) return c.code;
+  if (Number.isFinite(c.number)) return `Sân ${c.number}`;
+  if (Number.isFinite(c.no)) return `Sân ${c.no}`;
+  return "—";
+};
+
 const matchCode = (m) => {
   if (!m) return "—";
   if (m.code) return m.code;
@@ -135,14 +153,6 @@ const matchCode = (m) => {
     : "?";
   const t = Number.isFinite(m?.order) ? m.order + 1 : undefined;
   return `V${r}${t ? `-T${t}` : ""}`;
-};
-
-const roundLabel = (m) => {
-  if (!m) return "—";
-  if (m.globalCode) return m.globalCode;
-  if (Number.isFinite(m?.globalRound)) return `V${m.globalRound}`;
-  if (Number.isFinite(m?.round)) return `V${m.round}`;
-  return "—";
 };
 
 const statusChip = (st) => {
@@ -218,7 +228,7 @@ const buildRowsForBracket = (matches) =>
     matchCode(m),
     pairLabel(m?.pairA),
     pairLabel(m?.pairB),
-    roundLabel(m),
+    courtLabel(m), // đổi Vòng -> Sân
     Number.isFinite(m?.order) ? `T${m.order + 1}` : "—",
     statusText(m?.status),
     m?.video || "",
@@ -232,6 +242,9 @@ const ActionChips = React.memo(function ActionChips({
   onAssignCourt,
   onAssignRef,
 }) {
+  const st = String(match?.status || "").toLowerCase();
+  const canAssignCourt = !(st === "live" || st === "finished");
+
   return (
     <Box
       onClick={(e) => e.stopPropagation()}
@@ -255,14 +268,16 @@ const ActionChips = React.memo(function ActionChips({
           onClick={() => onDeleteVideo(match)}
         />
       )}
-      <Chip
-        size="small"
-        color="secondary"
-        variant="outlined"
-        icon={<StadiumIcon />}
-        label="Gán sân"
-        onClick={() => onAssignCourt(match)}
-      />
+      {canAssignCourt && (
+        <Chip
+          size="small"
+          color="secondary"
+          variant="outlined"
+          icon={<StadiumIcon />}
+          label="Gán sân"
+          onClick={() => onAssignCourt(match)}
+        />
+      )}
       <Chip
         size="small"
         color="primary"
@@ -292,7 +307,8 @@ const MatchRow = React.memo(function MatchRow({
       <TableCell sx={{ whiteSpace: "nowrap" }}>{matchCode(match)}</TableCell>
       <TableCell>{pairLabel(match?.pairA)}</TableCell>
       <TableCell>{pairLabel(match?.pairB)}</TableCell>
-      <TableCell sx={{ whiteSpace: "nowrap" }}>{roundLabel(match)}</TableCell>
+      {/* Đổi cột này: Vòng -> Sân */}
+      <TableCell sx={{ whiteSpace: "nowrap" }}>{courtLabel(match)}</TableCell>
       <TableCell sx={{ whiteSpace: "nowrap" }}>
         {Number.isFinite(match?.order) ? `T${match.order + 1}` : "—"}
       </TableCell>
@@ -375,7 +391,8 @@ const MatchCard = React.memo(function MatchCard({
         }
         subheader={
           <Stack direction="row" spacing={0.5} flexWrap="wrap">
-            <Chip size="small" label={roundLabel(match)} />
+            {/* Hiển thị sân trong subheader mobile cho dễ nhìn */}
+            <Chip size="small" label={`Sân: ${courtLabel(match)}`} />
             {Number.isFinite(match?.order) && (
               <Chip
                 size="small"
@@ -520,7 +537,6 @@ function ManageRefereesDialog({ open, tournamentId, onClose, onChanged }) {
       actions={<Button onClick={onClose}>Đóng</Button>}
     >
       <Grid container spacing={2}>
-        {/* Cột trái: đang là trọng tài */}
         <Grid item xs={12} md={5} sx={{ width: isMobile ? "100%" : "auto" }}>
           <Card variant="outlined">
             <CardHeader title="Đang là trọng tài" />
@@ -568,7 +584,6 @@ function ManageRefereesDialog({ open, tournamentId, onClose, onChanged }) {
           </Card>
         </Grid>
 
-        {/* Cột phải: tìm & thêm */}
         <Grid item xs={12} md={7} sx={{ width: isMobile ? "100%" : "auto" }}>
           <Card variant="outlined">
             <CardHeader title="Tìm người để thêm trọng tài" />
@@ -746,7 +761,7 @@ export default function TournamentManagePage() {
   const [sortKey, setSortKey] = useState("round"); // round | order | time
   const [sortDir, setSortDir] = useState("asc"); // asc | desc
 
-  // Viewer (đảm bảo có state để không lỗi khi dùng ResponsiveMatchViewer)
+  // Viewer
   const [viewer, setViewer] = useState({ open: false, matchId: null });
   const openMatch = useCallback((midOrMatch) => {
     const mid = typeof midOrMatch === "string" ? midOrMatch : midOrMatch?._id;
@@ -841,7 +856,6 @@ export default function TournamentManagePage() {
     const dir = sortDir === "asc" ? 1 : -1;
 
     const byBracket = new Map();
-
     const push = (bid, m) => {
       if (!byBracket.has(bid)) byBracket.set(bid, []);
       byBracket.get(bid).push(m);
@@ -858,6 +872,7 @@ export default function TournamentManagePage() {
             code,
             pairLabel(m?.pairA),
             pairLabel(m?.pairB),
+            courtLabel(m), // thêm sân vào text tìm kiếm
             m?.status,
             m?.video,
           ].join(" ")
@@ -878,6 +893,7 @@ export default function TournamentManagePage() {
         const tb = new Date(b?.scheduledAt || b?.createdAt || 0).getTime();
         return (ta - tb) * dir;
       }
+      // round sort giữ nguyên logic cũ
       const ar = Number.isFinite(a?.globalRound)
         ? a.globalRound
         : a?.round ?? 0;
@@ -1029,7 +1045,7 @@ export default function TournamentManagePage() {
         });
 
         const tableBody = [
-          ["Mã", "Cặp A", "Cặp B", "Vòng", "Thứ tự", "Trạng thái", "Video"],
+          ["Mã", "Cặp A", "Cặp B", "Sân", "Thứ tự", "Trạng thái", "Video"], // đổi tiêu đề
           ...sec.rows.map((r) =>
             r.map((cell) => (cell == null ? "" : String(cell)))
           ),
@@ -1038,7 +1054,7 @@ export default function TournamentManagePage() {
         content.push({
           table: {
             headerRows: 1,
-            widths: [50, 120, 120, 40, 45, 70, "*"],
+            widths: [50, 120, 120, 80, 45, 70, "*"], // tăng độ rộng cột Sân
             body: tableBody,
           },
           layout: "lightHorizontalLines",
@@ -1132,7 +1148,7 @@ export default function TournamentManagePage() {
           "Mã",
           "Cặp A",
           "Cặp B",
-          "Vòng",
+          "Sân",
           "Thứ tự",
           "Trạng thái",
           "Video",
@@ -1233,7 +1249,6 @@ export default function TournamentManagePage() {
           Quản lý giải: {tour?.name}
         </Typography>
         <Stack direction={"row"} spacing={1}>
-          {/* NEW: Nút quản lý trọng tài (đặt cạnh Xuất file) */}
           <Button
             variant="outlined"
             size="small"
@@ -1320,7 +1335,7 @@ export default function TournamentManagePage() {
         <Box p={2} display="flex" gap={1} flexWrap="wrap" alignItems="center">
           <TextField
             size="small"
-            placeholder="Tìm trận, cặp đấu, link…"
+            placeholder="Tìm trận, cặp đấu, sân, link…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             InputProps={{
@@ -1434,9 +1449,7 @@ export default function TournamentManagePage() {
                         <TableCell sx={{ whiteSpace: "nowrap" }}>Mã</TableCell>
                         <TableCell sx={{ minWidth: 240 }}>Cặp A</TableCell>
                         <TableCell sx={{ minWidth: 240 }}>Cặp B</TableCell>
-                        <TableCell sx={{ whiteSpace: "nowrap" }}>
-                          Vòng
-                        </TableCell>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>Sân</TableCell>
                         <TableCell sx={{ whiteSpace: "nowrap" }}>
                           Thứ tự
                         </TableCell>
@@ -1557,11 +1570,11 @@ export default function TournamentManagePage() {
         tournamentId={id}
         onClose={() => setManageRefDlgOpen(false)}
         onChanged={() => {
-          // refetchMatches?.(); // bật nếu cần reload trạng thái trận
+          // refetchMatches?.(); // bật nếu cần
         }}
       />
 
-      {/* NEW: Popup quản lý sân (hiện sân + trận đang gán + cấu hình sân) */}
+      {/* NEW: Popup quản lý sân */}
       <CourtManagerDialog
         open={manageCourts.open}
         onClose={closeManageCourts}

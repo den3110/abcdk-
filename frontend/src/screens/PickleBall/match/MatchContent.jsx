@@ -1,6 +1,12 @@
 // src/screens/PickleBall/match/MatchContent.jsx
 /* eslint-disable react/prop-types */
-import React, { useEffect, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useMemo,
+  useCallback,
+} from "react";
 import {
   Alert,
   Box,
@@ -53,6 +59,8 @@ import { skipToken } from "@reduxjs/toolkit/query";
 import {
   useLazySearchRegistrationsQuery,
   useVerifyManagerQuery,
+  useListTournamentBracketsQuery,
+  useListTournamentMatchesQuery,
 } from "../../../slices/tournamentsApiSlice";
 import { useSocket } from "../../../context/SocketContext";
 
@@ -160,6 +168,45 @@ function smartDepLabel(m, prevDep) {
     const newV = currV != null ? Math.max(1, currV - 1) : pv + 2;
     return `${wl}-V${newV}-T${t}`;
   });
+}
+
+/* ====================== Group completion helpers (KO gating) ====================== */
+const _norm = (s) =>
+  String(s || "")
+    .trim()
+    .toLowerCase();
+
+function buildGroupIndexLocal(bracket) {
+  const byRegId = new Map();
+  (bracket?.groups || []).forEach((g) => {
+    (g?.regIds || []).forEach((rid) => {
+      if (rid)
+        byRegId.set(String(rid), String(g.name || g.code || g._id || ""));
+    });
+  });
+  return { byRegId };
+}
+function makeMatchGroupLabelFnFor(bracket) {
+  const { byRegId } = buildGroupIndexLocal(bracket || {});
+  return (m) => {
+    const aId = m?.pairA?._id && String(m.pairA._id);
+    const bId = m?.pairB?._id && String(m.pairB._id);
+    const ga = aId && byRegId.get(aId);
+    const gb = bId && byRegId.get(bId);
+    const key = ga && gb && ga === gb ? ga : null;
+    return key ? String(key) : null;
+  };
+}
+/** Số trận kỳ vọng cho vòng tròn đơn/đôi (hỗ trợ roundsPerPair) */
+function expectedRRMatchesLocal(bracket, g) {
+  const n =
+    (Array.isArray(g?.regIds) ? g.regIds.length : 0) ||
+    Number(g?.expectedSize ?? bracket?.config?.roundRobin?.groupSize ?? 0) ||
+    0;
+  const roundsPerPair =
+    Number(bracket?.config?.roundRobin?.roundsPerPair ?? 1) || 1;
+  if (n < 2) return 0;
+  return ((n * (n - 1)) / 2) * roundsPerPair;
 }
 
 /* ====================== stream helpers ====================== */
@@ -864,6 +911,26 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     m?.tournament?.id ||
     null;
 
+  // Lấy danh sách brackets & matches của giải
+  const { data: brackets = [] } = useListTournamentBracketsQuery(
+    tournamentId ? tournamentId : skipToken
+  );
+  const { data: allMatchesFetched = [] } = useListTournamentMatchesQuery(
+    tournamentId ? { tournamentId } : skipToken,
+    { refetchOnFocus: false, refetchOnReconnect: true }
+  );
+
+  // Gom matches theo bracketId
+  const byBracket = useMemo(() => {
+    const m = {};
+    (brackets || []).forEach((b) => (m[b._id] = []));
+    (allMatchesFetched || []).forEach((mt) => {
+      const bid = mt?.bracket?._id || mt?.bracket;
+      if (m[bid]) m[bid].push(mt);
+    });
+    return m;
+  }, [brackets, allMatchesFetched]);
+
   const { data: verifyRes, isFetching: verifyingMgr } = useVerifyManagerQuery(
     tournamentId ? tournamentId : skipToken
   );
@@ -871,13 +938,13 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const canEdit = isAdmin || isManager;
 
   // Profile dialog (chỉ cần userId)
-const [profileUserId, setProfileUserId] = useState(null);
-const openProfile = (uid) => {
-  if (!uid) return;
-  const norm = uid?._id || uid?.id || uid?.userId || uid?.uid || uid || null;
-  if (norm) setProfileUserId(String(norm));
-};
-const closeProfile = () => setProfileUserId(null);
+  const [profileUserId, setProfileUserId] = useState(null);
+  const openProfile = (uid) => {
+    if (!uid) return;
+    const norm = uid?._id || uid?.id || uid?.userId || uid?.uid || uid || null;
+    if (norm) setProfileUserId(String(norm));
+  };
+  const closeProfile = () => setProfileUserId(null);
 
   const socketCtx = useSocket();
   const socket = socketCtx?.socket || socketCtx;
@@ -892,6 +959,84 @@ const closeProfile = () => setProfileUserId(null);
   } = useLockedMatch(m, {
     loading,
   });
+
+  // Map stage → Map(groupKeyNorm → đã hoàn tất?)
+  const groupDoneByStage = useMemo(() => {
+    const stageMap = new Map();
+
+    (brackets || []).forEach((br, bi) => {
+      if (String(br?.type || "").toLowerCase() !== "group") return;
+
+      const ms = byBracket?.[br._id] || [];
+      const keyOf = makeMatchGroupLabelFnFor(br);
+
+      const stageNo = Number(br?.stage ?? bi + 1);
+      const merged = stageMap.get(stageNo) || new Map();
+
+      (br?.groups || []).forEach((g, gi) => {
+        const altKeys = [
+          String(g.name || g.code || g._id || String(gi + 1)),
+          String(g.code || ""),
+          String(g.name || ""),
+          String(gi + 1),
+        ]
+          .filter(Boolean)
+          .map(_norm);
+
+        const keySet = new Set(altKeys);
+        const arr = ms.filter((m) => keySet.has(_norm(keyOf(m))));
+
+        const finishedCount = arr.filter(
+          (m) => String(m?.status || "").toLowerCase() === "finished"
+        ).length;
+        const anyUnfinished = arr.some(
+          (m) => String(m?.status || "").toLowerCase() !== "finished"
+        );
+        const expected = expectedRRMatchesLocal(br, g);
+
+        const done =
+          expected > 0 ? finishedCount >= expected && !anyUnfinished : false;
+
+        altKeys.forEach((k) => {
+          merged.set(k, merged.has(k) ? merged.get(k) && done : done);
+        });
+      });
+
+      stageMap.set(stageNo, merged);
+    });
+
+    return stageMap;
+  }, [brackets, byBracket]);
+
+  // Nếu seed đến từ GROUP và bảng chưa xong → chặn fill tên đội (giữ nhãn seed)
+  const isSeedBlockedByUnfinishedGroup = useCallback(
+    (seed) => {
+      if (!seed || seed.type !== "groupRank") return false;
+
+      const stageFromSeed = Number(
+        seed?.ref?.stage ?? seed?.ref?.stageIndex ?? NaN
+      );
+      const currentStage = Number(mm?.bracket?.stage ?? mm?.stage ?? NaN);
+      const stageNo = Number.isFinite(stageFromSeed)
+        ? stageFromSeed
+        : Number.isFinite(currentStage)
+        ? currentStage - 1
+        : NaN;
+
+      const groupCode = String(
+        seed?.ref?.groupCode ?? seed?.ref?.group ?? ""
+      ).trim();
+      if (!Number.isFinite(stageNo) || !groupCode) return true; // thiếu info → coi như chặn
+
+      const stageMap = groupDoneByStage.get(stageNo);
+      if (!stageMap) return true;
+
+      const done = stageMap.get(_norm(groupCode));
+      return done !== true; // chỉ pass khi done === true
+    },
+    [groupDoneByStage, mm?.bracket?.stage, mm?.stage]
+  );
+
   const showSpinnerDelayed = useDelayedFlag(waiting, 250);
 
   // Local patch: chỉ ghi đè field cần thiết (scores/status/teams), giữ nguyên id
@@ -964,7 +1109,8 @@ const closeProfile = () => setProfileUserId(null);
 
   const isSingle =
     String(mm?.tournament?.eventType || "").toLowerCase() === "single";
-
+  const blockA = isSeedBlockedByUnfinishedGroup(mm?.seedA);
+  const blockB = isSeedBlockedByUnfinishedGroup(mm?.seedB);
   // ====== Edit scores ======
   const [editMode, setEditMode] = useState(false);
   const [editScores, setEditScores] = useState(() => [
@@ -1295,13 +1441,17 @@ const closeProfile = () => setProfileUserId(null);
             <Typography variant="body2" color="text.secondary">
               Đội A
             </Typography>
-            {mm?.pairA ? (
+            {mm?.pairA && !blockA ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
                 <PlayerLink person={mm.pairA?.player1} onOpen={openProfile} />
                 {!isSingle && mm.pairA?.player2 && (
                   <>
                     {" "}
-                    & <PlayerLink person={mm.pairA.player2} onOpen={openProfile} />
+                    &{" "}
+                    <PlayerLink
+                      person={mm.pairA.player2}
+                      onOpen={openProfile}
+                    />
                   </>
                 )}
               </Typography>
@@ -1313,7 +1463,6 @@ const closeProfile = () => setProfileUserId(null);
               </Typography>
             )}
           </Box>
-
           {/* Điểm hiện tại */}
           <Box textAlign="center" minWidth={140}>
             {status === "live" && (
@@ -1338,13 +1487,17 @@ const closeProfile = () => setProfileUserId(null);
             <Typography variant="body2" color="text.secondary">
               Đội B
             </Typography>
-            {mm?.pairB ? (
+            {mm?.pairB && !blockB ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
                 <PlayerLink person={mm.pairB?.player1} onOpen={openProfile} />
                 {!isSingle && mm.pairB?.player2 && (
                   <>
                     {" "}
-                    & <PlayerLink person={mm.pairB.player2} onOpen={openProfile} />
+                    &{" "}
+                    <PlayerLink
+                      person={mm.pairB.player2}
+                      onOpen={openProfile}
+                    />
                   </>
                 )}
               </Typography>
@@ -1603,7 +1756,11 @@ const closeProfile = () => setProfileUserId(null);
       />
 
       {/* Popup hồ sơ VĐV (nếu bạn cần dùng, có thể bật lại openProfile ở trên) */}
-      <PublicProfileDialog open={Boolean(profileUserId)} onClose={closeProfile} userId={profileUserId} />
+      <PublicProfileDialog
+        open={Boolean(profileUserId)}
+        onClose={closeProfile}
+        userId={profileUserId}
+      />
     </Stack>
   );
 }

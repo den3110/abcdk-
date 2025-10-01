@@ -379,7 +379,16 @@ export const getRankings = asyncHandler(async (req, res) => {
 
 /* GET điểm kèm user (dùng trong danh sách) */ // Admin
 export const getUsersWithRank = asyncHandler(async (req, res) => {
-  const pageSize = 10;
+  // pageSize: ưu tiên lấy từ req.body.pageSize, mặc định 10, kẹp [1..100]
+  const parseIntOr = (v, d) => {
+    const n = Number.parseInt(v, 10);
+    return Number.isFinite(n) ? n : d;
+  };
+  const pageSize = Math.min(
+    100,
+    Math.max(1, parseIntOr(req.query?.pageSize, 10))
+  );
+
   const page = Math.max(Number(req.query.page) || 1, 1);
 
   // ── Build keyword filter: name + nickname + phone + email (+ domain suffix)
@@ -391,15 +400,14 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
 
   if (kw) {
     const orList = [
-      { name: rx }, // họ tên
-      { nickname: rx }, // nickname
-      { phone: rx }, // số điện thoại
-      { email: rx }, // email: cho phép tìm theo một phần, ví dụ "alice@" hoặc "@example.com"
+      { name: rx },
+      { nickname: rx },
+      { phone: rx },
+      { email: rx },
     ];
 
-    // Nếu người dùng gõ dạng "@example.com" → ưu tiên match theo hậu tố domain (kết thúc bằng domain)
     if (kw.startsWith("@")) {
-      const domain = kw.slice(1).trim(); // "example.com"
+      const domain = kw.slice(1).trim();
       if (domain) {
         const rxDomainSuffix = new RegExp(`@${escapeRegex(domain)}$`, "i");
         orList.push({ email: rxDomainSuffix });
@@ -409,17 +417,16 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
     conds.push({ $or: orList });
   }
 
-  // ── role filter (nếu có)
+  // ── role filter
   if (req.query.role) {
     conds.push({ role: req.query.role });
   }
 
-  // ── cccdStatus filter (server-side)
+  // ── cccdStatus filter
   const rawStatus = (req.query.cccdStatus || "").trim();
   const ALLOWED = new Set(["unverified", "pending", "verified", "rejected"]);
   if (ALLOWED.has(rawStatus)) {
     if (rawStatus === "unverified") {
-      // Bao gồm cả user chưa có field cccdStatus
       conds.push({
         $or: [{ cccdStatus: { $exists: false } }, { cccdStatus: "unverified" }],
       });
@@ -435,7 +442,7 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
 
   // ── danh sách user trang hiện tại
   const users = await User.find(filter)
-    // .sort({ createdAt: -1 }) // nếu cần sort, mở dòng này
+    // .sort({ createdAt: -1 })
     .limit(pageSize)
     .skip(pageSize * (page - 1))
     .lean();

@@ -900,6 +900,38 @@ function buildGroupIndex(bracket) {
   }
   return { byKey, byRegId };
 }
+
+// ==== NEW: Group completion helpers for KO ====
+const _norm = (s) =>
+  String(s || "")
+    .trim()
+    .toLowerCase();
+
+/** Lấy key bảng cho 1 match theo bracket group */
+function makeMatchGroupLabelFnFor(bracket) {
+  const { byRegId } = buildGroupIndex(bracket || {});
+  return (m) => {
+    const aId = m?.pairA?._id && String(m.pairA._id);
+    const bId = m?.pairB?._id && String(m.pairB._id);
+    const ga = aId && byRegId.get(aId);
+    const gb = bId && byRegId.get(bId);
+    const key = ga && gb && ga === gb ? ga : null;
+    return key ? String(key) : null;
+  };
+}
+
+/** Số trận vòng tròn kỳ vọng cho 1 bảng; hỗ trợ double RR qua roundsPerPair */
+function expectedRRMatches(bracket, g) {
+  const n =
+    (Array.isArray(g?.regIds) ? g.regIds.length : 0) ||
+    Number(g?.expectedSize ?? bracket?.config?.roundRobin?.groupSize ?? 0) ||
+    0;
+  const roundsPerPair =
+    Number(bracket?.config?.roundRobin?.roundsPerPair ?? 1) || 1;
+  if (n < 2) return 0;
+  return ((n * (n - 1)) / 2) * roundsPerPair;
+}
+
 function lastGameScoreLocal(gameScores) {
   if (!Array.isArray(gameScores) || !gameScores.length) return { a: 0, b: 0 };
   return gameScores[gameScores.length - 1] || { a: 0, b: 0 };
@@ -2055,22 +2087,106 @@ export default function TournamentBracket() {
     () => computeBaseRoundStart(brackets, byBracket, current),
     [brackets, byBracket, current]
   );
+
+  // Map stage → Map(groupKeyNorm → done)
+  const groupDoneByStage = useMemo(() => {
+    const stageMap = new Map();
+
+    (brackets || []).forEach((br, bi) => {
+      if (String(br?.type || "").toLowerCase() !== "group") return;
+
+      const ms = byBracket?.[br._id] || [];
+      const keyOf = makeMatchGroupLabelFnFor(br);
+
+      const stageNo = Number(br?.stage ?? bi + 1);
+      const merged = stageMap.get(stageNo) || new Map();
+
+      (br?.groups || []).forEach((g, gi) => {
+        const altKeys = [
+          String(g.name || g.code || g._id || String(gi + 1)),
+          String(g.code || ""),
+          String(g.name || ""),
+          String(gi + 1),
+        ]
+          .filter(Boolean)
+          .map(_norm);
+
+        const keySet = new Set(altKeys);
+        const arr = ms.filter((m) => keySet.has(_norm(keyOf(m))));
+
+        const finishedCount = arr.filter(
+          (m) => String(m?.status || "").toLowerCase() === "finished"
+        ).length;
+        const anyUnfinished = arr.some(
+          (m) => String(m?.status || "").toLowerCase() !== "finished"
+        );
+        const expected = expectedRRMatches(br, g);
+
+        const done =
+          expected > 0 ? finishedCount >= expected && !anyUnfinished : false;
+
+        altKeys.forEach((k) => {
+          merged.set(k, merged.has(k) ? merged.get(k) && done : done);
+        });
+      });
+
+      stageMap.set(stageNo, merged);
+    });
+
+    return stageMap;
+  }, [brackets, byBracket]);
+
+  // Nếu seed đến từ group chưa xong ⇒ chặn fill tên đội (giữ nhãn seed)
+  const isSeedBlockedByUnfinishedGroup = useCallback(
+    (seed) => {
+      if (!seed || seed.type !== "groupRank") return false;
+
+      const stageFromSeed = Number(
+        seed?.ref?.stage ?? seed?.ref?.stageIndex ?? NaN
+      );
+      const prevStage = Number(current?.stage)
+        ? Number(current.stage) - 1
+        : NaN;
+      const stageNo = Number.isFinite(stageFromSeed)
+        ? stageFromSeed
+        : prevStage;
+
+      const groupCode = String(
+        seed?.ref?.groupCode ?? seed?.ref?.group ?? ""
+      ).trim();
+      if (!Number.isFinite(stageNo) || !groupCode) {
+        // Thiếu dữ liệu tham chiếu → coi như chặn (hiện như cũ)
+        return true;
+      }
+
+      const stageMap = groupDoneByStage.get(stageNo);
+      if (!stageMap) return true;
+
+      const done = stageMap.get(_norm(groupCode));
+      return done !== true; // chỉ cho pass khi done===true
+    },
+    [groupDoneByStage, current?.stage]
+  );
+
   // Đặt bên trong TournamentBracket (dùng chung matchIndex, tour?.eventType, baseRoundStartForCurrent, seedLabel, pairLabelWithNick, isByeMatchObj)
   const resolveSideLabel = useCallback(
     function resolveSideLabel(m, side) {
       const eventType = tour?.eventType;
       if (!m) return "Chưa có đội";
 
+      const seed = side === "A" ? m.seedA : m.seedB;
+
+      // ⛔ Nếu seed đến từ GROUP và bảng chưa hoàn tất → KHÔNG fill tên đội
+      if (seed && isSeedBlockedByUnfinishedGroup(seed)) {
+        return seedLabel(seed); // ví dụ "V{stage}-B{group}-T{rank}"
+      }
+
       // Có cặp thật rồi → ưu tiên tên cặp
       const pair = side === "A" ? m.pairA : m.pairB;
       if (pair) return pairLabelWithNick(pair, eventType);
 
-      // Lấy seed/prev tương ứng A/B
       const prev = side === "A" ? m.previousA : m.previousB;
-      const seed = side === "A" ? m.seedA : m.seedB;
-
       if (prev) {
-        // Chuẩn hoá lấy trận trước
         const prevId =
           typeof prev === "object" && prev?._id
             ? String(prev._id)
@@ -2078,13 +2194,12 @@ export default function TournamentBracket() {
         const pm =
           matchIndex.get(prevId) || (typeof prev === "object" ? prev : null);
 
-        // Nếu trận trước là BYE → mang nguyên nhãn của bên KHÔNG BYE bằng đệ quy
+        // BYE ở trận trước → mang nhãn bên không BYE
         if (pm && isByeMatchObj(pm)) {
           const isLoserSeed =
             seed?.type === "stageMatchLoser" || seed?.type === "matchLoser";
-          if (isLoserSeed) return "—"; // nhánh thua không có đội khi BYE
+          if (isLoserSeed) return "—";
 
-          // Xác định bên đi tiếp (bên không BYE)
           const byeA =
             pm?.seedA?.type === "bye" ||
             (typeof pm?.seedA?.label === "string" &&
@@ -2096,44 +2211,31 @@ export default function TournamentBracket() {
           const winSide = byeA ? "B" : byeB ? "A" : null;
 
           if (winSide) {
-            // ĐỆ QUY: lấy y nguyên nhãn đã hiển thị ở vòng trước (vd: W-V1-T33)
             const carried = resolveSideLabel(pm, winSide);
-            if (
-              carried &&
-              carried !== "BYE" &&
-              carried !== "TBD" &&
-              carried !== "Registration"
-            ) {
+            if (carried && !/^(BYE|TBD|Registration)$/.test(carried))
               return carried;
-            }
-            // Fallback: từ seed/pair nếu có
+
             const winSeed = pm[`seed${winSide}`];
             const fromSeed = seedLabel(winSeed);
-            if (
-              fromSeed &&
-              fromSeed !== "BYE" &&
-              fromSeed !== "TBD" &&
-              fromSeed !== "Registration"
-            ) {
+            if (fromSeed && !/^(BYE|TBD|Registration)$/.test(fromSeed))
               return fromSeed;
-            }
+
             const winPair = pm[`pair${winSide}`];
             if (winPair) return pairLabelWithNick(winPair, eventType);
           }
 
-          // Fallback cuối: dùng mã trận prev (KHÔNG cộng offset V)
-          const rPrev = Number(pm.round ?? 1);
-          const idxPrev = (pm.order ?? 0) + 1;
+          const rPrev = Number(pm?.round ?? 1);
+          const idxPrev = (pm?.order ?? 0) + 1;
           return `W-V${rPrev}-T${idxPrev}`;
         }
 
-        // Trận trước đã xong và xác định winner → trả tên cặp thắng
+        // Trận trước đã xong và có winner → trả tên cặp thắng
         if (pm && pm.status === "finished" && pm.winner) {
           const wp = pm.winner === "A" ? pm.pairA : pm.pairB;
           if (wp) return pairLabelWithNick(wp, eventType);
         }
 
-        // Trận trước chưa xong → hiển thị "W-V{offset}-T{idx}" với offset cộng dồn
+        // Trận trước chưa xong → nhãn W-V{offset}-T{idx}
         const r = Number(pm?.round ?? prev?.round ?? 1);
         const idx = Number(pm?.order ?? prev?.order ?? 0) + 1;
         const disp = Number.isFinite(r)
@@ -2142,14 +2244,18 @@ export default function TournamentBracket() {
         return `W-V${disp}-T${idx}`;
       }
 
-      // Không có prev → rơi về nhãn seed gốc (W-/L-/groupRank/…)
+      // Không prev → rơi về nhãn seed gốc (groupRank/registration/…)
       if (seed && seed.type) return seedLabel(seed);
 
       return "Chưa có đội";
     },
-    [matchIndex, tour?.eventType, baseRoundStartForCurrent]
+    [
+      matchIndex,
+      tour?.eventType,
+      baseRoundStartForCurrent,
+      isSeedBlockedByUnfinishedGroup,
+    ]
   );
-
   // Prefill rounds for KO
   const prefillRounds = useMemo(() => {
     if (!current?.prefill) return null;
