@@ -69,6 +69,7 @@ import {
   PersonSearch as PersonSearchIcon,
   Add as AddIcon,
   RemoveCircleOutline as RemoveIcon,
+  Print as PrintIcon,
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 
@@ -105,6 +106,8 @@ const TYPE_LABEL = (t) => {
   return t || "Khác";
 };
 
+const WEB_LOGO_URL = "/icon.png";
+
 const personNickname = (p) =>
   p?.nickname ||
   p?.nickName ||
@@ -113,6 +116,118 @@ const personNickname = (p) =>
   p?.fullName ||
   p?.name ||
   "—";
+
+/* ----- helpers: tên trọng tài ----- */
+const refereeNames = (m) => {
+  const pickOne = (u) => personNickname(u);
+  const r1 = m?.referee || m?.mainReferee || null;
+  const list = m?.referees || m?.refs || m?.assignedReferees || null;
+  if (Array.isArray(list) && list.length) return list.map(pickOne).join(", ");
+  if (r1) return pickOne(r1);
+  return "";
+};
+
+/* ----- build HTML biên bản trọng tài (in) ----- */
+const buildRefReportHTML = ({
+  tourName,
+  code,
+  court,
+  referee,
+  team1,
+  team2,
+  logoUrl,
+}) => {
+  const css = `
+    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;margin:16px}
+    table{width:100%;border-collapse:collapse}
+    td,th{border:1px solid #000;padding:6px;font-size:12px}
+    .no-border td,.no-border th{border:none}
+    .title{font-size:22px;font-weight:700;text-align:left}
+    .section-title{font-weight:700}
+    .small{font-size:11px}
+  `;
+  const pointRow = () => `
+    <tr>
+      <td style="border:1px solid black"></td>
+      ${Array.from(
+        { length: 22 },
+        (_, i) =>
+          `<td style="border:1px solid black">${
+            i < 10 ? `&nbsp;${i}&nbsp;` : i
+          }</td>`
+      ).join("")}
+      <td style="border:1px solid black"></td>
+      <td style="border:1px solid black"></td>
+      <td style="border:1px solid black"></td>
+    </tr>`;
+
+  return `<!DOCTYPE html>
+  <html><head><meta charset="utf-8" />
+    <title>Biên bản trọng tài - ${code}</title>
+    <style>${css}</style>
+  </head>
+  <body>
+    <table class="no-border" style="width:100%">
+      <tr class="no-border">
+        <td class="no-border" style="width:80px">
+          <!-- logo (tuỳ bạn sửa src) -->
+          <img style="width:96px" src="${logoUrl || "/logo.png"}" alt="logo" />
+        </td>
+        <td class="no-border" colspan="3">
+          <div class="title" id="printTourname">${tourName || ""}</div>
+        </td>
+      </tr>
+      <tr>
+        <td rowspan="2">TRẬN ĐẤU:</td>
+        <td rowspan="2"><div style="font-weight:700;font-size:22px" id="printMatchCode">${code}</div></td>
+        <td style="width:100px">SÂN:</td>
+        <td style="min-width:150px"><b id="printMatchCourt">${
+          court || ""
+        }</b></td>
+      </tr>
+      <tr>
+        <td style="width:100px">TRỌNG TÀI:</td>
+        <td style="min-width:150px"><b id="printMatchReferee">${
+          referee || ""
+        }</b></td>
+      </tr>
+    </table>
+    <br/>
+
+    <table>
+      <tr><td>ĐỘI 1</td><td colspan="26"><b id="printTeam1">${
+        team1 || ""
+      }</b></td></tr>
+      <tr>
+        <td>SERVER</td>
+        <td colspan="22">ĐIỂM</td>
+        <td colspan="2">TIMEOUT</td>
+        <td>TW/TF</td>
+      </tr>
+      ${pointRow()}${pointRow()}${pointRow()}
+    </table>
+    <br/>
+
+    <div style="height:90px;">
+      <table class="no-border" style="width:100%">
+        <tr class="no-border">
+          <td class="no-border" style="text-align:center;width:300px"><b>Đội thắng</b></td>
+          <td class="no-border" style="text-align:center;width:300px"><b>Trọng tài</b></td>
+          <td class="no-border" style="text-align:center;width:300px"><b>Đội thua</b></td>
+        </tr>
+      </table>
+    </div>
+
+    <table>
+      <tr><td>ĐỘI 2</td><td colspan="26"><b id="printTeam21">${
+        team2 || ""
+      }</b></td></tr>
+      <tr><td>SERVER</td><td colspan="22">ĐIỂM</td><td colspan="2">TIMEOUT</td><td>TW/TF</td></tr>
+      ${pointRow()}${pointRow()}${pointRow()}
+    </table>
+
+  </body></html>`;
+};
 
 const pairLabel = (pair) => {
   if (!pair) return "—";
@@ -228,10 +343,12 @@ const buildRowsForBracket = (matches) =>
     matchCode(m),
     pairLabel(m?.pairA),
     pairLabel(m?.pairB),
-    courtLabel(m), // đổi Vòng -> Sân
+    // courtLabel(m), // đổi Vòng -> Sân
+    // Number.isFinite(m?.order) ? `T${m.order + 1}` : "—",
+    // statusText(m?.status),
+    // m?.video || "",
+    courtLabel(m),
     Number.isFinite(m?.order) ? `T${m.order + 1}` : "—",
-    statusText(m?.status),
-    m?.video || "",
   ]);
 
 /* ---------------- Row & Card (memo) ---------------- */
@@ -241,6 +358,7 @@ const ActionChips = React.memo(function ActionChips({
   onDeleteVideo,
   onAssignCourt,
   onAssignRef,
+  onExportRefNote,
 }) {
   const st = String(match?.status || "").toLowerCase();
   const canAssignCourt = !(st === "live" || st === "finished");
@@ -250,6 +368,14 @@ const ActionChips = React.memo(function ActionChips({
       onClick={(e) => e.stopPropagation()}
       sx={{ display: "flex", flexWrap: "wrap", columnGap: 1, rowGap: 1 }}
     >
+      <Chip
+        size="small"
+        color="primary"
+        variant="filled"
+        icon={<PrintIcon />}
+        label="Biên bản TT"
+        onClick={() => onExportRefNote?.(match)}
+      />
       <Chip
         size="small"
         color="info"
@@ -297,6 +423,7 @@ const MatchRow = React.memo(function MatchRow({
   onDeleteVideo,
   onAssignCourt,
   onAssignRef,
+  onExportRefNote,
 }) {
   return (
     <TableRow
@@ -351,6 +478,7 @@ const MatchRow = React.memo(function MatchRow({
           onDeleteVideo={onDeleteVideo}
           onAssignCourt={onAssignCourt}
           onAssignRef={onAssignRef}
+          onExportRefNote={onExportRefNote}
         />
       </TableCell>
     </TableRow>
@@ -364,6 +492,7 @@ const MatchCard = React.memo(function MatchCard({
   onDeleteVideo,
   onAssignCourt,
   onAssignRef,
+  onExportRefNote,
 }) {
   const code = matchCode(match);
   return (
@@ -463,6 +592,7 @@ const MatchCard = React.memo(function MatchCard({
             onDeleteVideo={onDeleteVideo}
             onAssignCourt={onAssignCourt}
             onAssignRef={onAssignRef}
+            onExportRefNote={onExportRefNote}
           />
         </Stack>
       </CardContent>
@@ -1045,7 +1175,7 @@ export default function TournamentManagePage() {
         });
 
         const tableBody = [
-          ["Mã", "Cặp A", "Cặp B", "Sân", "Thứ tự", "Trạng thái", "Video"], // đổi tiêu đề
+          ["Mã", "Cặp A", "Cặp B", "Sân", "Thứ tự"],
           ...sec.rows.map((r) =>
             r.map((cell) => (cell == null ? "" : String(cell)))
           ),
@@ -1054,7 +1184,7 @@ export default function TournamentManagePage() {
         content.push({
           table: {
             headerRows: 1,
-            widths: [50, 120, 120, 80, 45, 70, "*"], // tăng độ rộng cột Sân
+            widths: [50, 140, 140, 80, 55],
             body: tableBody,
           },
           layout: "lightHorizontalLines",
@@ -1144,15 +1274,9 @@ export default function TournamentManagePage() {
             heading: HeadingLevel.HEADING_2,
           })
         );
-        const headCells = [
-          "Mã",
-          "Cặp A",
-          "Cặp B",
-          "Sân",
-          "Thứ tự",
-          "Trạng thái",
-          "Video",
-        ].map((t) => new TableCell({ children: [new Paragraph({ text: t })] }));
+        const headCells = ["Mã", "Cặp A", "Cặp B", "Sân", "Thứ tự"].map(
+          (t) => new TableCell({ children: [new Paragraph({ text: t })] })
+        );
         const rows = [
           new TableRow({ children: headCells }),
           ...sec.rows.map(
@@ -1203,6 +1327,52 @@ export default function TournamentManagePage() {
       closeExportMenu();
     }
   };
+
+  const handleExportRefNote = useCallback(
+    (m) => {
+      try {
+        const html = buildRefReportHTML({
+          tourName: tour?.name || "",
+          code: matchCode(m),
+          court: courtLabel(m),
+          referee: refereeNames(m),
+          team1: pairLabel(m?.pairA),
+          team2: pairLabel(m?.pairB),
+          logoUrl: WEB_LOGO_URL,
+        });
+        const w = window.open("", "_blank");
+        if (!w) {
+          toast.error(
+            "Trình duyệt chặn popup. Hãy cho phép cửa sổ bật lên để in."
+          );
+          return;
+        }
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+
+        // Gọi print() từ parent để né CSP chặn inline script
+        const tryPrint = () => {
+          try {
+            if (w.document && w.document.readyState === "complete") {
+              w.focus?.();
+              w.print?.();
+            } else {
+              setTimeout(tryPrint, 100);
+            }
+          } catch {
+            /* ignore */
+          }
+        };
+        tryPrint();
+        // window.print() được gọi trong HTML onload
+      } catch (e) {
+        console.error(e);
+        toast.error("Không mở được biên bản trọng tài");
+      }
+    },
+    [tour]
+  );
 
   /* ---------- guards ---------- */
   if (tourLoading || brLoading) {
@@ -1485,6 +1655,7 @@ export default function TournamentManagePage() {
                               onDeleteVideo={deleteVideoDlg}
                               onAssignCourt={openAssignCourt}
                               onAssignRef={openAssignRef}
+                              onExportRefNote={handleExportRefNote}
                             />
                           ))
                         )}
@@ -1520,6 +1691,7 @@ export default function TournamentManagePage() {
                             onDeleteVideo={deleteVideoDlg}
                             onAssignCourt={openAssignCourt}
                             onAssignRef={openAssignRef}
+                            onExportRefNote={handleExportRefNote}
                           />
                         </Grid>
                       ))}

@@ -21,6 +21,7 @@ import {
   Container,
   useTheme,
   useMediaQuery,
+  Collapse, // NEW
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import CloseIcon from "@mui/icons-material/Close";
@@ -32,6 +33,8 @@ import EventIcon from "@mui/icons-material/Event";
 import ScheduleIcon from "@mui/icons-material/Schedule";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import PlaceIcon from "@mui/icons-material/Place";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore"; // NEW
+import ExpandLessIcon from "@mui/icons-material/ExpandLess"; // NEW
 import { useSelector } from "react-redux";
 import { skipToken } from "@reduxjs/toolkit/query";
 import { useNavigate } from "react-router-dom";
@@ -83,7 +86,6 @@ function roundText(m) {
 
 /* ========== Tone helpers (áp màu đồng bộ) ========== */
 const toneToMuiColor = (tone) => {
-  // filter ở header & tournament-card (status giải)
   if (tone === "upcoming" || tone === "scheduled") return "primary"; // lam
   if (tone === "ongoing" || tone === "live") return "warning"; // cam
   if (tone === "finished") return "success"; // lục
@@ -226,7 +228,7 @@ function MatchRow({ m, onOpen, eventType }) {
   );
 }
 
-function Banner({ t }) {
+function Banner({ t, collapsed, onToggle }) {
   // status của GIẢI
   const statusText =
     t.status === "ongoing"
@@ -307,12 +309,27 @@ function Banner({ t }) {
               </Stack>
             )}
           </Box>
-          {/* status tag theo quy ước màu */}
-          <Chip
-            label={statusText}
-            color={statusColor}
-            sx={{ fontWeight: 600, color: "#fff" }}
-          />
+
+          {/* status tag theo quy ước màu + toggle collapse */}
+          <Stack direction="row" spacing={0.75} alignItems="center">
+            <Chip
+              label={statusText}
+              color={statusColor}
+              sx={{ fontWeight: 600, color: "#fff" }}
+            />
+            <IconButton
+              size="small"
+              onClick={onToggle}
+              sx={{
+                color: "#fff",
+                bgcolor: "rgba(255,255,255,0.12)",
+                "&:hover": { bgcolor: "rgba(255,255,255,0.2)" },
+              }}
+              title={collapsed ? "Mở chi tiết" : "Thu gọn"}
+            >
+              {collapsed ? <ExpandMoreIcon /> : <ExpandLessIcon />}
+            </IconButton>
+          </Stack>
         </Stack>
       </Box>
     </Box>
@@ -320,7 +337,10 @@ function Banner({ t }) {
 }
 
 function TournamentCard({ t, onOpenMatch }) {
-  const [expanded, setExpanded] = useState(false);
+  // Card-level collapse: mặc định finished → collapse, còn lại mở
+  const [collapsed, setCollapsed] = useState(t.status === "finished");
+
+  const [expanded, setExpanded] = useState(false); // chỉ điều khiển "xem thêm" list trận
   const [matchQuery, setMatchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState(
     new Set(["scheduled", "live", "finished"])
@@ -361,126 +381,134 @@ function TournamentCard({ t, onOpenMatch }) {
 
   return (
     <Card variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
-      <Banner t={t} />
-      <CardContent sx={{ p: { xs: 1.5, md: 2 }, pt: 1.5 }}>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-          <CalendarMonthIcon sx={{ fontSize: 18, color: "text.secondary" }} />
-          <Typography variant="body2" color="text.secondary">
-            {(t.startDate || t.startAt) && (t.endDate || t.endAt)
-              ? `${dateFmt(t.startDate || t.startAt)}  →  ${dateFmt(
-                  t.endDate || t.endAt
-                )}`
-              : "—"}
-          </Typography>
-        </Stack>
+      <Banner
+        t={t}
+        collapsed={collapsed}
+        onToggle={() => setCollapsed((v) => !v)}
+      />
 
-        {/* SEARCH + FILTER TRẬN (chip có màu theo tone) */}
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={1}
-          alignItems={{ xs: "stretch", sm: "center" }}
-        >
-          <TextField
-            value={matchQuery}
-            onChange={(e) => setMatchQuery(e.target.value)}
-            size="small"
-            placeholder="Tìm trận (VĐV, vòng, sân...)"
-            fullWidth
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon sx={{ color: "text.secondary" }} />
-                </InputAdornment>
-              ),
-              endAdornment: matchQuery ? (
-                <InputAdornment position="end">
-                  <IconButton size="small" onClick={() => setMatchQuery("")}>
-                    <CloseIcon />
-                  </IconButton>
-                </InputAdornment>
-              ) : null,
-            }}
-          />
-
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <ToggleChip
-              label="Sắp diễn ra"
-              active={statusFilter.has("scheduled")}
-              onClick={() => toggleStatus("scheduled")}
-              tone="scheduled"
-            />
-            <ToggleChip
-              label="Đang diễn ra"
-              active={statusFilter.has("live")}
-              onClick={() => toggleStatus("live")}
-              tone="live"
-            />
-            <ToggleChip
-              label="Đã kết thúc"
-              active={statusFilter.has("finished")}
-              onClick={() => toggleStatus("finished")}
-              tone="finished"
-            />
-            {(!!matchQuery || statusFilter.size !== 3) && (
-              <Button
-                onClick={() => {
-                  setMatchQuery("");
-                  setStatusFilter(new Set(["scheduled", "live", "finished"]));
-                }}
-                size="small"
-                variant="text"
-              >
-                Reset
-              </Button>
-            )}
+      {/* Phần nội dung có thể collapse toàn bộ */}
+      <Collapse in={!collapsed} timeout="auto" unmountOnExit>
+        <CardContent sx={{ p: { xs: 1.5, md: 2 }, pt: 1.5 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+            <CalendarMonthIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+            <Typography variant="body2" color="text.secondary">
+              {(t.startDate || t.startAt) && (t.endDate || t.endAt)
+                ? `${dateFmt(t.startDate || t.startAt)}  →  ${dateFmt(
+                    t.endDate || t.endAt
+                  )}`
+                : "—"}
+            </Typography>
           </Stack>
-        </Stack>
 
-        {/* LIST MATCHES */}
-        {filteredMatches.length === 0 ? (
-          <Box
-            sx={{
-              border: "1px dashed",
-              borderColor: "divider",
-              borderRadius: 1,
-              p: 2,
-              textAlign: "center",
-              mt: 1.25,
-            }}
+          {/* SEARCH + FILTER TRẬN (chip có màu theo tone) */}
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={1}
+            alignItems={{ xs: "stretch", sm: "center" }}
           >
-            <Typography fontSize={28} mb={0.5}>
-              🎾
-            </Typography>
-            <Typography color="text.secondary">
-              Không có trận phù hợp bộ lọc.
-            </Typography>
-          </Box>
-        ) : (
-          <Stack spacing={1.25} sx={{ mt: 1.25 }}>
-            {shown.map((m) => (
-              <MatchRow
-                key={m._id}
-                m={m}
-                onOpen={onOpenMatch}
-                eventType={t.eventType}
+            <TextField
+              value={matchQuery}
+              onChange={(e) => setMatchQuery(e.target.value)}
+              size="small"
+              placeholder="Tìm trận (VĐV, vòng, sân...)"
+              fullWidth
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ color: "text.secondary" }} />
+                  </InputAdornment>
+                ),
+                endAdornment: matchQuery ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setMatchQuery("")}>
+                      <CloseIcon />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+              }}
+            />
+
+            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+              <ToggleChip
+                label="Sắp diễn ra"
+                active={statusFilter.has("scheduled")}
+                onClick={() => toggleStatus("scheduled")}
+                tone="scheduled"
               />
-            ))}
-            {hasMore && (
-              <Box sx={{ display: "flex", justifyContent: "center" }}>
+              <ToggleChip
+                label="Đang diễn ra"
+                active={statusFilter.has("live")}
+                onClick={() => toggleStatus("live")}
+                tone="live"
+              />
+              <ToggleChip
+                label="Đã kết thúc"
+                active={statusFilter.has("finished")}
+                onClick={() => toggleStatus("finished")}
+                tone="finished"
+              />
+              {(!!matchQuery || statusFilter.size !== 3) && (
                 <Button
-                  onClick={() => setExpanded((v) => !v)}
-                  variant="outlined"
+                  onClick={() => {
+                    setMatchQuery("");
+                    setStatusFilter(new Set(["scheduled", "live", "finished"]));
+                  }}
                   size="small"
+                  variant="text"
                 >
-                  {expanded
-                    ? "Thu gọn"
-                    : `Xem tất cả ${filteredMatches.length} trận`}
+                  Reset
                 </Button>
-              </Box>
-            )}
+              )}
+            </Stack>
           </Stack>
-        )}
-      </CardContent>
+
+          {/* LIST MATCHES */}
+          {filteredMatches.length === 0 ? (
+            <Box
+              sx={{
+                border: "1px dashed",
+                borderColor: "divider",
+                borderRadius: 1,
+                p: 2,
+                textAlign: "center",
+                mt: 1.25,
+              }}
+            >
+              <Typography fontSize={28} mb={0.5}>
+                🎾
+              </Typography>
+              <Typography color="text.secondary">
+                Không có trận phù hợp bộ lọc.
+              </Typography>
+            </Box>
+          ) : (
+            <Stack spacing={1.25} sx={{ mt: 1.25 }}>
+              {shown.map((m) => (
+                <MatchRow
+                  key={m._id}
+                  m={m}
+                  onOpen={onOpenMatch}
+                  eventType={t.eventType}
+                />
+              ))}
+              {hasMore && (
+                <Box sx={{ display: "flex", justifyContent: "center" }}>
+                  <Button
+                    onClick={() => setExpanded((v) => !v)}
+                    variant="outlined"
+                    size="small"
+                  >
+                    {expanded
+                      ? "Thu gọn"
+                      : `Xem tất cả ${filteredMatches.length} trận`}
+                  </Button>
+                </Box>
+              )}
+            </Stack>
+          )}
+        </CardContent>
+      </Collapse>
     </Card>
   );
 }
@@ -561,13 +589,26 @@ export default function MyTournamentsPage() {
     new Set(["upcoming", "ongoing", "finished"])
   );
 
+  // Sort: ongoing → upcoming → finished
   const tournaments = useMemo(() => {
     const q = stripVN(tourQuery);
-    return tournamentsRaw.filter((t) => {
+    const filtered = tournamentsRaw.filter((t) => {
       if (!tourStatus.has(t.status)) return false;
       if (!q) return true;
       const hay = [t.name, t.location].map(stripVN).join(" | ");
       return hay.includes(q);
+    });
+
+    const rank = { ongoing: 0, upcoming: 1, finished: 2 };
+    const getStart = (t) =>
+      new Date(t.startDate || t.startAt || 0).getTime() || 0;
+
+    return filtered.slice().sort((a, b) => {
+      const ra = rank[a.status] ?? 99;
+      const rb = rank[b.status] ?? 99;
+      if (ra !== rb) return ra - rb;
+      // phụ: sắp xếp theo start time tăng dần trong cùng nhóm
+      return getStart(a) - getStart(b);
     });
   }, [tournamentsRaw, tourQuery, tourStatus]);
 
@@ -575,14 +616,6 @@ export default function MyTournamentsPage() {
     setMatchId(m?._id);
     setViewerOpen(true);
   }, []);
-
-  const toggleTourStatus = (key) =>
-    setTourStatus((prev) => {
-      const n = new Set(prev);
-      n.has(key) ? n.delete(key) : n.add(key);
-      if (n.size === 0) n.add(key);
-      return n;
-    });
 
   if (!isAuthed) return <LoginPrompt />;
 
@@ -637,7 +670,6 @@ export default function MyTournamentsPage() {
                 }}
               />
 
-              {/* ===== Bộ lọc giải (chip màu theo tone) ===== */}
               {!!tournaments?.length && (
                 <Typography
                   variant="body2"

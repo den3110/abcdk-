@@ -280,20 +280,38 @@ const medalChipStyle = (medal, maxWidth = 280) => ({
     medal === "gold" ? "#ff8f00" : medal === "silver" ? "#607d8b" : "#e65100",
 });
 
+const medalChipStyleFull = (medal) => ({
+  maxWidth: "100%",
+  alignSelf: "stretch",
+  "& .MuiChip-label": {
+    display: "block",
+    whiteSpace: "normal", // cho phép xuống dòng
+    wordBreak: "break-word",
+    lineHeight: 1.2,
+    paddingTop: "2px",
+    paddingBottom: "2px",
+  },
+  borderColor:
+    medal === "gold" ? "#ffb300" : medal === "silver" ? "#90a4ae" : "#ff8a65",
+  color:
+    medal === "gold" ? "#ff8f00" : medal === "silver" ? "#607d8b" : "#e65100",
+});
+
 /* ================= Component ================= */
 export default function RankingList() {
   const dispatch = useDispatch();
   const { keyword, page } = useSelector((s) => s?.rankingUi || {});
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // Desktop view mode: 'list' (table) | 'cards' (grid)
+  // const [desktopView, setDesktopView] = useState("list");
   const [desktopView, setDesktopView] = useState(() => {
     try {
       const cached = localStorage.getItem(VIEW_KEY);
-      return cached === "cards" || cached === "list" ? cached : "list";
-    } catch {
-      return "cards";
+      if (cached === "cards" || cached === "list") return cached;
+    } catch (e) {
+      console.log(e);
     }
+    return "cards"; // mặc định là cards
   });
 
   // Debounced input state
@@ -357,6 +375,7 @@ export default function RankingList() {
     }
 
     // view mode from URL (optional)
+
     const v = searchParams.get("view");
     if (v === "cards" || v === "list") {
       if (v !== desktopView) setDesktopView(v);
@@ -588,54 +607,64 @@ export default function RankingList() {
   const chipMobileSx = { mr: { xs: 0.75, sm: 0 }, mb: { xs: 0.75, sm: 0 } };
 
   /* ===== Build top-achievement map từ API podiums30d ===== */
-  const { topMedalByUser, labelByUser, hrefByUser } = useMemo(() => {
-    const rank = { gold: 3, silver: 2, bronze: 1 };
+  const { topMedalByUser, labelShortByUser, labelFullByUser, hrefByUser } =
+    useMemo(() => {
+      const rank = { gold: 3, silver: 2, bronze: 1 };
 
-    const topMap = new Map(); // userId -> "gold"/"silver"/"bronze"
-    const labelMap = new Map(); // userId -> label hiển thị (CHỈ medal)
-    const hrefMap = new Map(); // userId -> link tới trang giải
+      const topMap = new Map(); // userId -> medal
+      const shortMap = new Map(); // userId -> "Nhà vô địch / Á quân / Đồng hạng 3"
+      const fullMap = new Map(); // userId -> "Nhà vô địch – Tên giải (+n giải khác)"
+      const hrefMap = new Map(); // userId -> link
 
-    const entries = Object.entries(podiums30d || {});
+      const entries = Object.entries(podiums30d || {});
 
-    const getHref = (t) => {
-      const id =
-        t?.tournamentId ||
-        t?.tournament?._id ||
-        t?.tournament?.id ||
-        t?.tid ||
-        t?.id;
-      const slug = t?.tournamentSlug || t?.slug;
-      if (id) return `/tournament/${id}/bracket`;
-      if (slug) return `/tournament/${slug}/bracket`;
-      return "/tournament";
-    };
+      const getHref = (t) => {
+        const id =
+          t?.tournamentId ||
+          t?.tournament?._id ||
+          t?.tournament?.id ||
+          t?.tid ||
+          t?.id;
+        const slug = t?.tournamentSlug || t?.slug;
+        if (id) return `/tournament/${id}/bracket`;
+        if (slug) return `/tournament/${slug}/bracket`;
+        const name = t?.tournamentName || t?.name;
+        return name
+          ? `/tournament?query=${encodeURIComponent(name)}/bracket`
+          : "/tournament";
+      };
 
-    for (const [uid, arr] of entries) {
-      if (!Array.isArray(arr) || arr.length === 0) continue;
+      for (const [uid, arr] of entries) {
+        if (!Array.isArray(arr) || arr.length === 0) continue;
 
-      // pick best by medal rank, then latest finishedAt
-      const picked = [...arr].sort((a, b) => {
-        const r = (rank[b.medal] || 0) - (rank[a.medal] || 0);
-        if (r !== 0) return r;
-        const ta = a.finishedAt ? new Date(a.finishedAt).getTime() : 0;
-        const tb = b.finishedAt ? new Date(b.finishedAt).getTime() : 0;
-        return tb - ta;
-      })[0];
+        const picked = [...arr].sort((a, b) => {
+          const r = (rank[b.medal] || 0) - (rank[a.medal] || 0);
+          if (r !== 0) return r;
+          const ta = a.finishedAt ? new Date(a.finishedAt).getTime() : 0;
+          const tb = b.finishedAt ? new Date(b.finishedAt).getTime() : 0;
+          return tb - ta;
+        })[0];
 
-      // Label CHỈ còn “Nhà vô địch / Á quân / Đồng hạng 3”
-      const title = medalLabel(picked.medal);
+        const plusN = Math.max(0, arr.length - 1);
+        const medalText = medalLabel(picked.medal);
+        const tourName = picked.tournamentName || picked.name || "Giải đấu";
+        const fullTitle = `${medalText} – ${tourName}${
+          plusN > 0 ? ` (+${plusN} giải khác)` : ""
+        }`;
 
-      topMap.set(String(uid), picked.medal);
-      labelMap.set(String(uid), title);
-      hrefMap.set(String(uid), getHref(picked));
-    }
+        topMap.set(String(uid), picked.medal);
+        shortMap.set(String(uid), medalText);
+        fullMap.set(String(uid), fullTitle);
+        hrefMap.set(String(uid), getHref(picked));
+      }
 
-    return {
-      topMedalByUser: topMap,
-      labelByUser: labelMap,
-      hrefByUser: hrefMap,
-    };
-  }, [podiums30d]);
+      return {
+        topMedalByUser: topMap,
+        labelShortByUser: shortMap,
+        labelFullByUser: fullMap,
+        hrefByUser: hrefMap,
+      };
+    }, [podiums30d]);
 
   // handle desktop view mode change & sync URL
   const handleChangeDesktopView = (_, next) => {
@@ -667,7 +696,6 @@ export default function RankingList() {
 
     const uid = u?._id && String(u._id);
     const topMedal = uid ? topMedalByUser.get(uid) : null;
-    const label = uid ? labelByUser.get(uid) : null;
 
     return (
       <Box sx={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
@@ -707,14 +735,7 @@ export default function RankingList() {
             </Box>
 
             {/* SLOT cố định cho chip thành tích (28px) */}
-            <Box
-              sx={{
-                minHeight: 28,
-                mb: 1,
-                display: "flex",
-                alignItems: "center",
-              }}
-            >
+            <Box sx={{ mb: 1, display: "flex", alignItems: "flex-start" }}>
               {topMedal && (
                 <Chip
                   size="small"
@@ -722,8 +743,8 @@ export default function RankingList() {
                   clickable
                   component={Link}
                   to={hrefByUser.get(uid) || "/tournaments"}
-                  label={label} // chỉ "Nhà vô địch/Á quân/Đồng hạng 3"
-                  sx={medalChipStyle(topMedal, 260)}
+                  label={labelFullByUser.get(uid)} // <<< FULL
+                  sx={medalChipStyleFull(topMedal)} // <<< WRAP
                   onMouseDown={(e) => e.stopPropagation()}
                 />
               )}
@@ -850,10 +871,7 @@ export default function RankingList() {
               onChange={handleChangeDesktopView}
               aria-label="Chế độ hiển thị desktop"
             >
-              <ToggleButton
-                value="list"
-                aria-label="Danh sách"
-              >
+              <ToggleButton value="list" aria-label="Danh sách">
                 <Tooltip title="Hiển thị dạng danh sách" arrow enterDelay={500}>
                   <Box component="span" sx={{ display: "flex" }}>
                     <TableRowsIcon fontSize="small" />
@@ -861,15 +879,8 @@ export default function RankingList() {
                 </Tooltip>
               </ToggleButton>
 
-              <ToggleButton
-                value="cards"
-                aria-label="Thẻ"
-              >
-                <Tooltip
-                  title="Hiển thị dạng lưới"
-                  arrow
-                  enterDelay={500}
-                >
+              <ToggleButton value="cards" aria-label="Thẻ">
+                <Tooltip title="Hiển thị dạng lưới" arrow enterDelay={500}>
                   <Box component="span" sx={{ display: "flex" }}>
                     <GridViewIcon fontSize="small" />
                   </Box>
@@ -1112,7 +1123,6 @@ export default function RankingList() {
 
             const uid = u?._id && String(u._id);
             const topMedal = uid ? topMedalByUser.get(uid) : null;
-            const label = uid ? labelByUser.get(uid) : null;
 
             return (
               <Card
@@ -1167,13 +1177,12 @@ export default function RankingList() {
                         clickable
                         component={Link}
                         to={hrefByUser.get(uid) || "/tournaments"}
-                        label={label}
-                        sx={medalChipStyle(topMedal, 220)}
+                        label={labelFullByUser.get(uid)} // <<< FULL
+                        sx={medalChipStyleFull(topMedal)} // <<< WRAP
                         onMouseDown={(e) => e.stopPropagation()}
                       />
                     </Stack>
                   )}
-
                   <Stack
                     direction="row"
                     flexWrap="wrap"
@@ -1311,7 +1320,7 @@ export default function RankingList() {
 
                 const uid = u?._id && String(u._id);
                 const topMedal = uid ? topMedalByUser.get(uid) : null;
-                const label = uid ? labelByUser.get(uid) : null;
+                const label = uid ? labelShortByUser.get(uid) : null;
 
                 return (
                   <TableRow key={r?._id || u?._id} hover>

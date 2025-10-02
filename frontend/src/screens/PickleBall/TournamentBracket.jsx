@@ -35,7 +35,13 @@ import {
   DialogContent,
   GlobalStyles,
   Tooltip,
+  FormGroup, // NEW
+  FormControlLabel, // NEW
+  Checkbox, // NEW
+  Button,
+  DialogActions,
 } from "@mui/material";
+import { useSelector } from "react-redux"; // NEW
 import {
   Close as CloseIcon,
   EmojiEvents as TrophyIcon,
@@ -49,6 +55,7 @@ import {
   ZoomIn as ZoomInIcon,
   ZoomOut as ZoomOutIcon,
   RestartAlt as ResetZoomIcon,
+  FilterList as FilterListIcon,
 } from "@mui/icons-material";
 import { Bracket, Seed, SeedItem, SeedTeam } from "react-brackets";
 import { useParams, useSearchParams } from "react-router-dom";
@@ -1762,6 +1769,93 @@ function computeBaseRoundStart(brackets, byBracket, current) {
   return sum + 1; // bắt đầu từ V = tổng trước đó + 1
 }
 
+// NEW: chuẩn hóa id
+const toIdStr = (v) => {
+  if (!v) return "";
+  if (typeof v === "string" || typeof v === "number") return String(v);
+  if (typeof v === "object") return String(v._id || v.id || "");
+  return "";
+};
+
+// NEW: kiểm tra một object có chứa user = meId không
+const holdsUser = (obj, meId) => {
+  const mid = String(meId || "");
+  if (!mid) return false;
+  const cand = [
+    obj?.user,
+    obj?.userId,
+    obj?._id,
+    obj?.id,
+    obj?.account,
+    obj?.profile,
+  ];
+  return cand.some((x) => x && toIdStr(x) === mid);
+};
+
+// NEW: kiểm tra một "player" có thuộc meId không (nhiều schema khác nhau)
+const playerIsMe = (p, meId) => {
+  if (!p || !meId) return false;
+  if (holdsUser(p, meId)) return true;
+  if (holdsUser(p?.user, meId)) return true;
+  if (toIdStr(p?.user?._id) === String(meId)) return true;
+  if (toIdStr(p?.userId) === String(meId)) return true;
+  return false;
+};
+
+// NEW: kiểm tra một "pair/registration" có chứa meId không
+const pairHasMe = (pair, meId) => {
+  if (!pair || !meId) return false;
+  if (holdsUser(pair, meId)) return true;
+  if (playerIsMe(pair.player1, meId)) return true;
+  if (playerIsMe(pair.player2, meId)) return true;
+  if (
+    Array.isArray(pair.players) &&
+    pair.players.some((pl) => playerIsMe(pl, meId))
+  )
+    return true;
+  return false;
+};
+
+// NEW: gom tất cả registrationId (pairId) mà user đang thuộc về
+function collectMyRegistrationIds(me, tour, matchesAll) {
+  const meId = toIdStr(me?._id || me?.id);
+  const set = new Set();
+
+  // 1) Quét từ tour.registrations (nếu có)
+  if (Array.isArray(tour?.registrations)) {
+    for (const r of tour.registrations) {
+      if (!r?._id) continue;
+      // các layout phổ biến
+      const hit =
+        holdsUser(r, meId) ||
+        holdsUser(r?.owner, meId) ||
+        holdsUser(r?.createdBy, meId) ||
+        pairHasMe(r.player, meId) ||
+        pairHasMe(r.pair, meId) ||
+        pairHasMe(r, meId) ||
+        (Array.isArray(r?.players) &&
+          r.players.some((pl) => playerIsMe(pl, meId))) ||
+        playerIsMe(r?.player1, meId) ||
+        playerIsMe(r?.player2, meId);
+      if (hit) set.add(toIdStr(r._id));
+    }
+  }
+
+  // 2) Bổ sung từ tất cả các pair xuất hiện trong matches (A/B)
+  for (const m of matchesAll || []) {
+    if (m?.pairA?._id && pairHasMe(m.pairA, meId))
+      set.add(toIdStr(m.pairA._id));
+    if (m?.pairB?._id && pairHasMe(m.pairB, meId))
+      set.add(toIdStr(m.pairB._id));
+  }
+
+  return set;
+}
+
+// NEW: lấy key bảng (đã dùng pattern này bên dưới)
+const groupKeyOf = (g, gi) =>
+  String(g?.name || g?.code || g?._id || String(gi + 1));
+
 /* ===================== Component chính ===================== */
 export default function TournamentBracket() {
   const socket = useSocket();
@@ -1769,8 +1863,10 @@ export default function TournamentBracket() {
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
   const { id: tourId } = useParams();
+  const me = useSelector((s) => s.auth?.userInfo); // NEW
   const [searchParams, setSearchParams] = useSearchParams();
   const [zoom, setZoom] = useState(1);
+  const [filterOpen, setFilterOpen] = useState(false);
   const zoomIn = useCallback(
     () =>
       setZoom((z) => clamp(parseFloat((z + Z_STEP).toFixed(2)), Z_MIN, Z_MAX)),
@@ -2022,6 +2118,12 @@ export default function TournamentBracket() {
     [tourId, liveBump]
   );
 
+  // NEW: tập regId (pairId) mà user thuộc về
+  const myRegIdsAll = useMemo(
+    () => collectMyRegistrationIds(me, tour, matchesMerged),
+    [me, tour, matchesMerged]
+  );
+
   const byBracket = useMemo(() => {
     const m = {};
     (brackets || []).forEach((b) => (m[b._id] = []));
@@ -2076,6 +2178,51 @@ export default function TournamentBracket() {
     () => (current ? byBracket[current._id] || [] : []),
     [byBracket, current]
   );
+
+  // NEW: danh sách key tất cả bảng ở stage hiện tại
+  const allGroupKeys = useMemo(() => {
+    if (!current || current.type !== "group") return [];
+    return (current.groups || []).map((g, gi) => groupKeyOf(g, gi));
+  }, [current]);
+
+  // NEW: tập key bảng mà user thuộc về (giao với regIds của bảng)
+  const myGroupKeys = useMemo(() => {
+    const set = new Set();
+    if (!current || current.type !== "group") return set;
+    for (let gi = 0; gi < (current.groups || []).length; gi++) {
+      const g = current.groups[gi];
+      const key = groupKeyOf(g, gi);
+      const regIds = Array.isArray(g?.regIds) ? g.regIds.map(String) : [];
+      if (regIds.some((rid) => myRegIdsAll.has(String(rid)))) set.add(key);
+    }
+    return set;
+  }, [current, myRegIdsAll]);
+
+  // NEW: state bộ lọc
+  const [groupSelected, setGroupSelected] = useState(() => new Set());
+  const [onlyMine, setOnlyMine] = useState(false);
+  // Khi đổi sang stage group khác: mặc định chọn tất cả
+  useEffect(() => {
+    setGroupSelected(new Set(allGroupKeys));
+    setOnlyMine(false);
+  }, [current?._id, allGroupKeys.length]); // reset theo stage
+
+  const toggleGroupKey = useCallback((key) => {
+    setGroupSelected((prev) => {
+      const n = new Set(prev);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+  }, []);
+
+  const handleSelectAll = useCallback(() => {
+    setGroupSelected(new Set(allGroupKeys));
+  }, [allGroupKeys]);
+
+  const handleClearAll = useCallback(() => {
+    setGroupSelected(new Set());
+  }, []);
 
   // resolveSideLabel: ưu tiên previous match winner
   const matchIndex = useMemo(() => {
@@ -2358,6 +2505,7 @@ export default function TournamentBracket() {
   const liveSpotlightStable = useStableLiveSpotlight(current, currentMatches);
   // Làm mượt: tránh re-render liên tiếp khi socket dồn cập nhật
   const liveSpotlight = useDeferredValue(liveSpotlightStable);
+
   // Render “LIVE spotlight” cho vòng bảng
   const renderLiveSpotlight = () => {
     if (!liveSpotlight.length) return null;
@@ -2686,9 +2834,16 @@ export default function TournamentBracket() {
 
   /* ======= GROUP UI (theo yêu cầu) ======= */
   const renderGroupBlocks = () => {
-    const groups = current?.groups || [];
+    const groupsRaw = current?.groups || [];
+    // NEW: lọc theo multi-checkbox & "Bảng của tôi"
+    const filteredGroups = groupsRaw.filter((g, gi) => {
+      const key = groupKeyOf(g, gi);
+      const selectedOk = groupSelected.size === 0 || groupSelected.has(key); // size==0 coi như không chọn gì (ẩn hết)
+      const mineOk = !onlyMine || myGroupKeys.has(key);
+      return selectedOk && mineOk;
+    });
 
-    if (!groups.length) {
+    if (!groupsRaw.length) {
       return (
         <Paper variant="outlined" sx={{ p: 2, textAlign: "center" }}>
           Chưa có cấu hình bảng.
@@ -2701,9 +2856,14 @@ export default function TournamentBracket() {
 
     return (
       <Stack spacing={2}>
-        {groups.map((g, gi) => {
-          const key = String(g.name || g.code || g._id || String(gi + 1));
-          const labelNumeric = gi + 1; // Bảng 1,2,3...
+        {filteredGroups.map((g, gi) => {
+          // LƯU Ý: vì đã filter, gi không còn là index gốc. Lấy key theo groupsRaw:
+          const realGi = (groupsRaw || []).findIndex(
+            (x) => groupKeyOf(x, 0) === groupKeyOf(g, 0) // đơn giản hóa: name/code/_id đều ra cùng key
+          );
+          const key = groupKeyOf(g, realGi >= 0 ? realGi : gi);
+          const labelNumeric = (realGi >= 0 ? realGi : gi) + 1;
+          const isMine = myGroupKeys.has(key);
           const size = sizeOf(g);
           const startIdx = starts.get(key) || 1;
 
@@ -2766,7 +2926,12 @@ export default function TournamentBracket() {
               sx={{
                 p: { xs: 1.5, md: 2 },
                 borderRadius: 2,
-                boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
+                boxShadow: isMine
+                  ? "0 0 0 2px rgba(25,118,210,.16), 0 6px 18px rgba(25,118,210,.12)"
+                  : "0 2px 10px rgba(0,0,0,0.04)",
+                borderLeft: isMine
+                  ? "4px solid #1976d2"
+                  : "4px solid transparent",
               }}
             >
               {/* Header chips */}
@@ -2795,6 +2960,14 @@ export default function TournamentBracket() {
                   variant="outlined"
                   label={`Số đội: ${size || 0}`}
                 />
+                {isMine && (
+                  <Chip
+                    size="small"
+                    color="success"
+                    label="Bảng của bạn"
+                    sx={{ fontWeight: 700 }}
+                  />
+                )}
               </Stack>
 
               {/* ============== Trận trong bảng ============== */}
@@ -3412,9 +3585,139 @@ export default function TournamentBracket() {
 
       {current.type === "group" ? (
         <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            Vòng bảng: {current.name}
-          </Typography>
+          <Stack
+            direction="row"
+            alignItems="center"
+            justifyContent="space-between"
+            sx={{ mb: 1 }}
+          >
+            <Typography variant="h6" sx={{ m: 0 }}>
+              Vòng bảng: {current.name}
+            </Typography>
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<FilterListIcon />}
+              onClick={() => setFilterOpen(true)}
+            >
+              Bộ lọc
+            </Button>
+          </Stack>
+
+          {/* Dialog bộ lọc */}
+          <Dialog
+            open={filterOpen}
+            onClose={() => setFilterOpen(false)}
+            fullWidth
+            maxWidth="sm"
+          >
+            <DialogTitle>Bộ lọc bảng</DialogTitle>
+            <DialogContent dividers>
+              <Stack spacing={1.25}>
+                {/* Tóm tắt nhanh */}
+                <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    label={`Tổng: ${allGroupKeys.length}`}
+                  />
+                  <Chip
+                    size="small"
+                    color={groupSelected.size === 0 ? "default" : "primary"}
+                    variant="outlined"
+                    label={`Đang chọn: ${
+                      groupSelected.size === 0 ? "0" : groupSelected.size
+                    }`}
+                  />
+                  <Chip
+                    size="small"
+                    color={myGroupKeys.size ? "success" : "default"}
+                    variant="outlined"
+                    label={`Bảng của tôi: ${myGroupKeys.size}`}
+                  />
+                </Stack>
+
+                {/* Hàng checkbox điều khiển chung */}
+                <FormGroup row sx={{ gap: 1 }}>
+                  {/* Chỉ hiển thị nếu user có trong ít nhất một bảng */}
+                  {/* {myGroupKeys.size > 0 && (
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={onlyMine}
+                          onChange={(e) => setOnlyMine(e.target.checked)}
+                        />
+                      }
+                      label="Bảng của tôi"
+                    />
+                  )} */}
+
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        indeterminate={
+                          groupSelected.size > 0 &&
+                          groupSelected.size < allGroupKeys.length
+                        }
+                        checked={groupSelected.size === allGroupKeys.length}
+                        onChange={(e) =>
+                          e.target.checked
+                            ? handleSelectAll()
+                            : handleClearAll()
+                        }
+                      />
+                    }
+                    label="Chọn tất cả"
+                  />
+                </FormGroup>
+
+                {/* Danh sách checkbox từng bảng */}
+                <FormGroup row sx={{ gap: 1, mt: 0.5 }}>
+                  {(current?.groups || []).map((g, gi) => {
+                    const key = groupKeyOf(g, gi);
+                    const checked = groupSelected.has(key);
+                    const mine = myGroupKeys.has(key);
+                    const label = `Bảng ${gi + 1}`;
+                    return (
+                      <FormControlLabel
+                        key={key}
+                        control={
+                          <Checkbox
+                            checked={checked}
+                            onChange={() => toggleGroupKey(key)}
+                          />
+                        }
+                        label={
+                          <Stack
+                            direction="row"
+                            spacing={0.75}
+                            alignItems="center"
+                          >
+                            <span>{label}</span>
+                            {mine && (
+                              <Chip
+                                size="small"
+                                color="success"
+                                label="Bảng của tôi"
+                              />
+                            )}
+                          </Stack>
+                        }
+                      />
+                    );
+                  })}
+                </FormGroup>
+              </Stack>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={handleClearAll}>Bỏ chọn hết</Button>
+              <Button onClick={handleSelectAll}>Chọn tất cả</Button>
+              <Button variant="contained" onClick={() => setFilterOpen(false)}>
+                Áp dụng
+              </Button>
+            </DialogActions>
+          </Dialog>
+
           {renderLiveSpotlight()}
           {renderGroupBlocks()}
         </Paper>
