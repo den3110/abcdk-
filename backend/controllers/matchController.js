@@ -2,7 +2,7 @@ import asyncHandler from "express-async-handler";
 import Match from "../models/matchModel.js";
 import mongoose from "mongoose";
 import Registration from "../models/registrationModel.js";
-
+import Bracket from "../models/bracketModel.js";
 // controllers/matchController.js
 const getMatchesByTournament = asyncHandler(async (req, res) => {
   const raw = await Match.find({ tournament: req.params.id })
@@ -1169,8 +1169,34 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Invalid match id" });
   }
 
+  const BRACKET_SELECT = [
+    "name",
+    "type",
+    "stage",
+    "order",
+    "drawRounds",
+    "meta.drawSize",
+    "meta.maxRounds",
+    "meta.expectedFirstRoundMatches",
+    "groups._id",
+    "groups.name",
+    "groups.expectedSize",
+    "drawStatus",
+    "noRankDelta",
+    "scheduler",
+    "drawSettings",
+    "config.rules",
+    "config.roundRobin",
+    "config.doubleElim",
+    "config.swiss",
+    "config.gsl",
+    "config.roundElim",
+    "createdAt",
+    "tournament",
+  ].join(" ");
+
   const match = await Match.findById(id)
-    // ===== Pairs A/B + players (giữ như bạn đang dùng) =====
+    // ===== Pairs A/B + players =====
     .populate({
       path: "pairA",
       select: "player1 player2 seed label teamName",
@@ -1213,41 +1239,13 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     .populate({ path: "previousB", select: "round order" })
     .populate({ path: "nextMatch", select: "_id" })
 
-    // ===== ⭐ Bracket: lấy thêm trường để FE tính V/bảng, rules, ... =====
-    .populate({
-      path: "bracket",
-      select: [
-        "name",
-        "type",
-        "stage",
-        "order",
-        "drawRounds",
-        "meta.drawSize",
-        "meta.maxRounds",
-        "meta.expectedFirstRoundMatches",
-        "groups._id",
-        "groups.name",
-        "groups.expectedSize",
-        "drawStatus",
-        "noRankDelta",
-        "scheduler",
-        "drawSettings",
-        // config.*
-        "config.rules",
-        "config.roundRobin",
-        "config.doubleElim",
-        "config.swiss",
-        "config.gsl",
-        "config.roundElim",
-      ].join(" "),
-    })
+    // ===== Bracket của match =====
+    .populate({ path: "bracket", select: BRACKET_SELECT })
     .lean();
 
-  if (!match) {
-    return res.status(404).json({ message: "Match not found" });
-  }
+  if (!match) return res.status(404).json({ message: "Match not found" });
 
-  // ===== Helpers =====
+  // ===== Helpers bạn đang dùng (rút gọn) =====
   const pickTrim = (v) => (v && String(v).trim()) || "";
   const fillNick = (p) => {
     if (!p) return p;
@@ -1256,14 +1254,31 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
       ? pickTrim(p.user.nickname) || pickTrim(p.user.nickName)
       : "";
     const n = primary || fromUser || "";
-    if (n) {
-      p.nickname = n;
-      p.nickName = n;
-    }
+    if (n) p.nickname = p.nickName = n;
     return p;
   };
+  const normalizeBracketShape = (b) => {
+    if (!b) return b;
+    const bb = { ...b };
+    if (!Array.isArray(bb.groups)) bb.groups = [];
+    bb.meta = bb.meta || {};
+    if (typeof bb.meta.drawSize !== "number") bb.meta.drawSize = 0;
+    if (typeof bb.meta.maxRounds !== "number") bb.meta.maxRounds = 0;
+    if (typeof bb.meta.expectedFirstRoundMatches !== "number")
+      bb.meta.expectedFirstRoundMatches = 0;
+    bb.config = bb.config || {};
+    bb.config.rules = bb.config.rules || {};
+    bb.config.roundRobin = bb.config.roundRobin || {};
+    bb.config.doubleElim = bb.config.doubleElim || {};
+    bb.config.swiss = bb.config.swiss || {};
+    bb.config.gsl = bb.config.gsl || {};
+    bb.config.roundElim = bb.config.roundElim || {};
+    if (typeof bb.noRankDelta !== "boolean") bb.noRankDelta = false;
+    bb.scheduler = bb.scheduler || {};
+    bb.drawSettings = bb.drawSettings || {};
+    return bb;
+  };
 
-  // Chuẩn hoá nickname cho players
   if (match.pairA) {
     match.pairA.player1 = fillNick(match.pairA.player1);
     match.pairA.player2 = fillNick(match.pairA.player2);
@@ -1272,8 +1287,6 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     match.pairB.player1 = fillNick(match.pairB.player1);
     match.pairB.player2 = fillNick(match.pairB.player2);
   }
-
-  // liveBy → chuẩn hoá { _id, name, nickname }
   if (match.liveBy) {
     const lb = match.liveBy;
     match.liveBy = {
@@ -1282,8 +1295,6 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
       nickname: pickTrim(lb.nickname) || pickTrim(lb.nickName) || "",
     };
   }
-
-  // referee[] → chuẩn hoá { _id, name, nickname }
   if (Array.isArray(match.referee)) {
     match.referee = match.referee.map((r) => ({
       _id: r._id,
@@ -1291,42 +1302,47 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
       nickname: pickTrim(r.nickname) || pickTrim(r.nickName) || "",
     }));
   }
+  if (!match.streams && match.meta?.streams) match.streams = match.meta.streams;
 
-  // Bổ sung streams từ meta nếu có
-  if (!match.streams && match.meta?.streams) {
-    match.streams = match.meta.streams;
+  match.bracket = normalizeBracketShape(match.bracket);
+
+  // ================== ⭐ LẤY BRACKET LIỀN TRƯỚC (chuẩn) ==================
+  match.prevBracket = null;
+  match.prevBrackets = [];
+
+  try {
+    // LẤY LẠI meta của bracket hiện tại trực tiếp từ DB (chắc ăn)
+    const curMeta = await Bracket.findById(match.bracket?._id)
+      .select("tournament order createdAt")
+      .lean();
+
+    if (curMeta?.tournament) {
+      const prev = await Bracket.findOne({
+        tournament: curMeta.tournament,
+        $or: [
+          { order: { $lt: curMeta.order ?? 0 } },
+          {
+            order: curMeta.order ?? 0,
+            createdAt: { $lt: curMeta.createdAt || new Date(0) },
+          },
+        ],
+        _id: { $ne: match.bracket._id },
+      })
+        .select(BRACKET_SELECT)
+        .sort({ order: -1, createdAt: -1, _id: -1 })
+        .lean();
+
+      if (prev) {
+        match.prevBracket = normalizeBracketShape(prev);
+        match.prevBrackets = [match.prevBracket]; // để tương thích nếu FE đang expect mảng
+      }
+    }
+    return res.json(match);
+  } catch (e) {
+    console.error("[getMatchPublic] prevBracket error:", e?.message || e);
+
+    return res.status(500);
   }
-
-  // ===== ⭐ Chuẩn hoá bracket một chút cho FE (optional) =====
-  if (match.bracket) {
-    const b = match.bracket;
-
-    // Đảm bảo groups luôn là [] để FE dễ duyệt
-    if (!Array.isArray(b.groups)) b.groups = [];
-
-    // Đồng nhất key hiển thị meta (nếu thiếu)
-    b.meta = b.meta || {};
-    if (typeof b.meta.drawSize !== "number") b.meta.drawSize = 0;
-    if (typeof b.meta.maxRounds !== "number") b.meta.maxRounds = 0;
-    if (typeof b.meta.expectedFirstRoundMatches !== "number")
-      b.meta.expectedFirstRoundMatches = 0;
-
-    // Giữ nguyên config.rules… nếu không có cũng trả về object rỗng
-    b.config = b.config || {};
-    b.config.rules = b.config.rules || {};
-    b.config.roundRobin = b.config.roundRobin || {};
-    b.config.doubleElim = b.config.doubleElim || {};
-    b.config.swiss = b.config.swiss || {};
-    b.config.gsl = b.config.gsl || {};
-    b.config.roundElim = b.config.roundElim || {};
-
-    // Đảm bảo các cờ khác
-    if (typeof b.noRankDelta !== "boolean") b.noRankDelta = false;
-    b.scheduler = b.scheduler || {};
-    b.drawSettings = b.drawSettings || {};
-  }
-
-  return res.json(match);
 });
 
 export { getMatchesByTournament };

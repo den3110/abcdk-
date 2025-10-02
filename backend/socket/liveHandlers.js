@@ -101,6 +101,53 @@ export const toDTO = (m) => {
     return [a, b].filter(Boolean).join(" & ");
   };
 
+  // ---- map bracket (tái dùng cho bracket & prevBracket)
+  const mapBracket = (b) => {
+    if (!b) return null;
+    return {
+      _id: b._id || b,
+      type: (b.type || "").toLowerCase(),
+      name: b.name || "",
+      order: b.order ?? undefined,
+      stage: b.stage ?? undefined,
+      drawRounds: b.drawRounds ?? 0,
+      drawStatus: b.drawStatus || undefined,
+      // meta cho tính rounds/scale
+      meta: {
+        drawSize: Number(b?.meta?.drawSize) || 0,
+        maxRounds: Number(b?.meta?.maxRounds) || 0,
+        expectedFirstRoundMatches:
+          Number(b?.meta?.expectedFirstRoundMatches) || 0,
+      },
+      // groups để map B-index
+      groups: Array.isArray(b.groups)
+        ? b.groups.map((g) => ({
+            _id: g._id || g.id || undefined,
+            name: g.name || g.label || g.key || "",
+            expectedSize: Number.isFinite(g.expectedSize)
+              ? g.expectedSize
+              : undefined,
+          }))
+        : [],
+      // nếu cần FE hiển thị luật mặc định
+      config: b.config
+        ? {
+            rules: b.config.rules || undefined,
+            roundElim: b.config.roundElim || undefined,
+            roundRobin: b.config.roundRobin || undefined,
+            doubleElim: b.config.doubleElim || undefined,
+            swiss: b.config.swiss || undefined,
+            gsl: b.config.gsl || undefined,
+          }
+        : undefined,
+      scheduler: b.scheduler || undefined,
+      drawSettings: b.drawSettings || undefined,
+      overlay: b.overlay || undefined,
+      noRankDelta:
+        typeof b.noRankDelta === "boolean" ? b.noRankDelta : undefined,
+    };
+  };
+
   // ================= Tournament (lite) =================
   const tournament = m.tournament
     ? {
@@ -113,52 +160,14 @@ export const toDTO = (m) => {
     : undefined;
 
   // ================= Bracket (đủ field để FE tính V/B) =================
-  const bracket = m.bracket
-    ? {
-        _id: m.bracket._id || m.bracket,
-        type: (m.bracket.type || "").toLowerCase(), // "group" / "knockout" / ...
-        name: m.bracket.name || "",
-        order: m.bracket.order ?? undefined,
-        stage: m.bracket.stage ?? undefined,
-        drawRounds: m.bracket.drawRounds ?? 0,
-        drawStatus: m.bracket.drawStatus || undefined,
-        // meta cho tính rounds/scale
-        meta: {
-          drawSize: Number(m.bracket?.meta?.drawSize) || 0,
-          maxRounds: Number(m.bracket?.meta?.maxRounds) || 0,
-          expectedFirstRoundMatches:
-            Number(m.bracket?.meta?.expectedFirstRoundMatches) || 0,
-        },
-        // groups để map B-index
-        groups: Array.isArray(m.bracket.groups)
-          ? m.bracket.groups.map((g) => ({
-              _id: g._id || g.id || undefined,
-              name: g.name || g.label || g.key || "",
-              expectedSize: Number.isFinite(g.expectedSize)
-                ? g.expectedSize
-                : undefined,
-            }))
-          : [],
-        // nếu cần FE hiển thị luật mặc định
-        config: m.bracket.config
-          ? {
-              rules: m.bracket.config.rules || undefined,
-              roundElim: m.bracket.config.roundElim || undefined,
-              roundRobin: m.bracket.config.roundRobin || undefined,
-              doubleElim: m.bracket.config.doubleElim || undefined,
-              swiss: m.bracket.config.swiss || undefined,
-              gsl: m.bracket.config.gsl || undefined,
-            }
-          : undefined,
-        scheduler: m.bracket.scheduler || undefined,
-        drawSettings: m.bracket.drawSettings || undefined,
-        overlay: m.bracket.overlay || undefined,
-        noRankDelta:
-          typeof m.bracket.noRankDelta === "boolean"
-            ? m.bracket.noRankDelta
-            : undefined,
-      }
-    : undefined;
+  const bracket = m.bracket ? mapBracket(m.bracket) : undefined;
+
+  // 🆕 prevBracket/prevBrackets (nếu đã được tính ở controller/socket)
+  const prevBracket = m.prevBracket ? mapBracket(m.prevBracket) : null;
+  const prevBrackets =
+    Array.isArray(m.prevBrackets) && m.prevBrackets.length
+      ? m.prevBrackets.map(mapBracket)
+      : [];
 
   // ================= Overlay fallback: match → bracket → tournament =================
   const overlayFromMatch =
@@ -213,7 +222,7 @@ export const toDTO = (m) => {
     : undefined;
 
   // ================= Format & Pool (phục vụ B-index) =================
-  const format = (m.format || "").toLowerCase() || undefined; // "group" theo mẫu
+  const format = (m.format || "").toLowerCase() || undefined;
   const rrRound = Number.isFinite(Number(m.rrRound))
     ? Number(m.rrRound)
     : undefined;
@@ -331,6 +340,10 @@ export const toDTO = (m) => {
     tournament,
     bracket,
     bracketType: bracket?.type || undefined,
+
+    // 🆕 thêm prevBracket & prevBrackets
+    prevBracket, // object hoặc null
+    prevBrackets, // mảng (có thể rỗng)
 
     overlay,
 

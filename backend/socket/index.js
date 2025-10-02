@@ -16,7 +16,7 @@ import {
 
 import Match from "../models/matchModel.js";
 import Court from "../models/courtModel.js";
-
+import Bracket from "../models/bracketModel.js";
 import {
   assignNextToCourt,
   onMatchFinished,
@@ -394,6 +394,106 @@ export function initSocket(
       // 🔹 ADDED: bracketType (giữ nguyên, chỉ bổ sung nếu thiếu)
       if (!m.bracketType) {
         m.bracketType = m?.bracket?.type || m?.format || m?.bracketType || "";
+      }
+
+      // 🆕 prevBracket (neighbor) — lấy bracket LIỀN TRƯỚC theo order trong cùng tournament
+      try {
+        const toNum = (v, d = 0) => {
+          const n = Number(v);
+          return Number.isFinite(n) ? n : d;
+        };
+        const toTime = (x) =>
+          (x?.createdAt && new Date(x.createdAt).getTime()) ||
+          (x?._id?.getTimestamp?.() && x._id.getTimestamp().getTime()) ||
+          0;
+
+        const normalizeBracketShape = (b) => {
+          if (!b) return b;
+          const bb = { ...b };
+          if (!Array.isArray(bb.groups)) bb.groups = [];
+          bb.meta = bb.meta || {};
+          if (typeof bb.meta.drawSize !== "number") bb.meta.drawSize = 0;
+          if (typeof bb.meta.maxRounds !== "number") bb.meta.maxRounds = 0;
+          if (typeof bb.meta.expectedFirstRoundMatches !== "number")
+            bb.meta.expectedFirstRoundMatches = 0;
+          bb.config = bb.config || {};
+          bb.config.rules = bb.config.rules || {};
+          bb.config.roundRobin = bb.config.roundRobin || {};
+          bb.config.doubleElim = bb.config.doubleElim || {};
+          bb.config.swiss = bb.config.swiss || {};
+          bb.config.gsl = bb.config.gsl || {};
+          bb.config.roundElim = bb.config.roundElim || {};
+          if (typeof bb.noRankDelta !== "boolean") bb.noRankDelta = false;
+          bb.scheduler = bb.scheduler || {};
+          bb.drawSettings = bb.drawSettings || {};
+          return bb;
+        };
+
+        // guard: cần có tournament & bracket hiện tại
+        const curBracketId = m?.bracket?._id;
+        const tourId = m?.tournament?._id || m?.tournament;
+        m.prevBracket = null;
+        m.prevBrackets = [];
+
+        if (curBracketId && tourId) {
+          // kéo tất cả bracket của cùng tournament để tránh lỗi kiểu dữ liệu khi filter
+          const prevSelect = [
+            "name",
+            "type",
+            "stage",
+            "order",
+            "drawRounds",
+            "drawStatus",
+            "scheduler",
+            "drawSettings",
+            "meta.drawSize",
+            "meta.maxRounds",
+            "meta.expectedFirstRoundMatches",
+            "groups._id",
+            "groups.name",
+            "groups.expectedSize",
+            "config.rules",
+            "config.doubleElim",
+            "config.roundRobin",
+            "config.swiss",
+            "config.gsl",
+            "config.roundElim",
+            "overlay",
+            "createdAt",
+          ].join(" ");
+
+          const allBr = await Bracket.find({ tournament: tourId })
+            .select(prevSelect)
+            .lean();
+
+          const list = (allBr || [])
+            .map((b) => ({
+              ...b,
+              __k: [toNum(b.order, 0), toTime(b), String(b._id)],
+            }))
+            .sort((a, b) => {
+              for (let i = 0; i < a.__k.length; i++) {
+                if (a.__k[i] < b.__k[i]) return -1;
+                if (a.__k[i] > b.__k[i]) return 1;
+              }
+              return 0;
+            });
+
+          const curIdx = list.findIndex(
+            (x) => String(x._id) === String(curBracketId)
+          );
+          if (curIdx > 0) {
+            const { __k, ...prevRaw } = list[curIdx - 1];
+            const prev = normalizeBracketShape(prevRaw);
+            m.prevBracket = prev;
+            m.prevBrackets = [prev]; // giữ tương thích nếu FE đang đọc mảng
+          }
+        }
+      } catch (e) {
+        console.error(
+          "[socket match:join] prevBracket error:",
+          e?.message || e
+        );
       }
 
       // ✅ giữ nguyên emit cũ

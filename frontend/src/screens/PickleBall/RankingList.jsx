@@ -1,5 +1,4 @@
-// RankingList.jsx
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
   Container,
   Typography,
@@ -35,12 +34,14 @@ import {
   IconButton,
   Grid,
   InputAdornment,
+  GlobalStyles,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import VerifiedIcon from "@mui/icons-material/HowToReg";
 import CancelIcon from "@mui/icons-material/Cancel";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
+import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 
 import { Link, useSearchParams } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
@@ -53,6 +54,7 @@ import { useCreateEvaluationMutation } from "../../slices/evaluationsApiSlice";
 import { useReviewKycMutation } from "../../slices/adminApiSlice";
 import { skipToken } from "@reduxjs/toolkit/query";
 
+/* ================= Color & constants ================= */
 const PLACE = "https://dummyimage.com/40x40/cccccc/ffffff&text=";
 const HEX = {
   green: "#2e7d32",
@@ -69,7 +71,7 @@ const prettyDate = (d) => (d ? new Date(d).toLocaleDateString("vi-VN") : "—");
 const SKELETON_CARDS_MOBILE = 6;
 const SKELETON_ROWS_DESKTOP = 10;
 
-/* ================= helpers ================= */
+/* ================= Helpers ================= */
 const calcAge = (u) => {
   if (!u) return null;
   const today = new Date();
@@ -96,7 +98,6 @@ const calcAge = (u) => {
   return null;
 };
 
-// chip xác thực
 const cccdBadge = (status) => {
   switch (status) {
     case "verified":
@@ -123,25 +124,6 @@ const genderLabel = (g) => {
   }
 };
 
-const Legend = () => (
-  <Stack
-    direction="row"
-    flexWrap="wrap"
-    useFlexGap
-    sx={{ columnGap: 1.5, rowGap: 1, mb: 2 }}
-  >
-    <Chip
-      label="Điểm vàng: Đã xác thực"
-      sx={{ bgcolor: HEX.yellow, color: "#000" }}
-    />
-    <Chip label="Điểm đỏ: Tự chấm" sx={{ bgcolor: HEX.red, color: "#fff" }} />
-    <Chip
-      label="Điểm xám: Chưa xác thực"
-      sx={{ bgcolor: HEX.grey, color: "#fff" }}
-    />
-  </Stack>
-);
-
 // quyền chấm
 const canGradeUser = (me, targetProvince) => {
   if (me?.role === "admin") return true;
@@ -150,13 +132,12 @@ const canGradeUser = (me, targetProvince) => {
   return !!targetProvince && scopes.includes(String(targetProvince).trim());
 };
 
-// quyền xem KYC: chỉ admin & chỉ khi CCCD pending/verified
+// quyền xem KYC
 const canViewKycAdmin = (me, status) =>
   me?.role === "admin" && (status === "verified" || status === "pending");
 
 const numOrUndef = (v) => (Number.isFinite(Number(v)) ? Number(v) : undefined);
 
-// baseline từ user/ranking
 const getBaselineScores = (u, r) => {
   const singleFromR = numOrUndef(r?.single);
   const doubleFromR = numOrUndef(r?.double);
@@ -182,22 +163,164 @@ const parsePageFromParams = (sp) => {
 };
 const parseKeywordFromParams = (sp) => sp.get("q") ?? "";
 
+/* ================= Flame podium styles ================= */
+const FLAME = {
+  gold: ["#fff8b0", "#ffd54f", "#ffb300", "#ffd54f", "#fff8b0"],
+  silver: ["#eceff1", "#cfd8dc", "#b0bec5", "#cfd8dc", "#eceff1"],
+  bronze: ["#ffe0b2", "#ffb74d", "#d2691e", "#ffb74d", "#ffe0b2"],
+};
+const flameGradient = (arr) => `conic-gradient(from 0deg, ${arr.join(",")})`;
+
+const flameRingSx = (type = "gold") => ({
+  position: "relative",
+  display: "inline-block",
+  borderRadius: "50%",
+  "&::before": {
+    content: '""',
+    position: "absolute",
+    inset: "-3px",
+    padding: "3px",
+    borderRadius: "50%",
+    background: flameGradient(FLAME[type] || FLAME.gold),
+    WebkitMask:
+      "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+    WebkitMaskComposite: "xor",
+    maskComposite: "exclude",
+    filter: "blur(0.4px)",
+    animation: "flameSpin 5s linear infinite",
+    transformOrigin: "center",
+  },
+  "&::after": {
+    content: '""',
+    position: "absolute",
+    inset: "-6px",
+    borderRadius: "50%",
+    boxShadow: "0 0 16px rgba(255, 196, 0, 0.35)",
+    pointerEvents: "none",
+  },
+  "@media (prefers-reduced-motion: reduce)": {
+    "&::before": { animation: "none" },
+  },
+});
+
+const flameCardSx = (type = "gold") => ({
+  position: "relative",
+  overflow: "visible",
+  "&::before": {
+    content: '""',
+    position: "absolute",
+    inset: -2,
+    padding: "2px",
+    borderRadius: 12,
+    background: flameGradient(FLAME[type] || FLAME.gold),
+    WebkitMask:
+      "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+    WebkitMaskComposite: "xor",
+    maskComposite: "exclude",
+    animation: "flameSpin 6s linear infinite",
+    filter: "blur(0.3px)",
+    zIndex: 0,
+    transformOrigin: "center",
+  },
+  "& .MuiCardContent-root": { position: "relative", zIndex: 1 },
+  "@media (prefers-reduced-motion: reduce)": {
+    "&::before": { animation: "none" },
+  },
+});
+
+const flameRowSx = (type = "gold") => ({
+  position: "relative",
+  zIndex: 0,
+
+  // làm nền ô td “nổi” lên trên layer viền
+  "& > td": {
+    backgroundColor: "background.paper",
+    position: "relative",
+    zIndex: 1,
+    // bo góc 2 đầu hàng
+    "&:first-of-type": {
+      borderTopLeftRadius: 10,
+      borderBottomLeftRadius: 10,
+    },
+    "&:last-of-type": {
+      borderTopRightRadius: 10,
+      borderBottomRightRadius: 10,
+    },
+  },
+
+  // viền cháy chạy quanh hàng
+  "&::before": {
+    content: '""',
+    position: "absolute",
+    inset: -2, // dày border
+    padding: "2px",
+    borderRadius: 12,
+    background: flameGradient(FLAME[type] || FLAME.gold),
+    WebkitMask:
+      "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+    WebkitMaskComposite: "xor",
+    maskComposite: "exclude",
+    animation: "flameSpin 6s linear infinite",
+    filter: "blur(0.4px)",
+    zIndex: 0,
+    pointerEvents: "none",
+  },
+
+  // glow nhẹ
+  "&::after": {
+    content: '""',
+    position: "absolute",
+    inset: -6,
+    borderRadius: 14,
+    boxShadow:
+      type === "gold"
+        ? "0 0 18px rgba(255, 179, 0, .25)"
+        : type === "silver"
+        ? "0 0 18px rgba(120, 144, 156, .25)"
+        : "0 0 18px rgba(255, 112, 67, .25)",
+    zIndex: 0,
+    pointerEvents: "none",
+  },
+
+  "@media (prefers-reduced-motion: reduce)": {
+    "&::before": { animation: "none" },
+  },
+});
+
+const medalLabel = (m) =>
+  m === "gold"
+    ? "Nhà vô địch"
+    : m === "silver"
+    ? "Á quân"
+    : m === "bronze"
+    ? "Đồng hạng 3"
+    : "";
+
+/* ================= Component ================= */
 export default function RankingList() {
   const dispatch = useDispatch();
   const { keyword, page } = useSelector((s) => s?.rankingUi || {});
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // ---------- Debounced input state ----------
+  // Debounced input state
   const [searchInput, setSearchInput] = useState(keyword || "");
 
-  // query theo redux keyword + page
+  // Query data
   const {
-    data = { docs: [], totalPages: 0 },
+    data = { docs: [], totalPages: 0, latestTournament: null },
     isLoading,
     error,
   } = useGetRankingsQuery({ keyword, page });
 
-  const { docs: list, totalPages } = data;
+  const {
+    docs: list,
+    totalPages,
+    latestTournament,
+  } = {
+    docs: data?.docs || [],
+    totalPages: data?.totalPages || 0,
+    latestTournament: data?.latestTournament || null,
+  };
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme?.breakpoints?.down("sm"));
@@ -224,7 +347,7 @@ export default function RankingList() {
   const me = meData || null;
   const canSelfAssess = !me || me.isScoreVerified === false;
 
-  // =================== URL -> Redux & Input ===================
+  // URL -> Redux & Input
   useEffect(() => {
     const urlPage = parsePageFromParams(searchParams);
     if (urlPage !== page) dispatch(setPage(urlPage));
@@ -233,14 +356,13 @@ export default function RankingList() {
     if ((urlQ || "") !== (keyword || "")) {
       dispatch(setKeyword(urlQ));
     }
-    // sync vào input (không gây loop)
     if ((urlQ || "") !== (searchInput || "")) {
       setSearchInput(urlQ || "");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  // =================== Redux -> URL (CHỈ page) ===================
+  // Redux -> URL (only page)
   useEffect(() => {
     const curPageParam = searchParams.get("page");
     const desiredPageParam = page > 0 ? String(page + 1) : null;
@@ -253,27 +375,24 @@ export default function RankingList() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
-  // =================== Debounce searchInput -> keyword ===================
+  // Debounce searchInput -> keyword
   useEffect(() => {
     const handler = setTimeout(() => {
       if ((searchInput || "") !== (keyword || "")) {
-        // cập nhật redux
         dispatch(setKeyword(searchInput || ""));
         dispatch(setPage(0));
-        // cập nhật URL (q + xoá page)
         const next = new URLSearchParams(searchParams);
         if (searchInput) next.set("q", searchInput);
         else next.delete("q");
         next.delete("page");
         setSearchParams(next);
       }
-    }, 400); // ⏱ debounce 400ms
-
+    }, 400);
     return () => clearTimeout(handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchInput]);
 
-  // =================== Immediate search on Enter ===================
+  // Immediate search on Enter
   const doImmediateSearch = useCallback(() => {
     if ((searchInput || "") === (keyword || "")) return;
     dispatch(setKeyword(searchInput || ""));
@@ -299,7 +418,6 @@ export default function RankingList() {
   const handleClear = () => {
     if (!searchInput && !keyword) return;
     setSearchInput("");
-    // cũng clear ngay lập tức để UI phản hồi nhanh
     dispatch(setKeyword(""));
     dispatch(setPage(0));
     const next = new URLSearchParams(searchParams);
@@ -327,7 +445,7 @@ export default function RankingList() {
   };
   const closeZoom = () => setZoomOpen(false);
 
-  // Dialog chấm điểm
+  // Grade dialog
   const [gradeDlg, setGradeDlg] = useState({
     open: false,
     userId: null,
@@ -343,7 +461,7 @@ export default function RankingList() {
   const [snack, setSnack] = useState({ open: false, type: "success", msg: "" });
   const showSnack = (type, msg) => setSnack({ open: true, type, msg });
 
-  // patch điểm tạm
+  // Patch map (optimistic refresh)
   const [patchMap, setPatchMap] = useState({});
   const getPatched = (r, u) => {
     const p = patchMap[u?._id || ""] || {};
@@ -433,11 +551,10 @@ export default function RankingList() {
     }
   };
 
-  // ============== Xem KYC (Drawer full-screen) ==============
-  const [kycView, setKycView] = useState(null); // u object
+  // KYC drawer
+  const [kycView, setKycView] = useState(null);
   const [reviewKycMut, { isLoading: reviewing }] = useReviewKycMutation();
-  const [cccdPatch, setCccdPatch] = useState({}); // { userId: 'verified'|'rejected' }
-
+  const [cccdPatch, setCccdPatch] = useState({});
   const openKyc = (u) => setKycView(u || null);
   const closeKyc = () => setKycView(null);
 
@@ -462,9 +579,32 @@ export default function RankingList() {
 
   const chipMobileSx = { mr: { xs: 0.75, sm: 0 }, mb: { xs: 0.75, sm: 0 } };
 
-  /* ================= render ================= */
+  // ===== Build medal map from API (latest tournament podium) + doc.latestMedal =====
+  const medalMap = useMemo(() => {
+    const map = new Map();
+    const pod = latestTournament?.podium;
+    if (pod?.gold) pod.gold.forEach((id) => map.set(String(id), "gold"));
+    if (pod?.silver) pod.silver.forEach((id) => map.set(String(id), "silver"));
+    if (pod?.bronze) pod.bronze.forEach((id) => map.set(String(id), "bronze"));
+    (list || []).forEach((d) => {
+      const uid = d?.user?._id && String(d.user._id);
+      if (uid && d?.latestMedal && !map.has(uid)) map.set(uid, d.latestMedal);
+    });
+    return map;
+  }, [latestTournament, list]);
+
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
+      {/* Global keyframes for flame animation */}
+      <GlobalStyles
+        styles={{
+          "@keyframes flameSpin": {
+            "0%": { transform: "rotate(0deg)" },
+            "100%": { transform: "rotate(360deg)" },
+          },
+        }}
+      />
+
       <Box
         display="flex"
         justifyContent="space-between"
@@ -487,7 +627,42 @@ export default function RankingList() {
       </Box>
 
       {/* Legend */}
-      <Legend />
+      <Stack
+        direction="row"
+        flexWrap="wrap"
+        useFlexGap
+        sx={{ columnGap: 1.5, rowGap: 1, mb: 2 }}
+      >
+        <Chip
+          label="Điểm vàng: Đã xác thực"
+          sx={{ bgcolor: HEX.yellow, color: "#000" }}
+        />
+        <Chip
+          label="Điểm đỏ: Tự chấm"
+          sx={{ bgcolor: HEX.red, color: "#fff" }}
+        />
+        <Chip
+          label="Điểm xám: Chưa xác thực"
+          sx={{ bgcolor: HEX.grey, color: "#fff" }}
+        />
+      </Stack>
+
+      {/* Podium banner for latest tournament */}
+      {latestTournament && (
+        <Alert
+          icon={<EmojiEventsIcon fontSize="small" />}
+          severity="success"
+          sx={{ mb: 2 }}
+        >
+          Vinh danh <b>{latestTournament.name}</b>{" "}
+          {latestTournament.finishedAt
+            ? `(${new Date(latestTournament.finishedAt).toLocaleDateString(
+                "vi-VN"
+              )})`
+            : ""}
+          {/* : <Chip size="small" sx={{ ml: 1 }} label="Viền cháy = Podium" /> */}
+        </Alert>
+      )}
 
       <TextField
         label="Tìm kiếm"
@@ -524,7 +699,7 @@ export default function RankingList() {
         <Alert severity="error">{error?.data?.message || error?.error}</Alert>
       ) : isLoading ? (
         isMobile ? (
-          /* mobile skeleton */
+          // mobile skeleton
           <Stack spacing={2}>
             {Array.from({ length: SKELETON_CARDS_MOBILE }).map((_, i) => (
               <Card key={i} variant="outlined">
@@ -564,7 +739,7 @@ export default function RankingList() {
             ))}
           </Stack>
         ) : (
-          /* desktop skeleton */
+          // desktop skeleton
           <TableContainer component={Paper}>
             <Table size="small">
               <TableHead>
@@ -643,30 +818,40 @@ export default function RankingList() {
             const effectiveStatus =
               (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
             const badge = cccdBadge(effectiveStatus);
-            const avatarSrc = u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
+            const avatarSrc =
+              u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
             const tierHex = HEX[r?.tierColor] || HEX.grey;
             const age = calcAge(u);
             const canGrade = canGradeUser(me, u?.province);
-
             const patched = getPatched(r, u);
-
-            // ✅ chỉ admin + CCCD pending/verified mới thấy nút KYC
             const allowKyc = canViewKycAdmin(me, effectiveStatus);
+            const medal = u?._id ? medalMap.get(String(u._id)) : null;
 
             return (
-              <Card key={r?._id || u?._id} variant="outlined">
+              <Card
+                key={r?._id || u?._id}
+                variant="outlined"
+                sx={medal ? flameCardSx(medal) : undefined}
+              >
                 <CardContent>
                   <Box display="flex" alignItems="center" mb={1} gap={2}>
-                    <Avatar
-                      src={avatarSrc}
-                      alt={u?.nickname || "?"}
-                      onClick={() => openZoom(avatarSrc)}
-                      sx={{ cursor: "zoom-in" }}
-                    />
+                    <Box sx={medal ? flameRingSx(medal) : undefined}>
+                      <Avatar
+                        src={avatarSrc}
+                        alt={u?.nickname || "?"}
+                        onClick={() => openZoom(avatarSrc)}
+                        sx={{ cursor: "zoom-in", width: 40, height: 40 }}
+                      />
+                    </Box>
                     <Box sx={{ minWidth: 0, flex: 1 }}>
                       <Typography fontWeight={600} noWrap>
                         {u?.nickname || "---"}
                       </Typography>
+                      {medal && (
+                        <Typography variant="caption" color="text.secondary">
+                          {medalLabel(medal)}
+                        </Typography>
+                      )}
                     </Box>
                     <Stack direction="row" spacing={1} alignItems="center">
                       {Number.isFinite(age) && (
@@ -789,28 +974,54 @@ export default function RankingList() {
                 const effectiveStatus =
                   (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
                 const badge = cccdBadge(effectiveStatus);
-                const avatarSrc = u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
+                const avatarSrc =
+                  u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
                 const tierHex = HEX[r?.tierColor] || HEX.grey;
                 const age = calcAge(u);
                 const canGrade = canGradeUser(me, u?.province);
-
                 const patched = getPatched(r, u);
-
-                // ✅ chỉ admin + CCCD pending/verified mới thấy nút KYC
                 const allowKyc = canViewKycAdmin(me, effectiveStatus);
+                const medal = u?._id ? medalMap.get(String(u._id)) : null;
 
                 return (
                   <TableRow key={r?._id || u?._id} hover>
                     <TableCell>{page * 10 + idx + 1}</TableCell>
                     <TableCell>
-                      <Avatar
-                        src={avatarSrc}
-                        alt={u?.nickname || "?"}
-                        sx={{ width: 32, height: 32, cursor: "zoom-in" }}
-                        onClick={() => openZoom(avatarSrc)}
-                      />
+                      <Box sx={medal ? flameRingSx(medal) : undefined}>
+                        <Avatar
+                          src={avatarSrc}
+                          alt={u?.nickname || "?"}
+                          sx={{ width: 32, height: 32, cursor: "zoom-in" }}
+                          onClick={() => openZoom(avatarSrc)}
+                        />
+                      </Box>
                     </TableCell>
-                    <TableCell>{u?.nickname || "--"}</TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <span>{u?.nickname || "--"}</span>
+                        {medal && (
+                          <Chip
+                            label={medalLabel(medal)}
+                            size="small"
+                            variant="outlined"
+                            sx={{
+                              borderColor:
+                                medal === "gold"
+                                  ? "#ffb300"
+                                  : medal === "silver"
+                                  ? "#90a4ae"
+                                  : "#ff8a65",
+                              color:
+                                medal === "gold"
+                                  ? "#ff8f00"
+                                  : medal === "silver"
+                                  ? "#607d8b"
+                                  : "#e65100",
+                            }}
+                          />
+                        )}
+                      </Stack>
+                    </TableCell>
                     <TableCell>{Number.isFinite(age) ? age : "--"}</TableCell>
                     <TableCell>{genderLabel(u?.gender)}</TableCell>
                     <TableCell>{u?.province || "--"}</TableCell>
@@ -900,9 +1111,7 @@ export default function RankingList() {
         maxWidth="sm"
         fullWidth
         sx={{ zIndex: (t) => t.zIndex.tooltip + 2 }}
-        slotProps={{
-          paper: { sx: { borderRadius: 2 } },
-        }}
+        slotProps={{ paper: { sx: { borderRadius: 2 } } }}
       >
         <DialogTitle>Ảnh KYC</DialogTitle>
         <DialogContent
@@ -925,7 +1134,7 @@ export default function RankingList() {
         </DialogActions>
       </Dialog>
 
-      {/* ============ Drawer xem KYC full-screen ============ */}
+      {/* KYC Drawer */}
       <Drawer
         anchor="right"
         open={!!kycView}
@@ -972,17 +1181,13 @@ export default function RankingList() {
         >
           {kycView ? (
             <Grid container spacing={2} sx={{ m: 0 }}>
-              {/* LEFT: Ảnh */}
               <Grid item xs={12} md={12} sx={{ width: "100%" }}>
                 <Grid container spacing={2} sx={{ width: "100%" }}>
                   {["front", "back"].map((side) => (
                     <Grid item xs={6} key={side} sx={{ width: "100%" }}>
                       <Paper
                         variant="outlined"
-                        sx={{
-                          borderRadius: 2,
-                          overflow: "hidden",
-                        }}
+                        sx={{ borderRadius: 2, overflow: "hidden" }}
                       >
                         <Box
                           sx={{
@@ -1022,7 +1227,6 @@ export default function RankingList() {
                 </Grid>
               </Grid>
 
-              {/* RIGHT: Thông tin */}
               <Grid item xs={12} md={12} sx={{ width: "100%" }}>
                 <Box
                   sx={{
@@ -1106,7 +1310,6 @@ export default function RankingList() {
           )}
         </Box>
 
-        {/* Footer actions */}
         <Box
           sx={{
             position: "sticky",
@@ -1139,7 +1342,7 @@ export default function RankingList() {
         </Box>
       </Drawer>
 
-      {/* Dialog chấm điểm */}
+      {/* Grade dialog */}
       <Dialog
         open={gradeDlg.open}
         onClose={() => setGradeDlg({ open: false })}

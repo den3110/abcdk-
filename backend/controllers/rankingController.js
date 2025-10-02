@@ -1,381 +1,13 @@
-import Ranking from "../models/rankingModel.js";
 import asyncHandler from "express-async-handler";
-import User from "../models/userModel.js";
 import mongoose from "mongoose";
+import User from "../models/userModel.js";
+import Ranking from "../models/rankingModel.js";
 import Registration from "../models/registrationModel.js"; // (không dùng trực tiếp trong pipeline, chỉ để tham khảo)
 import Match from "../models/matchModel.js"; // (không dùng trực tiếp)
 import Tournament from "../models/tournamentModel.js"; // (không dùng trực tiếp)
 import Assessment from "../models/assessmentModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
-
-export const getRankings = asyncHandler(async (req, res) => {
-  const page = Math.max(0, parseInt(req.query.page ?? 0, 10));
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 10, 10)));
-  const keywordRaw = String(req.query.keyword ?? "").trim();
-
-  // ✅ xác định quyền admin
-  const isAdmin =
-    String(req.user?.role || "").toLowerCase() === "admin" ||
-    !!req.user?.isAdmin;
-
-  // ===== Helpers =====
-  const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const stripSpaces = (s) => s.replace(/\s+/g, "");
-  const digitsOnly = (s) => s.replace(/\D+/g, "");
-
-  // ===== Lọc theo người dùng nếu có keyword =====
-  let userIdsFilter = null;
-  if (keywordRaw) {
-    const orConds = [];
-
-    // 🔎 Tên & nickname: khớp linh hoạt theo thứ tự từ (vd: "nguyen van a" -> "nguyen.*van.*a")
-    const namePattern = keywordRaw
-      .split(/\s+/)
-      .filter(Boolean)
-      .map(escapeRegExp)
-      .join(".*");
-
-    if (namePattern) {
-      orConds.push({ name: { $regex: namePattern, $options: "i" } });
-      orConds.push({ nickname: { $regex: namePattern, $options: "i" } });
-    }
-
-    // ✉️ Email: khớp toàn bộ, bỏ khoảng trắng
-    const emailCandidate = stripSpaces(keywordRaw);
-    if (emailCandidate.includes("@")) {
-      orConds.push({
-        email: { $regex: `^${escapeRegExp(emailCandidate)}$`, $options: "i" },
-      });
-    }
-
-    // 📞 SĐT/CCCD: cho phép có/không khoảng trắng giữa các số
-    const phoneDigits = digitsOnly(keywordRaw);
-    if (phoneDigits.length >= 9) {
-      const phonePattern = `^${phoneDigits.split("").join("\\s*")}$`;
-      orConds.push({ phone: { $regex: phonePattern } });
-      orConds.push({ cccd: { $regex: phonePattern } });
-    }
-
-    if (orConds.length > 0) {
-      const rawIds = await User.find({ $or: orConds }, { _id: 1 }).lean();
-      const ids = rawIds
-        .map((d) => d?._id)
-        .filter((id) => mongoose.isValidObjectId(id));
-
-      if (ids.length === 0) {
-        return res.json({ docs: [], totalPages: 0, page });
-      }
-      userIdsFilter = ids;
-    }
-  }
-
-  const matchStage = {
-    ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
-  };
-
-  const now = new Date();
-
-  // ===== Project động theo quyền =====
-  const baseUserProject = {
-    _id: 1,
-    nickname: 1,
-    gender: 1,
-    province: 1,
-    avatar: 1,
-    verified: 1,
-    createdAt: 1,
-    cccdStatus: 1,
-    dob: 1,
-  };
-  const adminExtraProject = {
-    name: 1,
-    email: 1,
-    phone: 1,
-    cccd: 1,
-    cccdImages: 1,
-    note: 1,
-  };
-  const userProject = isAdmin
-    ? { ...baseUserProject, ...adminExtraProject }
-    : baseUserProject;
-
-  // ===== Aggregate =====
-  const agg = await Ranking.aggregate([
-    { $match: matchStage },
-    { $match: { user: { $type: "objectId" } } },
-
-    {
-      $facet: {
-        total: [
-          {
-            $lookup: {
-              from: "users",
-              localField: "user",
-              foreignField: "_id",
-              as: "u",
-              pipeline: [{ $project: { _id: 1 } }],
-            },
-          },
-          { $match: { "u.0": { $exists: true } } },
-          { $group: { _id: "$user" } },
-          { $count: "n" },
-        ],
-
-        docs: [
-          // Chuẩn hoá điểm
-          {
-            $addFields: {
-              points: { $ifNull: ["$points", 0] },
-              single: { $ifNull: ["$single", 0] },
-              double: { $ifNull: ["$double", 0] },
-              mix: { $ifNull: ["$mix", 0] },
-              reputation: { $ifNull: ["$reputation", 0] },
-            },
-          },
-          // Lấy bản ghi mới nhất cho mỗi user
-          { $sort: { user: 1, updatedAt: -1, _id: 1 } },
-          { $group: { _id: "$user", doc: { $first: "$$ROOT" } } },
-          { $replaceRoot: { newRoot: "$doc" } },
-
-          // Join user theo quyền
-          {
-            $lookup: {
-              from: "users",
-              localField: "user",
-              foreignField: "_id",
-              as: "user",
-              pipeline: [{ $project: userProject }],
-            },
-          },
-          { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
-
-          // Đếm số giải đã kết thúc mà user từng đăng ký
-          {
-            $lookup: {
-              from: "registrations",
-              let: { uid: "$user._id" },
-              pipeline: [
-                {
-                  $match: {
-                    $expr: {
-                      $or: [
-                        { $eq: ["$player1.user", "$$uid"] },
-                        { $eq: ["$player2.user", "$$uid"] },
-                      ],
-                    },
-                  },
-                },
-                {
-                  $lookup: {
-                    from: "tournaments",
-                    localField: "tournament",
-                    foreignField: "_id",
-                    as: "tour",
-                    pipeline: [
-                      {
-                        $project: {
-                          _id: 1,
-                          status: 1,
-                          finishedAt: 1,
-                          endAt: 1,
-                        },
-                      },
-                    ],
-                  },
-                },
-                {
-                  $addFields: {
-                    status: {
-                      $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, ""],
-                    },
-                    finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
-                    rawEndAt: { $arrayElemAt: ["$tour.endAt", 0] },
-                  },
-                },
-                {
-                  $addFields: {
-                    endAtDate: {
-                      $convert: {
-                        input: "$rawEndAt",
-                        to: "date",
-                        onError: null,
-                        onNull: null,
-                      },
-                    },
-                    tourFinished: {
-                      $or: [
-                        { $eq: ["$status", "finished"] },
-                        { $ne: ["$finishedAt", null] },
-                        {
-                          $and: [
-                            { $ne: ["$endAtDate", null] },
-                            { $lt: ["$endAtDate", now] },
-                          ],
-                        },
-                      ],
-                    },
-                  },
-                },
-                { $match: { tourFinished: true } },
-                { $group: { _id: "$tournament" } },
-                { $count: "n" },
-              ],
-              as: "finishedToursCount",
-            },
-          },
-          {
-            $addFields: {
-              totalTours: {
-                $ifNull: [{ $arrayElemAt: ["$finishedToursCount.n", 0] }, 0],
-              },
-            },
-          },
-
-          // Assessments (official/self)
-          {
-            $lookup: {
-              from: "assessments",
-              let: { uid: "$user._id" },
-              pipeline: [
-                { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
-                {
-                  $match: {
-                    $expr: {
-                      $in: [
-                        { $toLower: { $ifNull: ["$meta.scoreBy", ""] } },
-                        ["admin", "mod", "moderator"],
-                      ],
-                    },
-                  },
-                },
-                { $limit: 1 },
-                { $project: { _id: 1 } },
-              ],
-              as: "assOfficial",
-            },
-          },
-          {
-            $addFields: {
-              hasOfficial: { $gt: [{ $size: "$assOfficial" }, 0] },
-            },
-          },
-
-          {
-            $lookup: {
-              from: "assessments",
-              let: { uid: "$user._id" },
-              pipeline: [
-                { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
-                {
-                  $match: {
-                    $expr: {
-                      $or: [
-                        {
-                          $eq: [{ $ifNull: ["$meta.selfScored", false] }, true],
-                        },
-                        {
-                          $eq: [
-                            { $toString: { $ifNull: ["$scorer", ""] } },
-                            { $toString: "$$uid" },
-                          ],
-                        },
-                      ],
-                    },
-                  },
-                },
-                { $limit: 1 },
-                { $project: { _id: 1 } },
-              ],
-              as: "assSelf",
-            },
-          },
-          { $addFields: { hasSelf: { $gt: [{ $size: "$assSelf" }, 0] } } },
-
-          // Màu/tier + reputation
-          {
-            $addFields: {
-              isGold: { $or: [{ $gt: ["$totalTours", 0] }, "$hasOfficial"] },
-              isRed: {
-                $and: [
-                  { $eq: ["$totalTours", 0] },
-                  { $eq: ["$hasOfficial", false] },
-                  "$hasSelf",
-                ],
-              },
-            },
-          },
-          {
-            $addFields: {
-              colorRank: { $cond: ["$isGold", 0, { $cond: ["$isRed", 1, 2] }] },
-              tierLabel: {
-                $switch: {
-                  branches: [
-                    { case: "$isGold", then: "Đã đấu/Official" },
-                    { case: "$isRed", then: "Tự chấm" },
-                  ],
-                  default: "Chưa có điểm",
-                },
-              },
-              tierColor: {
-                $switch: {
-                  branches: [
-                    { case: "$isGold", then: "yellow" },
-                    { case: "$isRed", then: "red" },
-                  ],
-                  default: "grey",
-                },
-              },
-              reputation: { $min: [100, { $multiply: ["$totalTours", 10] }] },
-            },
-          },
-
-          // Sắp xếp & phân trang
-          {
-            $sort: {
-              colorRank: 1,
-              double: -1,
-              single: -1,
-              points: -1,
-              updatedAt: -1,
-              _id: 1,
-            },
-          },
-          { $skip: page * limit },
-          { $limit: limit },
-
-          // Trả trường cuối
-          {
-            $project: {
-              user: 1,
-              single: 1,
-              double: 1,
-              mix: 1,
-              points: 1,
-              updatedAt: 1,
-              tierLabel: 1,
-              tierColor: 1,
-              colorRank: 1,
-              totalTours: 1,
-              hasOfficial: 1,
-              hasSelf: 1,
-              reputation: 1,
-            },
-          },
-        ],
-      },
-    },
-    {
-      $project: {
-        docs: "$docs",
-        total: { $ifNull: [{ $arrayElemAt: ["$total.n", 0] }, 0] },
-      },
-    },
-    { $addFields: { totalPages: { $ceil: { $divide: ["$total", limit] } } } },
-  ]);
-
-  const first = agg[0] || { docs: [], totalPages: 0 };
-  return res.json({ docs: first.docs, totalPages: first.totalPages, page });
-});
+import Bracket from "../models/bracketModel.js";
 
 /* GET điểm kèm user (dùng trong danh sách) */ // Admin
 export const getUsersWithRank = asyncHandler(async (req, res) => {
@@ -642,3 +274,470 @@ export async function getLeaderboard(req, res) {
   ]);
   res.json(list);
 }
+
+/* ======================= helpers: podium từ bracket cuối ======================= */
+/* ============ helpers nhỏ ============ */
+const isOID = (x) => !!x && mongoose.isValidObjectId(x);
+const uniq = (arr) => [...new Set(arr.map(String))];
+const toNum = (x) => (Number.isFinite(Number(x)) ? Number(x) : null);
+const norm = (s) => String(s ?? "").toLowerCase();
+
+/* Map regIds -> userIds (player1.user / player2.user / users[] / members[].user) */
+async function mapRegToUsers(regIds) {
+  const regs = await Registration.find(
+    { _id: { $in: regIds.filter(isOID) } },
+    { "player1.user": 1, "player2.user": 1, users: 1, members: 1 }
+  ).lean();
+
+  const out = new Map();
+  for (const r of regs) {
+    const set = new Set();
+    const add = (u) => isOID(u) && set.add(String(u));
+    add(r?.player1?.user);
+    add(r?.player2?.user);
+    Array.isArray(r?.users) && r.users.forEach(add);
+    Array.isArray(r?.members) && r.members.forEach((m) => add(m?.user));
+    out.set(String(r._id), [...set]);
+  }
+  return out;
+}
+
+/* Tổng hợp podium CHỈ từ bracket KO (knockout/roundElim) cuối cùng */
+async function computeKoPodiumFromLastBracket(tournamentId) {
+  const podium = { gold: [], silver: [], bronze: [] };
+
+  // 1) Lấy KO bracket cuối cùng trong giải
+  const br = await Bracket.findOne({
+    tournament: tournamentId,
+    type: { $in: ["knockout", "roundElim"] },
+  })
+    .sort({ stage: -1, order: -1, updatedAt: -1, _id: -1 })
+    .select({
+      _id: 1,
+      type: 1,
+      stage: 1,
+      order: 1,
+      "meta.maxRounds": 1,
+      drawRounds: 1,
+    })
+    .lean();
+
+  if (!br?._id) return podium;
+
+  // 2) Lấy toàn bộ match đã FINISHED trong KO bracket này
+  const matches = await Match.find(
+    { bracket: br._id, status: "finished" },
+    {
+      _id: 1,
+      round: 1,
+      order: 1,
+      branch: 1,
+      winner: 1, // "A" | "B"
+      pairA: 1,
+      pairB: 1,
+      updatedAt: 1,
+    }
+  ).lean();
+
+  if (!matches.length) return podium;
+
+  // 3) Xác định maxRound của KO
+  const maxRoundFromMeta = toNum(br?.meta?.maxRounds) ?? toNum(br?.drawRounds);
+  const maxRoundFromData = Math.max(
+    0,
+    ...matches.map((m) => toNum(m.round) ?? 0)
+  );
+  const maxRound = Math.max(maxRoundFromMeta ?? 0, maxRoundFromData);
+
+  if (!maxRound || maxRound < 1) return podium;
+
+  // 4) Chung kết = match có round = maxRound (chọn cái mới nhất nếu có nhiều)
+  const finals = matches
+    .filter((m) => (toNum(m.round) ?? 0) === maxRound)
+    .sort((a, b) => new Date(a.updatedAt || 0) - new Date(b.updatedAt || 0));
+  const final = finals.at(-1);
+
+  if (final && (final.winner === "A" || final.winner === "B")) {
+    const goldReg = final.winner === "A" ? final.pairA : final.pairB;
+    const silverReg = final.winner === "A" ? final.pairB : final.pairA;
+
+    // 5) Đồng hạng 3:
+    //    - Ưu tiên match nhánh "consol" nếu có (winner lấy Bronze)
+    //    - Nếu không có, lấy 2 đội THUA ở bán kết (round = maxRound - 1)
+    let bronzeRegs = [];
+    const consol = matches
+      .filter(
+        (m) =>
+          norm(m.branch) === "consol" && (toNum(m.round) ?? 0) >= maxRound - 1
+      )
+      .sort((a, b) => new Date(a.updatedAt || 0) - new Date(b.updatedAt || 0))
+      .at(-1);
+
+    if (consol && (consol.winner === "A" || consol.winner === "B")) {
+      bronzeRegs.push(consol.winner === "A" ? consol.pairA : consol.pairB);
+    } else {
+      const semis = matches.filter(
+        (m) => (toNum(m.round) ?? 0) === maxRound - 1
+      );
+      for (const sm of semis) {
+        if (sm.winner === "A" || sm.winner === "B") {
+          const loserReg = sm.winner === "A" ? sm.pairB : sm.pairA;
+          bronzeRegs.push(loserReg);
+        }
+      }
+    }
+
+    // 6) Map reg -> users
+    const regIds = uniq([goldReg, silverReg, ...bronzeRegs].filter(Boolean));
+    const regMap = await mapRegToUsers(regIds);
+
+    podium.gold = uniq(regMap.get(String(goldReg)) || []);
+    podium.silver = uniq(regMap.get(String(silverReg)) || []);
+    podium.bronze = uniq(
+      bronzeRegs.flatMap((rid) => regMap.get(String(rid)) || [])
+    );
+  }
+
+  return podium;
+}
+
+/* ======================= getRankings (ONLY KO podium) ======================= */
+export const getRankings = asyncHandler(async (req, res) => {
+  const page = Math.max(0, parseInt(req.query.page ?? 0, 10));
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 10, 10)));
+  const keywordRaw = String(req.query.keyword ?? "").trim();
+
+  const isAdmin =
+    String(req.user?.role || "").toLowerCase() === "admin" ||
+    !!req.user?.isAdmin;
+
+  // ====== Giải đã kết thúc gần nhất ======
+  const now = new Date();
+  const latestTour = await Tournament.findOne({
+    $or: [
+      { status: "finished" },
+      { finishedAt: { $ne: null } },
+      { endAt: { $type: "date", $lt: now } },
+    ],
+  })
+    .sort({ finishedAt: -1, endAt: -1, updatedAt: -1, _id: -1 })
+    .select({ _id: 1, name: 1, title: 1, finishedAt: 1, endAt: 1, status: 1 })
+    .lean();
+
+  // ====== Podium CHỈ từ KO bracket ======
+  let podium = { gold: [], silver: [], bronze: [] };
+  if (latestTour?._id) {
+    podium = await computeKoPodiumFromLastBracket(latestTour._id);
+  }
+
+  // ====== Keyword -> lọc user ======
+  const escapeRegExp = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const stripSpaces = (s = "") => s.replace(/\s+/g, "");
+  const digitsOnly = (s = "") => s.replace(/\D+/g, "");
+
+  let userIdsFilter = null;
+  if (keywordRaw) {
+    const orConds = [];
+    const namePattern = keywordRaw
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(escapeRegExp)
+      .join(".*");
+    if (namePattern) {
+      orConds.push({ name: { $regex: namePattern, $options: "i" } });
+      orConds.push({ nickname: { $regex: namePattern, $options: "i" } });
+    }
+    const emailCandidate = stripSpaces(keywordRaw);
+    if (emailCandidate.includes("@")) {
+      orConds.push({
+        email: { $regex: `^${escapeRegExp(emailCandidate)}$`, $options: "i" },
+      });
+    }
+    const phoneDigits = digitsOnly(keywordRaw);
+    if (phoneDigits.length >= 9) {
+      const phonePattern = `^${phoneDigits.split("").join("\\s*")}$`;
+      orConds.push({ phone: { $regex: phonePattern } });
+      orConds.push({ cccd: { $regex: phonePattern } });
+    }
+
+    if (orConds.length > 0) {
+      const rawIds = await User.find({ $or: orConds }, { _id: 1 }).lean();
+      const ids = rawIds.map((d) => d?._id).filter((id) => isOID(id));
+      if (!ids.length) {
+        return res.json({
+          docs: [],
+          totalPages: 0,
+          page,
+          latestTournament: latestTour
+            ? {
+                _id: latestTour._id,
+                name: latestTour.name || latestTour.title || "Giải đấu",
+                finishedAt: latestTour.finishedAt || latestTour.endAt || null,
+                podium,
+              }
+            : null,
+        });
+      }
+      userIdsFilter = ids;
+    }
+  }
+
+  const matchStage = {
+    ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
+  };
+
+  // ====== Project user theo quyền ======
+  const baseUserProject = {
+    _id: 1,
+    nickname: 1,
+    gender: 1,
+    province: 1,
+    avatar: 1,
+    verified: 1,
+    createdAt: 1,
+    cccdStatus: 1,
+    dob: 1,
+  };
+  const adminExtraProject = {
+    name: 1,
+    email: 1,
+    phone: 1,
+    cccd: 1,
+    cccdImages: 1,
+    note: 1,
+  };
+  const userProject = isAdmin
+    ? { ...baseUserProject, ...adminExtraProject }
+    : baseUserProject;
+
+  // ====== Aggregate rankings (giữ logic sắp xếp/phan trang cũ) ======
+  const agg = await Ranking.aggregate([
+    { $match: matchStage },
+    { $match: { user: { $type: "objectId" } } },
+    {
+      $facet: {
+        total: [
+          {
+            $lookup: {
+              from: "users",
+              localField: "user",
+              foreignField: "_id",
+              as: "u",
+              pipeline: [{ $project: { _id: 1 } }],
+            },
+          },
+          { $match: { "u.0": { $exists: true } } },
+          { $group: { _id: "$user" } },
+          { $count: "n" },
+        ],
+        docs: [
+          {
+            $addFields: {
+              points: { $ifNull: ["$points", 0] },
+              single: { $ifNull: ["$single", 0] },
+              double: { $ifNull: ["$double", 0] },
+              mix: { $ifNull: ["$mix", 0] },
+              reputation: { $ifNull: ["$reputation", 0] },
+            },
+          },
+          { $sort: { user: 1, updatedAt: -1, _id: 1 } },
+          { $group: { _id: "$user", doc: { $first: "$$ROOT" } } },
+          { $replaceRoot: { newRoot: "$doc" } },
+          {
+            $lookup: {
+              from: "users",
+              localField: "user",
+              foreignField: "_id",
+              as: "user",
+              pipeline: [{ $project: userProject }],
+            },
+          },
+          { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
+
+          // số giải đã kết thúc user từng đăng ký → để giữ tier/reputation (như bạn đang dùng)
+          {
+            $lookup: {
+              from: "registrations",
+              let: { uid: "$user._id" },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $or: [
+                        { $eq: ["$player1.user", "$$uid"] },
+                        { $eq: ["$player2.user", "$$uid"] },
+                      ],
+                    },
+                  },
+                },
+                {
+                  $lookup: {
+                    from: "tournaments",
+                    localField: "tournament",
+                    foreignField: "_id",
+                    as: "tour",
+                    pipeline: [
+                      {
+                        $project: {
+                          _id: 1,
+                          status: 1,
+                          finishedAt: 1,
+                          endAt: 1,
+                        },
+                      },
+                    ],
+                  },
+                },
+                {
+                  $addFields: {
+                    status: {
+                      $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, ""],
+                    },
+                    finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
+                    rawEndAt: { $arrayElemAt: ["$tour.endAt", 0] },
+                  },
+                },
+                {
+                  $addFields: {
+                    endAtDate: {
+                      $convert: {
+                        input: "$rawEndAt",
+                        to: "date",
+                        onError: null,
+                        onNull: null,
+                      },
+                    },
+                    tourFinished: {
+                      $or: [
+                        { $eq: ["$status", "finished"] },
+                        { $ne: ["$finishedAt", null] },
+                        {
+                          $and: [
+                            { $ne: ["$endAtDate", null] },
+                            { $lt: ["$endAtDate", new Date()] },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                },
+                { $match: { tourFinished: true } },
+                { $group: { _id: "$tournament" } },
+                { $count: "n" },
+              ],
+              as: "finishedToursCount",
+            },
+          },
+          {
+            $addFields: {
+              totalTours: {
+                $ifNull: [{ $arrayElemAt: ["$finishedToursCount.n", 0] }, 0],
+              },
+            },
+          },
+
+          // màu/tier
+          {
+            $addFields: {
+              isGold: { $gt: ["$totalTours", 0] },
+              isRed: {
+                $and: [{ $eq: ["$totalTours", 0] }],
+              },
+            },
+          },
+          {
+            $addFields: {
+              colorRank: { $cond: ["$isGold", 0, { $cond: ["$isRed", 1, 2] }] },
+              tierLabel: {
+                $switch: {
+                  branches: [
+                    { case: "$isGold", then: "Đã đấu/Official" },
+                    { case: "$isRed", then: "Tự chấm" },
+                  ],
+                  default: "Chưa có điểm",
+                },
+              },
+              tierColor: {
+                $switch: {
+                  branches: [
+                    { case: "$isGold", then: "yellow" },
+                    { case: "$isRed", then: "red" },
+                  ],
+                  default: "grey",
+                },
+              },
+              reputation: { $min: [100, { $multiply: ["$totalTours", 10] }] },
+            },
+          },
+
+          {
+            $sort: {
+              colorRank: 1,
+              double: -1,
+              single: -1,
+              points: -1,
+              updatedAt: -1,
+              _id: 1,
+            },
+          },
+          { $skip: page * limit },
+          { $limit: limit },
+
+          {
+            $project: {
+              user: 1,
+              single: 1,
+              double: 1,
+              mix: 1,
+              points: 1,
+              updatedAt: 1,
+              tierLabel: 1,
+              tierColor: 1,
+              colorRank: 1,
+              totalTours: 1,
+              reputation: 1,
+            },
+          },
+        ],
+      },
+    },
+    {
+      $project: {
+        docs: "$docs",
+        total: { $ifNull: [{ $arrayElemAt: ["$total.n", 0] }, 0] },
+      },
+    },
+    { $addFields: { totalPages: { $ceil: { $divide: ["$total", limit] } } } },
+  ]);
+
+  const first = agg[0] || { docs: [], totalPages: 0 };
+
+  // gắn latestMedal từ KO podium
+  const g = new Set(podium.gold.map(String));
+  const s = new Set(podium.silver.map(String));
+  const b = new Set(podium.bronze.map(String));
+  const docs = (first.docs || []).map((d) => {
+    const uid = d?.user?._id ? String(d.user._id) : null;
+    let latestMedal = null;
+    if (uid) {
+      if (g.has(uid)) latestMedal = "gold";
+      else if (s.has(uid)) latestMedal = "silver";
+      else if (b.has(uid)) latestMedal = "bronze";
+    }
+    return { ...d, latestMedal };
+  });
+
+  return res.json({
+    docs,
+    totalPages: first.totalPages || 0,
+    page,
+    latestTournament: latestTour
+      ? {
+          _id: latestTour._id,
+          name: latestTour.name || latestTour.title || "Giải đấu",
+          finishedAt: latestTour.finishedAt || latestTour.endAt || null,
+          podium, // <-- CHỈ từ vòng KO
+        }
+      : null,
+  });
+});
