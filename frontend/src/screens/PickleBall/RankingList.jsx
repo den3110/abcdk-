@@ -292,7 +292,7 @@ export default function RankingList() {
       const cached = localStorage.getItem(VIEW_KEY);
       return cached === "cards" || cached === "list" ? cached : "list";
     } catch {
-      return "list";
+      return "cards";
     }
   });
 
