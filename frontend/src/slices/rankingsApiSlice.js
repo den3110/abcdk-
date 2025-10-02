@@ -1,5 +1,5 @@
 import { apiSlice } from "./apiSlice"; // file gốc của bạn
-const LIMIT = 10;
+const LIMIT = 12;
 
 export const rankingsApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({

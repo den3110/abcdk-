@@ -14,6 +14,7 @@ import {
 } from "../middleware/authMiddleware.js";
 import { adminLogin } from "../controllers/admin/adminAuthController.js";
 import {
+  adminCreateUser,
   adminUpdateRanking,
   getUsersWithRank,
 } from "../controllers/rankingController.js";
@@ -172,6 +173,7 @@ router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
 
 // router.get("/users", getUsers);
 router.get("/users", getUsersWithRank);
+router.post("/users", adminCreateUser);
 router.put("/users/:id/role", updateUserRole);
 router.delete("/users/:id", deleteUser);
 router.put("/users/:id", updateUserInfo);

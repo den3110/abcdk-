@@ -817,3 +817,129 @@ export const getRankings = asyncHandler(async (req, res) => {
     podiums30d: podiumMapByUserId, // <-- FE sẽ dùng map này để render danh hiệu
   });
 });
+
+/** Tạo mật khẩu ngẫu nhiên mạnh */
+function generatePassword(len = 12) {
+  const U = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const L = "abcdefghijkmnopqrstuvwxyz";
+  const D = "23456789";
+  const S = "!@#$%^&*()-_=+[]{};:,.?";
+  const all = U + L + D + S;
+
+  // đảm bảo đa dạng
+  let pwd =
+    U[Math.floor(Math.random() * U.length)] +
+    L[Math.floor(Math.random() * L.length)] +
+    D[Math.floor(Math.random() * D.length)] +
+    S[Math.floor(Math.random() * S.length)];
+
+  while (pwd.length < len) {
+    pwd += all[Math.floor(Math.random() * all.length)];
+  }
+  return pwd
+    .split("")
+    .sort(() => Math.random() - 0.5)
+    .join("");
+}
+
+/**
+ * POST /api/admin/users
+ * Body (JSON):
+ * {
+ *   name, nickname, phone, email,
+ *   password?, // nếu không gửi -> server tự sinh
+ *   role="user", verified="pending", gender="unspecified",
+ *   province, dob, avatar, cccd, cccdStatus
+ * }
+ * Trả về: { created: true, user }
+ */
+export const adminCreateUser = asyncHandler(async (req, res) => {
+  const {
+    name,
+    nickname,
+    phone,
+    email,
+    password,
+    role = "user",
+    verified = "pending",
+    gender = "unspecified",
+    province = "",
+    dob,
+    avatar = "",
+    cccd,
+    cccdStatus,
+  } = req.body || {};
+
+  // Yêu cầu quyền admin (đã kiểm tra ở middleware)
+  // Validate cơ bản
+  if (role === "user" && !String(nickname || "").trim()) {
+    return res.status(400).json({ message: "User phải có nickname." });
+  }
+
+  // Chuẩn hoá
+  const doc = {
+    name: String(name || "").trim(),
+    nickname: String(nickname || "").trim() || undefined,
+    phone: String(phone || "").trim() || undefined,
+    email: String(email || "").trim().toLowerCase() || undefined,
+    password: String(password || "") || generatePassword(12),
+    role,
+    verified,
+    gender,
+    province: String(province || "").trim(),
+    avatar: String(avatar || "").trim(),
+  };
+
+  if (cccd) doc.cccd = String(cccd).trim();
+  if (cccdStatus) doc.cccdStatus = String(cccdStatus).trim();
+
+  if (dob) {
+    const d = new Date(dob);
+    if (Number.isNaN(d.getTime())) {
+      return res.status(400).json({ message: "dob không hợp lệ (yyyy-mm-dd hoặc ISO)." });
+    }
+    doc.dob = d;
+  }
+
+  // Pre-check trùng lặp để trả lỗi thân thiện (tránh đợi Mongo nổ E11000)
+  const orConds = [];
+  if (doc.email) orConds.push({ email: doc.email });
+  if (doc.phone) orConds.push({ phone: doc.phone });
+  if (doc.nickname) orConds.push({ nickname: doc.nickname });
+  if (doc.cccd) orConds.push({ cccd: doc.cccd });
+
+  if (orConds.length) {
+    const existed = await User.findOne({ $or: orConds }).lean();
+    if (existed) {
+      if (doc.email && existed.email === doc.email)
+        return res.status(409).json({ message: "Email đã tồn tại." });
+      if (doc.phone && existed.phone === doc.phone)
+        return res.status(409).json({ message: "Số điện thoại đã tồn tại." });
+      if (doc.nickname && existed.nickname === doc.nickname)
+        return res.status(409).json({ message: "Nickname đã tồn tại." });
+      if (doc.cccd && existed.cccd === doc.cccd)
+        return res.status(409).json({ message: "CCCD đã tồn tại." });
+      return res.status(409).json({ message: "Thông tin duy nhất đã tồn tại." });
+    }
+  }
+
+  try {
+    const user = await User.create(doc); // sẽ hash password trong pre('save')
+    const safe = user.toObject();
+    delete safe.password;
+    return res.status(201).json({ created: true, user: safe });
+  } catch (err) {
+    // Bắt E11000 (duplicate key) phòng trường hợp race condition
+    if (err?.code === 11000) {
+      const key = Object.keys(err.keyPattern || {})[0] || "dupe";
+      const map = {
+        email: "Email đã tồn tại.",
+        phone: "Số điện thoại đã tồn tại.",
+        nickname: "Nickname đã tồn tại.",
+        cccd: "CCCD đã tồn tại.",
+      };
+      return res.status(409).json({ message: map[key] || "Thông tin duy nhất đã tồn tại." });
+    }
+    return res.status(400).json({ message: err.message || "Tạo user thất bại." });
+  }
+});

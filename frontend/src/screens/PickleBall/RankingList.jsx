@@ -36,12 +36,16 @@ import {
   InputAdornment,
   GlobalStyles,
   Tooltip,
+  ToggleButton,
+  ToggleButtonGroup,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import VerifiedIcon from "@mui/icons-material/HowToReg";
 import CancelIcon from "@mui/icons-material/Cancel";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
+import TableRowsIcon from "@mui/icons-material/TableRows";
+import GridViewIcon from "@mui/icons-material/GridView";
 
 import { Link, useSearchParams } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
@@ -55,6 +59,7 @@ import { useReviewKycMutation } from "../../slices/adminApiSlice";
 import { skipToken } from "@reduxjs/toolkit/query";
 
 /* ================= Color & constants ================= */
+const VIEW_KEY = "ranking_desktop_view";
 const PLACE = "https://dummyimage.com/40x40/cccccc/ffffff&text=";
 const HEX = {
   green: "#2e7d32",
@@ -70,6 +75,7 @@ const prettyDate = (d) => (d ? new Date(d).toLocaleDateString("vi-VN") : "—");
 
 const SKELETON_CARDS_MOBILE = 6;
 const SKELETON_ROWS_DESKTOP = 10;
+const SKELETON_CARDS_DESKTOP = 9;
 
 /* ================= Helpers ================= */
 const calcAge = (u) => {
@@ -209,17 +215,17 @@ const flameRingSx = (type = "gold") => ({
   },
 });
 
+// 1) Thu gọn hiệu ứng để không vượt khung
 const flameCardSx = (type = "gold") => ({
   position: "relative",
-  overflow: "visible",
-  borderRadius: 6, // 6px
-
+  overflow: "hidden", // was: 'visible'
+  borderRadius: 6,
   "&::before": {
     content: '""',
     position: "absolute",
-    inset: -2,
+    inset: 0, // was: -2
     padding: "2px",
-    borderRadius: 6, // 6px
+    borderRadius: 6,
     background: flameGradient(FLAME[type] || FLAME.gold),
     WebkitMask:
       "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
@@ -230,94 +236,22 @@ const flameCardSx = (type = "gold") => ({
     zIndex: 0,
     transformOrigin: "center",
   },
-
   "&::after": {
     content: '""',
     position: "absolute",
-    inset: -6,
-    borderRadius: 6, // 6px
+    inset: 0, // was: -6
+    borderRadius: 6,
     boxShadow:
       type === "gold"
-        ? "0 0 22px rgba(255, 179, 0, .28)"
+        ? "0 0 12px rgba(255,179,0,.18)"
         : type === "silver"
-        ? "0 0 22px rgba(120, 144, 156, .28)"
-        : "0 0 22px rgba(255, 112, 67, .28)",
+        ? "0 0 12px rgba(120,144,156,.18)"
+        : "0 0 12px rgba(255,112,67,.18)",
     zIndex: 0,
     pointerEvents: "none",
     animation: "glowFlicker 1.8s ease-in-out infinite alternate",
   },
-
   "& .MuiCardContent-root": { position: "relative", zIndex: 1 },
-
-  "@media (prefers-reduced-motion: reduce)": {
-    "&::before,&::after": { animation: "none" },
-  },
-});
-
-/** Accent bar an toàn cho Desktop cell (không áp pseudo vào TableRow) */
-const rowAccentBarSx = (type = "gold") => ({
-  position: "absolute",
-  left: 4,
-  top: 6,
-  bottom: 6,
-  width: 4,
-  borderRadius: 4,
-  background: flameGradient(FLAME[type] || FLAME.gold),
-  filter: "blur(0.3px)",
-  pointerEvents: "none",
-});
-
-const flameRowSx = (type = "gold") => ({
-  position: "relative",
-  zIndex: 0,
-
-  "& > td": {
-    backgroundColor: "background.paper",
-    position: "relative",
-    zIndex: 1,
-    "&:first-of-type": {
-      borderTopLeftRadius: 6,
-      borderBottomLeftRadius: 6,
-    },
-    "&:last-of-type": {
-      borderTopRightRadius: 6,
-      borderBottomRightRadius: 6,
-    },
-  },
-
-  "&::before": {
-    content: '""',
-    position: "absolute",
-    inset: -2,
-    padding: "2px",
-    borderRadius: 6, // 6px
-    background: flameGradient(FLAME[type] || FLAME.gold),
-    WebkitMask:
-      "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
-    WebkitMaskComposite: "xor",
-    maskComposite: "exclude",
-    filter: "blur(0.4px)",
-    animation: "flameFlicker 1.6s ease-in-out infinite alternate",
-    zIndex: 0,
-    pointerEvents: "none",
-  },
-
-  "&::after": {
-    content: '""',
-    position: "absolute",
-    inset: -6,
-    borderRadius: 6, // 6px
-    boxShadow:
-      type === "gold"
-        ? "0 0 18px rgba(255, 179, 0, .25)"
-        : type === "silver"
-        ? "0 0 18px rgba(120, 144, 156, .25)"
-        : "0 0 18px rgba(255, 112, 67, .25)",
-    zIndex: 0,
-    pointerEvents: "none",
-    animation: "glowFlicker 1.8s ease-in-out infinite alternate",
-  },
-
   "@media (prefers-reduced-motion: reduce)": {
     "&::before,&::after": { animation: "none" },
   },
@@ -352,6 +286,16 @@ export default function RankingList() {
   const { keyword, page } = useSelector((s) => s?.rankingUi || {});
   const [searchParams, setSearchParams] = useSearchParams();
 
+  // Desktop view mode: 'list' (table) | 'cards' (grid)
+  const [desktopView, setDesktopView] = useState(() => {
+    try {
+      const cached = localStorage.getItem(VIEW_KEY);
+      return cached === "cards" || cached === "list" ? cached : "list";
+    } catch {
+      return "list";
+    }
+  });
+
   // Debounced input state
   const [searchInput, setSearchInput] = useState(keyword || "");
 
@@ -376,6 +320,8 @@ export default function RankingList() {
   const isMobile = useMediaQuery(theme?.breakpoints?.down("sm"));
   const isDesktop = useMediaQuery(theme?.breakpoints?.up("md"));
   const DRAWER_WIDTH_DESKTOP = 380;
+
+  const desktopCards = !isMobile && desktopView === "cards";
 
   // token
   const token = useSelector(
@@ -409,6 +355,18 @@ export default function RankingList() {
     if ((urlQ || "") !== (searchInput || "")) {
       setSearchInput(urlQ || "");
     }
+
+    // view mode from URL (optional)
+    const v = searchParams.get("view");
+    if (v === "cards" || v === "list") {
+      if (v !== desktopView) setDesktopView(v);
+      try {
+        localStorage.setItem(VIEW_KEY, v);
+      } catch (e) {
+        console.log(e);
+      }
+    }
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
@@ -634,7 +592,7 @@ export default function RankingList() {
     const rank = { gold: 3, silver: 2, bronze: 1 };
 
     const topMap = new Map(); // userId -> "gold"/"silver"/"bronze"
-    const labelMap = new Map(); // userId -> label hiển thị
+    const labelMap = new Map(); // userId -> label hiển thị (CHỈ medal)
     const hrefMap = new Map(); // userId -> link tới trang giải
 
     const entries = Object.entries(podiums30d || {});
@@ -649,10 +607,7 @@ export default function RankingList() {
       const slug = t?.tournamentSlug || t?.slug;
       if (id) return `/tournament/${id}/bracket`;
       if (slug) return `/tournament/${slug}/bracket`;
-      const name = t?.tournamentName || t?.name;
-      return name
-        ? `/tournament?query=${encodeURIComponent(name)}/bracket`
-        : "/tournament";
+      return "/tournament";
     };
 
     for (const [uid, arr] of entries) {
@@ -667,10 +622,8 @@ export default function RankingList() {
         return tb - ta;
       })[0];
 
-      const plusN = Math.max(0, arr.length - 1);
-      const title = `${medalLabel(picked.medal)} – ${
-        picked.tournamentName || "Giải đấu"
-      }${plusN > 0 ? ` (+${plusN} giải khác)` : ""}`;
+      // Label CHỈ còn “Nhà vô địch / Á quân / Đồng hạng 3”
+      const title = medalLabel(picked.medal);
 
       topMap.set(String(uid), picked.medal);
       labelMap.set(String(uid), title);
@@ -683,6 +636,181 @@ export default function RankingList() {
       hrefByUser: hrefMap,
     };
   }, [podiums30d]);
+
+  // handle desktop view mode change & sync URL
+  const handleChangeDesktopView = (_, next) => {
+    if (!next) return;
+    setDesktopView(next);
+    const nextParams = new URLSearchParams(searchParams);
+    if (next === "list") nextParams.delete("view");
+    else nextParams.set("view", next);
+    setSearchParams(nextParams);
+    try {
+      localStorage.setItem(VIEW_KEY, next);
+    } catch (e) {
+      console.log(e);
+    }
+  };
+
+  // ======== Render helpers ========
+  const DesktopCard = ({ r, idx }) => {
+    const u = r?.user || {};
+    const effectiveStatus = (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
+    const badge = cccdBadge(effectiveStatus);
+    const avatarSrc =
+      u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
+    const tierHex = HEX[r?.tierColor] || HEX.grey;
+    const age = calcAge(u);
+    const canGrade = canGradeUser(me, u?.province);
+    const patched = getPatched(r, u);
+    const allowKyc = canViewKycAdmin(me, effectiveStatus);
+
+    const uid = u?._id && String(u._id);
+    const topMedal = uid ? topMedalByUser.get(uid) : null;
+    const label = uid ? labelByUser.get(uid) : null;
+
+    return (
+      <Box sx={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <Card
+          variant="outlined"
+          sx={{
+            ...(topMedal ? flameCardSx(topMedal) : { borderRadius: 6 }),
+            width: "100%", // full bề rộng ô grid
+            height: "100%", // kéo cao đều
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <CardContent
+            sx={{ flexGrow: 1, display: "flex", flexDirection: "column" }}
+          >
+            <Box display="flex" alignItems="center" mb={1.5} gap={2}>
+              <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
+                <Avatar
+                  src={avatarSrc}
+                  alt={u?.nickname || "?"}
+                  onClick={() => openZoom(avatarSrc)}
+                  sx={{ cursor: "zoom-in", width: 44, height: 44 }}
+                />
+              </Box>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography fontWeight={700} noWrap>
+                  {u?.nickname || "---"}
+                </Typography>
+                <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
+                  {Number.isFinite(age) && (
+                    <Chip size="small" label={`${age} tuổi`} />
+                  )}
+                  <Chip label={badge.text} size="small" color={badge.color} />
+                </Stack>
+              </Box>
+            </Box>
+
+            {/* SLOT cố định cho chip thành tích (28px) */}
+            <Box
+              sx={{
+                minHeight: 28,
+                mb: 1,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              {topMedal && (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  clickable
+                  component={Link}
+                  to={hrefByUser.get(uid) || "/tournaments"}
+                  label={label} // chỉ "Nhà vô địch/Á quân/Đồng hạng 3"
+                  sx={medalChipStyle(topMedal, 260)}
+                  onMouseDown={(e) => e.stopPropagation()}
+                />
+              )}
+            </Box>
+
+            <Stack
+              direction="row"
+              flexWrap="wrap"
+              useFlexGap
+              sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
+            >
+              <Chip
+                size="small"
+                label={`Giới tính: ${genderLabel(u?.gender)}`}
+              />
+              <Chip size="small" label={`Tỉnh: ${u?.province || "--"}`} />
+            </Stack>
+
+            <Divider sx={{ mb: 1.25 }} />
+
+            <Stack
+              direction="row"
+              spacing={2}
+              mb={0.5}
+              sx={{ "& .score": { color: tierHex, fontWeight: 700 } }}
+            >
+              <Typography variant="body2" className="score">
+                Đôi: {fmt3(patched.double)}
+              </Typography>
+              <Typography variant="body2" className="score">
+                Đơn: {fmt3(patched.single)}
+              </Typography>
+            </Stack>
+
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              display="block"
+            >
+              Cập nhật:{" "}
+              {patched?.updatedAt
+                ? new Date(patched.updatedAt).toLocaleDateString()
+                : "--"}
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              display="block"
+            >
+              Tham gia:{" "}
+              {u?.createdAt ? new Date(u.createdAt).toLocaleDateString() : "--"}
+            </Typography>
+
+            {/* đẩy nút xuống đáy card */}
+            <Stack direction="row" spacing={1} mt="auto">
+              <Button
+                size="small"
+                variant="contained"
+                color="success"
+                onClick={() => handleOpenProfile(u?._id)}
+              >
+                Hồ sơ
+              </Button>
+              {canGrade && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => openGrade(u, r)}
+                >
+                  Chấm trình
+                </Button>
+              )}
+              {allowKyc && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => openKyc(u)}
+                >
+                  Xem KYC
+                </Button>
+              )}
+            </Stack>
+          </CardContent>
+        </Card>
+      </Box>
+    );
+  };
 
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
@@ -707,20 +835,59 @@ export default function RankingList() {
         justifyContent="space-between"
         alignItems="center"
         mb={2}
+        gap={1}
       >
         <Typography variant="h5" fontWeight={600}>
           Bảng xếp hạng
         </Typography>
-        {loading === false && canSelfAssess && (
-          <Button
-            component={Link}
-            to="/levelpoint"
-            variant="contained"
-            size="small"
-          >
-            Tự chấm trình
-          </Button>
-        )}
+
+        <Stack direction="row" alignItems="center" spacing={1}>
+          {!isMobile && (
+            <ToggleButtonGroup
+              size="small"
+              value={desktopView}
+              exclusive
+              onChange={handleChangeDesktopView}
+              aria-label="Chế độ hiển thị desktop"
+            >
+              <ToggleButton
+                value="list"
+                aria-label="Danh sách"
+              >
+                <Tooltip title="Hiển thị dạng danh sách" arrow enterDelay={500}>
+                  <Box component="span" sx={{ display: "flex" }}>
+                    <TableRowsIcon fontSize="small" />
+                  </Box>
+                </Tooltip>
+              </ToggleButton>
+
+              <ToggleButton
+                value="cards"
+                aria-label="Thẻ"
+              >
+                <Tooltip
+                  title="Hiển thị dạng lưới"
+                  arrow
+                  enterDelay={500}
+                >
+                  <Box component="span" sx={{ display: "flex" }}>
+                    <GridViewIcon fontSize="small" />
+                  </Box>
+                </Tooltip>
+              </ToggleButton>
+            </ToggleButtonGroup>
+          )}
+          {loading === false && canSelfAssess && (
+            <Button
+              component={Link}
+              to="/levelpoint"
+              variant="contained"
+              size="small"
+            >
+              Tự chấm trình
+            </Button>
+          )}
+        </Stack>
       </Box>
 
       {/* Legend */}
@@ -743,8 +910,6 @@ export default function RankingList() {
           sx={{ bgcolor: HEX.grey, color: "#fff" }}
         />
       </Stack>
-
-      {/* KHÔNG còn banner vinh danh giải gần nhất */}
 
       <TextField
         label="Tìm kiếm"
@@ -781,7 +946,7 @@ export default function RankingList() {
         <Alert severity="error">{error?.data?.message || error?.error}</Alert>
       ) : isLoading ? (
         isMobile ? (
-          // mobile skeleton
+          // mobile skeleton (cards 1 cột)
           <Stack spacing={2}>
             {Array.from({ length: SKELETON_CARDS_MOBILE }).map((_, i) => (
               <Card key={i} variant="outlined">
@@ -820,8 +985,45 @@ export default function RankingList() {
               </Card>
             ))}
           </Stack>
+        ) : desktopCards ? (
+          // desktop skeleton (cards 3 cột)
+          <Grid container spacing={2}>
+            {Array.from({ length: SKELETON_CARDS_DESKTOP }).map((_, i) => (
+              <Grid item xs={12} sm={6} md={4} key={i}>
+                <Card variant="outlined">
+                  <CardContent>
+                    <Box display="flex" alignItems="center" mb={1.5} gap={2}>
+                      <Skeleton variant="circular" width={44} height={44} />
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Skeleton variant="text" width="60%" />
+                        <Stack direction="row" spacing={1} mt={0.5}>
+                          <Skeleton variant="rounded" width={60} height={22} />
+                          <Skeleton variant="rounded" width={100} height={22} />
+                        </Stack>
+                      </Box>
+                    </Box>
+                    <Stack direction="row" spacing={1} mb={1}>
+                      <Skeleton variant="rounded" width={120} height={24} />
+                      <Skeleton variant="rounded" width={120} height={24} />
+                    </Stack>
+                    <Divider sx={{ mb: 1.25 }} />
+                    <Stack direction="row" spacing={2} mb={0.5}>
+                      <Skeleton variant="text" width={90} />
+                      <Skeleton variant="text" width={90} />
+                    </Stack>
+                    <Skeleton variant="text" width={160} />
+                    <Skeleton variant="text" width={180} />
+                    <Stack direction="row" spacing={1} mt={2}>
+                      <Skeleton variant="rounded" width={90} height={32} />
+                      <Skeleton variant="rounded" width={100} height={32} />
+                    </Stack>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
         ) : (
-          // desktop skeleton
+          // desktop table skeleton
           <TableContainer component={Paper}>
             <Table size="small">
               <TableHead>
@@ -893,7 +1095,7 @@ export default function RankingList() {
           </TableContainer>
         )
       ) : isMobile ? (
-        /* ===== MOBILE LIST ===== */
+        /* ===== MOBILE LIST (cards 1 cột) ===== */
         <Stack spacing={2}>
           {list?.map((r) => {
             const u = r?.user || {};
@@ -916,7 +1118,13 @@ export default function RankingList() {
               <Card
                 key={r?._id || u?._id}
                 variant="outlined"
-                sx={topMedal ? flameCardSx(topMedal) : { borderRadius: 6 }}
+                sx={{
+                  ...(topMedal ? flameCardSx(topMedal) : { borderRadius: 6 }),
+                  width: "100%",
+                  height: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
               >
                 <CardContent>
                   <Box display="flex" alignItems="center" mb={1} gap={2}>
@@ -945,6 +1153,7 @@ export default function RankingList() {
                       />
                     </Stack>
                   </Box>
+
                   {topMedal && (
                     <Stack
                       direction="row"
@@ -959,11 +1168,12 @@ export default function RankingList() {
                         component={Link}
                         to={hrefByUser.get(uid) || "/tournaments"}
                         label={label}
-                        sx={medalChipStyle(topMedal, 220)} // mobile: giới hạn width hẹp
+                        sx={medalChipStyle(topMedal, 220)}
                         onMouseDown={(e) => e.stopPropagation()}
                       />
                     </Stack>
                   )}
+
                   <Stack
                     direction="row"
                     flexWrap="wrap"
@@ -1047,8 +1257,26 @@ export default function RankingList() {
             );
           })}
         </Stack>
+      ) : desktopCards ? (
+        /* ===== DESKTOP CARDS (grid 3 cột) ===== */
+        <Box
+          sx={{
+            display: "grid",
+            gridTemplateColumns: {
+              xs: "1fr",
+              sm: "repeat(2, minmax(0, 1fr))",
+              md: "repeat(3, minmax(0, 1fr))",
+            },
+            gap: 2, // tương đương spacing={2}
+            alignItems: "stretch",
+          }}
+        >
+          {list?.map((r, idx) => (
+            <DesktopCard r={r} idx={idx} key={r?._id || r?.user?._id || idx} />
+          ))}
+        </Box>
       ) : (
-        /* ===== DESKTOP TABLE ===== */
+        /* ===== DESKTOP TABLE (list) ===== */
         <TableContainer component={Paper}>
           <Table size="small">
             <TableHead>
@@ -1123,7 +1351,7 @@ export default function RankingList() {
                               component={Link}
                               to={hrefByUser.get(uid) || "/tournaments"}
                               label={label}
-                              sx={medalChipStyle(topMedal, 240)} // desktop: giới hạn width 240px
+                              sx={medalChipStyle(topMedal, 240)}
                               onMouseDown={(e) => e.stopPropagation()}
                             />
                           </Tooltip>
@@ -1241,6 +1469,10 @@ export default function RankingList() {
           <Button onClick={closeZoom}>Đóng</Button>
         </DialogActions>
       </Dialog>
+
+      {/* KYC Drawer */}
+      {/* ... (phần Drawer giữ nguyên như bản trước của bạn) ... */}
+      {/* Mình không cắt dán lại toàn bộ cho gọn tin nhắn, nhưng không đổi logic phần Drawer/KYC/Grade Dialog */}
 
       {/* KYC Drawer */}
       <Drawer
