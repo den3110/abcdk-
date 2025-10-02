@@ -933,20 +933,7 @@ export default function RankingList() {
                         {u?.nickname || "---"}
                       </Typography>
                     </Box>
-                    {topMedal && (
-                      <Box sx={{ mt: 0.5 }}>
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          clickable
-                          component={Link}
-                          to={hrefByUser.get(uid) || "/tournaments"}
-                          label={label}
-                          sx={medalChipStyle(topMedal, 220)} // mobile: giới hạn width hẹp
-                          onMouseDown={(e) => e.stopPropagation()}
-                        />
-                      </Box>
-                    )}
+
                     <Stack direction="row" spacing={1} alignItems="center">
                       {Number.isFinite(age) && (
                         <Chip size="small" label={`${age} tuổi`} />
@@ -958,7 +945,25 @@ export default function RankingList() {
                       />
                     </Stack>
                   </Box>
-
+                  {topMedal && (
+                    <Stack
+                      direction="row"
+                      flexWrap="wrap"
+                      useFlexGap
+                      sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
+                    >
+                      <Chip
+                        size="small"
+                        variant="outlined"
+                        clickable
+                        component={Link}
+                        to={hrefByUser.get(uid) || "/tournaments"}
+                        label={label}
+                        sx={medalChipStyle(topMedal, 220)} // mobile: giới hạn width hẹp
+                        onMouseDown={(e) => e.stopPropagation()}
+                      />
+                    </Stack>
+                  )}
                   <Stack
                     direction="row"
                     flexWrap="wrap"
