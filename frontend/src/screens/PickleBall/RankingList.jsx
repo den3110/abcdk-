@@ -35,13 +35,13 @@ import {
   Grid,
   InputAdornment,
   GlobalStyles,
+  Tooltip,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import VerifiedIcon from "@mui/icons-material/HowToReg";
 import CancelIcon from "@mui/icons-material/Cancel";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 
 import { Link, useSearchParams } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
@@ -186,8 +186,8 @@ const flameRingSx = (type = "gold") => ({
       "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
     WebkitMaskComposite: "xor",
     maskComposite: "exclude",
-    filter: "blur(0.4px)",
-    animation: "flameSpin 5s linear infinite",
+    filter: "blur(0.5px)",
+    animation: "flameFlicker 1.6s ease-in-out infinite alternate",
     transformOrigin: "center",
   },
   "&::after": {
@@ -195,83 +195,118 @@ const flameRingSx = (type = "gold") => ({
     position: "absolute",
     inset: "-6px",
     borderRadius: "50%",
-    boxShadow: "0 0 16px rgba(255, 196, 0, 0.35)",
+    boxShadow:
+      type === "gold"
+        ? "0 0 18px rgba(255, 179, 0, .35)"
+        : type === "silver"
+        ? "0 0 18px rgba(120, 144, 156, .35)"
+        : "0 0 18px rgba(255, 112, 67, .35)",
     pointerEvents: "none",
+    animation: "glowFlicker 1.8s ease-in-out infinite alternate",
   },
   "@media (prefers-reduced-motion: reduce)": {
-    "&::before": { animation: "none" },
+    "&::before,&::after": { animation: "none" },
   },
 });
 
 const flameCardSx = (type = "gold") => ({
   position: "relative",
   overflow: "visible",
+  borderRadius: 6, // 6px
+
   "&::before": {
     content: '""',
     position: "absolute",
     inset: -2,
     padding: "2px",
-    borderRadius: 12,
+    borderRadius: 6, // 6px
     background: flameGradient(FLAME[type] || FLAME.gold),
     WebkitMask:
       "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
     WebkitMaskComposite: "xor",
     maskComposite: "exclude",
-    animation: "flameSpin 6s linear infinite",
-    filter: "blur(0.3px)",
+    filter: "blur(0.4px)",
+    animation: "flameFlicker 1.6s ease-in-out infinite alternate",
     zIndex: 0,
     transformOrigin: "center",
   },
-  "& .MuiCardContent-root": { position: "relative", zIndex: 1 },
-  "@media (prefers-reduced-motion: reduce)": {
-    "&::before": { animation: "none" },
+
+  "&::after": {
+    content: '""',
+    position: "absolute",
+    inset: -6,
+    borderRadius: 6, // 6px
+    boxShadow:
+      type === "gold"
+        ? "0 0 22px rgba(255, 179, 0, .28)"
+        : type === "silver"
+        ? "0 0 22px rgba(120, 144, 156, .28)"
+        : "0 0 22px rgba(255, 112, 67, .28)",
+    zIndex: 0,
+    pointerEvents: "none",
+    animation: "glowFlicker 1.8s ease-in-out infinite alternate",
   },
+
+  "& .MuiCardContent-root": { position: "relative", zIndex: 1 },
+
+  "@media (prefers-reduced-motion: reduce)": {
+    "&::before,&::after": { animation: "none" },
+  },
+});
+
+/** Accent bar an toàn cho Desktop cell (không áp pseudo vào TableRow) */
+const rowAccentBarSx = (type = "gold") => ({
+  position: "absolute",
+  left: 4,
+  top: 6,
+  bottom: 6,
+  width: 4,
+  borderRadius: 4,
+  background: flameGradient(FLAME[type] || FLAME.gold),
+  filter: "blur(0.3px)",
+  pointerEvents: "none",
 });
 
 const flameRowSx = (type = "gold") => ({
   position: "relative",
   zIndex: 0,
 
-  // làm nền ô td “nổi” lên trên layer viền
   "& > td": {
     backgroundColor: "background.paper",
     position: "relative",
     zIndex: 1,
-    // bo góc 2 đầu hàng
     "&:first-of-type": {
-      borderTopLeftRadius: 10,
-      borderBottomLeftRadius: 10,
+      borderTopLeftRadius: 6,
+      borderBottomLeftRadius: 6,
     },
     "&:last-of-type": {
-      borderTopRightRadius: 10,
-      borderBottomRightRadius: 10,
+      borderTopRightRadius: 6,
+      borderBottomRightRadius: 6,
     },
   },
 
-  // viền cháy chạy quanh hàng
   "&::before": {
     content: '""',
     position: "absolute",
-    inset: -2, // dày border
+    inset: -2,
     padding: "2px",
-    borderRadius: 12,
+    borderRadius: 6, // 6px
     background: flameGradient(FLAME[type] || FLAME.gold),
     WebkitMask:
       "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
     WebkitMaskComposite: "xor",
     maskComposite: "exclude",
-    animation: "flameSpin 6s linear infinite",
     filter: "blur(0.4px)",
+    animation: "flameFlicker 1.6s ease-in-out infinite alternate",
     zIndex: 0,
     pointerEvents: "none",
   },
 
-  // glow nhẹ
   "&::after": {
     content: '""',
     position: "absolute",
     inset: -6,
-    borderRadius: 14,
+    borderRadius: 6, // 6px
     boxShadow:
       type === "gold"
         ? "0 0 18px rgba(255, 179, 0, .25)"
@@ -280,10 +315,11 @@ const flameRowSx = (type = "gold") => ({
         : "0 0 18px rgba(255, 112, 67, .25)",
     zIndex: 0,
     pointerEvents: "none",
+    animation: "glowFlicker 1.8s ease-in-out infinite alternate",
   },
 
   "@media (prefers-reduced-motion: reduce)": {
-    "&::before": { animation: "none" },
+    "&::before,&::after": { animation: "none" },
   },
 });
 
@@ -296,6 +332,20 @@ const medalLabel = (m) =>
     ? "Đồng hạng 3"
     : "";
 
+const medalChipStyle = (medal, maxWidth = 280) => ({
+  maxWidth,
+  "& .MuiChip-label": {
+    display: "block",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  borderColor:
+    medal === "gold" ? "#ffb300" : medal === "silver" ? "#90a4ae" : "#ff8a65",
+  color:
+    medal === "gold" ? "#ff8f00" : medal === "silver" ? "#607d8b" : "#e65100",
+});
+
 /* ================= Component ================= */
 export default function RankingList() {
   const dispatch = useDispatch();
@@ -305,9 +355,9 @@ export default function RankingList() {
   // Debounced input state
   const [searchInput, setSearchInput] = useState(keyword || "");
 
-  // Query data
+  // Query data (API mới có podiums30d)
   const {
-    data = { docs: [], totalPages: 0, latestTournament: null },
+    data = { docs: [], totalPages: 0, podiums30d: {} },
     isLoading,
     error,
   } = useGetRankingsQuery({ keyword, page });
@@ -315,11 +365,11 @@ export default function RankingList() {
   const {
     docs: list,
     totalPages,
-    latestTournament,
+    podiums30d,
   } = {
     docs: data?.docs || [],
     totalPages: data?.totalPages || 0,
-    latestTournament: data?.latestTournament || null,
+    podiums30d: data?.podiums30d || {},
   };
 
   const theme = useTheme();
@@ -579,28 +629,75 @@ export default function RankingList() {
 
   const chipMobileSx = { mr: { xs: 0.75, sm: 0 }, mb: { xs: 0.75, sm: 0 } };
 
-  // ===== Build medal map from API (latest tournament podium) + doc.latestMedal =====
-  const medalMap = useMemo(() => {
-    const map = new Map();
-    const pod = latestTournament?.podium;
-    if (pod?.gold) pod.gold.forEach((id) => map.set(String(id), "gold"));
-    if (pod?.silver) pod.silver.forEach((id) => map.set(String(id), "silver"));
-    if (pod?.bronze) pod.bronze.forEach((id) => map.set(String(id), "bronze"));
-    (list || []).forEach((d) => {
-      const uid = d?.user?._id && String(d.user._id);
-      if (uid && d?.latestMedal && !map.has(uid)) map.set(uid, d.latestMedal);
-    });
-    return map;
-  }, [latestTournament, list]);
+  /* ===== Build top-achievement map từ API podiums30d ===== */
+  const { topMedalByUser, labelByUser, hrefByUser } = useMemo(() => {
+    const rank = { gold: 3, silver: 2, bronze: 1 };
+
+    const topMap = new Map(); // userId -> "gold"/"silver"/"bronze"
+    const labelMap = new Map(); // userId -> label hiển thị
+    const hrefMap = new Map(); // userId -> link tới trang giải
+
+    const entries = Object.entries(podiums30d || {});
+
+    const getHref = (t) => {
+      const id =
+        t?.tournamentId ||
+        t?.tournament?._id ||
+        t?.tournament?.id ||
+        t?.tid ||
+        t?.id;
+      const slug = t?.tournamentSlug || t?.slug;
+      if (id) return `/tournament/${id}/bracket`;
+      if (slug) return `/tournament/${slug}/bracket`;
+      const name = t?.tournamentName || t?.name;
+      return name
+        ? `/tournament?query=${encodeURIComponent(name)}/bracket`
+        : "/tournament";
+    };
+
+    for (const [uid, arr] of entries) {
+      if (!Array.isArray(arr) || arr.length === 0) continue;
+
+      // pick best by medal rank, then latest finishedAt
+      const picked = [...arr].sort((a, b) => {
+        const r = (rank[b.medal] || 0) - (rank[a.medal] || 0);
+        if (r !== 0) return r;
+        const ta = a.finishedAt ? new Date(a.finishedAt).getTime() : 0;
+        const tb = b.finishedAt ? new Date(b.finishedAt).getTime() : 0;
+        return tb - ta;
+      })[0];
+
+      const plusN = Math.max(0, arr.length - 1);
+      const title = `${medalLabel(picked.medal)} – ${
+        picked.tournamentName || "Giải đấu"
+      }${plusN > 0 ? ` (+${plusN} giải khác)` : ""}`;
+
+      topMap.set(String(uid), picked.medal);
+      labelMap.set(String(uid), title);
+      hrefMap.set(String(uid), getHref(picked));
+    }
+
+    return {
+      topMedalByUser: topMap,
+      labelByUser: labelMap,
+      hrefByUser: hrefMap,
+    };
+  }, [podiums30d]);
 
   return (
     <Container maxWidth="xl" sx={{ py: 3 }}>
       {/* Global keyframes for flame animation */}
       <GlobalStyles
         styles={{
-          "@keyframes flameSpin": {
-            "0%": { transform: "rotate(0deg)" },
-            "100%": { transform: "rotate(360deg)" },
+          "@keyframes flameFlicker": {
+            "0%": { opacity: 0.85, filter: "blur(0.8px) brightness(1)" },
+            "35%": { opacity: 1.0, filter: "blur(0.6px) brightness(1.05)" },
+            "60%": { opacity: 0.92, filter: "blur(0.7px) brightness(0.98)" },
+            "100%": { opacity: 1.0, filter: "blur(0.5px) brightness(1.08)" },
+          },
+          "@keyframes glowFlicker": {
+            "0%": { opacity: 0.45, transform: "scale(1)" },
+            "100%": { opacity: 0.75, transform: "scale(1.01)" },
           },
         }}
       />
@@ -647,22 +744,7 @@ export default function RankingList() {
         />
       </Stack>
 
-      {/* Podium banner for latest tournament */}
-      {latestTournament && (
-        <Alert
-          icon={<EmojiEventsIcon fontSize="small" />}
-          severity="success"
-          sx={{ mb: 2 }}
-        >
-          Vinh danh <b>{latestTournament.name}</b>{" "}
-          {latestTournament.finishedAt
-            ? `(${new Date(latestTournament.finishedAt).toLocaleDateString(
-                "vi-VN"
-              )})`
-            : ""}
-          {/* : <Chip size="small" sx={{ ml: 1 }} label="Viền cháy = Podium" /> */}
-        </Alert>
-      )}
+      {/* KHÔNG còn banner vinh danh giải gần nhất */}
 
       <TextField
         label="Tìm kiếm"
@@ -825,17 +907,20 @@ export default function RankingList() {
             const canGrade = canGradeUser(me, u?.province);
             const patched = getPatched(r, u);
             const allowKyc = canViewKycAdmin(me, effectiveStatus);
-            const medal = u?._id ? medalMap.get(String(u._id)) : null;
+
+            const uid = u?._id && String(u._id);
+            const topMedal = uid ? topMedalByUser.get(uid) : null;
+            const label = uid ? labelByUser.get(uid) : null;
 
             return (
               <Card
                 key={r?._id || u?._id}
                 variant="outlined"
-                sx={medal ? flameCardSx(medal) : undefined}
+                sx={topMedal ? flameCardSx(topMedal) : { borderRadius: 6 }}
               >
                 <CardContent>
                   <Box display="flex" alignItems="center" mb={1} gap={2}>
-                    <Box sx={medal ? flameRingSx(medal) : undefined}>
+                    <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
                       <Avatar
                         src={avatarSrc}
                         alt={u?.nickname || "?"}
@@ -847,10 +932,17 @@ export default function RankingList() {
                       <Typography fontWeight={600} noWrap>
                         {u?.nickname || "---"}
                       </Typography>
-                      {medal && (
-                        <Typography variant="caption" color="text.secondary">
-                          {medalLabel(medal)}
-                        </Typography>
+                      {topMedal && (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          clickable
+                          component={Link}
+                          to={hrefByUser.get(uid) || "/tournaments"}
+                          label={label}
+                          sx={medalChipStyle(topMedal, 200)} // mobile hẹp nên 200px
+                          onMouseDown={(e) => e.stopPropagation()}
+                        />
                       )}
                     </Box>
                     <Stack direction="row" spacing={1} alignItems="center">
@@ -981,13 +1073,16 @@ export default function RankingList() {
                 const canGrade = canGradeUser(me, u?.province);
                 const patched = getPatched(r, u);
                 const allowKyc = canViewKycAdmin(me, effectiveStatus);
-                const medal = u?._id ? medalMap.get(String(u._id)) : null;
+
+                const uid = u?._id && String(u._id);
+                const topMedal = uid ? topMedalByUser.get(uid) : null;
+                const label = uid ? labelByUser.get(uid) : null;
 
                 return (
                   <TableRow key={r?._id || u?._id} hover>
                     <TableCell>{page * 10 + idx + 1}</TableCell>
                     <TableCell>
-                      <Box sx={medal ? flameRingSx(medal) : undefined}>
+                      <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
                         <Avatar
                           src={avatarSrc}
                           alt={u?.nickname || "?"}
@@ -999,26 +1094,19 @@ export default function RankingList() {
                     <TableCell>
                       <Stack direction="row" spacing={1} alignItems="center">
                         <span>{u?.nickname || "--"}</span>
-                        {medal && (
-                          <Chip
-                            label={medalLabel(medal)}
-                            size="small"
-                            variant="outlined"
-                            sx={{
-                              borderColor:
-                                medal === "gold"
-                                  ? "#ffb300"
-                                  : medal === "silver"
-                                  ? "#90a4ae"
-                                  : "#ff8a65",
-                              color:
-                                medal === "gold"
-                                  ? "#ff8f00"
-                                  : medal === "silver"
-                                  ? "#607d8b"
-                                  : "#e65100",
-                            }}
-                          />
+                        {topMedal && (
+                          <Tooltip title={label || ""}>
+                            <Chip
+                              size="small"
+                              variant="outlined"
+                              clickable
+                              component={Link}
+                              to={hrefByUser.get(uid) || "/tournaments"}
+                              label={label}
+                              sx={medalChipStyle(topMedal)}
+                              onMouseDown={(e) => e.stopPropagation()}
+                            />
+                          </Tooltip>
                         )}
                       </Stack>
                     </TableCell>

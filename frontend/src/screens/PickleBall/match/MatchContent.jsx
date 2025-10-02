@@ -166,10 +166,10 @@ function smartDepLabel(m, prevDep) {
   const raw = depLabel(prevDep);
   // console.log(raw)
   const currV = extractCurrentV(m);
-  console.log(m)
+  console.log(m.prevBracket)
   return String(raw).replace(/\b([WL])-V(\d+)-T(\d+)\b/gi, (_s, wl, v, t) => {
     const pv = parseInt(v, 10);
-    const newV = currV != null ? Math.max(1, currV - 1) : pv + 1;
+    const newV = currV != null ? Math.max(1, currV - 1) : (m?.prevBracket?.type !== "group" ? pv + 2 : pv + 1);
     return `${wl}-V${newV}-T${t}`;
   });
 }
