@@ -932,7 +932,9 @@ export default function RankingList() {
                       <Typography fontWeight={600} noWrap>
                         {u?.nickname || "---"}
                       </Typography>
-                      {topMedal && (
+                    </Box>
+                    {topMedal && (
+                      <Box sx={{ mt: 0.5 }}>
                         <Chip
                           size="small"
                           variant="outlined"
@@ -940,11 +942,11 @@ export default function RankingList() {
                           component={Link}
                           to={hrefByUser.get(uid) || "/tournaments"}
                           label={label}
-                          sx={medalChipStyle(topMedal, 200)} // mobile hẹp nên 200px
+                          sx={medalChipStyle(topMedal, 220)} // mobile: giới hạn width hẹp
                           onMouseDown={(e) => e.stopPropagation()}
                         />
-                      )}
-                    </Box>
+                      </Box>
+                    )}
                     <Stack direction="row" spacing={1} alignItems="center">
                       {Number.isFinite(age) && (
                         <Chip size="small" label={`${age} tuổi`} />
@@ -1092,8 +1094,21 @@ export default function RankingList() {
                       </Box>
                     </TableCell>
                     <TableCell>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <span>{u?.nickname || "--"}</span>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "flex-start",
+                          gap: 0.5,
+                        }}
+                      >
+                        <Typography
+                          variant="body2"
+                          sx={{ fontWeight: 600 }}
+                          noWrap
+                        >
+                          {u?.nickname || "--"}
+                        </Typography>
                         {topMedal && (
                           <Tooltip title={label || ""}>
                             <Chip
@@ -1103,12 +1118,12 @@ export default function RankingList() {
                               component={Link}
                               to={hrefByUser.get(uid) || "/tournaments"}
                               label={label}
-                              sx={medalChipStyle(topMedal)}
+                              sx={medalChipStyle(topMedal, 240)} // desktop: giới hạn width 240px
                               onMouseDown={(e) => e.stopPropagation()}
                             />
                           </Tooltip>
                         )}
-                      </Stack>
+                      </Box>
                     </TableCell>
                     <TableCell>{Number.isFinite(age) ? age : "--"}</TableCell>
                     <TableCell>{genderLabel(u?.gender)}</TableCell>
