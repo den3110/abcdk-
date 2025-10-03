@@ -11,7 +11,7 @@ export default defineConfig({
         target: "http://localhost:5001",
         changeOrigin: true,
       },
-       "/uploads": {
+      "/uploads": {
         target: "http://localhost:5001",
         changeOrigin: true,
       },
@@ -20,6 +20,11 @@ export default defineConfig({
         ws: true, // 👈 QUAN TRỌNG: bật websocket proxy
         changeOrigin: true,
       },
+    },
+  },
+  build: {
+    terserOptions: {
+      compress: { drop_console: true, drop_debugger: true },
     },
   },
 });

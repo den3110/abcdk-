@@ -57,6 +57,143 @@ import { useGetMeQuery } from "../../slices/usersApiSlice";
 import { useCreateEvaluationMutation } from "../../slices/evaluationsApiSlice";
 import { useReviewKycMutation } from "../../slices/adminApiSlice";
 import { skipToken } from "@reduxjs/toolkit/query";
+import { useRef } from "react";
+
+function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
+  const [loaded, setLoaded] = React.useState(false);
+  const [err, setErr] = React.useState(false);
+  const imgRef = React.useRef(null);
+
+  // reset khi src đổi
+  React.useEffect(() => {
+    setLoaded(false);
+    setErr(false);
+  }, [src]);
+
+  // Nếu ảnh có sẵn trong cache: complete + naturalWidth > 0
+  React.useEffect(() => {
+    const img = imgRef.current;
+    if (!img) return;
+    if (img.complete && img.naturalWidth > 0) {
+      setLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    // decode() giúp chắc chắn onLoad/complete diễn ra
+    if (img.decode) {
+      img
+        .decode()
+        .then(() => {
+          if (!cancelled) setLoaded(true);
+        })
+        .catch(() => {
+          /* ignore, sẽ chờ onLoad/onError */
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+
+  return (
+    <Box
+      sx={{
+        position: "relative",
+        cursor: src ? "zoom-in" : "default",
+        bgcolor: "background.default",
+        minHeight: maxHeight, // giữ chỗ, tránh layout shift
+      }}
+      onClick={() => src && onClick?.()}
+    >
+      {/* Skeleton overlay */}
+      {!loaded && !err && (
+        <Skeleton
+          variant="rectangular"
+          animation="wave"
+          sx={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: 0,
+            height: maxHeight,
+          }}
+        />
+      )}
+
+      {/* Ảnh luôn render (opacity 0 khi chưa tải) */}
+      {src && (
+        <img
+          ref={imgRef}
+          src={src}
+          alt={alt}
+          // Quan trọng: bỏ lazy trong Drawer (hoặc dùng "eager")
+          loading="eager"
+          onLoad={() => setLoaded(true)}
+          onError={() => {
+            setErr(true);
+            setLoaded(true);
+          }}
+          style={{
+            display: "block",
+            width: "100%",
+            height: "auto",
+            maxHeight,
+            objectFit: "contain",
+            opacity: loaded && !err ? 1 : 0,
+            transition: "opacity 200ms ease",
+          }}
+        />
+      )}
+
+      {/* Badge góc trái */}
+      <Chip
+        size="small"
+        label={label}
+        sx={{
+          position: "absolute",
+          top: 8,
+          left: 8,
+          bgcolor: "rgba(0,0,0,0.6)",
+          color: "#fff",
+          "& .MuiChip-label": { px: 1 },
+        }}
+      />
+
+      {/* Lỗi ảnh */}
+      {err && (
+        <Box
+          sx={{
+            height: maxHeight,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            bgcolor: "background.default",
+          }}
+        >
+          <Typography variant="body2" color="text.secondary">
+            Không tải được ảnh
+          </Typography>
+        </Box>
+      )}
+
+      {/* Không có src */}
+      {!src && (
+        <Box
+          sx={{
+            height: maxHeight,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            bgcolor: "background.default",
+          }}
+        >
+          <Typography variant="body2" color="text.secondary">
+            Chưa có ảnh
+          </Typography>
+        </Box>
+      )}
+    </Box>
+  );
+}
 
 /* ================= Color & constants ================= */
 const VIEW_KEY = "ranking_desktop_view";
@@ -1538,38 +1675,13 @@ export default function RankingList() {
                         variant="outlined"
                         sx={{ borderRadius: 2, overflow: "hidden" }}
                       >
-                        <Box
-                          sx={{
-                            position: "relative",
-                            cursor: "zoom-in",
-                            bgcolor: "background.default",
-                          }}
+                        <KycImage
+                          src={kycView?.cccdImages?.[side]}
+                          alt={side}
+                          label={side === "front" ? "Mặt trước" : "Mặt sau"}
                           onClick={() => openZoom(kycView?.cccdImages?.[side])}
-                        >
-                          <img
-                            src={kycView?.cccdImages?.[side]}
-                            alt={side}
-                            style={{
-                              display: "block",
-                              width: "100%",
-                              height: "auto",
-                              maxHeight: 320,
-                              objectFit: "contain",
-                            }}
-                          />
-                          <Chip
-                            size="small"
-                            label={side === "front" ? "Mặt trước" : "Mặt sau"}
-                            sx={{
-                              position: "absolute",
-                              top: 8,
-                              left: 8,
-                              bgcolor: "rgba(0,0,0,0.6)",
-                              color: "#fff",
-                              "& .MuiChip-label": { px: 1 },
-                            }}
-                          />
-                        </Box>
+                          maxHeight={320}
+                        />
                       </Paper>
                     </Grid>
                   ))}
