@@ -4,7 +4,13 @@
 // - upcoming/scheduled → primary (lam)
 // - finished → success (lục)
 
-import React, { useMemo, useState, useCallback } from "react";
+import React, {
+  useMemo,
+  useState,
+  useCallback,
+  useEffect, // ⬅️ NEW
+  useRef, // ⬅️ NEW
+} from "react";
 import {
   Box,
   Stack,
@@ -21,7 +27,7 @@ import {
   Container,
   useTheme,
   useMediaQuery,
-  Collapse, // NEW
+  Collapse,
 } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 import CloseIcon from "@mui/icons-material/Close";
@@ -33,13 +39,15 @@ import EventIcon from "@mui/icons-material/Event";
 import ScheduleIcon from "@mui/icons-material/Schedule";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import PlaceIcon from "@mui/icons-material/Place";
-import ExpandMoreIcon from "@mui/icons-material/ExpandMore"; // NEW
-import ExpandLessIcon from "@mui/icons-material/ExpandLess"; // NEW
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import { useSelector } from "react-redux";
 import { skipToken } from "@reduxjs/toolkit/query";
 import { useNavigate } from "react-router-dom";
 import { useListMyTournamentsQuery } from "../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./PickleBall/match/ResponsiveMatchViewer";
+// ⬇️ NEW: điều chỉnh path theo dự án của bạn
+import { useSocket } from "../context/SocketContext";
 
 /* ================= Utils ================= */
 const dateFmt = (s) => {
@@ -142,13 +150,22 @@ function SmallMeta({ icon, text }) {
   );
 }
 
-function ScoreBadge({ sets }) {
-  const text =
-    Array.isArray(sets) && sets.length
-      ? sets
-          .map((s) => `${s.a ?? s.home ?? 0}-${s.b ?? s.away ?? 0}`)
-          .join("  |  ")
-      : "—";
+/* ⬇️ NEW: scoreText ưu tiên, fallback gameScores/sets */
+function formatScoreFromMatch(m) {
+  if (typeof m?.scoreText === "string" && m.scoreText.trim()) {
+    return m.scoreText.trim();
+  }
+  const arr =
+    (Array.isArray(m?.gameScores) && m.gameScores.length && m.gameScores) ||
+    (Array.isArray(m?.sets) && m.sets) ||
+    [];
+  if (!arr.length) return "—";
+  return arr
+    .map((s) => `${s.a ?? s.home ?? 0}-${s.b ?? s.away ?? 0}`)
+    .join("  |  ");
+}
+function ScoreBadge({ m }) {
+  const text = formatScoreFromMatch(m);
   return (
     <Box
       sx={{
@@ -204,7 +221,8 @@ function MatchRow({ m, onOpen, eventType }) {
             <Typography noWrap fontWeight={600}>
               {teamLabel(b, eventType)}
             </Typography>
-            <ScoreBadge sets={m.sets || m.gameScores} />
+            {/* ⬇️ NEW: realtime score */}
+            <ScoreBadge m={m} />
             <Stack
               direction="row"
               flexWrap="wrap"
@@ -577,6 +595,7 @@ export default function MyTournamentsPage() {
   const { data, isLoading, isError, refetch, isFetching } =
     useListMyTournamentsQuery(queryArg);
 
+  // Chuẩn hóa danh sách tournaments từ API
   const tournamentsRaw = useMemo(() => {
     if (!data) return [];
     if (Array.isArray(data)) return data;
@@ -584,15 +603,242 @@ export default function MyTournamentsPage() {
     return [];
   }, [data]);
 
+  /* ================= Realtime layer ================= */
+  const socket = useSocket();
+
+  // Map matchId -> match (đã merge realtime)
+  const liveMapRef = useRef(new Map());
+  const [liveBump, setLiveBump] = useState(0);
+  const pendingRef = useRef(new Map());
+  const rafRef = useRef(null);
+
+  // Nhớ state đã join/subscribe để không spam
+  const joinedMatchesRef = useRef(new Set()); // Set<matchId>
+  const subscribedBracketsRef = useRef(new Set()); // Set<bracketId>
+
+  // Danh sách match & bracket hiện có (dựa trên dữ liệu đang hiển thị)
+  const allMatchesInitial = useMemo(() => {
+    const arr = [];
+    for (const t of tournamentsRaw) {
+      if (Array.isArray(t.matches)) arr.push(...t.matches);
+    }
+    return arr;
+  }, [tournamentsRaw]);
+
+  const allMatchIdsKey = useMemo(
+    () =>
+      allMatchesInitial
+        .map((m) => String(m?._id))
+        .filter(Boolean)
+        .sort()
+        .join(","),
+    [allMatchesInitial]
+  );
+
+  const allBracketIdsKey = useMemo(() => {
+    const ids = [];
+    for (const m of allMatchesInitial) {
+      const bid =
+        (m?.bracket && (m.bracket._id || m.bracket)) ||
+        (m?.group && (m.group._id || m.group?.bracketId));
+      if (bid) ids.push(String(bid));
+    }
+    return Array.from(new Set(ids)).sort().join(",");
+  }, [allMatchesInitial]);
+
+  const flushPending = useCallback(() => {
+    if (!pendingRef.current.size) return;
+    const mp = liveMapRef.current;
+    for (const [mid, inc] of pendingRef.current) {
+      const cur = mp.get(mid);
+      // Không khóa version để tránh chặn các gói không có version
+      mp.set(mid, { ...(cur || {}), ...inc });
+    }
+    pendingRef.current.clear();
+    setLiveBump((x) => x + 1);
+  }, []);
+
+  const queueUpsert = useCallback(
+    (incRaw) => {
+      const inc = incRaw?.data ?? incRaw?.match ?? incRaw;
+      if (!inc?._id) return;
+
+      // Chuẩn hóa nhẹ vài entity để tránh phình object
+      const normalizeEntity = (v) => {
+        if (v == null) return v;
+        if (typeof v === "string" || typeof v === "number") return v;
+        if (typeof v === "object") {
+          return {
+            _id: v._id ?? (typeof v.id === "string" ? v.id : undefined),
+            name:
+              (typeof v.name === "string" && v.name) ||
+              (typeof v.label === "string" && v.label) ||
+              (typeof v.title === "string" && v.title) ||
+              "",
+          };
+        }
+        return v;
+      };
+      if (inc.court) inc.court = normalizeEntity(inc.court);
+      if (inc.venue) inc.venue = normalizeEntity(inc.venue);
+      if (inc.location) inc.location = normalizeEntity(inc.location);
+
+      pendingRef.current.set(String(inc._id), inc);
+      if (rafRef.current) return;
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        flushPending();
+      });
+    },
+    [flushPending]
+  );
+
+  // 1) Seed map từ API (khi danh sách thay đổi)
+  useEffect(() => {
+    const mp = new Map();
+    for (const m of allMatchesInitial) {
+      if (m?._id) mp.set(String(m._id), m);
+    }
+    liveMapRef.current = mp;
+    setLiveBump((x) => x + 1);
+  }, [allMatchesInitial]);
+
+  // Helper diff
+  const diffSet = (curSet, nextArr) => {
+    const nextSet = new Set(nextArr);
+    const added = [];
+    const removed = [];
+    nextSet.forEach((id) => {
+      if (!curSet.has(id)) added.push(id);
+    });
+    curSet.forEach((id) => {
+      if (!nextSet.has(id)) removed.push(id);
+    });
+    return { added, removed, nextSet };
+  };
+
+  // 2) Đăng ký socket listeners 1 lần
+  useEffect(() => {
+    if (!socket) return;
+
+    const onUpsert = (payload) => queueUpsert(payload);
+    const onRemove = (payload) => {
+      const id = String(payload?.id ?? payload?._id ?? "");
+      if (!id) return;
+      if (liveMapRef.current.has(id)) {
+        liveMapRef.current.delete(id);
+        setLiveBump((x) => x + 1);
+      }
+    };
+    const onRefilled = () => {
+      // Sơ đồ refill → gọi lại API
+      refetch();
+    };
+    const onConnected = () => {
+      // Re-join/subscribe lại theo các set đã nhớ
+      subscribedBracketsRef.current.forEach((bid) =>
+        socket.emit("draw:subscribe", { bracketId: bid })
+      );
+      joinedMatchesRef.current.forEach((mid) => {
+        socket.emit("match:join", { matchId: mid });
+        socket.emit("match:snapshot:request", { matchId: mid });
+      });
+    };
+
+    socket.on("connect", onConnected);
+    socket.on("match:update", onUpsert);
+    socket.on("match:snapshot", onUpsert);
+    socket.on("match:patched", onUpsert); // alias phổ biến
+    socket.on("score:updated", onUpsert);
+    socket.on("score:update", onUpsert); // alias phổ biến
+    socket.on("match:deleted", onRemove);
+    socket.on("draw:refilled", onRefilled);
+    socket.on("bracket:updated", onRefilled);
+
+    return () => {
+      socket.off("connect", onConnected);
+      socket.off("match:update", onUpsert);
+      socket.off("match:snapshot", onUpsert);
+      socket.off("match:patched", onUpsert);
+      socket.off("score:updated", onUpsert);
+      socket.off("score:update", onUpsert);
+      socket.off("match:deleted", onRemove);
+      socket.off("draw:refilled", onRefilled);
+      socket.off("bracket:updated", onRefilled);
+
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, queueUpsert, refetch]);
+
+  // 3) Subscribe/unsubscribe BRACKETS theo diff
+  useEffect(() => {
+    if (!socket) return;
+    const nextIds = allBracketIdsKey ? allBracketIdsKey.split(",") : [];
+    const { added, removed, nextSet } = diffSet(
+      subscribedBracketsRef.current,
+      nextIds
+    );
+    added.forEach((bid) => socket.emit("draw:subscribe", { bracketId: bid }));
+    removed.forEach((bid) =>
+      socket.emit("draw:unsubscribe", { bracketId: bid })
+    );
+    subscribedBracketsRef.current = nextSet;
+
+    return () => {
+      nextSet.forEach((bid) =>
+        socket.emit("draw:unsubscribe", { bracketId: bid })
+      );
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, allBracketIdsKey]);
+
+  // 4) Join/leave MATCH rooms theo diff
+  useEffect(() => {
+    if (!socket) return;
+    const nextIds = allMatchIdsKey ? allMatchIdsKey.split(",") : [];
+    const { added, removed, nextSet } = diffSet(
+      joinedMatchesRef.current,
+      nextIds
+    );
+
+    added.forEach((mid) => {
+      socket.emit("match:join", { matchId: mid });
+      socket.emit("match:snapshot:request", { matchId: mid });
+    });
+    removed.forEach((mid) => socket.emit("match:leave", { matchId: mid }));
+
+    joinedMatchesRef.current = nextSet;
+
+    return () => {
+      nextSet.forEach((mid) => socket.emit("match:leave", { matchId: mid }));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket, allMatchIdsKey]);
+
+  /* ======= Merge live vào tournaments ======= */
+  const tournamentsLive = useMemo(() => {
+    const getLive = (m) => liveMapRef.current.get(String(m?._id)) || m;
+    return tournamentsRaw.map((t) => {
+      const base = { ...t };
+      base.matches = Array.isArray(t.matches) ? t.matches.map(getLive) : [];
+      return base;
+    });
+  }, [tournamentsRaw, liveBump]);
+
+  /* ======= Tìm kiếm & sort giải ======= */
   const [tourQuery, setTourQuery] = useState("");
   const [tourStatus, setTourStatus] = useState(
     new Set(["upcoming", "ongoing", "finished"])
   );
 
-  // Sort: ongoing → upcoming → finished
+  // Sort: ongoing → upcoming → finished; trong nhóm: theo start tăng dần
   const tournaments = useMemo(() => {
     const q = stripVN(tourQuery);
-    const filtered = tournamentsRaw.filter((t) => {
+    const filtered = tournamentsLive.filter((t) => {
       if (!tourStatus.has(t.status)) return false;
       if (!q) return true;
       const hay = [t.name, t.location].map(stripVN).join(" | ");
@@ -607,10 +853,9 @@ export default function MyTournamentsPage() {
       const ra = rank[a.status] ?? 99;
       const rb = rank[b.status] ?? 99;
       if (ra !== rb) return ra - rb;
-      // phụ: sắp xếp theo start time tăng dần trong cùng nhóm
       return getStart(a) - getStart(b);
     });
-  }, [tournamentsRaw, tourQuery, tourStatus]);
+  }, [tournamentsLive, tourQuery, tourStatus]);
 
   const handleOpenMatch = useCallback((m) => {
     setMatchId(m?._id);

@@ -324,7 +324,6 @@ export const resetMatchScores = asyncHandler(async (req, res) => {
   });
 });
 
-
 /**
  * POST /api/admin/tournaments/:tid/matches/:mid/court
  * body: { courtId: string }
@@ -424,6 +423,217 @@ export async function assignMatchToCourt(req, res) {
       },
     });
 
+    // Emit status:updated (fix: dùng updatedMatch.status)
+    const io = req.app.get("io");
+    io?.to(String(match._id)).emit("status:updated", {
+      matchId: match._id,
+      status: updatedMatch.status,
+    });
+
+    // ===== Helpers cho mã trận =====
+    const isGroupLike = (t) =>
+      ["group", "round_robin", "gsl", "swiss"].includes(String(t || ""));
+
+    const countBracketRounds = (b) => {
+      const t = String(b?.type || "");
+      if (isGroupLike(t)) return 1; // vòng bảng tính 1 vòng
+      const metaRounds = Number(b?.meta?.maxRounds || 0);
+      const drawRounds = Number(b?.drawRounds || 0);
+      return Math.max(metaRounds, drawRounds, 0);
+    };
+
+    // "A"→1, "B"→2; "3"→3; nếu tên lạ thì tìm index trong bracket.groups
+    const getPoolIndex = (raw, curBracket) => {
+      const s = String(raw ?? "").trim();
+      if (!s) return null;
+      if (/^\d+$/.test(s)) {
+        const n = parseInt(s, 10);
+        return n > 0 ? n : null;
+      }
+      const up = s.toUpperCase();
+      if (/^[A-Z]$/.test(up)) return up.charCodeAt(0) - 64; // A=1
+      const groups = curBracket?.groups || [];
+      const idx = groups.findIndex(
+        (g) =>
+          String(g?.name || "")
+            .trim()
+            .toUpperCase() === up
+      );
+      return idx >= 0 ? idx + 1 : null;
+    };
+
+    const buildMatchCodeWithOffset = (mDoc, curBracket, offset) => {
+      if (!mDoc || !curBracket) {
+        // Fallback đơn giản nếu thiếu bracket
+        const r = Math.max(1, Number(mDoc?.round || 1));
+        const T = Math.max(
+          1,
+          Number(mDoc?.order) >= 0 ? Number(mDoc.order) + 1 : 1
+        );
+        const V = offset + r;
+        return { code: `V${V}-T${T}`, displayCode: `V${V}-T${T}` };
+      }
+      const t = String(curBracket?.type || "");
+      const localRound = isGroupLike(t)
+        ? 1
+        : Math.max(1, Number(mDoc?.round || 1));
+      const V = offset + localRound;
+      const T = Math.max(
+        1,
+        Number(mDoc?.order) >= 0 ? Number(mDoc.order) + 1 : 1
+      );
+
+      if (isGroupLike(t)) {
+        const poolRaw = mDoc?.pool?.key ?? mDoc?.pool?.name ?? "";
+        const poolIdx = getPoolIndex(poolRaw, curBracket);
+        const B = poolIdx != null ? `-B${poolIdx}` : "";
+        const code = `V${V}${B}-T${T}`;
+        return { code, displayCode: code };
+      } else {
+        const code = `V${V}-T${T}`;
+        return { code, displayCode: code };
+      }
+    };
+
+    // Lấy snapshot đầy đủ cho client
+    const m = await Match.findById(match._id)
+      .populate({
+        path: "pairA",
+        select: "player1 player2 seed label teamName",
+        populate: [
+          {
+            path: "player1",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+          {
+            path: "player2",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+        ],
+      })
+      .populate({
+        path: "pairB",
+        select: "player1 player2 seed label teamName",
+        populate: [
+          {
+            path: "player1",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+          {
+            path: "player2",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+        ],
+      })
+      .populate({ path: "referee", select: "name fullName nickname nickName" })
+      .populate({ path: "previousA", select: "round order" })
+      .populate({ path: "previousB", select: "round order" })
+      .populate({ path: "nextMatch", select: "_id" })
+      .populate({ path: "tournament", select: "name image eventType overlay" })
+      .populate({
+        path: "bracket",
+        select: [
+          "noRankDelta",
+          "name",
+          "type",
+          "stage",
+          "order",
+          "drawRounds",
+          "drawStatus",
+          "scheduler",
+          "drawSettings",
+          "meta.drawSize",
+          "meta.maxRounds",
+          "meta.expectedFirstRoundMatches",
+          "groups._id",
+          "groups.name",
+          "groups.expectedSize",
+          "config.rules",
+          "config.doubleElim",
+          "config.roundRobin",
+          "config.swiss",
+          "config.gsl",
+          "config.roundElim",
+          "overlay",
+        ].join(" "),
+      })
+      .populate({
+        path: "court",
+        select: "name number code label zone area venue building floor",
+      })
+      .populate({ path: "liveBy", select: "name fullName nickname nickName" })
+      .select(
+        "label managers court courtLabel courtCluster " +
+          "scheduledAt startAt startedAt finishedAt status " +
+          "tournament bracket rules currentGame gameScores " +
+          "round order code roundCode roundName " +
+          "seedA seedB previousA previousB nextMatch winner serve overlay " +
+          "video videoUrl stream streams meta " +
+          "format rrRound pool " +
+          "liveBy liveVersion"
+      )
+      .lean();
+
+    if (m) {
+      // 1) Bổ sung nickname fallback
+      const pick = (v) => (v && String(v).trim()) || "";
+      const fillNick = (p) => {
+        if (!p) return p;
+        const primary = pick(p.nickname) || pick(p.nickName);
+        const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+        const n = primary || fromUser || "";
+        if (n) {
+          p.nickname = n;
+          p.nickName = n;
+        }
+        return p;
+      };
+      if (m.pairA) {
+        m.pairA.player1 = fillNick(m.pairA.player1);
+        m.pairA.player2 = fillNick(m.pairA.player2);
+      }
+      if (m.pairB) {
+        m.pairB.player1 = fillNick(m.pairB.player1);
+        m.pairB.player2 = fillNick(m.pairB.player2);
+      }
+
+      // 2) Fallback streams
+      if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
+      // 3) Tính baseOffset & build mã trận chuẩn, rồi gắn vào snapshot
+      let baseOffset = 0;
+      if (m.bracket) {
+        const prevBrs = await Bracket.find({
+          tournament: tid,
+          order: { $lt: m.bracket.order ?? 0 },
+        })
+          .select("type meta.maxRounds drawRounds")
+          .sort({ order: 1 })
+          .lean();
+
+        baseOffset = (prevBrs || []).reduce(
+          (sum, b) => sum + countBracketRounds(b),
+          0
+        );
+
+        const { code, displayCode } = buildMatchCodeWithOffset(
+          m,
+          m.bracket,
+          baseOffset
+        );
+        m.code = code; // FE có thể đọc m.code
+        m.displayCode = displayCode;
+        m.roundCode = code; // tương thích nơi đọc roundCode
+      }
+
+      // Emit snapshot với mã trận chuẩn (V…[-B…]-T…)
+      io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
+    }
+
     return res.json({ ok: true, match: updatedMatch });
   } catch (err) {
     console.error("[assignMatchToCourt] error:", err);
@@ -451,6 +661,7 @@ export async function clearMatchCourt(req, res) {
     if (!isAdmin && !ownerOrMgr) {
       return res.status(403).json({ message: "Forbidden" });
     }
+
     const match = await Match.findById(mid)
       .select("_id tournament status court courtLabel")
       .lean();
@@ -467,8 +678,8 @@ export async function clearMatchCourt(req, res) {
       );
     }
 
-    // Nếu đang ở trạng thái "assigned" (chỉ vì có sân) → đưa về "queued"
-    const next = match.status === "assigned" ? { status: "queued" } : {};
+    // Nếu đang "assigned" do có sân → trả về trạng thái "scheduled"
+    const next = match.status === "assigned" ? { status: "scheduled" } : {};
     const updatedMatch = await Match.findByIdAndUpdate(
       mid,
       {
@@ -481,6 +692,215 @@ export async function clearMatchCourt(req, res) {
       },
       { new: true }
     ).select("_id code status court courtLabel assignedAt");
+
+    // Emit status:updated (dùng updatedMatch.status)
+    const io = req.app.get("io");
+    io?.to(String(match._id)).emit("status:updated", {
+      matchId: match._id,
+      status: updatedMatch.status,
+    });
+
+    // ===== Helpers build mã trận (V[-B]-T) =====
+    const isGroupLike = (t) =>
+      ["group", "round_robin", "gsl", "swiss"].includes(String(t || ""));
+
+    const countBracketRounds = (b) => {
+      const t = String(b?.type || "");
+      if (isGroupLike(t)) return 1; // vòng bảng tính 1 vòng
+      const metaRounds = Number(b?.meta?.maxRounds || 0);
+      const drawRounds = Number(b?.drawRounds || 0);
+      return Math.max(metaRounds, drawRounds, 0);
+    };
+
+    // "A"→1, "B"→2; "3"→3; nếu tên lạ thì tìm index trong bracket.groups
+    const getPoolIndex = (raw, curBracket) => {
+      const s = String(raw ?? "").trim();
+      if (!s) return null;
+      if (/^\d+$/.test(s)) {
+        const n = parseInt(s, 10);
+        return n > 0 ? n : null;
+      }
+      const up = s.toUpperCase();
+      if (/^[A-Z]$/.test(up)) return up.charCodeAt(0) - 64; // A=1
+      const groups = curBracket?.groups || [];
+      const idx = groups.findIndex(
+        (g) =>
+          String(g?.name || "")
+            .trim()
+            .toUpperCase() === up
+      );
+      return idx >= 0 ? idx + 1 : null;
+    };
+
+    const buildMatchCodeWithOffset = (mDoc, curBracket, offset) => {
+      if (!mDoc || !curBracket) {
+        const r = Math.max(1, Number(mDoc?.round || 1));
+        const T = Math.max(
+          1,
+          Number(mDoc?.order) >= 0 ? Number(mDoc.order) + 1 : 1
+        );
+        const V = offset + r;
+        return { code: `V${V}-T${T}`, displayCode: `V${V}-T${T}` };
+      }
+      const t = String(curBracket?.type || "");
+      const localRound = isGroupLike(t)
+        ? 1
+        : Math.max(1, Number(mDoc?.round || 1));
+      const V = offset + localRound;
+      const T = Math.max(
+        1,
+        Number(mDoc?.order) >= 0 ? Number(mDoc.order) + 1 : 1
+      );
+
+      if (isGroupLike(t)) {
+        const poolRaw = mDoc?.pool?.key ?? mDoc?.pool?.name ?? "";
+        const poolIdx = getPoolIndex(poolRaw, curBracket);
+        const B = poolIdx != null ? `-B${poolIdx}` : "";
+        const code = `V${V}${B}-T${T}`;
+        return { code, displayCode: code };
+      } else {
+        const code = `V${V}-T${T}`;
+        return { code, displayCode: code };
+      }
+    };
+
+    // Lấy snapshot đầy đủ cho client
+    const m = await Match.findById(match._id)
+      .populate({
+        path: "pairA",
+        select: "player1 player2 seed label teamName",
+        populate: [
+          {
+            path: "player1",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+          {
+            path: "player2",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+        ],
+      })
+      .populate({
+        path: "pairB",
+        select: "player1 player2 seed label teamName",
+        populate: [
+          {
+            path: "player1",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+          {
+            path: "player2",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+        ],
+      })
+      .populate({ path: "referee", select: "name fullName nickname nickName" })
+      .populate({ path: "previousA", select: "round order" })
+      .populate({ path: "previousB", select: "round order" })
+      .populate({ path: "nextMatch", select: "_id" })
+      .populate({ path: "tournament", select: "name image eventType overlay" })
+      .populate({
+        path: "bracket",
+        select: [
+          "noRankDelta",
+          "name",
+          "type",
+          "stage",
+          "order",
+          "drawRounds",
+          "drawStatus",
+          "scheduler",
+          "drawSettings",
+          "meta.drawSize",
+          "meta.maxRounds",
+          "meta.expectedFirstRoundMatches",
+          "groups._id",
+          "groups.name",
+          "groups.expectedSize",
+          "config.rules",
+          "config.doubleElim",
+          "config.roundRobin",
+          "config.swiss",
+          "config.gsl",
+          "config.roundElim",
+          "overlay",
+        ].join(" "),
+      })
+      .populate({
+        path: "court",
+        select: "name number code label zone area venue building floor",
+      })
+      .populate({ path: "liveBy", select: "name fullName nickname nickName" })
+      .select(
+        "label managers court courtLabel courtCluster " +
+          "scheduledAt startAt startedAt finishedAt status " +
+          "tournament bracket rules currentGame gameScores " +
+          "round order code roundCode roundName " +
+          "seedA seedB previousA previousB nextMatch winner serve overlay " +
+          "video videoUrl stream streams meta " +
+          "format rrRound pool " +
+          "liveBy liveVersion"
+      )
+      .lean();
+
+    if (m) {
+      // Nickname fallback
+      const pick = (v) => (v && String(v).trim()) || "";
+      const fillNick = (p) => {
+        if (!p) return p;
+        const primary = pick(p.nickname) || pick(p.nickName);
+        const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+        const n = primary || fromUser || "";
+        if (n) {
+          p.nickname = n;
+          p.nickName = n;
+        }
+        return p;
+      };
+      if (m.pairA) {
+        m.pairA.player1 = fillNick(m.pairA.player1);
+        m.pairA.player2 = fillNick(m.pairA.player2);
+      }
+      if (m.pairB) {
+        m.pairB.player1 = fillNick(m.pairB.player1);
+        m.pairB.player2 = fillNick(m.pairB.player2);
+      }
+
+      // Fallback streams
+      if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
+      // === Tính baseOffset & build mã trận chuẩn (V…[-B…]-T…) ===
+      if (m.bracket) {
+        const prevBrs = await Bracket.find({
+          tournament: tid,
+          order: { $lt: m.bracket.order ?? 0 },
+        })
+          .select("type meta.maxRounds drawRounds")
+          .sort({ order: 1 })
+          .lean();
+
+        const baseOffset = (prevBrs || []).reduce(
+          (sum, b) => sum + countBracketRounds(b),
+          0
+        );
+
+        const { code, displayCode } = buildMatchCodeWithOffset(
+          m,
+          m.bracket,
+          baseOffset
+        );
+        m.code = code;
+        m.displayCode = displayCode;
+        m.roundCode = code; // tương thích nơi đọc roundCode
+      }
+
+      // Emit snapshot với mã trận chuẩn
+      io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
+    }
 
     return res.json({ ok: true, match: updatedMatch });
   } catch (err) {
@@ -507,7 +927,6 @@ export async function getMatchReferees(req, res) {
     // Quyền: admin hoặc quản lý giải
     const me = req.user;
     const isAdmin = me?.role === "admin";
-    console.log(me._id)
     const ownerOrMgr = await canManageTournament(me?._id, tid);
     if (!isAdmin && !ownerOrMgr) {
       return res.status(403).json({ message: "Forbidden" });

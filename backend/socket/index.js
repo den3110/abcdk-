@@ -666,10 +666,10 @@ export function initSocket(
           .lean();
         const enriched = decorateServeAndSlots(fresh);
         const dto = toDTO(enriched);
-        io.to(`match:${matchId}`).emit("match:update", {
-          type: "serve",
-          data: dto,
-        });
+        // io.to(`match:${matchId}`).emit("match:update", {
+        //   type: "serve",
+        //   data: dto,
+        // });
 
         ack?.({ ok: true });
       } catch (e) {
@@ -1042,10 +1042,10 @@ export function initSocket(
       const dto = toDTO(decorateServeAndSlots(m));
 
       // unified channel để FE bắt được và hiển thị ngay
-      io.to(`match:${matchId}`).emit("match:update", {
-        type: "score",
-        data: dto,
-      });
+      // io.to(`match:${matchId}`).emit("match:update", {
+      //   type: "score",
+      //   data: dto,
+      // });
       // (tuỳ chọn giữ tương thích cũ)
       io.to(`match:${matchId}`).emit("score:updated", dto);
     });
@@ -1147,48 +1147,41 @@ export function initSocket(
           }
 
           const clusterKey = resolveClusterKey(bracket, cluster);
+
           const session = await mongoose.startSession();
           session.startTransaction();
 
           try {
-            // 1) Clear currentMatch trên các sân thuộc bracket/cluster
+            // (A) Xoá hết các trận ĐANG ĐƯỢC GÁN VÀO SÂN trong phạm vi bracket/cluster
+            // - Chỉ xoá những trận còn "sống" (không xoá finished/canceled)
+            // - Lọc theo bracket (nếu có) hoặc theo cluster
+            const deleteFilter = {
+              tournament: tournamentId,
+              ...(bracket ? { bracket } : { courtCluster: clusterKey }),
+              court: { $ne: null }, // đang có sân gán
+              status: { $nin: ["finished", "cancelled", "canceled"] },
+            };
+
+            const deleteAssignedRes = await Match.deleteMany(deleteFilter, {
+              session,
+            });
+
+            // (B) Clear currentMatch ở các sân trong phạm vi
             const courtsFilter = bracket
               ? { tournament: tournamentId, bracket }
               : { tournament: tournamentId, cluster: clusterKey };
 
-            const courtsResult = await Court.updateMany(
+            const clearedCourtsRes = await Court.updateMany(
               courtsFilter,
-              {
-                $unset: { currentMatch: "" },
-              },
+              { $unset: { currentMatch: "" } },
               { session }
             );
 
-            // 2) Xoá gán sân và đưa về hàng đợi cho các trận queued/assigned
-            const matchFilterBase = {
-              tournament: tournamentId,
-              ...(bracket ? { bracket } : { courtCluster: clusterKey }),
-              status: { $in: ["queued", "assigned"] },
-            };
-
-            const clearAssignRes = await Match.updateMany(
-              matchFilterBase,
-              {
-                $unset: { court: "", courtLabel: "", queueOrder: "" },
-              },
-              { session }
-            );
-
-            const toQueuedRes = await Match.updateMany(
-              { ...matchFilterBase, status: "assigned" },
-              { $set: { status: "queued" } },
-              { session }
-            );
-
+            // (C) Commit transaction
             await session.commitTransaction();
             session.endSession();
 
-            // 3) Tuỳ chọn build lại queue & lấp sân trống
+            // (D) Tuỳ chọn: build lại queue & lấp sân trống
             if (rebuild) {
               try {
                 await buildGroupsRotationQueue({
@@ -1208,7 +1201,7 @@ export function initSocket(
               }
             }
 
-            // 4) Phát lại state cho room đang xem cụm/bracket đó
+            // (E) Phát lại state cho room đang xem cụm/bracket đó
             await broadcastState(io, tournamentId, {
               bracket,
               cluster: clusterKey,
@@ -1216,15 +1209,12 @@ export function initSocket(
 
             ack?.({
               ok: true,
-              clearedCourts: courtsResult?.modifiedCount ?? 0,
-              clearedAssignments: clearAssignRes?.modifiedCount ?? 0,
-              reassignedToQueued: toQueuedRes?.modifiedCount ?? 0,
+              deletedAssignedMatches: deleteAssignedRes?.deletedCount ?? 0,
+              clearedCourts: clearedCourtsRes?.modifiedCount ?? 0,
               rebuilt: Boolean(rebuild),
             });
           } catch (e) {
-            await session.abortTransaction().catch((e) => {
-              console.log(e);
-            });
+            await session.abortTransaction().catch(() => {});
             session.endSession();
             console.error("[scheduler] resetAll error:", e?.message);
             ack?.({ ok: false, message: e?.message || "Reset failed" });

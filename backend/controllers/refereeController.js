@@ -932,7 +932,7 @@ export const patchWinner = asyncHandler(async (req, res) => {
   io?.to(`match:${id}`).emit("score:updated", { matchId: id });
   io?.to(`match:${id}`).emit("winner:updated", { matchId: id, winner });
   io?.to(`match:${id}`).emit("match:patched", { matchId: id });
-  io?.to(`match:${id}`).emit("match:update", dto);
+  // io?.to(`match:${id}`).emit("match:update", dto);
 
   // === EMIT ra room scheduler (trang điều phối sân đang join) ===
   // BE của bạn khi nhận "scheduler:join" nhiều khả năng join vào room dạng này:
@@ -2189,7 +2189,7 @@ export async function assignCourtToMatch(req, res, next) {
       if (!mFull) return;
       const dto = toDTO(decorateServeAndSlots(mFull));
       io.to(`match:${String(mFull._id)}`).emit("match:snapshot", dto);
-      io.to(`match:${String(mFull._id)}`).emit("match:update", dto);
+      // io.to(`match:${String(mFull._id)}`).emit("match:update", dto);
     } catch (e) {
       console.error("[emit] match snapshot error:", e?.message);
     }

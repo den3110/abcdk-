@@ -93,6 +93,7 @@ import {
   assignNextHttp,
   assignSpecificHttp,
   buildGroupsQueueHttp,
+  deleteAllCourts,
   fetchSchedulerMatches,
   freeCourtHttp,
   getSchedulerState,
@@ -152,6 +153,7 @@ router.post("/tournaments/:tid/referees", protect, upsertTournamentReferees);
 
 router.get("/referees/search", protect, searchUsersForRefereeAssign);
 router.get("/tournaments/:tid/courts", protect, listCourtsByTournament);
+router.post("/courts/deleteAll", protect, deleteAllCourts);
 
 // POST   /api/admin/tournaments/:tid/matches/:mid/court  -> gán sân
 router.post(
@@ -168,6 +170,20 @@ router.get(
   protect,
   getMatchReferees
 );
+
+// Batch matches
+router.post(
+  "/matches/batch/update-referee",
+  protect,
+  batchAssignReferee
+);
+
+router.post(
+  "/tournaments/:tournamentId/courts",
+  protect,
+  upsertCourts
+);
+
 
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
 
@@ -363,13 +379,7 @@ router.get(
   getDashboardSeries
 );
 
-// Batch matches
-router.post(
-  "/matches/batch/update-referee",
-  protect,
-  authorize("admin"),
-  batchAssignReferee
-);
+
 router.post(
   "/brackets/:bracketId/matches/batch-delete",
   protect,
@@ -454,12 +464,6 @@ router.get(
 // router.post("/brackets/:bracketId/courts",protect, authorize("admin"), upsertBracketCourts);
 
 // Tất cả require admin
-router.post(
-  "/tournaments/:tournamentId/courts",
-  protect,
-  authorize("admin"),
-  upsertCourts
-);
 
 router.post(
   "/tournaments/:tournamentId/queue/groups/build",

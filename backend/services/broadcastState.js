@@ -1,28 +1,152 @@
-// chỉnh lại các path import theo dự án của bạn
+// ===== Adjust the import paths to your project structure =====
+import mongoose from "mongoose";
+import Bracket from "../models/bracketModel.js";
 import Match from "../models/matchModel.js";
 import Court from "../models/courtModel.js";
+
+/** -------------------------------------------
+ *  Utils & type guards
+ * ------------------------------------------*/
+const GROUP_LIKE = new Set(["group", "round_robin", "gsl", "swiss"]);
+const isGroupType = (t) => GROUP_LIKE.has(String(t || "").toLowerCase());
 
 const resolveClusterKey = (bracket, cluster = "Main") =>
   bracket ? String(bracket) : cluster ?? "Main";
 
+const safeTrim = (s) => (typeof s === "string" ? s.trim() : "");
+
 const nameOfPerson = (p) =>
-  (p?.fullName || p?.nickName || p?.name || p?.displayName || "").trim();
+  safeTrim(p?.fullName || p?.nickName || p?.name || p?.displayName || "");
 
 const nameOfPair = (pair) => {
   if (!pair) return "";
-  if (pair.displayName || pair.name) return pair.displayName || pair.name;
+  if (pair.displayName || pair.name)
+    return safeTrim(pair.displayName || pair.name);
   const n1 = nameOfPerson(pair.player1);
   const n2 = nameOfPerson(pair.player2);
   return [n1, n2].filter(Boolean).join(" & ");
 };
 
-// Đổi nhãn hiển thị cho vòng bảng: ...#R{round}#... -> ...#B{round}#...
-const displayLabelKey = (m) => {
+/** -------------------------------------------
+ *  Label helpers
+ * ------------------------------------------*/
+/**
+ * Chỉ đổi "#R{n}" -> "#B{n}" khi bracket là group-like.
+ */
+const displayLabelKey = (m, bracketTypeMap) => {
+  const bId = String(m?.bracket || "");
+  const bType = bracketTypeMap.get(bId);
   if (!m?.labelKey) return "";
-  const isGroup = m.format === "group" || m.type === "group" || !!m.pool?.name;
-  return isGroup ? m.labelKey.replace(/#R(\d+)/, "#B$1") : m.labelKey;
+  return isGroupType(bType)
+    ? m.labelKey.replace(/#R(\d+)/, "#B$1")
+    : m.labelKey;
 };
 
+/**
+ * Lấy chỉ số T (thứ tự trận trong vòng).
+ * Ưu tiên bóc từ labelKey (đuôi số), fallback m.order.
+ */
+const extractT = (m) => {
+  const lk = m?.labelKey;
+  if (lk && typeof lk === "string") {
+    const mm = lk.match(/(\d+)$/);
+    if (mm) return Number(mm[1]);
+  }
+  return Number.isFinite(m?.order) ? Number(m.order) : 1;
+};
+
+/**
+ * Tính mã hiển thị:
+ * - group-like:  V{offset+1}-B{b}-T{t}  (b = rrRound|round)
+ * - KO:          V{offset+round}-T{t}
+ */
+const computeDisplayCode = (m, offsetMap, bracketTypeMap) => {
+  const bId = String(m?.bracket || "");
+  const offset = offsetMap.get(bId) || 0;
+  const bType = bracketTypeMap.get(bId);
+  const t = extractT(m);
+
+  if (isGroupType(bType)) {
+    const b = Number(m?.rrRound || m?.round || 1);
+    const v = offset + 1; // group-like luôn 1 vòng
+    return `V${v}-B${b}-T${t}`;
+  } else {
+    const r = Number(m?.round || 1);
+    const v = offset + r; // KO cộng theo round của chính m
+    return `V${v}-T${t}`;
+  }
+};
+
+/** -------------------------------------------
+ *  V offsets & type map
+ * ------------------------------------------*/
+/**
+ * Trả về:
+ *  - offsetMap: bracketId -> tổng số vòng của các bracket đứng trước (theo order)
+ *  - typeMap:   bracketId -> type
+ *
+ * roundsCount:
+ *  - group-like: 1
+ *  - KO: maxRound của bracket (scan từ Match)
+ */
+async function buildBracketRoundMeta(tournamentId) {
+  const brackets = await Bracket.find({ tournament: tournamentId })
+    .select("_id type order")
+    .lean();
+
+  if (!brackets.length) {
+    return { offsetMap: new Map(), typeMap: new Map() };
+  }
+
+  // Max round per bracket (dành cho KO)
+  const agg = await Match.aggregate([
+    {
+      $match: {
+        tournament: new mongoose.Types.ObjectId(String(tournamentId)),
+        bracket: { $in: brackets.map((b) => b._id) },
+      },
+    },
+    { $group: { _id: "$bracket", maxRound: { $max: "$round" } } },
+  ]);
+
+  const maxRoundMap = new Map(
+    agg.map((x) => [String(x._id), Number(x.maxRound || 1)])
+  );
+
+  const roundsCountMap = new Map(
+    brackets.map((b) => [
+      String(b._id),
+      isGroupType(b.type) ? 1 : maxRoundMap.get(String(b._id)) || 1,
+    ])
+  );
+
+  const sorted = [...brackets].sort(
+    (a, b) => (a.order ?? 9999) - (b.order ?? 9999)
+  );
+
+  let cum = 0;
+  const offsetMap = new Map();
+  for (const b of sorted) {
+    offsetMap.set(String(b._id), cum);
+    cum += roundsCountMap.get(String(b._id)) || 1;
+  }
+
+  const typeMap = new Map(brackets.map((b) => [String(b._id), b.type]));
+  return { offsetMap, typeMap };
+}
+
+/** -------------------------------------------
+ *  Main: broadcastState
+ * ------------------------------------------*/
+/**
+ * Phát trạng thái điều phối cho 1 cluster (hoặc 1 bracket) của giải:
+ *  - courts: kèm currentMatchCode/Teams
+ *  - matches: bản rút gọn + codeDisplay chuẩn
+ *
+ * @param {import("socket.io").Server} io
+ * @param {string|mongoose.Types.ObjectId} tournamentId
+ * @param {{ bracket?: string|mongoose.Types.ObjectId, cluster?: string }} options
+ */
 export const broadcastState = async (
   io,
   tournamentId,
@@ -30,19 +154,24 @@ export const broadcastState = async (
 ) => {
   const clusterKey = resolveClusterKey(bracket, cluster);
 
+  // 0) Meta phục vụ tính "V"
+  const { offsetMap: roundOffsetMap, typeMap: bracketTypeMap } =
+    await buildBracketRoundMeta(tournamentId);
+
   // 1) Sân theo bracket/cluster
   const courtsQuery = bracket
     ? { tournament: tournamentId, bracket }
     : { tournament: tournamentId, cluster: clusterKey };
+
   const courts = await Court.find(courtsQuery).sort({ order: 1 }).lean();
 
-  // 2) Id các trận đang nằm trên sân để đảm bảo include
+  // 2) Id các currentMatch trên sân
   const currentIds = courts
     .map((c) => c.currentMatch)
     .filter(Boolean)
     .map((x) => String(x));
 
-  // 3) Trận cần cho điều phối
+  // 3) Danh sách các trận cần lên lịch/đang diễn ra
   const baseMatchFilter = {
     tournament: tournamentId,
     status: { $in: ["queued", "assigned", "live", "scheduled"] },
@@ -69,7 +198,7 @@ export const broadcastState = async (
     .sort({ status: 1, queueOrder: 1 })
     .lean();
 
-  // 4) Bảo đảm include mọi currentMatch
+  // 4) Bảo đảm include cả currentMatch trên sân (dù không trùng filter trên)
   const missingIds = currentIds.filter(
     (id) => !matches.some((m) => String(m._id) === id)
   );
@@ -90,43 +219,55 @@ export const broadcastState = async (
     matches = matches.concat(extra);
   }
 
-  // 5) Thu gọn để FE bơm thẳng
-  const matchesLite = matches.map((m) => ({
-    _id: m._id,
-    status: m.status,
-    queueOrder: m.queueOrder,
-    court: m.court,
-    courtLabel: m.courtLabel,
-    pool: m.pool, // { id, name }
-    rrRound: m.rrRound,
-    round: m.round,
-    order: m.order,
-    code: m.code,
-    labelKey: m.labelKey,
-    labelKeyDisplay: displayLabelKey(m), // 👈 thêm nhãn hiển thị B cho vòng bảng
-    type: m.type,
-    format: m.format,
-    scheduledAt: m.scheduledAt,
-    startedAt: m.startedAt,
-    finishedAt: m.finishedAt,
-    pairA: m.pairA,
-    pairB: m.pairB,
-  }));
+  // 5) Rút gọn + tính mã hiển thị chuẩn
+  const matchesLite = matches.map((m) => {
+    const pairAName = nameOfPair(m.pairA);
+    const pairBName = nameOfPair(m.pairB);
+    const labelKeyDisplay = displayLabelKey(m, bracketTypeMap);
+    const codeDisplay = computeDisplayCode(m, roundOffsetMap, bracketTypeMap);
+
+    return {
+      _id: m._id,
+      status: m.status,
+      queueOrder: m.queueOrder,
+      court: m.court,
+      courtLabel: m.courtLabel,
+      pool: m.pool, // { id, name } nếu có
+      rrRound: m.rrRound,
+      round: m.round,
+      order: m.order,
+      code: m.code, // raw
+      labelKey: m.labelKey, // raw
+      labelKeyDisplay, // R→B cho group-like
+      codeDisplay, // ✅ mã hiển thị CHUẨN: group-like có B, KO không có B
+      type: m.type,
+      format: m.format,
+      scheduledAt: m.scheduledAt,
+      startedAt: m.startedAt,
+      finishedAt: m.finishedAt,
+
+      pairA: m.pairA,
+      pairB: m.pairB,
+      pairAName,
+      pairBName,
+    };
+  });
 
   const matchMap = new Map(matchesLite.map((m) => [String(m._id), m]));
 
-  // 6) Gắn info gọn vào từng sân
+  // 6) Gắn thông tin current vào sân
   const courtsWithCurrent = courts.map((c) => {
     const m = matchMap.get(String(c.currentMatch));
     return {
       ...c,
       currentMatchObj: m || null,
-      currentMatchCode: m?.labelKeyDisplay || m?.labelKey || m?.code || null,
+      currentMatchCode:
+        m?.codeDisplay || m?.labelKeyDisplay || m?.labelKey || m?.code || null,
       currentMatchTeams: m ? { A: m.pairAName, B: m.pairBName } : null,
     };
   });
 
-  // 7) Emit
+  // 7) Emit ra room theo tournament + cluster
   io.to(`tour:${tournamentId}:${clusterKey}`).emit("scheduler:state", {
     courts: courtsWithCurrent,
     matches: matchesLite,

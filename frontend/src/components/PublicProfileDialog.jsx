@@ -1779,6 +1779,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
               display: "grid",
               placeItems: "center",
               bgcolor: "action.hover",
+              flexShrink: 0,
             }}
           >
             {icon}
@@ -1788,15 +1789,17 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           </Typography>
         </Stack>
         <Typography
-          variant="h4"
           fontWeight={800}
-          sx={{ mt: 0.5 }}
-          // co chữ trên màn nhỏ
+          sx={{ mt: 0.5, fontSize: { xs: 22, sm: 28 }, lineHeight: 1.15 }}
         >
           {value}
         </Typography>
         {sub ? (
-          <Typography variant="caption" color="text.secondary" noWrap>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ whiteSpace: "normal" }} // <<< cho phép xuống dòng trên mobile
+          >
             {sub}
           </Typography>
         ) : null}
@@ -1939,49 +1942,37 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           </Stack>
 
           {perT.length ? (
-            <TableContainer
-              sx={{
-                width: "100%",
-                overflowX: "auto",
-                "& th, & td": { whiteSpace: "nowrap" }, // không xuống dòng, cho phép kéo ngang
-              }}
-            >
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Giải</TableCell>
-                    <TableCell>Bracket</TableCell>
-                    <TableCell
-                      align="right"
-                      sx={{ display: { xs: "none", sm: "table-cell" } }}
-                    >
-                      Draw
-                    </TableCell>
-                    <TableCell align="right">Top</TableCell>
-                    <TableCell
-                      sx={{ display: { xs: "none", md: "table-cell" } }}
-                    >
-                      Giai đoạn
-                    </TableCell>
-                    <TableCell
-                      sx={{ display: { xs: "none", md: "table-cell" } }}
-                    >
-                      Cuối cùng
-                    </TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {perT.map((r, i) => (
-                    <TableRow key={i} hover>
-                      <TableCell>{r.tournamentName}</TableCell>
-                      <TableCell>{r.bracketName}</TableCell>
-                      <TableCell
-                        align="right"
-                        sx={{ display: { xs: "none", sm: "table-cell" } }}
+            isMobile ? (
+              // ===== MOBILE: CARD LIST, KHÔNG VUỐT NGANG =====
+              <Stack spacing={1.25}>
+                {perT.map((r, i) => (
+                  <Paper
+                    key={i}
+                    variant="outlined"
+                    sx={{ p: 1.5, borderRadius: 2 }}
+                  >
+                    <Stack spacing={0.75}>
+                      <Typography
+                        variant="subtitle2"
+                        fontWeight={700}
+                        sx={{ whiteSpace: "normal" }}
                       >
-                        {r.drawSize}
-                      </TableCell>
-                      <TableCell align="right">
+                        {r.tournamentName}
+                      </Typography>
+                      <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        sx={{ whiteSpace: "normal" }}
+                      >
+                        {r.bracketName}
+                      </Typography>
+
+                      <Stack
+                        direction="row"
+                        alignItems="center"
+                        spacing={1}
+                        flexWrap="wrap"
+                      >
                         <Chip
                           size="small"
                           color={topColor(r.topK)}
@@ -1991,22 +1982,88 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                           }
                           variant={topVariant(r.topK)}
                         />
-                      </TableCell>
-                      <TableCell
-                        sx={{ display: { xs: "none", md: "table-cell" } }}
+                        {Number.isFinite(r.drawSize) && (
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            label={`Draw ${r.drawSize}`}
+                          />
+                        )}
+                      </Stack>
+
+                      <Grid
+                        container
+                        columnSpacing={2}
+                        rowSpacing={0.5}
+                        sx={{ mt: 0.25 }}
                       >
-                        {r.season ?? "—"}
-                      </TableCell>
-                      <TableCell
-                        sx={{ display: { xs: "none", md: "table-cell" } }}
-                      >
-                        {r.lastMatchAt ? fmtDT(r.lastMatchAt) : "—"}
-                      </TableCell>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" color="text.secondary">
+                            Giai đoạn
+                          </Typography>
+                          <Typography variant="body2">
+                            {r.season ?? "—"}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" color="text.secondary">
+                            Cuối cùng
+                          </Typography>
+                          <Typography variant="body2">
+                            {r.lastMatchAt ? fmtDT(r.lastMatchAt) : "—"}
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            ) : (
+              // ===== DESKTOP/TABLET: TABLE NHƯ CŨ =====
+              <TableContainer sx={{ width: "100%" }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Giải</TableCell>
+                      <TableCell>Bracket</TableCell>
+                      <TableCell align="right">Draw</TableCell>
+                      <TableCell align="right">Top</TableCell>
+                      <TableCell>Giai đoạn</TableCell>
+                      <TableCell>Cuối cùng</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                  </TableHead>
+                  <TableBody>
+                    {perT.map((r, i) => (
+                      <TableRow key={i} hover>
+                        <TableCell sx={{ whiteSpace: "normal" }}>
+                          {r.tournamentName}
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: "normal" }}>
+                          {r.bracketName}
+                        </TableCell>
+                        <TableCell align="right">{r.drawSize}</TableCell>
+                        <TableCell align="right">
+                          <Chip
+                            size="small"
+                            color={topColor(r.topK)}
+                            icon={topIcon(r.topK)}
+                            label={
+                              r.positionLabel ||
+                              (r.topK ? `Top ${r.topK}` : "—")
+                            }
+                            variant={topVariant(r.topK)}
+                          />
+                        </TableCell>
+                        <TableCell>{r.season ?? "—"}</TableCell>
+                        <TableCell>
+                          {r.lastMatchAt ? fmtDT(r.lastMatchAt) : "—"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )
           ) : (
             <Stack
               alignItems="center"
@@ -2028,62 +2085,37 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           </Stack>
 
           {perB.length ? (
-            <TableContainer
-              sx={{
-                width: "100%",
-                overflowX: "auto",
-                "& th, & td": { whiteSpace: "nowrap" },
-              }}
-            >
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Giải</TableCell>
-                    <TableCell>Bracket</TableCell>
-                    <TableCell
-                      align="right"
-                      sx={{ display: { xs: "none", sm: "table-cell" } }}
-                    >
-                      Draw
-                    </TableCell>
-                    <TableCell align="right">Top</TableCell>
-                    <TableCell
-                      align="right"
-                      sx={{ display: { xs: "none", md: "table-cell" } }}
-                    >
-                      W
-                    </TableCell>
-                    <TableCell
-                      align="right"
-                      sx={{ display: { xs: "none", md: "table-cell" } }}
-                    >
-                      L
-                    </TableCell>
-                    <TableCell
-                      align="right"
-                      sx={{ display: { xs: "none", md: "table-cell" } }}
-                    >
-                      WR
-                    </TableCell>
-                    <TableCell
-                      sx={{ display: { xs: "none", md: "table-cell" } }}
-                    >
-                      Hoàn tất
-                    </TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {perB.map((r, i) => (
-                    <TableRow key={i} hover>
-                      <TableCell>{r.tournamentName}</TableCell>
-                      <TableCell>{r.bracketName}</TableCell>
-                      <TableCell
-                        align="right"
-                        sx={{ display: { xs: "none", sm: "table-cell" } }}
+            isMobile ? (
+              // ===== MOBILE: CARD LIST, KHÔNG VUỐT NGANG =====
+              <Stack spacing={1.25}>
+                {perB.map((r, i) => (
+                  <Paper
+                    key={i}
+                    variant="outlined"
+                    sx={{ p: 1.5, borderRadius: 2 }}
+                  >
+                    <Stack spacing={0.75}>
+                      <Typography
+                        variant="subtitle2"
+                        fontWeight={700}
+                        sx={{ whiteSpace: "normal" }}
                       >
-                        {r.drawSize}
-                      </TableCell>
-                      <TableCell align="right">
+                        {r.tournamentName}
+                      </Typography>
+                      <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        sx={{ whiteSpace: "normal" }}
+                      >
+                        {r.bracketName}
+                      </Typography>
+
+                      <Stack
+                        direction="row"
+                        alignItems="center"
+                        spacing={1}
+                        flexWrap="wrap"
+                      >
                         <Chip
                           size="small"
                           color={topColor(r.topK)}
@@ -2093,35 +2125,116 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                           }
                           variant={topVariant(r.topK)}
                         />
-                      </TableCell>
-                      <TableCell
-                        align="right"
-                        sx={{ display: { xs: "none", md: "table-cell" } }}
+                        {Number.isFinite(r.drawSize) && (
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            label={`Draw ${r.drawSize}`}
+                          />
+                        )}
+                      </Stack>
+
+                      <Grid
+                        container
+                        columnSpacing={2}
+                        rowSpacing={0.5}
+                        sx={{ mt: 0.25 }}
                       >
-                        {r.stats?.wins ?? 0}
-                      </TableCell>
-                      <TableCell
-                        align="right"
-                        sx={{ display: { xs: "none", md: "table-cell" } }}
-                      >
-                        {r.stats?.losses ?? 0}
-                      </TableCell>
-                      <TableCell
-                        align="right"
-                        sx={{ display: { xs: "none", md: "table-cell" } }}
-                      >
-                        {fmtRate(r.stats?.winRate)}
-                      </TableCell>
-                      <TableCell
-                        sx={{ display: { xs: "none", md: "table-cell" } }}
-                      >
-                        {r.finished ? "✓" : "—"}
-                      </TableCell>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">
+                            W
+                          </Typography>
+                          <Typography variant="body2">
+                            {r.stats?.wins ?? 0}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">
+                            L
+                          </Typography>
+                          <Typography variant="body2">
+                            {r.stats?.losses ?? 0}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">
+                            WR
+                          </Typography>
+                          <Typography variant="body2">
+                            {Number.isFinite(r.stats?.winRate)
+                              ? `${r.stats.winRate.toFixed(1)}%`
+                              : "—"}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Typography variant="caption" color="text.secondary">
+                            Hoàn tất
+                          </Typography>
+                          <Typography variant="body2">
+                            {r.finished ? "✓" : "—"}
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                    </Stack>
+                  </Paper>
+                ))}
+              </Stack>
+            ) : (
+              // ===== DESKTOP/TABLET: TABLE =====
+              <TableContainer sx={{ width: "100%" }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Giải</TableCell>
+                      <TableCell>Bracket</TableCell>
+                      <TableCell align="right">Draw</TableCell>
+                      <TableCell align="right">Top</TableCell>
+                      <TableCell align="right">W</TableCell>
+                      <TableCell align="right">L</TableCell>
+                      <TableCell align="right">WR</TableCell>
+                      <TableCell>Hoàn tất</TableCell>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
+                  </TableHead>
+                  <TableBody>
+                    {perB.map((r, i) => (
+                      <TableRow key={i} hover>
+                        <TableCell sx={{ whiteSpace: "normal" }}>
+                          {r.tournamentName}
+                        </TableCell>
+                        <TableCell sx={{ whiteSpace: "normal" }}>
+                          {r.bracketName}
+                        </TableCell>
+                        <TableCell align="right">{r.drawSize}</TableCell>
+                        <TableCell align="right">
+                          <Chip
+                            size="small"
+                            color={topColor(r.topK)}
+                            icon={topIcon(r.topK)}
+                            label={
+                              r.positionLabel ||
+                              (r.topK ? `Top ${r.topK}` : "—")
+                            }
+                            variant={topVariant(r.topK)}
+                          />
+                        </TableCell>
+                        <TableCell align="right">
+                          {r.stats?.wins ?? 0}
+                        </TableCell>
+                        <TableCell align="right">
+                          {r.stats?.losses ?? 0}
+                        </TableCell>
+                        <TableCell align="right">
+                          {Number.isFinite(r.stats?.winRate)
+                            ? `${r.stats.winRate.toFixed(1)}%`
+                            : "—"}
+                        </TableCell>
+                        <TableCell>{r.finished ? "✓" : "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )
           ) : (
             <Stack
               alignItems="center"

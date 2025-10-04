@@ -77,7 +77,7 @@ const baseQuery = async (args, api, extraOptions) => {
   if (status === 404 && !extraOptions?.skip404Redirect) {
     redirectTo404();
   }
-   if (status === 503) {
+  if (status === 503) {
     redirectTo503();
   }
 
@@ -88,7 +88,17 @@ const baseQuery = async (args, api, extraOptions) => {
 export const apiSlice = createApi({
   reducerPath: "api",
   baseQuery,
-  tagTypes: ["User", "Match", "Bracket", "Tournament", "Registration", "TournamentMatches"],
+  tagTypes: [
+    "User",
+    "Match",
+    "Bracket",
+    "Tournament",
+    "Registration",
+    "TournamentMatches",
+    "Club",
+    "ClubMember",
+    "JoinRequest",
+  ],
   endpoints: () => ({}),
 });
 
@@ -111,4 +121,3 @@ rtkQueryLogoutListener.startListening({
     }
   },
 });
-

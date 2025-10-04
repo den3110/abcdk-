@@ -683,7 +683,7 @@ function makeCodes(match, bracket) {
 export async function listCourtsByTournament(req, res) {
   try {
     const { tid } = req.params;
-    const { bracket: bid, q = "", cluster = "", limit, page } = req.query;
+    const { bracket: bid, q = "", cluster = "", limit, page, heal } = req.query;
 
     if (!mongoose.Types.ObjectId.isValid(tid)) {
       return res.status(400).json({ message: "Invalid tournament id" });
@@ -702,9 +702,9 @@ export async function listCourtsByTournament(req, res) {
         .json({ message: "Query 'bracket' is required and must be ObjectId" });
     }
 
-    // Lấy bracket kèm groups để map pool -> chỉ số
+    // 1) Lấy bracket hiện tại (đủ để build code)
     const bracket = await Bracket.findOne({ _id: bid, tournament: tid })
-      .select("_id groups.name groups.key")
+      .select("_id type stage order meta.maxRounds drawRounds groups.name")
       .lean();
     if (!bracket) {
       return res
@@ -712,16 +712,49 @@ export async function listCourtsByTournament(req, res) {
         .json({ message: "Bracket not found in this tournament" });
     }
 
-    // Filter
-    const where = { tournament: tid, bracket: bid };
-    const qTrim = String(q || "").trim();
-    const clusterTrim = String(cluster || "").trim();
+    // 2) baseOffset = tổng số vòng của các bracket trước đó (order nhỏ hơn)
+    const prevBrackets = await Bracket.find({
+      tournament: tid,
+      order: { $lt: bracket.order ?? 0 },
+    })
+      .select("type meta.maxRounds drawRounds")
+      .sort({ order: 1 })
+      .lean();
 
+    const countBracketRounds = (b) => {
+      const t = String(b?.type || "");
+      // Vòng bảng coi như 1 vòng
+      if (["group", "round_robin", "gsl", "swiss"].includes(t)) return 1;
+
+      // KO/roundElim: lấy số vòng thật
+      const metaRounds = Number(b?.meta?.maxRounds || 0);
+      const drawRounds = Number(b?.drawRounds || 0);
+      return Math.max(metaRounds, drawRounds, 0);
+    };
+
+    const baseOffset = (prevBrackets || []).reduce(
+      (sum, b) => sum + countBracketRounds(b),
+      0
+    );
+
+    // 3) Truy vấn court
+    const where = { tournament: tid, bracket: bid };
+
+    const qTrim = String(q || "").trim();
     if (qTrim) {
       where.name = { $regex: qTrim.replace(/\s+/g, ".*"), $options: "i" };
     }
+
+    const clusterTrim = String(cluster || "").trim();
     if (clusterTrim) {
-      where.cluster = { $regex: `^${clusterTrim}$`, $options: "i" };
+      if (mongoose.Types.ObjectId.isValid(clusterTrim)) {
+        where.$or = [
+          { cluster: new mongoose.Types.ObjectId(clusterTrim) },
+          { cluster: clusterTrim }, // phòng khi field lưu dạng string
+        ];
+      } else {
+        where.cluster = clusterTrim;
+      }
     }
 
     const lim = Number.isFinite(Number(limit))
@@ -729,24 +762,116 @@ export async function listCourtsByTournament(req, res) {
       : 200;
     const pg = Number.isFinite(Number(page)) ? Math.max(1, Number(page)) : 1;
 
-    const docs = await Court.find(where)
+    let docs = await Court.find(where)
+      .select("+currentMatch")
       .sort({ order: 1, createdAt: 1 })
       .skip((pg - 1) * lim)
       .limit(lim)
       .populate({
         path: "currentMatch",
-        model: Match,
+        model: "Match",
         select:
-          "_id code format pool.name pool.key rrRound swissRound round order globalRound",
+          "_id code status format pool.name pool.key rrRound swissRound round order globalRound",
       })
       .lean();
 
-    // Gắn code + displayCode theo yêu cầu
+    // 4) Optional self-heal
+    if (String(heal) === "1") {
+      const staleIds = docs
+        .filter(
+          (c) =>
+            c?.isActive !== false &&
+            (!c.currentMatch || !c.currentMatch?._id) &&
+            ["assigned", "live"].includes(String(c?.status || ""))
+        )
+        .map((c) => c._id);
+
+      if (staleIds.length) {
+        await Court.updateMany(
+          { _id: { $in: staleIds } },
+          { $set: { status: "idle" }, $unset: { currentMatch: 1 } }
+        );
+
+        docs = docs.map((c) =>
+          staleIds.some((id) => String(id) === String(c._id))
+            ? { ...c, status: "idle", currentMatch: null }
+            : c
+        );
+      }
+    }
+
+    // 5) Helpers build code
+    const isGroupLike = (t) =>
+      ["group", "round_robin", "gsl", "swiss"].includes(String(t || ""));
+
+    // Chuẩn hoá chỉ số bảng: "3" -> 3; "A" -> 1, "B" -> 2; tìm theo groups.name nếu cần
+    const getPoolIndex = (raw, curBracket) => {
+      const s = String(raw ?? "").trim();
+      if (!s) return null;
+
+      if (/^\d+$/.test(s)) {
+        const n = parseInt(s, 10);
+        return n > 0 ? n : null;
+      }
+
+      const up = s.toUpperCase();
+      if (/^[A-Z]$/.test(up)) return up.charCodeAt(0) - 64; // A=1
+
+      if (Array.isArray(curBracket?.groups) && curBracket.groups.length) {
+        const idx = curBracket.groups.findIndex(
+          (g) =>
+            String(g?.name || "")
+              .trim()
+              .toUpperCase() === up
+        );
+        if (idx >= 0) return idx + 1; // 1-based
+      }
+
+      return null;
+    };
+
+    const makeCodesWithOffset = (match, curBracket, offset) => {
+      if (!match) return { code: "", displayCode: "" };
+
+      const t = String(curBracket?.type || "");
+      // localRound: group-like = 1; KO/roundElim = match.round (1-based, fallback 1)
+      let localRound = 1;
+      if (!isGroupLike(t)) {
+        const r = Number(match?.round);
+        localRound = Number.isFinite(r) && r > 0 ? r : 1;
+      }
+
+      // V cộng dồn
+      const V = offset + localRound;
+
+      // T luôn = (order + 1), fallback 1 nếu thiếu
+      const rawOrder = Number(match?.order);
+      const T = Number.isFinite(rawOrder) && rawOrder >= 0 ? rawOrder + 1 : 1;
+
+      if (isGroupLike(t)) {
+        // Vòng bảng: V - B(1/2/3/…) - T
+        const poolRaw = match?.pool?.key ?? match?.pool?.name ?? "";
+        const poolIdx = getPoolIndex(poolRaw, curBracket);
+        const B = poolIdx != null ? `-B${poolIdx}` : "";
+        const code = `V${V}${B}-T${T}`;
+        return { code, displayCode: code };
+      } else {
+        // PO/KO: V - T
+        const code = `V${V}-T${T}`;
+        return { code, displayCode: code };
+      }
+    };
+
+    // 6) Gắn code/displayCode cho currentMatch
     for (const c of docs) {
-      if (c.currentMatch) {
-        const { code, displayCode } = makeCodes(c.currentMatch, bracket);
+      if (c.currentMatch && c.currentMatch._id) {
+        const { code, displayCode } = makeCodesWithOffset(
+          c.currentMatch,
+          bracket,
+          baseOffset
+        );
+        c.currentMatch.code = code;
         c.currentMatch.displayCode = displayCode;
-        c.currentMatch.code = code; // override trong payload response
       }
     }
 
@@ -756,3 +881,105 @@ export async function listCourtsByTournament(req, res) {
     return res.status(500).json({ message: "Server error" });
   }
 }
+
+const isObjectIdString = (s) => mongoose.Types.ObjectId.isValid(String(s));
+const resolveClusterKey = (_bracket, cluster) =>
+  String(cluster || "Main").trim();
+
+export const deleteAllCourts = async (req, res) => {
+  try {
+    const { tournamentId, bracket, cluster, force = true } = req.body || {};
+
+    if (!isObjectIdString(tournamentId) || !isObjectIdString(bracket)) {
+      return res
+        .status(400)
+        .json({ message: "Invalid tournamentId hoặc bracket" });
+    }
+
+    const me = req.user;
+    const isAdmin = me?.role === "admin";
+    const ownerOrMgr = await canManageTournament(me?._id, tournamentId);
+    if (!isAdmin && !ownerOrMgr) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      const filter = {
+        tournament: tournamentId,
+        bracket,
+      };
+      if (cluster) {
+        filter.cluster = resolveClusterKey(bracket, cluster);
+      }
+
+      // Lấy danh sách court trước để biết courtIds
+      const courts = await Court.find(filter)
+        .select("_id")
+        .session(session)
+        .lean();
+
+      const courtIds = courts.map((c) => c._id);
+      let clearedMatches = 0;
+
+      if (force && courtIds.length) {
+        // Gỡ liên kết sân khỏi match (không đổi status)
+        const upd = await Match.updateMany(
+          {
+            tournament: tournamentId,
+            bracket,
+            court: { $in: courtIds },
+          },
+          {
+            $set: { court: null },
+            $unset: { courtCluster: "" },
+          },
+          { session }
+        );
+        clearedMatches =
+          upd.modifiedCount ?? upd.nModified ?? upd.acknowledged ? 0 : 0;
+      }
+
+      // Xoá tất cả court
+      const del = await Court.deleteMany(
+        { _id: { $in: courtIds } },
+        { session }
+      );
+
+      await session.commitTransaction();
+      session.endSession();
+
+      // (tuỳ chọn) thông báo realtime cho clients refresh state
+      try {
+        const io = req.app.get("io"); // nếu bạn đã set io vào app
+        if (io) {
+          const room = `scheduler:${tournamentId}:${bracket}`;
+          io.to(room).emit("scheduler:state:dirty", {
+            at: Date.now(),
+            reason: "courts:deletedAll",
+          });
+        }
+      } catch (e) {
+        // ignore
+      }
+
+      return res.json({
+        ok: true,
+        deleted: del.deletedCount || 0,
+        clearedMatches,
+      });
+    } catch (err) {
+      await session.abortTransaction().catch(() => {});
+      session.endSession();
+      return res
+        .status(500)
+        .json({ message: err?.message || "Delete courts failed" });
+    }
+  } catch (e) {
+    return res
+      .status(500)
+      .json({ message: e?.message || "Unexpected server error" });
+  }
+};

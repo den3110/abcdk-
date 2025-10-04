@@ -41,6 +41,7 @@ import cccdRoutes from "./routes/cccd.routes.js";
 import fileRoutes from "./routes/fileRoutes.js";
 import FileAsset from "./models/fileAssetModel.js";
 import { loadSettings } from "./middleware/settings.middleware.js";
+import clubRoutes from "./routes/clubRoutes.js";
 import fs from "fs"
 
 dotenv.config();
@@ -112,6 +113,8 @@ app.use("/api/telegram", telegramRoutes);
 app.use("/api/sportconnect", sportconnectRoutes);
 app.use("/api/cccd", cccdRoutes);
 app.use("/api/files", fileRoutes);
+app.use("/api/clubs", clubRoutes);
+
 
 app.get("/dl/file/:id", async (req, res) => {
   try {

@@ -20,7 +20,6 @@ import {
   FormControlLabel,
   Grid,
   IconButton,
-  InputAdornment,
   Radio,
   RadioGroup,
   Stack,
@@ -37,40 +36,42 @@ import AutorenewIcon from "@mui/icons-material/Autorenew";
 import EditNoteIcon from "@mui/icons-material/EditNote";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import StadiumIcon from "@mui/icons-material/Stadium";
+import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
 import { toast } from "react-toastify";
 import { useSocket } from "../context/SocketContext";
 import {
   useUpsertCourtsMutation,
   useBuildGroupsQueueMutation,
   useAssignNextHttpMutation,
-  useListMatchesQuery, // optional nếu muốn lấy thêm finished/queue qua HTTP
+  useDeleteCourtsMutation,
 } from "../slices/adminCourtApiSlice";
 
 /* ---------------- helpers / formatters ---------------- */
 
-const isNum = (x) => typeof x === "number" && Number.isFinite(x);
+// Ưu tiên type từ bracket nếu FE có (match.bracketType), rồi tới match.type/format
+const GROUP_LIKE_SET = new Set(["group", "round_robin", "gsl", "swiss"]);
+const KO_SET = new Set([
+  "ko",
+  "knockout",
+  "double_elim",
+  "roundelim",
+  "elimination",
+]);
 
-const isPO = (m) => {
-  const t = String(m?.type || m?.format || "").toLowerCase();
-  return t === "po" || m?.meta?.po === true;
-};
-const isKO = (m) => {
-  const t = String(m?.type || m?.format || "").toLowerCase();
-  return (
-    t === "ko" ||
-    t === "knockout" ||
-    t === "elimination" ||
-    m?.meta?.knockout === true
-  );
-};
+const norm = (s) => String(s || "").toLowerCase();
 const isGroupLike = (m) => {
-  if (!m) return false;
-  if (isPO(m) || isKO(m)) return false;
-  const t = String(m?.type || m?.format || "").toLowerCase();
-  if (t === "group" || t === "rr" || t === "roundrobin" || t === "round_robin")
-    return true;
+  const bt = norm(m?.bracketType);
+  const t1 = norm(m?.type);
+  const t2 = norm(m?.format);
+  if (GROUP_LIKE_SET.has(bt)) return true;
+  if (KO_SET.has(bt)) return false;
+  if (GROUP_LIKE_SET.has(t1) || GROUP_LIKE_SET.has(t2)) return true;
+  if (KO_SET.has(t1) || KO_SET.has(t2)) return false;
+  // Fallback cuối: có pool => group-like
   return !!m?.pool;
 };
+
+const isNum = (x) => typeof x === "number" && Number.isFinite(x);
 
 const viMatchStatus = (s) => {
   switch (s) {
@@ -127,16 +128,44 @@ const poolBoardLabel = (m) => {
   if (/^\d+$/.test(raw)) return `B${raw}`;
   return raw;
 };
-const poolIndexNumber = (m) => {
-  const lbl = poolBoardLabel(m);
-  const hit = /^B(\d+)$/i.exec(lbl);
-  if (hit) return Number(hit[1]);
-  const byLetter = letterToIndex(m?.pool?.name || m?.pool?.code || "");
-  return byLetter || 1;
-};
+
+/* ---------- Build mã trận (V/B/T) ưu tiên dữ liệu từ server ---------- */
 
 const isGlobalCodeString = (s) =>
   typeof s === "string" && /^V\d+(?:-B\d+)?-T\d+$/.test(s);
+
+/**
+ * Convert từ labelKey/labelKeyDisplay dạng "V1#R1#4" hoặc "V1#B1#4"
+ * -> "V1-T4" (KO) hoặc "V1-B1-T4" (group-like)
+ */
+const codeFromLabelKeyish = (lk) => {
+  const s = String(lk || "").trim();
+  if (!s) return null;
+  const nums = s.match(/\d+/g);
+  if (!nums || nums.length < 2) return null;
+
+  const v = Number(nums[0]);
+  // Nhiều format: "V1#R1#4" (3 số) hoặc "V1#4" (2 số)
+  if (/#B\d+/i.test(s)) {
+    // Group-like hiển thị B
+    const b = nums.length >= 3 ? Number(nums[1]) : 1;
+    const t = Number(nums[nums.length - 1]);
+    return `V${v}-B${b}-T${t}`;
+  }
+
+  // Không có #B: coi như KO -> không thêm B
+  const t = Number(nums[nums.length - 1]);
+  return `V${v}-T${t}`;
+};
+
+/**
+ * Build mã trận theo thứ tự ưu tiên:
+ * 1) m.codeDisplay (server đã tính chuẩn)
+ * 2) m.globalCode (đã chuẩn)
+ * 3) m.code (đã chuẩn)
+ * 4) m.labelKeyDisplay / m.labelKey (parser)
+ * 5) Fallback đơn giản theo group-like
+ */
 const fallbackGlobalCode = (m, idx) => {
   const baseOrder =
     typeof m?.order === "number" && Number.isFinite(m.order)
@@ -147,23 +176,33 @@ const fallbackGlobalCode = (m, idx) => {
   const T = baseOrder + 1;
 
   if (isGroupLike(m)) {
-    const B = poolIndexNumber(m);
+    // Không biết B chính xác -> cố gắng suy B từ pool
+    const rawB = poolBoardLabel(m);
+    const hit = /^B(\d+)$/.exec(rawB);
+    const B = hit ? Number(hit[1]) : 1;
+    // V trong fallback không có offset chính xác (thiếu elim offset) -> để V1
     return `V1-B${B}-T${T}`;
   }
-  const elimOffset = Number.isFinite(Number(m?.elimOffset))
-    ? Number(m.elimOffset)
-    : 0;
+
   const r = Number.isFinite(Number(m?.round)) ? Number(m.round) : 1;
-  const V = elimOffset + r;
-  return `V${V}-T${T}`;
+  // V trong fallback cũng không có offset chính xác -> dùng V=round
+  return `V${r}-T${T}`;
 };
+
 const buildMatchCode = (m, idx) => {
   if (!m) return "";
+  if (isGlobalCodeString(m.codeDisplay)) return m.codeDisplay;
   if (isGlobalCodeString(m.globalCode)) return m.globalCode;
   if (isGlobalCodeString(m.code)) return m.code;
+
+  const byLabel =
+    codeFromLabelKeyish(m.labelKeyDisplay) || codeFromLabelKeyish(m.labelKey);
+  if (isGlobalCodeString(byLabel)) return byLabel;
+
   return fallbackGlobalCode(m, idx);
 };
 
+/* ---------- Tên đội/ người ---------- */
 const personName = (p) => {
   if (!p || typeof p !== "object") return "";
   const cands = [
@@ -317,6 +356,8 @@ export default function CourtManagerDialog({
   const [buildQueue, { isLoading: buildingQueue }] =
     useBuildGroupsQueueMutation();
   const [assignNextHttp] = useAssignNextHttpMutation();
+  const [deleteCourts, { isLoading: deletingCourts }] =
+    useDeleteCourtsMutation();
 
   // Join/leave socket room khi mở/đóng dialog
   useEffect(() => {
@@ -364,6 +405,11 @@ export default function CourtManagerDialog({
     return map;
   }, [socketMatches]);
 
+  const getMatchForCourt = (c) => {
+    if (c?.currentMatchObj) return c.currentMatchObj;
+    if (c?.currentMatch) return matchMap.get(String(c.currentMatch)) || null;
+    return null;
+  };
   const courtStatus = (c) => {
     const m = getMatchForCourt(c);
     if (c?.status) return c.status;
@@ -371,15 +417,13 @@ export default function CourtManagerDialog({
     if (m.status === "live") return "live";
     return "assigned";
   };
-  const getMatchForCourt = (c) => {
-    if (c?.currentMatchObj) return c.currentMatchObj;
-    if (c?.currentMatch) return matchMap.get(String(c.currentMatch)) || null;
-    return null;
-  };
   const getMatchCodeForCourt = (c) => {
     const m = getMatchForCourt(c);
     if (!m) return "";
-    return buildMatchCode(m);
+    // Ưu tiên codeDisplay đã chuẩn từ server
+    if (isGlobalCodeString(m.codeDisplay)) return m.codeDisplay;
+    // Fallback sang currentMatchCode từ server (nếu có) hoặc tự build
+    return m.currentMatchCode || buildMatchCode(m);
   };
   const getTeamsForCourt = (c) => {
     const m = getMatchForCourt(c);
@@ -404,7 +448,8 @@ export default function CourtManagerDialog({
       const st = String(m?.status || "");
       if (["scheduled", "queued", "assigned"].includes(st)) push(m);
     }
-    // sort sơ bộ theo code V/B/T rồi status
+
+    // sort theo V/B/T và status
     const STATUS_RANK = {
       queued: 0,
       scheduled: 1,
@@ -421,11 +466,13 @@ export default function CourtManagerDialog({
         : null;
     };
     const tripletOf = (m) => {
-      const code = isGlobalCodeString(m?.globalCode)
-        ? m.globalCode
-        : isGlobalCodeString(m?.code)
-        ? m.code
-        : fallbackGlobalCode(m);
+      const code =
+        (isGlobalCodeString(m?.codeDisplay) && m.codeDisplay) ||
+        (isGlobalCodeString(m?.globalCode) && m.globalCode) ||
+        (isGlobalCodeString(m?.code) && m.code) ||
+        codeFromLabelKeyish(m?.labelKeyDisplay) ||
+        codeFromLabelKeyish(m?.labelKey) ||
+        fallbackGlobalCode(m);
       return parseTripletFromCode(code) || { v: 999, b: 999, t: 999 };
     };
 
@@ -433,20 +480,27 @@ export default function CourtManagerDialog({
       const ta = tripletOf(a);
       const tb = tripletOf(b);
       if (ta.v !== tb.v) return ta.v - tb.v;
-      const ga = isGroupLike(a),
-        gb = isGroupLike(b);
+
+      const ga = isGroupLike(a);
+      const gb = isGroupLike(b);
+
       if (ga && gb) {
+        // ưu tiên theo T rồi B (giữ nguyên thứ tự lượt)
         if ((ta.t || 0) !== (tb.t || 0)) return (ta.t || 0) - (tb.t || 0);
         const ba = ta.b ?? 999,
           bb = tb.b ?? 999;
         if (ba !== bb) return ba - bb;
       } else if (!ga && !gb) {
+        // KO: theo T
         if ((ta.t || 0) !== (tb.t || 0)) return (ta.t || 0) - (tb.t || 0);
       } else {
+        // group trước KO
         return ga ? -1 : 1;
       }
+
       const sdiff = statusRank(a.status) - statusRank(b.status);
       if (sdiff !== 0) return sdiff;
+
       return (Number(a.order) || 9999) - (Number(b.order) || 9999);
     });
 
@@ -489,6 +543,7 @@ export default function CourtManagerDialog({
       toast.error(e?.data?.message || e?.error || "Lỗi lưu sân");
     }
   };
+
   const handleBuildQueue = async () => {
     if (!tournamentId || !bracketId) return;
     try {
@@ -503,6 +558,7 @@ export default function CourtManagerDialog({
       requestState();
     }
   };
+
   const handleAssignNext = async (courtId) => {
     if (!tournamentId || !bracketId || !courtId) return;
     socket?.emit?.("scheduler:assignNext", {
@@ -515,6 +571,7 @@ export default function CourtManagerDialog({
       .catch(() => {});
     requestState();
   };
+
   const handleResetAll = () => {
     if (!tournamentId || !bracketId) return;
     const ok = window.confirm("Xoá TẤT CẢ sân và gán trận hiện tại?");
@@ -522,6 +579,25 @@ export default function CourtManagerDialog({
     socket?.emit?.("scheduler:resetAll", { tournamentId, bracket: bracketId });
     toast.success("Đã gửi lệnh reset tất cả sân.");
     requestState();
+  };
+
+  // Xoá TẤT CẢ sân bằng API (không xử lý gỡ trận qua socket)
+  const handleDeleteAllCourts = async () => {
+    if (!tournamentId || !bracketId) {
+      toast.error("Thiếu tournamentId hoặc bracketId.");
+      return;
+    }
+    const ok = window.confirm(
+      "Bạn chắc chắn muốn XOÁ TẤT CẢ SÂN của giai đoạn này?\nHành động này không thể hoàn tác."
+    );
+    if (!ok) return;
+    try {
+      await deleteCourts({ tournamentId, bracket: bracketId }).unwrap();
+      toast.success("Đã xoá tất cả sân.");
+      requestState();
+    } catch (e) {
+      toast.error(e?.data?.message || e?.error || "Xoá sân thất bại");
+    }
   };
 
   // Dialog con: gán trận cụ thể
@@ -642,6 +718,17 @@ export default function CourtManagerDialog({
                       onClick={handleResetAll}
                     >
                       Reset tất cả
+                    </Button>
+                  </Tooltip>
+                  <Tooltip title="Xoá TẤT CẢ sân bằng API (không thể hoàn tác)">
+                    <Button
+                      variant="contained"
+                      color="error"
+                      startIcon={<DeleteForeverIcon />}
+                      onClick={handleDeleteAllCourts}
+                      disabled={deletingCourts}
+                    >
+                      {deletingCourts ? "Đang xoá..." : "Xoá tất cả sân"}
                     </Button>
                   </Tooltip>
                 </Stack>
@@ -778,15 +865,6 @@ export default function CourtManagerDialog({
             })}
           </Stack>
         )}
-
-        {/* mini log (nếu cần hiển thị) — có thể giữ ẩn hoặc bật */}
-        {/* <Box sx={{ mt: 2 }}>
-          {notifQueueRef.current.map((n, i) => (
-            <Typography key={i} variant="caption" display="block">
-              {new Date(n.at).toLocaleTimeString()} — {n.message}
-            </Typography>
-          ))}
-        </Box> */}
       </DialogContent>
 
       <DialogActions>
