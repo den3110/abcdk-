@@ -18,6 +18,9 @@ import {
   CardHeader,
   Avatar,
   LinearProgress,
+  Grid,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import PhotoCamera from "@mui/icons-material/PhotoCamera";
 import DeleteOutline from "@mui/icons-material/DeleteOutline";
@@ -27,11 +30,11 @@ import {
   useCreateClubMutation,
   useUpdateClubMutation,
 } from "../slices/clubsApiSlice";
-
-// ⬇️ dùng chính slice upload bạn đã có
 import { useUploadAvatarMutation } from "../slices/uploadApiSlice";
 
+// ====== Options ======
 const SPORT_OPTIONS = ["pickleball"];
+
 const VN_PROVINCES = [
   "An Giang",
   "Bà Rịa - Vũng Tàu",
@@ -98,7 +101,7 @@ const VN_PROVINCES = [
   "Yên Bái",
 ];
 
-// VN hoá hiển thị
+// Hiển thị CLB
 const VISIBILITY_OPTIONS = ["public", "private", "hidden"];
 const VISIBILITY_LABELS = {
   public: "Công khai",
@@ -114,7 +117,7 @@ const VISIBILITY_HINTS = {
     "CLB không xuất hiện trong tìm kiếm/danh sách. Chỉ người được mời mới biết & tham gia.",
 };
 
-// VN hoá chính sách gia nhập
+// Chính sách gia nhập
 const JOIN_POLICY_OPTIONS = ["open", "approval", "invite_only"];
 const JOIN_POLICY_LABELS = {
   open: "Tự do (không cần duyệt)",
@@ -127,6 +130,14 @@ const JOIN_POLICY_HINTS = {
   invite_only: "Chỉ thành viên quản trị mời trực tiếp.",
 };
 
+// Quyền xem danh sách thành viên
+const MEMBER_VIS_OPTIONS = [
+  { value: "admins", label: "Chỉ quản trị (Owner/Admin)" },
+  { value: "members", label: "Thành viên CLB" },
+  { value: "public", label: "Mọi người" },
+];
+
+// ====== Helpers ======
 function extractErrorMessage(err) {
   if (!err) return "Đã xảy ra lỗi không xác định";
   if (typeof err === "string") return err;
@@ -150,6 +161,13 @@ function getAllowedJoinPolicies(visibility) {
   return ["open", "approval", "invite_only"]; // public
 }
 
+// ràng buộc visibility ↔ memberVisibility
+function getAllowedMemberVis(visibility) {
+  if (visibility === "hidden") return ["admins"];
+  if (visibility === "private") return ["admins", "members"];
+  return ["admins", "members", "public"]; // public
+}
+
 function validateImageFile(file) {
   const maxSize = 5 * 1024 * 1024; // 5MB
   const okTypes = ["image/png", "image/jpeg", "image/webp", "image/avif"];
@@ -163,6 +181,7 @@ function validateImageFile(file) {
 const pickUrl = (res) =>
   res?.url || res?.secure_url || res?.data?.url || res?.Location || "";
 
+// ====== Component ======
 export default function ClubCreateDialog({ open, onClose, initial }) {
   const [form, setForm] = useState(() => ({
     name: initial?.name || "",
@@ -170,6 +189,8 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
     sportTypes: initial?.sportTypes || ["pickleball"],
     visibility: initial?.visibility || "public",
     joinPolicy: initial?.joinPolicy || "approval",
+    memberVisibility: initial?.memberVisibility || "admins",
+    showRolesToMembers: !!initial?.showRolesToMembers,
     province: initial?.province || "",
     city: initial?.city || "",
     shortCode: initial?.shortCode || "",
@@ -185,6 +206,8 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
       sportTypes: initial?.sportTypes || ["pickleball"],
       visibility: initial?.visibility || "public",
       joinPolicy: initial?.joinPolicy || "approval",
+      memberVisibility: initial?.memberVisibility || "admins",
+      showRolesToMembers: !!initial?.showRolesToMembers,
       province: initial?.province || "",
       city: initial?.city || "",
       shortCode: initial?.shortCode || "",
@@ -197,7 +220,6 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
   const [createClub, { isLoading: creating }] = useCreateClubMutation();
   const [updateClub, { isLoading: updating }] = useUpdateClubMutation();
 
-  // ⬇️ dùng đúng hook upload có sẵn (field: avatar)
   const [uploadAvatar, { isLoading: uploading }] = useUploadAvatarMutation();
 
   const logoInputRef = useRef(null);
@@ -219,7 +241,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
     const err = validateImageFile(file);
     if (err) return toast.error(err);
 
-    // preview ngay
+    // preview local
     const localUrl = URL.createObjectURL(file);
     if (field === "logoUrl") {
       if (logoPreview) URL.revokeObjectURL(logoPreview);
@@ -230,13 +252,9 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
     }
 
     try {
-      // dùng /api/upload/avatar cho cả logo/cover
       const res = await uploadAvatar(file).unwrap();
       const url = pickUrl(res);
-      if (!url) {
-        toast.error("Upload thất bại: server không trả URL.");
-        return;
-      }
+      if (!url) return toast.error("Upload thất bại: server không trả URL.");
       setForm((f) => ({ ...f, [field]: url }));
       toast.success("Tải ảnh thành công!");
     } catch (e) {
@@ -250,7 +268,6 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
     doUpload(file, "logoUrl");
     e.target.value = "";
   };
-
   const onCoverFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -258,7 +275,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
     e.target.value = "";
   };
 
-  // allowed join policies
+  // Ràng buộc policy theo visibility
   const allowedJoinPolicies = useMemo(
     () => getAllowedJoinPolicies(form.visibility),
     [form.visibility]
@@ -269,11 +286,20 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
     }
   }, [allowedJoinPolicies, form.joinPolicy]);
 
+  const allowedMemberVis = useMemo(
+    () => getAllowedMemberVis(form.visibility),
+    [form.visibility]
+  );
+  useEffect(() => {
+    if (!allowedMemberVis.includes(form.memberVisibility)) {
+      setForm((f) => ({ ...f, memberVisibility: allowedMemberVis[0] }));
+    }
+  }, [allowedMemberVis, form.memberVisibility]);
+
   const canSubmit = useMemo(() => form.name.trim().length >= 3, [form.name]);
 
   const onSubmit = async () => {
     if (uploading) return toast.info("Đang tải ảnh, vui lòng đợi xíu…");
-
     const body = { ...form };
     const loadingId = toast.loading(
       isEdit ? "Đang lưu CLB..." : "Đang tạo CLB..."
@@ -293,7 +319,6 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
         autoClose: 2500,
         closeOnClick: true,
       });
-
       onClose?.(true);
     } catch (err) {
       toast.update(loadingId, {
@@ -308,7 +333,6 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
 
   const logoSrc = logoPreview || form.logoUrl || "";
   const coverSrc = coverPreview || form.coverUrl || "";
-  const CONTROL_H = 40;
 
   return (
     <Dialog
@@ -321,6 +345,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
 
       <DialogContent dividers>
         <Stack spacing={2} sx={{ mt: 1 }}>
+          {/* Tên + mô tả */}
           <TextField
             label="Tên CLB"
             value={form.name}
@@ -328,7 +353,6 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
             required
             helperText="Tối thiểu 3 ký tự."
           />
-
           <TextField
             label="Mô tả"
             value={form.description}
@@ -348,12 +372,10 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
               subheader="Tải ảnh từ máy hoặc dán URL"
             />
             <CardContent>
-              {/* ===== ẢNH BÌA ===== */}
+              {/* Ảnh bìa */}
               <Typography variant="subtitle2" sx={{ mb: 1 }}>
                 Ảnh bìa
               </Typography>
-
-              {/* Cover preview 16:9 */}
               <Box
                 sx={{
                   position: "relative",
@@ -364,7 +386,9 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
                   border: "1px dashed",
                   borderColor: "divider",
                   mb: 2,
-                  aspectRatio: "16 / 9",
+                  // Responsive: bớt to trên mobile
+                  aspectRatio: { xs: "4 / 3", sm: "16 / 9" },
+                  maxHeight: { xs: 220, sm: 260, md: 300 },
                 }}
               >
                 {coverSrc ? (
@@ -394,17 +418,15 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
               <Stack
                 direction={{ xs: "column", sm: "row" }}
                 spacing={1.5}
-                sx={{ mb: 3, alignItems: "stretch" }}
+                sx={{ mb: 2 }}
               >
                 <Button
                   variant="outlined"
                   startIcon={<PhotoCamera />}
                   onClick={handlePickCover}
-                  sx={{ height: CONTROL_H, minHeight: CONTROL_H }}
                 >
                   Chọn ảnh bìa
                 </Button>
-
                 {coverSrc && (
                   <Button
                     color="error"
@@ -414,15 +436,14 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
                       setCoverPreview(null);
                       setForm((f) => ({ ...f, coverUrl: "" }));
                     }}
-                    sx={{ height: CONTROL_H, minHeight: CONTROL_H }}
                   >
                     Gỡ ảnh bìa
                   </Button>
                 )}
               </Stack>
-              {/* URL ảnh bìa */}
+
               <TextField
-                label="URL"
+                label="Cover URL"
                 value={form.coverUrl}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, coverUrl: e.target.value }))
@@ -430,24 +451,13 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
                 fullWidth
                 size="small"
                 placeholder="Dán URL ảnh bìa (tuỳ chọn)…"
-                InputProps={{ sx: { height: CONTROL_H } }}
-              />
-              <div></div>
-              <br />
-              <div></div>
-              <input
-                ref={coverInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/avif"
-                hidden
-                onChange={onCoverFileChange}
+                sx={{ mb: 3 }}
               />
 
-              {/* ===== LOGO ===== */}
+              {/* Logo */}
               <Typography variant="subtitle2" sx={{ mb: 1 }}>
                 Logo
               </Typography>
-
               <Stack
                 direction="row"
                 spacing={2}
@@ -467,17 +477,15 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
                 <Stack
                   direction={{ xs: "column", sm: "row" }}
                   spacing={1.5}
-                  sx={{ flex: 1, alignItems: "stretch" }}
+                  sx={{ flex: 1 }}
                 >
                   <Button
                     variant="outlined"
                     startIcon={<PhotoCamera />}
                     onClick={handlePickLogo}
-                    sx={{ height: CONTROL_H, minHeight: CONTROL_H }}
                   >
                     Chọn logo
                   </Button>
-
                   {logoSrc && (
                     <Button
                       color="error"
@@ -487,16 +495,15 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
                         setLogoPreview(null);
                         setForm((f) => ({ ...f, logoUrl: "" }));
                       }}
-                      sx={{ height: CONTROL_H, minHeight: CONTROL_H }}
                     >
                       Gỡ logo
                     </Button>
                   )}
                 </Stack>
               </Stack>
-              {/* URL logo */}
+
               <TextField
-                label="URL"
+                label="Logo URL"
                 value={form.logoUrl}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, logoUrl: e.target.value }))
@@ -504,73 +511,111 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
                 fullWidth
                 size="small"
                 placeholder="Dán URL logo (tuỳ chọn)…"
-                InputProps={{ sx: { height: CONTROL_H } }}
-              />
-              <div></div>
-              <br />
-              <div></div>
-              <input
-                ref={logoInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/avif"
-                hidden
-                onChange={onLogoFileChange}
               />
 
-              <Typography variant="caption" color="text.secondary">
-                Gợi ý: Logo vuông (1:1). Ảnh bìa 1280×720 hoặc lớn hơn, dung
-                lượng ≤ 5MB.
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ display: "block", mt: 1 }}
+              >
+                Gợi ý: Logo vuông (1:1). Ảnh bìa ≥ 1280×720, dung lượng ≤ 5MB.
               </Typography>
             </CardContent>
           </Card>
 
-          {/* Hiển thị & Chính sách gia nhập */}
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-            <TextField
-              select
-              label="Hiển thị"
-              value={form.visibility}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, visibility: e.target.value }))
-              }
-              sx={{ flex: 1 }}
-              helperText={VISIBILITY_HINTS[form.visibility]}
-            >
-              {VISIBILITY_OPTIONS.map((v) => (
-                <MenuItem key={v} value={v}>
-                  {VISIBILITY_LABELS[v]}
-                </MenuItem>
-              ))}
-            </TextField>
+          {/* Cấu hình hiển thị & quyền */}
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                select
+                label="Hiển thị"
+                value={form.visibility}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, visibility: e.target.value }))
+                }
+                fullWidth
+                helperText={VISIBILITY_HINTS[form.visibility]}
+              >
+                {VISIBILITY_OPTIONS.map((v) => (
+                  <MenuItem key={v} value={v}>
+                    {VISIBILITY_LABELS[v]}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                select
+                label="Chính sách gia nhập"
+                value={form.joinPolicy}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, joinPolicy: e.target.value }))
+                }
+                fullWidth
+                helperText={JOIN_POLICY_HINTS[form.joinPolicy]}
+              >
+                {JOIN_POLICY_OPTIONS.map((jp) => (
+                  <MenuItem
+                    key={jp}
+                    value={jp}
+                    disabled={!allowedJoinPolicies.includes(jp)}
+                  >
+                    {JOIN_POLICY_LABELS[jp]}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
 
-            <TextField
-              select
-              label="Chính sách gia nhập"
-              value={form.joinPolicy}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, joinPolicy: e.target.value }))
-              }
-              sx={{ flex: 1 }}
-              helperText={JOIN_POLICY_HINTS[form.joinPolicy]}
+            <Grid item xs={12} md={7}>
+              <TextField
+                select
+                label="Ai được xem danh sách thành viên"
+                value={form.memberVisibility}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, memberVisibility: e.target.value }))
+                }
+                fullWidth
+                helperText="Ẩn/Hiện danh sách thành viên theo chế độ CLB."
+              >
+                {MEMBER_VIS_OPTIONS.map((opt) => (
+                  <MenuItem
+                    key={opt.value}
+                    value={opt.value}
+                    disabled={!allowedMemberVis.includes(opt.value)}
+                  >
+                    {opt.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+
+            <Grid
+              item
+              xs={12}
+              md={5}
+              sx={{ display: "flex", alignItems: "center" }}
             >
-              {JOIN_POLICY_OPTIONS.map((jp) => (
-                <MenuItem
-                  key={jp}
-                  value={jp}
-                  disabled={
-                    !getAllowedJoinPolicies(form.visibility).includes(jp)
-                  }
-                >
-                  {JOIN_POLICY_LABELS[jp]}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Stack>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={!!form.showRolesToMembers}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        showRolesToMembers: e.target.checked,
+                      }))
+                    }
+                  />
+                }
+                label="Hiện nhãn Admin/Owner cho thành viên"
+              />
+            </Grid>
+          </Grid>
 
           {form.visibility === "hidden" && (
             <Typography variant="caption" color="text.secondary">
-              * Ở chế độ <strong>Ẩn</strong>, CLB sẽ <strong>chỉ mời</strong>.
-              Người lạ không thể tìm thấy CLB.
+              * Ở chế độ <strong>Ẩn</strong>, CLB sẽ <strong>chỉ mời</strong>;
+              danh sách thành viên chỉ quản trị xem được.
             </Typography>
           )}
 
@@ -600,33 +645,38 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
             ))}
           </TextField>
 
-          {/* Tỉnh/Thành + Quận/Huyện */}
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-            <TextField
-              select
-              label="Tỉnh/Thành"
-              value={form.province}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, province: e.target.value }))
-              }
-              sx={{ flex: 1 }}
-            >
-              <MenuItem value="">— Chọn tỉnh/thành —</MenuItem>
-              {VN_PROVINCES.map((p) => (
-                <MenuItem key={p} value={p}>
-                  {p}
-                </MenuItem>
-              ))}
-            </TextField>
-
-            <TextField
-              label="Quận/Huyện"
-              value={form.city}
-              onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))}
-              sx={{ flex: 1 }}
-              placeholder="VD: Quận 1, TP. Thủ Đức…"
-            />
-          </Stack>
+          {/* Địa chỉ */}
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={6}>
+              <TextField
+                select
+                label="Tỉnh/Thành"
+                value={form.province}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, province: e.target.value }))
+                }
+                fullWidth
+              >
+                <MenuItem value="">— Chọn tỉnh/thành —</MenuItem>
+                {VN_PROVINCES.map((p) => (
+                  <MenuItem key={p} value={p}>
+                    {p}
+                  </MenuItem>
+                ))}
+              </TextField>
+            </Grid>
+            <Grid item xs={12} md={6}>
+              <TextField
+                label="Quận/Huyện"
+                value={form.city}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, city: e.target.value }))
+                }
+                fullWidth
+                placeholder="VD: Quận 1, TP. Thủ Đức…"
+              />
+            </Grid>
+          </Grid>
 
           {/* Mã ngắn */}
           <TextField
@@ -637,7 +687,6 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
             }
             placeholder="VD: PBC, HN-PB…"
           />
-          {/* ⬆️ ĐÃ XOÁ Logo (URL) và Ảnh bìa (URL) ở cuối */}
         </Stack>
       </DialogContent>
 
@@ -651,6 +700,22 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
           {isEdit ? "Lưu" : "Tạo"}
         </Button>
       </DialogActions>
+
+      {/* input file ẩn */}
+      <input
+        ref={coverInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/avif"
+        hidden
+        onChange={onCoverFileChange}
+      />
+      <input
+        ref={logoInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/avif"
+        hidden
+        onChange={onLogoFileChange}
+      />
     </Dialog>
   );
 }

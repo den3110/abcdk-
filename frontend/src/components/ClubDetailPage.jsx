@@ -1,3 +1,4 @@
+// src/components/ClubDetailPage.jsx
 import React, { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -9,27 +10,71 @@ import {
   Button,
   Divider,
   Skeleton,
+  Badge,
 } from "@mui/material";
 import { toast } from "react-toastify";
-import { useGetClubQuery } from "../slices/clubsApiSlice";
+
+import {
+  useGetClubQuery,
+  useListJoinRequestsQuery, // ⬅️ dùng để lấy total pending
+} from "../slices/clubsApiSlice";
 import ClubHeader from "./ClubHeader";
 import ClubActions from "./ClubActions";
 import ClubCreateDialog from "./ClubCreateDialog";
 import JoinRequestsDialog from "./JoinRequestsDialog";
-import ClubMembersCards from "./ClubMembersCards"; // ⬅️ dùng component mới
+import ClubMembersCards from "./ClubMembersCards";
+
+// helper: quyết định quyền xem danh sách thành viên
+function calcCanSeeMembers(club, my) {
+  const vis = club?.memberVisibility || "admins";
+  const canManage = !!my?.canManage;
+  const isMember =
+    !!my?.isMember ||
+    my?.membershipRole === "owner" ||
+    my?.membershipRole === "admin";
+
+  if (vis === "admins") return canManage;
+  if (vis === "members") return isMember || canManage;
+  if (vis === "public") return true;
+  return false;
+}
+
+function memberGuardMessage(club) {
+  const vis = club?.memberVisibility || "admins";
+  if (vis === "admins")
+    return "Danh sách thành viên chỉ hiển thị với quản trị viên CLB.";
+  if (vis === "members")
+    return "Danh sách thành viên chỉ hiển thị với thành viên CLB.";
+  return "Danh sách thành viên hiện không thể hiển thị.";
+}
 
 export default function ClubDetailPage() {
   const { id } = useParams();
   const { data: club, isLoading, refetch } = useGetClubQuery(id);
 
   const my = club?._my || null;
-  const isOwnerOrAdmin = !!(
-    my &&
-    (my.membershipRole === "owner" || my.membershipRole === "admin")
-  );
+  const canManage = !!my?.canManage;
+  const isOwnerOrAdmin =
+    my && (my.membershipRole === "owner" || my.membershipRole === "admin");
+
+  // hiển thị nhãn Owner/Admin:
+  // - Quản trị luôn nhìn thấy
+  // - Thành viên thường chỉ thấy nếu club.showRolesToMembers = true
+  const showRoleBadges = canManage || !!club?.showRolesToMembers;
 
   const [openEdit, setOpenEdit] = useState(false);
   const [openJR, setOpenJR] = useState(false);
+
+  // 👉 hỏi tổng số yêu cầu "pending" để gắn badge
+  const {
+    data: jrMeta,
+    refetch: refetchJR,
+    isFetching: fetchingJR,
+  } = useListJoinRequestsQuery(
+    { id, status: "pending", page: 1, limit: 1 },
+    { skip: !isOwnerOrAdmin } // chỉ quản trị mới cần biết số pending
+  );
+  const pendingCount = jrMeta?.total || 0;
 
   const rightSide = useMemo(
     () => (
@@ -41,20 +86,28 @@ export default function ClubDetailPage() {
             <>
               <Divider />
               <Typography variant="subtitle1">Quản trị CLB</Typography>
-              <Stack direction="row" spacing={1}>
+              <Stack direction="row" spacing={1} alignItems="center">
                 <Button variant="outlined" onClick={() => setOpenEdit(true)}>
                   Chỉnh sửa CLB
                 </Button>
-                <Button variant="outlined" onClick={() => setOpenJR(true)}>
-                  Duyệt yêu cầu gia nhập
-                </Button>
+
+                {/* Nút duyệt + badge số pending (ẩn nếu 0) */}
+                <Badge
+                  color="error"
+                  badgeContent={pendingCount}
+                  invisible={!pendingCount || fetchingJR}
+                >
+                  <Button variant="outlined" onClick={() => setOpenJR(true)}>
+                    Duyệt yêu cầu gia nhập
+                  </Button>
+                </Badge>
               </Stack>
             </>
           )}
         </Stack>
       </Paper>
     ),
-    [club, my, isOwnerOrAdmin]
+    [club, my, isOwnerOrAdmin, pendingCount, fetchingJR]
   );
 
   if (isLoading) {
@@ -83,6 +136,8 @@ export default function ClubDetailPage() {
     );
   }
 
+  const canSeeMembers = calcCanSeeMembers(club, my);
+
   return (
     <Container maxWidth="lg" sx={{ py: 3 }}>
       <ClubHeader
@@ -104,11 +159,12 @@ export default function ClubDetailPage() {
             <Typography variant="h6" sx={{ mb: 1 }}>
               Thành viên CLB
             </Typography>
-            {isOwnerOrAdmin ? (
-              <ClubMembersCards club={club} />
+
+            {canSeeMembers ? (
+              <ClubMembersCards club={club} showRoleBadges={showRoleBadges} />
             ) : (
               <Typography color="text.secondary">
-                Danh sách thành viên chỉ hiển thị với quản trị viên CLB.
+                {memberGuardMessage(club)}
               </Typography>
             )}
           </Paper>
@@ -135,7 +191,11 @@ export default function ClubDetailPage() {
       {/* Duyệt yêu cầu gia nhập */}
       <JoinRequestsDialog
         open={openJR}
-        onClose={() => setOpenJR(false)}
+        onClose={() => {
+          setOpenJR(false);
+          // cập nhật lại số badge sau khi duyệt/reject
+          refetchJR();
+        }}
         clubId={club._id}
       />
     </Container>

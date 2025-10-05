@@ -297,7 +297,7 @@ export const listClubs = async (req, res) => {
 export const getClub = async (req, res) => {
   const { id } = req.params;
   const club = await Club.findById(id).lean();
-  if (!club) return res.status(404).json({ message: "Club not found" });
+  if (!club) return res.status(500).json({ message: "Club not found" });
 
   let _my = {
     isMember: false,
@@ -487,7 +487,7 @@ export const cancelMyJoin = async (req, res) => {
     user: req.user._id,
     status: "pending",
   });
-  if (!jr) return res.status(404).json({ message: "No pending request" });
+  if (!jr) return res.status(500).json({ message: "No pending request" });
   jr.status = "cancelled";
   jr.decidedAt = new Date();
   jr.decidedBy = req.user._id;
@@ -514,7 +514,7 @@ export const acceptJoin = async (req, res) => {
     club: req.club._id,
     status: "pending",
   });
-  if (!jr) return res.status(404).json({ message: "Join request not found" });
+  if (!jr) return res.status(500).json({ message: "Join request not found" });
 
   // limit 3 CLB cho user được accept
   const activeCount = await countActiveClubs(jr.user);
@@ -554,12 +554,37 @@ export const rejectJoin = async (req, res) => {
     club: req.club._id,
     status: "pending",
   });
-  if (!jr) return res.status(404).json({ message: "Join request not found" });
+  if (!jr) return res.status(500).json({ message: "Join request not found" });
   jr.status = "rejected";
   jr.decidedAt = new Date();
   jr.decidedBy = req.user._id;
   await jr.save();
   res.json(jr);
+};
+
+// đặt gần đầu file clubController.js
+const buildPhoneRegexes = (raw) => {
+  const digits = String(raw || "").replace(/\D+/g, "");
+  if (!digits || digits.length < 8) return []; // tránh match linh tinh
+  const pats = new Set();
+
+  // cho phép ký tự không phải số xen giữa (dấu cách, -, . , +)
+  const flex = (s) => new RegExp(`^\\D*${s.split("").join("\\D*")}\\D*$`);
+
+  // bản gốc
+  pats.add(flex(digits));
+
+  // 0xxxxxxxxx ↔ 84xxxxxxxxx chuyển qua lại
+  if (digits.startsWith("0")) {
+    const rest = digits.slice(1);
+    pats.add(flex(`84${rest}`));
+  }
+  if (digits.startsWith("84")) {
+    const rest = digits.slice(2);
+    if (rest) pats.add(flex(`0${rest}`));
+  }
+
+  return Array.from(pats);
 };
 
 /** Members: add/remove/setRole */
@@ -569,22 +594,35 @@ export const addMember = async (req, res) => {
     let targetUserId = userId;
 
     if (!targetUserId) {
-      if (!nickname?.trim()) {
+      const key = String(nickname || "").trim();
+      if (!key) {
         return res
           .status(400)
           .json({ message: "Vui lòng nhập nickname hoặc userId" });
       }
-      const key = nickname.trim();
-      const user = await User.findOne({
-        $or: [
-          { nickname: new RegExp(`^${key}$`, "i") },
-          { email: new RegExp(`^${key}$`, "i") },
-        ],
-      }).select("_id");
-      if (!user)
+
+      const orConds = [
+        { nickname: new RegExp(`^${key}$`, "i") },
+        { email: new RegExp(`^${key}$`, "i") },
+      ];
+
+      // ✅ thêm tìm theo SĐT ở các field phổ biến
+      const phoneRegexes = buildPhoneRegexes(key);
+      const phoneFields = ["phone", "phoneNumber", "mobile", "tel"];
+      for (const f of phoneFields) {
+        for (const rx of phoneRegexes) {
+          orConds.push({ [f]: { $regex: rx } });
+        }
+      }
+
+      const user = await User.findOne({ $or: orConds }).select("_id");
+      if (!user) {
         return res
-          .status(404)
-          .json({ message: "Không tìm thấy người dùng theo nickname/email" });
+          .status(500)
+          .json({
+            message: "Không tìm thấy người dùng theo nickname/email/SĐT",
+          });
+      }
       targetUserId = user._id;
     }
 
@@ -635,7 +673,7 @@ export const setRole = async (req, res) => {
     club: req.club._id,
     user: req.params.userId,
   });
-  if (!target) return res.status(404).json({ message: "Member not found" });
+  if (!target) return res.status(500).json({ message: "Member not found" });
   if (target.role === "owner")
     return res.status(403).json({ message: "Cannot modify owner role" });
 
@@ -671,7 +709,7 @@ export const kickMember = async (req, res) => {
       club: req.club._id,
       user: userId,
     });
-    if (!target) return res.status(404).json({ message: "Member not found" });
+    if (!target) return res.status(500).json({ message: "Member not found" });
     if (target.role === "owner")
       return res.status(403).json({ message: "Cannot remove owner" });
 
@@ -717,7 +755,7 @@ export const leaveClub = async (req, res) => {
     club: req.club._id,
     user: req.user._id,
   });
-  if (!me) return res.status(404).json({ message: "Not a member" });
+  if (!me) return res.status(500).json({ message: "Not a member" });
   if (me.role === "owner") {
     return res.status(403).json({
       message:
@@ -747,7 +785,7 @@ export const transferOwnership = async (req, res) => {
     status: "active",
   });
   if (!target)
-    return res.status(404).json({ message: "Target must be an active member" });
+    return res.status(500).json({ message: "Target must be an active member" });
 
   await ClubMember.updateOne(
     { club: req.club._id, user: req.club.owner },
