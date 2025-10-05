@@ -739,25 +739,176 @@ export const adminGetAllMatchesPagination = expressAsyncHandler(
 
 export const adminGetAllMatches = expressAsyncHandler(async (req, res) => {
   const { tournament, bracket, status } = req.query;
+
+  // ===== 1) Xác định tournamentId để tính V cộng dồn =====
+  let tournamentId = tournament || null;
+  if (!tournamentId && bracket) {
+    const brDoc = await Bracket.findById(bracket).select("tournament").lean();
+    tournamentId = brDoc?.tournament ? String(brDoc.tournament) : null;
+  }
+
+  // ===== 2) Load toàn bộ brackets của giải & max(round) mỗi bracket =====
+  let brackets = [];
+  let maxRoundByBracket = new Map(); // Map(bracketId -> maxRound)
+
+  if (tournamentId) {
+    brackets = await Bracket.find({ tournament: tournamentId })
+      .select("_id type stage meta drawRounds")
+      .lean();
+
+    const roundAgg = await Match.aggregate([
+      { $match: { tournament: new mongoose.Types.ObjectId(tournamentId) } },
+      {
+        $group: {
+          _id: "$bracket",
+          maxRound: { $max: { $ifNull: ["$round", 1] } },
+        },
+      },
+    ]);
+    maxRoundByBracket = new Map(
+      roundAgg.map((x) => [String(x._id), Number(x.maxRound || 1)])
+    );
+  }
+
+  // Helper: số vòng của một bracket trong stage dùng để cộng dồn
+  const getBracketRounds = (br) => {
+    const id = String(br._id);
+    // KO có metadata về rounds
+    if (br.type === "knockout") {
+      return (
+        Number(br?.meta?.maxRounds) ||
+        Number(br?.drawRounds) ||
+        Number(maxRoundByBracket.get(id) || 1)
+      );
+    }
+    // Các thể thức khác (group/roundElim/double_elim/swiss/gsl): lấy theo max round thực tế
+    return Number(maxRoundByBracket.get(id) || 1);
+  };
+
+  // ===== 3) Tính số vòng cho từng stage & offset cộng dồn =====
+  // stageRounds[stage] = số vòng của stage (lấy MAX các bracket trong cùng stage)
+  const stageRounds = new Map(); // Map(stageNum -> roundsCount)
+  for (const br of brackets) {
+    const st = Number(br.stage || 1);
+    const r = getBracketRounds(br);
+    const cur = stageRounds.get(st) || 0;
+    if (r > cur) stageRounds.set(st, r);
+  }
+
+  // stageOffset[stage] = tổng rounds của tất cả stage < stage
+  const stageOffset = new Map();
+  const sortedStages = Array.from(stageRounds.keys()).sort((a, b) => a - b);
+  let acc = 0;
+  for (const st of sortedStages) {
+    stageOffset.set(st, acc);
+    acc += stageRounds.get(st) || 0;
+  }
+
+  // ===== 4) Truy vấn matches theo bộ lọc yêu cầu =====
   const filter = {};
   if (tournament) filter.tournament = tournament;
   if (bracket) filter.bracket = bracket;
   if (status) filter.status = status;
 
-  const matches = await Match.find(filter)
-    // Populate tên giải đấu
+  const raw = await Match.find(filter)
     .populate({ path: "tournament", select: "name" })
-    // Populate tên bracket
-    .populate({ path: "bracket", select: "name" })
-    // 2 cặp đấu
+    .populate({ path: "bracket", select: "name type stage" })
     .populate({ path: "pairA", select: "player1 player2" })
     .populate({ path: "pairB", select: "player1 player2" })
-    // trọng tài
-    .populate({ path: "referee", select: "name nickname" })
+    .populate({ path: "referee", select: "name nickname nickName email" })
     .populate({ path: "previousA", select: "round order" })
     .populate({ path: "previousB", select: "round order" })
+    .sort({ createdAt: -1 })
+    .lean({ virtuals: true });
 
-    .sort({ createdAt: -1 });
+  // ===== 5) Helpers định dạng mã =====
+  const toInt = (v, d = 0) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : d;
+  };
+  const vCode = (v) => `V${toInt(v, 1)}`;
+  const tCode = (o) => `T${toInt(o, 0) + 1}`;
+  const bCode = (b) => (b ? `B${b}` : "");
+
+  const getGroupKey = (m) => {
+    const g =
+      m.group ?? m.groupName ?? m.pool ?? m.table ?? m.groupLabel ?? null;
+    if (typeof g === "string" && g.trim()) return g.trim();
+    if (g && typeof g === "object")
+      return g.name || g.code || g.label || String(g._id || "");
+    if (typeof m.groupIndex === "number")
+      return String.fromCharCode(65 + m.groupIndex); // A/B/C...
+    return ""; // không có mã bảng
+  };
+
+  // V cộng dồn cho 1 match (dựa theo stage của bracket chứa match)
+  const getAccumV = (mt) => {
+    const br = mt.bracket || {};
+    const st = Number(br.stage || 1);
+    const off = stageOffset.get(st) || 0;
+    const r = Number(mt.round || 1);
+    return off + r;
+  };
+
+  // Với previousA/B (match KO trước đó) — cùng stage với bracket hiện tại
+  const prevWithCodes = (prev, parentBracket) => {
+    if (!prev) return prev;
+    const st = Number(parentBracket?.stage || 1);
+    const off = stageOffset.get(st) || 0;
+    const r = Number(prev.round || 1);
+    const v = off + r;
+    const o = Number(prev.order || 0);
+    return {
+      ...prev,
+      vIndex: v,
+      vLabel: vCode(v),
+      tIndex: o + 1,
+      tLabel: tCode(o),
+      code: `${vCode(v)} ${tCode(o)}`,
+    };
+  };
+
+  // ===== 6) Map kết quả cuối =====
+  const matches = raw.map((m) => {
+    const v = getAccumV(m);
+    const o = Number(m.order || 0);
+    const type = m?.bracket?.type || "knockout";
+    const isGroup = type === "group";
+
+    // Group key (nếu là vòng bảng)
+    const gk = isGroup ? getGroupKey(m) : "";
+
+    // Mã hiển thị theo yêu cầu
+    const code = isGroup
+      ? `${vCode(v)} ${bCode(gk)} ${tCode(o)}`
+      : `${vCode(v)} ${tCode(o)}`;
+
+    return {
+      ...m,
+
+      // Các trường cũ (giữ tương thích nếu bạn đang dùng)
+      roundIndex: Number(m.round || 1),
+      orderIndex: o,
+      // New: cộng dồn vòng theo stage
+      vIndex: v,
+      vLabel: vCode(v),
+
+      // New: mã bảng (nếu group)
+      bKey: gk,
+      bLabel: gk ? bCode(gk) : "",
+
+      // New: mã trận 1-based
+      tIndex: o + 1,
+      tLabel: tCode(o),
+
+      // New: chuỗi code theo đặc tả
+      code,
+
+      // New: previous kèm mã V/T
+      previousA: prevWithCodes(m.previousA, m.bracket),
+      previousB: prevWithCodes(m.previousB, m.bracket),
+    };
+  });
 
   res.json(matches);
 });

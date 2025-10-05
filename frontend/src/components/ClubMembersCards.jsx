@@ -31,6 +31,7 @@ import {
   useSetRoleMutation,
   useAddMemberMutation,
 } from "../slices/clubsApiSlice";
+import ZoomableImage, { ZoomableWrapper } from "./Zoom";
 
 // chuẩn hoá message lỗi từ RTK Query
 const getApiErrMsg = (err) =>
@@ -196,7 +197,9 @@ export default function ClubMembersCards({ club }) {
                   <Card variant="outlined" sx={{ borderRadius: 3 }}>
                     <CardHeader
                       avatar={
-                        <Avatar src={m.user?.avatar} alt={m.user?.fullName} />
+                        <ZoomableWrapper src={m.user?.avatar}>
+                            <Avatar src={m.user?.avatar} alt={m.user?.fullName} />
+                        </ZoomableWrapper>
                       }
                       title={
                         <Stack

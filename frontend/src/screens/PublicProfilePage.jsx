@@ -45,6 +45,7 @@ import {
   useGetRatingHistoryQuery,
   useGetMatchHistoryQuery,
 } from "../slices/usersApiSlice"; // adjust path if needed
+import { ZoomableWrapper } from "../components/Zoom";
 
 /* ---------- placeholders ---------- */
 const AVA_PLACE = "https://dummyimage.com/160x160/cccccc/ffffff&text=?";
@@ -558,17 +559,19 @@ export default function PublicProfilePage() {
           spacing={2}
           alignItems={{ xs: "center", sm: "flex-end" }}
         >
-          <Avatar
-            src={base?.avatar || AVA_PLACE}
-            sx={{
-              width: { xs: 96, sm: 120 },
-              height: { xs: 96, sm: 120 },
-              border: "3px solid",
-              borderColor: "background.paper",
-              boxShadow: 3,
-            }}
-            imgProps={{ onError: (e) => (e.currentTarget.src = AVA_PLACE) }}
-          />
+          <ZoomableWrapper src={base?.avatar || AVA_PLACE}>
+            <Avatar
+              src={base?.avatar || AVA_PLACE}
+              sx={{
+                width: { xs: 96, sm: 120 },
+                height: { xs: 96, sm: 120 },
+                border: "3px solid",
+                borderColor: "background.paper",
+                boxShadow: 3,
+              }}
+              imgProps={{ onError: (e) => (e.currentTarget.src = AVA_PLACE) }}
+            />
+          </ZoomableWrapper>
           <Stack spacing={0.75} sx={{ flex: 1, minWidth: 0, width: "100%" }}>
             <Typography variant="h5" noWrap title={safe(base?.name)}>
               {safe(base?.name)}

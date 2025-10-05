@@ -9,6 +9,7 @@ import {
   Tooltip,
 } from "@mui/material";
 import EditIcon from "@mui/icons-material/Edit";
+import { ZoomableWrapper } from "./Zoom";
 
 /* ===== Helpers: Việt hoá các giá trị ===== */
 const VI = {
@@ -55,24 +56,28 @@ export default function ClubHeader({ club, onEdit }) {
       }}
     >
       <Box sx={{ position: "relative", height: 220 }}>
-        <img
-          src={cover}
-          alt={`Ảnh bìa CLB ${club?.name || ""}`}
-          style={{ width: "100%", height: "100%", objectFit: "cover" }}
-        />
-        <Avatar
-          src={logo}
-          alt={`Logo CLB ${club?.name || ""}`}
-          sx={{
-            position: "absolute",
-            left: 24,
-            bottom: -36,
-            width: 80,
-            height: 80,
-            border: "4px solid",
-            borderColor: "background.paper",
-          }}
-        />
+        <ZoomableWrapper src={cover}>
+          <img
+            src={cover}
+            alt={`Ảnh bìa CLB ${club?.name || ""}`}
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        </ZoomableWrapper>
+        <ZoomableWrapper src={logo}>
+          <Avatar
+            src={logo}
+            alt={`Logo CLB ${club?.name || ""}`}
+            sx={{
+              position: "absolute",
+              left: 24,
+              bottom: -36,
+              width: 80,
+              height: 80,
+              border: "4px solid",
+              borderColor: "background.paper",
+            }}
+          />
+        </ZoomableWrapper>
         {onEdit && (
           <Tooltip title="Chỉnh sửa CLB">
             <IconButton
