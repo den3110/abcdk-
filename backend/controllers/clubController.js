@@ -23,19 +23,32 @@ const MAX_CLUBS_PER_USER = 3;
 const countActiveClubs = (userId) =>
   ClubMember.countDocuments({ user: userId, status: "active" });
 
-/** Helper: validate combo visibility + joinPolicy */
+/** Helper: validate combo visibility + joinPolicy (VIETNAMESE) */
 const validateVisibilityJoin = (visibility, joinPolicy) => {
   if (!CLUB_VISIBILITY.includes(visibility)) {
-    return "Invalid visibility";
+    return "Giá trị visibility không hợp lệ.";
   }
   if (!CLUB_JOIN_POLICY.includes(joinPolicy)) {
-    return "Invalid joinPolicy";
+    return "Giá trị joinPolicy không hợp lệ.";
   }
   if (visibility === "hidden" && joinPolicy !== "invite_only") {
-    return "Hidden clubs must be invite_only";
+    return "CLB ẩn chỉ được phép chế độ mời (invite_only).";
   }
   if (visibility === "private" && joinPolicy === "open") {
-    return "Private clubs cannot be open";
+    return "CLB riêng tư không thể để chế độ mở (open).";
+  }
+  return null;
+};
+
+// controllers/clubController.js (đặt trên cùng file)
+const validateMemberVisibility = (clubVisibility, memberVisibility) => {
+  // hidden: không lộ danh sách ra ngoài → chỉ "admins"
+  if (clubVisibility === "hidden" && memberVisibility !== "admins") {
+    return 'CLB "ẩn" chỉ cho phép memberVisibility = "admins".';
+  }
+  // private: không public danh sách → cho phép "admins" | "members"
+  if (clubVisibility === "private" && memberVisibility === "public") {
+    return 'CLB "riêng tư" không thể đặt memberVisibility = "public".';
   }
   return null;
 };
@@ -67,7 +80,7 @@ export const createClub = async (req, res) => {
     } = req.body || {};
 
     if (!name?.trim()) {
-      return res.status(400).json({ message: "Name is required" });
+      return res.status(400).json({ message: "Vui lòng nhập tên CLB." });
     }
 
     // limit membership
@@ -123,7 +136,7 @@ export const createClub = async (req, res) => {
     return res.status(201).json(club);
   } catch (err) {
     console.error("createClub error:", err);
-    return res.status(500).json({ message: err.message || "Server error" });
+    return res.status(500).json({ message: err.message || "Lỗi máy chủ." });
   }
 };
 
@@ -188,7 +201,7 @@ export const listClubs = async (req, res) => {
     let memberClubIds = null;
     if (wantMine) {
       if (!req.user?._id) {
-        return res.status(401).json({ message: "Unauthorized" });
+        return res.status(401).json({ message: "Bạn cần đăng nhập." });
       }
       memberClubIds = await ClubMember.find({
         user: req.user._id,
@@ -289,15 +302,15 @@ export const listClubs = async (req, res) => {
     return res.json({ items, total, page: pageNum, limit: limitNum });
   } catch (err) {
     console.error("listClubs error:", err);
-    return res.status(500).json({ message: err.message || "Server error" });
+    return res.status(500).json({ message: err.message || "Lỗi máy chủ." });
   }
 };
 
-/** DETAIL — sanitize for private (non-members); 404 for hidden non-members */
+/** DETAIL — sanitize for private (non-members); 404 cho hidden non-members (đang để 500 theo yêu cầu trước) */
 export const getClub = async (req, res) => {
   const { id } = req.params;
   const club = await Club.findById(id).lean();
-  if (!club) return res.status(500).json({ message: "Club not found" });
+  if (!club) return res.status(500).json({ message: "Không tìm thấy CLB." });
 
   let _my = {
     isMember: false,
@@ -428,6 +441,31 @@ export const listMembers = async (req, res) => {
   res.json({ items, total, page: +page, limit: +limit, canSeeRoles });
 };
 
+// đặt gần đầu file clubController.js
+const buildPhoneRegexes = (raw) => {
+  const digits = String(raw || "").replace(/\D+/g, "");
+  if (!digits || digits.length < 8) return []; // tránh match linh tinh
+  const pats = new Set();
+
+  // cho phép ký tự không phải số xen giữa (dấu cách, -, . , +)
+  const flex = (s) => new RegExp(`^\\D*${s.split("").join("\\D*")}\\D*$`);
+
+  // bản gốc
+  pats.add(flex(digits));
+
+  // 0xxxxxxxxx ↔ 84xxxxxxxxx chuyển qua lại
+  if (digits.startsWith("0")) {
+    const rest = digits.slice(1);
+    pats.add(flex(`84${rest}`));
+  }
+  if (digits.startsWith("84")) {
+    const rest = digits.slice(2);
+    if (rest) pats.add(flex(`0${rest}`));
+  }
+
+  return Array.from(pats);
+};
+
 /** JOIN flow */
 export const requestJoin = async (req, res) => {
   const club = req.club;
@@ -436,14 +474,19 @@ export const requestJoin = async (req, res) => {
   if (club.visibility === "hidden") {
     return res
       .status(403)
-      .json({ message: "This club is hidden and invite-only" });
+      .json({
+        message: "CLB này ở chế độ ẩn và chỉ nhận thành viên qua lời mời.",
+      });
   }
 
   const exists = await ClubMember.findOne({
     club: club._id,
     user: req.user._id,
   });
-  if (exists) return res.status(409).json({ message: "Already a member" });
+  if (exists)
+    return res
+      .status(409)
+      .json({ message: "Bạn đã là thành viên của CLB này." });
 
   // limit 3 CLB — chặn cả gửi request để tránh pending vô nghĩa
   const activeCount = await countActiveClubs(req.user._id);
@@ -454,7 +497,9 @@ export const requestJoin = async (req, res) => {
   }
 
   if (club.joinPolicy === "invite_only") {
-    return res.status(403).json({ message: "This club is invite-only" });
+    return res
+      .status(403)
+      .json({ message: "CLB này chỉ nhận thành viên qua lời mời." });
   }
 
   if (club.joinPolicy === "open") {
@@ -487,7 +532,10 @@ export const cancelMyJoin = async (req, res) => {
     user: req.user._id,
     status: "pending",
   });
-  if (!jr) return res.status(500).json({ message: "No pending request" });
+  if (!jr)
+    return res
+      .status(500)
+      .json({ message: "Không có yêu cầu gia nhập đang chờ xử lý." });
   jr.status = "cancelled";
   jr.decidedAt = new Date();
   jr.decidedBy = req.user._id;
@@ -514,7 +562,10 @@ export const acceptJoin = async (req, res) => {
     club: req.club._id,
     status: "pending",
   });
-  if (!jr) return res.status(500).json({ message: "Join request not found" });
+  if (!jr)
+    return res
+      .status(500)
+      .json({ message: "Không tìm thấy yêu cầu gia nhập." });
 
   // limit 3 CLB cho user được accept
   const activeCount = await countActiveClubs(jr.user);
@@ -554,37 +605,15 @@ export const rejectJoin = async (req, res) => {
     club: req.club._id,
     status: "pending",
   });
-  if (!jr) return res.status(500).json({ message: "Join request not found" });
+  if (!jr)
+    return res
+      .status(500)
+      .json({ message: "Không tìm thấy yêu cầu gia nhập." });
   jr.status = "rejected";
   jr.decidedAt = new Date();
   jr.decidedBy = req.user._id;
   await jr.save();
   res.json(jr);
-};
-
-// đặt gần đầu file clubController.js
-const buildPhoneRegexes = (raw) => {
-  const digits = String(raw || "").replace(/\D+/g, "");
-  if (!digits || digits.length < 8) return []; // tránh match linh tinh
-  const pats = new Set();
-
-  // cho phép ký tự không phải số xen giữa (dấu cách, -, . , +)
-  const flex = (s) => new RegExp(`^\\D*${s.split("").join("\\D*")}\\D*$`);
-
-  // bản gốc
-  pats.add(flex(digits));
-
-  // 0xxxxxxxxx ↔ 84xxxxxxxxx chuyển qua lại
-  if (digits.startsWith("0")) {
-    const rest = digits.slice(1);
-    pats.add(flex(`84${rest}`));
-  }
-  if (digits.startsWith("84")) {
-    const rest = digits.slice(2);
-    if (rest) pats.add(flex(`0${rest}`));
-  }
-
-  return Array.from(pats);
 };
 
 /** Members: add/remove/setRole */
@@ -617,11 +646,9 @@ export const addMember = async (req, res) => {
 
       const user = await User.findOne({ $or: orConds }).select("_id");
       if (!user) {
-        return res
-          .status(500)
-          .json({
-            message: "Không tìm thấy người dùng theo nickname/email/SĐT",
-          });
+        return res.status(500).json({
+          message: "Không tìm thấy người dùng theo nickname/email/SĐT",
+        });
       }
       targetUserId = user._id;
     }
@@ -658,7 +685,7 @@ export const addMember = async (req, res) => {
     return res.status(201).json({ ok: true });
   } catch (err) {
     console.error("addMember error:", err);
-    return res.status(500).json({ message: err.message || "Server error" });
+    return res.status(500).json({ message: err.message || "Lỗi máy chủ." });
   }
 };
 
@@ -666,16 +693,19 @@ export const addMember = async (req, res) => {
 export const setRole = async (req, res) => {
   const { role } = req.body || {};
   if (!["admin", "member"].includes(role)) {
-    return res.status(400).json({ message: "Invalid role" });
+    return res.status(400).json({ message: "Vai trò không hợp lệ." });
   }
 
   const target = await ClubMember.findOne({
     club: req.club._id,
     user: req.params.userId,
   });
-  if (!target) return res.status(500).json({ message: "Member not found" });
+  if (!target)
+    return res.status(500).json({ message: "Không tìm thấy thành viên." });
   if (target.role === "owner")
-    return res.status(403).json({ message: "Cannot modify owner role" });
+    return res
+      .status(403)
+      .json({ message: "Không thể thay đổi vai trò của chủ sở hữu." });
 
   const isOwner = String(req.club.owner) === String(req.user._id);
   const actorRole = req.clubMembership?.role || (isOwner ? "owner" : null);
@@ -683,13 +713,15 @@ export const setRole = async (req, res) => {
   // admin chỉ được set role cho member; chỉ owner mới đổi role của admin hoặc phong admin
   if (!isOwner) {
     if (actorRole !== "admin") {
-      return res.status(403).json({ message: "Admin permission required" });
+      return res.status(403).json({ message: "Cần quyền quản trị viên." });
     }
     if (target.role !== "member" || role === "admin") {
       // admin không được phong admin, cũng không được đụng admin khác
       return res
         .status(403)
-        .json({ message: "Only owner can modify admin roles" });
+        .json({
+          message: "Chỉ chủ sở hữu mới có thể chỉnh sửa vai trò quản trị viên.",
+        });
     }
   }
 
@@ -702,32 +734,33 @@ export const kickMember = async (req, res) => {
   try {
     const { userId } = req.params;
     if (!mongoose.isValidObjectId(userId)) {
-      return res.status(400).json({ message: "Invalid userId" });
+      return res.status(400).json({ message: "userId không hợp lệ" });
     }
 
     const target = await ClubMember.findOne({
       club: req.club._id,
       user: userId,
     });
-    if (!target) return res.status(500).json({ message: "Member not found" });
+    if (!target)
+      return res.status(500).json({ message: "Không tìm thấy thành viên." });
     if (target.role === "owner")
-      return res.status(403).json({ message: "Cannot remove owner" });
+      return res.status(403).json({ message: "Không thể xoá chủ sở hữu." });
 
     const isOwner = String(req.club.owner) === String(req.user._id);
     const actorRole = req.clubMembership?.role || (isOwner ? "owner" : null);
 
     if (!isOwner) {
       if (actorRole !== "admin") {
-        return res.status(403).json({ message: "Admin permission required" });
+        return res.status(403).json({ message: "Cần quyền quản trị viên." });
       }
       if (target.role !== "member") {
         return res
           .status(403)
-          .json({ message: "Only owner can remove admins" });
+          .json({ message: "Chỉ chủ sở hữu mới có thể xoá quản trị viên." });
       }
       if (String(target.user) === String(req.user._id)) {
         return res.status(409).json({
-          message: "Use DELETE /clubs/:id/members/me to leave the club",
+          message: "Hãy dùng DELETE /clubs/:id/members/me để rời CLB.",
         });
       }
     }
@@ -746,7 +779,7 @@ export const kickMember = async (req, res) => {
     });
   } catch (err) {
     console.error("kickMember error:", err);
-    return res.status(500).json({ message: err.message || "Server error" });
+    return res.status(500).json({ message: err.message || "Lỗi máy chủ." });
   }
 };
 
@@ -755,7 +788,7 @@ export const leaveClub = async (req, res) => {
     club: req.club._id,
     user: req.user._id,
   });
-  if (!me) return res.status(500).json({ message: "Not a member" });
+  if (!me) return res.status(500).json({ message: "Bạn chưa là thành viên." });
   if (me.role === "owner") {
     return res.status(403).json({
       message:
@@ -773,10 +806,10 @@ export const leaveClub = async (req, res) => {
 export const transferOwnership = async (req, res) => {
   const { newOwnerId } = req.body || {};
   if (!mongoose.isValidObjectId(newOwnerId)) {
-    return res.status(400).json({ message: "Invalid newOwnerId" });
+    return res.status(400).json({ message: "newOwnerId không hợp lệ." });
   }
   if (String(newOwnerId) === String(req.club.owner)) {
-    return res.status(400).json({ message: "New owner is already the owner" });
+    return res.status(400).json({ message: "Người này đã là chủ sở hữu." });
   }
 
   const target = await ClubMember.findOne({
@@ -785,7 +818,11 @@ export const transferOwnership = async (req, res) => {
     status: "active",
   });
   if (!target)
-    return res.status(500).json({ message: "Target must be an active member" });
+    return res
+      .status(500)
+      .json({
+        message: "Người được chuyển quyền phải là thành viên đang hoạt động.",
+      });
 
   await ClubMember.updateOne(
     { club: req.club._id, user: req.club.owner },
@@ -798,17 +835,4 @@ export const transferOwnership = async (req, res) => {
   await Club.updateOne({ _id: req.club._id }, { $set: { owner: newOwnerId } });
 
   res.json({ ok: true });
-};
-
-// controllers/clubController.js (đặt trên cùng file)
-const validateMemberVisibility = (clubVisibility, memberVisibility) => {
-  // hidden: không lộ danh sách ra ngoài → chỉ "admins"
-  if (clubVisibility === "hidden" && memberVisibility !== "admins") {
-    return 'CLB "ẩn" chỉ cho phép memberVisibility = "admins".';
-  }
-  // private: không public danh sách → cho phép "admins" | "members"
-  if (clubVisibility === "private" && memberVisibility === "public") {
-    return 'CLB "riêng tư" không thể đặt memberVisibility = "public".';
-  }
-  return null;
 };
