@@ -15,7 +15,9 @@ import {
   Tooltip,
   Typography,
   Skeleton,
+  Link, // ⬅️ NEW: dùng Link của MUI để có underline
 } from "@mui/material";
+import { Link as RouterLink } from "react-router-dom"; // ⬅️ NEW
 import Star from "@mui/icons-material/Star";
 import StarBorder from "@mui/icons-material/StarBorder";
 import DeleteOutline from "@mui/icons-material/DeleteOutline";
@@ -186,6 +188,9 @@ export default function ClubMembersCards({ club }) {
               const canToggle = canToggleRole(targetRole);
               const canRemove = canKick(targetRole, targetUserId);
 
+              const hasFullName = !!m.user?.fullName;
+              const hasNickname = !!m.user?.nickname;
+
               return (
                 <Grid key={m._id} item xs={12} sm={6} md={4}>
                   <Card variant="outlined" sx={{ borderRadius: 3 }}>
@@ -194,13 +199,42 @@ export default function ClubMembersCards({ club }) {
                         <Avatar src={m.user?.avatar} alt={m.user?.fullName} />
                       }
                       title={
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Typography variant="subtitle1" noWrap>
-                            {m.user?.fullName ||
-                              m.user?.nickname ||
-                              m.user?.email ||
-                              "Người dùng"}
-                          </Typography>
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          alignItems="center"
+                          flexWrap="wrap"
+                        >
+                          {/* Hiển thị tên thật nếu có */}
+                          {hasFullName && (
+                            <Typography variant="subtitle1" noWrap>
+                              {m.user.fullName}
+                            </Typography>
+                          )}
+
+                          {/* Nickname có gạch chân + click để tới /user/:id */}
+                          {hasNickname && (
+                            <Link
+                              component={RouterLink}
+                              to={`/user/${m.user?._id}`}
+                              underline="always"
+                              sx={{
+                                fontWeight: 600,
+                                whiteSpace: "nowrap",
+                                cursor: "pointer",
+                              }}
+                            >
+                              {m.user.nickname}
+                            </Link>
+                          )}
+
+                          {/* Nếu không có fullName và cũng không có nickname thì fallback email */}
+                          {!hasFullName && !hasNickname && (
+                            <Typography variant="subtitle1" noWrap>
+                              {m.user?.email || "Người dùng"}
+                            </Typography>
+                          )}
+
                           {String(targetUserId) === ownerId && (
                             <Chip size="small" color="primary" label="Owner" />
                           )}
@@ -211,7 +245,7 @@ export default function ClubMembersCards({ club }) {
                       }
                       subheader={
                         <Typography variant="body2" color="text.secondary">
-                          Joined: {new Date(m.joinedAt).toLocaleString()}
+                          Tham gia: {new Date(m.joinedAt).toLocaleString()}
                         </Typography>
                       }
                     />
