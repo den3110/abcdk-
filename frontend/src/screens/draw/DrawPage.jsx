@@ -2811,6 +2811,13 @@ export default function DrawPage() {
       const doc = resp?.doc || resp?.draw || resp;
       if (doc?.board || Array.isArray(doc?.pool)) setDrawDoc(doc);
 
+      // NEW: hiện thông báo từ server (nếu có)
+      if (resp?.message) {
+        const level =
+          (resp?.state || "").toLowerCase() === "idle" ? "info" : "success";
+        toast[level](resp.message);
+      }
+
       if (fxEnabled) setShowCountdown(true);
 
       // --- RESET chung ---

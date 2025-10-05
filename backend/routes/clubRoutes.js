@@ -17,73 +17,116 @@ import {
   rejectJoin,
   transferOwnership,
 } from "../controllers/clubController.js";
+
 import {
-  requireAuth,
   loadClub,
   loadMembership,
   requireOwner,
   requireAdmin,
+  // NEW:
+  ensureClubVisibleToUser,
 } from "../middleware/clubAuth.js";
+
+import { passProtect, protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Public-ish
-router.get("/", listClubs);
-router.get("/:id", loadClub, getClub);
+/**
+ * Public-ish
+ * - list: luôn filter public (trừ mine=true)
+ * - detail: ẩn hidden cho người lạ bằng ensureClubVisibleToUser
+ */
+router.get("/", passProtect, listClubs);
+router.get(
+  "/:id",
+  passProtect, // optional auth
+  loadClub, // nạp club theo id/slug
+  loadMembership, // lấy membership nếu có
+  ensureClubVisibleToUser, // ⬅️ hidden -> 404 nếu không phải member/admin/owner
+  getClub
+);
 
-// Create
-router.post("/", requireAuth, createClub);
+/** Create */
+router.post("/", passProtect, createClub);
 
-// Update (owner/admin)
+/** Update (owner/admin) */
 router.patch(
   "/:id",
-  requireAuth,
+  protect,
   loadClub,
   loadMembership,
   requireAdmin,
   updateClub
 );
 
-// Members
-router.get("/:id/members", requireAuth, loadClub, requireAdmin, listMembers);
+/** Members (admin only) */
+router.get(
+  "/:id/members",
+  passProtect,
+  loadClub,
+  loadMembership,
+  // requireAdmin,
+  listMembers
+);
 router.post(
   "/:id/members",
-  requireAuth,
+  protect,
   loadClub,
   loadMembership,
   requireAdmin,
   addMember
 );
 router.patch(
-  "/:id/members/:userId/role",
-  requireAuth,
+  "/:id/members/:userId",
+  protect,
   loadClub,
   loadMembership,
   requireAdmin,
   setRole
 );
+
+/**
+ * Rời CLB (tự mình)
+ * - KHÔNG ràng buộc :id là ObjectId để cho phép dùng slug
+ * - Đặt TRƯỚC route :userId để không bị nuốt 'me'
+ */
+router.delete("/:id/members/me", protect, loadClub, loadMembership, leaveClub);
+
+/**
+ * Kick người khác (admin/owner)
+ * - RÀNG BUỘC :userId là ObjectId để tránh đụng 'me'
+ * - :id giữ dạng tự do (id hoặc slug) vì loadClub đã xử lý
+ */
 router.delete(
-  "/:id/members/:userId",
-  requireAuth,
+  "/:id/members/:userId([0-9a-fA-F]{24})",
+  protect,
   loadClub,
   loadMembership,
   requireAdmin,
   kickMember
 );
-router.delete(
-  "/:id/members/me",
-  requireAuth,
+
+/** Join flow */
+router.post(
+  "/:id/join",
+  protect,
   loadClub,
   loadMembership,
-  leaveClub
+  ensureClubVisibleToUser, // hidden -> 404 với người lạ (obscure existence)
+  requestJoin
+);
+router.delete(
+  "/:id/join",
+  protect,
+  loadClub,
+  loadMembership,
+  ensureClubVisibleToUser, // hidden -> 404 luôn
+  cancelMyJoin
 );
 
-// Join flow
-router.post("/:id/join", requireAuth, loadClub, requestJoin);
-router.delete("/:id/join", requireAuth, loadClub, cancelMyJoin);
 router.get(
   "/:id/join-requests",
-  requireAuth,
+  protect,
   loadClub,
   loadMembership,
   requireAdmin,
@@ -91,7 +134,7 @@ router.get(
 );
 router.post(
   "/:id/join-requests/:reqId/accept",
-  requireAuth,
+  protect,
   loadClub,
   loadMembership,
   requireAdmin,
@@ -99,20 +142,30 @@ router.post(
 );
 router.post(
   "/:id/join-requests/:reqId/reject",
-  requireAuth,
+  protect,
   loadClub,
   loadMembership,
   requireAdmin,
   rejectJoin
 );
 
-// Ownership
+/** Ownership */
 router.post(
   "/:id/transfer-ownership",
-  requireAuth,
+  protect,
   loadClub,
   requireOwner,
   transferOwnership
 );
+
+router.patch(
+  "/:id/members/:userId/role",
+  protect,
+  loadClub,
+  loadMembership,
+  requireAdmin,
+  setRole
+);
+
 
 export default router;

@@ -5,6 +5,7 @@ import {
   BottomNavigationAction,
   Paper,
   useMediaQuery,
+  Badge, // ⬅️ thêm
 } from "@mui/material";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useSelector } from "react-redux";
@@ -15,6 +16,11 @@ import AssessmentIcon from "@mui/icons-material/Assessment";
 import PersonIcon from "@mui/icons-material/Person";
 import EventAvailableIcon from "@mui/icons-material/EventAvailable";
 import AdminPanelSettingsIcon from "@mui/icons-material/AdminPanelSettings";
+import GroupsIcon from "@mui/icons-material/Groups"; // ⬅️ icon Câu lạc bộ
+
+// Badge "Mới" cho Câu lạc bộ: 05/10/2025 → 05/11/2025 (giờ trình duyệt)
+const CLUB_BADGE_START = new Date(2025, 9, 5, 0, 0, 0, 0); // Tháng 10 = 9
+const CLUB_BADGE_END = new Date(2025, 10, 5, 23, 59, 59, 999); // Tháng 11 = 10
 
 function indexFromPath(pathname, items) {
   let bestIdx = 0;
@@ -56,6 +62,42 @@ const MobileBottomNav = () => {
   const isNarrow = useMediaQuery("(max-width:380px)");
   const isVeryNarrow = useMediaQuery("(max-width:330px)");
 
+  // Hiển thị badge "Mới" cho Câu lạc bộ trong khoảng thời gian cấu hình
+  const showClubNewBadge = useMemo(() => {
+    const now = new Date();
+    return now >= CLUB_BADGE_START && now <= CLUB_BADGE_END;
+  }, []);
+
+  // Icon có gắn badge
+  const ClubIcon = useMemo(
+    () =>
+      showClubNewBadge ? (
+        <Badge
+          color="error"
+          badgeContent="Mới" // chỉ chữ đầu viết hoa
+          overlap="circular"
+          sx={{
+            "& .MuiBadge-badge": {
+              right: -6,
+              top: -2,
+              fontSize: 10,
+              height: 16,
+              minWidth: 22,
+              px: 0.5,
+              fontWeight: 700,
+              textTransform: "none",
+              pointerEvents: "none", // không chặn click
+            },
+          }}
+        >
+          <GroupsIcon />
+        </Badge>
+      ) : (
+        <GroupsIcon />
+      ),
+    [showClubNewBadge]
+  );
+
   const items = useMemo(() => {
     const base = [
       { label: "Trang chủ", icon: <HomeIcon />, path: "/" },
@@ -76,6 +118,17 @@ const MobileBottomNav = () => {
       },
       { label: "Profile", icon: <PersonIcon />, path: "/profile" },
     ];
+
+    // Thêm "Câu lạc bộ" (chỉ khi đã đăng nhập), đặt trước Profile
+    if (user) {
+      base.splice(base.length - 1, 0, {
+        label: "Câu lạc bộ",
+        icon: ClubIcon,
+        path: "/clubs",
+      });
+    }
+
+    // Thêm "Quản trị" (nếu là admin), đặt trước Profile
     if (isAdmin) {
       base.splice(base.length - 1, 0, {
         label: "Quản trị",
@@ -84,7 +137,7 @@ const MobileBottomNav = () => {
       });
     }
     return base;
-  }, [isAdmin]);
+  }, [user, isAdmin, ClubIcon]);
 
   const [value, setValue] = useState(() =>
     indexFromPath(location.pathname, items)
@@ -98,14 +151,15 @@ const MobileBottomNav = () => {
     setValue(newValue);
     navigate(items[newValue].path);
   };
-
+  const NAV_HEIGHT = 64;
   // Style tránh tràn chữ & giữ chiều cao gọn gàng
   const navSx = useMemo(
     () => ({
+      height: NAV_HEIGHT,
       "& .MuiBottomNavigationAction-root": {
-        minWidth: isAdmin ? 56 : 60, // bóp nhỏ để đủ chỗ 5–6 tab
+        minWidth: items.length >= 6 ? 56 : 60, // bóp nhỏ khi có 6+ tab
         padding: "6px 4px",
-        flex: 1, // chia đều, không đùn nhau
+        flex: 1,
         maxWidth: "none",
       },
       "& .MuiSvgIcon-root": {
@@ -115,17 +169,16 @@ const MobileBottomNav = () => {
         whiteSpace: "nowrap",
         overflow: "hidden",
         textOverflow: "ellipsis",
-        maxWidth: 72, // giới hạn để không bể layout
+        maxWidth: 72,
         lineHeight: 1.1,
         fontSize: isVeryNarrow ? 9 : isNarrow ? 10 : 11,
         marginTop: 1,
       },
       "& .Mui-selected .MuiBottomNavigationAction-label": {
-        // MUI mặc định tăng size khi selected — vẫn giữ 1 dòng + không làm cao thanh nav
         fontSize: isVeryNarrow ? 10 : isNarrow ? 11 : 12,
       },
     }),
-    [isAdmin, isNarrow, isVeryNarrow]
+    [items.length, isNarrow, isVeryNarrow]
   );
 
   return (
@@ -137,14 +190,14 @@ const MobileBottomNav = () => {
         right: 0,
         display: { xs: "block", md: "none" },
         zIndex: 1300,
-        overflow: "hidden", // đề phòng tràn ngang hiếm gặp
+        overflow: "hidden",
+        height: NAV_HEIGHT,
       }}
       elevation={3}
     >
       <BottomNavigation
         value={value}
         onChange={handleChange}
-        // Màn quá hẹp: chỉ hiện label cho tab đang chọn để tiết kiệm chiều ngang
         showLabels={!isVeryNarrow}
         sx={navSx}
       >

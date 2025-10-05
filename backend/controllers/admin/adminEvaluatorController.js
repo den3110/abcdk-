@@ -4,7 +4,7 @@ import mongoose from "mongoose";
 import User from "../../models/userModel.js";
 
 const PAGE_SIZE_DEFAULT = 10;
-const ALLOWED_SPORTS = ["pickleball", "tennis"];
+const ALLOWED_SPORTS = ["pickleball"];
 
 const isEmail = (s = "") =>
   /^[^\s@]+@[^\s@]+\\.[^\s@]+$/.test(String(s).toLowerCase());

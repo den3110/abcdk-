@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import UserLogin from "./userLoginModel.js"; // dùng để proxy recordLogin
 
-const ALLOWED_SPORTS = ["pickleball", "tennis"];
+const ALLOWED_SPORTS = ["pickleball"];
 
 /* ---------- Signup meta (nền tảng đăng ký) ---------- */
 const SignupDeviceSchema = new mongoose.Schema(

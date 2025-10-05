@@ -55,8 +55,38 @@ const ClubSchema = new mongoose.Schema(
 
     tags: [{ type: String }],
     isVerified: { type: Boolean, default: false },
+    memberVisibility: {
+      type: String,
+      enum: ["admins", "members", "public"],
+      default: "admins",
+    },
+    showRolesToMembers: { type: Boolean, default: false },
   },
   { timestamps: true }
+);
+
+// 👉 Text index cho search với $text
+ClubSchema.index(
+  {
+    name: "text",
+    description: "text",
+    tags: "text",
+    shortCode: "text",
+    province: "text",
+    city: "text",
+  },
+  {
+    name: "ClubTextIndex",
+    weights: {
+      name: 10,
+      tags: 5,
+      shortCode: 5,
+      description: 2,
+      province: 1,
+      city: 1,
+    },
+    default_language: "none", // tránh stemming, hợp tiếng Việt
+  }
 );
 
 // Helper: tạo slug

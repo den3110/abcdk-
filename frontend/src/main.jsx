@@ -45,6 +45,8 @@ import "../index.css";
 import Forbidden403 from "./screens/403.jsx";
 import ServiceUnavailable from "./screens/503.jsx";
 import PublicProfilePage from "./screens/PublicProfilePage.jsx";
+import ClubsListPage from "./screens/clubs/ClubsListPage.jsx";
+import ClubDetailPage from "./components/ClubDetailPage.jsx";
 
 dayjs.locale("vi");
 
@@ -100,9 +102,12 @@ const router = createBrowserRouter(
           <Route path="/levelpoint" element={<LevelPointPage />} />
           <Route path="/my-tournaments" element={<MyTournamentsPage />} />
         </Route>
+        <Route path="/clubs" element={<ClubsListPage />} />
+        <Route path="/clubs/:id" element={<ClubDetailPage />} />
       </Route>
       <Route path="/overlay/score" element={<ScoreOverlay />} />
       <Route path="/503" element={<ServiceUnavailable />} />
+
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<Navigate to="/admin/users" replace />} />
         <Route path="users" element={<UsersPage />} />

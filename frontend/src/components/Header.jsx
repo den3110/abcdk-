@@ -18,6 +18,7 @@ import {
   Tooltip,
   useTheme,
   useMediaQuery,
+  Badge,
 } from "@mui/material";
 
 import {
@@ -26,7 +27,8 @@ import {
   HowToReg as HowToRegIcon,
 } from "@mui/icons-material";
 
-// Chỉ Pickleball
+/* ================== Cấu hình ================== */
+// Nav Pickleball (desktop)
 const navConfig = [
   {
     label: "Pickle Ball",
@@ -36,6 +38,10 @@ const navConfig = [
     ],
   },
 ];
+
+// Badge "Mới" cho Câu lạc bộ: 05/10/2025 → 05/11/2025 (giờ trình duyệt)
+const CLUB_BADGE_START = new Date(2025, 9, 5, 0, 0, 0, 0); // Tháng 10 = 9
+const CLUB_BADGE_END = new Date(2025, 10, 5, 23, 59, 59, 999); // Tháng 11 = 10
 
 const Header = () => {
   const location = useLocation();
@@ -49,7 +55,7 @@ const Header = () => {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
-  // Điều hướng back cho mobile
+  // Điều hướng Back cho mobile
   const [canGoBack, setCanGoBack] = useState(false);
   const BOTTOM_NAV_TABS = useMemo(
     () =>
@@ -64,14 +70,14 @@ const Header = () => {
   );
   const isOnBottomNavTab = BOTTOM_NAV_TABS.has(location.pathname);
 
-  // Anchor cho menu user (chỉ desktop)
+  // Menu người dùng (desktop)
   const [userAnchor, setUserAnchor] = useState(null);
   const openUserMenu = (e) => setUserAnchor(e.currentTarget);
   const closeUserMenu = () => setUserAnchor(null);
 
   const logoutHandler = async () => {
     try {
-      setUserAnchor(null); // đóng trước khi điều hướng
+      setUserAnchor(null);
       await logoutApiCall().unwrap();
       dispatch(logout());
       navigate("/login");
@@ -80,7 +86,7 @@ const Header = () => {
     }
   };
 
-  // Tính toán khả năng back mỗi lần đổi route
+  // Tính toán khả năng back mỗi khi đổi route
   useEffect(() => {
     try {
       const st = window.history?.state;
@@ -94,17 +100,24 @@ const Header = () => {
     }
   }, [location.key]);
 
-  // Đóng user menu khi đổi route hoặc trạng thái đăng nhập thay đổi
+  // Đóng user menu khi đổi route/đổi trạng thái đăng nhập
   useEffect(() => {
     setUserAnchor(null);
   }, [location.pathname, !!userInfo]);
 
+  // Avatar initial
   const avatarInitial =
     (userInfo?.name || userInfo?.nickname || userInfo?.email || "?")
       .toString()
       .trim()
       .charAt(0)
       .toUpperCase() || "?";
+
+  // Hiển thị badge "Mới" cho Câu lạc bộ trong khoảng thời gian cấu hình
+  const showClubNewBadge = useMemo(() => {
+    const now = new Date();
+    return now >= CLUB_BADGE_START && now <= CLUB_BADGE_END;
+  }, []);
 
   return (
     <AppBar position="static" color="primary" elevation={2}>
@@ -136,8 +149,14 @@ const Header = () => {
             PickleTour
           </Typography>
 
-          {/* Nav links hiển thị trực tiếp (desktop) */}
-          <Box sx={{ display: { xs: "none", md: "flex" }, gap: 1 }}>
+          {/* Nav links trực tiếp (desktop) */}
+          <Box
+            sx={{
+              display: { xs: "none", md: "flex" },
+              gap: 1,
+              alignItems: "center",
+            }}
+          >
             {navConfig
               .flatMap((item) => item.submenu)
               .map((sub) => (
@@ -152,13 +171,53 @@ const Header = () => {
               ))}
 
             {userInfo && (
-              <Button
-                component={Link}
-                to="/my-tournaments"
-                sx={{ color: "white", textTransform: "none" }}
-              >
-                Giải của tôi
-              </Button>
+              <>
+                <Button
+                  component={Link}
+                  to="/my-tournaments"
+                  sx={{ color: "white", textTransform: "none" }}
+                >
+                  Giải của tôi
+                </Button>
+
+                {showClubNewBadge ? (
+                  <Badge
+                    color="error"
+                    badgeContent="Mới"
+                    overlap="rectangular"
+                    sx={{
+                      "& .MuiBadge-badge": {
+                        right: -6,
+                        top: -2,
+                        fontSize: 10,
+                        height: 16,
+                        minWidth: 22,
+                        px: 0.5,
+                        fontWeight: 700,
+                        textTransform: "none",
+                        pointerEvents: "none",
+                      },
+                    }}
+                  >
+                    <Button
+                      component={Link}
+                      to="/clubs"
+                      sx={{ color: "white", textTransform: "none" }}
+                      aria-label="Câu lạc bộ (tính năng mới)"
+                    >
+                      Câu lạc bộ
+                    </Button>
+                  </Badge>
+                ) : (
+                  <Button
+                    component={Link}
+                    to="/clubs"
+                    sx={{ color: "white", textTransform: "none" }}
+                  >
+                    Câu lạc bộ
+                  </Button>
+                )}
+              </>
             )}
 
             {isAdmin && (
@@ -173,7 +232,7 @@ const Header = () => {
           </Box>
         </Box>
 
-        {/* Phải: User controls (desktop). Trên mobile: không hiển thị menu nào */}
+        {/* Phải: User controls (desktop). Mobile: ẩn menu */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           {userInfo ? (
             <>
@@ -218,7 +277,7 @@ const Header = () => {
               )}
             </>
           ) : (
-            // Nút đăng nhập/đăng ký (chỉ desktop)
+            // Nút đăng nhập/đăng ký (desktop)
             <Box sx={{ display: { xs: "none", md: "flex" }, gap: 1 }}>
               <Button
                 component={Link}
@@ -240,7 +299,7 @@ const Header = () => {
               </Button>
             </Box>
           )}
-          {/* ❌ Không có hamburger / mobile menu nữa */}
+          {/* ❌ Không có hamburger / mobile menu */}
         </Box>
       </Toolbar>
     </AppBar>

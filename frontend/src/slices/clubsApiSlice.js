@@ -45,15 +45,11 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
     }),
 
     addMember: builder.mutation({
-      query: ({ id, userId, role }) => ({
+      query: ({ id, userId, nickname, role = "member" }) => ({
         url: `/api/clubs/${id}/members`,
         method: "POST",
-        body: { userId, role },
+        body: userId ? { userId, role } : { nickname, role }, // 👈 hỗ trợ nickname
       }),
-      invalidatesTags: (res, err, { id }) => [
-        { type: "ClubMember", id },
-        { type: "Club", id },
-      ],
     }),
 
     setRole: builder.mutation({

@@ -548,10 +548,7 @@ export const getRankings = asyncHandler(async (req, res) => {
     const emailCandidate = stripSpaces(keywordRaw);
     if (emailCandidate.includes("@")) {
       orConds.push({
-        email: {
-          $regex: `^${escapeRegExp(emailCandidate)}$`,
-          $options: "i",
-        },
+        email: { $regex: `^${escapeRegExp(emailCandidate)}$`, $options: "i" },
       });
     }
     const phoneDigits = digitsOnly(keywordRaw);
@@ -565,13 +562,7 @@ export const getRankings = asyncHandler(async (req, res) => {
       const rawIds = await User.find({ $or: orConds }, { _id: 1 }).lean();
       const ids = rawIds.map((d) => d?._id).filter((id) => isOID(id));
       if (!ids.length) {
-        // không có ai khớp keyword => docs rỗng, podiums30d vẫn trả (rỗng)
-        return res.json({
-          docs: [],
-          totalPages: 0,
-          page,
-          podiums30d: {},
-        });
+        return res.json({ docs: [], totalPages: 0, page, podiums30d: {} });
       }
       userIdsFilter = ids;
     }
@@ -601,7 +592,7 @@ export const getRankings = asyncHandler(async (req, res) => {
     ? { ...baseUserProject, ...adminExtraProject }
     : baseUserProject;
 
-  /* ======= aggregate rankings (giữ logic của bạn) ======= */
+  /* ======= aggregate rankings ======= */
   const matchStage = {
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
   };
@@ -649,7 +640,7 @@ export const getRankings = asyncHandler(async (req, res) => {
           },
           { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
 
-          // Số giải đã kết thúc user từng tham gia (để suy ra tier/reputation)
+          // ===== Số giải đã kết thúc user từng tham gia =====
           {
             $lookup: {
               from: "registrations",
@@ -661,8 +652,6 @@ export const getRankings = asyncHandler(async (req, res) => {
                       $or: [
                         { $eq: ["$player1.user", "$$uid"] },
                         { $eq: ["$player2.user", "$$uid"] },
-                        // nếu bạn còn lưu users[]/members[] trong Registration,
-                        // có thể add điều kiện $in ở đây để chính xác hơn
                       ],
                     },
                   },
@@ -733,21 +722,101 @@ export const getRankings = asyncHandler(async (req, res) => {
             },
           },
 
-          // Tier/màu
+          // ===== Official nếu có Assessment do admin/mod chấm =====
           {
-            $addFields: {
-              isGold: { $gt: ["$totalTours", 0] },
-              isRed: { $and: [{ $eq: ["$totalTours", 0] }] },
+            $lookup: {
+              from: "assessments",
+              let: { uid: "$user._id" },
+              pipeline: [
+                { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
+                {
+                  $match: {
+                    $expr: {
+                      $in: [
+                        { $toLower: "$meta.scoreBy" },
+                        ["admin", "mod", "moderator"],
+                      ],
+                    },
+                  },
+                },
+                { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
+                { $limit: 1 },
+                { $project: { _id: 1 } },
+              ],
+              as: "assess_staff",
             },
           },
           {
             $addFields: {
-              colorRank: { $cond: ["$isGold", 0, { $cond: ["$isRed", 1, 2] }] },
+              hasStaffAssessment: { $gt: [{ $size: "$assess_staff" }, 0] },
+            },
+          },
+
+          // ======= Điểm xám: 0 điểm & chưa từng tham gia giải =======
+          {
+            $addFields: {
+              zeroPoints: {
+                $and: [
+                  { $eq: ["$points", 0] },
+                  { $eq: ["$single", 0] },
+                  { $eq: ["$double", 0] },
+                  { $eq: ["$mix", 0] },
+                ],
+              },
+            },
+          },
+          {
+            $addFields: {
+              isGrey: { $and: ["$zeroPoints", { $eq: ["$totalTours", 0] }] },
+            },
+          },
+
+          // ======= Tier/màu với precedence: Grey > Gold > Red > Default =======
+          {
+            $addFields: {
+              // Vàng chỉ khi KHÔNG xám và (đã từng đấu giải KẾT THÚC hoặc có staff assessment)
+              isGold: {
+                $and: [
+                  { $not: ["$isGrey"] },
+                  { $or: [{ $gt: ["$totalTours", 0] }, "$hasStaffAssessment"] },
+                ],
+              },
+            },
+          },
+          {
+            $addFields: {
+              isRed: {
+                $and: [
+                  { $eq: ["$totalTours", 0] },
+                  { $not: ["$isGold"] },
+                  { $not: ["$isGrey"] },
+                ],
+              },
+            },
+          },
+          {
+            $addFields: {
+              colorRank: {
+                $cond: [
+                  "$isGold",
+                  0,
+                  {
+                    $cond: [
+                      "$isRed",
+                      1,
+                      {
+                        $cond: ["$isGrey", 2, 3],
+                      },
+                    ],
+                  },
+                ],
+              },
               tierLabel: {
                 $switch: {
                   branches: [
-                    { case: "$isGold", then: "Đã đấu/Official" },
+                    { case: "$isGold", then: "Official/Đã duyệt" },
                     { case: "$isRed", then: "Tự chấm" },
+                    { case: "$isGrey", then: "0 điểm / Chưa đấu" },
                   ],
                   default: "Chưa có điểm",
                 },
@@ -757,6 +826,7 @@ export const getRankings = asyncHandler(async (req, res) => {
                   branches: [
                     { case: "$isGold", then: "yellow" },
                     { case: "$isRed", then: "red" },
+                    { case: "$isGrey", then: "grey" },
                   ],
                   default: "grey",
                 },
@@ -777,7 +847,6 @@ export const getRankings = asyncHandler(async (req, res) => {
           },
           { $skip: page * limit },
           { $limit: limit },
-
           {
             $project: {
               user: 1,
@@ -814,7 +883,7 @@ export const getRankings = asyncHandler(async (req, res) => {
     docs: first.docs || [],
     totalPages: first.totalPages || 0,
     page,
-    podiums30d: podiumMapByUserId, // <-- FE sẽ dùng map này để render danh hiệu
+    podiums30d: podiumMapByUserId,
   });
 });
 
@@ -881,7 +950,10 @@ export const adminCreateUser = asyncHandler(async (req, res) => {
     name: String(name || "").trim(),
     nickname: String(nickname || "").trim() || undefined,
     phone: String(phone || "").trim() || undefined,
-    email: String(email || "").trim().toLowerCase() || undefined,
+    email:
+      String(email || "")
+        .trim()
+        .toLowerCase() || undefined,
     password: String(password || "") || generatePassword(12),
     role,
     verified,
@@ -896,7 +968,9 @@ export const adminCreateUser = asyncHandler(async (req, res) => {
   if (dob) {
     const d = new Date(dob);
     if (Number.isNaN(d.getTime())) {
-      return res.status(400).json({ message: "dob không hợp lệ (yyyy-mm-dd hoặc ISO)." });
+      return res
+        .status(400)
+        .json({ message: "dob không hợp lệ (yyyy-mm-dd hoặc ISO)." });
     }
     doc.dob = d;
   }
@@ -919,7 +993,9 @@ export const adminCreateUser = asyncHandler(async (req, res) => {
         return res.status(409).json({ message: "Nickname đã tồn tại." });
       if (doc.cccd && existed.cccd === doc.cccd)
         return res.status(409).json({ message: "CCCD đã tồn tại." });
-      return res.status(409).json({ message: "Thông tin duy nhất đã tồn tại." });
+      return res
+        .status(409)
+        .json({ message: "Thông tin duy nhất đã tồn tại." });
     }
   }
 
@@ -938,8 +1014,12 @@ export const adminCreateUser = asyncHandler(async (req, res) => {
         nickname: "Nickname đã tồn tại.",
         cccd: "CCCD đã tồn tại.",
       };
-      return res.status(409).json({ message: map[key] || "Thông tin duy nhất đã tồn tại." });
+      return res
+        .status(409)
+        .json({ message: map[key] || "Thông tin duy nhất đã tồn tại." });
     }
-    return res.status(400).json({ message: err.message || "Tạo user thất bại." });
+    return res
+      .status(400)
+      .json({ message: err.message || "Tạo user thất bại." });
   }
 });

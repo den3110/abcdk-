@@ -436,9 +436,11 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
     .select("_id player1 player2")
     .lean();
 
+  const paidCount = regs.length;
   const io = req.app.get("io");
 
-  if (!regs.length && mode !== "group") {
+  // ───────────────────── NO ENTRANTS (non-group) ─────────────────────
+  if (!paidCount && mode !== "group") {
     emitPlanned(io, bracketId, { groupSizes: [], byes: 0 }, []);
     return res.json({
       ok: true,
@@ -446,10 +448,29 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       state: "idle",
       reveals: [],
       planned: { groupSizes: [], byes: 0 },
+      message:
+        "Chưa có đội nào hoàn tất thanh toán nên chưa thể bốc thăm. Vui lòng xác nhận danh sách thanh toán trước.",
+      meta: { paidCount },
     });
   }
 
+  // ───────────────────── GROUP ─────────────────────
   if (mode === "group") {
+    // Guard: 0 đội Paid
+    if (!paidCount) {
+      emitPlanned(io, bracketId, { groupSizes: [], byes: 0 }, []);
+      return res.json({
+        ok: true,
+        drawId: null,
+        state: "idle",
+        reveals: [],
+        planned: { groupSizes: [], byes: 0 },
+        message:
+          "Chưa có đội nào hoàn tất thanh toán nên chưa thể bốc thăm vòng bảng.",
+        meta: { paidCount },
+      });
+    }
+
     await purgePreviousDrawResults(bracket._id, "group", null);
 
     const preset = getDrawPreset(bracket, bracket.tournament) || {};
@@ -495,7 +516,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       );
 
       if (sizes.every((s) => Number.isFinite(s) && s > 0)) {
-        const need = regs.length;
+        const need = paidCount;
         const totalCap = sizes.reduce((a, b) => a + b, 0);
         let final = [...sizes];
 
@@ -517,18 +538,23 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
         } else if (need < totalCap) {
           const slack = totalCap - need;
           if (plannerOpts.underflowPolicy === "shrink") {
-            let remain = slack,
-              i = final.length - 1;
-            while (remain > 0 && i >= 0) {
-              const minSz = Math.max(1, plannerOpts.minSize);
-              const canShrink = Math.max(0, final[i] - minSz);
-              const take = Math.min(canShrink, remain);
-              final[i] -= take;
-              remain -= take;
-              i = i - 1;
-              if (i < 0 && remain > 0) i = final.length - 1;
+            const minSz = Math.max(1, plannerOpts.minSize);
+            const totalShrinkCap = final.reduce(
+              (acc, s) => acc + Math.max(0, s - minSz),
+              0
+            );
+            const shrink = Math.min(slack, totalShrinkCap);
+
+            if (shrink > 0) {
+              let left = shrink;
+              for (let j = final.length - 1; j >= 0 && left > 0; j--) {
+                const can = Math.max(0, final[j] - minSz);
+                const take = Math.min(can, left);
+                final[j] -= take;
+                left -= take;
+              }
             }
-            byes = remain;
+            byes = slack - shrink;
           } else {
             byes = slack;
           }
@@ -550,7 +576,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
         plannerPreset.groupCount
       );
 
-      const planned = planGroups(regs.length, {
+      const planned = planGroups(paidCount, {
         groupSize: effGroupSize ?? null,
         groupCount: effGroupCount ?? null,
         ...plannerOpts,
@@ -559,7 +585,8 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
         emitPlanned(io, bracketId, { groupSizes: [], byes: 0 }, []);
         return res.status(400).json({
           ok: false,
-          message: "Cannot plan groups with provided parameters.",
+          message:
+            "Không thể lập nhóm với tham số hiện tại. Vui lòng điều chỉnh kích thước số nhóm/kích thước nhóm.",
         });
       }
       groupSizes = planned.groupSizes;
@@ -580,7 +607,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       })),
     };
 
-    // ✅ KHÔNG GHIM SẴN vào board; chỉ loại khỏi pool
+    // Không ghim sẵn vào board; chỉ loại khỏi pool
     const usedPre = collectUsedPreassignedFromBracket(bracket, board);
 
     const presetSeed = pickPositive(seed, preset?.seed);
@@ -597,9 +624,9 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       tournament: bracket.tournament._id,
       bracket: bracket._id,
       mode: "group",
-      board, // ⬅️ không chứa prefilled
-      pool: poolIds, // ⬅️ đã lọc đội cơ cấu
-      taken: [], // ⬅️ chưa reveal ⇒ chưa taken
+      board,
+      pool: poolIds,
+      taken: [],
       cursor: { gIndex: 0, slotIndex: 0 },
       status: "active",
       settings: sessionSettings,
@@ -609,7 +636,6 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       },
     });
 
-    // Không gửi trước danh sách pre-assign để FE không lộ
     emitPlanned(io, bracketId, { groupSizes, byes }, []);
     await emitUpdate(io, sess);
 
@@ -619,10 +645,12 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       state: "running",
       reveals: [],
       planned: { groupSizes, byes },
+      message: `Đã khởi tạo bốc thăm vòng bảng: ${poolIds.length} đội, ${groupSizes.length} nhóm, ${byes} suất bye (nếu có).`,
+      meta: { paidCount, poolCount: poolIds.length },
     });
   }
 
-  // ───────────────────── KNOCKOUT ─────────────────────
+  // ───────────────────── KNOCKOUT / PLAYOFF ─────────────────────
   if (mode === "knockout" || mode === "po" || mode === "playoff") {
     const sessMode = mode === "playoff" ? "po" : mode;
 
@@ -644,17 +672,11 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       pairCount
     );
 
-    /**
-     * ⛔ XÓA SẠCH TRẬN CŨ CỦA VÒNG ĐANG BỐC
-     * - Chỉ xoá vòng hiện tại (không xoá vòng trước để còn lấy winners nếu cần).
-     * - Với roundElim (PO), logic hiển thị sẽ hoàn toàn dựa vào reveals mới.
-     */
     try {
       const clearQuery = { bracket: bracket._id };
       if (Number.isFinite(roundNumber)) clearQuery.round = roundNumber;
       await Match.deleteMany(clearQuery);
     } catch (e) {
-      // Không chặn flow bốc thăm, nhưng log để theo dõi
       console.error(
         "[startDraw] Failed to clear matches for bracket",
         bracket._id,
@@ -684,8 +706,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       if (winners.length < stageTeams) {
         res.status(400);
         throw new Error(
-          `Chưa đủ đội thắng từ vòng trước: cần ${stageTeams}, hiện có ${winners.length}. ` +
-            `Vui lòng hoàn tất vòng trước hoặc bỏ chọn "Lấy đội thắng ở vòng trước".`
+          `Chưa đủ đội thắng từ vòng trước: cần ${stageTeams}, hiện có ${winners.length}. Vui lòng hoàn tất vòng trước hoặc bỏ chọn "Lấy đội thắng ở vòng trước".`
         );
       }
       poolIds = winners.slice(0, stageTeams);
@@ -724,12 +745,22 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       drawId: String(sess._id),
       state: "running",
       reveals: [],
+      message:
+        sessMode === "po"
+          ? `Đã khởi tạo bốc thăm Playoff (${
+              target || "vòng hiện tại"
+            }), số cặp: ${pairCount}, đội tham dự: ${poolIds.length}.`
+          : `Đã khởi tạo bốc thăm Knockout (${
+              target || "vòng hiện tại"
+            }), số cặp: ${pairCount}, đội tham dự: ${poolIds.length}.`,
+      meta: { paidCount, poolCount: poolIds.length, pairCount, round: target },
     });
   }
 
   res.status(400);
   throw new Error("Unsupported mode. Use 'group' or 'knockout'.");
 });
+
 /**
  * POST /api/draw/:drawId/next
  */
