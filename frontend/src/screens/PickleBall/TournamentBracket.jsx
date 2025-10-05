@@ -608,6 +608,7 @@ const CustomSeed = ({
     fontWeight: 700,
     minWidth: 16,
     marginLeft: 8,
+    whiteSpace: "nowrap"
   };
 
   // ----- header meta -----
