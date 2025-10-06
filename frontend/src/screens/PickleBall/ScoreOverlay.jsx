@@ -85,27 +85,36 @@ const canonicalRoundLabel = (data) => {
 };
 
 // Chip phase theo yêu cầu: group / play-off / knockout
+// Chip phase theo yêu cầu: group / roundElim (Vòng N) / knockout khác
 const phaseLabelFromData = (data) => {
   const bt = (data?.bracketType || data?.bracket?.type || "").toLowerCase();
   if (bt === "group") return "Vòng bảng";
 
-  const roundLabel = canonicalRoundLabel(data);
-
-  if (bt === "po" || bt === "playoff" || bt === "play-offs") {
-    return roundLabel || "Vòng PO";
+  if (bt === "roundelim") {
+    // ✅ Ưu tiên “Vòng N” tăng dần
+    const byOrdinal = roundElimOrdinalLabel(data);
+    if (byOrdinal) return byOrdinal;
+    // fallback nếu không suy ra được
+    const byName = readStr(data?.roundName);
+    if (byName) return byName;
+    const byCode = codeToRoundLabel(data?.roundCode);
+    return byCode || "Vòng loại";
   }
 
+  // Các kiểu KO khác giữ nguyên mapping cũ
+  const roundLabel = canonicalRoundLabel(data);
   if (
-    bt === "ko" ||
+    bt === "po" ||
+    bt === "playoff" ||
+    bt === "play-offs" ||
     bt === "knockout" ||
+    bt === "ko" ||
     bt === "single" ||
     bt === "singleelimination" ||
     bt === "double" ||
     bt === "doubleelimination"
   ) {
-    return roundLabel
-      ? `${roundLabel}`
-      : "Vòng loại trực tiếp";
+    return roundLabel || "Vòng loại trực tiếp";
   }
 
   // fallback
@@ -221,7 +230,11 @@ function normalizePayload(p) {
       id: p?.tournament?._id || p?.tournament?.id || p?.tournamentId || null,
       name: p?.tournament?.name || readStr(p?.tournamentName) || "",
       image: p?.tournament?.image || "",
-      eventType,
+      eventType:
+        (p?.tournament?.eventType || p?.eventType || "").toLowerCase() ===
+        "single"
+          ? "single"
+          : "double",
     },
     teams,
     rules,
@@ -236,6 +249,16 @@ function normalizePayload(p) {
     roundName,
     roundNumber,
     court: { id: courtId, name: courtName },
+    // pass-through for replay
+    liveLog:
+      p?.liveLog ||
+      p?.livelog ||
+      p?.live_log ||
+      p?.logs ||
+      p?.events ||
+      p?.timeline ||
+      null,
+    scoreHistory: p?.scoreHistory || p?.history || p?.pointHistory || null,
   };
 }
 
@@ -331,10 +354,189 @@ const teamNameFull = (team) => {
 };
 
 const knockoutRoundLabel = (data) => {
-  const t = (data?.bracketType || "").toLowerCase();
+  const t = (data?.bracketType || data?.bracket?.type || "").toLowerCase();
   if (!t || t === "group") return "";
+
+  if (t === "roundelim") {
+    const ord = roundElimOrdinalLabel(data);
+    if (ord) return ord;
+  }
   return readStr(data?.roundName, codeToRoundLabel(data?.roundCode));
 };
+
+// --- helpers cho roundElim: tính "Vòng N" tăng dần ---
+const ordFromSize = (size) => {
+  const s = Number(size);
+  if (!Number.isFinite(s) || s <= 0) return null;
+  const lg = Math.log2(s);
+  return Number.isFinite(lg) ? lg : null; // log2(2)=1 (final), 4=>2 (SF), 8=>3 (QF)...
+};
+
+const inferMaxRounds = (data) => {
+  // Ưu tiên meta.maxRounds nếu có
+  const mr = Number(data?.bracket?.meta?.maxRounds);
+  if (Number.isFinite(mr) && mr > 0) return mr;
+
+  // Thử expectedFirstRoundMatches => drawSize ≈ matches*2 => maxRounds = log2(drawSize)
+  const m = Number(data?.bracket?.meta?.expectedFirstRoundMatches);
+  if (Number.isFinite(m) && m > 0) {
+    const drawSize = m * 2;
+    const lg = Math.log2(drawSize);
+    if (Number.isFinite(lg) && lg > 0) return lg;
+  }
+
+  // Thử config.roundElim.drawSize
+  const ds = Number(data?.bracket?.config?.roundElim?.drawSize);
+  if (Number.isFinite(ds) && ds > 1) {
+    const lg = Math.log2(ds);
+    if (Number.isFinite(lg) && lg > 0) return lg;
+  }
+
+  return null;
+};
+
+const roundElimOrdinal = (data) => {
+  const bt = (data?.bracketType || data?.bracket?.type || "").toLowerCase();
+  if (bt !== "roundelim") return null;
+
+  // 1) Ưu tiên field round/roundNumber nếu có (đã là số tăng dần)
+  const rnRaw = data?.roundNumber ?? data?.round;
+  const rn = Number(rnRaw);
+  if (Number.isInteger(rn) && rn > 0) return rn;
+
+  // 2) Tính từ roundCode (R{size}) + maxRounds
+  const size = parseRoundSize(data?.roundCode); // 2,4,8,16...
+  const lgSize = ordFromSize(size); // 1 (final), 2 (SF), 3 (QF)...
+  const maxR = inferMaxRounds(data); // tổng số vòng
+
+  if (lgSize && maxR) {
+    // Đổi về thứ tự tăng dần: vòng sớm nhất = 1, chung kết = maxR
+    // lgSize=1 (final) => ord = maxR - 1 + 1 = maxR
+    // lgSize=2 (SF)    => ord = maxR - 2 + 1 = maxR-1
+    const ord = maxR - lgSize + 1;
+    if (ord >= 1 && ord <= maxR) return ord;
+  }
+
+  return null;
+};
+
+const roundElimOrdinalLabel = (data) => {
+  const n = roundElimOrdinal(data);
+  return Number.isInteger(n) && n > 0 ? `Vòng ${n}` : "";
+};
+
+/* ======================== REPLAY helpers (live log) ======================== */
+const pickLiveLog = (obj) => {
+  const cands = [
+    obj?.liveLog,
+    obj?.livelog,
+    obj?.live_log,
+    obj?.logs,
+    obj?.events,
+    obj?.timeline,
+  ];
+  for (const x of cands) if (Array.isArray(x) && x.length) return x;
+  return [];
+};
+const toMs = (t) => (t ? Date.parse(t) : NaN);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+function buildSortedLog(raw, startAtMs) {
+  const arr = (Array.isArray(raw) ? raw : []).filter(Boolean);
+  const sorted = arr
+    .filter((e) => toMs(e?.at))
+    .sort((a, b) => toMs(a.at) - toMs(b.at));
+  return Number.isFinite(startAtMs)
+    ? sorted.filter((e) => toMs(e.at) >= startAtMs)
+    : sorted;
+}
+
+function applyLiveEvent(state, ev, rules) {
+  const type = String(ev?.type || "").toLowerCase();
+
+  if (type === "serve") {
+    const next = ev?.payload?.next || {};
+    const side = String(next?.side || state?.serve?.side || "A").toUpperCase();
+    const server = Number(next?.server ?? state?.serve?.server ?? 1) || 1;
+    state.serve = { side, server };
+    return state;
+  }
+
+  if (type === "point") {
+    const team =
+      String(ev?.payload?.team || "").toUpperCase() === "B" ? "b" : "a";
+    const stepRaw = Number(ev?.payload?.step ?? 1);
+    const step = Number.isFinite(stepRaw) ? stepRaw : 1;
+
+    const gi = Number.isInteger(state.currentGame) ? state.currentGame : 0;
+    const gs = Array.isArray(state.gameScores)
+      ? [...state.gameScores]
+      : [{ a: 0, b: 0 }];
+    const cur = { ...(gs[gi] || { a: 0, b: 0 }) };
+
+    cur[team] = Math.max(0, (Number(cur[team]) || 0) + step);
+    gs[gi] = cur;
+
+    // kết thúc set
+    const pts = Number(rules.pointsToWin || 11);
+    const byTwo = !!rules.winByTwo;
+    const aWin = gameWon(cur.a, cur.b, pts, byTwo);
+    const bWin = gameWon(cur.b, cur.a, pts, byTwo);
+    if (aWin || bWin) {
+      const maxSets = Math.max(1, Number(rules.bestOf) || 3);
+      const nextGi = gi + 1;
+      if (nextGi < maxSets) {
+        state.currentGame = nextGi;
+        if (!gs[nextGi]) gs[nextGi] = { a: 0, b: 0 };
+      }
+    }
+
+    state.gameScores = gs;
+    return state;
+  }
+
+  return state;
+}
+
+function buildFramesFromFinalScores(base) {
+  const finalGames = Array.isArray(base?.gameScores)
+    ? base.gameScores
+    : [{ a: 0, b: 0 }];
+  const frames = [];
+
+  const safeNum = (n) => (Number.isFinite(+n) ? Math.max(0, +n) : 0);
+  const cloneWith = (gi, a, b) => {
+    const arr = finalGames.map((g, idx) => {
+      if (idx < gi) return { a: safeNum(g.a), b: safeNum(g.b) };
+      if (idx === gi) return { a: safeNum(a), b: safeNum(b) };
+      return { a: null, b: null };
+    });
+    return { currentGame: gi, gameScores: arr };
+  };
+
+  for (let i = 0; i < finalGames.length; i += 1) {
+    const g = finalGames[i] || { a: 0, b: 0 };
+    const A = safeNum(g.a);
+    const B = safeNum(g.b);
+
+    frames.push(cloneWith(i, 0, 0));
+
+    let a = 0,
+      b = 0;
+    let turn = A >= B ? "A" : "B"; // pace
+    while (a < A || b < B) {
+      if (turn === "A" && a < A) a += 1;
+      else if (turn === "B" && b < B) b += 1;
+      frames.push(cloneWith(i, a, b));
+      turn = turn === "A" ? "B" : "A";
+    }
+
+    frames.push(cloneWith(i, A, B));
+    frames.push(cloneWith(i, A, B));
+  }
+
+  return frames;
+}
 
 /* ======================== Component ======================== */
 export default function ScoreOverlay() {
@@ -343,18 +545,43 @@ export default function ScoreOverlay() {
   const navigate = useNavigate();
 
   const matchId = q.get("matchId") || "";
-  const autoNext = parseQPBool(q.get("autoNext"));
+  const replay = parseQPBool(q.get("replay")) === true; // replay=1 to enable
 
-  const {
-    data: snapRaw,
-    // isLoading: snapLoading,
-    // isFetching: snapFetching,
-  } = useGetOverlaySnapshotQuery(matchId, {
-    skip: !matchId,
-    refetchOnMountOrArgChange: true,
-    refetchOnFocus: true,
-    refetchOnReconnect: true,
-    pollingInterval: 3000, // poll mỗi 3s
+  // Live-log timing controls (only used when replay=1)
+  const replayLoop = parseQPBool(q.get("replayLoop"));
+  const replayRate = Math.max(0.01, Number(q.get("replayRate") || 1));
+
+  // nếu muốn bật clamp thì truyền ?replayMinMs=... / ?replayMaxMs=...
+  const replayMinMs =
+    q.get("replayMinMs") != null
+      ? Math.max(0, Number(q.get("replayMinMs")))
+      : undefined;
+  const replayMaxMs =
+    q.get("replayMaxMs") != null
+      ? Math.max(0, Number(q.get("replayMaxMs")))
+      : undefined;
+  const replayStartParam = q.get("replayStart");
+  const replayStartMs = replayStartParam
+    ? Number.isFinite(+replayStartParam)
+      ? +replayStartParam
+      : Date.parse(replayStartParam)
+    : undefined;
+
+  // Legacy fixed-step fallback (used ONLY when no live log present)
+  const stepMsQP = q.get("replayMs") || q.get("ms");
+  const replayStepMs = Number.isFinite(+stepMsQP)
+    ? Math.max(100, +stepMsQP)
+    : 700;
+
+  // autoNext is disabled in replay mode
+  const autoNext = !replay && parseQPBool(q.get("autoNext"));
+
+  const { data: snapRaw } = useGetOverlaySnapshotQuery(matchId, {
+    skip: !matchId, // still fetch once for base data even in replay
+    refetchOnMountOrArgChange: !replay,
+    refetchOnFocus: !replay,
+    refetchOnReconnect: !replay,
+    pollingInterval: replay ? undefined : 3000, // disable polling when replay
   });
   const [getTournament] = useLazyGetTournamentQuery();
   const [getNextByCourt] = useLazyGetNextByCourtQuery();
@@ -375,14 +602,26 @@ export default function ScoreOverlay() {
     };
   }, []);
 
-  // snapshot -> data + overlay  (merge, không replace)
+  // snapshot -> data + overlay  (merge khi bình thường; giữ base 1 lần khi replay)
   useEffect(() => {
     if (!snapRaw) return;
     const n = normalizePayload(snapRaw);
-    setData((prev) => mergeNormalized(prev, n));
+    // seed 0–0 khi replay
+    const maxSets = Math.max(1, Number(n?.rules?.bestOf || 3));
+    const nSeed = replay
+      ? {
+          ...n,
+          currentGame: 0,
+          gameScores: Array.from({ length: maxSets }, (_, i) =>
+            i === 0 ? { a: 0, b: 0 } : { a: null, b: null }
+          ),
+        }
+      : n;
+
+    setData((prev) => (replay ? prev || nSeed : mergeNormalized(prev, n)));
     const snapOverlay = pickOverlay(snapRaw);
     if (snapOverlay) setOverlayBE((p) => ({ ...(p || {}), ...snapOverlay }));
-  }, [snapRaw]);
+  }, [snapRaw, replay]);
 
   // fetch tournament overlay + name/image khi có id
   useEffect(() => {
@@ -417,9 +656,9 @@ export default function ScoreOverlay() {
     };
   }, [data?.tournament?.id, getTournament]);
 
-  // socket live updates  (merge, không replace)
+  // socket live updates  (merge, không replace)  — disabled when replay
   useEffect(() => {
-    if (!matchId || !socket) return;
+    if (!matchId || !socket || replay) return;
     socket.emit("match:join", { matchId });
 
     const onSnapshot = (dto) => {
@@ -442,7 +681,7 @@ export default function ScoreOverlay() {
       socket.off("match:snapshot", onSnapshot);
       socket.off("match:update", onUpdate);
     };
-  }, [matchId, socket]);
+  }, [matchId, socket, replay]);
 
   /* ---------- Merge: BE overlay > QP > default ---------- */
   const effective = useMemo(() => {
@@ -703,6 +942,144 @@ export default function ScoreOverlay() {
     matchId,
     getNextByCourt,
     navigate,
+  ]);
+
+  /* ---------- REPLAY driver (only when replay=1) ---------- */
+  const replayTimerRef = useRef(null);
+  const replayIndexRef = useRef(0);
+
+  useEffect(() => {
+    if (!replay || !snapRaw) {
+      // if turning off replay, ensure timers cleared
+      if (replayTimerRef.current) {
+        clearTimeout(replayTimerRef.current);
+        replayTimerRef.current = null;
+      }
+      return;
+    }
+
+    // clear any previous timer
+    if (replayTimerRef.current) {
+      clearTimeout(replayTimerRef.current);
+      replayTimerRef.current = null;
+    }
+    replayIndexRef.current = 0;
+
+    // base sim starts from snapshot
+    let sim = normalizePayload(snapRaw);
+    const rulesLocal = {
+      bestOf: Number(sim?.rules?.bestOf ?? 3),
+      pointsToWin: Number(sim?.rules?.pointsToWin ?? 11),
+      winByTwo: Boolean(sim?.rules?.winByTwo ?? true),
+    };
+
+    // bắt đầu từ 0–0 khi replay
+    const maxSetsLocal = Math.max(1, Number(rulesLocal.bestOf) || 3);
+    sim = mergeNormalized(sim, {
+      currentGame: 0,
+      gameScores: Array.from({ length: maxSetsLocal }, (_, i) =>
+        i === 0 ? { a: 0, b: 0 } : { a: null, b: null }
+      ),
+    });
+
+    // push initial 0–0 state
+    setData((prev) => mergeNormalized(prev || {}, sim));
+
+    // pick & sort live log
+    const rawLog = pickLiveLog(sim) || pickLiveLog(snapRaw);
+    const log = buildSortedLog(rawLog, replayStartMs);
+
+    // Fallback if no live log: synthesize frames from final scores
+    if (!log.length) {
+      const frames = buildFramesFromFinalScores(sim);
+      let i = 0;
+      const tick = () => {
+        const patch = frames[i];
+        setData((prev) => mergeNormalized(prev || sim, patch));
+        i += 1;
+        if (i >= frames.length) {
+          if (replayLoop) i = 0;
+          else return; // stop
+        }
+        replayTimerRef.current = setTimeout(tick, replayStepMs);
+      };
+      replayTimerRef.current = setTimeout(tick, Math.max(100, replayStepMs));
+      return () => {
+        if (replayTimerRef.current) {
+          clearTimeout(replayTimerRef.current);
+          replayTimerRef.current = null;
+        }
+      };
+    }
+
+    // Live-log time-accurate stepping
+    const step = () => {
+      const i = replayIndexRef.current;
+      if (i >= log.length) {
+        if (replayLoop) {
+          replayIndexRef.current = 0;
+          sim = normalizePayload(snapRaw); // reset to base
+        } else {
+          replayTimerRef.current = null;
+          return;
+        }
+      }
+
+      const ev = log[replayIndexRef.current];
+      sim = applyLiveEvent({ ...(sim || {}) }, ev, rulesLocal);
+      setData((prev) => mergeNormalized(prev || {}, sim));
+
+      const j = replayIndexRef.current + 1;
+      let wait = 0;
+      if (j < log.length) {
+        const t1 = toMs(log[j].at) || 0;
+        const t0 = toMs(ev.at) || 0;
+        const realDelta = Math.max(0, t1 - t0);
+        wait = realDelta / replayRate; // mặc định 1x = thời gian thực
+
+        // chỉ clamp khi QP có truyền min/max
+        if (replayMinMs != null || replayMaxMs != null) {
+          wait = clamp(
+            wait,
+            replayMinMs != null ? replayMinMs : 0,
+            replayMaxMs != null ? replayMaxMs : Number.MAX_SAFE_INTEGER
+          );
+        }
+      }
+      replayIndexRef.current = j;
+      replayTimerRef.current = setTimeout(step, Math.max(0, wait));
+    };
+
+    const firstAt = toMs(log[0]?.at);
+    const startAt = Number.isFinite(replayStartMs) ? replayStartMs : firstAt;
+    let initialWait = 0;
+    if (Number.isFinite(firstAt) && Number.isFinite(startAt)) {
+      initialWait = Math.max(0, (firstAt - startAt) / replayRate);
+      if (replayMinMs != null || replayMaxMs != null) {
+        initialWait = clamp(
+          initialWait,
+          replayMinMs != null ? replayMinMs : 0,
+          replayMaxMs != null ? replayMaxMs : Number.MAX_SAFE_INTEGER
+        );
+      }
+    }
+    replayTimerRef.current = setTimeout(step, initialWait);
+
+    return () => {
+      if (replayTimerRef.current) {
+        clearTimeout(replayTimerRef.current);
+        replayTimerRef.current = null;
+      }
+    };
+  }, [
+    replay,
+    replayLoop,
+    replayRate,
+    replayMinMs,
+    replayMaxMs,
+    replayStartMs,
+    replayStepMs,
+    snapRaw,
   ]);
 
   if (!ready) return null;

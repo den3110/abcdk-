@@ -48,6 +48,274 @@ function guessClientType(socket) {
   }
 }
 
+// ===== helpers tái dùng từ match:join =====
+const loadMatchForSnapshot = async (matchId) => {
+  return (
+    Match.findById(matchId)
+      .populate({
+        path: "pairA",
+        select: "player1 player2 seed label teamName",
+        populate: [
+          {
+            path: "player1",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+          {
+            path: "player2",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+        ],
+      })
+      .populate({
+        path: "pairB",
+        select: "player1 player2 seed label teamName",
+        populate: [
+          {
+            path: "player1",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+          {
+            path: "player2",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+        ],
+      })
+      // referee là mảng
+      .populate({ path: "referee", select: "name fullName nickname nickName" })
+      // người đang điều khiển live
+      .populate({ path: "liveBy", select: "name fullName nickname nickName" })
+      .populate({ path: "previousA", select: "round order" })
+      .populate({ path: "previousB", select: "round order" })
+      .populate({ path: "nextMatch", select: "_id" })
+      .populate({ path: "tournament", select: "name image eventType overlay" })
+      // BRACKET: groups + meta + config như mẫu bạn đưa
+      .populate({
+        path: "bracket",
+        select: [
+          "noRankDelta",
+          "name",
+          "type",
+          "stage",
+          "order",
+          "drawRounds",
+          "drawStatus",
+          "scheduler",
+          "drawSettings",
+          "meta.drawSize",
+          "meta.maxRounds",
+          "meta.expectedFirstRoundMatches",
+          "groups._id",
+          "groups.name",
+          "groups.expectedSize",
+          "config.rules",
+          "config.doubleElim",
+          "config.roundRobin",
+          "config.swiss",
+          "config.gsl",
+          "config.roundElim",
+          "overlay",
+        ].join(" "),
+      })
+      // court để FE auto-next theo sân
+      .populate({
+        path: "court",
+        select: "name number code label zone area venue building floor",
+      })
+      .lean()
+  );
+};
+
+// giữ nguyên cách fill nickname của bạn
+const fillNick = (p) => {
+  if (!p) return p;
+  const pick = (v) => (v && String(v).trim()) || "";
+  const primary = pick(p.nickname) || pick(p.nickName);
+  const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+  const n = primary || fromUser || "";
+  if (n) {
+    p.nickname = n;
+    p.nickName = n;
+  }
+  return p;
+};
+
+// chuẩn hoá snapshot như match:join (fallbacks + prevBracket)
+const postprocessSnapshotLikeJoin = async (m) => {
+  if (m?.pairA) {
+    m.pairA.player1 = fillNick(m.pairA.player1);
+    m.pairA.player2 = fillNick(m.pairA.player2);
+  }
+  if (m?.pairB) {
+    m.pairB.player1 = fillNick(m.pairB.player1);
+    m.pairB.player2 = fillNick(m.pairB.player2);
+  }
+
+  // streams từ meta nếu thiếu
+  if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
+  // rules fallback
+  m.rules = {
+    bestOf: Number(m?.rules?.bestOf ?? 3),
+    pointsToWin: Number(m?.rules?.pointsToWin ?? 11),
+    winByTwo: Boolean(m?.rules?.winByTwo ?? true),
+    ...(m.rules?.cap ? { cap: m.rules.cap } : {}),
+  };
+
+  // serve fallback/normalize
+  if (!m?.serve || (!m.serve.side && !m.serve.server && !m.serve.playerIndex)) {
+    m.serve = { side: "A", server: 1, playerIndex: 1 };
+  } else {
+    m.serve.side = (m.serve.side || "A").toUpperCase() === "B" ? "B" : "A";
+    m.serve.server = Number(m.serve.server ?? m.serve.playerIndex ?? 1) || 1;
+    m.serve.playerIndex =
+      Number(m.serve.playerIndex ?? m.serve.server ?? 1) || 1;
+  }
+
+  // gameScores tối thiểu
+  if (!Array.isArray(m.gameScores) || !m.gameScores.length) {
+    m.gameScores = [{ a: 0, b: 0 }];
+  }
+
+  // overlay fallback
+  if (!m.overlay) {
+    m.overlay =
+      m?.overlay || m?.tournament?.overlay || m?.bracket?.overlay || undefined;
+  }
+
+  // roundCode fallback
+  if (!m.roundCode) {
+    const drawSize =
+      Number(m?.bracket?.meta?.drawSize) ||
+      (Number.isInteger(m?.bracket?.drawRounds)
+        ? 1 << m.bracket.drawRounds
+        : 0);
+    if (drawSize && Number.isInteger(m?.round) && m.round >= 1) {
+      const roundSize = Math.max(
+        2,
+        Math.floor(drawSize / Math.pow(2, m.round - 1))
+      );
+      m.roundCode = `R${roundSize}`;
+    }
+  }
+
+  // court fallback fields
+  const courtId = m?.court?._id || m?.courtId || null;
+  const courtNumber = m?.court?.number ?? m?.courtNo ?? undefined;
+  const courtName =
+    m?.court?.name ??
+    m?.courtName ??
+    (courtNumber != null ? `Sân ${courtNumber}` : "");
+  m.courtId = courtId || undefined;
+  m.courtName = courtName || undefined;
+  m.courtNo = courtNumber ?? undefined;
+
+  // bracketType fallback
+  if (!m.bracketType) {
+    m.bracketType = m?.bracket?.type || m?.format || m?.bracketType || "";
+  }
+
+  // prevBracket (neighbor) — như code bạn đưa
+  try {
+    const toNum = (v, d = 0) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : d;
+    };
+    const toTime = (x) =>
+      (x?.createdAt && new Date(x.createdAt).getTime()) ||
+      (x?._id?.getTimestamp?.() && x._id.getTimestamp().getTime()) ||
+      0;
+
+    const normalizeBracketShape = (b) => {
+      if (!b) return b;
+      const bb = { ...b };
+      if (!Array.isArray(bb.groups)) bb.groups = [];
+      bb.meta = bb.meta || {};
+      if (typeof bb.meta.drawSize !== "number") bb.meta.drawSize = 0;
+      if (typeof bb.meta.maxRounds !== "number") bb.meta.maxRounds = 0;
+      if (typeof bb.meta.expectedFirstRoundMatches !== "number")
+        bb.meta.expectedFirstRoundMatches = 0;
+      bb.config = bb.config || {};
+      bb.config.rules = bb.config.rules || {};
+      bb.config.roundRobin = bb.config.roundRobin || {};
+      bb.config.doubleElim = bb.config.doubleElim || {};
+      bb.config.swiss = bb.config.swiss || {};
+      bb.config.gsl = bb.config.gsl || {};
+      bb.config.roundElim = bb.config.roundElim || {};
+      if (typeof bb.noRankDelta !== "boolean") bb.noRankDelta = false;
+      bb.scheduler = bb.scheduler || {};
+      bb.drawSettings = bb.drawSettings || {};
+      return bb;
+    };
+
+    const curBracketId = m?.bracket?._id;
+    const tourId = m?.tournament?._id || m?.tournament;
+    m.prevBracket = null;
+    m.prevBrackets = [];
+
+    if (curBracketId && tourId) {
+      const prevSelect = [
+        "name",
+        "type",
+        "stage",
+        "order",
+        "drawRounds",
+        "drawStatus",
+        "scheduler",
+        "drawSettings",
+        "meta.drawSize",
+        "meta.maxRounds",
+        "meta.expectedFirstRoundMatches",
+        "groups._id",
+        "groups.name",
+        "groups.expectedSize",
+        "config.rules",
+        "config.doubleElim",
+        "config.roundRobin",
+        "config.swiss",
+        "config.gsl",
+        "config.roundElim",
+        "overlay",
+        "createdAt",
+      ].join(" ");
+
+      const allBr = await Bracket.find({ tournament: tourId })
+        .select(prevSelect)
+        .lean();
+
+      const list = (allBr || [])
+        .map((b) => ({
+          ...b,
+          __k: [toNum(b.order, 0), toTime(b), String(b._id)],
+        }))
+        .sort((a, b) => {
+          for (let i = 0; i < a.__k.length; i++) {
+            if (a.__k[i] < b.__k[i]) return -1;
+            if (a.__k[i] > b.__k[i]) return 1;
+          }
+          return 0;
+        });
+
+      const curIdx = list.findIndex(
+        (x) => String(x._id) === String(curBracketId)
+      );
+      if (curIdx > 0) {
+        const { __k, ...prevRaw } = list[curIdx - 1];
+        const prev = normalizeBracketShape(prevRaw);
+        m.prevBracket = prev;
+        m.prevBrackets = [prev];
+      }
+    }
+  } catch (e) {
+    console.error("[serve:set] prevBracket error:", e?.message || e);
+  }
+
+  return m;
+};
+
 /**
  * Khởi tạo Socket.IO server
  * @param {import('http').Server} httpServer
@@ -569,14 +837,13 @@ export function initSocket(
         if (!isObjectIdString(matchId)) {
           return ack?.({ ok: false, message: "Invalid matchId" });
         }
-        // phải có ít nhất 1 trường để set
         const hasAny =
           side !== undefined || server !== undefined || serverId !== undefined;
         if (!hasAny) {
           return ack?.({ ok: false, message: "Empty payload" });
         }
 
-        // load match
+        // load match để validate serverId theo side
         const m = await Match.findById(matchId)
           .populate({
             path: "pairA",
@@ -597,7 +864,7 @@ export function initSocket(
 
         if (!m) return ack?.({ ok: false, message: "Match not found" });
 
-        // normalize
+        // chuẩn hoá input
         const sideU =
           typeof side === "string" ? String(side).toUpperCase() : undefined;
         const wantSide =
@@ -609,7 +876,7 @@ export function initSocket(
             ? 1
             : 2;
 
-        // nếu có serverId thì (nếu kiểm tra) đảm bảo thuộc team tương ứng
+        // validate serverId thuộc side tương ứng
         const toId = (u) =>
           String(u?.user?._id || u?.user || u?._id || u?.id || "");
         let validServerId = null;
@@ -636,7 +903,7 @@ export function initSocket(
         const prevServe = m.serve || { side: "A", server: 2 };
         m.serve = { side: wantSide, server: wantServer };
 
-        // lưu serverId ở túi động slots.* để không đụng schema
+        // lưu serverId động vào slots (không đụng schema)
         if (validServerId) {
           m.set("slots.serverId", validServerId, { strict: false });
           m.set("slots.updatedAt", new Date(), { strict: false });
@@ -645,6 +912,7 @@ export function initSocket(
           m.markModified("slots");
         }
 
+        // live log + version
         m.liveLog = m.liveLog || [];
         m.liveLog.push({
           type: "serve",
@@ -660,18 +928,31 @@ export function initSocket(
 
         await m.save();
 
-        // phát sự kiện cho room với DTO + nhét kèm serverId (để FE thấy ngay)
-        const fresh = await Match.findById(m._id)
-          .populate("pairA pairB referee")
-          .lean();
-        const enriched = decorateServeAndSlots(fresh);
-        const dto = toDTO(enriched);
-        // io.to(`match:${matchId}`).emit("match:update", {
-        //   type: "serve",
-        //   data: dto,
-        // });
+        // ==== tải lại theo chuỗi populate của match:join ====
+        let snap = await loadMatchForSnapshot(m._id);
+        if (!snap) {
+          // vẫn ok vì đã lưu; chỉ không có snapshot trả về
+          // io.to(`match:${matchId}`).emit("match:update", { type: "serve" });
+          return ack?.({ ok: true });
+        }
 
-        ack?.({ ok: true });
+        // chuẩn hoá snapshot y như match:join
+        snap = await postprocessSnapshotLikeJoin(snap);
+
+        // decorate + DTO giống hệt điểm phát trong match:join
+        const dto = toDTO(decorateServeAndSlots(snap));
+
+        // 📣 broadcast tới các room liên quan (bắn hết)
+        io.to(`match:${matchId}`).emit("match:snapshot", dto);
+        if (dto?.bracket?._id) {
+          io.to(`bracket:${dto.bracket._id}`).emit("match:snapshot", dto);
+        }
+        if (dto?.tournament?._id) {
+          io.to(`tournament:${dto.tournament._id}`).emit("match:snapshot", dto);
+        }
+
+        // 👉 trả snapshot trong ack cho caller
+        ack?.({ ok: true, data: dto });
       } catch (e) {
         console.error("[serve:set] error:", e?.message || e);
         ack?.({ ok: false, message: e?.message || "Internal error" });

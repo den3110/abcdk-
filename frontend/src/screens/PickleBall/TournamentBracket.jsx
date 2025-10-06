@@ -608,7 +608,7 @@ const CustomSeed = ({
     fontWeight: 700,
     minWidth: 16,
     marginLeft: 8,
-    whiteSpace: "nowrap"
+    whiteSpace: "nowrap",
   };
 
   // ----- header meta -----
@@ -2440,17 +2440,18 @@ export default function TournamentBracket() {
   }, []);
 
   function useStableLiveSpotlight(current, currentMatches) {
+    const enabled = !!(current && current.type === "group");
     // Lưu thứ tự các match LIVE theo id, chỉ thay khi ra/vào danh sách
     const orderRef = useRef([]); // array of ids theo thứ tự hiển thị
     const metaRef = useRef(new Map()); // optional: lưu meta nhẹ (court.order) nếu muốn tinh chỉnh
 
     // Lọc match LIVE (KHÔNG sort theo updatedAt để tránh nhảy)
     const liveNow = useMemo(() => {
-      if (!current || current.type !== "group") return [];
+      if (!enabled) return [];
       return (currentMatches || []).filter(
         (m) => String(m.status || "").toLowerCase() === "live"
       );
-    }, [current, currentMatches]);
+    }, [enabled, currentMatches]);
 
     // Map id -> match cho truy hồi nhanh
     const id2m = useMemo(() => {
@@ -2473,6 +2474,7 @@ export default function TournamentBracket() {
 
     // Cập nhật orderRef ổn định theo liveNow
     useEffect(() => {
+      if (!enabled) return;
       const curIds = new Set(liveNow.map((m) => String(m._id)));
 
       // 1) Bỏ các id không còn LIVE
@@ -2493,12 +2495,15 @@ export default function TournamentBracket() {
       liveNow.forEach((m) => {
         meta.set(String(m._id), { courtOrder: m?.court?.order ?? null });
       });
-    }, [liveNow, cmpInit]);
+    }, [enabled, liveNow, cmpInit]);
 
     // Xuất danh sách theo thứ tự ổn định
     return useMemo(
-      () => orderRef.current.map((id) => id2m.get(id)).filter(Boolean),
-      [id2m]
+      () =>
+        enabled
+          ? orderRef.current.map((id) => id2m.get(id)).filter(Boolean)
+          : [],
+      [enabled, id2m]
     );
   }
 

@@ -527,6 +527,7 @@ export async function getOverlayMatch(req, res) {
       streams,
       liveVersion: m?.liveVersion ?? undefined,
       liveLogTail,
+      liveLog: m?.liveLog ?? undefined, // luôn undefined để tránh lộ thông tin
 
       // participants (ids) để tránh trùng người
       participants:

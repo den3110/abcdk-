@@ -1169,6 +1169,7 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Invalid match id" });
   }
 
+  // ===== constants / helpers =====
   const BRACKET_SELECT = [
     "name",
     "type",
@@ -1195,8 +1196,152 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     "tournament",
   ].join(" ");
 
-  const match = await Match.findById(id)
-    // ===== Pairs A/B + players =====
+  const GROUP_LIKE = new Set(["group", "round_robin", "swiss", "gsl"]);
+  const isGroupType = (t) => GROUP_LIKE.has(String(t || "").toLowerCase());
+
+  const pickTrim = (v) => (v && String(v).trim()) || "";
+
+  const fillNick = (p) => {
+    if (!p) return p;
+    const primary = pickTrim(p.nickname) || pickTrim(p.nickName);
+    const fromUser = p.user
+      ? pickTrim(p.user.nickname) || pickTrim(p.user.nickName)
+      : "";
+    const n = primary || fromUser || "";
+    if (n) p.nickname = p.nickName = n;
+    return p;
+  };
+
+  const personName = (p) =>
+    pickTrim(p?.nickname) ||
+    pickTrim(p?.nickName) ||
+    pickTrim(p?.user?.nickname) ||
+    pickTrim(p?.user?.nickName) ||
+    "";
+
+  const pairName = (pair) => {
+    if (!pair) return "";
+    const a = personName(pair.player1);
+    const b = personName(pair.player2);
+    if (a || b) return [a, b].filter(Boolean).join(" & ");
+    return pickTrim(pair.teamName) || pickTrim(pair.label) || "";
+  };
+
+  const normalizeBracketShape = (b) => {
+    if (!b) return b;
+    const bb = { ...b };
+    if (!Array.isArray(bb.groups)) bb.groups = [];
+    bb.meta = bb.meta || {};
+    if (typeof bb.meta.drawSize !== "number") bb.meta.drawSize = 0;
+    if (typeof bb.meta.maxRounds !== "number") bb.meta.maxRounds = 0;
+    if (typeof bb.meta.expectedFirstRoundMatches !== "number")
+      bb.meta.expectedFirstRoundMatches = 0;
+    bb.config = bb.config || {};
+    bb.config.rules = bb.config.rules || {};
+    bb.config.roundRobin = bb.config.roundRobin || {};
+    bb.config.doubleElim = bb.config.doubleElim || {};
+    bb.config.swiss = bb.config.swiss || {};
+    bb.config.gsl = bb.config.gsl || {};
+    bb.config.roundElim = bb.config.roundElim || {};
+    if (typeof bb.noRankDelta !== "boolean") bb.noRankDelta = false;
+    bb.scheduler = bb.scheduler || {};
+    bb.drawSettings = bb.drawSettings || {};
+    return bb;
+  };
+
+  // đổi #R->#B chỉ khi group-like
+  const displayLabelKey = (raw, bracketType) => {
+    const s = String(raw || "");
+    if (!s) return "";
+    return isGroupType(bracketType) ? s.replace(/#R(\d+)/i, "#B$1") : s;
+  };
+
+  // Lấy T = số cuối trong labelKey; thiếu thì fallback order
+  const extractT = (labelKey, order) => {
+    const s = String(labelKey || "");
+    const m = s.match(/(\d+)\s*$/);
+    if (m) return Number(m[1]);
+    return Number.isFinite(order) ? Number(order) : 1;
+  };
+
+  // ✅ Lấy B (lượt vòng bảng) ƯU TIÊN từ labelKey (#R/#B), thiếu thì rrRound, cuối cùng 1
+  const getGroupRoundB = (m) => {
+    const lk = String(m?.labelKey || "");
+    const hit = lk.match(/#(?:R|B)\s*(\d+)/i);
+    if (hit) return Number(hit[1]);
+    if (Number.isFinite(m?.rrRound)) return Number(m.rrRound);
+    return 1;
+  };
+
+  // Tính offset V cho toàn giải
+  const buildOffsets = async (tournamentId) => {
+    const brackets = await Bracket.find({ tournament: tournamentId })
+      .select("_id type order createdAt")
+      .lean();
+
+    if (!brackets.length) return { offsetMap: new Map(), typeMap: new Map() };
+
+    const ids = brackets.map((b) => b._id);
+    const agg = await Match.aggregate([
+      {
+        $match: {
+          tournament: new mongoose.Types.ObjectId(String(tournamentId)),
+          bracket: { $in: ids },
+        },
+      },
+      { $group: { _id: "$bracket", maxRound: { $max: "$round" } } },
+    ]);
+
+    const maxRoundMap = new Map(
+      agg.map((x) => [String(x._id), Number(x.maxRound || 1)])
+    );
+    const typeMap = new Map(brackets.map((b) => [String(b._id), b.type]));
+    const roundsCountMap = new Map(
+      brackets.map((b) => [
+        String(b._id),
+        isGroupType(b.type) ? 1 : maxRoundMap.get(String(b._id)) || 1,
+      ])
+    );
+
+    const sorted = [...brackets].sort((a, b) => {
+      const oa = a.order ?? 9999;
+      const ob = b.order ?? 9999;
+      if (oa !== ob) return oa - ob;
+      const ca = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const cb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (ca !== cb) return ca - cb;
+      return String(a._id).localeCompare(String(b._id));
+    });
+
+    let cum = 0;
+    const offsetMap = new Map();
+    for (const b of sorted) {
+      offsetMap.set(String(b._id), cum);
+      cum += roundsCountMap.get(String(b._id)) || 1;
+    }
+    return { offsetMap, typeMap };
+  };
+
+  const computeCodeDisplay = (m, offsetMap, typeMap) => {
+    const bId = String(m?.bracket?._id || m?.bracket || "");
+    const bType = typeMap.get(bId) || m?.bracket?.type;
+    const offset = offsetMap.get(bId) || 0;
+    const T = extractT(m?.labelKey, m?.order);
+
+    if (isGroupType(bType)) {
+      const B = getGroupRoundB(m); // ⬅️ B lấy từ labelKey trước
+      const V = offset + 1; // group-like luôn 1 vòng
+      return `V${V}-B${B}-T${T}`;
+    } else {
+      const r = Number(m?.round || 1); // KO: V = offset + round
+      const V = offset + r;
+      return `V${V}-T${T}`;
+    }
+  };
+
+  // ===== fetch match =====
+  const m = await Match.findById(id)
+    // Pairs + players
     .populate({
       path: "pairA",
       select: "player1 player2 seed label teamName",
@@ -1229,90 +1374,82 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
         },
       ],
     })
-
-    // ===== Referees (array) & liveBy =====
+    // refs & liveBy
     .populate({ path: "referee", select: "name fullName nickname nickName" })
     .populate({ path: "liveBy", select: "name nickname nickName" })
-
-    // ===== Trước/Sau =====
+    // neighbors
     .populate({ path: "previousA", select: "round order" })
     .populate({ path: "previousB", select: "round order" })
     .populate({ path: "nextMatch", select: "_id" })
-
-    // ===== Bracket của match =====
+    // bracket
     .populate({ path: "bracket", select: BRACKET_SELECT })
     .lean();
 
-  if (!match) return res.status(404).json({ message: "Match not found" });
+  if (!m) return res.status(404).json({ message: "Match not found" });
 
-  // ===== Helpers bạn đang dùng (rút gọn) =====
-  const pickTrim = (v) => (v && String(v).trim()) || "";
-  const fillNick = (p) => {
-    if (!p) return p;
-    const primary = pickTrim(p.nickname) || pickTrim(p.nickName);
-    const fromUser = p.user
-      ? pickTrim(p.user.nickname) || pickTrim(p.user.nickName)
-      : "";
-    const n = primary || fromUser || "";
-    if (n) p.nickname = p.nickName = n;
-    return p;
-  };
-  const normalizeBracketShape = (b) => {
-    if (!b) return b;
-    const bb = { ...b };
-    if (!Array.isArray(bb.groups)) bb.groups = [];
-    bb.meta = bb.meta || {};
-    if (typeof bb.meta.drawSize !== "number") bb.meta.drawSize = 0;
-    if (typeof bb.meta.maxRounds !== "number") bb.meta.maxRounds = 0;
-    if (typeof bb.meta.expectedFirstRoundMatches !== "number")
-      bb.meta.expectedFirstRoundMatches = 0;
-    bb.config = bb.config || {};
-    bb.config.rules = bb.config.rules || {};
-    bb.config.roundRobin = bb.config.roundRobin || {};
-    bb.config.doubleElim = bb.config.doubleElim || {};
-    bb.config.swiss = bb.config.swiss || {};
-    bb.config.gsl = bb.config.gsl || {};
-    bb.config.roundElim = bb.config.roundElim || {};
-    if (typeof bb.noRankDelta !== "boolean") bb.noRankDelta = false;
-    bb.scheduler = bb.scheduler || {};
-    bb.drawSettings = bb.drawSettings || {};
-    return bb;
-  };
-
-  if (match.pairA) {
-    match.pairA.player1 = fillNick(match.pairA.player1);
-    match.pairA.player2 = fillNick(match.pairA.player2);
+  // chuẩn hoá tên
+  if (m.pairA) {
+    m.pairA.player1 = fillNick(m.pairA.player1);
+    m.pairA.player2 = fillNick(m.pairA.player2);
   }
-  if (match.pairB) {
-    match.pairB.player1 = fillNick(match.pairB.player1);
-    match.pairB.player2 = fillNick(match.pairB.player2);
+  if (m.pairB) {
+    m.pairB.player1 = fillNick(m.pairB.player1);
+    m.pairB.player2 = fillNick(m.pairB.player2);
   }
-  if (match.liveBy) {
-    const lb = match.liveBy;
-    match.liveBy = {
+  if (m.liveBy) {
+    const lb = m.liveBy;
+    m.liveBy = {
       _id: lb._id,
       name: lb.name || "",
       nickname: pickTrim(lb.nickname) || pickTrim(lb.nickName) || "",
     };
   }
-  if (Array.isArray(match.referee)) {
-    match.referee = match.referee.map((r) => ({
+  if (Array.isArray(m.referee)) {
+    m.referee = m.referee.map((r) => ({
       _id: r._id,
       name: r.name || r.fullName || "",
       nickname: pickTrim(r.nickname) || pickTrim(r.nickName) || "",
     }));
   }
-  if (!match.streams && match.meta?.streams) match.streams = match.meta.streams;
+  if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
-  match.bracket = normalizeBracketShape(match.bracket);
+  m.bracket = normalizeBracketShape(m.bracket);
+  m.pairAName = pairName(m.pairA);
+  m.pairBName = pairName(m.pairB);
 
-  // ================== ⭐ LẤY BRACKET LIỀN TRƯỚC (chuẩn) ==================
-  match.prevBracket = null;
-  match.prevBrackets = [];
-
+  // ===== codeDisplay + labelKeyDisplay =====
   try {
-    // LẤY LẠI meta của bracket hiện tại trực tiếp từ DB (chắc ăn)
-    const curMeta = await Bracket.findById(match.bracket?._id)
+    const tournamentId = m.bracket?.tournament || m.tournament || null;
+    const { offsetMap, typeMap } = tournamentId
+      ? await buildOffsets(tournamentId)
+      : {
+          offsetMap: new Map(),
+          typeMap: new Map([[String(m?.bracket?._id || ""), m?.bracket?.type]]),
+        };
+
+    const bType =
+      typeMap.get(String(m?.bracket?._id || "")) || m?.bracket?.type;
+    m.labelKeyDisplay = displayLabelKey(m.labelKey, bType);
+    m.codeDisplay = computeCodeDisplay(m, offsetMap, typeMap);
+  } catch (e) {
+    // fallback an toàn nếu có lỗi
+    const bType = m?.bracket?.type;
+    m.labelKeyDisplay = displayLabelKey(m.labelKey, bType);
+    const T = extractT(m?.labelKey, m?.order);
+    if (isGroupType(bType)) {
+      const B = getGroupRoundB(m);
+      m.codeDisplay = `V1-B${B}-T${T}`;
+    } else {
+      const r = Number(m?.round || 1);
+      m.codeDisplay = `V${r}-T${T}`;
+    }
+  }
+
+  // ===== prevBracket (giữ như cũ) =====
+  m.prevBracket = null;
+  m.prevBrackets = [];
+  try {
+    const curMeta = await Bracket.findById(m.bracket?._id)
       .select("tournament order createdAt")
       .lean();
 
@@ -1326,23 +1463,22 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
             createdAt: { $lt: curMeta.createdAt || new Date(0) },
           },
         ],
-        _id: { $ne: match.bracket._id },
+        _id: { $ne: m.bracket._id },
       })
         .select(BRACKET_SELECT)
         .sort({ order: -1, createdAt: -1, _id: -1 })
         .lean();
 
       if (prev) {
-        match.prevBracket = normalizeBracketShape(prev);
-        match.prevBrackets = [match.prevBracket]; // để tương thích nếu FE đang expect mảng
+        m.prevBracket = normalizeBracketShape(prev);
+        m.prevBrackets = [m.prevBracket];
       }
     }
-    return res.json(match);
   } catch (e) {
     console.error("[getMatchPublic] prevBracket error:", e?.message || e);
-
-    return res.status(500);
   }
+
+  return res.json({...m, code: m.codeDisplay });
 });
 
 export { getMatchesByTournament };

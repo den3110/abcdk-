@@ -1135,41 +1135,50 @@ export default function RankingList() {
           </Stack>
         ) : desktopCards ? (
           // desktop skeleton (cards 3 cột)
-          <Grid container spacing={2}>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "1fr",
+                sm: "repeat(2, minmax(0, 1fr))",
+                md: "repeat(3, minmax(0, 1fr))",
+              },
+              gap: 2,
+              alignItems: "stretch",
+            }}
+          >
             {Array.from({ length: SKELETON_CARDS_DESKTOP }).map((_, i) => (
-              <Grid item xs={12} sm={6} md={4} key={i}>
-                <Card variant="outlined">
-                  <CardContent>
-                    <Box display="flex" alignItems="center" mb={1.5} gap={2}>
-                      <Skeleton variant="circular" width={44} height={44} />
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Skeleton variant="text" width="60%" />
-                        <Stack direction="row" spacing={1} mt={0.5}>
-                          <Skeleton variant="rounded" width={60} height={22} />
-                          <Skeleton variant="rounded" width={100} height={22} />
-                        </Stack>
-                      </Box>
+              <Card key={i} variant="outlined">
+                <CardContent>
+                  <Box display="flex" alignItems="center" mb={1.5} gap={2}>
+                    <Skeleton variant="circular" width={44} height={44} />
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Skeleton variant="text" width="60%" />
+                      <Stack direction="row" spacing={1} mt={0.5}>
+                        <Skeleton variant="rounded" width={60} height={22} />
+                        <Skeleton variant="rounded" width={100} height={22} />
+                      </Stack>
                     </Box>
-                    <Stack direction="row" spacing={1} mb={1}>
-                      <Skeleton variant="rounded" width={120} height={24} />
-                      <Skeleton variant="rounded" width={120} height={24} />
-                    </Stack>
-                    <Divider sx={{ mb: 1.25 }} />
-                    <Stack direction="row" spacing={2} mb={0.5}>
-                      <Skeleton variant="text" width={90} />
-                      <Skeleton variant="text" width={90} />
-                    </Stack>
-                    <Skeleton variant="text" width={160} />
-                    <Skeleton variant="text" width={180} />
-                    <Stack direction="row" spacing={1} mt={2}>
-                      <Skeleton variant="rounded" width={90} height={32} />
-                      <Skeleton variant="rounded" width={100} height={32} />
-                    </Stack>
-                  </CardContent>
-                </Card>
-              </Grid>
+                  </Box>
+                  <Stack direction="row" spacing={1} mb={1}>
+                    <Skeleton variant="rounded" width={120} height={24} />
+                    <Skeleton variant="rounded" width={120} height={24} />
+                  </Stack>
+                  <Divider sx={{ mb: 1.25 }} />
+                  <Stack direction="row" spacing={2} mb={0.5}>
+                    <Skeleton variant="text" width={90} />
+                    <Skeleton variant="text" width={90} />
+                  </Stack>
+                  <Skeleton variant="text" width={160} />
+                  <Skeleton variant="text" width={180} />
+                  <Stack direction="row" spacing={1} mt={2}>
+                    <Skeleton variant="rounded" width={90} height={32} />
+                    <Skeleton variant="rounded" width={100} height={32} />
+                  </Stack>
+                </CardContent>
+              </Card>
             ))}
-          </Grid>
+          </Box>
         ) : (
           // desktop table skeleton
           <TableContainer component={Paper}>
