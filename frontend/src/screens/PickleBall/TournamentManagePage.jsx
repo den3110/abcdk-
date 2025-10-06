@@ -14,6 +14,7 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -46,6 +47,12 @@ import {
   Avatar,
   useMediaQuery,
   useTheme,
+  Checkbox,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Slide,
 } from "@mui/material";
 import {
   LinkOff as LinkOffIcon,
@@ -59,9 +66,6 @@ import {
   Stadium as StadiumIcon,
   HowToReg as RefereeIcon,
   Movie as MovieIcon,
-  PersonSearch as PersonSearchIcon,
-  Add as AddIcon,
-  RemoveCircleOutline as RemoveIcon,
   Print as PrintIcon,
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
@@ -71,12 +75,11 @@ import {
   useAdminGetBracketsQuery,
   useAdminListMatchesByTournamentQuery,
   useAdminSetMatchLiveUrlMutation,
-  // useAdminSearchRefereesQuery,
 } from "../../slices/tournamentsApiSlice";
 
 import {
-  // useListTournamentRefereesQuery,
-  // useUpsertTournamentRefereesMutation,
+  useBatchAssignRefereeMutation,
+  useListTournamentRefereesQuery,
 } from "../../slices/refereeScopeApiSlice";
 
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
@@ -85,11 +88,9 @@ import VideoDialog from "../../components/VideoDialog";
 import AssignCourtDialog from "../../components/AssignCourtDialog";
 import AssignRefDialog from "../../components/AssignRefDialog";
 import CourtManagerDialog from "../../components/CourtManagerDialog";
-// import ResponsiveModal from "../../components/ResponsiveModal";
 import ManageRefereesDialog from "../../components/RefereeManagerDialog";
 
 /* ---------------- helpers ---------------- */
-/* ----- helpers: tỉ số ----- */
 const _num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 const _normGame = (g) => {
@@ -323,17 +324,6 @@ const statusChip = (st) => {
   return <Chip size="small" color={v.color} label={v.label} />;
 };
 
-const statusText = (st) => {
-  const map = {
-    scheduled: "Chưa xếp",
-    queued: "Trong hàng chờ",
-    assigned: "Đã gán sân",
-    live: "Đang thi đấu",
-    finished: "Đã kết thúc",
-  };
-  return map[String(st || "").toLowerCase()] || st || "—";
-};
-
 const statusPriority = (st) => {
   switch (String(st || "").toLowerCase()) {
     case "live":
@@ -351,10 +341,10 @@ const statusPriority = (st) => {
   }
 };
 
-/* ========= Live store: subscribe theo matchId để tránh re-render cả list ========= */
+/* ========= Live store ========= */
 function createLiveStore() {
-  const map = new Map(); // matchId -> partial snapshot
-  const listeners = new Map(); // matchId -> Set<fn>
+  const map = new Map();
+  const listeners = new Map();
 
   return {
     get(id) {
@@ -367,7 +357,7 @@ function createLiveStore() {
       map.set(key, next);
       const subs = listeners.get(key);
       if (subs) subs.forEach((fn) => fn());
-      return prev.status !== next.status; // báo xem có đổi status không (để re-sort)
+      return prev.status !== next.status;
     },
     subscribe(id, cb) {
       const key = String(id);
@@ -439,7 +429,7 @@ function MatchCardSkeleton() {
   );
 }
 
-/* ===== NEW: pick field realtime cần thiết ===== */
+/* ===== pick realtime fields ===== */
 const pickRealtimeFields = (src = {}) => {
   const keys = [
     "status",
@@ -533,6 +523,8 @@ const MatchRow = React.memo(function MatchRow({
   onAssignCourt,
   onAssignRef,
   onExportRefNote,
+  checked = false,
+  onToggleSelect,
 }) {
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
@@ -543,6 +535,16 @@ const MatchRow = React.memo(function MatchRow({
       onClick={() => onRowClick(match._id)}
       sx={{ cursor: "pointer" }}
     >
+      <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+        <Checkbox
+          checked={checked}
+          onChange={(e) => {
+            e.stopPropagation(); // không mở viewer khi tick
+            onToggleSelect?.(match._id);
+          }}
+          size="small"
+        />
+      </TableCell>
       <TableCell sx={{ whiteSpace: "nowrap" }}>{matchCode(merged)}</TableCell>
       <TableCell>{pairLabel(merged?.pairA)}</TableCell>
       <TableCell>{pairLabel(merged?.pairB)}</TableCell>
@@ -608,6 +610,8 @@ const MatchCard = React.memo(function MatchCard({
   onAssignCourt,
   onAssignRef,
   onExportRefNote,
+  checked = false,
+  onToggleSelect,
 }) {
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
@@ -616,9 +620,35 @@ const MatchCard = React.memo(function MatchCard({
   return (
     <Card
       variant="outlined"
-      sx={{ height: "100%", cursor: "pointer", "&:hover": { boxShadow: 2 } }}
+      sx={{
+        height: "100%",
+        cursor: "pointer",
+        position: "relative",
+        "&:hover": { boxShadow: 2 },
+      }}
       onClick={() => onCardClick(match._id)}
     >
+      <Box
+        sx={{ position: "absolute", top: 6, right: 6, zIndex: 2 }}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <Checkbox
+          checked={checked}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            e.stopPropagation();
+            onToggleSelect?.(match._id);
+          }}
+          size="small"
+          inputProps={{ "aria-label": "Chọn trận" }}
+        />
+      </Box>
       <CardHeader
         sx={{ py: 1.2 }}
         avatar={<SportsIcon fontSize="small" />}
@@ -723,7 +753,6 @@ const MatchCard = React.memo(function MatchCard({
   );
 });
 
-
 /* ---------------- Component chính ---------------- */
 export default function TournamentManagePage() {
   const navigate = useNavigate();
@@ -758,6 +787,15 @@ export default function TournamentManagePage() {
 
   const [setLiveUrl, { isLoading: savingVideo }] =
     useAdminSetMatchLiveUrlMutation();
+
+  // NEW: ds trọng tài + batch mutation
+  const {
+    data: refData,
+    isLoading: refsLoading,
+    error: refsErr,
+  } = useListTournamentRefereesQuery({ tid: id }, { skip: false });
+  const [batchAssign, { isLoading: batching }] =
+    useBatchAssignRefereeMutation();
 
   // Quyền
   const isAdmin = !!(
@@ -906,14 +944,139 @@ export default function TournamentManagePage() {
     []
   );
 
-  /* ====== Live store + re-sort khi status đổi ====== */
+  /* ====== Selection ====== */
+  const [selectedMatchIds, setSelectedMatchIds] = useState(() => new Set());
+  const toggleSelectMatch = useCallback((mid) => {
+    setSelectedMatchIds((prev) => {
+      const next = new Set(prev);
+      const key = String(mid);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+  const clearSelection = useCallback(() => setSelectedMatchIds(new Set()), []);
+
+  const isAllSelectedIn = useCallback(
+    (arr) =>
+      arr.length > 0 && arr.every((m) => selectedMatchIds.has(String(m._id))),
+    [selectedMatchIds]
+  );
+  const toggleSelectAllIn = useCallback((arr, checked) => {
+    setSelectedMatchIds((prev) => {
+      const next = new Set(prev);
+      arr.forEach((m) => {
+        const key = String(m._id);
+        if (checked) next.add(key);
+        else next.delete(key);
+      });
+      return next;
+    });
+  }, []);
+
+  // === Batch assign dialog state ===
+  const [bulkDlgOpen, setBulkDlgOpen] = useState(false);
+  const [pickedRefs, setPickedRefs] = useState([]);
+
+  // ref options theo payload { items: [...] }
+  const refOptions = useMemo(() => {
+    const list = Array.isArray(refData?.items)
+      ? refData.items
+      : Array.isArray(refData)
+      ? refData
+      : [];
+    return list;
+  }, [refData]);
+
+  const idOfRef = useCallback((r) => String(r?._id ?? r?.id ?? ""), []);
+  const labelOfRef = useCallback(
+    (r) =>
+      r?.name || r?.nickname || (idOfRef(r) ? `#${idOfRef(r).slice(-4)}` : ""),
+    [idOfRef]
+  );
+
+  // ⛔ BỎ auto-open dialog khi tick (không còn useEffect mở/đóng theo selection)
+
+  const submitBatchAssign = useCallback(async () => {
+    const ids = Array.from(selectedMatchIds);
+    const refs = pickedRefs.map(idOfRef).filter(Boolean);
+    if (!ids.length) {
+      toast.info("Chưa chọn trận nào.");
+      return;
+    }
+    if (!refs.length) {
+      toast.info("Hãy chọn ít nhất 1 trọng tài.");
+      return;
+    }
+    try {
+      await batchAssign({ ids, referees: refs }).unwrap();
+      toast.success(`Đã gán trọng tài cho ${ids.length} trận`);
+      setBulkDlgOpen(false);
+      clearSelection();
+      setPickedRefs([]);
+      await refetchMatches?.();
+    } catch (e) {
+      toast.error(e?.data?.message || "Gán trọng tài thất bại");
+    }
+  }, [
+    selectedMatchIds,
+    pickedRefs,
+    idOfRef,
+    batchAssign,
+    refetchMatches,
+    clearSelection,
+  ]);
+
+  /* ====== Live store + realtime ====== */
   const liveStore = useMemo(() => createLiveStore(), []);
+  const handleExportRefNote = useCallback(
+    (m) => {
+      try {
+        const merged = { ...m, ...(liveStore.get(String(m._id)) || {}) };
+        const html = buildRefReportHTML({
+          tourName: tour?.name || "",
+          code: matchCode(merged),
+          court: courtLabel(merged),
+          referee: refereeNames(merged),
+          team1: pairLabel(merged?.pairA),
+          team2: pairLabel(merged?.pairB),
+          logoUrl: WEB_LOGO_URL,
+        });
+
+        const w = window.open("", "_blank");
+        if (!w) {
+          toast.error(
+            "Trình duyệt chặn popup. Hãy cho phép cửa sổ bật lên để in."
+          );
+          return;
+        }
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+
+        const tryPrint = () => {
+          try {
+            if (w.document && w.document.readyState === "complete") {
+              w.focus?.();
+              w.print?.();
+            } else {
+              setTimeout(tryPrint, 100);
+            }
+          } catch {}
+        };
+        tryPrint();
+      } catch (e) {
+        console.error(e);
+        toast.error("Không mở được biên bản trọng tài");
+      }
+    },
+    [tour, liveStore]
+  );
   const [orderVersion, setOrderVersion] = useState(0);
   const [isPending, startTransition] = useTransition();
 
   const allMatchesBase = matchPage?.list || [];
 
-  /* ======= Filter + Sort theo bracket ======= */
   const getLiveStatus = useCallback(
     (m) => liveStore.get(String(m?._id))?.status ?? m?.status,
     [liveStore]
@@ -947,7 +1110,7 @@ export default function TournamentManagePage() {
             courtLabel(merged),
             merged?.status,
             merged?.video,
-            scoreSummary(merged), // chỉ tính khi search để nhẹ UI
+            scoreSummary(merged),
           ].join(" ")
         );
         if (!text.includes(kw)) continue;
@@ -957,12 +1120,10 @@ export default function TournamentManagePage() {
     }
 
     const sorter = (a, b) => {
-      // 1) Ưu tiên LIVE (status realtime)
       const pa = statusPriority(getLiveStatus(a));
       const pb = statusPriority(getLiveStatus(b));
       if (pa !== pb) return pa - pb;
 
-      // 2) Theo tiêu chí người dùng
       const dir = sortDir === "asc" ? 1 : -1;
 
       if (sortKey === "order") {
@@ -977,7 +1138,6 @@ export default function TournamentManagePage() {
         return (ta - tb) * dir;
       }
 
-      // round
       const ar = Number.isFinite(a?.globalRound)
         ? a.globalRound
         : a?.round ?? 0;
@@ -1002,7 +1162,6 @@ export default function TournamentManagePage() {
     liveStore,
   ]);
 
-  /* ======= Socket realtime ======= */
   const socket = useSocket();
   const joinedRef = useRef(new Set());
   const matchRefetchTimer = useRef(null);
@@ -1332,49 +1491,6 @@ export default function TournamentManagePage() {
     }
   };
 
-  const handleExportRefNote = useCallback(
-    (m) => {
-      try {
-        const merged = { ...m, ...(liveStore.get(String(m._id)) || {}) };
-        const html = buildRefReportHTML({
-          tourName: tour?.name || "",
-          code: matchCode(merged),
-          court: courtLabel(merged),
-          referee: refereeNames(merged),
-          team1: pairLabel(merged?.pairA),
-          team2: pairLabel(merged?.pairB),
-          logoUrl: WEB_LOGO_URL,
-        });
-        const w = window.open("", "_blank");
-        if (!w) {
-          toast.error(
-            "Trình duyệt chặn popup. Hãy cho phép cửa sổ bật lên để in."
-          );
-          return;
-        }
-        w.document.open();
-        w.document.write(html);
-        w.document.close();
-
-        const tryPrint = () => {
-          try {
-            if (w.document && w.document.readyState === "complete") {
-              w.focus?.();
-              w.print?.();
-            } else {
-              setTimeout(tryPrint, 100);
-            }
-          } catch {}
-        };
-        tryPrint();
-      } catch (e) {
-        console.error(e);
-        toast.error("Không mở được biên bản trọng tài");
-      }
-    },
-    [tour, liveStore]
-  );
-
   /* ---------- guards ---------- */
   if (tourLoading || brLoading) {
     return (
@@ -1548,6 +1664,7 @@ export default function TournamentManagePage() {
             <MenuItem value="asc">Tăng dần</MenuItem>
             <MenuItem value="desc">Giảm dần</MenuItem>
           </TextField>
+
           <Chip
             size="small"
             variant="outlined"
@@ -1556,6 +1673,110 @@ export default function TournamentManagePage() {
           />
         </Box>
       </Paper>
+
+      {/* === Floating Action Bar (hiện khi có chọn) === */}
+      {selectedMatchIds.size > 0 && (
+        <>
+          <Box sx={{ display: { xs: "none", md: "block" } }}>
+            <Box
+              sx={{
+                position: "fixed",
+                left: "50%",
+                transform: "translateX(-50%)",
+                top: { xs: 72, md: 86 }, // ngay dưới header/filter
+                zIndex: 1300,
+              }}
+            >
+              <Paper
+                elevation={6}
+                sx={{
+                  px: 1.5,
+                  py: 1,
+                  borderRadius: 999,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                }}
+              >
+                <Chip
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  label={`Đã chọn ${selectedMatchIds.size} trận`}
+                />
+                <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<RefereeIcon />}
+                  onClick={() => setBulkDlgOpen(true)}
+                  sx={{ whiteSpace: "nowrap" }}
+                >
+                  Gán trọng tài
+                </Button>
+                <Button
+                  size="small"
+                  onClick={clearSelection}
+                  sx={{ whiteSpace: "nowrap" }}
+                >
+                  Bỏ chọn
+                </Button>
+              </Paper>
+            </Box>
+          </Box>
+          {/* Mobile action bar (xs only) */}
+          <Slide in={selectedMatchIds.size > 0} direction="up">
+            <Box
+              sx={{
+                display: { xs: "block", md: "none" },
+                position: "fixed",
+                left: 0,
+                right: 0,
+                bottom: 80,
+                zIndex: 1300,
+                px: 1.5,
+                pb: "calc(env(safe-area-inset-bottom, 0px) + 8px)",
+              }}
+            >
+              <Paper
+                elevation={8}
+                sx={{
+                  borderRadius: "16px 16px 0 0",
+                  px: 2,
+                  py: 1.25,
+                }}
+              >
+                <Stack spacing={1}>
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <Chip
+                      size="small"
+                      color="primary"
+                      variant="outlined"
+                      label={`Đã chọn ${selectedMatchIds.size} trận`}
+                    />
+                    <Box sx={{ flexGrow: 1 }} />
+                  </Stack>
+
+                  <Stack direction="row" spacing={1}>
+                    <Button
+                      variant="contained"
+                      fullWidth
+                      startIcon={<RefereeIcon />}
+                      onClick={() => setBulkDlgOpen(true)}
+                      sx={{ whiteSpace: "nowrap" }}
+                    >
+                      Gán trọng tài
+                    </Button>
+                    <Button fullWidth onClick={clearSelection}>
+                      Bỏ chọn
+                    </Button>
+                  </Stack>
+                </Stack>
+              </Paper>
+            </Box>
+          </Slide>
+        </>
+      )}
 
       {/* Bracket list */}
       {bracketsOfTab.length === 0 ? (
@@ -1566,6 +1787,7 @@ export default function TournamentManagePage() {
         bracketsOfTab.map((b) => {
           const bid = String(b?._id);
           const list = groupedLists.get(bid) || [];
+          const allSelected = isAllSelectedIn(list);
 
           return (
             <Paper key={bid} variant="outlined" sx={{ mb: 2 }}>
@@ -1615,6 +1837,21 @@ export default function TournamentManagePage() {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
+                        <TableCell padding="checkbox">
+                          <Checkbox
+                            size="small"
+                            checked={allSelected}
+                            indeterminate={
+                              !allSelected &&
+                              list.some((m) =>
+                                selectedMatchIds.has(String(m._id))
+                              )
+                            }
+                            onChange={(e) =>
+                              toggleSelectAllIn(list, e.target.checked)
+                            }
+                          />
+                        </TableCell>
                         <TableCell sx={{ whiteSpace: "nowrap" }}>Mã</TableCell>
                         <TableCell sx={{ minWidth: 240 }}>Cặp A</TableCell>
                         <TableCell sx={{ minWidth: 240 }}>Cặp B</TableCell>
@@ -1636,12 +1873,12 @@ export default function TournamentManagePage() {
                     </TableHead>
 
                     {mLoading ? (
-                      <TableSkeletonRows rows={8} cols={9} />
+                      <TableSkeletonRows rows={8} cols={10} />
                     ) : (
                       <TableBody>
                         {list.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={9} align="center">
+                            <TableCell colSpan={10} align="center">
                               <Typography color="text.secondary">
                                 Chưa có trận nào.
                               </Typography>
@@ -1659,6 +1896,8 @@ export default function TournamentManagePage() {
                               onAssignCourt={openAssignCourt}
                               onAssignRef={openAssignRef}
                               onExportRefNote={handleExportRefNote}
+                              checked={selectedMatchIds.has(String(m._id))}
+                              onToggleSelect={toggleSelectMatch}
                             />
                           ))
                         )}
@@ -1684,22 +1923,64 @@ export default function TournamentManagePage() {
                       Chưa có trận nào.
                     </Typography>
                   ) : (
-                    <Grid container spacing={1.2}>
-                      {list.map((m) => (
-                        <Grid key={m._id} item width={"100%"} xs={6}>
-                          <MatchCard
-                            match={m}
-                            liveStore={liveStore}
-                            onCardClick={(id) => openMatch(id)}
-                            onOpenVideo={openVideoDlg}
-                            onDeleteVideo={deleteVideoDlg}
-                            onAssignCourt={openAssignCourt}
-                            onAssignRef={openAssignRef}
-                            onExportRefNote={handleExportRefNote}
-                          />
-                        </Grid>
-                      ))}
-                    </Grid>
+                    <>
+                      {/* Select-all cho mobile */}
+                      <Stack
+                        direction="row"
+                        alignItems="center"
+                        spacing={1}
+                        sx={{ mb: 1 }}
+                      >
+                        <Checkbox
+                          size="small"
+                          checked={allSelected}
+                          indeterminate={
+                            !allSelected &&
+                            list.some((m) =>
+                              selectedMatchIds.has(String(m._id))
+                            )
+                          }
+                          onChange={(e) =>
+                            toggleSelectAllIn(list, e.target.checked)
+                          }
+                          // chặn bubble đề phòng
+                          onClick={(e) => e.stopPropagation()}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
+                          inputProps={{ "aria-label": "Chọn tất cả (mobile)" }}
+                        />
+                        <Typography variant="body2">Chọn tất cả</Typography>
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={`${
+                            list.filter((m) =>
+                              selectedMatchIds.has(String(m._id))
+                            ).length
+                          } đã chọn`}
+                        />
+                      </Stack>
+
+                      <Grid container spacing={1.2}>
+                        {list.map((m) => (
+                          <Grid key={m._id} item width={"100%"} xs={6}>
+                            <MatchCard
+                              match={m}
+                              liveStore={liveStore}
+                              onCardClick={(id) => openMatch(id)}
+                              onOpenVideo={openVideoDlg}
+                              onDeleteVideo={deleteVideoDlg}
+                              onAssignCourt={openAssignCourt}
+                              onAssignRef={openAssignRef}
+                              onExportRefNote={handleExportRefNote}
+                              checked={selectedMatchIds.has(String(m._id))}
+                              onToggleSelect={toggleSelectMatch}
+                            />
+                          </Grid>
+                        ))}
+                      </Grid>
+                    </>
                   )}
                 </Box>
               </Box>
@@ -1755,7 +2036,6 @@ export default function TournamentManagePage() {
         tournamentId={id}
         onClose={() => setRefMgrOpen(false)}
         onChanged={() => {
-          // Nếu cần, có thể refetch danh sách trận/sơ đồ, thường không bắt buộc
           refetchMatches?.();
           refetchBrackets?.();
         }}
@@ -1767,6 +2047,92 @@ export default function TournamentManagePage() {
         matchId={viewer.matchId}
         onClose={closeMatch}
       />
+
+      {/* ===== Dialog gán trọng tài (batch) — mở bằng nút trên thanh nổi ===== */}
+      <Dialog
+        open={bulkDlgOpen}
+        onClose={() => setBulkDlgOpen(false)} // không auto-clear selection
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Gán trọng tài</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={2}>
+            <Typography variant="body2" color="text.secondary">
+              Đang chọn <b>{selectedMatchIds.size}</b> trận.
+            </Typography>
+            <Autocomplete
+              multiple
+              disableCloseOnSelect
+              options={refOptions}
+              loading={refsLoading}
+              getOptionLabel={labelOfRef}
+              isOptionEqualToValue={(a, b) => idOfRef(a) === idOfRef(b)}
+              value={pickedRefs}
+              onChange={(_, val) => setPickedRefs(val)}
+              renderOption={(props, option, { selected }) => (
+                <li {...props} key={idOfRef(option)}>
+                  <Checkbox
+                    style={{ marginRight: 8 }}
+                    checked={selected}
+                    size="small"
+                  />
+                  <Avatar
+                    src={option?.avatar || ""}
+                    alt={labelOfRef(option)}
+                    sx={{ width: 24, height: 24, mr: 1 }}
+                  />
+                  <span style={{ fontWeight: 600 }}>
+                    {option?.name || option?.nickname || "—"}
+                  </span>
+                  {option?.nickname && option?.name && (
+                    <span style={{ marginLeft: 6, color: "#666" }}>
+                      ({option.nickname})
+                    </span>
+                  )}
+                </li>
+              )}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Chọn trọng tài"
+                  placeholder="Tìm theo tên/nickname"
+                />
+              )}
+              renderTags={(value, getTagProps) =>
+                value.map((opt, idx) => (
+                  <Chip
+                    {...getTagProps({ index: idx })}
+                    size="small"
+                    label={labelOfRef(opt)}
+                  />
+                ))
+              }
+            />
+            {refsErr && (
+              <Alert severity="warning">
+                Không tải được danh sách trọng tài.
+              </Alert>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setBulkDlgOpen(false)}>Đóng</Button>
+          <Button
+            variant="contained"
+            startIcon={<RefereeIcon />}
+            disabled={
+              batching ||
+              refsLoading ||
+              pickedRefs.length === 0 ||
+              selectedMatchIds.size === 0
+            }
+            onClick={submitBatchAssign}
+          >
+            Gán
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
