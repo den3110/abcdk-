@@ -125,6 +125,103 @@ export const clubsApiSlice = apiSlice.injectEndpoints({
       }),
       invalidatesTags: (res, err, { id }) => [{ type: "JoinRequest", id }],
     }),
+    // EVENTS
+    listEvents: builder.query({
+      query: ({ id, page = 1, limit = 20, from, to }) => {
+        const p = new URLSearchParams({ page, limit });
+        if (from) p.set("from", from);
+        if (to) p.set("to", to);
+        return { url: `/api/clubs/${id}/events?${p.toString()}` };
+      },
+    }),
+    createEvent: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/api/clubs/${id}/events`,
+        method: "POST",
+        body,
+      }),
+    }),
+    updateEvent: builder.mutation({
+      query: ({ id, eventId, ...body }) => ({
+        url: `/api/clubs/${id}/events/${eventId}`,
+        method: "PATCH",
+        body,
+      }),
+    }),
+    deleteEvent: builder.mutation({
+      query: ({ id, eventId }) => ({
+        url: `/api/clubs/${id}/events/${eventId}`,
+        method: "DELETE",
+      }),
+    }),
+    rsvpEvent: builder.mutation({
+      query: ({ id, eventId, status }) => ({
+        url: `/api/clubs/${id}/events/${eventId}/rsvp`,
+        method: "POST",
+        body: { status }, // "going" | "not_going" | "none"
+      }),
+    }),
+    // .ics chỉ cần dùng <a href>, không cần mutation. Nhưng nếu muốn tải blob:
+    downloadEventIcs: builder.query({
+      query: ({ id, eventId }) => ({
+        url: `/api/clubs/${id}/events/${eventId}/ics`,
+        responseHandler: (res) => res.blob(),
+      }),
+    }),
+
+    // ANNOUNCEMENTS
+    listAnnouncements: builder.query({
+      query: ({ id, page = 1, limit = 10 }) => ({
+        url: `/api/clubs/${id}/announcements?page=${page}&limit=${limit}`,
+      }),
+    }),
+    createAnnouncement: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/api/clubs/${id}/announcements`,
+        method: "POST",
+        body,
+      }),
+    }),
+    updateAnnouncement: builder.mutation({
+      query: ({ id, postId, ...body }) => ({
+        url: `/api/clubs/${id}/announcements/${postId}`,
+        method: "PATCH",
+        body,
+      }),
+    }),
+    deleteAnnouncement: builder.mutation({
+      query: ({ id, postId }) => ({
+        url: `/api/clubs/${id}/announcements/${postId}`,
+        method: "DELETE",
+      }),
+    }),
+
+    // POLLS
+    listPolls: builder.query({
+      query: ({ id, page = 1, limit = 10 }) => ({
+        url: `/api/clubs/${id}/polls?page=${page}&limit=${limit}`,
+      }),
+    }),
+    createPoll: builder.mutation({
+      query: ({ id, ...body }) => ({
+        url: `/api/clubs/${id}/polls`,
+        method: "POST",
+        body,
+      }),
+    }),
+    votePoll: builder.mutation({
+      query: ({ id, pollId, optionIds }) => ({
+        url: `/api/clubs/${id}/polls/${pollId}/vote`,
+        method: "POST",
+        body: { optionIds },
+      }),
+    }),
+    closePoll: builder.mutation({
+      query: ({ id, pollId }) => ({
+        url: `/api/clubs/${id}/polls/${pollId}/close`,
+        method: "POST",
+      }),
+    }),
   }),
   overrideExisting: false,
 });
@@ -144,4 +241,23 @@ export const {
   useListJoinRequestsQuery,
   useAcceptJoinMutation,
   useRejectJoinMutation,
+  // events
+  useListEventsQuery,
+  useCreateEventMutation,
+  useUpdateEventMutation,
+  useDeleteEventMutation,
+  useRsvpEventMutation,
+  useDownloadEventIcsQuery,
+
+  // announcements
+  useListAnnouncementsQuery,
+  useCreateAnnouncementMutation,
+  useUpdateAnnouncementMutation,
+  useDeleteAnnouncementMutation,
+
+  // polls
+  useListPollsQuery,
+  useCreatePollMutation,
+  useVotePollMutation,
+  useClosePollMutation,
 } = clubsApiSlice;

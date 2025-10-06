@@ -324,7 +324,7 @@ const payloadBuilders = {
       body: vs
         ? `${vs} • Vào theo dõi diễn biến`
         : "Trận của bạn đã bắt đầu • Vào xem diễn biến ngay!",
-      data: { url: `/match/${matchId}`, kind: EVENTS.MATCH_WENT_LIVE },
+      data: { url: `/match/${matchId}/home`, kind: EVENTS.MATCH_WENT_LIVE },
     };
   },
 

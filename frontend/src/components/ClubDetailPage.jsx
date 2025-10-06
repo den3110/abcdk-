@@ -1,6 +1,5 @@
-// src/components/ClubDetailPage.jsx
 import React, { useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import {
   Container,
   Grid,
@@ -10,21 +9,21 @@ import {
   Button,
   Divider,
   Skeleton,
+  Tabs,
+  Tab,
   Badge,
 } from "@mui/material";
 import { toast } from "react-toastify";
-
-import {
-  useGetClubQuery,
-  useListJoinRequestsQuery, // ⬅️ dùng để lấy total pending
-} from "../slices/clubsApiSlice";
+import { useGetClubQuery } from "../slices/clubsApiSlice";
 import ClubHeader from "./ClubHeader";
 import ClubActions from "./ClubActions";
 import ClubCreateDialog from "./ClubCreateDialog";
 import JoinRequestsDialog from "./JoinRequestsDialog";
 import ClubMembersCards from "./ClubMembersCards";
+import ClubEventsSection from "./events/ClubEventsSection";
+import ClubAnnouncements from "./news/ClubAnnouncements";
+import ClubPolls from "./polls/ClubPolls";
 
-// helper: quyết định quyền xem danh sách thành viên
 function calcCanSeeMembers(club, my) {
   const vis = club?.memberVisibility || "admins";
   const canManage = !!my?.canManage;
@@ -38,7 +37,6 @@ function calcCanSeeMembers(club, my) {
   if (vis === "public") return true;
   return false;
 }
-
 function memberGuardMessage(club) {
   const vis = club?.memberVisibility || "admins";
   if (vis === "admins")
@@ -48,33 +46,26 @@ function memberGuardMessage(club) {
   return "Danh sách thành viên hiện không thể hiển thị.";
 }
 
+const ALLOWED_TABS = ["news", "events", "polls"];
+
 export default function ClubDetailPage() {
   const { id } = useParams();
   const { data: club, isLoading, refetch } = useGetClubQuery(id);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const my = club?._my || null;
   const canManage = !!my?.canManage;
   const isOwnerOrAdmin =
     my && (my.membershipRole === "owner" || my.membershipRole === "admin");
 
-  // hiển thị nhãn Owner/Admin:
-  // - Quản trị luôn nhìn thấy
-  // - Thành viên thường chỉ thấy nếu club.showRolesToMembers = true
-  const showRoleBadges = canManage || !!club?.showRolesToMembers;
-
   const [openEdit, setOpenEdit] = useState(false);
   const [openJR, setOpenJR] = useState(false);
 
-  // 👉 hỏi tổng số yêu cầu "pending" để gắn badge
-  const {
-    data: jrMeta,
-    refetch: refetchJR,
-    isFetching: fetchingJR,
-  } = useListJoinRequestsQuery(
-    { id, status: "pending", page: 1, limit: 1 },
-    { skip: !isOwnerOrAdmin } // chỉ quản trị mới cần biết số pending
-  );
-  const pendingCount = jrMeta?.total || 0;
+  // Lấy tab từ URL (?tab=...), mặc định 'news' nếu thiếu/không hợp lệ
+  const tabFromUrl = (searchParams.get("tab") || "").toLowerCase();
+  const tab = ALLOWED_TABS.includes(tabFromUrl) ? tabFromUrl : "news";
+
+  const showRoleBadges = canManage || !!club?.showRolesToMembers;
 
   const rightSide = useMemo(
     () => (
@@ -86,28 +77,20 @@ export default function ClubDetailPage() {
             <>
               <Divider />
               <Typography variant="subtitle1">Quản trị CLB</Typography>
-              <Stack direction="row" spacing={1} alignItems="center">
+              <Stack direction="row" spacing={1} flexWrap="wrap">
                 <Button variant="outlined" onClick={() => setOpenEdit(true)}>
                   Chỉnh sửa CLB
                 </Button>
-
-                {/* Nút duyệt + badge số pending (ẩn nếu 0) */}
-                <Badge
-                  color="error"
-                  badgeContent={pendingCount}
-                  invisible={!pendingCount || fetchingJR}
-                >
-                  <Button variant="outlined" onClick={() => setOpenJR(true)}>
-                    Duyệt yêu cầu gia nhập
-                  </Button>
-                </Badge>
+                <Button variant="outlined" onClick={() => setOpenJR(true)}>
+                  Duyệt yêu cầu gia nhập
+                </Button>
               </Stack>
             </>
           )}
         </Stack>
       </Paper>
     ),
-    [club, my, isOwnerOrAdmin, pendingCount, fetchingJR]
+    [club, my, isOwnerOrAdmin]
   );
 
   if (isLoading) {
@@ -145,27 +128,66 @@ export default function ClubDetailPage() {
         onEdit={isOwnerOrAdmin ? () => setOpenEdit(true) : undefined}
       />
 
+      {/* Tabs nội dung */}
+      <Paper variant="outlined" sx={{ p: 2, borderRadius: 3, mb: 2 }}>
+        <Tabs
+          value={tab}
+          onChange={(_, v) => {
+            const next = new URLSearchParams(searchParams);
+            next.set("tab", v);
+            setSearchParams(next); // push state để back/forward được
+          }}
+          variant="scrollable"
+          allowScrollButtonsMobile
+        >
+          <Tab label="Bảng tin" value="news" />
+          <Tab label="Sự kiện" value="events" />
+          <Tab label="Khảo sát" value="polls" />
+        </Tabs>
+      </Paper>
+
       <Grid container spacing={2}>
         <Grid item xs={12} md={8}>
           <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
-            <Typography variant="h6" sx={{ mb: 1 }}>
-              Giới thiệu
-            </Typography>
-            <Typography variant="body1" color="text.secondary">
-              {club.description || "Chưa có mô tả"}
-            </Typography>
+            {tab === "news" && (
+              <>
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  Bảng tin
+                </Typography>
+                <ClubAnnouncements club={club} canManage={canManage} />
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  Thành viên CLB
+                </Typography>
+                {canSeeMembers ? (
+                  <ClubMembersCards
+                    club={club}
+                    showRoleBadges={showRoleBadges}
+                  />
+                ) : (
+                  <Typography color="text.secondary">
+                    {memberGuardMessage(club)}
+                  </Typography>
+                )}
+              </>
+            )}
 
-            <Divider sx={{ my: 2 }} />
-            <Typography variant="h6" sx={{ mb: 1 }}>
-              Thành viên CLB
-            </Typography>
+            {tab === "events" && (
+              <>
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  Sự kiện
+                </Typography>
+                <ClubEventsSection club={club} canManage={canManage} />
+              </>
+            )}
 
-            {canSeeMembers ? (
-              <ClubMembersCards club={club} showRoleBadges={showRoleBadges} />
-            ) : (
-              <Typography color="text.secondary">
-                {memberGuardMessage(club)}
-              </Typography>
+            {tab === "polls" && (
+              <>
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  Khảo sát
+                </Typography>
+                <ClubPolls club={club} canManage={canManage} />
+              </>
             )}
           </Paper>
         </Grid>
@@ -175,7 +197,6 @@ export default function ClubDetailPage() {
         </Grid>
       </Grid>
 
-      {/* Chỉnh sửa CLB */}
       <ClubCreateDialog
         open={openEdit}
         onClose={(ok) => {
@@ -188,14 +209,9 @@ export default function ClubDetailPage() {
         initial={club}
       />
 
-      {/* Duyệt yêu cầu gia nhập */}
       <JoinRequestsDialog
         open={openJR}
-        onClose={() => {
-          setOpenJR(false);
-          // cập nhật lại số badge sau khi duyệt/reject
-          refetchJR();
-        }}
+        onClose={() => setOpenJR(false)}
         clubId={club._id}
       />
     </Container>

@@ -809,7 +809,7 @@ export async function applyRatingForFinishedMatch(matchId) {
         score: noteScore,
         reliabilityBefore: relBefore,
         reliabilityAfter: relAfter,
-        marginBonus,
+        marginBonus: marginBoost,
         contextDU: round3(contextDU),
         bracketType,
         round: mt.round || 1,
