@@ -133,6 +133,7 @@ import {
   searchPresenceUsers,
 } from "../controllers/admin/adminStatsController.js";
 import { searchUsersForRefereeAssign } from "../controllers/admin/refereeController.js";
+import { suggestAndCommit, suggestPlan } from "./planSuggest.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -418,6 +419,9 @@ router.post(
   authorize("admin"),
   planCommit
 );
+
+router.post("/tournaments/:id/plan/suggest", protect, authorize("admin"), suggestPlan);
+router.post("/tournaments/:id/plan/suggest-and-commit", protect, authorize("admin"), suggestAndCommit);
 
 // auto create registration
 router.post(
