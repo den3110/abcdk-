@@ -8,6 +8,7 @@ import {
   useLazyGetNextByCourtQuery,
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
+import { forwardRef } from "react";
 
 /* ========================== Utils ========================== */
 const smax = (v) => (Number.isFinite(+v) ? +v : 0);
@@ -539,12 +540,12 @@ function buildFramesFromFinalScores(base) {
 }
 
 /* ======================== Component ======================== */
-export default function ScoreOverlay() {
+const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   const socket = useSocket();
   const [q] = useSearchParams();
   const navigate = useNavigate();
 
-  const matchId = q.get("matchId") || "";
+  const matchId = props?.matchIdProp || q.get("matchId") || "";
   const replay = parseQPBool(q.get("replay")) === true; // replay=1 to enable
 
   // Live-log timing controls (only used when replay=1)
@@ -733,11 +734,13 @@ export default function ScoreOverlay() {
     const scoreScale =
       Number(firstDefined(overlayBE?.scoreScale, q.get("scoreScale"), 1)) || 1;
 
-    const logoUrl = firstDefined(
-      overlayBE?.logoUrl,
-      q.get("logo"),
-      (typeof window !== "undefined" && data?.tournament?.image) || ""
-    );
+    const logoUrl = props?.disableLogo
+      ? ""
+      : firstDefined(
+          overlayBE?.logoUrl,
+          q.get("logo"),
+          (typeof window !== "undefined" && data?.tournament?.image) || ""
+        );
 
     const customCss = overlayBE?.customCss || "";
 
@@ -933,16 +936,7 @@ export default function ScoreOverlay() {
         pollRef.current = null;
       }
     };
-  }, [
-    autoNext,
-    rawStatus,
-    data?.court?.id,
-    data?.courtId,
-    data?.matchId,
-    matchId,
-    getNextByCourt,
-    navigate,
-  ]);
+  }, [autoNext, rawStatus, data?.court?.id, data?.courtId, data?.matchId, matchId, getNextByCourt, navigate]);
 
   /* ---------- REPLAY driver (only when replay=1) ---------- */
   const replayTimerRef = useRef(null);
@@ -1071,16 +1065,7 @@ export default function ScoreOverlay() {
         replayTimerRef.current = null;
       }
     };
-  }, [
-    replay,
-    replayLoop,
-    replayRate,
-    replayMinMs,
-    replayMaxMs,
-    replayStartMs,
-    replayStepMs,
-    snapRaw,
-  ]);
+  }, [replay, replayLoop, replayRate, replayMinMs, replayMaxMs, replayStartMs, replayStepMs, snapRaw]);
 
   if (!ready) return null;
 
@@ -1088,6 +1073,7 @@ export default function ScoreOverlay() {
     <div
       className="ovl-wrap"
       style={wrapStyle}
+      ref={overlayRef}
       data-ovl=""
       data-theme={effective.theme}
       data-size={effective.size}
@@ -1304,7 +1290,9 @@ export default function ScoreOverlay() {
       {effective.customCss ? <style>{effective.customCss}</style> : null}
     </div>
   );
-}
+});
+
+export default ScoreOverlay;
 
 /* ========================== Styles ========================== */
 const styles = {

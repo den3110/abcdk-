@@ -8,11 +8,14 @@ import {
   isManagerTournament,
   protect,
 } from "../middleware/authMiddleware.js";
+import { createFacebookLiveForMatch } from "../controllers/adminMatchLiveController.js";
 
 const router = express.Router();
 
 router.patch("/:id/live", protect, isManagerTournament, setMatchLive);
 
 router.patch("/:id/admin", protect, isManagerTournament, adminPatchMatch);
+
+router.post("/:matchId/live/facebook", createFacebookLiveForMatch);
 
 export default router;

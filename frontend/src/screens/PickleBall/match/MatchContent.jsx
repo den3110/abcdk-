@@ -38,6 +38,7 @@ import {
   ContentCopy as ContentCopyIcon,
   OpenInNew as OpenInNewIcon,
   AccessTime as TimeIcon,
+  LiveTv as LiveTvIcon,
   Edit as EditIcon,
   Save as SaveIcon,
   Add as AddIcon,
@@ -63,6 +64,7 @@ import {
   useListTournamentMatchesQuery,
 } from "../../../slices/tournamentsApiSlice";
 import { useSocket } from "../../../context/SocketContext";
+import MatchRowActions from "../../../components/MatchRowActions";
 
 /* ====================== utils ====================== */
 const sid = (x) => {
@@ -1403,6 +1405,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                   variant="outlined"
                   startIcon={<ContentCopyIcon />}
                   onClick={() => navigator.clipboard.writeText(overlayUrl)}
+                  sx={{ whiteSpace: "nowrap" }}
                 >
                   Copy link
                 </Button>
@@ -1416,10 +1419,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                   target="_blank"
                   rel="noreferrer"
                   underline="none"
-                  sx={{ color: "white !important" }}
+                  sx={{ color: "white !important", whiteSpace: "nowrap" }}
                 >
                   Mở overlay
                 </Button>
+                <MatchRowActions match={m} />
               </Stack>
             </Stack>
             <Typography variant="caption" color="text.secondary">

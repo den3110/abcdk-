@@ -15,11 +15,12 @@ export default defineConfig({
         target: "http://localhost:5001",
         changeOrigin: true,
       },
-      "/socket.io": {
+      "/ws/rtmp": {
         target: "http://localhost:5001",
         ws: true, // 👈 QUAN TRỌNG: bật websocket proxy
         changeOrigin: true,
       },
+
     },
   },
   build: {

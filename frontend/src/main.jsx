@@ -47,6 +47,7 @@ import ServiceUnavailable from "./screens/503.jsx";
 import PublicProfilePage from "./screens/PublicProfilePage.jsx";
 import ClubsListPage from "./screens/clubs/ClubsListPage.jsx";
 import ClubDetailPage from "./components/ClubDetailPage.jsx";
+import LiveStudioPage from "./screens/live/LiveStudioPage.jsx";
 
 dayjs.locale("vi");
 
@@ -107,6 +108,7 @@ const router = createBrowserRouter(
       </Route>
       <Route path="/overlay/score" element={<ScoreOverlay />} />
       <Route path="/503" element={<ServiceUnavailable />} />
+      <Route path="/studio/live" element={<LiveStudioPage />} />
 
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<Navigate to="/admin/users" replace />} />

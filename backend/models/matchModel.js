@@ -179,6 +179,15 @@ const matchSchema = new Schema(
     stageIndex: { type: Number, default: 1, index: true }, // V1, V2, ...
     labelKey: { type: String, default: "" }, // ví dụ: V2#R1#3
     meta: { type: Schema.Types.Mixed, default: {} },
+    facebookLive: {
+      id: String,
+      permalink_url: String,
+      secure_stream_url: String,
+      server_url: String,
+      stream_key: String,
+      status: { type: String, default: "CREATED" },
+      createdAt: Date,
+    },
   },
   { timestamps: true }
 );

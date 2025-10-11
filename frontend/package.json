@@ -22,6 +22,7 @@
     "dayjs": "^1.11.18",
     "docx": "^9.5.1",
     "hls.js": "^1.6.11",
+    "html-to-image": "^1.11.13",
     "jspdf": "^3.0.3",
     "jspdf-autotable": "^5.0.2",
     "pdfmake": "^0.2.20",
