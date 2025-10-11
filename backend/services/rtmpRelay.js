@@ -10,9 +10,7 @@ function resolveFfmpegCmd() {
   if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
     return process.env.FFMPEG_PATH;
   }
-  if (ffmpegStatic && fs.existsSync(ffmpegStatic)) {
-    return ffmpegStatic; // dùng binary kèm gói
-  }
+ 
   return "ffmpeg"; // fallback PATH hệ thống
 }
 
