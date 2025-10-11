@@ -1,7 +1,6 @@
-// services/rtmpRelay.js - FIXED VERSION
-
+// services/rtmpRelay.js
 import { WebSocketServer } from "ws";
-import { spawn } from "child_process";
+import { spawn, execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -12,59 +11,40 @@ const __dirname = path.dirname(__filename);
 
 const isWin = process.platform === "win32";
 
-// ⚠️ QUAN TRỌNG: Phải dùng bản FULL, không dùng essentials
+// Ưu tiên đường dẫn thực tế trên Linux
 const CANDIDATES = [
   process.env.FFMPEG_PATH,
-  isWin ? "C:\\ffmpeg\\bin\\ffmpeg.exe" : null, // Đường dẫn custom
-  isWin ? "C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe" : null,
+  isWin ? "C:\\ffmpeg\\bin\\ffmpeg.exe" : "/usr/bin/ffmpeg",
+  isWin
+    ? "C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe"
+    : "/usr/local/bin/ffmpeg",
   "ffmpeg",
 ];
 
 const FFMPEG_BIN =
   CANDIDATES.find((p) => p && (p === "ffmpeg" || fs.existsSync(p))) || "ffmpeg";
 
-// Kiểm tra FFmpeg có hỗ trợ RTMPS không
+// Kiểm tra RTMPS support (ESM-safe, KHÔNG dùng require)
 function checkRtmpsSupport() {
   try {
-    const { execSync } = require("child_process");
-    const output = execSync(`"${FFMPEG_BIN}" -protocols`, { encoding: "utf8" });
-    const hasRtmps = output.includes("rtmps");
-
-    if (!hasRtmps) {
-      console.error(`
-╔═══════════════════════════════════════════════════════════╗
-║  ⚠️  FFmpeg KHÔNG hỗ trợ RTMPS!                           ║
-║                                                           ║
-║  Bạn đang dùng bản "essentials" thiếu OpenSSL.           ║
-║                                                           ║
-║  Giải pháp:                                               ║
-║  1. Tải bản FULL từ:                                      ║
-║     https://www.gyan.dev/ffmpeg/builds/                   ║
-║     → Chọn "ffmpeg-release-full.7z"                       ║
-║                                                           ║
-║  2. Giải nén và set biến môi trường:                      ║
-║     set FFMPEG_PATH=C:\\path\\to\\ffmpeg-full\\bin\\ffmpeg.exe ║
-║                                                           ║
-║  3. Hoặc cài qua Chocolatey (FULL version):               ║
-║     choco install ffmpeg-full                             ║
-╚═══════════════════════════════════════════════════════════╝
-      `);
-      return false;
+    const out = execFileSync(FFMPEG_BIN, ["-protocols"], { encoding: "utf8" });
+    if (!out.includes("rtmps")) {
+      console.error(
+        "⚠️  FFmpeg không có RTMPS. Cài bản đầy đủ (Ubuntu): sudo apt install -y ffmpeg"
+      );
+      // vẫn tiếp tục, nhiều build có RTMPS nhưng không liệt kê
+    } else {
+      console.log(`✅ FFmpeg OK (rtmps): ${FFMPEG_BIN}`);
     }
-
-    console.log(`✅ FFmpeg hỗ trợ RTMPS: ${FFMPEG_BIN}`);
-    return true;
   } catch (e) {
     console.warn("⚠️  Không thể kiểm tra FFmpeg protocols:", e.message);
-    return true; // Tiếp tục thử
   }
 }
 
-// Chuẩn hoá base RTMPS cho Facebook
 function normalizeFbBase(urlStr) {
   let u = String(urlStr || "").trim();
+  u = u.replace(/[\r\n]/g, "").replace(/\s+/g, "");
   if (!u) u = "rtmps://live-api-s.facebook.com:443/rtmp/";
-  u = u.replace(/\s+/g, "");
   if (!/\/rtmp\/$/.test(u)) {
     u = u.replace(/\/+$/, "") + "/rtmp/";
   }
@@ -74,21 +54,11 @@ function normalizeFbBase(urlStr) {
 function buildFbOutUrl(server_url, stream_key) {
   const base = normalizeFbBase(server_url);
   let key = String(stream_key || "").trim();
-
-  // Loại bỏ ALL khoảng trắng, tab, newline
-  key = key.replace(/[\r\n\t\s]+/g, "");
-
+  key = key.replace(/[\r\n]/g, "").replace(/\s+/g, "");
   if (!key) throw new Error("Missing Facebook stream_key");
-
-  const fullUrl = base + key;
-
-  // Validate URL không có khoảng trắng
-  if (/\s/.test(fullUrl)) {
-    throw new Error(`Invalid URL contains whitespace: "${fullUrl}"`);
-  }
-
-  console.log(`✅ Built URL (length=${fullUrl.length}): ${fullUrl}`);
-  return fullUrl;
+  const full = base + key;
+  if (/\/rtmp\/$/.test(full)) throw new Error("Invalid FB URL (missing key)");
+  return full;
 }
 
 function startFfmpeg({
@@ -100,26 +70,38 @@ function startFfmpeg({
 }) {
   const fpsStr = String(fps);
   const gop = String(fps * 2);
+
+  // THÊM: Validate input parameters
+  if (!server_url || !stream_key) {
+    throw new Error("Missing server_url or stream_key");
+  }
+
   const outUrl = buildFbOutUrl(server_url, stream_key);
 
   console.log(`🎥 Full RTMPS URL: ${outUrl}`);
   console.log(`🎥 URL length: ${outUrl.length} chars`);
 
   const args = [
+    // SỬA: Thêm flags để handle WebM input tốt hơn
     "-re",
+    "-fflags",
+    "+genpts+igndts", // ← THÊM igndts
+    "-flags",
+    "low_delay",
+    "-avioflags",
+    "direct",
     "-f",
     "webm",
     "-thread_queue_size",
-    "4096",
-    "-fflags",
-    "+genpts",
+    "512", // ← GIẢM từ 4096 xuống 512
     "-use_wallclock_as_timestamps",
     "1",
     "-fflags",
-    "nobuffer",
+    "nobuffer+flush_packets",
     "-i",
     "pipe:0",
 
+    // Video encoding
     "-c:v",
     "libx264",
     "-pix_fmt",
@@ -137,14 +119,13 @@ function startFfmpeg({
     "-maxrate",
     videoBitrate,
     "-bufsize",
-    "2M",
+    "3500k", // ← GIẢM từ 2M xuống 3500k
     "-profile:v",
     "high",
     "-level:v",
     "4.1",
-    "-x264-params",
-    `keyint=${gop}:min-keyint=${gop}:scenecut=0:nal-hrd=cbr`,
 
+    // Audio encoding
     "-c:a",
     "aac",
     "-b:a",
@@ -154,37 +135,43 @@ function startFfmpeg({
     "-ac",
     "2",
 
+    // Output settings
     "-flush_packets",
     "1",
     "-muxdelay",
     "0",
-    "-muxpreload",
-    "0",
-    "-flvflags",
-    "no_duration_filesize",
-
-    // Output format và URL
     "-f",
     "flv",
+
+    // THÊM: Flags để handle lỗi tốt hơn
+    "-avoid_negative_ts",
+    "make_zero",
+    "-copytb",
+    "1",
+
     outUrl,
   ];
+
+  console.log("\n🔧 FFmpeg Command:");
+  console.log(FFMPEG_BIN + " " + args.join(" "));
 
   const proc = spawn(FFMPEG_BIN, args, {
     windowsHide: true,
     stdio: ["pipe", "pipe", "pipe"],
   });
 
-  // LOG FULL COMMAND
-  console.log("\n🔧 FFmpeg Command:");
-  console.log(FFMPEG_BIN);
-  console.log(args.join(" \\\n  "));
-  console.log("\n");
+  // THÊM: Pipe stderr để debug
+  proc.stderr.on("data", (data) => {
+    const line = data.toString().trim();
+    if (line) {
+      console.log("[ffmpeg-stderr]", line);
+    }
+  });
 
   return proc;
 }
 
 export function attachRtmpRelay(server, { path = "/ws/rtmp" } = {}) {
-  // Kiểm tra RTMPS support khi khởi động
   checkRtmpsSupport();
 
   const wss = new WebSocketServer({
@@ -251,28 +238,10 @@ export function attachRtmpRelay(server, { path = "/ws/rtmp" } = {}) {
         try {
           ffmpeg = startFfmpeg(cfg);
 
-          ffmpeg.stderr.setEncoding("utf8");
           ffmpeg.stderr.on("data", (line) => {
             const s = line.toString().trim();
             if (s) {
               console.log("[ffmpeg]", s);
-
-              // Highlight important messages
-              if (
-                s.includes("frame=") ||
-                s.includes("fps=") ||
-                s.includes("bitrate=")
-              ) {
-                console.log("📊 Streaming:", s);
-              }
-              if (
-                s.includes("error") ||
-                s.includes("Error") ||
-                s.includes("failed")
-              ) {
-                console.error("❌ FFmpeg Error:", s);
-              }
-
               try {
                 ws.send(JSON.stringify({ type: "ffmpeg_log", line: s }));
               } catch {}
@@ -280,14 +249,11 @@ export function attachRtmpRelay(server, { path = "/ws/rtmp" } = {}) {
           });
 
           ffmpeg.on("spawn", () => {
-            console.log("✅ FFmpeg process spawned");
             try {
               ws.send(JSON.stringify({ type: "ready" }));
             } catch {}
           });
-
           ffmpeg.on("error", (e) => {
-            console.error("❌ FFmpeg spawn error:", e.message);
             try {
               ws.send(
                 JSON.stringify({ type: "ffmpeg_error", message: e.message })
@@ -297,9 +263,7 @@ export function attachRtmpRelay(server, { path = "/ws/rtmp" } = {}) {
               ws.close(1011, "ffmpeg spawn error");
             } catch {}
           });
-
           ffmpeg.on("close", (code) => {
-            console.log(`🛑 FFmpeg closed with code: ${code}`);
             try {
               ws.close(1011, "ffmpeg closed: " + code);
             } catch {}
@@ -307,7 +271,6 @@ export function attachRtmpRelay(server, { path = "/ws/rtmp" } = {}) {
 
           configured = true;
         } catch (e) {
-          console.error("❌ FFmpeg init failed:", e.message);
           try {
             ws.send(
               JSON.stringify({ type: "ffmpeg_error", message: e.message })
@@ -320,6 +283,7 @@ export function attachRtmpRelay(server, { path = "/ws/rtmp" } = {}) {
         return;
       }
 
+      // Backpressure
       if (Buffer.isBuffer(msg)) {
         if (ffmpeg?.stdin?.writableLength > 64 * 1024 * 1024) return;
         try {

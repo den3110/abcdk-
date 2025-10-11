@@ -360,20 +360,51 @@ export default function BrowserStudio({
                 if (!firstChunkTime) {
                   firstChunkTime = Date.now();
                   console.log("✅ First chunk received:", e.data.size, "bytes");
+
+                  // DEBUG: Log chunk details
+                  if (e.data.size < 1000) {
+                    console.warn(
+                      "⚠️ First chunk very small:",
+                      e.data.size,
+                      "bytes - might be incomplete"
+                    );
+                  }
                 }
 
                 if (ws.readyState === 1) {
                   const ab = await e.data.arrayBuffer();
 
-                  // QUAN TRỌNG: Buffer 3 chunks đầu để đảm bảo có complete WebM header
-                  if (!headerSent && chunkCount <= 3) {
+                  // THÊM: Validate WebM header
+                  if (chunkCount === 1) {
+                    const header = new Uint8Array(ab.slice(0, 4));
+                    const headerStr = Array.from(header)
+                      .map((b) => b.toString(16))
+                      .join(" ");
+                    console.log(`🔍 WebM header bytes: ${headerStr}`);
+
+                    // WebM should start with 0x1A45DFA3
+                    if (
+                      header[0] !== 0x1a ||
+                      header[1] !== 0x45 ||
+                      header[2] !== 0xdf ||
+                      header[3] !== 0xa3
+                    ) {
+                      console.error("❌ INVALID WebM header detected!");
+                      console.error("Expected: 1A 45 DF A3");
+                      console.error("Got:", headerStr);
+                    } else {
+                      console.log("✅ Valid WebM header found");
+                    }
+                  }
+
+                  // SỬA: Chỉ buffer 2 chunks đầu thay vì 3
+                  if (!headerSent && chunkCount <= 2) {
                     headerBuffer.push(ab);
                     console.log(
-                      `📦 Buffering header chunk ${chunkCount}/3 (${ab.byteLength} bytes)`
+                      `📦 Buffering header chunk ${chunkCount}/2 (${ab.byteLength} bytes)`
                     );
 
-                    if (chunkCount === 3) {
-                      // Gửi tất cả header chunks liền nhau
+                    if (chunkCount === 2) {
                       const totalSize = headerBuffer.reduce(
                         (sum, buf) => sum + buf.byteLength,
                         0
@@ -392,29 +423,18 @@ export default function BrowserStudio({
                       headerSent = true;
                     }
                   } else if (headerSent) {
-                    // Chunks bình thường
                     outbox.push(ab);
                     pump();
 
+                    // Log stats
                     if (chunkCount % 10 === 0) {
                       setStats({
                         chunks: chunkCount,
                         bytes: totalBytes,
                         wsBuffer: ws.bufferedAmount,
                       });
-                      console.log(
-                        `📦 Chunk #${chunkCount}: ${(
-                          totalBytes /
-                          1024 /
-                          1024
-                        ).toFixed(2)}MB, WS buffer: ${(
-                          ws.bufferedAmount / 1024
-                        ).toFixed(0)}KB`
-                      );
                     }
                   }
-                } else {
-                  console.warn("⚠️ WS not open, dropping chunk");
                 }
               };
 

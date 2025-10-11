@@ -96,7 +96,9 @@ export const createFacebookLiveForMatch = async (req, res) => {
     }
 
     const studioUrl =
-      `${process.env.HOST}/studio/live` +
+      (process.env.NODE_ENV === "development"
+        ? "http://localhost:3000/studio/live"
+        : `${process.env.HOST}/studio/live`) +
       `?matchId=${match._id}` +
       `&server=${encodeURIComponent(server)}` +
       `&key=${encodeURIComponent(streamKey)}`;
