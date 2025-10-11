@@ -148,17 +148,22 @@ export default function BrowserStudio({
 
         // Đợi canvas vẽ được ít nhất 30 frames (1 giây)
         setStatus("warming up canvas");
+        console.log("⏳ Waiting for canvas frames...");
+
         await new Promise((resolve) => {
           const checkFrames = setInterval(() => {
+            console.log(`🎨 Canvas frames: ${frameCount}`);
             if (frameCount >= 30) {
               clearInterval(checkFrames);
               resolve();
             }
-          }, 100);
+          }, 500); // Log mỗi 500ms
+
           setTimeout(() => {
             clearInterval(checkFrames);
+            console.log(`⚠️ Canvas warmup timeout, got ${frameCount} frames`);
             resolve();
-          }, 3000);
+          }, 5000); // Tăng timeout lên 5s
         });
 
         console.log(`✅ Canvas warmed up with ${frameCount} frames`);
@@ -252,10 +257,33 @@ export default function BrowserStudio({
               console.log("🎬 Relay ready, starting MediaRecorder");
 
               // ==================== 4. MEDIARECORDER ====================
-              const outputStream = cv.captureStream(outFps);
+              console.log("🎥 Creating output stream from canvas...");
+
+              // Test captureStream
+              let outputStream;
+              try {
+                outputStream = cv.captureStream(outFps);
+                console.log("✅ Canvas captureStream successful");
+              } catch (e) {
+                console.error("❌ Canvas captureStream failed:", e);
+                setErr("Canvas captureStream failed: " + e.message);
+                ws.close();
+                return;
+              }
+
+              console.log("🎥 Initial stream state:", {
+                id: outputStream.id,
+                active: outputStream.active,
+                videoTracks: outputStream.getVideoTracks().length,
+                audioTracks: outputStream.getAudioTracks().length,
+              });
+
               const audioTrack = stream.getAudioTracks()[0];
               if (audioTrack) {
+                console.log("🎤 Adding audio track:", audioTrack.label);
                 outputStream.addTrack(audioTrack);
+              } else {
+                console.warn("⚠️ No audio track found");
               }
 
               console.log(
@@ -288,6 +316,31 @@ export default function BrowserStudio({
                 audioBitsPerSecond: 128_000,
               });
               recRef.current = mr;
+
+              // DEBUG: Log tất cả events
+              mr.addEventListener("start", () => {
+                console.log("🟢 MediaRecorder event: START");
+              });
+
+              mr.addEventListener("pause", () => {
+                console.log("⏸️ MediaRecorder event: PAUSE");
+              });
+
+              mr.addEventListener("resume", () => {
+                console.log("▶️ MediaRecorder event: RESUME");
+              });
+
+              mr.addEventListener("stop", () => {
+                console.log("🛑 MediaRecorder event: STOP");
+              });
+
+              mr.addEventListener("dataavailable", (e) => {
+                console.log("📦 MediaRecorder event: DATA", {
+                  size: e.data?.size,
+                  type: e.data?.type,
+                  timecode: e.timecode,
+                });
+              });
 
               let chunkCount = 0;
               let totalBytes = 0;
@@ -350,8 +403,27 @@ export default function BrowserStudio({
               };
 
               // Start với timeslice nhỏ để có keyframe sớm
+              console.log("🎬 Calling mr.start(100)...");
+              console.log("🎬 Stream state:", {
+                videoTracks: outputStream.getVideoTracks().length,
+                audioTracks: outputStream.getAudioTracks().length,
+                active: outputStream.active,
+                videoEnabled: outputStream.getVideoTracks()[0]?.enabled,
+                videoReadyState: outputStream.getVideoTracks()[0]?.readyState,
+              });
+
               mr.start(100);
-              console.log("🎬 MediaRecorder.start(100) called");
+
+              console.log("🎬 mr.start() called, state:", mr.state);
+
+              // Check sau 2 giây
+              setTimeout(() => {
+                console.log("⏱️ 2s check:", {
+                  state: mr.state,
+                  mimeType: mr.mimeType,
+                  stream_active: outputStream.active,
+                });
+              }, 2000);
 
               // TRICK: Request keyframe sau 500ms
               setTimeout(() => {
@@ -542,7 +614,6 @@ export default function BrowserStudio({
           width,
           height,
           pointerEvents: "none",
-          display: "none"
         }}
       >
         <ScoreOverlay ref={overlayNodeRef} matchIdProp={matchId} disableLogo />
