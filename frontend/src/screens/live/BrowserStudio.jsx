@@ -52,6 +52,7 @@ export default function BrowserStudio({
             echoCancellation: true,
             noiseSuppression: true,
             sampleRate: 48000,
+            channelCount: 2,
           },
         });
 
@@ -97,7 +98,10 @@ export default function BrowserStudio({
         const ctx = cv.getContext("2d", { alpha: false });
 
         // Update overlay
+        let overlayBusy = false;
         const updateOverlay = async () => {
+          if (overlayBusy) return;
+          overlayBusy = true;
           const node = overlayNodeRef.current;
           if (!node) return;
           try {
@@ -118,11 +122,15 @@ export default function BrowserStudio({
             }
           } catch (e) {
             console.warn("Overlay update failed:", e);
+          } finally {
+            overlayBusy = false;
           }
         };
 
-        const overlayInterval =
-          overlayFps > 0 ? Math.round(1000 / overlayFps) : 200;
+        const overlayInterval = Math.max(
+          500,
+          overlayFps > 0 ? Math.round(1000 / overlayFps) : 500
+        );
         await updateOverlay();
         overlayTimer = setInterval(updateOverlay, overlayInterval);
 
@@ -200,7 +208,7 @@ export default function BrowserStudio({
             }
 
             // Đợi nếu buffer quá đầy
-            if (ws.bufferedAmount > 1 * 1024 * 1024) {
+            if (ws.bufferedAmount > 10 * 1024 * 1024) {
               setTimeout(loop, 10);
               return;
             }
@@ -212,7 +220,7 @@ export default function BrowserStudio({
               console.error("WS send error:", e);
             }
 
-            setImmediate ? setImmediate(loop) : setTimeout(loop, 0);
+            setTimeout(loop, 0);
           })();
         };
 
@@ -297,10 +305,10 @@ export default function BrowserStudio({
               );
 
               // Thử H.264 trước (hardware encode, keyframe đáng tin cậy hơn)
-              let mime = "video/webm;codecs=h264,opus";
+              let mime = "video/webm;codecs=vp8,opus";
               if (!MediaRecorder.isTypeSupported(mime)) {
                 // Fallback VP8
-                mime = "video/webm;codecs=vp8,opus";
+                mime = "video/webm;codecs=h264,opus";
                 if (!MediaRecorder.isTypeSupported(mime)) {
                   setErr("Browser doesn't support H264/VP8 recording");
                   ws.close();

@@ -1,310 +1,335 @@
-// services/rtmpRelay.js
+// server/rtmpRelay.js
+// ESM: cần "type": "module" trong package.json
 import { WebSocketServer } from "ws";
-import { spawn, execFileSync } from "child_process";
+import { spawn } from "child_process";
+import { parse as parseUrl } from "url";
+import ffmpegStatic from "ffmpeg-static";
 import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-import { URL } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const isWin = process.platform === "win32";
-
-// Ưu tiên đường dẫn thực tế trên Linux
-const CANDIDATES = [
-  process.env.FFMPEG_PATH,
-  isWin ? "C:\\ffmpeg\\bin\\ffmpeg.exe" : "/usr/bin/ffmpeg",
-  isWin
-    ? "C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe"
-    : "/usr/local/bin/ffmpeg",
-  "ffmpeg",
-];
-
-const FFMPEG_BIN =
-  CANDIDATES.find((p) => p && (p === "ffmpeg" || fs.existsSync(p))) || "ffmpeg";
-
-// Kiểm tra RTMPS support (ESM-safe, KHÔNG dùng require)
-function checkRtmpsSupport() {
-  try {
-    const out = execFileSync(FFMPEG_BIN, ["-protocols"], { encoding: "utf8" });
-    if (!out.includes("rtmps")) {
-      console.error(
-        "⚠️  FFmpeg không có RTMPS. Cài bản đầy đủ (Ubuntu): sudo apt install -y ffmpeg"
-      );
-      // vẫn tiếp tục, nhiều build có RTMPS nhưng không liệt kê
-    } else {
-      console.log(`✅ FFmpeg OK (rtmps): ${FFMPEG_BIN}`);
-    }
-  } catch (e) {
-    console.warn("⚠️  Không thể kiểm tra FFmpeg protocols:", e.message);
+function resolveFfmpegCmd() {
+  if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
+    return process.env.FFMPEG_PATH;
   }
+  if (ffmpegStatic && fs.existsSync(ffmpegStatic)) {
+    return ffmpegStatic; // dùng binary kèm gói
+  }
+  return "ffmpeg"; // fallback PATH hệ thống
 }
 
-function normalizeFbBase(urlStr) {
-  let u = String(urlStr || "").trim();
-  u = u.replace(/[\r\n]/g, "").replace(/\s+/g, "");
-  if (!u) u = "rtmps://live-api-s.facebook.com:443/rtmp/";
-  if (!/\/rtmp\/$/.test(u)) {
-    u = u.replace(/\/+$/, "") + "/rtmp/";
-  }
-  return u;
-}
-
-function buildFbOutUrl(server_url, stream_key) {
-  const base = normalizeFbBase(server_url);
-  let key = String(stream_key || "").trim();
-  key = key.replace(/[\r\n]/g, "").replace(/\s+/g, "");
-  if (!key) throw new Error("Missing Facebook stream_key");
-  const full = base + key;
-  if (/\/rtmp\/$/.test(full)) throw new Error("Invalid FB URL (missing key)");
-  return full;
-}
-
-function startFfmpeg({
-  server_url,
-  stream_key,
-  videoBitrate = "3500k",
-  audioBitrate = "128k",
-  fps = 30,
-}) {
-  const fpsStr = String(fps);
-  const gop = String(fps * 2);
-
-  // THÊM: Validate input parameters
-  if (!server_url || !stream_key) {
-    throw new Error("Missing server_url or stream_key");
-  }
-
-  const outUrl = buildFbOutUrl(server_url, stream_key);
-
-  console.log(`🎥 Full RTMPS URL: ${outUrl}`);
-  console.log(`🎥 URL length: ${outUrl.length} chars`);
-
-  const args = [
-    // SỬA: Thêm flags để handle WebM input tốt hơn
-    "-re",
-    "-fflags",
-    "+genpts+igndts", // ← THÊM igndts
-    "-flags",
-    "low_delay",
-    "-avioflags",
-    "direct",
-    "-f",
-    "webm",
-    "-thread_queue_size",
-    "512", // ← GIẢM từ 4096 xuống 512
-    "-use_wallclock_as_timestamps",
-    "1",
-    "-fflags",
-    "nobuffer+flush_packets",
-    "-i",
-    "pipe:0",
-
-    // Video encoding
-    "-c:v",
-    "libx264",
-    "-pix_fmt",
-    "yuv420p",
-    "-preset",
-    "veryfast",
-    "-tune",
-    "zerolatency",
-    "-r",
-    fpsStr,
-    "-g",
-    gop,
-    "-b:v",
-    videoBitrate,
-    "-maxrate",
-    videoBitrate,
-    "-bufsize",
-    "3500k", // ← GIẢM từ 2M xuống 3500k
-    "-profile:v",
-    "high",
-    "-level:v",
-    "4.1",
-
-    // Audio encoding
-    "-c:a",
-    "aac",
-    "-b:a",
-    audioBitrate,
-    "-ar",
-    "44100",
-    "-ac",
-    "2",
-
-    // Output settings
-    "-flush_packets",
-    "1",
-    "-muxdelay",
-    "0",
-    "-f",
-    "flv",
-
-    // THÊM: Flags để handle lỗi tốt hơn
-    "-avoid_negative_ts",
-    "make_zero",
-    "-copytb",
-    "1",
-
-    outUrl,
-  ];
-
-  console.log("\n🔧 FFmpeg Command:");
-  console.log(FFMPEG_BIN + " " + args.join(" "));
-
-  const proc = spawn(FFMPEG_BIN, args, {
-    windowsHide: true,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  // THÊM: Pipe stderr để debug
-  proc.stderr.on("data", (data) => {
-    const line = data.toString().trim();
-    if (line) {
-      console.log("[ffmpeg-stderr]", line);
-    }
-  });
-
-  return proc;
+function buildOutUrl(server_url, stream_key) {
+  let s = String(server_url || "").trim();
+  let k = String(stream_key || "").trim();
+  if (!s) throw new Error("Missing server_url");
+  if (!k) throw new Error("Missing stream_key");
+  if (!s.endsWith("/")) s += "/";
+  if (k.startsWith("/")) k = k.slice(1);
+  return s + k; // giữ nguyên query ?...
 }
 
 export function attachRtmpRelay(server, { path = "/ws/rtmp" } = {}) {
-  checkRtmpsSupport();
-
-  const wss = new WebSocketServer({
-    noServer: true,
-    clientTracking: true,
-    maxPayload: 10 * 1024 * 1024,
-  });
+  const wss = new WebSocketServer({ noServer: true });
 
   server.on("upgrade", (req, socket, head) => {
-    let pathname = "";
-    try {
-      const u = new URL(req.url, `http://${req.headers.host}`);
-      pathname = u.pathname || "";
-    } catch {}
-    if (pathname !== path) return;
+    const { pathname } = parseUrl(req.url);
+    if (pathname !== path) return socket.destroy();
     wss.handleUpgrade(req, socket, head, (ws) =>
       wss.emit("connection", ws, req)
     );
   });
 
-  const pingLoop = setInterval(() => {
-    for (const ws of wss.clients) {
-      if (ws.isAlive === false) {
-        try {
-          ws.terminate();
-        } catch {}
-        continue;
-      }
-      ws.isAlive = false;
-      try {
-        ws.ping();
-      } catch {}
-    }
-  }, 30000);
-
   wss.on("connection", (ws) => {
-    ws.isAlive = true;
-    ws.on("pong", () => {
-      ws.isAlive = true;
-    });
-
     let ffmpeg = null;
-    let configured = false;
+    let gotConfig = false;
 
-    ws.on("message", (msg) => {
-      if (!configured) {
-        let cfg;
+    // hàng đợi & backpressure
+    const queue = [];
+    let writing = false;
+
+    // trạng thái
+    let pingTimer = null;
+    let stopped = false;
+    let ffAlive = false;
+    let stdinClosed = false;
+
+    // keepalive
+    pingTimer = setInterval(() => {
+      if (ws.readyState === ws.OPEN) {
         try {
-          cfg = JSON.parse(msg.toString());
-        } catch {
-          try {
-            ws.close(1003, "Bad init payload");
-          } catch {}
-          return;
-        }
-
-        if (!cfg?.server_url || !cfg?.stream_key) {
-          try {
-            ws.close(1003, "Missing RTMP params");
-          } catch {}
-          return;
-        }
-
-        try {
-          ffmpeg = startFfmpeg(cfg);
-
-          ffmpeg.stderr.on("data", (line) => {
-            const s = line.toString().trim();
-            if (s) {
-              console.log("[ffmpeg]", s);
-              try {
-                ws.send(JSON.stringify({ type: "ffmpeg_log", line: s }));
-              } catch {}
-            }
-          });
-
-          ffmpeg.on("spawn", () => {
-            try {
-              ws.send(JSON.stringify({ type: "ready" }));
-            } catch {}
-          });
-          ffmpeg.on("error", (e) => {
-            try {
-              ws.send(
-                JSON.stringify({ type: "ffmpeg_error", message: e.message })
-              );
-            } catch {}
-            try {
-              ws.close(1011, "ffmpeg spawn error");
-            } catch {}
-          });
-          ffmpeg.on("close", (code) => {
-            try {
-              ws.close(1011, "ffmpeg closed: " + code);
-            } catch {}
-          });
-
-          configured = true;
-        } catch (e) {
-          try {
-            ws.send(
-              JSON.stringify({ type: "ffmpeg_error", message: e.message })
-            );
-          } catch {}
-          try {
-            ws.close(1011, "ffmpeg init fail");
-          } catch {}
-        }
-        return;
-      }
-
-      // Backpressure
-      if (Buffer.isBuffer(msg)) {
-        if (ffmpeg?.stdin?.writableLength > 64 * 1024 * 1024) return;
-        try {
-          ffmpeg.stdin.write(msg);
+          ws.ping();
         } catch {}
       }
-    });
+    }, 15000);
 
-    ws.on("close", () => {
+    const send = (type, payload = {}) => {
+      if (ws.readyState === ws.OPEN) {
+        try {
+          ws.send(JSON.stringify({ type, ...payload }));
+        } catch {}
+      }
+    };
+
+    const stop = (reason = "normal") => {
+      if (stopped) return;
+      stopped = true;
+
+      clearInterval(pingTimer);
+
       try {
         ffmpeg?.stdin?.end();
       } catch {}
       try {
         ffmpeg?.kill("SIGINT");
       } catch {}
+
+      try {
+        ws.close(1000, reason);
+      } catch {}
+    };
+
+    const flush = () => {
+      if (writing) return;
+      writing = true;
+
+      const MAX_BURST = 200; // giới hạn số gói mỗi lượt để không chiếm event-loop quá lâu
+      let sent = 0;
+
+      const loop = () => {
+        if (stopped || !ffAlive || stdinClosed) {
+          writing = false;
+          return;
+        }
+        while (queue.length && sent < MAX_BURST) {
+          const buf = queue[0];
+          let ok = false;
+          try {
+            ok = ffmpeg.stdin.write(buf);
+          } catch (e) {
+            // lỗi sync hiếm gặp
+            send("ffmpeg_error", {
+              message: "stdin write failed: " + (e.message || e),
+            });
+            writing = false;
+            return stop("stdin-failed");
+          }
+
+          if (!ok) {
+            // đợi drain rồi tiếp tục
+            ffmpeg.stdin.once("drain", () => {
+              sent = 0; // reset burst
+              loop();
+            });
+            writing = false;
+            return;
+          }
+          queue.shift();
+          sent++;
+        }
+
+        if (queue.length === 0) {
+          writing = false;
+          return;
+        }
+        // còn dữ liệu nhưng đã đạt MAX_BURST
+        setImmediate(loop);
+      };
+
+      loop();
+    };
+
+    ws.on("message", (data, isBinary) => {
+      if (stopped) return;
+
+      // gói đầu: JSON config
+      if (!gotConfig && !isBinary) {
+        let cfg;
+        try {
+          cfg = JSON.parse(data.toString());
+        } catch {
+          send("ffmpeg_error", { message: "Bad JSON config" });
+          return stop("bad-config");
+        }
+
+        const {
+          server_url,
+          stream_key,
+          videoBitrate = "3500k",
+          audioBitrate = "128k",
+          fps = 30,
+        } = cfg || {};
+
+        let outUrl;
+        try {
+          outUrl = buildOutUrl(server_url, stream_key);
+        } catch (e) {
+          send("ffmpeg_error", { message: e.message || "Bad URL" });
+          return stop("bad-config");
+        }
+
+        const kbps =
+          parseInt(String(videoBitrate).replace(/[^0-9]/g, ""), 10) || 3500;
+        const bufsize = `${kbps * 2}k`;
+
+        const args = [
+          "-hide_banner",
+          "-loglevel",
+          "verbose",
+          "-stats",
+          "-re",
+          "-fflags",
+          "nobuffer",
+          "-thread_queue_size",
+          "2048",
+          "-f",
+          "webm",
+          "-i",
+          "pipe:0",
+          "-analyzeduration",
+          "0",
+          "-probesize",
+          "32M",
+          "-use_wallclock_as_timestamps",
+          "1",
+
+          "-c:v",
+          "libx264",
+          "-preset",
+          "veryfast",
+          "-tune",
+          "zerolatency",
+          "-pix_fmt",
+          "yuv420p",
+          "-r",
+          String(fps),
+          "-g",
+          String(fps * 2),
+          "-sc_threshold",
+          "0", // khóa GOP, tránh tự cắt keyframe
+          "-x264-params",
+          `keyint=${fps * 2}:min-keyint=${fps * 2}:scenecut=0`,
+          "-b:v",
+          videoBitrate,
+          "-maxrate",
+          videoBitrate,
+          "-bufsize",
+          bufsize,
+
+          "-c:a",
+          "aac",
+          "-ac",
+          "2",
+
+          "-f",
+          "flv",
+          "-flvflags",
+          "no_duration_filesize",
+          "-rtmp_live",
+          "live",
+          "-muxdelay",
+          "0",
+          "-muxpreload",
+          "0",
+          "-rw_timeout",
+          "15000000", // 15s
+          outUrl,
+        ];
+
+        const cmd = resolveFfmpegCmd();
+        console.log("[RTMP Relay] Using ffmpeg at:", cmd);
+        console.log("[RTMP Relay] OUT =", outUrl);
+
+        try {
+          const finalArgs = process.env.FFMPEG_REPORT
+            ? ["-report", ...args]
+            : args;
+          ffmpeg = spawn(cmd, finalArgs, { stdio: ["pipe", "pipe", "pipe"] });
+        } catch (e) {
+          send("ffmpeg_error", {
+            message: `Cannot spawn ffmpeg: ${e.message}`,
+          });
+          return stop("spawn-failed");
+        }
+
+        ffAlive = true;
+        stdinClosed = false;
+
+        // forward log → FE
+        ffmpeg.stderr.on("data", (chunk) =>
+          send("ffmpeg_log", { line: chunk.toString() })
+        );
+        ffmpeg.stdout.on("data", (chunk) =>
+          send("ffmpeg_log", { line: chunk.toString() })
+        );
+
+        // BẮT LỖI TRÊN STDIN (ngăn uncaughtException: write EOF)
+        ffmpeg.stdin.on("error", (e) => {
+          const code = e?.code || "";
+          if (code === "EPIPE" || code === "EOF") {
+            send("ffmpeg_error", { message: `stdin closed (${code})` });
+          } else {
+            send("ffmpeg_error", { message: `stdin error: ${e.message || e}` });
+          }
+          stdinClosed = true;
+          return stop("stdin-error");
+        });
+        ffmpeg.stdin.on("close", () => {
+          stdinClosed = true;
+        });
+
+        ffmpeg.on("error", (e) => {
+          send("ffmpeg_error", { message: e.message || String(e) });
+          ffAlive = false;
+          return stop("ffmpeg-error");
+        });
+
+        ffmpeg.on("close", (code, signal) => {
+          send("ffmpeg_exit", { code, signal });
+          ffAlive = false;
+          stdinClosed = true;
+          return stop("ffmpeg-exit");
+        });
+
+        gotConfig = true;
+        send("ready");
+
+        // flush các binary đã queue (nếu FE gửi sớm)
+        flush();
+        return;
+      }
+
+      // sau khi ready: nhận binary WebM chunk
+      if (isBinary) {
+        if (stopped || !ffAlive || stdinClosed) return;
+
+        const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+        queue.push(buf);
+
+        // chặn tràn RAM: giữ tối đa ~50MB trong queue
+        const totalQueuedBytes = queue.reduce((s, b) => s + b.byteLength, 0);
+        if (totalQueuedBytes > 50 * 1024 * 1024) {
+          // bỏ bớt frame cũ (drop frames) để kịp live
+          while (
+            queue.length &&
+            queue.reduce((s, b) => s + b.byteLength, 0) > 25 * 1024 * 1024
+          ) {
+            queue.shift();
+          }
+          send("ffmpeg_log", {
+            line: "[warn] Dropping old frames to relieve backpressure\n",
+          });
+        }
+
+        flush();
+      }
+    });
+
+    ws.on("close", () => {
+      stop("ws-close");
+    });
+
+    ws.on("error", () => {
+      stop("ws-error");
     });
   });
 
-  wss.on("close", () => clearInterval(pingLoop));
-  console.log(
-    `[RTMP-Relay] mounted at ${path} (noServer), using FFmpeg: ${FFMPEG_BIN}`
-  );
   return wss;
 }

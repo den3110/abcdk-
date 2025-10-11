@@ -105,7 +105,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
 
     res.json({
       liveVideoId: live.liveVideoId || live.id,
-      permalink_url: live.permalink_url,
+      permalink_url: "https://facebook.com" + live.permalink_url,
       server_url: server,
       stream_key: streamKey,
       secure_stream_url: live.secure_stream_url,
