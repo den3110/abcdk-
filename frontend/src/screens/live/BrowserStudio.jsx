@@ -345,6 +345,8 @@ export default function BrowserStudio({
               let chunkCount = 0;
               let totalBytes = 0;
               let firstChunkTime = null;
+              let headerSent = false;
+              const headerBuffer = [];
 
               mr.ondataavailable = async (e) => {
                 if (!e.data || e.data.size === 0) {
@@ -362,25 +364,54 @@ export default function BrowserStudio({
 
                 if (ws.readyState === 1) {
                   const ab = await e.data.arrayBuffer();
-                  outbox.push(ab);
-                  pump();
 
-                  // Update stats every 10 chunks
-                  if (chunkCount % 10 === 0) {
-                    setStats({
-                      chunks: chunkCount,
-                      bytes: totalBytes,
-                      wsBuffer: ws.bufferedAmount,
-                    });
+                  // QUAN TRỌNG: Buffer 3 chunks đầu để đảm bảo có complete WebM header
+                  if (!headerSent && chunkCount <= 3) {
+                    headerBuffer.push(ab);
                     console.log(
-                      `📦 Chunk #${chunkCount}: ${(
-                        totalBytes /
-                        1024 /
-                        1024
-                      ).toFixed(2)}MB, WS buffer: ${(
-                        ws.bufferedAmount / 1024
-                      ).toFixed(0)}KB`
+                      `📦 Buffering header chunk ${chunkCount}/3 (${ab.byteLength} bytes)`
                     );
+
+                    if (chunkCount === 3) {
+                      // Gửi tất cả header chunks liền nhau
+                      const totalSize = headerBuffer.reduce(
+                        (sum, buf) => sum + buf.byteLength,
+                        0
+                      );
+                      const combined = new Uint8Array(totalSize);
+                      let offset = 0;
+                      for (const buf of headerBuffer) {
+                        combined.set(new Uint8Array(buf), offset);
+                        offset += buf.byteLength;
+                      }
+                      console.log(
+                        `📤 Sending combined header: ${totalSize} bytes`
+                      );
+                      outbox.push(combined.buffer);
+                      pump();
+                      headerSent = true;
+                    }
+                  } else if (headerSent) {
+                    // Chunks bình thường
+                    outbox.push(ab);
+                    pump();
+
+                    if (chunkCount % 10 === 0) {
+                      setStats({
+                        chunks: chunkCount,
+                        bytes: totalBytes,
+                        wsBuffer: ws.bufferedAmount,
+                      });
+                      console.log(
+                        `📦 Chunk #${chunkCount}: ${(
+                          totalBytes /
+                          1024 /
+                          1024
+                        ).toFixed(2)}MB, WS buffer: ${(
+                          ws.bufferedAmount / 1024
+                        ).toFixed(0)}KB`
+                      );
+                    }
                   }
                 } else {
                   console.warn("⚠️ WS not open, dropping chunk");
@@ -402,8 +433,8 @@ export default function BrowserStudio({
                 console.log("🛑 MediaRecorder stopped");
               };
 
-              // Start với timeslice nhỏ để có keyframe sớm
-              console.log("🎬 Calling mr.start(100)...");
+              // Start với timeslice LỚN để có complete WebM clusters
+              console.log("🎬 Calling mr.start(1000)..."); // 1 giây thay vì 100ms
               console.log("🎬 Stream state:", {
                 videoTracks: outputStream.getVideoTracks().length,
                 audioTracks: outputStream.getAudioTracks().length,
@@ -412,7 +443,7 @@ export default function BrowserStudio({
                 videoReadyState: outputStream.getVideoTracks()[0]?.readyState,
               });
 
-              mr.start(100);
+              mr.start(1000); // 1s chunks = complete WebM clusters
 
               console.log("🎬 mr.start() called, state:", mr.state);
 
@@ -614,6 +645,7 @@ export default function BrowserStudio({
           width,
           height,
           pointerEvents: "none",
+          display: "none",
         }}
       >
         <ScoreOverlay ref={overlayNodeRef} matchIdProp={matchId} disableLogo />
