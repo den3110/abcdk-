@@ -20,6 +20,7 @@ import {
   Videocam,
   Info,
   SportsScore,
+  FlipCameraAndroid,
 } from "@mui/icons-material";
 
 /**
@@ -44,6 +45,10 @@ export default function FacebookLiveStreamer({
   const [statusType, setStatusType] = useState("info");
   const [overlayData, setOverlayData] = useState(null);
 
+  // === NEW: camera switching state ===
+  const [facingMode, setFacingMode] = useState("user"); // 'user' | 'environment'
+  const [videoDevices, setVideoDevices] = useState([]);
+
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const overlayContainerRef = useRef(null);
@@ -53,32 +58,116 @@ export default function FacebookLiveStreamer({
   const drawReqRef = useRef(0);
   const overlayImageRef = useRef(null);
 
-  // ====== CAMERA ======
-  useEffect(() => {
-    (async () => {
+  const canSwitchCamera =
+    videoDevices.length > 1 ||
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  // ====== helpers for camera ======
+  const enumerateVideoDevices = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setVideoDevices(devices.filter((d) => d.kind === "videoinput"));
+    } catch (_) {}
+  };
+
+  const findDeviceIdForFacing = (want = "user") => {
+    const isBack = want === "environment";
+    const backKeys = ["back", "rear", "environment"];
+    const frontKeys = ["front", "user"];
+    for (const d of videoDevices) {
+      const label = (d.label || "").toLowerCase();
+      if (isBack && backKeys.some((k) => label.includes(k))) return d.deviceId;
+      if (!isBack && frontKeys.some((k) => label.includes(k)))
+        return d.deviceId;
+    }
+    // fallback guess
+    if (isBack && videoDevices.length > 1)
+      return videoDevices[videoDevices.length - 1].deviceId;
+    return videoDevices[0]?.deviceId;
+  };
+
+  const stopCurrentStream = () => {
+    try {
+      camStreamRef.current?.getTracks().forEach((t) => t.stop());
+    } catch (_) {}
+  };
+
+  const initCamera = async (preferFacing = "user") => {
+    try {
+      stopCurrentStream();
+      const common = {
+        width: { ideal: videoWidth },
+        height: { ideal: videoHeight },
+        frameRate: { ideal: fps },
+      };
+
+      let stream;
+      // 1) try facingMode exact
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: videoWidth },
-            height: { ideal: videoHeight },
-            frameRate: { ideal: fps },
-          },
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { ...common, facingMode: { exact: preferFacing } },
           audio: true,
         });
-        camStreamRef.current = stream;
-        if (videoRef.current) videoRef.current.srcObject = stream;
-        setStatus("Camera đã sẵn sàng");
-        setStatusType("success");
-      } catch (err) {
-        setStatus("Lỗi: Không thể truy cập camera - " + err.message);
-        setStatusType("error");
+      } catch (_) {
+        // 2) try facingMode ideal
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { ...common, facingMode: preferFacing },
+            audio: true,
+          });
+        } catch (_) {
+          // 3) fallback by deviceId
+          await enumerateVideoDevices();
+          const deviceId = findDeviceIdForFacing(preferFacing);
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: deviceId
+              ? { ...common, deviceId: { exact: deviceId } }
+              : common,
+            audio: true,
+          });
+        }
       }
-    })();
 
+      camStreamRef.current = stream;
+      if (videoRef.current) videoRef.current.srcObject = stream;
+
+      setFacingMode(preferFacing);
+      setStatus(
+        `Camera đã sẵn sàng (${
+          preferFacing === "environment" ? "sau" : "trước"
+        })`
+      );
+      setStatusType("success");
+
+      await enumerateVideoDevices(); // labels đầy đủ sau khi cấp quyền
+      return true;
+    } catch (err) {
+      setStatus("Lỗi: Không thể truy cập camera - " + err.message);
+      setStatusType("error");
+      return false;
+    }
+  };
+
+  const toggleCamera = async () => {
+    const next = facingMode === "user" ? "environment" : "user";
+    setLoading(true);
+    const ok = await initCamera(next);
+    if (!ok) {
+      setStatus("Thiết bị không hỗ trợ đổi camera hoặc bị chặn quyền.");
+      setStatusType("warning");
+    }
+    setLoading(false);
+  };
+
+  // ====== CAMERA (init) ======
+  useEffect(() => {
+    (async () => {
+      await initCamera("user");
+    })();
     return () => {
-      if (camStreamRef.current)
-        camStreamRef.current.getTracks().forEach((t) => t.stop());
+      stopCurrentStream();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fps, videoHeight, videoWidth]);
 
   // ====== FETCH OVERLAY DATA ======
@@ -120,7 +209,7 @@ export default function FacebookLiveStreamer({
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
-      // 2. Draw FULL overlay (y hệt ScoreOverlay component)
+      // 2. Draw FULL overlay
       if (overlayData) {
         drawFullScoreOverlay(ctx, canvas.width, canvas.height, overlayData);
       }
@@ -144,7 +233,6 @@ export default function FacebookLiveStreamer({
 
   // ====== DRAW FULL SCORE OVERLAY (Y hệt ScoreOverlay component) ======
   const drawFullScoreOverlay = (ctx, w, h, data) => {
-    // Helper functions
     const drawRoundedRect = (x, y, w, h, r) => {
       const radius = Math.min(r, w / 2, h / 2);
       ctx.beginPath();
@@ -160,24 +248,20 @@ export default function FacebookLiveStreamer({
       ctx.closePath();
     };
 
-    const gameWon = (a, b, pts, byTwo) => {
-      return a >= pts && (byTwo ? a - b >= 2 : a - b >= 1);
-    };
+    const gameWon = (a, b, pts, byTwo) =>
+      a >= pts && (byTwo ? a - b >= 2 : a - b >= 1);
 
     const phaseLabelFromData = (data) => {
       const bt = (data?.bracketType || "").toLowerCase();
       if (bt === "group") return "Vòng bảng";
-
       const rc = String(data?.roundCode || "").toUpperCase();
       if (rc === "F" || rc === "GF") return "Chung kết";
       if (rc === "SF") return "Bán kết";
       if (rc === "QF") return "Tứ kết";
-
       if (bt === "knockout" || bt === "ko") return "Vòng loại trực tiếp";
       return "";
     };
 
-    // Extract data
     const teamA =
       data?.teams?.A?.name || data?.pairA?.player1?.nickname || "Team A";
     const teamB =
@@ -197,7 +281,6 @@ export default function FacebookLiveStreamer({
     const tourName = data?.tournament?.name || "";
     const phaseText = phaseLabelFromData(data);
 
-    // Theme & Colors
     const theme = "dark";
     const size = "md";
     const accentA = "#25C2A0";
@@ -207,7 +290,6 @@ export default function FacebookLiveStreamer({
     const fg = theme === "light" ? "#0b0f14" : "#E6EDF3";
     const muted = theme === "light" ? "#5c6773" : "#9AA4AF";
 
-    // Sizes
     const rounded = 18;
     const pad = size === "lg" ? 16 : size === "sm" ? 10 : 14;
     const minW = size === "lg" ? 380 : size === "sm" ? 260 : 320;
@@ -217,19 +299,16 @@ export default function FacebookLiveStreamer({
     const badgeSize = size === "lg" ? 10 : size === "sm" ? 9 : 10;
     const tableSize = size === "lg" ? 12 : size === "sm" ? 10 : 11;
 
-    // Position (top-left corner)
     const overlayX = 16;
     const overlayY = 16;
     const overlayW = Math.max(minW, 320);
 
-    // Calculate height
     const metaH = 20;
     const rowH = 32;
     const showSets = data?.overlay?.showSets !== false;
     const tableH = showSets ? 80 : 0;
     const overlayH = pad * 2 + metaH + rowH * 2 + tableH + 12;
 
-    // === DRAW CARD BACKGROUND ===
     ctx.fillStyle = bg;
     ctx.shadowColor = "rgba(0,0,0,0.25)";
     ctx.shadowBlur = 24;
@@ -239,16 +318,13 @@ export default function FacebookLiveStreamer({
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    // === META ROW ===
     const metaY = overlayY + pad + 8;
 
-    // Tournament name (left)
     ctx.fillStyle = muted;
     ctx.font = `500 ${metaSize}px Inter, system-ui, Arial`;
     ctx.textAlign = "left";
     ctx.fillText(tourName || "—", overlayX + pad, metaY);
 
-    // Phase badge (right)
     if (phaseText) {
       const badgeText = phaseText;
       ctx.font = `700 ${badgeSize}px Inter, system-ui, Arial`;
@@ -266,27 +342,22 @@ export default function FacebookLiveStreamer({
       ctx.fillText(badgeText, badgeX + badgeW / 2, badgeY + 13);
     }
 
-    // === TEAM A ROW ===
     const rowAY = metaY + 24;
 
-    // Pill A
     ctx.fillStyle = accentA;
     ctx.beginPath();
     ctx.arc(overlayX + pad + 5, rowAY + 10, 5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Name A
     ctx.fillStyle = fg;
     ctx.font = `600 ${nameSize}px Inter, system-ui, Arial`;
     ctx.textAlign = "left";
     ctx.fillText(teamA, overlayX + pad + 20, rowAY + 14);
 
-    // Serve balls A
     if (serveSide === "A") {
       const serveX = overlayX + pad + 20 + ctx.measureText(teamA).width + 8;
       const serveY = rowAY + 10;
 
-      // Border
       ctx.strokeStyle = muted;
       ctx.lineWidth = 1;
       drawRoundedRect(
@@ -298,7 +369,6 @@ export default function FacebookLiveStreamer({
       );
       ctx.stroke();
 
-      // Balls
       ctx.fillStyle = muted;
       for (let i = 0; i < serveCount; i++) {
         ctx.beginPath();
@@ -307,28 +377,23 @@ export default function FacebookLiveStreamer({
       }
     }
 
-    // Score A
     ctx.fillStyle = fg;
     ctx.font = `800 ${scoreSize}px Inter, system-ui, Arial`;
     ctx.textAlign = "right";
     ctx.fillText(String(scoreA), overlayX + overlayW - pad, rowAY + 18);
 
-    // === TEAM B ROW ===
     const rowBY = rowAY + 36;
 
-    // Pill B
     ctx.fillStyle = accentB;
     ctx.beginPath();
     ctx.arc(overlayX + pad + 5, rowBY + 10, 5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Name B
     ctx.fillStyle = fg;
     ctx.font = `600 ${nameSize}px Inter, system-ui, Arial`;
     ctx.textAlign = "left";
     ctx.fillText(teamB, overlayX + pad + 20, rowBY + 14);
 
-    // Serve balls B
     if (serveSide === "B") {
       const serveX = overlayX + pad + 20 + ctx.measureText(teamB).width + 8;
       const serveY = rowBY + 10;
@@ -352,20 +417,17 @@ export default function FacebookLiveStreamer({
       }
     }
 
-    // Score B
     ctx.fillStyle = fg;
     ctx.font = `800 ${scoreSize}px Inter, system-ui, Arial`;
     ctx.textAlign = "right";
     ctx.fillText(String(scoreB), overlayX + overlayW - pad, rowBY + 18);
 
-    // === SETS TABLE ===
     if (showSets && tableH > 0) {
       const tableY = rowBY + 44;
       const cellW = 26;
       const cellH = 22;
       const cellGap = 4;
 
-      // Header row
       ctx.font = `600 ${tableSize}px Inter, system-ui, Arial`;
       ctx.textAlign = "center";
 
@@ -373,7 +435,6 @@ export default function FacebookLiveStreamer({
         const cellX = overlayX + pad + 30 + i * (cellW + cellGap);
         const isCurrent = i === currentGame;
 
-        // Header cell
         ctx.strokeStyle = isCurrent ? "#94a3b8" : "#cbd5e1";
         ctx.lineWidth = 1;
         drawRoundedRect(cellX, tableY, cellW, cellH, 6);
@@ -389,10 +450,8 @@ export default function FacebookLiveStreamer({
         ctx.fillText(`S${i + 1}`, cellX + cellW / 2, tableY + 15);
       }
 
-      // Team A row
       const rowATableY = tableY + cellH + cellGap;
 
-      // Label A
       ctx.fillStyle = muted;
       ctx.font = `600 ${tableSize}px Inter, system-ui, Arial`;
       ctx.textAlign = "center";
@@ -408,7 +467,6 @@ export default function FacebookLiveStreamer({
           ctx.fillStyle = accentA;
           drawRoundedRect(cellX, rowATableY, cellW, cellH, 6);
           ctx.fill();
-
           ctx.fillStyle = "#fff";
         } else {
           ctx.strokeStyle = isCurrent ? "#94a3b8" : "#cbd5e1";
@@ -429,10 +487,8 @@ export default function FacebookLiveStreamer({
         ctx.fillText(score, cellX + cellW / 2, rowATableY + 15);
       }
 
-      // Team B row
       const rowBTableY = rowATableY + cellH + cellGap;
 
-      // Label B
       ctx.fillStyle = muted;
       ctx.font = `600 ${tableSize}px Inter, system-ui, Arial`;
       ctx.textAlign = "center";
@@ -448,7 +504,6 @@ export default function FacebookLiveStreamer({
           ctx.fillStyle = accentB;
           drawRoundedRect(cellX, rowBTableY, cellW, cellH, 6);
           ctx.fill();
-
           ctx.fillStyle = "#fff";
         } else {
           ctx.strokeStyle = isCurrent ? "#94a3b8" : "#cbd5e1";
@@ -537,7 +592,6 @@ export default function FacebookLiveStreamer({
 
     setLoading(true);
     try {
-      // Check WebSocket connection
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
         setStatus("Đang kết nối WebSocket…");
         setStatusType("info");
@@ -562,7 +616,6 @@ export default function FacebookLiveStreamer({
           .forEach((t) => canvasStream.addTrack(t));
       }
 
-      // Wait for FFmpeg to start with better error handling
       const waitStarted = new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(
@@ -597,8 +650,8 @@ export default function FacebookLiveStreamer({
                 )
               );
             }
-          } catch (e) {
-            // Ignore parse errors
+          } catch {
+            // ignore
           }
         };
         wsRef.current?.addEventListener("message", handler);
@@ -741,15 +794,33 @@ export default function FacebookLiveStreamer({
                       sx={{
                         display: "flex",
                         alignItems: "center",
-                        gap: 1,
+                        justifyContent: "space-between",
                         mb: 2,
+                        gap: 1,
                       }}
                     >
-                      <Videocam color="primary" />
-                      <Typography variant="h6" fontWeight={600}>
-                        Camera Input
-                      </Typography>
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                      >
+                        <Videocam color="primary" />
+                        <Typography variant="h6" fontWeight={600}>
+                          Camera Input
+                        </Typography>
+                      </Box>
+
+                      {/* NEW: Switch camera button */}
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<FlipCameraAndroid />}
+                        onClick={toggleCamera}
+                        disabled={!canSwitchCamera || isStreaming || loading}
+                      >
+                        Đổi camera (
+                        {facingMode === "environment" ? "sau" : "trước"})
+                      </Button>
                     </Box>
+
                     <Box
                       sx={{
                         position: "relative",
