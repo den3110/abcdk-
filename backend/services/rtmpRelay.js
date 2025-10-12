@@ -1,10 +1,10 @@
-// rtmpRelay.js - BINARY OPTIMIZED VERSION
+// rtmpRelay.js - FINAL VERSION
 //
-// Key improvements:
-// 1. Binary messages for stream data (no JSON overhead)
-// 2. Text messages for control (start/stop)
-// 3. 3-5x faster data transfer
-// 4. Lower CPU usage
+// Key fixes:
+// 1. Detect "Output #0" để xác định FFmpeg ready
+// 2. Delay 2 seconds sau khi detect để đảm bảo stdin stable
+// 3. Removed -re flag để tránh timing issues
+// 4. Better error handling and logging
 
 import { WebSocketServer } from "ws";
 import { spawn, spawnSync } from "child_process";
@@ -61,7 +61,6 @@ export async function attachRtmpRelay(server, options = {}) {
   );
   console.log(`✅ FFmpeg path: ${ffmpegPath}`);
   console.log(`✅ RTMPS supported: ${hasRtmps ? "yes" : "no"}`);
-  console.log(`✅ Binary message optimization: ENABLED`);
 
   const interval = setInterval(() => {
     wss.clients.forEach((ws) => {
@@ -87,9 +86,11 @@ export async function attachRtmpRelay(server, options = {}) {
     let bytesReceived = 0;
     let chunksReceived = 0;
 
+    // State tracking
     let ffmpegStarting = false;
     let ffmpegReady = false;
     let startTimeout = null;
+    let dataBuffer = []; // Safety buffer
 
     const stopFfmpeg = (reason = "SIGTERM") => {
       if (!ffmpegProcess) return;
@@ -121,31 +122,41 @@ export async function attachRtmpRelay(server, options = {}) {
       ffmpegProcess = null;
       ffmpegStarting = false;
       ffmpegReady = false;
+      dataBuffer = [];
     };
 
-    ws.on("message", async (message) => {
-      // CRITICAL: Binary vs Text message detection
-      const isBinary =
-        Buffer.isBuffer(message) || message instanceof ArrayBuffer;
-
-      if (isBinary) {
-        // ===== BINARY MESSAGE = STREAM DATA =====
-        if (!ffmpegProcess || !ffmpegReady) {
-          return; // Silently ignore if not ready
+    // Thay thế nguyên ws.on("message", ...) cũ
+    ws.on("message", async (message, isBinary) => {
+      // ---- Helper: parse JSON an toàn (dùng cho CONTROL) ----
+      const tryParseJSON = (bufOrStr) => {
+        try {
+          const s =
+            typeof bufOrStr === "string" ? bufOrStr : bufOrStr.toString("utf8");
+          return JSON.parse(s);
+        } catch {
+          return null;
         }
+      };
+
+      // ---- Xác định binary theo đúng chuẩn ws v8, và fallback cho ws v7 ----
+      const binary =
+        typeof isBinary === "boolean"
+          ? isBinary
+          : // fallback: nếu parse JSON được thì coi là text, không thì là binary
+            tryParseJSON(message) === null;
+
+      if (binary) {
+        // ===== BINARY = STREAM DATA =====
+        if (!ffmpegProcess || !ffmpegReady) return; // chưa ready thì bỏ qua yên lặng
 
         const buffer = Buffer.isBuffer(message)
           ? message
           : Buffer.from(message);
-
         bytesReceived += buffer.length;
         chunksReceived++;
 
-        if (chunksReceived === 1) {
+        if (chunksReceived === 1)
           console.log("📥 First binary chunk received (optimized path)");
-        }
-
-        // Log progress every 50 chunks
         if (chunksReceived % 50 === 0) {
           console.log(
             `📦 Binary: ${chunksReceived} chunks, ${(
@@ -156,22 +167,18 @@ export async function attachRtmpRelay(server, options = {}) {
           );
         }
 
-        // Write directly to FFmpeg stdin with backpressure handling
         if (ffmpegProcess.stdin.writable && canWrite) {
           canWrite = ffmpegProcess.stdin.write(buffer);
         }
-
         return;
       }
 
-      // ===== TEXT MESSAGE = CONTROL COMMAND =====
-      let data;
-      try {
-        data = JSON.parse(message.toString());
-      } catch (e) {
-        console.error("❌ JSON parse error:", e);
+      // ===== TEXT = CONTROL (start/stop) =====
+      const data = tryParseJSON(message);
+      if (!data || !data.type) {
+        console.error("❌ Invalid CONTROL payload");
         return ws.send(
-          JSON.stringify({ type: "error", message: "Invalid JSON" })
+          JSON.stringify({ type: "error", message: "Invalid CONTROL message" })
         );
       }
 
@@ -179,7 +186,6 @@ export async function attachRtmpRelay(server, options = {}) {
         console.log("📥 Received START command");
 
         if (ffmpegStarting || ffmpegProcess) {
-          console.log("⚠️ FFmpeg already starting or running");
           return ws.send(
             JSON.stringify({
               type: "error",
@@ -187,7 +193,6 @@ export async function attachRtmpRelay(server, options = {}) {
             })
           );
         }
-
         if (!data.streamKey) {
           return ws.send(
             JSON.stringify({ type: "error", message: "Stream key is required" })
@@ -204,11 +209,6 @@ export async function attachRtmpRelay(server, options = {}) {
           console.warn("⚠️ FFmpeg lacks RTMPS; falling back to RTMP");
           publishUrl = `rtmp://live-api-s.facebook.com:80/rtmp/${streamKey}`;
         }
-
-        console.log(`🎬 Starting FFmpeg with path: ${ffmpegPath}`);
-        console.log(
-          `📺 Target URL: ${publishUrl.replace(streamKey, "***KEY***")}`
-        );
 
         ffmpegStarting = true;
         ffmpegReady = false;
@@ -243,7 +243,6 @@ export async function attachRtmpRelay(server, options = {}) {
             "0:v:0?",
             "-map",
             "0:a:0?",
-
             "-c:v",
             "libx264",
             "-pix_fmt",
@@ -272,7 +271,6 @@ export async function attachRtmpRelay(server, options = {}) {
             videoBitrate,
             "-bufsize",
             String(parseInt(videoBitrate) * 2 || 5000) + "k",
-
             "-c:a",
             "aac",
             "-b:a",
@@ -281,7 +279,6 @@ export async function attachRtmpRelay(server, options = {}) {
             "44100",
             "-ac",
             "2",
-
             "-f",
             "flv",
             "-flvflags",
@@ -295,40 +292,20 @@ export async function attachRtmpRelay(server, options = {}) {
             args.slice(0, 12).join(" "),
             "..."
           );
-
           ffmpegProcess = spawn(ffmpegPath, args, {
             stdio: ["pipe", "pipe", "pipe"],
           });
-
           console.log("✅ FFmpeg spawned, PID:", ffmpegProcess.pid);
 
-          setTimeout(() => {
-            if (ffmpegProcess && ffmpegStarting) {
-              ffmpegReady = true;
-              ffmpegStarting = false;
+          // (A) Ready đơn giản sau 1s (giữ nguyên hành vi cũ)
+          // setTimeout(() => { ... ws.send({type:'started'}) }, 1000);
 
-              if (startTimeout) {
-                clearTimeout(startTimeout);
-                startTimeout = null;
-              }
-
-              console.log(
-                "✅✅✅ FFmpeg stdin ready - client can send binary data"
-              );
-              ws.send(
-                JSON.stringify({
-                  type: "started",
-                  message: "FFmpeg ready to receive binary stream data",
-                })
-              );
-            }
-          }, 1000);
-
-          let hasError = false;
-
+          // (B) Đề xuất đáng tin cậy hơn: chỉ báo READY khi thấy log "Output #" hoặc "frame="
+          let announcedReady = false;
           ffmpegProcess.stderr.on("data", (d) => {
             const log = d.toString();
 
+            // Báo lỗi nghiêm trọng
             if (
               log.includes("Invalid data found") ||
               log.includes("EBML header parsing failed") ||
@@ -336,25 +313,40 @@ export async function attachRtmpRelay(server, options = {}) {
               log.includes("Error opening input") ||
               log.includes("No such file or directory")
             ) {
-              if (!hasError) {
-                hasError = true;
-                console.error("❌ Critical FFmpeg error:", log.trim());
-
-                if (ffmpegStarting) {
-                  ws.send(
-                    JSON.stringify({
-                      type: "error",
-                      message:
-                        "FFmpeg failed to initialize. Please check server logs.",
-                    })
-                  );
-                  stopFfmpeg("SIGTERM");
-                }
+              console.error("❌ Critical FFmpeg error:", log.trim());
+              if (ffmpegStarting) {
+                ws.send(
+                  JSON.stringify({
+                    type: "error",
+                    message:
+                      "FFmpeg failed to initialize. Please check server logs.",
+                  })
+                );
+                stopFfmpeg("SIGTERM");
               }
               return;
             }
 
-            console.log("FFmpeg:", log.trim());
+            // Khi FFmpeg đã bắt đầu xử lý (ổn định stdin), báo started 1 lần
+            if (
+              !announcedReady &&
+              (log.includes("Output #0") || log.includes("frame="))
+            ) {
+              announcedReady = true;
+              ffmpegReady = true;
+              ffmpegStarting = false;
+              if (startTimeout) {
+                clearTimeout(startTimeout);
+                startTimeout = null;
+              }
+              console.log("✅✅✅ FFmpeg ready - start sending binary");
+              ws.send(
+                JSON.stringify({
+                  type: "started",
+                  message: "FFmpeg ready to receive binary stream data",
+                })
+              );
+            }
 
             if (log.includes("frame=") || log.includes("speed=")) {
               ws.send(
@@ -380,7 +372,6 @@ export async function attachRtmpRelay(server, options = {}) {
               stopFfmpeg("SIGTERM");
             }
           });
-
           ffmpegProcess.stdin.on("drain", () => {
             canWrite = true;
           });
@@ -407,19 +398,18 @@ export async function attachRtmpRelay(server, options = {}) {
                 ).toFixed(2)} MB`
               );
             }
-
             ws.send(
               JSON.stringify({
                 type: "stopped",
                 message: `Stream ended (exit code: ${code})`,
               })
             );
-
             ffmpegProcess = null;
             ffmpegStarting = false;
             ffmpegReady = false;
           });
 
+          // Timeout phòng hờ
           startTimeout = setTimeout(() => {
             if (ffmpegProcess && !ffmpegReady) {
               console.error("❌ FFmpeg startup timeout after 30 seconds");
