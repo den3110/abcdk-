@@ -180,24 +180,29 @@ export async function attachRtmpRelay(server, options = {}) {
         try {
           // CRITICAL: FFmpeg args optimized for pipe input from browser
           const args = [
-            // Input format
+            // Input format - CRITICAL: tell FFmpeg to wait for data
             "-f",
             "webm",
+            "-probesize",
+            "32",
+            "-analyzeduration",
+            "0",
             "-thread_queue_size",
             "512",
             "-fflags",
-            "+genpts+igndts",
+            "+genpts+igndts+discardcorrupt",
             "-avoid_negative_ts",
             "make_zero",
+            "-use_wallclock_as_timestamps",
+            "1",
             "-i",
             "pipe:0",
 
-            // Low-latency settings (NO -re flag!)
+            // Low-latency settings
             "-vsync",
             "passthrough",
             "-copytb",
             "1",
-            "-start_at_zero",
 
             // Map streams flexibly
             "-map",
@@ -227,7 +232,7 @@ export async function attachRtmpRelay(server, options = {}) {
             "-sc_threshold",
             "0",
             "-bf",
-            "0", // No B-frames for lower latency
+            "0",
             "-b:v",
             videoBitrate,
             "-maxrate",
@@ -266,87 +271,70 @@ export async function attachRtmpRelay(server, options = {}) {
 
           console.log("✅ FFmpeg spawned, PID:", ffmpegProcess.pid);
 
-          // CRITICAL: Detect when FFmpeg is truly ready
-          let outputStarted = false;
+          // CRITICAL FIX: Give FFmpeg a moment to initialize before declaring ready
+          // This prevents "Read error at pos. 0" because stdin won't be read immediately
+          setTimeout(() => {
+            if (ffmpegProcess && ffmpegStarting) {
+              ffmpegReady = true;
+              ffmpegStarting = false;
+
+              if (startTimeout) {
+                clearTimeout(startTimeout);
+                startTimeout = null;
+              }
+
+              console.log(
+                "✅✅✅ FFmpeg stdin ready - client can start sending data"
+              );
+              ws.send(
+                JSON.stringify({
+                  type: "started",
+                  message: "FFmpeg ready to receive stream data",
+                })
+              );
+            }
+          }, 1000); // 1 second - enough time for FFmpeg to initialize stdin
+
+          // Still monitor stderr for actual errors
+          let hasError = false;
+
+          // Still monitor stderr for actual errors
+          let hasError = false;
 
           ffmpegProcess.stderr.on("data", (d) => {
             const log = d.toString();
 
-            // Detect critical errors immediately
+            // Detect critical errors
             if (
-              !ffmpegReady &&
-              (log.includes("Invalid data found") ||
-                log.includes("EBML header parsing failed") ||
-                log.includes("moov atom not found"))
+              log.includes("Invalid data found") ||
+              log.includes("EBML header parsing failed") ||
+              log.includes("moov atom not found") ||
+              log.includes("Error opening input") ||
+              log.includes("No such file or directory")
             ) {
-              console.error(
-                "❌ Critical FFmpeg error during startup:",
-                log.trim()
-              );
-              ws.send(
-                JSON.stringify({
-                  type: "error",
-                  message: "FFmpeg failed to parse input. Please retry.",
-                })
-              );
-              stopFfmpeg("SIGTERM");
+              if (!hasError) {
+                hasError = true;
+                console.error("❌ Critical FFmpeg error:", log.trim());
+
+                // Only send error if we haven't sent "started" yet
+                if (ffmpegStarting) {
+                  ws.send(
+                    JSON.stringify({
+                      type: "error",
+                      message:
+                        "FFmpeg failed to initialize. Please check server logs.",
+                    })
+                  );
+                  stopFfmpeg("SIGTERM");
+                }
+              }
               return;
             }
 
-            // CRITICAL: Detect when FFmpeg output is initialized
-            if (!ffmpegReady && !outputStarted) {
-              if (
-                log.includes("Output #0") ||
-                log.includes("Stream #0:") ||
-                log.includes("encoder")
-              ) {
-                outputStarted = true;
-                console.log(
-                  "📺 FFmpeg output initialized, waiting 2s for stdin stability..."
-                );
-
-                // CRITICAL FIX: Wait 2 seconds to ensure stdin is truly ready
-                setTimeout(() => {
-                  if (ffmpegProcess && ffmpegStarting) {
-                    ffmpegReady = true;
-                    ffmpegStarting = false;
-
-                    if (startTimeout) {
-                      clearTimeout(startTimeout);
-                      startTimeout = null;
-                    }
-
-                    console.log(
-                      "✅✅✅ FFmpeg is READY - client can start sending data"
-                    );
-                    ws.send(
-                      JSON.stringify({
-                        type: "started",
-                        message: "FFmpeg ready to receive stream data",
-                      })
-                    );
-
-                    // Flush any buffered data (safety net - shouldn't have any)
-                    if (dataBuffer.length > 0) {
-                      console.log(
-                        `📤 Flushing ${dataBuffer.length} buffered chunks`
-                      );
-                      dataBuffer.forEach((buf) => {
-                        if (ffmpegProcess && ffmpegProcess.stdin.writable) {
-                          ffmpegProcess.stdin.write(buf);
-                        }
-                      });
-                      dataBuffer = [];
-                    }
-                  }
-                }, 2000); // 2 second delay - CRITICAL for stability
-              }
-            }
-
-            // Log FFmpeg output
+            // Log all output for debugging
             console.log("FFmpeg:", log.trim());
 
-            // Send progress updates to client
+            // Send progress updates
             if (log.includes("frame=") || log.includes("speed=")) {
               ws.send(
                 JSON.stringify({ type: "progress", message: log.trim() })
@@ -412,20 +400,20 @@ export async function attachRtmpRelay(server, options = {}) {
             dataBuffer = [];
           });
 
-          // Safety timeout
+          // Safety timeout - increased to 30s
           startTimeout = setTimeout(() => {
             if (ffmpegProcess && !ffmpegReady) {
-              console.error("❌ FFmpeg startup timeout after 25 seconds");
+              console.error("❌ FFmpeg startup timeout after 30 seconds");
               ws.send(
                 JSON.stringify({
                   type: "error",
                   message:
-                    "FFmpeg failed to initialize after 25s. Check: 1) Stream key valid? 2) Facebook Live created? 3) Network OK?",
+                    "FFmpeg failed to initialize after 30s. Check: 1) Stream key valid? 2) Facebook Live created? 3) Network OK?",
                 })
               );
               stopFfmpeg("SIGTERM");
             }
-          }, 25000);
+          }, 30000); // 30 seconds
         } catch (spawnError) {
           console.error("❌ Failed to spawn FFmpeg:", spawnError);
           ffmpegStarting = false;
