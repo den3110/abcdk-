@@ -43,8 +43,6 @@ import FileAsset from "./models/fileAssetModel.js";
 import { loadSettings } from "./middleware/settings.middleware.js";
 import clubRoutes from "./routes/clubRoutes.js";
 import captureRoutes from "./routes/captureRoutes.js";
-import fs from "fs"
-import { attachRtmpRelay } from "./services/rtmpRelay.js";
 
 dotenv.config();
 const port = process.env.PORT;
@@ -74,7 +72,7 @@ app.use(versionGate);
 
 // HTTP + Socket.IO
 const server = http.createServer(app);
-attachRtmpRelay(server, { path: "/ws/rtmp" });   // <-- WS riêng cho stream
+// attachRtmpRelay(server, { path: "/ws/rtmp" });   // <-- WS riêng cho stream
 // attachRtmpRelay(server, { path: "/ws/rtmp" });
 // 👇 Khởi tạo socket tách riêng
 const io = initSocket(server, { whitelist: WHITELIST, path: "/socket.io" });
