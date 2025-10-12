@@ -54,6 +54,7 @@ export default function FacebookLiveStreamer({
   const chunkQueueRef = useRef([]);
   const ffmpegReadyRef = useRef(false);
   const startingRef = useRef(false);
+  const hasWebMHeaderRef = useRef(false); // NEW: Track WebM header
 
   const canSwitchCamera =
     videoDevices.length > 1 ||
@@ -626,6 +627,7 @@ export default function FacebookLiveStreamer({
     ffmpegReadyRef.current = false;
     startingRef.current = false;
     chunkQueueRef.current = [];
+    hasWebMHeaderRef.current = false; // Reset header flag
 
     try {
       // Ensure WebSocket connection
@@ -705,7 +707,7 @@ export default function FacebookLiveStreamer({
 
       await waitStarted;
 
-      // FIX: Start MediaRecorder SAU KHI FFmpeg confirmed started
+      // FIX: Start MediaRecorder và chờ FFmpeg ready
       const rec = new MediaRecorder(canvasStream, {
         mimeType: "video/webm;codecs=vp8,opus",
         videoBitsPerSecond,
@@ -717,14 +719,36 @@ export default function FacebookLiveStreamer({
         const buf = new Uint8Array(await e.data.arrayBuffer());
         if (buf.byteLength === 0 || buf.byteLength > 1024 * 1024) return;
 
+        // FIX: Check for WebM header (EBML signature: 0x1A 0x45 0xDF 0xA3)
+        if (!hasWebMHeaderRef.current && buf.byteLength > 4) {
+          if (
+            buf[0] === 0x1a &&
+            buf[1] === 0x45 &&
+            buf[2] === 0xdf &&
+            buf[3] === 0xa3
+          ) {
+            hasWebMHeaderRef.current = true;
+            console.log("✅ WebM header detected, valid stream starting");
+          }
+        }
+
+        // FIX: Only queue/send if we have valid WebM header
+        if (!hasWebMHeaderRef.current) {
+          console.log("⏳ Waiting for WebM header...");
+          return;
+        }
+
         // FIX: Queue chunks nếu FFmpeg chưa ready
         if (!ffmpegReadyRef.current || startingRef.current) {
           // Giới hạn queue size để tránh memory leak
-          if (chunkQueueRef.current.length < 50) {
+          if (chunkQueueRef.current.length < 100) {
+            // Increased to 100
             chunkQueueRef.current.push(Array.from(buf));
-            console.log(
-              `📦 Queued chunk (${chunkQueueRef.current.length} total)`
-            );
+            if (chunkQueueRef.current.length % 10 === 0) {
+              console.log(`📦 Queued ${chunkQueueRef.current.length} chunks`);
+            }
+          } else {
+            console.warn("⚠️ Queue full, dropping chunk");
           }
           return;
         }
@@ -753,9 +777,13 @@ export default function FacebookLiveStreamer({
         startingRef.current = false;
       };
 
-      // FIX: Tăng timeslice để giảm overhead trên mobile
-      rec.start(300); // 300ms chunks thay vì 200ms
+      // FIX: Start recording ngay để tạo WebM header valid
+      rec.start(300);
       mediaRecorderRef.current = rec;
+
+      console.log(
+        "✅ MediaRecorder started, waiting for FFmpeg confirmation..."
+      );
 
       setIsStreaming(true);
       setStatus("✅ Đang streaming lên Facebook Live…");
@@ -767,6 +795,7 @@ export default function FacebookLiveStreamer({
       ffmpegReadyRef.current = false;
       startingRef.current = false;
       chunkQueueRef.current = [];
+      hasWebMHeaderRef.current = false;
     } finally {
       setLoading(false);
     }
@@ -1084,14 +1113,16 @@ export default function FacebookLiveStreamer({
                   <CardContent>
                     <Alert severity="success" variant="outlined" sx={{ mb: 2 }}>
                       <Typography variant="body2" sx={{ lineHeight: 1.6 }}>
-                        <strong>✅ FIXED: Race Condition</strong>
+                        <strong>✅ FIXED: Invalid WebM Data</strong>
+                        <br />
+                        • Kiểm tra WebM header hợp lệ trước khi gửi
                         <br />
                         • Queue chunks cho đến khi FFmpeg ready
                         <br />
                         • Tăng timeout lên 20s cho mobile
                         <br />
-                        • Proper state tracking
-                        <br />• Tự động flush queue khi connected
+                        • FFmpeg với -re flag để đọc đúng tốc độ
+                        <br />• Tự động retry nếu có lỗi parse
                       </Typography>
                     </Alert>
 

@@ -171,27 +171,32 @@ export async function attachRtmpRelay(server, options = {}) {
 
         try {
           const args = [
-            // Input from stdin
+            // Input from stdin - FIX: Thêm re-sync options
+            "-re", // Read input at native frame rate (important!)
             "-f",
             "webm",
             "-thread_queue_size",
-            "1024", // Increased for mobile
+            "1024",
             "-analyzeduration",
-            "1M",
+            "0", // Don't wait to analyze
             "-probesize",
-            "1M",
+            "32", // Minimal probe
+            "-fflags",
+            "+genpts+igndts+nobuffer", // Generate PTS, ignore DTS issues
+            "-avoid_negative_ts",
+            "make_zero",
             "-i",
             "pipe:0",
 
-            // Timestamps & low-latency
-            "-fflags",
-            "+genpts+nobuffer",
+            // Low-latency flags
             "-use_wallclock_as_timestamps",
             "1",
             "-flush_packets",
             "1",
             "-max_delay",
             "500000",
+            "-max_interleave_delta",
+            "0",
 
             // Map streams flexibly
             "-map",
@@ -205,13 +210,13 @@ export async function attachRtmpRelay(server, options = {}) {
             "-pix_fmt",
             "yuv420p",
             "-preset",
-            "veryfast",
+            "ultrafast", // Changed from veryfast
             "-tune",
             "zerolatency",
             "-profile:v",
-            "main",
+            "baseline", // Changed from main for compatibility
             "-level",
-            "4.0",
+            "3.1",
             "-r",
             String(fps),
             "-g",
@@ -219,7 +224,7 @@ export async function attachRtmpRelay(server, options = {}) {
             "-keyint_min",
             String(fps),
             "-x264-params",
-            "scenecut=0:open_gop=0:nal-hrd=cbr",
+            "scenecut=0:open_gop=0:bframes=0", // No B-frames for lower latency
             "-maxrate",
             videoBitrate,
             "-bufsize",
@@ -236,6 +241,8 @@ export async function attachRtmpRelay(server, options = {}) {
             "44100",
             "-ac",
             "2",
+            "-async",
+            "1", // Audio sync
             "-strict",
             "experimental",
 
