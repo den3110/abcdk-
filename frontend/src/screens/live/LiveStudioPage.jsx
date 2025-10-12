@@ -19,14 +19,14 @@ export default function LiveStudioPage() {
       matchId={matchId}
       fbServer={fbServer}
       fbKey={fbKey}
-      wsUrl={"wss://" + import.meta.env.HOST + "/ws/rtmp"}
+      // wsUrl={"wss://" + import.meta.env.HOST + "/ws/rtmp"}
       width={1280}
       height={720}
       overlayFps={8}
       outFps={30}
       overlayComponent={ScoreOverlay}
       overlayUrl={overlayUrl}
-      apiUrl={import.meta.env.VITE_API_URL+ "/api/overlay/match"}
+      // apiUrl={import.meta.env.VITE_API_URL+ "/api/overlay/match"}
     />
   );
 }

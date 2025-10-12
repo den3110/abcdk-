@@ -53,6 +53,7 @@ const WHITELIST = [
   "https://abcde-xi.vercel.app",
   "https://admin.pickletour.vn",
   "http://localhost:3001",
+  "http://localhost:3000"
 ];
 
 connectDB();
@@ -73,10 +74,10 @@ app.use(versionGate);
 
 // HTTP + Socket.IO
 const server = http.createServer(app);
+attachRtmpRelay(server, { path: "/ws/rtmp" });   // <-- WS riêng cho stream
 // attachRtmpRelay(server, { path: "/ws/rtmp" });
 // 👇 Khởi tạo socket tách riêng
 const io = initSocket(server, { whitelist: WHITELIST, path: "/socket.io" });
-attachRtmpRelay(server, { path: "/ws/rtmp" });   // <-- WS riêng cho stream
 
 // Cho controllers dùng io: req.app.get('io')
 app.set("io", io);
