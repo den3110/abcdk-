@@ -23,11 +23,6 @@ import {
   FlipCameraAndroid,
 } from "@mui/icons-material";
 
-/**
- * WebRTC → WebSocket → FFmpeg → Facebook RTMP
- * Với ScoreOverlay FULL được composite vào stream (y hệt ScoreOverlay component)
- */
-
 export default function FacebookLiveStreamer({
   matchId,
   wsUrl = "ws://localhost:5002/ws/rtmp",
@@ -44,9 +39,7 @@ export default function FacebookLiveStreamer({
   const [status, setStatus] = useState("Chưa kết nối");
   const [statusType, setStatusType] = useState("info");
   const [overlayData, setOverlayData] = useState(null);
-
-  // === NEW: camera switching state ===
-  const [facingMode, setFacingMode] = useState("user"); // 'user' | 'environment'
+  const [facingMode, setFacingMode] = useState("user");
   const [videoDevices, setVideoDevices] = useState([]);
 
   const videoRef = useRef(null);
@@ -56,13 +49,16 @@ export default function FacebookLiveStreamer({
   const wsRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const drawReqRef = useRef(0);
-  const overlayImageRef = useRef(null);
+
+  // ===== FIX: Thêm queue và flags để xử lý race condition =====
+  const chunkQueueRef = useRef([]);
+  const ffmpegReadyRef = useRef(false);
+  const startingRef = useRef(false);
 
   const canSwitchCamera =
     videoDevices.length > 1 ||
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  // ====== helpers for camera ======
   const enumerateVideoDevices = async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -80,7 +76,6 @@ export default function FacebookLiveStreamer({
       if (!isBack && frontKeys.some((k) => label.includes(k)))
         return d.deviceId;
     }
-    // fallback guess
     if (isBack && videoDevices.length > 1)
       return videoDevices[videoDevices.length - 1].deviceId;
     return videoDevices[0]?.deviceId;
@@ -102,21 +97,18 @@ export default function FacebookLiveStreamer({
       };
 
       let stream;
-      // 1) try facingMode exact
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: { ...common, facingMode: { exact: preferFacing } },
           audio: true,
         });
       } catch (_) {
-        // 2) try facingMode ideal
         try {
           stream = await navigator.mediaDevices.getUserMedia({
             video: { ...common, facingMode: preferFacing },
             audio: true,
           });
         } catch (_) {
-          // 3) fallback by deviceId
           await enumerateVideoDevices();
           const deviceId = findDeviceIdForFacing(preferFacing);
           stream = await navigator.mediaDevices.getUserMedia({
@@ -139,7 +131,7 @@ export default function FacebookLiveStreamer({
       );
       setStatusType("success");
 
-      await enumerateVideoDevices(); // labels đầy đủ sau khi cấp quyền
+      await enumerateVideoDevices();
       return true;
     } catch (err) {
       setStatus("Lỗi: Không thể truy cập camera - " + err.message);
@@ -159,7 +151,6 @@ export default function FacebookLiveStreamer({
     setLoading(false);
   };
 
-  // ====== CAMERA (init) ======
   useEffect(() => {
     (async () => {
       await initCamera("user");
@@ -167,10 +158,8 @@ export default function FacebookLiveStreamer({
     return () => {
       stopCurrentStream();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fps, videoHeight, videoWidth]);
 
-  // ====== FETCH OVERLAY DATA ======
   useEffect(() => {
     if (!matchId) return;
 
@@ -189,7 +178,6 @@ export default function FacebookLiveStreamer({
     return () => clearInterval(interval);
   }, [matchId, apiUrl]);
 
-  // ====== DRAW CANVAS WITH OVERLAY ======
   useEffect(() => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -201,7 +189,6 @@ export default function FacebookLiveStreamer({
     const render = () => {
       if (!isRunning) return;
 
-      // 1. Draw camera feed
       if (video.readyState >= 2 && video.videoWidth) {
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       } else {
@@ -209,7 +196,6 @@ export default function FacebookLiveStreamer({
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
-      // 2. Draw FULL overlay
       if (overlayData) {
         drawFullScoreOverlay(ctx, canvas.width, canvas.height, overlayData);
       }
@@ -231,7 +217,6 @@ export default function FacebookLiveStreamer({
     };
   }, [overlayData]);
 
-  // ====== DRAW FULL SCORE OVERLAY (Y hệt ScoreOverlay component) ======
   const drawFullScoreOverlay = (ctx, w, h, data) => {
     const drawRoundedRect = (x, y, w, h, r) => {
       const radius = Math.min(r, w / 2, h / 2);
@@ -285,19 +270,18 @@ export default function FacebookLiveStreamer({
     const size = "md";
     const accentA = "#25C2A0";
     const accentB = "#4F46E5";
-    const bg =
-      theme === "light" ? "rgba(255,255,255,0.8)" : "rgba(11,15,20,0.8)";
-    const fg = theme === "light" ? "#0b0f14" : "#E6EDF3";
-    const muted = theme === "light" ? "#5c6773" : "#9AA4AF";
+    const bg = "rgba(11,15,20,0.8)";
+    const fg = "#E6EDF3";
+    const muted = "#9AA4AF";
 
     const rounded = 18;
-    const pad = size === "lg" ? 16 : size === "sm" ? 10 : 14;
-    const minW = size === "lg" ? 380 : size === "sm" ? 260 : 320;
-    const nameSize = size === "lg" ? 18 : size === "sm" ? 14 : 16;
-    const scoreSize = size === "lg" ? 28 : size === "sm" ? 20 : 24;
-    const metaSize = size === "lg" ? 12 : size === "sm" ? 10 : 11;
-    const badgeSize = size === "lg" ? 10 : size === "sm" ? 9 : 10;
-    const tableSize = size === "lg" ? 12 : size === "sm" ? 10 : 11;
+    const pad = 14;
+    const minW = 320;
+    const nameSize = 16;
+    const scoreSize = 24;
+    const metaSize = 11;
+    const badgeSize = 10;
+    const tableSize = 11;
 
     const overlayX = 16;
     const overlayY = 16;
@@ -526,14 +510,20 @@ export default function FacebookLiveStreamer({
     }
   };
 
-  // ====== WEBSOCKET ======
+  // ===== FIX: Enhanced WebSocket với proper state tracking =====
   const connectWebSocket = () =>
     new Promise((resolve, reject) => {
       try {
         const ws = new WebSocket(wsUrl);
         ws.binaryType = "arraybuffer";
 
+        let connectTimeout = setTimeout(() => {
+          ws.close();
+          reject(new Error("WebSocket connection timeout"));
+        }, 10000);
+
         ws.onopen = () => {
+          clearTimeout(connectTimeout);
           wsRef.current = ws;
           setIsConnected(true);
           setStatus("Đã kết nối WebSocket");
@@ -542,6 +532,7 @@ export default function FacebookLiveStreamer({
         };
 
         ws.onerror = (e) => {
+          clearTimeout(connectTimeout);
           setIsConnected(false);
           setStatus("Lỗi WebSocket");
           setStatusType("error");
@@ -553,6 +544,9 @@ export default function FacebookLiveStreamer({
           setIsStreaming(false);
           setStatus("WebSocket đã ngắt");
           setStatusType("warning");
+          ffmpegReadyRef.current = false;
+          startingRef.current = false;
+          chunkQueueRef.current = [];
         };
 
         ws.onmessage = (evt) => {
@@ -565,16 +559,52 @@ export default function FacebookLiveStreamer({
           if (!data) return;
 
           if (data.type === "started") {
+            console.log("✅ FFmpeg confirmed started");
+            ffmpegReadyRef.current = true;
+            startingRef.current = false;
             setStatus("✅ Đang streaming lên Facebook Live…");
             setStatusType("success");
+
+            // FIX: Flush queued chunks khi FFmpeg ready
+            if (chunkQueueRef.current.length > 0) {
+              console.log(
+                `📦 Flushing ${chunkQueueRef.current.length} queued chunks`
+              );
+              const queue = [...chunkQueueRef.current];
+              chunkQueueRef.current = [];
+
+              queue.forEach((chunk) => {
+                if (ws.readyState === WebSocket.OPEN) {
+                  try {
+                    ws.send(
+                      JSON.stringify({
+                        type: "stream",
+                        data: chunk,
+                      })
+                    );
+                  } catch (err) {
+                    console.error("Error sending queued chunk:", err);
+                  }
+                }
+              });
+            }
           } else if (data.type === "stopped") {
             setStatus("Stream đã dừng");
             setStatusType("info");
             setIsStreaming(false);
+            ffmpegReadyRef.current = false;
+            startingRef.current = false;
+            chunkQueueRef.current = [];
           } else if (data.type === "error") {
             setStatus("Lỗi: " + (data.message || "Không rõ"));
             setStatusType("error");
             setIsStreaming(false);
+            ffmpegReadyRef.current = false;
+            startingRef.current = false;
+            chunkQueueRef.current = [];
+          } else if (data.type === "progress") {
+            // Optional: show progress without changing main status
+            console.log("FFmpeg progress:", data.message);
           }
         };
       } catch (e) {
@@ -582,7 +612,7 @@ export default function FacebookLiveStreamer({
       }
     });
 
-  // ====== START STREAM ======
+  // ===== FIX: Enhanced start streaming với proper synchronization =====
   const startStreaming = async () => {
     if (!streamKey.trim()) {
       setStatus("Vui lòng nhập Stream Key từ Facebook");
@@ -591,7 +621,14 @@ export default function FacebookLiveStreamer({
     }
 
     setLoading(true);
+
+    // Reset states
+    ffmpegReadyRef.current = false;
+    startingRef.current = false;
+    chunkQueueRef.current = [];
+
     try {
+      // Ensure WebSocket connection
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
         setStatus("Đang kết nối WebSocket…");
         setStatusType("info");
@@ -599,9 +636,8 @@ export default function FacebookLiveStreamer({
           await connectWebSocket();
         } catch (err) {
           throw new Error(
-            `Không thể kết nối WebSocket tới ${wsUrl}. Vui lòng kiểm tra:\n` +
-              `1. Backend server đã chạy chưa?\n` +
-              `2. URL WebSocket đúng chưa?\n` +
+            `Không thể kết nối WebSocket tới ${wsUrl}.\n` +
+              `Kiểm tra backend server đã chạy chưa?\n` +
               `Error: ${err.message}`
           );
         }
@@ -616,19 +652,23 @@ export default function FacebookLiveStreamer({
           .forEach((t) => canvasStream.addTrack(t));
       }
 
+      // FIX: Set starting flag trước khi send start command
+      startingRef.current = true;
+
       const waitStarted = new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
+          startingRef.current = false;
           reject(
             new Error(
-              "❌ Timeout: FFmpeg không khởi động sau 15s.\n" +
-                "Vui lòng kiểm tra:\n" +
+              "❌ Timeout: FFmpeg không khởi động sau 20s.\n" +
+                "Kiểm tra:\n" +
                 "1. Backend server đang chạy?\n" +
-                "2. FFmpeg đã cài đặt trên server?\n" +
+                "2. FFmpeg đã cài đặt?\n" +
                 "3. Stream Key đúng chưa?\n" +
-                "4. Check logs server để biết chi tiết."
+                "4. Check logs server."
             )
           );
-        }, 15_000);
+        }, 20000); // Tăng timeout lên 20s cho mobile
 
         const handler = (evt) => {
           try {
@@ -640,27 +680,32 @@ export default function FacebookLiveStreamer({
             } else if (msg?.type === "error") {
               clearTimeout(timeout);
               wsRef.current?.removeEventListener("message", handler);
+              startingRef.current = false;
               reject(
                 new Error(
                   `❌ FFmpeg Error: ${msg.message || "Không rõ"}\n` +
-                    `Kiểm tra:\n` +
-                    `1. Stream Key đúng chưa?\n` +
-                    `2. Facebook Live đã được tạo chưa?\n` +
-                    `3. Check server logs để biết chi tiết.`
+                    `Kiểm tra Stream Key và Facebook Live setup.`
                 )
               );
             }
-          } catch {
-            // ignore
-          }
+          } catch {}
         };
         wsRef.current?.addEventListener("message", handler);
       });
 
       setStatus("⏳ Đang khởi động FFmpeg trên server…");
-      wsRef.current?.send(JSON.stringify({ type: "start", streamKey }));
+      wsRef.current?.send(
+        JSON.stringify({
+          type: "start",
+          streamKey,
+          fps,
+          videoBitrate: Math.floor(videoBitsPerSecond / 1000) + "k",
+        })
+      );
+
       await waitStarted;
 
+      // FIX: Start MediaRecorder SAU KHI FFmpeg confirmed started
       const rec = new MediaRecorder(canvasStream, {
         mimeType: "video/webm;codecs=vp8,opus",
         videoBitsPerSecond,
@@ -668,27 +713,48 @@ export default function FacebookLiveStreamer({
 
       rec.ondataavailable = async (e) => {
         if (!e.data || e.data.size === 0) return;
-        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN)
-          return;
 
         const buf = new Uint8Array(await e.data.arrayBuffer());
-        if (buf.byteLength > 0 && buf.byteLength < 1024 * 1024) {
-          wsRef.current.send(
-            JSON.stringify({
-              type: "stream",
-              data: Array.from(buf),
-            })
-          );
+        if (buf.byteLength === 0 || buf.byteLength > 1024 * 1024) return;
+
+        // FIX: Queue chunks nếu FFmpeg chưa ready
+        if (!ffmpegReadyRef.current || startingRef.current) {
+          // Giới hạn queue size để tránh memory leak
+          if (chunkQueueRef.current.length < 50) {
+            chunkQueueRef.current.push(Array.from(buf));
+            console.log(
+              `📦 Queued chunk (${chunkQueueRef.current.length} total)`
+            );
+          }
+          return;
+        }
+
+        // Send immediately nếu FFmpeg ready
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          try {
+            wsRef.current.send(
+              JSON.stringify({
+                type: "stream",
+                data: Array.from(buf),
+              })
+            );
+          } catch (err) {
+            console.error("Error sending stream data:", err);
+          }
         }
       };
 
       rec.onerror = (err) => {
+        console.error("MediaRecorder error:", err);
         setStatus("Lỗi MediaRecorder: " + err.message);
         setStatusType("error");
         setIsStreaming(false);
+        ffmpegReadyRef.current = false;
+        startingRef.current = false;
       };
 
-      rec.start(200);
+      // FIX: Tăng timeslice để giảm overhead trên mobile
+      rec.start(300); // 300ms chunks thay vì 200ms
       mediaRecorderRef.current = rec;
 
       setIsStreaming(true);
@@ -698,6 +764,9 @@ export default function FacebookLiveStreamer({
       setStatus("Lỗi: " + err.message);
       setStatusType("error");
       setIsStreaming(false);
+      ffmpegReadyRef.current = false;
+      startingRef.current = false;
+      chunkQueueRef.current = [];
     } finally {
       setLoading(false);
     }
@@ -706,18 +775,25 @@ export default function FacebookLiveStreamer({
   const stopStreaming = () => {
     try {
       setLoading(true);
+
       if (
         mediaRecorderRef.current &&
         mediaRecorderRef.current.state !== "inactive"
       ) {
         mediaRecorderRef.current.stop();
       }
+
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: "stop" }));
       }
+
       setIsStreaming(false);
       setStatus("Đã dừng streaming");
       setStatusType("info");
+
+      ffmpegReadyRef.current = false;
+      startingRef.current = false;
+      chunkQueueRef.current = [];
     } catch (e) {
       setStatus("Lỗi khi dừng: " + e.message);
       setStatusType("error");
@@ -808,7 +884,6 @@ export default function FacebookLiveStreamer({
                         </Typography>
                       </Box>
 
-                      {/* NEW: Switch camera button */}
                       <Button
                         variant="outlined"
                         size="small"
@@ -1009,11 +1084,14 @@ export default function FacebookLiveStreamer({
                   <CardContent>
                     <Alert severity="success" variant="outlined" sx={{ mb: 2 }}>
                       <Typography variant="body2" sx={{ lineHeight: 1.6 }}>
-                        <strong>✅ Full ScoreOverlay</strong>
+                        <strong>✅ FIXED: Race Condition</strong>
                         <br />
-                        Overlay đầy đủ y hệt ScoreOverlay component: meta
-                        header, tournament, phase badge, team pills, serve
-                        balls, bảng sets.
+                        • Queue chunks cho đến khi FFmpeg ready
+                        <br />
+                        • Tăng timeout lên 20s cho mobile
+                        <br />
+                        • Proper state tracking
+                        <br />• Tự động flush queue khi connected
                       </Typography>
                     </Alert>
 
@@ -1028,7 +1106,8 @@ export default function FacebookLiveStreamer({
                           <li>Cho phép truy cập camera/micro</li>
                           <li>Nhập Facebook Stream Key</li>
                           <li>Nhấn "Bắt đầu Stream"</li>
-                          <li>Overlay tự động cập nhật theo API</li>
+                          <li>Đợi FFmpeg khởi động (có thể 5-10s)</li>
+                          <li>Stream sẽ tự động bắt đầu khi ready</li>
                         </ol>
                       </Typography>
                     </Alert>
@@ -1040,7 +1119,6 @@ export default function FacebookLiveStreamer({
         </Paper>
       </Container>
 
-      {/* Hidden overlay container for reference */}
       <div
         ref={overlayContainerRef}
         style={{
