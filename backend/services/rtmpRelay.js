@@ -126,6 +126,51 @@ export async function attachRtmpRelay(server, options = {}) {
     };
 
     ws.on("message", async (message) => {
+      // Handle both binary and text messages
+      if (Buffer.isBuffer(message)) {
+        // BINARY MESSAGE: Stream data
+        if (!ffmpegProcess) {
+          return; // Silently ignore
+        }
+
+        if (ffmpegStarting || !ffmpegReady) {
+          // Safety buffer (shouldn't happen with proper client)
+          if (dataBuffer.length < 10) {
+            dataBuffer.push(message);
+            console.log(
+              `⏳ Buffering chunk while FFmpeg starting (${dataBuffer.length} total)`
+            );
+          }
+          return;
+        }
+
+        bytesReceived += message.length;
+        chunksReceived++;
+
+        if (chunksReceived === 1) {
+          console.log("📥 First chunk received from client (BINARY mode)");
+        }
+
+        // Log progress every 50 chunks
+        if (chunksReceived % 50 === 0) {
+          console.log(
+            `📦 Received ${chunksReceived} chunks, ${(
+              bytesReceived /
+              1024 /
+              1024
+            ).toFixed(2)} MB total`
+          );
+        }
+
+        // Write to FFmpeg stdin with backpressure handling
+        if (ffmpegProcess.stdin.writable && canWrite) {
+          canWrite = ffmpegProcess.stdin.write(message);
+        }
+
+        return; // IMPORTANT: Return early for binary messages
+      }
+
+      // TEXT MESSAGE: Control messages (start/stop)
       let data;
       try {
         data = JSON.parse(message.toString());
@@ -160,11 +205,16 @@ export async function attachRtmpRelay(server, options = {}) {
         const videoBitrate = String(data.videoBitrate || "2500k");
         const audioBitrate = String(data.audioBitrate || "128k");
 
-        let publishUrl = `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
-        if (!hasRtmps) {
-          console.warn("⚠️ FFmpeg lacks RTMPS; falling back to RTMP");
-          publishUrl = `rtmp://live-api-s.facebook.com:80/rtmp/${streamKey}`;
-        }
+        // TEMPORARY FIX: Force RTMP instead of RTMPS for testing
+        let publishUrl = `rtmp://live-api-s.facebook.com:80/rtmp/${streamKey}`;
+        console.warn("⚠️ Using RTMP (not RTMPS) for testing");
+
+        // Original code (restore this after testing):
+        // let publishUrl = `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
+        // if (!hasRtmps) {
+        //   console.warn("⚠️ FFmpeg lacks RTMPS; falling back to RTMP");
+        //   publishUrl = `rtmp://live-api-s.facebook.com:80/rtmp/${streamKey}`;
+        // }
 
         console.log(`🎬 Starting FFmpeg with path: ${ffmpegPath}`);
         console.log(
@@ -178,90 +228,109 @@ export async function attachRtmpRelay(server, options = {}) {
         dataBuffer = [];
 
         try {
-          // CRITICAL: FFmpeg args optimized for pipe input from browser
+          // CRITICAL: FFmpeg args optimized for REALTIME LOW-LATENCY streaming
           const args = [
-            // Input format - CRITICAL: tell FFmpeg to wait for data
+            // Input format - optimized for live streaming
             "-f",
             "webm",
             "-probesize",
             "32",
             "-analyzeduration",
             "0",
-            "-thread_queue_size",
-            "512",
             "-fflags",
-            "+genpts+igndts+discardcorrupt",
+            "+genpts+igndts+discardcorrupt+nobuffer",
             "-avoid_negative_ts",
             "make_zero",
             "-use_wallclock_as_timestamps",
             "1",
+            "-thread_queue_size",
+            "1024", // Increased for stability
             "-i",
             "pipe:0",
 
-            // Low-latency settings
-            "-vsync",
-            "passthrough",
-            "-copytb",
-            "1",
-
-            // Map streams flexibly
+            // Video stream mapping
             "-map",
-            "0:v:0?",
-            "-map",
-            "0:a:0?",
+            "0:v:0",
 
-            // Video encoding - optimized for stability
+            // Video encoding - OPTIMIZED FOR SPEED
             "-c:v",
             "libx264",
             "-pix_fmt",
             "yuv420p",
             "-preset",
-            "veryfast",
+            "ultrafast", // Changed from veryfast
             "-tune",
             "zerolatency",
             "-profile:v",
             "baseline",
             "-level",
             "3.1",
+
+            // Frame rate handling - CRITICAL FIX
             "-r",
-            String(fps),
+            String(fps), // Output frame rate
             "-g",
-            String(fps * 2),
+            String(fps * 2), // GOP size
             "-keyint_min",
-            String(fps),
+            String(fps), // Min keyframe interval
+            "-force_key_frames",
+            `expr:gte(t,n_forced*${2})`, // Force keyframe every 2s
+
+            // Encoding params for low latency
             "-sc_threshold",
-            "0",
+            "0", // Disable scene detection
             "-bf",
-            "0",
+            "0", // No B-frames
+            "-refs",
+            "1", // Single reference frame
+            "-x264opts",
+            "no-sliced-threads:sync-lookahead=0",
+
+            // Bitrate control - OPTIMIZED
             "-b:v",
             videoBitrate,
             "-maxrate",
             videoBitrate,
             "-bufsize",
-            String(parseInt(videoBitrate) * 2 || 5000) + "k",
+            String(parseInt(videoBitrate) / 2 || 1250) + "k", // Smaller buffer
+            "-minrate",
+            String(parseInt(videoBitrate) * 0.8 || 2000) + "k", // Min bitrate
 
-            // Audio encoding
+            // Audio stream mapping
+            "-map",
+            "0:a:0",
+
+            // Audio encoding - OPTIMIZED FOR LOW LATENCY
             "-c:a",
             "aac",
             "-b:a",
             audioBitrate,
             "-ar",
-            "44100",
+            "48000", // Keep 48kHz - no resampling!
             "-ac",
-            "2",
+            "2", // Stereo
+            "-af",
+            "aresample=async=1:first_pts=0", // Audio sync fix
 
-            // Output format
+            // Output format - CRITICAL for live streaming
             "-f",
             "flv",
             "-flvflags",
-            "no_duration_filesize",
+            "no_duration_filesize+no_metadata",
+
+            // Connection settings
+            "-rtmp_buffer",
+            "100", // Small buffer for low latency
+            "-rtmp_live",
+            "live",
+
             publishUrl,
           ];
 
           console.log(
             "🔧 FFmpeg command:",
             "ffmpeg",
-            args.slice(0, 12).join(" "),
+            args.slice(0, 15).join(" "),
             "..."
           );
 
