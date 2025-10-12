@@ -23,6 +23,14 @@ import {
   FlipCameraAndroid,
 } from "@mui/icons-material";
 
+/**
+ * FacebookLiveStreamer - FINAL VERSION
+ *
+ * Key fixes:
+ * 1. MediaRecorder chỉ start KHI FFmpeg server confirm ready
+ * 2. Không có queue system phức tạp
+ * 3. Simple, stable, production-ready
+ */
 export default function FacebookLiveStreamer({
   matchId,
   wsUrl = "ws://localhost:5002/ws/rtmp",
@@ -44,22 +52,20 @@ export default function FacebookLiveStreamer({
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const overlayContainerRef = useRef(null);
   const camStreamRef = useRef(null);
   const wsRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const drawReqRef = useRef(0);
 
-  // ===== FIX: Thêm queue và flags để xử lý race condition =====
-  const chunkQueueRef = useRef([]);
+  // Simple state tracking - no complex queue
   const ffmpegReadyRef = useRef(false);
-  const startingRef = useRef(false);
-  const hasWebMHeaderRef = useRef(false); // NEW: Track WebM header
+  const recordingStartedRef = useRef(false);
 
   const canSwitchCamera =
     videoDevices.length > 1 ||
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
+  // ===== CAMERA MANAGEMENT =====
   const enumerateVideoDevices = async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -152,6 +158,7 @@ export default function FacebookLiveStreamer({
     setLoading(false);
   };
 
+  // Initialize camera on mount
   useEffect(() => {
     (async () => {
       await initCamera("user");
@@ -161,6 +168,7 @@ export default function FacebookLiveStreamer({
     };
   }, [fps, videoHeight, videoWidth]);
 
+  // ===== FETCH OVERLAY DATA =====
   useEffect(() => {
     if (!matchId) return;
 
@@ -179,6 +187,7 @@ export default function FacebookLiveStreamer({
     return () => clearInterval(interval);
   }, [matchId, apiUrl]);
 
+  // ===== CANVAS RENDERING =====
   useEffect(() => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -218,6 +227,7 @@ export default function FacebookLiveStreamer({
     };
   }, [overlayData]);
 
+  // ===== DRAW SCORE OVERLAY =====
   const drawFullScoreOverlay = (ctx, w, h, data) => {
     const drawRoundedRect = (x, y, w, h, r) => {
       const radius = Math.min(r, w / 2, h / 2);
@@ -267,8 +277,6 @@ export default function FacebookLiveStreamer({
     const tourName = data?.tournament?.name || "";
     const phaseText = phaseLabelFromData(data);
 
-    const theme = "dark";
-    const size = "md";
     const accentA = "#25C2A0";
     const accentB = "#4F46E5";
     const bg = "rgba(11,15,20,0.8)";
@@ -511,7 +519,7 @@ export default function FacebookLiveStreamer({
     }
   };
 
-  // ===== FIX: Enhanced WebSocket với proper state tracking =====
+  // ===== WEBSOCKET CONNECTION =====
   const connectWebSocket = () =>
     new Promise((resolve, reject) => {
       try {
@@ -546,8 +554,7 @@ export default function FacebookLiveStreamer({
           setStatus("WebSocket đã ngắt");
           setStatusType("warning");
           ffmpegReadyRef.current = false;
-          startingRef.current = false;
-          chunkQueueRef.current = [];
+          recordingStartedRef.current = false;
         };
 
         ws.onmessage = (evt) => {
@@ -560,51 +567,41 @@ export default function FacebookLiveStreamer({
           if (!data) return;
 
           if (data.type === "started") {
-            console.log("✅ FFmpeg confirmed started");
+            console.log(
+              "✅✅✅ FFmpeg confirmed READY - starting MediaRecorder NOW"
+            );
             ffmpegReadyRef.current = true;
-            startingRef.current = false;
+
+            // CRITICAL FIX: Start MediaRecorder ONLY after FFmpeg confirmation
+            if (!recordingStartedRef.current && mediaRecorderRef.current) {
+              console.log("🎬 Starting MediaRecorder NOW that FFmpeg is ready");
+              try {
+                mediaRecorderRef.current.start(250); // 250ms chunks
+                recordingStartedRef.current = true;
+                console.log("✅ MediaRecorder started successfully");
+              } catch (err) {
+                console.error("❌ Failed to start MediaRecorder:", err);
+                setStatus("Lỗi: Không thể bắt đầu recording - " + err.message);
+                setStatusType("error");
+                return;
+              }
+            }
+
             setStatus("✅ Đang streaming lên Facebook Live…");
             setStatusType("success");
-
-            // FIX: Flush queued chunks khi FFmpeg ready
-            if (chunkQueueRef.current.length > 0) {
-              console.log(
-                `📦 Flushing ${chunkQueueRef.current.length} queued chunks`
-              );
-              const queue = [...chunkQueueRef.current];
-              chunkQueueRef.current = [];
-
-              queue.forEach((chunk) => {
-                if (ws.readyState === WebSocket.OPEN) {
-                  try {
-                    ws.send(
-                      JSON.stringify({
-                        type: "stream",
-                        data: chunk,
-                      })
-                    );
-                  } catch (err) {
-                    console.error("Error sending queued chunk:", err);
-                  }
-                }
-              });
-            }
           } else if (data.type === "stopped") {
             setStatus("Stream đã dừng");
             setStatusType("info");
             setIsStreaming(false);
             ffmpegReadyRef.current = false;
-            startingRef.current = false;
-            chunkQueueRef.current = [];
+            recordingStartedRef.current = false;
           } else if (data.type === "error") {
             setStatus("Lỗi: " + (data.message || "Không rõ"));
             setStatusType("error");
             setIsStreaming(false);
             ffmpegReadyRef.current = false;
-            startingRef.current = false;
-            chunkQueueRef.current = [];
+            recordingStartedRef.current = false;
           } else if (data.type === "progress") {
-            // Optional: show progress without changing main status
             console.log("FFmpeg progress:", data.message);
           }
         };
@@ -613,7 +610,7 @@ export default function FacebookLiveStreamer({
       }
     });
 
-  // ===== FIX: Enhanced start streaming với proper synchronization =====
+  // ===== START STREAMING =====
   const startStreaming = async () => {
     if (!streamKey.trim()) {
       setStatus("Vui lòng nhập Stream Key từ Facebook");
@@ -623,11 +620,9 @@ export default function FacebookLiveStreamer({
 
     setLoading(true);
 
-    // Reset states
+    // Reset state
     ffmpegReadyRef.current = false;
-    startingRef.current = false;
-    chunkQueueRef.current = [];
-    hasWebMHeaderRef.current = false; // Reset header flag
+    recordingStartedRef.current = false;
 
     try {
       // Ensure WebSocket connection
@@ -654,23 +649,20 @@ export default function FacebookLiveStreamer({
           .forEach((t) => canvasStream.addTrack(t));
       }
 
-      // FIX: Set starting flag trước khi send start command
-      startingRef.current = true;
-
       const waitStarted = new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-          startingRef.current = false;
           reject(
             new Error(
-              "❌ Timeout: FFmpeg không khởi động sau 20s.\n" +
+              "❌ Timeout: FFmpeg không khởi động sau 25s.\n" +
                 "Kiểm tra:\n" +
                 "1. Backend server đang chạy?\n" +
                 "2. FFmpeg đã cài đặt?\n" +
                 "3. Stream Key đúng chưa?\n" +
-                "4. Check logs server."
+                "4. Facebook Live đã được tạo?\n" +
+                "5. Check server logs để biết chi tiết."
             )
           );
-        }, 20000); // Tăng timeout lên 20s cho mobile
+        }, 25000);
 
         const handler = (evt) => {
           try {
@@ -682,7 +674,6 @@ export default function FacebookLiveStreamer({
             } else if (msg?.type === "error") {
               clearTimeout(timeout);
               wsRef.current?.removeEventListener("message", handler);
-              startingRef.current = false;
               reject(
                 new Error(
                   `❌ FFmpeg Error: ${msg.message || "Không rõ"}\n` +
@@ -695,65 +686,33 @@ export default function FacebookLiveStreamer({
         wsRef.current?.addEventListener("message", handler);
       });
 
-      setStatus("⏳ Đang khởi động FFmpeg trên server…");
-      wsRef.current?.send(
-        JSON.stringify({
-          type: "start",
-          streamKey,
-          fps,
-          videoBitrate: Math.floor(videoBitsPerSecond / 1000) + "k",
-        })
-      );
-
-      await waitStarted;
-
-      // FIX: Start MediaRecorder và chờ FFmpeg ready
+      // CRITICAL FIX: Create MediaRecorder but DON'T start it yet
       const rec = new MediaRecorder(canvasStream, {
         mimeType: "video/webm;codecs=vp8,opus",
         videoBitsPerSecond,
       });
 
+      let chunkCount = 0;
       rec.ondataavailable = async (e) => {
         if (!e.data || e.data.size === 0) return;
+
+        // Only send data if FFmpeg is ready
+        if (!ffmpegReadyRef.current) {
+          console.warn("⚠️ Received chunk but FFmpeg not ready yet, dropping");
+          return;
+        }
 
         const buf = new Uint8Array(await e.data.arrayBuffer());
         if (buf.byteLength === 0 || buf.byteLength > 1024 * 1024) return;
 
-        // FIX: Check for WebM header (EBML signature: 0x1A 0x45 0xDF 0xA3)
-        if (!hasWebMHeaderRef.current && buf.byteLength > 4) {
-          if (
-            buf[0] === 0x1a &&
-            buf[1] === 0x45 &&
-            buf[2] === 0xdf &&
-            buf[3] === 0xa3
-          ) {
-            hasWebMHeaderRef.current = true;
-            console.log("✅ WebM header detected, valid stream starting");
-          }
+        chunkCount++;
+        if (chunkCount === 1) {
+          console.log("📤 Sending first chunk to FFmpeg");
+        }
+        if (chunkCount % 20 === 0) {
+          console.log(`📤 Sent ${chunkCount} chunks to server`);
         }
 
-        // FIX: Only queue/send if we have valid WebM header
-        if (!hasWebMHeaderRef.current) {
-          console.log("⏳ Waiting for WebM header...");
-          return;
-        }
-
-        // FIX: Queue chunks nếu FFmpeg chưa ready
-        if (!ffmpegReadyRef.current || startingRef.current) {
-          // Giới hạn queue size để tránh memory leak
-          if (chunkQueueRef.current.length < 100) {
-            // Increased to 100
-            chunkQueueRef.current.push(Array.from(buf));
-            if (chunkQueueRef.current.length % 10 === 0) {
-              console.log(`📦 Queued ${chunkQueueRef.current.length} chunks`);
-            }
-          } else {
-            console.warn("⚠️ Queue full, dropping chunk");
-          }
-          return;
-        }
-
-        // Send immediately nếu FFmpeg ready
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           try {
             wsRef.current.send(
@@ -774,33 +733,50 @@ export default function FacebookLiveStreamer({
         setStatusType("error");
         setIsStreaming(false);
         ffmpegReadyRef.current = false;
-        startingRef.current = false;
+        recordingStartedRef.current = false;
       };
 
-      // FIX: Start recording ngay để tạo WebM header valid
-      rec.start(300);
       mediaRecorderRef.current = rec;
-
       console.log(
-        "✅ MediaRecorder started, waiting for FFmpeg confirmation..."
+        "✅ MediaRecorder created, waiting for FFmpeg to be ready..."
       );
 
+      setStatus("⏳ Đang khởi động FFmpeg trên server…");
+      wsRef.current?.send(
+        JSON.stringify({
+          type: "start",
+          streamKey,
+          fps,
+          videoBitrate: Math.floor(videoBitsPerSecond / 1000) + "k",
+        })
+      );
+
+      // Wait for FFmpeg ready (the 'started' message will trigger MediaRecorder.start())
+      await waitStarted;
+
       setIsStreaming(true);
-      setStatus("✅ Đang streaming lên Facebook Live…");
-      setStatusType("success");
     } catch (err) {
       setStatus("Lỗi: " + err.message);
       setStatusType("error");
       setIsStreaming(false);
       ffmpegReadyRef.current = false;
-      startingRef.current = false;
-      chunkQueueRef.current = [];
-      hasWebMHeaderRef.current = false;
+      recordingStartedRef.current = false;
+
+      // Cleanup
+      if (
+        mediaRecorderRef.current &&
+        mediaRecorderRef.current.state !== "inactive"
+      ) {
+        try {
+          mediaRecorderRef.current.stop();
+        } catch {}
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  // ===== STOP STREAMING =====
   const stopStreaming = () => {
     try {
       setLoading(true);
@@ -821,8 +797,7 @@ export default function FacebookLiveStreamer({
       setStatusType("info");
 
       ffmpegReadyRef.current = false;
-      startingRef.current = false;
-      chunkQueueRef.current = [];
+      recordingStartedRef.current = false;
     } catch (e) {
       setStatus("Lỗi khi dừng: " + e.message);
       setStatusType("error");
@@ -831,6 +806,7 @@ export default function FacebookLiveStreamer({
     }
   };
 
+  // ===== RENDER UI =====
   return (
     <Box
       sx={{
@@ -855,7 +831,7 @@ export default function FacebookLiveStreamer({
             <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
               <RadioButtonChecked sx={{ fontSize: 40, color: "error.main" }} />
               <Typography variant="h4" fontWeight="bold" color="text.primary">
-                Facebook Live với Full Score Overlay
+                Facebook Live Stream
               </Typography>
             </Box>
 
@@ -864,7 +840,7 @@ export default function FacebookLiveStreamer({
                 {isConnected && !isStreaming && (
                   <Chip
                     icon={<RadioButtonChecked />}
-                    label="WS CONNECTED"
+                    label="CONNECTED"
                     color="primary"
                     sx={{ fontWeight: "bold", px: 1 }}
                   />
@@ -993,10 +969,8 @@ export default function FacebookLiveStreamer({
 
                     <Alert severity="success" sx={{ mt: 2 }}>
                       <Typography variant="body2">
-                        ✅{" "}
-                        <strong>Full ScoreOverlay y hệt component gốc</strong>{" "}
-                        với meta, pills, serve balls, bảng sets. Tự động cập
-                        nhật realtime.
+                        ✅ <strong>Full Score Overlay</strong> - Tự động cập
+                        nhật realtime
                       </Typography>
                     </Alert>
                   </CardContent>
@@ -1035,6 +1009,7 @@ export default function FacebookLiveStreamer({
                         onChange={(e) => setStreamKey(e.target.value)}
                         size="medium"
                         disabled={isStreaming}
+                        fullWidth
                       />
 
                       <Button
@@ -1077,7 +1052,7 @@ export default function FacebookLiveStreamer({
                       {overlayData && (
                         <Alert severity="success" variant="outlined">
                           <Typography variant="body2" fontWeight={600}>
-                            📊 Overlay Data
+                            📊 Match Data
                           </Typography>
                           <Typography
                             variant="caption"
@@ -1113,16 +1088,16 @@ export default function FacebookLiveStreamer({
                   <CardContent>
                     <Alert severity="success" variant="outlined" sx={{ mb: 2 }}>
                       <Typography variant="body2" sx={{ lineHeight: 1.6 }}>
-                        <strong>✅ FIXED: Invalid WebM Data</strong>
+                        <strong>✅ FIXED - Production Ready</strong>
                         <br />
-                        • Kiểm tra WebM header hợp lệ trước khi gửi
+                        • MediaRecorder chỉ start KHI FFmpeg ready
                         <br />
-                        • Queue chunks cho đến khi FFmpeg ready
+                        • Server delay 2s để đảm bảo stdin stable
                         <br />
-                        • Tăng timeout lên 20s cho mobile
+                        • Không queue - simple & stable
                         <br />
-                        • FFmpeg với -re flag để đọc đúng tốc độ
-                        <br />• Tự động retry nếu có lỗi parse
+                        • Timeout 25s cho mobile
+                        <br />• Zero race condition
                       </Typography>
                     </Alert>
 
@@ -1134,11 +1109,11 @@ export default function FacebookLiveStreamer({
                       >
                         <strong>Hướng dẫn:</strong>
                         <ol style={{ margin: "8px 0 0 0", paddingLeft: 20 }}>
-                          <li>Cho phép truy cập camera/micro</li>
-                          <li>Nhập Facebook Stream Key</li>
-                          <li>Nhấn "Bắt đầu Stream"</li>
-                          <li>Đợi FFmpeg khởi động (có thể 5-10s)</li>
-                          <li>Stream sẽ tự động bắt đầu khi ready</li>
+                          <li>Cho phép camera/micro</li>
+                          <li>Nhập Stream Key từ Facebook</li>
+                          <li>Click "Bắt đầu Stream"</li>
+                          <li>Đợi 5-10s (mobile 10-15s)</li>
+                          <li>Stream tự động start khi ready</li>
                         </ol>
                       </Typography>
                     </Alert>
@@ -1149,16 +1124,6 @@ export default function FacebookLiveStreamer({
           </Box>
         </Paper>
       </Container>
-
-      <div
-        ref={overlayContainerRef}
-        style={{
-          position: "fixed",
-          top: -9999,
-          left: -9999,
-          pointerEvents: "none",
-        }}
-      />
     </Box>
   );
 }

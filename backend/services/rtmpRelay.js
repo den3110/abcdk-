@@ -1,4 +1,11 @@
-// rtmpRelay.fixed.js
+// rtmpRelay.js - FINAL VERSION
+//
+// Key fixes:
+// 1. Detect "Output #0" để xác định FFmpeg ready
+// 2. Delay 2 seconds sau khi detect để đảm bảo stdin stable
+// 3. Removed -re flag để tránh timing issues
+// 4. Better error handling and logging
+
 import { WebSocketServer } from "ws";
 import { spawn, spawnSync } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
@@ -79,11 +86,11 @@ export async function attachRtmpRelay(server, options = {}) {
     let bytesReceived = 0;
     let chunksReceived = 0;
 
-    // FIX: Better state tracking
+    // State tracking
     let ffmpegStarting = false;
     let ffmpegReady = false;
     let startTimeout = null;
-    let dataBuffer = []; // Buffer to hold data until FFmpeg ready
+    let dataBuffer = []; // Safety buffer
 
     const stopFfmpeg = (reason = "SIGTERM") => {
       if (!ffmpegProcess) return;
@@ -160,7 +167,9 @@ export async function attachRtmpRelay(server, options = {}) {
         }
 
         console.log(`🎬 Starting FFmpeg with path: ${ffmpegPath}`);
-        console.log(`📺 Target URL: ${publishUrl.replace(streamKey, "***")}`);
+        console.log(
+          `📺 Target URL: ${publishUrl.replace(streamKey, "***KEY***")}`
+        );
 
         ffmpegStarting = true;
         ffmpegReady = false;
@@ -169,8 +178,9 @@ export async function attachRtmpRelay(server, options = {}) {
         dataBuffer = [];
 
         try {
+          // CRITICAL: FFmpeg args optimized for pipe input from browser
           const args = [
-            // FIX: Critical - don't use -re flag, it causes timing issues with pipe
+            // Input format
             "-f",
             "webm",
             "-thread_queue_size",
@@ -182,14 +192,14 @@ export async function attachRtmpRelay(server, options = {}) {
             "-i",
             "pipe:0",
 
-            // Low-latency settings
+            // Low-latency settings (NO -re flag!)
             "-vsync",
             "passthrough",
             "-copytb",
             "1",
             "-start_at_zero",
 
-            // Map streams
+            // Map streams flexibly
             "-map",
             "0:v:0?",
             "-map",
@@ -217,7 +227,7 @@ export async function attachRtmpRelay(server, options = {}) {
             "-sc_threshold",
             "0",
             "-bf",
-            "0", // No B-frames
+            "0", // No B-frames for lower latency
             "-b:v",
             videoBitrate,
             "-maxrate",
@@ -235,7 +245,7 @@ export async function attachRtmpRelay(server, options = {}) {
             "-ac",
             "2",
 
-            // Output
+            // Output format
             "-f",
             "flv",
             "-flvflags",
@@ -243,7 +253,12 @@ export async function attachRtmpRelay(server, options = {}) {
             publishUrl,
           ];
 
-          console.log("🔧 FFmpeg args:", args.slice(0, 10).join(" "), "...");
+          console.log(
+            "🔧 FFmpeg command:",
+            "ffmpeg",
+            args.slice(0, 12).join(" "),
+            "..."
+          );
 
           ffmpegProcess = spawn(ffmpegPath, args, {
             stdio: ["pipe", "pipe", "pipe"],
@@ -251,14 +266,13 @@ export async function attachRtmpRelay(server, options = {}) {
 
           console.log("✅ FFmpeg spawned, PID:", ffmpegProcess.pid);
 
-          // FIX: Better ready detection
-          let stdinReady = false;
+          // CRITICAL: Detect when FFmpeg is truly ready
           let outputStarted = false;
 
           ffmpegProcess.stderr.on("data", (d) => {
             const log = d.toString();
 
-            // Detect critical startup errors immediately
+            // Detect critical errors immediately
             if (
               !ffmpegReady &&
               (log.includes("Invalid data found") ||
@@ -272,28 +286,28 @@ export async function attachRtmpRelay(server, options = {}) {
               ws.send(
                 JSON.stringify({
                   type: "error",
-                  message: "FFmpeg failed to parse input. Client should retry.",
+                  message: "FFmpeg failed to parse input. Please retry.",
                 })
               );
               stopFfmpeg("SIGTERM");
               return;
             }
 
-            // Detect when FFmpeg is ready for input
+            // CRITICAL: Detect when FFmpeg output is initialized
             if (!ffmpegReady && !outputStarted) {
-              // Look for signs that FFmpeg successfully initialized
               if (
                 log.includes("Output #0") ||
                 log.includes("Stream #0:") ||
                 log.includes("encoder")
               ) {
                 outputStarted = true;
-                console.log("📺 FFmpeg output initialized");
+                console.log(
+                  "📺 FFmpeg output initialized, waiting 2s for stdin stability..."
+                );
 
-                // Wait a bit more to ensure stdin is truly ready
+                // CRITICAL FIX: Wait 2 seconds to ensure stdin is truly ready
                 setTimeout(() => {
                   if (ffmpegProcess && ffmpegStarting) {
-                    stdinReady = true;
                     ffmpegReady = true;
                     ffmpegStarting = false;
 
@@ -312,7 +326,7 @@ export async function attachRtmpRelay(server, options = {}) {
                       })
                     );
 
-                    // FIX: Flush buffered data if any (but there shouldn't be any yet)
+                    // Flush any buffered data (safety net - shouldn't have any)
                     if (dataBuffer.length > 0) {
                       console.log(
                         `📤 Flushing ${dataBuffer.length} buffered chunks`
@@ -325,14 +339,14 @@ export async function attachRtmpRelay(server, options = {}) {
                       dataBuffer = [];
                     }
                   }
-                }, 2000); // 2 second delay to ensure stability
+                }, 2000); // 2 second delay - CRITICAL for stability
               }
             }
 
-            // Log all FFmpeg output for debugging
+            // Log FFmpeg output
             console.log("FFmpeg:", log.trim());
 
-            // Send progress updates
+            // Send progress updates to client
             if (log.includes("frame=") || log.includes("speed=")) {
               ws.send(
                 JSON.stringify({ type: "progress", message: log.trim() })
@@ -398,7 +412,7 @@ export async function attachRtmpRelay(server, options = {}) {
             dataBuffer = [];
           });
 
-          // FIX: Longer timeout for FFmpeg startup
+          // Safety timeout
           startTimeout = setTimeout(() => {
             if (ffmpegProcess && !ffmpegReady) {
               console.error("❌ FFmpeg startup timeout after 25 seconds");
@@ -406,12 +420,12 @@ export async function attachRtmpRelay(server, options = {}) {
                 JSON.stringify({
                   type: "error",
                   message:
-                    "FFmpeg failed to initialize. Check: 1) Stream key valid? 2) Facebook Live created? 3) Network OK?",
+                    "FFmpeg failed to initialize after 25s. Check: 1) Stream key valid? 2) Facebook Live created? 3) Network OK?",
                 })
               );
               stopFfmpeg("SIGTERM");
             }
-          }, 25000); // 25 seconds
+          }, 25000);
         } catch (spawnError) {
           console.error("❌ Failed to spawn FFmpeg:", spawnError);
           ffmpegStarting = false;
@@ -425,17 +439,17 @@ export async function attachRtmpRelay(server, options = {}) {
           stopFfmpeg("SIGTERM");
         }
       } else if (data.type === "stream") {
-        // FIX: Critical - only accept data when FFmpeg is truly ready
+        // CRITICAL: Only accept data when FFmpeg is truly ready
         if (!ffmpegProcess) {
           return; // Silently ignore
         }
 
         if (ffmpegStarting || !ffmpegReady) {
-          // FIX: Buffer data instead of ignoring (but this shouldn't happen with proper client)
+          // Safety buffer (shouldn't happen with proper client)
           if (dataBuffer.length < 10) {
             dataBuffer.push(Buffer.from(data.data));
             console.log(
-              `⏳ Buffering chunk while FFmpeg starting (${dataBuffer.length} buffered)`
+              `⏳ Buffering chunk while FFmpeg starting (${dataBuffer.length} total)`
             );
           }
           return;
@@ -449,7 +463,7 @@ export async function attachRtmpRelay(server, options = {}) {
           console.log("📥 First chunk received from client");
         }
 
-        // Log every 50 chunks
+        // Log progress every 50 chunks
         if (chunksReceived % 50 === 0) {
           console.log(
             `📦 Received ${chunksReceived} chunks, ${(
@@ -460,6 +474,7 @@ export async function attachRtmpRelay(server, options = {}) {
           );
         }
 
+        // Write to FFmpeg stdin with backpressure handling
         if (ffmpegProcess.stdin.writable && canWrite) {
           canWrite = ffmpegProcess.stdin.write(buffer);
         }
