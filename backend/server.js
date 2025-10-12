@@ -42,6 +42,7 @@ import fileRoutes from "./routes/fileRoutes.js";
 import FileAsset from "./models/fileAssetModel.js";
 import { loadSettings } from "./middleware/settings.middleware.js";
 import clubRoutes from "./routes/clubRoutes.js";
+import captureRoutes from "./routes/captureRoutes.js";
 import fs from "fs"
 import { attachRtmpRelay } from "./services/rtmpRelay.js";
 
@@ -116,7 +117,7 @@ app.use("/api/sportconnect", sportconnectRoutes);
 app.use("/api/cccd", cccdRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api/clubs", clubRoutes);
-
+app.use("/api/capture", captureRoutes);
 
 app.get("/dl/file/:id", async (req, res) => {
   try {

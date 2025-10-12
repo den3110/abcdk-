@@ -1,331 +1,323 @@
-// server/rtmpRelay.js
-// ESM: cần "type": "module" trong package.json
+// rtmpRelay.ubuntu.js
 import { WebSocketServer } from "ws";
-import { spawn } from "child_process";
-import { parse as parseUrl } from "url";
+import { spawn, spawnSync } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
-import fs from "fs";
 
-function resolveFfmpegCmd() {
-  if (process.env.FFMPEG_PATH && fs.existsSync(process.env.FFMPEG_PATH)) {
-    return process.env.FFMPEG_PATH;
-  }
- 
-  return "ffmpeg"; // fallback PATH hệ thống
+function resolveFfmpegPath() {
+  // 1) Env var
+  if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
+
+  // 2) System ffmpeg on Ubuntu
+  try {
+    const which = spawnSync("which", ["ffmpeg"]);
+    if (which.status === 0) {
+      const p = which.stdout.toString().trim();
+      if (p) return p;
+    }
+  } catch (_) {}
+
+  // 3) Fallback to ffmpeg-static (may miss some protocols on Linux)
+  if (ffmpegStatic) return ffmpegStatic;
+
+  throw new Error(
+    "FFmpeg not found. Please install with `sudo apt install ffmpeg` or set FFMPEG_PATH."
+  );
 }
 
-function buildOutUrl(server_url, stream_key) {
-  let s = String(server_url || "").trim();
-  let k = String(stream_key || "").trim();
-  if (!s) throw new Error("Missing server_url");
-  if (!k) throw new Error("Missing stream_key");
-  if (!s.endsWith("/")) s += "/";
-  if (k.startsWith("/")) k = k.slice(1);
-  return s + k; // giữ nguyên query ?...
+async function ffmpegSupportsProtocol(bin, proto = "rtmps") {
+  return await new Promise((resolve) => {
+    try {
+      const p = spawn(bin, ["-hide_banner", "-protocols"]);
+      let out = "";
+      let err = "";
+      p.stdout.on("data", (d) => (out += d.toString()));
+      p.stderr.on("data", (d) => (err += d.toString()));
+      p.on("close", () => {
+        const text = (out + "\n" + err).toLowerCase();
+        resolve(text.includes(` ${proto}\n`) || text.includes(`\n${proto}\n`));
+      });
+      p.on("error", () => resolve(false));
+    } catch (_) {
+      resolve(false);
+    }
+  });
 }
 
-export function attachRtmpRelay(server, { path = "/ws/rtmp" } = {}) {
-  const wss = new WebSocketServer({ noServer: true });
-
-  server.on("upgrade", (req, socket, head) => {
-    const { pathname } = parseUrl(req.url);
-    if (pathname !== path) return socket.destroy();
-    wss.handleUpgrade(req, socket, head, (ws) =>
-      wss.emit("connection", ws, req)
-    );
+export async function attachRtmpRelay(server, options = {}) {
+  const wss = new WebSocketServer({
+    server,
+    path: options.path || "/ws/rtmp",
   });
 
-  wss.on("connection", (ws) => {
-    let ffmpeg = null;
-    let gotConfig = false;
+  const ffmpegPath = resolveFfmpegPath();
+  const hasRtmps = await ffmpegSupportsProtocol(ffmpegPath, "rtmps");
 
-    // hàng đợi & backpressure
-    const queue = [];
-    let writing = false;
+  console.log(
+    `✅ RTMP Relay WebSocket listening on ${options.path || "/ws/rtmp"}`
+  );
+  console.log(`✅ FFmpeg path: ${ffmpegPath}`);
+  console.log(`✅ RTMPS supported: ${hasRtmps ? "yes" : "no"}`);
 
-    // trạng thái
-    let pingTimer = null;
-    let stopped = false;
-    let ffAlive = false;
-    let stdinClosed = false;
-
-    // keepalive
-    pingTimer = setInterval(() => {
-      if (ws.readyState === ws.OPEN) {
-        try {
-          ws.ping();
-        } catch {}
-      }
-    }, 15000);
-
-    const send = (type, payload = {}) => {
-      if (ws.readyState === ws.OPEN) {
-        try {
-          ws.send(JSON.stringify({ type, ...payload }));
-        } catch {}
-      }
-    };
-
-    const stop = (reason = "normal") => {
-      if (stopped) return;
-      stopped = true;
-
-      clearInterval(pingTimer);
-
+  // Optional: heartbeat to close dead sockets
+  const interval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+      if (ws.isAlive === false) return ws.terminate();
+      ws.isAlive = false;
       try {
-        ffmpeg?.stdin?.end();
+        ws.ping();
+      } catch {}
+    });
+  }, 30000);
+
+  wss.on("close", () => clearInterval(interval));
+
+  wss.on("connection", (ws, req) => {
+    ws.isAlive = true;
+    ws.on("pong", () => (ws.isAlive = true));
+
+    console.log(`📡 New WebSocket connection from ${req.socket.remoteAddress}`);
+
+    let ffmpegProcess = null;
+    let streamKey = null;
+    let canWrite = true;
+
+    const stopFfmpeg = (reason = "SIGTERM") => {
+      if (!ffmpegProcess) return;
+      try {
+        ffmpegProcess.stdin?.end();
       } catch {}
       try {
-        ffmpeg?.kill("SIGINT");
+        ffmpegProcess.kill(reason);
       } catch {}
-
-      try {
-        ws.close(1000, reason);
-      } catch {}
-    };
-
-    const flush = () => {
-      if (writing) return;
-      writing = true;
-
-      const MAX_BURST = 200; // giới hạn số gói mỗi lượt để không chiếm event-loop quá lâu
-      let sent = 0;
-
-      const loop = () => {
-        if (stopped || !ffAlive || stdinClosed) {
-          writing = false;
-          return;
-        }
-        while (queue.length && sent < MAX_BURST) {
-          const buf = queue[0];
-          let ok = false;
+      // Double-kill if hung
+      setTimeout(() => {
+        if (ffmpegProcess && !ffmpegProcess.killed) {
           try {
-            ok = ffmpeg.stdin.write(buf);
-          } catch (e) {
-            // lỗi sync hiếm gặp
-            send("ffmpeg_error", {
-              message: "stdin write failed: " + (e.message || e),
-            });
-            writing = false;
-            return stop("stdin-failed");
-          }
-
-          if (!ok) {
-            // đợi drain rồi tiếp tục
-            ffmpeg.stdin.once("drain", () => {
-              sent = 0; // reset burst
-              loop();
-            });
-            writing = false;
-            return;
-          }
-          queue.shift();
-          sent++;
+            ffmpegProcess.kill("SIGKILL");
+          } catch {}
         }
-
-        if (queue.length === 0) {
-          writing = false;
-          return;
-        }
-        // còn dữ liệu nhưng đã đạt MAX_BURST
-        setImmediate(loop);
-      };
-
-      loop();
+      }, 4000);
+      ffmpegProcess = null;
     };
 
-    ws.on("message", (data, isBinary) => {
-      if (stopped) return;
-
-      // gói đầu: JSON config
-      if (!gotConfig && !isBinary) {
-        let cfg;
-        try {
-          cfg = JSON.parse(data.toString());
-        } catch {
-          send("ffmpeg_error", { message: "Bad JSON config" });
-          return stop("bad-config");
-        }
-
-        const {
-          server_url,
-          stream_key,
-          videoBitrate = "3500k",
-          audioBitrate = "128k",
-          fps = 30,
-        } = cfg || {};
-
-        let outUrl;
-        try {
-          outUrl = buildOutUrl(server_url, stream_key);
-        } catch (e) {
-          send("ffmpeg_error", { message: e.message || "Bad URL" });
-          return stop("bad-config");
-        }
-
-        const kbps =
-          parseInt(String(videoBitrate).replace(/[^0-9]/g, ""), 10) || 3500;
-        const bufsize = `${kbps * 2}k`;
-
-        const args = [
-          "-hide_banner",
-          "-loglevel",
-          "verbose",
-          "-stats",
-          "-re",
-          "-fflags",
-          "nobuffer",
-          "-thread_queue_size",
-          "2048",
-          "-f",
-          "webm",
-          "-i",
-          "pipe:0",
-          "-analyzeduration",
-          "0",
-          "-probesize",
-          "32M",
-          "-use_wallclock_as_timestamps",
-          "1",
-
-          "-c:v",
-          "libx264",
-          "-preset",
-          "veryfast",
-          "-tune",
-          "zerolatency",
-          "-pix_fmt",
-          "yuv420p",
-          "-r",
-          String(fps),
-          "-g",
-          String(fps * 2),
-          "-sc_threshold",
-          "0", // khóa GOP, tránh tự cắt keyframe
-          "-x264-params",
-          `keyint=${fps * 2}:min-keyint=${fps * 2}:scenecut=0`,
-          "-b:v",
-          videoBitrate,
-          "-maxrate",
-          videoBitrate,
-          "-bufsize",
-          bufsize,
-
-          "-c:a",
-          "aac",
-          "-ac",
-          "2",
-
-          "-f",
-          "flv",
-          "-flvflags",
-          "no_duration_filesize",
-          "-rtmp_live",
-          "live",
-          "-muxdelay",
-          "0",
-          "-muxpreload",
-          "0",
-          "-rw_timeout",
-          "15000000", // 15s
-          outUrl,
-        ];
-
-        const cmd = resolveFfmpegCmd();
-        console.log("[RTMP Relay] Using ffmpeg at:", cmd);
-        console.log("[RTMP Relay] OUT =", outUrl);
-
-        try {
-          const finalArgs = process.env.FFMPEG_REPORT
-            ? ["-report", ...args]
-            : args;
-          ffmpeg = spawn(cmd, finalArgs, { stdio: ["pipe", "pipe", "pipe"] });
-        } catch (e) {
-          send("ffmpeg_error", {
-            message: `Cannot spawn ffmpeg: ${e.message}`,
-          });
-          return stop("spawn-failed");
-        }
-
-        ffAlive = true;
-        stdinClosed = false;
-
-        // forward log → FE
-        ffmpeg.stderr.on("data", (chunk) =>
-          send("ffmpeg_log", { line: chunk.toString() })
+    ws.on("message", async (message) => {
+      let data;
+      try {
+        data = JSON.parse(message.toString());
+      } catch (e) {
+        console.error("❌ JSON parse error:", e);
+        return ws.send(
+          JSON.stringify({ type: "error", message: "Invalid JSON" })
         );
-        ffmpeg.stdout.on("data", (chunk) =>
-          send("ffmpeg_log", { line: chunk.toString() })
-        );
-
-        // BẮT LỖI TRÊN STDIN (ngăn uncaughtException: write EOF)
-        ffmpeg.stdin.on("error", (e) => {
-          const code = e?.code || "";
-          if (code === "EPIPE" || code === "EOF") {
-            send("ffmpeg_error", { message: `stdin closed (${code})` });
-          } else {
-            send("ffmpeg_error", { message: `stdin error: ${e.message || e}` });
-          }
-          stdinClosed = true;
-          return stop("stdin-error");
-        });
-        ffmpeg.stdin.on("close", () => {
-          stdinClosed = true;
-        });
-
-        ffmpeg.on("error", (e) => {
-          send("ffmpeg_error", { message: e.message || String(e) });
-          ffAlive = false;
-          return stop("ffmpeg-error");
-        });
-
-        ffmpeg.on("close", (code, signal) => {
-          send("ffmpeg_exit", { code, signal });
-          ffAlive = false;
-          stdinClosed = true;
-          return stop("ffmpeg-exit");
-        });
-
-        gotConfig = true;
-        send("ready");
-
-        // flush các binary đã queue (nếu FE gửi sớm)
-        flush();
-        return;
       }
 
-      // sau khi ready: nhận binary WebM chunk
-      if (isBinary) {
-        if (stopped || !ffAlive || stdinClosed) return;
-
-        const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
-        queue.push(buf);
-
-        // chặn tràn RAM: giữ tối đa ~50MB trong queue
-        const totalQueuedBytes = queue.reduce((s, b) => s + b.byteLength, 0);
-        if (totalQueuedBytes > 50 * 1024 * 1024) {
-          // bỏ bớt frame cũ (drop frames) để kịp live
-          while (
-            queue.length &&
-            queue.reduce((s, b) => s + b.byteLength, 0) > 25 * 1024 * 1024
-          ) {
-            queue.shift();
-          }
-          send("ffmpeg_log", {
-            line: "[warn] Dropping old frames to relieve backpressure\n",
-          });
+      if (data.type === "start") {
+        console.log("📥 Received START command");
+        if (!data.streamKey) {
+          ws.send(
+            JSON.stringify({ type: "error", message: "Stream key is required" })
+          );
+          return;
         }
 
-        flush();
+        streamKey = data.streamKey;
+        const fps = Number(data.fps || 30);
+        const videoBitrate = String(data.videoBitrate || "4000k");
+        const audioBitrate = String(data.audioBitrate || "128k");
+
+        // Prefer RTMPS for Facebook
+        let publishUrl = `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
+        if (!hasRtmps) {
+          console.warn(
+            "⚠️ FFmpeg lacks RTMPS; falling back to RTMP (insecure). Install system ffmpeg on Ubuntu."
+          );
+          publishUrl = `rtmp://live-api-s.facebook.com:80/rtmp/${streamKey}`;
+        }
+
+        console.log(`🎬 Starting FFmpeg with path: ${ffmpegPath}`);
+        console.log(`📺 Target URL: ${publishUrl}`);
+
+        try {
+          // Important flags for real-time piping from browser WebM (VP8/Opus)
+          const args = [
+            // Read from stdin as WebM
+            "-f",
+            "webm",
+            "-thread_queue_size",
+            "512",
+            "-i",
+            "pipe:0",
+
+            // Generate timestamps if missing & low-latency tuning
+            "-fflags",
+            "+genpts",
+            "-use_wallclock_as_timestamps",
+            "1",
+            "-flush_packets",
+            "1",
+
+            // Map flexibly (handle missing audio/video gracefully)
+            "-map",
+            "0:v:0?",
+            "-map",
+            "0:a:0?",
+
+            // Video
+            "-c:v",
+            "libx264",
+            "-pix_fmt",
+            "yuv420p",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-r",
+            String(fps),
+            "-g",
+            String(fps * 2),
+            "-keyint_min",
+            String(fps * 2),
+            "-x264-params",
+            `scenecut=0:open_gop=0`,
+            "-maxrate",
+            videoBitrate,
+            "-bufsize",
+            String(parseInt(videoBitrate) * 2 || 8000) + "k",
+
+            // Audio
+            "-c:a",
+            "aac",
+            "-b:a",
+            audioBitrate,
+            "-ar",
+            "44100",
+            "-ac",
+            "2",
+
+            // Facebook prefers FLV container
+            "-f",
+            "flv",
+            // "-rtmp_live", "live", // optional, some targets need this
+            publishUrl,
+          ];
+
+          ffmpegProcess = spawn(ffmpegPath, args, {
+            stdio: ["pipe", "pipe", "pipe"],
+          });
+          console.log("✅ FFmpeg process spawned, PID:", ffmpegProcess.pid);
+
+          ffmpegProcess.stderr.on("data", (d) => {
+            const log = d.toString();
+            // Keep console concise but forward key lines to client
+            if (
+              log.includes("frame=") ||
+              log.toLowerCase().includes("error") ||
+              log.toLowerCase().includes("speed=")
+            ) {
+              ws.send(
+                JSON.stringify({ type: "progress", message: log.trim() })
+              );
+            }
+            console.log("FFmpeg:", log.trim());
+          });
+
+          ffmpegProcess.stdout.on("data", (d) => {
+            const s = d.toString().trim();
+            if (s) console.log("FFmpeg stdout:", s);
+          });
+
+          ffmpegProcess.stdin.on("error", (err) => {
+            if (err && err.code !== "EPIPE") {
+              console.error("❌ FFmpeg stdin error:", err);
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: `FFmpeg stdin error: ${err.message}`,
+                })
+              );
+            }
+          });
+
+          ffmpegProcess.stdin.on("drain", () => {
+            canWrite = true;
+          });
+
+          ffmpegProcess.on("error", (error) => {
+            console.error("❌ FFmpeg spawn error:", error);
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                message: `FFmpeg error: ${error.message}`,
+              })
+            );
+            ffmpegProcess = null;
+          });
+
+          ffmpegProcess.on("close", (code) => {
+            console.log(`FFmpeg exited with code ${code}`);
+            ws.send(
+              JSON.stringify({
+                type: "stopped",
+                message: `Stream ended (code: ${code})`,
+              })
+            );
+            ffmpegProcess = null;
+          });
+
+          ws.send(
+            JSON.stringify({
+              type: "started",
+              message: "Streaming to Facebook started",
+            })
+          );
+          console.log(
+            `🎥 FFmpeg started successfully, sent 'started' to client`
+          );
+        } catch (spawnError) {
+          console.error("❌ Failed to spawn FFmpeg:", spawnError);
+          ws.send(
+            JSON.stringify({
+              type: "error",
+              message: `Failed to spawn FFmpeg: ${spawnError.message}`,
+            })
+          );
+          stopFfmpeg();
+        }
+      } else if (data.type === "stream") {
+        if (!ffmpegProcess) {
+          ws.send(
+            JSON.stringify({ type: "error", message: "FFmpeg not started" })
+          );
+          return;
+        }
+
+        // Backpressure-aware write to stdin
+        const buffer = Buffer.from(data.data);
+        if (ffmpegProcess.stdin.writable && canWrite) {
+          canWrite = ffmpegProcess.stdin.write(buffer);
+          if (!canWrite) {
+            // If overwhelmed, drop next chunks until 'drain' to keep realtime
+            // (better than buffering indefinitely and adding latency)
+          }
+        } else {
+          // Drop if not writable; keep realtime
+        }
+      } else if (data.type === "stop") {
+        stopFfmpeg("SIGTERM");
+        ws.send(
+          JSON.stringify({ type: "stopped", message: "Stream stopped by user" })
+        );
       }
     });
 
     ws.on("close", () => {
-      stop("ws-close");
+      console.log("📴 WebSocket disconnected");
+      stopFfmpeg("SIGTERM");
     });
 
-    ws.on("error", () => {
-      stop("ws-error");
+    ws.on("error", (error) => {
+      console.error("❌ WebSocket error:", error);
+      stopFfmpeg("SIGTERM");
     });
   });
 
