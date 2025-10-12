@@ -79,10 +79,11 @@ export async function attachRtmpRelay(server, options = {}) {
     let bytesReceived = 0;
     let chunksReceived = 0;
 
-    // FIX: Track FFmpeg startup state
+    // FIX: Better state tracking
     let ffmpegStarting = false;
     let ffmpegReady = false;
     let startTimeout = null;
+    let dataBuffer = []; // Buffer to hold data until FFmpeg ready
 
     const stopFfmpeg = (reason = "SIGTERM") => {
       if (!ffmpegProcess) return;
@@ -114,6 +115,7 @@ export async function attachRtmpRelay(server, options = {}) {
       ffmpegProcess = null;
       ffmpegStarting = false;
       ffmpegReady = false;
+      dataBuffer = [];
     };
 
     ws.on("message", async (message) => {
@@ -130,7 +132,6 @@ export async function attachRtmpRelay(server, options = {}) {
       if (data.type === "start") {
         console.log("📥 Received START command");
 
-        // FIX: Prevent multiple start attempts
         if (ffmpegStarting || ffmpegProcess) {
           console.log("⚠️ FFmpeg already starting or running");
           return ws.send(
@@ -149,72 +150,62 @@ export async function attachRtmpRelay(server, options = {}) {
 
         streamKey = data.streamKey;
         const fps = Number(data.fps || 30);
-        const videoBitrate = String(data.videoBitrate || "4000k");
+        const videoBitrate = String(data.videoBitrate || "2500k");
         const audioBitrate = String(data.audioBitrate || "128k");
 
         let publishUrl = `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
         if (!hasRtmps) {
-          console.warn(
-            "⚠️ FFmpeg lacks RTMPS; falling back to RTMP (insecure)"
-          );
+          console.warn("⚠️ FFmpeg lacks RTMPS; falling back to RTMP");
           publishUrl = `rtmp://live-api-s.facebook.com:80/rtmp/${streamKey}`;
         }
 
         console.log(`🎬 Starting FFmpeg with path: ${ffmpegPath}`);
-        console.log(`📺 Target URL: ${publishUrl}`);
+        console.log(`📺 Target URL: ${publishUrl.replace(streamKey, "***")}`);
 
-        // FIX: Set starting flag
         ffmpegStarting = true;
         ffmpegReady = false;
         bytesReceived = 0;
         chunksReceived = 0;
+        dataBuffer = [];
 
         try {
           const args = [
-            // Input from stdin - FIX: Thêm re-sync options
-            "-re", // Read input at native frame rate (important!)
+            // FIX: Critical - don't use -re flag, it causes timing issues with pipe
             "-f",
             "webm",
             "-thread_queue_size",
-            "1024",
-            "-analyzeduration",
-            "0", // Don't wait to analyze
-            "-probesize",
-            "32", // Minimal probe
+            "512",
             "-fflags",
-            "+genpts+igndts+nobuffer", // Generate PTS, ignore DTS issues
+            "+genpts+igndts",
             "-avoid_negative_ts",
             "make_zero",
             "-i",
             "pipe:0",
 
-            // Low-latency flags
-            "-use_wallclock_as_timestamps",
+            // Low-latency settings
+            "-vsync",
+            "passthrough",
+            "-copytb",
             "1",
-            "-flush_packets",
-            "1",
-            "-max_delay",
-            "500000",
-            "-max_interleave_delta",
-            "0",
+            "-start_at_zero",
 
-            // Map streams flexibly
+            // Map streams
             "-map",
             "0:v:0?",
             "-map",
             "0:a:0?",
 
-            // Video encoding
+            // Video encoding - optimized for stability
             "-c:v",
             "libx264",
             "-pix_fmt",
             "yuv420p",
             "-preset",
-            "ultrafast", // Changed from veryfast
+            "veryfast",
             "-tune",
             "zerolatency",
             "-profile:v",
-            "baseline", // Changed from main for compatibility
+            "baseline",
             "-level",
             "3.1",
             "-r",
@@ -223,14 +214,16 @@ export async function attachRtmpRelay(server, options = {}) {
             String(fps * 2),
             "-keyint_min",
             String(fps),
-            "-x264-params",
-            "scenecut=0:open_gop=0:bframes=0", // No B-frames for lower latency
+            "-sc_threshold",
+            "0",
+            "-bf",
+            "0", // No B-frames
+            "-b:v",
+            videoBitrate,
             "-maxrate",
             videoBitrate,
             "-bufsize",
-            String(parseInt(videoBitrate) * 2 || 8000) + "k",
-            "-b:v",
-            videoBitrate,
+            String(parseInt(videoBitrate) * 2 || 5000) + "k",
 
             // Audio encoding
             "-c:a",
@@ -241,12 +234,8 @@ export async function attachRtmpRelay(server, options = {}) {
             "44100",
             "-ac",
             "2",
-            "-async",
-            "1", // Audio sync
-            "-strict",
-            "experimental",
 
-            // Output format
+            // Output
             "-f",
             "flv",
             "-flvflags",
@@ -254,31 +243,57 @@ export async function attachRtmpRelay(server, options = {}) {
             publishUrl,
           ];
 
+          console.log("🔧 FFmpeg args:", args.slice(0, 10).join(" "), "...");
+
           ffmpegProcess = spawn(ffmpegPath, args, {
             stdio: ["pipe", "pipe", "pipe"],
           });
 
-          console.log("✅ FFmpeg process spawned, PID:", ffmpegProcess.pid);
+          console.log("✅ FFmpeg spawned, PID:", ffmpegProcess.pid);
 
-          // FIX: Detect when FFmpeg is actually ready to receive data
-          let firstFrameDetected = false;
+          // FIX: Better ready detection
+          let stdinReady = false;
+          let outputStarted = false;
 
           ffmpegProcess.stderr.on("data", (d) => {
             const log = d.toString();
 
-            // FIX: Detect FFmpeg ready signals
-            if (!firstFrameDetected && !ffmpegReady) {
-              if (
-                log.includes("Stream mapping:") ||
-                log.includes("Press [q] to stop") ||
-                log.includes("frame=") ||
-                log.includes("Output #0")
-              ) {
-                firstFrameDetected = true;
+            // Detect critical startup errors immediately
+            if (
+              !ffmpegReady &&
+              (log.includes("Invalid data found") ||
+                log.includes("EBML header parsing failed") ||
+                log.includes("moov atom not found"))
+            ) {
+              console.error(
+                "❌ Critical FFmpeg error during startup:",
+                log.trim()
+              );
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: "FFmpeg failed to parse input. Client should retry.",
+                })
+              );
+              stopFfmpeg("SIGTERM");
+              return;
+            }
 
-                // FIX: Delay ready signal slightly to ensure stdin is truly ready
+            // Detect when FFmpeg is ready for input
+            if (!ffmpegReady && !outputStarted) {
+              // Look for signs that FFmpeg successfully initialized
+              if (
+                log.includes("Output #0") ||
+                log.includes("Stream #0:") ||
+                log.includes("encoder")
+              ) {
+                outputStarted = true;
+                console.log("📺 FFmpeg output initialized");
+
+                // Wait a bit more to ensure stdin is truly ready
                 setTimeout(() => {
-                  if (ffmpegProcess && !ffmpegReady) {
+                  if (ffmpegProcess && ffmpegStarting) {
+                    stdinReady = true;
                     ffmpegReady = true;
                     ffmpegStarting = false;
 
@@ -287,38 +302,41 @@ export async function attachRtmpRelay(server, options = {}) {
                       startTimeout = null;
                     }
 
-                    console.log("✅ FFmpeg is READY to receive data");
+                    console.log(
+                      "✅✅✅ FFmpeg is READY - client can start sending data"
+                    );
                     ws.send(
                       JSON.stringify({
                         type: "started",
-                        message: "Streaming to Facebook started",
+                        message: "FFmpeg ready to receive stream data",
                       })
                     );
+
+                    // FIX: Flush buffered data if any (but there shouldn't be any yet)
+                    if (dataBuffer.length > 0) {
+                      console.log(
+                        `📤 Flushing ${dataBuffer.length} buffered chunks`
+                      );
+                      dataBuffer.forEach((buf) => {
+                        if (ffmpegProcess && ffmpegProcess.stdin.writable) {
+                          ffmpegProcess.stdin.write(buf);
+                        }
+                      });
+                      dataBuffer = [];
+                    }
                   }
-                }, 500); // 500ms delay to ensure stability
+                }, 2000); // 2 second delay to ensure stability
               }
             }
 
-            // Log progress
-            if (
-              log.includes("frame=") ||
-              log.toLowerCase().includes("error") ||
-              log.toLowerCase().includes("speed=")
-            ) {
+            // Log all FFmpeg output for debugging
+            console.log("FFmpeg:", log.trim());
+
+            // Send progress updates
+            if (log.includes("frame=") || log.includes("speed=")) {
               ws.send(
                 JSON.stringify({ type: "progress", message: log.trim() })
               );
-            }
-
-            // Detect errors
-            if (
-              log.toLowerCase().includes("error") ||
-              log.toLowerCase().includes("invalid") ||
-              log.toLowerCase().includes("failed")
-            ) {
-              console.error("⚠️ FFmpeg error:", log.trim());
-            } else {
-              console.log("FFmpeg:", log.trim());
             }
           });
 
@@ -349,7 +367,7 @@ export async function attachRtmpRelay(server, options = {}) {
             ws.send(
               JSON.stringify({
                 type: "error",
-                message: `FFmpeg error: ${error.message}`,
+                message: `FFmpeg spawn error: ${error.message}`,
               })
             );
             stopFfmpeg("SIGTERM");
@@ -357,40 +375,43 @@ export async function attachRtmpRelay(server, options = {}) {
 
           ffmpegProcess.on("close", (code) => {
             console.log(`FFmpeg exited with code ${code}`);
-            console.log(
-              `📊 Total: ${chunksReceived} chunks, ${(
-                bytesReceived /
-                1024 /
-                1024
-              ).toFixed(2)} MB`
-            );
+            if (chunksReceived > 0) {
+              console.log(
+                `📊 Total: ${chunksReceived} chunks, ${(
+                  bytesReceived /
+                  1024 /
+                  1024
+                ).toFixed(2)} MB`
+              );
+            }
 
             ws.send(
               JSON.stringify({
                 type: "stopped",
-                message: `Stream ended (code: ${code})`,
+                message: `Stream ended (exit code: ${code})`,
               })
             );
 
             ffmpegProcess = null;
             ffmpegStarting = false;
             ffmpegReady = false;
+            dataBuffer = [];
           });
 
-          // FIX: Safety timeout - if FFmpeg doesn't become ready in 15s, abort
+          // FIX: Longer timeout for FFmpeg startup
           startTimeout = setTimeout(() => {
             if (ffmpegProcess && !ffmpegReady) {
-              console.error("❌ FFmpeg startup timeout");
+              console.error("❌ FFmpeg startup timeout after 25 seconds");
               ws.send(
                 JSON.stringify({
                   type: "error",
                   message:
-                    "FFmpeg failed to start within 15 seconds. Check server logs.",
+                    "FFmpeg failed to initialize. Check: 1) Stream key valid? 2) Facebook Live created? 3) Network OK?",
                 })
               );
               stopFfmpeg("SIGTERM");
             }
-          }, 15000);
+          }, 25000); // 25 seconds
         } catch (spawnError) {
           console.error("❌ Failed to spawn FFmpeg:", spawnError);
           ffmpegStarting = false;
@@ -404,15 +425,19 @@ export async function attachRtmpRelay(server, options = {}) {
           stopFfmpeg("SIGTERM");
         }
       } else if (data.type === "stream") {
-        // FIX: Only accept data when FFmpeg is truly ready
+        // FIX: Critical - only accept data when FFmpeg is truly ready
         if (!ffmpegProcess) {
-          // Silently ignore if FFmpeg not started
-          return;
+          return; // Silently ignore
         }
 
         if (ffmpegStarting || !ffmpegReady) {
-          // FIX: Client should queue, but just in case - ignore
-          console.log("⚠️ Received data while FFmpeg starting, ignoring");
+          // FIX: Buffer data instead of ignoring (but this shouldn't happen with proper client)
+          if (dataBuffer.length < 10) {
+            dataBuffer.push(Buffer.from(data.data));
+            console.log(
+              `⏳ Buffering chunk while FFmpeg starting (${dataBuffer.length} buffered)`
+            );
+          }
           return;
         }
 
@@ -420,8 +445,12 @@ export async function attachRtmpRelay(server, options = {}) {
         bytesReceived += buffer.length;
         chunksReceived++;
 
-        // Log every 100 chunks
-        if (chunksReceived % 100 === 0) {
+        if (chunksReceived === 1) {
+          console.log("📥 First chunk received from client");
+        }
+
+        // Log every 50 chunks
+        if (chunksReceived % 50 === 0) {
           console.log(
             `📦 Received ${chunksReceived} chunks, ${(
               bytesReceived /
@@ -433,11 +462,6 @@ export async function attachRtmpRelay(server, options = {}) {
 
         if (ffmpegProcess.stdin.writable && canWrite) {
           canWrite = ffmpegProcess.stdin.write(buffer);
-          if (!canWrite) {
-            // Backpressure - will resume on 'drain'
-          }
-        } else {
-          // Drop frame if stdin not writable (keeps realtime)
         }
       } else if (data.type === "stop") {
         console.log("📥 Received STOP command");
