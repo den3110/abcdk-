@@ -10,18 +10,29 @@ export default function LiveStudioPage() {
     sp.get("server") || "rtmps://live-api-s.facebook.com:443/rtmp/";
   const fbKey = sp.get("key") || "";
 
-  // KHÔNG lấy ws từ URL nữa
+  // wsUrl: .env -> same-origin
   const wsUrl = useMemo(() => {
-    // 1) .env (Vite / CRA / Next)
     const env = import.meta?.env?.VITE_RTMP_WS_URL;
     if (env) return env;
 
-    // 2) Fallback same-origin
-    const origin = window.location.origin; // http://localhost:5173 | https://pickletour.vn
+    const origin = window.location.origin;
     const base = origin.startsWith("https")
       ? origin.replace(/^https/, "wss")
       : origin.replace(/^http/, "ws");
     return `${base}/ws/rtmp`;
+  }, []);
+
+  // apiUrl: .env full -> .env base -> same-origin
+  const apiUrl = useMemo(() => {
+    const full = import.meta.env.VITE_API_URL + "/api/overlay/match";
+    console.log(full)
+    if (full) return full.replace(/\/+$/, "");
+
+    const apiBase = import.meta.env.VITE_API_URL
+
+    if (apiBase) return `${apiBase.replace(/\/+$/, "")}/api/overlay/match`;
+
+    return `${import.meta.env.VITE_API_URL}/api/overlay/match`;
   }, []);
 
   const overlayUrl = `${window.location.origin}/overlay/score?matchId=${matchId}&theme=dark&size=md&showSets=1&autoNext=1`;
@@ -32,6 +43,7 @@ export default function LiveStudioPage() {
       fbServer={fbServer}
       fbKey={fbKey}
       wsUrl={wsUrl}
+      apiUrl={apiUrl}
       width={1280}
       height={720}
       overlayFps={8}
