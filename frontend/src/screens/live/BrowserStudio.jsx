@@ -694,6 +694,10 @@ export default function FacebookLiveStreamer({
 
       let chunkCount = 0;
       rec.ondataavailable = async (e) => {
+        console.log(
+          "🎬 ondataavailable called, ffmpegReady:",
+          ffmpegReadyRef.current
+        );
         if (!e.data || e.data.size === 0) return;
 
         // Only send data if FFmpeg is ready
@@ -742,6 +746,8 @@ export default function FacebookLiveStreamer({
       );
 
       setStatus("⏳ Đang khởi động FFmpeg trên server…");
+
+      // Send start command to server
       wsRef.current?.send(
         JSON.stringify({
           type: "start",
@@ -751,10 +757,12 @@ export default function FacebookLiveStreamer({
         })
       );
 
-      // Wait for FFmpeg ready (the 'started' message will trigger MediaRecorder.start())
+      // CRITICAL: Wait for FFmpeg ready confirmation
+      // The 'started' WebSocket message will trigger MediaRecorder.start() in onmessage handler
       await waitStarted;
 
       setIsStreaming(true);
+      console.log("✅ Waiting for 'started' message to begin recording...");
     } catch (err) {
       setStatus("Lỗi: " + err.message);
       setStatusType("error");
