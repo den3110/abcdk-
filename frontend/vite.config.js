@@ -16,7 +16,7 @@ export default defineConfig({
         changeOrigin: true,
       },
       "/ws/rtmp": {
-        target: "http://localhost:5001",
+        target: "http://localhost:5002",
         ws: true, // 👈 QUAN TRỌNG: bật websocket proxy
         changeOrigin: true,
       },

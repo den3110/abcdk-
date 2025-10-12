@@ -29,7 +29,7 @@ import {
 
 export default function FacebookLiveStreamer({
   matchId,
-  wsUrl = "ws://localhost:5001/ws/rtmp",
+  wsUrl = "ws://localhost:5002/ws/rtmp",
   apiUrl = "http://localhost:5001/api/overlay/match",
   videoWidth = 1280,
   videoHeight = 720,
