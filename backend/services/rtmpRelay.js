@@ -298,9 +298,6 @@ export async function attachRtmpRelay(server, options = {}) {
           // Still monitor stderr for actual errors
           let hasError = false;
 
-          // Still monitor stderr for actual errors
-          let hasError = false;
-
           ffmpegProcess.stderr.on("data", (d) => {
             const log = d.toString();
 
