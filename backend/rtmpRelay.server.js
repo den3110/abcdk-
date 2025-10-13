@@ -1,7 +1,7 @@
 // rtmpRelay.server.js
 import http from "http";
 import dotenv from "dotenv";
-import { attachRtmpRelay } from "./services/rtmpRelay.js";
+import { attachRtmpRelayPro } from "./services/rtmpRelay.js";
 
 dotenv.config();
 
@@ -13,7 +13,7 @@ const server = http.createServer((req, res) => {
 });
 
 // Gắn WebSocket thuần cho relay
-attachRtmpRelay(server, { path: "/ws/rtmp" });
+attachRtmpRelayPro(server, { path: "/ws/rtmp" });
 
 server.listen(PORT, () => {
   console.log(`✅ RTMP Relay listening on :${PORT} (ws path /ws/rtmp)`);
