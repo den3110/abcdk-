@@ -128,6 +128,13 @@ export async function attachRtmpRelay(server, options = {}) {
       const isBinary =
         Buffer.isBuffer(message) || message instanceof ArrayBuffer;
 
+      console.log(
+        "📨 Received message, isBinary:",
+        isBinary,
+        "size:",
+        message.length || message.byteLength
+      );
+
       if (isBinary) {
         // ===== BINARY MESSAGE = STREAM DATA =====
         if (!ffmpegProcess || !ffmpegReady) {
@@ -167,7 +174,13 @@ export async function attachRtmpRelay(server, options = {}) {
       // ===== TEXT MESSAGE = CONTROL COMMAND =====
       let data;
       try {
-        data = JSON.parse(message.toString());
+        const msgStr = message.toString();
+        console.log(
+          "📝 Parsing text message:",
+          msgStr.substring(0, 100) + "..."
+        );
+        data = JSON.parse(msgStr);
+        console.log("✅ Parsed JSON, type:", data.type);
       } catch (e) {
         console.error("❌ JSON parse error:", e);
         return ws.send(
@@ -177,6 +190,9 @@ export async function attachRtmpRelay(server, options = {}) {
 
       if (data.type === "start") {
         console.log("📥 Received START command");
+        console.log("📊 Stream Key length:", data.streamKey?.length);
+        console.log("📊 FPS:", data.fps);
+        console.log("📊 Bitrate:", data.videoBitrate);
 
         if (ffmpegStarting || ffmpegProcess) {
           console.log("⚠️ FFmpeg already starting or running");
@@ -295,12 +311,17 @@ export async function attachRtmpRelay(server, options = {}) {
             args.slice(0, 12).join(" "),
             "..."
           );
+          console.log("🚀 Spawning FFmpeg...");
 
           ffmpegProcess = spawn(ffmpegPath, args, {
             stdio: ["pipe", "pipe", "pipe"],
           });
 
           console.log("✅ FFmpeg spawned, PID:", ffmpegProcess.pid);
+
+          if (!ffmpegProcess || !ffmpegProcess.pid) {
+            throw new Error("FFmpeg process is null or has no PID");
+          }
 
           setTimeout(() => {
             if (ffmpegProcess && ffmpegStarting) {
@@ -315,16 +336,36 @@ export async function attachRtmpRelay(server, options = {}) {
               console.log(
                 "✅✅✅ FFmpeg stdin ready - client can send binary data"
               );
-              ws.send(
-                JSON.stringify({
-                  type: "started",
-                  message: "FFmpeg ready to receive binary stream data",
-                })
-              );
+              try {
+                ws.send(
+                  JSON.stringify({
+                    type: "started",
+                    message: "FFmpeg ready to receive binary stream data",
+                  })
+                );
+                console.log("📤 Sent 'started' message to client");
+              } catch (sendErr) {
+                console.error("❌ Failed to send 'started' message:", sendErr);
+              }
+            } else {
+              console.error("⚠️ FFmpeg process lost during initialization");
             }
           }, 1000);
 
           let hasError = false;
+
+          // Immediate error handler for spawn failures
+          ffmpegProcess.on("error", (error) => {
+            console.error("❌ FFmpeg spawn error:", error);
+            hasError = true;
+            ws.send(
+              JSON.stringify({
+                type: "error",
+                message: `FFmpeg spawn error: ${error.message}`,
+              })
+            );
+            stopFfmpeg("SIGTERM");
+          });
 
           ffmpegProcess.stderr.on("data", (d) => {
             const log = d.toString();
@@ -385,16 +426,7 @@ export async function attachRtmpRelay(server, options = {}) {
             canWrite = true;
           });
 
-          ffmpegProcess.on("error", (error) => {
-            console.error("❌ FFmpeg spawn error:", error);
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message: `FFmpeg spawn error: ${error.message}`,
-              })
-            );
-            stopFfmpeg("SIGTERM");
-          });
+          // NOTE: error handler already registered above, removed duplicate
 
           ffmpegProcess.on("close", (code) => {
             console.log(`FFmpeg exited with code ${code}`);
