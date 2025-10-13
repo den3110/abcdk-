@@ -59,8 +59,8 @@ export async function attachRtmpRelayPro(server, options = {}) {
           if (ffmpeg.stdin?.writable) {
             // Check first frame for format validation
             if (stats.videoFrames === 0) {
-              const firstBytes = new Uint8Array(data.slice(0, 8));
-              const hex = Array.from(firstBytes)
+              const firstBytes = new Uint8Array(data.slice(0, 100)); // Check first 100 bytes
+              const hex = Array.from(firstBytes.slice(0, 8))
                 .map((b) => b.toString(16).padStart(2, "0"))
                 .join(" ");
               console.log(`🔍 First frame header: ${hex}`);
@@ -76,6 +76,31 @@ export async function attachRtmpRelayPro(server, options = {}) {
                   firstBytes[2] === 1)
               ) {
                 console.log("✅ H264 format: Annex-B (correct)");
+
+                // Check for SPS (0x67) and PPS (0x68) NAL units
+                const dataStr = Array.from(firstBytes)
+                  .map((b) => b.toString(16).padStart(2, "0"))
+                  .join("");
+                const hasSPS =
+                  dataStr.includes("00000001" + "67") ||
+                  dataStr.includes("000001" + "67");
+                const hasPPS =
+                  dataStr.includes("00000001" + "68") ||
+                  dataStr.includes("000001" + "68");
+
+                if (hasSPS && hasPPS) {
+                  console.log("✅ First frame contains SPS + PPS (good!)");
+                } else {
+                  console.warn(
+                    "⚠️ First frame missing SPS or PPS - this may cause issues!"
+                  );
+                  console.warn(
+                    `   SPS (0x67): ${hasSPS ? "Found" : "Missing"}`
+                  );
+                  console.warn(
+                    `   PPS (0x68): ${hasPPS ? "Found" : "Missing"}`
+                  );
+                }
               } else {
                 console.warn(
                   "⚠️ H264 format: NOT Annex-B! This will cause FFmpeg to fail."
@@ -146,11 +171,24 @@ export async function attachRtmpRelayPro(server, options = {}) {
 
         const { streamKey, width, height, fps, videoBitrate, audioBitrate } =
           config;
-        const rtmpUrl = `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
 
-        console.log(
-          `🎬 Starting PRO stream: ${width}x${height}@${fps}fps, ${videoBitrate}`
-        );
+        // DEBUG MODE: Set to true to save to file instead of streaming
+        const DEBUG_SAVE_FILE = false;
+
+        let outputTarget;
+        if (DEBUG_SAVE_FILE) {
+          outputTarget = `/tmp/test_stream_${Date.now()}.mp4`;
+          console.log(`🎬 DEBUG MODE: Saving to ${outputTarget}`);
+        } else {
+          // Try RTMP instead of RTMPS (RTMPS can cause SIGSEGV on some systems)
+          outputTarget = `rtmp://live-api-s.facebook.com:80/rtmp/${streamKey}`;
+          console.log(
+            `🎬 Starting PRO stream: ${width}x${height}@${fps}fps, ${videoBitrate}`
+          );
+          console.log(
+            `🔗 RTMP URL: ${outputTarget.replace(streamKey, "***KEY***")}`
+          );
+        }
 
         // CRITICAL: Use -re to read at native framerate, add more buffer
         const args = [
@@ -178,14 +216,31 @@ export async function attachRtmpRelayPro(server, options = {}) {
 
           // No audio
           "-an",
-
-          // Output
-          "-f",
-          "flv",
-          "-flvflags",
-          "no_duration_filesize",
-          rtmpUrl,
         ];
+
+        // Output format depends on target
+        if (DEBUG_SAVE_FILE) {
+          args.push(
+            "-f",
+            "mp4",
+            "-movflags",
+            "frag_keyframe+empty_moov",
+            outputTarget
+          );
+        } else {
+          // RTMP specific options to prevent crashes
+          args.push(
+            "-rtmp_buffer",
+            "100",
+            "-rtmp_live",
+            "live",
+            "-f",
+            "flv",
+            "-flvflags",
+            "no_duration_filesize",
+            outputTarget
+          );
+        }
 
         try {
           ffmpeg = spawn(ffmpegStatic || "ffmpeg", args, {
