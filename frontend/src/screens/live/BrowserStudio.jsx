@@ -459,7 +459,7 @@ export default function FacebookLiveStreamerPro({
       });
 
       encoder.configure({
-        codec: "avc1.42E01E",
+        codec: "avc1.42001f", // Baseline Profile, Level 3.1 (supports up to 720p)
         width: videoWidth,
         height: videoHeight,
         bitrate: videoBitsPerSecond * 1000,
