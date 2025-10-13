@@ -152,7 +152,7 @@ export default function FacebookLiveStreamerPro({
         canvas.height = h;
       }
 
-      // NEW: lưu kích thước thật để dựng khung đúng tỉ lệ (hết méo)
+      // NEW: lưu kích thước thật để dựng khung đúng tỉ lệ
       setVideoSize({ w, h });
 
       setFacingMode(preferFacing);
@@ -194,7 +194,6 @@ export default function FacebookLiveStreamerPro({
         cancelAnimationFrame(encodingLoopRef.current);
         encodingLoopRef.current = null;
       }
-      // NEW: stop mic nếu đang chạy
       try {
         if (
           audioRecorderRef.current &&
@@ -241,6 +240,23 @@ export default function FacebookLiveStreamerPro({
     return () => clearInterval(timer);
   }, [matchId, apiUrl]);
 
+  // NEW: helper vẽ "cover" lên canvas (không méo, không letterbox)
+  const drawVideoCover = (ctx, video, cw, ch) => {
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    if (!vw || !vh) return;
+
+    // scale để phủ kín canvas
+    const scale = Math.max(cw / vw, ch / vh);
+    const sw = cw / scale;
+    const sh = ch / scale;
+    const sx = (vw - sw) / 2;
+    const sy = (vh - sh) / 2;
+
+    // vẽ video lên canvas full khung (cover)
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
+  };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -277,7 +293,8 @@ export default function FacebookLiveStreamerPro({
       if (!running) return;
 
       if (video.readyState >= 2 && video.videoWidth) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        // NEW: vẽ video theo "cover" thay vì kéo giãn (hết kiểu contain)
+        drawVideoCover(ctx, video, canvas.width, canvas.height);
       } else {
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -337,7 +354,6 @@ export default function FacebookLiveStreamerPro({
     const currentScore = gameScores[currentGame] || { a: 0, b: 0 };
     const scoreA = currentScore.a || 0;
     const scoreB = currentScore.b || 0;
-    const serveSide = (data?.serve?.side || "A").toUpperCase();
     const tourName = data?.tournament?.name || "";
 
     const accentA = "#25C2A0";
@@ -395,15 +411,13 @@ export default function FacebookLiveStreamerPro({
     ctx.restore();
   };
 
-  // Convert avcC format to Annex-B format for FFmpeg
+  // ====== Encode/WS giữ nguyên y như cũ ======
   const convertToAnnexB = (data, description, isKeyframe) => {
     const startCode = new Uint8Array([0, 0, 0, 1]);
     const result = [];
 
     if (isKeyframe && description) {
-      let offset = 5; // Skip first 5 bytes
-
-      // Read SPS
+      let offset = 5;
       const numSPS = description[offset++] & 0x1f;
       for (let i = 0; i < numSPS; i++) {
         const spsLength = (description[offset] << 8) | description[offset + 1];
@@ -413,7 +427,6 @@ export default function FacebookLiveStreamerPro({
         offset += spsLength;
       }
 
-      // Read PPS
       const numPPS = description[offset++];
       for (let i = 0; i < numPPS; i++) {
         const ppsLength = (description[offset] << 8) | description[offset + 1];
@@ -424,7 +437,6 @@ export default function FacebookLiveStreamerPro({
       }
     }
 
-    // Convert NAL units from length-prefixed to start-code-prefixed
     let offset = 0;
     while (offset < data.length) {
       const nalLength =
@@ -574,7 +586,7 @@ export default function FacebookLiveStreamerPro({
       });
 
       encoder.configure({
-        codec: "avc1.42001f", // Baseline Profile, Level 3.1 (supports up to 720p)
+        codec: "avc1.42001f",
         width: videoWidth,
         height: videoHeight,
         bitrate: videoBitsPerSecond * 1000,
@@ -582,7 +594,7 @@ export default function FacebookLiveStreamerPro({
         hardwareAcceleration: "prefer-hardware",
         latencyMode: "realtime",
         bitrateMode: "constant",
-        avc: { format: "annexb" }, // Output directly in Annex-B format for FFmpeg
+        avc: { format: "annexb" },
       });
 
       videoEncoderRef.current = encoder;
@@ -612,7 +624,6 @@ export default function FacebookLiveStreamerPro({
             if (msg.type === "started") {
               clearTimeout(timeout);
               ws.removeEventListener("message", handler);
-              // NEW: chỉ bật mic sau khi FFmpeg đã sẵn sàng
               try {
                 const aTrack = camStreamRef.current?.getAudioTracks?.()[0];
                 if (aTrack) {
@@ -635,12 +646,12 @@ export default function FacebookLiveStreamerPro({
                       const buf = await e.data.arrayBuffer();
                       const u8 = new Uint8Array(buf);
                       const out = new Uint8Array(u8.length + 1);
-                      out[0] = 0x01; // prefix đánh dấu audio
+                      out[0] = 0x01; // prefix audio
                       out.set(u8, 1);
                       wsRef.current.send(out.buffer);
                     } catch {}
                   };
-                  mr.start(100); // chunk 100ms → low latency
+                  mr.start(100);
                   audioRecorderRef.current = mr;
                 } else {
                   console.warn("Không tìm thấy audio track");
@@ -751,7 +762,6 @@ export default function FacebookLiveStreamerPro({
     setLoading(true);
 
     try {
-      // Stop encoding loop first
       isEncodingRef.current = false;
 
       if (encodingLoopRef.current) {
@@ -759,7 +769,6 @@ export default function FacebookLiveStreamerPro({
         encodingLoopRef.current = null;
       }
 
-      // Wait a bit for any pending encodes to finish
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       if (
@@ -825,7 +834,7 @@ export default function FacebookLiveStreamerPro({
                 Facebook Live - WebCodecs PRO
               </Typography>
               <Chip
-                label="H264 • <1s"
+                label="H264 • &lt;1s"
                 color="success"
                 size="small"
                 sx={{ fontWeight: "bold" }}
@@ -886,7 +895,7 @@ export default function FacebookLiveStreamerPro({
                       </Button>
                     </Box>
 
-                    {/* NEW: dùng tỉ lệ động + lật preview khi camera trước */}
+                    {/* Video preview: vẫn cover + lật khi camera trước */}
                     <Box
                       sx={{
                         position: "relative",
@@ -933,7 +942,7 @@ export default function FacebookLiveStreamerPro({
                       </Typography>
                     </Box>
 
-                    {/* NEW: tỉ lệ động cho canvas preview (không lật output) */}
+                    {/* Canvas preview: cover + chỉ lật HIỂN THỊ (CSS), KHÔNG lật stream */}
                     <Box
                       sx={{
                         position: "relative",
@@ -946,13 +955,17 @@ export default function FacebookLiveStreamerPro({
                     >
                       <canvas
                         ref={canvasRef}
-                        width={videoWidth}
-                        height={videoHeight}
+                        width={videoSize.w}
+                        height={videoSize.h}
                         style={{
                           position: "absolute",
                           inset: 0,
                           width: "100%",
                           height: "100%",
+                          // lật hiển thị khi camera trước (chỉ UI, không ảnh hưởng encode)
+                          transform:
+                            facingMode === "user" ? "scaleX(-1)" : "none",
+                          transformOrigin: "center",
                         }}
                       />
                     </Box>

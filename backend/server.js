@@ -44,6 +44,8 @@ import { loadSettings } from "./middleware/settings.middleware.js";
 import clubRoutes from "./routes/clubRoutes.js";
 import captureRoutes from "./routes/captureRoutes.js";
 import { startFbRefreshCron } from "./jobs/fbRefreshCron.js";
+import adminSponsorRoutes from "./routes/adminSponsorRoutes.js";
+import publicSponsorRoutes from "./routes/publicSponsorRoutes.js";
 
 dotenv.config();
 const port = process.env.PORT;
@@ -118,6 +120,9 @@ app.use("/api/cccd", cccdRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api/clubs", clubRoutes);
 app.use("/api/capture", captureRoutes);
+
+app.use("/api/admin/sponsors", adminSponsorRoutes);
+app.use("/api/sponsors", publicSponsorRoutes);
 
 app.get("/dl/file/:id", async (req, res) => {
   try {
