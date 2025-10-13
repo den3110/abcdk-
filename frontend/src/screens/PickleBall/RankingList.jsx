@@ -58,6 +58,7 @@ import { useCreateEvaluationMutation } from "../../slices/evaluationsApiSlice";
 import { useReviewKycMutation } from "../../slices/adminApiSlice";
 import { skipToken } from "@reduxjs/toolkit/query";
 import { useRef } from "react";
+import SponsorMarquee from "../../components/SponsorMarquee";
 
 function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
   const [loaded, setLoaded] = React.useState(false);
@@ -835,482 +836,516 @@ export default function RankingList() {
     const topMedal = uid ? topMedalByUser.get(uid) : null;
 
     return (
-      <Box sx={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
-        <Card
-          variant="outlined"
-          sx={{
-            ...(topMedal ? flameCardSx(topMedal) : { borderRadius: 6 }),
-            width: "100%", // full bề rộng ô grid
-            height: "100%", // kéo cao đều
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          <CardContent
-            sx={{ flexGrow: 1, display: "flex", flexDirection: "column" }}
+      <>
+        {/* <SponsorMarquee /> */}
+        <Box sx={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
+          <Card
+            variant="outlined"
+            sx={{
+              ...(topMedal ? flameCardSx(topMedal) : { borderRadius: 6 }),
+              width: "100%", // full bề rộng ô grid
+              height: "100%", // kéo cao đều
+              display: "flex",
+              flexDirection: "column",
+            }}
           >
-            <Box display="flex" alignItems="center" mb={1.5} gap={2}>
-              <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
-                <Avatar
-                  src={avatarSrc}
-                  alt={u?.nickname || "?"}
-                  onClick={() => openZoom(avatarSrc)}
-                  sx={{ cursor: "zoom-in", width: 44, height: 44 }}
-                />
+            <CardContent
+              sx={{ flexGrow: 1, display: "flex", flexDirection: "column" }}
+            >
+              <Box display="flex" alignItems="center" mb={1.5} gap={2}>
+                <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
+                  <Avatar
+                    src={avatarSrc}
+                    alt={u?.nickname || "?"}
+                    onClick={() => openZoom(avatarSrc)}
+                    sx={{ cursor: "zoom-in", width: 44, height: 44 }}
+                  />
+                </Box>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography fontWeight={700} noWrap>
+                    {u?.nickname || "---"}
+                  </Typography>
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    alignItems="center"
+                    mt={0.5}
+                  >
+                    {Number.isFinite(age) && (
+                      <Chip size="small" label={`${age} tuổi`} />
+                    )}
+                    <Chip label={badge.text} size="small" color={badge.color} />
+                  </Stack>
+                </Box>
               </Box>
-              <Box sx={{ minWidth: 0, flex: 1 }}>
-                <Typography fontWeight={700} noWrap>
-                  {u?.nickname || "---"}
-                </Typography>
-                <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
-                  {Number.isFinite(age) && (
-                    <Chip size="small" label={`${age} tuổi`} />
-                  )}
-                  <Chip label={badge.text} size="small" color={badge.color} />
-                </Stack>
-              </Box>
-            </Box>
 
-            {/* SLOT cố định cho chip thành tích (28px) */}
-            <Box sx={{ mb: 1, display: "flex", alignItems: "flex-start" }}>
-              {topMedal && (
+              {/* SLOT cố định cho chip thành tích (28px) */}
+              <Box sx={{ mb: 1, display: "flex", alignItems: "flex-start" }}>
+                {topMedal && (
+                  <Chip
+                    size="small"
+                    variant="outlined"
+                    clickable
+                    component={Link}
+                    to={hrefByUser.get(uid) || "/tournaments"}
+                    label={labelFullByUser.get(uid)} // <<< FULL
+                    sx={medalChipStyleFull(topMedal)} // <<< WRAP
+                    onMouseDown={(e) => e.stopPropagation()}
+                  />
+                )}
+              </Box>
+
+              <Stack
+                direction="row"
+                flexWrap="wrap"
+                useFlexGap
+                sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
+              >
                 <Chip
                   size="small"
-                  variant="outlined"
-                  clickable
-                  component={Link}
-                  to={hrefByUser.get(uid) || "/tournaments"}
-                  label={labelFullByUser.get(uid)} // <<< FULL
-                  sx={medalChipStyleFull(topMedal)} // <<< WRAP
-                  onMouseDown={(e) => e.stopPropagation()}
+                  label={`Giới tính: ${genderLabel(u?.gender)}`}
                 />
-              )}
-            </Box>
+                <Chip size="small" label={`Tỉnh: ${u?.province || "--"}`} />
+              </Stack>
 
-            <Stack
-              direction="row"
-              flexWrap="wrap"
-              useFlexGap
-              sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
-            >
-              <Chip
-                size="small"
-                label={`Giới tính: ${genderLabel(u?.gender)}`}
-              />
-              <Chip size="small" label={`Tỉnh: ${u?.province || "--"}`} />
-            </Stack>
+              <Divider sx={{ mb: 1.25 }} />
 
-            <Divider sx={{ mb: 1.25 }} />
-
-            <Stack
-              direction="row"
-              spacing={2}
-              mb={0.5}
-              sx={{ "& .score": { color: tierHex, fontWeight: 700 } }}
-            >
-              <Typography variant="body2" className="score">
-                Đôi: {fmt3(patched.double)}
-              </Typography>
-              <Typography variant="body2" className="score">
-                Đơn: {fmt3(patched.single)}
-              </Typography>
-            </Stack>
-
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              display="block"
-            >
-              Cập nhật:{" "}
-              {patched?.updatedAt
-                ? new Date(patched.updatedAt).toLocaleDateString()
-                : "--"}
-            </Typography>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              display="block"
-            >
-              Tham gia:{" "}
-              {u?.createdAt ? new Date(u.createdAt).toLocaleDateString() : "--"}
-            </Typography>
-
-            {/* đẩy nút xuống đáy card */}
-            <Stack direction="row" spacing={1} mt="auto">
-              <Button
-                size="small"
-                variant="contained"
-                color="success"
-                onClick={() => handleOpenProfile(u?._id)}
+              <Stack
+                direction="row"
+                spacing={2}
+                mb={0.5}
+                sx={{ "& .score": { color: tierHex, fontWeight: 700 } }}
               >
-                Hồ sơ
-              </Button>
-              {canGrade && (
+                <Typography variant="body2" className="score">
+                  Đôi: {fmt3(patched.double)}
+                </Typography>
+                <Typography variant="body2" className="score">
+                  Đơn: {fmt3(patched.single)}
+                </Typography>
+              </Stack>
+
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                display="block"
+              >
+                Cập nhật:{" "}
+                {patched?.updatedAt
+                  ? new Date(patched.updatedAt).toLocaleDateString()
+                  : "--"}
+              </Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                display="block"
+              >
+                Tham gia:{" "}
+                {u?.createdAt
+                  ? new Date(u.createdAt).toLocaleDateString()
+                  : "--"}
+              </Typography>
+
+              {/* đẩy nút xuống đáy card */}
+              <Stack direction="row" spacing={1} mt="auto">
                 <Button
                   size="small"
-                  variant="outlined"
-                  onClick={() => openGrade(u, r)}
+                  variant="contained"
+                  color="success"
+                  onClick={() => handleOpenProfile(u?._id)}
                 >
-                  Chấm trình
+                  Hồ sơ
                 </Button>
-              )}
-              {allowKyc && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => openKyc(u)}
-                >
-                  Xem KYC
-                </Button>
-              )}
-            </Stack>
-          </CardContent>
-        </Card>
-      </Box>
+                {canGrade && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => openGrade(u, r)}
+                  >
+                    Chấm trình
+                  </Button>
+                )}
+                {allowKyc && (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => openKyc(u)}
+                  >
+                    Xem KYC
+                  </Button>
+                )}
+              </Stack>
+            </CardContent>
+          </Card>
+        </Box>
+      </>
     );
   };
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-      {/* Global keyframes for flame animation */}
-      <GlobalStyles
-        styles={{
-          "@keyframes flameFlicker": {
-            "0%": { opacity: 0.85, filter: "blur(0.8px) brightness(1)" },
-            "35%": { opacity: 1.0, filter: "blur(0.6px) brightness(1.05)" },
-            "60%": { opacity: 0.92, filter: "blur(0.7px) brightness(0.98)" },
-            "100%": { opacity: 1.0, filter: "blur(0.5px) brightness(1.08)" },
-          },
-          "@keyframes glowFlicker": {
-            "0%": { opacity: 0.45, transform: "scale(1)" },
-            "100%": { opacity: 0.75, transform: "scale(1.01)" },
-          },
-        }}
-      />
-
-      <Box
-        display="flex"
-        justifyContent="space-between"
-        alignItems="center"
-        mb={2}
-        gap={1}
-      >
-        <Typography variant="h5" fontWeight={600}>
-          Bảng xếp hạng
-        </Typography>
-
-        <Stack direction="row" alignItems="center" spacing={1}>
-          {!isMobile && (
-            <ToggleButtonGroup
-              size="small"
-              value={desktopView}
-              exclusive
-              onChange={handleChangeDesktopView}
-              aria-label="Chế độ hiển thị desktop"
-            >
-              <ToggleButton value="list" aria-label="Danh sách">
-                <Tooltip title="Hiển thị dạng danh sách" arrow enterDelay={500}>
-                  <Box component="span" sx={{ display: "flex" }}>
-                    <TableRowsIcon fontSize="small" />
-                  </Box>
-                </Tooltip>
-              </ToggleButton>
-
-              <ToggleButton value="cards" aria-label="Thẻ">
-                <Tooltip title="Hiển thị dạng lưới" arrow enterDelay={500}>
-                  <Box component="span" sx={{ display: "flex" }}>
-                    <GridViewIcon fontSize="small" />
-                  </Box>
-                </Tooltip>
-              </ToggleButton>
-            </ToggleButtonGroup>
-          )}
-          {loading === false && canSelfAssess && (
-            <Button
-              component={Link}
-              to="/levelpoint"
-              variant="contained"
-              size="small"
-            >
-              Tự chấm trình
-            </Button>
-          )}
-        </Stack>
-      </Box>
-
-      {/* Legend */}
-      <Stack
-        direction="row"
-        flexWrap="wrap"
-        useFlexGap
-        sx={{ columnGap: 1.5, rowGap: 1, mb: 2 }}
-      >
-        <Chip
-          label="Điểm vàng: Đã xác thực"
-          sx={{ bgcolor: HEX.yellow, color: "#000" }}
+    <>
+      <SponsorMarquee />
+      <Container maxWidth="xl" sx={{ py: 3 }}>
+        {/* Global keyframes for flame animation */}
+        <GlobalStyles
+          styles={{
+            "@keyframes flameFlicker": {
+              "0%": { opacity: 0.85, filter: "blur(0.8px) brightness(1)" },
+              "35%": { opacity: 1.0, filter: "blur(0.6px) brightness(1.05)" },
+              "60%": { opacity: 0.92, filter: "blur(0.7px) brightness(0.98)" },
+              "100%": { opacity: 1.0, filter: "blur(0.5px) brightness(1.08)" },
+            },
+            "@keyframes glowFlicker": {
+              "0%": { opacity: 0.45, transform: "scale(1)" },
+              "100%": { opacity: 0.75, transform: "scale(1.01)" },
+            },
+          }}
         />
-        <Chip
-          label="Điểm đỏ: Tự chấm"
-          sx={{ bgcolor: HEX.red, color: "#fff" }}
-        />
-        <Chip
-          label="Điểm xám: Chưa xác thực"
-          sx={{ bgcolor: HEX.grey, color: "#fff" }}
-        />
-      </Stack>
 
-      <TextField
-        label="Tìm kiếm"
-        variant="outlined"
-        size="small"
-        value={searchInput}
-        onChange={(e) => setSearchInput(e.target.value)}
-        onKeyDown={handleInputKeyDown}
-        sx={{ mb: 2, width: 320 }}
-        inputProps={{ maxLength: 120 }}
-        InputProps={{
-          startAdornment: (
-            <InputAdornment position="start">
-              <SearchIcon fontSize="small" />
-            </InputAdornment>
-          ),
-          endAdornment: (searchInput || keyword) && (
-            <InputAdornment position="end">
-              <IconButton
-                aria-label="clear"
-                onClick={handleClear}
-                edge="end"
+        <Box
+          display="flex"
+          justifyContent="space-between"
+          alignItems="center"
+          mb={2}
+          gap={1}
+        >
+          <Typography variant="h5" fontWeight={600}>
+            Bảng xếp hạng
+          </Typography>
+
+          <Stack direction="row" alignItems="center" spacing={1}>
+            {!isMobile && (
+              <ToggleButtonGroup
+                size="small"
+                value={desktopView}
+                exclusive
+                onChange={handleChangeDesktopView}
+                aria-label="Chế độ hiển thị desktop"
+              >
+                <ToggleButton value="list" aria-label="Danh sách">
+                  <Tooltip
+                    title="Hiển thị dạng danh sách"
+                    arrow
+                    enterDelay={500}
+                  >
+                    <Box component="span" sx={{ display: "flex" }}>
+                      <TableRowsIcon fontSize="small" />
+                    </Box>
+                  </Tooltip>
+                </ToggleButton>
+
+                <ToggleButton value="cards" aria-label="Thẻ">
+                  <Tooltip title="Hiển thị dạng lưới" arrow enterDelay={500}>
+                    <Box component="span" sx={{ display: "flex" }}>
+                      <GridViewIcon fontSize="small" />
+                    </Box>
+                  </Tooltip>
+                </ToggleButton>
+              </ToggleButtonGroup>
+            )}
+            {loading === false && canSelfAssess && (
+              <Button
+                component={Link}
+                to="/levelpoint"
+                variant="contained"
                 size="small"
               >
-                <ClearIcon fontSize="small" />
-              </IconButton>
-            </InputAdornment>
-          ),
-        }}
-        placeholder="Nick, tỉnh, số CCCD, ..."
-      />
-
-      {error ? (
-        <Alert severity="error">{error?.data?.message || error?.error}</Alert>
-      ) : isLoading ? (
-        isMobile ? (
-          // mobile skeleton (cards 1 cột)
-          <Stack spacing={2}>
-            {Array.from({ length: SKELETON_CARDS_MOBILE }).map((_, i) => (
-              <Card key={i} variant="outlined">
-                <CardContent>
-                  <Box display="flex" alignItems="center" mb={1} gap={2}>
-                    <Skeleton variant="circular" width={40} height={40} />
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Skeleton variant="text" width="40%" />
-                    </Box>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Skeleton variant="rounded" width={64} height={24} />
-                      <Skeleton variant="rounded" width={90} height={24} />
-                    </Stack>
-                  </Box>
-                  <Stack
-                    direction="row"
-                    flexWrap="wrap"
-                    useFlexGap
-                    sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
-                  >
-                    <Skeleton variant="rounded" width={140} height={24} />
-                    <Skeleton variant="rounded" width={160} height={24} />
-                  </Stack>
-                  <Divider sx={{ mb: 1 }} />
-                  <Stack direction="row" spacing={2} mb={0.5}>
-                    <Skeleton variant="text" width={100} />
-                    <Skeleton variant="text" width={100} />
-                  </Stack>
-                  <Skeleton variant="text" width={180} />
-                  <Skeleton variant="text" width={200} />
-                  <Stack direction="row" spacing={1} mt={2}>
-                    <Skeleton variant="rounded" width={80} height={32} />
-                    <Skeleton variant="rounded" width={100} height={32} />
-                  </Stack>
-                </CardContent>
-              </Card>
-            ))}
+                Tự chấm trình
+              </Button>
+            )}
           </Stack>
-        ) : desktopCards ? (
-          // desktop skeleton (cards 3 cột)
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: {
-                xs: "1fr",
-                sm: "repeat(2, minmax(0, 1fr))",
-                md: "repeat(3, minmax(0, 1fr))",
-              },
-              gap: 2,
-              alignItems: "stretch",
-            }}
-          >
-            {Array.from({ length: SKELETON_CARDS_DESKTOP }).map((_, i) => (
-              <Card key={i} variant="outlined">
-                <CardContent>
-                  <Box display="flex" alignItems="center" mb={1.5} gap={2}>
-                    <Skeleton variant="circular" width={44} height={44} />
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Skeleton variant="text" width="60%" />
-                      <Stack direction="row" spacing={1} mt={0.5}>
-                        <Skeleton variant="rounded" width={60} height={22} />
-                        <Skeleton variant="rounded" width={100} height={22} />
+        </Box>
+
+        {/* Legend */}
+        <Stack
+          direction="row"
+          flexWrap="wrap"
+          useFlexGap
+          sx={{ columnGap: 1.5, rowGap: 1, mb: 2 }}
+        >
+          <Chip
+            label="Điểm vàng: Đã xác thực"
+            sx={{ bgcolor: HEX.yellow, color: "#000" }}
+          />
+          <Chip
+            label="Điểm đỏ: Tự chấm"
+            sx={{ bgcolor: HEX.red, color: "#fff" }}
+          />
+          <Chip
+            label="Điểm xám: Chưa xác thực"
+            sx={{ bgcolor: HEX.grey, color: "#fff" }}
+          />
+        </Stack>
+
+        <TextField
+          label="Tìm kiếm"
+          variant="outlined"
+          size="small"
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onKeyDown={handleInputKeyDown}
+          sx={{ mb: 2, width: 320 }}
+          inputProps={{ maxLength: 120 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            ),
+            endAdornment: (searchInput || keyword) && (
+              <InputAdornment position="end">
+                <IconButton
+                  aria-label="clear"
+                  onClick={handleClear}
+                  edge="end"
+                  size="small"
+                >
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              </InputAdornment>
+            ),
+          }}
+          placeholder="Nick, tỉnh, số CCCD, ..."
+        />
+
+        {error ? (
+          <Alert severity="error">{error?.data?.message || error?.error}</Alert>
+        ) : isLoading ? (
+          isMobile ? (
+            // mobile skeleton (cards 1 cột)
+            <Stack spacing={2}>
+              {Array.from({ length: SKELETON_CARDS_MOBILE }).map((_, i) => (
+                <Card key={i} variant="outlined">
+                  <CardContent>
+                    <Box display="flex" alignItems="center" mb={1} gap={2}>
+                      <Skeleton variant="circular" width={40} height={40} />
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Skeleton variant="text" width="40%" />
+                      </Box>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Skeleton variant="rounded" width={64} height={24} />
+                        <Skeleton variant="rounded" width={90} height={24} />
                       </Stack>
                     </Box>
-                  </Box>
-                  <Stack direction="row" spacing={1} mb={1}>
-                    <Skeleton variant="rounded" width={120} height={24} />
-                    <Skeleton variant="rounded" width={120} height={24} />
-                  </Stack>
-                  <Divider sx={{ mb: 1.25 }} />
-                  <Stack direction="row" spacing={2} mb={0.5}>
-                    <Skeleton variant="text" width={90} />
-                    <Skeleton variant="text" width={90} />
-                  </Stack>
-                  <Skeleton variant="text" width={160} />
-                  <Skeleton variant="text" width={180} />
-                  <Stack direction="row" spacing={1} mt={2}>
-                    <Skeleton variant="rounded" width={90} height={32} />
-                    <Skeleton variant="rounded" width={100} height={32} />
-                  </Stack>
-                </CardContent>
-              </Card>
-            ))}
-          </Box>
-        ) : (
-          // desktop table skeleton
-          <TableContainer component={Paper}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  {[
-                    "#",
-                    "Ảnh",
-                    "Nick",
-                    "Tuổi",
-                    "Giới tính",
-                    "Tỉnh",
-                    "Điểm đôi",
-                    "Điểm đơn",
-                    "Cập nhật",
-                    "Tham gia",
-                    "Xác thực",
-                    "",
-                  ].map((h) => (
-                    <TableCell key={h}>{h}</TableCell>
-                  ))}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {Array.from({ length: SKELETON_ROWS_DESKTOP }).map((_, i) => (
-                  <TableRow key={i}>
-                    <TableCell>
-                      <Skeleton variant="text" width={24} />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton variant="circular" width={32} height={32} />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton variant="text" width={120} />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton variant="text" width={40} />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton variant="text" width={70} />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton variant="text" width={90} />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton variant="text" width={80} />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton variant="text" width={80} />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton variant="text" width={110} />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton variant="text" width={110} />
-                    </TableCell>
-                    <TableCell>
-                      <Skeleton variant="rounded" width={90} height={24} />
-                    </TableCell>
-                    <TableCell>
-                      <Stack direction="row" spacing={1}>
-                        <Skeleton variant="rounded" width={64} height={28} />
-                        <Skeleton variant="rounded" width={96} height={28} />
-                      </Stack>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        )
-      ) : isMobile ? (
-        /* ===== MOBILE LIST (cards 1 cột) ===== */
-        <Stack spacing={2}>
-          {list?.map((r) => {
-            const u = r?.user || {};
-            const effectiveStatus =
-              (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
-            const badge = cccdBadge(effectiveStatus);
-            const avatarSrc =
-              u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
-            const tierHex = HEX[r?.tierColor] || HEX.grey;
-            const age = calcAge(u);
-            const canGrade = canGradeUser(me, u?.province);
-            const patched = getPatched(r, u);
-            const allowKyc = canViewKycAdmin(me, effectiveStatus);
-
-            const uid = u?._id && String(u._id);
-            const topMedal = uid ? topMedalByUser.get(uid) : null;
-
-            return (
-              <Card
-                key={r?._id || u?._id}
-                variant="outlined"
-                sx={{
-                  ...(topMedal ? flameCardSx(topMedal) : { borderRadius: 6 }),
-                  width: "100%",
-                  height: "100%",
-                  display: "flex",
-                  flexDirection: "column",
-                }}
-              >
-                <CardContent>
-                  <Box display="flex" alignItems="center" mb={1} gap={2}>
-                    <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
-                      <Avatar
-                        src={avatarSrc}
-                        alt={u?.nickname || "?"}
-                        onClick={() => openZoom(avatarSrc)}
-                        sx={{ cursor: "zoom-in", width: 40, height: 40 }}
-                      />
-                    </Box>
-                    <Box sx={{ minWidth: 0, flex: 1 }}>
-                      <Typography fontWeight={600} noWrap>
-                        {u?.nickname || "---"}
-                      </Typography>
-                    </Box>
-
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      {Number.isFinite(age) && (
-                        <Chip size="small" label={`${age} tuổi`} />
-                      )}
-                      <Chip
-                        label={badge.text}
-                        size="small"
-                        color={badge.color}
-                      />
+                    <Stack
+                      direction="row"
+                      flexWrap="wrap"
+                      useFlexGap
+                      sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
+                    >
+                      <Skeleton variant="rounded" width={140} height={24} />
+                      <Skeleton variant="rounded" width={160} height={24} />
                     </Stack>
-                  </Box>
+                    <Divider sx={{ mb: 1 }} />
+                    <Stack direction="row" spacing={2} mb={0.5}>
+                      <Skeleton variant="text" width={100} />
+                      <Skeleton variant="text" width={100} />
+                    </Stack>
+                    <Skeleton variant="text" width={180} />
+                    <Skeleton variant="text" width={200} />
+                    <Stack direction="row" spacing={1} mt={2}>
+                      <Skeleton variant="rounded" width={80} height={32} />
+                      <Skeleton variant="rounded" width={100} height={32} />
+                    </Stack>
+                  </CardContent>
+                </Card>
+              ))}
+            </Stack>
+          ) : desktopCards ? (
+            // desktop skeleton (cards 3 cột)
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: {
+                  xs: "1fr",
+                  sm: "repeat(2, minmax(0, 1fr))",
+                  md: "repeat(3, minmax(0, 1fr))",
+                },
+                gap: 2,
+                alignItems: "stretch",
+              }}
+            >
+              {Array.from({ length: SKELETON_CARDS_DESKTOP }).map((_, i) => (
+                <Card key={i} variant="outlined">
+                  <CardContent>
+                    <Box display="flex" alignItems="center" mb={1.5} gap={2}>
+                      <Skeleton variant="circular" width={44} height={44} />
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Skeleton variant="text" width="60%" />
+                        <Stack direction="row" spacing={1} mt={0.5}>
+                          <Skeleton variant="rounded" width={60} height={22} />
+                          <Skeleton variant="rounded" width={100} height={22} />
+                        </Stack>
+                      </Box>
+                    </Box>
+                    <Stack direction="row" spacing={1} mb={1}>
+                      <Skeleton variant="rounded" width={120} height={24} />
+                      <Skeleton variant="rounded" width={120} height={24} />
+                    </Stack>
+                    <Divider sx={{ mb: 1.25 }} />
+                    <Stack direction="row" spacing={2} mb={0.5}>
+                      <Skeleton variant="text" width={90} />
+                      <Skeleton variant="text" width={90} />
+                    </Stack>
+                    <Skeleton variant="text" width={160} />
+                    <Skeleton variant="text" width={180} />
+                    <Stack direction="row" spacing={1} mt={2}>
+                      <Skeleton variant="rounded" width={90} height={32} />
+                      <Skeleton variant="rounded" width={100} height={32} />
+                    </Stack>
+                  </CardContent>
+                </Card>
+              ))}
+            </Box>
+          ) : (
+            // desktop table skeleton
+            <TableContainer component={Paper}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    {[
+                      "#",
+                      "Ảnh",
+                      "Nick",
+                      "Tuổi",
+                      "Giới tính",
+                      "Tỉnh",
+                      "Điểm đôi",
+                      "Điểm đơn",
+                      "Cập nhật",
+                      "Tham gia",
+                      "Xác thực",
+                      "",
+                    ].map((h) => (
+                      <TableCell key={h}>{h}</TableCell>
+                    ))}
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {Array.from({ length: SKELETON_ROWS_DESKTOP }).map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell>
+                        <Skeleton variant="text" width={24} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="circular" width={32} height={32} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={120} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={40} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={70} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={90} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={80} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={80} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={110} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="text" width={110} />
+                      </TableCell>
+                      <TableCell>
+                        <Skeleton variant="rounded" width={90} height={24} />
+                      </TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={1}>
+                          <Skeleton variant="rounded" width={64} height={28} />
+                          <Skeleton variant="rounded" width={96} height={28} />
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )
+        ) : isMobile ? (
+          /* ===== MOBILE LIST (cards 1 cột) ===== */
+          <Stack spacing={2}>
+            {list?.map((r) => {
+              const u = r?.user || {};
+              const effectiveStatus =
+                (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
+              const badge = cccdBadge(effectiveStatus);
+              const avatarSrc =
+                u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
+              const tierHex = HEX[r?.tierColor] || HEX.grey;
+              const age = calcAge(u);
+              const canGrade = canGradeUser(me, u?.province);
+              const patched = getPatched(r, u);
+              const allowKyc = canViewKycAdmin(me, effectiveStatus);
 
-                  {topMedal && (
+              const uid = u?._id && String(u._id);
+              const topMedal = uid ? topMedalByUser.get(uid) : null;
+
+              return (
+                <Card
+                  key={r?._id || u?._id}
+                  variant="outlined"
+                  sx={{
+                    ...(topMedal ? flameCardSx(topMedal) : { borderRadius: 6 }),
+                    width: "100%",
+                    height: "100%",
+                    display: "flex",
+                    flexDirection: "column",
+                  }}
+                >
+                  <CardContent>
+                    <Box display="flex" alignItems="center" mb={1} gap={2}>
+                      <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
+                        <Avatar
+                          src={avatarSrc}
+                          alt={u?.nickname || "?"}
+                          onClick={() => openZoom(avatarSrc)}
+                          sx={{ cursor: "zoom-in", width: 40, height: 40 }}
+                        />
+                      </Box>
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography fontWeight={600} noWrap>
+                          {u?.nickname || "---"}
+                        </Typography>
+                      </Box>
+
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        {Number.isFinite(age) && (
+                          <Chip size="small" label={`${age} tuổi`} />
+                        )}
+                        <Chip
+                          label={badge.text}
+                          size="small"
+                          color={badge.color}
+                        />
+                      </Stack>
+                    </Box>
+
+                    {topMedal && (
+                      <Stack
+                        direction="row"
+                        flexWrap="wrap"
+                        useFlexGap
+                        sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
+                      >
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          clickable
+                          component={Link}
+                          to={hrefByUser.get(uid) || "/tournaments"}
+                          label={labelFullByUser.get(uid)} // <<< FULL
+                          sx={medalChipStyleFull(topMedal)} // <<< WRAP
+                          onMouseDown={(e) => e.stopPropagation()}
+                        />
+                      </Stack>
+                    )}
                     <Stack
                       direction="row"
                       flexWrap="wrap"
@@ -1319,561 +1354,561 @@ export default function RankingList() {
                     >
                       <Chip
                         size="small"
-                        variant="outlined"
-                        clickable
-                        component={Link}
-                        to={hrefByUser.get(uid) || "/tournaments"}
-                        label={labelFullByUser.get(uid)} // <<< FULL
-                        sx={medalChipStyleFull(topMedal)} // <<< WRAP
-                        onMouseDown={(e) => e.stopPropagation()}
+                        label={`Giới tính: ${genderLabel(u?.gender)}`}
+                      />
+                      <Chip
+                        size="small"
+                        label={`Tỉnh: ${u?.province || "--"}`}
                       />
                     </Stack>
-                  )}
-                  <Stack
-                    direction="row"
-                    flexWrap="wrap"
-                    useFlexGap
-                    sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
-                  >
-                    <Chip
-                      size="small"
-                      label={`Giới tính: ${genderLabel(u?.gender)}`}
-                    />
-                    <Chip size="small" label={`Tỉnh: ${u?.province || "--"}`} />
-                  </Stack>
 
-                  <Divider sx={{ mb: 1 }} />
+                    <Divider sx={{ mb: 1 }} />
 
-                  <Stack
-                    direction="row"
-                    spacing={2}
-                    mb={0.5}
-                    sx={{ "& .score": { color: tierHex, fontWeight: 600 } }}
-                  >
-                    <Typography variant="body2" className="score">
-                      Đôi: {fmt3(patched.double)}
-                    </Typography>
-                    <Typography variant="body2" className="score">
-                      Đơn: {fmt3(patched.single)}
-                    </Typography>
-                  </Stack>
-
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    display="block"
-                  >
-                    Cập nhật:{" "}
-                    {patched?.updatedAt
-                      ? new Date(patched.updatedAt).toLocaleDateString()
-                      : "--"}
-                  </Typography>
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    display="block"
-                  >
-                    Tham gia:{" "}
-                    {u?.createdAt
-                      ? new Date(u.createdAt).toLocaleDateString()
-                      : "--"}
-                  </Typography>
-
-                  <Stack direction="row" spacing={1} mt={2}>
-                    <Button
-                      size="small"
-                      variant="contained"
-                      color="success"
-                      onClick={() => handleOpenProfile(u?._id)}
+                    <Stack
+                      direction="row"
+                      spacing={2}
+                      mb={0.5}
+                      sx={{ "& .score": { color: tierHex, fontWeight: 600 } }}
                     >
-                      Hồ sơ
-                    </Button>
-                    {canGrade && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => openGrade(u, r)}
-                      >
-                        Chấm trình
-                      </Button>
-                    )}
-                    {allowKyc && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={() => openKyc(u)}
-                      >
-                        Xem KYC
-                      </Button>
-                    )}
-                  </Stack>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </Stack>
-      ) : desktopCards ? (
-        /* ===== DESKTOP CARDS (grid 3 cột) ===== */
-        <Box
-          sx={{
-            display: "grid",
-            gridTemplateColumns: {
-              xs: "1fr",
-              sm: "repeat(2, minmax(0, 1fr))",
-              md: "repeat(3, minmax(0, 1fr))",
-            },
-            gap: 2, // tương đương spacing={2}
-            alignItems: "stretch",
-          }}
-        >
-          {list?.map((r, idx) => (
-            <DesktopCard r={r} idx={idx} key={r?._id || r?.user?._id || idx} />
-          ))}
-        </Box>
-      ) : (
-        /* ===== DESKTOP TABLE (list) ===== */
-        <TableContainer component={Paper}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>#</TableCell>
-                <TableCell>Ảnh</TableCell>
-                <TableCell>Nick</TableCell>
-                <TableCell>Tuổi</TableCell>
-                <TableCell>Giới&nbsp;tính</TableCell>
-                <TableCell>Tỉnh</TableCell>
-                <TableCell>Điểm&nbsp;đôi</TableCell>
-                <TableCell>Điểm&nbsp;đơn</TableCell>
-                <TableCell>Cập nhật</TableCell>
-                <TableCell>Tham gia</TableCell>
-                <TableCell>Xác thực</TableCell>
-                <TableCell></TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {list?.map((r, idx) => {
-                const u = r?.user || {};
-                const effectiveStatus =
-                  (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
-                const badge = cccdBadge(effectiveStatus);
-                const avatarSrc =
-                  u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
-                const tierHex = HEX[r?.tierColor] || HEX.grey;
-                const age = calcAge(u);
-                const canGrade = canGradeUser(me, u?.province);
-                const patched = getPatched(r, u);
-                const allowKyc = canViewKycAdmin(me, effectiveStatus);
+                      <Typography variant="body2" className="score">
+                        Đôi: {fmt3(patched.double)}
+                      </Typography>
+                      <Typography variant="body2" className="score">
+                        Đơn: {fmt3(patched.single)}
+                      </Typography>
+                    </Stack>
 
-                const uid = u?._id && String(u._id);
-                const topMedal = uid ? topMedalByUser.get(uid) : null;
-                const label = uid ? labelShortByUser.get(uid) : null;
-
-                return (
-                  <TableRow key={r?._id || u?._id} hover>
-                    <TableCell>{page * 10 + idx + 1}</TableCell>
-                    <TableCell>
-                      <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
-                        <Avatar
-                          src={avatarSrc}
-                          alt={u?.nickname || "?"}
-                          sx={{ width: 32, height: 32, cursor: "zoom-in" }}
-                          onClick={() => openZoom(avatarSrc)}
-                        />
-                      </Box>
-                    </TableCell>
-                    <TableCell>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          flexDirection: "column",
-                          alignItems: "flex-start",
-                          gap: 0.5,
-                        }}
-                      >
-                        <Typography
-                          variant="body2"
-                          sx={{ fontWeight: 600 }}
-                          noWrap
-                        >
-                          {u?.nickname || "--"}
-                        </Typography>
-                        {topMedal && (
-                          <Tooltip title={label || ""}>
-                            <Chip
-                              size="small"
-                              variant="outlined"
-                              clickable
-                              component={Link}
-                              to={hrefByUser.get(uid) || "/tournaments"}
-                              label={label}
-                              sx={medalChipStyle(topMedal, 240)}
-                              onMouseDown={(e) => e.stopPropagation()}
-                            />
-                          </Tooltip>
-                        )}
-                      </Box>
-                    </TableCell>
-                    <TableCell>{Number.isFinite(age) ? age : "--"}</TableCell>
-                    <TableCell>{genderLabel(u?.gender)}</TableCell>
-                    <TableCell>{u?.province || "--"}</TableCell>
-                    <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
-                      {fmt3(patched.double)}
-                    </TableCell>
-                    <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
-                      {fmt3(patched.single)}
-                    </TableCell>
-                    <TableCell>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      display="block"
+                    >
+                      Cập nhật:{" "}
                       {patched?.updatedAt
                         ? new Date(patched.updatedAt).toLocaleDateString()
                         : "--"}
-                    </TableCell>
-                    <TableCell>
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      display="block"
+                    >
+                      Tham gia:{" "}
                       {u?.createdAt
                         ? new Date(u.createdAt).toLocaleDateString()
                         : "--"}
-                    </TableCell>
-                    <TableCell>
-                      <Chip
-                        label={badge.text}
+                    </Typography>
+
+                    <Stack direction="row" spacing={1} mt={2}>
+                      <Button
                         size="small"
-                        color={badge.color}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Stack direction="row" spacing={1}>
+                        variant="contained"
+                        color="success"
+                        onClick={() => handleOpenProfile(u?._id)}
+                      >
+                        Hồ sơ
+                      </Button>
+                      {canGrade && (
                         <Button
                           size="small"
-                          variant="contained"
-                          color="success"
-                          onClick={() => handleOpenProfile(u?._id)}
+                          variant="outlined"
+                          onClick={() => openGrade(u, r)}
                         >
-                          Hồ sơ
+                          Chấm trình
                         </Button>
-                        {canGrade && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => openGrade(u, r)}
-                          >
-                            Chấm trình
-                          </Button>
-                        )}
-                        {allowKyc && (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => openKyc(u)}
-                          >
-                            Xem KYC
-                          </Button>
-                        )}
-                      </Stack>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      )}
-
-      {totalPages > 1 && !isLoading && (
-        <Box mt={2} display="flex" justifyContent="center">
-          <Pagination
-            count={totalPages}
-            page={page + 1}
-            onChange={(_, v) => dispatch(setPage(v - 1))}
-            color="primary"
-          />
-        </Box>
-      )}
-
-      <PublicProfileDialog
-        open={openProfile}
-        onClose={handleCloseProfile}
-        userId={selectedId}
-        refreshKey={profileRefreshKey}
-      />
-
-      {/* Zoom dialog (avatar) */}
-      <Dialog
-        open={zoomOpen}
-        onClose={closeZoom}
-        maxWidth="sm"
-        fullWidth
-        sx={{ zIndex: (t) => t.zIndex.tooltip + 2 }}
-        slotProps={{ paper: { sx: { borderRadius: 2 } } }}
-      >
-        <DialogTitle>Ảnh KYC</DialogTitle>
-        <DialogContent
-          dividers
-          sx={{ display: "flex", justifyContent: "center" }}
-        >
-          <img
-            src={zoomSrc}
-            alt="avatar"
-            style={{
-              width: "100%",
-              maxHeight: "70vh",
-              objectFit: "contain",
-              borderRadius: 8,
+                      )}
+                      {allowKyc && (
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={() => openKyc(u)}
+                        >
+                          Xem KYC
+                        </Button>
+                      )}
+                    </Stack>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </Stack>
+        ) : desktopCards ? (
+          /* ===== DESKTOP CARDS (grid 3 cột) ===== */
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: {
+                xs: "1fr",
+                sm: "repeat(2, minmax(0, 1fr))",
+                md: "repeat(3, minmax(0, 1fr))",
+              },
+              gap: 2, // tương đương spacing={2}
+              alignItems: "stretch",
             }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={closeZoom}>Đóng</Button>
-        </DialogActions>
-      </Dialog>
+          >
+            {list?.map((r, idx) => (
+              <DesktopCard
+                r={r}
+                idx={idx}
+                key={r?._id || r?.user?._id || idx}
+              />
+            ))}
+          </Box>
+        ) : (
+          /* ===== DESKTOP TABLE (list) ===== */
+          <TableContainer component={Paper}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>#</TableCell>
+                  <TableCell>Ảnh</TableCell>
+                  <TableCell>Nick</TableCell>
+                  <TableCell>Tuổi</TableCell>
+                  <TableCell>Giới&nbsp;tính</TableCell>
+                  <TableCell>Tỉnh</TableCell>
+                  <TableCell>Điểm&nbsp;đôi</TableCell>
+                  <TableCell>Điểm&nbsp;đơn</TableCell>
+                  <TableCell>Cập nhật</TableCell>
+                  <TableCell>Tham gia</TableCell>
+                  <TableCell>Xác thực</TableCell>
+                  <TableCell></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {list?.map((r, idx) => {
+                  const u = r?.user || {};
+                  const effectiveStatus =
+                    (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
+                  const badge = cccdBadge(effectiveStatus);
+                  const avatarSrc =
+                    u?.avatar ||
+                    PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
+                  const tierHex = HEX[r?.tierColor] || HEX.grey;
+                  const age = calcAge(u);
+                  const canGrade = canGradeUser(me, u?.province);
+                  const patched = getPatched(r, u);
+                  const allowKyc = canViewKycAdmin(me, effectiveStatus);
 
-      {/* KYC Drawer */}
-      {/* ... (phần Drawer giữ nguyên như bản trước của bạn) ... */}
-      {/* Mình không cắt dán lại toàn bộ cho gọn tin nhắn, nhưng không đổi logic phần Drawer/KYC/Grade Dialog */}
+                  const uid = u?._id && String(u._id);
+                  const topMedal = uid ? topMedalByUser.get(uid) : null;
+                  const label = uid ? labelShortByUser.get(uid) : null;
 
-      {/* KYC Drawer */}
-      <Drawer
-        anchor="right"
-        open={!!kycView}
-        onClose={closeKyc}
-        PaperProps={{
-          sx: {
-            width: isDesktop ? DRAWER_WIDTH_DESKTOP : "100%",
-            maxWidth: isDesktop ? DRAWER_WIDTH_DESKTOP : "100%",
-            height: "100%",
-            display: "flex",
-            flexDirection: "column",
-            zIndex: (t) => t.zIndex.tooltip + 1,
-          },
-        }}
-        ModalProps={{
-          keepMounted: true,
-          sx: { zIndex: (t) => t.zIndex.tooltip + 1 },
-          BackdropProps: { sx: { zIndex: (t) => t.zIndex.tooltip } },
-        }}
-      >
-        <AppBar
-          position="sticky"
-          color="inherit"
-          elevation={0}
-          sx={{ borderBottom: "1px solid", borderColor: "divider" }}
+                  return (
+                    <TableRow key={r?._id || u?._id} hover>
+                      <TableCell>{page * 10 + idx + 1}</TableCell>
+                      <TableCell>
+                        <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
+                          <Avatar
+                            src={avatarSrc}
+                            alt={u?.nickname || "?"}
+                            sx={{ width: 32, height: 32, cursor: "zoom-in" }}
+                            onClick={() => openZoom(avatarSrc)}
+                          />
+                        </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "flex-start",
+                            gap: 0.5,
+                          }}
+                        >
+                          <Typography
+                            variant="body2"
+                            sx={{ fontWeight: 600 }}
+                            noWrap
+                          >
+                            {u?.nickname || "--"}
+                          </Typography>
+                          {topMedal && (
+                            <Tooltip title={label || ""}>
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                clickable
+                                component={Link}
+                                to={hrefByUser.get(uid) || "/tournaments"}
+                                label={label}
+                                sx={medalChipStyle(topMedal, 240)}
+                                onMouseDown={(e) => e.stopPropagation()}
+                              />
+                            </Tooltip>
+                          )}
+                        </Box>
+                      </TableCell>
+                      <TableCell>{Number.isFinite(age) ? age : "--"}</TableCell>
+                      <TableCell>{genderLabel(u?.gender)}</TableCell>
+                      <TableCell>{u?.province || "--"}</TableCell>
+                      <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
+                        {fmt3(patched.double)}
+                      </TableCell>
+                      <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
+                        {fmt3(patched.single)}
+                      </TableCell>
+                      <TableCell>
+                        {patched?.updatedAt
+                          ? new Date(patched.updatedAt).toLocaleDateString()
+                          : "--"}
+                      </TableCell>
+                      <TableCell>
+                        {u?.createdAt
+                          ? new Date(u.createdAt).toLocaleDateString()
+                          : "--"}
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={badge.text}
+                          size="small"
+                          color={badge.color}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={1}>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="success"
+                            onClick={() => handleOpenProfile(u?._id)}
+                          >
+                            Hồ sơ
+                          </Button>
+                          {canGrade && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              onClick={() => openGrade(u, r)}
+                            >
+                              Chấm trình
+                            </Button>
+                          )}
+                          {allowKyc && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              onClick={() => openKyc(u)}
+                            >
+                              Xem KYC
+                            </Button>
+                          )}
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
+
+        {totalPages > 1 && !isLoading && (
+          <Box mt={2} display="flex" justifyContent="center">
+            <Pagination
+              count={totalPages}
+              page={page + 1}
+              onChange={(_, v) => dispatch(setPage(v - 1))}
+              color="primary"
+            />
+          </Box>
+        )}
+
+        <PublicProfileDialog
+          open={openProfile}
+          onClose={handleCloseProfile}
+          userId={selectedId}
+          refreshKey={profileRefreshKey}
+        />
+
+        {/* Zoom dialog (avatar) */}
+        <Dialog
+          open={zoomOpen}
+          onClose={closeZoom}
+          maxWidth="sm"
+          fullWidth
+          sx={{ zIndex: (t) => t.zIndex.tooltip + 2 }}
+          slotProps={{ paper: { sx: { borderRadius: 2 } } }}
         >
-          <Toolbar sx={{ minHeight: 48, px: 1 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>
-              KYC – {kycView?.name || kycView?.nickname || "--"}
-            </Typography>
-            <IconButton onClick={closeKyc}>
-              <CloseIcon />
-            </IconButton>
-          </Toolbar>
-        </AppBar>
+          <DialogTitle>Ảnh KYC</DialogTitle>
+          <DialogContent
+            dividers
+            sx={{ display: "flex", justifyContent: "center" }}
+          >
+            <img
+              src={zoomSrc}
+              alt="avatar"
+              style={{
+                width: "100%",
+                maxHeight: "70vh",
+                objectFit: "contain",
+                borderRadius: 8,
+              }}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeZoom}>Đóng</Button>
+          </DialogActions>
+        </Dialog>
 
-        <Box
-          sx={{
-            p: { xs: 2, sm: 2 },
-            bgcolor: "transparent",
-            flex: 1,
-            overflow: "auto",
+        {/* KYC Drawer */}
+        {/* ... (phần Drawer giữ nguyên như bản trước của bạn) ... */}
+        {/* Mình không cắt dán lại toàn bộ cho gọn tin nhắn, nhưng không đổi logic phần Drawer/KYC/Grade Dialog */}
+
+        {/* KYC Drawer */}
+        <Drawer
+          anchor="right"
+          open={!!kycView}
+          onClose={closeKyc}
+          PaperProps={{
+            sx: {
+              width: isDesktop ? DRAWER_WIDTH_DESKTOP : "100%",
+              maxWidth: isDesktop ? DRAWER_WIDTH_DESKTOP : "100%",
+              height: "100%",
+              display: "flex",
+              flexDirection: "column",
+              zIndex: (t) => t.zIndex.tooltip + 1,
+            },
+          }}
+          ModalProps={{
+            keepMounted: true,
+            sx: { zIndex: (t) => t.zIndex.tooltip + 1 },
+            BackdropProps: { sx: { zIndex: (t) => t.zIndex.tooltip } },
           }}
         >
-          {kycView ? (
-            <Grid container spacing={2} sx={{ m: 0 }}>
-              <Grid item xs={12} md={12} sx={{ width: "100%" }}>
-                <Grid container spacing={2} sx={{ width: "100%" }}>
-                  {["front", "back"].map((side) => (
-                    <Grid item xs={6} key={side} sx={{ width: "100%" }}>
-                      <Paper
-                        variant="outlined"
-                        sx={{ borderRadius: 2, overflow: "hidden" }}
-                      >
-                        <KycImage
-                          src={kycView?.cccdImages?.[side]}
-                          alt={side}
-                          label={side === "front" ? "Mặt trước" : "Mặt sau"}
-                          onClick={() => openZoom(kycView?.cccdImages?.[side])}
-                          maxHeight={320}
-                        />
-                      </Paper>
-                    </Grid>
-                  ))}
+          <AppBar
+            position="sticky"
+            color="inherit"
+            elevation={0}
+            sx={{ borderBottom: "1px solid", borderColor: "divider" }}
+          >
+            <Toolbar sx={{ minHeight: 48, px: 1 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, flex: 1 }}>
+                KYC – {kycView?.name || kycView?.nickname || "--"}
+              </Typography>
+              <IconButton onClick={closeKyc}>
+                <CloseIcon />
+              </IconButton>
+            </Toolbar>
+          </AppBar>
+
+          <Box
+            sx={{
+              p: { xs: 2, sm: 2 },
+              bgcolor: "transparent",
+              flex: 1,
+              overflow: "auto",
+            }}
+          >
+            {kycView ? (
+              <Grid container spacing={2} sx={{ m: 0 }}>
+                <Grid item xs={12} md={12} sx={{ width: "100%" }}>
+                  <Grid container spacing={2} sx={{ width: "100%" }}>
+                    {["front", "back"].map((side) => (
+                      <Grid item xs={6} key={side} sx={{ width: "100%" }}>
+                        <Paper
+                          variant="outlined"
+                          sx={{ borderRadius: 2, overflow: "hidden" }}
+                        >
+                          <KycImage
+                            src={kycView?.cccdImages?.[side]}
+                            alt={side}
+                            label={side === "front" ? "Mặt trước" : "Mặt sau"}
+                            onClick={() =>
+                              openZoom(kycView?.cccdImages?.[side])
+                            }
+                            maxHeight={320}
+                          />
+                        </Paper>
+                      </Grid>
+                    ))}
+                  </Grid>
                 </Grid>
-              </Grid>
 
-              <Grid item xs={12} md={12} sx={{ width: "100%" }}>
-                <Box
-                  sx={{
-                    p: 2,
-                    border: "1px solid",
-                    borderColor: "divider",
-                    borderRadius: 2,
-                    bgcolor: "background.paper",
-                  }}
-                >
-                  <Stack
-                    direction="row"
-                    alignItems="center"
-                    spacing={1}
-                    sx={{ mb: 1 }}
-                  >
-                    <Chip
-                      size="small"
-                      label={
-                        cccdBadge(
-                          cccdPatch[kycView?._id] || kycView?.cccdStatus
-                        ).text
-                      }
-                      color={
-                        cccdBadge(
-                          cccdPatch[kycView?._id] || kycView?.cccdStatus
-                        ).color
-                      }
-                    />
-                  </Stack>
-
+                <Grid item xs={12} md={12} sx={{ width: "100%" }}>
                   <Box
                     sx={{
-                      display: "grid",
-                      gridTemplateColumns: { xs: "120px 1fr", md: "140px 1fr" },
-                      rowGap: 1,
-                      columnGap: 1.5,
-                      "& .label": { color: "text.secondary", fontSize: 14 },
-                      "& .value": { fontWeight: 600, fontSize: 15 },
+                      p: 2,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      borderRadius: 2,
+                      bgcolor: "background.paper",
                     }}
                   >
-                    <Box className="label">Họ & tên</Box>
-                    <Box className="value">{kycView?.name || "—"}</Box>
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      spacing={1}
+                      sx={{ mb: 1 }}
+                    >
+                      <Chip
+                        size="small"
+                        label={
+                          cccdBadge(
+                            cccdPatch[kycView?._id] || kycView?.cccdStatus
+                          ).text
+                        }
+                        color={
+                          cccdBadge(
+                            cccdPatch[kycView?._id] || kycView?.cccdStatus
+                          ).color
+                        }
+                      />
+                    </Stack>
 
-                    <Box className="label">Ngày sinh</Box>
-                    <Box className="value">{prettyDate(kycView?.dob)}</Box>
-
-                    <Box className="label">Số CCCD</Box>
-                    <Box className="value" sx={{ fontFamily: "monospace" }}>
-                      {kycView?.cccd || "—"}
-                    </Box>
-
-                    <Box className="label">Tỉnh / Thành</Box>
-                    <Box className="value">{kycView?.province || "—"}</Box>
-                  </Box>
-
-                  {kycView?.note && (
                     <Box
                       sx={{
-                        mt: 1.5,
-                        p: 1.25,
-                        bgcolor: "grey.50",
-                        borderRadius: 1,
+                        display: "grid",
+                        gridTemplateColumns: {
+                          xs: "120px 1fr",
+                          md: "140px 1fr",
+                        },
+                        rowGap: 1,
+                        columnGap: 1.5,
+                        "& .label": { color: "text.secondary", fontSize: 14 },
+                        "& .value": { fontWeight: 600, fontSize: 15 },
                       }}
                     >
-                      <Typography variant="caption" color="text.secondary">
-                        Ghi chú
-                      </Typography>
-                      <Typography variant="body2" display="block">
-                        {kycView?.note}
-                      </Typography>
+                      <Box className="label">Họ & tên</Box>
+                      <Box className="value">{kycView?.name || "—"}</Box>
+
+                      <Box className="label">Ngày sinh</Box>
+                      <Box className="value">{prettyDate(kycView?.dob)}</Box>
+
+                      <Box className="label">Số CCCD</Box>
+                      <Box className="value" sx={{ fontFamily: "monospace" }}>
+                        {kycView?.cccd || "—"}
+                      </Box>
+
+                      <Box className="label">Tỉnh / Thành</Box>
+                      <Box className="value">{kycView?.province || "—"}</Box>
                     </Box>
-                  )}
-                </Box>
+
+                    {kycView?.note && (
+                      <Box
+                        sx={{
+                          mt: 1.5,
+                          p: 1.25,
+                          bgcolor: "grey.50",
+                          borderRadius: 1,
+                        }}
+                      >
+                        <Typography variant="caption" color="text.secondary">
+                          Ghi chú
+                        </Typography>
+                        <Typography variant="body2" display="block">
+                          {kycView?.note}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Grid>
               </Grid>
-            </Grid>
-          ) : (
-            <Box p={2}>
-              <Alert severity="info">Không có dữ liệu KYC để hiển thị.</Alert>
-            </Box>
-          )}
-        </Box>
+            ) : (
+              <Box p={2}>
+                <Alert severity="info">Không có dữ liệu KYC để hiển thị.</Alert>
+              </Box>
+            )}
+          </Box>
 
-        <Box
-          sx={{
-            position: "sticky",
-            bottom: 0,
-            borderTop: "1px solid",
-            borderColor: "divider",
-            bgcolor: "background.paper",
-            p: 1,
-          }}
+          <Box
+            sx={{
+              position: "sticky",
+              bottom: 0,
+              borderTop: "1px solid",
+              borderColor: "divider",
+              bgcolor: "background.paper",
+              p: 1,
+            }}
+          >
+            <Stack direction="row" spacing={1} justifyContent="flex-end">
+              <Button onClick={closeKyc}>Đóng</Button>
+              <Button
+                color="error"
+                startIcon={<CancelIcon fontSize="small" />}
+                onClick={() => doReview("reject")}
+                disabled={reviewing || !kycView?._id}
+              >
+                Từ chối
+              </Button>
+              <Button
+                color="success"
+                startIcon={<VerifiedIcon fontSize="small" />}
+                onClick={() => doReview("approve")}
+                disabled={reviewing || !kycView?._id}
+              >
+                Duyệt
+              </Button>
+            </Stack>
+          </Box>
+        </Drawer>
+
+        {/* Grade dialog */}
+        <Dialog
+          open={gradeDlg.open}
+          onClose={() => setGradeDlg({ open: false })}
+          maxWidth="xs"
+          fullWidth
         >
-          <Stack direction="row" spacing={1} justifyContent="flex-end">
-            <Button onClick={closeKyc}>Đóng</Button>
+          <DialogTitle>Chấm trình – {gradeDlg.nickname}</DialogTitle>
+          <DialogContent
+            dividers
+            sx={{ display: "flex", flexDirection: "column", gap: 2 }}
+          >
+            <TextField
+              label={`Điểm đơn (${MIN_RATING} – ${MAX_RATING})`}
+              type="number"
+              inputProps={{ step: "0.05", min: MIN_RATING, max: MAX_RATING }}
+              value={gradeSingles}
+              onChange={(e) => setGradeSingles(e.target.value)}
+            />
+            <TextField
+              label={`Điểm đôi (${MIN_RATING} – ${MAX_RATING})`}
+              type="number"
+              inputProps={{ step: "0.05", min: MIN_RATING, max: MAX_RATING }}
+              value={gradeDoubles}
+              onChange={(e) => setGradeDoubles(e.target.value)}
+            />
+            <TextField
+              label="Ghi chú"
+              multiline
+              minRows={2}
+              value={gradeNotes}
+              onChange={(e) => setGradeNotes(e.target.value)}
+            />
+            {me?.role === "admin" ? (
+              <Alert severity="success">
+                Bạn là admin: có thể chấm tất cả tỉnh.
+              </Alert>
+            ) : (
+              <Alert severity="info">
+                Tỉnh áp dụng: <b>{gradeDlg.province || "--"}</b>. Bạn chỉ có thể
+                chấm khi thuộc phạm vi được cấp.
+              </Alert>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setGradeDlg({ open: false })}>Huỷ</Button>
             <Button
-              color="error"
-              startIcon={<CancelIcon fontSize="small" />}
-              onClick={() => doReview("reject")}
-              disabled={reviewing || !kycView?._id}
+              onClick={submitGrade}
+              disabled={creating}
+              variant="contained"
             >
-              Từ chối
+              {creating ? "Đang lưu..." : "Gửi chấm trình"}
             </Button>
-            <Button
-              color="success"
-              startIcon={<VerifiedIcon fontSize="small" />}
-              onClick={() => doReview("approve")}
-              disabled={reviewing || !kycView?._id}
-            >
-              Duyệt
-            </Button>
-          </Stack>
-        </Box>
-      </Drawer>
+          </DialogActions>
+        </Dialog>
 
-      {/* Grade dialog */}
-      <Dialog
-        open={gradeDlg.open}
-        onClose={() => setGradeDlg({ open: false })}
-        maxWidth="xs"
-        fullWidth
-      >
-        <DialogTitle>Chấm trình – {gradeDlg.nickname}</DialogTitle>
-        <DialogContent
-          dividers
-          sx={{ display: "flex", flexDirection: "column", gap: 2 }}
+        <Snackbar
+          open={snack.open}
+          autoHideDuration={2800}
+          onClose={() => setSnack((s) => ({ ...s, open: false }))}
+          anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
         >
-          <TextField
-            label={`Điểm đơn (${MIN_RATING} – ${MAX_RATING})`}
-            type="number"
-            inputProps={{ step: "0.05", min: MIN_RATING, max: MAX_RATING }}
-            value={gradeSingles}
-            onChange={(e) => setGradeSingles(e.target.value)}
-          />
-          <TextField
-            label={`Điểm đôi (${MIN_RATING} – ${MAX_RATING})`}
-            type="number"
-            inputProps={{ step: "0.05", min: MIN_RATING, max: MAX_RATING }}
-            value={gradeDoubles}
-            onChange={(e) => setGradeDoubles(e.target.value)}
-          />
-          <TextField
-            label="Ghi chú"
-            multiline
-            minRows={2}
-            value={gradeNotes}
-            onChange={(e) => setGradeNotes(e.target.value)}
-          />
-          {me?.role === "admin" ? (
-            <Alert severity="success">
-              Bạn là admin: có thể chấm tất cả tỉnh.
-            </Alert>
-          ) : (
-            <Alert severity="info">
-              Tỉnh áp dụng: <b>{gradeDlg.province || "--"}</b>. Bạn chỉ có thể
-              chấm khi thuộc phạm vi được cấp.
-            </Alert>
-          )}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setGradeDlg({ open: false })}>Huỷ</Button>
-          <Button onClick={submitGrade} disabled={creating} variant="contained">
-            {creating ? "Đang lưu..." : "Gửi chấm trình"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Snackbar
-        open={snack.open}
-        autoHideDuration={2800}
-        onClose={() => setSnack((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        <Alert severity={snack.type} variant="filled">
-          {snack.msg}
-        </Alert>
-      </Snackbar>
-    </Container>
+          <Alert severity={snack.type} variant="filled">
+            {snack.msg}
+          </Alert>
+        </Snackbar>
+      </Container>
+    </>
   );
 }
