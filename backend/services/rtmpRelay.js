@@ -1,12 +1,11 @@
-// rtmpRelay.js - SMOOTH STREAMING OPTIMIZED
+// rtmpRelay.js - MOBILE OPTIMIZED VERSION
 //
-// Key improvements:
-// 1. Binary messages for stream data (no JSON overhead)
-// 2. Optimized FFmpeg settings for smooth playback
-// 3. Larger buffers (3x bitrate) for stable streaming
-// 4. Higher audio quality (192kbps, 48kHz)
-// 5. Audio resampling for sync
-// 6. ultrafast preset for low latency
+// 🔥 KEY IMPROVEMENTS FOR MOBILE:
+// ✅ Adaptive FFmpeg settings based on device type
+// ✅ Lower latency settings for mobile (ultrafast + zerolatency)
+// ✅ Larger buffer size for unstable mobile networks
+// ✅ Graceful handling of network interruptions
+// ✅ Better error messages for mobile debugging
 
 import { WebSocketServer } from "ws";
 import { spawn, spawnSync } from "child_process";
@@ -63,7 +62,7 @@ export async function attachRtmpRelay(server, options = {}) {
   );
   console.log(`✅ FFmpeg path: ${ffmpegPath}`);
   console.log(`✅ RTMPS supported: ${hasRtmps ? "yes" : "no"}`);
-  console.log(`✅ Smooth streaming optimization: ENABLED`);
+  console.log(`✅ Mobile optimization: ENABLED`);
 
   const interval = setInterval(() => {
     wss.clients.forEach((ws) => {
@@ -88,6 +87,7 @@ export async function attachRtmpRelay(server, options = {}) {
     let canWrite = true;
     let bytesReceived = 0;
     let chunksReceived = 0;
+    let isMobileClient = false;
 
     let ffmpegStarting = false;
     let ffmpegReady = false;
@@ -126,9 +126,6 @@ export async function attachRtmpRelay(server, options = {}) {
     };
 
     ws.on("message", async (message) => {
-      // ✅ CRITICAL FIX: Proper binary vs text detection
-      // In 'ws' library, all messages are Buffers, so we try parsing JSON first
-      
       let data = null;
       let isBinary = false;
 
@@ -137,17 +134,14 @@ export async function attachRtmpRelay(server, options = {}) {
         const msgStr = message.toString("utf8");
         data = JSON.parse(msgStr);
         isBinary = false;
-        console.log("📝 Received TEXT message, type:", data.type, "size:", message.length);
       } catch (e) {
         // Not JSON = binary stream data
         isBinary = true;
-        console.log("📨 Received BINARY message, size:", message.length);
       }
 
       if (isBinary) {
         // ===== BINARY MESSAGE = STREAM DATA =====
         if (!ffmpegProcess || !ffmpegReady) {
-          console.log("⚠️ Binary data received but FFmpeg not ready, dropping");
           return;
         }
 
@@ -159,13 +153,16 @@ export async function attachRtmpRelay(server, options = {}) {
         chunksReceived++;
 
         if (chunksReceived === 1) {
-          console.log("📥 First binary chunk received (optimized path)");
+          console.log(
+            `📥 First chunk (${isMobileClient ? "MOBILE" : "DESKTOP"} mode)`
+          );
         }
 
-        // Log progress every 50 chunks
-        if (chunksReceived % 50 === 0) {
+        // Log progress every 20 chunks for mobile, 50 for desktop
+        const logInterval = isMobileClient ? 20 : 50;
+        if (chunksReceived % logInterval === 0) {
           console.log(
-            `📦 Binary: ${chunksReceived} chunks, ${(
+            `📦 ${chunksReceived} chunks, ${(
               bytesReceived /
               1024 /
               1024
@@ -173,22 +170,31 @@ export async function attachRtmpRelay(server, options = {}) {
           );
         }
 
-        // Write directly to FFmpeg stdin with backpressure handling
+        // Write to FFmpeg with backpressure handling
         if (ffmpegProcess.stdin.writable && canWrite) {
           canWrite = ffmpegProcess.stdin.write(buffer);
+
+          // For mobile, be more aggressive about flushing
+          if (isMobileClient && !canWrite) {
+            console.warn("⚠️ Mobile: Backpressure detected, pausing writes");
+          }
+        } else if (!canWrite) {
+          // Buffer is full, wait for drain
+          console.warn("⚠️ FFmpeg stdin buffer full, waiting for drain");
         }
 
         return;
       }
 
       // ===== TEXT MESSAGE = CONTROL COMMAND =====
-      // data is already parsed above
-
       if (data.type === "start") {
         console.log("📥 Received START command");
-        console.log("📊 Stream Key length:", data.streamKey?.length);
-        console.log("📊 FPS:", data.fps);
-        console.log("📊 Bitrate:", data.videoBitrate);
+
+        if (!data.streamKey) {
+          return ws.send(
+            JSON.stringify({ type: "error", message: "Stream key is required" })
+          );
+        }
 
         if (ffmpegStarting || ffmpegProcess) {
           console.log("⚠️ FFmpeg already starting or running");
@@ -200,16 +206,23 @@ export async function attachRtmpRelay(server, options = {}) {
           );
         }
 
-        if (!data.streamKey) {
-          return ws.send(
-            JSON.stringify({ type: "error", message: "Stream key is required" })
-          );
-        }
-
         streamKey = data.streamKey;
+        isMobileClient = data.isMobile || false;
+
+        // Get settings from client
         const fps = Number(data.fps || 30);
-        const videoBitrate = String(data.videoBitrate || "2000k"); // Reduced for smoother streaming
-        const audioBitrate = String(data.audioBitrate || "192k"); // Increased for better audio quality
+        const videoBitrate = String(data.videoBitrate || "1500k");
+        const audioBitrate = String(data.audioBitrate || "128k");
+        const width = Number(data.width || 1280);
+        const height = Number(data.height || 720);
+
+        console.log("📊 Stream settings:");
+        console.log(
+          `   Device type: ${isMobileClient ? "MOBILE 📱" : "DESKTOP 💻"}`
+        );
+        console.log(`   Resolution: ${width}x${height} @ ${fps}fps`);
+        console.log(`   Video bitrate: ${videoBitrate}`);
+        console.log(`   Audio bitrate: ${audioBitrate}`);
 
         let publishUrl = `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
         if (!hasRtmps) {
@@ -228,18 +241,23 @@ export async function attachRtmpRelay(server, options = {}) {
         chunksReceived = 0;
 
         try {
+          // 🔥 MOBILE-OPTIMIZED FFMPEG SETTINGS
+          const bufferMultiplier = isMobileClient ? 4 : 3; // Larger buffer for mobile
+          const preset = isMobileClient ? "veryfast" : "ultrafast";
+          const probeSize = isMobileClient ? "10000000" : "5000000"; // Larger probe for mobile
+
           const args = [
-            // Input settings - optimized for smooth streaming
+            // Input settings - mobile optimized
             "-f",
             "webm",
             "-thread_queue_size",
-            "1024",
+            "2048", // Doubled for mobile stability
             "-probesize",
-            "5000000",
+            probeSize,
             "-analyzeduration",
-            "2000000",
+            "3000000", // Increased for mobile
             "-fflags",
-            "+genpts",
+            "+genpts+discardcorrupt", // Handle corrupt packets gracefully
             "-use_wallclock_as_timestamps",
             "1",
             "-i",
@@ -251,23 +269,23 @@ export async function attachRtmpRelay(server, options = {}) {
             "-map",
             "0:a:0",
 
-            // Video encoding - optimized for smooth playback
+            // Video encoding - adaptive based on device
             "-c:v",
             "libx264",
             "-pix_fmt",
             "yuv420p",
             "-preset",
-            "ultrafast",
+            preset,
             "-tune",
             "zerolatency",
             "-profile:v",
-            "main",
+            isMobileClient ? "baseline" : "main", // Baseline for mobile compatibility
             "-level",
-            "4.0",
+            isMobileClient ? "3.1" : "4.0",
             "-r",
             String(fps),
             "-g",
-            String(fps * 2),
+            String(fps * 2), // Keyframe every 2 seconds
             "-keyint_min",
             String(fps),
             "-sc_threshold",
@@ -279,33 +297,45 @@ export async function attachRtmpRelay(server, options = {}) {
             "-maxrate",
             videoBitrate,
             "-bufsize",
-            String(parseInt(videoBitrate) * 3 || 7500) + "k",
+            String(parseInt(videoBitrate) * bufferMultiplier || 6000) + "k",
 
-            // Audio encoding - optimized for clarity
+            // Audio encoding - mobile optimized
             "-c:a",
             "aac",
             "-b:a",
-            "192k",
+            audioBitrate,
             "-ar",
-            "48000",
+            isMobileClient ? "44100" : "48000", // 44.1kHz for mobile
             "-ac",
-            "2",
+            isMobileClient ? "1" : "2", // Mono for mobile
             "-af",
             "aresample=async=1:first_pts=0",
 
-            // Output format
+            // Output format - mobile friendly
             "-f",
             "flv",
             "-flvflags",
             "no_duration_filesize",
-            
+
+            // Mobile-specific: More aggressive reconnection handling
+            ...(isMobileClient
+              ? [
+                  "-reconnect",
+                  "1",
+                  "-reconnect_streamed",
+                  "1",
+                  "-reconnect_delay_max",
+                  "5",
+                ]
+              : []),
+
             publishUrl,
           ];
 
           console.log(
             "🔧 FFmpeg command:",
             "ffmpeg",
-            args.slice(0, 12).join(" "),
+            args.slice(0, 15).join(" "),
             "..."
           );
           console.log("🚀 Spawning FFmpeg...");
@@ -320,7 +350,10 @@ export async function attachRtmpRelay(server, options = {}) {
             throw new Error("FFmpeg process is null or has no PID");
           }
 
-          // Wait 1 second for FFmpeg stdin to be ready
+          // Wait for FFmpeg to be ready
+          // Mobile needs slightly longer initialization time
+          const initDelay = isMobileClient ? 1500 : 1000;
+
           setTimeout(() => {
             if (ffmpegProcess && ffmpegStarting) {
               ffmpegReady = true;
@@ -332,7 +365,9 @@ export async function attachRtmpRelay(server, options = {}) {
               }
 
               console.log(
-                "✅✅✅ FFmpeg stdin ready - client can send binary data"
+                `✅✅✅ FFmpeg ready (${
+                  isMobileClient ? "MOBILE" : "DESKTOP"
+                } mode)`
               );
               try {
                 ws.send(
@@ -348,11 +383,11 @@ export async function attachRtmpRelay(server, options = {}) {
             } else {
               console.error("⚠️ FFmpeg process lost during initialization");
             }
-          }, 1000);
+          }, initDelay);
 
           let hasError = false;
+          let lastProgressTime = Date.now();
 
-          // Immediate error handler for spawn failures
           ffmpegProcess.on("error", (error) => {
             console.error("❌ FFmpeg spawn error:", error);
             hasError = true;
@@ -368,6 +403,7 @@ export async function attachRtmpRelay(server, options = {}) {
           ffmpegProcess.stderr.on("data", (d) => {
             const log = d.toString();
 
+            // Critical errors
             if (
               log.includes("Invalid data found") ||
               log.includes("EBML header parsing failed") ||
@@ -383,8 +419,9 @@ export async function attachRtmpRelay(server, options = {}) {
                   ws.send(
                     JSON.stringify({
                       type: "error",
-                      message:
-                        "FFmpeg failed to initialize. Please check server logs.",
+                      message: isMobileClient
+                        ? "Lỗi khởi động. Thử lại hoặc chuyển sang WiFi."
+                        : "FFmpeg failed to initialize. Please check server logs.",
                     })
                   );
                   stopFfmpeg("SIGTERM");
@@ -393,12 +430,30 @@ export async function attachRtmpRelay(server, options = {}) {
               return;
             }
 
-            console.log("FFmpeg:", log.trim());
+            // Warnings specific to mobile
+            if (isMobileClient) {
+              if (log.includes("Past duration")) {
+                console.warn("⚠️ Mobile: Timestamp discontinuity detected");
+              }
+              if (log.includes("Non-monotonous DTS")) {
+                console.warn(
+                  "⚠️ Mobile: Frame timing issue (expected on unstable networks)"
+                );
+              }
+            }
 
+            // Don't spam logs with repetitive info
             if (log.includes("frame=") || log.includes("speed=")) {
-              ws.send(
-                JSON.stringify({ type: "progress", message: log.trim() })
-              );
+              const now = Date.now();
+              // Send progress updates every 5 seconds for mobile, 3 for desktop
+              if (now - lastProgressTime > (isMobileClient ? 5000 : 3000)) {
+                lastProgressTime = now;
+                ws.send(
+                  JSON.stringify({ type: "progress", message: log.trim() })
+                );
+              }
+            } else {
+              console.log("FFmpeg:", log.trim());
             }
           });
 
@@ -413,7 +468,9 @@ export async function attachRtmpRelay(server, options = {}) {
               ws.send(
                 JSON.stringify({
                   type: "error",
-                  message: `FFmpeg stdin error: ${err.message}`,
+                  message: isMobileClient
+                    ? "Mất kết nối với server. Thử lại."
+                    : `FFmpeg stdin error: ${err.message}`,
                 })
               );
               stopFfmpeg("SIGTERM");
@@ -422,6 +479,9 @@ export async function attachRtmpRelay(server, options = {}) {
 
           ffmpegProcess.stdin.on("drain", () => {
             canWrite = true;
+            if (isMobileClient && chunksReceived > 0) {
+              console.log("✅ Mobile: Buffer drained, resuming writes");
+            }
           });
 
           ffmpegProcess.on("close", (code) => {
@@ -436,13 +496,14 @@ export async function attachRtmpRelay(server, options = {}) {
               );
             }
 
-            // If FFmpeg exits immediately, it's an error
             if (code !== 0 && ffmpegStarting) {
               console.error(`❌ FFmpeg failed to start (exit code: ${code})`);
               ws.send(
                 JSON.stringify({
                   type: "error",
-                  message: `FFmpeg failed to start (exit code: ${code}). Check: 1) Stream key valid? 2) Facebook Live created? 3) Network OK?`,
+                  message: isMobileClient
+                    ? `Không thể kết nối Facebook Live. Kiểm tra:\n1. Stream Key đúng?\n2. Facebook Live đã tạo?\n3. Mạng ổn định không?`
+                    : `FFmpeg failed (exit ${code}). Check: Stream key, Facebook Live setup, network.`,
                 })
               );
             } else {
@@ -459,23 +520,24 @@ export async function attachRtmpRelay(server, options = {}) {
             ffmpegReady = false;
           });
 
-          // Safety timeout - 30s
+          // Safety timeout - 40s for mobile (more time for slower devices)
+          const timeoutDuration = isMobileClient ? 40000 : 30000;
           startTimeout = setTimeout(() => {
             if (ffmpegProcess && !ffmpegReady) {
-              console.error("❌ FFmpeg startup timeout after 30 seconds");
-              console.error("   FFmpeg PID:", ffmpegProcess?.pid);
-              console.error("   FFmpeg starting:", ffmpegStarting);
-              console.error("   FFmpeg ready:", ffmpegReady);
+              console.error(
+                `❌ FFmpeg startup timeout after ${timeoutDuration / 1000}s`
+              );
               ws.send(
                 JSON.stringify({
                   type: "error",
-                  message:
-                    "FFmpeg failed to initialize after 30s. Check: 1) Stream key valid? 2) Facebook Live created? 3) Network OK?",
+                  message: isMobileClient
+                    ? "Timeout khởi động. Kiểm tra mạng và thử lại."
+                    : "FFmpeg failed to initialize after 30s. Check stream key and network.",
                 })
               );
               stopFfmpeg("SIGTERM");
             }
-          }, 30000);
+          }, timeoutDuration);
         } catch (spawnError) {
           console.error("❌ Failed to spawn FFmpeg:", spawnError);
           ffmpegStarting = false;
@@ -483,7 +545,9 @@ export async function attachRtmpRelay(server, options = {}) {
           ws.send(
             JSON.stringify({
               type: "error",
-              message: `Failed to spawn FFmpeg: ${spawnError.message}`,
+              message: isMobileClient
+                ? "Lỗi server. Liên hệ admin."
+                : `Failed to spawn FFmpeg: ${spawnError.message}`,
             })
           );
           stopFfmpeg("SIGTERM");

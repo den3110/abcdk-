@@ -12,6 +12,8 @@ import {
   CardContent,
   Grid,
   CircularProgress,
+  FormControlLabel,
+  Switch,
 } from "@mui/material";
 import {
   RadioButtonChecked,
@@ -21,22 +23,25 @@ import {
   Info,
   SportsScore,
   FlipCameraAndroid,
+  NetworkCheck,
 } from "@mui/icons-material";
 
 /**
- * FacebookLiveStreamer - BINARY OPTIMIZED VERSION
+ * FacebookLiveStreamer - MOBILE OPTIMIZED VERSION
  *
- * ✅ KEY CHANGE: Send stream data as binary ArrayBuffer instead of JSON
- * ✅ Result: 3-5x faster, lower CPU usage
+ * 🔥 KEY IMPROVEMENTS FOR MOBILE:
+ * ✅ Auto-detect mobile and reduce quality
+ * ✅ Lower resolution (640x360 for mobile)
+ * ✅ Lower bitrate (800-1200k for mobile)
+ * ✅ Adaptive FPS (20-24 for mobile)
+ * ✅ Larger chunks (2.5s) for stable mobile streaming
+ * ✅ Network quality monitoring
+ * ✅ Manual quality override option
  */
 export default function FacebookLiveStreamer({
   matchId,
   wsUrl = "ws://localhost:5002/ws/rtmp",
   apiUrl = "http://localhost:5001/api/overlay/match",
-  videoWidth = 1280,
-  videoHeight = 720,
-  fps = 30,
-  videoBitsPerSecond = 2_000_000, // Reduced from 2.5M to 2M for smoother streaming
 }) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -47,6 +52,8 @@ export default function FacebookLiveStreamer({
   const [overlayData, setOverlayData] = useState(null);
   const [facingMode, setFacingMode] = useState("user");
   const [videoDevices, setVideoDevices] = useState([]);
+  const [networkQuality, setNetworkQuality] = useState("unknown");
+  const [useHighQuality, setUseHighQuality] = useState(false);
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -57,10 +64,93 @@ export default function FacebookLiveStreamer({
 
   const ffmpegReadyRef = useRef(false);
   const recordingStartedRef = useRef(false);
+  const lastChunkTimeRef = useRef(0);
+  const chunkIntervalRef = useRef(null);
 
-  const canSwitchCamera =
-    videoDevices.length > 1 ||
-    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  // 🔥 MOBILE DETECTION
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  const isSlowDevice = navigator.hardwareConcurrency <= 4;
+
+  // 🔥 ADAPTIVE SETTINGS BASED ON DEVICE
+  const getOptimalSettings = () => {
+    // Manual override
+    if (useHighQuality) {
+      return {
+        width: 1280,
+        height: 720,
+        fps: 30,
+        bitrate: 2000000,
+        audioBitrate: "192k",
+        chunkInterval: 1000,
+        label: "High Quality (Desktop)",
+      };
+    }
+
+    // Auto-detect optimal settings
+    if (isMobile || isSlowDevice) {
+      // Ultra-light for mobile
+      return {
+        width: 640,
+        height: 360,
+        fps: 20,
+        bitrate: 800000, // 800kbps - very smooth on 3G/4G
+        audioBitrate: "96k",
+        chunkInterval: 2500, // 2.5s chunks for stability
+        label: "Mobile Optimized (Smooth)",
+      };
+    }
+
+    // Desktop default
+    return {
+      width: 1280,
+      height: 720,
+      fps: 25,
+      bitrate: 1500000,
+      audioBitrate: "128k",
+      chunkInterval: 1500,
+      label: "Desktop Standard",
+    };
+  };
+
+  const settings = getOptimalSettings();
+  const {
+    width: videoWidth,
+    height: videoHeight,
+    fps,
+    bitrate: videoBitsPerSecond,
+    audioBitrate,
+    chunkInterval,
+  } = settings;
+
+  const canSwitchCamera = videoDevices.length > 1 || isMobile;
+
+  // ===== NETWORK QUALITY MONITORING =====
+  useEffect(() => {
+    if (!navigator.connection) return;
+
+    const updateNetworkQuality = () => {
+      const conn = navigator.connection;
+      const effectiveType = conn.effectiveType || "unknown";
+
+      setNetworkQuality(effectiveType);
+
+      // Auto-adjust quality based on network
+      if (effectiveType === "slow-2g" || effectiveType === "2g") {
+        if (useHighQuality) {
+          setUseHighQuality(false);
+          setStatus("⚠️ Mạng yếu - tự động chuyển chế độ tiết kiệm");
+          setStatusType("warning");
+        }
+      }
+    };
+
+    updateNetworkQuality();
+    navigator.connection.addEventListener("change", updateNetworkQuality);
+
+    return () => {
+      navigator.connection?.removeEventListener("change", updateNetworkQuality);
+    };
+  }, [useHighQuality]);
 
   // ===== CAMERA MANAGEMENT =====
   const enumerateVideoDevices = async () => {
@@ -100,14 +190,22 @@ export default function FacebookLiveStreamer({
         frameRate: { ideal: fps },
       };
 
-      // Optimized audio constraints for better quality
-      const audioConstraints = {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        sampleRate: 48000,
-        channelCount: 2,
-      };
+      // 🔥 Mobile-optimized audio constraints
+      const audioConstraints = isMobile
+        ? {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: 44100, // Lower for mobile
+            channelCount: 1, // Mono for mobile to save bandwidth
+          }
+        : {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            sampleRate: 48000,
+            channelCount: 2,
+          };
 
       let stream;
       try {
@@ -138,9 +236,9 @@ export default function FacebookLiveStreamer({
 
       setFacingMode(preferFacing);
       setStatus(
-        `Camera đã sẵn sàng (${
+        `Camera sẵn sàng (${
           preferFacing === "environment" ? "sau" : "trước"
-        })`
+        }) - ${settings.label}`
       );
       setStatusType("success");
 
@@ -232,7 +330,7 @@ export default function FacebookLiveStreamer({
     };
   }, [overlayData]);
 
-  // ===== DRAW SCORE OVERLAY =====
+  // ===== DRAW SCORE OVERLAY (simplified for mobile) =====
   const drawFullScoreOverlay = (ctx, w, h, data) => {
     const drawRoundedRect = (x, y, w, h, r) => {
       const radius = Math.min(r, w / 2, h / 2);
@@ -284,39 +382,41 @@ export default function FacebookLiveStreamer({
 
     const accentA = "#25C2A0";
     const accentB = "#4F46E5";
-    const bg = "rgba(11,15,20,0.8)";
+    const bg = "rgba(11,15,20,0.85)";
     const fg = "#E6EDF3";
     const muted = "#9AA4AF";
 
-    const rounded = 18;
-    const pad = 14;
-    const minW = 320;
-    const nameSize = 16;
-    const scoreSize = 24;
-    const metaSize = 11;
-    const badgeSize = 10;
-    const tableSize = 11;
+    // 🔥 Scale overlay based on canvas size (mobile responsive)
+    const scale = Math.min(w / 1280, 1);
+    const rounded = 16 * scale;
+    const pad = 12 * scale;
+    const minW = 280 * scale;
+    const nameSize = 14 * scale;
+    const scoreSize = 22 * scale;
+    const metaSize = 10 * scale;
+    const badgeSize = 9 * scale;
+    const tableSize = 10 * scale;
 
-    const overlayX = 16;
-    const overlayY = 16;
-    const overlayW = Math.max(minW, 320);
+    const overlayX = 12 * scale;
+    const overlayY = 12 * scale;
+    const overlayW = Math.max(minW, 300 * scale);
 
-    const metaH = 20;
-    const rowH = 32;
+    const metaH = 18 * scale;
+    const rowH = 30 * scale;
     const showSets = data?.overlay?.showSets !== false;
-    const tableH = showSets ? 80 : 0;
-    const overlayH = pad * 2 + metaH + rowH * 2 + tableH + 12;
+    const tableH = showSets ? 70 * scale : 0;
+    const overlayH = pad * 2 + metaH + rowH * 2 + tableH + 10 * scale;
 
     ctx.fillStyle = bg;
-    ctx.shadowColor = "rgba(0,0,0,0.25)";
-    ctx.shadowBlur = 24;
+    ctx.shadowColor = "rgba(0,0,0,0.3)";
+    ctx.shadowBlur = 20 * scale;
     ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 8;
+    ctx.shadowOffsetY = 6 * scale;
     drawRoundedRect(overlayX, overlayY, overlayW, overlayH, rounded);
     ctx.fill();
     ctx.shadowBlur = 0;
 
-    const metaY = overlayY + pad + 8;
+    const metaY = overlayY + pad + 6 * scale;
 
     ctx.fillStyle = muted;
     ctx.font = `500 ${metaSize}px Inter, system-ui, Arial`;
@@ -326,10 +426,10 @@ export default function FacebookLiveStreamer({
     if (phaseText) {
       const badgeText = phaseText;
       ctx.font = `700 ${badgeSize}px Inter, system-ui, Arial`;
-      const badgeW = ctx.measureText(badgeText).width + 12;
-      const badgeH = 18;
+      const badgeW = ctx.measureText(badgeText).width + 10 * scale;
+      const badgeH = 16 * scale;
       const badgeX = overlayX + overlayW - pad - badgeW;
-      const badgeY = metaY - 14;
+      const badgeY = metaY - 12 * scale;
 
       ctx.fillStyle = "#334155";
       drawRoundedRect(badgeX, badgeY, badgeW, badgeH, 999);
@@ -337,40 +437,47 @@ export default function FacebookLiveStreamer({
 
       ctx.fillStyle = "#fff";
       ctx.textAlign = "center";
-      ctx.fillText(badgeText, badgeX + badgeW / 2, badgeY + 13);
+      ctx.fillText(badgeText, badgeX + badgeW / 2, badgeY + 12 * scale);
     }
 
-    const rowAY = metaY + 24;
+    const rowAY = metaY + 20 * scale;
 
     ctx.fillStyle = accentA;
     ctx.beginPath();
-    ctx.arc(overlayX + pad + 5, rowAY + 10, 5, 0, Math.PI * 2);
+    ctx.arc(
+      overlayX + pad + 4 * scale,
+      rowAY + 8 * scale,
+      4 * scale,
+      0,
+      Math.PI * 2
+    );
     ctx.fill();
 
     ctx.fillStyle = fg;
     ctx.font = `600 ${nameSize}px Inter, system-ui, Arial`;
     ctx.textAlign = "left";
-    ctx.fillText(teamA, overlayX + pad + 20, rowAY + 14);
+    ctx.fillText(teamA, overlayX + pad + 16 * scale, rowAY + 12 * scale);
 
     if (serveSide === "A") {
-      const serveX = overlayX + pad + 20 + ctx.measureText(teamA).width + 8;
-      const serveY = rowAY + 10;
+      const serveX =
+        overlayX + pad + 16 * scale + ctx.measureText(teamA).width + 6 * scale;
+      const serveY = rowAY + 8 * scale;
 
       ctx.strokeStyle = muted;
       ctx.lineWidth = 1;
       drawRoundedRect(
-        serveX - 4,
-        serveY - 8,
-        serveCount * 8 + (serveCount - 1) * 4 + 8,
-        16,
-        6
+        serveX - 3 * scale,
+        serveY - 6 * scale,
+        serveCount * 7 * scale + (serveCount - 1) * 3 * scale + 6 * scale,
+        12 * scale,
+        5 * scale
       );
       ctx.stroke();
 
       ctx.fillStyle = muted;
       for (let i = 0; i < serveCount; i++) {
         ctx.beginPath();
-        ctx.arc(serveX + i * 12, serveY, 4, 0, Math.PI * 2);
+        ctx.arc(serveX + i * 10 * scale, serveY, 3 * scale, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -378,39 +485,46 @@ export default function FacebookLiveStreamer({
     ctx.fillStyle = fg;
     ctx.font = `800 ${scoreSize}px Inter, system-ui, Arial`;
     ctx.textAlign = "right";
-    ctx.fillText(String(scoreA), overlayX + overlayW - pad, rowAY + 18);
+    ctx.fillText(String(scoreA), overlayX + overlayW - pad, rowAY + 16 * scale);
 
-    const rowBY = rowAY + 36;
+    const rowBY = rowAY + 32 * scale;
 
     ctx.fillStyle = accentB;
     ctx.beginPath();
-    ctx.arc(overlayX + pad + 5, rowBY + 10, 5, 0, Math.PI * 2);
+    ctx.arc(
+      overlayX + pad + 4 * scale,
+      rowBY + 8 * scale,
+      4 * scale,
+      0,
+      Math.PI * 2
+    );
     ctx.fill();
 
     ctx.fillStyle = fg;
     ctx.font = `600 ${nameSize}px Inter, system-ui, Arial`;
     ctx.textAlign = "left";
-    ctx.fillText(teamB, overlayX + pad + 20, rowBY + 14);
+    ctx.fillText(teamB, overlayX + pad + 16 * scale, rowBY + 12 * scale);
 
     if (serveSide === "B") {
-      const serveX = overlayX + pad + 20 + ctx.measureText(teamB).width + 8;
-      const serveY = rowBY + 10;
+      const serveX =
+        overlayX + pad + 16 * scale + ctx.measureText(teamB).width + 6 * scale;
+      const serveY = rowBY + 8 * scale;
 
       ctx.strokeStyle = muted;
       ctx.lineWidth = 1;
       drawRoundedRect(
-        serveX - 4,
-        serveY - 8,
-        serveCount * 8 + (serveCount - 1) * 4 + 8,
-        16,
-        6
+        serveX - 3 * scale,
+        serveY - 6 * scale,
+        serveCount * 7 * scale + (serveCount - 1) * 3 * scale + 6 * scale,
+        12 * scale,
+        5 * scale
       );
       ctx.stroke();
 
       ctx.fillStyle = muted;
       for (let i = 0; i < serveCount; i++) {
         ctx.beginPath();
-        ctx.arc(serveX + i * 12, serveY, 4, 0, Math.PI * 2);
+        ctx.arc(serveX + i * 10 * scale, serveY, 3 * scale, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -418,34 +532,34 @@ export default function FacebookLiveStreamer({
     ctx.fillStyle = fg;
     ctx.font = `800 ${scoreSize}px Inter, system-ui, Arial`;
     ctx.textAlign = "right";
-    ctx.fillText(String(scoreB), overlayX + overlayW - pad, rowBY + 18);
+    ctx.fillText(String(scoreB), overlayX + overlayW - pad, rowBY + 16 * scale);
 
     if (showSets && tableH > 0) {
-      const tableY = rowBY + 44;
-      const cellW = 26;
-      const cellH = 22;
-      const cellGap = 4;
+      const tableY = rowBY + 38 * scale;
+      const cellW = 24 * scale;
+      const cellH = 20 * scale;
+      const cellGap = 3 * scale;
 
       ctx.font = `600 ${tableSize}px Inter, system-ui, Arial`;
       ctx.textAlign = "center";
 
       for (let i = 0; i < maxSets; i++) {
-        const cellX = overlayX + pad + 30 + i * (cellW + cellGap);
+        const cellX = overlayX + pad + 26 * scale + i * (cellW + cellGap);
         const isCurrent = i === currentGame;
 
         ctx.strokeStyle = isCurrent ? "#94a3b8" : "#cbd5e1";
         ctx.lineWidth = 1;
-        drawRoundedRect(cellX, tableY, cellW, cellH, 6);
+        drawRoundedRect(cellX, tableY, cellW, cellH, 5 * scale);
         ctx.stroke();
 
         if (isCurrent) {
           ctx.fillStyle = "rgba(14,165,233,0.2)";
-          drawRoundedRect(cellX, tableY, cellW, cellH, 6);
+          drawRoundedRect(cellX, tableY, cellW, cellH, 5 * scale);
           ctx.fill();
         }
 
         ctx.fillStyle = muted;
-        ctx.fillText(`S${i + 1}`, cellX + cellW / 2, tableY + 15);
+        ctx.fillText(`S${i + 1}`, cellX + cellW / 2, tableY + 14 * scale);
       }
 
       const rowATableY = tableY + cellH + cellGap;
@@ -453,28 +567,28 @@ export default function FacebookLiveStreamer({
       ctx.fillStyle = muted;
       ctx.font = `600 ${tableSize}px Inter, system-ui, Arial`;
       ctx.textAlign = "center";
-      ctx.fillText("A", overlayX + pad + 15, rowATableY + 15);
+      ctx.fillText("A", overlayX + pad + 13 * scale, rowATableY + 14 * scale);
 
       for (let i = 0; i < maxSets; i++) {
         const g = gameScores[i];
-        const cellX = overlayX + pad + 30 + i * (cellW + cellGap);
+        const cellX = overlayX + pad + 26 * scale + i * (cellW + cellGap);
         const isCurrent = i === currentGame;
         const isWon = g && gameWon(g.a, g.b, rules.pointsToWin, rules.winByTwo);
 
         if (isWon) {
           ctx.fillStyle = accentA;
-          drawRoundedRect(cellX, rowATableY, cellW, cellH, 6);
+          drawRoundedRect(cellX, rowATableY, cellW, cellH, 5 * scale);
           ctx.fill();
           ctx.fillStyle = "#fff";
         } else {
           ctx.strokeStyle = isCurrent ? "#94a3b8" : "#cbd5e1";
           ctx.lineWidth = 1;
-          drawRoundedRect(cellX, rowATableY, cellW, cellH, 6);
+          drawRoundedRect(cellX, rowATableY, cellW, cellH, 5 * scale);
           ctx.stroke();
 
           if (isCurrent) {
             ctx.fillStyle = "rgba(100,116,139,0.13)";
-            drawRoundedRect(cellX, rowATableY, cellW, cellH, 6);
+            drawRoundedRect(cellX, rowATableY, cellW, cellH, 5 * scale);
             ctx.fill();
           }
 
@@ -482,7 +596,7 @@ export default function FacebookLiveStreamer({
         }
 
         const score = g && Number.isFinite(g.a) ? String(g.a) : "–";
-        ctx.fillText(score, cellX + cellW / 2, rowATableY + 15);
+        ctx.fillText(score, cellX + cellW / 2, rowATableY + 14 * scale);
       }
 
       const rowBTableY = rowATableY + cellH + cellGap;
@@ -490,28 +604,28 @@ export default function FacebookLiveStreamer({
       ctx.fillStyle = muted;
       ctx.font = `600 ${tableSize}px Inter, system-ui, Arial`;
       ctx.textAlign = "center";
-      ctx.fillText("B", overlayX + pad + 15, rowBTableY + 15);
+      ctx.fillText("B", overlayX + pad + 13 * scale, rowBTableY + 14 * scale);
 
       for (let i = 0; i < maxSets; i++) {
         const g = gameScores[i];
-        const cellX = overlayX + pad + 30 + i * (cellW + cellGap);
+        const cellX = overlayX + pad + 26 * scale + i * (cellW + cellGap);
         const isCurrent = i === currentGame;
         const isWon = g && gameWon(g.b, g.a, rules.pointsToWin, rules.winByTwo);
 
         if (isWon) {
           ctx.fillStyle = accentB;
-          drawRoundedRect(cellX, rowBTableY, cellW, cellH, 6);
+          drawRoundedRect(cellX, rowBTableY, cellW, cellH, 5 * scale);
           ctx.fill();
           ctx.fillStyle = "#fff";
         } else {
           ctx.strokeStyle = isCurrent ? "#94a3b8" : "#cbd5e1";
           ctx.lineWidth = 1;
-          drawRoundedRect(cellX, rowBTableY, cellW, cellH, 6);
+          drawRoundedRect(cellX, rowBTableY, cellW, cellH, 5 * scale);
           ctx.stroke();
 
           if (isCurrent) {
             ctx.fillStyle = "rgba(100,116,139,0.13)";
-            drawRoundedRect(cellX, rowBTableY, cellW, cellH, 6);
+            drawRoundedRect(cellX, rowBTableY, cellW, cellH, 5 * scale);
             ctx.fill();
           }
 
@@ -519,7 +633,7 @@ export default function FacebookLiveStreamer({
         }
 
         const score = g && Number.isFinite(g.b) ? String(g.b) : "–";
-        ctx.fillText(score, cellX + cellW / 2, rowBTableY + 15);
+        ctx.fillText(score, cellX + cellW / 2, rowBTableY + 14 * scale);
       }
     }
   };
@@ -529,7 +643,7 @@ export default function FacebookLiveStreamer({
     new Promise((resolve, reject) => {
       try {
         const ws = new WebSocket(wsUrl);
-        ws.binaryType = "arraybuffer"; // ✅ CRITICAL for binary mode
+        ws.binaryType = "arraybuffer";
 
         let connectTimeout = setTimeout(() => {
           ws.close();
@@ -540,7 +654,7 @@ export default function FacebookLiveStreamer({
           clearTimeout(connectTimeout);
           wsRef.current = ws;
           setIsConnected(true);
-          setStatus("Đã kết nối WebSocket (Binary Mode) 🚀");
+          setStatus(`Đã kết nối WebSocket - ${settings.label} 🚀`);
           setStatusType("success");
           resolve(ws);
         };
@@ -563,7 +677,6 @@ export default function FacebookLiveStreamer({
         };
 
         ws.onmessage = (evt) => {
-          // ✅ Only handle text messages (JSON control messages)
           if (typeof evt.data === "string") {
             let data = null;
             try {
@@ -574,20 +687,16 @@ export default function FacebookLiveStreamer({
             if (!data) return;
 
             if (data.type === "started") {
-              console.log(
-                "✅✅✅ FFmpeg confirmed READY - starting MediaRecorder NOW"
-              );
+              console.log("✅ FFmpeg ready - starting MediaRecorder");
               ffmpegReadyRef.current = true;
 
               if (!recordingStartedRef.current && mediaRecorderRef.current) {
-                console.log(
-                  "🎬 Starting MediaRecorder NOW that FFmpeg is ready"
-                );
                 try {
-                  mediaRecorderRef.current.start(1000); // 1 second chunks for smoother streaming
+                  mediaRecorderRef.current.start(chunkInterval);
                   recordingStartedRef.current = true;
+                  lastChunkTimeRef.current = Date.now();
                   console.log(
-                    "✅ MediaRecorder started successfully (1s chunks)"
+                    `✅ MediaRecorder started (${chunkInterval}ms chunks)`
                   );
                 } catch (err) {
                   console.error("❌ Failed to start MediaRecorder:", err);
@@ -599,7 +708,7 @@ export default function FacebookLiveStreamer({
                 }
               }
 
-              setStatus("✅ Đang streaming lên Facebook Live (Smooth Mode)…");
+              setStatus(`✅ Đang streaming (${settings.label})…`);
               setStatusType("success");
             } else if (data.type === "stopped") {
               setStatus("Stream đã dừng");
@@ -614,10 +723,17 @@ export default function FacebookLiveStreamer({
               ffmpegReadyRef.current = false;
               recordingStartedRef.current = false;
             } else if (data.type === "progress") {
-              console.log("FFmpeg progress:", data.message);
+              // Update chunk timing info
+              const now = Date.now();
+              const elapsed = now - lastChunkTimeRef.current;
+              if (elapsed > chunkInterval * 1.5) {
+                console.warn(
+                  `⚠️ Slow chunk: ${elapsed}ms (target: ${chunkInterval}ms)`
+                );
+              }
+              lastChunkTimeRef.current = now;
             }
           }
-          // Binary messages are ignored here (they're stream data sent to server)
         };
       } catch (e) {
         reject(e);
@@ -644,9 +760,7 @@ export default function FacebookLiveStreamer({
           await connectWebSocket();
         } catch (err) {
           throw new Error(
-            `Không thể kết nối WebSocket tới ${wsUrl}.\n` +
-              `Kiểm tra backend server đã chạy chưa?\n` +
-              `Error: ${err.message}`
+            `Không thể kết nối WebSocket tới ${wsUrl}.\nKiểm tra backend server đã chạy chưa?\nError: ${err.message}`
           );
         }
       }
@@ -664,16 +778,10 @@ export default function FacebookLiveStreamer({
         const timeout = setTimeout(() => {
           reject(
             new Error(
-              "❌ Timeout: FFmpeg không khởi động sau 25s.\n" +
-                "Kiểm tra:\n" +
-                "1. Backend server đang chạy?\n" +
-                "2. FFmpeg đã cài đặt?\n" +
-                "3. Stream Key đúng chưa?\n" +
-                "4. Facebook Live đã được tạo?\n" +
-                "5. Check server logs để biết chi tiết."
+              "❌ Timeout: FFmpeg không khởi động sau 30s.\nKiểm tra Stream Key và Facebook Live setup."
             )
           );
-        }, 25000);
+        }, 30000);
 
         const handler = (evt) => {
           if (typeof evt.data !== "string") return;
@@ -688,10 +796,7 @@ export default function FacebookLiveStreamer({
               clearTimeout(timeout);
               wsRef.current?.removeEventListener("message", handler);
               reject(
-                new Error(
-                  `❌ FFmpeg Error: ${msg.message || "Không rõ"}\n` +
-                    `Kiểm tra Stream Key và Facebook Live setup.`
-                )
+                new Error(`❌ FFmpeg Error: ${msg.message || "Không rõ"}`)
               );
             }
           } catch {}
@@ -715,34 +820,25 @@ export default function FacebookLiveStreamer({
           return;
         }
 
-        // ✅✅✅ CRITICAL CHANGE: Send as binary ArrayBuffer - NO JSON!
         const buf = await e.data.arrayBuffer();
-
-        if (buf.byteLength === 0 || buf.byteLength > 1024 * 1024) return;
+        if (buf.byteLength === 0 || buf.byteLength > 2 * 1024 * 1024) return;
 
         chunkCount++;
         totalBytes += buf.byteLength;
 
         if (chunkCount === 1) {
-          console.log(
-            "📤 Sending first BINARY chunk to FFmpeg (3-5x faster!) 🚀"
-          );
+          console.log(`📤 First chunk sent - ${settings.label} mode`);
         }
-        if (chunkCount % 20 === 0) {
+        if (chunkCount % 10 === 0) {
           console.log(
-            `📤 Binary chunks: ${chunkCount}, ${(
-              totalBytes /
-              1024 /
-              1024
-            ).toFixed(2)} MB total`
+            `📤 Chunks: ${chunkCount}, ${(totalBytes / 1024 / 1024).toFixed(
+              2
+            )} MB`
           );
         }
 
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           try {
-            // ✅ CRITICAL: Send ArrayBuffer directly!
-            // OLD (slow): JSON.stringify({type: "stream", data: Array.from(buf)})
-            // NEW (fast): Direct binary send
             wsRef.current.send(buf);
           } catch (err) {
             console.error("Error sending binary stream data:", err);
@@ -760,26 +856,27 @@ export default function FacebookLiveStreamer({
       };
 
       mediaRecorderRef.current = rec;
-      console.log(
-        "✅ MediaRecorder created, waiting for FFmpeg to be ready..."
-      );
+      console.log(`✅ MediaRecorder created - ${settings.label}`);
 
-      setStatus("⏳ Đang khởi động FFmpeg trên server…");
+      setStatus("⏳ Đang khởi động FFmpeg…");
 
-      // ✅ Send start command as JSON text message
       wsRef.current?.send(
         JSON.stringify({
           type: "start",
           streamKey,
           fps,
           videoBitrate: Math.floor(videoBitsPerSecond / 1000) + "k",
+          audioBitrate,
+          width: videoWidth,
+          height: videoHeight,
+          isMobile,
         })
       );
 
       await waitStarted;
 
       setIsStreaming(true);
-      console.log("✅ Binary mode active - ready for high-speed streaming!");
+      console.log(`✅ Streaming active - ${settings.label}!`);
     } catch (err) {
       setStatus("Lỗi: " + err.message);
       setStatusType("error");
@@ -830,6 +927,36 @@ export default function FacebookLiveStreamer({
     }
   };
 
+  // 🔥 Network quality indicator
+  const getNetworkQualityColor = () => {
+    switch (networkQuality) {
+      case "4g":
+        return "success";
+      case "3g":
+        return "warning";
+      case "2g":
+      case "slow-2g":
+        return "error";
+      default:
+        return "default";
+    }
+  };
+
+  const getNetworkQualityLabel = () => {
+    switch (networkQuality) {
+      case "4g":
+        return "4G - Tốt";
+      case "3g":
+        return "3G - Khá";
+      case "2g":
+        return "2G - Yếu";
+      case "slow-2g":
+        return "2G Chậm";
+      default:
+        return "Không xác định";
+    }
+  };
+
   // ===== RENDER UI =====
   return (
     <Box
@@ -855,11 +982,11 @@ export default function FacebookLiveStreamer({
             <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
               <RadioButtonChecked sx={{ fontSize: 40, color: "error.main" }} />
               <Typography variant="h4" fontWeight="bold" color="text.primary">
-                Facebook Live Stream
+                Facebook Live
               </Typography>
               <Chip
-                label="SMOOTH MODE"
-                color="success"
+                label={isMobile ? "MOBILE 📱" : "DESKTOP 💻"}
+                color={isMobile ? "warning" : "primary"}
                 size="small"
                 sx={{ fontWeight: "bold" }}
               />
@@ -926,8 +1053,7 @@ export default function FacebookLiveStreamer({
                         onClick={toggleCamera}
                         disabled={!canSwitchCamera || isStreaming || loading}
                       >
-                        Đổi camera (
-                        {facingMode === "environment" ? "sau" : "trước"})
+                        Đổi camera
                       </Button>
                     </Box>
 
@@ -971,7 +1097,7 @@ export default function FacebookLiveStreamer({
                     >
                       <SportsScore color="primary" />
                       <Typography variant="h6" fontWeight={600}>
-                        Stream Preview (Match ID: {matchId || "N/A"})
+                        Stream Preview - {settings.label}
                       </Typography>
                     </Box>
                     <Box
@@ -999,8 +1125,9 @@ export default function FacebookLiveStreamer({
 
                     <Alert severity="success" sx={{ mt: 2 }}>
                       <Typography variant="body2">
-                        ✅ <strong>Optimized for Smooth Streaming</strong> - 1s
-                        chunks, high audio quality, stable buffering
+                        ✅ <strong>{settings.label}</strong> - {videoWidth}x
+                        {videoHeight} @ {fps}fps,{" "}
+                        {Math.floor(videoBitsPerSecond / 1000)}kbps
                       </Typography>
                     </Alert>
                   </CardContent>
@@ -1031,6 +1158,36 @@ export default function FacebookLiveStreamer({
                         gap: 2.5,
                       }}
                     >
+                      {navigator.connection && (
+                        <Alert
+                          severity={getNetworkQualityColor()}
+                          icon={<NetworkCheck />}
+                          variant="outlined"
+                        >
+                          <Typography variant="body2" fontWeight={600}>
+                            Mạng: {getNetworkQualityLabel()}
+                          </Typography>
+                        </Alert>
+                      )}
+
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={useHighQuality}
+                            onChange={(e) =>
+                              setUseHighQuality(e.target.checked)
+                            }
+                            disabled={isStreaming}
+                          />
+                        }
+                        label={
+                          <Typography variant="body2">
+                            Chế độ chất lượng cao (không khuyến khích trên
+                            mobile)
+                          </Typography>
+                        }
+                      />
+
                       <TextField
                         type="password"
                         label="Facebook Stream Key"
@@ -1116,18 +1273,21 @@ export default function FacebookLiveStreamer({
 
                 <Card elevation={2}>
                   <CardContent>
-                    <Alert severity="success" variant="outlined" sx={{ mb: 2 }}>
+                    <Alert
+                      severity={isMobile ? "warning" : "success"}
+                      variant="outlined"
+                      sx={{ mb: 2 }}
+                    >
                       <Typography variant="body2" sx={{ lineHeight: 1.6 }}>
-                        <strong>🚀 SMOOTH STREAMING OPTIMIZED</strong>
+                        <strong>🚀 {settings.label.toUpperCase()}</strong>
+                        <br />• Resolution: {videoWidth}x{videoHeight}
+                        <br />• FPS: {fps}
+                        <br />• Video: {Math.floor(videoBitsPerSecond / 1000)}
+                        kbps
+                        <br />• Audio: {audioBitrate}
+                        <br />• Chunks: {chunkInterval}ms
                         <br />
-                        • 1-second chunks (stable buffering)
-                        <br />
-                        • 192kbps audio (clear sound)
-                        <br />
-                        • Echo cancellation & noise suppression
-                        <br />
-                        • 2Mbps video (quality + smooth)
-                        <br />• Binary transfer (3-5x faster)
+                        {isMobile && "• Tối ưu cho mạng di động"}
                       </Typography>
                     </Alert>
 
@@ -1137,13 +1297,13 @@ export default function FacebookLiveStreamer({
                         component="div"
                         sx={{ lineHeight: 1.6 }}
                       >
-                        <strong>Hướng dẫn:</strong>
+                        <strong>💡 Tips cho mobile:</strong>
                         <ol style={{ margin: "8px 0 0 0", paddingLeft: 20 }}>
-                          <li>Cho phép camera/micro</li>
-                          <li>Nhập Stream Key từ Facebook</li>
-                          <li>Click "Bắt đầu Stream"</li>
-                          <li>Đợi 5-10s (mobile 10-15s)</li>
-                          <li>Stream tự động start khi ready</li>
+                          <li>Giữ điện thoại ổn định</li>
+                          <li>Kết nối WiFi hoặc 4G tốt</li>
+                          <li>Tắt apps nền không cần thiết</li>
+                          <li>Đợi 10-15s FFmpeg khởi động</li>
+                          <li>Không bật chế độ cao trên 3G</li>
                         </ol>
                       </Typography>
                     </Alert>
