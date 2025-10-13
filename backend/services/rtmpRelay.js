@@ -1,10 +1,11 @@
-// rtmpRelay.js - BINARY OPTIMIZED VERSION
+// rtmpRelay.js - BINARY OPTIMIZED VERSION (FIXED)
 //
 // Key improvements:
 // 1. Binary messages for stream data (no JSON overhead)
 // 2. Text messages for control (start/stop)
 // 3. 3-5x faster data transfer
 // 4. Lower CPU usage
+// 5. FIXED: Proper binary vs text detection in Node.js
 
 import { WebSocketServer } from "ws";
 import { spawn, spawnSync } from "child_process";
@@ -61,7 +62,7 @@ export async function attachRtmpRelay(server, options = {}) {
   );
   console.log(`✅ FFmpeg path: ${ffmpegPath}`);
   console.log(`✅ RTMPS supported: ${hasRtmps ? "yes" : "no"}`);
-  console.log(`✅ Binary message optimization: ENABLED`);
+  console.log(`✅ Binary message optimization: ENABLED (FIXED)`);
 
   const interval = setInterval(() => {
     wss.clients.forEach((ws) => {
@@ -124,21 +125,34 @@ export async function attachRtmpRelay(server, options = {}) {
     };
 
     ws.on("message", async (message) => {
-      // CRITICAL: Binary vs Text message detection
-      const isBinary =
-        Buffer.isBuffer(message) || message instanceof ArrayBuffer;
+      // ✅ CRITICAL FIX: Proper binary vs text detection
+      // In 'ws' library, all messages are Buffers, so we try parsing JSON first
 
-      console.log(
-        "📨 Received message, isBinary:",
-        isBinary,
-        "size:",
-        message.length || message.byteLength
-      );
+      let data = null;
+      let isBinary = false;
+
+      // Try to parse as JSON first (text message = control command)
+      try {
+        const msgStr = message.toString("utf8");
+        data = JSON.parse(msgStr);
+        isBinary = false;
+        console.log(
+          "📝 Received TEXT message, type:",
+          data.type,
+          "size:",
+          message.length
+        );
+      } catch (e) {
+        // Not JSON = binary stream data
+        isBinary = true;
+        console.log("📨 Received BINARY message, size:", message.length);
+      }
 
       if (isBinary) {
         // ===== BINARY MESSAGE = STREAM DATA =====
         if (!ffmpegProcess || !ffmpegReady) {
-          return; // Silently ignore if not ready
+          console.log("⚠️ Binary data received but FFmpeg not ready, dropping");
+          return;
         }
 
         const buffer = Buffer.isBuffer(message)
@@ -172,21 +186,7 @@ export async function attachRtmpRelay(server, options = {}) {
       }
 
       // ===== TEXT MESSAGE = CONTROL COMMAND =====
-      let data;
-      try {
-        const msgStr = message.toString();
-        console.log(
-          "📝 Parsing text message:",
-          msgStr.substring(0, 100) + "..."
-        );
-        data = JSON.parse(msgStr);
-        console.log("✅ Parsed JSON, type:", data.type);
-      } catch (e) {
-        console.error("❌ JSON parse error:", e);
-        return ws.send(
-          JSON.stringify({ type: "error", message: "Invalid JSON" })
-        );
-      }
+      // data is already parsed above
 
       if (data.type === "start") {
         console.log("📥 Received START command");
@@ -323,6 +323,7 @@ export async function attachRtmpRelay(server, options = {}) {
             throw new Error("FFmpeg process is null or has no PID");
           }
 
+          // Wait 1 second for FFmpeg stdin to be ready
           setTimeout(() => {
             if (ffmpegProcess && ffmpegStarting) {
               ffmpegReady = true;
@@ -426,8 +427,6 @@ export async function attachRtmpRelay(server, options = {}) {
             canWrite = true;
           });
 
-          // NOTE: error handler already registered above, removed duplicate
-
           ffmpegProcess.on("close", (code) => {
             console.log(`FFmpeg exited with code ${code}`);
             if (chunksReceived > 0) {
@@ -440,21 +439,36 @@ export async function attachRtmpRelay(server, options = {}) {
               );
             }
 
-            ws.send(
-              JSON.stringify({
-                type: "stopped",
-                message: `Stream ended (exit code: ${code})`,
-              })
-            );
+            // If FFmpeg exits immediately, it's an error
+            if (code !== 0 && ffmpegStarting) {
+              console.error(`❌ FFmpeg failed to start (exit code: ${code})`);
+              ws.send(
+                JSON.stringify({
+                  type: "error",
+                  message: `FFmpeg failed to start (exit code: ${code}). Check: 1) Stream key valid? 2) Facebook Live created? 3) Network OK?`,
+                })
+              );
+            } else {
+              ws.send(
+                JSON.stringify({
+                  type: "stopped",
+                  message: `Stream ended (exit code: ${code})`,
+                })
+              );
+            }
 
             ffmpegProcess = null;
             ffmpegStarting = false;
             ffmpegReady = false;
           });
 
+          // Safety timeout - 30s
           startTimeout = setTimeout(() => {
             if (ffmpegProcess && !ffmpegReady) {
               console.error("❌ FFmpeg startup timeout after 30 seconds");
+              console.error("   FFmpeg PID:", ffmpegProcess?.pid);
+              console.error("   FFmpeg starting:", ffmpegStarting);
+              console.error("   FFmpeg ready:", ffmpegReady);
               ws.send(
                 JSON.stringify({
                   type: "error",

@@ -7,13 +7,15 @@ import {
 import Match from "../models/matchModel.js";
 import { startObsStreamingWithOverlay } from "../services/obs.service.js";
 
+// 🔰 NEW: lấy pageId & token động từ module FB token manager (cron-only)
+import FbToken from "../models/fbTokenModel.js";
+import { getValidPageToken } from "../services/fbTokenService.js";
+
 const OVERLAY_BASE =
   process.env.NODE_ENV === "development"
     ? "http://localhost:3000"
-    : process.env.HOST +
-      "/overlay/score?matchId=68e7022bf249ef7279b174ec&theme=dark&size=md&showSets=1&autoNext=1";
-const FB_PAGE_ID = process.env.FB_PAGE_ID;
-const FB_PAGE_TOKEN = process.env.FB_PAGE_ACCESS_TOKEN;
+    : process.env.HOST
+
 const OBS_AUTO_START = String(process.env.OBS_AUTO_START || "0") === "1";
 
 function splitServerAndKey(secureUrl) {
@@ -29,6 +31,21 @@ function splitServerAndKey(secureUrl) {
   }
 }
 
+// Ưu tiên: req.body.pageId / req.query.pageId → tournament.facebookPageId → trang đầu tiên trong DB FbToken
+async function resolvePageId(req, tournament) {
+  const fromReq = req.body?.pageId || req.query?.pageId;
+  if (fromReq) return String(fromReq);
+
+  const fromTournament =
+    tournament?.facebookPageId ||
+    tournament?.facebook?.pageId ||
+    tournament?.meta?.facebook?.pageId;
+  if (fromTournament) return String(fromTournament);
+
+  const first = await FbToken.findOne({}, null, { sort: { createdAt: 1 } });
+  return first?.pageId || null;
+}
+
 export const createFacebookLiveForMatch = async (req, res) => {
   try {
     const { matchId } = req.params;
@@ -36,8 +53,19 @@ export const createFacebookLiveForMatch = async (req, res) => {
     if (!match) return res.status(404).json({ message: "Match not found" });
 
     const t = match.tournament;
+    const pageId = await resolvePageId(req, t);
+    if (!pageId) {
+      return res.status(400).json({
+        message:
+          "Không tìm thấy Facebook Page để tạo live. Hãy cấu hình pageId ở giải hoặc seed FbToken trước.",
+      });
+    }
+
+    // 🔰 NEW: Lấy PAGE ACCESS TOKEN hợp lệ (tự refresh nếu gần hết hạn)
+    const pageAccessToken = await getValidPageToken(pageId);
+
     const courtName = match?.court?.name || "";
-    const overlayUrl = `${OVERLAY_BASE}/scoreboard?matchId=${match._id}&theme=fb&ratio=16:9&safe=1`;
+    const overlayUrl = `${OVERLAY_BASE}/overlay/score?matchId=${match._id}&theme=fb&ratio=16:9&safe=1`;
 
     const title = `${t?.name || "PickleTour"} – ${match.roundLabel || ""} ${
       courtName ? "· " + courtName : ""
@@ -47,8 +75,8 @@ export const createFacebookLiveForMatch = async (req, res) => {
       `Scoreboard overlay: ${overlayUrl}`;
 
     const live = await fbCreateLiveOnPage({
-      pageId: FB_PAGE_ID,
-      pageAccessToken: FB_PAGE_TOKEN,
+      pageId,
+      pageAccessToken,
       title,
       description,
       status: "LIVE_NOW",
@@ -56,31 +84,33 @@ export const createFacebookLiveForMatch = async (req, res) => {
 
     const { server, streamKey } = splitServerAndKey(live?.secure_stream_url);
 
-    // (tuỳ chọn) comment overlay để dễ pin thủ công trong Live Producer
+    // comment overlay (không chặn flow nếu lỗi)
     try {
       await fbPostComment({
         liveVideoId: live.liveVideoId || live.id,
-        pageAccessToken: FB_PAGE_TOKEN,
+        pageAccessToken,
         message: `Overlay (OBS Browser Source): ${overlayUrl}`,
       });
     } catch (err) {
       console.log(err?.response?.data || err.message);
-      /* không chặn main flow */
     }
 
     // Lưu vào match
     match.facebookLive = {
       id: live.liveVideoId || live.id,
-      permalink_url: live.permalink_url,
+      permalink_url: live.permalink_url?.startsWith("http")
+        ? live.permalink_url
+        : "https://facebook.com" + (live.permalink_url || ""),
       secure_stream_url: live.secure_stream_url,
       server_url: server,
       stream_key: streamKey,
       createdAt: new Date(),
       status: "CREATED",
+      pageId, // 🔰 lưu lại pageId dùng cho lần sau
     };
     await match.save();
 
-    // === Auto điều khiển OBS (không chặn flow nếu lỗi) ===
+    // Auto OBS (không chặn flow)
     let obsResult = { started: false };
     if (OBS_AUTO_START) {
       try {
@@ -91,7 +121,6 @@ export const createFacebookLiveForMatch = async (req, res) => {
         });
       } catch (e) {
         console.error("[OBS] start failed:", e?.message || e);
-        // vẫn trả FB info bình thường
       }
     }
 
@@ -99,20 +128,21 @@ export const createFacebookLiveForMatch = async (req, res) => {
       (process.env.NODE_ENV === "development"
         ? "http://localhost:3000/studio/live"
         : `${process.env.HOST}/studio/live`) +
-      `?matchId=${match._id}` +
-      `&server=${encodeURIComponent(server)}` +
-      `&key=${encodeURIComponent(streamKey)}`;
+      `?matchId=${match._id}&server=${encodeURIComponent(
+        server
+      )}&key=${encodeURIComponent(streamKey)}`;
 
     res.json({
       liveVideoId: live.liveVideoId || live.id,
-      permalink_url: "https://facebook.com" + live.permalink_url,
+      permalink_url: match.facebookLive.permalink_url,
       server_url: server,
       stream_key: streamKey,
       secure_stream_url: live.secure_stream_url,
       overlay_url: overlayUrl,
       note: "Dán Server/Key vào OBS/encoder rồi Start Streaming.",
       studio_url: studioUrl,
-      //    obs: obsResult,
+      // obs: obsResult,
+      pageId, // để UI biết đang stream lên page nào
     });
   } catch (err) {
     console.error(err);

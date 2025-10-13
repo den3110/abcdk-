@@ -178,3 +178,18 @@ export async function sweepRefreshAll() {
     }
   }
 }
+
+// Trả về PAGE access token hợp lệ (auto refresh nếu gần hết hạn)
+export async function getValidPageToken(pageId) {
+  // đảm bảo token đã được làm mới nếu cần
+  await ensureValidPageToken(pageId);
+
+  // đọc token mới nhất từ DB
+  const doc = await FbToken.findOne({ pageId });
+  if (!doc || !doc.pageToken) {
+    throw new Error(
+      `No valid page token for pageId=${pageId}. needsReauth=${doc?.needsReauth ?? "unknown"}`
+    );
+  }
+  return doc.pageToken;
+}
