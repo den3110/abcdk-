@@ -192,7 +192,7 @@ export async function attachRtmpRelayPro(server, options = {}) {
         const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
         console.log(`🎥 Using FFmpeg: ${ffmpegPath}`);
 
-        // ✅ SIMPLIFIED args - không dùng options phức tạp
+        // ✅ SIMPLIFIED args - thêm silent audio cho Facebook
         const args = [
           "-hide_banner",
           "-loglevel",
@@ -208,8 +208,16 @@ export async function attachRtmpRelayPro(server, options = {}) {
           "-c:v",
           "copy",
 
-          // No audio
-          "-an",
+          // ✅ THÊM SILENT AUDIO (Facebook có thể yêu cầu)
+          "-f",
+          "lavfi",
+          "-i",
+          "anullsrc=r=48000:cl=stereo",
+          "-c:a",
+          "aac",
+          "-b:a",
+          "128k",
+          "-shortest",
         ];
 
         // Output format
