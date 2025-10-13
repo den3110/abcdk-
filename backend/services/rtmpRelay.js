@@ -1,4 +1,4 @@
-// rtmpRelayPro.js - PROFESSIONAL GRADE (WebCodecs support)
+// rtmpRelayPro.js - PROFESSIONAL GRADE (WebCodecs support) - FULL DEBUG
 import { WebSocketServer } from "ws";
 import { spawn } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
@@ -8,12 +8,11 @@ export async function attachRtmpRelayPro(server, options = {}) {
     server,
     path: options.path || "/ws/rtmp",
     perMessageDeflate: false,
-    maxPayload: 50 * 1024 * 1024, // 50MB for raw frames
+    maxPayload: 50 * 1024 * 1024,
   });
 
   console.log(`✅ PRO RTMP Relay WebSocket: ${options.path || "/ws/rtmp"}`);
 
-  // Keepalive
   const interval = setInterval(() => {
     wss.clients.forEach((ws) => {
       if (ws.isAlive === false) return ws.terminate();
@@ -54,13 +53,58 @@ export async function attachRtmpRelayPro(server, options = {}) {
 
     ws.on("message", (data, isBinary) => {
       if (isBinary) {
-        // Binary = H264 NAL units from WebCodecs
         if (!ffmpeg || !config) return;
 
         try {
           if (ffmpeg.stdin?.writable) {
+            // Check first frame for format validation
+            if (stats.videoFrames === 0) {
+              const firstBytes = new Uint8Array(data.slice(0, 8));
+              const hex = Array.from(firstBytes)
+                .map((b) => b.toString(16).padStart(2, "0"))
+                .join(" ");
+              console.log(`🔍 First frame header: ${hex}`);
+
+              // Check for Annex-B start codes
+              if (
+                (firstBytes[0] === 0 &&
+                  firstBytes[1] === 0 &&
+                  firstBytes[2] === 0 &&
+                  firstBytes[3] === 1) ||
+                (firstBytes[0] === 0 &&
+                  firstBytes[1] === 0 &&
+                  firstBytes[2] === 1)
+              ) {
+                console.log("✅ H264 format: Annex-B (correct)");
+              } else {
+                console.warn(
+                  "⚠️ H264 format: NOT Annex-B! This will cause FFmpeg to fail."
+                );
+                console.warn("   Expected: 00 00 00 01 or 00 00 01");
+                console.warn(`   Got: ${hex}`);
+              }
+            }
+
             ffmpeg.stdin.write(data);
             stats.videoFrames++;
+
+            // Log first few frames
+            if (stats.videoFrames <= 5) {
+              console.log(
+                `📥 Received frame #${stats.videoFrames}: ${data.byteLength} bytes`
+              );
+            }
+
+            // Log stats every 100 frames
+            if (stats.videoFrames % 100 === 0) {
+              const elapsed = (Date.now() - stats.startTime) / 1000;
+              const avgFps = (stats.videoFrames / elapsed).toFixed(1);
+              console.log(
+                `📊 Frames: ${
+                  stats.videoFrames
+                }, Avg FPS: ${avgFps}, Elapsed: ${elapsed.toFixed(1)}s`
+              );
+            }
           }
         } catch (err) {
           console.error("❌ Write error:", err.message);
@@ -68,7 +112,6 @@ export async function attachRtmpRelayPro(server, options = {}) {
         return;
       }
 
-      // Text = control messages
       let msg;
       try {
         msg = JSON.parse(data);
@@ -109,26 +152,31 @@ export async function attachRtmpRelayPro(server, options = {}) {
           `🎬 Starting PRO stream: ${width}x${height}@${fps}fps, ${videoBitrate}`
         );
 
-        // FFmpeg args: H264 annex-b input → FLV output (NO RE-ENCODING!)
-        // Simplified: NO AUDIO for now (testing)
+        // CRITICAL: Use -re to read at native framerate, add more buffer
         const args = [
           "-hide_banner",
           "-loglevel",
-          "info", // More verbose for debugging
+          "info", // Verbose output
 
-          // Video input: raw H264 stream
+          // Input
           "-f",
           "h264",
+          "-use_wallclock_as_timestamps",
+          "1",
+          "-fflags",
+          "+genpts",
           "-r",
           String(fps),
           "-i",
           "pipe:0",
 
-          // Video: COPY (no re-encode!)
+          // Video: COPY (no re-encode)
           "-c:v",
           "copy",
+          "-bsf:v",
+          "dump_extra", // Add SPS/PPS to every keyframe
 
-          // NO AUDIO (for testing)
+          // No audio
           "-an",
 
           // Output
@@ -154,34 +202,31 @@ export async function attachRtmpRelayPro(server, options = {}) {
             }
           });
 
+          // CRITICAL: Log EVERYTHING from FFmpeg
           ffmpeg.stderr.on("data", (d) => {
-            const log = d.toString();
-            if (log.includes("error") || log.includes("Error")) {
-              console.error("❌ FFmpeg:", log.trim());
-            }
+            const log = d.toString().trim();
+            console.log("📺 FFmpeg:", log);
+
             // Send progress to client
             if (log.includes("frame=") || log.includes("speed=")) {
               try {
-                ws.send(
-                  JSON.stringify({ type: "progress", message: log.trim() })
-                );
+                ws.send(JSON.stringify({ type: "progress", message: log }));
               } catch {}
             }
           });
 
-          ffmpeg.on("close", (code) => {
+          ffmpeg.on("close", (code, signal) => {
             const elapsed = ((Date.now() - stats.startTime) / 1000).toFixed(1);
             const fps = (stats.videoFrames / elapsed).toFixed(1);
             console.log(
-              `🛑 FFmpeg exit ${code}. Frames: ${stats.videoFrames}, Avg FPS: ${fps}, Duration: ${elapsed}s`
+              `🛑 FFmpeg exit code=${code} signal=${signal}. Frames: ${stats.videoFrames}, Avg FPS: ${fps}, Duration: ${elapsed}s`
             );
             cleanup();
             try {
-              ws.send(JSON.stringify({ type: "stopped", code }));
+              ws.send(JSON.stringify({ type: "stopped", code, signal }));
             } catch {}
           });
 
-          // Send success immediately
           ws.send(
             JSON.stringify({
               type: "started",
@@ -191,7 +236,7 @@ export async function attachRtmpRelayPro(server, options = {}) {
 
           console.log("✅ FFmpeg ready, waiting for H264 frames...");
 
-          // Check if data is being received after 5 seconds
+          // Check after 5 seconds
           setTimeout(() => {
             if (stats.videoFrames === 0) {
               console.warn("⚠️ WARNING: No frames received after 5 seconds!");
