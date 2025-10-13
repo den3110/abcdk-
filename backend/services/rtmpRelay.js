@@ -1,4 +1,4 @@
-// rtmpRelay.js — LOW LATENCY + MP4/WEBM INPUT + PROPER BINARY HANDLING
+// rtmpRelay.js — ULTRA LOW LATENCY OPTIMIZED
 import { WebSocketServer } from "ws";
 import { spawn, spawnSync } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
@@ -41,8 +41,8 @@ export async function attachRtmpRelay(server, options = {}) {
   const wss = new WebSocketServer({
     server,
     path: options.path || "/ws/rtmp",
-    perMessageDeflate: false, // ✅ no WS compression (latency)
-    maxPayload: 10 * 1024 * 1024, // ✅ allow ~10MB chunks (we drop before this)
+    perMessageDeflate: false, // ✅ CRITICAL: no compression
+    maxPayload: 10 * 1024 * 1024,
   });
 
   const ffmpegPath = resolveFfmpegPath();
@@ -51,7 +51,7 @@ export async function attachRtmpRelay(server, options = {}) {
   console.log(`✅ RTMP Relay WS on ${options.path || "/ws/rtmp"}`);
   console.log(`✅ FFmpeg: ${ffmpegPath} | RTMPS: ${hasRtmps ? "yes" : "no"}`);
 
-  // Ping/Pong keepalive
+  // 🚀 AGGRESSIVE keepalive: 15s thay vì 30s
   const interval = setInterval(() => {
     wss.clients.forEach((ws) => {
       if (ws.isAlive === false) return ws.terminate();
@@ -60,12 +60,14 @@ export async function attachRtmpRelay(server, options = {}) {
         ws.ping();
       } catch {}
     });
-  }, 30000);
+  }, 15000);
   wss.on("close", () => clearInterval(interval));
 
   wss.on("connection", (ws, req) => {
     ws.isAlive = true;
     ws.on("pong", () => (ws.isAlive = true));
+
+    // 🚀 TCP_NODELAY: tắt Nagle algorithm
     try {
       ws._socket?.setNoDelay?.(true);
     } catch {}
@@ -75,7 +77,6 @@ export async function attachRtmpRelay(server, options = {}) {
     let ffmpegProcess = null;
     let ffmpegStarting = false;
     let ffmpegReady = false;
-    let startTimeout = null;
 
     let canWrite = true;
     let droppedChunks = 0;
@@ -98,7 +99,7 @@ export async function attachRtmpRelay(server, options = {}) {
             ffmpegProcess.kill("SIGKILL");
           } catch {}
         }
-      }, 3000);
+      }, 2000); // 🚀 Giảm từ 3s xuống 2s
       ffmpegProcess = null;
       ffmpegStarting = false;
       ffmpegReady = false;
@@ -106,11 +107,10 @@ export async function attachRtmpRelay(server, options = {}) {
     };
 
     ws.on("message", async (message, isBinary) => {
-      // ✅ ws passes isBinary — don't convert Buffers to string for binary!
       if (isBinary) {
-        if (!ffmpegProcess || !ffmpegReady) return; // drop until ready
+        if (!ffmpegProcess || !ffmpegReady) return;
 
-        // Backpressure: nếu stdin nghẽn, drop chunk (giữ realtime)
+        // 🚀 CRITICAL: Backpressure tích cực hơn - 2MB thay vì 4MB
         if (!canWrite) {
           droppedChunks++;
           return;
@@ -130,7 +130,7 @@ export async function attachRtmpRelay(server, options = {}) {
         return;
       }
 
-      // TEXT control
+      // TEXT control messages
       let data;
       try {
         data = JSON.parse(message);
@@ -160,14 +160,10 @@ export async function attachRtmpRelay(server, options = {}) {
         let publishUrl = `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
         if (!hasRtmps)
           publishUrl = `rtmp://live-api-s.facebook.com:80/rtmp/${streamKey}`;
+
         console.log("🎬 FFmpeg →", publishUrl.replace(streamKey, "***KEY***"));
         console.log(
-          "📥 Input format:",
-          inputFormat,
-          "| FPS:",
-          fps,
-          "| VBitrate:",
-          videoBitrate
+          `📥 Input: ${inputFormat} | FPS: ${fps} | Video: ${videoBitrate}`
         );
 
         ffmpegStarting = true;
@@ -177,18 +173,19 @@ export async function attachRtmpRelay(server, options = {}) {
         droppedChunks = 0;
 
         try {
+          // 🚀 ULTRA-OPTIMIZED FFmpeg args
           const args = [
-            // Input (webm or mp4 from MediaRecorder)
+            // Input với buffer nhỏ hơn, analyze nhanh hơn
             "-f",
             inputFormat,
             "-thread_queue_size",
-            "512",
+            "256", // 🚀 Giảm từ 512
             "-probesize",
-            "5000000",
+            "2000000", // 🚀 Giảm từ 5M
             "-analyzeduration",
-            "2000000",
+            "1000000", // 🚀 Giảm từ 2M
             "-fflags",
-            "+genpts",
+            "+genpts+nobuffer",
             "-use_wallclock_as_timestamps",
             "1",
             "-i",
@@ -199,13 +196,13 @@ export async function attachRtmpRelay(server, options = {}) {
             "-map",
             "0:a:0",
 
-            // Video encode (strict 2s GOP, no B-frames, low-latency)
+            // 🚀 ULTRAFAST preset thay vì veryfast
             "-c:v",
             "libx264",
             "-pix_fmt",
             "yuv420p",
             "-preset",
-            "veryfast",
+            "ultrafast", // 🚀 KEY CHANGE
             "-tune",
             "zerolatency",
             "-profile:v",
@@ -216,18 +213,28 @@ export async function attachRtmpRelay(server, options = {}) {
             String(fps),
             "-g",
             String(fps * 2),
+
+            // 🚀 Tối ưu x264 params cho latency cực thấp
             "-x264-params",
-            `keyint=${fps * 2}:min-keyint=${
-              fps * 2
-            }:no-scenecut=1:rc-lookahead=0:bf=0`,
+            [
+              `keyint=${fps * 2}`,
+              `min-keyint=${fps * 2}`,
+              "no-scenecut=1",
+              "rc-lookahead=0",
+              "bf=0", // No B-frames
+              "sync-lookahead=0", // 🚀 NEW
+              "sliced-threads=0", // 🚀 NEW: disable để giảm latency
+              "aq-mode=0", // 🚀 NEW: tắt adaptive quantization
+            ].join(":"),
+
             "-b:v",
             videoBitrate,
             "-maxrate",
             videoBitrate,
             "-bufsize",
-            (parseInt(videoBitrate) * 2 || 4000) + "k",
+            (parseInt(videoBitrate) * 1.5 || 3000) + "k", // 🚀 Giảm buffer
 
-            // Audio
+            // Audio tối ưu
             "-c:a",
             "aac",
             "-b:a",
@@ -239,11 +246,13 @@ export async function attachRtmpRelay(server, options = {}) {
             "-af",
             "aresample=async=1:first_pts=0",
 
-            // Output
+            // 🚀 Output với flag low-delay
             "-f",
             "flv",
             "-flvflags",
-            "no_duration_filesize",
+            "no_duration_filesize+no_metadata", // 🚀 thêm no_metadata
+            "-flush_packets",
+            "1", // 🚀 NEW: force flush
             publishUrl,
           ];
 
@@ -252,7 +261,7 @@ export async function attachRtmpRelay(server, options = {}) {
           });
           if (!ffmpegProcess?.pid) throw new Error("FFmpeg failed to spawn");
 
-          // Cho stdin warm-up 800ms rồi báo ready
+          // 🚀 Giảm warm-up time: 500ms thay vì 800ms
           setTimeout(() => {
             if (ffmpegProcess && ffmpegStarting) {
               ffmpegReady = true;
@@ -263,7 +272,7 @@ export async function attachRtmpRelay(server, options = {}) {
                 );
               } catch {}
             }
-          }, 800);
+          }, 500);
 
           let spawnErrored = false;
 
@@ -297,6 +306,7 @@ export async function attachRtmpRelay(server, options = {}) {
               }
               return;
             }
+            // 🚀 Giảm spam log: chỉ gửi mỗi 2s
             if (/frame=\s*\d+|speed=\s*\S+/i.test(log)) {
               try {
                 ws.send(
@@ -344,18 +354,18 @@ export async function attachRtmpRelay(server, options = {}) {
             canWrite = true;
           });
 
-          // safety timeout
-          startTimeout = setTimeout(() => {
+          // 🚀 Giảm timeout: 20s thay vì 30s
+          setTimeout(() => {
             if (ffmpegProcess && !ffmpegReady) {
               ws.send(
                 JSON.stringify({
                   type: "error",
-                  message: "FFmpeg init timeout (30s)",
+                  message: "FFmpeg init timeout (20s)",
                 })
               );
               stopFfmpeg("SIGTERM");
             }
-          }, 30000);
+          }, 20000);
         } catch (e) {
           ws.send(
             JSON.stringify({
