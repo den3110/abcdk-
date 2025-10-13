@@ -43,6 +43,9 @@ export default function FacebookLiveStreamerPro({
   const [videoDevices, setVideoDevices] = useState([]);
   const [supportsWebCodecs, setSupportsWebCodecs] = useState(false);
 
+  // NEW: kích thước thật của camera để dựng khung đúng tỉ lệ
+  const [videoSize, setVideoSize] = useState({ w: videoWidth, h: videoHeight });
+
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const camStreamRef = useRef(null);
@@ -148,6 +151,9 @@ export default function FacebookLiveStreamerPro({
         canvas.width = w;
         canvas.height = h;
       }
+
+      // NEW: lưu kích thước thật để dựng khung đúng tỉ lệ (hết méo)
+      setVideoSize({ w, h });
 
       setFacingMode(preferFacing);
       setStatus(
@@ -395,9 +401,6 @@ export default function FacebookLiveStreamerPro({
     const result = [];
 
     if (isKeyframe && description) {
-      // Parse avcC box to extract SPS/PPS
-      // avcC format: [configurationVersion(1)][AVCProfileIndication(1)][profile_compatibility(1)]
-      //              [AVCLevelIndication(1)][lengthSizeMinusOne(1)][numOfSPS(1)][SPS]...[numOfPPS(1)][PPS]...
       let offset = 5; // Skip first 5 bytes
 
       // Read SPS
@@ -424,7 +427,6 @@ export default function FacebookLiveStreamerPro({
     // Convert NAL units from length-prefixed to start-code-prefixed
     let offset = 0;
     while (offset < data.length) {
-      // Read 4-byte length
       const nalLength =
         (data[offset] << 24) |
         (data[offset + 1] << 16) |
@@ -441,7 +443,6 @@ export default function FacebookLiveStreamerPro({
       }
     }
 
-    // Concatenate all parts
     const totalLength = result.reduce((sum, arr) => sum + arr.length, 0);
     const output = new Uint8Array(totalLength);
     let writeOffset = 0;
@@ -501,7 +502,6 @@ export default function FacebookLiveStreamerPro({
             const chunkData = new Uint8Array(chunk.byteLength);
             chunk.copyTo(chunkData);
 
-            // Check if data starts with Annex-B start code (0x00000001 or 0x000001)
             const isAnnexB =
               (chunkData[0] === 0 &&
                 chunkData[1] === 0 &&
@@ -511,13 +511,11 @@ export default function FacebookLiveStreamerPro({
 
             let dataToSend;
             if (isAnnexB) {
-              // Already in Annex-B format, send directly
               dataToSend = chunkData;
               if (statsRef.current.sent === 0) {
                 console.log("✅ H264 already in Annex-B format");
               }
             } else {
-              // Need to convert from avcC to Annex-B
               if (statsRef.current.sent === 0) {
                 console.log("🔄 Converting H264 from avcC to Annex-B");
               }
@@ -540,7 +538,6 @@ export default function FacebookLiveStreamerPro({
             ws.send(dataToSend.buffer);
             statsRef.current.sent++;
 
-            // Log first few frames
             if (statsRef.current.sent <= 5) {
               console.log(
                 `📤 Sent frame #${statsRef.current.sent}: ${dataToSend.length} bytes, type: ${chunk.type}`
@@ -550,9 +547,9 @@ export default function FacebookLiveStreamerPro({
             const now = Date.now();
             if (now - statsRef.current.lastLog > 3000) {
               const elapsed = (now - statsRef.current.lastLog) / 1000;
-              const fps = (statsRef.current.sent / elapsed).toFixed(1);
+              const fpsNow = (statsRef.current.sent / elapsed).toFixed(1);
               console.log(
-                `📊 FPS: ${fps}, Sent: ${statsRef.current.sent}, Dropped: ${statsRef.current.dropped}`
+                `📊 FPS: ${fpsNow}, Sent: ${statsRef.current.sent}, Dropped: ${statsRef.current.dropped}`
               );
               statsRef.current.lastLog = now;
               statsRef.current.sent = 0;
@@ -677,7 +674,6 @@ export default function FacebookLiveStreamerPro({
           lastFrameTime = now;
 
           try {
-            // Check encoder is still valid
             if (
               !videoEncoderRef.current ||
               videoEncoderRef.current.state === "closed"
@@ -698,10 +694,8 @@ export default function FacebookLiveStreamerPro({
             frameCountRef.current++;
           } catch (err) {
             console.error("Frame capture error:", err);
-            // Stop loop on error
             encodingLoopRef.current = null;
             isEncodingRef.current = false;
-            // NEW: stop mic
             try {
               if (
                 audioRecorderRef.current &&
@@ -711,7 +705,6 @@ export default function FacebookLiveStreamerPro({
               }
               audioRecorderRef.current = null;
             } catch {}
-
             return;
           }
         }
@@ -799,6 +792,11 @@ export default function FacebookLiveStreamerPro({
       setLoading(false);
     }
   };
+
+  const ratioPadding =
+    videoSize && videoSize.w > 0
+      ? `${(videoSize.h / videoSize.w) * 100}%`
+      : "56.25%";
 
   return (
     <Box
@@ -888,11 +886,12 @@ export default function FacebookLiveStreamerPro({
                       </Button>
                     </Box>
 
+                    {/* NEW: dùng tỉ lệ động + lật preview khi camera trước */}
                     <Box
                       sx={{
                         position: "relative",
                         width: "100%",
-                        paddingBottom: "56.25%",
+                        paddingBottom: ratioPadding,
                         background: "#000",
                         borderRadius: 2,
                         overflow: "hidden",
@@ -909,6 +908,9 @@ export default function FacebookLiveStreamerPro({
                           width: "100%",
                           height: "100%",
                           objectFit: "cover",
+                          transform:
+                            facingMode === "user" ? "scaleX(-1)" : "none",
+                          transformOrigin: "center",
                         }}
                       />
                     </Box>
@@ -930,11 +932,13 @@ export default function FacebookLiveStreamerPro({
                         Stream Preview (Match: {matchId || "N/A"})
                       </Typography>
                     </Box>
+
+                    {/* NEW: tỉ lệ động cho canvas preview (không lật output) */}
                     <Box
                       sx={{
                         position: "relative",
                         width: "100%",
-                        paddingBottom: "56.25%",
+                        paddingBottom: ratioPadding,
                         background: "#000",
                         borderRadius: 2,
                         overflow: "hidden",
@@ -952,6 +956,7 @@ export default function FacebookLiveStreamerPro({
                         }}
                       />
                     </Box>
+
                     <Alert severity="success" sx={{ mt: 2 }}>
                       <Typography variant="body2">
                         ⚡ <strong>PRO MODE</strong>: WebCodecs H264, GPU
