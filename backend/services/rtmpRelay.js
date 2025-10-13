@@ -110,10 +110,11 @@ export async function attachRtmpRelayPro(server, options = {}) {
         );
 
         // FFmpeg args: H264 annex-b input → FLV output (NO RE-ENCODING!)
+        // Simplified: NO AUDIO for now (testing)
         const args = [
           "-hide_banner",
           "-loglevel",
-          "warning",
+          "info", // More verbose for debugging
 
           // Video input: raw H264 stream
           "-f",
@@ -127,28 +128,14 @@ export async function attachRtmpRelayPro(server, options = {}) {
           "-c:v",
           "copy",
 
-          // Audio: silent for now (can add Web Audio API later)
-          "-f",
-          "lavfi",
-          "-i",
-          "anullsrc=r=48000:cl=stereo",
-          "-c:a",
-          "aac",
-          "-b:a",
-          audioBitrate,
-          "-ar",
-          "48000",
-          "-shortest",
+          // NO AUDIO (for testing)
+          "-an",
 
           // Output
           "-f",
           "flv",
           "-flvflags",
           "no_duration_filesize",
-          "-rtmp_buffer",
-          "1000",
-          "-rtmp_live",
-          "live",
           rtmpUrl,
         ];
 
