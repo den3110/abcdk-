@@ -302,14 +302,10 @@ export default function FacebookLiveStreamerPro({
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
-      // Composite overlay lên trên (lật ngược nếu canvas bị lật CSS)
+      // Composite overlay lên trên (KHÔNG lật trong canvas, để CSS lo hiển thị)
+      // Canvas gốc không lật → Stream đúng
+      // CSS lật UI → Hiển thị đúng
       if (overlayCanvasRef.current) {
-        ctx.save();
-        // Nếu canvas UI bị lật (camera trước), lật overlay ngược lại để hiển thị đúng
-        if (facingMode === "user") {
-          ctx.translate(canvas.width, 0);
-          ctx.scale(-1, 1);
-        }
         ctx.drawImage(
           overlayCanvasRef.current,
           0,
@@ -317,7 +313,6 @@ export default function FacebookLiveStreamerPro({
           canvas.width,
           canvas.height
         );
-        ctx.restore();
       }
     };
 
@@ -341,7 +336,7 @@ export default function FacebookLiveStreamerPro({
     return () => {
       running = false;
     };
-  }, []);
+  }, [facingMode]); // Thêm facingMode để update khi đổi camera
 
   const drawFullScoreOverlay = (ctx, w, h, data) => {
     ctx.save();
@@ -973,9 +968,8 @@ export default function FacebookLiveStreamerPro({
                           inset: 0,
                           width: "100%",
                           height: "100%",
-                          transform:
-                            facingMode === "user" ? "scaleX(-1)" : "none",
-                          transformOrigin: "center",
+                          // BỎ TRANSFORM - để canvas không bị lật
+                          // Stream sẽ lấy canvas gốc → đúng
                         }}
                       />
                     </Box>
