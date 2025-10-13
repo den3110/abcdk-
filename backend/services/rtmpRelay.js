@@ -198,25 +198,35 @@ export async function attachRtmpRelayPro(server, options = {}) {
           "-loglevel",
           "info",
 
-          // Input: raw H264 stream
+          // Input 1: raw H264 stream
           "-f",
           "h264",
           "-i",
           "pipe:0",
 
-          // Video: COPY (no re-encode)
-          "-c:v",
-          "copy",
-
-          // ✅ THÊM SILENT AUDIO (Facebook có thể yêu cầu)
+          // Input 2: silent audio
           "-f",
           "lavfi",
           "-i",
           "anullsrc=r=48000:cl=stereo",
+
+          // ✅ Map streams explicitly
+          "-map",
+          "0:v", // Video from input 0
+          "-map",
+          "1:a", // Audio from input 1
+
+          // Video: COPY (no re-encode)
+          "-c:v",
+          "copy",
+
+          // Audio: encode to AAC
           "-c:a",
           "aac",
           "-b:a",
           "128k",
+
+          // Stop when video ends
           "-shortest",
         ];
 
