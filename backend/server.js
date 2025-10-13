@@ -43,6 +43,7 @@ import FileAsset from "./models/fileAssetModel.js";
 import { loadSettings } from "./middleware/settings.middleware.js";
 import clubRoutes from "./routes/clubRoutes.js";
 import captureRoutes from "./routes/captureRoutes.js";
+import { startFbRefreshCron } from "./jobs/fbRefreshCron.js";
 
 dotenv.config();
 const port = process.env.PORT;
@@ -177,6 +178,7 @@ server.listen(port, async () => {
   try {
     console.log(`✅ Server started on port ${port}`);
     startTournamentCrons();
+    startFbRefreshCron();
     initEmail();
     await startAgenda();
   } catch (error) {
