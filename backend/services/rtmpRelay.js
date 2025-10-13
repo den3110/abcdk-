@@ -1,7 +1,6 @@
 // rtmpRelayPro.js - PROFESSIONAL GRADE (WebCodecs support) - FULL DEBUG
 import { WebSocketServer } from "ws";
 import { spawn } from "child_process";
-import ffmpegStatic from "ffmpeg-static";
 
 export async function attachRtmpRelayPro(server, options = {}) {
   const wss = new WebSocketServer({
