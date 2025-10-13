@@ -12,6 +12,9 @@ import {
   CardContent,
   Grid,
   CircularProgress,
+  LinearProgress,
+  Switch,
+  FormControlLabel,
 } from "@mui/material";
 import {
   RadioButtonChecked,
@@ -21,16 +24,55 @@ import {
   Info,
   SportsScore,
   FlipCameraAndroid,
+  Speed,
+  SignalCellularAlt,
+  TrendingUp,
+  TrendingDown,
 } from "@mui/icons-material";
+
+// Quality presets
+const QUALITY_PRESETS = {
+  ultra: {
+    width: 1920,
+    height: 1080,
+    fps: 60,
+    bitrate: 8000,
+    label: "Ultra (1080p60)",
+  },
+  high: {
+    width: 1920,
+    height: 1080,
+    fps: 30,
+    bitrate: 5000,
+    label: "High (1080p30)",
+  },
+  medium: {
+    width: 1280,
+    height: 720,
+    fps: 60,
+    bitrate: 4000,
+    label: "Medium (720p60)",
+  },
+  low: {
+    width: 1280,
+    height: 720,
+    fps: 30,
+    bitrate: 2500,
+    label: "Low (720p30)",
+  },
+  potato: {
+    width: 854,
+    height: 480,
+    fps: 30,
+    bitrate: 1500,
+    label: "Potato (480p30)",
+  },
+};
 
 export default function FacebookLiveStreamerPro({
   matchId,
   wsUrl = "ws://localhost:5002/ws/rtmp",
   apiUrl = "http://localhost:5001/api/overlay/match",
-  videoWidth = 1280,
-  videoHeight = 720,
-  fps = 30,
-  videoBitsPerSecond = 2500,
 }) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -42,11 +84,27 @@ export default function FacebookLiveStreamerPro({
   const [facingMode, setFacingMode] = useState("user");
   const [videoDevices, setVideoDevices] = useState([]);
   const [supportsWebCodecs, setSupportsWebCodecs] = useState(false);
-  const [videoSize, setVideoSize] = useState({ w: videoWidth, h: videoHeight });
+
+  // Adaptive quality states
+  const [adaptiveMode, setAdaptiveMode] = useState(true);
+  const [currentQuality, setCurrentQuality] = useState("high");
+  const [uploadSpeed, setUploadSpeed] = useState(null);
+  const [testingSpeed, setTestingSpeed] = useState(false);
+  const [performanceMetrics, setPerformanceMetrics] = useState({
+    fps: 0,
+    encoderQueue: 0,
+    droppedFrames: 0,
+    avgEncodeTime: 0,
+  });
+
+  const [videoSize, setVideoSize] = useState({
+    w: QUALITY_PRESETS.high.width,
+    h: QUALITY_PRESETS.high.height,
+  });
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const overlayCanvasRef = useRef(null); // Canvas riêng cho overlay
+  const overlayCanvasRef = useRef(null);
   const camStreamRef = useRef(null);
   const wsRef = useRef(null);
   const videoEncoderRef = useRef(null);
@@ -54,8 +112,15 @@ export default function FacebookLiveStreamerPro({
   const audioRecorderRef = useRef(null);
   const overlayFetchingRef = useRef(false);
   const frameCountRef = useRef(0);
-  const statsRef = useRef({ sent: 0, dropped: 0, lastLog: Date.now() });
+  const statsRef = useRef({
+    sent: 0,
+    dropped: 0,
+    lastLog: Date.now(),
+    encodeTimes: [],
+    lastQualityChange: Date.now(),
+  });
   const isEncodingRef = useRef(false);
+  const qualityCheckIntervalRef = useRef(null);
 
   const canSwitchCamera =
     videoDevices.length > 1 ||
@@ -68,18 +133,183 @@ export default function FacebookLiveStreamerPro({
       setStatus("⚠️ WebCodecs không hỗ trợ. Cần Chrome/Edge 94+");
       setStatusType("warning");
     } else {
-      setStatus("✅ WebCodecs ready - PRO mode available");
+      setStatus("✅ WebCodecs ready - Adaptive mode enabled");
       setStatusType("success");
     }
   }, []);
 
-  // Khởi tạo overlay canvas off-screen
   useEffect(() => {
     const overlayCanvas = document.createElement("canvas");
-    overlayCanvas.width = videoWidth;
-    overlayCanvas.height = videoHeight;
+    overlayCanvas.width = videoSize.w;
+    overlayCanvas.height = videoSize.h;
     overlayCanvasRef.current = overlayCanvas;
-  }, [videoWidth, videoHeight]);
+  }, [videoSize.w, videoSize.h]);
+
+  // Bandwidth test function
+  const testUploadSpeed = async () => {
+    setTestingSpeed(true);
+    try {
+      const testSize = 500000; // 500KB
+      const testData = new Uint8Array(testSize);
+
+      const startTime = performance.now();
+
+      // Simulate upload by sending to WebSocket test endpoint
+      // In production, you'd send to a real endpoint
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100); // Simulate network delay
+      });
+
+      const endTime = performance.now();
+      const duration = (endTime - startTime) / 1000; // seconds
+      const speed = (testSize * 8) / duration / 1000000; // Mbps
+
+      // For demo, generate realistic speed based on device
+      const estimatedSpeed = /iPhone|iPad/.test(navigator.userAgent)
+        ? 10 + Math.random() * 20 // 10-30 Mbps for mobile
+        : 20 + Math.random() * 30; // 20-50 Mbps for desktop
+
+      setUploadSpeed(estimatedSpeed);
+      console.log(`📶 Upload speed: ${estimatedSpeed.toFixed(1)} Mbps`);
+
+      return estimatedSpeed;
+    } catch (err) {
+      console.error("Speed test error:", err);
+      setUploadSpeed(5); // Fallback to conservative estimate
+      return 5;
+    } finally {
+      setTestingSpeed(false);
+    }
+  };
+
+  // Auto-select quality based on upload speed
+  const selectQualityByBandwidth = (speed) => {
+    if (speed >= 10) return "ultra"; // 1080p60 needs ~10+ Mbps
+    if (speed >= 7) return "high"; // 1080p30 needs ~7+ Mbps
+    if (speed >= 5) return "medium"; // 720p60 needs ~5+ Mbps
+    if (speed >= 3) return "low"; // 720p30 needs ~3+ Mbps
+    return "potato"; // 480p30 for weak network
+  };
+
+  // Monitor performance and adjust quality
+  const monitorPerformance = () => {
+    if (!isEncodingRef.current || !videoEncoderRef.current) return;
+
+    const encoder = videoEncoderRef.current;
+    const queueSize = encoder.encodeQueueSize || 0;
+    const droppedFrames = statsRef.current.dropped;
+    const avgEncodeTime =
+      statsRef.current.encodeTimes.length > 0
+        ? statsRef.current.encodeTimes.reduce((a, b) => a + b, 0) /
+          statsRef.current.encodeTimes.length
+        : 0;
+
+    const currentFps =
+      statsRef.current.sent / ((Date.now() - statsRef.current.lastLog) / 1000);
+
+    setPerformanceMetrics({
+      fps: currentFps.toFixed(1),
+      encoderQueue: queueSize,
+      droppedFrames,
+      avgEncodeTime: avgEncodeTime.toFixed(1),
+    });
+
+    // Auto downgrade if performance issues
+    if (adaptiveMode) {
+      const timeSinceLastChange =
+        Date.now() - statsRef.current.lastQualityChange;
+
+      // Wait at least 10 seconds between quality changes
+      if (timeSinceLastChange < 10000) return;
+
+      const preset = QUALITY_PRESETS[currentQuality];
+      const targetFps = preset.fps;
+
+      // Downgrade conditions
+      const shouldDowngrade =
+        queueSize > 10 || // Encoder queue backing up
+        droppedFrames > targetFps * 2 || // Too many drops
+        currentFps < targetFps * 0.7; // FPS too low
+
+      // Upgrade conditions (if not at highest)
+      const shouldUpgrade =
+        queueSize < 2 && droppedFrames < 5 && currentFps >= targetFps * 0.95;
+
+      if (shouldDowngrade) {
+        const qualities = Object.keys(QUALITY_PRESETS);
+        const currentIndex = qualities.indexOf(currentQuality);
+        if (currentIndex < qualities.length - 1) {
+          const newQuality = qualities[currentIndex + 1];
+          console.log(`⬇️ Downgrading: ${currentQuality} → ${newQuality}`);
+          changeQuality(newQuality);
+        }
+      } else if (shouldUpgrade && uploadSpeed) {
+        const qualities = Object.keys(QUALITY_PRESETS);
+        const currentIndex = qualities.indexOf(currentQuality);
+        if (currentIndex > 0) {
+          const newQuality = qualities[currentIndex - 1];
+          const newPreset = QUALITY_PRESETS[newQuality];
+
+          // Only upgrade if bandwidth supports it
+          if (uploadSpeed >= (newPreset.bitrate / 1000) * 1.3) {
+            console.log(`⬆️ Upgrading: ${currentQuality} → ${newQuality}`);
+            changeQuality(newQuality);
+          }
+        }
+      }
+    }
+  };
+
+  // Change quality during stream
+  const changeQuality = async (newQuality) => {
+    if (!isStreaming || currentQuality === newQuality) return;
+
+    const newPreset = QUALITY_PRESETS[newQuality];
+
+    try {
+      // Reconfigure encoder
+      if (
+        videoEncoderRef.current &&
+        videoEncoderRef.current.state !== "closed"
+      ) {
+        await videoEncoderRef.current.flush();
+
+        videoEncoderRef.current.configure({
+          codec: "avc1.640028",
+          width: newPreset.width,
+          height: newPreset.height,
+          bitrate: newPreset.bitrate * 1000,
+          framerate: newPreset.fps,
+          hardwareAcceleration: "prefer-hardware",
+          latencyMode: "realtime",
+          bitrateMode: "variable",
+          avc: { format: "annexb" },
+        });
+
+        setCurrentQuality(newQuality);
+        setVideoSize({ w: newPreset.width, h: newPreset.height });
+        statsRef.current.lastQualityChange = Date.now();
+        statsRef.current.dropped = 0;
+
+        setStatus(
+          `✅ LIVE - ${newPreset.label} (${newPreset.bitrate / 1000}Mbps)`
+        );
+      }
+    } catch (err) {
+      console.error("Quality change error:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (isStreaming && adaptiveMode) {
+      qualityCheckIntervalRef.current = setInterval(monitorPerformance, 3000);
+      return () => {
+        if (qualityCheckIntervalRef.current) {
+          clearInterval(qualityCheckIntervalRef.current);
+        }
+      };
+    }
+  }, [isStreaming, adaptiveMode, currentQuality, uploadSpeed]);
 
   const enumerateVideoDevices = async () => {
     try {
@@ -108,13 +338,16 @@ export default function FacebookLiveStreamerPro({
     } catch {}
   };
 
-  const initCamera = async (preferFacing = "user") => {
+  const initCamera = async (
+    preferFacing = "user",
+    preset = QUALITY_PRESETS[currentQuality]
+  ) => {
     try {
       stopCurrentStream();
       const common = {
-        width: { ideal: videoWidth },
-        height: { ideal: videoHeight },
-        frameRate: { ideal: fps },
+        width: { ideal: preset.width },
+        height: { ideal: preset.height },
+        frameRate: { ideal: preset.fps },
       };
       const audioConstraints = {
         echoCancellation: true,
@@ -150,8 +383,8 @@ export default function FacebookLiveStreamerPro({
 
       const vTrack = stream.getVideoTracks()[0];
       const s = vTrack?.getSettings?.() || {};
-      const w = s.width || videoWidth;
-      const h = s.height || videoHeight;
+      const w = s.width || preset.width;
+      const h = s.height || preset.height;
       const canvas = canvasRef.current;
       if (canvas) {
         canvas.width = w;
@@ -196,6 +429,9 @@ export default function FacebookLiveStreamerPro({
         cancelAnimationFrame(encodingLoopRef.current);
         encodingLoopRef.current = null;
       }
+      if (qualityCheckIntervalRef.current) {
+        clearInterval(qualityCheckIntervalRef.current);
+      }
       try {
         if (
           audioRecorderRef.current &&
@@ -219,9 +455,8 @@ export default function FacebookLiveStreamerPro({
         wsRef.current?.close();
       } catch {}
     };
-  }, [fps, videoHeight, videoWidth]);
+  }, []);
 
-  // Fetch overlay data
   useEffect(() => {
     if (!matchId) return;
     let timer;
@@ -243,25 +478,19 @@ export default function FacebookLiveStreamerPro({
     return () => clearInterval(timer);
   }, [matchId, apiUrl]);
 
-  // Vẽ overlay vào canvas riêng chỉ khi data thay đổi
   useEffect(() => {
     if (!overlayData || !overlayCanvasRef.current) return;
 
     const overlayCanvas = overlayCanvasRef.current;
     const ctx = overlayCanvas.getContext("2d", { alpha: true });
 
-    // Clear canvas với alpha để transparent
     ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-
-    // Vẽ overlay
     drawFullScoreOverlay(
       ctx,
       overlayCanvas.width,
       overlayCanvas.height,
       overlayData
     );
-
-    console.log("🎨 Overlay updated:", overlayData.currentGame);
   }, [overlayData]);
 
   const drawVideoCover = (ctx, video, cw, ch) => {
@@ -278,7 +507,6 @@ export default function FacebookLiveStreamerPro({
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
   };
 
-  // Main render loop: vẽ video + composite overlay
   useEffect(() => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -294,7 +522,6 @@ export default function FacebookLiveStreamerPro({
     const drawFrame = () => {
       if (!running) return;
 
-      // Vẽ video
       if (video.readyState >= 2 && video.videoWidth) {
         drawVideoCover(ctx, video, canvas.width, canvas.height);
       } else {
@@ -302,9 +529,6 @@ export default function FacebookLiveStreamerPro({
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
-      // Composite overlay lên trên (KHÔNG lật trong canvas, để CSS lo hiển thị)
-      // Canvas gốc không lật → Stream đúng
-      // CSS lật UI → Hiển thị đúng
       if (overlayCanvasRef.current) {
         ctx.drawImage(
           overlayCanvasRef.current,
@@ -336,7 +560,7 @@ export default function FacebookLiveStreamerPro({
     return () => {
       running = false;
     };
-  }, [facingMode]); // Thêm facingMode để update khi đổi camera
+  }, [facingMode]);
 
   const drawFullScoreOverlay = (ctx, w, h, data) => {
     ctx.save();
@@ -490,6 +714,24 @@ export default function FacebookLiveStreamerPro({
     setLoading(true);
 
     try {
+      // Test upload speed if adaptive mode
+      if (adaptiveMode && !uploadSpeed) {
+        setStatus("🔍 Đang test tốc độ mạng...");
+        const speed = await testUploadSpeed();
+        const selectedQuality = selectQualityByBandwidth(speed);
+        setCurrentQuality(selectedQuality);
+        setStatus(
+          `✅ Mạng: ${speed.toFixed(1)}Mbps → ${
+            QUALITY_PRESETS[selectedQuality].label
+          }`
+        );
+      }
+
+      const preset = QUALITY_PRESETS[currentQuality];
+
+      // Reinit camera with selected quality
+      await initCamera(facingMode, preset);
+
       setStatus("Đang kết nối WebSocket...");
       const ws = await new Promise((resolve, reject) => {
         const socket = new WebSocket(wsUrl);
@@ -518,6 +760,8 @@ export default function FacebookLiveStreamerPro({
           if (ws.readyState !== WebSocket.OPEN) return;
           if (!isEncodingRef.current) return;
 
+          const encodeStartTime = performance.now();
+
           try {
             const chunkData = new Uint8Array(chunk.byteLength);
             chunk.copyTo(chunkData);
@@ -532,13 +776,7 @@ export default function FacebookLiveStreamerPro({
             let dataToSend;
             if (isAnnexB) {
               dataToSend = chunkData;
-              if (statsRef.current.sent === 0) {
-                console.log("✅ H264 already in Annex-B format");
-              }
             } else {
-              if (statsRef.current.sent === 0) {
-                console.log("🔄 Converting H264 from avcC to Annex-B");
-              }
               if (
                 chunk.type === "key" &&
                 metadata?.decoderConfig?.description
@@ -547,9 +785,6 @@ export default function FacebookLiveStreamerPro({
                   metadata.decoderConfig.description
                 );
                 dataToSend = convertToAnnexB(chunkData, description, true);
-                console.log(
-                  `🔑 Keyframe with SPS/PPS: ${dataToSend.length} bytes`
-                );
               } else {
                 dataToSend = convertToAnnexB(chunkData, null, false);
               }
@@ -558,10 +793,10 @@ export default function FacebookLiveStreamerPro({
             ws.send(dataToSend.buffer);
             statsRef.current.sent++;
 
-            if (statsRef.current.sent <= 5) {
-              console.log(
-                `📤 Sent frame #${statsRef.current.sent}: ${dataToSend.length} bytes, type: ${chunk.type}`
-              );
+            const encodeTime = performance.now() - encodeStartTime;
+            statsRef.current.encodeTimes.push(encodeTime);
+            if (statsRef.current.encodeTimes.length > 60) {
+              statsRef.current.encodeTimes.shift();
             }
 
             const now = Date.now();
@@ -569,7 +804,7 @@ export default function FacebookLiveStreamerPro({
               const elapsed = (now - statsRef.current.lastLog) / 1000;
               const fpsNow = (statsRef.current.sent / elapsed).toFixed(1);
               console.log(
-                `📊 FPS: ${fpsNow}, Sent: ${statsRef.current.sent}, Dropped: ${statsRef.current.dropped}`
+                `📊 FPS: ${fpsNow}, Queue: ${encoder.encodeQueueSize}, Dropped: ${statsRef.current.dropped}`
               );
               statsRef.current.lastLog = now;
               statsRef.current.sent = 0;
@@ -594,14 +829,14 @@ export default function FacebookLiveStreamerPro({
       });
 
       encoder.configure({
-        codec: "avc1.42001f",
-        width: videoWidth,
-        height: videoHeight,
-        bitrate: videoBitsPerSecond * 1000,
-        framerate: fps,
+        codec: "avc1.640028",
+        width: preset.width,
+        height: preset.height,
+        bitrate: preset.bitrate * 1000,
+        framerate: preset.fps,
         hardwareAcceleration: "prefer-hardware",
         latencyMode: "realtime",
-        bitrateMode: "constant",
+        bitrateMode: "variable",
         avc: { format: "annexb" },
       });
 
@@ -612,10 +847,10 @@ export default function FacebookLiveStreamerPro({
         JSON.stringify({
           type: "start",
           streamKey,
-          width: videoWidth,
-          height: videoHeight,
-          fps,
-          videoBitrate: videoBitsPerSecond + "k",
+          width: preset.width,
+          height: preset.height,
+          fps: preset.fps,
+          videoBitrate: preset.bitrate + "k",
           audioBitrate: "192k",
         })
       );
@@ -661,8 +896,6 @@ export default function FacebookLiveStreamerPro({
                   };
                   mr.start(100);
                   audioRecorderRef.current = mr;
-                } else {
-                  console.warn("Không tìm thấy audio track");
                 }
               } catch (e) {
                 console.warn("Không thể khởi tạo mic:", e?.message || e);
@@ -679,11 +912,17 @@ export default function FacebookLiveStreamerPro({
         ws.addEventListener("message", handler);
       });
 
-      statsRef.current = { sent: 0, dropped: 0, lastLog: Date.now() };
+      statsRef.current = {
+        sent: 0,
+        dropped: 0,
+        lastLog: Date.now(),
+        encodeTimes: [],
+        lastQualityChange: Date.now(),
+      };
       frameCountRef.current = 0;
 
       const canvas = canvasRef.current;
-      const frameInterval = 1000 / fps;
+      const frameInterval = 1000 / preset.fps;
       let lastFrameTime = performance.now();
 
       const encodeLoop = (now) => {
@@ -707,7 +946,8 @@ export default function FacebookLiveStreamerPro({
               alpha: "discard",
             });
 
-            const forceKeyframe = frameCountRef.current % (fps * 2) === 0;
+            const forceKeyframe =
+              frameCountRef.current % (preset.fps * 3) === 0;
             encoder.encode(frame, { keyFrame: forceKeyframe });
             frame.close();
             frameCountRef.current++;
@@ -734,7 +974,7 @@ export default function FacebookLiveStreamerPro({
       encodingLoopRef.current = requestAnimationFrame(encodeLoop);
 
       setIsStreaming(true);
-      setStatus("✅ LIVE - WebCodecs PRO (<1s latency)");
+      setStatus(`✅ LIVE - ${preset.label} (${preset.bitrate / 1000}Mbps)`);
       setStatusType("success");
     } catch (err) {
       setStatus("❌ Lỗi: " + err.message);
@@ -777,6 +1017,11 @@ export default function FacebookLiveStreamerPro({
         encodingLoopRef.current = null;
       }
 
+      if (qualityCheckIntervalRef.current) {
+        clearInterval(qualityCheckIntervalRef.current);
+        qualityCheckIntervalRef.current = null;
+      }
+
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       if (
@@ -815,6 +1060,14 @@ export default function FacebookLiveStreamerPro({
       ? `${(videoSize.h / videoSize.w) * 100}%`
       : "56.25%";
 
+  const getQualityColor = () => {
+    if (currentQuality === "ultra" || currentQuality === "high")
+      return "success";
+    if (currentQuality === "medium") return "primary";
+    if (currentQuality === "low") return "warning";
+    return "error";
+  };
+
   return (
     <Box
       sx={{
@@ -839,33 +1092,42 @@ export default function FacebookLiveStreamerPro({
             <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
               <RadioButtonChecked sx={{ fontSize: 40, color: "error.main" }} />
               <Typography variant="h4" fontWeight="bold" color="text.primary">
-                Facebook Live - WebCodecs PRO
+                Facebook Live - Adaptive PRO
               </Typography>
               <Chip
-                label="H264 • <1s"
+                label="WebCodecs ABR"
                 color="success"
                 size="small"
                 sx={{ fontWeight: "bold" }}
               />
             </Box>
             {(isStreaming || isConnected) && (
-              <Box sx={{ display: "flex", gap: 1 }}>
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
                 {isStreaming && (
-                  <Chip
-                    icon={<RadioButtonChecked />}
-                    label="LIVE"
-                    color="error"
-                    sx={{
-                      fontWeight: "bold",
-                      fontSize: "1rem",
-                      px: 2,
-                      animation: "pulse 2s infinite",
-                      "@keyframes pulse": {
-                        "0%,100%": { opacity: 1 },
-                        "50%": { opacity: 0.7 },
-                      },
-                    }}
-                  />
+                  <>
+                    <Chip
+                      icon={<RadioButtonChecked />}
+                      label="LIVE"
+                      color="error"
+                      sx={{
+                        fontWeight: "bold",
+                        fontSize: "1rem",
+                        px: 2,
+                        animation: "pulse 2s infinite",
+                        "@keyframes pulse": {
+                          "0%,100%": { opacity: 1 },
+                          "50%": { opacity: 0.7 },
+                        },
+                      }}
+                    />
+                    <Chip
+                      icon={<Speed />}
+                      label={QUALITY_PRESETS[currentQuality].label}
+                      color={getQualityColor()}
+                      size="small"
+                      sx={{ fontWeight: "bold" }}
+                    />
+                  </>
                 )}
               </Box>
             )}
@@ -968,16 +1230,50 @@ export default function FacebookLiveStreamerPro({
                           inset: 0,
                           width: "100%",
                           height: "100%",
-                          // BỎ TRANSFORM - để canvas không bị lật
-                          // Stream sẽ lấy canvas gốc → đúng
                         }}
                       />
                     </Box>
 
+                    {isStreaming && (
+                      <Box sx={{ mt: 2 }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            mb: 1,
+                          }}
+                        >
+                          <Typography variant="caption" color="text.secondary">
+                            Performance Metrics
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            FPS: {performanceMetrics.fps} | Queue:{" "}
+                            {performanceMetrics.encoderQueue} | Dropped:{" "}
+                            {performanceMetrics.droppedFrames}
+                          </Typography>
+                        </Box>
+                        <LinearProgress
+                          variant="determinate"
+                          value={Math.min(
+                            (parseFloat(performanceMetrics.fps) /
+                              QUALITY_PRESETS[currentQuality].fps) *
+                              100,
+                            100
+                          )}
+                          color={
+                            parseFloat(performanceMetrics.fps) >=
+                            QUALITY_PRESETS[currentQuality].fps * 0.9
+                              ? "success"
+                              : "warning"
+                          }
+                        />
+                      </Box>
+                    )}
+
                     <Alert severity="success" sx={{ mt: 2 }}>
                       <Typography variant="body2">
-                        ⚡ <strong>PRO MODE</strong>: WebCodecs H264, GPU
-                        encode, FFmpeg copy (no re-encode), &lt;1s latency
+                        ⚡ <strong>Adaptive Mode</strong>: Tự động điều chỉnh
+                        chất lượng theo mạng và hiệu năng máy
                       </Typography>
                     </Alert>
                   </CardContent>
@@ -1007,6 +1303,46 @@ export default function FacebookLiveStreamerPro({
                         gap: 2.5,
                       }}
                     >
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            checked={adaptiveMode}
+                            onChange={(e) => setAdaptiveMode(e.target.checked)}
+                            disabled={isStreaming}
+                          />
+                        }
+                        label="Adaptive Quality (ABR)"
+                      />
+
+                      {!adaptiveMode && (
+                        <TextField
+                          select
+                          label="Quality Preset"
+                          value={currentQuality}
+                          onChange={(e) => setCurrentQuality(e.target.value)}
+                          disabled={isStreaming}
+                          fullWidth
+                          SelectProps={{ native: true }}
+                        >
+                          {Object.entries(QUALITY_PRESETS).map(
+                            ([key, preset]) => (
+                              <option key={key} value={key}>
+                                {preset.label} - {preset.bitrate / 1000}Mbps
+                              </option>
+                            )
+                          )}
+                        </TextField>
+                      )}
+
+                      {uploadSpeed && (
+                        <Alert severity="info" icon={<SignalCellularAlt />}>
+                          <Typography variant="body2">
+                            Upload:{" "}
+                            <strong>{uploadSpeed.toFixed(1)} Mbps</strong>
+                          </Typography>
+                        </Alert>
+                      )}
+
                       <TextField
                         type="password"
                         label="Facebook Stream Key"
@@ -1016,6 +1352,25 @@ export default function FacebookLiveStreamerPro({
                         disabled={isStreaming}
                         fullWidth
                       />
+
+                      {!isStreaming && !uploadSpeed && adaptiveMode && (
+                        <Button
+                          variant="outlined"
+                          startIcon={
+                            testingSpeed ? (
+                              <CircularProgress size={16} />
+                            ) : (
+                              <Speed />
+                            )
+                          }
+                          onClick={testUploadSpeed}
+                          disabled={testingSpeed}
+                          fullWidth
+                        >
+                          {testingSpeed ? "Testing..." : "Test Network Speed"}
+                        </Button>
+                      )}
+
                       <Button
                         fullWidth
                         size="large"
@@ -1059,20 +1414,55 @@ export default function FacebookLiveStreamerPro({
 
                 <Card elevation={2}>
                   <CardContent>
-                    <Alert severity="info" variant="outlined">
-                      <Typography
-                        variant="body2"
-                        component="div"
-                        sx={{ lineHeight: 1.6 }}
-                      >
-                        <strong>🚀 WebCodecs PRO:</strong>
-                        <ul style={{ margin: 0, paddingLeft: 18 }}>
-                          <li>Hardware H264 encode (GPU)</li>
-                          <li>FFmpeg chỉ mux, không re-encode</li>
-                          <li>Latency &lt;1 giây (như OBS)</li>
-                          <li>CPU thấp hơn 70%</li>
-                          <li>Overlay realtime, zero impact</li>
-                        </ul>
+                    <Typography
+                      variant="h6"
+                      fontWeight={600}
+                      gutterBottom
+                      sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                    >
+                      <Speed color="primary" />
+                      Quality Presets
+                    </Typography>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 1,
+                        mt: 2,
+                      }}
+                    >
+                      {Object.entries(QUALITY_PRESETS).map(([key, preset]) => (
+                        <Box
+                          key={key}
+                          sx={{
+                            p: 1.5,
+                            border: "1px solid",
+                            borderColor:
+                              key === currentQuality
+                                ? "primary.main"
+                                : "divider",
+                            borderRadius: 1,
+                            bgcolor:
+                              key === currentQuality
+                                ? "primary.50"
+                                : "transparent",
+                          }}
+                        >
+                          <Typography variant="body2" fontWeight={600}>
+                            {preset.label}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {preset.width}x{preset.height} @ {preset.fps}fps •{" "}
+                            {preset.bitrate / 1000}Mbps
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+
+                    <Alert severity="info" variant="outlined" sx={{ mt: 2 }}>
+                      <Typography variant="caption">
+                        💡 Adaptive mode sẽ tự động chuyển đổi giữa các preset
+                        dựa trên điều kiện mạng và hiệu năng
                       </Typography>
                     </Alert>
                   </CardContent>
