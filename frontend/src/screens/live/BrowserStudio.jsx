@@ -302,8 +302,14 @@ export default function FacebookLiveStreamerPro({
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
-      // Composite overlay lên trên (rất nhanh vì chỉ là drawImage)
+      // Composite overlay lên trên (lật ngược nếu canvas bị lật CSS)
       if (overlayCanvasRef.current) {
+        ctx.save();
+        // Nếu canvas UI bị lật (camera trước), lật overlay ngược lại để hiển thị đúng
+        if (facingMode === "user") {
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+        }
         ctx.drawImage(
           overlayCanvasRef.current,
           0,
@@ -311,6 +317,7 @@ export default function FacebookLiveStreamerPro({
           canvas.width,
           canvas.height
         );
+        ctx.restore();
       }
     };
 
