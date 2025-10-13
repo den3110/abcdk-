@@ -54,76 +54,39 @@ export async function attachRtmpRelayPro(server, options = {}) {
     ws.on("message", (data, isBinary) => {
       if (isBinary) {
         if (!ffmpeg || !config) return;
-
         try {
+          const u8 = new Uint8Array(data);
+          const isAudio = u8[0] === 0x01; // NEW: prefix 0x01 = audio
+
+          if (isAudio) {
+            const payload = u8.subarray(1);
+            const aPipe = ffmpeg.stdio?.[3];
+            if (aPipe?.writable && payload.byteLength) {
+              aPipe.write(payload);
+              stats.audioFrames = (stats.audioFrames || 0) + 1;
+              if (stats.audioFrames <= 3) {
+                console.log(
+                  `🎙️  Audio chunk #${stats.audioFrames}: ${payload.byteLength} bytes`
+                );
+              }
+            }
+            return;
+          }
+
+          // Video (Annex-B) giữ nguyên
           if (ffmpeg.stdin?.writable) {
-            // Check first frame for format validation
             if (stats.videoFrames === 0) {
-              const firstBytes = new Uint8Array(data.slice(0, 100));
+              const firstBytes = u8.slice(0, 100);
               const hex = Array.from(firstBytes.slice(0, 8))
                 .map((b) => b.toString(16).padStart(2, "0"))
                 .join(" ");
-              console.log(`🔍 First frame header: ${hex}`);
-
-              if (
-                (firstBytes[0] === 0 &&
-                  firstBytes[1] === 0 &&
-                  firstBytes[2] === 0 &&
-                  firstBytes[3] === 1) ||
-                (firstBytes[0] === 0 &&
-                  firstBytes[1] === 0 &&
-                  firstBytes[2] === 1)
-              ) {
-                console.log("✅ H264 format: Annex-B (correct)");
-
-                const dataStr = Array.from(firstBytes)
-                  .map((b) => b.toString(16).padStart(2, "0"))
-                  .join("");
-                const hasSPS =
-                  dataStr.includes("00000001" + "67") ||
-                  dataStr.includes("000001" + "67");
-                const hasPPS =
-                  dataStr.includes("00000001" + "68") ||
-                  dataStr.includes("000001" + "68");
-
-                if (hasSPS && hasPPS) {
-                  console.log("✅ First frame contains SPS + PPS (good!)");
-                } else {
-                  console.warn(
-                    "⚠️ First frame missing SPS or PPS - this may cause issues!"
-                  );
-                  console.warn(
-                    `   SPS (0x67): ${hasSPS ? "Found" : "Missing"}`
-                  );
-                  console.warn(
-                    `   PPS (0x68): ${hasPPS ? "Found" : "Missing"}`
-                  );
-                }
-              } else {
-                console.warn(
-                  "⚠️ H264 format: NOT Annex-B! This will cause FFmpeg to fail."
-                );
-                console.warn("   Expected: 00 00 00 01 or 00 00 01");
-                console.warn(`   Got: ${hex}`);
-              }
+              console.log(`🔍 First video frame header: ${hex}`);
             }
-
-            ffmpeg.stdin.write(data);
+            ffmpeg.stdin.write(u8);
             stats.videoFrames++;
-
             if (stats.videoFrames <= 5) {
               console.log(
-                `📥 Received frame #${stats.videoFrames}: ${data.byteLength} bytes`
-              );
-            }
-
-            if (stats.videoFrames % 100 === 0) {
-              const elapsed = (Date.now() - stats.startTime) / 1000;
-              const avgFps = (stats.videoFrames / elapsed).toFixed(1);
-              console.log(
-                `📊 Frames: ${
-                  stats.videoFrames
-                }, Avg FPS: ${avgFps}, Elapsed: ${elapsed.toFixed(1)}s`
+                `📥 Received frame #${stats.videoFrames}: ${u8.byteLength} bytes`
               );
             }
           }
@@ -198,23 +161,23 @@ export async function attachRtmpRelayPro(server, options = {}) {
           "-loglevel",
           "info",
 
-          // Input 1: raw H264 stream
+          // Input 0: raw H264 stream
           "-f",
           "h264",
           "-i",
           "pipe:0",
 
-          // Input 2: silent audio
+          // Input 1: mic audio (WebM/Opus) qua pipe:3
           "-f",
-          "lavfi",
+          "webm",
           "-i",
-          "anullsrc=r=48000:cl=stereo",
+          "pipe:3",
 
           // ✅ Map streams explicitly
           "-map",
-          "0:v", // Video from input 0
+          "0:v", // Video from pipe:0
           "-map",
-          "1:a", // Audio from input 1
+          "1:a", // Audio from pipe:3
 
           // Video: COPY (no re-encode)
           "-c:v",
@@ -257,7 +220,8 @@ export async function attachRtmpRelayPro(server, options = {}) {
 
         try {
           ffmpeg = spawn(ffmpegPath, args, {
-            stdio: ["pipe", "pipe", "pipe"],
+            // 0: stdin (video), 1: stdout, 2: stderr, 3: audio pipe
+            stdio: ["pipe", "pipe", "pipe", "pipe"],
           });
 
           if (!ffmpeg.pid) throw new Error("FFmpeg spawn failed");
@@ -323,7 +287,9 @@ export async function attachRtmpRelayPro(server, options = {}) {
             })
           );
 
-          console.log("✅ FFmpeg ready, waiting for H264 frames...");
+          console.log(
+            "✅ FFmpeg ready, waiting for H264 (pipe:0) & Opus/WebM (pipe:3)..."
+          );
 
           setTimeout(() => {
             if (stats.videoFrames === 0) {

@@ -49,6 +49,7 @@ export default function FacebookLiveStreamerPro({
   const wsRef = useRef(null);
   const videoEncoderRef = useRef(null);
   const encodingLoopRef = useRef(null);
+  const audioRecorderRef = useRef(null);
   const overlayFetchingRef = useRef(false);
   const prevOverlayDataRef = useRef(null);
   const frameCountRef = useRef(0);
@@ -187,6 +188,16 @@ export default function FacebookLiveStreamerPro({
         cancelAnimationFrame(encodingLoopRef.current);
         encodingLoopRef.current = null;
       }
+      // NEW: stop mic nếu đang chạy
+      try {
+        if (
+          audioRecorderRef.current &&
+          audioRecorderRef.current.state !== "inactive"
+        ) {
+          audioRecorderRef.current.stop();
+        }
+        audioRecorderRef.current = null;
+      } catch {}
 
       try {
         if (
@@ -604,6 +615,42 @@ export default function FacebookLiveStreamerPro({
             if (msg.type === "started") {
               clearTimeout(timeout);
               ws.removeEventListener("message", handler);
+              // NEW: chỉ bật mic sau khi FFmpeg đã sẵn sàng
+              try {
+                const aTrack = camStreamRef.current?.getAudioTracks?.()[0];
+                if (aTrack) {
+                  const aStream = new MediaStream([aTrack]);
+                  const mime = MediaRecorder.isTypeSupported(
+                    "audio/webm;codecs=opus"
+                  )
+                    ? "audio/webm;codecs=opus"
+                    : MediaRecorder.isTypeSupported("audio/webm")
+                    ? "audio/webm"
+                    : "";
+                  const mr = new MediaRecorder(aStream, {
+                    mimeType: mime || undefined,
+                    audioBitsPerSecond: 128000,
+                  });
+                  mr.ondataavailable = async (e) => {
+                    try {
+                      if (!e.data || e.data.size === 0) return;
+                      if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+                      const buf = await e.data.arrayBuffer();
+                      const u8 = new Uint8Array(buf);
+                      const out = new Uint8Array(u8.length + 1);
+                      out[0] = 0x01; // prefix đánh dấu audio
+                      out.set(u8, 1);
+                      wsRef.current.send(out.buffer);
+                    } catch {}
+                  };
+                  mr.start(100); // chunk 100ms → low latency
+                  audioRecorderRef.current = mr;
+                } else {
+                  console.warn("Không tìm thấy audio track");
+                }
+              } catch (e) {
+                console.warn("Không thể khởi tạo mic:", e?.message || e);
+              }
               resolve();
             }
             if (msg.type === "error") {
@@ -654,6 +701,17 @@ export default function FacebookLiveStreamerPro({
             // Stop loop on error
             encodingLoopRef.current = null;
             isEncodingRef.current = false;
+            // NEW: stop mic
+            try {
+              if (
+                audioRecorderRef.current &&
+                audioRecorderRef.current.state !== "inactive"
+              ) {
+                audioRecorderRef.current.stop();
+              }
+              audioRecorderRef.current = null;
+            } catch {}
+
             return;
           }
         }
