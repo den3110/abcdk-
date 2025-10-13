@@ -42,19 +42,17 @@ export default function FacebookLiveStreamerPro({
   const [facingMode, setFacingMode] = useState("user");
   const [videoDevices, setVideoDevices] = useState([]);
   const [supportsWebCodecs, setSupportsWebCodecs] = useState(false);
-
-  // NEW: kích thước thật của camera để dựng khung đúng tỉ lệ
   const [videoSize, setVideoSize] = useState({ w: videoWidth, h: videoHeight });
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const overlayCanvasRef = useRef(null); // Canvas riêng cho overlay
   const camStreamRef = useRef(null);
   const wsRef = useRef(null);
   const videoEncoderRef = useRef(null);
   const encodingLoopRef = useRef(null);
   const audioRecorderRef = useRef(null);
   const overlayFetchingRef = useRef(false);
-  const prevOverlayDataRef = useRef(null);
   const frameCountRef = useRef(0);
   const statsRef = useRef({ sent: 0, dropped: 0, lastLog: Date.now() });
   const isEncodingRef = useRef(false);
@@ -74,6 +72,14 @@ export default function FacebookLiveStreamerPro({
       setStatusType("success");
     }
   }, []);
+
+  // Khởi tạo overlay canvas off-screen
+  useEffect(() => {
+    const overlayCanvas = document.createElement("canvas");
+    overlayCanvas.width = videoWidth;
+    overlayCanvas.height = videoHeight;
+    overlayCanvasRef.current = overlayCanvas;
+  }, [videoWidth, videoHeight]);
 
   const enumerateVideoDevices = async () => {
     try {
@@ -152,9 +158,7 @@ export default function FacebookLiveStreamerPro({
         canvas.height = h;
       }
 
-      // NEW: lưu kích thước thật để dựng khung đúng tỉ lệ
       setVideoSize({ w, h });
-
       setFacingMode(preferFacing);
       setStatus(
         `Camera sẵn sàng (${preferFacing === "environment" ? "sau" : "trước"})`
@@ -187,8 +191,6 @@ export default function FacebookLiveStreamerPro({
     })();
     return () => {
       stopCurrentStream();
-
-      // Cleanup encoder and WebSocket on unmount
       isEncodingRef.current = false;
       if (encodingLoopRef.current) {
         cancelAnimationFrame(encodingLoopRef.current);
@@ -219,6 +221,7 @@ export default function FacebookLiveStreamerPro({
     };
   }, [fps, videoHeight, videoWidth]);
 
+  // Fetch overlay data
   useEffect(() => {
     if (!matchId) return;
     let timer;
@@ -240,23 +243,42 @@ export default function FacebookLiveStreamerPro({
     return () => clearInterval(timer);
   }, [matchId, apiUrl]);
 
-  // NEW: helper vẽ "cover" lên canvas (không méo, không letterbox)
+  // Vẽ overlay vào canvas riêng chỉ khi data thay đổi
+  useEffect(() => {
+    if (!overlayData || !overlayCanvasRef.current) return;
+
+    const overlayCanvas = overlayCanvasRef.current;
+    const ctx = overlayCanvas.getContext("2d", { alpha: true });
+
+    // Clear canvas với alpha để transparent
+    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    // Vẽ overlay
+    drawFullScoreOverlay(
+      ctx,
+      overlayCanvas.width,
+      overlayCanvas.height,
+      overlayData
+    );
+
+    console.log("🎨 Overlay updated:", overlayData.currentGame);
+  }, [overlayData]);
+
   const drawVideoCover = (ctx, video, cw, ch) => {
     const vw = video.videoWidth;
     const vh = video.videoHeight;
     if (!vw || !vh) return;
 
-    // scale để phủ kín canvas
     const scale = Math.max(cw / vw, ch / vh);
     const sw = cw / scale;
     const sh = ch / scale;
     const sx = (vw - sw) / 2;
     const sy = (vh - sh) / 2;
 
-    // vẽ video lên canvas full khung (cover)
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
   };
 
+  // Main render loop: vẽ video + composite overlay
   useEffect(() => {
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -268,56 +290,41 @@ export default function FacebookLiveStreamerPro({
     });
 
     let running = true;
-    let lastOverlayDraw = 0;
 
-    const overlayChanged = () => {
-      const prev = prevOverlayDataRef.current;
-      const curr = overlayData;
-      if (!prev && !curr) return false;
-      if (!prev || !curr) return true;
-      try {
-        const prevScore = prev.gameScores?.[prev.currentGame ?? 0];
-        const currScore = curr.gameScores?.[curr.currentGame ?? 0];
-        return (
-          prevScore?.a !== currScore?.a ||
-          prevScore?.b !== currScore?.b ||
-          prev.currentGame !== curr.currentGame ||
-          prev.serve?.side !== curr.serve?.side
-        );
-      } catch {
-        return true;
-      }
-    };
-
-    const drawFrame = (now) => {
+    const drawFrame = () => {
       if (!running) return;
 
+      // Vẽ video
       if (video.readyState >= 2 && video.videoWidth) {
-        // NEW: vẽ video theo "cover" thay vì kéo giãn (hết kiểu contain)
         drawVideoCover(ctx, video, canvas.width, canvas.height);
       } else {
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
 
-      if (overlayData && now - lastOverlayDraw > 16 && overlayChanged()) {
-        drawFullScoreOverlay(ctx, canvas.width, canvas.height, overlayData);
-        prevOverlayDataRef.current = JSON.parse(JSON.stringify(overlayData));
-        lastOverlayDraw = now;
+      // Composite overlay lên trên (rất nhanh vì chỉ là drawImage)
+      if (overlayCanvasRef.current) {
+        ctx.drawImage(
+          overlayCanvasRef.current,
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
       }
     };
 
     const useRVFC = "requestVideoFrameCallback" in HTMLVideoElement.prototype;
     if (useRVFC) {
-      const loop = (now) => {
-        drawFrame(now);
+      const loop = () => {
+        drawFrame();
         if (!running) return;
         video.requestVideoFrameCallback(loop);
       };
       video.requestVideoFrameCallback(loop);
     } else {
-      const loop = (now) => {
-        drawFrame(now);
+      const loop = () => {
+        drawFrame();
         if (!running) return;
         requestAnimationFrame(loop);
       };
@@ -327,7 +334,7 @@ export default function FacebookLiveStreamerPro({
     return () => {
       running = false;
     };
-  }, [overlayData]);
+  }, []);
 
   const drawFullScoreOverlay = (ctx, w, h, data) => {
     ctx.save();
@@ -411,7 +418,6 @@ export default function FacebookLiveStreamerPro({
     ctx.restore();
   };
 
-  // ====== Encode/WS giữ nguyên y như cũ ======
   const convertToAnnexB = (data, description, isKeyframe) => {
     const startCode = new Uint8Array([0, 0, 0, 1]);
     const result = [];
@@ -646,7 +652,7 @@ export default function FacebookLiveStreamerPro({
                       const buf = await e.data.arrayBuffer();
                       const u8 = new Uint8Array(buf);
                       const out = new Uint8Array(u8.length + 1);
-                      out[0] = 0x01; // prefix audio
+                      out[0] = 0x01;
                       out.set(u8, 1);
                       wsRef.current.send(out.buffer);
                     } catch {}
@@ -834,7 +840,7 @@ export default function FacebookLiveStreamerPro({
                 Facebook Live - WebCodecs PRO
               </Typography>
               <Chip
-                label="H264 • &lt;1s"
+                label="H264 • <1s"
                 color="success"
                 size="small"
                 sx={{ fontWeight: "bold" }}
@@ -895,7 +901,6 @@ export default function FacebookLiveStreamerPro({
                       </Button>
                     </Box>
 
-                    {/* Video preview: vẫn cover + lật khi camera trước */}
                     <Box
                       sx={{
                         position: "relative",
@@ -942,7 +947,6 @@ export default function FacebookLiveStreamerPro({
                       </Typography>
                     </Box>
 
-                    {/* Canvas preview: cover + chỉ lật HIỂN THỊ (CSS), KHÔNG lật stream */}
                     <Box
                       sx={{
                         position: "relative",
@@ -962,7 +966,6 @@ export default function FacebookLiveStreamerPro({
                           inset: 0,
                           width: "100%",
                           height: "100%",
-                          // lật hiển thị khi camera trước (chỉ UI, không ảnh hưởng encode)
                           transform:
                             facingMode === "user" ? "scaleX(-1)" : "none",
                           transformOrigin: "center",
@@ -1067,6 +1070,7 @@ export default function FacebookLiveStreamerPro({
                           <li>FFmpeg chỉ mux, không re-encode</li>
                           <li>Latency &lt;1 giây (như OBS)</li>
                           <li>CPU thấp hơn 70%</li>
+                          <li>Overlay realtime, zero impact</li>
                         </ul>
                       </Typography>
                     </Alert>
