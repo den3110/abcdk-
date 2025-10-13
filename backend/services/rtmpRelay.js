@@ -242,7 +242,7 @@ export async function attachRtmpRelayPro(server, options = {}) {
         }
 
         try {
-          ffmpeg = spawn(ffmpegStatic || "ffmpeg", args, {
+          ffmpeg = spawn("ffmpeg", args, {
             stdio: ["pipe", "pipe", "pipe"],
           });
 
