@@ -125,7 +125,8 @@ export async function attachRtmpRelay(server, options = {}) {
 
     ws.on("message", async (message) => {
       // CRITICAL: Binary vs Text message detection
-      const isBinary = Buffer.isBuffer(message);
+      const isBinary =
+        Buffer.isBuffer(message) || message instanceof ArrayBuffer;
 
       if (isBinary) {
         // ===== BINARY MESSAGE = STREAM DATA =====
@@ -133,11 +134,15 @@ export async function attachRtmpRelay(server, options = {}) {
           return; // Silently ignore if not ready
         }
 
-        bytesReceived += message.length;
+        const buffer = Buffer.isBuffer(message)
+          ? message
+          : Buffer.from(message);
+
+        bytesReceived += buffer.length;
         chunksReceived++;
 
         if (chunksReceived === 1) {
-          console.log("📥 First binary chunk received (optimized path) 🚀");
+          console.log("📥 First binary chunk received (optimized path)");
         }
 
         // Log progress every 50 chunks
@@ -153,7 +158,7 @@ export async function attachRtmpRelay(server, options = {}) {
 
         // Write directly to FFmpeg stdin with backpressure handling
         if (ffmpegProcess.stdin.writable && canWrite) {
-          canWrite = ffmpegProcess.stdin.write(message);
+          canWrite = ffmpegProcess.stdin.write(buffer);
         }
 
         return;
