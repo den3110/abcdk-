@@ -53,6 +53,7 @@ export default function FacebookLiveStreamerPro({
   const prevOverlayDataRef = useRef(null);
   const frameCountRef = useRef(0);
   const statsRef = useRef({ sent: 0, dropped: 0, lastLog: Date.now() });
+  const isEncodingRef = useRef(false);
 
   const canSwitchCamera =
     videoDevices.length > 1 ||
@@ -179,6 +180,23 @@ export default function FacebookLiveStreamerPro({
     })();
     return () => {
       stopCurrentStream();
+
+      // Cleanup encoder and WebSocket on unmount
+      isEncodingRef.current = false;
+      if (encodingLoopRef.current) {
+        cancelAnimationFrame(encodingLoopRef.current);
+        encodingLoopRef.current = null;
+      }
+
+      try {
+        if (
+          videoEncoderRef.current &&
+          videoEncoderRef.current.state !== "closed"
+        ) {
+          videoEncoderRef.current.close();
+        }
+      } catch {}
+
       try {
         wsRef.current?.close();
       } catch {}
@@ -402,6 +420,7 @@ export default function FacebookLiveStreamerPro({
       const encoder = new VideoEncoder({
         output: (chunk, metadata) => {
           if (ws.readyState !== WebSocket.OPEN) return;
+          if (!isEncodingRef.current) return;
 
           const buffer = new ArrayBuffer(chunk.byteLength);
           chunk.copyTo(buffer);
@@ -428,8 +447,14 @@ export default function FacebookLiveStreamerPro({
         },
         error: (e) => {
           console.error("Encoder error:", e);
+          isEncodingRef.current = false;
+          if (encodingLoopRef.current) {
+            cancelAnimationFrame(encodingLoopRef.current);
+            encodingLoopRef.current = null;
+          }
           setStatus("❌ Encoder error: " + e.message);
           setStatusType("error");
+          setIsStreaming(false);
         },
       });
 
@@ -445,6 +470,7 @@ export default function FacebookLiveStreamerPro({
       });
 
       videoEncoderRef.current = encoder;
+      isEncodingRef.current = true;
 
       ws.send(
         JSON.stringify({
@@ -490,12 +516,22 @@ export default function FacebookLiveStreamerPro({
       let lastFrameTime = performance.now();
 
       const encodeLoop = (now) => {
-        if (!encodingLoopRef.current) return;
+        if (!encodingLoopRef.current || !isEncodingRef.current) return;
 
         if (now - lastFrameTime >= frameInterval) {
           lastFrameTime = now;
 
           try {
+            // Check encoder is still valid
+            if (
+              !videoEncoderRef.current ||
+              videoEncoderRef.current.state === "closed"
+            ) {
+              console.warn("⚠️ Encoder closed, stopping encode loop");
+              encodingLoopRef.current = null;
+              return;
+            }
+
             const frame = new VideoFrame(canvas, {
               timestamp: now * 1000,
               alpha: "discard",
@@ -507,6 +543,10 @@ export default function FacebookLiveStreamerPro({
             frameCountRef.current++;
           } catch (err) {
             console.error("Frame capture error:", err);
+            // Stop loop on error
+            encodingLoopRef.current = null;
+            isEncodingRef.current = false;
+            return;
           }
         }
 
@@ -523,10 +563,21 @@ export default function FacebookLiveStreamerPro({
       setStatusType("error");
       setIsStreaming(false);
       setIsConnected(false);
+      isEncodingRef.current = false;
+
+      if (encodingLoopRef.current) {
+        cancelAnimationFrame(encodingLoopRef.current);
+        encodingLoopRef.current = null;
+      }
 
       try {
-        await videoEncoderRef.current?.flush();
-        videoEncoderRef.current?.close();
+        if (
+          videoEncoderRef.current &&
+          videoEncoderRef.current.state !== "closed"
+        ) {
+          await videoEncoderRef.current.flush();
+          videoEncoderRef.current.close();
+        }
       } catch {}
 
       try {
@@ -541,18 +592,31 @@ export default function FacebookLiveStreamerPro({
     setLoading(true);
 
     try {
+      // Stop encoding loop first
+      isEncodingRef.current = false;
+
       if (encodingLoopRef.current) {
         cancelAnimationFrame(encodingLoopRef.current);
         encodingLoopRef.current = null;
       }
 
-      if (videoEncoderRef.current) {
-        await videoEncoderRef.current.flush();
-        videoEncoderRef.current.close();
+      // Wait a bit for any pending encodes to finish
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      if (
+        videoEncoderRef.current &&
+        videoEncoderRef.current.state !== "closed"
+      ) {
+        try {
+          await videoEncoderRef.current.flush();
+          videoEncoderRef.current.close();
+        } catch (err) {
+          console.warn("Encoder close error:", err);
+        }
         videoEncoderRef.current = null;
       }
 
-      if (wsRef.current) {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: "stop" }));
         wsRef.current.close();
         wsRef.current = null;
