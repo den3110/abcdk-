@@ -378,6 +378,70 @@ export default function FacebookLiveStreamerPro({
     ctx.restore();
   };
 
+  // Convert avcC format to Annex-B format for FFmpeg
+  const convertToAnnexB = (data, description, isKeyframe) => {
+    const startCode = new Uint8Array([0, 0, 0, 1]);
+    const result = [];
+
+    if (isKeyframe && description) {
+      // Parse avcC box to extract SPS/PPS
+      // avcC format: [configurationVersion(1)][AVCProfileIndication(1)][profile_compatibility(1)]
+      //              [AVCLevelIndication(1)][lengthSizeMinusOne(1)][numOfSPS(1)][SPS]...[numOfPPS(1)][PPS]...
+      let offset = 5; // Skip first 5 bytes
+
+      // Read SPS
+      const numSPS = description[offset++] & 0x1f;
+      for (let i = 0; i < numSPS; i++) {
+        const spsLength = (description[offset] << 8) | description[offset + 1];
+        offset += 2;
+        result.push(startCode);
+        result.push(description.slice(offset, offset + spsLength));
+        offset += spsLength;
+      }
+
+      // Read PPS
+      const numPPS = description[offset++];
+      for (let i = 0; i < numPPS; i++) {
+        const ppsLength = (description[offset] << 8) | description[offset + 1];
+        offset += 2;
+        result.push(startCode);
+        result.push(description.slice(offset, offset + ppsLength));
+        offset += ppsLength;
+      }
+    }
+
+    // Convert NAL units from length-prefixed to start-code-prefixed
+    let offset = 0;
+    while (offset < data.length) {
+      // Read 4-byte length
+      const nalLength =
+        (data[offset] << 24) |
+        (data[offset + 1] << 16) |
+        (data[offset + 2] << 8) |
+        data[offset + 3];
+      offset += 4;
+
+      if (nalLength > 0 && offset + nalLength <= data.length) {
+        result.push(startCode);
+        result.push(data.slice(offset, offset + nalLength));
+        offset += nalLength;
+      } else {
+        break;
+      }
+    }
+
+    // Concatenate all parts
+    const totalLength = result.reduce((sum, arr) => sum + arr.length, 0);
+    const output = new Uint8Array(totalLength);
+    let writeOffset = 0;
+    for (const arr of result) {
+      output.set(arr, writeOffset);
+      writeOffset += arr.length;
+    }
+
+    return output;
+  };
+
   const startStreamingPro = async () => {
     if (!streamKey.trim()) {
       setStatus("Vui lòng nhập Stream Key");
@@ -422,12 +486,55 @@ export default function FacebookLiveStreamerPro({
           if (ws.readyState !== WebSocket.OPEN) return;
           if (!isEncodingRef.current) return;
 
-          const buffer = new ArrayBuffer(chunk.byteLength);
-          chunk.copyTo(buffer);
-
           try {
-            ws.send(buffer);
+            const chunkData = new Uint8Array(chunk.byteLength);
+            chunk.copyTo(chunkData);
+
+            // Check if data starts with Annex-B start code (0x00000001 or 0x000001)
+            const isAnnexB =
+              (chunkData[0] === 0 &&
+                chunkData[1] === 0 &&
+                chunkData[2] === 0 &&
+                chunkData[3] === 1) ||
+              (chunkData[0] === 0 && chunkData[1] === 0 && chunkData[2] === 1);
+
+            let dataToSend;
+            if (isAnnexB) {
+              // Already in Annex-B format, send directly
+              dataToSend = chunkData;
+              if (statsRef.current.sent === 0) {
+                console.log("✅ H264 already in Annex-B format");
+              }
+            } else {
+              // Need to convert from avcC to Annex-B
+              if (statsRef.current.sent === 0) {
+                console.log("🔄 Converting H264 from avcC to Annex-B");
+              }
+              if (
+                chunk.type === "key" &&
+                metadata?.decoderConfig?.description
+              ) {
+                const description = new Uint8Array(
+                  metadata.decoderConfig.description
+                );
+                dataToSend = convertToAnnexB(chunkData, description, true);
+                console.log(
+                  `🔑 Keyframe with SPS/PPS: ${dataToSend.length} bytes`
+                );
+              } else {
+                dataToSend = convertToAnnexB(chunkData, null, false);
+              }
+            }
+
+            ws.send(dataToSend.buffer);
             statsRef.current.sent++;
+
+            // Log first few frames
+            if (statsRef.current.sent <= 5) {
+              console.log(
+                `📤 Sent frame #${statsRef.current.sent}: ${dataToSend.length} bytes, type: ${chunk.type}`
+              );
+            }
 
             const now = Date.now();
             if (now - statsRef.current.lastLog > 3000) {
@@ -467,6 +574,7 @@ export default function FacebookLiveStreamerPro({
         hardwareAcceleration: "prefer-hardware",
         latencyMode: "realtime",
         bitrateMode: "constant",
+        avc: { format: "annexb" }, // Output directly in Annex-B format for FFmpeg
       });
 
       videoEncoderRef.current = encoder;

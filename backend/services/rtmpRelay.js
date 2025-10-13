@@ -1,4 +1,4 @@
-// rtmpRelay.js - THAY TOÀN BỘ FILE NÀY
+// rtmpRelayPro.js - PROFESSIONAL GRADE (WebCodecs support)
 import { WebSocketServer } from "ws";
 import { spawn } from "child_process";
 import ffmpegStatic from "ffmpeg-static";
@@ -8,11 +8,12 @@ export async function attachRtmpRelayPro(server, options = {}) {
     server,
     path: options.path || "/ws/rtmp",
     perMessageDeflate: false,
-    maxPayload: 50 * 1024 * 1024,
+    maxPayload: 50 * 1024 * 1024, // 50MB for raw frames
   });
 
   console.log(`✅ PRO RTMP Relay WebSocket: ${options.path || "/ws/rtmp"}`);
 
+  // Keepalive
   const interval = setInterval(() => {
     wss.clients.forEach((ws) => {
       if (ws.isAlive === false) return ws.terminate();
@@ -53,6 +54,7 @@ export async function attachRtmpRelayPro(server, options = {}) {
 
     ws.on("message", (data, isBinary) => {
       if (isBinary) {
+        // Binary = H264 NAL units from WebCodecs
         if (!ffmpeg || !config) return;
 
         try {
@@ -66,6 +68,7 @@ export async function attachRtmpRelayPro(server, options = {}) {
         return;
       }
 
+      // Text = control messages
       let msg;
       try {
         msg = JSON.parse(data);
@@ -106,18 +109,25 @@ export async function attachRtmpRelayPro(server, options = {}) {
           `🎬 Starting PRO stream: ${width}x${height}@${fps}fps, ${videoBitrate}`
         );
 
+        // FFmpeg args: H264 annex-b input → FLV output (NO RE-ENCODING!)
         const args = [
           "-hide_banner",
           "-loglevel",
           "warning",
+
+          // Video input: raw H264 stream
           "-f",
           "h264",
           "-r",
           String(fps),
           "-i",
           "pipe:0",
+
+          // Video: COPY (no re-encode!)
           "-c:v",
           "copy",
+
+          // Audio: silent for now (can add Web Audio API later)
           "-f",
           "lavfi",
           "-i",
@@ -129,6 +139,8 @@ export async function attachRtmpRelayPro(server, options = {}) {
           "-ar",
           "48000",
           "-shortest",
+
+          // Output
           "-f",
           "flv",
           "-flvflags",
@@ -160,6 +172,7 @@ export async function attachRtmpRelayPro(server, options = {}) {
             if (log.includes("error") || log.includes("Error")) {
               console.error("❌ FFmpeg:", log.trim());
             }
+            // Send progress to client
             if (log.includes("frame=") || log.includes("speed=")) {
               try {
                 ws.send(
@@ -181,6 +194,7 @@ export async function attachRtmpRelayPro(server, options = {}) {
             } catch {}
           });
 
+          // Send success immediately
           ws.send(
             JSON.stringify({
               type: "started",
@@ -189,6 +203,25 @@ export async function attachRtmpRelayPro(server, options = {}) {
           );
 
           console.log("✅ FFmpeg ready, waiting for H264 frames...");
+
+          // Check if data is being received after 5 seconds
+          setTimeout(() => {
+            if (stats.videoFrames === 0) {
+              console.warn("⚠️ WARNING: No frames received after 5 seconds!");
+              try {
+                ws.send(
+                  JSON.stringify({
+                    type: "warning",
+                    message: "No frames received. Check encoder output.",
+                  })
+                );
+              } catch {}
+            } else {
+              console.log(
+                `✅ Receiving frames OK: ${stats.videoFrames} frames in 5s`
+              );
+            }
+          }, 5000);
         } catch (err) {
           console.error("❌ Spawn error:", err);
           ws.send(JSON.stringify({ type: "error", message: err.message }));
