@@ -1,11 +1,12 @@
-// rtmpRelay.js - BINARY OPTIMIZED VERSION (FIXED)
+// rtmpRelay.js - SMOOTH STREAMING OPTIMIZED
 //
 // Key improvements:
 // 1. Binary messages for stream data (no JSON overhead)
-// 2. Text messages for control (start/stop)
-// 3. 3-5x faster data transfer
-// 4. Lower CPU usage
-// 5. FIXED: Proper binary vs text detection in Node.js
+// 2. Optimized FFmpeg settings for smooth playback
+// 3. Larger buffers (3x bitrate) for stable streaming
+// 4. Higher audio quality (192kbps, 48kHz)
+// 5. Audio resampling for sync
+// 6. ultrafast preset for low latency
 
 import { WebSocketServer } from "ws";
 import { spawn, spawnSync } from "child_process";
@@ -62,7 +63,7 @@ export async function attachRtmpRelay(server, options = {}) {
   );
   console.log(`✅ FFmpeg path: ${ffmpegPath}`);
   console.log(`✅ RTMPS supported: ${hasRtmps ? "yes" : "no"}`);
-  console.log(`✅ Binary message optimization: ENABLED (FIXED)`);
+  console.log(`✅ Smooth streaming optimization: ENABLED`);
 
   const interval = setInterval(() => {
     wss.clients.forEach((ws) => {
@@ -127,7 +128,7 @@ export async function attachRtmpRelay(server, options = {}) {
     ws.on("message", async (message) => {
       // ✅ CRITICAL FIX: Proper binary vs text detection
       // In 'ws' library, all messages are Buffers, so we try parsing JSON first
-
+      
       let data = null;
       let isBinary = false;
 
@@ -136,12 +137,7 @@ export async function attachRtmpRelay(server, options = {}) {
         const msgStr = message.toString("utf8");
         data = JSON.parse(msgStr);
         isBinary = false;
-        console.log(
-          "📝 Received TEXT message, type:",
-          data.type,
-          "size:",
-          message.length
-        );
+        console.log("📝 Received TEXT message, type:", data.type, "size:", message.length);
       } catch (e) {
         // Not JSON = binary stream data
         isBinary = true;
@@ -212,8 +208,8 @@ export async function attachRtmpRelay(server, options = {}) {
 
         streamKey = data.streamKey;
         const fps = Number(data.fps || 30);
-        const videoBitrate = String(data.videoBitrate || "2500k");
-        const audioBitrate = String(data.audioBitrate || "128k");
+        const videoBitrate = String(data.videoBitrate || "2000k"); // Reduced for smoother streaming
+        const audioBitrate = String(data.audioBitrate || "192k"); // Increased for better audio quality
 
         let publishUrl = `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
         if (!hasRtmps) {
@@ -233,45 +229,41 @@ export async function attachRtmpRelay(server, options = {}) {
 
         try {
           const args = [
+            // Input settings - optimized for smooth streaming
             "-f",
             "webm",
-            "-probesize",
-            "32",
-            "-analyzeduration",
-            "0",
             "-thread_queue_size",
-            "512",
+            "1024",
+            "-probesize",
+            "5000000",
+            "-analyzeduration",
+            "2000000",
             "-fflags",
-            "+genpts+igndts+discardcorrupt",
-            "-avoid_negative_ts",
-            "make_zero",
+            "+genpts",
             "-use_wallclock_as_timestamps",
             "1",
             "-i",
             "pipe:0",
 
-            "-vsync",
-            "passthrough",
-            "-copytb",
-            "1",
-
+            // Stream mapping
             "-map",
-            "0:v:0?",
+            "0:v:0",
             "-map",
-            "0:a:0?",
+            "0:a:0",
 
+            // Video encoding - optimized for smooth playback
             "-c:v",
             "libx264",
             "-pix_fmt",
             "yuv420p",
             "-preset",
-            "veryfast",
+            "ultrafast",
             "-tune",
             "zerolatency",
             "-profile:v",
-            "baseline",
+            "main",
             "-level",
-            "3.1",
+            "4.0",
             "-r",
             String(fps),
             "-g",
@@ -287,21 +279,26 @@ export async function attachRtmpRelay(server, options = {}) {
             "-maxrate",
             videoBitrate,
             "-bufsize",
-            String(parseInt(videoBitrate) * 2 || 5000) + "k",
+            String(parseInt(videoBitrate) * 3 || 7500) + "k",
 
+            // Audio encoding - optimized for clarity
             "-c:a",
             "aac",
             "-b:a",
-            audioBitrate,
+            "192k",
             "-ar",
-            "44100",
+            "48000",
             "-ac",
             "2",
+            "-af",
+            "aresample=async=1:first_pts=0",
 
+            // Output format
             "-f",
             "flv",
             "-flvflags",
             "no_duration_filesize",
+            
             publishUrl,
           ];
 
