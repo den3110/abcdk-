@@ -1,4 +1,5 @@
-// rtmpRelayPro.js - PROFESSIONAL GRADE (WebCodecs support) - FULL DEBUG
+// rtmpRelayPro.js - FINAL FIXED VERSION
+// Copy TOÀN BỘ file này thay thế file cũ
 import { WebSocketServer } from "ws";
 import { spawn } from "child_process";
 
@@ -58,13 +59,12 @@ export async function attachRtmpRelayPro(server, options = {}) {
           if (ffmpeg.stdin?.writable) {
             // Check first frame for format validation
             if (stats.videoFrames === 0) {
-              const firstBytes = new Uint8Array(data.slice(0, 100)); // Check first 100 bytes
+              const firstBytes = new Uint8Array(data.slice(0, 100));
               const hex = Array.from(firstBytes.slice(0, 8))
                 .map((b) => b.toString(16).padStart(2, "0"))
                 .join(" ");
               console.log(`🔍 First frame header: ${hex}`);
 
-              // Check for Annex-B start codes
               if (
                 (firstBytes[0] === 0 &&
                   firstBytes[1] === 0 &&
@@ -76,7 +76,6 @@ export async function attachRtmpRelayPro(server, options = {}) {
               ) {
                 console.log("✅ H264 format: Annex-B (correct)");
 
-                // Check for SPS (0x67) and PPS (0x68) NAL units
                 const dataStr = Array.from(firstBytes)
                   .map((b) => b.toString(16).padStart(2, "0"))
                   .join("");
@@ -112,14 +111,12 @@ export async function attachRtmpRelayPro(server, options = {}) {
             ffmpeg.stdin.write(data);
             stats.videoFrames++;
 
-            // Log first few frames
             if (stats.videoFrames <= 5) {
               console.log(
                 `📥 Received frame #${stats.videoFrames}: ${data.byteLength} bytes`
               );
             }
 
-            // Log stats every 100 frames
             if (stats.videoFrames % 100 === 0) {
               const elapsed = (Date.now() - stats.startTime) / 1000;
               const avgFps = (stats.videoFrames / elapsed).toFixed(1);
@@ -171,53 +168,51 @@ export async function attachRtmpRelayPro(server, options = {}) {
         const { streamKey, width, height, fps, videoBitrate, audioBitrate } =
           config;
 
-        // DEBUG MODE: Set to true to save to file instead of streaming
+        // 🔧 DEBUG MODE: Đổi thành true để test save file local trước
         const DEBUG_SAVE_FILE = false;
 
         let outputTarget;
         if (DEBUG_SAVE_FILE) {
           outputTarget = `/tmp/test_stream_${Date.now()}.mp4`;
           console.log(`🎬 DEBUG MODE: Saving to ${outputTarget}`);
+          console.log(
+            `   After streaming, check: ls -lh /tmp/test_stream_*.mp4`
+          );
         } else {
-          // Try RTMP instead of RTMPS (RTMPS can cause SIGSEGV on some systems)
-          outputTarget = `rtmp://live-api-s.facebook.com:80/rtmp/${streamKey}`;
+          // ✅ QUAN TRỌNG: Dùng RTMPS (SSL) - Facebook yêu cầu
+          outputTarget = `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
           console.log(
             `🎬 Starting PRO stream: ${width}x${height}@${fps}fps, ${videoBitrate}`
           );
           console.log(
-            `🔗 RTMP URL: ${outputTarget.replace(streamKey, "***KEY***")}`
+            `🔗 RTMPS URL: ${outputTarget.replace(streamKey, "***KEY***")}`
           );
         }
 
-        // CRITICAL: Use -re to read at native framerate, add more buffer
+        const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
+        console.log(`🎥 Using FFmpeg: ${ffmpegPath}`);
+
+        // ✅ SIMPLIFIED args - không dùng options phức tạp
         const args = [
           "-hide_banner",
           "-loglevel",
-          "info", // Verbose output
+          "info",
 
-          // Input
+          // Input: raw H264 stream
           "-f",
           "h264",
-          "-use_wallclock_as_timestamps",
-          "1",
-          "-fflags",
-          "+genpts",
-          "-r",
-          String(fps),
           "-i",
           "pipe:0",
 
           // Video: COPY (no re-encode)
           "-c:v",
           "copy",
-          "-bsf:v",
-          "dump_extra", // Add SPS/PPS to every keyframe
 
           // No audio
           "-an",
         ];
 
-        // Output format depends on target
+        // Output format
         if (DEBUG_SAVE_FILE) {
           args.push(
             "-f",
@@ -227,12 +222,7 @@ export async function attachRtmpRelayPro(server, options = {}) {
             outputTarget
           );
         } else {
-          // RTMP specific options to prevent crashes
           args.push(
-            "-rtmp_buffer",
-            "100",
-            "-rtmp_live",
-            "live",
             "-f",
             "flv",
             "-flvflags",
@@ -241,8 +231,14 @@ export async function attachRtmpRelayPro(server, options = {}) {
           );
         }
 
+        console.log(
+          `🔧 FFmpeg command: ${ffmpegPath} ${args
+            .slice(0, -1)
+            .join(" ")} [OUTPUT]`
+        );
+
         try {
-          ffmpeg = spawn("ffmpeg", args, {
+          ffmpeg = spawn(ffmpegPath, args, {
             stdio: ["pipe", "pipe", "pipe"],
           });
 
@@ -256,12 +252,33 @@ export async function attachRtmpRelayPro(server, options = {}) {
             }
           });
 
-          // CRITICAL: Log EVERYTHING from FFmpeg
           ffmpeg.stderr.on("data", (d) => {
             const log = d.toString().trim();
             console.log("📺 FFmpeg:", log);
 
-            // Send progress to client
+            // Check for specific errors
+            if (log.includes("Cannot read RTMP handshake")) {
+              console.error("❌ RTMP handshake failed!");
+              console.error("   Possible causes:");
+              console.error("   1. Invalid stream key");
+              console.error(
+                "   2. Facebook stream not ready (start in dashboard first)"
+              );
+              console.error("   3. Network/firewall blocking");
+              console.error(
+                "   💡 Try: Set DEBUG_SAVE_FILE=true to test H264 locally first"
+              );
+            }
+            if (
+              log.includes("Unsupported protocol") ||
+              log.includes("Protocol not found")
+            ) {
+              console.error("❌ FFmpeg doesn't support RTMPS!");
+              console.error(
+                "   Install: sudo apt install ffmpeg libssl-dev librtmp-dev"
+              );
+            }
+
             if (log.includes("frame=") || log.includes("speed=")) {
               try {
                 ws.send(JSON.stringify({ type: "progress", message: log }));
@@ -290,7 +307,6 @@ export async function attachRtmpRelayPro(server, options = {}) {
 
           console.log("✅ FFmpeg ready, waiting for H264 frames...");
 
-          // Check after 5 seconds
           setTimeout(() => {
             if (stats.videoFrames === 0) {
               console.warn("⚠️ WARNING: No frames received after 5 seconds!");
