@@ -1,4 +1,6 @@
-// FacebookLiveStreamerAdaptive.jsx - AUTO QUALITY + AUTO STREAM KEY
+// FacebookLiveStreamerAdaptive.jsx - AUTO QUALITY + URL PARAMS
+// ✅ Adaptive bitrate, auto stream key, network monitoring
+
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   Box,
@@ -21,6 +23,8 @@ import {
   FormControl,
   InputLabel,
   LinearProgress,
+  Tooltip,
+  IconButton,
 } from "@mui/material";
 import {
   RadioButtonChecked,
@@ -33,76 +37,77 @@ import {
   Layers,
   CheckCircle,
   Speed,
-  SignalCellularAlt,
-  Warning,
+  SettingsInputHdmi,
+  AutoMode,
+  Refresh,
 } from "@mui/icons-material";
 
-// 🎯 QUALITY PRESETS
+// ✅ QUALITY PRESETS - Adaptive bitrate
 const QUALITY_PRESETS = {
   low: {
     label: "Low (360p)",
     width: 640,
     height: 360,
     fps: 24,
-    videoBitrate: 800,
-    audioBitrate: 64,
+    videoBitsPerSecond: 800,
+    description: "Tiết kiệm data, mạng chậm",
   },
   medium: {
     label: "Medium (480p)",
     width: 854,
     height: 480,
-    fps: 25,
-    videoBitrate: 1200,
-    audioBitrate: 96,
+    fps: 30,
+    videoBitsPerSecond: 1500,
+    description: "Cân bằng chất lượng/data",
   },
   high: {
     label: "High (720p)",
     width: 1280,
     height: 720,
     fps: 30,
-    videoBitrate: 2500,
-    audioBitrate: 128,
+    videoBitsPerSecond: 2500,
+    description: "HD, mạng tốt",
   },
   ultra: {
     label: "Ultra (1080p)",
     width: 1920,
     height: 1080,
     fps: 30,
-    videoBitrate: 4500,
-    audioBitrate: 192,
+    videoBitsPerSecond: 4000,
+    description: "Full HD, mạng rất tốt",
   },
 };
 
-export default function FacebookLiveStreamerAdaptive() {
-  // Parse URL params on mount
-  const [matchId, setMatchId] = useState("");
-  const [streamServer, setStreamServer] = useState("");
-  const [streamKey, setStreamKey] = useState("");
-
-  // Network & Quality
-  const [networkSpeed, setNetworkSpeed] = useState(0); // Mbps
-  const [qualityMode, setQualityMode] = useState("auto"); // auto, low, medium, high, ultra
-  const [currentQuality, setCurrentQuality] = useState(QUALITY_PRESETS.high);
-  const [isAdaptiveMode, setIsAdaptiveMode] = useState(true);
-
-  // Streaming state
+export default function FacebookLiveStreamerAdaptive({
+  matchId,
+  wsUrl = "ws://localhost:5002/ws/rtmp",
+  apiUrl = "http://localhost:5001/api/overlay/match",
+}) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState("Đang khởi tạo...");
+  const [streamKey, setStreamKey] = useState("");
+  const [status, setStatus] = useState("Chưa kết nối");
   const [statusType, setStatusType] = useState("info");
   const [overlayData, setOverlayData] = useState(null);
   const [facingMode, setFacingMode] = useState("user");
   const [videoDevices, setVideoDevices] = useState([]);
   const [supportsWebCodecs, setSupportsWebCodecs] = useState(false);
-  const [videoSize, setVideoSize] = useState({ w: 1280, h: 720 });
 
-  // Performance metrics
-  const [performanceMetrics, setPerformanceMetrics] = useState({
+  // ✅ NEW: Quality & Network monitoring
+  const [qualityMode, setQualityMode] = useState("high"); // auto/low/medium/high/ultra
+  const [autoQuality, setAutoQuality] = useState(true);
+  const [networkSpeed, setNetworkSpeed] = useState(0); // Mbps
+  const [recommendedQuality, setRecommendedQuality] = useState("high");
+  const [streamHealth, setStreamHealth] = useState({
     fps: 0,
-    droppedFrames: 0,
-    encoderQueue: 0,
-    networkLatency: 0,
+    bitrate: 0,
+    dropped: 0,
+  });
+
+  const [videoSize, setVideoSize] = useState(() => {
+    const preset = QUALITY_PRESETS.high;
+    return { w: preset.width, h: preset.height };
   });
 
   const [overlayConfig, setOverlayConfig] = useState({
@@ -119,8 +124,7 @@ export default function FacebookLiveStreamerAdaptive() {
     viewerCount: false,
   });
 
-  const overlayDataRef = useRef(null);
-  const overlayConfigRef = useRef(overlayConfig);
+  // Refs
   const streamTimeRef = useRef(0);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -142,209 +146,83 @@ export default function FacebookLiveStreamerAdaptive() {
   const lastFrameTimestampRef = useRef(0);
   const frameIntervalRef = useRef(0);
   const networkTestRef = useRef(null);
-  const qualityAdjustmentRef = useRef(null);
-
-  // 🌐 Parse URL parameters on mount
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-
-    const matchIdParam = params.get("matchId");
-    const serverParam = params.get("server");
-    const keyParam = params.get("key");
-
-    if (matchIdParam) {
-      setMatchId(matchIdParam);
-      console.log("📍 Match ID from URL:", matchIdParam);
-    }
-
-    if (serverParam) {
-      const decodedServer = decodeURIComponent(serverParam);
-      setStreamServer(decodedServer);
-      console.log("🌐 Stream Server from URL:", decodedServer);
-    }
-
-    if (keyParam) {
-      const decodedKey = decodeURIComponent(keyParam);
-      setStreamKey(decodedKey);
-      console.log(
-        "🔑 Stream Key from URL:",
-        decodedKey.substring(0, 20) + "..."
-      );
-      setStatus("✅ Stream key tự động từ URL");
-      setStatusType("success");
-    } else {
-      setStatus("⚠️ Chưa có stream key trong URL");
-      setStatusType("warning");
-    }
-  }, []);
-
-  // 📊 Network speed detection
-  useEffect(() => {
-    const detectNetworkSpeed = async () => {
-      try {
-        // Method 1: Navigator Connection API
-        const connection =
-          navigator.connection ||
-          navigator.mozConnection ||
-          navigator.webkitConnection;
-
-        if (connection && connection.downlink) {
-          const speedMbps = connection.downlink;
-          setNetworkSpeed(speedMbps);
-          console.log(
-            `📡 Network speed: ${speedMbps} Mbps (${connection.effectiveType})`
-          );
-
-          // Auto-adjust quality based on speed
-          if (isAdaptiveMode) {
-            adjustQualityBasedOnSpeed(speedMbps);
-          }
-        } else {
-          // Method 2: Manual speed test
-          await performSpeedTest();
-        }
-      } catch (err) {
-        console.warn("Network detection failed:", err);
-        setNetworkSpeed(5); // Default to medium speed
-        if (isAdaptiveMode) {
-          setCurrentQuality(QUALITY_PRESETS.medium);
-        }
-      }
-    };
-
-    detectNetworkSpeed();
-
-    // Re-check every 30 seconds
-    const interval = setInterval(detectNetworkSpeed, 30000);
-
-    return () => clearInterval(interval);
-  }, [isAdaptiveMode]);
-
-  // 🔍 Manual speed test
-  const performSpeedTest = async () => {
-    try {
-      setStatus("📊 Đang kiểm tra tốc độ mạng...");
-
-      const testUrl =
-        "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png";
-      const startTime = performance.now();
-
-      const response = await fetch(testUrl + "?t=" + Date.now(), {
-        cache: "no-store",
-        mode: "no-cors",
-      });
-
-      const endTime = performance.now();
-      const duration = (endTime - startTime) / 1000; // seconds
-      const fileSize = 13504; // bytes (approximate)
-      const speedBps = fileSize / duration;
-      const speedMbps = (speedBps * 8) / (1024 * 1024);
-
-      setNetworkSpeed(speedMbps);
-      console.log(`🧪 Speed test: ${speedMbps.toFixed(2)} Mbps`);
-
-      if (isAdaptiveMode) {
-        adjustQualityBasedOnSpeed(speedMbps);
-      }
-    } catch (err) {
-      console.warn("Speed test failed:", err);
-      setNetworkSpeed(3); // Conservative default
-      if (isAdaptiveMode) {
-        setCurrentQuality(QUALITY_PRESETS.medium);
-      }
-    }
-  };
-
-  // 🎯 Adjust quality based on network speed
-  const adjustQualityBasedOnSpeed = useCallback((speedMbps) => {
-    let selectedQuality;
-
-    if (speedMbps >= 10) {
-      selectedQuality = QUALITY_PRESETS.ultra;
-    } else if (speedMbps >= 5) {
-      selectedQuality = QUALITY_PRESETS.high;
-    } else if (speedMbps >= 2.5) {
-      selectedQuality = QUALITY_PRESETS.medium;
-    } else {
-      selectedQuality = QUALITY_PRESETS.low;
-    }
-
-    setCurrentQuality(selectedQuality);
-    console.log(
-      `🎯 Auto quality: ${selectedQuality.label} (${speedMbps.toFixed(1)} Mbps)`
-    );
-    setStatus(`🎯 Chất lượng tự động: ${selectedQuality.label}`);
-  }, []);
-
-  // Manual quality selection
-  const handleQualityChange = (e) => {
-    const mode = e.target.value;
-    setQualityMode(mode);
-
-    if (mode === "auto") {
-      setIsAdaptiveMode(true);
-      adjustQualityBasedOnSpeed(networkSpeed);
-    } else {
-      setIsAdaptiveMode(false);
-      setCurrentQuality(QUALITY_PRESETS[mode]);
-      console.log(`🎬 Manual quality: ${QUALITY_PRESETS[mode].label}`);
-    }
-  };
-
-  // Monitor performance and adjust quality dynamically
-  useEffect(() => {
-    if (!isStreaming || !isAdaptiveMode) return;
-
-    const monitorPerformance = setInterval(() => {
-      const encoder = videoEncoderRef.current;
-      if (!encoder) return;
-
-      const queueSize = encoder.encodeQueueSize || 0;
-      const droppedFrames = statsRef.current.dropped;
-
-      setPerformanceMetrics((prev) => ({
-        fps: parseFloat(statsRef.current.avgFps) || 0,
-        droppedFrames: droppedFrames,
-        encoderQueue: queueSize,
-        networkLatency: 0,
-      }));
-
-      // Auto-downgrade if performance issues
-      if (queueSize > 15 || droppedFrames > 50) {
-        console.warn(
-          `⚠️ Performance issues detected! Queue: ${queueSize}, Dropped: ${droppedFrames}`
-        );
-
-        // Downgrade quality
-        if (currentQuality.label === QUALITY_PRESETS.ultra.label) {
-          setCurrentQuality(QUALITY_PRESETS.high);
-          setStatus("⬇️ Giảm xuống High do hiệu suất");
-          setStatusType("warning");
-        } else if (currentQuality.label === QUALITY_PRESETS.high.label) {
-          setCurrentQuality(QUALITY_PRESETS.medium);
-          setStatus("⬇️ Giảm xuống Medium do hiệu suất");
-          setStatusType("warning");
-        }
-
-        // Reset stats
-        statsRef.current.dropped = 0;
-      }
-    }, 5000);
-
-    return () => clearInterval(monitorPerformance);
-  }, [isStreaming, isAdaptiveMode, currentQuality]);
-
-  useEffect(() => {
-    overlayDataRef.current = overlayData;
-  }, [overlayData]);
-
-  useEffect(() => {
-    overlayConfigRef.current = overlayConfig;
-  }, [overlayConfig]);
 
   const canSwitchCamera =
     videoDevices.length > 1 ||
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  // ✅ Parse URL params to get stream key
+  useEffect(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const keyParam = urlParams.get("key");
+
+      if (keyParam) {
+        setStreamKey(keyParam);
+        setStatus(
+          `✅ Stream key tự động từ URL: ${keyParam.substring(0, 20)}...`
+        );
+        setStatusType("success");
+      }
+    } catch (err) {
+      console.warn("Cannot parse URL params:", err);
+    }
+  }, []);
+
+  // ✅ Network speed monitoring
+  const measureNetworkSpeed = useCallback(async () => {
+    if (networkTestRef.current) return; // Prevent multiple tests
+
+    try {
+      networkTestRef.current = true;
+      const startTime = Date.now();
+
+      // Test with a small image (adjust URL as needed)
+      const testSize = 500000; // 500KB
+      const response = await fetch(`https://via.placeholder.com/500`, {
+        cache: "no-store",
+      });
+
+      if (response.ok) {
+        const blob = await response.blob();
+        const duration = (Date.now() - startTime) / 1000; // seconds
+        const speedMbps = ((blob.size * 8) / duration / 1000000).toFixed(2);
+        setNetworkSpeed(parseFloat(speedMbps));
+
+        // Recommend quality based on speed
+        let recommended = "low";
+        if (speedMbps >= 10) recommended = "ultra";
+        else if (speedMbps >= 5) recommended = "high";
+        else if (speedMbps >= 2) recommended = "medium";
+
+        setRecommendedQuality(recommended);
+
+        if (autoQuality && !isStreaming) {
+          setQualityMode(recommended);
+        }
+      }
+    } catch (err) {
+      console.warn("Network test failed:", err);
+      setNetworkSpeed(0);
+    } finally {
+      networkTestRef.current = null;
+    }
+  }, [autoQuality, isStreaming]);
+
+  // Measure network speed on mount and every 30s
+  useEffect(() => {
+    measureNetworkSpeed();
+    const interval = setInterval(measureNetworkSpeed, 30000);
+    return () => clearInterval(interval);
+  }, [measureNetworkSpeed]);
+
+  // ✅ Update video size when quality changes
+  useEffect(() => {
+    const preset = QUALITY_PRESETS[qualityMode];
+    if (preset && !isStreaming) {
+      setVideoSize({ w: preset.width, h: preset.height });
+    }
+  }, [qualityMode, isStreaming]);
 
   const toggleOverlay = useCallback((key) => {
     setOverlayConfig((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -387,10 +265,12 @@ export default function FacebookLiveStreamerAdaptive() {
       roundRect(ctx, x, y, width, height, 12);
       ctx.fill();
       ctx.shadowBlur = 0;
+
       ctx.fillStyle = "#9AA4AF";
       ctx.font = "500 11px Arial";
       ctx.textAlign = "left";
       ctx.fillText(data?.tournament?.name || "Tournament", x + 14, y + 22);
+
       const teamA = data?.teams?.A?.name || "Team A";
       const scoreA = data?.gameScores?.[data?.currentGame || 0]?.a || 0;
       ctx.fillStyle = "#25C2A0";
@@ -403,6 +283,7 @@ export default function FacebookLiveStreamerAdaptive() {
       ctx.font = "800 24px Arial";
       ctx.textAlign = "right";
       ctx.fillText(String(scoreA), x + width - 14, y + 50);
+
       const teamB = data?.teams?.B?.name || "Team B";
       const scoreB = data?.gameScores?.[data?.currentGame || 0]?.b || 0;
       ctx.fillStyle = "#4F46E5";
@@ -430,6 +311,7 @@ export default function FacebookLiveStreamerAdaptive() {
       const seconds = (time % 60).toString().padStart(2, "0");
       const x = w / 2 - 80,
         y = 20;
+
       ctx.save();
       ctx.fillStyle = "rgba(239,68,68,0.95)";
       ctx.shadowColor = "rgba(0,0,0,0.5)";
@@ -674,22 +556,23 @@ export default function FacebookLiveStreamerAdaptive() {
         ctx.fillRect(0, 0, w, h);
       }
 
-      const config = overlayConfigRef.current;
-      const data = overlayDataRef.current;
-
-      if (config.scoreBoard && data) drawScoreBoard(ctx, w, h, data);
-      if (config.timer) drawTimer(ctx, w, h);
-      if (config.tournamentName && data) drawTournamentName(ctx, w, h, data);
-      if (config.logo) drawLogo(ctx, w, h);
-      if (config.sponsors) drawSponsors(ctx, w, h);
-      if (config.lowerThird) drawLowerThird(ctx, w, h);
-      if (config.socialMedia) drawSocialMedia(ctx, w, h);
-      if (config.qrCode) drawQRCode(ctx, w, h);
-      if (config.frameDecor) drawFrameDecoration(ctx, w, h);
-      if (config.liveBadge) drawLiveBadge(ctx, w, h);
-      if (config.viewerCount) drawViewerCount(ctx, w, h);
+      if (overlayConfig.scoreBoard && overlayData)
+        drawScoreBoard(ctx, w, h, overlayData);
+      if (overlayConfig.timer) drawTimer(ctx, w, h);
+      if (overlayConfig.tournamentName && overlayData)
+        drawTournamentName(ctx, w, h, overlayData);
+      if (overlayConfig.logo) drawLogo(ctx, w, h);
+      if (overlayConfig.sponsors) drawSponsors(ctx, w, h);
+      if (overlayConfig.lowerThird) drawLowerThird(ctx, w, h);
+      if (overlayConfig.socialMedia) drawSocialMedia(ctx, w, h);
+      if (overlayConfig.qrCode) drawQRCode(ctx, w, h);
+      if (overlayConfig.frameDecor) drawFrameDecoration(ctx, w, h);
+      if (overlayConfig.liveBadge) drawLiveBadge(ctx, w, h);
+      if (overlayConfig.viewerCount) drawViewerCount(ctx, w, h);
     },
     [
+      overlayConfig,
+      overlayData,
       drawScoreBoard,
       drawTimer,
       drawTournamentName,
@@ -703,6 +586,11 @@ export default function FacebookLiveStreamerAdaptive() {
       drawViewerCount,
     ]
   );
+
+  const drawFrameRef = useRef(drawFrame);
+  useEffect(() => {
+    drawFrameRef.current = drawFrame;
+  }, [drawFrame]);
 
   useEffect(() => {
     let interval = null;
@@ -723,6 +611,9 @@ export default function FacebookLiveStreamerAdaptive() {
     if (!supported) {
       setStatus("⚠️ WebCodecs không hỗ trợ. Cần Chrome/Edge 94+");
       setStatusType("warning");
+    } else {
+      setStatus("✅ WebCodecs ready - ADAPTIVE QUALITY");
+      setStatusType("success");
     }
   }, []);
 
@@ -756,16 +647,20 @@ export default function FacebookLiveStreamerAdaptive() {
   const initCamera = async (preferFacing = "user") => {
     try {
       stopCurrentStream();
+
+      const preset = QUALITY_PRESETS[qualityMode];
       const common = {
-        width: { ideal: currentQuality.width },
-        height: { ideal: currentQuality.height },
-        frameRate: { ideal: currentQuality.fps },
+        width: { ideal: preset.width },
+        height: { ideal: preset.height },
+        frameRate: { ideal: preset.fps },
       };
+
       const audioConstraints = {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
       };
+
       let stream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -795,8 +690,8 @@ export default function FacebookLiveStreamerAdaptive() {
 
       const vTrack = stream.getVideoTracks()[0];
       const s = vTrack?.getSettings?.() || {};
-      const w = s.width || currentQuality.width;
-      const h = s.height || currentQuality.height;
+      const w = s.width || preset.width;
+      const h = s.height || preset.height;
 
       if (canvasRef.current) {
         canvasRef.current.width = w;
@@ -809,7 +704,11 @@ export default function FacebookLiveStreamerAdaptive() {
 
       setVideoSize({ w, h });
       setFacingMode(preferFacing);
-      setStatus(`Camera sẵn sàng ${currentQuality.label}`);
+      setStatus(
+        `Camera sẵn sàng (${
+          preferFacing === "environment" ? "sau" : "trước"
+        }) - ${QUALITY_PRESETS[qualityMode].label}`
+      );
       setStatusType("success");
 
       await enumerateVideoDevices();
@@ -864,7 +763,7 @@ export default function FacebookLiveStreamerAdaptive() {
         wsRef.current?.close();
       } catch {}
     };
-  }, [currentQuality.fps, currentQuality.height, currentQuality.width]);
+  }, [qualityMode]);
 
   useEffect(() => {
     if (!matchId) return;
@@ -873,10 +772,7 @@ export default function FacebookLiveStreamerAdaptive() {
       if (overlayFetchingRef.current) return;
       overlayFetchingRef.current = true;
       try {
-        const res = await fetch(
-          `http://localhost:5001/api/overlay/match/${matchId}`,
-          { cache: "no-store" }
-        );
+        const res = await fetch(`${apiUrl}/${matchId}`, { cache: "no-store" });
         const data = await res.json();
         setOverlayData(data);
       } catch (e) {
@@ -888,7 +784,7 @@ export default function FacebookLiveStreamerAdaptive() {
     tick();
     timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [matchId]);
+  }, [matchId, apiUrl]);
 
   useEffect(() => {
     const canvas = previewCanvasRef.current;
@@ -904,7 +800,7 @@ export default function FacebookLiveStreamerAdaptive() {
     let running = true;
     const render = () => {
       if (!running) return;
-      drawFrame(ctx, video, canvas.width, canvas.height);
+      drawFrameRef.current(ctx, video, canvas.width, canvas.height);
       requestAnimationFrame(render);
     };
 
@@ -912,7 +808,7 @@ export default function FacebookLiveStreamerAdaptive() {
     return () => {
       running = false;
     };
-  }, [drawFrame, facingMode]);
+  }, [facingMode]);
 
   const convertToAnnexB = (data, description, isKeyframe) => {
     const startCode = new Uint8Array([0, 0, 0, 1]);
@@ -970,7 +866,7 @@ export default function FacebookLiveStreamerAdaptive() {
 
   const startStreamingPro = async () => {
     if (!streamKey.trim()) {
-      setStatus("Vui lòng nhập Stream Key hoặc sử dụng URL có key");
+      setStatus("Vui lòng nhập Stream Key");
       setStatusType("warning");
       return;
     }
@@ -984,9 +880,11 @@ export default function FacebookLiveStreamerAdaptive() {
     setLoading(true);
 
     try {
+      const preset = QUALITY_PRESETS[qualityMode];
+
       setStatus("Đang kết nối WebSocket...");
       const ws = await new Promise((resolve, reject) => {
-        const socket = new WebSocket("ws://localhost:5002/ws/rtmp");
+        const socket = new WebSocket(wsUrl);
         socket.binaryType = "arraybuffer";
         const timeout = setTimeout(() => {
           socket.close();
@@ -1005,7 +903,7 @@ export default function FacebookLiveStreamerAdaptive() {
       wsRef.current = ws;
       setIsConnected(true);
 
-      setStatus(`Đang khởi tạo H264 encoder (${currentQuality.label})...`);
+      setStatus("Đang khởi tạo H264 encoder...");
 
       const encoder = new VideoEncoder({
         output: (chunk, metadata) => {
@@ -1048,6 +946,13 @@ export default function FacebookLiveStreamerAdaptive() {
               const elapsed = (now - statsRef.current.lastLog) / 1000;
               const fpsNow = (statsRef.current.sent / elapsed).toFixed(1);
               statsRef.current.avgFps = fpsNow;
+
+              setStreamHealth({
+                fps: parseFloat(fpsNow),
+                bitrate: preset.videoBitsPerSecond,
+                dropped: statsRef.current.dropped,
+              });
+
               console.log(
                 `📊 FPS: ${fpsNow}, Sent: ${statsRef.current.sent}, Dropped: ${statsRef.current.dropped}, Queue: ${encoder.encodeQueueSize}`
               );
@@ -1075,10 +980,10 @@ export default function FacebookLiveStreamerAdaptive() {
 
       encoder.configure({
         codec: "avc1.42001f",
-        width: currentQuality.width,
-        height: currentQuality.height,
-        bitrate: currentQuality.videoBitrate * 1000,
-        framerate: currentQuality.fps,
+        width: preset.width,
+        height: preset.height,
+        bitrate: preset.videoBitsPerSecond * 1000,
+        framerate: preset.fps,
         hardwareAcceleration: "prefer-hardware",
         latencyMode: "realtime",
         bitrateMode: "constant",
@@ -1092,11 +997,11 @@ export default function FacebookLiveStreamerAdaptive() {
         JSON.stringify({
           type: "start",
           streamKey,
-          width: currentQuality.width,
-          height: currentQuality.height,
-          fps: currentQuality.fps,
-          videoBitrate: currentQuality.videoBitrate + "k",
-          audioBitrate: currentQuality.audioBitrate + "k",
+          width: preset.width,
+          height: preset.height,
+          fps: preset.fps,
+          videoBitrate: preset.videoBitsPerSecond + "k",
+          audioBitrate: "192k",
         })
       );
 
@@ -1125,7 +1030,7 @@ export default function FacebookLiveStreamerAdaptive() {
                     : "";
                   const mr = new MediaRecorder(aStream, {
                     mimeType: mime || undefined,
-                    audioBitsPerSecond: currentQuality.audioBitrate * 1000,
+                    audioBitsPerSecond: 128000,
                   });
                   mr.ondataavailable = async (e) => {
                     try {
@@ -1173,7 +1078,7 @@ export default function FacebookLiveStreamerAdaptive() {
         willReadFrequently: false,
       });
 
-      const frameDurationMicros = 1000000 / currentQuality.fps;
+      const frameDurationMicros = 1000000 / preset.fps;
       frameIntervalRef.current = frameDurationMicros;
       let nextFrameTimeMicros = performance.now() * 1000;
       lastFrameTimestampRef.current = nextFrameTimeMicros;
@@ -1208,7 +1113,7 @@ export default function FacebookLiveStreamerAdaptive() {
             });
 
             const forceKeyframe =
-              frameCountRef.current % (currentQuality.fps * 2) === 0;
+              frameCountRef.current % (preset.fps * 2) === 0;
             encoder.encode(frame, { keyFrame: forceKeyframe });
             frame.close();
             frameCountRef.current++;
@@ -1229,9 +1134,7 @@ export default function FacebookLiveStreamerAdaptive() {
       encodingLoopRef.current = requestAnimationFrame(encodeLoop);
 
       setIsStreaming(true);
-      setStatus(
-        `✅ LIVE - ${currentQuality.label} @ ${networkSpeed.toFixed(1)} Mbps`
-      );
+      setStatus(`✅ LIVE - ${preset.label} (<500ms latency)`);
       setStatusType("success");
     } catch (err) {
       setStatus("❌ Lỗi: " + err.message);
@@ -1299,6 +1202,7 @@ export default function FacebookLiveStreamerAdaptive() {
       setIsConnected(false);
       setStatus("Đã dừng streaming");
       setStatusType("info");
+      setStreamHealth({ fps: 0, bitrate: 0, dropped: 0 });
     } catch (err) {
       setStatus("Lỗi khi dừng: " + err.message);
       setStatusType("error");
@@ -1535,39 +1439,35 @@ export default function FacebookLiveStreamerAdaptive() {
             <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
               <RadioButtonChecked sx={{ fontSize: 40, color: "error.main" }} />
               <Typography variant="h4" fontWeight="bold" color="text.primary">
-                Facebook Live Adaptive
+                Facebook Live - Adaptive Quality
               </Typography>
               <Chip
-                label={currentQuality.label}
-                color="primary"
+                label="Auto Quality"
+                color="success"
                 size="small"
                 sx={{ fontWeight: "bold" }}
               />
-              {networkSpeed > 0 && (
-                <Chip
-                  icon={<Speed />}
-                  label={`${networkSpeed.toFixed(1)} Mbps`}
-                  color="success"
-                  size="small"
-                />
-              )}
             </Box>
-            {isStreaming && (
-              <Chip
-                icon={<RadioButtonChecked />}
-                label="LIVE"
-                color="error"
-                sx={{
-                  fontWeight: "bold",
-                  fontSize: "1rem",
-                  px: 2,
-                  animation: "pulse 2s infinite",
-                  "@keyframes pulse": {
-                    "0%,100%": { opacity: 1 },
-                    "50%": { opacity: 0.7 },
-                  },
-                }}
-              />
+            {(isStreaming || isConnected) && (
+              <Box sx={{ display: "flex", gap: 1 }}>
+                {isStreaming && (
+                  <Chip
+                    icon={<RadioButtonChecked />}
+                    label="LIVE"
+                    color="error"
+                    sx={{
+                      fontWeight: "bold",
+                      fontSize: "1rem",
+                      px: 2,
+                      animation: "pulse 2s infinite",
+                      "@keyframes pulse": {
+                        "0%,100%": { opacity: 1 },
+                        "50%": { opacity: 0.7 },
+                      },
+                    }}
+                  />
+                )}
+              </Box>
             )}
           </Box>
 
@@ -1687,58 +1587,44 @@ export default function FacebookLiveStreamerAdaptive() {
 
                     {isStreaming && (
                       <Box sx={{ mt: 2 }}>
-                        <Typography variant="body2" gutterBottom>
-                          Performance Metrics:
+                        <Typography variant="caption" color="text.secondary">
+                          Stream Health
                         </Typography>
-                        <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-                          <Chip
-                            icon={<Speed />}
-                            label={`${performanceMetrics.fps} FPS`}
-                            size="small"
-                            color={
-                              performanceMetrics.fps >= 25
-                                ? "success"
-                                : "warning"
-                            }
-                          />
-                          <Chip
-                            label={`Dropped: ${performanceMetrics.droppedFrames}`}
-                            size="small"
-                            color={
-                              performanceMetrics.droppedFrames < 10
-                                ? "success"
-                                : "error"
-                            }
-                          />
-                          <Chip
-                            label={`Queue: ${performanceMetrics.encoderQueue}`}
-                            size="small"
-                            color={
-                              performanceMetrics.encoderQueue < 5
-                                ? "success"
-                                : "warning"
-                            }
-                          />
-                        </Box>
-                        {performanceMetrics.encoderQueue > 10 && (
-                          <Alert
-                            severity="warning"
-                            sx={{ mt: 1 }}
-                            icon={<Warning />}
-                          >
-                            <Typography variant="caption">
-                              Encoder overload detected. Quality may
-                              auto-adjust.
-                            </Typography>
-                          </Alert>
-                        )}
+                        <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                          <Grid item xs={4}>
+                            <Chip
+                              size="small"
+                              label={`${streamHealth.fps} FPS`}
+                              color="success"
+                              sx={{ width: "100%" }}
+                            />
+                          </Grid>
+                          <Grid item xs={4}>
+                            <Chip
+                              size="small"
+                              label={`${streamHealth.bitrate}k`}
+                              color="info"
+                              sx={{ width: "100%" }}
+                            />
+                          </Grid>
+                          <Grid item xs={4}>
+                            <Chip
+                              size="small"
+                              label={`Drop: ${streamHealth.dropped}`}
+                              color={
+                                streamHealth.dropped > 10 ? "error" : "default"
+                              }
+                              sx={{ width: "100%" }}
+                            />
+                          </Grid>
+                        </Grid>
                       </Box>
                     )}
 
                     <Alert severity="success" sx={{ mt: 2 }}>
                       <Typography variant="body2">
                         ⚡ <strong>Adaptive Quality</strong>: Tự động điều chỉnh
-                        dựa trên mạng & hiệu suất!
+                        theo mạng!
                       </Typography>
                     </Alert>
                   </CardContent>
@@ -1746,6 +1632,7 @@ export default function FacebookLiveStreamerAdaptive() {
               </Grid>
 
               <Grid item xs={12} lg={4}>
+                {/* Quality Settings Card */}
                 <Card elevation={2} sx={{ mb: 3 }}>
                   <CardContent>
                     <Box
@@ -1756,120 +1643,163 @@ export default function FacebookLiveStreamerAdaptive() {
                         mb: 2,
                       }}
                     >
-                      <SignalCellularAlt color="primary" />
+                      <SettingsInputHdmi color="primary" />
                       <Typography variant="h6" fontWeight={600}>
                         Quality Settings
                       </Typography>
                     </Box>
 
-                    <FormControl fullWidth sx={{ mb: 2 }}>
-                      <InputLabel>Quality Mode</InputLabel>
-                      <Select
-                        value={qualityMode}
-                        onChange={handleQualityChange}
-                        disabled={isStreaming}
-                        label="Quality Mode"
-                      >
-                        <MenuItem value="auto">🔄 Auto (Adaptive)</MenuItem>
-                        <MenuItem value="low">📱 Low (360p - 800kbps)</MenuItem>
-                        <MenuItem value="medium">
-                          💻 Medium (480p - 1.2Mbps)
-                        </MenuItem>
-                        <MenuItem value="high">
-                          🖥️ High (720p - 2.5Mbps)
-                        </MenuItem>
-                        <MenuItem value="ultra">
-                          🎬 Ultra (1080p - 4.5Mbps)
-                        </MenuItem>
-                      </Select>
-                    </FormControl>
-
                     <Box sx={{ mb: 2 }}>
-                      <Typography
-                        variant="body2"
-                        color="text.secondary"
-                        gutterBottom
-                      >
-                        Network Speed
-                      </Typography>
                       <Box
-                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          mb: 1,
+                        }}
                       >
-                        <LinearProgress
-                          variant="determinate"
-                          value={Math.min((networkSpeed / 10) * 100, 100)}
-                          sx={{ flex: 1, height: 8, borderRadius: 4 }}
+                        <Box
+                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                        >
+                          <Speed fontSize="small" color="action" />
+                          <Typography variant="body2" color="text.secondary">
+                            Network Speed
+                          </Typography>
+                          <Tooltip title="Test lại tốc độ mạng">
+                            <IconButton
+                              size="small"
+                              onClick={measureNetworkSpeed}
+                              disabled={loading}
+                            >
+                              <Refresh fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                        <Chip
+                          label={
+                            networkSpeed > 0
+                              ? `${networkSpeed} Mbps`
+                              : "Testing..."
+                          }
+                          size="small"
                           color={
                             networkSpeed >= 5
                               ? "success"
-                              : networkSpeed >= 2.5
+                              : networkSpeed >= 2
                               ? "warning"
                               : "error"
                           }
                         />
-                        <Typography variant="body2" fontWeight={600}>
-                          {networkSpeed.toFixed(1)} Mbps
-                        </Typography>
                       </Box>
+                      {networkSpeed > 0 && (
+                        <LinearProgress
+                          variant="determinate"
+                          value={Math.min((networkSpeed / 10) * 100, 100)}
+                          sx={{ height: 8, borderRadius: 1 }}
+                        />
+                      )}
                     </Box>
 
                     <Divider sx={{ my: 2 }} />
 
-                    <Box
-                      sx={{ display: "flex", flexDirection: "column", gap: 1 }}
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={autoQuality}
+                          onChange={(e) => {
+                            setAutoQuality(e.target.checked);
+                            if (e.target.checked && recommendedQuality) {
+                              setQualityMode(recommendedQuality);
+                            }
+                          }}
+                          disabled={isStreaming}
+                        />
+                      }
+                      label={
+                        <Box
+                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                        >
+                          <AutoMode fontSize="small" />
+                          <Typography variant="body2">Auto Quality</Typography>
+                        </Box>
+                      }
+                    />
+
+                    <FormControl
+                      fullWidth
+                      sx={{ mt: 2 }}
+                      disabled={isStreaming || autoQuality}
                     >
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                        }}
+                      <InputLabel>Quality Preset</InputLabel>
+                      <Select
+                        value={qualityMode}
+                        label="Quality Preset"
+                        onChange={(e) => setQualityMode(e.target.value)}
                       >
-                        <Typography variant="body2" color="text.secondary">
-                          Resolution:
+                        {Object.entries(QUALITY_PRESETS).map(
+                          ([key, preset]) => (
+                            <MenuItem key={key} value={key}>
+                              <Box>
+                                <Typography variant="body2" fontWeight={600}>
+                                  {preset.label}
+                                </Typography>
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                >
+                                  {preset.description}
+                                </Typography>
+                              </Box>
+                            </MenuItem>
+                          )
+                        )}
+                      </Select>
+                    </FormControl>
+
+                    {autoQuality && recommendedQuality && (
+                      <Alert severity="info" icon={<AutoMode />} sx={{ mt: 2 }}>
+                        <Typography variant="caption">
+                          Recommended:{" "}
+                          <strong>
+                            {QUALITY_PRESETS[recommendedQuality].label}
+                          </strong>
                         </Typography>
-                        <Typography variant="body2" fontWeight={600}>
-                          {currentQuality.width}x{currentQuality.height}
-                        </Typography>
-                      </Box>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                        }}
+                      </Alert>
+                    )}
+
+                    <Box
+                      sx={{ mt: 2, p: 2, bgcolor: "grey.50", borderRadius: 1 }}
+                    >
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        display="block"
+                        gutterBottom
                       >
-                        <Typography variant="body2" color="text.secondary">
-                          FPS:
-                        </Typography>
-                        <Typography variant="body2" fontWeight={600}>
-                          {currentQuality.fps}
-                        </Typography>
-                      </Box>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        <Typography variant="body2" color="text.secondary">
-                          Video Bitrate:
-                        </Typography>
-                        <Typography variant="body2" fontWeight={600}>
-                          {currentQuality.videoBitrate}kbps
-                        </Typography>
-                      </Box>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        <Typography variant="body2" color="text.secondary">
-                          Audio Bitrate:
-                        </Typography>
-                        <Typography variant="body2" fontWeight={600}>
-                          {currentQuality.audioBitrate}kbps
-                        </Typography>
-                      </Box>
+                        Current Settings:
+                      </Typography>
+                      <Grid container spacing={1}>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" display="block">
+                            <strong>Resolution:</strong>{" "}
+                            {QUALITY_PRESETS[qualityMode].width}x
+                            {QUALITY_PRESETS[qualityMode].height}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Typography variant="caption" display="block">
+                            <strong>FPS:</strong>{" "}
+                            {QUALITY_PRESETS[qualityMode].fps}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Typography variant="caption" display="block">
+                            <strong>Bitrate:</strong>{" "}
+                            {QUALITY_PRESETS[qualityMode].videoBitsPerSecond}
+                            kbps
+                          </Typography>
+                        </Grid>
+                      </Grid>
                     </Box>
                   </CardContent>
                 </Card>
@@ -1899,21 +1829,18 @@ export default function FacebookLiveStreamerAdaptive() {
                       }}
                     >
                       <TextField
-                        label="Match ID"
-                        value={matchId}
-                        onChange={(e) => setMatchId(e.target.value)}
-                        disabled={isStreaming}
-                        fullWidth
-                        size="small"
-                      />
-                      <TextField
                         type="password"
                         label="Facebook Stream Key"
-                        placeholder="Tự động từ URL hoặc nhập thủ công"
+                        placeholder="Auto từ URL hoặc nhập thủ công"
                         value={streamKey}
                         onChange={(e) => setStreamKey(e.target.value)}
                         disabled={isStreaming}
                         fullWidth
+                        helperText={
+                          streamKey
+                            ? "✓ Stream key đã có"
+                            : "Sẽ tự động lấy từ URL param 'key'"
+                        }
                       />
                       <Button
                         fullWidth
@@ -1941,7 +1868,7 @@ export default function FacebookLiveStreamerAdaptive() {
                           ? "Đang xử lý..."
                           : isStreaming
                           ? "Dừng Stream"
-                          : `Bắt đầu Stream (${currentQuality.label})`}
+                          : `Start ${QUALITY_PRESETS[qualityMode].label}`}
                       </Button>
                       <Alert
                         severity={statusType}
@@ -1964,13 +1891,13 @@ export default function FacebookLiveStreamerAdaptive() {
                         component="div"
                         sx={{ lineHeight: 1.6 }}
                       >
-                        <strong>🎯 Features:</strong>
+                        <strong>🚀 Adaptive Features:</strong>
                         <ul style={{ margin: 0, paddingLeft: 18 }}>
-                          <li>✅ Auto stream key từ URL</li>
-                          <li>✅ Adaptive quality theo mạng</li>
-                          <li>✅ Performance monitoring</li>
-                          <li>✅ Auto quality downgrade</li>
-                          <li>✅ Network speed detection</li>
+                          <li>✅ Auto quality từ network speed</li>
+                          <li>✅ Stream key từ URL params</li>
+                          <li>✅ Manual quality override</li>
+                          <li>✅ Real-time health monitoring</li>
+                          <li>✅ 4 quality presets (360p-1080p)</li>
                         </ul>
                       </Typography>
                     </Alert>

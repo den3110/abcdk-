@@ -230,63 +230,6 @@ function sendJsonChunked(ctx, obj, prefix = "") {
   }
 }
 
-// --- Helpers cho /spc ---
-function parseDotNetDate(s) {
-  if (!s) return null;
-  const m = String(s).match(/\/Date\((\d+)\)\//);
-  return m ? new Date(Number(m[1])) : null;
-}
-function fmtTimeVN(d) {
-  return d ? d.toLocaleString("vi-VN") : "—";
-}
-function fmt1(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? (Math.round(n * 100) / 100).toFixed(2) : "—";
-}
-function fmtGender(g) {
-  if (g === 1) return "Nam";
-  if (g === 2) return "Nữ";
-  return "—";
-}
-function sportNameById(id) {
-  if (String(id) === "2") return "Pickleball";
-  if (String(id) === "1") return "Tennis";
-  return String(id ?? "—");
-}
-function renderSpcCaption(
-  it,
-  { index = 1, total = 1, proxyUrl, status, debug = false } = {}
-) {
-  const when = parseDotNetDate(it?.ThoiGianCham);
-  const joined = parseDotNetDate(it?.JoinDate);
-
-  const lines = [
-    `🏸 <b>SportConnect • LevelPoint</b> ${
-      total > 1 ? `(#${index}/${total})` : ""
-    }`,
-    `🆔 ID: <b>${esc(it?.ID ?? it?.MaskId ?? "—")}</b>`,
-    `👤 Họ tên: <b>${esc(it?.HoVaTen || "—")}</b>`,
-    it?.NickName ? `🏷 Nickname: <i>${esc(String(it.NickName).trim())}</i>` : "",
-    `⚧ Giới tính: <b>${esc(fmtGender(it?.GioiTinh))}</b>`,
-    it?.TenTinhThanh ? `📍 Tỉnh/TP: <b>${esc(it.TenTinhThanh)}</b>` : "",
-    it?.SoDienThoai ? `📞 SĐT: <b>${esc(it.SoDienThoai)}</b>` : "",
-    `🥇 Điểm: <b>Single ${fmt1(it?.DiemDon)}</b> • <b>Double ${fmt1(
-      it?.DiemDoi
-    )}</b>`,
-    `🏟 Môn: <b>${esc(sportNameById(it?.IDMonTheThao))}</b>`,
-    it?.DienGiai ? `📝 Ghi chú: <i>${esc(it.DienGiai)}</i>` : "",
-    when ? `🕒 Chấm: <i>${fmtTimeVN(when)}</i>` : "",
-    joined ? `📅 Tham gia: <i>${fmtTimeVN(joined)}</i>` : "",
-    debug
-      ? `\n<b>Debug</b> • Status: <code>${esc(String(status ?? ""))}</code>${
-          proxyUrl ? ` • Proxy: <code>${esc(proxyUrl)}</code>` : ""
-        }`
-      : "",
-  ].filter(Boolean);
-
-  return lines.join("\n");
-}
-
 async function fetchImageAsBuffer(url) {
   const _fetch =
     typeof fetch === "function" ? fetch : (await import("node-fetch")).default;
@@ -346,6 +289,22 @@ async function findUserByQuery(q) {
   if (u) return u;
   const rx = new RegExp(s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
   return await User.findOne({ nickname: rx }).lean();
+}
+
+/* ======================= Helpers cho /spc (NEW) ======================= */
+// Bỏ dấu + so khớp mờ (VN-friendly)
+function vnFold(s = "") {
+  return String(s)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .trim();
+}
+function fuzzyIncludes(hay = "", needle = "") {
+  if (!needle) return true;
+  return vnFold(hay).includes(vnFold(needle));
 }
 
 /* ========================= Khởi tạo BOT ========================= */
@@ -623,7 +582,7 @@ export async function initKycBot(app) {
         },
         {
           command: "spc",
-          description: "SportConnect LevelPoint: /spc <phone|tên>",
+          description: "SportConnect LevelPoint: /spc <tên/sđt>[;tỉnh]",
         },
       ]);
     } catch (e) {
@@ -669,6 +628,8 @@ export async function initKycBot(app) {
           "Ví dụ:",
           "• <code>/rank v1b2 3.5 3.0 --note &quot;đánh ổn định&quot;</code>",
           "• <code>/point v1b2</code>",
+          "",
+          "• <code>/spc &lt;tên/sđt&gt;[;&lt;tỉnh/thành&gt;] [--debug]</code> — Tra SPC (lọc tỉnh mờ, bỏ dấu).",
           "",
           "Lưu ý:",
           "• Ảnh CCCD được gửi sau và bám (reply) vào tin nhắn KYC.",
@@ -1096,41 +1057,122 @@ export async function initKycBot(app) {
       })
     );
 
-    // ========================== /spc <query> [--debug] ==========================
+    // ========================== /spc <query>[;province] [--debug] ==========================
+    function parseDotNetDate(s) {
+      if (!s) return null;
+      const m = String(s).match(/\/Date\((\d+)\)\//);
+      return m ? new Date(Number(m[1])) : null;
+    }
+    function fmtTimeVN(d) {
+      return d ? d.toLocaleString("vi-VN") : "—";
+    }
+    function fmt1(v) {
+      const n = Number(v);
+      return Number.isFinite(n) ? (Math.round(n * 100) / 100).toFixed(2) : "—";
+    }
+    function fmtGender(g) {
+      if (g === 1) return "Nam";
+      if (g === 2) return "Nữ";
+      return "—";
+    }
+    function sportNameById(id) {
+      if (String(id) === "2") return "Pickleball";
+      if (String(id) === "1") return "Tennis";
+      return String(id ?? "—");
+    }
+    function renderSpcCaption(
+      it,
+      { index = 1, total = 1, proxyUrl, status, debug = false } = {}
+    ) {
+      const when = parseDotNetDate(it?.ThoiGianCham);
+      const joined = parseDotNetDate(it?.JoinDate);
+
+      const lines = [
+        `🏸 <b>SportConnect • LevelPoint</b> ${
+          total > 1 ? `(#${index}/${total})` : ""
+        }`,
+        `🆔 ID: <b>${esc(it?.ID ?? it?.MaskId ?? "—")}</b>`,
+        `👤 Họ tên: <b>${esc(it?.HoVaTen || "—")}</b>`,
+        it?.NickName
+          ? `🏷 Nickname: <i>${esc(String(it.NickName).trim())}</i>`
+          : "",
+        `⚧ Giới tính: <b>${esc(fmtGender(it?.GioiTinh))}</b>`,
+        it?.TenTinhThanh ? `📍 Tỉnh/TP: <b>${esc(it?.TenTinhThanh)}</b>` : "",
+        it?.SoDienThoai ? `📞 SĐT: <b>${esc(it?.SoDienThoai)}</b>` : "",
+        `🥇 Điểm: <b>Single ${fmt1(it?.DiemDon)}</b> • <b>Double ${fmt1(
+          it?.DiemDoi
+        )}</b>`,
+        `🏟 Môn: <b>${esc(sportNameById(it?.IDMonTheThao))}</b>`,
+        it?.DienGiai ? `📝 Ghi chú: <i>${esc(it?.DienGiai)}</i>` : "",
+        when ? `🕒 Chấm: <i>${fmtTimeVN(when)}</i>` : "",
+        joined ? `📅 Tham gia: <i>${fmtTimeVN(joined)}</i>` : "",
+        debug
+          ? `\n<b>Debug</b> • Status: <code>${esc(
+              String(status ?? "")
+            )}</code>${
+              proxyUrl ? ` • Proxy: <code>${esc(proxyUrl)}</code>` : ""
+            }`
+          : "",
+      ].filter(Boolean);
+
+      return lines.join("\n");
+    }
+
     bot.command(
       "spc",
       safe("spc", async (ctx) => {
         const raw = ctx.message?.text || "";
         const after = raw.replace(/^\/spc(?:@\w+)?\s*/i, "");
         const debug = /(?:^|\s)--debug(?:\s|$)/i.test(after);
-        const query = after.replace(/(?:^|\s)--debug(?:\s|$)/gi, "").trim();
 
-        if (!query) {
+        // loại bỏ flag --debug để parse tham số
+        const cleaned = after.replace(/(?:^|\s)--debug(?:\s|$)/gi, "").trim();
+
+        // Hỗ trợ "search;province" (2 phần đầu)
+        let mainQuery = cleaned;
+        let provinceQuery = "";
+        if (cleaned.includes(";")) {
+          const parts = cleaned.split(";");
+          mainQuery = (parts[0] || "").trim();
+          provinceQuery = (parts[1] || "").trim();
+        }
+
+        if (!mainQuery && !provinceQuery) {
           return replySafe(
             ctx,
             [
               "Cách dùng:",
-              "/spc <chuỗi tìm kiếm> [--debug]",
+              "/spc <chuỗi tìm kiếm>[;<tỉnh/thành>] [--debug]",
               "VD: /spc 0888698383",
-              "VD: /spc Quân nông cống --debug",
+              "VD: /spc Quân nông cống;Hà",
+              "VD: /spc Hoàng sẻo;Hà nam --debug",
             ].join("\n")
           );
         }
 
         const { status, data, proxyUrl } =
           await SportConnectService.listLevelPoint({
-            searchCriterial: query,
+            searchCriterial: mainQuery || provinceQuery, // nếu chỉ nhập tỉnh thì vẫn gọi API
             sportId: 2,
             page: 0,
             waitingInformation: "",
           });
 
         const arr = Array.isArray(data?.data) ? data.data : [];
-        if (!arr.length) {
+
+        // Lọc theo tỉnh (fuzzy, bỏ dấu)
+        const filtered = provinceQuery
+          ? arr.filter((it) =>
+              fuzzyIncludes(it?.TenTinhThanh || "", provinceQuery)
+            )
+          : arr;
+
+        if (!filtered.length) {
           return replySafe(
             ctx,
             [
               "❌ Không tìm thấy dữ liệu trên SportConnect.",
+              provinceQuery ? `• Bộ lọc tỉnh: "${provinceQuery}"` : "",
               debug
                 ? `Status: ${status}${proxyUrl ? ` • Proxy: ${proxyUrl}` : ""}`
                 : "",
@@ -1140,10 +1182,10 @@ export async function initKycBot(app) {
           );
         }
 
-        const total = arr.length;
+        const total = filtered.length;
         const parts = [];
-        for (let i = 0; i < arr.length; i++) {
-          const it = arr[i];
+        for (let i = 0; i < filtered.length; i++) {
+          const it = filtered[i];
           const cap = renderSpcCaption(it, {
             index: i + 1,
             total,
@@ -1153,6 +1195,7 @@ export async function initKycBot(app) {
           });
           parts.push(cap);
         }
+
         let buffer = "";
         for (const p of parts) {
           if ((buffer + "\n\n" + p).length > 3900) {
