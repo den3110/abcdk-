@@ -25,7 +25,7 @@ export async function fbCreateLiveOnPage({
   description,
 }) {
   try {
-    // Tạo live với đầy đủ params
+    // Tạo live - BỎ save_vod
     const created = await axios
       .post(`${GRAPH}/${pageId}/live_videos`, null, {
         params: {
@@ -34,8 +34,7 @@ export async function fbCreateLiveOnPage({
           title,
           description,
           privacy: toPrivacyJSON("EVERYONE"),
-          is_reference_only: false, // Phải lưu lại sau khi end
-          published: true, // 👈 THÊM: Publish luôn
+          is_reference_only: false, // 👈 Chỉ cần cái này thôi
         },
       })
       .then((r) => r.data);
@@ -51,7 +50,7 @@ export async function fbCreateLiveOnPage({
       stream_url: created?.stream_url,
     };
 
-    // Get và verify info
+    // Get info
     let info = {};
     try {
       info = await axios
@@ -67,12 +66,11 @@ export async function fbCreateLiveOnPage({
       console.log("🔍 Live info:", {
         id: info.id,
         status: info.status,
-        privacy: info.privacy,
         is_reference_only: info.is_reference_only,
         has_video: !!info.video,
       });
 
-      // Fix nếu bị reference_only
+      // Fix nếu vẫn bị reference_only
       if (info.is_reference_only) {
         console.log("⚠️ Fixing is_reference_only...");
         await axios.post(`${GRAPH}/${liveVideoId}`, null, {
@@ -88,7 +86,7 @@ export async function fbCreateLiveOnPage({
 
     const result = {
       liveVideoId,
-      videoId: info.video?.id || null, // 👈 Lưu video ID
+      videoId: info.video?.id || null,
       secure_stream_url: info.secure_stream_url || fallback.secure_stream_url,
       stream_url: info.stream_url || fallback.stream_url,
       status: info.status || "LIVE_NOW",
@@ -103,7 +101,6 @@ export async function fbCreateLiveOnPage({
 
     console.log("✅ Live ready:", result);
 
-    // Retry permalink
     if (!result.permalink_url) {
       setTimeout(async () => {
         try {
@@ -143,63 +140,62 @@ export async function fbEndLive({ liveVideoId, pageAccessToken }) {
   try {
     console.log("🛑 Ending live:", liveVideoId);
 
-    // 1. End live
-    const endResult = await axios
-      .post(`${GRAPH}/${liveVideoId}`, null, {
-        params: {
-          access_token: pageAccessToken,
-          end_live_video: true,
-        },
-      })
-      .then((r) => r.data);
+    // End live
+    await axios.post(`${GRAPH}/${liveVideoId}`, null, {
+      params: {
+        access_token: pageAccessToken,
+        end_live_video: true,
+      },
+    });
 
-    console.log("✅ Live ended");
+    console.log("✅ Live ended, waiting for processing...");
 
-    // 2. Đợi 2s để FB xử lý
-    await new Promise((r) => setTimeout(r, 2000));
+    // Đợi FB xử lý video
+    await new Promise((r) => setTimeout(r, 3000));
 
-    // 3. Đảm bảo video được publish và không phải reference
+    // Đảm bảo video public và không phải reference
     try {
       await axios.post(`${GRAPH}/${liveVideoId}`, null, {
         params: {
           access_token: pageAccessToken,
-          is_reference_only: false, // 👈 Đảm bảo lưu lại
-          privacy: toPrivacyJSON("EVERYONE"), // 👈 Đảm bảo public
+          is_reference_only: false,
+          privacy: toPrivacyJSON("EVERYONE"),
         },
       });
-      console.log("✅ Video published on timeline");
+      console.log("✅ Video published");
     } catch (e) {
-      console.warn("Publish warning:", e.response?.data || e.message);
+      console.warn(
+        "Publish failed:",
+        e.response?.data?.error?.message || e.message
+      );
     }
 
-    // 4. Get video info để verify
+    // Verify video
     try {
       const videoInfo = await axios
         .get(`${GRAPH}/${liveVideoId}`, {
           params: {
             access_token: pageAccessToken,
             fields:
-              "id,status,permalink_url,is_reference_only,video{id,permalink_url}",
+              "id,status,permalink_url,is_reference_only,video{id,permalink_url,published}",
           },
         })
         .then((r) => r.data);
 
-      console.log("📹 Video after end:", {
+      console.log("📹 Final video:", {
         id: videoInfo.id,
         status: videoInfo.status,
         is_reference_only: videoInfo.is_reference_only,
+        video_id: videoInfo.video?.id,
         permalink: videoInfo.permalink_url || videoInfo.video?.permalink_url,
       });
 
-      return {
-        ...endResult,
-        video: videoInfo,
-      };
+      return videoInfo;
     } catch (e) {
-      console.warn("Get video info failed:", e.message);
+      console.warn("Get video failed:", e.message);
     }
 
-    return endResult;
+    return { success: true };
   } catch (error) {
     console.error("End live error:", error.response?.data || error.message);
     throw error;
