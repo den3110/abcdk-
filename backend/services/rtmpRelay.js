@@ -377,10 +377,11 @@ export async function attachRtmpRelayFixed(server, options = {}) {
       const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
 
       // ✅ IMPROVED: Better RTMP configuration
+      const ffmpegLogLevel = process.env.FFMPEG_LOG_LEVEL || "warning"; // ⬆️ Changed from 'error' to 'warning'
       const args = [
         "-hide_banner",
         "-loglevel",
-        "error",
+        ffmpegLogLevel,
         "-f",
         "h264",
         "-probesize",
@@ -456,6 +457,11 @@ export async function attachRtmpRelayFixed(server, options = {}) {
         ).toFixed(0)}MB, Bitrate=${bitrateCap}k`
       );
 
+      // ✅ DEBUG: Log FFmpeg command
+      if (process.env.DEBUG_FFMPEG === "true") {
+        log.debug(`🔧 FFmpeg command: ${ffmpegPath} ${args.join(" ")}`);
+      }
+
       stream.ffmpeg = spawn(ffmpegPath, args, {
         stdio: ["pipe", "pipe", "pipe", "pipe"],
         detached: false,
@@ -501,6 +507,11 @@ export async function attachRtmpRelayFixed(server, options = {}) {
       stream.ffmpeg.stderr.on("data", (d) => {
         try {
           const log_msg = d.toString().trim();
+          // ✅ IMPORTANT: Always log FFmpeg errors
+          if (!log_msg) return;
+
+          log.error(`📺 FFmpeg #${id} [${qualityLevel}]:`, log_msg);
+
           if (log_msg.includes("[tls @")) {
             metrics.tlsErrors++;
             log.error(`❌ TLS ERROR #${id}:`, log_msg);
@@ -516,8 +527,6 @@ export async function attachRtmpRelayFixed(server, options = {}) {
             if (!stream.isReconnecting) {
               reconnectStream(stream);
             }
-          } else {
-            log.debug(`📺 FFmpeg #${id}:`, log_msg);
           }
         } catch (err) {
           log.error(`❌ stderr parse error:`, err.message);
