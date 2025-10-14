@@ -64,20 +64,18 @@ export async function fbCreateLiveOnPage({
   pageAccessToken,
   title,
   description,
-  status = "LIVE_NOW", // caller vẫn truyền; nếu admin có config.status thì dùng config
+  status = "LIVE_NOW",
 }) {
-  // 0) Lấy config admin (nếu có)
   const adminCfg = await getAdminLiveConfig();
 
   try {
-    // 1) Tạo LiveVideo (ưu tiên status/privacy từ admin nếu có)
+    // 1) Tạo LiveVideo — CHỈ set privacy, KHÔNG set embeddable ở bước này
     const paramsCreate = {
       access_token: pageAccessToken,
       status: adminCfg?.status || status,
-      title, // KHÔNG bị config ghi đè
-      description, // KHÔNG bị config ghi đè
-      // embeddable: ❌ KHÔNG HỖ TRỢ ở bước tạo
-      privacy: toPrivacyJSON(adminCfg?.privacyValueOnCreate || PRIVACY_DEFAULT),
+      title,
+      description,
+      privacy: toPrivacyJSON(adminCfg?.privacyValueOnCreate || "EVERYONE"),
     };
 
     const created = await axios
@@ -85,11 +83,15 @@ export async function fbCreateLiveOnPage({
       .then((r) => r.data);
 
     const liveVideoId = created?.id;
-    if (!liveVideoId) {
+    if (!liveVideoId)
       throw new Error("Create live failed: missing liveVideoId");
-    }
 
-    // 2) Áp policy (privacy/embeddable) lần nữa cho chắc chắn (nếu admin có set)
+    // 🔁 Giữ lại field từ response tạo (FALLBACK nếu GET sau đó lỗi/chậm)
+    // (tuỳ phiên bản/permission, create response có thể đã có các field này)
+    const fallbackSecure = created?.secure_stream_url || null;
+    const fallbackStream = created?.stream_url || null;
+
+    // 2) Áp policy theo admin (nếu có) — chỉ chạm privacy/embeddable
     try {
       await applyAdminPolicies({
         liveVideoId,
@@ -101,20 +103,37 @@ export async function fbCreateLiveOnPage({
       console.log("Apply policy warn:", e.response?.data || e.message);
     }
 
-    // 3) Lấy thêm trường hữu dụng (kèm privacy/embeddable/status để debug nhanh)
-    const fields =
-      "permalink_url,secure_stream_url,stream_url,status,privacy,embeddable";
-    const info = await axios
-      .get(`${GRAPH}/${liveVideoId}`, {
-        params: { access_token: pageAccessToken, fields },
-      })
-      .then((r) => r.data)
-      .catch((e) => {
-        console.log("Get info error:", e.response?.data || e.message);
-        return {};
-      });
+    // 3) GET thêm field hữu ích — có cả expand video{permalink_url}
+    let info = {};
+    try {
+      const fields =
+        "permalink_url,secure_stream_url,stream_url,status,privacy,embeddable,video{permalink_url}";
+      info = await axios
+        .get(`${GRAPH}/${liveVideoId}`, {
+          params: { access_token: pageAccessToken, fields },
+        })
+        .then((r) => r.data);
+    } catch (e) {
+      console.log("Get info error:", e.response?.data || e.message);
+    }
 
-    return { liveVideoId, ...info }; // có secure_stream_url + permalink_url (nếu quyền đủ)
+    // 4) Hợp nhất & chuẩn hoá — đảm bảo luôn có URL stream và permalink nếu có thể
+    // stream url
+    if (!info.secure_stream_url && fallbackSecure) {
+      info.secure_stream_url = fallbackSecure;
+    }
+    if (!info.stream_url && fallbackStream) {
+      info.stream_url = fallbackStream;
+    }
+
+    // permalink: ưu tiên info.permalink_url, fallback video.permalink_url
+    let permalink = info.permalink_url || info?.video?.permalink_url || "";
+    if (permalink && !/^https?:\/\//i.test(permalink)) {
+      permalink = "https://facebook.com" + permalink; // FB đôi khi trả path tương đối
+    }
+    info.permalink_url = permalink || info.permalink_url;
+
+    return { liveVideoId, ...info };
   } catch (error) {
     console.log(error.response?.data || error.message);
     throw error;
