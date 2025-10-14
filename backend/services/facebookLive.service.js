@@ -18,7 +18,6 @@ function normalizePermalink(url) {
   }`;
 }
 
-// 🔍 DEBUG FUNCTION
 export async function fbDebugPageAndToken({
   pageId,
   pageAccessToken,
@@ -35,77 +34,75 @@ export async function fbDebugPageAndToken({
           fields: "id,name,is_published,fan_count,link",
         },
       })
-      .then((r) => r.data);
+      .then((r) => r.data)
+      .catch((e) => {
+        console.error("Get page error:", e.response?.data);
+        return null;
+      });
 
     console.log("📄 Page:", page);
 
-    // 2. Check token permissions
-    const perms = await axios
-      .get(`${GRAPH}/me/permissions`, {
-        params: { access_token: pageAccessToken },
-      })
-      .then((r) => r.data.data)
-      .catch(() => []);
-
-    console.log(
-      "🔑 Permissions:",
-      perms.filter((p) => p.status === "granted").map((p) => p.permission)
-    );
-
-    // 3. Get info của live đã tạo
+    // 2. Get info của live đã tạo
     if (liveVideoId) {
       console.log("\n🔍 Checking live:", liveVideoId);
+
       const liveInfo = await axios
         .get(`${GRAPH}/${liveVideoId}`, {
           params: {
             access_token: pageAccessToken,
             fields:
-              "id,status,privacy,is_reference_only,permalink_url,video{id,permalink_url}",
+              "id,status,privacy,is_reference_only,permalink_url,embeddable,video{id,permalink_url}",
           },
         })
-        .then((r) => r.data);
+        .then((r) => r.data)
+        .catch((e) => {
+          console.error("❌ Get live error:", e.response?.data);
+          return null;
+        });
 
-      console.log("📹 Live FULL INFO:");
-      console.log(JSON.stringify(liveInfo, null, 2));
+      if (liveInfo) {
+        console.log("\n📹 Live INFO:");
+        console.log("  - ID:", liveInfo.id);
+        console.log("  - Status:", liveInfo.status);
+        console.log("  - Privacy:", liveInfo.privacy);
+        console.log("  - is_reference_only:", liveInfo.is_reference_only);
+        console.log("  - embeddable:", liveInfo.embeddable);
+        console.log("  - permalink_url:", liveInfo.permalink_url);
+        console.log("  - video.id:", liveInfo.video?.id);
+        console.log("  - video.permalink:", liveInfo.video?.permalink_url);
 
-      // Permalink
-      const permalink =
-        normalizePermalink(liveInfo.permalink_url) ||
-        normalizePermalink(liveInfo?.video?.permalink_url);
+        // Permalink
+        const permalink =
+          normalizePermalink(liveInfo.permalink_url) ||
+          normalizePermalink(liveInfo?.video?.permalink_url);
 
-      console.log("\n📍 Permalink:", permalink || "❌ KHÔNG CÓ!");
+        console.log("\n📍 FINAL PERMALINK:", permalink || "❌ KHÔNG CÓ!");
 
-      // Check is_reference_only
-      if (liveInfo.is_reference_only === true) {
-        console.log("\n❌❌❌ VẤN ĐỀ TÌM RA RỒI!");
-        console.log("is_reference_only = TRUE");
-        console.log("→ Live CHỈ hiện cho admin page, KHÔNG public!");
-        console.log("→ Cần fix: Set is_reference_only = false");
-      } else if (liveInfo.is_reference_only === false) {
-        console.log("\n✅ is_reference_only = FALSE - Đúng rồi!");
-        console.log("→ Live PHẢI hiện công khai");
-        console.log("→ Nếu vẫn không thấy, có thể do:");
-        console.log("  - Chưa có stream → FB ẩn");
-        console.log("  - Privacy setting bị override");
-        console.log("  - Page bị restrict");
-      } else {
-        console.log("\n⚠️ is_reference_only = undefined/null");
-      }
+        // Check is_reference_only
+        console.log("\n🔍 DIAGNOSIS:");
+        if (liveInfo.is_reference_only === true) {
+          console.log("❌❌❌ VẤN ĐỀ TÌM RA: is_reference_only = TRUE");
+          console.log("→ Live CHỈ hiện cho admin, KHÔNG public!");
+        } else if (liveInfo.is_reference_only === false) {
+          console.log("✅ is_reference_only = FALSE - Live PHẢI public");
+          console.log("→ Nếu vẫn không thấy:");
+          console.log("  1. Chưa có stream data");
+          console.log("  2. Privacy bị override");
+          console.log("  3. Page có restriction");
+        } else {
+          console.log("⚠️ is_reference_only = UNDEFINED/NULL");
+        }
 
-      if (permalink) {
-        console.log("\n👉 MỞ LINK NÀY BẰNG INCOGNITO/ACC KHÁC:");
-        console.log(permalink);
+        if (permalink) {
+          console.log("\n👉 TEST BẰNG INCOGNITO:");
+          console.log(permalink);
+        }
       }
     }
 
     console.log("\n========== DEBUG END ==========\n");
-
-    return {
-      page,
-      permissions: perms,
-    };
   } catch (error) {
-    console.error("❌ Debug failed:", error.response?.data || error.message);
+    console.error("❌ Debug crashed:", error.message);
   }
 }
 
@@ -151,7 +148,7 @@ export async function fbCreateLiveOnPage({
         })
         .then((r) => r.data);
 
-      console.log("🔍 is_reference_only:", info.is_reference_only);
+      console.log("🔍 Initial is_reference_only:", info.is_reference_only);
     } catch (e) {
       console.warn("Get info failed:", e.message);
     }
@@ -192,14 +189,14 @@ export async function fbCreateLiveOnPage({
       }, 3000);
     }
 
-    // 🔥 DEBUG SAU 20S
+    // DEBUG SAU 20S
     setTimeout(() => {
       console.log("\n⏰ Running debug after 20s...");
       fbDebugPageAndToken({
         pageId,
         pageAccessToken,
         liveVideoId,
-      });
+      }).catch((e) => console.error("Debug error:", e.message));
     }, 20000);
 
     return result;
