@@ -19,7 +19,7 @@ const wss = await attachRtmpRelayPro(server, { path: "/ws/rtmp" });
 setupStreamDashboard(app, wss);
 
 // ✅ Static dashboard HTML (optional)
-app.get("/rtmp/dashboard", (req, res) => {
+app.get("/dashboard", (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html>
