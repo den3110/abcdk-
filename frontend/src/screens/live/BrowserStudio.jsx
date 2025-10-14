@@ -1,5 +1,7 @@
-// FacebookLiveStreamerMUI.jsx - ADAPTIVE QUALITY + MUI
-// ✅ Auto quality, URL params, perfect audio, zero flicker
+// FacebookLiveStreamerMUI.jsx - ADAPTIVE QUALITY + MUI (rebuilt)
+// ✅ Auto quality, URL params, perfect audio, zero flicker (prebuffer A/V)
+// ✅ Mic bật ngay sau khi gửi "start", encode video ngay, chờ "started" chỉ để set UI
+
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   Box,
@@ -252,28 +254,33 @@ export default function FacebookLiveStreamerMUI({
       roundRect(ctx, x, y, width, height, 12);
       ctx.fill();
       ctx.shadowBlur = 0;
+
       ctx.fillStyle = "#9AA4AF";
       ctx.font = "500 11px Arial";
       ctx.textAlign = "left";
       ctx.fillText(data?.tournament?.name || "Tournament", x + 14, y + 22);
+
       const teamA = data?.teams?.A?.name || "Team A";
       const scoreA = data?.gameScores?.[data?.currentGame || 0]?.a || 0;
       ctx.fillStyle = "#25C2A0";
       ctx.beginPath();
       ctx.arc(x + 18, y + 45, 5, 0, Math.PI * 2);
       ctx.fill();
+
       ctx.fillStyle = "#E6EDF3";
       ctx.font = "600 16px Arial";
       ctx.fillText(teamA, x + 32, y + 50);
       ctx.font = "800 24px Arial";
       ctx.textAlign = "right";
       ctx.fillText(String(scoreA), x + width - 14, y + 50);
+
       const teamB = data?.teams?.B?.name || "Team B";
       const scoreB = data?.gameScores?.[data?.currentGame || 0]?.b || 0;
       ctx.fillStyle = "#4F46E5";
       ctx.beginPath();
       ctx.arc(x + 18, y + 85, 5, 0, Math.PI * 2);
       ctx.fill();
+
       ctx.fillStyle = "#E6EDF3";
       ctx.font = "600 16px Arial";
       ctx.textAlign = "left";
@@ -458,12 +465,14 @@ export default function FacebookLiveStreamerMUI({
     ctx.fillStyle = gradient1;
     ctx.fillRect(0, 0, w, 3);
     ctx.fillRect(0, h - 3, w, 3);
+
     const gradient2 = ctx.createLinearGradient(0, 0, 0, h);
     gradient2.addColorStop(0, "rgba(102,126,234,0.8)");
     gradient2.addColorStop(1, "rgba(118,75,162,0.8)");
     ctx.fillStyle = gradient2;
     ctx.fillRect(0, 0, 3, h);
     ctx.fillRect(w - 3, 0, 3, h);
+
     ctx.fillStyle = "rgba(255,215,0,0.9)";
     [
       [10, 10],
@@ -488,11 +497,13 @@ export default function FacebookLiveStreamerMUI({
       ctx.shadowBlur = 15;
       roundRect(ctx, x, y, 130, 45, 22);
       ctx.fill();
+
       const pulseSize = 8 + Math.sin(Date.now() / 300) * 2;
       ctx.fillStyle = "white";
       ctx.beginPath();
       ctx.arc(x + 25, y + 22, pulseSize, 0, Math.PI * 2);
       ctx.fill();
+
       ctx.shadowBlur = 0;
       ctx.fillStyle = "white";
       ctx.font = "bold 20px Arial";
@@ -538,6 +549,7 @@ export default function FacebookLiveStreamerMUI({
         ctx.fillStyle = "#000";
         ctx.fillRect(0, 0, w, h);
       }
+
       if (overlayConfig.scoreBoard && overlayData)
         drawScoreBoard(ctx, w, h, overlayData);
       if (overlayConfig.timer) drawTimer(ctx, w, h);
@@ -574,6 +586,7 @@ export default function FacebookLiveStreamerMUI({
     drawFrameRef.current = drawFrame;
   }, [drawFrame]);
 
+  // Stream timer for on-screen timer overlay
   useEffect(() => {
     let interval = null;
     if (isStreaming) {
@@ -587,6 +600,7 @@ export default function FacebookLiveStreamerMUI({
     };
   }, [isStreaming]);
 
+  // WebCodecs support check
   useEffect(() => {
     const supported = typeof window.VideoEncoder !== "undefined";
     setSupportsWebCodecs(supported);
@@ -640,6 +654,7 @@ export default function FacebookLiveStreamerMUI({
         noiseSuppression: true,
         autoGainControl: true,
       };
+
       let stream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -663,12 +678,15 @@ export default function FacebookLiveStreamerMUI({
           });
         }
       }
+
       camStreamRef.current = stream;
       if (videoRef.current) videoRef.current.srcObject = stream;
+
       const vTrack = stream.getVideoTracks()[0];
       const s = vTrack?.getSettings?.() || {};
       const w = s.width || preset.width;
       const h = s.height || preset.height;
+
       if (canvasRef.current) {
         canvasRef.current.width = w;
         canvasRef.current.height = h;
@@ -708,6 +726,7 @@ export default function FacebookLiveStreamerMUI({
     return () => {
       stopCurrentStream();
       isEncodingRef.current = false;
+
       if (encodingLoopRef.current) {
         cancelAnimationFrame(encodingLoopRef.current);
         encodingLoopRef.current = null;
@@ -735,6 +754,7 @@ export default function FacebookLiveStreamerMUI({
     };
   }, [qualityMode]);
 
+  // Poll overlay data
   useEffect(() => {
     if (!matchId) return;
     let timer;
@@ -756,6 +776,7 @@ export default function FacebookLiveStreamerMUI({
     return () => clearInterval(timer);
   }, [matchId, apiUrl]);
 
+  // Local live preview render
   useEffect(() => {
     const canvas = previewCanvasRef.current;
     const video = videoRef.current;
@@ -777,11 +798,13 @@ export default function FacebookLiveStreamerMUI({
     };
   }, [facingMode]);
 
+  // --- H264 helper: convert length-prefixed NAL to Annex-B ---
   const convertToAnnexB = (data, description, isKeyframe) => {
     const startCode = new Uint8Array([0, 0, 0, 1]);
     const result = [];
+
     if (isKeyframe && description) {
-      let offset = 5;
+      let offset = 5; // skip header (1+2+2?), SPS/PPS counts follow
       const numSPS = description[offset++] & 0x1f;
       for (let i = 0; i < numSPS; i++) {
         const spsLength = (description[offset] << 8) | description[offset + 1];
@@ -799,6 +822,7 @@ export default function FacebookLiveStreamerMUI({
         offset += ppsLength;
       }
     }
+
     let offset = 0;
     while (offset < data.length) {
       const nalLength =
@@ -815,6 +839,7 @@ export default function FacebookLiveStreamerMUI({
         break;
       }
     }
+
     const totalLength = result.reduce((sum, arr) => sum + arr.length, 0);
     const output = new Uint8Array(totalLength);
     let writeOffset = 0;
@@ -824,6 +849,51 @@ export default function FacebookLiveStreamerMUI({
     }
     return output;
   };
+
+  // --- Mic recorder: bật sớm để prebuffer audio ---
+  const startMicRecorder = useCallback(() => {
+    try {
+      if (
+        audioRecorderRef.current &&
+        audioRecorderRef.current.state !== "inactive"
+      ) {
+        audioRecorderRef.current.stop();
+      }
+      const aTrack = camStreamRef.current?.getAudioTracks?.()[0];
+      if (!aTrack) return;
+
+      const aStream = new MediaStream([aTrack]);
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : "";
+
+      const mr = new MediaRecorder(aStream, {
+        mimeType: mime || undefined,
+        audioBitsPerSecond: 128000,
+      });
+
+      mr.ondataavailable = async (e) => {
+        try {
+          if (!e.data || e.data.size === 0) return;
+          if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+          const buf = await e.data.arrayBuffer();
+          const u8 = new Uint8Array(buf);
+          // Prefix 0x01 để server biết là AUDIO
+          const out = new Uint8Array(u8.length + 1);
+          out[0] = 0x01;
+          out.set(u8, 1);
+          wsRef.current.send(out.buffer);
+        } catch {}
+      };
+
+      mr.start(100); // 100ms/chunk -> latency thấp
+      audioRecorderRef.current = mr;
+    } catch (e) {
+      console.warn("Không thể khởi tạo mic sớm:", e?.message || e);
+    }
+  }, []);
 
   const startStreamingPro = async () => {
     if (!streamKey.trim()) {
@@ -836,9 +906,11 @@ export default function FacebookLiveStreamerMUI({
       setStatusType("error");
       return;
     }
+
     setLoading(true);
     try {
       const preset = QUALITY_PRESETS[qualityMode];
+
       setStatus("Đang kết nối WebSocket...");
       const ws = await new Promise((resolve, reject) => {
         const socket = new WebSocket(wsUrl);
@@ -856,9 +928,12 @@ export default function FacebookLiveStreamerMUI({
           reject(e);
         };
       });
+
       wsRef.current = ws;
       setIsConnected(true);
       setStatus("Đang khởi tạo H264 encoder...");
+
+      // --- Setup encoder ---
       const encoder = new VideoEncoder({
         output: (chunk, metadata) => {
           if (ws.readyState !== WebSocket.OPEN) return;
@@ -866,12 +941,14 @@ export default function FacebookLiveStreamerMUI({
           try {
             const chunkData = new Uint8Array(chunk.byteLength);
             chunk.copyTo(chunkData);
+
             const isAnnexB =
               (chunkData[0] === 0 &&
                 chunkData[1] === 0 &&
                 chunkData[2] === 0 &&
                 chunkData[3] === 1) ||
               (chunkData[0] === 0 && chunkData[1] === 0 && chunkData[2] === 1);
+
             let dataToSend;
             if (isAnnexB) {
               dataToSend = chunkData;
@@ -888,7 +965,10 @@ export default function FacebookLiveStreamerMUI({
                 dataToSend = convertToAnnexB(chunkData, null, false);
               }
             }
+
             ws.send(dataToSend.buffer);
+
+            // Stats
             statsRef.current.sent++;
             const now = Date.now();
             if (now - statsRef.current.lastLog > 3000) {
@@ -900,9 +980,6 @@ export default function FacebookLiveStreamerMUI({
                 bitrate: preset.videoBitsPerSecond,
                 dropped: statsRef.current.dropped,
               });
-              console.log(
-                `📊 FPS: ${fpsNow}, Sent: ${statsRef.current.sent}, Dropped: ${statsRef.current.dropped}, Queue: ${encoder.encodeQueueSize}`
-              );
               statsRef.current.lastLog = now;
               statsRef.current.sent = 0;
               statsRef.current.dropped = 0;
@@ -924,6 +1001,7 @@ export default function FacebookLiveStreamerMUI({
           setIsStreaming(false);
         },
       });
+
       encoder.configure({
         codec: "avc1.42001f",
         width: preset.width,
@@ -935,8 +1013,11 @@ export default function FacebookLiveStreamerMUI({
         bitrateMode: "constant",
         avc: { format: "annexb" },
       });
+
       videoEncoderRef.current = encoder;
       isEncodingRef.current = true;
+
+      // --- 1) Gửi cấu hình START cho server ---
       ws.send(
         JSON.stringify({
           type: "start",
@@ -948,62 +1029,11 @@ export default function FacebookLiveStreamerMUI({
           audioBitrate: "128k",
         })
       );
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(
-          () => reject(new Error("Start timeout")),
-          10000
-        );
-        const handler = (evt) => {
-          if (typeof evt.data !== "string") return;
-          try {
-            const msg = JSON.parse(evt.data);
-            if (msg.type === "started") {
-              clearTimeout(timeout);
-              ws.removeEventListener("message", handler);
-              try {
-                const aTrack = camStreamRef.current?.getAudioTracks?.()[0];
-                if (aTrack) {
-                  const aStream = new MediaStream([aTrack]);
-                  const mime = MediaRecorder.isTypeSupported(
-                    "audio/webm;codecs=opus"
-                  )
-                    ? "audio/webm;codecs=opus"
-                    : MediaRecorder.isTypeSupported("audio/webm")
-                    ? "audio/webm"
-                    : "";
-                  const mr = new MediaRecorder(aStream, {
-                    mimeType: mime || undefined,
-                    audioBitsPerSecond: 128000,
-                  });
-                  mr.ondataavailable = async (e) => {
-                    try {
-                      if (!e.data || e.data.size === 0) return;
-                      if (wsRef.current?.readyState !== WebSocket.OPEN) return;
-                      const buf = await e.data.arrayBuffer();
-                      const u8 = new Uint8Array(buf);
-                      const out = new Uint8Array(u8.length + 1);
-                      out[0] = 0x01;
-                      out.set(u8, 1);
-                      wsRef.current.send(out.buffer);
-                    } catch {}
-                  };
-                  mr.start(100);
-                  audioRecorderRef.current = mr;
-                }
-              } catch (e) {
-                console.warn("Không thể khởi tạo mic:", e?.message || e);
-              }
-              resolve();
-            }
-            if (msg.type === "error") {
-              clearTimeout(timeout);
-              ws.removeEventListener("message", handler);
-              reject(new Error(msg.message));
-            }
-          } catch {}
-        };
-        ws.addEventListener("message", handler);
-      });
+
+      // --- 2) Bật MIC NGAY để prebuffer audio ---
+      startMicRecorder();
+
+      // --- 3) BẮT ĐẦU encode VIDEO NGAY để prebuffer video ---
       statsRef.current = {
         sent: 0,
         dropped: 0,
@@ -1011,6 +1041,7 @@ export default function FacebookLiveStreamerMUI({
         avgFps: 0,
       };
       frameCountRef.current = 0;
+
       const canvas = canvasRef.current;
       const video = videoRef.current;
       const ctx = canvas.getContext("2d", {
@@ -1018,22 +1049,24 @@ export default function FacebookLiveStreamerMUI({
         desynchronized: true,
         willReadFrequently: false,
       });
+
       const frameDurationMicros = 1000000 / preset.fps;
       frameIntervalRef.current = frameDurationMicros;
       let nextFrameTimeMicros = performance.now() * 1000;
       lastFrameTimestampRef.current = nextFrameTimeMicros;
+
       const encodeLoop = (nowMillis) => {
         if (!encodingLoopRef.current || !isEncodingRef.current) return;
         const nowMicros = nowMillis * 1000;
+
         if (encoder.encodeQueueSize > 8) {
-          console.warn(
-            `⚠️ Encoder overload (queue=${encoder.encodeQueueSize}), skipping frame`
-          );
+          // quá tải -> bỏ frame để giữ realtime
           statsRef.current.dropped++;
           nextFrameTimeMicros += frameDurationMicros;
           encodingLoopRef.current = requestAnimationFrame(encodeLoop);
           return;
         }
+
         if (nowMicros >= nextFrameTimeMicros) {
           try {
             if (!encoder || encoder.state === "closed") {
@@ -1049,6 +1082,7 @@ export default function FacebookLiveStreamerMUI({
               frameCountRef.current % (preset.fps * 2) === 0;
             encoder.encode(frame, { keyFrame: forceKeyframe });
             frame.close();
+
             frameCountRef.current++;
             nextFrameTimeMicros += frameDurationMicros;
             lastFrameTimestampRef.current = nextFrameTimeMicros;
@@ -1062,9 +1096,51 @@ export default function FacebookLiveStreamerMUI({
         encodingLoopRef.current = requestAnimationFrame(encodeLoop);
       };
       encodingLoopRef.current = requestAnimationFrame(encodeLoop);
-      setIsStreaming(true);
-      setStatus(`✅ LIVE - ${preset.label}`);
-      setStatusType("success");
+
+      // Trạng thái trong lúc server prebuffer
+      setStatus("Đã gửi cấu hình. Đang đệm trước (prebuffer)...");
+      setStatusType("info");
+
+      // --- 4) Lắng nghe message từ server (non-blocking) ---
+      const onWsMsg = (evt) => {
+        if (typeof evt.data !== "string") return;
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg.type === "accepted") {
+            setStatus("Đang đệm trước (prebuffer)... Chuẩn bị LIVE");
+            setStatusType("info");
+          } else if (msg.type === "started") {
+            setIsStreaming(true);
+            setStatus(`✅ LIVE - ${QUALITY_PRESETS[qualityMode].label}`);
+            setStatusType("success");
+          } else if (msg.type === "reconnecting") {
+            setStatus(
+              `Mất kết nối, thử lại (${msg.attempt}/${msg.maxAttempts})...`
+            );
+            setStatusType("warning");
+          } else if (msg.type === "warning") {
+            setStatus(`⚠️ ${msg.message}`);
+            setStatusType("warning");
+          } else if (msg.type === "stopped") {
+            setStatus("Đã dừng từ server");
+            setStatusType("info");
+            setIsStreaming(false);
+          } else if (msg.type === "error") {
+            setStatus("❌ " + msg.message);
+            setStatusType("error");
+            stopStreamingPro();
+          }
+        } catch {}
+      };
+      ws.addEventListener("message", onWsMsg);
+
+      ws.addEventListener("close", () => {
+        setIsConnected(false);
+        if (isStreaming) {
+          setStatus("Mất kết nối máy chủ.");
+          setStatusType("error");
+        }
+      });
     } catch (err) {
       setStatus("❌ Lỗi: " + err.message);
       setStatusType("error");
@@ -1095,12 +1171,24 @@ export default function FacebookLiveStreamerMUI({
   const stopStreamingPro = async () => {
     setLoading(true);
     try {
+      // Dừng mic nếu đang chạy
+      if (
+        audioRecorderRef.current &&
+        audioRecorderRef.current.state !== "inactive"
+      ) {
+        try {
+          audioRecorderRef.current.stop();
+        } catch {}
+      }
+      audioRecorderRef.current = null;
+
       isEncodingRef.current = false;
       if (encodingLoopRef.current) {
         cancelAnimationFrame(encodingLoopRef.current);
         encodingLoopRef.current = null;
       }
       await new Promise((resolve) => setTimeout(resolve, 100));
+
       if (
         videoEncoderRef.current &&
         videoEncoderRef.current.state !== "closed"
@@ -1113,11 +1201,13 @@ export default function FacebookLiveStreamerMUI({
         }
         videoEncoderRef.current = null;
       }
+
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({ type: "stop" }));
         wsRef.current.close();
         wsRef.current = null;
       }
+
       setIsStreaming(false);
       setIsConnected(false);
       setStatus("Đã dừng streaming");
@@ -1161,7 +1251,9 @@ export default function FacebookLiveStreamerMUI({
             size="small"
           />
         </Box>
+
         <Divider sx={{ mb: 2 }} />
+
         <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
           <Button
             size="small"
@@ -1180,7 +1272,9 @@ export default function FacebookLiveStreamerMUI({
             Disable All
           </Button>
         </Box>
+
         <Divider sx={{ mb: 2 }} />
+
         <Typography
           variant="subtitle2"
           fontWeight={600}
@@ -1220,6 +1314,7 @@ export default function FacebookLiveStreamerMUI({
             label={<Typography variant="body2">Tournament Name</Typography>}
           />
         </Box>
+
         <Typography
           variant="subtitle2"
           fontWeight={600}
@@ -1259,6 +1354,7 @@ export default function FacebookLiveStreamerMUI({
             label={<Typography variant="body2">Lower Third</Typography>}
           />
         </Box>
+
         <Typography
           variant="subtitle2"
           fontWeight={600}
@@ -1298,6 +1394,7 @@ export default function FacebookLiveStreamerMUI({
             label={<Typography variant="body2">Frame Decoration</Typography>}
           />
         </Box>
+
         <Typography
           variant="subtitle2"
           fontWeight={600}
@@ -1327,6 +1424,7 @@ export default function FacebookLiveStreamerMUI({
             label={<Typography variant="body2">Viewer Count</Typography>}
           />
         </Box>
+
         <Alert severity="success" sx={{ mt: 2 }} icon={<CheckCircle />}>
           <Typography variant="caption">
             ✅ Adaptive Quality + Zero Flicker
@@ -1390,6 +1488,7 @@ export default function FacebookLiveStreamerMUI({
 
           <Box sx={{ p: 3 }}>
             <Grid container spacing={3}>
+              {/* Camera */}
               <Grid item xs={12} lg={8}>
                 <Card elevation={2} sx={{ mb: 3 }}>
                   <CardContent>
@@ -1419,11 +1518,15 @@ export default function FacebookLiveStreamerMUI({
                         {facingMode === "environment" ? "Sau" : "Trước"}
                       </Button>
                     </Box>
+
                     <Box
                       sx={{
                         position: "relative",
                         width: "100%",
-                        paddingBottom: ratioPadding,
+                        paddingBottom:
+                          videoSize.w > 0
+                            ? `${(videoSize.h / videoSize.w) * 100}%`
+                            : "56.25%",
                         background: "#000",
                         borderRadius: 2,
                         overflow: "hidden",
@@ -1449,6 +1552,7 @@ export default function FacebookLiveStreamerMUI({
                   </CardContent>
                 </Card>
 
+                {/* Preview + Live canvas */}
                 <Card elevation={2}>
                   <CardContent>
                     <Box
@@ -1464,11 +1568,15 @@ export default function FacebookLiveStreamerMUI({
                         Stream Preview (Match: {matchId || "N/A"})
                       </Typography>
                     </Box>
+
                     <Box
                       sx={{
                         position: "relative",
                         width: "100%",
-                        paddingBottom: ratioPadding,
+                        paddingBottom:
+                          videoSize.w > 0
+                            ? `${(videoSize.h / videoSize.w) * 100}%`
+                            : "56.25%",
                         background: "#000",
                         borderRadius: 2,
                         overflow: "hidden",
@@ -1499,6 +1607,7 @@ export default function FacebookLiveStreamerMUI({
                         }}
                       />
                     </Box>
+
                     {isStreaming && (
                       <Box
                         sx={{
@@ -1545,6 +1654,7 @@ export default function FacebookLiveStreamerMUI({
                         </Grid>
                       </Box>
                     )}
+
                     <Alert severity="success" sx={{ mt: 2 }}>
                       <Typography variant="body2">
                         ⚡ Adaptive Quality: Tự động điều chỉnh theo mạng!
@@ -1554,7 +1664,9 @@ export default function FacebookLiveStreamerMUI({
                 </Card>
               </Grid>
 
+              {/* Right column */}
               <Grid item xs={12} lg={4}>
+                {/* Quality */}
                 <Card elevation={2} sx={{ mb: 3 }}>
                   <CardContent>
                     <Box
@@ -1728,6 +1840,7 @@ export default function FacebookLiveStreamerMUI({
 
                 <OverlayControlsCard />
 
+                {/* Stream settings */}
                 <Card elevation={2} sx={{ mb: 3 }}>
                   <CardContent>
                     <Box
@@ -1792,6 +1905,7 @@ export default function FacebookLiveStreamerMUI({
                           ? "Dừng Stream"
                           : `Start ${QUALITY_PRESETS[qualityMode].label}`}
                       </Button>
+
                       <Alert
                         severity={statusType}
                         icon={<RadioButtonChecked />}
@@ -1805,6 +1919,7 @@ export default function FacebookLiveStreamerMUI({
                   </CardContent>
                 </Card>
 
+                {/* Features */}
                 <Card elevation={2}>
                   <CardContent>
                     <Alert severity="info" variant="outlined">
