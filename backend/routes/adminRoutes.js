@@ -134,6 +134,10 @@ import {
 } from "../controllers/admin/adminStatsController.js";
 import { searchUsersForRefereeAssign } from "../controllers/admin/refereeController.js";
 import { suggestAndCommit, suggestPlan } from "./planSuggest.js";
+import {
+  getConfig,
+  updateConfig,
+} from "../controllers/fbLiveAdmin.controller.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -173,18 +177,9 @@ router.get(
 );
 
 // Batch matches
-router.post(
-  "/matches/batch/update-referee",
-  protect,
-  batchAssignReferee
-);
+router.post("/matches/batch/update-referee", protect, batchAssignReferee);
 
-router.post(
-  "/tournaments/:tournamentId/courts",
-  protect,
-  upsertCourts
-);
-
+router.post("/tournaments/:tournamentId/courts", protect, upsertCourts);
 
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
 
@@ -380,7 +375,6 @@ router.get(
   getDashboardSeries
 );
 
-
 router.post(
   "/brackets/:bracketId/matches/batch-delete",
   protect,
@@ -420,8 +414,18 @@ router.post(
   planCommit
 );
 
-router.post("/tournaments/:id/plan/suggest", protect, authorize("admin"), suggestPlan);
-router.post("/tournaments/:id/plan/suggest-and-commit", protect, authorize("admin"), suggestAndCommit);
+router.post(
+  "/tournaments/:id/plan/suggest",
+  protect,
+  authorize("admin"),
+  suggestPlan
+);
+router.post(
+  "/tournaments/:id/plan/suggest-and-commit",
+  protect,
+  authorize("admin"),
+  suggestAndCommit
+);
 
 // auto create registration
 router.post(
@@ -623,5 +627,8 @@ router.get(
   authorize("admin"),
   getPresenceOfUser
 );
+
+router.get("/fb-live-config", protect, authorize("admin"), getConfig);
+router.put("/fb-live-config", protect, authorize("admin"), updateConfig);
 
 export default router;

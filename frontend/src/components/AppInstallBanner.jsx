@@ -4,8 +4,11 @@ import { Container } from "react-bootstrap";
 /* =========================================================
    AppInstallBanner (smart suggest top bar)
    - Detect iOS/Android
-   - Pick correct store link (fallback APK for Android)
-   - Dismissible, remember 14 days
+   - Show "Mở" if app installed, else "Tải"
+   - iOS: memory flag via ?from_app=1
+   - Android: navigator.getInstalledRelatedApps()
+   - Snooze 2 days on "Để sau"
+   - (Optional) Dismiss 14 days via DISMISS_KEY (giữ để mở rộng sau)
    - Only shows on mobile & when link exists
 ========================================================= */
 function detectPlatform() {
@@ -19,31 +22,77 @@ function detectPlatform() {
   return { isAndroid, isIOS, isMobile, isStandalone };
 }
 
-const DISMISS_KEY = "pt_app_banner_dismissed_at";
+const DISMISS_KEY = "pt_app_banner_dismissed_at"; // (14d) nếu cần dùng sau
 const DISMISS_TTL_DAYS = 14;
+
+const SNOOZE_KEY = "pt_app_banner_snoozed_at"; // (2d) cho "Để sau"
+const SNOOZE_TTL_DAYS = 2;
+
+const INSTALLED_FLAG = "pt_app_native_installed"; // ghi nhớ cho iOS
+
+function daysToMs(d) {
+  return d * 24 * 60 * 60 * 1000;
+}
 
 function shouldShowFromStorage() {
   try {
+    const now = Date.now();
+
+    // 1) Snooze ngắn hạn (2 ngày)
+    const s = parseInt(localStorage.getItem(SNOOZE_KEY) || "0", 10);
+    if (s && now - s <= daysToMs(SNOOZE_TTL_DAYS)) return false;
+
+    // 2) Dismiss dài hạn (14 ngày) — hiện chưa set ở đâu, để sẵn nếu cần
     const ts = parseInt(localStorage.getItem(DISMISS_KEY) || "0", 10);
-    if (!ts) return true;
-    const ms = Date.now() - ts;
-    return ms > DISMISS_TTL_DAYS * 24 * 60 * 60 * 1000;
+    if (ts && now - ts <= daysToMs(DISMISS_TTL_DAYS)) return false;
+
+    return true;
   } catch {
     return true;
+  }
+}
+
+async function detectInstalledAndroid(androidPackage) {
+  try {
+    if (!androidPackage) return false;
+    const nav = /** @type {any} */ (navigator);
+    if (typeof nav.getInstalledRelatedApps !== "function") return false;
+    const apps = await nav.getInstalledRelatedApps();
+    return !!apps?.find?.(
+      (a) => a.platform === "play" && a.id === androidPackage
+    );
+  } catch {
+    return false;
   }
 }
 
 export default function AppInstallBanner({ links }) {
   const { isAndroid, isIOS, isMobile, isStandalone } = detectPlatform();
   const [visible, setVisible] = useState(false);
+  const [installed, setInstalled] = useState(false);
   const barRef = useRef(null);
   const [barH, setBarH] = useState(0);
 
+  // inputs
   const hasIOS = !!links?.appStore;
   const hasAndroid = !!links?.playStore || !!links?.apkPickleTour;
-  const logoSrc = `/icon.png`;
-  // decide target link
-  const targetHref = useMemo(() => {
+  const androidPackage = links?.androidPackage || ""; // ví dụ "com.pico.picoapp"
+  const deeplinkPath = links?.deeplinkPath || ""; // ví dụ "/u/123"
+  const domain = links?.domain || ""; // ví dụ "https://yourdomain.com"
+
+  // logo trong public (ổn với mọi base của Vite)
+  const logoSrc = `${import.meta.env.BASE_URL}icon.png`;
+
+  // build deeplink chuẩn HTTPS (Universal/App Links)
+  const deeplinkUrl = useMemo(() => {
+    if (!deeplinkPath) return "";
+    if (deeplinkPath.startsWith("http")) return deeplinkPath;
+    const host = domain || window.location.origin;
+    return `${host}${deeplinkPath.startsWith("/") ? "" : "/"}${deeplinkPath}`;
+  }, [deeplinkPath, domain]);
+
+  // Store link fallback
+  const storeHref = useMemo(() => {
     const utm =
       "utm_source=web-banner&utm_medium=smart-banner&utm_campaign=install";
     if (isIOS && hasIOS) {
@@ -58,15 +107,52 @@ export default function AppInstallBanner({ links }) {
     return "";
   }, [isIOS, isAndroid, hasIOS, hasAndroid, links]);
 
-  const primaryLabel = isIOS ? "Tải" : "Tải";
+  // Android intent URL (mở app nếu có, fallback về deeplink / store)
+  const intentHref = useMemo(() => {
+    if (!isAndroid || !deeplinkPath || !androidPackage) return "";
+    const pathNoSlash = deeplinkPath.startsWith("/")
+      ? deeplinkPath.slice(1)
+      : deeplinkPath;
+    const fallback = encodeURIComponent(
+      deeplinkUrl || storeHref || window.location.href
+    );
+    return `intent://${pathNoSlash}#Intent;scheme=https;package=${androidPackage};S.browser_fallback_url=${fallback};end`;
+  }, [isAndroid, deeplinkPath, androidPackage, deeplinkUrl, storeHref]);
 
+  // === Ghi nhớ "đã có app" khi app redirect về web kèm flag (iOS workaround) ===
   useEffect(() => {
-    // only show on mobile web, not PWA, must have link
-    const can =
-      isMobile && !isStandalone && !!targetHref && shouldShowFromStorage();
-    setVisible(!!can);
-  }, [isMobile, isStandalone, targetHref]);
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("from_app") === "1" || sp.get("app_installed") === "1") {
+      try {
+        localStorage.setItem(INSTALLED_FLAG, "1");
+      } catch {}
+      setInstalled(true);
+      return;
+    }
+    try {
+      if (localStorage.getItem(INSTALLED_FLAG) === "1") setInstalled(true);
+    } catch {}
+  }, []);
 
+  // === Android: detect thật bằng getInstalledRelatedApps ===
+  useEffect(() => {
+    if (!isAndroid) return;
+    detectInstalledAndroid(androidPackage).then((ok) => {
+      if (ok) setInstalled(true);
+    });
+  }, [isAndroid, androidPackage]);
+
+  // === Hiển thị banner khi đủ điều kiện ===
+  useEffect(() => {
+    const can =
+      isMobile &&
+      !isStandalone &&
+      !!(storeHref || deeplinkUrl) &&
+      shouldShowFromStorage();
+    setVisible(!!can);
+  }, [isMobile, isStandalone, storeHref, deeplinkUrl]);
+
+  // đo chiều cao spacer
   useEffect(() => {
     if (!visible) return;
     const ro = new ResizeObserver(() => {
@@ -78,7 +164,8 @@ export default function AppInstallBanner({ links }) {
 
   const onDismiss = () => {
     try {
-      localStorage.setItem(DISMISS_KEY, String(Date.now()));
+      // Snooze 2 ngày
+      localStorage.setItem(SNOOZE_KEY, String(Date.now()));
     } catch (e) {
       console.log(e);
     }
@@ -86,6 +173,17 @@ export default function AppInstallBanner({ links }) {
   };
 
   if (!visible) return null;
+
+  // Nút chính: nếu đã cài → "Mở" (iOS: deeplink, Android: intent)
+  // nếu chưa → "Tải" (đi store)
+  const primaryLabel = installed ? "Mở" : "Tải";
+  const btnHref = installed
+    ? (isAndroid ? intentHref || deeplinkUrl : deeplinkUrl) || storeHref
+    : storeHref;
+
+  // iOS deeplink KHÔNG target để Universal Link hoạt động
+  const btnTarget = installed && !isAndroid ? undefined : "_blank";
+  const btnRel = btnTarget ? "noopener noreferrer" : undefined;
 
   return (
     <>
@@ -101,8 +199,8 @@ export default function AppInstallBanner({ links }) {
       >
         <Container className="py-2">
           <div className="d-flex align-items-center gap-3">
-            {/* App icon placeholder (use your logo if available) */}
             <img
+              className="align-self-start"
               src={logoSrc}
               alt="PickleTour"
               width={44}
@@ -116,7 +214,6 @@ export default function AppInstallBanner({ links }) {
                 display: "block",
               }}
               onError={(e) => {
-                // fallback: ẩn nếu thiếu file
                 e.currentTarget.style.visibility = "hidden";
               }}
             />
@@ -131,10 +228,11 @@ export default function AppInstallBanner({ links }) {
             </div>
             <div className="d-flex align-items-center gap-2">
               <a
-                href={targetHref}
-                target="_blank"
-                rel="noopener noreferrer"
+                href={btnHref || "#"}
+                target={btnTarget}
+                rel={btnRel}
                 className="btn btn-sm btn-light fw-semibold"
+                style={{ whiteSpace: "nowrap" }}
               >
                 {primaryLabel}
               </a>
@@ -144,6 +242,7 @@ export default function AppInstallBanner({ links }) {
                 onClick={onDismiss}
                 aria-label="Đóng"
                 title="Đóng"
+                style={{ whiteSpace: "nowrap" }}
               >
                 Để sau
               </button>
