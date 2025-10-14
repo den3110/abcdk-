@@ -4,9 +4,6 @@ import axios from "axios";
 const GRAPH_VER = process.env.GRAPH_VER || "v24.0";
 const GRAPH = `https://graph.facebook.com/${GRAPH_VER}`;
 
-// Status hợp lệ (SCHEDULED đã deprecated!)
-const VALID_STATUSES = ["LIVE_NOW", "UNPUBLISHED"];
-
 async function getAdminLiveConfig() {
   try {
     const mod = await import("../models/fbLiveConfigModel.js");
@@ -33,60 +30,22 @@ function normalizePermalink(url) {
   }`;
 }
 
-function validateStatus(status) {
-  return VALID_STATUSES.includes(status) ? status : "LIVE_NOW";
-}
-
-async function applyAdminPolicies({
-  liveVideoId,
-  pageAccessToken,
-  adminCfg,
-  phase,
-}) {
-  if (!adminCfg) return;
-
-  const params = { access_token: pageAccessToken };
-
-  if (phase === "create" && adminCfg.privacyValueOnCreate) {
-    params.privacy = toPrivacyJSON(adminCfg.privacyValueOnCreate);
-  }
-  if (phase === "end" && adminCfg.ensurePrivacyAfterEnd) {
-    params.privacy = toPrivacyJSON(adminCfg.ensurePrivacyAfterEnd);
-  }
-  if (typeof adminCfg.embeddable === "boolean") {
-    params.embeddable = adminCfg.embeddable;
-  }
-
-  if (params.privacy || typeof params.embeddable === "boolean") {
-    await axios.post(`${GRAPH}/${liveVideoId}`, null, { params });
-  }
-}
-
 export async function fbCreateLiveOnPage({
   pageId,
   pageAccessToken,
   title,
   description,
-  status = "LIVE_NOW",
+  autoGoLiveDelay = 15000, // 👈 Tự động chuyển sang LIVE sau 15s
 }) {
   const adminCfg = await getAdminLiveConfig();
 
-  // Validate status từ admin config trước
-  const finalStatus = validateStatus(adminCfg?.status || status);
-
-  if (adminCfg?.status && adminCfg.status !== finalStatus) {
-    console.warn(
-      `⚠️  Status "${adminCfg.status}" is deprecated, using "${finalStatus}" instead`
-    );
-  }
-
   try {
-    // Tạo live
+    // Tạo live ở chế độ UNPUBLISHED
     const created = await axios
       .post(`${GRAPH}/${pageId}/live_videos`, null, {
         params: {
           access_token: pageAccessToken,
-          status: finalStatus,
+          status: "UNPUBLISHED",
           title,
           description,
           privacy: toPrivacyJSON(adminCfg?.privacyValueOnCreate || "EVERYONE"),
@@ -98,7 +57,6 @@ export async function fbCreateLiveOnPage({
     if (!liveVideoId)
       throw new Error("Create live failed: missing liveVideoId");
 
-    // Lưu fallback
     const fallback = {
       secure_stream_url: created?.secure_stream_url,
       stream_url: created?.stream_url,
@@ -106,12 +64,18 @@ export async function fbCreateLiveOnPage({
 
     // Apply policies
     try {
-      await applyAdminPolicies({
-        liveVideoId,
-        pageAccessToken,
-        adminCfg,
-        phase: "create",
-      });
+      const params = { access_token: pageAccessToken };
+
+      if (adminCfg?.privacyValueOnCreate) {
+        params.privacy = toPrivacyJSON(adminCfg.privacyValueOnCreate);
+      }
+      if (typeof adminCfg?.embeddable === "boolean") {
+        params.embeddable = adminCfg.embeddable;
+      }
+
+      if (params.privacy || typeof params.embeddable === "boolean") {
+        await axios.post(`${GRAPH}/${liveVideoId}`, null, { params });
+      }
     } catch (e) {
       console.warn("Apply policy failed:", e.message);
     }
@@ -132,7 +96,6 @@ export async function fbCreateLiveOnPage({
       console.warn("Get info failed:", e.message);
     }
 
-    // Merge với fallback
     const result = {
       liveVideoId,
       secure_stream_url: info.secure_stream_url || fallback.secure_stream_url,
@@ -163,6 +126,30 @@ export async function fbCreateLiveOnPage({
       } catch (_) {}
     }
 
+    console.log(
+      `✅ Live created (UNPUBLISHED). Will go LIVE in ${
+        autoGoLiveDelay / 1000
+      }s...`
+    );
+
+    // 🔥 Tự động chuyển sang LIVE_NOW sau delay
+    setTimeout(async () => {
+      try {
+        await axios.post(`${GRAPH}/${liveVideoId}`, null, {
+          params: {
+            access_token: pageAccessToken,
+            status: "LIVE_NOW",
+          },
+        });
+        console.log("✅ Live is now PUBLIC!");
+      } catch (error) {
+        console.error(
+          "Auto go-live failed:",
+          error.response?.data || error.message
+        );
+      }
+    }, autoGoLiveDelay);
+
     return result;
   } catch (error) {
     console.error("Create live error:", error.response?.data || error.message);
@@ -184,12 +171,14 @@ export async function fbEndLive({ liveVideoId, pageAccessToken }) {
 
   try {
     const adminCfg = await getAdminLiveConfig();
-    await applyAdminPolicies({
-      liveVideoId,
-      pageAccessToken,
-      adminCfg,
-      phase: "end",
-    });
+    if (adminCfg?.ensurePrivacyAfterEnd) {
+      await axios.post(`${GRAPH}/${liveVideoId}`, null, {
+        params: {
+          access_token: pageAccessToken,
+          privacy: toPrivacyJSON(adminCfg.ensurePrivacyAfterEnd),
+        },
+      });
+    }
   } catch (e) {
     console.warn("Post-end policy failed:", e.message);
   }
