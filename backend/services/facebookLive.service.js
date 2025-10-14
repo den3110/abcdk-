@@ -35,7 +35,6 @@ export async function fbCreateLiveOnPage({
           description,
           privacy: toPrivacyJSON("EVERYONE"),
           is_reference_only: false, // Phải lưu lại sau khi end
-          save_vod: true, // 👈 THÊM: Lưu video sau khi end
           published: true, // 👈 THÊM: Publish luôn
         },
       })
