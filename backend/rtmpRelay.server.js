@@ -5,7 +5,7 @@ import dotenv from "dotenv";
 import express from "express";
 import { createServer } from "http";
 import { setupStreamDashboard } from "./rtmp-service/streamDashboard.js";
-import { attachRtmpRelayFixed } from "./services/rtmpRelay.js";
+import { attachRtmpRelayFinal } from "./services/rtmpRelay.js";
 dotenv.config();
 
 const PORT = process.env.RTMP_PORT || 5002;
@@ -14,7 +14,7 @@ const app = express();
 const server = createServer(app);
 
 // ✅ Start RTMP relay
-const wss = await attachRtmpRelayFixed(server, { path: "/ws/rtmp" });
+const wss = await attachRtmpRelayFinal(server, { path: "/ws/rtmp" });
 
 // ✅ Setup monitoring dashboard
 setupStreamDashboard(app, wss);
