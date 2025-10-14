@@ -23,7 +23,6 @@ export async function fbCreateLiveOnPage({
   pageAccessToken,
   title,
   description,
-  autoGoLiveDelay = 15000,
 }) {
   try {
     // Tạo live
@@ -31,10 +30,11 @@ export async function fbCreateLiveOnPage({
       .post(`${GRAPH}/${pageId}/live_videos`, null, {
         params: {
           access_token: pageAccessToken,
-          status: "UNPUBLISHED",
+          status: "LIVE_NOW",
           title,
           description,
           privacy: toPrivacyJSON("EVERYONE"),
+          is_reference_only: false, // 👈 THÊM DÒNG NÀY - QUAN TRỌNG!
         },
       })
       .then((r) => r.data);
@@ -56,10 +56,24 @@ export async function fbCreateLiveOnPage({
           params: {
             access_token: pageAccessToken,
             fields:
-              "permalink_url,secure_stream_url,stream_url,status,privacy,embeddable,video{permalink_url}",
+              "permalink_url,secure_stream_url,stream_url,status,privacy,embeddable,is_reference_only,video{permalink_url}",
           },
         })
         .then((r) => r.data);
+
+      console.log("🔍 Live info:", info);
+
+      // 👇 Nếu vẫn bị reference_only, force update lại
+      if (info.is_reference_only) {
+        console.log("⚠️ Fixing is_reference_only...");
+        await axios.post(`${GRAPH}/${liveVideoId}`, null, {
+          params: {
+            access_token: pageAccessToken,
+            is_reference_only: false,
+          },
+        });
+        console.log("✅ Fixed!");
+      }
     } catch (e) {
       console.warn("Get info failed:", e.message);
     }
@@ -68,32 +82,19 @@ export async function fbCreateLiveOnPage({
       liveVideoId,
       secure_stream_url: info.secure_stream_url || fallback.secure_stream_url,
       stream_url: info.stream_url || fallback.stream_url,
-      status: info.status || "UNPUBLISHED",
+      status: info.status || "LIVE_NOW",
       privacy: info.privacy || { value: "EVERYONE" },
       embeddable: info.embeddable ?? true,
+      is_reference_only: false, // Force về false
       permalink_url:
         normalizePermalink(info.permalink_url) ||
         normalizePermalink(info?.video?.permalink_url) ||
         null,
     };
 
-    console.log(`✅ Live created. Auto go-live in ${autoGoLiveDelay / 1000}s`);
+    console.log("✅ Live created (PUBLIC):", result);
 
-    // Tự động GO LIVE
-    if (autoGoLiveDelay > 0) {
-      setTimeout(async () => {
-        try {
-          await axios.post(`${GRAPH}/${liveVideoId}`, null, {
-            params: { access_token: pageAccessToken, status: "LIVE_NOW" },
-          });
-          console.log("✅ Live is PUBLIC!");
-        } catch (e) {
-          console.error("Auto go-live failed:", e.response?.data || e.message);
-        }
-      }, autoGoLiveDelay);
-    }
-
-    // Retry permalink trong background
+    // Retry permalink
     if (!result.permalink_url) {
       setTimeout(async () => {
         try {
@@ -110,9 +111,9 @@ export async function fbCreateLiveOnPage({
             normalizePermalink(retry.permalink_url) ||
             normalizePermalink(retry?.video?.permalink_url);
 
-          if (permalink) console.log("📍 Permalink updated:", permalink);
+          if (permalink) console.log("📍 Permalink:", permalink);
         } catch (_) {}
-      }, 2000);
+      }, 3000);
     }
 
     return result;
