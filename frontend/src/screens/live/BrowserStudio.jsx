@@ -457,6 +457,11 @@ export default function FacebookLiveStreamerUltraSmooth({
       drawViewerCount,
     ]
   );
+  // ✅ Store drawFrame in ref để tránh re-create render loop
+  const drawFrameRef = useRef(drawFrame);
+  useEffect(() => {
+    drawFrameRef.current = drawFrame;
+  }, [drawFrame]);
 
   // Timer
   useEffect(() => {
@@ -650,7 +655,7 @@ export default function FacebookLiveStreamerUltraSmooth({
     return () => clearInterval(timer);
   }, [matchId, apiUrl]);
 
-  // ✅ PREVIEW RENDER LOOP - 60fps smooth, no flicker
+  // ✅ PREVIEW RENDER LOOP - 60fps smooth, ZERO flicker
   useEffect(() => {
     const canvas = previewCanvasRef.current;
     const video = videoRef.current;
@@ -665,7 +670,7 @@ export default function FacebookLiveStreamerUltraSmooth({
     let running = true;
     const render = () => {
       if (!running) return;
-      drawFrame(ctx, video, canvas.width, canvas.height);
+      drawFrameRef.current(ctx, video, canvas.width, canvas.height); // ✅ Dùng ref
       requestAnimationFrame(render);
     };
 
@@ -673,7 +678,7 @@ export default function FacebookLiveStreamerUltraSmooth({
     return () => {
       running = false;
     };
-  }, [drawFrame, facingMode]);
+  }, [facingMode]); // ✅ Bỏ drawFrame khỏi dependency
 
   const convertToAnnexB = (data, description, isKeyframe) => {
     const startCode = new Uint8Array([0, 0, 0, 1]);

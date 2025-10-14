@@ -4,6 +4,8 @@ import axios from "axios";
 const GRAPH_VER = process.env.GRAPH_VER || "v24.0";
 const GRAPH = `https://graph.facebook.com/${GRAPH_VER}`;
 
+const PRIVACY_DEFAULT = "EVERYONE"; // ép public mặc định nếu admin chưa set
+
 /**
  * Tải cấu hình admin (nếu có). Không bắt buộc.
  * - Dự kiến model: models/FbLiveConfig.js (field key="fb_live_config")
@@ -74,10 +76,9 @@ export async function fbCreateLiveOnPage({
       status: adminCfg?.status || status,
       title, // KHÔNG bị config ghi đè
       description, // KHÔNG bị config ghi đè
+      // embeddable: ❌ KHÔNG HỖ TRỢ ở bước tạo
+      privacy: toPrivacyJSON(adminCfg?.privacyValueOnCreate || PRIVACY_DEFAULT),
     };
-    if (adminCfg?.privacyValueOnCreate) {
-      paramsCreate.privacy = toPrivacyJSON(adminCfg.privacyValueOnCreate);
-    }
 
     const created = await axios
       .post(`${GRAPH}/${pageId}/live_videos`, null, { params: paramsCreate })
@@ -88,7 +89,7 @@ export async function fbCreateLiveOnPage({
       throw new Error("Create live failed: missing liveVideoId");
     }
 
-    // 2) Áp policy (privacy/embeddable) lần nữa cho chắc chắn
+    // 2) Áp policy (privacy/embeddable) lần nữa cho chắc chắn (nếu admin có set)
     try {
       await applyAdminPolicies({
         liveVideoId,
@@ -100,8 +101,9 @@ export async function fbCreateLiveOnPage({
       console.log("Apply policy warn:", e.response?.data || e.message);
     }
 
-    // 3) Lấy thêm trường hữu dụng
-    const fields = "permalink_url,secure_stream_url,stream_url";
+    // 3) Lấy thêm trường hữu dụng (kèm privacy/embeddable/status để debug nhanh)
+    const fields =
+      "permalink_url,secure_stream_url,stream_url,status,privacy,embeddable";
     const info = await axios
       .get(`${GRAPH}/${liveVideoId}`, {
         params: { access_token: pageAccessToken, fields },
