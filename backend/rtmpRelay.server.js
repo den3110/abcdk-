@@ -19,7 +19,7 @@ const wss = await attachRtmpRelayPro(server, { path: "/ws/rtmp" });
 setupStreamDashboard(app, wss);
 
 // ✅ Static dashboard HTML (optional)
-app.get("/dashboard", (req, res) => {
+app.get("/rtmp/dashboard", (req, res) => {
   res.send(`
     <!DOCTYPE html>
     <html>
@@ -27,7 +27,7 @@ app.get("/dashboard", (req, res) => {
       <title>Stream Dashboard</title>
       <script>
         setInterval(async () => {
-          const res = await fetch('/api/streams/stats');
+          const res = await fetch('/rtmp/api/streams/stats');
           const data = await res.json();
           document.getElementById('stats').innerText = JSON.stringify(data, null, 2);
         }, 2000);
