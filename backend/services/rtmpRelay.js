@@ -2,7 +2,6 @@
 // ✅ Full logging, zero crashes, production battle-tested
 import { WebSocketServer } from "ws";
 import { spawn } from "child_process";
-import { EventEmitter } from "events";
 
 // 🔧 PRODUCTION CONFIG - Tối ưu cho 50+ streams
 const CONFIG = {
