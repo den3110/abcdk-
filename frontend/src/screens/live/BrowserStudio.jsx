@@ -78,13 +78,13 @@ export default function FacebookLiveStreamerAdaptive() {
   const [matchId, setMatchId] = useState("");
   const [streamServer, setStreamServer] = useState("");
   const [streamKey, setStreamKey] = useState("");
-  
+
   // Network & Quality
   const [networkSpeed, setNetworkSpeed] = useState(0); // Mbps
   const [qualityMode, setQualityMode] = useState("auto"); // auto, low, medium, high, ultra
   const [currentQuality, setCurrentQuality] = useState(QUALITY_PRESETS.high);
   const [isAdaptiveMode, setIsAdaptiveMode] = useState(true);
-  
+
   // Streaming state
   const [isStreaming, setIsStreaming] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
@@ -96,7 +96,7 @@ export default function FacebookLiveStreamerAdaptive() {
   const [videoDevices, setVideoDevices] = useState([]);
   const [supportsWebCodecs, setSupportsWebCodecs] = useState(false);
   const [videoSize, setVideoSize] = useState({ w: 1280, h: 720 });
-  
+
   // Performance metrics
   const [performanceMetrics, setPerformanceMetrics] = useState({
     fps: 0,
@@ -147,26 +147,29 @@ export default function FacebookLiveStreamerAdaptive() {
   // 🌐 Parse URL parameters on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    
+
     const matchIdParam = params.get("matchId");
     const serverParam = params.get("server");
     const keyParam = params.get("key");
-    
+
     if (matchIdParam) {
       setMatchId(matchIdParam);
       console.log("📍 Match ID from URL:", matchIdParam);
     }
-    
+
     if (serverParam) {
       const decodedServer = decodeURIComponent(serverParam);
       setStreamServer(decodedServer);
       console.log("🌐 Stream Server from URL:", decodedServer);
     }
-    
+
     if (keyParam) {
       const decodedKey = decodeURIComponent(keyParam);
       setStreamKey(decodedKey);
-      console.log("🔑 Stream Key from URL:", decodedKey.substring(0, 20) + "...");
+      console.log(
+        "🔑 Stream Key from URL:",
+        decodedKey.substring(0, 20) + "..."
+      );
       setStatus("✅ Stream key tự động từ URL");
       setStatusType("success");
     } else {
@@ -180,15 +183,18 @@ export default function FacebookLiveStreamerAdaptive() {
     const detectNetworkSpeed = async () => {
       try {
         // Method 1: Navigator Connection API
-        const connection = (navigator as any).connection || 
-                          (navigator as any).mozConnection || 
-                          (navigator as any).webkitConnection;
-        
+        const connection =
+          navigator.connection ||
+          navigator.mozConnection ||
+          navigator.webkitConnection;
+
         if (connection && connection.downlink) {
           const speedMbps = connection.downlink;
           setNetworkSpeed(speedMbps);
-          console.log(`📡 Network speed: ${speedMbps} Mbps (${connection.effectiveType})`);
-          
+          console.log(
+            `📡 Network speed: ${speedMbps} Mbps (${connection.effectiveType})`
+          );
+
           // Auto-adjust quality based on speed
           if (isAdaptiveMode) {
             adjustQualityBasedOnSpeed(speedMbps);
@@ -207,10 +213,10 @@ export default function FacebookLiveStreamerAdaptive() {
     };
 
     detectNetworkSpeed();
-    
+
     // Re-check every 30 seconds
     const interval = setInterval(detectNetworkSpeed, 30000);
-    
+
     return () => clearInterval(interval);
   }, [isAdaptiveMode]);
 
@@ -218,24 +224,25 @@ export default function FacebookLiveStreamerAdaptive() {
   const performSpeedTest = async () => {
     try {
       setStatus("📊 Đang kiểm tra tốc độ mạng...");
-      
-      const testUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png";
+
+      const testUrl =
+        "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png";
       const startTime = performance.now();
-      
-      const response = await fetch(testUrl + "?t=" + Date.now(), { 
+
+      const response = await fetch(testUrl + "?t=" + Date.now(), {
         cache: "no-store",
-        mode: "no-cors" 
+        mode: "no-cors",
       });
-      
+
       const endTime = performance.now();
       const duration = (endTime - startTime) / 1000; // seconds
       const fileSize = 13504; // bytes (approximate)
       const speedBps = fileSize / duration;
       const speedMbps = (speedBps * 8) / (1024 * 1024);
-      
+
       setNetworkSpeed(speedMbps);
       console.log(`🧪 Speed test: ${speedMbps.toFixed(2)} Mbps`);
-      
+
       if (isAdaptiveMode) {
         adjustQualityBasedOnSpeed(speedMbps);
       }
@@ -249,9 +256,9 @@ export default function FacebookLiveStreamerAdaptive() {
   };
 
   // 🎯 Adjust quality based on network speed
-  const adjustQualityBasedOnSpeed = useCallback((speedMbps: number) => {
+  const adjustQualityBasedOnSpeed = useCallback((speedMbps) => {
     let selectedQuality;
-    
+
     if (speedMbps >= 10) {
       selectedQuality = QUALITY_PRESETS.ultra;
     } else if (speedMbps >= 5) {
@@ -261,17 +268,19 @@ export default function FacebookLiveStreamerAdaptive() {
     } else {
       selectedQuality = QUALITY_PRESETS.low;
     }
-    
+
     setCurrentQuality(selectedQuality);
-    console.log(`🎯 Auto quality: ${selectedQuality.label} (${speedMbps.toFixed(1)} Mbps)`);
+    console.log(
+      `🎯 Auto quality: ${selectedQuality.label} (${speedMbps.toFixed(1)} Mbps)`
+    );
     setStatus(`🎯 Chất lượng tự động: ${selectedQuality.label}`);
   }, []);
 
   // Manual quality selection
-  const handleQualityChange = (e: any) => {
+  const handleQualityChange = (e) => {
     const mode = e.target.value;
     setQualityMode(mode);
-    
+
     if (mode === "auto") {
       setIsAdaptiveMode(true);
       adjustQualityBasedOnSpeed(networkSpeed);
@@ -285,25 +294,27 @@ export default function FacebookLiveStreamerAdaptive() {
   // Monitor performance and adjust quality dynamically
   useEffect(() => {
     if (!isStreaming || !isAdaptiveMode) return;
-    
+
     const monitorPerformance = setInterval(() => {
       const encoder = videoEncoderRef.current;
       if (!encoder) return;
-      
+
       const queueSize = encoder.encodeQueueSize || 0;
       const droppedFrames = statsRef.current.dropped;
-      
-      setPerformanceMetrics(prev => ({
+
+      setPerformanceMetrics((prev) => ({
         fps: parseFloat(statsRef.current.avgFps) || 0,
         droppedFrames: droppedFrames,
         encoderQueue: queueSize,
         networkLatency: 0,
       }));
-      
+
       // Auto-downgrade if performance issues
       if (queueSize > 15 || droppedFrames > 50) {
-        console.warn(`⚠️ Performance issues detected! Queue: ${queueSize}, Dropped: ${droppedFrames}`);
-        
+        console.warn(
+          `⚠️ Performance issues detected! Queue: ${queueSize}, Dropped: ${droppedFrames}`
+        );
+
         // Downgrade quality
         if (currentQuality.label === QUALITY_PRESETS.ultra.label) {
           setCurrentQuality(QUALITY_PRESETS.high);
@@ -314,12 +325,12 @@ export default function FacebookLiveStreamerAdaptive() {
           setStatus("⬇️ Giảm xuống Medium do hiệu suất");
           setStatusType("warning");
         }
-        
+
         // Reset stats
         statsRef.current.dropped = 0;
       }
     }, 5000);
-    
+
     return () => clearInterval(monitorPerformance);
   }, [isStreaming, isAdaptiveMode, currentQuality]);
 
@@ -331,7 +342,9 @@ export default function FacebookLiveStreamerAdaptive() {
     overlayConfigRef.current = overlayConfig;
   }, [overlayConfig]);
 
-  const canSwitchCamera = videoDevices.length > 1 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const canSwitchCamera =
+    videoDevices.length > 1 ||
+    /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   const toggleOverlay = useCallback((key) => {
     setOverlayConfig((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -360,178 +373,217 @@ export default function FacebookLiveStreamerAdaptive() {
     ctx.closePath();
   }, []);
 
-  const drawScoreBoard = useCallback((ctx, w, h, data) => {
-    if (!data) return;
-    const x = 20, y = 20, width = 320, height = 120;
-    ctx.save();
-    ctx.fillStyle = "rgba(11,15,20,0.9)";
-    ctx.shadowColor = "rgba(0,0,0,0.5)";
-    ctx.shadowBlur = 15;
-    roundRect(ctx, x, y, width, height, 12);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "#9AA4AF";
-    ctx.font = "500 11px Arial";
-    ctx.textAlign = "left";
-    ctx.fillText(data?.tournament?.name || "Tournament", x + 14, y + 22);
-    const teamA = data?.teams?.A?.name || "Team A";
-    const scoreA = data?.gameScores?.[data?.currentGame || 0]?.a || 0;
-    ctx.fillStyle = "#25C2A0";
-    ctx.beginPath();
-    ctx.arc(x + 18, y + 45, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#E6EDF3";
-    ctx.font = "600 16px Arial";
-    ctx.fillText(teamA, x + 32, y + 50);
-    ctx.font = "800 24px Arial";
-    ctx.textAlign = "right";
-    ctx.fillText(String(scoreA), x + width - 14, y + 50);
-    const teamB = data?.teams?.B?.name || "Team B";
-    const scoreB = data?.gameScores?.[data?.currentGame || 0]?.b || 0;
-    ctx.fillStyle = "#4F46E5";
-    ctx.beginPath();
-    ctx.arc(x + 18, y + 85, 5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#E6EDF3";
-    ctx.font = "600 16px Arial";
-    ctx.textAlign = "left";
-    ctx.fillText(teamB, x + 32, y + 90);
-    ctx.font = "800 24px Arial";
-    ctx.textAlign = "right";
-    ctx.fillText(String(scoreB), x + width - 14, y + 90);
-    ctx.restore();
-  }, [roundRect]);
-
-  const drawTimer = useCallback((ctx, w, h) => {
-    const time = streamTimeRef.current;
-    const minutes = Math.floor(time / 60).toString().padStart(2, "0");
-    const seconds = (time % 60).toString().padStart(2, "0");
-    const x = w / 2 - 80, y = 20;
-    ctx.save();
-    ctx.fillStyle = "rgba(239,68,68,0.95)";
-    ctx.shadowColor = "rgba(0,0,0,0.5)";
-    ctx.shadowBlur = 15;
-    roundRect(ctx, x, y, 160, 50, 25);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "white";
-    ctx.font = "bold 28px monospace";
-    ctx.textAlign = "center";
-    ctx.fillText(`${minutes}:${seconds}`, w / 2, y + 35);
-    ctx.restore();
-  }, [roundRect]);
-
-  const drawTournamentName = useCallback((ctx, w, h, data) => {
-    if (!data) return;
-    const text = data?.tournament?.name || "Tournament 2025";
-    const x = w - 320, y = 20;
-    ctx.save();
-    ctx.fillStyle = "rgba(11,15,20,0.85)";
-    roundRect(ctx, x, y, 300, 50, 10);
-    ctx.fill();
-    ctx.fillStyle = "#FFD700";
-    ctx.font = "bold 18px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText(text, x + 150, y + 32);
-    ctx.restore();
-  }, [roundRect]);
-
-  const drawLogo = useCallback((ctx, w, h) => {
-    const x = w - 170, y = 90, size = 150;
-    ctx.save();
-    ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.shadowColor = "rgba(0,0,0,0.3)";
-    ctx.shadowBlur = 10;
-    roundRect(ctx, x, y, size, 60, 8);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "#667eea";
-    ctx.font = "bold 24px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText("YOUR LOGO", x + size / 2, y + 38);
-    ctx.restore();
-  }, [roundRect]);
-
-  const drawSponsors = useCallback((ctx, w, h) => {
-    const sponsors = ["SPONSOR 1", "SPONSOR 2", "SPONSOR 3"];
-    const x = w - 250, y = h - 120;
-    ctx.save();
-    ctx.fillStyle = "rgba(255,255,255,0.9)";
-    roundRect(ctx, x, y, 230, 100, 8);
-    ctx.fill();
-    ctx.fillStyle = "#333";
-    ctx.font = "bold 12px Arial";
-    ctx.textAlign = "center";
-    sponsors.forEach((sponsor, i) => {
-      ctx.fillText(sponsor, x + 115, y + 25 + i * 25);
-    });
-    ctx.restore();
-  }, [roundRect]);
-
-  const drawLowerThird = useCallback((ctx, w, h) => {
-    const x = 40, y = h - 100, width = 500;
-    ctx.save();
-    const gradient = ctx.createLinearGradient(x, y, x + width, y);
-    gradient.addColorStop(0, "rgba(239,68,68,0.95)");
-    gradient.addColorStop(1, "rgba(220,38,38,0.95)");
-    ctx.fillStyle = gradient;
-    ctx.shadowColor = "rgba(0,0,0,0.5)";
-    ctx.shadowBlur = 15;
-    roundRect(ctx, x, y, width, 70, 35);
-    ctx.fill();
-    ctx.fillStyle = "white";
-    ctx.fillRect(x, y, 4, 70);
-    ctx.shadowBlur = 0;
-    ctx.font = "bold 24px Arial";
-    ctx.textAlign = "left";
-    ctx.fillText("Player Name", x + 20, y + 30);
-    ctx.font = "16px Arial";
-    ctx.fillStyle = "rgba(255,255,255,0.9)";
-    ctx.fillText("Champion • Team A", x + 20, y + 55);
-    ctx.restore();
-  }, [roundRect]);
-
-  const drawSocialMedia = useCallback((ctx, w, h) => {
-    const socials = [
-      { icon: "📱", text: "@YourChannel" },
-      { icon: "🐦", text: "@YourTwitter" },
-      { icon: "📺", text: "YourStream" },
-    ];
-    const x = 20, y = h - 150;
-    ctx.save();
-    ctx.fillStyle = "rgba(11,15,20,0.85)";
-    roundRect(ctx, x, y, 280, 130, 10);
-    ctx.fill();
-    socials.forEach((social, i) => {
-      ctx.fillStyle = "white";
-      ctx.font = "20px Arial";
+  const drawScoreBoard = useCallback(
+    (ctx, w, h, data) => {
+      if (!data) return;
+      const x = 20,
+        y = 20,
+        width = 320,
+        height = 120;
+      ctx.save();
+      ctx.fillStyle = "rgba(11,15,20,0.9)";
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowBlur = 15;
+      roundRect(ctx, x, y, width, height, 12);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#9AA4AF";
+      ctx.font = "500 11px Arial";
       ctx.textAlign = "left";
-      ctx.fillText(social.icon, x + 15, y + 35 + i * 40);
-      ctx.font = "14px Arial";
-      ctx.fillText(social.text, x + 50, y + 35 + i * 40);
-    });
-    ctx.restore();
-  }, [roundRect]);
+      ctx.fillText(data?.tournament?.name || "Tournament", x + 14, y + 22);
+      const teamA = data?.teams?.A?.name || "Team A";
+      const scoreA = data?.gameScores?.[data?.currentGame || 0]?.a || 0;
+      ctx.fillStyle = "#25C2A0";
+      ctx.beginPath();
+      ctx.arc(x + 18, y + 45, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#E6EDF3";
+      ctx.font = "600 16px Arial";
+      ctx.fillText(teamA, x + 32, y + 50);
+      ctx.font = "800 24px Arial";
+      ctx.textAlign = "right";
+      ctx.fillText(String(scoreA), x + width - 14, y + 50);
+      const teamB = data?.teams?.B?.name || "Team B";
+      const scoreB = data?.gameScores?.[data?.currentGame || 0]?.b || 0;
+      ctx.fillStyle = "#4F46E5";
+      ctx.beginPath();
+      ctx.arc(x + 18, y + 85, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#E6EDF3";
+      ctx.font = "600 16px Arial";
+      ctx.textAlign = "left";
+      ctx.fillText(teamB, x + 32, y + 90);
+      ctx.font = "800 24px Arial";
+      ctx.textAlign = "right";
+      ctx.fillText(String(scoreB), x + width - 14, y + 90);
+      ctx.restore();
+    },
+    [roundRect]
+  );
 
-  const drawQRCode = useCallback((ctx, w, h) => {
-    const x = w - 130, y = h - 130, size = 110;
-    ctx.save();
-    ctx.fillStyle = "white";
-    ctx.shadowColor = "rgba(0,0,0,0.3)";
-    ctx.shadowBlur = 10;
-    roundRect(ctx, x, y, size, size, 8);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "#000";
-    for (let i = 0; i < 8; i++) {
-      for (let j = 0; j < 8; j++) {
-        if ((i + j) % 2 === 0) {
-          ctx.fillRect(x + 10 + i * 11, y + 10 + j * 11, 10, 10);
+  const drawTimer = useCallback(
+    (ctx, w, h) => {
+      const time = streamTimeRef.current;
+      const minutes = Math.floor(time / 60)
+        .toString()
+        .padStart(2, "0");
+      const seconds = (time % 60).toString().padStart(2, "0");
+      const x = w / 2 - 80,
+        y = 20;
+      ctx.save();
+      ctx.fillStyle = "rgba(239,68,68,0.95)";
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowBlur = 15;
+      roundRect(ctx, x, y, 160, 50, 25);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "white";
+      ctx.font = "bold 28px monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(`${minutes}:${seconds}`, w / 2, y + 35);
+      ctx.restore();
+    },
+    [roundRect]
+  );
+
+  const drawTournamentName = useCallback(
+    (ctx, w, h, data) => {
+      if (!data) return;
+      const text = data?.tournament?.name || "Tournament 2025";
+      const x = w - 320,
+        y = 20;
+      ctx.save();
+      ctx.fillStyle = "rgba(11,15,20,0.85)";
+      roundRect(ctx, x, y, 300, 50, 10);
+      ctx.fill();
+      ctx.fillStyle = "#FFD700";
+      ctx.font = "bold 18px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText(text, x + 150, y + 32);
+      ctx.restore();
+    },
+    [roundRect]
+  );
+
+  const drawLogo = useCallback(
+    (ctx, w, h) => {
+      const x = w - 170,
+        y = 90,
+        size = 150;
+      ctx.save();
+      ctx.fillStyle = "rgba(255,255,255,0.95)";
+      ctx.shadowColor = "rgba(0,0,0,0.3)";
+      ctx.shadowBlur = 10;
+      roundRect(ctx, x, y, size, 60, 8);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#667eea";
+      ctx.font = "bold 24px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText("YOUR LOGO", x + size / 2, y + 38);
+      ctx.restore();
+    },
+    [roundRect]
+  );
+
+  const drawSponsors = useCallback(
+    (ctx, w, h) => {
+      const sponsors = ["SPONSOR 1", "SPONSOR 2", "SPONSOR 3"];
+      const x = w - 250,
+        y = h - 120;
+      ctx.save();
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      roundRect(ctx, x, y, 230, 100, 8);
+      ctx.fill();
+      ctx.fillStyle = "#333";
+      ctx.font = "bold 12px Arial";
+      ctx.textAlign = "center";
+      sponsors.forEach((sponsor, i) => {
+        ctx.fillText(sponsor, x + 115, y + 25 + i * 25);
+      });
+      ctx.restore();
+    },
+    [roundRect]
+  );
+
+  const drawLowerThird = useCallback(
+    (ctx, w, h) => {
+      const x = 40,
+        y = h - 100,
+        width = 500;
+      ctx.save();
+      const gradient = ctx.createLinearGradient(x, y, x + width, y);
+      gradient.addColorStop(0, "rgba(239,68,68,0.95)");
+      gradient.addColorStop(1, "rgba(220,38,38,0.95)");
+      ctx.fillStyle = gradient;
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowBlur = 15;
+      roundRect(ctx, x, y, width, 70, 35);
+      ctx.fill();
+      ctx.fillStyle = "white";
+      ctx.fillRect(x, y, 4, 70);
+      ctx.shadowBlur = 0;
+      ctx.font = "bold 24px Arial";
+      ctx.textAlign = "left";
+      ctx.fillText("Player Name", x + 20, y + 30);
+      ctx.font = "16px Arial";
+      ctx.fillStyle = "rgba(255,255,255,0.9)";
+      ctx.fillText("Champion • Team A", x + 20, y + 55);
+      ctx.restore();
+    },
+    [roundRect]
+  );
+
+  const drawSocialMedia = useCallback(
+    (ctx, w, h) => {
+      const socials = [
+        { icon: "📱", text: "@YourChannel" },
+        { icon: "🐦", text: "@YourTwitter" },
+        { icon: "📺", text: "YourStream" },
+      ];
+      const x = 20,
+        y = h - 150;
+      ctx.save();
+      ctx.fillStyle = "rgba(11,15,20,0.85)";
+      roundRect(ctx, x, y, 280, 130, 10);
+      ctx.fill();
+      socials.forEach((social, i) => {
+        ctx.fillStyle = "white";
+        ctx.font = "20px Arial";
+        ctx.textAlign = "left";
+        ctx.fillText(social.icon, x + 15, y + 35 + i * 40);
+        ctx.font = "14px Arial";
+        ctx.fillText(social.text, x + 50, y + 35 + i * 40);
+      });
+      ctx.restore();
+    },
+    [roundRect]
+  );
+
+  const drawQRCode = useCallback(
+    (ctx, w, h) => {
+      const x = w - 130,
+        y = h - 130,
+        size = 110;
+      ctx.save();
+      ctx.fillStyle = "white";
+      ctx.shadowColor = "rgba(0,0,0,0.3)";
+      ctx.shadowBlur = 10;
+      roundRect(ctx, x, y, size, size, 8);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "#000";
+      for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+          if ((i + j) % 2 === 0) {
+            ctx.fillRect(x + 10 + i * 11, y + 10 + j * 11, 10, 10);
+          }
         }
       }
-    }
-    ctx.restore();
-  }, [roundRect]);
+      ctx.restore();
+    },
+    [roundRect]
+  );
 
   const drawFrameDecoration = useCallback((ctx, w, h) => {
     ctx.save();
@@ -548,7 +600,12 @@ export default function FacebookLiveStreamerAdaptive() {
     ctx.fillRect(0, 0, 3, h);
     ctx.fillRect(w - 3, 0, 3, h);
     ctx.fillStyle = "rgba(255,215,0,0.9)";
-    [[10, 10], [w - 20, 10], [10, h - 20], [w - 20, h - 20]].forEach(([x, y]) => {
+    [
+      [10, 10],
+      [w - 20, 10],
+      [10, h - 20],
+      [w - 20, h - 20],
+    ].forEach(([x, y]) => {
       ctx.beginPath();
       ctx.arc(x, y, 5, 0, Math.PI * 2);
       ctx.fill();
@@ -556,73 +613,96 @@ export default function FacebookLiveStreamerAdaptive() {
     ctx.restore();
   }, []);
 
-  const drawLiveBadge = useCallback((ctx, w, h) => {
-    const x = w - 150, y = 20;
-    ctx.save();
-    ctx.fillStyle = "rgba(239,68,68,0.95)";
-    ctx.shadowColor = "rgba(239,68,68,0.5)";
-    ctx.shadowBlur = 15;
-    roundRect(ctx, x, y, 130, 45, 22);
-    ctx.fill();
-    const pulseSize = 8 + Math.sin(Date.now() / 300) * 2;
-    ctx.fillStyle = "white";
-    ctx.beginPath();
-    ctx.arc(x + 25, y + 22, pulseSize, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = "white";
-    ctx.font = "bold 20px Arial";
-    ctx.textAlign = "left";
-    ctx.fillText("LIVE", x + 50, y + 30);
-    ctx.restore();
-  }, [roundRect]);
+  const drawLiveBadge = useCallback(
+    (ctx, w, h) => {
+      const x = w - 150,
+        y = 20;
+      ctx.save();
+      ctx.fillStyle = "rgba(239,68,68,0.95)";
+      ctx.shadowColor = "rgba(239,68,68,0.5)";
+      ctx.shadowBlur = 15;
+      roundRect(ctx, x, y, 130, 45, 22);
+      ctx.fill();
+      const pulseSize = 8 + Math.sin(Date.now() / 300) * 2;
+      ctx.fillStyle = "white";
+      ctx.beginPath();
+      ctx.arc(x + 25, y + 22, pulseSize, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = "white";
+      ctx.font = "bold 20px Arial";
+      ctx.textAlign = "left";
+      ctx.fillText("LIVE", x + 50, y + 30);
+      ctx.restore();
+    },
+    [roundRect]
+  );
 
-  const drawViewerCount = useCallback((ctx, w, h) => {
-    const viewers = Math.floor(Math.random() * 1000 + 500);
-    const x = w - 150, y = 75;
-    ctx.save();
-    ctx.fillStyle = "rgba(11,15,20,0.85)";
-    roundRect(ctx, x, y, 130, 40, 20);
-    ctx.fill();
-    ctx.fillStyle = "white";
-    ctx.font = "18px Arial";
-    ctx.textAlign = "left";
-    ctx.fillText("👥", x + 15, y + 27);
-    ctx.font = "bold 16px Arial";
-    ctx.fillText(`${viewers.toLocaleString()}`, x + 45, y + 27);
-    ctx.restore();
-  }, [roundRect]);
+  const drawViewerCount = useCallback(
+    (ctx, w, h) => {
+      const viewers = Math.floor(Math.random() * 1000 + 500);
+      const x = w - 150,
+        y = 75;
+      ctx.save();
+      ctx.fillStyle = "rgba(11,15,20,0.85)";
+      roundRect(ctx, x, y, 130, 40, 20);
+      ctx.fill();
+      ctx.fillStyle = "white";
+      ctx.font = "18px Arial";
+      ctx.textAlign = "left";
+      ctx.fillText("👥", x + 15, y + 27);
+      ctx.font = "bold 16px Arial";
+      ctx.fillText(`${viewers.toLocaleString()}`, x + 45, y + 27);
+      ctx.restore();
+    },
+    [roundRect]
+  );
 
-  const drawFrame = useCallback((ctx, video, w, h) => {
-    if (video.readyState >= 2 && video.videoWidth) {
-      const vw = video.videoWidth;
-      const vh = video.videoHeight;
-      const scale = Math.max(w / vw, h / vh);
-      const sw = w / scale;
-      const sh = h / scale;
-      const sx = (vw - sw) / 2;
-      const sy = (vh - sh) / 2;
-      ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
-    } else {
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, w, h);
-    }
+  const drawFrame = useCallback(
+    (ctx, video, w, h) => {
+      if (video.readyState >= 2 && video.videoWidth) {
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        const scale = Math.max(w / vw, h / vh);
+        const sw = w / scale;
+        const sh = h / scale;
+        const sx = (vw - sw) / 2;
+        const sy = (vh - sh) / 2;
+        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
+      } else {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, 0, w, h);
+      }
 
-    const config = overlayConfigRef.current;
-    const data = overlayDataRef.current;
+      const config = overlayConfigRef.current;
+      const data = overlayDataRef.current;
 
-    if (config.scoreBoard && data) drawScoreBoard(ctx, w, h, data);
-    if (config.timer) drawTimer(ctx, w, h);
-    if (config.tournamentName && data) drawTournamentName(ctx, w, h, data);
-    if (config.logo) drawLogo(ctx, w, h);
-    if (config.sponsors) drawSponsors(ctx, w, h);
-    if (config.lowerThird) drawLowerThird(ctx, w, h);
-    if (config.socialMedia) drawSocialMedia(ctx, w, h);
-    if (config.qrCode) drawQRCode(ctx, w, h);
-    if (config.frameDecor) drawFrameDecoration(ctx, w, h);
-    if (config.liveBadge) drawLiveBadge(ctx, w, h);
-    if (config.viewerCount) drawViewerCount(ctx, w, h);
-  }, [drawScoreBoard, drawTimer, drawTournamentName, drawLogo, drawSponsors, drawLowerThird, drawSocialMedia, drawQRCode, drawFrameDecoration, drawLiveBadge, drawViewerCount]);
+      if (config.scoreBoard && data) drawScoreBoard(ctx, w, h, data);
+      if (config.timer) drawTimer(ctx, w, h);
+      if (config.tournamentName && data) drawTournamentName(ctx, w, h, data);
+      if (config.logo) drawLogo(ctx, w, h);
+      if (config.sponsors) drawSponsors(ctx, w, h);
+      if (config.lowerThird) drawLowerThird(ctx, w, h);
+      if (config.socialMedia) drawSocialMedia(ctx, w, h);
+      if (config.qrCode) drawQRCode(ctx, w, h);
+      if (config.frameDecor) drawFrameDecoration(ctx, w, h);
+      if (config.liveBadge) drawLiveBadge(ctx, w, h);
+      if (config.viewerCount) drawViewerCount(ctx, w, h);
+    },
+    [
+      drawScoreBoard,
+      drawTimer,
+      drawTournamentName,
+      drawLogo,
+      drawSponsors,
+      drawLowerThird,
+      drawSocialMedia,
+      drawQRCode,
+      drawFrameDecoration,
+      drawLiveBadge,
+      drawViewerCount,
+    ]
+  );
 
   useEffect(() => {
     let interval = null;
@@ -660,7 +740,8 @@ export default function FacebookLiveStreamerAdaptive() {
     for (const d of videoDevices) {
       const label = (d.label || "").toLowerCase();
       if (isBack && backKeys.some((k) => label.includes(k))) return d.deviceId;
-      if (!isBack && frontKeys.some((k) => label.includes(k))) return d.deviceId;
+      if (!isBack && frontKeys.some((k) => label.includes(k)))
+        return d.deviceId;
     }
     if (isBack && videoDevices.length > 1) return videoDevices.at(-1)?.deviceId;
     return videoDevices[0]?.deviceId;
@@ -701,7 +782,9 @@ export default function FacebookLiveStreamerAdaptive() {
           await enumerateVideoDevices();
           const deviceId = findDeviceIdForFacing(preferFacing);
           stream = await navigator.mediaDevices.getUserMedia({
-            video: deviceId ? { ...common, deviceId: { exact: deviceId } } : common,
+            video: deviceId
+              ? { ...common, deviceId: { exact: deviceId } }
+              : common,
             audio: audioConstraints,
           });
         }
@@ -761,13 +844,19 @@ export default function FacebookLiveStreamerAdaptive() {
         encodingLoopRef.current = null;
       }
       try {
-        if (audioRecorderRef.current && audioRecorderRef.current.state !== "inactive") {
+        if (
+          audioRecorderRef.current &&
+          audioRecorderRef.current.state !== "inactive"
+        ) {
           audioRecorderRef.current.stop();
         }
         audioRecorderRef.current = null;
       } catch {}
       try {
-        if (videoEncoderRef.current && videoEncoderRef.current.state !== "closed") {
+        if (
+          videoEncoderRef.current &&
+          videoEncoderRef.current.state !== "closed"
+        ) {
           videoEncoderRef.current.close();
         }
       } catch {}
@@ -784,7 +873,10 @@ export default function FacebookLiveStreamerAdaptive() {
       if (overlayFetchingRef.current) return;
       overlayFetchingRef.current = true;
       try {
-        const res = await fetch(`http://localhost:5001/api/overlay/match/${matchId}`, { cache: "no-store" });
+        const res = await fetch(
+          `http://localhost:5001/api/overlay/match/${matchId}`,
+          { cache: "no-store" }
+        );
         const data = await res.json();
         setOverlayData(data);
       } catch (e) {
@@ -849,7 +941,11 @@ export default function FacebookLiveStreamerAdaptive() {
 
     let offset = 0;
     while (offset < data.length) {
-      const nalLength = (data[offset] << 24) | (data[offset + 1] << 16) | (data[offset + 2] << 8) | data[offset + 3];
+      const nalLength =
+        (data[offset] << 24) |
+        (data[offset + 1] << 16) |
+        (data[offset + 2] << 8) |
+        data[offset + 3];
       offset += 4;
 
       if (nalLength > 0 && offset + nalLength <= data.length) {
@@ -920,14 +1016,24 @@ export default function FacebookLiveStreamerAdaptive() {
             const chunkData = new Uint8Array(chunk.byteLength);
             chunk.copyTo(chunkData);
 
-            const isAnnexB = (chunkData[0] === 0 && chunkData[1] === 0 && chunkData[2] === 0 && chunkData[3] === 1) || (chunkData[0] === 0 && chunkData[1] === 0 && chunkData[2] === 1);
+            const isAnnexB =
+              (chunkData[0] === 0 &&
+                chunkData[1] === 0 &&
+                chunkData[2] === 0 &&
+                chunkData[3] === 1) ||
+              (chunkData[0] === 0 && chunkData[1] === 0 && chunkData[2] === 1);
 
             let dataToSend;
             if (isAnnexB) {
               dataToSend = chunkData;
             } else {
-              if (chunk.type === "key" && metadata?.decoderConfig?.description) {
-                const description = new Uint8Array(metadata.decoderConfig.description);
+              if (
+                chunk.type === "key" &&
+                metadata?.decoderConfig?.description
+              ) {
+                const description = new Uint8Array(
+                  metadata.decoderConfig.description
+                );
                 dataToSend = convertToAnnexB(chunkData, description, true);
               } else {
                 dataToSend = convertToAnnexB(chunkData, null, false);
@@ -942,7 +1048,9 @@ export default function FacebookLiveStreamerAdaptive() {
               const elapsed = (now - statsRef.current.lastLog) / 1000;
               const fpsNow = (statsRef.current.sent / elapsed).toFixed(1);
               statsRef.current.avgFps = fpsNow;
-              console.log(`📊 FPS: ${fpsNow}, Sent: ${statsRef.current.sent}, Dropped: ${statsRef.current.dropped}, Queue: ${encoder.encodeQueueSize}`);
+              console.log(
+                `📊 FPS: ${fpsNow}, Sent: ${statsRef.current.sent}, Dropped: ${statsRef.current.dropped}, Queue: ${encoder.encodeQueueSize}`
+              );
               statsRef.current.lastLog = now;
               statsRef.current.sent = 0;
               statsRef.current.dropped = 0;
@@ -980,18 +1088,23 @@ export default function FacebookLiveStreamerAdaptive() {
       videoEncoderRef.current = encoder;
       isEncodingRef.current = true;
 
-      ws.send(JSON.stringify({
-        type: "start",
-        streamKey,
-        width: currentQuality.width,
-        height: currentQuality.height,
-        fps: currentQuality.fps,
-        videoBitrate: currentQuality.videoBitrate + "k",
-        audioBitrate: currentQuality.audioBitrate + "k",
-      }));
+      ws.send(
+        JSON.stringify({
+          type: "start",
+          streamKey,
+          width: currentQuality.width,
+          height: currentQuality.height,
+          fps: currentQuality.fps,
+          videoBitrate: currentQuality.videoBitrate + "k",
+          audioBitrate: currentQuality.audioBitrate + "k",
+        })
+      );
 
       await new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Start timeout")), 10000);
+        const timeout = setTimeout(
+          () => reject(new Error("Start timeout")),
+          10000
+        );
         const handler = (evt) => {
           if (typeof evt.data !== "string") return;
           try {
@@ -1003,7 +1116,13 @@ export default function FacebookLiveStreamerAdaptive() {
                 const aTrack = camStreamRef.current?.getAudioTracks?.()[0];
                 if (aTrack) {
                   const aStream = new MediaStream([aTrack]);
-                  const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+                  const mime = MediaRecorder.isTypeSupported(
+                    "audio/webm;codecs=opus"
+                  )
+                    ? "audio/webm;codecs=opus"
+                    : MediaRecorder.isTypeSupported("audio/webm")
+                    ? "audio/webm"
+                    : "";
                   const mr = new MediaRecorder(aStream, {
                     mimeType: mime || undefined,
                     audioBitsPerSecond: currentQuality.audioBitrate * 1000,
@@ -1065,7 +1184,9 @@ export default function FacebookLiveStreamerAdaptive() {
         const nowMicros = nowMillis * 1000;
 
         if (encoder.encodeQueueSize > 8) {
-          console.warn(`⚠️ Encoder overload (queue=${encoder.encodeQueueSize}), skipping frame`);
+          console.warn(
+            `⚠️ Encoder overload (queue=${encoder.encodeQueueSize}), skipping frame`
+          );
           statsRef.current.dropped++;
           nextFrameTimeMicros += frameDurationMicros;
           encodingLoopRef.current = requestAnimationFrame(encodeLoop);
@@ -1086,7 +1207,8 @@ export default function FacebookLiveStreamerAdaptive() {
               alpha: "discard",
             });
 
-            const forceKeyframe = frameCountRef.current % (currentQuality.fps * 2) === 0;
+            const forceKeyframe =
+              frameCountRef.current % (currentQuality.fps * 2) === 0;
             encoder.encode(frame, { keyFrame: forceKeyframe });
             frame.close();
             frameCountRef.current++;
@@ -1107,7 +1229,9 @@ export default function FacebookLiveStreamerAdaptive() {
       encodingLoopRef.current = requestAnimationFrame(encodeLoop);
 
       setIsStreaming(true);
-      setStatus(`✅ LIVE - ${currentQuality.label} @ ${networkSpeed.toFixed(1)} Mbps`);
+      setStatus(
+        `✅ LIVE - ${currentQuality.label} @ ${networkSpeed.toFixed(1)} Mbps`
+      );
       setStatusType("success");
     } catch (err) {
       setStatus("❌ Lỗi: " + err.message);
@@ -1122,7 +1246,10 @@ export default function FacebookLiveStreamerAdaptive() {
       }
 
       try {
-        if (videoEncoderRef.current && videoEncoderRef.current.state !== "closed") {
+        if (
+          videoEncoderRef.current &&
+          videoEncoderRef.current.state !== "closed"
+        ) {
           await videoEncoderRef.current.flush();
           videoEncoderRef.current.close();
         }
@@ -1149,7 +1276,10 @@ export default function FacebookLiveStreamerAdaptive() {
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      if (videoEncoderRef.current && videoEncoderRef.current.state !== "closed") {
+      if (
+        videoEncoderRef.current &&
+        videoEncoderRef.current.state !== "closed"
+      ) {
         try {
           await videoEncoderRef.current.flush();
           videoEncoderRef.current.close();
@@ -1177,69 +1307,267 @@ export default function FacebookLiveStreamerAdaptive() {
     }
   };
 
-  const ratioPadding = videoSize && videoSize.w > 0 ? `${(videoSize.h / videoSize.w) * 100}%` : "56.25%";
-  const activeOverlayCount = Object.values(overlayConfig).filter(Boolean).length;
+  const ratioPadding =
+    videoSize && videoSize.w > 0
+      ? `${(videoSize.h / videoSize.w) * 100}%`
+      : "56.25%";
+  const activeOverlayCount =
+    Object.values(overlayConfig).filter(Boolean).length;
 
   const OverlayControlsCard = React.memo(() => (
     <Card elevation={2} sx={{ mb: 3 }}>
       <CardContent>
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2 }}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            mb: 2,
+          }}
+        >
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <Layers color="primary" />
-            <Typography variant="h6" fontWeight={600}>Overlay Controls</Typography>
+            <Typography variant="h6" fontWeight={600}>
+              Overlay Controls
+            </Typography>
           </Box>
-          <Chip label={`${activeOverlayCount}/${Object.keys(overlayConfig).length}`} color="success" size="small" />
+          <Chip
+            label={`${activeOverlayCount}/${Object.keys(overlayConfig).length}`}
+            color="success"
+            size="small"
+          />
         </Box>
         <Divider sx={{ mb: 2 }} />
         <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
-          <Button size="small" variant="outlined" onClick={() => toggleAllOverlays(true)} fullWidth>Enable All</Button>
-          <Button size="small" variant="outlined" onClick={() => toggleAllOverlays(false)} fullWidth>Disable All</Button>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => toggleAllOverlays(true)}
+            fullWidth
+          >
+            Enable All
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => toggleAllOverlays(false)}
+            fullWidth
+          >
+            Disable All
+          </Button>
         </Box>
         <Divider sx={{ mb: 2 }} />
 
-        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, color: "primary.main" }}>📊 Match Info</Typography>
+        <Typography
+          variant="subtitle2"
+          fontWeight={600}
+          sx={{ mb: 1, color: "primary.main" }}
+        >
+          📊 Match Info
+        </Typography>
         <Box sx={{ pl: 2, mb: 2 }}>
-          <FormControlLabel control={<Switch checked={overlayConfig.scoreBoard} onChange={() => toggleOverlay("scoreBoard")} size="small" />} label={<Typography variant="body2">Score Board</Typography>} />
-          <FormControlLabel control={<Switch checked={overlayConfig.timer} onChange={() => toggleOverlay("timer")} size="small" />} label={<Typography variant="body2">Timer</Typography>} />
-          <FormControlLabel control={<Switch checked={overlayConfig.tournamentName} onChange={() => toggleOverlay("tournamentName")} size="small" />} label={<Typography variant="body2">Tournament Name</Typography>} />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.scoreBoard}
+                onChange={() => toggleOverlay("scoreBoard")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Score Board</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.timer}
+                onChange={() => toggleOverlay("timer")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Timer</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.tournamentName}
+                onChange={() => toggleOverlay("tournamentName")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Tournament Name</Typography>}
+          />
         </Box>
 
-        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, color: "primary.main" }}>🎨 Branding</Typography>
+        <Typography
+          variant="subtitle2"
+          fontWeight={600}
+          sx={{ mb: 1, color: "primary.main" }}
+        >
+          🎨 Branding
+        </Typography>
         <Box sx={{ pl: 2, mb: 2 }}>
-          <FormControlLabel control={<Switch checked={overlayConfig.logo} onChange={() => toggleOverlay("logo")} size="small" />} label={<Typography variant="body2">Logo</Typography>} />
-          <FormControlLabel control={<Switch checked={overlayConfig.sponsors} onChange={() => toggleOverlay("sponsors")} size="small" />} label={<Typography variant="body2">Sponsors</Typography>} />
-          <FormControlLabel control={<Switch checked={overlayConfig.lowerThird} onChange={() => toggleOverlay("lowerThird")} size="small" />} label={<Typography variant="body2">Lower Third</Typography>} />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.logo}
+                onChange={() => toggleOverlay("logo")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Logo</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.sponsors}
+                onChange={() => toggleOverlay("sponsors")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Sponsors</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.lowerThird}
+                onChange={() => toggleOverlay("lowerThird")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Lower Third</Typography>}
+          />
         </Box>
 
-        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, color: "primary.main" }}>🌐 Interactive</Typography>
+        <Typography
+          variant="subtitle2"
+          fontWeight={600}
+          sx={{ mb: 1, color: "primary.main" }}
+        >
+          🌐 Interactive
+        </Typography>
         <Box sx={{ pl: 2, mb: 2 }}>
-          <FormControlLabel control={<Switch checked={overlayConfig.socialMedia} onChange={() => toggleOverlay("socialMedia")} size="small" />} label={<Typography variant="body2">Social Media</Typography>} />
-          <FormControlLabel control={<Switch checked={overlayConfig.qrCode} onChange={() => toggleOverlay("qrCode")} size="small" />} label={<Typography variant="body2">QR Code</Typography>} />
-          <FormControlLabel control={<Switch checked={overlayConfig.frameDecor} onChange={() => toggleOverlay("frameDecor")} size="small" />} label={<Typography variant="body2">Frame Decoration</Typography>} />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.socialMedia}
+                onChange={() => toggleOverlay("socialMedia")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Social Media</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.qrCode}
+                onChange={() => toggleOverlay("qrCode")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">QR Code</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.frameDecor}
+                onChange={() => toggleOverlay("frameDecor")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Frame Decoration</Typography>}
+          />
         </Box>
 
-        <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1, color: "primary.main" }}>📡 Status</Typography>
+        <Typography
+          variant="subtitle2"
+          fontWeight={600}
+          sx={{ mb: 1, color: "primary.main" }}
+        >
+          📡 Status
+        </Typography>
         <Box sx={{ pl: 2 }}>
-          <FormControlLabel control={<Switch checked={overlayConfig.liveBadge} onChange={() => toggleOverlay("liveBadge")} size="small" />} label={<Typography variant="body2">Live Badge</Typography>} />
-          <FormControlLabel control={<Switch checked={overlayConfig.viewerCount} onChange={() => toggleOverlay("viewerCount")} size="small" />} label={<Typography variant="body2">Viewer Count</Typography>} />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.liveBadge}
+                onChange={() => toggleOverlay("liveBadge")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Live Badge</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.viewerCount}
+                onChange={() => toggleOverlay("viewerCount")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Viewer Count</Typography>}
+          />
         </Box>
       </CardContent>
     </Card>
   ));
 
   return (
-    <Box sx={{ minHeight: "100vh", background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)", py: 4 }}>
+    <Box
+      sx={{
+        minHeight: "100vh",
+        background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)",
+        py: 4,
+      }}
+    >
       <Container maxWidth="xl">
         <Paper elevation={6} sx={{ borderRadius: 3, overflow: "hidden" }}>
-          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", p: 3, borderBottom: "2px solid", borderColor: "divider", background: "linear-gradient(to right, #f8f9fa, #ffffff)" }}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              p: 3,
+              borderBottom: "2px solid",
+              borderColor: "divider",
+              background: "linear-gradient(to right, #f8f9fa, #ffffff)",
+            }}
+          >
             <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
               <RadioButtonChecked sx={{ fontSize: 40, color: "error.main" }} />
-              <Typography variant="h4" fontWeight="bold" color="text.primary">Facebook Live Adaptive</Typography>
-              <Chip label={currentQuality.label} color="primary" size="small" sx={{ fontWeight: "bold" }} />
-              {networkSpeed > 0 && <Chip icon={<Speed />} label={`${networkSpeed.toFixed(1)} Mbps`} color="success" size="small" />}
+              <Typography variant="h4" fontWeight="bold" color="text.primary">
+                Facebook Live Adaptive
+              </Typography>
+              <Chip
+                label={currentQuality.label}
+                color="primary"
+                size="small"
+                sx={{ fontWeight: "bold" }}
+              />
+              {networkSpeed > 0 && (
+                <Chip
+                  icon={<Speed />}
+                  label={`${networkSpeed.toFixed(1)} Mbps`}
+                  color="success"
+                  size="small"
+                />
+              )}
             </Box>
             {isStreaming && (
-              <Chip icon={<RadioButtonChecked />} label="LIVE" color="error" sx={{ fontWeight: "bold", fontSize: "1rem", px: 2, animation: "pulse 2s infinite", "@keyframes pulse": { "0%,100%": { opacity: 1 }, "50%": { opacity: 0.7 } } }} />
+              <Chip
+                icon={<RadioButtonChecked />}
+                label="LIVE"
+                color="error"
+                sx={{
+                  fontWeight: "bold",
+                  fontSize: "1rem",
+                  px: 2,
+                  animation: "pulse 2s infinite",
+                  "@keyframes pulse": {
+                    "0%,100%": { opacity: 1 },
+                    "50%": { opacity: 0.7 },
+                  },
+                }}
+              />
             )}
           </Box>
 
@@ -1248,52 +1576,170 @@ export default function FacebookLiveStreamerAdaptive() {
               <Grid item xs={12} lg={8}>
                 <Card elevation={2} sx={{ mb: 3 }}>
                   <CardContent>
-                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2 }}>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        mb: 2,
+                      }}
+                    >
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                      >
                         <Videocam color="primary" />
-                        <Typography variant="h6" fontWeight={600}>Camera Input</Typography>
+                        <Typography variant="h6" fontWeight={600}>
+                          Camera Input
+                        </Typography>
                       </Box>
-                      <Button variant="outlined" size="small" startIcon={<FlipCameraAndroid />} onClick={toggleCamera} disabled={!canSwitchCamera || isStreaming || loading}>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<FlipCameraAndroid />}
+                        onClick={toggleCamera}
+                        disabled={!canSwitchCamera || isStreaming || loading}
+                      >
                         {facingMode === "environment" ? "Sau" : "Trước"}
                       </Button>
                     </Box>
 
-                    <Box sx={{ position: "relative", width: "100%", paddingBottom: ratioPadding, background: "#000", borderRadius: 2, overflow: "hidden" }}>
-                      <video ref={videoRef} autoPlay playsInline muted style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", transform: facingMode === "user" ? "scaleX(-1)" : "none", transformOrigin: "center" }} />
+                    <Box
+                      sx={{
+                        position: "relative",
+                        width: "100%",
+                        paddingBottom: ratioPadding,
+                        background: "#000",
+                        borderRadius: 2,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                          transform:
+                            facingMode === "user" ? "scaleX(-1)" : "none",
+                          transformOrigin: "center",
+                        }}
+                      />
                     </Box>
                   </CardContent>
                 </Card>
 
                 <Card elevation={2}>
                   <CardContent>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                        mb: 2,
+                      }}
+                    >
                       <SportsScore color="primary" />
-                      <Typography variant="h6" fontWeight={600}>Stream Preview (Match: {matchId || "N/A"})</Typography>
+                      <Typography variant="h6" fontWeight={600}>
+                        Stream Preview (Match: {matchId || "N/A"})
+                      </Typography>
                     </Box>
 
-                    <Box sx={{ position: "relative", width: "100%", paddingBottom: ratioPadding, background: "#000", borderRadius: 2, overflow: "hidden" }}>
-                      <canvas ref={previewCanvasRef} width={videoSize.w} height={videoSize.h} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: isStreaming ? "none" : "block" }} />
-                      <canvas ref={canvasRef} width={videoSize.w} height={videoSize.h} style={{ position: "absolute", inset: 0, width: "100%", height: "100%", display: isStreaming ? "block" : "none" }} />
+                    <Box
+                      sx={{
+                        position: "relative",
+                        width: "100%",
+                        paddingBottom: ratioPadding,
+                        background: "#000",
+                        borderRadius: 2,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <canvas
+                        ref={previewCanvasRef}
+                        width={videoSize.w}
+                        height={videoSize.h}
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          width: "100%",
+                          height: "100%",
+                          display: isStreaming ? "none" : "block",
+                        }}
+                      />
+                      <canvas
+                        ref={canvasRef}
+                        width={videoSize.w}
+                        height={videoSize.h}
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          width: "100%",
+                          height: "100%",
+                          display: isStreaming ? "block" : "none",
+                        }}
+                      />
                     </Box>
 
                     {isStreaming && (
                       <Box sx={{ mt: 2 }}>
-                        <Typography variant="body2" gutterBottom>Performance Metrics:</Typography>
+                        <Typography variant="body2" gutterBottom>
+                          Performance Metrics:
+                        </Typography>
                         <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
-                          <Chip icon={<Speed />} label={`${performanceMetrics.fps} FPS`} size="small" color={performanceMetrics.fps >= 25 ? "success" : "warning"} />
-                          <Chip label={`Dropped: ${performanceMetrics.droppedFrames}`} size="small" color={performanceMetrics.droppedFrames < 10 ? "success" : "error"} />
-                          <Chip label={`Queue: ${performanceMetrics.encoderQueue}`} size="small" color={performanceMetrics.encoderQueue < 5 ? "success" : "warning"} />
+                          <Chip
+                            icon={<Speed />}
+                            label={`${performanceMetrics.fps} FPS`}
+                            size="small"
+                            color={
+                              performanceMetrics.fps >= 25
+                                ? "success"
+                                : "warning"
+                            }
+                          />
+                          <Chip
+                            label={`Dropped: ${performanceMetrics.droppedFrames}`}
+                            size="small"
+                            color={
+                              performanceMetrics.droppedFrames < 10
+                                ? "success"
+                                : "error"
+                            }
+                          />
+                          <Chip
+                            label={`Queue: ${performanceMetrics.encoderQueue}`}
+                            size="small"
+                            color={
+                              performanceMetrics.encoderQueue < 5
+                                ? "success"
+                                : "warning"
+                            }
+                          />
                         </Box>
                         {performanceMetrics.encoderQueue > 10 && (
-                          <Alert severity="warning" sx={{ mt: 1 }} icon={<Warning />}>
-                            <Typography variant="caption">Encoder overload detected. Quality may auto-adjust.</Typography>
+                          <Alert
+                            severity="warning"
+                            sx={{ mt: 1 }}
+                            icon={<Warning />}
+                          >
+                            <Typography variant="caption">
+                              Encoder overload detected. Quality may
+                              auto-adjust.
+                            </Typography>
                           </Alert>
                         )}
                       </Box>
                     )}
 
                     <Alert severity="success" sx={{ mt: 2 }}>
-                      <Typography variant="body2">⚡ <strong>Adaptive Quality</strong>: Tự động điều chỉnh dựa trên mạng & hiệu suất!</Typography>
+                      <Typography variant="body2">
+                        ⚡ <strong>Adaptive Quality</strong>: Tự động điều chỉnh
+                        dựa trên mạng & hiệu suất!
+                      </Typography>
                     </Alert>
                   </CardContent>
                 </Card>
@@ -1302,48 +1748,127 @@ export default function FacebookLiveStreamerAdaptive() {
               <Grid item xs={12} lg={4}>
                 <Card elevation={2} sx={{ mb: 3 }}>
                   <CardContent>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                        mb: 2,
+                      }}
+                    >
                       <SignalCellularAlt color="primary" />
-                      <Typography variant="h6" fontWeight={600}>Quality Settings</Typography>
+                      <Typography variant="h6" fontWeight={600}>
+                        Quality Settings
+                      </Typography>
                     </Box>
-                    
+
                     <FormControl fullWidth sx={{ mb: 2 }}>
                       <InputLabel>Quality Mode</InputLabel>
-                      <Select value={qualityMode} onChange={handleQualityChange} disabled={isStreaming} label="Quality Mode">
+                      <Select
+                        value={qualityMode}
+                        onChange={handleQualityChange}
+                        disabled={isStreaming}
+                        label="Quality Mode"
+                      >
                         <MenuItem value="auto">🔄 Auto (Adaptive)</MenuItem>
                         <MenuItem value="low">📱 Low (360p - 800kbps)</MenuItem>
-                        <MenuItem value="medium">💻 Medium (480p - 1.2Mbps)</MenuItem>
-                        <MenuItem value="high">🖥️ High (720p - 2.5Mbps)</MenuItem>
-                        <MenuItem value="ultra">🎬 Ultra (1080p - 4.5Mbps)</MenuItem>
+                        <MenuItem value="medium">
+                          💻 Medium (480p - 1.2Mbps)
+                        </MenuItem>
+                        <MenuItem value="high">
+                          🖥️ High (720p - 2.5Mbps)
+                        </MenuItem>
+                        <MenuItem value="ultra">
+                          🎬 Ultra (1080p - 4.5Mbps)
+                        </MenuItem>
                       </Select>
                     </FormControl>
 
                     <Box sx={{ mb: 2 }}>
-                      <Typography variant="body2" color="text.secondary" gutterBottom>Network Speed</Typography>
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                        <LinearProgress variant="determinate" value={Math.min((networkSpeed / 10) * 100, 100)} sx={{ flex: 1, height: 8, borderRadius: 4 }} color={networkSpeed >= 5 ? "success" : networkSpeed >= 2.5 ? "warning" : "error"} />
-                        <Typography variant="body2" fontWeight={600}>{networkSpeed.toFixed(1)} Mbps</Typography>
+                      <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        gutterBottom
+                      >
+                        Network Speed
+                      </Typography>
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                      >
+                        <LinearProgress
+                          variant="determinate"
+                          value={Math.min((networkSpeed / 10) * 100, 100)}
+                          sx={{ flex: 1, height: 8, borderRadius: 4 }}
+                          color={
+                            networkSpeed >= 5
+                              ? "success"
+                              : networkSpeed >= 2.5
+                              ? "warning"
+                              : "error"
+                          }
+                        />
+                        <Typography variant="body2" fontWeight={600}>
+                          {networkSpeed.toFixed(1)} Mbps
+                        </Typography>
                       </Box>
                     </Box>
 
                     <Divider sx={{ my: 2 }} />
 
-                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                        <Typography variant="body2" color="text.secondary">Resolution:</Typography>
-                        <Typography variant="body2" fontWeight={600}>{currentQuality.width}x{currentQuality.height}</Typography>
+                    <Box
+                      sx={{ display: "flex", flexDirection: "column", gap: 1 }}
+                    >
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <Typography variant="body2" color="text.secondary">
+                          Resolution:
+                        </Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {currentQuality.width}x{currentQuality.height}
+                        </Typography>
                       </Box>
-                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                        <Typography variant="body2" color="text.secondary">FPS:</Typography>
-                        <Typography variant="body2" fontWeight={600}>{currentQuality.fps}</Typography>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <Typography variant="body2" color="text.secondary">
+                          FPS:
+                        </Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {currentQuality.fps}
+                        </Typography>
                       </Box>
-                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                        <Typography variant="body2" color="text.secondary">Video Bitrate:</Typography>
-                        <Typography variant="body2" fontWeight={600}>{currentQuality.videoBitrate}kbps</Typography>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <Typography variant="body2" color="text.secondary">
+                          Video Bitrate:
+                        </Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {currentQuality.videoBitrate}kbps
+                        </Typography>
                       </Box>
-                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-                        <Typography variant="body2" color="text.secondary">Audio Bitrate:</Typography>
-                        <Typography variant="body2" fontWeight={600}>{currentQuality.audioBitrate}kbps</Typography>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        <Typography variant="body2" color="text.secondary">
+                          Audio Bitrate:
+                        </Typography>
+                        <Typography variant="body2" fontWeight={600}>
+                          {currentQuality.audioBitrate}kbps
+                        </Typography>
                       </Box>
                     </Box>
                   </CardContent>
@@ -1353,18 +1878,79 @@ export default function FacebookLiveStreamerAdaptive() {
 
                 <Card elevation={2} sx={{ mb: 3 }}>
                   <CardContent>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 3 }}>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                        mb: 3,
+                      }}
+                    >
                       <Info color="primary" />
-                      <Typography variant="h6" fontWeight={600}>Stream Settings</Typography>
+                      <Typography variant="h6" fontWeight={600}>
+                        Stream Settings
+                      </Typography>
                     </Box>
-                    <Box sx={{ display: "flex", flexDirection: "column", gap: 2.5 }}>
-                      <TextField label="Match ID" value={matchId} onChange={(e) => setMatchId(e.target.value)} disabled={isStreaming} fullWidth size="small" />
-                      <TextField type="password" label="Facebook Stream Key" placeholder="Tự động từ URL hoặc nhập thủ công" value={streamKey} onChange={(e) => setStreamKey(e.target.value)} disabled={isStreaming} fullWidth />
-                      <Button fullWidth size="large" variant="contained" color={isStreaming ? "inherit" : "error"} startIcon={loading ? <CircularProgress size={20} color="inherit" /> : isStreaming ? <Stop /> : <PlayArrow />} onClick={isStreaming ? stopStreamingPro : startStreamingPro} disabled={loading || (!isStreaming && !streamKey.trim())} sx={{ py: 1.5, fontWeight: "bold", fontSize: "1rem" }}>
-                        {loading ? "Đang xử lý..." : isStreaming ? "Dừng Stream" : `Bắt đầu Stream (${currentQuality.label})`}
+                    <Box
+                      sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 2.5,
+                      }}
+                    >
+                      <TextField
+                        label="Match ID"
+                        value={matchId}
+                        onChange={(e) => setMatchId(e.target.value)}
+                        disabled={isStreaming}
+                        fullWidth
+                        size="small"
+                      />
+                      <TextField
+                        type="password"
+                        label="Facebook Stream Key"
+                        placeholder="Tự động từ URL hoặc nhập thủ công"
+                        value={streamKey}
+                        onChange={(e) => setStreamKey(e.target.value)}
+                        disabled={isStreaming}
+                        fullWidth
+                      />
+                      <Button
+                        fullWidth
+                        size="large"
+                        variant="contained"
+                        color={isStreaming ? "inherit" : "error"}
+                        startIcon={
+                          loading ? (
+                            <CircularProgress size={20} color="inherit" />
+                          ) : isStreaming ? (
+                            <Stop />
+                          ) : (
+                            <PlayArrow />
+                          )
+                        }
+                        onClick={
+                          isStreaming ? stopStreamingPro : startStreamingPro
+                        }
+                        disabled={
+                          loading || (!isStreaming && !streamKey.trim())
+                        }
+                        sx={{ py: 1.5, fontWeight: "bold", fontSize: "1rem" }}
+                      >
+                        {loading
+                          ? "Đang xử lý..."
+                          : isStreaming
+                          ? "Dừng Stream"
+                          : `Bắt đầu Stream (${currentQuality.label})`}
                       </Button>
-                      <Alert severity={statusType} icon={<RadioButtonChecked />} sx={{ alignItems: "center" }}>
-                        <Typography variant="body2" fontWeight={600}>{status}</Typography>
+                      <Alert
+                        severity={statusType}
+                        icon={<RadioButtonChecked />}
+                        sx={{ alignItems: "center" }}
+                      >
+                        <Typography variant="body2" fontWeight={600}>
+                          {status}
+                        </Typography>
                       </Alert>
                     </Box>
                   </CardContent>
@@ -1373,7 +1959,11 @@ export default function FacebookLiveStreamerAdaptive() {
                 <Card elevation={2}>
                   <CardContent>
                     <Alert severity="info" variant="outlined">
-                      <Typography variant="body2" component="div" sx={{ lineHeight: 1.6 }}>
+                      <Typography
+                        variant="body2"
+                        component="div"
+                        sx={{ lineHeight: 1.6 }}
+                      >
                         <strong>🎯 Features:</strong>
                         <ul style={{ margin: 0, paddingLeft: 18 }}>
                           <li>✅ Auto stream key từ URL</li>
