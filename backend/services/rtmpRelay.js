@@ -497,17 +497,19 @@ export async function attachRtmpRelayPro(server, options = {}) {
 
         // Performance tuning
         "-max_muxing_queue_size",
-        "1024", // Prevent queue overflow
+        "2048", // Prevent queue overflow
         "-fflags",
-        "+genpts+nobuffer", // Low latency
+        "+genpts+nobuffer+flush_packets",
+        "-flush_packets",
+        "1", // ⬆️ Flush ngay
 
         // RTMP optimizations
         "-rtmp_conn",
         "S:0:sauth:true",
         "-rtmp_buffer",
-        "5000000", // 5MB buffer
+        "10000000", // 10MB buffer
         "-rtmp_flush_interval",
-        "5",
+        "3",
 
         "-shortest",
       ];
