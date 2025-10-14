@@ -1,20 +1,26 @@
-// rtmpRelayUltraV2.js - ZERO STUTTER, ZERO LAG
-// ✅ 2x larger buffers, adaptive quality, perfect sync
+// rtmpRelayFinal.js - ADAPTIVE QUALITY + STABLE AUDIO
+// ✅ Dynamic buffers based on quality, perfect audio sync
 import { WebSocketServer } from "ws";
 import { spawn } from "child_process";
 
-// 🔧 ULTRA SMOOTH CONFIG - Gấp đôi buffer
 const CONFIG = {
   MAX_CONCURRENT_STREAMS: 60,
   MAX_QUEUE_SIZE: 20,
   RECONNECT_ATTEMPTS: 5,
   RECONNECT_DELAY: 3000,
-  HEALTH_CHECK_INTERVAL: 30000, // ⬆️ 15s → 30s (ít check hơn)
-  STREAM_TIMEOUT: 120000, // ⬆️ 90s → 120s (tolerance cao hơn)
+  HEALTH_CHECK_INTERVAL: 30000,
+  STREAM_TIMEOUT: 120000,
   MEMORY_LIMIT_MB: 512,
   FRAME_DROP_THRESHOLD: 100,
-  LOG_RETENTION_HOURS: 24,
-  STATS_INTERVAL: 120000, // ⬆️ 60s → 120s (ít log hơn)
+  STATS_INTERVAL: 120000,
+
+  // ✅ Quality-based buffer sizes
+  BUFFER_SIZES: {
+    low: 10000000, // 10MB for 360p
+    medium: 15000000, // 15MB for 480p
+    high: 20000000, // 20MB for 720p
+    ultra: 30000000, // 30MB for 1080p
+  },
 };
 
 const metrics = {
@@ -24,6 +30,7 @@ const metrics = {
   totalReconnects: 0,
   peakConcurrent: 0,
   startTime: Date.now(),
+  qualityDistribution: { low: 0, medium: 0, high: 0, ultra: 0 },
 };
 
 const log = {
@@ -40,16 +47,28 @@ const log = {
     console.log(`[STREAM-${id} ${new Date().toISOString()}]`, ...args),
 };
 
+// ✅ Detect quality from resolution
+const detectQualityLevel = (height) => {
+  if (height <= 360) return "low";
+  if (height <= 480) return "medium";
+  if (height <= 720) return "high";
+  return "ultra";
+};
+
+const getBufferSize = (quality) => {
+  return CONFIG.BUFFER_SIZES[quality] || CONFIG.BUFFER_SIZES.high;
+};
+
 process.on("uncaughtException", (err) => {
-  log.error("❌ UNCAUGHT EXCEPTION (but server still running):", err.message);
+  log.error("❌ UNCAUGHT EXCEPTION:", err.message);
   log.error(err.stack);
 });
 
-process.on("unhandledRejection", (reason, promise) => {
-  log.error("❌ UNHANDLED REJECTION (but server still running):", reason);
+process.on("unhandledRejection", (reason) => {
+  log.error("❌ UNHANDLED REJECTION:", reason);
 });
 
-export async function attachRtmpRelayUltraV2(server, options = {}) {
+export async function attachRtmpRelayFinal(server, options = {}) {
   const wss = new WebSocketServer({
     server,
     path: options.path || "/ws/rtmp",
@@ -58,14 +77,8 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
     clientTracking: true,
   });
 
-  log.info(
-    `✅ ULTRA V2 RTMP Relay WebSocket initialized: ${
-      options.path || "/ws/rtmp"
-    }`
-  );
-  log.info(
-    `📊 Config: MAX=${CONFIG.MAX_CONCURRENT_STREAMS}, QUEUE=${CONFIG.MAX_QUEUE_SIZE}, ULTRA BUFFERS`
-  );
+  log.info(`✅ ADAPTIVE RTMP Relay initialized: ${options.path || "/ws/rtmp"}`);
+  log.info(`📊 Config: MAX=${CONFIG.MAX_CONCURRENT_STREAMS}, ADAPTIVE BUFFERS`);
 
   const activeStreams = new Map();
   const queuedStreams = [];
@@ -81,21 +94,30 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
         : 0;
 
     log.info(
-      `📊 STATS: Active=${activeStreams.size}/${CONFIG.MAX_CONCURRENT_STREAMS}, Queue=${queuedStreams.length}, Peak=${metrics.peakConcurrent}, Started=${metrics.totalStreamsStarted}, Failed=${metrics.totalStreamsFailed}, Reconnects=${metrics.totalReconnects}, Uptime=${uptime}m, AvgFPS=${avgFps}`
+      `📊 STATS: Active=${activeStreams.size}/${CONFIG.MAX_CONCURRENT_STREAMS}, ` +
+        `Queue=${queuedStreams.length}, Peak=${metrics.peakConcurrent}, ` +
+        `Started=${metrics.totalStreamsStarted}, Failed=${metrics.totalStreamsFailed}, ` +
+        `Reconnects=${metrics.totalReconnects}, Uptime=${uptime}m, AvgFPS=${avgFps}`
+    );
+
+    log.info(
+      `📊 Quality: Low=${metrics.qualityDistribution.low}, ` +
+        `Med=${metrics.qualityDistribution.medium}, ` +
+        `High=${metrics.qualityDistribution.high}, ` +
+        `Ultra=${metrics.qualityDistribution.ultra}`
     );
 
     activeStreams.forEach((stream, id) => {
       const elapsed = ((Date.now() - stream.stats.startTime) / 1000).toFixed(0);
       const fps = (stream.stats.videoFrames / elapsed).toFixed(1);
       log.debug(
-        `  Stream #${id}: ${stream.stats.videoFrames} frames, ${fps} fps, ${elapsed}s uptime`
+        `  Stream #${id} [${stream.qualityLevel}]: ${stream.stats.videoFrames} frames, ${fps} fps`
       );
     });
   }, CONFIG.STATS_INTERVAL);
 
   const healthCheck = setInterval(() => {
     log.debug(`🏥 Health check: ${activeStreams.size} active streams`);
-
     activeStreams.forEach((stream, id) => {
       try {
         const elapsed = Date.now() - stream.stats.lastFrameTime;
@@ -104,28 +126,29 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
           totalElapsed > 0
             ? (stream.stats.videoFrames / (totalElapsed / 1000)).toFixed(1)
             : 0;
-
         if (elapsed > CONFIG.STREAM_TIMEOUT) {
           log.warn(
-            `⚠️ Stream #${id} STALLED: no frames for ${(elapsed / 1000).toFixed(
-              0
-            )}s (${fps} fps)`
+            `⚠️ Stream #${id} [${stream.qualityLevel}] STALLED: ${(
+              elapsed / 1000
+            ).toFixed(0)}s (${fps} fps)`
           );
-
           try {
             stream.ws.send(
               JSON.stringify({
                 type: "warning",
                 message: `Stream stalled. Reconnecting...`,
-                stats: { fps, frames: stream.stats.videoFrames },
+                stats: {
+                  fps,
+                  frames: stream.stats.videoFrames,
+                  quality: stream.qualityLevel,
+                },
               })
             );
           } catch (e) {
             log.error(`❌ Failed to send warning to stream #${id}:`, e.message);
           }
-
           if (!stream.isReconnecting) {
-            log.warn(`🔄 Auto-reconnecting stalled stream #${id}`);
+            log.warn(`🔄 Auto-reconnecting stream #${id}`);
             reconnectStream(stream);
           }
         }
@@ -137,7 +160,6 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
 
   const wsHeartbeat = setInterval(() => {
     log.debug(`💓 WebSocket heartbeat: ${wss.clients.size} clients`);
-
     wss.clients.forEach((ws) => {
       try {
         if (ws.isAlive === false) {
@@ -177,14 +199,11 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
   const cleanupStream = (stream, force = false) => {
     try {
       const id = stream.id;
-
       if (stream.isReconnecting && !force) {
         log.stream(id, `🔄 Reconnecting, skip cleanup`);
         return;
       }
-
       log.stream(id, `🧹 Cleanup starting (force=${force})`);
-
       if (stream.ffmpeg) {
         try {
           if (stream.ffmpeg.stdin && !stream.ffmpeg.stdin.destroyed) {
@@ -198,14 +217,12 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
         } catch (e) {
           log.error(`⚠️ Pipe close error #${id}:`, e.message);
         }
-
         try {
           stream.ffmpeg.kill("SIGTERM");
           log.debug(`  Sent SIGTERM to stream #${id}`);
         } catch (e) {
           log.error(`⚠️ SIGTERM error #${id}:`, e.message);
         }
-
         const killTimer = setTimeout(() => {
           try {
             if (stream.ffmpeg) {
@@ -216,30 +233,27 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
             log.error(`⚠️ SIGKILL error #${id}:`, e.message);
           }
         }, 3000);
-
         stream.ffmpeg.once("close", () => {
           clearTimeout(killTimer);
           log.stream(id, `✅ FFmpeg process closed`);
         });
-
         stream.ffmpeg = null;
       }
-
+      if (stream.qualityLevel) {
+        metrics.qualityDistribution[stream.qualityLevel]--;
+      }
       stream.config = null;
       activeStreams.delete(id);
-
       const elapsed = ((Date.now() - stream.stats.startTime) / 1000).toFixed(1);
       const fps =
         elapsed > 0 ? (stream.stats.videoFrames / elapsed).toFixed(1) : 0;
-
       log.stream(
         id,
-        `✅ Cleanup complete: ${stream.stats.videoFrames} frames, ${fps} fps, ${elapsed}s`
+        `✅ Cleanup complete [${stream.qualityLevel}]: ${stream.stats.videoFrames} frames, ${fps} fps, ${elapsed}s`
       );
       log.info(
-        `📊 Active streams: ${activeStreams.size}/${CONFIG.MAX_CONCURRENT_STREAMS}, Queue: ${queuedStreams.length}`
+        `📊 Active: ${activeStreams.size}/${CONFIG.MAX_CONCURRENT_STREAMS}, Queue: ${queuedStreams.length}`
       );
-
       processQueue();
     } catch (err) {
       log.error(`❌ Cleanup error for stream #${stream.id}:`, err.message);
@@ -251,7 +265,6 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
       if (stream.reconnectAttempts >= CONFIG.RECONNECT_ATTEMPTS) {
         log.error(`❌ Stream #${stream.id} max reconnect attempts reached`);
         metrics.totalStreamsFailed++;
-
         try {
           stream.ws.send(
             JSON.stringify({
@@ -266,25 +279,19 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
             e.message
           );
         }
-
         cleanupStream(stream, true);
         return;
       }
-
       stream.reconnectAttempts++;
       stream.isReconnecting = true;
       metrics.totalReconnects++;
-
       const delay =
         CONFIG.RECONNECT_DELAY * Math.pow(2, stream.reconnectAttempts - 1);
-      const maxDelay = 30000;
-      const actualDelay = Math.min(delay, maxDelay);
-
+      const actualDelay = Math.min(delay, 30000);
       log.stream(
         stream.id,
-        `🔄 Reconnecting in ${actualDelay}ms (attempt ${stream.reconnectAttempts}/${CONFIG.RECONNECT_ATTEMPTS})`
+        `🔄 Reconnecting [${stream.qualityLevel}] in ${actualDelay}ms (${stream.reconnectAttempts}/${CONFIG.RECONNECT_ATTEMPTS})`
       );
-
       try {
         stream.ws.send(
           JSON.stringify({
@@ -292,6 +299,7 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
             attempt: stream.reconnectAttempts,
             maxAttempts: CONFIG.RECONNECT_ATTEMPTS,
             delay: actualDelay,
+            quality: stream.qualityLevel,
           })
         );
       } catch (e) {
@@ -300,7 +308,6 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
           e.message
         );
       }
-
       setTimeout(() => {
         try {
           if (stream.config) {
@@ -328,15 +335,15 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
       ) {
         const stream = queuedStreams.shift();
         log.info(
-          `📥 Processing queued stream #${stream.id} (queue: ${queuedStreams.length})`
+          `📥 Processing queued stream #${stream.id} [${stream.qualityLevel}] (queue: ${queuedStreams.length})`
         );
-
         try {
           stream.ws.send(
             JSON.stringify({
               type: "dequeued",
               message: "Starting your stream now",
               position: 0,
+              quality: stream.qualityLevel,
             })
           );
         } catch (e) {
@@ -345,7 +352,6 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
             e.message
           );
         }
-
         startFFmpeg(stream);
       }
     } catch (err) {
@@ -356,7 +362,6 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
   const startFFmpeg = (stream) => {
     try {
       const id = stream.id;
-
       if (activeStreams.size >= CONFIG.MAX_CONCURRENT_STREAMS) {
         if (queuedStreams.length >= CONFIG.MAX_QUEUE_SIZE) {
           log.error(`❌ Stream #${id} rejected: queue full`);
@@ -370,12 +375,10 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
           } catch {}
           return false;
         }
-
         log.warn(
           `⏳ Stream #${id} queued (position ${queuedStreams.length + 1})`
         );
         queuedStreams.push(stream);
-
         try {
           stream.ws.send(
             JSON.stringify({
@@ -391,37 +394,42 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
       const { streamKey, width, height, fps, videoBitrate, audioBitrate } =
         stream.config;
 
+      // ✅ Detect quality and get optimal buffer
+      const qualityLevel = detectQualityLevel(height);
+      const bufferSize = getBufferSize(qualityLevel);
+      stream.qualityLevel = qualityLevel;
+      metrics.qualityDistribution[qualityLevel]++;
+
       if (stream.ffmpeg) {
         try {
           stream.ffmpeg.kill("SIGKILL");
-          log.stream(id, `♻️ Killed old FFmpeg process for reconnect`);
+          log.stream(id, `♻️ Killed old FFmpeg for reconnect`);
         } catch {}
         stream.ffmpeg = null;
       }
 
       const DEBUG_SAVE_FILE = process.env.DEBUG_SAVE_FILE === "true";
       let outputTarget;
-
       if (DEBUG_SAVE_FILE) {
-        outputTarget = `/tmp/stream_${id}_${Date.now()}.mp4`;
-        log.stream(id, `🎬 DEBUG MODE: Saving to ${outputTarget}`);
+        outputTarget = `/tmp/stream_${id}_${qualityLevel}_${Date.now()}.mp4`;
+        log.stream(id, `🎬 DEBUG: Saving to ${outputTarget}`);
       } else {
         outputTarget = `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
         log.stream(
           id,
-          `🎬 Starting: ${width}x${height}@${fps}fps, ${videoBitrate} → Facebook`
+          `🎬 Starting [${qualityLevel.toUpperCase()}]: ${width}x${height}@${fps}fps, ${videoBitrate}, Buffer=${(
+            bufferSize / 1000000
+          ).toFixed(0)}MB`
         );
       }
 
       const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
 
-      // ✅ ULTRA SMOOTH FFmpeg args - 2x larger buffers
+      // ✅ ADAPTIVE FFmpeg args
       const args = [
         "-hide_banner",
         "-loglevel",
         "error",
-
-        // Input 0: H264
         "-f",
         "h264",
         "-probesize",
@@ -430,53 +438,44 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
         "0",
         "-i",
         "pipe:0",
-
-        // Input 1: Audio
         "-f",
         "webm",
         "-i",
         "pipe:3",
-
-        // Map
         "-map",
         "0:v",
         "-map",
         "1:a",
-
-        // Video: copy (zero CPU)
         "-c:v",
         "copy",
-
-        // Audio: AAC optimized
         "-c:a",
         "aac",
         "-b:a",
-        "128k",
+        audioBitrate || "128k",
         "-ar",
         "48000",
         "-ac",
         "2",
-
-        // ✅ ULTRA SMOOTH: 2x larger buffers
         "-max_muxing_queue_size",
-        "4096", // ⬆️ 2048 → 4096
+        qualityLevel === "ultra"
+          ? "8192"
+          : qualityLevel === "high"
+          ? "4096"
+          : "2048",
         "-fflags",
-        "+genpts+nobuffer+flush_packets+igndts", // ⬆️ Thêm igndts
+        "+genpts+nobuffer+flush_packets+igndts",
         "-flush_packets",
         "1",
         "-max_delay",
-        "500000", // ⬆️ 500ms max delay
-
-        // ✅ RTMP ULTRA SMOOTH optimizations
+        qualityLevel === "ultra" ? "1000000" : "500000",
         "-rtmp_conn",
         "S:0:sauth:true",
         "-rtmp_buffer",
-        "20000000", // ⬆️ 10MB → 20MB (gấp đôi!)
+        bufferSize.toString(),
         "-rtmp_flush_interval",
-        "2", // ⬆️ 3 → 2 (flush nhanh hơn)
+        qualityLevel === "low" ? "3" : "2",
         "-rtmp_live",
         "live",
-
         "-shortest",
       ];
 
@@ -498,7 +497,9 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
         );
       }
 
-      log.debug(`🔧 FFmpeg V2 command for stream #${id}`);
+      log.debug(
+        `🔧 FFmpeg ADAPTIVE command for stream #${id} [${qualityLevel}]`
+      );
 
       stream.ffmpeg = spawn(ffmpegPath, args, {
         stdio: ["pipe", "pipe", "pipe", "pipe"],
@@ -526,7 +527,9 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
 
       log.stream(
         id,
-        `✅ FFmpeg V2 spawned: PID=${stream.ffmpeg.pid}, 20MB buffer`
+        `✅ FFmpeg spawned [${qualityLevel}]: PID=${
+          stream.ffmpeg.pid
+        }, Buffer=${(bufferSize / 1000000).toFixed(0)}MB`
       );
       log.info(
         `📊 Active: ${activeStreams.size}/${CONFIG.MAX_CONCURRENT_STREAMS}, Peak: ${metrics.peakConcurrent}`
@@ -547,8 +550,7 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
       stream.ffmpeg.stderr.on("data", (d) => {
         try {
           const log_msg = d.toString().trim();
-          log.error(`📺 FFmpeg #${id}:`, log_msg);
-
+          log.error(`📺 FFmpeg #${id} [${qualityLevel}]:`, log_msg);
           if (
             log_msg.includes("Input/output error") ||
             log_msg.includes("ECONNRESET")
@@ -573,12 +575,10 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
           ).toFixed(1);
           const fps =
             elapsed > 0 ? (stream.stats.videoFrames / elapsed).toFixed(1) : 0;
-
           log.stream(
             id,
-            `🛑 FFmpeg closed: code=${code} signal=${signal} | ${stream.stats.videoFrames} frames, ${fps} fps, ${elapsed}s`
+            `🛑 FFmpeg closed [${qualityLevel}]: code=${code} signal=${signal} | ${stream.stats.videoFrames} frames, ${fps} fps, ${elapsed}s`
           );
-
           if (
             code !== 0 &&
             code !== null &&
@@ -600,6 +600,7 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
                     frames: stream.stats.videoFrames,
                     fps,
                     duration: elapsed,
+                    quality: qualityLevel,
                   },
                 })
               );
@@ -632,12 +633,13 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
           JSON.stringify({
             type: "started",
             streamId: id,
-            message: `Stream #${id} live! ULTRA SMOOTH V2`,
+            message: `Stream #${id} live! [${qualityLevel.toUpperCase()}]`,
             stats: {
               active: activeStreams.size,
               max: CONFIG.MAX_CONCURRENT_STREAMS,
               queued: queuedStreams.length,
-              bufferSize: "20MB",
+              bufferSize: `${(bufferSize / 1000000).toFixed(0)}MB`,
+              quality: qualityLevel,
             },
           })
         );
@@ -663,22 +665,19 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
 
   wss.on("connection", (ws, req) => {
     let stream = null;
-
     try {
       ws.isAlive = true;
       ws.on("pong", () => (ws.isAlive = true));
       ws._socket?.setNoDelay?.(true);
-
       const clientIp = req.socket.remoteAddress;
       const streamId = ++streamCounter;
-
       log.info(`📡 Client #${streamId} connected from ${clientIp}`);
-
       stream = {
         id: streamId,
         ws,
         ffmpeg: null,
         config: null,
+        qualityLevel: null,
         stats: {
           videoFrames: 0,
           audioFrames: 0,
@@ -694,17 +693,13 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
         try {
           if (isBinary) {
             if (!stream.ffmpeg || !stream.config) return;
-
             const u8 = new Uint8Array(data);
             const isAudio = u8[0] === 0x01;
-
             stream.stats.lastFrameTime = Date.now();
             metrics.totalFramesProcessed++;
-
             if (isAudio) {
               const payload = u8.subarray(1);
               const audioPipe = stream.ffmpeg.stdio?.[3];
-
               if (audioPipe?.writable && payload.byteLength) {
                 audioPipe.write(payload, (err) => {
                   if (err && err.code !== "EPIPE") {
@@ -721,10 +716,9 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
                   }
                 });
                 stream.stats.videoFrames++;
-
                 if (stream.stats.droppedFrames > CONFIG.FRAME_DROP_THRESHOLD) {
                   log.warn(
-                    `⚠️ Stream #${stream.id} dropped ${stream.stats.droppedFrames} frames!`
+                    `⚠️ Stream #${stream.id} [${stream.qualityLevel}] dropped ${stream.stats.droppedFrames} frames!`
                   );
                 }
               }
@@ -751,16 +745,14 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
               } catch {}
               return;
             }
-
             stream.config = {
               streamKey: msg.streamKey,
               width: msg.width || 1280,
               height: msg.height || 720,
               fps: msg.fps || 30,
               videoBitrate: msg.videoBitrate || "2500k",
-              audioBitrate: msg.audioBitrate || "192k",
+              audioBitrate: msg.audioBitrate || "128k",
             };
-
             if (!stream.config.streamKey) {
               try {
                 ws.send(
@@ -772,21 +764,26 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
               } catch {}
               return;
             }
-
+            const quality = detectQualityLevel(stream.config.height);
+            stream.qualityLevel = quality;
             log.stream(
               stream.id,
-              `📥 Start request: ${stream.config.width}x${stream.config.height}@${stream.config.fps}fps`
+              `📥 Start request [${quality}]: ${stream.config.width}x${stream.config.height}@${stream.config.fps}fps`
             );
             startFFmpeg(stream);
           } else if (msg.type === "stop") {
-            log.stream(stream.id, `🛑 Stop requested by user`);
+            log.stream(
+              stream.id,
+              `🛑 Stop requested by user [${stream.qualityLevel}]`
+            );
             cleanupStream(stream, true);
             try {
-              ws.send(
+              stream.ws.send(
                 JSON.stringify({
                   type: "stopped",
                   message: "Stopped by user",
                   stats: stream.stats,
+                  quality: stream.qualityLevel,
                 })
               );
             } catch {}
@@ -798,7 +795,9 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
 
       ws.on("close", () => {
         try {
-          log.info(`📴 Client #${stream.id} disconnected`);
+          log.info(
+            `📴 Client #${stream.id} [${stream.qualityLevel}] disconnected`
+          );
           cleanupStream(stream, true);
         } catch (err) {
           log.error(`❌ Close handler error:`, err.message);
@@ -827,7 +826,7 @@ export async function attachRtmpRelayUltraV2(server, options = {}) {
     log.error(`❌ WebSocket Server error:`, err.message);
   });
 
-  log.info(`🚀 RTMP Relay ULTRA V2 ready - 2x buffers, zero stutter!`);
+  log.info(`🚀 RTMP Relay ADAPTIVE ready - Dynamic buffers, stable audio!`);
 
   return wss;
 }
