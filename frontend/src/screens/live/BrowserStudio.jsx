@@ -1,7 +1,45 @@
-// FacebookLiveStreamerFinal.jsx - ADAPTIVE QUALITY + ZERO FLICKER
-// ✅ Auto quality, URL params, perfect audio, zero lag
+// FacebookLiveStreamerMUI.jsx - ADAPTIVE QUALITY + MUI
+// ✅ Auto quality, URL params, perfect audio, zero flicker
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Box,
+  Container,
+  Paper,
+  Typography,
+  TextField,
+  Button,
+  Alert,
+  Chip,
+  Card,
+  CardContent,
+  Grid,
+  CircularProgress,
+  FormControlLabel,
+  Switch,
+  Divider,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
+  LinearProgress,
+  Tooltip,
+  IconButton,
+} from "@mui/material";
+import {
+  RadioButtonChecked,
+  PlayArrow,
+  Stop,
+  Videocam,
+  Info,
+  SportsScore,
+  FlipCameraAndroid,
+  Layers,
+  CheckCircle,
+  Speed,
+  SettingsInputHdmi,
+  AutoMode,
+  Refresh,
+} from "@mui/icons-material";
 
 // ✅ QUALITY PRESETS
 const QUALITY_PRESETS = {
@@ -39,7 +77,7 @@ const QUALITY_PRESETS = {
   },
 };
 
-export default function FacebookLiveStreamerFinal({
+export default function FacebookLiveStreamerMUI({
   matchId,
   wsUrl = "ws://localhost:5002/ws/rtmp",
   apiUrl = "http://localhost:5001/api/overlay/match",
@@ -1100,634 +1138,699 @@ export default function FacebookLiveStreamerFinal({
   const activeOverlayCount =
     Object.values(overlayConfig).filter(Boolean).length;
 
-  return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)",
-        padding: "2rem",
-      }}
-    >
-      <div
-        style={{
-          maxWidth: "1400px",
-          margin: "0 auto",
-          background: "white",
-          borderRadius: "12px",
-          overflow: "hidden",
-          boxShadow: "0 10px 40px rgba(0,0,0,0.1)",
-        }}
-      >
-        <div
-          style={{
+  const OverlayControlsCard = React.memo(() => (
+    <Card elevation={2} sx={{ mb: 3 }}>
+      <CardContent>
+        <Box
+          sx={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "1.5rem 2rem",
-            borderBottom: "2px solid #e5e7eb",
-            background: "linear-gradient(to right, #f8f9fa, #ffffff)",
+            mb: 2,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-            <span style={{ fontSize: "2rem", color: "#ef4444" }}>🔴</span>
-            <h1 style={{ margin: 0, fontSize: "1.875rem", fontWeight: "bold" }}>
-              Facebook Live - Adaptive Quality
-            </h1>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <Layers color="primary" />
+            <Typography variant="h6" fontWeight={600}>
+              Overlay Controls
+            </Typography>
+          </Box>
+          <Chip
+            label={`${activeOverlayCount}/${Object.keys(overlayConfig).length}`}
+            color="success"
+            size="small"
+          />
+        </Box>
+        <Divider sx={{ mb: 2 }} />
+        <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => toggleAllOverlays(true)}
+            fullWidth
+          >
+            Enable All
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={() => toggleAllOverlays(false)}
+            fullWidth
+          >
+            Disable All
+          </Button>
+        </Box>
+        <Divider sx={{ mb: 2 }} />
+        <Typography
+          variant="subtitle2"
+          fontWeight={600}
+          sx={{ mb: 1, color: "primary.main" }}
+        >
+          📊 Match Info
+        </Typography>
+        <Box sx={{ pl: 2, mb: 2 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.scoreBoard}
+                onChange={() => toggleOverlay("scoreBoard")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Score Board</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.timer}
+                onChange={() => toggleOverlay("timer")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Timer</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.tournamentName}
+                onChange={() => toggleOverlay("tournamentName")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Tournament Name</Typography>}
+          />
+        </Box>
+        <Typography
+          variant="subtitle2"
+          fontWeight={600}
+          sx={{ mb: 1, color: "primary.main" }}
+        >
+          🎨 Branding
+        </Typography>
+        <Box sx={{ pl: 2, mb: 2 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.logo}
+                onChange={() => toggleOverlay("logo")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Logo</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.sponsors}
+                onChange={() => toggleOverlay("sponsors")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Sponsors</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.lowerThird}
+                onChange={() => toggleOverlay("lowerThird")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Lower Third</Typography>}
+          />
+        </Box>
+        <Typography
+          variant="subtitle2"
+          fontWeight={600}
+          sx={{ mb: 1, color: "primary.main" }}
+        >
+          🌐 Interactive
+        </Typography>
+        <Box sx={{ pl: 2, mb: 2 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.socialMedia}
+                onChange={() => toggleOverlay("socialMedia")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Social Media</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.qrCode}
+                onChange={() => toggleOverlay("qrCode")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">QR Code</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.frameDecor}
+                onChange={() => toggleOverlay("frameDecor")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Frame Decoration</Typography>}
+          />
+        </Box>
+        <Typography
+          variant="subtitle2"
+          fontWeight={600}
+          sx={{ mb: 1, color: "primary.main" }}
+        >
+          📡 Status
+        </Typography>
+        <Box sx={{ pl: 2 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.liveBadge}
+                onChange={() => toggleOverlay("liveBadge")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Live Badge</Typography>}
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={overlayConfig.viewerCount}
+                onChange={() => toggleOverlay("viewerCount")}
+                size="small"
+              />
+            }
+            label={<Typography variant="body2">Viewer Count</Typography>}
+          />
+        </Box>
+        <Alert severity="success" sx={{ mt: 2 }} icon={<CheckCircle />}>
+          <Typography variant="caption">
+            ✅ Adaptive Quality + Zero Flicker
+          </Typography>
+        </Alert>
+      </CardContent>
+    </Card>
+  ));
+
+  return (
+    <Box
+      sx={{
+        minHeight: "100vh",
+        background: "linear-gradient(135deg,#667eea 0%,#764ba2 100%)",
+        py: 4,
+      }}
+    >
+      <Container maxWidth="xl">
+        <Paper elevation={6} sx={{ borderRadius: 3, overflow: "hidden" }}>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              p: 3,
+              borderBottom: "2px solid",
+              borderColor: "divider",
+              background: "linear-gradient(to right, #f8f9fa, #ffffff)",
+            }}
+          >
+            <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+              <RadioButtonChecked sx={{ fontSize: 40, color: "error.main" }} />
+              <Typography variant="h4" fontWeight="bold" color="text.primary">
+                Facebook Live - Adaptive Quality
+              </Typography>
+              <Chip
+                label="Auto Quality"
+                color="success"
+                size="small"
+                sx={{ fontWeight: "bold" }}
+              />
+            </Box>
             {isStreaming && (
-              <span
-                style={{
-                  padding: "0.25rem 0.75rem",
-                  background: "#ef4444",
-                  color: "white",
-                  borderRadius: "9999px",
-                  fontSize: "0.875rem",
+              <Chip
+                icon={<RadioButtonChecked />}
+                label="LIVE"
+                color="error"
+                sx={{
                   fontWeight: "bold",
-                }}
-              >
-                LIVE
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "2fr 1fr",
-            gap: "1.5rem",
-            padding: "1.5rem",
-          }}
-        >
-          <div>
-            <div
-              style={{
-                background: "#f9fafb",
-                padding: "1.5rem",
-                borderRadius: "8px",
-                marginBottom: "1.5rem",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  marginBottom: "1rem",
-                }}
-              >
-                <h2
-                  style={{ margin: 0, fontSize: "1.25rem", fontWeight: "600" }}
-                >
-                  📹 Camera ({QUALITY_PRESETS[qualityMode].label})
-                </h2>
-                <button
-                  onClick={toggleCamera}
-                  disabled={!canSwitchCamera || isStreaming || loading}
-                  style={{
-                    padding: "0.5rem 1rem",
-                    borderRadius: "6px",
-                    border: "1px solid #d1d5db",
-                    background: "white",
-                    cursor:
-                      canSwitchCamera && !isStreaming && !loading
-                        ? "pointer"
-                        : "not-allowed",
-                    opacity:
-                      canSwitchCamera && !isStreaming && !loading ? 1 : 0.5,
-                  }}
-                >
-                  🔄 {facingMode === "environment" ? "Sau" : "Trước"}
-                </button>
-              </div>
-              <div
-                style={{
-                  position: "relative",
-                  width: "100%",
-                  paddingBottom: ratioPadding,
-                  background: "#000",
-                  borderRadius: "8px",
-                  overflow: "hidden",
-                }}
-              >
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "cover",
-                    transform: facingMode === "user" ? "scaleX(-1)" : "none",
-                  }}
-                />
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: "#f9fafb",
-                padding: "1.5rem",
-                borderRadius: "8px",
-              }}
-            >
-              <h2
-                style={{
-                  margin: "0 0 1rem 0",
-                  fontSize: "1.25rem",
-                  fontWeight: "600",
-                }}
-              >
-                🎮 Stream Preview (Match: {matchId || "N/A"})
-              </h2>
-              <div
-                style={{
-                  position: "relative",
-                  width: "100%",
-                  paddingBottom: ratioPadding,
-                  background: "#000",
-                  borderRadius: "8px",
-                  overflow: "hidden",
-                }}
-              >
-                <canvas
-                  ref={previewCanvasRef}
-                  width={videoSize.w}
-                  height={videoSize.h}
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    width: "100%",
-                    height: "100%",
-                    display: isStreaming ? "none" : "block",
-                  }}
-                />
-                <canvas
-                  ref={canvasRef}
-                  width={videoSize.w}
-                  height={videoSize.h}
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    width: "100%",
-                    height: "100%",
-                    display: isStreaming ? "block" : "none",
-                  }}
-                />
-              </div>
-
-              {isStreaming && (
-                <div
-                  style={{
-                    marginTop: "1rem",
-                    padding: "1rem",
-                    background: "#ecfdf5",
-                    borderRadius: "6px",
-                    border: "1px solid #10b981",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "0.875rem",
-                      fontWeight: "600",
-                      marginBottom: "0.5rem",
-                    }}
-                  >
-                    Stream Health:
-                  </div>
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr 1fr",
-                      gap: "0.5rem",
-                    }}
-                  >
-                    <div
-                      style={{
-                        padding: "0.5rem",
-                        background: "white",
-                        borderRadius: "4px",
-                        textAlign: "center",
-                      }}
-                    >
-                      <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
-                        FPS
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "1.25rem",
-                          fontWeight: "bold",
-                          color: "#10b981",
-                        }}
-                      >
-                        {streamHealth.fps}
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        padding: "0.5rem",
-                        background: "white",
-                        borderRadius: "4px",
-                        textAlign: "center",
-                      }}
-                    >
-                      <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
-                        Bitrate
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "1.25rem",
-                          fontWeight: "bold",
-                          color: "#3b82f6",
-                        }}
-                      >
-                        {streamHealth.bitrate}k
-                      </div>
-                    </div>
-                    <div
-                      style={{
-                        padding: "0.5rem",
-                        background: "white",
-                        borderRadius: "4px",
-                        textAlign: "center",
-                      }}
-                    >
-                      <div style={{ fontSize: "0.75rem", color: "#6b7280" }}>
-                        Dropped
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "1.25rem",
-                          fontWeight: "bold",
-                          color:
-                            streamHealth.dropped > 10 ? "#ef4444" : "#6b7280",
-                        }}
-                      >
-                        {streamHealth.dropped}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <div
-              style={{
-                background: "#f9fafb",
-                padding: "1.5rem",
-                borderRadius: "8px",
-                marginBottom: "1.5rem",
-              }}
-            >
-              <h2
-                style={{
-                  margin: "0 0 1rem 0",
-                  fontSize: "1.25rem",
-                  fontWeight: "600",
-                }}
-              >
-                ⚙️ Quality
-              </h2>
-
-              <div
-                style={{
-                  marginBottom: "1rem",
-                  padding: "1rem",
-                  background: "white",
-                  borderRadius: "6px",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: "0.5rem",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                    }}
-                  >
-                    <span>🌐 Network</span>
-                    <button
-                      onClick={measureNetworkSpeed}
-                      disabled={loading}
-                      style={{
-                        padding: "0.25rem",
-                        border: "none",
-                        background: "transparent",
-                        cursor: loading ? "not-allowed" : "pointer",
-                      }}
-                    >
-                      🔄
-                    </button>
-                  </div>
-                  <span
-                    style={{
-                      padding: "0.25rem 0.5rem",
-                      borderRadius: "4px",
-                      fontSize: "0.75rem",
-                      fontWeight: "bold",
-                      background:
-                        networkSpeed >= 5
-                          ? "#10b981"
-                          : networkSpeed >= 2
-                          ? "#f59e0b"
-                          : "#ef4444",
-                      color: "white",
-                    }}
-                  >
-                    {networkSpeed > 0 ? `${networkSpeed} Mbps` : "Testing..."}
-                  </span>
-                </div>
-                {networkSpeed > 0 && (
-                  <div
-                    style={{
-                      width: "100%",
-                      height: "8px",
-                      background: "#e5e7eb",
-                      borderRadius: "4px",
-                      overflow: "hidden",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: `${Math.min((networkSpeed / 10) * 100, 100)}%`,
-                        height: "100%",
-                        background:
-                          "linear-gradient(to right, #10b981, #3b82f6)",
-                        transition: "width 0.3s",
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "0.5rem",
-                  marginBottom: "1rem",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={autoQuality}
-                  onChange={(e) => {
-                    setAutoQuality(e.target.checked);
-                    if (e.target.checked && recommendedQuality) {
-                      setQualityMode(recommendedQuality);
-                    }
-                  }}
-                  disabled={isStreaming}
-                  style={{ width: "20px", height: "20px" }}
-                />
-                <span style={{ fontSize: "0.875rem", fontWeight: "500" }}>
-                  🤖 Auto Quality
-                </span>
-              </label>
-
-              <select
-                value={qualityMode}
-                onChange={(e) => setQualityMode(e.target.value)}
-                disabled={isStreaming || autoQuality}
-                style={{
-                  width: "100%",
-                  padding: "0.75rem",
-                  borderRadius: "6px",
-                  border: "1px solid #d1d5db",
-                  background: "white",
-                  cursor:
-                    isStreaming || autoQuality ? "not-allowed" : "pointer",
-                  opacity: isStreaming || autoQuality ? 0.6 : 1,
-                  marginBottom: "1rem",
-                }}
-              >
-                {Object.entries(QUALITY_PRESETS).map(([key, preset]) => (
-                  <option key={key} value={key}>
-                    {preset.label} - {preset.description}
-                  </option>
-                ))}
-              </select>
-
-              {autoQuality && recommendedQuality && (
-                <Alert>
-                  <AlertDescription>
-                    💡 Recommended:{" "}
-                    <strong>{QUALITY_PRESETS[recommendedQuality].label}</strong>
-                  </AlertDescription>
-                </Alert>
-              )}
-            </div>
-
-            <div
-              style={{
-                background: "#f9fafb",
-                padding: "1.5rem",
-                borderRadius: "8px",
-                marginBottom: "1.5rem",
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginBottom: "1rem",
-                }}
-              >
-                <h2
-                  style={{ margin: 0, fontSize: "1.25rem", fontWeight: "600" }}
-                >
-                  🎨 Overlays
-                </h2>
-                <span
-                  style={{
-                    padding: "0.25rem 0.75rem",
-                    background: "#10b981",
-                    color: "white",
-                    borderRadius: "9999px",
-                    fontSize: "0.75rem",
-                    fontWeight: "bold",
-                  }}
-                >
-                  {activeOverlayCount}/{Object.keys(overlayConfig).length}
-                </span>
-              </div>
-              <div
-                style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}
-              >
-                <button
-                  onClick={() => toggleAllOverlays(true)}
-                  style={{
-                    flex: 1,
-                    padding: "0.5rem",
-                    borderRadius: "6px",
-                    border: "1px solid #d1d5db",
-                    background: "white",
-                    cursor: "pointer",
-                    fontSize: "0.875rem",
-                  }}
-                >
-                  Enable All
-                </button>
-                <button
-                  onClick={() => toggleAllOverlays(false)}
-                  style={{
-                    flex: 1,
-                    padding: "0.5rem",
-                    borderRadius: "6px",
-                    border: "1px solid #d1d5db",
-                    background: "white",
-                    cursor: "pointer",
-                    fontSize: "0.875rem",
-                  }}
-                >
-                  Disable All
-                </button>
-              </div>
-
-              <div
-                style={{
-                  maxHeight: "200px",
-                  overflowY: "auto",
-                  fontSize: "0.875rem",
-                }}
-              >
-                {Object.entries(overlayConfig).map(([key, value]) => (
-                  <label
-                    key={key}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "0.5rem",
-                      padding: "0.5rem 0",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={value}
-                      onChange={() => toggleOverlay(key)}
-                      style={{ width: "16px", height: "16px" }}
-                    />
-                    <span style={{ textTransform: "capitalize" }}>
-                      {key.replace(/([A-Z])/g, " $1").trim()}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div
-              style={{
-                background: "#f9fafb",
-                padding: "1.5rem",
-                borderRadius: "8px",
-                marginBottom: "1.5rem",
-              }}
-            >
-              <h2
-                style={{
-                  margin: "0 0 1rem 0",
-                  fontSize: "1.25rem",
-                  fontWeight: "600",
-                }}
-              >
-                📡 Stream
-              </h2>
-
-              <input
-                type="password"
-                placeholder="Stream key (auto từ URL)"
-                value={streamKey}
-                onChange={(e) => setStreamKey(e.target.value)}
-                disabled={isStreaming}
-                style={{
-                  width: "100%",
-                  padding: "0.75rem",
-                  borderRadius: "6px",
-                  border: "1px solid #d1d5db",
-                  marginBottom: "1rem",
-                  opacity: isStreaming ? 0.6 : 1,
+                  fontSize: "1rem",
+                  px: 2,
+                  animation: "pulse 2s infinite",
+                  "@keyframes pulse": {
+                    "0%,100%": { opacity: 1 },
+                    "50%": { opacity: 0.7 },
+                  },
                 }}
               />
+            )}
+          </Box>
 
-              <button
-                onClick={isStreaming ? stopStreamingPro : startStreamingPro}
-                disabled={loading || (!isStreaming && !streamKey.trim())}
-                style={{
-                  width: "100%",
-                  padding: "1rem",
-                  borderRadius: "6px",
-                  border: "none",
-                  background: isStreaming ? "#6b7280" : "#ef4444",
-                  color: "white",
-                  fontSize: "1rem",
-                  fontWeight: "bold",
-                  cursor:
-                    loading || (!isStreaming && !streamKey.trim())
-                      ? "not-allowed"
-                      : "pointer",
-                  opacity:
-                    loading || (!isStreaming && !streamKey.trim()) ? 0.6 : 1,
-                  marginBottom: "1rem",
-                }}
-              >
-                {loading
-                  ? "⏳ Đang xử lý..."
-                  : isStreaming
-                  ? "⏹️ Dừng"
-                  : `▶️ Start ${QUALITY_PRESETS[qualityMode].label}`}
-              </button>
+          <Box sx={{ p: 3 }}>
+            <Grid container spacing={3}>
+              <Grid item xs={12} lg={8}>
+                <Card elevation={2} sx={{ mb: 3 }}>
+                  <CardContent>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        mb: 2,
+                      }}
+                    >
+                      <Box
+                        sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                      >
+                        <Videocam color="primary" />
+                        <Typography variant="h6" fontWeight={600}>
+                          Camera ({QUALITY_PRESETS[qualityMode].label})
+                        </Typography>
+                      </Box>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<FlipCameraAndroid />}
+                        onClick={toggleCamera}
+                        disabled={!canSwitchCamera || isStreaming || loading}
+                      >
+                        {facingMode === "environment" ? "Sau" : "Trước"}
+                      </Button>
+                    </Box>
+                    <Box
+                      sx={{
+                        position: "relative",
+                        width: "100%",
+                        paddingBottom: ratioPadding,
+                        background: "#000",
+                        borderRadius: 2,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <video
+                        ref={videoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                          transform:
+                            facingMode === "user" ? "scaleX(-1)" : "none",
+                          transformOrigin: "center",
+                        }}
+                      />
+                    </Box>
+                  </CardContent>
+                </Card>
 
-              <Alert
-                className={`${
-                  statusType === "error"
-                    ? "bg-red-50"
-                    : statusType === "warning"
-                    ? "bg-yellow-50"
-                    : statusType === "success"
-                    ? "bg-green-50"
-                    : "bg-blue-50"
-                }`}
-              >
-                <AlertDescription>
-                  <strong>{status}</strong>
-                </AlertDescription>
-              </Alert>
-            </div>
+                <Card elevation={2}>
+                  <CardContent>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                        mb: 2,
+                      }}
+                    >
+                      <SportsScore color="primary" />
+                      <Typography variant="h6" fontWeight={600}>
+                        Stream Preview (Match: {matchId || "N/A"})
+                      </Typography>
+                    </Box>
+                    <Box
+                      sx={{
+                        position: "relative",
+                        width: "100%",
+                        paddingBottom: ratioPadding,
+                        background: "#000",
+                        borderRadius: 2,
+                        overflow: "hidden",
+                      }}
+                    >
+                      <canvas
+                        ref={previewCanvasRef}
+                        width={videoSize.w}
+                        height={videoSize.h}
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          width: "100%",
+                          height: "100%",
+                          display: isStreaming ? "none" : "block",
+                        }}
+                      />
+                      <canvas
+                        ref={canvasRef}
+                        width={videoSize.w}
+                        height={videoSize.h}
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          width: "100%",
+                          height: "100%",
+                          display: isStreaming ? "block" : "none",
+                        }}
+                      />
+                    </Box>
+                    {isStreaming && (
+                      <Box
+                        sx={{
+                          mt: 2,
+                          p: 2,
+                          bgcolor: "success.light",
+                          borderRadius: 2,
+                        }}
+                      >
+                        <Typography
+                          variant="subtitle2"
+                          fontWeight={600}
+                          gutterBottom
+                        >
+                          Stream Health
+                        </Typography>
+                        <Grid container spacing={1}>
+                          <Grid item xs={4}>
+                            <Chip
+                              label={`${streamHealth.fps} FPS`}
+                              color="success"
+                              size="small"
+                              sx={{ width: "100%" }}
+                            />
+                          </Grid>
+                          <Grid item xs={4}>
+                            <Chip
+                              label={`${streamHealth.bitrate}k`}
+                              color="info"
+                              size="small"
+                              sx={{ width: "100%" }}
+                            />
+                          </Grid>
+                          <Grid item xs={4}>
+                            <Chip
+                              label={`Drop: ${streamHealth.dropped}`}
+                              color={
+                                streamHealth.dropped > 10 ? "error" : "default"
+                              }
+                              size="small"
+                              sx={{ width: "100%" }}
+                            />
+                          </Grid>
+                        </Grid>
+                      </Box>
+                    )}
+                    <Alert severity="success" sx={{ mt: 2 }}>
+                      <Typography variant="body2">
+                        ⚡ Adaptive Quality: Tự động điều chỉnh theo mạng!
+                      </Typography>
+                    </Alert>
+                  </CardContent>
+                </Card>
+              </Grid>
 
-            <Alert>
-              <AlertDescription>
-                <strong>🚀 Features:</strong>
-                <ul
-                  style={{
-                    margin: "0.5rem 0 0 0",
-                    paddingLeft: "1.25rem",
-                    fontSize: "0.875rem",
-                  }}
-                >
-                  <li>✅ Auto quality từ network</li>
-                  <li>✅ Stream key từ URL</li>
-                  <li>✅ 4 quality presets</li>
-                  <li>✅ Zero flicker rendering</li>
-                  <li>✅ Perfect audio sync</li>
-                </ul>
-              </AlertDescription>
-            </Alert>
-          </div>
-        </div>
-      </div>
-    </div>
+              <Grid item xs={12} lg={4}>
+                <Card elevation={2} sx={{ mb: 3 }}>
+                  <CardContent>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                        mb: 2,
+                      }}
+                    >
+                      <SettingsInputHdmi color="primary" />
+                      <Typography variant="h6" fontWeight={600}>
+                        Quality Settings
+                      </Typography>
+                    </Box>
+
+                    <Box sx={{ mb: 2 }}>
+                      <Box
+                        sx={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          mb: 1,
+                        }}
+                      >
+                        <Box
+                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                        >
+                          <Speed fontSize="small" color="action" />
+                          <Typography variant="body2" color="text.secondary">
+                            Network Speed
+                          </Typography>
+                          <Tooltip title="Test lại tốc độ mạng">
+                            <IconButton
+                              size="small"
+                              onClick={measureNetworkSpeed}
+                              disabled={loading}
+                            >
+                              <Refresh fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
+                        <Chip
+                          label={
+                            networkSpeed > 0
+                              ? `${networkSpeed} Mbps`
+                              : "Testing..."
+                          }
+                          size="small"
+                          color={
+                            networkSpeed >= 5
+                              ? "success"
+                              : networkSpeed >= 2
+                              ? "warning"
+                              : "error"
+                          }
+                        />
+                      </Box>
+                      {networkSpeed > 0 && (
+                        <LinearProgress
+                          variant="determinate"
+                          value={Math.min((networkSpeed / 10) * 100, 100)}
+                          sx={{ height: 8, borderRadius: 1 }}
+                        />
+                      )}
+                    </Box>
+
+                    <Divider sx={{ my: 2 }} />
+
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          checked={autoQuality}
+                          onChange={(e) => {
+                            setAutoQuality(e.target.checked);
+                            if (e.target.checked && recommendedQuality) {
+                              setQualityMode(recommendedQuality);
+                            }
+                          }}
+                          disabled={isStreaming}
+                        />
+                      }
+                      label={
+                        <Box
+                          sx={{ display: "flex", alignItems: "center", gap: 1 }}
+                        >
+                          <AutoMode fontSize="small" />
+                          <Typography variant="body2">Auto Quality</Typography>
+                        </Box>
+                      }
+                    />
+
+                    <FormControl
+                      fullWidth
+                      sx={{ mt: 2 }}
+                      disabled={isStreaming || autoQuality}
+                    >
+                      <InputLabel>Quality Preset</InputLabel>
+                      <Select
+                        value={qualityMode}
+                        label="Quality Preset"
+                        onChange={(e) => setQualityMode(e.target.value)}
+                      >
+                        {Object.entries(QUALITY_PRESETS).map(
+                          ([key, preset]) => (
+                            <MenuItem key={key} value={key}>
+                              <Box>
+                                <Typography variant="body2" fontWeight={600}>
+                                  {preset.label}
+                                </Typography>
+                                <Typography
+                                  variant="caption"
+                                  color="text.secondary"
+                                >
+                                  {preset.description}
+                                </Typography>
+                              </Box>
+                            </MenuItem>
+                          )
+                        )}
+                      </Select>
+                    </FormControl>
+
+                    {autoQuality && recommendedQuality && (
+                      <Alert severity="info" icon={<AutoMode />} sx={{ mt: 2 }}>
+                        <Typography variant="caption">
+                          Recommended:{" "}
+                          <strong>
+                            {QUALITY_PRESETS[recommendedQuality].label}
+                          </strong>
+                        </Typography>
+                      </Alert>
+                    )}
+
+                    <Box
+                      sx={{ mt: 2, p: 2, bgcolor: "grey.50", borderRadius: 1 }}
+                    >
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        display="block"
+                        gutterBottom
+                      >
+                        Current Settings:
+                      </Typography>
+                      <Grid container spacing={1}>
+                        <Grid item xs={6}>
+                          <Typography variant="caption">
+                            <strong>Resolution:</strong>{" "}
+                            {QUALITY_PRESETS[qualityMode].width}x
+                            {QUALITY_PRESETS[qualityMode].height}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={6}>
+                          <Typography variant="caption">
+                            <strong>FPS:</strong>{" "}
+                            {QUALITY_PRESETS[qualityMode].fps}
+                          </Typography>
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Typography variant="caption">
+                            <strong>Bitrate:</strong>{" "}
+                            {QUALITY_PRESETS[qualityMode].videoBitsPerSecond}
+                            kbps
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                    </Box>
+                  </CardContent>
+                </Card>
+
+                <OverlayControlsCard />
+
+                <Card elevation={2} sx={{ mb: 3 }}>
+                  <CardContent>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1,
+                        mb: 3,
+                      }}
+                    >
+                      <Info color="primary" />
+                      <Typography variant="h6" fontWeight={600}>
+                        Stream Settings
+                      </Typography>
+                    </Box>
+                    <Box
+                      sx={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 2.5,
+                      }}
+                    >
+                      <TextField
+                        type="password"
+                        label="Facebook Stream Key"
+                        placeholder="Auto từ URL hoặc nhập thủ công"
+                        value={streamKey}
+                        onChange={(e) => setStreamKey(e.target.value)}
+                        disabled={isStreaming}
+                        fullWidth
+                        helperText={
+                          streamKey
+                            ? "✓ Stream key đã có"
+                            : "Sẽ tự động lấy từ URL param 'key'"
+                        }
+                      />
+                      <Button
+                        fullWidth
+                        size="large"
+                        variant="contained"
+                        color={isStreaming ? "inherit" : "error"}
+                        startIcon={
+                          loading ? (
+                            <CircularProgress size={20} color="inherit" />
+                          ) : isStreaming ? (
+                            <Stop />
+                          ) : (
+                            <PlayArrow />
+                          )
+                        }
+                        onClick={
+                          isStreaming ? stopStreamingPro : startStreamingPro
+                        }
+                        disabled={
+                          loading || (!isStreaming && !streamKey.trim())
+                        }
+                        sx={{ py: 1.5, fontWeight: "bold", fontSize: "1rem" }}
+                      >
+                        {loading
+                          ? "Đang xử lý..."
+                          : isStreaming
+                          ? "Dừng Stream"
+                          : `Start ${QUALITY_PRESETS[qualityMode].label}`}
+                      </Button>
+                      <Alert
+                        severity={statusType}
+                        icon={<RadioButtonChecked />}
+                        sx={{ alignItems: "center" }}
+                      >
+                        <Typography variant="body2" fontWeight={600}>
+                          {status}
+                        </Typography>
+                      </Alert>
+                    </Box>
+                  </CardContent>
+                </Card>
+
+                <Card elevation={2}>
+                  <CardContent>
+                    <Alert severity="info" variant="outlined">
+                      <Typography
+                        variant="body2"
+                        component="div"
+                        sx={{ lineHeight: 1.6 }}
+                      >
+                        <strong>🚀 Features:</strong>
+                        <ul style={{ margin: 0, paddingLeft: 18 }}>
+                          <li>✅ Auto quality từ network speed</li>
+                          <li>✅ Stream key từ URL params</li>
+                          <li>✅ Manual quality override</li>
+                          <li>✅ Real-time health monitoring</li>
+                          <li>✅ 4 quality presets (360p-1080p)</li>
+                          <li>✅ Perfect audio sync (128k)</li>
+                        </ul>
+                      </Typography>
+                    </Alert>
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+          </Box>
+        </Paper>
+      </Container>
+    </Box>
   );
 }
