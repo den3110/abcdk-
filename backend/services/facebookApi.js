@@ -82,12 +82,13 @@ export async function listPageLives(
   pageId,
   pageAccessToken,
   {
+    // chỉ dùng các giá trị được FB chấp nhận
     statuses = [
       "LIVE",
-      "LIVE_NOW",
       "UNPUBLISHED",
       "SCHEDULED_UNPUBLISHED",
       "SCHEDULED_LIVE",
+      // nếu muốn mở rộng thêm: "LIVE_STOPPED","PROCESSING","VOD","SCHEDULED_EXPIRED","SCHEDULED_CANCELED"
     ],
     limit = 10,
     fields = "id,status,secure_stream_url,permalink_url,creation_time,start_time,title",
@@ -98,7 +99,7 @@ export async function listPageLives(
     `?` +
     qs({
       access_token: pageAccessToken,
-      // 🔧 gửi DẠNG MẢNG (JSON) thay vì chuỗi → tránh lỗi (#100) must be an array
+      // gửi DẠNG MẢNG JSON chuẩn cho Graph
       broadcast_status: statuses,
       fields,
       limit,
@@ -120,52 +121,23 @@ export async function listPageLives(
 
 /**
  * Trạng thái “bận” của Page dựa trên Graph:
- * - busy = có LIVE/LIVE_NOW (đang live) hoặc có UNPUBLISHED/SCHEDULED_* (đã tạo và giữ stream key/sắp live).
+ * - busy = có LIVE (đang live) hoặc có UNPUBLISHED/SCHEDULED_* (đã tạo và giữ stream key / sắp live).
  */
 export async function getPageLiveState({
   pageId,
   pageAccessToken,
-  statuses = [
-    "LIVE",
-    "LIVE_NOW",
-    "UNPUBLISHED",
-    "SCHEDULED_UNPUBLISHED",
-    "SCHEDULED_LIVE",
-  ],
+  statuses = ["LIVE", "UNPUBLISHED", "SCHEDULED_UNPUBLISHED", "SCHEDULED_LIVE"],
 } = {}) {
   const { data } = await listPageLives(pageId, pageAccessToken, { statuses });
   const up = (s) => String(s || "").toUpperCase();
 
-  const liveNow = data.filter((v) =>
-    ["LIVE", "LIVE_NOW"].includes(up(v.status))
-  );
+  // LIVE_NOW không còn dùng; Graph trả về "LIVE" khi đang phát
+  const liveNow = data.filter((v) => up(v.status) === "LIVE");
   const prepared = data.filter((v) =>
     ["UNPUBLISHED", "SCHEDULED_UNPUBLISHED", "SCHEDULED_LIVE"].includes(
       up(v.status)
     )
   );
-
-  if (VERBOSE && (liveNow.length || prepared.length)) {
-    const toFull = (u) =>
-      u?.startsWith("http") ? u : u ? `https://facebook.com${u}` : "";
-    console.info(
-      `[FB][live] page=${pageId} liveNow=${liveNow.length} prepared=${prepared.length}`
-    );
-    liveNow.forEach((v) =>
-      console.info(
-        `[FB][live]  LIVE id=${v.id} status=${v.status} url=${toFull(
-          v.permalink_url
-        )}`
-      )
-    );
-    prepared.forEach((v) =>
-      console.info(
-        `[FB][live]  PREP id=${v.id} status=${v.status} url=${toFull(
-          v.permalink_url
-        )}`
-      )
-    );
-  }
 
   return {
     busy: liveNow.length > 0 || prepared.length > 0,
