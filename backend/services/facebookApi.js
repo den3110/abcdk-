@@ -5,12 +5,17 @@ dotenv.config();
 const GRAPH_VER = process.env.GRAPH_VER || "v24.0";
 const FB_APP_ID = process.env.FB_APP_ID;
 const FB_APP_SECRET = process.env.FB_APP_SECRET;
+const VERBOSE = String(process.env.FB_VERBOSE || "0") === "1";
 
 const base = (p) => `https://graph.facebook.com/${GRAPH_VER}${p}`;
 const qs = (obj) =>
   Object.entries(obj)
     .filter(([, v]) => v !== undefined && v !== null)
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .map(([k, v]) => {
+      // ✅ Graph yêu cầu array → encode JSON array
+      const val = Array.isArray(v) ? JSON.stringify(v) : v;
+      return `${encodeURIComponent(k)}=${encodeURIComponent(val)}`;
+    })
     .join("&");
 
 // ───────────────────────────────────────────────────────────────────────────────
@@ -72,13 +77,6 @@ export async function debugToken(token) {
 
 /**
  * Liệt kê live_videos của Page từ Graph (dùng để debug/inspect).
- * @param {string} pageId
- * @param {string} pageAccessToken
- * @param {Object} options
- * @param {string[]} [options.statuses] Default: ["LIVE","LIVE_NOW","UNPUBLISHED","SCHEDULED_UNPUBLISHED","SCHEDULED_LIVE"]
- * @param {number} [options.limit] Default: 10
- * @param {string} [options.fields] Default: "id,status,secure_stream_url,permalink_url,creation_time,start_time,title"
- * @returns {{data: any[], paging?: any, raw: any}}
  */
 export async function listPageLives(
   pageId,
@@ -100,7 +98,8 @@ export async function listPageLives(
     `?` +
     qs({
       access_token: pageAccessToken,
-      broadcast_status: statuses.join(","),
+      // 🔧 gửi DẠNG MẢNG (JSON) thay vì chuỗi → tránh lỗi (#100) must be an array
+      broadcast_status: statuses,
       fields,
       limit,
     });
@@ -122,8 +121,6 @@ export async function listPageLives(
 /**
  * Trạng thái “bận” của Page dựa trên Graph:
  * - busy = có LIVE/LIVE_NOW (đang live) hoặc có UNPUBLISHED/SCHEDULED_* (đã tạo và giữ stream key/sắp live).
- * - prepared = UNPUBLISHED hoặc SCHEDULED_UNPUBLISHED / SCHEDULED_LIVE
- * - liveNow = LIVE hoặc LIVE_NOW
  */
 export async function getPageLiveState({
   pageId,
@@ -147,6 +144,28 @@ export async function getPageLiveState({
       up(v.status)
     )
   );
+
+  if (VERBOSE && (liveNow.length || prepared.length)) {
+    const toFull = (u) =>
+      u?.startsWith("http") ? u : u ? `https://facebook.com${u}` : "";
+    console.info(
+      `[FB][live] page=${pageId} liveNow=${liveNow.length} prepared=${prepared.length}`
+    );
+    liveNow.forEach((v) =>
+      console.info(
+        `[FB][live]  LIVE id=${v.id} status=${v.status} url=${toFull(
+          v.permalink_url
+        )}`
+      )
+    );
+    prepared.forEach((v) =>
+      console.info(
+        `[FB][live]  PREP id=${v.id} status=${v.status} url=${toFull(
+          v.permalink_url
+        )}`
+      )
+    );
+  }
 
   return {
     busy: liveNow.length > 0 || prepared.length > 0,
