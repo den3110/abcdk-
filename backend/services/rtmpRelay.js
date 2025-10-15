@@ -29,6 +29,12 @@ const CONFIG = {
   },
 };
 
+// 🔐 Facebook Graph config (set env FACEBOOK_GRAPH_TOKEN / FB_GRAPH_VERSION)
+const FB = {
+  token: process.env.FACEBOOK_GRAPH_TOKEN,
+  version: process.env.FB_GRAPH_VERSION || "v19.0",
+};
+
 const metrics = {
   totalStreamsStarted: 0,
   totalStreamsFailed: 0,
@@ -40,6 +46,102 @@ const metrics = {
   tlsErrors: 0,
   ioErrors: 0,
 };
+
+// 🧪 FB diagnostics helpers
+const maskId = (s = "") =>
+  s?.length > 8 ? `${s.slice(0, 4)}…${s.slice(-4)}` : s;
+async function fbFetch(path, params = {}) {
+  if (!FB.token) return null;
+  const qs = new URLSearchParams({
+    access_token: FB.token,
+    ...params,
+  }).toString();
+  const url = `https://graph.facebook.com/${FB.version}/${path}?${qs}`;
+  try {
+    const res = await fetch(url, { method: "GET" });
+    const json = await res.json();
+    return json;
+  } catch (e) {
+    log.warn(`⚠️ FB fetch failed: ${path} -> ${e.message}`);
+    return null;
+  }
+}
+
+async function fbDiagnostics(stream, why = "on-error") {
+  try {
+    if (!FB.token) return;
+    const pageId = stream?.config?.pageId;
+    const liveId = stream?.config?.liveVideoId; // client nên gửi kèm
+
+    if (liveId) {
+      log.stream(stream.id, `📡 FB diag (${why}) liveId=${maskId(liveId)}`);
+      const fields = [
+        "status",
+        "broadcast_start_time",
+        "ingest_streams.limit(2){status,stream_id,secure_stream_url,stream_health}",
+        "permalink_url",
+      ].join(",");
+      const info = await fbFetch(`${liveId}`, { fields });
+      if (info) {
+        log.stream(
+          stream.id,
+          `🔎 FB live status=${info.status} link=${info.permalink_url || "-"}`
+        );
+        const ing = info.ingest_streams || info.live_video_input_streams || [];
+        if (ing?.data?.length) {
+          for (const is of ing.data) {
+            const h = is.stream_health || {};
+            log.stream(
+              stream.id,
+              `🩺 Ingest ${is.status} id=${is.stream_id} | br=${
+                h.bitrate_kbps || "-"
+              }kbps fps=${h.framerate || "-"} drop=${h.dropped_frames || "-"}`
+            );
+          }
+        }
+      }
+      const errs = await fbFetch(`${liveId}/errors`, { limit: 10 });
+      if (errs?.data?.length) {
+        errs.data.forEach((e) => {
+          log.error(
+            `🧨 FB error code=${e.code} subcode=${e.error_subcode} type=${e.type} msg=${e.message}`
+          );
+        });
+      } else {
+        log.stream(
+          stream.id,
+          `✅ No FB errors reported for liveId=${maskId(liveId)}`
+        );
+      }
+      return;
+    }
+
+    if (pageId) {
+      log.stream(stream.id, `📡 FB diag (${why}) pageId=${pageId}`);
+      const vids = await fbFetch(`${pageId}/live_videos`, {
+        fields: "id,status,creation_time",
+        broadcast_status: [
+          "PREVIEW",
+          "LIVE",
+          "LIVE_STOPPING",
+          "LIVE_STALLED",
+        ].join(","),
+        limit: 5,
+      });
+      if (vids?.data?.length) {
+        for (const v of vids.data)
+          log.stream(
+            stream.id,
+            `ℹ️ Page live_video id=${v.id} status=${v.status} at=${v.creation_time}`
+          );
+      } else {
+        log.stream(stream.id, `ℹ️ No active live_videos on page=${pageId}`);
+      }
+    }
+  } catch (e) {
+    log.warn(`⚠️ FB diagnostics error: ${e.message}`);
+  }
+}
 
 const log = {
   info: (...args) => console.log(`[INFO ${new Date().toISOString()}]`, ...args),
@@ -223,6 +325,12 @@ export async function attachRtmpRelayFinal(server, options = {}) {
           stream.ffmpeg = spawn(ffmpegPath, args, {
             stdio: ["pipe", "pipe", "pipe", "pipe"],
             detached: false,
+            env: {
+              ...process.env,
+              ...(process.env.TLS_DEBUG
+                ? { GNUTLS_DEBUG_LEVEL: String(process.env.TLS_DEBUG) }
+                : {}),
+            },
           });
           if (!stream.ffmpeg.pid) {
             clearTimeout(timeout);
@@ -291,6 +399,8 @@ export async function attachRtmpRelayFinal(server, options = {}) {
             log.error(
               `   💡 Solution: Wait 10+ seconds between streams or use different stream keys`
             );
+            // 🔎 Try fetch FB-side diagnostics if we have tokens/ids
+            setTimeout(() => fbDiagnostics(stream, "tls"), 0);
             if (!stream.isReconnecting) {
               stream.tlsError = true;
               reconnectStream(stream);
@@ -298,6 +408,7 @@ export async function attachRtmpRelayFinal(server, options = {}) {
           } else if (/Input\/output error|ECONNRESET/i.test(line)) {
             metrics.ioErrors++;
             log.error(`❌ Stream #${id} connection lost`);
+            setTimeout(() => fbDiagnostics(stream, "io"), 0);
             if (!stream.isReconnecting) reconnectStream(stream);
           }
         } catch {}
@@ -857,6 +968,7 @@ export async function attachRtmpRelayFinal(server, options = {}) {
               videoBitrate: msg.videoBitrate || "2500k",
               audioBitrate: msg.audioBitrate || "128k",
               pageId: msg.pageId || undefined, // if client provides
+              liveVideoId: msg.liveVideoId || undefined, // if client provides
             };
 
             if (!stream.config.streamKey) {
