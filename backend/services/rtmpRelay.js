@@ -13,10 +13,10 @@ const CONFIG = {
   FRAME_DROP_THRESHOLD: 100,
   STATS_INTERVAL: 120000,
 
-  // ✅ NEW: Spawn control
+  // ✅ Spawn control
   SPAWN_DELAY_MS: 1000, // Delay 1s giữa các lần spawn
-  MAX_SPAWN_RETRIES: 3, // Retry spawn nếu fail
-  SPAWN_TIMEOUT_MS: 10000, // Timeout cho spawn
+  MAX_SPAWN_RETRIES: 3,
+  SPAWN_TIMEOUT_MS: 10000,
 
   BUFFER_SIZES: {
     low: 10000000,
@@ -35,11 +35,6 @@ const metrics = {
   startTime: Date.now(),
   qualityDistribution: { low: 0, medium: 0, high: 0, ultra: 0 },
 };
-
-// ✅ NEW: Spawn queue to prevent conflicts
-const spawnQueue = [];
-let isSpawning = false;
-let lastSpawnTime = 0;
 
 const log = {
   info: (...args) => console.log(`[INFO ${new Date().toISOString()}]`, ...args),
@@ -66,54 +61,7 @@ const getBufferSize = (quality) => {
   return CONFIG.BUFFER_SIZES[quality] || CONFIG.BUFFER_SIZES.high;
 };
 
-// ✅ NEW: Sleep helper
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// ✅ NEW: Process spawn queue sequentially
-const processSpawnQueue = async () => {
-  if (isSpawning || spawnQueue.length === 0) return;
-
-  isSpawning = true;
-
-  while (spawnQueue.length > 0) {
-    const { stream, resolve, reject } = spawnQueue.shift();
-
-    try {
-      // ✅ Wait if last spawn was too recent
-      const timeSinceLastSpawn = Date.now() - lastSpawnTime;
-      if (timeSinceLastSpawn < CONFIG.SPAWN_DELAY_MS) {
-        const waitTime = CONFIG.SPAWN_DELAY_MS - timeSinceLastSpawn;
-        log.stream(
-          stream.id,
-          `⏳ Waiting ${waitTime}ms before spawn (queue: ${spawnQueue.length})`
-        );
-        await sleep(waitTime);
-      }
-
-      const success = await spawnFFmpegProcess(stream);
-      lastSpawnTime = Date.now();
-
-      resolve(success);
-    } catch (err) {
-      log.error(`❌ Spawn queue error for stream #${stream.id}:`, err.message);
-      reject(err);
-    }
-  }
-
-  isSpawning = false;
-};
-
-// ✅ NEW: Queue-based spawn with retry
-const queueFFmpegSpawn = (stream) => {
-  return new Promise((resolve, reject) => {
-    spawnQueue.push({ stream, resolve, reject });
-    log.stream(
-      stream.id,
-      `📝 Added to spawn queue (position: ${spawnQueue.length})`
-    );
-    processSpawnQueue();
-  });
-};
 
 process.on("uncaughtException", (err) => {
   log.error("❌ UNCAUGHT EXCEPTION:", err.message);
@@ -139,6 +87,303 @@ export async function attachRtmpRelayFinal(server, options = {}) {
   const activeStreams = new Map();
   const queuedStreams = [];
   let streamCounter = 0;
+
+  // ✅ Spawn queue variables
+  const spawnQueue = [];
+  let isSpawning = false;
+  let lastSpawnTime = 0;
+
+  // ✅ ĐỊNH NGHĨA spawnFFmpegProcess TRƯỚC (hoisted function)
+  const spawnFFmpegProcess = async (stream) => {
+    try {
+      const id = stream.id;
+      const { streamKey, width, height, fps, videoBitrate, audioBitrate } =
+        stream.config;
+      const qualityLevel = stream.qualityLevel;
+      const bufferSize = getBufferSize(qualityLevel);
+
+      const DEBUG_SAVE_FILE = process.env.DEBUG_SAVE_FILE === "true";
+      const outputTarget = DEBUG_SAVE_FILE
+        ? `/tmp/stream_${id}_${qualityLevel}_${Date.now()}.mp4`
+        : `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
+
+      const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
+
+      const args = [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "h264",
+        "-probesize",
+        "32",
+        "-analyzeduration",
+        "0",
+        "-i",
+        "pipe:0",
+        "-f",
+        "webm",
+        "-i",
+        "pipe:3",
+        "-map",
+        "0:v",
+        "-map",
+        "1:a",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        audioBitrate || "128k",
+        "-ar",
+        "48000",
+        "-ac",
+        "2",
+        "-max_muxing_queue_size",
+        qualityLevel === "ultra"
+          ? "8192"
+          : qualityLevel === "high"
+          ? "4096"
+          : "2048",
+        "-fflags",
+        "+genpts+nobuffer+flush_packets+igndts",
+        "-flush_packets",
+        "1",
+        "-max_delay",
+        qualityLevel === "ultra" ? "1000000" : "500000",
+        "-rtmp_conn",
+        "S:0:sauth:true",
+        "-rtmp_buffer",
+        bufferSize.toString(),
+        "-rtmp_flush_interval",
+        qualityLevel === "low" ? "3" : "2",
+        "-rtmp_live",
+        "live",
+        "-shortest",
+      ];
+
+      if (DEBUG_SAVE_FILE) {
+        args.push(
+          "-f",
+          "mp4",
+          "-movflags",
+          "frag_keyframe+empty_moov",
+          outputTarget
+        );
+      } else {
+        args.push(
+          "-f",
+          "flv",
+          "-flvflags",
+          "no_duration_filesize",
+          outputTarget
+        );
+      }
+
+      log.stream(id, `🚀 Spawning FFmpeg [${qualityLevel}] now...`);
+
+      const spawnPromise = new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          reject(new Error("Spawn timeout"));
+        }, CONFIG.SPAWN_TIMEOUT_MS);
+
+        try {
+          stream.ffmpeg = spawn(ffmpegPath, args, {
+            stdio: ["pipe", "pipe", "pipe", "pipe"],
+            detached: false,
+          });
+
+          if (!stream.ffmpeg.pid) {
+            clearTimeout(timeout);
+            reject(new Error("FFmpeg spawn failed - no PID"));
+            return;
+          }
+
+          clearTimeout(timeout);
+          resolve();
+        } catch (err) {
+          clearTimeout(timeout);
+          reject(err);
+        }
+      });
+
+      await spawnPromise;
+
+      stream.stats = {
+        videoFrames: 0,
+        audioFrames: 0,
+        startTime: Date.now(),
+        lastFrameTime: Date.now(),
+        droppedFrames: 0,
+      };
+      stream.isReconnecting = false;
+      activeStreams.set(id, stream);
+
+      if (stream.reconnectAttempts === 0) {
+        metrics.totalStreamsStarted++;
+      }
+
+      metrics.peakConcurrent = Math.max(
+        metrics.peakConcurrent,
+        activeStreams.size
+      );
+
+      log.stream(
+        id,
+        `✅ FFmpeg SPAWNED [${qualityLevel}]: PID=${
+          stream.ffmpeg.pid
+        }, Buffer=${(bufferSize / 1000000).toFixed(0)}MB`
+      );
+      log.info(
+        `📊 Active: ${activeStreams.size}/${CONFIG.MAX_CONCURRENT_STREAMS}, Peak: ${metrics.peakConcurrent}`
+      );
+
+      stream.ffmpeg.stdin.on("error", (e) => {
+        if (e.code === "EPIPE") return;
+        log.error(`❌ Stream #${id} stdin error:`, e.message);
+      });
+
+      if (stream.ffmpeg.stdio[3]) {
+        stream.ffmpeg.stdio[3].on("error", (e) => {
+          if (e.code === "EPIPE") return;
+          log.error(`❌ Stream #${id} audio pipe error:`, e.message);
+        });
+      }
+
+      stream.ffmpeg.stderr.on("data", (d) => {
+        try {
+          const log_msg = d.toString().trim();
+          log.error(`📺 FFmpeg #${id} [${qualityLevel}]:`, log_msg);
+          if (
+            log_msg.includes("Input/output error") ||
+            log_msg.includes("ECONNRESET") ||
+            log_msg.includes("TLS fatal alert")
+          ) {
+            log.error(`❌ Stream #${id} connection lost`);
+            if (!stream.isReconnecting) {
+              reconnectStream(stream);
+            }
+          }
+        } catch {}
+      });
+
+      stream.ffmpeg.on("close", (code, signal) => {
+        try {
+          const elapsed = (
+            (Date.now() - stream.stats.startTime) /
+            1000
+          ).toFixed(1);
+          const fps =
+            elapsed > 0 ? (stream.stats.videoFrames / elapsed).toFixed(1) : 0;
+          log.stream(
+            id,
+            `🛑 FFmpeg closed [${qualityLevel}]: code=${code} signal=${signal} | ${stream.stats.videoFrames} frames, ${fps} fps`
+          );
+
+          if (
+            code !== 0 &&
+            code !== null &&
+            signal !== "SIGTERM" &&
+            signal !== "SIGKILL" &&
+            !stream.isReconnecting
+          ) {
+            reconnectStream(stream);
+          } else {
+            cleanupStream(stream, true);
+            try {
+              stream.ws.send(
+                JSON.stringify({
+                  type: "stopped",
+                  stats: {
+                    frames: stream.stats.videoFrames,
+                    fps,
+                    quality: qualityLevel,
+                  },
+                })
+              );
+            } catch {}
+          }
+        } catch {}
+      });
+
+      stream.ffmpeg.on("error", (err) => {
+        try {
+          log.error(`❌ Stream #${id} process error:`, err.message);
+          cleanupStream(stream, true);
+        } catch {}
+      });
+
+      try {
+        stream.ws.send(
+          JSON.stringify({
+            type: "started",
+            streamId: id,
+            message: `Stream #${id} live! [${qualityLevel.toUpperCase()}]`,
+            stats: {
+              active: activeStreams.size,
+              bufferSize: `${(bufferSize / 1000000).toFixed(0)}MB`,
+              quality: qualityLevel,
+            },
+          })
+        );
+      } catch {}
+
+      return true;
+    } catch (err) {
+      log.error(
+        `❌ spawnFFmpegProcess error for stream #${stream.id}:`,
+        err.message
+      );
+      return false;
+    }
+  };
+
+  // ✅ Process spawn queue - SAU khi định nghĩa spawnFFmpegProcess
+  const processSpawnQueue = async () => {
+    if (isSpawning || spawnQueue.length === 0) return;
+
+    isSpawning = true;
+
+    while (spawnQueue.length > 0) {
+      const { stream, resolve, reject } = spawnQueue.shift();
+
+      try {
+        const timeSinceLastSpawn = Date.now() - lastSpawnTime;
+        if (timeSinceLastSpawn < CONFIG.SPAWN_DELAY_MS) {
+          const waitTime = CONFIG.SPAWN_DELAY_MS - timeSinceLastSpawn;
+          log.stream(
+            stream.id,
+            `⏳ Waiting ${waitTime}ms before spawn (queue: ${spawnQueue.length})`
+          );
+          await sleep(waitTime);
+        }
+
+        const success = await spawnFFmpegProcess(stream);
+        lastSpawnTime = Date.now();
+
+        resolve(success);
+      } catch (err) {
+        log.error(
+          `❌ Spawn queue error for stream #${stream.id}:`,
+          err.message
+        );
+        reject(err);
+      }
+    }
+
+    isSpawning = false;
+  };
+
+  const queueFFmpegSpawn = (stream) => {
+    return new Promise((resolve, reject) => {
+      spawnQueue.push({ stream, resolve, reject });
+      log.stream(
+        stream.id,
+        `📝 Added to spawn queue (position: ${spawnQueue.length})`
+      );
+      processSpawnQueue();
+    });
+  };
 
   const statsInterval = setInterval(() => {
     const uptime = ((Date.now() - metrics.startTime) / 1000 / 60).toFixed(1);
@@ -215,7 +460,6 @@ export async function attachRtmpRelayFinal(server, options = {}) {
 
       if (stream.ffmpeg) {
         try {
-          // ✅ Better pipe cleanup
           if (stream.ffmpeg.stdin && !stream.ffmpeg.stdin.destroyed) {
             stream.ffmpeg.stdin.removeAllListeners();
             stream.ffmpeg.stdin.end();
@@ -414,25 +658,16 @@ export async function attachRtmpRelayFinal(server, options = {}) {
         try {
           stream.ffmpeg.kill("SIGKILL");
           log.stream(id, `♻️ Killed old FFmpeg for reconnect`);
-          await sleep(500); // ✅ Wait for cleanup
+          await sleep(500);
         } catch {}
         stream.ffmpeg = null;
       }
 
-      const DEBUG_SAVE_FILE = process.env.DEBUG_SAVE_FILE === "true";
-      let outputTarget;
-      if (DEBUG_SAVE_FILE) {
-        outputTarget = `/tmp/stream_${id}_${qualityLevel}_${Date.now()}.mp4`;
-        log.stream(id, `🎬 DEBUG: Saving to ${outputTarget}`);
-      } else {
-        outputTarget = `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
-        log.stream(
-          id,
-          `🎬 Queueing spawn [${qualityLevel.toUpperCase()}]: ${width}x${height}@${fps}fps`
-        );
-      }
+      log.stream(
+        id,
+        `🎬 Queueing spawn [${qualityLevel.toUpperCase()}]: ${width}x${height}@${fps}fps`
+      );
 
-      // ✅ Queue the spawn instead of spawning directly
       const success = await queueFFmpegSpawn(stream);
 
       if (!success) {
@@ -451,254 +686,6 @@ export async function attachRtmpRelayFinal(server, options = {}) {
         );
       } catch {}
       cleanupStream(stream, true);
-      return false;
-    }
-  };
-
-  // ✅ NEW: Actual FFmpeg spawn (called from queue)
-  const spawnFFmpegProcess = async (stream) => {
-    try {
-      const id = stream.id;
-      const { streamKey, width, height, fps, videoBitrate, audioBitrate } =
-        stream.config;
-      const qualityLevel = stream.qualityLevel;
-      const bufferSize = getBufferSize(qualityLevel);
-
-      const DEBUG_SAVE_FILE = process.env.DEBUG_SAVE_FILE === "true";
-      const outputTarget = DEBUG_SAVE_FILE
-        ? `/tmp/stream_${id}_${qualityLevel}_${Date.now()}.mp4`
-        : `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
-
-      const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
-
-      // ✅ Adaptive args based on quality
-      const args = [
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-f",
-        "h264",
-        "-probesize",
-        "32",
-        "-analyzeduration",
-        "0",
-        "-i",
-        "pipe:0",
-        "-f",
-        "webm",
-        "-i",
-        "pipe:3",
-        "-map",
-        "0:v",
-        "-map",
-        "1:a",
-        "-c:v",
-        "copy",
-        "-c:a",
-        "aac",
-        "-b:a",
-        audioBitrate || "128k",
-        "-ar",
-        "48000",
-        "-ac",
-        "2",
-        "-max_muxing_queue_size",
-        qualityLevel === "ultra"
-          ? "8192"
-          : qualityLevel === "high"
-          ? "4096"
-          : "2048",
-        "-fflags",
-        "+genpts+nobuffer+flush_packets+igndts",
-        "-flush_packets",
-        "1",
-        "-max_delay",
-        qualityLevel === "ultra" ? "1000000" : "500000",
-        "-rtmp_conn",
-        "S:0:sauth:true",
-        "-rtmp_buffer",
-        bufferSize.toString(),
-        "-rtmp_flush_interval",
-        qualityLevel === "low" ? "3" : "2",
-        "-rtmp_live",
-        "live",
-        "-shortest",
-      ];
-
-      if (DEBUG_SAVE_FILE) {
-        args.push(
-          "-f",
-          "mp4",
-          "-movflags",
-          "frag_keyframe+empty_moov",
-          outputTarget
-        );
-      } else {
-        args.push(
-          "-f",
-          "flv",
-          "-flvflags",
-          "no_duration_filesize",
-          outputTarget
-        );
-      }
-
-      log.stream(id, `🚀 Spawning FFmpeg [${qualityLevel}] now...`);
-
-      // ✅ Spawn with timeout
-      const spawnPromise = new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error("Spawn timeout"));
-        }, CONFIG.SPAWN_TIMEOUT_MS);
-
-        try {
-          stream.ffmpeg = spawn(ffmpegPath, args, {
-            stdio: ["pipe", "pipe", "pipe", "pipe"],
-            detached: false,
-          });
-
-          if (!stream.ffmpeg.pid) {
-            clearTimeout(timeout);
-            reject(new Error("FFmpeg spawn failed - no PID"));
-            return;
-          }
-
-          clearTimeout(timeout);
-          resolve();
-        } catch (err) {
-          clearTimeout(timeout);
-          reject(err);
-        }
-      });
-
-      await spawnPromise;
-
-      stream.stats = {
-        videoFrames: 0,
-        audioFrames: 0,
-        startTime: Date.now(),
-        lastFrameTime: Date.now(),
-        droppedFrames: 0,
-      };
-      stream.isReconnecting = false;
-      activeStreams.set(id, stream);
-
-      if (stream.reconnectAttempts === 0) {
-        metrics.totalStreamsStarted++;
-      }
-
-      metrics.peakConcurrent = Math.max(
-        metrics.peakConcurrent,
-        activeStreams.size
-      );
-
-      log.stream(
-        id,
-        `✅ FFmpeg SPAWNED [${qualityLevel}]: PID=${
-          stream.ffmpeg.pid
-        }, Buffer=${(bufferSize / 1000000).toFixed(0)}MB`
-      );
-      log.info(
-        `📊 Active: ${activeStreams.size}/${CONFIG.MAX_CONCURRENT_STREAMS}, Peak: ${metrics.peakConcurrent}`
-      );
-
-      // ✅ Setup all handlers
-      stream.ffmpeg.stdin.on("error", (e) => {
-        if (e.code === "EPIPE") return;
-        log.error(`❌ Stream #${id} stdin error:`, e.message);
-      });
-
-      if (stream.ffmpeg.stdio[3]) {
-        stream.ffmpeg.stdio[3].on("error", (e) => {
-          if (e.code === "EPIPE") return;
-          log.error(`❌ Stream #${id} audio pipe error:`, e.message);
-        });
-      }
-
-      stream.ffmpeg.stderr.on("data", (d) => {
-        try {
-          const log_msg = d.toString().trim();
-          log.error(`📺 FFmpeg #${id} [${qualityLevel}]:`, log_msg);
-          if (
-            log_msg.includes("Input/output error") ||
-            log_msg.includes("ECONNRESET") ||
-            log_msg.includes("TLS fatal alert")
-          ) {
-            log.error(`❌ Stream #${id} connection lost`);
-            if (!stream.isReconnecting) {
-              reconnectStream(stream);
-            }
-          }
-        } catch {}
-      });
-
-      stream.ffmpeg.on("close", (code, signal) => {
-        try {
-          const elapsed = (
-            (Date.now() - stream.stats.startTime) /
-            1000
-          ).toFixed(1);
-          const fps =
-            elapsed > 0 ? (stream.stats.videoFrames / elapsed).toFixed(1) : 0;
-          log.stream(
-            id,
-            `🛑 FFmpeg closed [${qualityLevel}]: code=${code} signal=${signal} | ${stream.stats.videoFrames} frames, ${fps} fps`
-          );
-
-          if (
-            code !== 0 &&
-            code !== null &&
-            signal !== "SIGTERM" &&
-            signal !== "SIGKILL" &&
-            !stream.isReconnecting
-          ) {
-            reconnectStream(stream);
-          } else {
-            cleanupStream(stream, true);
-            try {
-              stream.ws.send(
-                JSON.stringify({
-                  type: "stopped",
-                  stats: {
-                    frames: stream.stats.videoFrames,
-                    fps,
-                    quality: qualityLevel,
-                  },
-                })
-              );
-            } catch {}
-          }
-        } catch {}
-      });
-
-      stream.ffmpeg.on("error", (err) => {
-        try {
-          log.error(`❌ Stream #${id} process error:`, err.message);
-          cleanupStream(stream, true);
-        } catch {}
-      });
-
-      try {
-        stream.ws.send(
-          JSON.stringify({
-            type: "started",
-            streamId: id,
-            message: `Stream #${id} live! [${qualityLevel.toUpperCase()}]`,
-            stats: {
-              active: activeStreams.size,
-              bufferSize: `${(bufferSize / 1000000).toFixed(0)}MB`,
-              quality: qualityLevel,
-            },
-          })
-        );
-      } catch {}
-
-      return true;
-    } catch (err) {
-      log.error(
-        `❌ spawnFFmpegProcess error for stream #${stream.id}:`,
-        err.message
-      );
       return false;
     }
   };
