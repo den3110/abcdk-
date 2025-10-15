@@ -48,6 +48,9 @@ import PublicProfilePage from "./screens/PublicProfilePage.jsx";
 import ClubsListPage from "./screens/clubs/ClubsListPage.jsx";
 import ClubDetailPage from "./components/ClubDetailPage.jsx";
 import LiveStudioPage from "./screens/live/LiveStudioPage.jsx";
+import "@fontsource-variable/google-sans-code";
+import { CssBaseline, ThemeProvider } from "@mui/material";
+import { theme } from "./theme.js";
 
 dayjs.locale("vi");
 
@@ -121,11 +124,14 @@ const router = createBrowserRouter(
 ReactDOM.createRoot(document.getElementById("root")).render(
   <Provider store={store}>
     <React.StrictMode>
-      <SocketProvider>
-        <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
-          <RouterProvider router={router} />
-        </LocalizationProvider>
-      </SocketProvider>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <SocketProvider>
+          <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
+            <RouterProvider router={router} />
+          </LocalizationProvider>
+        </SocketProvider>
+      </ThemeProvider>
     </React.StrictMode>
   </Provider>
 );

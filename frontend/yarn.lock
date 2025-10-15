@@ -507,6 +507,11 @@
   resolved "https://registry.yarnpkg.com/@foliojs-fork/restructure/-/restructure-2.0.2.tgz#73759aba2aff1da87b7c4554e6839c70d43c92b4"
   integrity sha512-59SgoZ3EXbkfSX7b63tsou/SDGzwUEK6MuB5sKqgVK1/XE0fxmpsOb9DQI8LXW3KfGnAjImCGhhEb7uPPAUVNA==
 
+"@fontsource-variable/google-sans-code@^5.2.3":
+  version "5.2.3"
+  resolved "https://registry.yarnpkg.com/@fontsource-variable/google-sans-code/-/google-sans-code-5.2.3.tgz#86a61c49aea772f7f838aa5b686188ed7dadb2e3"
+  integrity sha512-2ZQ8UkMMxz/MXve9PY8o5FjTnRZh94Jn5ZfND5mUDWwVh/t0JDgFaIdPPONyNGzlJOgn1Qlyhs2YEMbv5yQpLQ==
+
 "@g-loot/react-tournament-brackets@^1.0.31-rc":
   version "1.0.31-rc"
   resolved "https://registry.yarnpkg.com/@g-loot/react-tournament-brackets/-/react-tournament-brackets-1.0.31-rc.tgz#95c3a8175b650b16d10632246481fc94b6f7d539"

@@ -81,8 +81,6 @@ export async function fbCreateLiveOnPage({
     if (adminCfg?.embeddable) {
       paramsCreate.embeddable = toPrivacyJSON(adminCfg.embeddable);
     }
-    console.log(adminCfg);
-    console.log("paramsCreate", paramsCreate);
     const created = await axios
       .post(`${GRAPH}/${pageId}/live_videos`, null, { params: paramsCreate })
       .then((r) => r.data);
