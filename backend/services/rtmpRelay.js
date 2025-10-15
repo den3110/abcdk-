@@ -1,5 +1,7 @@
-// rtmpRelayConcurrentFix.js - FIXED CONCURRENT STREAMS
+// rtmpRelayConcurrentFix-logged.js - FIXED CONCURRENT STREAMS + DEEP LOGS
 // ✅ Spawn queue + delays + better resource management
+// ✅ EXTRA LOGS: key masking, spawn queue, per-stream stats, TLS buckets, client IP, headers
+
 import { WebSocketServer } from "ws";
 import { spawn } from "child_process";
 
@@ -35,6 +37,8 @@ const metrics = {
   peakConcurrent: 0,
   startTime: Date.now(),
   qualityDistribution: { low: 0, medium: 0, high: 0, ultra: 0 },
+  tlsErrors: 0,
+  ioErrors: 0,
 };
 
 const log = {
@@ -51,29 +55,48 @@ const log = {
     console.log(`[STREAM-${id} ${new Date().toISOString()}]`, ...args),
 };
 
-const detectQualityLevel = (height) => {
-  if (height <= 360) return "low";
-  if (height <= 480) return "medium";
-  if (height <= 720) return "high";
-  return "ultra";
-};
+const sanitizeKey = (k = "") =>
+  k.length <= 10 ? `${k.slice(0, 3)}…` : `${k.slice(0, 6)}…${k.slice(-4)}`;
+const detectQualityLevel = (h) =>
+  h <= 360 ? "low" : h <= 480 ? "medium" : h <= 720 ? "high" : "ultra";
+const getBufferSize = (q) => CONFIG.BUFFER_SIZES[q] || CONFIG.BUFFER_SIZES.high;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const getBufferSize = (quality) => {
-  return CONFIG.BUFFER_SIZES[quality] || CONFIG.BUFFER_SIZES.high;
+const onceLogFfmpegVersion = async () => {
+  try {
+    const out = await new Promise((resolve) => {
+      const p = spawn(process.env.FFMPEG_PATH || "ffmpeg", ["-version"], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let buf = "";
+      p.stdout.on("data", (d) => (buf += d.toString()));
+      p.stderr.on("data", (d) => (buf += d.toString()));
+      p.on("close", () => resolve(buf));
+    });
+    const tls = /--enable-openssl/.test(out)
+      ? "OpenSSL"
+      : /--enable-gnutls/.test(out)
+      ? "GnuTLS"
+      : /openssl/i.test(out)
+      ? "OpenSSL?"
+      : "Unknown";
+    log.info(`🧰 FFmpeg version detected: ${tls} TLS stack`);
+  } catch (e) {
+    log.warn("⚠️ Couldn't detect FFmpeg TLS stack", e.message);
+  }
 };
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 process.on("uncaughtException", (err) => {
   log.error("❌ UNCAUGHT EXCEPTION:", err.message);
   log.error(err.stack);
 });
-
 process.on("unhandledRejection", (reason) => {
   log.error("❌ UNHANDLED REJECTION:", reason);
 });
 
 export async function attachRtmpRelayFinal(server, options = {}) {
+  await onceLogFfmpegVersion();
+
   const wss = new WebSocketServer({
     server,
     path: options.path || "/ws/rtmp",
@@ -88,21 +111,19 @@ export async function attachRtmpRelayFinal(server, options = {}) {
   );
   log.info(`⚡ TIP: Mỗi device cần stream key RIÊNG BIỆT từ Facebook!`);
 
-  const activeStreams = new Map();
+  const activeStreams = new Map(); // id -> stream
   const queuedStreams = [];
   let streamCounter = 0;
 
-  // ✅ Spawn queue variables
+  // Spawn queue
   const spawnQueue = [];
   let isSpawning = false;
   let lastSpawnTime = 0;
 
-  // ✅ ĐỊNH NGHĨA spawnFFmpegProcess TRƯỚC (hoisted function)
   const spawnFFmpegProcess = async (stream) => {
     try {
       const id = stream.id;
-      const { streamKey, width, height, fps, videoBitrate, audioBitrate } =
-        stream.config;
+      const { streamKey, width, height, fps, audioBitrate } = stream.config;
       const qualityLevel = stream.qualityLevel;
       const bufferSize = getBufferSize(qualityLevel);
 
@@ -116,7 +137,7 @@ export async function attachRtmpRelayFinal(server, options = {}) {
       const args = [
         "-hide_banner",
         "-loglevel",
-        "error",
+        process.env.FFMPEG_LOGLEVEL || "error",
         "-f",
         "h264",
         "-probesize",
@@ -185,24 +206,29 @@ export async function attachRtmpRelayFinal(server, options = {}) {
       }
 
       log.stream(id, `🚀 Spawning FFmpeg [${qualityLevel}] now...`);
+      log.stream(
+        id,
+        `🎯 Target: rtmps://live-api-s.facebook.com/rtmp/${sanitizeKey(
+          streamKey
+        )}`
+      );
+      log.stream(id, `🧩 Args: ${args.join(" ")}`);
 
       const spawnPromise = new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          reject(new Error("Spawn timeout"));
-        }, CONFIG.SPAWN_TIMEOUT_MS);
-
+        const timeout = setTimeout(
+          () => reject(new Error("Spawn timeout")),
+          CONFIG.SPAWN_TIMEOUT_MS
+        );
         try {
           stream.ffmpeg = spawn(ffmpegPath, args, {
             stdio: ["pipe", "pipe", "pipe", "pipe"],
             detached: false,
           });
-
           if (!stream.ffmpeg.pid) {
             clearTimeout(timeout);
             reject(new Error("FFmpeg spawn failed - no PID"));
             return;
           }
-
           clearTimeout(timeout);
           resolve();
         } catch (err) {
@@ -223,10 +249,7 @@ export async function attachRtmpRelayFinal(server, options = {}) {
       stream.isReconnecting = false;
       activeStreams.set(id, stream);
 
-      if (stream.reconnectAttempts === 0) {
-        metrics.totalStreamsStarted++;
-      }
-
+      if (stream.reconnectAttempts === 0) metrics.totalStreamsStarted++;
       metrics.peakConcurrent = Math.max(
         metrics.peakConcurrent,
         activeStreams.size
@@ -256,11 +279,12 @@ export async function attachRtmpRelayFinal(server, options = {}) {
 
       stream.ffmpeg.stderr.on("data", (d) => {
         try {
-          const log_msg = d.toString().trim();
-          log.error(`📺 FFmpeg #${id} [${qualityLevel}]:`, log_msg);
+          const line = d.toString().trim();
+          if (!line) return;
+          log.error(`📺 FFmpeg #${id} [${qualityLevel}]:`, line);
 
-          // ✅ Detect TLS fatal alert - Facebook rate limit
-          if (log_msg.includes("TLS fatal alert")) {
+          if (/TLS fatal alert/i.test(line)) {
+            metrics.tlsErrors++;
             log.error(
               `❌ Stream #${id} TLS REJECTED by Facebook - possible rate limit or duplicate key`
             );
@@ -268,18 +292,13 @@ export async function attachRtmpRelayFinal(server, options = {}) {
               `   💡 Solution: Wait 10+ seconds between streams or use different stream keys`
             );
             if (!stream.isReconnecting) {
-              // Delay longer for TLS errors
               stream.tlsError = true;
               reconnectStream(stream);
             }
-          } else if (
-            log_msg.includes("Input/output error") ||
-            log_msg.includes("ECONNRESET")
-          ) {
+          } else if (/Input\/output error|ECONNRESET/i.test(line)) {
+            metrics.ioErrors++;
             log.error(`❌ Stream #${id} connection lost`);
-            if (!stream.isReconnecting) {
-              reconnectStream(stream);
-            }
+            if (!stream.isReconnecting) reconnectStream(stream);
           }
         } catch {}
       });
@@ -355,10 +374,8 @@ export async function attachRtmpRelayFinal(server, options = {}) {
     }
   };
 
-  // ✅ Process spawn queue - SAU khi định nghĩa spawnFFmpegProcess
   const processSpawnQueue = async () => {
     if (isSpawning || spawnQueue.length === 0) return;
-
     isSpawning = true;
 
     while (spawnQueue.length > 0) {
@@ -375,6 +392,10 @@ export async function attachRtmpRelayFinal(server, options = {}) {
           await sleep(waitTime);
         }
 
+        log.stream(
+          stream.id,
+          `🎬 Processing spawn (queue left: ${spawnQueue.length})`
+        );
         const success = await spawnFFmpegProcess(stream);
         lastSpawnTime = Date.now();
 
@@ -391,8 +412,8 @@ export async function attachRtmpRelayFinal(server, options = {}) {
     isSpawning = false;
   };
 
-  const queueFFmpegSpawn = (stream) => {
-    return new Promise((resolve, reject) => {
+  const queueFFmpegSpawn = (stream) =>
+    new Promise((resolve, reject) => {
       spawnQueue.push({ stream, resolve, reject });
       log.stream(
         stream.id,
@@ -400,15 +421,25 @@ export async function attachRtmpRelayFinal(server, options = {}) {
       );
       processSpawnQueue();
     });
-  };
 
   const statsInterval = setInterval(() => {
-    const uptime = ((Date.now() - metrics.startTime) / 1000 / 60).toFixed(1);
+    const uptimeMin = ((Date.now() - metrics.startTime) / 1000 / 60).toFixed(1);
     log.info(
       `📊 STATS: Active=${activeStreams.size}/${CONFIG.MAX_CONCURRENT_STREAMS}, ` +
-        `Queue=${queuedStreams.length}, SpawnQueue=${spawnQueue.length}, ` +
-        `Started=${metrics.totalStreamsStarted}, Failed=${metrics.totalStreamsFailed}`
+        `SpawnQ=${spawnQueue.length}, Started=${metrics.totalStreamsStarted}, Failed=${metrics.totalStreamsFailed}, ` +
+        `TLSerr=${metrics.tlsErrors}, IOerr=${metrics.ioErrors}, Uptime=${uptimeMin}m`
     );
+
+    // per-stream brief line
+    activeStreams.forEach((s, id) => {
+      const elapsed = (Date.now() - s.stats.startTime) / 1000;
+      const fps = elapsed > 0 ? (s.stats.videoFrames / elapsed).toFixed(1) : 0;
+      const idle = ((Date.now() - s.stats.lastFrameTime) / 1000).toFixed(1);
+      log.stream(
+        id,
+        `⏱️ ${s.qualityLevel} ${s.config.width}x${s.config.height}@${s.config.fps} | frames=${s.stats.videoFrames}/${s.stats.audioFrames}a | fps=${fps} | dropped=${s.stats.droppedFrames} | idle=${idle}s`
+      );
+    });
   }, CONFIG.STATS_INTERVAL);
 
   const healthCheck = setInterval(() => {
@@ -421,9 +452,7 @@ export async function attachRtmpRelayFinal(server, options = {}) {
               elapsed / 1000
             ).toFixed(0)}s`
           );
-          if (!stream.isReconnecting) {
-            reconnectStream(stream);
-          }
+          if (!stream.isReconnecting) reconnectStream(stream);
         }
       } catch (err) {
         log.error(`❌ Health check error for stream #${id}:`, err.message);
@@ -516,13 +545,6 @@ export async function attachRtmpRelayFinal(server, options = {}) {
         stream.ffmpeg = null;
       }
 
-      if (stream.qualityLevel) {
-        metrics.qualityDistribution[stream.qualityLevel]--;
-      }
-
-      stream.config = null;
-      activeStreams.delete(id);
-
       const elapsed = ((Date.now() - stream.stats.startTime) / 1000).toFixed(1);
       const fps =
         elapsed > 0 ? (stream.stats.videoFrames / elapsed).toFixed(1) : 0;
@@ -530,6 +552,12 @@ export async function attachRtmpRelayFinal(server, options = {}) {
         id,
         `✅ Cleanup complete [${stream.qualityLevel}]: ${stream.stats.videoFrames} frames, ${fps} fps, ${elapsed}s`
       );
+
+      if (stream.qualityLevel)
+        metrics.qualityDistribution[stream.qualityLevel]--;
+
+      stream.config = null;
+      activeStreams.delete(id);
 
       log.info(
         `📊 Active: ${activeStreams.size}/${CONFIG.MAX_CONCURRENT_STREAMS}, Queue: ${queuedStreams.length}`
@@ -564,7 +592,6 @@ export async function attachRtmpRelayFinal(server, options = {}) {
       stream.isReconnecting = true;
       metrics.totalReconnects++;
 
-      // ✅ Longer delay for TLS errors (Facebook rate limit)
       let baseDelay = CONFIG.RECONNECT_DELAY;
       if (stream.tlsError) {
         baseDelay = 10000; // 10s base delay for TLS errors
@@ -673,16 +700,24 @@ export async function attachRtmpRelayFinal(server, options = {}) {
         return false;
       }
 
-      const { streamKey, width, height, fps, videoBitrate, audioBitrate } =
-        stream.config;
+      const { streamKey, width, height, fps } = stream.config;
+
+      // 🔎 LOG cảnh báo nếu key đang được 1 stream khác dùng (chỉ cảnh báo, không chặn)
+      for (const [otherId, s] of activeStreams.entries()) {
+        if (s?.config?.streamKey && s.config.streamKey === streamKey) {
+          log.warn(
+            `⚠️ Duplicate streamKey detected between #${otherId} and #${id}: ${sanitizeKey(
+              streamKey
+            )} (Facebook will reject 2 publishers)`
+          );
+        }
+      }
 
       const qualityLevel = detectQualityLevel(height);
       const bufferSize = getBufferSize(qualityLevel);
       stream.qualityLevel = qualityLevel;
 
-      if (!stream.ffmpeg) {
-        metrics.qualityDistribution[qualityLevel]++;
-      }
+      if (!stream.ffmpeg) metrics.qualityDistribution[qualityLevel]++;
 
       if (stream.ffmpeg) {
         try {
@@ -695,14 +730,18 @@ export async function attachRtmpRelayFinal(server, options = {}) {
 
       log.stream(
         id,
-        `🎬 Queueing spawn [${qualityLevel.toUpperCase()}]: ${width}x${height}@${fps}fps`
+        `📥 Start/Restart [${qualityLevel.toUpperCase()}]: ${width}x${height}@${fps}fps | key=${sanitizeKey(
+          streamKey
+        )}`
+      );
+      log.info(
+        `📊 Will spawn now? active=${activeStreams.size}, spawnQ=${
+          spawnQueue.length
+        }, lastSpawn=${((Date.now() - lastSpawnTime) / 1000).toFixed(1)}s ago`
       );
 
       const success = await queueFFmpegSpawn(stream);
-
-      if (!success) {
-        throw new Error("FFmpeg spawn failed");
-      }
+      if (!success) throw new Error("FFmpeg spawn failed");
 
       return true;
     } catch (err) {
@@ -727,9 +766,14 @@ export async function attachRtmpRelayFinal(server, options = {}) {
       ws.on("pong", () => (ws.isAlive = true));
       ws._socket?.setNoDelay?.(true);
 
-      const clientIp = req.socket.remoteAddress;
+      const clientIp =
+        req.headers["x-forwarded-for"]?.toString().split(",")[0]?.trim() ||
+        req.socket.remoteAddress;
       const streamId = ++streamCounter;
-      log.info(`📡 Client #${streamId} connected from ${clientIp}`);
+      log.info(
+        `📡 Client #${streamId} connected from ${clientIp} | url=${req.url}`
+      );
+      log.debug("↳ headers:", JSON.stringify(req.headers));
 
       stream = {
         id: streamId,
@@ -746,7 +790,7 @@ export async function attachRtmpRelayFinal(server, options = {}) {
         },
         reconnectAttempts: 0,
         isReconnecting: false,
-        tlsError: false, // ✅ Track TLS errors
+        tlsError: false,
       };
 
       ws.on("message", (data, isBinary) => {
@@ -764,18 +808,14 @@ export async function attachRtmpRelayFinal(server, options = {}) {
               const audioPipe = stream.ffmpeg.stdio?.[3];
               if (audioPipe?.writable && payload.byteLength) {
                 audioPipe.write(payload, (err) => {
-                  if (err && err.code !== "EPIPE") {
-                    stream.stats.droppedFrames++;
-                  }
+                  if (err && err.code !== "EPIPE") stream.stats.droppedFrames++;
                 });
                 stream.stats.audioFrames++;
               }
             } else {
               if (stream.ffmpeg.stdin?.writable) {
                 stream.ffmpeg.stdin.write(u8, (err) => {
-                  if (err && err.code !== "EPIPE") {
-                    stream.stats.droppedFrames++;
-                  }
+                  if (err && err.code !== "EPIPE") stream.stats.droppedFrames++;
                 });
                 stream.stats.videoFrames++;
 
@@ -816,6 +856,7 @@ export async function attachRtmpRelayFinal(server, options = {}) {
               fps: msg.fps || 30,
               videoBitrate: msg.videoBitrate || "2500k",
               audioBitrate: msg.audioBitrate || "128k",
+              pageId: msg.pageId || undefined, // if client provides
             };
 
             if (!stream.config.streamKey) {
@@ -830,17 +871,23 @@ export async function attachRtmpRelayFinal(server, options = {}) {
               return;
             }
 
-            const quality = detectQualityLevel(stream.config.height);
-            stream.qualityLevel = quality;
+            const q = detectQualityLevel(stream.config.height);
+            stream.qualityLevel = q;
             log.stream(
               stream.id,
-              `📥 Start request [${quality}]: ${stream.config.width}x${stream.config.height}@${stream.config.fps}fps`
+              `📥 Start request [${q}] pageId=${msg.pageId || "(unknown)"} | ${
+                stream.config.width
+              }x${stream.config.height}@${
+                stream.config.fps
+              } | key=${sanitizeKey(stream.config.streamKey)}`
             );
 
             startFFmpeg(stream);
           } else if (msg.type === "stop") {
             log.stream(stream.id, `🛑 Stop requested`);
             cleanupStream(stream, true);
+          } else {
+            log.stream(stream.id, `ℹ️ Unknown message type: ${msg.type}`);
           }
         } catch (err) {
           log.error(`❌ Message handler error:`, err.message);
@@ -874,9 +921,9 @@ export async function attachRtmpRelayFinal(server, options = {}) {
     log.error(`❌ WebSocket Server error:`, err.message);
   });
 
-  log.info(`🚀 RTMP Relay ready with CONCURRENT FIX!`);
+  log.info(`🚀 RTMP Relay ready with CONCURRENT FIX + DEEP LOGS!`);
   log.info(
-    `⚡ Features: Spawn queue, ${CONFIG.SPAWN_DELAY_MS}ms delays, better cleanup`
+    `⚡ Features: Spawn queue, ${CONFIG.SPAWN_DELAY_MS}ms delays, better cleanup, rich diagnostics.`
   );
 
   return wss;
