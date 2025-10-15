@@ -5,16 +5,19 @@ import {
 } from "../services/facebookLive.service.js";
 import Match from "../models/matchModel.js";
 import { startObsStreamingWithOverlay } from "../services/obs.service.js";
+
 import FbToken from "../models/fbTokenModel.js";
 import { getValidPageToken } from "../services/fbTokenService.js";
-import { getPageLiveState } from "../services/facebookApi.js"; // 👈 NEW
+import { getPageLiveState } from "../services/facebookApi.js";
 
 const OVERLAY_BASE =
   process.env.NODE_ENV === "development"
     ? "http://localhost:3000"
     : process.env.HOST;
+
 const OBS_AUTO_START = String(process.env.OBS_AUTO_START || "0") === "1";
 
+// ───────────────────────────────────────────────────────────────────────────────
 function splitServerAndKey(secureUrl) {
   try {
     const u = new URL(secureUrl);
@@ -52,18 +55,28 @@ async function buildCandidatePageIds(req, tournament) {
   return ordered;
 }
 
-async function tryCreateLiveOnPage({ pageId, title, description }) {
-  const pageAccessToken = await getValidPageToken(pageId);
-  const live = await fbCreateLiveOnPage({
-    pageId,
-    pageAccessToken,
-    title,
-    description,
-    status: "LIVE_NOW",
-  });
-  return { live, pageAccessToken };
+async function getPageLabel(pageId) {
+  const doc = await FbToken.findOne({ pageId }, { pageName: 1 }).lean();
+  return doc?.pageName ? `${doc.pageName} (${pageId})` : String(pageId);
 }
 
+// Phân loại lỗi tạo live → có phải do page đang bận hay không
+function isBusyCreateError(err) {
+  const gErr = err?.response?.data?.error || {};
+  const msg = (gErr.message || err.message || "").toLowerCase();
+  const patterns = [
+    "only one live", // “Only one live video …”
+    "already has a live", // “… already has a live …”
+    "another live video", // “Another live video is active …”
+    "is currently live", // “Page is currently live …”
+    "broadcast", // “… broadcast already exists …”
+    "throttle",
+    "rate limit",
+  ];
+  return patterns.some((p) => msg.includes(p));
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
 export const createFacebookLiveForMatch = async (req, res) => {
   try {
     const { matchId } = req.params;
@@ -93,76 +106,103 @@ export const createFacebookLiveForMatch = async (req, res) => {
 
     for (const pageId of candidates) {
       tried.push(pageId);
+      const label = await getPageLabel(pageId);
+
+      // 1) lấy token hợp lệ (auto refresh)
+      let pageAccessToken;
       try {
-        // ✅ FB-side preflight: hỏi thẳng Graph xem Page có đang LIVE/đã có UNPUBLISHED (đã phát stream key) không
-        const token = await getValidPageToken(pageId);
-        const state = await getPageLiveState({
-          pageId,
-          pageAccessToken: token,
-        });
+        pageAccessToken = await getValidPageToken(pageId);
+      } catch (e) {
+        console.warn(`[FB][token] Skip ${label}: ${e?.message || e}`);
+        errors.push({ pageId, message: e?.message || String(e) });
+        continue;
+      }
+
+      // 2) preflight FB-side: nếu lỗi → vẫn thử tạo; nếu báo bận → bỏ qua page này
+      try {
+        const state = await getPageLiveState({ pageId, pageAccessToken });
         if (state.busy) {
-          // 🔎 LOG ngay tại controller khi skip vì đang live/giữ key
           const toFull = (u) =>
             u?.startsWith("http") ? u : u ? `https://facebook.com${u}` : "";
-          if (state.liveNow.length) {
+          console.warn(
+            `[FB][skip] Page busy by Graph → ${label}: live=${state.liveNow.length} prepared=${state.prepared.length}`
+          );
+          state.liveNow.forEach((v) =>
             console.warn(
-              `[FB][skip] Page ${pageId} is LIVE: ${state.liveNow
-                .map((v) => v.id)
-                .join(", ")}`
-            );
-            state.liveNow.forEach((v) => {
-              console.warn(
-                `[FB][skip]   LIVE id=${v.id} status=${v.status} url=${toFull(
-                  v.permalink_url
-                )}`
-              );
-            });
-          }
-          if (state.prepared.length) {
+              `[FB][skip]   LIVE id=${v.id} status=${v.status} url=${toFull(
+                v.permalink_url
+              )}`
+            )
+          );
+          state.prepared.forEach((v) =>
             console.warn(
-              `[FB][skip] Page ${pageId} has PREPARED lives: ${state.prepared
-                .map((v) => v.id)
-                .join(", ")}`
-            );
-            state.prepared.forEach((v) => {
-              console.warn(
-                `[FB][skip]   PREP id=${v.id} status=${v.status} url=${toFull(
-                  v.permalink_url
-                )}`
-              );
-            });
-          }
+              `[FB][skip]   PREP id=${v.id} status=${v.status} url=${toFull(
+                v.permalink_url
+              )}`
+            )
+          );
           busyByGraph.push({
             pageId,
             liveNow: state.liveNow.map((v) => v.id),
             prepared: state.prepared.map((v) => v.id),
           });
-          continue; // thử page khác
+          continue;
         }
+      } catch (preflightErr) {
+        console.warn(
+          `[FB][preflight] ${label} failed, will attempt create anyway:`,
+          preflightErr?.message || preflightErr
+        );
+      }
 
-        // Thử tạo live — nếu vẫn bị FB chặn thì coi như bận
-        const { live, pageAccessToken } = await tryCreateLiveOnPage({
+      // 🔔 LOG: sẽ live ở page nào (trước khi tạo)
+      console.info(
+        `[FB][choose] Attempting to GO LIVE on: ${label} — https://facebook.com/${pageId}`
+      );
+
+      // 3) thử tạo live; nếu FB bảo bận → nhảy qua page sau
+      try {
+        const live = await fbCreateLiveOnPage({
           pageId,
+          pageAccessToken,
           title,
           description,
+          status: "LIVE_NOW",
         });
+
+        // ✅ Thành công → xác nhận log
+        console.info(
+          `[FB][success] LIVE created on: ${label} ` +
+            `liveVideoId=${live.liveVideoId || live.id} ` +
+            `permalink=${
+              live.permalink_url?.startsWith("http")
+                ? live.permalink_url
+                : "https://facebook.com" + (live.permalink_url || "")
+            }`
+        );
+
         chosen = { pageId, live, pageAccessToken };
         break;
       } catch (e) {
-        const gErr = e?.response?.data?.error || {};
-        const msg = gErr.message || e.message || String(e);
-        const busyMsg =
-          /only one live|already has a live|Only one live video|throttle|rate limit/i;
-        if (busyMsg.test(msg)) {
-          busyByGraph.push({ pageId, reason: msg });
+        if (isBusyCreateError(e)) {
+          console.warn(
+            `[FB][create-busy] ${label}: ${
+              e?.response?.data?.error?.message || e.message
+            }`
+          );
           continue;
         }
+        console.error(
+          `[FB][create-error] ${label}:`,
+          e?.response?.data || e.message || e
+        );
         errors.push({
           pageId,
-          message: msg,
-          code: gErr.code,
-          subcode: gErr.error_subcode,
+          message: e?.response?.data?.error?.message || e.message || String(e),
+          code: e?.response?.data?.error?.code,
+          subcode: e?.response?.data?.error?.error_subcode,
         });
+        continue;
       }
     }
 
@@ -193,6 +233,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
       );
     }
 
+    // Lưu vào match
     match.facebookLive = {
       id: live.liveVideoId || live.id,
       permalink_url: live.permalink_url?.startsWith("http")
@@ -207,6 +248,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
     };
     await match.save();
 
+    // Auto OBS (không chặn flow)
     if (OBS_AUTO_START) {
       try {
         await startObsStreamingWithOverlay({
