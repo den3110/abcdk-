@@ -13,10 +13,11 @@ const CONFIG = {
   FRAME_DROP_THRESHOLD: 100,
   STATS_INTERVAL: 120000,
 
-  // ✅ Spawn control
-  SPAWN_DELAY_MS: 1000, // Delay 1s giữa các lần spawn
+  // ✅ Spawn control - INCREASED for Facebook rate limit
+  SPAWN_DELAY_MS: 5000, // ⚡ 5 giây delay - tránh Facebook rate limit
   MAX_SPAWN_RETRIES: 3,
   SPAWN_TIMEOUT_MS: 10000,
+  TLS_RETRY_DELAY: 2000, // Delay khi TLS fail
 
   BUFFER_SIZES: {
     low: 10000000,
@@ -82,7 +83,10 @@ export async function attachRtmpRelayFinal(server, options = {}) {
   });
 
   log.info(`✅ RTMP Relay with CONCURRENT FIX initialized`);
-  log.info(`📊 Spawn delay: ${CONFIG.SPAWN_DELAY_MS}ms between processes`);
+  log.info(
+    `📊 Spawn delay: ${CONFIG.SPAWN_DELAY_MS}ms between processes (Facebook rate-limit protection)`
+  );
+  log.info(`⚡ TIP: Mỗi device cần stream key RIÊNG BIỆT từ Facebook!`);
 
   const activeStreams = new Map();
   const queuedStreams = [];
@@ -254,10 +258,23 @@ export async function attachRtmpRelayFinal(server, options = {}) {
         try {
           const log_msg = d.toString().trim();
           log.error(`📺 FFmpeg #${id} [${qualityLevel}]:`, log_msg);
-          if (
+
+          // ✅ Detect TLS fatal alert - Facebook rate limit
+          if (log_msg.includes("TLS fatal alert")) {
+            log.error(
+              `❌ Stream #${id} TLS REJECTED by Facebook - possible rate limit or duplicate key`
+            );
+            log.error(
+              `   💡 Solution: Wait 10+ seconds between streams or use different stream keys`
+            );
+            if (!stream.isReconnecting) {
+              // Delay longer for TLS errors
+              stream.tlsError = true;
+              reconnectStream(stream);
+            }
+          } else if (
             log_msg.includes("Input/output error") ||
-            log_msg.includes("ECONNRESET") ||
-            log_msg.includes("TLS fatal alert")
+            log_msg.includes("ECONNRESET")
           ) {
             log.error(`❌ Stream #${id} connection lost`);
             if (!stream.isReconnecting) {
@@ -533,7 +550,9 @@ export async function attachRtmpRelayFinal(server, options = {}) {
           stream.ws.send(
             JSON.stringify({
               type: "error",
-              message: `Failed after ${CONFIG.RECONNECT_ATTEMPTS} retries. Please restart.`,
+              message: stream.tlsError
+                ? `Facebook rejected connection. Please:\n1. Wait 10+ seconds\n2. Verify each device has UNIQUE stream key\n3. Check Facebook Live dashboard`
+                : `Failed after ${CONFIG.RECONNECT_ATTEMPTS} retries. Please restart.`,
             })
           );
         } catch {}
@@ -545,13 +564,21 @@ export async function attachRtmpRelayFinal(server, options = {}) {
       stream.isReconnecting = true;
       metrics.totalReconnects++;
 
-      const delay =
-        CONFIG.RECONNECT_DELAY * Math.pow(2, stream.reconnectAttempts - 1);
-      const actualDelay = Math.min(delay, 30000);
+      // ✅ Longer delay for TLS errors (Facebook rate limit)
+      let baseDelay = CONFIG.RECONNECT_DELAY;
+      if (stream.tlsError) {
+        baseDelay = 10000; // 10s base delay for TLS errors
+        log.warn(`⚠️ TLS error detected - using extended delay (10s base)`);
+      }
+
+      const delay = baseDelay * Math.pow(2, stream.reconnectAttempts - 1);
+      const actualDelay = Math.min(delay, 60000); // Max 60s
 
       log.stream(
         stream.id,
-        `🔄 Reconnecting in ${actualDelay}ms (${stream.reconnectAttempts}/${CONFIG.RECONNECT_ATTEMPTS})`
+        `🔄 Reconnecting in ${actualDelay}ms (${stream.reconnectAttempts}/${
+          CONFIG.RECONNECT_ATTEMPTS
+        })${stream.tlsError ? " [TLS]" : ""}`
       );
 
       try {
@@ -561,6 +588,9 @@ export async function attachRtmpRelayFinal(server, options = {}) {
             attempt: stream.reconnectAttempts,
             maxAttempts: CONFIG.RECONNECT_ATTEMPTS,
             delay: actualDelay,
+            reason: stream.tlsError
+              ? "TLS error - Facebook rate limit"
+              : "Connection lost",
           })
         );
       } catch {}
@@ -716,6 +746,7 @@ export async function attachRtmpRelayFinal(server, options = {}) {
         },
         reconnectAttempts: 0,
         isReconnecting: false,
+        tlsError: false, // ✅ Track TLS errors
       };
 
       ws.on("message", (data, isBinary) => {
