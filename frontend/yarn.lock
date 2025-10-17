@@ -512,6 +512,11 @@
   resolved "https://registry.yarnpkg.com/@fontsource-variable/google-sans-code/-/google-sans-code-5.2.3.tgz#86a61c49aea772f7f838aa5b686188ed7dadb2e3"
   integrity sha512-2ZQ8UkMMxz/MXve9PY8o5FjTnRZh94Jn5ZfND5mUDWwVh/t0JDgFaIdPPONyNGzlJOgn1Qlyhs2YEMbv5yQpLQ==
 
+"@fontsource-variable/montserrat@^5.2.8":
+  version "5.2.8"
+  resolved "https://registry.yarnpkg.com/@fontsource-variable/montserrat/-/montserrat-5.2.8.tgz#344d2fbe14ebf0c6923df3a8ba1654d7646cd50f"
+  integrity sha512-d8wykq7GCKhEOlLwEuQIOK3w3qsXNxwDlH0meru4AZZzQ4/+rZyvHWKL6BBtHdmbovSHEEQDkwkD8qYUKlcFtQ==
+
 "@g-loot/react-tournament-brackets@^1.0.31-rc":
   version "1.0.31-rc"
   resolved "https://registry.yarnpkg.com/@g-loot/react-tournament-brackets/-/react-tournament-brackets-1.0.31-rc.tgz#95c3a8175b650b16d10632246481fc94b6f7d539"

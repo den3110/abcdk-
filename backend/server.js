@@ -46,6 +46,7 @@ import captureRoutes from "./routes/captureRoutes.js";
 import { startFbRefreshCron } from "./jobs/fbRefreshCron.js";
 import adminSponsorRoutes from "./routes/adminSponsorRoutes.js";
 import publicSponsorRoutes from "./routes/publicSponsorRoutes.js";
+import oauthRoutes from "./routes/oauthRoutes.js";
 
 dotenv.config();
 const port = process.env.PORT;
@@ -123,6 +124,7 @@ app.use("/api/capture", captureRoutes);
 
 app.use("/api/admin/sponsors", adminSponsorRoutes);
 app.use("/api/sponsors", publicSponsorRoutes);
+app.use("/api/oauth", oauthRoutes);
 
 app.get("/dl/file/:id", async (req, res) => {
   try {

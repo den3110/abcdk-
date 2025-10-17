@@ -13,6 +13,7 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@fontsource-variable/google-sans-code": "^5.2.3",
+    "@fontsource-variable/montserrat": "^5.2.8",
     "@g-loot/react-tournament-brackets": "^1.0.31-rc",
     "@mui/icons-material": "^7.2.0",
     "@mui/material": "^7.2.0",

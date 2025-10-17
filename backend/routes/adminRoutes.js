@@ -138,6 +138,14 @@ import {
   getConfig,
   updateConfig,
 } from "../controllers/fbLiveAdmin.controller.js";
+import {
+  deleteConfig,
+  getAllConfig,
+  getConfigValue,
+  triggerFbResync,
+  upsertConfig,
+} from "../controllers/adminConfigController.js";
+import { ytCallback, ytGetOrCreateStreamKey, ytInit, ytRevoke } from "../controllers/youtubeSetupController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -631,4 +639,15 @@ router.get(
 router.get("/fb-live-config", protect, authorize("admin"), getConfig);
 router.put("/fb-live-config", protect, authorize("admin"), updateConfig);
 
+router.get("/config", protect, authorize("admin"), getAllConfig); // list (mask secret)
+router.get("/config/:key", protect, authorize("admin"), getConfigValue); // get 1 key (không mask — tuỳ policy)
+router.post("/config", protect, authorize("admin"), upsertConfig); // upsert { key, value, isSecret? }
+router.delete("/config/:key", protect, authorize("admin"), deleteConfig);
+
+router.post("/fb/resync", protect, authorize("admin"), triggerFbResync);
+
+router.get("/youtube/init", protect, authorize("admin"), ytInit);
+// router.get("/oauth/google/youtube/callback", ytCallback); // public callback
+router.get("/youtube/stream-key", protect, authorize("admin"), ytGetOrCreateStreamKey);
+router.post("/youtube/revoke", protect, authorize("admin"), ytRevoke);
 export default router;

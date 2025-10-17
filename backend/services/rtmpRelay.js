@@ -1,6 +1,8 @@
-// rtmpRelayConcurrentFix-logged.js - FIXED CONCURRENT STREAMS + DEEP LOGS
+// rtmpRelayConcurrentFix-logged.js
+// FIXED CONCURRENT STREAMS + DEEP LOGS + MULTI-PLATFORM (FB/YT/TikTok)
 // ✅ Spawn queue + delays + better resource management
 // ✅ EXTRA LOGS: key masking, spawn queue, per-stream stats, TLS buckets, client IP, headers
+// ✅ NEW: Multi-output via FFmpeg tee muxer (one encode in, many RTMP outs)
 
 import { WebSocketServer } from "ws";
 import { spawn } from "child_process";
@@ -32,7 +34,7 @@ const CONFIG = {
 // 🔐 Facebook Graph config (set env FACEBOOK_GRAPH_TOKEN / FB_GRAPH_VERSION)
 const FB = {
   token: process.env.FACEBOOK_GRAPH_TOKEN,
-  version: process.env.FB_GRAPH_VERSION || "v19.0",
+  version: process.env.GRAPH_VER || "v24.0",
 };
 
 const metrics = {
@@ -164,6 +166,24 @@ const detectQualityLevel = (h) =>
 const getBufferSize = (q) => CONFIG.BUFFER_SIZES[q] || CONFIG.BUFFER_SIZES.high;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Helpers for multi-output logs / tee
+const maskOut = (u = "") => {
+  try {
+    const x = new URL(u);
+    const parts = x.pathname.split("/");
+    const last = parts.pop() || "";
+    const masked =
+      last.length > 8 ? `${last.slice(0, 4)}…${last.slice(-4)}` : last;
+    parts.push(masked);
+    x.pathname = parts.join("/");
+    return x.toString();
+  } catch {
+    return u;
+  }
+};
+const buildTeeSpec = (outs = []) =>
+  outs.map((u) => `[onfail=ignore:f=flv]${u}`).join("|");
+
 const onceLogFfmpegVersion = async () => {
   try {
     const out = await new Promise((resolve) => {
@@ -225,21 +245,35 @@ export async function attachRtmpRelayFinal(server, options = {}) {
   const spawnFFmpegProcess = async (stream) => {
     try {
       const id = stream.id;
-      const { streamKey, width, height, fps, audioBitrate } = stream.config;
+      const { width, height, audioBitrate } = stream.config;
       const qualityLevel = stream.qualityLevel;
       const bufferSize = getBufferSize(qualityLevel);
 
-      const DEBUG_SAVE_FILE = process.env.DEBUG_SAVE_FILE === "true";
-      const outputTarget = DEBUG_SAVE_FILE
-        ? `/tmp/stream_${id}_${qualityLevel}_${Date.now()}.mp4`
-        : `rtmps://live-api-s.facebook.com:443/rtmp/${streamKey}`;
-
+      // Targets: prefer outputs[], else fallback FB streamKey
       const ffmpegPath = process.env.FFMPEG_PATH || "ffmpeg";
 
+      const outputs = Array.isArray(stream.config.outputs)
+        ? stream.config.outputs.filter(Boolean)
+        : [];
+
+      let targets = outputs.length
+        ? outputs
+        : stream.config.streamKey
+        ? [
+            `rtmps://live-api-s.facebook.com:443/rtmp/${stream.config.streamKey}`,
+          ]
+        : [];
+
+      const DEBUG_SAVE_FILE = process.env.DEBUG_SAVE_FILE === "true";
+      const useTee = !DEBUG_SAVE_FILE && targets.length > 1;
+
+      // Base args (copy H.264, transcode Opus->AAC)
       const args = [
         "-hide_banner",
         "-loglevel",
         process.env.FFMPEG_LOGLEVEL || "error",
+
+        // VIDEO in (Annex-B H.264) from pipe:0
         "-f",
         "h264",
         "-probesize",
@@ -248,10 +282,13 @@ export async function attachRtmpRelayFinal(server, options = {}) {
         "0",
         "-i",
         "pipe:0",
+
+        // AUDIO in (webm/opus) from pipe:3
         "-f",
         "webm",
         "-i",
         "pipe:3",
+
         "-map",
         "0:v",
         "-map",
@@ -266,54 +303,55 @@ export async function attachRtmpRelayFinal(server, options = {}) {
         "48000",
         "-ac",
         "2",
+
         "-max_muxing_queue_size",
         qualityLevel === "ultra"
           ? "8192"
           : qualityLevel === "high"
           ? "4096"
           : "2048",
+
         "-fflags",
         "+genpts+nobuffer+flush_packets+igndts",
         "-flush_packets",
         "1",
         "-max_delay",
         qualityLevel === "ultra" ? "1000000" : "500000",
-        "-rtmp_conn",
-        "S:0:sauth:true",
+
+        // These options apply when single-output RTMP
         "-rtmp_buffer",
         bufferSize.toString(),
-        "-rtmp_flush_interval",
-        qualityLevel === "low" ? "3" : "2",
         "-rtmp_live",
         "live",
+
         "-shortest",
       ];
 
+      // Facebook-only: add sauth
+      const isAllFacebook =
+        targets.length === 1 && /facebook\.com/i.test(targets[0]);
+      if (!useTee && isAllFacebook) {
+        args.push("-rtmp_conn", "S:0:sauth:true");
+      }
+
       if (DEBUG_SAVE_FILE) {
-        args.push(
-          "-f",
-          "mp4",
-          "-movflags",
-          "frag_keyframe+empty_moov",
-          outputTarget
+        const mp4 = `/tmp/stream_${id}_${qualityLevel}_${Date.now()}.mp4`;
+        args.push("-f", "mp4", "-movflags", "frag_keyframe+empty_moov", mp4);
+        log.stream(id, `🎯 Out(DEBUG): ${mp4}`);
+      } else if (useTee) {
+        // Multi-output via tee
+        const teeSpec = buildTeeSpec(targets);
+        args.push("-f", "tee", teeSpec);
+        targets.forEach((u, i) =>
+          log.stream(id, `🎯 Out[${i}]: ${maskOut(u)}`)
         );
       } else {
-        args.push(
-          "-f",
-          "flv",
-          "-flvflags",
-          "no_duration_filesize",
-          outputTarget
-        );
+        // Single output (FLV)
+        args.push("-f", "flv", "-flvflags", "no_duration_filesize", targets[0]);
+        log.stream(id, `🎯 Out: ${maskOut(targets[0])}`);
       }
 
       log.stream(id, `🚀 Spawning FFmpeg [${qualityLevel}] now...`);
-      log.stream(
-        id,
-        `🎯 Target: rtmps://live-api-s.facebook.com/rtmp/${sanitizeKey(
-          streamKey
-        )}`
-      );
       log.stream(id, `🧩 Args: ${args.join(" ")}`);
 
       const spawnPromise = new Promise((resolve, reject) => {
@@ -377,7 +415,6 @@ export async function attachRtmpRelayFinal(server, options = {}) {
         if (e.code === "EPIPE") return;
         log.error(`❌ Stream #${id} stdin error:`, e.message);
       });
-
       if (stream.ffmpeg.stdio[3]) {
         stream.ffmpeg.stdio[3].on("error", (e) => {
           if (e.code === "EPIPE") return;
@@ -399,7 +436,6 @@ export async function attachRtmpRelayFinal(server, options = {}) {
             log.error(
               `   💡 Solution: Wait 10+ seconds between streams or use different stream keys`
             );
-            // 🔎 Try fetch FB-side diagnostics if we have tokens/ids
             setTimeout(() => fbDiagnostics(stream, "tls"), 0);
             if (!stream.isReconnecting) {
               stream.tlsError = true;
@@ -814,13 +850,15 @@ export async function attachRtmpRelayFinal(server, options = {}) {
       const { streamKey, width, height, fps } = stream.config;
 
       // 🔎 LOG cảnh báo nếu key đang được 1 stream khác dùng (chỉ cảnh báo, không chặn)
-      for (const [otherId, s] of activeStreams.entries()) {
-        if (s?.config?.streamKey && s.config.streamKey === streamKey) {
-          log.warn(
-            `⚠️ Duplicate streamKey detected between #${otherId} and #${id}: ${sanitizeKey(
-              streamKey
-            )} (Facebook will reject 2 publishers)`
-          );
+      if (streamKey) {
+        for (const [otherId, s] of activeStreams.entries()) {
+          if (s?.config?.streamKey && s.config.streamKey === streamKey) {
+            log.warn(
+              `⚠️ Duplicate streamKey detected between #${otherId} and #${id}: ${sanitizeKey(
+                streamKey
+              )} (Facebook will reject 2 publishers)`
+            );
+          }
         }
       }
 
@@ -841,9 +879,9 @@ export async function attachRtmpRelayFinal(server, options = {}) {
 
       log.stream(
         id,
-        `📥 Start/Restart [${qualityLevel.toUpperCase()}]: ${width}x${height}@${fps}fps | key=${sanitizeKey(
-          streamKey
-        )}`
+        `📥 Start/Restart [${qualityLevel.toUpperCase()}]: ${width}x${height}@${fps}fps | key=${
+          streamKey ? sanitizeKey(streamKey) : "(multi-outputs)"
+        }`
       );
       log.info(
         `📊 Will spawn now? active=${activeStreams.size}, spawnQ=${
@@ -961,7 +999,12 @@ export async function attachRtmpRelayFinal(server, options = {}) {
             }
 
             stream.config = {
-              streamKey: msg.streamKey,
+              // 👇 ưu tiên outputs (đa nền tảng). Mỗi phần tử là full URL: rtmps://.../KEY
+              outputs: Array.isArray(msg.outputs)
+                ? msg.outputs.filter(Boolean)
+                : [],
+              // fallback FB cũ
+              streamKey: msg.streamKey || "",
               width: msg.width || 1280,
               height: msg.height || 720,
               fps: msg.fps || 30,
@@ -971,12 +1014,16 @@ export async function attachRtmpRelayFinal(server, options = {}) {
               liveVideoId: msg.liveVideoId || undefined, // if client provides
             };
 
-            if (!stream.config.streamKey) {
+            if (
+              !stream.config.streamKey &&
+              stream.config.outputs.length === 0
+            ) {
               try {
                 ws.send(
                   JSON.stringify({
                     type: "error",
-                    message: "streamKey required",
+                    message:
+                      "No outputs provided: require Facebook streamKey or outputs[]",
                   })
                 );
               } catch {}
@@ -987,11 +1034,11 @@ export async function attachRtmpRelayFinal(server, options = {}) {
             stream.qualityLevel = q;
             log.stream(
               stream.id,
-              `📥 Start request [${q}] pageId=${msg.pageId || "(unknown)"} | ${
-                stream.config.width
-              }x${stream.config.height}@${
-                stream.config.fps
-              } | key=${sanitizeKey(stream.config.streamKey)}`
+              `📥 Start request [${q}] pageId=${msg.pageId || "(unknown)"} | ` +
+                `${stream.config.width}x${stream.config.height}@${stream.config.fps} | ` +
+                (stream.config.outputs.length
+                  ? `multi-outputs=${stream.config.outputs.length}`
+                  : `key=${sanitizeKey(stream.config.streamKey)}`)
             );
 
             startFFmpeg(stream);
@@ -1033,9 +1080,11 @@ export async function attachRtmpRelayFinal(server, options = {}) {
     log.error(`❌ WebSocket Server error:`, err.message);
   });
 
-  log.info(`🚀 RTMP Relay ready with CONCURRENT FIX + DEEP LOGS!`);
   log.info(
-    `⚡ Features: Spawn queue, ${CONFIG.SPAWN_DELAY_MS}ms delays, better cleanup, rich diagnostics.`
+    `🚀 RTMP Relay ready with CONCURRENT FIX + DEEP LOGS + MULTI-OUTPUT!`
+  );
+  log.info(
+    `⚡ Features: Spawn queue, ${CONFIG.SPAWN_DELAY_MS}ms delays, better cleanup, rich diagnostics, tee muxer.`
   );
 
   return wss;

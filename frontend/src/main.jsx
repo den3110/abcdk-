@@ -48,7 +48,7 @@ import PublicProfilePage from "./screens/PublicProfilePage.jsx";
 import ClubsListPage from "./screens/clubs/ClubsListPage.jsx";
 import ClubDetailPage from "./components/ClubDetailPage.jsx";
 import LiveStudioPage from "./screens/live/LiveStudioPage.jsx";
-import "@fontsource-variable/google-sans-code";
+import '@fontsource-variable/montserrat';
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { theme } from "./theme.js";
 

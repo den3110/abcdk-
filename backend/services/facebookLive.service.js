@@ -1,150 +1,83 @@
 // services/facebookLive.service.js
-import axios from "axios";
+// Đọc Graph version từ DB Config thay vì .env
+import { getCfgStr } from "./config.service.js";
 
-const GRAPH_VER = process.env.GRAPH_VER || "v24.0";
-const GRAPH = `https://graph.facebook.com/${GRAPH_VER}`;
+// Helper build base URL theo GRAPH_VER trong DB
+const base = async (p) =>
+  `https://graph.facebook.com/${await getCfgStr("GRAPH_VER", "v24.0")}${p}`;
 
-/**
- * Tải cấu hình admin (nếu có). Không bắt buộc.
- * - Dự kiến model: models/FbLiveConfig.js (field key="fb_live_config")
- * - Nếu không có model/DB, hàm sẽ trả null và service dùng tham số mặc định.
- */
-async function getAdminLiveConfig() {
+// Helper: fetch Facebook Graph và ném lỗi có đủ thông tin
+async function fbFetch(url, options) {
+  const r = await fetch(url, options);
+  let body = null;
   try {
-    // dynamic import để không phá bundle khi chưa có model
-    const mod = await import("../models/fbLiveConfigModel.js");
-    const FbLiveConfig = mod.default || mod;
-    const cfg =
-      (await FbLiveConfig.findOne({ key: "fb_live_config" }).lean()) || null;
-    return cfg;
-  } catch (_) {
-    return null;
+    body = await r.json();
+  } catch {
+    // non-JSON
   }
-}
-
-function toPrivacyJSON(value) {
-  return JSON.stringify({ value });
+  if (!r.ok) {
+    const err = new Error(
+      body?.error?.message || `Facebook API error: ${r.status} ${r.statusText}`
+    );
+    // đính kèm thông tin để chỗ gọi có thể hiển thị
+    err.response = {
+      status: r.status,
+      data: body || null,
+    };
+    throw err;
+  }
+  return body;
 }
 
 /**
- * Áp policy từ admin config lên 1 live/video cụ thể.
- * - phase = "create" | "end" (để ưu tiên privacy phù hợp)
- * - Chỉ chạm privacy / embeddable. Không chạm title/desc/token.
+ * Tạo live trên Page
+ * @param {Object} args
+ * @param {string} args.pageId
+ * @param {string} args.pageAccessToken
+ * @param {string} [args.title]
+ * @param {string} [args.description]
+ * @param {("LIVE_NOW"|"UNPUBLISHED"|"SCHEDULED_UNPUBLISHED"|"SCHEDULED_LIVE")} [args.status]
+ * @returns {Promise<any>} Graph response { id, secure_stream_url, permalink_url, ... }
  */
-async function applyAdminPolicies({
-  liveVideoId,
-  pageAccessToken,
-  adminCfg,
-  phase = "create",
-}) {
-  if (!adminCfg) return;
-
-  const params = { access_token: pageAccessToken };
-  // privacy:
-  if (phase === "create" && adminCfg.privacyValueOnCreate) {
-    params.privacy = toPrivacyJSON(adminCfg.privacyValueOnCreate);
-  }
-  if (phase === "end" && adminCfg.ensurePrivacyAfterEnd) {
-    params.privacy = toPrivacyJSON(adminCfg.ensurePrivacyAfterEnd);
-  }
-  // embeddable:
-  if (typeof adminCfg.embeddable === "boolean") {
-    params.embeddable = adminCfg.embeddable;
-  }
-
-  if (params.privacy || typeof params.embeddable === "boolean") {
-    await axios.post(`${GRAPH}/${liveVideoId}`, null, { params });
-  }
-}
-
 export async function fbCreateLiveOnPage({
   pageId,
   pageAccessToken,
   title,
   description,
-  status = "LIVE_NOW", // caller vẫn truyền; nếu admin có config.status thì dùng config
+  status = "LIVE_NOW",
 }) {
-  // 0) Lấy config admin (nếu có)
-  const adminCfg = await getAdminLiveConfig();
+  const params = new URLSearchParams({
+    access_token: pageAccessToken,
+    title: title || "",
+    description: description || "",
+    status,
+  });
 
-  try {
-    // 1) Tạo LiveVideo (ưu tiên status/privacy từ admin nếu có)
-    const paramsCreate = {
-      access_token: pageAccessToken,
-      status: adminCfg?.status || status,
-      title, // KHÔNG bị config ghi đè
-      description, // KHÔNG bị config ghi đè
-    };
-    if (adminCfg?.privacyValueOnCreate) {
-      paramsCreate.privacy = toPrivacyJSON(adminCfg.privacyValueOnCreate);
-    }
-    if (adminCfg?.embeddable) {
-      paramsCreate.embeddable = toPrivacyJSON(adminCfg.embeddable);
-    }
-    const created = await axios
-      .post(`${GRAPH}/${pageId}/live_videos`, null, { params: paramsCreate })
-      .then((r) => r.data);
-
-    const liveVideoId = created?.id;
-    if (!liveVideoId) {
-      throw new Error("Create live failed: missing liveVideoId");
-    }
-
-    // 2) Áp policy (privacy/embeddable) lần nữa cho chắc chắn
-    try {
-      await applyAdminPolicies({
-        liveVideoId,
-        pageAccessToken,
-        adminCfg,
-        phase: "create",
-      });
-    } catch (e) {
-      console.log("Apply policy warn:", e.response?.data || e.message);
-    }
-
-    // 3) Lấy thêm trường hữu dụng
-    const fields = "permalink_url,secure_stream_url,stream_url";
-    const info = await axios
-      .get(`${GRAPH}/${liveVideoId}`, {
-        params: { access_token: pageAccessToken, fields },
-      })
-      .then((r) => r.data)
-      .catch((e) => {
-        console.log("Get info error:", e.response?.data || e.message);
-        return {};
-      });
-
-    return { liveVideoId, ...info }; // có secure_stream_url + permalink_url (nếu quyền đủ)
-  } catch (error) {
-    console.log(error.response?.data || error.message);
-    throw error;
-  }
+  const url = await base(`/${pageId}/live_videos`);
+  const res = await fbFetch(url, {
+    method: "POST",
+    body: params,
+  });
+  return res; // { id, secure_stream_url, permalink_url, ... }
 }
 
+/**
+ * Comment vào live video bằng Page token
+ * @param {Object} args
+ * @param {string} args.liveVideoId
+ * @param {string} args.pageAccessToken
+ * @param {string} args.message
+ */
 export async function fbPostComment({ liveVideoId, pageAccessToken, message }) {
-  const r = await axios.post(`${GRAPH}/${liveVideoId}/comments`, null, {
-    params: { access_token: pageAccessToken, message },
-  });
-  return r.data;
-}
-
-export async function fbEndLive({ liveVideoId, pageAccessToken }) {
-  const r = await axios.post(`${GRAPH}/${liveVideoId}`, null, {
-    params: { access_token: pageAccessToken, end_live_video: true },
+  const params = new URLSearchParams({
+    access_token: pageAccessToken,
+    message,
   });
 
-  // Hậu kỳ: đảm bảo privacy/embeddable theo config (nếu có)
-  try {
-    const adminCfg = await getAdminLiveConfig();
-    await applyAdminPolicies({
-      liveVideoId,
-      pageAccessToken,
-      adminCfg,
-      phase: "end",
-    });
-  } catch (e) {
-    console.log("Ensure policy after end warn:", e.response?.data || e.message);
-  }
-
-  return r.data;
+  const url = await base(`/${liveVideoId}/comments`);
+  const res = await fbFetch(url, {
+    method: "POST",
+    body: params,
+  });
+  return res;
 }

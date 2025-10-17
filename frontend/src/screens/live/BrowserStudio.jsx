@@ -1,5 +1,8 @@
-// FacebookLiveStreamerMUI.jsx - ADAPTIVE QUALITY + MUI
+// FacebookLiveStreamerMUI.jsx
+// ADAPTIVE QUALITY + MUI + MULTI-PLATFORM OUTPUTS (Facebook / YouTube / TikTok)
 // ✅ Auto quality, URL params, perfect audio, zero flicker
+// ✅ NEW: Send outputs[] (RTMP URLs) to server for multi-destination tee
+
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   Box,
@@ -24,6 +27,8 @@ import {
   LinearProgress,
   Tooltip,
   IconButton,
+  Checkbox,
+  Stack,
 } from "@mui/material";
 import {
   RadioButtonChecked,
@@ -39,6 +44,9 @@ import {
   SettingsInputHdmi,
   AutoMode,
   Refresh,
+  YouTube,
+  LiveTv,
+  Facebook,
 } from "@mui/icons-material";
 
 // ✅ QUALITY PRESETS
@@ -85,13 +93,25 @@ export default function FacebookLiveStreamerMUI({
   const [isStreaming, setIsStreaming] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // ⚠️ This remains the "Facebook Stream Key" input (for backward compatibility)
   const [streamKey, setStreamKey] = useState("");
+
   const [status, setStatus] = useState("Chưa kết nối");
   const [statusType, setStatusType] = useState("info");
   const [overlayData, setOverlayData] = useState(null);
   const [facingMode, setFacingMode] = useState("user");
   const [videoDevices, setVideoDevices] = useState([]);
   const [supportsWebCodecs, setSupportsWebCodecs] = useState(false);
+
+  // ✅ Multi-platform toggles
+  const [targetFacebook, setTargetFacebook] = useState(true);
+  const [targetYoutube, setTargetYoutube] = useState(false);
+  const [ytServer, setYtServer] = useState("rtmp://a.rtmp.youtube.com/live2");
+  const [ytKey, setYtKey] = useState("");
+  const [targetTiktok, setTargetTiktok] = useState(false);
+  const [ttServer, setTtServer] = useState("");
+  const [ttKey, setTtKey] = useState("");
 
   // ✅ Adaptive quality states
   const [qualityMode, setQualityMode] = useState("high");
@@ -150,6 +170,14 @@ export default function FacebookLiveStreamerMUI({
     videoDevices.length > 1 ||
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
+  // Helper: can start without FB if YT/TikTok configured
+  const canStartNow = () => {
+    const fbOK = targetFacebook && !!streamKey.trim();
+    const ytOK = targetYoutube && !!ytServer.trim() && !!ytKey.trim();
+    const ttOK = targetTiktok && !!ttServer.trim() && !!ttKey.trim();
+    return fbOK || ytOK || ttOK;
+  };
+
   // ✅ Parse stream key from URL
   useEffect(() => {
     try {
@@ -178,17 +206,16 @@ export default function FacebookLiveStreamerMUI({
         const blob = await response.blob();
         const duration = (Date.now() - startTime) / 1000;
         const speedMbps = ((blob.size * 8) / duration / 1000000).toFixed(2);
-        setNetworkSpeed(parseFloat(speedMbps));
+        const speed = parseFloat(speedMbps);
+        setNetworkSpeed(speed);
 
         let recommended = "low";
-        if (speedMbps >= 10) recommended = "ultra";
-        else if (speedMbps >= 5) recommended = "high";
-        else if (speedMbps >= 2) recommended = "medium";
+        if (speed >= 10) recommended = "ultra";
+        else if (speed >= 5) recommended = "high";
+        else if (speed >= 2) recommended = "medium";
 
         setRecommendedQuality(recommended);
-        if (autoQuality && !isStreaming) {
-          setQualityMode(recommended);
-        }
+        if (autoQuality && !isStreaming) setQualityMode(recommended);
       }
     } catch (err) {
       console.warn("Network test failed:", err);
@@ -256,6 +283,7 @@ export default function FacebookLiveStreamerMUI({
       ctx.font = "500 11px Arial";
       ctx.textAlign = "left";
       ctx.fillText(data?.tournament?.name || "Tournament", x + 14, y + 22);
+
       const teamA = data?.teams?.A?.name || "Team A";
       const scoreA = data?.gameScores?.[data?.currentGame || 0]?.a || 0;
       ctx.fillStyle = "#25C2A0";
@@ -264,10 +292,12 @@ export default function FacebookLiveStreamerMUI({
       ctx.fill();
       ctx.fillStyle = "#E6EDF3";
       ctx.font = "600 16px Arial";
+      ctx.textAlign = "left";
       ctx.fillText(teamA, x + 32, y + 50);
       ctx.font = "800 24px Arial";
       ctx.textAlign = "right";
       ctx.fillText(String(scoreA), x + width - 14, y + 50);
+
       const teamB = data?.teams?.B?.name || "Team B";
       const scoreB = data?.gameScores?.[data?.currentGame || 0]?.b || 0;
       ctx.fillStyle = "#4F46E5";
@@ -363,9 +393,9 @@ export default function FacebookLiveStreamerMUI({
       ctx.fillStyle = "#333";
       ctx.font = "bold 12px Arial";
       ctx.textAlign = "center";
-      sponsors.forEach((sponsor, i) => {
-        ctx.fillText(sponsor, x + 115, y + 25 + i * 25);
-      });
+      sponsors.forEach((sponsor, i) =>
+        ctx.fillText(sponsor, x + 115, y + 25 + i * 25)
+      );
       ctx.restore();
     },
     [roundRect]
@@ -438,13 +468,11 @@ export default function FacebookLiveStreamerMUI({
       ctx.fill();
       ctx.shadowBlur = 0;
       ctx.fillStyle = "#000";
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 8; i++)
         for (let j = 0; j < 8; j++) {
-          if ((i + j) % 2 === 0) {
+          if ((i + j) % 2 === 0)
             ctx.fillRect(x + 10 + i * 11, y + 10 + j * 11, 10, 10);
-          }
         }
-      }
       ctx.restore();
     },
     [roundRect]
@@ -452,16 +480,16 @@ export default function FacebookLiveStreamerMUI({
 
   const drawFrameDecoration = useCallback((ctx, w, h) => {
     ctx.save();
-    const gradient1 = ctx.createLinearGradient(0, 0, w, 0);
-    gradient1.addColorStop(0, "rgba(102,126,234,0.8)");
-    gradient1.addColorStop(1, "rgba(118,75,162,0.8)");
-    ctx.fillStyle = gradient1;
+    const g1 = ctx.createLinearGradient(0, 0, w, 0);
+    g1.addColorStop(0, "rgba(102,126,234,0.8)");
+    g1.addColorStop(1, "rgba(118,75,162,0.8)");
+    ctx.fillStyle = g1;
     ctx.fillRect(0, 0, w, 3);
     ctx.fillRect(0, h - 3, w, 3);
-    const gradient2 = ctx.createLinearGradient(0, 0, 0, h);
-    gradient2.addColorStop(0, "rgba(102,126,234,0.8)");
-    gradient2.addColorStop(1, "rgba(118,75,162,0.8)");
-    ctx.fillStyle = gradient2;
+    const g2 = ctx.createLinearGradient(0, 0, 0, h);
+    g2.addColorStop(0, "rgba(102,126,234,0.8)");
+    g2.addColorStop(1, "rgba(118,75,162,0.8)");
+    ctx.fillStyle = g2;
     ctx.fillRect(0, 0, 3, h);
     ctx.fillRect(w - 3, 0, 3, h);
     ctx.fillStyle = "rgba(255,215,0,0.9)";
@@ -526,13 +554,13 @@ export default function FacebookLiveStreamerMUI({
   const drawFrame = useCallback(
     (ctx, video, w, h) => {
       if (video.readyState >= 2 && video.videoWidth) {
-        const vw = video.videoWidth;
-        const vh = video.videoHeight;
+        const vw = video.videoWidth,
+          vh = video.videoHeight;
         const scale = Math.max(w / vw, h / vh);
-        const sw = w / scale;
-        const sh = h / scale;
-        const sx = (vw - sw) / 2;
-        const sy = (vh - sh) / 2;
+        const sw = w / scale,
+          sh = h / scale;
+        const sx = (vw - sw) / 2,
+          sy = (vh - sh) / 2;
         ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
       } else {
         ctx.fillStyle = "#000";
@@ -716,18 +744,16 @@ export default function FacebookLiveStreamerMUI({
         if (
           audioRecorderRef.current &&
           audioRecorderRef.current.state !== "inactive"
-        ) {
+        )
           audioRecorderRef.current.stop();
-        }
         audioRecorderRef.current = null;
       } catch {}
       try {
         if (
           videoEncoderRef.current &&
           videoEncoderRef.current.state !== "closed"
-        ) {
+        )
           videoEncoderRef.current.close();
-        }
       } catch {}
       try {
         wsRef.current?.close();
@@ -790,7 +816,7 @@ export default function FacebookLiveStreamerMUI({
         result.push(description.slice(offset, offset + spsLength));
         offset += spsLength;
       }
-      const numPPS = description[offset++];
+      const numPPS = offset < description.length ? description[offset++] : 0;
       for (let i = 0; i < numPPS; i++) {
         const ppsLength = (description[offset] << 8) | description[offset + 1];
         offset += 2;
@@ -811,9 +837,7 @@ export default function FacebookLiveStreamerMUI({
         result.push(startCode);
         result.push(data.slice(offset, offset + nalLength));
         offset += nalLength;
-      } else {
-        break;
-      }
+      } else break;
     }
     const totalLength = result.reduce((sum, arr) => sum + arr.length, 0);
     const output = new Uint8Array(totalLength);
@@ -826,19 +850,22 @@ export default function FacebookLiveStreamerMUI({
   };
 
   const startStreamingPro = async () => {
-    if (!streamKey.trim()) {
-      setStatus("Vui lòng nhập Stream Key");
-      setStatusType("warning");
-      return;
-    }
     if (!supportsWebCodecs) {
       setStatus("❌ WebCodecs không hỗ trợ. Cần Chrome/Edge 94+");
+      setStatusType("error");
+      return;
+    }
+    if (!canStartNow()) {
+      setStatus(
+        "❌ Vui lòng nhập ít nhất một đích phát (Facebook/YouTube/TikTok)"
+      );
       setStatusType("error");
       return;
     }
     setLoading(true);
     try {
       const preset = QUALITY_PRESETS[qualityMode];
+
       setStatus("Đang kết nối WebSocket...");
       const ws = await new Promise((resolve, reject) => {
         const socket = new WebSocket(wsUrl);
@@ -858,6 +885,7 @@ export default function FacebookLiveStreamerMUI({
       });
       wsRef.current = ws;
       setIsConnected(true);
+
       setStatus("Đang khởi tạo H264 encoder...");
       const encoder = new VideoEncoder({
         output: (chunk, metadata) => {
@@ -900,9 +928,6 @@ export default function FacebookLiveStreamerMUI({
                 bitrate: preset.videoBitsPerSecond,
                 dropped: statsRef.current.dropped,
               });
-              console.log(
-                `📊 FPS: ${fpsNow}, Sent: ${statsRef.current.sent}, Dropped: ${statsRef.current.dropped}, Queue: ${encoder.encodeQueueSize}`
-              );
               statsRef.current.lastLog = now;
               statsRef.current.sent = 0;
               statsRef.current.dropped = 0;
@@ -924,6 +949,7 @@ export default function FacebookLiveStreamerMUI({
           setIsStreaming(false);
         },
       });
+
       encoder.configure({
         codec: "avc1.42001f",
         width: preset.width,
@@ -937,17 +963,38 @@ export default function FacebookLiveStreamerMUI({
       });
       videoEncoderRef.current = encoder;
       isEncodingRef.current = true;
-      ws.send(
-        JSON.stringify({
-          type: "start",
-          streamKey,
-          width: preset.width,
-          height: preset.height,
-          fps: preset.fps,
-          videoBitrate: preset.videoBitsPerSecond + "k",
-          audioBitrate: "128k",
-        })
-      );
+
+      // ⚙️ Build outputs (ưu tiên đa nền tảng)
+      const outs = [];
+      // Facebook
+      const finalFbKey = streamKey.trim();
+      if (targetFacebook && finalFbKey) {
+        outs.push(`rtmps://live-api-s.facebook.com:443/rtmp/${finalFbKey}`);
+      }
+      // YouTube
+      if (targetYoutube && ytServer.trim() && ytKey.trim()) {
+        const base = ytServer.endsWith("/") ? ytServer.slice(0, -1) : ytServer;
+        outs.push(`${base}/${ytKey.trim()}`);
+      }
+      // TikTok
+      if (targetTiktok && ttServer.trim() && ttKey.trim()) {
+        const base = ttServer.endsWith("/") ? ttServer.slice(0, -1) : ttServer;
+        outs.push(`${base}/${ttKey.trim()}`);
+      }
+
+      const startPayload = {
+        type: "start",
+        outputs: outs,
+        // fallback FB cũ (để server vẫn chạy nếu outs rỗng)
+        streamKey: outs.length === 0 ? finalFbKey : undefined,
+        width: preset.width,
+        height: preset.height,
+        fps: preset.fps,
+        videoBitrate: preset.videoBitsPerSecond + "k",
+        audioBitrate: "128k",
+      };
+      ws.send(JSON.stringify(startPayload));
+
       await new Promise((resolve, reject) => {
         const timeout = setTimeout(
           () => reject(new Error("Start timeout")),
@@ -982,7 +1029,7 @@ export default function FacebookLiveStreamerMUI({
                       const buf = await e.data.arrayBuffer();
                       const u8 = new Uint8Array(buf);
                       const out = new Uint8Array(u8.length + 1);
-                      out[0] = 0x01;
+                      out[0] = 0x01; // mark audio
                       out.set(u8, 1);
                       wsRef.current.send(out.buffer);
                     } catch {}
@@ -1004,6 +1051,7 @@ export default function FacebookLiveStreamerMUI({
         };
         ws.addEventListener("message", handler);
       });
+
       statsRef.current = {
         sent: 0,
         dropped: 0,
@@ -1011,6 +1059,7 @@ export default function FacebookLiveStreamerMUI({
         avgFps: 0,
       };
       frameCountRef.current = 0;
+
       const canvas = canvasRef.current;
       const video = videoRef.current;
       const ctx = canvas.getContext("2d", {
@@ -1022,6 +1071,7 @@ export default function FacebookLiveStreamerMUI({
       frameIntervalRef.current = frameDurationMicros;
       let nextFrameTimeMicros = performance.now() * 1000;
       lastFrameTimestampRef.current = nextFrameTimeMicros;
+
       const encodeLoop = (nowMillis) => {
         if (!encodingLoopRef.current || !isEncodingRef.current) return;
         const nowMicros = nowMillis * 1000;
@@ -1062,11 +1112,12 @@ export default function FacebookLiveStreamerMUI({
         encodingLoopRef.current = requestAnimationFrame(encodeLoop);
       };
       encodingLoopRef.current = requestAnimationFrame(encodeLoop);
+
       setIsStreaming(true);
       setStatus(`✅ LIVE - ${preset.label}`);
       setStatusType("success");
     } catch (err) {
-      setStatus("❌ Lỗi: " + err.message);
+      setStatus("❌ Lỗi: " + (err?.message || String(err)));
       setStatusType("error");
       setIsStreaming(false);
       setIsConnected(false);
@@ -1630,9 +1681,8 @@ export default function FacebookLiveStreamerMUI({
                           checked={autoQuality}
                           onChange={(e) => {
                             setAutoQuality(e.target.checked);
-                            if (e.target.checked && recommendedQuality) {
+                            if (e.target.checked && recommendedQuality)
                               setQualityMode(recommendedQuality);
-                            }
                           }}
                           disabled={isStreaming}
                         />
@@ -1743,65 +1793,179 @@ export default function FacebookLiveStreamerMUI({
                         Stream Settings
                       </Typography>
                     </Box>
-                    <Box
-                      sx={{
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 2.5,
-                      }}
-                    >
-                      <TextField
-                        type="password"
-                        label="Facebook Stream Key"
-                        placeholder="Auto từ URL hoặc nhập thủ công"
-                        value={streamKey}
-                        onChange={(e) => setStreamKey(e.target.value)}
-                        disabled={isStreaming}
-                        fullWidth
-                        helperText={
-                          streamKey
+
+                    {/* Multi-platform toggles */}
+                    <Box sx={{ mb: 2 }}>
+                      <Typography
+                        variant="subtitle2"
+                        color="text.secondary"
+                        sx={{ mb: 1 }}
+                      >
+                        Destinations
+                      </Typography>
+                      <Stack direction="column" spacing={1}>
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={targetFacebook}
+                              onChange={(e) =>
+                                setTargetFacebook(e.target.checked)
+                              }
+                            />
+                          }
+                          label={
+                            <Box
+                              sx={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 1,
+                              }}
+                            >
+                              <Facebook fontSize="small" color="primary" />{" "}
+                              Facebook
+                            </Box>
+                          }
+                        />
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={targetYoutube}
+                              onChange={(e) =>
+                                setTargetYoutube(e.target.checked)
+                              }
+                            />
+                          }
+                          label={
+                            <Box
+                              sx={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 1,
+                              }}
+                            >
+                              <YouTube fontSize="small" color="error" /> YouTube
+                            </Box>
+                          }
+                        />
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              checked={targetTiktok}
+                              onChange={(e) =>
+                                setTargetTiktok(e.target.checked)
+                              }
+                            />
+                          }
+                          label={
+                            <Box
+                              sx={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 1,
+                              }}
+                            >
+                              <LiveTv fontSize="small" /> TikTok
+                            </Box>
+                          }
+                        />
+                      </Stack>
+                    </Box>
+
+                    {/* Facebook key (back-compat) */}
+                    <TextField
+                      type="password"
+                      label="Facebook Stream Key"
+                      placeholder="Auto từ URL hoặc nhập thủ công"
+                      value={streamKey}
+                      onChange={(e) => setStreamKey(e.target.value)}
+                      disabled={isStreaming || !targetFacebook}
+                      fullWidth
+                      helperText={
+                        targetFacebook
+                          ? streamKey
                             ? "✓ Stream key đã có"
                             : "Sẽ tự động lấy từ URL param 'key'"
-                        }
-                      />
-                      <Button
-                        fullWidth
-                        size="large"
-                        variant="contained"
-                        color={isStreaming ? "inherit" : "error"}
-                        startIcon={
-                          loading ? (
-                            <CircularProgress size={20} color="inherit" />
-                          ) : isStreaming ? (
-                            <Stop />
-                          ) : (
-                            <PlayArrow />
-                          )
-                        }
-                        onClick={
-                          isStreaming ? stopStreamingPro : startStreamingPro
-                        }
-                        disabled={
-                          loading || (!isStreaming && !streamKey.trim())
-                        }
-                        sx={{ py: 1.5, fontWeight: "bold", fontSize: "1rem" }}
-                      >
-                        {loading
-                          ? "Đang xử lý..."
-                          : isStreaming
-                          ? "Dừng Stream"
-                          : `Start ${QUALITY_PRESETS[qualityMode].label}`}
-                      </Button>
-                      <Alert
-                        severity={statusType}
-                        icon={<RadioButtonChecked />}
-                        sx={{ alignItems: "center" }}
-                      >
-                        <Typography variant="body2" fontWeight={600}>
-                          {status}
-                        </Typography>
-                      </Alert>
-                    </Box>
+                          : "Facebook đang tắt — không cần nhập key"
+                      }
+                      sx={{ mb: 2 }}
+                    />
+
+                    {/* YouTube fields */}
+                    <TextField
+                      label="YouTube Server"
+                      placeholder="rtmp://a.rtmp.youtube.com/live2"
+                      value={ytServer}
+                      onChange={(e) => setYtServer(e.target.value)}
+                      disabled={isStreaming || !targetYoutube}
+                      fullWidth
+                      sx={{ mb: 1 }}
+                    />
+                    <TextField
+                      label="YouTube Stream Key"
+                      placeholder="xxxx-xxxx-xxxx-xxxx"
+                      value={ytKey}
+                      onChange={(e) => setYtKey(e.target.value)}
+                      disabled={isStreaming || !targetYoutube}
+                      fullWidth
+                      sx={{ mb: 2 }}
+                    />
+
+                    {/* TikTok fields */}
+                    <TextField
+                      label="TikTok Server (paste từ Live Center)"
+                      placeholder="rtmp://..."
+                      value={ttServer}
+                      onChange={(e) => setTtServer(e.target.value)}
+                      disabled={isStreaming || !targetTiktok}
+                      fullWidth
+                      sx={{ mb: 1 }}
+                    />
+                    <TextField
+                      label="TikTok Stream Key"
+                      placeholder="xxxxxxxx"
+                      value={ttKey}
+                      onChange={(e) => setTtKey(e.target.value)}
+                      disabled={isStreaming || !targetTiktok}
+                      fullWidth
+                      sx={{ mb: 3 }}
+                    />
+
+                    <Button
+                      fullWidth
+                      size="large"
+                      variant="contained"
+                      color={isStreaming ? "inherit" : "error"}
+                      startIcon={
+                        loading ? (
+                          <CircularProgress size={20} color="inherit" />
+                        ) : isStreaming ? (
+                          <Stop />
+                        ) : (
+                          <PlayArrow />
+                        )
+                      }
+                      onClick={
+                        isStreaming ? stopStreamingPro : startStreamingPro
+                      }
+                      disabled={loading || (!isStreaming && !canStartNow())}
+                      sx={{ py: 1.5, fontWeight: "bold", fontSize: "1rem" }}
+                    >
+                      {loading
+                        ? "Đang xử lý..."
+                        : isStreaming
+                        ? "Dừng Stream"
+                        : "Start Streaming"}
+                    </Button>
+
+                    <Alert
+                      severity={statusType}
+                      icon={<RadioButtonChecked />}
+                      sx={{ alignItems: "center", mt: 2 }}
+                    >
+                      <Typography variant="body2" fontWeight={600}>
+                        {status}
+                      </Typography>
+                    </Alert>
                   </CardContent>
                 </Card>
 
@@ -1815,6 +1979,10 @@ export default function FacebookLiveStreamerMUI({
                       >
                         <strong>🚀 Features:</strong>
                         <ul style={{ margin: 0, paddingLeft: 18 }}>
+                          <li>
+                            ✅ Multi-platform outputs (Facebook / YouTube /
+                            TikTok)
+                          </li>
                           <li>✅ Auto quality từ network speed</li>
                           <li>✅ Stream key từ URL params</li>
                           <li>✅ Manual quality override</li>
