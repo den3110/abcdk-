@@ -326,7 +326,7 @@ export class YouTubeProvider extends LiveProvider {
             scheduledStartTime: new Date().toISOString(),
           },
           status: { privacyStatus: privacy },
-          contentDetails: { enableAutoStart: false, enableAutoStop: false },
+          contentDetails: { enableAutoStart: true, enableAutoStop: true },
         },
       });
       const broadcast = bRes.data;
