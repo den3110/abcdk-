@@ -11,7 +11,7 @@ import { getValidPageToken } from "../services/fbTokenService.js";
 import { getPageLiveState } from "../services/facebookApi.js";
 import { getCfgStr } from "../services/config.service.js";
 
-// 🆕 Providers cho YouTube/TikTok (class based)
+// Providers
 import { YouTubeProvider } from "../services/liveProviders/youtube.js";
 import { TikTokProvider } from "../services/liveProviders/tiktok.js";
 
@@ -21,6 +21,10 @@ const OVERLAY_BASE =
     : process.env.HOST;
 
 const OBS_AUTO_START = String(process.env.OBS_AUTO_START || "0") === "1";
+
+// Helpers
+const toFullUrl = (u) =>
+  u?.startsWith?.("http") ? u : u ? `https://facebook.com${u}` : "";
 
 // ───────────────────────────────────────────────────────────────────────────────
 function splitServerAndKey(secureUrl) {
@@ -65,7 +69,6 @@ async function getPageLabel(pageId) {
   return doc?.pageName ? `${doc.pageName} (${pageId})` : String(pageId);
 }
 
-// Phân loại lỗi tạo live → có phải do page đang bận hay không
 function isBusyCreateError(err) {
   const gErr = err?.response?.data?.error || {};
   const msg = (gErr.message || err.message || "").toLowerCase();
@@ -82,10 +85,9 @@ function isBusyCreateError(err) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Multi-platform create: Facebook + YouTube + TikTok (tuỳ config enable)
 export const createFacebookLiveForMatch = async (req, res) => {
   try {
-    // 1) Đọc trạng thái bật/tắt từng nền tảng từ Config DB
+    // 1) enable flags từ Config
     const fbEnabled =
       (await getCfgStr("LIVE_FACEBOOK_ENABLED", "1")).trim() === "1";
     const ytEnabled =
@@ -96,11 +98,11 @@ export const createFacebookLiveForMatch = async (req, res) => {
     if (!fbEnabled && !ytEnabled && !ttEnabled) {
       return res.status(400).json({
         message:
-          "Không có nền tảng nào được bật. Hãy bật LIVE_FACEBOOK_ENABLED / LIVE_YOUTUBE_ENABLED / LIVE_TIKTOK_ENABLED trong Config.",
+          "Không có nền tảng nào được bật. Bật LIVE_FACEBOOK_ENABLED / LIVE_YOUTUBE_ENABLED / LIVE_TIKTOK_ENABLED trong Config.",
       });
     }
 
-    // 2) Load match + build metadata chung
+    // 2) match + meta
     const { matchId } = req.params;
     const match = await Match.findById(matchId).populate("tournament court");
     if (!match) return res.status(404).json({ message: "Match not found" });
@@ -113,8 +115,8 @@ export const createFacebookLiveForMatch = async (req, res) => {
     }`;
     const description = `Trực tiếp trận đấu trên PickleTour.\nScoreboard overlay: ${overlayUrl}`;
 
-    const destinations = []; // [{ platform, id, server_url, stream_key, ... }]
-    const platformErrors = []; // [{ platform, message, details? }]
+    const destinations = [];
+    const platformErrors = [];
 
     // 3) FACEBOOK
     if (fbEnabled) {
@@ -129,13 +131,11 @@ export const createFacebookLiveForMatch = async (req, res) => {
         const tried = [];
         const busyByGraph = [];
         const errors = [];
-        let chosen = null;
-
         for (const pageId of candidates) {
           tried.push(pageId);
           const label = await getPageLabel(pageId);
 
-          // 3.1 token page (auto refresh)
+          // token
           let pageAccessToken;
           try {
             pageAccessToken = await getValidPageToken(pageId);
@@ -145,27 +145,25 @@ export const createFacebookLiveForMatch = async (req, res) => {
             continue;
           }
 
-          // 3.2 preflight FB graph
+          // preflight
           try {
             const state = await getPageLiveState({ pageId, pageAccessToken });
             if (state.busy) {
-              const toFull = (u) =>
-                u?.startsWith("http") ? u : u ? `https://facebook.com${u}` : "";
               console.warn(
                 `[FB][skip] Page busy → ${label}: live=${state.liveNow.length} prepared=${state.prepared.length}`
               );
               state.liveNow.forEach((v) =>
                 console.warn(
-                  `[FB][skip]   LIVE id=${v.id} status=${v.status} url=${toFull(
-                    v.permalink_url
-                  )}`
+                  `[FB][skip]   LIVE id=${v.id} status=${
+                    v.status
+                  } url=${toFullUrl(v.permalink_url)}`
                 )
               );
               state.prepared.forEach((v) =>
                 console.warn(
-                  `[FB][skip]   PREP id=${v.id} status=${v.status} url=${toFull(
-                    v.permalink_url
-                  )}`
+                  `[FB][skip]   PREP id=${v.id} status=${
+                    v.status
+                  } url=${toFullUrl(v.permalink_url)}`
                 )
               );
               busyByGraph.push({
@@ -182,7 +180,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
             );
           }
 
-          // 3.3 tạo live
+          // create
           try {
             console.info(
               `[FB][choose] Attempting LIVE on: ${label} — https://facebook.com/${pageId}`
@@ -195,22 +193,36 @@ export const createFacebookLiveForMatch = async (req, res) => {
               status: "LIVE_NOW",
             });
 
+            const liveId = live.liveVideoId || live.id;
+
+            // Resolve permalink chắc chắn:
+            let permalinkResolved = "";
+            try {
+              const s2 = await getPageLiveState({ pageId, pageAccessToken });
+              const list = [...(s2.liveNow || []), ...(s2.prepared || [])];
+              const found = list.find((v) => String(v.id) === String(liveId));
+              if (found?.permalink_url)
+                permalinkResolved = toFullUrl(found.permalink_url);
+            } catch (e) {
+              console.warn(
+                "[FB][permalink] lookup failed:",
+                e?.response?.data || e?.message || e
+              );
+            }
+            if (!permalinkResolved && live?.permalink_url) {
+              permalinkResolved = toFullUrl(live.permalink_url);
+            }
+            if (!permalinkResolved) {
+              permalinkResolved = `https://www.facebook.com/${pageId}/videos/${liveId}/`;
+            }
+
             console.info(
-              `[FB][success] LIVE created on: ${label} ` +
-                `liveVideoId=${live.liveVideoId || live.id} ` +
-                `permalink=${
-                  live.permalink_url?.startsWith("http")
-                    ? live.permalink_url
-                    : "https://facebook.com" + (live.permalink_url || "")
-                }`
+              `[FB][success] LIVE created on: ${label} liveVideoId=${liveId} permalink=${permalinkResolved}`
             );
 
-            chosen = { pageId, live, pageAccessToken };
-
-            // comment overlay (best-effort)
             try {
               await fbPostComment({
-                liveVideoId: live.liveVideoId || live.id,
+                liveVideoId: liveId,
                 pageAccessToken,
                 message: `Overlay (OBS Browser Source): ${overlayUrl}`,
               });
@@ -221,15 +233,12 @@ export const createFacebookLiveForMatch = async (req, res) => {
               );
             }
 
-            // save vào match
             const { server, streamKey } = splitServerAndKey(
               live?.secure_stream_url
             );
             match.facebookLive = {
-              id: live.liveVideoId || live.id,
-              permalink_url: live.permalink_url?.startsWith("http")
-                ? live.permalink_url
-                : "https://facebook.com" + (live.permalink_url || ""),
+              id: liveId,
+              permalink_url: permalinkResolved,
               secure_stream_url: live.secure_stream_url,
               server_url: server,
               stream_key: streamKey,
@@ -241,14 +250,14 @@ export const createFacebookLiveForMatch = async (req, res) => {
 
             destinations.push({
               platform: "facebook",
-              id: live.liveVideoId || live.id,
+              id: liveId,
               server_url: server,
               stream_key: streamKey,
-              permalink_url: match.facebookLive.permalink_url,
+              permalink_url: permalinkResolved,
               extras: { pageId },
             });
 
-            break; // đã OK thì dừng thử page khác
+            break; // done FB
           } catch (e) {
             if (isBusyCreateError(e)) {
               console.warn(
@@ -278,56 +287,117 @@ export const createFacebookLiveForMatch = async (req, res) => {
             platform: "facebook",
             message:
               "Không thể tạo live Facebook (không còn page trống/khả dụng).",
-            details: { tried, busy: busyByGraph, errors },
+            details: undefined,
           });
         }
       }
     }
 
-    // 4) YOUTUBE (nếu bật) — dùng class YouTubeProvider bạn đã có
+    // 4) YOUTUBE
     if (ytEnabled) {
+      const YT_TAG = "[YT][create]";
+      const pickErr = (e) => e?.response?.data || e?.errors || e?.message || e;
+      const mask = (s, head = 6, tail = 4) =>
+        typeof s === "string" && s.length > head + tail
+          ? `${s.slice(0, head)}…${s.slice(-tail)}`
+          : s || null;
+
       try {
-        const ytCred = {
-          accessToken: await getCfgStr("YT_ACCESS_TOKEN", ""), // có thể rỗng (provider sẽ tự xử lý)
-          refreshToken: await getCfgStr("YT_REFRESH_TOKEN", ""), // 🔴 bắt buộc nên chuẩn bị
-          expiresAt: await getCfgStr("YT_EXPIRES_AT", ""), // optional ISO
-        };
-        if (!ytCred.refreshToken) {
-          throw new Error(
-            "Thiếu YT_REFRESH_TOKEN trong Config (lưu ý nên mã hoá secret)."
-          );
+        console.info(`${YT_TAG} begin`, {
+          matchId: String(match?._id || ""),
+          tournamentId: String(match?.tournament?._id || ""),
+        });
+
+        // Đọc config
+        let refreshToken = "";
+        let accessExpiresAt = "";
+        try {
+          refreshToken = await getCfgStr("YOUTUBE_REFRESH_TOKEN", "");
+          accessExpiresAt = await getCfgStr("YOUTUBE_ACCESS_EXPIRES_AT", "");
+          console.info(`${YT_TAG} config`, {
+            hasRefreshToken: !!refreshToken,
+            expiresAt: accessExpiresAt || null,
+          });
+        } catch (e) {
+          console.error(`${YT_TAG} read config error:`, pickErr(e));
+          throw e;
         }
 
-        const ytProvider = new YouTubeProvider({ cred: ytCred });
+        if (!refreshToken) {
+          const err = new Error(
+            "Thiếu YOUTUBE_REFRESH_TOKEN trong Config. Vào YouTube Live Admin để connect."
+          );
+          console.error(`${YT_TAG} validate error:`, err.message);
+          throw err;
+        }
 
-        // check bận
-        const ytState = await ytProvider.getChannelLiveState();
+        // Init provider (provider tự xử lý redirect CSV + token normalize)
+        let ytProvider;
+        try {
+          ytProvider = new YouTubeProvider({
+            refreshToken,
+            accessToken: "",
+            expiresAt: accessExpiresAt || "",
+          });
+          console.info(`${YT_TAG} provider inited`);
+        } catch (e) {
+          console.error(`${YT_TAG} init provider error:`, pickErr(e));
+          throw e;
+        }
+
+        // Kiểm tra trạng thái kênh
+        let ytState;
+        try {
+          ytState = await ytProvider.getChannelLiveState();
+          console.info(`${YT_TAG} channel state`, {
+            busy: !!ytState?.busy,
+            activeCount: ytState?.raw?.items?.length ?? null,
+          });
+        } catch (e) {
+          console.error(`${YT_TAG} getChannelLiveState error:`, pickErr(e));
+          throw e;
+        }
+
         if (ytState?.busy) {
+          console.warn(`${YT_TAG} channel busy, skip create`, {
+            activeCount: ytState?.raw?.items?.length ?? null,
+          });
           platformErrors.push({
             platform: "youtube",
             message: "Kênh YouTube đang có broadcast hoạt động.",
             details: ytState?.raw,
           });
         } else {
-          // tạo live
-          const privacy =
-            (await getCfgStr("YT_BROADCAST_PRIVACY", "unlisted")).trim() ||
-            "unlisted";
-          const r = await ytProvider.createLive({
-            title,
-            description,
-            privacy,
-          });
+          // Privacy
+          let privacy = "unlisted";
+          try {
+            privacy =
+              (await getCfgStr("YT_BROADCAST_PRIVACY", "unlisted")).trim() ||
+              "unlisted";
+          } catch (e) {
+            console.warn(
+              `${YT_TAG} read privacy error, fallback 'unlisted':`,
+              pickErr(e)
+            );
+          }
+          console.info(`${YT_TAG} privacy`, { privacy });
 
-          destinations.push({
-            platform: "youtube",
-            id: r.platformLiveId,
-            server_url: r.serverUrl,
-            stream_key: r.streamKey,
-            watch_url: r.permalinkUrl,
-          });
+          // Tạo broadcast + lấy server/key
+          let r;
+          try {
+            r = await ytProvider.createLive({ title, description, privacy });
+            console.info(`${YT_TAG} createLive OK`, {
+              broadcastId: r?.platformLiveId,
+              serverUrl: r?.serverUrl,
+              streamKeyPreview: mask(r?.streamKey),
+              watchUrl: r?.permalinkUrl,
+            });
+          } catch (e) {
+            console.error(`${YT_TAG} createLive error:`, pickErr(e));
+            throw e;
+          }
 
-          // (tuỳ chọn) lưu vào match nếu có schema
+          // Lưu xuống match (non-fatal nếu fail)
           try {
             match.youtubeLive = {
               id: r.platformLiveId,
@@ -338,18 +408,47 @@ export const createFacebookLiveForMatch = async (req, res) => {
               status: "CREATED",
             };
             await match.save();
-          } catch {}
+            console.info(`${YT_TAG} match saved`, {
+              matchId: String(match._id),
+              youtubeLiveId: r?.platformLiveId,
+            });
+          } catch (e) {
+            console.error(
+              `${YT_TAG} save match error (non-fatal):`,
+              pickErr(e)
+            );
+          }
+
+          // Push destination
+          try {
+            destinations.push({
+              platform: "youtube",
+              id: r.platformLiveId,
+              server_url: r.serverUrl,
+              stream_key: r.streamKey,
+              watch_url: r.permalinkUrl,
+            });
+            console.info(`${YT_TAG} destination appended`);
+          } catch (e) {
+            console.error(
+              `${YT_TAG} push destination error (non-fatal):`,
+              pickErr(e)
+            );
+          }
         }
       } catch (e) {
+        console.error(`${YT_TAG} failed:`, pickErr(e));
         platformErrors.push({
           platform: "youtube",
           message: "Không thể tạo live YouTube",
-          details: e?.response?.data || e.message || String(e),
+          details: pickErr(e),
         });
+      } finally {
+        console.info(`${YT_TAG} end`);
       }
     }
 
-    // 5) TIKTOK (nếu bật) — dùng class TikTokProvider, lấy ingest từ Config
+    // 5) TIKTOK
     if (ttEnabled) {
       try {
         const tkServer = await getCfgStr("TIKTOK_SERVER_URL", "");
@@ -357,11 +456,10 @@ export const createFacebookLiveForMatch = async (req, res) => {
         const tkChannelId =
           (await getCfgStr("TIKTOK_CHANNEL_ID", "")).trim() || "tiktok-default";
 
-        if (!tkServer || !tkKey) {
+        if (!tkServer || !tkKey)
           throw new Error(
             "Thiếu TIKTOK_SERVER_URL / TIKTOK_STREAM_KEY trong Config."
           );
-        }
 
         const channelDoc = {
           _id: tkChannelId,
@@ -383,7 +481,6 @@ export const createFacebookLiveForMatch = async (req, res) => {
             title,
             description,
           });
-
           destinations.push({
             platform: "tiktok",
             id: r.platformLiveId,
@@ -392,7 +489,6 @@ export const createFacebookLiveForMatch = async (req, res) => {
             room_url: r.permalinkUrl || null,
           });
 
-          // (tuỳ chọn) lưu vào match nếu có schema
           try {
             match.tiktokLive = {
               id: r.platformLiveId,
@@ -414,7 +510,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
       }
     }
 
-    // 6) Không tạo được ở nền tảng nào
+    // 6) không có dest nào
     if (destinations.length === 0) {
       return res.status(409).json({
         message: "Không tạo được live trên bất kỳ nền tảng nào.",
@@ -422,10 +518,9 @@ export const createFacebookLiveForMatch = async (req, res) => {
       });
     }
 
-    // 7) Chọn primary để auto-start OBS (ưu tiên Facebook, sau đó cái đầu tiên)
+    // 7) primary + OBS
     const primary =
       destinations.find((d) => d.platform === "facebook") || destinations[0];
-
     if (OBS_AUTO_START && primary?.server_url && primary?.stream_key) {
       try {
         await startObsStreamingWithOverlay({
@@ -438,7 +533,6 @@ export const createFacebookLiveForMatch = async (req, res) => {
       }
     }
 
-    // Studio URL theo primary (giữ backward-compat)
     const studioUrl =
       (process.env.NODE_ENV === "development"
         ? "http://localhost:3000/studio/live"
@@ -447,15 +541,11 @@ export const createFacebookLiveForMatch = async (req, res) => {
         primary.server_url || ""
       )}&key=${encodeURIComponent(primary.stream_key || "")}`;
 
-    // 8) Response
     return res.json({
-      // backward-compat fields (primary)
       server_url: primary.server_url || "",
       stream_key: primary.stream_key || "",
       overlay_url: overlayUrl,
       studio_url: studioUrl,
-
-      // nếu có facebook sẽ có thêm các field quen thuộc
       ...(destinations.find((d) => d.platform === "facebook")
         ? {
             liveVideoId:
@@ -466,10 +556,8 @@ export const createFacebookLiveForMatch = async (req, res) => {
             pageId: match.facebookLive?.pageId,
           }
         : {}),
-
-      // multi-platform result
-      destinations, // [{ platform, id, server_url, stream_key, ... }]
-      errors: platformErrors, // nền tảng nào fail sẽ liệt kê ở đây
+      destinations,
+      errors: platformErrors,
       note: "Đã tạo live trên các nền tảng được bật. Dán server/key (primary) vào OBS hoặc dùng relay nếu phát đa điểm.",
     });
   } catch (err) {
