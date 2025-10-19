@@ -26,6 +26,10 @@ import {
   Login as LoginIcon,
   HowToReg as HowToRegIcon,
 } from "@mui/icons-material";
+import { useGetLiveMatchesQuery } from "../slices/liveApiSlice";
+
+// ⭐ NEW: hook lấy danh sách live để hiện badge
+// import { useGetLiveMatchesQuery } from "../features/live/liveApiSlice";
 
 /* ================== Cấu hình ================== */
 // Nav Pickleball (desktop)
@@ -118,6 +122,22 @@ const Header = () => {
     const now = new Date();
     return now >= CLUB_BADGE_START && now <= CLUB_BADGE_END;
   }, []);
+
+  // ⭐ NEW: gọi API đếm số trận live (strict verify ở BE)
+  const liveQueryArgs = {
+    keyword: "",
+    page: 0,
+    limit: 1, // chỉ cần đếm, dữ liệu trình bày ở trang /live
+    statuses: "scheduled,queued,assigned,live",
+    excludeFinished: true,
+    windowMs: 8 * 3600 * 1000,
+  };
+  const { data: liveData } = useGetLiveMatchesQuery(liveQueryArgs, {
+    pollingInterval: 15000, // 15s tự cập nhật badge
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
+  const liveCount = liveData?.rawCount ?? 0;
 
   return (
     <AppBar position="static" color="primary" elevation={2}>
@@ -219,6 +239,33 @@ const Header = () => {
                 )}
               </>
             )}
+            {/* ⭐ NEW: Nút Trực tiếp + badge (ẩn khi = 0) */}
+            <Button
+              component={Link}
+              to="/live"
+              sx={{ color: "white", textTransform: "none" }}
+              aria-label="Trực tiếp"
+            >
+              <Badge
+                color="error"
+                overlap="rectangular"
+                badgeContent={liveCount > 99 ? "99+" : liveCount}
+                invisible={liveCount === 0}
+                sx={{
+                  "& .MuiBadge-badge": {
+                    right: -10,
+                    top: -8,
+                    fontSize: 10,
+                    height: 16,
+                    minWidth: 22,
+                    px: 0.5,
+                    fontWeight: 700,
+                  },
+                }}
+              >
+                Live
+              </Badge>
+            </Button>
 
             {isAdmin && (
               <Button

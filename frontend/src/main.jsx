@@ -48,9 +48,10 @@ import PublicProfilePage from "./screens/PublicProfilePage.jsx";
 import ClubsListPage from "./screens/clubs/ClubsListPage.jsx";
 import ClubDetailPage from "./components/ClubDetailPage.jsx";
 import LiveStudioPage from "./screens/live/LiveStudioPage.jsx";
-import '@fontsource-variable/montserrat';
+import "@fontsource-variable/montserrat";
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { theme } from "./theme.js";
+import LiveMatchesPage from "./screens/live/LiveMatchesPage.jsx";
 
 dayjs.locale("vi");
 
@@ -108,6 +109,7 @@ const router = createBrowserRouter(
         </Route>
         <Route path="/clubs" element={<ClubsListPage />} />
         <Route path="/clubs/:id" element={<ClubDetailPage />} />
+        <Route path="/live" element={<LiveMatchesPage />} />
       </Route>
       <Route path="/overlay/score" element={<ScoreOverlay />} />
       <Route path="/503" element={<ServiceUnavailable />} />

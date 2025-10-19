@@ -2,6 +2,7 @@
 import ClubPoll from "../models/clubPollModel.js";
 import ClubPollVote from "../models/clubPollVoteModel.js";
 import { canReadClubContent } from "../utils/clubVisibility.js";
+import ClubMember from "../models/clubMemberModel.js"
 
 export const listPolls = async (req, res) => {
   try {
