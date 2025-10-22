@@ -1,9 +1,6 @@
-// src/pages/LiveMatchesPage.jsx  (drop-in thay file cũ)
-
 import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
   Box,
-  Grid,
   Stack,
   Typography,
   Paper,
@@ -33,16 +30,14 @@ import TuneIcon from "@mui/icons-material/Tune";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
-
 import LiveMatchCard from "./LiveMatchCard";
-// NOTE: dùng đúng path slice của bạn
 import { useGetLiveMatchesQuery } from "../../slices/liveApiSlice";
 
 const LIMIT = 12;
-const STATUS_OPTIONS = ["scheduled", "queued", "assigned", "live"];
+const CARD_HEIGHT = 232;
+const STATUS_OPTIONS = ["scheduled", "queued", "assigned", "live", "finished"];
 const HOUR_PRESETS = [2, 4, 8, 24];
 
-// ===== Utils =====
 function useTickingAgo() {
   const [ts, setTs] = useState(Date.now());
   useEffect(() => {
@@ -55,7 +50,6 @@ function useTickingAgo() {
 function FiltersDialog({ open, onClose, initial, onApply }) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
-
   const [statuses, setStatuses] = useState(initial.statuses);
   const [excludeFinished, setExcludeFinished] = useState(
     initial.excludeFinished
@@ -63,29 +57,23 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
   const [windowHours, setWindowHours] = useState(initial.windowHours);
   const [autoRefresh, setAutoRefresh] = useState(initial.autoRefresh);
   const [refreshSec, setRefreshSec] = useState(initial.refreshSec);
-
   useEffect(() => {
-    if (open) {
-      setStatuses(initial.statuses);
-      setExcludeFinished(initial.excludeFinished);
-      setWindowHours(initial.windowHours);
-      setAutoRefresh(initial.autoRefresh);
-      setRefreshSec(initial.refreshSec);
-    }
-  }, [open, initial]);
+    if (!open) return;
+    setStatuses(initial.statuses);
+    setExcludeFinished(initial.excludeFinished);
+    setWindowHours(initial.windowHours);
+    setAutoRefresh(initial.autoRefresh);
+    setRefreshSec(initial.refreshSec);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const allSelected = statuses.length === STATUS_OPTIONS.length;
-
   const handleStatusesChange = (e) => {
     const val = e.target.value;
-    // Nếu người dùng chọn “(Tất cả)” hoặc bỏ trống → set all
-    if (val.includes("__ALL__") || val.length === 0) {
+    if (val.includes("__ALL__") || val.length === 0)
       setStatuses([...STATUS_OPTIONS]);
-    } else {
-      setStatuses(val);
-    }
+    else setStatuses(val);
   };
-
   const handleReset = () => {
     setStatuses([...STATUS_OPTIONS]);
     setExcludeFinished(true);
@@ -99,25 +87,27 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
       open={open}
       onClose={onClose}
       fullScreen={fullScreen}
+      keepMounted
       maxWidth="sm"
       fullWidth
     >
       <DialogTitle>Bộ lọc</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
-          {/* Trạng thái */}
           <Stack spacing={1}>
             <Typography variant="subtitle2">Trạng thái</Typography>
             <Select
               multiple
+              size="small"
               value={statuses}
               onChange={handleStatusesChange}
-              renderValue={(selected) =>
-                selected.length === STATUS_OPTIONS.length
-                  ? "Tất cả"
-                  : selected.join(", ")
+              renderValue={(s) =>
+                s.length === STATUS_OPTIONS.length ? "Tất cả" : s.join(", ")
               }
-              size="small"
+              MenuProps={{
+                disablePortal: true,
+                PaperProps: { style: { maxHeight: 320 } },
+              }}
             >
               <MenuItem value="__ALL__">
                 <Checkbox checked={allSelected} />
@@ -133,13 +123,13 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
             </Select>
           </Stack>
 
-          {/* Cửa sổ thời gian */}
           <Stack spacing={1}>
             <Typography variant="subtitle2">Cửa sổ thời gian</Typography>
             <Select
               size="small"
               value={windowHours}
               onChange={(e) => setWindowHours(Number(e.target.value))}
+              MenuProps={{ disablePortal: true }}
             >
               {HOUR_PRESETS.map((h) => (
                 <MenuItem key={h} value={h}>{`${h} giờ gần nhất`}</MenuItem>
@@ -160,7 +150,6 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
             />
           </Stack>
 
-          {/* Auto refresh */}
           <Stack spacing={1}>
             <Typography variant="subtitle2">Tự làm mới</Typography>
             <Stack direction="row" spacing={1} alignItems="center">
@@ -178,6 +167,7 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
                 value={refreshSec}
                 onChange={(e) => setRefreshSec(Number(e.target.value))}
                 disabled={!autoRefresh}
+                MenuProps={{ disablePortal: true }}
               >
                 <MenuItem value={10}>10 giây</MenuItem>
                 <MenuItem value={15}>15 giây</MenuItem>
@@ -214,7 +204,6 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
 }
 
 export default function LiveMatchesPage() {
-  // ===== State chính =====
   const [keyword, setKeyword] = useState("");
   const [statuses, setStatuses] = useState([...STATUS_OPTIONS]);
   const [excludeFinished, setExcludeFinished] = useState(true);
@@ -224,18 +213,27 @@ export default function LiveMatchesPage() {
   const [refreshSec, setRefreshSec] = useState(15);
   const [filterOpen, setFilterOpen] = useState(false);
 
-  // ===== Query args (server) =====
-  const qArgs = useMemo(
-    () => ({
+  const qArgs = useMemo(() => {
+    // Lọc bỏ "finished" nếu excludeFinished = true
+    const filteredStatuses = excludeFinished
+      ? statuses.filter((s) => s !== "finished")
+      : statuses;
+
+    const args = {
       keyword,
       page: page - 1,
       limit: LIMIT,
-      statuses: statuses.join(","),
-      excludeFinished,
+      statuses: filteredStatuses.join(","),
       windowMs: windowHours * 3600 * 1000,
-    }),
-    [keyword, page, statuses, excludeFinished, windowHours]
-  );
+    };
+
+    // Chỉ gửi excludeFinished khi giá trị là false (khác mặc định)
+    if (!excludeFinished) {
+      args.excludeFinished = false;
+    }
+
+    return args;
+  }, [keyword, page, statuses, excludeFinished, windowHours]);
 
   const { data, isLoading, isFetching, refetch } = useGetLiveMatchesQuery(
     qArgs,
@@ -245,16 +243,14 @@ export default function LiveMatchesPage() {
     }
   );
 
-  // ===== Auto refresh =====
+  // Auto-refresh với dependencies đầy đủ
   useEffect(() => {
     if (!autoRefresh) return;
-    const id = setInterval(() => {
-      refetch();
-    }, Math.max(5, refreshSec) * 1000);
+    const id = setInterval(() => refetch(), Math.max(5, refreshSec) * 1000);
     return () => clearInterval(id);
-  }, [autoRefresh, refreshSec, refetch]);
+  }, [autoRefresh, refreshSec, refetch, qArgs]);
+  // ☝️ Chỉ cần qArgs thôi, vì qArgs đã useMemo rồi
 
-  // ===== Summary & timing =====
   const pages = data?.pages || 1;
   const items = data?.items || [];
   const total = data?.rawCount ?? 0;
@@ -269,48 +265,54 @@ export default function LiveMatchesPage() {
     Math.floor((tick - lastFetchRef.current) / 1000)
   );
 
-  // số filter đang bật (khác default)
   const activeFilters =
     (statuses.length !== STATUS_OPTIONS.length ? 1 : 0) +
     (excludeFinished ? 0 : 1) +
     (windowHours !== 8 ? 1 : 0) +
     (!autoRefresh || refreshSec !== 15 ? 1 : 0);
 
-  // ===== Handlers =====
-  const applyFilters = (payload) => {
-    setStatuses(payload.statuses);
-    setExcludeFinished(payload.excludeFinished);
-    setWindowHours(payload.windowHours);
-    setAutoRefresh(payload.autoRefresh);
-    setRefreshSec(payload.refreshSec);
+  const applyFilters = (p) => {
+    setStatuses(p.statuses);
+    setExcludeFinished(p.excludeFinished);
+    setWindowHours(p.windowHours);
+    setAutoRefresh(p.autoRefresh);
+    setRefreshSec(p.refreshSec);
     setFilterOpen(false);
     setPage(1);
   };
-
-  const clearChip = (type) => {
-    switch (type) {
-      case "statuses":
-        setStatuses([...STATUS_OPTIONS]);
-        break;
-      case "window":
-        setWindowHours(8);
-        break;
-      case "finished":
-        setExcludeFinished(true);
-        break;
-      case "auto":
-        setAutoRefresh(true);
-        setRefreshSec(15);
-        break;
-      default:
-        break;
+  const clearChip = (t) => {
+    if (t === "statuses") setStatuses([...STATUS_OPTIONS]);
+    else if (t === "window") setWindowHours(8);
+    else if (t === "finished") setExcludeFinished(true);
+    else if (t === "auto") {
+      setAutoRefresh(true);
+      setRefreshSec(15);
     }
     setPage(1);
+  };
+  const initialFilters = useMemo(
+    () => ({ statuses, excludeFinished, windowHours, autoRefresh, refreshSec }),
+    [statuses, excludeFinished, windowHours, autoRefresh, refreshSec]
+  );
+
+  const gridSx = {
+    display: "grid",
+    gap: (theme) => theme.spacing(2),
+    gridTemplateColumns: "repeat(1, minmax(0, 1fr))",
+    "@media (min-width:600px)": {
+      gridTemplateColumns: "repeat(2, minmax(0,1fr))",
+    },
+    "@media (min-width:900px)": {
+      gridTemplateColumns: "repeat(3, minmax(0,1fr))",
+    },
+    "@media (min-width:1200px)": {
+      gridTemplateColumns: "repeat(4, minmax(0,1fr))",
+    },
+    alignItems: "stretch",
   };
 
   return (
     <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
-      {/* TOOLBAR siêu gọn */}
       <Paper
         variant="outlined"
         sx={{
@@ -338,7 +340,6 @@ export default function LiveMatchesPage() {
           }
           sx={{ flex: 1, minWidth: 240 }}
         />
-
         <Tooltip title="Bộ lọc">
           <Button
             variant="outlined"
@@ -349,7 +350,6 @@ export default function LiveMatchesPage() {
             Bộ lọc {activeFilters > 0 ? `(${activeFilters})` : ""}
           </Button>
         </Tooltip>
-
         <Tooltip title="Làm mới">
           <span>
             <IconButton onClick={() => refetch()} disabled={isFetching}>
@@ -359,7 +359,6 @@ export default function LiveMatchesPage() {
         </Tooltip>
       </Paper>
 
-      {/* CHIPS TÓM TẮT FILTER (có thể xoá từng mục) */}
       <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 2 }}>
         {statuses.length !== STATUS_OPTIONS.length && (
           <Chip
@@ -400,27 +399,41 @@ export default function LiveMatchesPage() {
         </Typography>
       </Stack>
 
-      {/* GRID */}
       {isLoading ? (
-        <Grid container spacing={2}>
+        <Box sx={gridSx}>
           {Array.from({ length: LIMIT }).map((_, i) => (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={i}>
-              <Skeleton variant="rounded" height={180} />
-            </Grid>
+            <Box
+              key={i}
+              sx={{
+                height: CARD_HEIGHT,
+                display: "flex",
+                minWidth: 0,
+                overflow: "hidden",
+              }}
+            >
+              <Skeleton variant="rounded" height="100%" sx={{ flex: 1 }} />
+            </Box>
           ))}
-        </Grid>
+        </Box>
       ) : (
         <>
-          <Grid container spacing={2}>
+          <Box sx={gridSx}>
             {items.map((it) => (
-              <Grid item xs={12} sm={6} md={4} lg={3} key={it.matchId}>
+              <Box
+                key={it.matchId}
+                sx={{
+                  height: CARD_HEIGHT,
+                  display: "flex",
+                  minWidth: 0,
+                  overflow: "hidden",
+                }}
+              >
                 <LiveMatchCard item={it} />
-              </Grid>
+              </Box>
             ))}
-          </Grid>
+          </Box>
 
-          {/* Pagination đơn giản: chỉ hiện nếu >1 trang */}
-          {data?.pages > 1 && (
+          {pages > 1 && (
             <Stack direction="row" justifyContent="center" sx={{ mt: 2 }}>
               <Paper
                 variant="outlined"
@@ -436,15 +449,13 @@ export default function LiveMatchesPage() {
                   </Button>
                   <Divider orientation="vertical" flexItem />
                   <Typography variant="body2" px={1.5}>
-                    Trang {page}/{data?.pages}
+                    Trang {page}/{pages}
                   </Typography>
                   <Divider orientation="vertical" flexItem />
                   <Button
                     size="small"
-                    onClick={() =>
-                      setPage((p) => Math.min(data?.pages || 1, p + 1))
-                    }
-                    disabled={page >= (data?.pages || 1)}
+                    onClick={() => setPage((p) => Math.min(pages || 1, p + 1))}
+                    disabled={page >= (pages || 1)}
                   >
                     Sau
                   </Button>
@@ -457,24 +468,17 @@ export default function LiveMatchesPage() {
             <Box sx={{ textAlign: "center", py: 6 }}>
               <Typography variant="h6">Không có trận phù hợp bộ lọc</Typography>
               <Typography variant="body2" color="text.secondary">
-                Thử “Bộ lọc” → chọn “LIVE” hoặc tăng cửa sổ thời gian.
+                Thử "Bộ lọc" → chọn "LIVE" hoặc tăng cửa sổ thời gian.
               </Typography>
             </Box>
           )}
         </>
       )}
 
-      {/* DIALOG FILTER */}
       <FiltersDialog
         open={filterOpen}
         onClose={() => setFilterOpen(false)}
-        initial={{
-          statuses,
-          excludeFinished,
-          windowHours,
-          autoRefresh,
-          refreshSec,
-        }}
+        initial={initialFilters}
         onApply={applyFilters}
       />
     </Box>

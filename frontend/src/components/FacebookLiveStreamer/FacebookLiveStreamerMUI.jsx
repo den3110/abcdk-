@@ -1,11 +1,5 @@
 // FacebookLiveStreamerMUI.jsx
-// FULL VERSION - Fixed flicker + Responsive
-// ++ UPDATED: Auto-fill Facebook/YouTube/TikTok from URL params & d64 payload
-//    - Accepts ?key=FB_KEY
-//    - Accepts ?yt_server=rtmp://...&yt=STREAM_KEY
-//    - Accepts ?tt_server=rtmp://...&tt=STREAM_KEY
-//    - Accepts ?d64=<base64(JSON[{platform, server_url, stream_key, secure_stream_url}])>
-//       -> Will pre-toggle targets and fill server/key for each platform
+// VERSION ĐƠN GIẢN - CHỈ TÁCH OVERLAY RA
 
 import React, {
   useEffect,
@@ -64,44 +58,10 @@ import {
   ExpandLess,
 } from "@mui/icons-material";
 
-// --------------------- Helpers (new) ---------------------
-const safeAtobUtf8 = (b64) => {
-  try {
-    // Handle UTF-8 safely
-    return decodeURIComponent(escape(atob(b64)));
-  } catch (e) {
-    try {
-      return atob(b64); // fallback ascii
-    } catch {}
-  }
-  return "";
-};
+// ===== IMPORT OVERLAY SYSTEM =====
+import { DEFAULT_OVERLAY_CONFIG, renderOverlays } from "./overlays";
 
-const splitRtmpUrl = (url) => {
-  if (!url || !/^rtmps?:\/\//i.test(url))
-    return { server_url: "", stream_key: "" };
-  const trimmed = url.replace(/\/$/, "");
-  const idx = trimmed.lastIndexOf("/");
-  if (idx <= "rtmp://".length) return { server_url: trimmed, stream_key: "" };
-  return {
-    server_url: trimmed.slice(0, idx),
-    stream_key: trimmed.slice(idx + 1),
-  };
-};
-
-const normalizeDest = (d) => {
-  const platform = (d?.platform || "").toLowerCase();
-  let server_url = d?.server_url || "";
-  let stream_key = d?.stream_key || "";
-  const secure = d?.secure_stream_url || "";
-  if ((!server_url || !stream_key) && secure) {
-    const s = splitRtmpUrl(secure);
-    server_url = server_url || s.server_url;
-    stream_key = stream_key || s.stream_key;
-  }
-  return { platform, server_url, stream_key, secure_stream_url: secure };
-};
-
+// ===== CONSTANTS (giữ trong file này vì ít thay đổi) =====
 const QUALITY_PRESETS = {
   low: {
     label: "Low (360p)",
@@ -137,6 +97,44 @@ const QUALITY_PRESETS = {
   },
 };
 
+// ===== URL PARSING HELPERS =====
+const safeAtobUtf8 = (b64) => {
+  try {
+    return decodeURIComponent(escape(atob(b64)));
+  } catch (e) {
+    try {
+      return atob(b64);
+    } catch {}
+  }
+  return "";
+};
+
+const splitRtmpUrl = (url) => {
+  if (!url || !/^rtmps?:\/\//i.test(url))
+    return { server_url: "", stream_key: "" };
+  const trimmed = url.replace(/\/$/, "");
+  const idx = trimmed.lastIndexOf("/");
+  if (idx <= "rtmp://".length) return { server_url: trimmed, stream_key: "" };
+  return {
+    server_url: trimmed.slice(0, idx),
+    stream_key: trimmed.slice(idx + 1),
+  };
+};
+
+const normalizeDest = (d) => {
+  const platform = (d?.platform || "").toLowerCase();
+  let server_url = d?.server_url || "";
+  let stream_key = d?.stream_key || "";
+  const secure = d?.secure_stream_url || "";
+  if ((!server_url || !stream_key) && secure) {
+    const s = splitRtmpUrl(secure);
+    server_url = server_url || s.server_url;
+    stream_key = stream_key || s.stream_key;
+  }
+  return { platform, server_url, stream_key, secure_stream_url: secure };
+};
+
+// ===== MAIN COMPONENT =====
 export default function FacebookLiveStreamerMUI({
   matchId,
   wsUrl = "wss://pickletour.vn/ws/rtmp",
@@ -145,6 +143,7 @@ export default function FacebookLiveStreamerMUI({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
+  // State
   const [isStreaming, setIsStreaming] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -156,7 +155,6 @@ export default function FacebookLiveStreamerMUI({
   const [videoDevices, setVideoDevices] = useState([]);
   const [supportsWebCodecs, setSupportsWebCodecs] = useState(false);
 
-  // Collapse states for mobile
   const [overlayExpanded, setOverlayExpanded] = useState(!isMobile);
   const [settingsExpanded, setSettingsExpanded] = useState(true);
 
@@ -168,7 +166,6 @@ export default function FacebookLiveStreamerMUI({
   const [ttServer, setTtServer] = useState("");
   const [ttKey, setTtKey] = useState("");
 
-  // track what got auto-filled to show nicer helper text
   const [autoFillFlags, setAutoFillFlags] = useState({
     fb: false,
     yt: false,
@@ -190,19 +187,8 @@ export default function FacebookLiveStreamerMUI({
     return { w: preset.width, h: preset.height };
   });
 
-  const [overlayConfig, setOverlayConfig] = useState({
-    scoreBoard: true,
-    timer: true,
-    tournamentName: true,
-    logo: true,
-    sponsors: false,
-    lowerThird: false,
-    socialMedia: false,
-    qrCode: false,
-    frameDecor: false,
-    liveBadge: true,
-    viewerCount: false,
-  });
+  // ===== IMPORT OVERLAY CONFIG =====
+  const [overlayConfig, setOverlayConfig] = useState(DEFAULT_OVERLAY_CONFIG);
 
   // Refs
   const streamTimeRef = useRef(0);
@@ -232,7 +218,6 @@ export default function FacebookLiveStreamerMUI({
     videoDevices.length > 1 ||
     /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
-  // ✅ Speed test sources
   const SPEED_TEST_URLS = useMemo(() => {
     const list = [];
     try {
@@ -263,12 +248,10 @@ export default function FacebookLiveStreamerMUI({
     return fbOK || ytOK || ttOK;
   };
 
-  // -------- NEW: Parse URL params & d64 once on mount --------
+  // Parse URL params
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
-
-      // 1) d64 bulk destinations
       const d64 = params.get("d64");
       if (d64) {
         try {
@@ -298,12 +281,9 @@ export default function FacebookLiveStreamerMUI({
               setAutoFillFlags((f) => ({ ...f, tt: true }));
             }
           }
-        } catch (e) {
-          // ignore malformed d64
-        }
+        } catch (e) {}
       }
 
-      // 2) Convenience single params
       const fbKey = params.get("key");
       if (fbKey) {
         setStreamKey(fbKey);
@@ -338,7 +318,7 @@ export default function FacebookLiveStreamerMUI({
     }
   }, []);
 
-  // -------- Original: feature detection --------
+  // Feature detection
   useEffect(() => {
     const supported = typeof window.VideoEncoder !== "undefined";
     setSupportsWebCodecs(supported);
@@ -346,7 +326,6 @@ export default function FacebookLiveStreamerMUI({
       setStatus("⚠️ WebCodecs không hỗ trợ. Cần Chrome/Edge 94+");
       setStatusType("warning");
     } else {
-      // only set when we haven't already set a success from URL parsing
       setStatus((s) =>
         s.startsWith("✅ Auto-fill") ? s : "✅ WebCodecs ready - ADAPTIVE"
       );
@@ -354,8 +333,9 @@ export default function FacebookLiveStreamerMUI({
     }
   }, []);
 
+  // Network speed measurement
   const measureNetworkSpeed = useCallback(async () => {
-    if (networkTestRef.current) return; // đang chạy rồi thì bỏ
+    if (networkTestRef.current) return;
     networkTestRef.current = true;
 
     const finish = (mbps) => {
@@ -407,13 +387,13 @@ export default function FacebookLiveStreamerMUI({
           clearTimeout(timeoutId);
         }
       }
-      const down = navigator.connection?.downlink; // Mbps
+      const down = navigator.connection?.downlink;
       if (down) finish(down);
       else finish(0);
     } finally {
       networkTestRef.current = null;
     }
-  }, [SPEED_TEST_URLS, autoQuality, isStreaming, setQualityMode]);
+  }, [SPEED_TEST_URLS, autoQuality, isStreaming]);
 
   useEffect(() => {
     measureNetworkSpeed();
@@ -428,6 +408,7 @@ export default function FacebookLiveStreamerMUI({
     }
   }, [qualityMode, isStreaming]);
 
+  // Overlay controls
   const toggleOverlay = useCallback((key) => {
     setOverlayConfig((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
@@ -441,388 +422,7 @@ export default function FacebookLiveStreamerMUI({
     );
   }, []);
 
-  // ⭐ OPTIMIZED: roundRect with proper scaling
-  const roundRect = useCallback((ctx, x, y, width, height, radius) => {
-    ctx.beginPath();
-    ctx.moveTo(x + radius, y);
-    ctx.lineTo(x + width - radius, y);
-    ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
-    ctx.lineTo(x + width, y + height - radius);
-    ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
-    ctx.lineTo(x + radius, y + height);
-    ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
-    ctx.lineTo(x, y + radius);
-    ctx.quadraticCurveTo(x, y, x + radius, y);
-    ctx.closePath();
-  }, []);
-
-  // ⭐ ALL OVERLAY FUNCTIONS - With responsive scaling
-  const drawScoreBoard = useCallback(
-    (ctx, w, h, data) => {
-      if (!data) return;
-      const scale = Math.min(w / 1280, 1);
-      const x = 20 * scale;
-      const y = 20 * scale;
-      const width = 320 * scale;
-      const height = 120 * scale;
-
-      ctx.save();
-      ctx.fillStyle = "rgba(11,15,20,0.9)";
-      ctx.shadowColor = "rgba(0,0,0,0.5)";
-      ctx.shadowBlur = 15 * scale;
-      roundRect(ctx, x, y, width, height, 12 * scale);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "#9AA4AF";
-      ctx.font = `500 ${11 * scale}px Arial`;
-      ctx.textAlign = "left";
-      ctx.fillText(
-        data?.tournament?.name || "Tournament",
-        x + 14 * scale,
-        y + 22 * scale
-      );
-
-      const teamA = data?.teams?.A?.name || "Team A";
-      const scoreA = data?.gameScores?.[data?.currentGame || 0]?.a || 0;
-      ctx.fillStyle = "#25C2A0";
-      ctx.beginPath();
-      ctx.arc(x + 18 * scale, y + 45 * scale, 5 * scale, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#E6EDF3";
-      ctx.font = `600 ${16 * scale}px Arial`;
-      ctx.textAlign = "left";
-      ctx.fillText(teamA, x + 32 * scale, y + 50 * scale);
-      ctx.font = `800 ${24 * scale}px Arial`;
-      ctx.textAlign = "right";
-      ctx.fillText(String(scoreA), x + width - 14 * scale, y + 50 * scale);
-
-      const teamB = data?.teams?.B?.name || "Team B";
-      const scoreB = data?.gameScores?.[data?.currentGame || 0]?.b || 0;
-      ctx.fillStyle = "#4F46E5";
-      ctx.beginPath();
-      ctx.arc(x + 18 * scale, y + 85 * scale, 5 * scale, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#E6EDF3";
-      ctx.font = `600 ${16 * scale}px Arial`;
-      ctx.textAlign = "left";
-      ctx.fillText(teamB, x + 32 * scale, y + 90 * scale);
-      ctx.font = `800 ${24 * scale}px Arial`;
-      ctx.textAlign = "right";
-      ctx.fillText(String(scoreB), x + width - 14 * scale, y + 90 * scale);
-      ctx.restore();
-    },
-    [roundRect]
-  );
-
-  const drawTimer = useCallback(
-    (ctx, w, h) => {
-      const time = streamTimeRef.current;
-      const minutes = Math.floor(time / 60)
-        .toString()
-        .padStart(2, "0");
-      const seconds = (time % 60).toString().padStart(2, "0");
-      const scale = Math.min(w / 1280, 1);
-      const x = w / 2 - 80 * scale;
-      const y = 20 * scale;
-
-      ctx.save();
-      ctx.fillStyle = "rgba(239,68,68,0.95)";
-      ctx.shadowColor = "rgba(0,0,0,0.5)";
-      ctx.shadowBlur = 15 * scale;
-      roundRect(ctx, x, y, 160 * scale, 50 * scale, 25 * scale);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "white";
-      ctx.font = `bold ${28 * scale}px monospace`;
-      ctx.textAlign = "center";
-      ctx.fillText(`${minutes}:${seconds}`, w / 2, y + 35 * scale);
-      ctx.restore();
-    },
-    [roundRect]
-  );
-
-  const drawTournamentName = useCallback(
-    (ctx, w, h, data) => {
-      if (!data) return;
-      const text = data?.tournament?.name || "Tournament 2025";
-      const scale = Math.min(w / 1280, 1);
-      const x = w - 320 * scale;
-      const y = 20 * scale;
-
-      ctx.save();
-      ctx.fillStyle = "rgba(11,15,20,0.85)";
-      roundRect(ctx, x, y, 300 * scale, 50 * scale, 10 * scale);
-      ctx.fill();
-      ctx.fillStyle = "#FFD700";
-      ctx.font = `bold ${18 * scale}px Arial`;
-      ctx.textAlign = "center";
-      ctx.fillText(text, x + 150 * scale, y + 32 * scale);
-      ctx.restore();
-    },
-    [roundRect]
-  );
-
-  const drawLogo = useCallback(
-    (ctx, w, h) => {
-      const scale = Math.min(w / 1280, 1);
-      const x = w - 170 * scale;
-      const y = 90 * scale;
-      const size = 150 * scale;
-
-      ctx.save();
-      ctx.fillStyle = "rgba(255,255,255,0.95)";
-      ctx.shadowColor = "rgba(0,0,0,0.3)";
-      ctx.shadowBlur = 10 * scale;
-      roundRect(ctx, x, y, size, 60 * scale, 8 * scale);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "#667eea";
-      ctx.font = `bold ${24 * scale}px Arial`;
-      ctx.textAlign = "center";
-      ctx.fillText("YOUR LOGO", x + size / 2, y + 38 * scale);
-      ctx.restore();
-    },
-    [roundRect]
-  );
-
-  const drawSponsors = useCallback(
-    (ctx, w, h) => {
-      const sponsors = ["SPONSOR 1", "SPONSOR 2", "SPONSOR 3"];
-      const scale = Math.min(w / 1280, 1);
-      const x = w - 250 * scale;
-      const y = h - 120 * scale;
-
-      ctx.save();
-      ctx.fillStyle = "rgba(255,255,255,0.9)";
-      roundRect(ctx, x, y, 230 * scale, 100 * scale, 8 * scale);
-      ctx.fill();
-      ctx.fillStyle = "#333";
-      ctx.font = `bold ${12 * scale}px Arial`;
-      ctx.textAlign = "center";
-      sponsors.forEach((sponsor, i) =>
-        ctx.fillText(sponsor, x + 115 * scale, y + (25 + i * 25) * scale)
-      );
-      ctx.restore();
-    },
-    [roundRect]
-  );
-
-  const drawLowerThird = useCallback(
-    (ctx, w, h) => {
-      const scale = Math.min(w / 1280, 1);
-      const x = 40 * scale;
-      const y = h - 100 * scale;
-      const width = 500 * scale;
-
-      ctx.save();
-      const gradient = ctx.createLinearGradient(x, y, x + width, y);
-      gradient.addColorStop(0, "rgba(239,68,68,0.95)");
-      gradient.addColorStop(1, "rgba(220,38,38,0.95)");
-      ctx.fillStyle = gradient;
-      ctx.shadowColor = "rgba(0,0,0,0.5)";
-      ctx.shadowBlur = 15 * scale;
-      roundRect(ctx, x, y, width, 70 * scale, 35 * scale);
-      ctx.fill();
-      ctx.fillStyle = "white";
-      ctx.fillRect(x, y, 4 * scale, 70 * scale);
-      ctx.shadowBlur = 0;
-      ctx.font = `bold ${24 * scale}px Arial`;
-      ctx.textAlign = "left";
-      ctx.fillText("Player Name", x + 20 * scale, y + 30 * scale);
-      ctx.font = `${16 * scale}px Arial`;
-      ctx.fillStyle = "rgba(255,255,255,0.9)";
-      ctx.fillText("Champion • Team A", x + 20 * scale, y + 55 * scale);
-      ctx.restore();
-    },
-    [roundRect]
-  );
-
-  const drawSocialMedia = useCallback(
-    (ctx, w, h) => {
-      const socials = [
-        { icon: "📱", text: "@YourChannel" },
-        { icon: "🐦", text: "@YourTwitter" },
-        { icon: "📺", text: "YourStream" },
-      ];
-      const scale = Math.min(w / 1280, 1);
-      const x = 20 * scale;
-      const y = h - 150 * scale;
-
-      ctx.save();
-      ctx.fillStyle = "rgba(11,15,20,0.85)";
-      roundRect(ctx, x, y, 280 * scale, 130 * scale, 10 * scale);
-      ctx.fill();
-      socials.forEach((social, i) => {
-        ctx.fillStyle = "white";
-        ctx.font = `${20 * scale}px Arial`;
-        ctx.textAlign = "left";
-        ctx.fillText(social.icon, x + 15 * scale, y + (35 + i * 40) * scale);
-        ctx.font = `${14 * scale}px Arial`;
-        ctx.fillText(social.text, x + 50 * scale, y + (35 + i * 40) * scale);
-      });
-      ctx.restore();
-    },
-    [roundRect]
-  );
-
-  const drawQRCode = useCallback(
-    (ctx, w, h) => {
-      const scale = Math.min(w / 1280, 1);
-      const x = w - 130 * scale;
-      const y = h - 130 * scale;
-      const size = 110 * scale;
-
-      ctx.save();
-      ctx.fillStyle = "white";
-      ctx.shadowColor = "rgba(0,0,0,0.3)";
-      ctx.shadowBlur = 10 * scale;
-      roundRect(ctx, x, y, size, size, 8 * scale);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "#000";
-      for (let i = 0; i < 8; i++)
-        for (let j = 0; j < 8; j++) {
-          if ((i + j) % 2 === 0)
-            ctx.fillRect(
-              x + (10 + i * 11) * scale,
-              y + (10 + j * 11) * scale,
-              10 * scale,
-              10 * scale
-            );
-        }
-      ctx.restore();
-    },
-    [roundRect]
-  );
-
-  const drawFrameDecoration = useCallback((ctx, w, h) => {
-    ctx.save();
-    const g1 = ctx.createLinearGradient(0, 0, w, 0);
-    g1.addColorStop(0, "rgba(102,126,234,0.8)");
-    g1.addColorStop(1, "rgba(118,75,162,0.8)");
-    ctx.fillStyle = g1;
-    ctx.fillRect(0, 0, w, 3);
-    ctx.fillRect(0, h - 3, w, 3);
-    const g2 = ctx.createLinearGradient(0, 0, 0, h);
-    g2.addColorStop(0, "rgba(102,126,234,0.8)");
-    g2.addColorStop(1, "rgba(118,75,162,0.8)");
-    ctx.fillStyle = g2;
-    ctx.fillRect(0, 0, 3, h);
-    ctx.fillRect(w - 3, 0, 3, h);
-    ctx.fillStyle = "rgba(255,215,0,0.9)";
-    [
-      [10, 10],
-      [w - 20, 10],
-      [10, h - 20],
-      [w - 20, h - 20],
-    ].forEach(([x, y]) => {
-      ctx.beginPath();
-      ctx.arc(x, y, 5, 0, Math.PI * 2);
-      ctx.fill();
-    });
-    ctx.restore();
-  }, []);
-
-  const drawLiveBadge = useCallback(
-    (ctx, w, h) => {
-      const scale = Math.min(w / 1280, 1);
-      const x = w - 150 * scale;
-      const y = 20 * scale;
-
-      ctx.save();
-      ctx.fillStyle = "rgba(239,68,68,0.95)";
-      ctx.shadowColor = "rgba(239,68,68,0.5)";
-      ctx.shadowBlur = 15 * scale;
-      roundRect(ctx, x, y, 130 * scale, 45 * scale, 22 * scale);
-      ctx.fill();
-      const pulseSize = (8 + Math.sin(Date.now() / 300) * 2) * scale;
-      ctx.fillStyle = "white";
-      ctx.beginPath();
-      ctx.arc(x + 25 * scale, y + 22 * scale, pulseSize, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = "white";
-      ctx.font = `bold ${20 * scale}px Arial`;
-      ctx.textAlign = "left";
-      ctx.fillText("LIVE", x + 50 * scale, y + 30 * scale);
-      ctx.restore();
-    },
-    [roundRect]
-  );
-
-  const drawViewerCount = useCallback(
-    (ctx, w, h) => {
-      const viewers = Math.floor(Math.random() * 1000 + 500);
-      const scale = Math.min(w / 1280, 1);
-      const x = w - 150 * scale;
-      const y = 75 * scale;
-
-      ctx.save();
-      ctx.fillStyle = "rgba(11,15,20,0.85)";
-      roundRect(ctx, x, y, 130 * scale, 40 * scale, 20 * scale);
-      ctx.fill();
-      ctx.fillStyle = "white";
-      ctx.font = `${18 * scale}px Arial`;
-      ctx.textAlign = "left";
-      ctx.fillText("👥", x + 15 * scale, y + 27 * scale);
-      ctx.font = `bold ${16 * scale}px Arial`;
-      ctx.fillText(
-        `${viewers.toLocaleString()}`,
-        x + 45 * scale,
-        y + 27 * scale
-      );
-      ctx.restore();
-    },
-    [roundRect]
-  );
-
-  // ⭐ MEMOIZED DRAW FRAME - Prevents unnecessary re-creation
-  const drawFrame = useMemo(() => {
-    return (ctx, video, w, h) => {
-      if (video.readyState >= 2 && video.videoWidth) {
-        const vw = video.videoWidth;
-        const vh = video.videoHeight;
-        const scale = Math.max(w / vw, h / vh);
-        const sw = w / scale;
-        const sh = h / scale;
-        const sx = (vw - sw) / 2;
-        const sy = (vh - sh) / 2;
-        ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
-      } else {
-        ctx.fillStyle = "#000";
-        ctx.fillRect(0, 0, w, h);
-      }
-
-      if (overlayConfig.scoreBoard && overlayData)
-        drawScoreBoard(ctx, w, h, overlayData);
-      if (overlayConfig.timer) drawTimer(ctx, w, h);
-      if (overlayConfig.tournamentName && overlayData)
-        drawTournamentName(ctx, w, h, overlayData);
-      if (overlayConfig.logo) drawLogo(ctx, w, h);
-      if (overlayConfig.sponsors) drawSponsors(ctx, w, h);
-      if (overlayConfig.lowerThird) drawLowerThird(ctx, w, h);
-      if (overlayConfig.socialMedia) drawSocialMedia(ctx, w, h);
-      if (overlayConfig.qrCode) drawQRCode(ctx, w, h);
-      if (overlayConfig.frameDecor) drawFrameDecoration(ctx, w, h);
-      if (overlayConfig.liveBadge) drawLiveBadge(ctx, w, h);
-      if (overlayConfig.viewerCount) drawViewerCount(ctx, w, h);
-    };
-  }, [
-    overlayConfig,
-    overlayData,
-    drawScoreBoard,
-    drawTimer,
-    drawTournamentName,
-    drawLogo,
-    drawSponsors,
-    drawLowerThird,
-    drawSocialMedia,
-    drawQRCode,
-    drawFrameDecoration,
-    drawLiveBadge,
-    drawViewerCount,
-  ]);
-
+  // Stream timer
   useEffect(() => {
     let interval = null;
     if (isStreaming) {
@@ -836,6 +436,7 @@ export default function FacebookLiveStreamerMUI({
     };
   }, [isStreaming]);
 
+  // Camera management
   const enumerateVideoDevices = async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -974,6 +575,7 @@ export default function FacebookLiveStreamerMUI({
     };
   }, [qualityMode]);
 
+  // Fetch overlay data
   useEffect(() => {
     if (!matchId) return;
     let timer;
@@ -995,7 +597,7 @@ export default function FacebookLiveStreamerMUI({
     return () => clearInterval(timer);
   }, [matchId, apiUrl]);
 
-  // ⭐ OPTIMIZED PREVIEW LOOP - Smooth rendering at fixed FPS
+  // ===== PREVIEW LOOP - SỬ DỤNG renderOverlays() =====
   useEffect(() => {
     const canvas = previewCanvasRef.current;
     const video = videoRef.current;
@@ -1016,7 +618,16 @@ export default function FacebookLiveStreamerMUI({
       if (!running) return;
       const deltaTime = currentTime - lastTime;
       if (deltaTime >= frameTime) {
-        drawFrame(ctx, video, canvas.width, canvas.height);
+        // ===== GỌI RENDER OVERLAYS TỪ MODULE =====
+        renderOverlays(
+          ctx,
+          video,
+          canvas.width,
+          canvas.height,
+          overlayConfig,
+          overlayData,
+          streamTimeRef.current
+        );
         lastTime = currentTime - (deltaTime % frameTime);
       }
       previewLoopRef.current = requestAnimationFrame(render);
@@ -1031,9 +642,11 @@ export default function FacebookLiveStreamerMUI({
         previewLoopRef.current = null;
       }
     };
-  }, [drawFrame]);
+  }, [overlayConfig, overlayData]);
 
+  // Encoding functions (giữ nguyên như cũ)
   const convertToAnnexB = (data, description, isKeyframe) => {
+    // ... giữ nguyên code cũ
     const startCode = new Uint8Array([0, 0, 0, 1]);
     const result = [];
     if (isKeyframe && description) {
@@ -1094,7 +707,6 @@ export default function FacebookLiveStreamerMUI({
     }
     setLoading(true);
     try {
-
       setStatus("Đang kết nối WebSocket...");
       const ws = await new Promise((resolve, reject) => {
         const socket = new WebSocket(wsUrl);
@@ -1116,6 +728,7 @@ export default function FacebookLiveStreamerMUI({
       setIsConnected(true);
 
       setStatus("Đang khởi tạo H264 encoder...");
+      const preset = QUALITY_PRESETS[qualityMode];
       const encoder = new VideoEncoder({
         output: (chunk, metadata) => {
           if (ws.readyState !== WebSocket.OPEN) return;
@@ -1252,7 +865,7 @@ export default function FacebookLiveStreamerMUI({
                       const buf = await e.data.arrayBuffer();
                       const u8 = new Uint8Array(buf);
                       const out = new Uint8Array(u8.length + 1);
-                      out[0] = 0x01; // mark as audio packet
+                      out[0] = 0x01;
                       out.set(u8, 1);
                       wsRef.current.send(out.buffer);
                     } catch {}
@@ -1295,7 +908,6 @@ export default function FacebookLiveStreamerMUI({
       let nextFrameTimeMicros = performance.now() * 1000;
       lastFrameTimestampRef.current = nextFrameTimeMicros;
 
-      const preset = QUALITY_PRESETS[qualityMode];
       const encodeLoop = (nowMillis) => {
         if (!encodingLoopRef.current || !isEncodingRef.current) return;
         const nowMicros = nowMillis * 1000;
@@ -1317,7 +929,16 @@ export default function FacebookLiveStreamerMUI({
               encodingLoopRef.current = null;
               return;
             }
-            drawFrame(ctx, video, canvas.width, canvas.height);
+            // ===== GỌI RENDER OVERLAYS TỪ MODULE =====
+            renderOverlays(
+              ctx,
+              video,
+              canvas.width,
+              canvas.height,
+              overlayConfig,
+              overlayData,
+              streamTimeRef.current
+            );
             const frame = new VideoFrame(canvas, {
               timestamp: nextFrameTimeMicros,
               alpha: "discard",
@@ -1416,6 +1037,7 @@ export default function FacebookLiveStreamerMUI({
   const activeOverlayCount =
     Object.values(overlayConfig).filter(Boolean).length;
 
+  // ===== OVERLAY CONTROLS COMPONENT =====
   const OverlayControlsCard = React.memo(() => (
     <Card elevation={2} sx={{ mb: { xs: 2, md: 3 } }}>
       <CardContent sx={{ p: { xs: 2, md: 3 } }}>
@@ -1636,6 +1258,7 @@ export default function FacebookLiveStreamerMUI({
           elevation={6}
           sx={{ borderRadius: { xs: 2, md: 3 }, overflow: "hidden" }}
         >
+          {/* Header - giữ nguyên như cũ */}
           <Box
             sx={{
               display: "flex",
@@ -1693,9 +1316,11 @@ export default function FacebookLiveStreamerMUI({
             )}
           </Box>
 
+          {/* Main Content - phần UI giữ nguyên */}
           <Box sx={{ p: { xs: 2, md: 3 } }}>
             <Grid container spacing={{ xs: 2, md: 3 }}>
               <Grid item xs={12} lg={8}>
+                {/* Camera Preview */}
                 <Card elevation={2} sx={{ mb: { xs: 2, md: 3 } }}>
                   <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                     <Box
@@ -1759,6 +1384,7 @@ export default function FacebookLiveStreamerMUI({
                   </CardContent>
                 </Card>
 
+                {/* Stream Preview */}
                 <Card elevation={2}>
                   <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                     <Box
@@ -1868,6 +1494,7 @@ export default function FacebookLiveStreamerMUI({
               </Grid>
 
               <Grid item xs={12} lg={4}>
+                {/* Quality Settings - giữ nguyên */}
                 <Card elevation={2} sx={{ mb: { xs: 2, md: 3 } }}>
                   <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                     <Box
@@ -2071,8 +1698,10 @@ export default function FacebookLiveStreamerMUI({
                   </CardContent>
                 </Card>
 
+                {/* Overlay Controls - Sử dụng component */}
                 <OverlayControlsCard />
 
+                {/* Stream Settings - giữ nguyên phần còn lại */}
                 <Card elevation={2} sx={{ mb: { xs: 2, md: 3 } }}>
                   <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                     <Box
@@ -2311,6 +1940,11 @@ export default function FacebookLiveStreamerMUI({
                           <li>✅ 4 quality presets (360p-1080p)</li>
                           <li>✅ Perfect audio sync (128k)</li>
                           <li>✅ Zero flicker overlay rendering</li>
+                          <li>
+                            <strong>
+                              ✅ Overlay system riêng - dễ customize!
+                            </strong>
+                          </li>
                         </ul>
                       </Typography>
                     </Alert>

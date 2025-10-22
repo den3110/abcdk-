@@ -1176,9 +1176,10 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     "stage",
     "order",
     "drawRounds",
-    "meta.drawSize",
-    "meta.maxRounds",
-    "meta.expectedFirstRoundMatches",
+
+    // ⬇️ lấy toàn bộ meta của bracket
+    "meta",
+
     "groups._id",
     "groups.name",
     "groups.expectedSize",
@@ -1186,12 +1187,15 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     "noRankDelta",
     "scheduler",
     "drawSettings",
+
+    // giữ nguyên các phần config đang dùng
     "config.rules",
     "config.roundRobin",
     "config.doubleElim",
     "config.swiss",
     "config.gsl",
     "config.roundElim",
+
     "createdAt",
     "tournament",
   ].join(" ");
@@ -1478,7 +1482,7 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     console.error("[getMatchPublic] prevBracket error:", e?.message || e);
   }
 
-  return res.json({...m, code: m.codeDisplay });
+  return res.json({ ...m, code: m.codeDisplay });
 });
 
 export { getMatchesByTournament };

@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import BrowserStudio from "./BrowserStudio";
 import ScoreOverlay from "../PickleBall/ScoreOverlay";
+import FacebookLiveStreamerMUI from "../../components/FacebookLiveStreamer/FacebookLiveStreamerMUI";
 
 export default function LiveStudioPage() {
   const sp = new URLSearchParams(window.location.search);
@@ -25,10 +26,10 @@ export default function LiveStudioPage() {
   // apiUrl: .env full -> .env base -> same-origin
   const apiUrl = useMemo(() => {
     const full = import.meta.env.VITE_API_URL + "/api/overlay/match";
-    console.log(full)
+    console.log(full);
     if (full) return full.replace(/\/+$/, "");
 
-    const apiBase = import.meta.env.VITE_API_URL
+    const apiBase = import.meta.env.VITE_API_URL;
 
     if (apiBase) return `${apiBase.replace(/\/+$/, "")}/api/overlay/match`;
 
@@ -38,18 +39,33 @@ export default function LiveStudioPage() {
   const overlayUrl = `${window.location.origin}/overlay/score?matchId=${matchId}&theme=dark&size=md&showSets=1&autoNext=1`;
 
   return (
-    <BrowserStudio
-      matchId={matchId}
-      fbServer={fbServer}
-      fbKey={fbKey}
-      wsUrl={wsUrl}
-      apiUrl={apiUrl}
-      width={1280}
-      height={720}
-      overlayFps={8}
-      outFps={30}
-      overlayComponent={ScoreOverlay}
-      overlayUrl={overlayUrl}
-    />
+    <>
+      {/* <BrowserStudio
+        matchId={matchId}
+        fbServer={fbServer}
+        fbKey={fbKey}
+        // wsUrl={wsUrl}
+        apiUrl={apiUrl}
+        width={1280}
+        height={720}
+        overlayFps={8}
+        outFps={30}
+        overlayComponent={ScoreOverlay}
+        overlayUrl={overlayUrl}
+      /> */}
+      <FacebookLiveStreamerMUI
+        matchId={matchId}
+        fbServer={fbServer}
+        fbKey={fbKey}
+        // wsUrl={wsUrl}
+        apiUrl={apiUrl}
+        width={1280}
+        height={720}
+        overlayFps={8}
+        outFps={30}
+        overlayComponent={ScoreOverlay}
+        overlayUrl={overlayUrl}
+      />
+    </>
   );
 }

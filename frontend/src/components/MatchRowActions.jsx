@@ -1,4 +1,8 @@
 // components/admin/matches/MatchRowActions.jsx
+// REWRITTEN: build Studio URL with d64 (base64 JSON destinations) + convenience params
+// - Prefill popup from match.facebookLive / match.youtubeLive when no API call
+// - "Open Studio" works even when backend doesn't return studio_url (fallback /live/studio)
+
 import { useState, useMemo } from "react";
 import {
   Button,
@@ -50,6 +54,185 @@ function LineCopy({ label, value, hidden = false, onCopy }) {
   );
 }
 
+// --- Utils -----------------------------------------------------------------
+const encodeB64Json = (obj) => {
+  try {
+    return btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
+  } catch {
+    return "";
+  }
+};
+
+const splitRtmpUrl = (url) => {
+  if (!url || !/^rtmps?:\/\//i.test(url))
+    return { server_url: "", stream_key: "" };
+  try {
+    const idx = url.lastIndexOf("/");
+    if (idx === -1) return { server_url: url, stream_key: "" };
+    return { server_url: url.slice(0, idx), stream_key: url.slice(idx + 1) };
+  } catch {
+    return { server_url: "", stream_key: "" };
+  }
+};
+
+// Normalize an item into { platform, server_url, stream_key, secure_stream_url, permalink_url, watch_url, id }
+const normDest = (platform, raw = {}) => {
+  const p = (platform || raw.platform || "").toLowerCase();
+  let server_url = raw.server_url || "";
+  let stream_key = raw.stream_key || "";
+  const secure_stream_url = raw.secure_stream_url || "";
+
+  if ((!server_url || !stream_key) && secure_stream_url) {
+    const s = splitRtmpUrl(secure_stream_url);
+    server_url = server_url || s.server_url;
+    stream_key = stream_key || s.stream_key;
+  }
+
+  return {
+    platform: p,
+    id: raw.id,
+    server_url,
+    stream_key,
+    secure_stream_url,
+    permalink_url: raw.permalink_url,
+    watch_url: raw.watch_url,
+    room_url: raw.room_url,
+    extras: raw.extras,
+  };
+};
+
+// Pull destinations from API data first; fallback to match.* if needed
+const extractDestinations = (data, match) => {
+  const out = [];
+
+  // 1) API destinations
+  if (Array.isArray(data?.destinations) && data.destinations.length) {
+    data.destinations.forEach((d) => out.push(normDest(d.platform, d)));
+  }
+
+  // 2) Root-level primary (some backends return primary at root)
+  if (
+    (data?.server_url || data?.secure_stream_url || data?.stream_key) &&
+    !out.length
+  ) {
+    out.push(normDest("facebook", data));
+  }
+
+  // 3) Fallback from match snapshot (when just opening popup)
+  const fb = match?.facebookLive || {};
+  const yt = match?.youtubeLive || {};
+  const tt = match?.tiktokLive || {};
+  const hasAnyFb =
+    fb.server_url || fb.stream_key || fb.secure_stream_url || fb.permalink_url;
+  const hasAnyYt = yt.server_url || yt.stream_key || yt.watch_url;
+  const hasAnyTt =
+    tt.server_url || tt.stream_key || tt.room_url || tt.secure_stream_url;
+
+  if (!out.length && (hasAnyFb || hasAnyYt || hasAnyTt)) {
+    if (hasAnyFb) out.push(normDest("facebook", fb));
+    if (hasAnyYt) out.push(normDest("youtube", yt));
+    if (hasAnyTt) out.push(normDest("tiktok", tt));
+  }
+
+  // Ensure unique by platform+id+server_url+stream_key to avoid duplicates
+  const seen = new Set();
+  return out.filter((d) => {
+    const k = [d.platform, d.id, d.server_url, d.stream_key].join("|");
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+};
+
+// Build Studio URL with d64 + convenience params for quick prefill in Studio
+// Helper: detect local/dev hostnames
+const isLocalHost = (host) => {
+  if (!host) return false;
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    /^192\.168\./.test(host) ||
+    /^10\./.test(host) ||
+    /\.local$/.test(host)
+  );
+};
+
+const buildStudioUrl = (baseUrl, data, match) => {
+  // nếu đang chạy local thì origin = http://localhost:3000
+  const wantsLocal =
+    typeof window !== "undefined" && isLocalHost(window.location.hostname);
+  const origin =
+    wantsLocal && typeof window !== "undefined"
+      ? "http://localhost:3000"
+      : (typeof window !== "undefined" && window.location.origin) ||
+        "http://localhost:3000";
+
+  // base mặc định là route nội bộ
+  let base = baseUrl || "/live/studio";
+
+  // Nếu baseUrl là absolute và đang local → giữ lại path/search, thay origin = localhost:3000
+  if (typeof base === "string" && /^https?:\/\//i.test(base) && wantsLocal) {
+    try {
+      const parsed = new URL(base);
+      base = parsed.pathname + (parsed.search || "");
+    } catch {}
+  }
+
+  const u = new URL(base, origin);
+
+  if (match?._id) u.searchParams.set("matchId", match._id);
+
+  const dests = extractDestinations(data, match);
+  if (dests.length) {
+    // chỉ giữ các khóa cần thiết để prefill
+    const minimal = dests.map((d) => ({
+      platform: d.platform,
+      server_url: d.server_url || d.secure_stream_url || "",
+      stream_key: d.stream_key || "",
+      secure_stream_url: d.secure_stream_url || "",
+    }));
+
+    const d64 = encodeB64Json(minimal);
+    if (d64) u.searchParams.set("d64", d64);
+
+    // Thêm các tiện-param trực tiếp
+    const fb = dests.find((d) => d.platform === "facebook");
+    if (fb) {
+      let fbKey = fb.stream_key;
+      if (!fbKey && fb.secure_stream_url)
+        fbKey = splitRtmpUrl(fb.secure_stream_url).stream_key;
+      if (fbKey) u.searchParams.set("key", fbKey);
+    }
+
+    const yt = dests.find((d) => d.platform === "youtube");
+    if (yt && (yt.server_url || yt.stream_key || yt.secure_stream_url)) {
+      const y =
+        yt.server_url && yt.stream_key
+          ? yt
+          : splitRtmpUrl(yt.secure_stream_url);
+      const ysrv = yt.server_url || y.server_url;
+      const ykey = yt.stream_key || y.stream_key;
+      if (ysrv) u.searchParams.set("yt_server", ysrv);
+      if (ykey) u.searchParams.set("yt", ykey);
+    }
+
+    const tt = dests.find((d) => d.platform === "tiktok");
+    if (tt && (tt.server_url || tt.stream_key || tt.secure_stream_url)) {
+      const t =
+        tt.server_url && tt.stream_key
+          ? tt
+          : splitRtmpUrl(tt.secure_stream_url);
+      const tsrv = tt.server_url || t.server_url;
+      const tkey = tt.stream_key || t.stream_key;
+      if (tsrv) u.searchParams.set("tt_server", tsrv);
+      if (tkey) u.searchParams.set("tt", tkey);
+    }
+  }
+
+  return u.toString();
+};
+
 export default function MatchRowActions({ match }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState(null);
@@ -62,14 +245,18 @@ export default function MatchRowActions({ match }) {
   const prefillFromMatch = () => {
     const fb = match?.facebookLive || {};
     const yt = match?.youtubeLive || {};
+    const tt = match?.tiktokLive || {};
+
     const hasAnyFb =
       fb.server_url ||
       fb.stream_key ||
       fb.permalink_url ||
       fb.secure_stream_url;
     const hasAnyYt = yt.server_url || yt.stream_key || yt.watch_url;
+    const hasAnyTt =
+      tt.server_url || tt.stream_key || tt.room_url || tt.secure_stream_url;
 
-    if (hasAnyFb || hasAnyYt) {
+    if (hasAnyFb || hasAnyYt || hasAnyTt) {
       const destinations = [];
       if (hasAnyFb) {
         destinations.push({
@@ -77,6 +264,7 @@ export default function MatchRowActions({ match }) {
           id: fb.id,
           server_url: fb.server_url,
           stream_key: fb.stream_key,
+          secure_stream_url: fb.secure_stream_url,
           permalink_url: fb.permalink_url,
           extras: { pageId: fb.pageId },
         });
@@ -88,6 +276,17 @@ export default function MatchRowActions({ match }) {
           server_url: yt.server_url,
           stream_key: yt.stream_key,
           watch_url: yt.watch_url,
+          secure_stream_url: yt.secure_stream_url,
+        });
+      }
+      if (hasAnyTt) {
+        destinations.push({
+          platform: "tiktok",
+          id: tt.id,
+          server_url: tt.server_url,
+          stream_key: tt.stream_key,
+          room_url: tt.room_url,
+          secure_stream_url: tt.secure_stream_url,
         });
       }
 
@@ -114,7 +313,6 @@ export default function MatchRowActions({ match }) {
         destinations: destinations.length
           ? destinations
           : prev?.destinations || [],
-        // ❌ KHÔNG lưu/hiện errors nữa
         note: prev?.note || "",
       }));
     }
@@ -144,6 +342,17 @@ export default function MatchRowActions({ match }) {
 
   const hasAnyDestination = (data?.destinations || []).length > 0;
 
+  // Studio URL (works with or without backend studio_url)
+  const studioHref = useMemo(() => {
+    return buildStudioUrl(data?.studio_url, data, match);
+  }, [data, match]);
+
+  // Also allow Studio from match snapshot when no data yet
+  const studioHrefFromMatch = useMemo(() => {
+    if (data) return null;
+    return buildStudioUrl(null, null, match);
+  }, [data, match]);
+
   return (
     <>
       <Stack direction="row" spacing={1}>
@@ -166,6 +375,20 @@ export default function MatchRowActions({ match }) {
         >
           Mở popup LIVE
         </Button>
+
+        {/* Quick open Studio directly (optional) */}
+        {studioHrefFromMatch && (
+          <Button
+            size="small"
+            startIcon={<OpenInNewIcon />}
+            href={studioHrefFromMatch}
+            target="_blank"
+            variant="text"
+            title="Open Studio với dữ liệu hiện có"
+          >
+            Open Studio
+          </Button>
+        )}
       </Stack>
 
       <Dialog
@@ -224,15 +447,13 @@ export default function MatchRowActions({ match }) {
                 />
 
                 <Stack direction="row" spacing={1}>
-                  {data.studio_url && (
-                    <Button
-                      startIcon={<OpenInNewIcon />}
-                      href={data.studio_url}
-                      target="_blank"
-                    >
-                      Open Studio
-                    </Button>
-                  )}
+                  <Button
+                    startIcon={<OpenInNewIcon />}
+                    href={studioHref}
+                    target="_blank"
+                  >
+                    Open Studio
+                  </Button>
                   {primaryLink && (
                     <Button
                       startIcon={<OpenInNewIcon />}

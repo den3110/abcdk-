@@ -1,291 +1,272 @@
 // services/liveVerify.service.js
-// ✅ Verify livestream thật trên Facebook & YouTube, KHÔNG dùng ENV trực tiếp
-// ✅ Lấy cấu hình qua config.service.js, tự refresh OAuth access token cho YouTube
-// ✅ FbToken.pageToken theo pageId, fallback token khác còn hạn
-// ⚠️ Node >= 18: có global fetch/AbortController. Node thấp hơn thì cài `node-fetch`.
+// FB & YT: verify chính chủ API; TikTok: optional (không official).
+// Yêu cầu Node >= 18 (có global fetch). Nếu Node < 18: `npm i node-fetch` và `import fetch from "node-fetch"`
 
-import FbToken from "../models/fbTokenModel.js";
-import { getCfgStr, setCfg } from "./config.service.js";
+import { getCfgStr } from "./config.service.js";
+import FbToken from "../models/fbTokenModel.js"; // bạn đã có FbTokenSchema
 
-// ───────────── in-memory cache (TTL ngắn) ─────────────
-const memoryCache = new Map(); // key -> { exp:number, data:any }
-const DEFAULT_TTL_MS = 15_000;
+/* ─────────────────────────  COMMON UTILS  ───────────────────────── */
+function ok(data = null) {
+  return { ok: true, raw: data };
+}
+function ng(reason = "", raw = null) {
+  return { ok: false, reason, raw };
+}
 
-function getCache(key) {
-  const hit = memoryCache.get(key);
-  if (!hit) return null;
-  if (hit.exp < Date.now()) {
-    memoryCache.delete(key);
-    return null;
+async function fetchJSON(url, opt = {}) {
+  const res = await fetch(url, opt);
+  const text = await res.text();
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    json = { _raw: text };
   }
-  return hit.data;
-}
-function setCache(key, data, ttlMs = DEFAULT_TTL_MS) {
-  memoryCache.set(key, { exp: Date.now() + ttlMs, data });
+  if (!res.ok) return Promise.reject({ status: res.status, json });
+  return json;
 }
 
-// ───────────── helpers parse Facebook URL ─────────────
+/* ─────────────────────────  FACEBOOK VERIFY  ─────────────────────────
+   Dùng Page Token từ FbToken (ưu tiên), fallback long-lived user tokens (CSV)
+   GRAPH_VER lấy từ config (mặc định v24.0)
+*/
+async function pickFacebookAccessTokens() {
+  const tokens = [];
+
+  // 1) Page tokens còn hạn (hoặc Expires: never)
+  const pages = await FbToken.find({
+    $or: [
+      { pageTokenIsNever: true },
+      { pageTokenExpiresAt: { $exists: false } },
+      { pageTokenExpiresAt: null },
+      { pageTokenExpiresAt: { $gte: new Date() } },
+    ],
+    pageToken: { $exists: true, $ne: "" },
+  })
+    .select("pageToken pageName pageId")
+    .lean();
+
+  for (const p of pages) {
+    tokens.push({
+      type: "page",
+      token: p.pageToken,
+      pageId: p.pageId,
+      pageName: p.pageName,
+    });
+  }
+
+  // 2) Long-lived user tokens (CSV)
+  const csv = (await getCfgStr("FB_BOOT_LONG_USER_TOKEN", "")).trim();
+  if (csv) {
+    for (const t of csv
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)) {
+      tokens.push({ type: "user", token: t });
+    }
+  }
+
+  return tokens;
+}
+
+export async function verifyFacebookLiveWithBestToken({
+  liveId = null,
+  pageId = null,
+} = {}) {
+  const GRAPH_VER = (await getCfgStr("GRAPH_VER", "v24.0")) || "v24.0";
+  const cands = await pickFacebookAccessTokens();
+  if (cands.length === 0) return ng("no_facebook_tokens");
+
+  // thử từng token cho tới khi có phản hồi hợp lệ
+  for (const cand of cands) {
+    const token = cand.token;
+
+    try {
+      if (liveId) {
+        // Xác minh trực tiếp live video
+        const url = `https://graph.facebook.com/${GRAPH_VER}/${encodeURIComponent(
+          liveId
+        )}?fields=id,status,permalink_url,from{id,name},creation_time,embed_html&access_token=${encodeURIComponent(
+          token
+        )}`;
+        const j = await fetchJSON(url);
+        const status = String(j?.live_status || "").toUpperCase();
+        const live = status === "LIVE" || status === "LIVE_NOW";
+        if (live) return ok(j);
+        // Nếu không live → tiếp tục thử token khác (đôi khi quyền hạn khác nhau)
+      }
+
+      // // fallback: nếu không có liveId mà có pageId, xem live_videos của page
+      // if (!liveId && pageId) {
+      //   const url = `https://graph.facebook.com/${GRAPH_VER}/${encodeURIComponent(
+      //     pageId
+      //   )}/live_videos?fields=id,live_status,permalink_url,creation_time&limit=5&access_token=${encodeURIComponent(
+      //     token
+      //   )}`;
+      //   const j = await fetchJSON(url);
+      //   const liveItem = (j?.data || []).find((it) => {
+      //     const s = String(it?.live_status || "").toUpperCase();
+      //     return s === "LIVE" || s === "LIVE_NOW";
+      //   });
+      //   if (liveItem) return ok(liveItem);
+      // }
+    } catch (e) {
+      console.log(e)
+      // tiếp tục thử token kế tiếp
+    }
+  }
+
+  return ng("not_live_or_no_valid_token");
+}
+
+/* ─────────────────────────  YOUTUBE VERIFY  ─────────────────────────
+   Có 2 đường:
+   - API key (YOUTUBE_API_KEY) → dễ nhất
+   - OAuth access token (tự tạo từ YOUTUBE_REFRESH_TOKEN + GOOGLE_CLIENT_ID/SECRET)
+
+   Ưu tiên:
+   1) API key nếu có
+   2) OAuth nếu có refresh token + client credentials
+*/
+
+let YT_ACCESS_CACHE = { token: null, exp: 0 };
+
+async function ensureYouTubeAccessToken() {
+  // nếu có API key thì không cần OAuth token
+  const apiKey = (await getCfgStr("YOUTUBE_API_KEY", "")).trim();
+  if (apiKey) return { type: "key", key: apiKey };
+
+  // OAuth
+  const refresh_token = (await getCfgStr("YOUTUBE_REFRESH_TOKEN", "")).trim();
+  const client_id = (await getCfgStr("GOOGLE_CLIENT_ID", "")).trim();
+  const client_secret = (await getCfgStr("GOOGLE_CLIENT_SECRET", "")).trim();
+  if (!refresh_token || !client_id || !client_secret) return { type: "none" };
+
+  const now = Date.now();
+  if (YT_ACCESS_CACHE.token && now < YT_ACCESS_CACHE.exp - 60_000) {
+    return { type: "oauth", token: YT_ACCESS_CACHE.token };
+  }
+
+  const form = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token,
+    client_id,
+    client_secret,
+  });
+
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: form.toString(),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.access_token) {
+    return { type: "none" };
+  }
+  YT_ACCESS_CACHE = {
+    token: json.access_token,
+    exp: Date.now() + (json.expires_in || 3600) * 1000,
+  };
+  return { type: "oauth", token: json.access_token };
+}
+
+async function ytGet(path, params) {
+  const auth = await ensureYouTubeAccessToken();
+  const url = new URL(`https://www.googleapis.com/youtube/v3/${path}`);
+  for (const [k, v] of Object.entries(params || {})) url.searchParams.set(k, v);
+
+  const headers = {};
+  if (auth.type === "oauth") headers.Authorization = `Bearer ${auth.token}`;
+  if (auth.type === "none") throw new Error("no_youtube_credentials");
+
+  if (auth.type === "key") url.searchParams.set("key", auth.key);
+  const j = await fetchJSON(url.toString(), { headers });
+  return j;
+}
+
+export async function verifyYouTubeLive(videoId) {
+  // videos.list để xem liveStreamingDetails/snippet.liveBroadcastContent
+  try {
+    const j = await ytGet("videos", {
+      part: "snippet,liveStreamingDetails",
+      id: videoId,
+      maxResults: "1",
+    });
+    const v = (j.items || [])[0];
+    if (!v) return ng("not_found");
+
+    const snippet = v.snippet || {};
+    const details = v.liveStreamingDetails || {};
+    const liveFlag =
+      String(snippet.liveBroadcastContent || "").toLowerCase() === "live";
+    const started = !!details.actualStartTime;
+    const viewers = Number(details.concurrentViewers || 0) > 0;
+
+    if (liveFlag || started || viewers) return ok(v);
+    return ng("not_live", v);
+  } catch (e) {
+    return ng(e?.message || "yt_error", e);
+  }
+}
+
+// Tuỳ chọn: nếu chỉ có channelId muốn tìm video đang live
+export async function findYouTubeLiveByChannel(channelId) {
+  try {
+    const j = await ytGet("search", {
+      part: "id",
+      channelId,
+      type: "video",
+      eventType: "live",
+      maxResults: "1",
+    });
+    const it = (j.items || [])[0];
+    const id = it?.id?.videoId || null;
+    if (!id) return ng("not_found");
+    return ok({ videoId: id });
+  } catch (e) {
+    return ng(e?.message || "yt_error", e);
+  }
+}
+
+/* ─────────────────────────  TIKTOK VERIFY  ─────────────────────────
+   Không có public REST “is live?” cho account bất kỳ.
+   Tuỳ chọn 1 (khuyên dùng nếu thực sự cần): dùng thư viện websocket không chính thức:
+     - npm: tiktok-live-connector (Node)
+     - PyPI: TikTokLive (Python)
+   Tuỳ chọn 2: nếu bạn là broadcaster và có quyền/credential, dùng API nội bộ của họ (partner).
+   Ở đây mình để stub + hook để bạn cắm thư viện vào khi cần.
+*/
+export async function verifyTikTokLive({ username = "", roomId = "" } = {}) {
+  // Stub: luôn trả false; để tránh gây “đỏ” strict.
+  return ng("tiktok_no_official_public_check");
+  // Gợi ý tích hợp (pseudo):
+  // import { WebcastPushConnection } from 'tiktok-live-connector';
+  // const conn = new WebcastPushConnection(username);
+  // const info = await conn.getRoomInfo();
+  // if (info?.status === 'LIVE') return ok(info);
+  // return ng('not_live', info);
+}
+
+/* ─────────────────────────  HELPERS PARSE FB  ───────────────────────── */
 export function parseFacebookVideoIdFromUrl(u = "") {
-  if (!u) return null;
   try {
     const url = new URL(u);
-    if (/facebook\.com/i.test(url.hostname)) {
-      const seg = url.pathname.split("/").filter(Boolean);
-      const i = seg.findIndex((s) => s === "videos");
-      if (i >= 0 && seg[i + 1]) return seg[i + 1];
-      const v = url.searchParams.get("v") || url.searchParams.get("video_id");
-      if (v) return v;
-    }
-  } catch (_) {}
-  const m = u.match(/\/videos\/(\d{8,})|[?&]v=(\d{8,})/i);
-  return m?.[1] || m?.[2] || null;
+    // /{pageId}/videos/{videoId}
+    const m = url.pathname.match(/\/videos\/(\d+)/);
+    if (m?.[1]) return m[1];
+    // video.php?v=ID
+    const v = url.searchParams.get("v");
+    if (v) return v;
+  } catch {}
+  return null;
 }
 
 export function parseFacebookPageIdFromUrl(u = "") {
   try {
     const url = new URL(u);
-    const seg = url.pathname.split("/").filter(Boolean); // ["<pageId>","videos","<id>"]
-    const i = seg.findIndex((x) => x === "videos");
-    if (i > 0) return seg[i - 1] || null;
-  } catch (_) {}
+    // /{pageId}/videos/{videoId}
+    const m = url.pathname.match(/^\/([^/]+)\/videos\//);
+    if (m?.[1]) return m[1];
+  } catch {}
   return null;
-}
-
-// ───────────── chọn token Facebook ─────────────
-export async function bestFacebookTokenForPage(pageId) {
-  if (!pageId) return null;
-  const doc = await FbToken.findOne({ pageId, needsReauth: { $ne: true } })
-    .sort({ updatedAt: -1 })
-    .lean();
-  if (doc?.pageToken) {
-    if (
-      !doc.pageTokenExpiresAt ||
-      new Date(doc.pageTokenExpiresAt) > new Date()
-    )
-      return doc.pageToken;
-  }
-  return null;
-}
-
-export async function anyValidFacebookToken() {
-  const list = await FbToken.find({
-    needsReauth: { $ne: true },
-    pageToken: { $exists: true, $ne: "" },
-    $or: [
-      { pageTokenExpiresAt: null },
-      { pageTokenExpiresAt: { $gt: new Date() } },
-    ],
-  })
-    .sort({ updatedAt: -1 })
-    .limit(3)
-    .lean();
-  return list?.map((d) => d.pageToken) ?? [];
-}
-
-// ───────────── verify Facebook (Graph) ─────────────
-export async function verifyFacebookLive({
-  liveId,
-  pageToken,
-  timeoutMs = 6000,
-}) {
-  if (!liveId) return { ok: false, reason: "missing_live_id" };
-  if (!pageToken) return { ok: false, reason: "missing_page_token" };
-
-  const cacheKey = `fb:${liveId}`;
-  const cached = getCache(cacheKey);
-  if (cached) return cached;
-
-  const graphVer = await getCfgStr("GRAPH_VER", "v24.0");
-
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), timeoutMs);
-
-  const url =
-    `https://graph.facebook.com/${graphVer}/${encodeURIComponent(liveId)}` +
-    `?fields=status,live_status,stream_status,permalink_url,` +
-    `ingest_streams{status,health},from{id,name}` +
-    `&access_token=${encodeURIComponent(pageToken)}`;
-
-  try {
-    const r = await fetch(url, { signal: controller.signal });
-    clearTimeout(t);
-    if (!r.ok) {
-      const data = { ok: false, reason: `http_${r.status}` };
-      setCache(cacheKey, data);
-      return data;
-    }
-    const j = await r.json();
-
-    // Ưu tiên ingest_streams nếu có
-    let alive = false;
-    const streams = j.ingest_streams || [];
-    if (Array.isArray(streams) && streams.length) {
-      alive = streams.some((s) => {
-        const st = String(s?.status || "").toLowerCase();
-        return ["active", "connected", "streaming", "live"].includes(st);
-      });
-    }
-    if (!alive) {
-      const val = String(
-        j.live_status || j.stream_status || j.status || ""
-      ).toLowerCase();
-      alive = ["live", "streaming", "active", "ready"].some((k) =>
-        val.includes(k)
-      );
-    }
-
-    const data = { ok: alive, raw: j };
-    setCache(cacheKey, data);
-    return data;
-  } catch (e) {
-    clearTimeout(t);
-    return {
-      ok: false,
-      reason: e.name === "AbortError" ? "timeout" : e.message,
-    };
-  }
-}
-
-export async function verifyFacebookLiveWithBestToken({ liveId, pageId }) {
-  const primary = await bestFacebookTokenForPage(pageId);
-  if (primary) {
-    const r = await verifyFacebookLive({ liveId, pageToken: primary });
-    if (r.ok || r.reason?.startsWith?.("http_") === false) return r;
-  }
-  const tokens = await anyValidFacebookToken();
-  for (const tk of tokens) {
-    const r = await verifyFacebookLive({ liveId, pageToken: tk });
-    if (r.ok) return r;
-  }
-  return { ok: false, reason: "no_valid_token_or_not_live" };
-}
-
-// ───────────── YouTube OAuth: lấy/refresh access token ─────────────
-async function getYoutubeAccessToken() {
-  // 1) dùng access token còn hạn nếu có
-  const cur = await getCfgStr("YOUTUBE_ACCESS_TOKEN", "");
-  const expISO = await getCfgStr("YOUTUBE_ACCESS_EXPIRES_AT", "");
-  const expMs = expISO ? Date.parse(expISO) : 0;
-  if (cur && expMs && expMs - Date.now() > 60 * 1000) {
-    return cur;
-  }
-
-  // 2) refresh từ refresh_token + client id/secret
-  const refresh = await getCfgStr("YOUTUBE_REFRESH_TOKEN", "");
-  const clientId = await getCfgStr("GOOGLE_CLIENT_ID", "");
-  const clientSecret = await getCfgStr("GOOGLE_CLIENT_SECRET", "");
-  if (!refresh || !clientId || !clientSecret) {
-    return null; // thiếu thông tin để refresh
-  }
-
-  const body = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    refresh_token: refresh,
-    grant_type: "refresh_token",
-  });
-
-  const resp = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-
-  const json = await resp.json().catch(() => ({}));
-  if (!resp.ok || !json.access_token) {
-    return null;
-  }
-
-  const accessToken = json.access_token;
-  const expiresIn = Number(json.expires_in || 3600);
-  const exp = new Date(
-    Date.now() + Math.max(0, expiresIn - 60) * 1000
-  ).toISOString();
-
-  // Lưu lại vào Config (đánh dấu secret cho access token)
-  await setCfg({
-    key: "YOUTUBE_ACCESS_TOKEN",
-    value: accessToken,
-    isSecret: true,
-    updatedBy: "system",
-  });
-  await setCfg({
-    key: "YOUTUBE_ACCESS_EXPIRES_AT",
-    value: exp,
-    isSecret: false,
-    updatedBy: "system",
-  });
-
-  return accessToken;
-}
-
-// ───────────── verify YouTube (videos.list với Bearer token) ─────────────
-export async function verifyYouTubeLive(videoId, { timeoutMs = 6000 } = {}) {
-  if (!videoId) return { ok: false, reason: "missing_video_id" };
-
-  const token = await getYoutubeAccessToken();
-  if (!token) return { ok: false, reason: "missing_youtube_credentials" };
-
-  const cacheKey = `yt:${videoId}`;
-  const cached = getCache(cacheKey);
-  if (cached) return cached;
-
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), timeoutMs);
-
-  const url =
-    `https://www.googleapis.com/youtube/v3/videos` +
-    `?part=snippet,liveStreamingDetails&id=${encodeURIComponent(videoId)}`;
-
-  try {
-    const r = await fetch(url, {
-      signal: controller.signal,
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    clearTimeout(t);
-
-    if (r.status === 401 || r.status === 403) {
-      // token có thể hết hạn ngoài dự kiến → refresh lại rồi thử 1 lần nữa
-      const newToken = await getYoutubeAccessToken();
-      if (!newToken) return { ok: false, reason: `http_${r.status}` };
-      const r2 = await fetch(url, {
-        headers: { Authorization: `Bearer ${newToken}` },
-      });
-      if (!r2.ok) return { ok: false, reason: `http_${r2.status}` };
-      const j2 = await r2.json();
-      const it2 = j2.items?.[0];
-      if (!it2) return { ok: false, reason: "not_found" };
-      const d2 = it2.liveStreamingDetails || {};
-      const alive2 = !!d2.actualStartTime && !d2.actualEndTime;
-      const data2 = { ok: alive2, raw: j2 };
-      setCache(cacheKey, data2);
-      return data2;
-    }
-
-    if (!r.ok) {
-      const data = { ok: false, reason: `http_${r.status}` };
-      setCache(cacheKey, data);
-      return data;
-    }
-
-    const j = await r.json();
-    const it = j.items?.[0];
-    if (!it) {
-      const data = { ok: false, reason: "not_found" };
-      setCache(cacheKey, data);
-      return data;
-    }
-
-    const d = it.liveStreamingDetails || {};
-    const alive = !!d.actualStartTime && !d.actualEndTime;
-    const data = { ok: alive, raw: j };
-    setCache(cacheKey, data);
-    return data;
-  } catch (e) {
-    clearTimeout(t);
-    return {
-      ok: false,
-      reason: e.name === "AbortError" ? "timeout" : e.message,
-    };
-  }
 }

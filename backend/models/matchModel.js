@@ -181,6 +181,7 @@ const matchSchema = new Schema(
     meta: { type: Schema.Types.Mixed, default: {} },
     facebookLive: {
       id: String,
+      pageId: String,
       permalink_url: String,
       secure_stream_url: String,
       server_url: String,
@@ -788,5 +789,15 @@ matchSchema.index({ tournament: 1, bracket: 1, status: 1, createdAt: -1 });
 matchSchema.index({ status: 1, queueOrder: 1, courtCluster: 1 });
 matchSchema.index({ participants: 1 });
 matchSchema.index({ referee: 1 });
+
+// dấu hiệu stream
+matchSchema.index(
+  { "facebookLive.id": 1 },
+  { partialFilterExpression: { "facebookLive.id": { $type: "string" } } }
+);
+matchSchema.index(
+  { "facebookLive.permalink_url": 1 },
+  { partialFilterExpression: { "facebookLive.permalink_url": { $type: "string" } } }
+);
 
 export default mongoose.model("Match", matchSchema);

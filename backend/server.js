@@ -77,8 +77,6 @@ app.use(versionGate);
 
 // HTTP + Socket.IO
 const server = http.createServer(app);
-// attachRtmpRelay(server, { path: "/ws/rtmp" });   // <-- WS riêng cho stream
-// attachRtmpRelay(server, { path: "/ws/rtmp" });
 // 👇 Khởi tạo socket tách riêng
 const io = initSocket(server, { whitelist: WHITELIST, path: "/socket.io" });
 

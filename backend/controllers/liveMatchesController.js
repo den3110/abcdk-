@@ -31,7 +31,14 @@ export async function listLiveMatches(req, res) {
       excludeFinished,
       statuses,
     });
+    // log nhanh để debug
+    console.log("[LiveMatches] candidates:", candidates.length);
+
     const verified = await verifyStrict(candidates, { concurrency });
+    console.log(
+      "[LiveMatches] verified (rows with >=1 session):",
+      verified.length
+    );
 
     res.json({
       count: verified.length,
@@ -40,7 +47,8 @@ export async function listLiveMatches(req, res) {
         windowMs,
         excludeFinished,
         statuses: statuses || "(all except finished)",
-        verifyMode: "strict",
+        verifyMode: "strict(fb)+lenient(yt/tk)",
+        candidateCount: candidates.length,
       },
     });
   } catch (e) {

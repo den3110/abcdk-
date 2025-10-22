@@ -1,26 +1,35 @@
-import { apiSlice } from "./apiSlice"; // chỉnh đường dẫn đúng nơi bạn để apiSlice
+import { apiSlice } from "./apiSlice";
 
 const LIMIT = 12;
 
 export const liveApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     getLiveMatches: builder.query({
-      // server không có keyword/page => lọc & phân trang client trong transformResponse
       query: ({
         statuses = "scheduled,queued,assigned,live",
-        excludeFinished = true,
+        excludeFinished, // ← bỏ default value
         windowMs = 8 * 3600 * 1000,
         concurrency = 4,
-      } = {}) =>
-        `/api/live/matches?statuses=${encodeURIComponent(
-          statuses
-        )}&excludeFinished=${excludeFinished}&windowMs=${windowMs}&concurrency=${concurrency}`,
+      } = {}) => {
+        // Build URL động
+        const params = new URLSearchParams({
+          statuses: statuses,
+          windowMs: windowMs.toString(),
+          concurrency: concurrency.toString(),
+        });
+
+        // Chỉ thêm excludeFinished khi có giá trị false
+        if (excludeFinished === false) {
+          params.append("excludeFinished", "false");
+        }
+
+        return `/api/live/matches?${params.toString()}`;
+      },
       keepUnusedDataFor: 30,
       transformResponse: (resp, meta, arg) => {
         const { keyword = "", page = 0, limit = LIMIT } = arg || {};
         let items = Array.isArray(resp?.items) ? resp.items : [];
 
-        // lọc keyword (client-side): match.code / match.labelKey / courtLabel / platform
         const kw = String(keyword || "").toLowerCase();
         if (kw) {
           items = items.filter((it) => {
