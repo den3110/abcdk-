@@ -41,8 +41,8 @@ const EvaluationSchema = new Schema(
 
     // tổng hợp (tối giản – nếu bạn muốn map sang localRatings)
     overall: {
-      singles: { type: Number, min: 2.0, max: 8.0 },
-      doubles: { type: Number, min: 2.0, max: 8.0 },
+      singles: { type: Number, min: 1.6, max: 8.0 },
+      doubles: { type: Number, min: 1.6, max: 8.0 },
     },
 
     notes: { type: String, default: "" },
