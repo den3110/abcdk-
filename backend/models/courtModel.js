@@ -1,4 +1,3 @@
-// models/courtModel.js
 import mongoose from "mongoose";
 const { Schema, Types } = mongoose;
 
@@ -12,10 +11,7 @@ const courtSchema = new Schema(
     },
     name: { type: String, required: true },
 
-    // vẫn giữ cluster nếu bạn cần label/nhãn, nhưng không còn là khóa chính để nhóm
     cluster: { type: String, default: "Main", index: true },
-
-    // 🔴 BẮT BUỘC bracket
     bracket: {
       type: Types.ObjectId,
       ref: "Bracket",
@@ -31,6 +27,13 @@ const courtSchema = new Schema(
       default: "idle",
     },
     currentMatch: { type: Types.ObjectId, ref: "Match", default: null },
+
+    /* 🔴 NEW: cấu hình LIVE theo sân */
+    liveConfig: {
+      enabled: { type: Boolean, default: false }, // bật/tắt auto dùng link LIVE này cho sân
+      videoUrl: { type: String, default: "" }, // URL LIVE mặc định của sân
+      overrideExisting: { type: Boolean, default: false }, // true: cho phép ghi đè match.video (nếu sau này dùng)
+    },
   },
   { timestamps: true }
 );

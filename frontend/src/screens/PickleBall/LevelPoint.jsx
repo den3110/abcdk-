@@ -20,8 +20,8 @@ import {
   useGetLatestAssessmentQuery,
 } from "../../slices/assessmentsApiSlice";
 
-/* ===== DUPR helpers (min = 2.0) ===== */
-const DUPR_MIN = 2.0;
+/* ===== DUPR helpers (min = 1.6) ===== */
+const DUPR_MIN = 1.6;
 const DUPR_MAX = 8.0;
 const clamp = (n, min, max) => Math.max(min, Math.min(max, Number(n) || 0));
 const round3 = (n) => Number((Number(n) || 0).toFixed(3));
@@ -29,10 +29,10 @@ const normalizeDupr = (n) => round3(clamp(n, DUPR_MIN, DUPR_MAX));
 const duprFromRaw = (raw0to10) =>
   round3(DUPR_MIN + clamp(raw0to10, 0, 10) * ((DUPR_MAX - DUPR_MIN) / 10));
 
-/* Rubric (bắt đầu từ 2.0) */
+/* Rubric (bắt đầu từ 1.6, không còn 2.0) */
 const RUBRIC = [
   {
-    level: 2.0,
+    level: 1.6,
     label: "Beginner",
     bullets: [
       "Giao bóng chưa ổn định",
@@ -170,7 +170,7 @@ const InputCard = React.memo(function InputCard({
         }}
         autoComplete="off"
         label={label}
-        placeholder={initializing ? "" : "vd. 2.75"}
+        placeholder={initializing ? "" : "vd. 1.75"}
         error={value !== "" && !isValidDupr(parseFloat(value))}
         helperText={
           value !== "" && !isValidDupr(parseFloat(value))

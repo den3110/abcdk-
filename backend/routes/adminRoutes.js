@@ -146,6 +146,7 @@ import {
   upsertConfig,
 } from "../controllers/adminConfigController.js";
 import { ytCallback, ytGetOrCreateStreamKey, ytInit, ytRevoke } from "../controllers/youtubeSetupController.js";
+import { bulkSetCourtLiveConfig, getCourtLiveConfig, listCourtsByTournamentLive, setCourtLiveConfig } from "../controllers/courtLiveConfigController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -188,6 +189,32 @@ router.get(
 router.post("/matches/batch/update-referee", protect, batchAssignReferee);
 
 router.post("/tournaments/:tournamentId/courts", protect, upsertCourts);
+
+
+router.get(
+  "/tournaments/c/:tid/courts",
+  protect,
+  listCourtsByTournamentLive
+);
+
+router.get(
+  "/courts/:courtId/live-config",
+  protect,
+  getCourtLiveConfig
+);
+
+router.patch(
+  "/courts/:courtId/live-config",
+  protect,
+  setCourtLiveConfig
+);
+
+router.patch(
+  "/tournaments/:tid/courts/live-config/bulk",
+  protect,
+  bulkSetCourtLiveConfig
+);
+
 
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
 
@@ -650,4 +677,8 @@ router.get("/youtube/init", protect, authorize("admin"), ytInit);
 // router.get("/oauth/google/youtube/callback", ytCallback); // public callback
 router.get("/youtube/stream-key", protect, authorize("admin"), ytGetOrCreateStreamKey);
 router.post("/youtube/revoke", protect, authorize("admin"), ytRevoke);
+
+
+
+
 export default router;

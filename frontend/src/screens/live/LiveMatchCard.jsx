@@ -1,3 +1,7 @@
+// LiveMatchCard.jsx — Card auto-stretches to tallest item in row (MUI Grid alignItems="stretch")
+// Lưu ý: Ở parent Grid hãy dùng: <Grid container spacing={2} alignItems="stretch">
+// và mỗi Grid item dùng sx={{ display: 'flex' }} để Card (flex:1) cao bằng item dài nhất.
+
 import React from "react";
 import {
   Card,
@@ -204,351 +208,368 @@ export default function LiveMatchCard({ item }) {
 
   return (
     <>
-      <Card
-        variant="outlined"
+      {/* Root box cho phép Card kéo full chiều cao khi parent Grid item là display:flex */}
+      <Box
         sx={{
-          width: "100%",
-          height: "100%",
           display: "flex",
-          flexDirection: "column",
-          borderRadius: 2,
-          overflow: "hidden",
+          alignItems: "stretch",
           minWidth: 0,
-          "&:hover": { boxShadow: 3, borderColor: "divider" },
+          width: "100%",
         }}
       >
-        {/* Thumbnail (nếu có) */}
-        {heroSrc && (
-          <Box
-            sx={{
-              position: "relative",
-              aspectRatio: "16 / 9",
-              bgcolor: "action.hover",
-              borderBottom: "1px solid",
-              borderColor: "divider",
-              overflow: "hidden",
-              // đảm bảo card không bị giật bố cục nếu thiếu ảnh
-              "& img": {
-                display: "block",
-                width: "100%",
-                height: "100%",
-                objectFit: "cover",
-              },
-            }}
-          >
-            <img src={heroSrc} alt="thumbnail" onError={heroErr} />
-            {/* Gắn nhãn góc phải cho provider */}
-            {primary?.provider && (
-              <Chip
-                size="small"
-                label={providerMeta(primary.provider).label}
-                icon={providerMeta(primary.provider).icon}
-                color="default"
-                sx={{
-                  position: "absolute",
-                  right: 8,
-                  bottom: 8,
-                  bgcolor: "rgba(0,0,0,0.5)",
-                  color: "#fff",
-                  "& .MuiChip-icon": { color: "#fff" },
-                }}
-              />
-            )}
-          </Box>
-        )}
-
-        {/* Header */}
-        <Box sx={{ p: 1.5, pb: 1 }}>
-          <Stack
-            direction="row"
-            alignItems="center"
-            spacing={1}
-            sx={{ minWidth: 0 }}
-          >
-            {/* Mã trận VT/VBT - clamp 2 dòng (⚠️ không đặt title trên child) */}
-            <Tooltip
-              placement="top"
-              title={
-                m.code
-                  ? `Mã: ${m.code} — V=Vòng, B=Bảng, T=Trận`
-                  : "V=Vòng, B=Bảng, T=Trận"
-              }
-            >
-              <Typography
-                variant="subtitle1"
-                fontWeight={700}
-                sx={{
-                  minWidth: 0,
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  letterSpacing: 0.2,
-                  flex: 1,
-                  lineHeight: 1.25,
-                  maxHeight: "3.1em",
-                }}
-              >
-                {m.code || "Match"}
-              </Typography>
-            </Tooltip>
-
-            {/* Chips V/B/T */}
-            <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
-              {Number.isInteger(vt.v) && (
-                <Chip size="small" label={`V${vt.v}`} variant="outlined" />
-              )}
-              {Number.isInteger(vt.b) && (
-                <Chip size="small" label={`B${vt.b}`} variant="outlined" />
-              )}
-              {Number.isInteger(vt.t) && (
-                <Chip size="small" label={`T${vt.t}`} variant="outlined" />
-              )}
-            </Stack>
-
-            {/* STATUS */}
-            {isLive ? (
-              <Chip
-                label="LIVE"
-                color="error"
-                size="small"
-                sx={{ fontWeight: 700, flexShrink: 0 }}
-              />
-            ) : hasAny ? (
-              <Chip
-                label="Chuẩn bị"
-                color="warning"
-                size="small"
-                sx={{ flexShrink: 0 }}
-              />
-            ) : (
-              <Chip
-                label={viStatus(m.status)}
-                size="small"
-                variant="outlined"
-                sx={{ flexShrink: 0 }}
-              />
-            )}
-
-            {/* Info + Copy */}
-            <Tooltip title="Xem chi tiết">
-              <IconButton size="small" onClick={openInfo} sx={{ ml: 0.5 }}>
-                <InfoOutlinedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            {m.code && (
-              <Tooltip title="Copy mã trận">
-                <IconButton
-                  size="small"
-                  onClick={() => copy(m.code)}
-                  sx={{ ml: -0.5 }}
-                >
-                  <ContentCopyIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
-          </Stack>
-
-          {/* Meta row */}
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{
-              mt: 0.5,
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-            title={[
-              m.status ? `Trạng thái: ${viStatus(m.status)}` : null,
-              m.courtLabel ? `Sân: ${m.courtLabel}` : null,
-              m.updatedAt ? `Cập nhật ${timeAgo(m.updatedAt)}` : null,
-            ]
-              .filter(Boolean)
-              .join(" • ")}
-          >
-            {m.status ? `Trạng thái: ${viStatus(m.status)}` : "-"}
-            {m.courtLabel && (
-              <>
-                {bullet}Sân: {m.courtLabel}
-              </>
-            )}
-            {m.updatedAt && (
-              <>
-                {bullet}Cập nhật {timeAgo(m.updatedAt)}
-              </>
-            )}
-          </Typography>
-        </Box>
-
-        <Divider />
-
-        {/* Body */}
-        <Box
+        <Card
+          variant="outlined"
           sx={{
-            p: 1.5,
-            pt: 1.25,
+            width: "100%",
             display: "flex",
             flexDirection: "column",
-            gap: 1,
-            flexGrow: 1,
-            justifyContent: "space-between",
-            overflow: "hidden",
-            minHeight: 0,
+            borderRadius: 2,
+            // KHÔNG đặt overflow hidden ở Card để tránh cắt nội dung
+            minWidth: 0,
+            flex: 1, // ✅ để Card fill chiều cao Grid item
+            alignSelf: "stretch", // ✅ kéo full chiều cao hàng
+            "&:hover": { boxShadow: 3, borderColor: "divider" },
           }}
         >
-          {/* Primary action */}
-          <Box sx={{ minWidth: 0 }}>
-            {primary ? (
-              <Stack
-                direction="row"
-                alignItems="center"
-                spacing={1}
-                sx={{ minWidth: 0 }}
-              >
-                <Button
-                  fullWidth
-                  variant="contained"
-                  color={providerMeta(primary.provider).color}
-                  startIcon={providerMeta(primary.provider).icon}
-                  endIcon={<OpenInNewIcon />}
-                  href={primary.watchUrl}
-                  target="_blank"
-                  rel="noreferrer"
+          {/* Thumbnail (nếu có) */}
+          {heroSrc && (
+            <Box
+              sx={{
+                position: "relative",
+                aspectRatio: "16 / 9",
+                bgcolor: "action.hover",
+                borderBottom: "1px solid",
+                borderColor: "divider",
+                overflow: "hidden", // chỉ bo/cắt ảnh
+                borderTopLeftRadius: "inherit",
+                borderTopRightRadius: "inherit",
+                "& img": {
+                  display: "block",
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                },
+              }}
+            >
+              <img src={heroSrc} alt="thumbnail" onError={heroErr} />
+              {/* Gắn nhãn góc phải cho provider */}
+              {primary?.provider && (
+                <Chip
+                  size="small"
+                  label={providerMeta(primary.provider).label}
+                  icon={providerMeta(primary.provider).icon}
+                  color="default"
                   sx={{
-                    textTransform: "none",
-                    fontWeight: 700,
-                    minWidth: 0,
-                    "& .MuiButton-startIcon": { mr: 1 },
-                    "& .MuiButton-endIcon": { ml: 1 },
-                    maxWidth: "100%",
+                    position: "absolute",
+                    right: 8,
+                    bottom: 8,
+                    bgcolor: "rgba(0,0,0,0.5)",
+                    color: "#fff",
+                    "& .MuiChip-icon": { color: "#fff" },
                   }}
-                  title={`Xem trên ${providerMeta(primary.provider).label}${
-                    primaryHost ? ` (${primaryHost})` : ""
-                  }`}
+                />
+              )}
+            </Box>
+          )}
+
+          {/* Header */}
+          <Box sx={{ p: 1.5, pb: 1 }}>
+            <Stack
+              direction="row"
+              alignItems="center"
+              spacing={1}
+              sx={{ minWidth: 0 }}
+            >
+              {/* Mã trận VT/VBT - clamp 2 dòng */}
+              <Tooltip
+                placement="top"
+                title={
+                  m.code
+                    ? `Mã: ${m.code} — V=Vòng, B=Bảng, T=Trận`
+                    : "V=Vòng, B=Bảng, T=Trận"
+                }
+              >
+                <Typography
+                  variant="subtitle1"
+                  fontWeight={700}
+                  sx={{
+                    minWidth: 0,
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    letterSpacing: 0.2,
+                    flex: 1,
+                    lineHeight: 1.25,
+                    // KHÔNG giới hạn maxHeight bằng px cứng ngoại trừ clamp
+                  }}
                 >
-                  <Box
-                    sx={{
-                      display: "inline-block",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      maxWidth: "100%",
-                    }}
-                  >
-                    Xem trên {providerMeta(primary.provider).label}
-                    {primaryHost ? ` · ${primaryHost}` : ""}
-                  </Box>
-                </Button>
-                <Tooltip title="Copy link">
+                  {m.code || "Match"}
+                </Typography>
+              </Tooltip>
+
+              {/* Chips V/B/T */}
+              <Stack direction="row" spacing={0.5} sx={{ flexShrink: 0 }}>
+                {Number.isInteger(vt.v) && (
+                  <Chip size="small" label={`V${vt.v}`} variant="outlined" />
+                )}
+                {Number.isInteger(vt.b) && (
+                  <Chip size="small" label={`B${vt.b}`} variant="outlined" />
+                )}
+                {Number.isInteger(vt.t) && (
+                  <Chip size="small" label={`T${vt.t}`} variant="outlined" />
+                )}
+              </Stack>
+
+              {/* STATUS */}
+              {isLive ? (
+                <Chip
+                  label="LIVE"
+                  color="error"
+                  size="small"
+                  sx={{ fontWeight: 700, flexShrink: 0 }}
+                />
+              ) : hasAny ? (
+                <Chip
+                  label="Chuẩn bị"
+                  color="warning"
+                  size="small"
+                  sx={{ flexShrink: 0 }}
+                />
+              ) : (
+                <Chip
+                  label={viStatus(m.status)}
+                  size="small"
+                  variant="outlined"
+                  sx={{ flexShrink: 0 }}
+                />
+              )}
+
+              {/* Info + Copy */}
+              <Tooltip title="Xem chi tiết">
+                <IconButton size="small" onClick={openInfo} sx={{ ml: 0.5 }}>
+                  <InfoOutlinedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+              {m.code && (
+                <Tooltip title="Copy mã trận">
                   <IconButton
-                    color="default"
-                    onClick={() => copy(primary.watchUrl)}
+                    size="small"
+                    onClick={() => copy(m.code)}
+                    sx={{ ml: -0.5 }}
                   >
                     <ContentCopyIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-              </Stack>
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                Chưa có phiên live đã xác minh.
-              </Typography>
-            )}
+              )}
+            </Stack>
+
+            {/* Meta row */}
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              sx={{
+                mt: 0.5,
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={[
+                m.status ? `Trạng thái: ${viStatus(m.status)}` : null,
+                m.courtLabel ? `Sân: ${m.courtLabel}` : null,
+                m.updatedAt ? `Cập nhật ${timeAgo(m.updatedAt)}` : null,
+              ]
+                .filter(Boolean)
+                .join(" • ")}
+            >
+              {m.status ? `Trạng thái: ${viStatus(m.status)}` : "-"}
+              {m.courtLabel && (
+                <>
+                  {bullet}Sân: {m.courtLabel}
+                </>
+              )}
+              {m.updatedAt && (
+                <>
+                  {bullet}Cập nhật {timeAgo(m.updatedAt)}
+                </>
+              )}
+            </Typography>
           </Box>
 
-          {/* Secondary platforms */}
-          <Box sx={{ minWidth: 0 }}>
-            {(secondary.length > 0 || secMore > 0) && (
-              <Stack
-                direction="row"
-                spacing={1}
-                useFlexGap
-                flexWrap="wrap"
-                alignItems="center"
-              >
-                {secVisible.map((s, i) => {
-                  const meta = providerMeta(s.provider);
-                  return (
-                    <Button
-                      key={i}
-                      variant="outlined"
-                      color={meta.color}
-                      startIcon={meta.icon}
-                      href={s.watchUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      size="small"
+          <Divider />
+
+          {/* Body */}
+          <Box
+            sx={{
+              p: 1.5,
+              pt: 1.25,
+              display: "flex",
+              flexDirection: "column",
+              gap: 1,
+              flexGrow: 1, // ✅ đẩy footer xuống, thân card tự nở
+              // KHÔNG đặt overflow hidden ở body để tránh cắt
+              minHeight: 0,
+            }}
+          >
+            {/* Primary action */}
+            <Box sx={{ minWidth: 0 }}>
+              {primary ? (
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  spacing={1}
+                  sx={{ minWidth: 0 }}
+                >
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    color={providerMeta(primary.provider).color}
+                    startIcon={providerMeta(primary.provider).icon}
+                    endIcon={<OpenInNewIcon />}
+                    href={primary.watchUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    sx={{
+                      textTransform: "none",
+                      fontWeight: 700,
+                      minWidth: 0,
+                      "& .MuiButton-startIcon": { mr: 1 },
+                      "& .MuiButton-endIcon": { ml: 1 },
+                      maxWidth: "100%",
+                    }}
+                    title={`Xem trên ${providerMeta(primary.provider).label}${
+                      primaryHost ? ` (${primaryHost})` : ""
+                    }`}
+                  >
+                    <Box
                       sx={{
-                        textTransform: "none",
-                        minWidth: 0,
-                        maxWidth: 160,
+                        display: "inline-block",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
+                        maxWidth: "100%",
                       }}
-                      title={`${meta.label}${
-                        s.watchUrl ? ` (${hostOf(s.watchUrl)})` : ""
-                      }`}
                     >
-                      {meta.label}
-                    </Button>
-                  );
-                })}
-                {secMore > 0 && (
-                  <>
-                    <Chip
-                      size="small"
-                      icon={<MoreHorizIcon />}
-                      label={`+${secMore}`}
-                      variant="outlined"
-                      onClick={openMore}
-                      sx={{ cursor: "pointer" }}
-                    />
-                    <Popover
-                      open={Boolean(moreAnchor)}
-                      anchorEl={moreAnchor}
-                      onClose={closeMore}
-                      anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
-                      transformOrigin={{ vertical: "top", horizontal: "left" }}
-                      disableRestoreFocus
+                      Xem trên {providerMeta(primary.provider).label}
+                      {primaryHost ? ` · ${primaryHost}` : ""}
+                    </Box>
+                  </Button>
+                  <Tooltip title="Copy link">
+                    <IconButton
+                      color="default"
+                      onClick={() => copy(primary.watchUrl)}
                     >
-                      <Box sx={{ p: 1, minWidth: 240 }}>
-                        <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                          Nền tảng khác
-                        </Typography>
-                        <Stack spacing={0.75}>
-                          {secondary.slice(2).map((s, i) => {
-                            const meta = providerMeta(s.provider);
-                            return (
-                              <Button
-                                key={i}
-                                size="small"
-                                variant="text"
-                                startIcon={meta.icon}
-                                href={s.watchUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                sx={{
-                                  justifyContent: "flex-start",
-                                  textTransform: "none",
-                                }}
-                              >
-                                {meta.label} · {hostOf(s.watchUrl)}
-                              </Button>
-                            );
-                          })}
-                        </Stack>
-                      </Box>
-                    </Popover>
-                  </>
-                )}
-              </Stack>
-            )}
+                      <ContentCopyIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  Chưa có phiên live đã xác minh.
+                </Typography>
+              )}
+            </Box>
+
+            {/* Secondary platforms */}
+            <Box sx={{ minWidth: 0, mt: 0.25 }}>
+              {(secondary.length > 0 || secMore > 0) && (
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  useFlexGap
+                  flexWrap="wrap"
+                  alignItems="center"
+                >
+                  {secVisible.map((s, i) => {
+                    const meta = providerMeta(s.provider);
+                    return (
+                      <Button
+                        key={i}
+                        variant="outlined"
+                        color={meta.color}
+                        startIcon={meta.icon}
+                        href={s.watchUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        size="small"
+                        sx={{
+                          textTransform: "none",
+                          minWidth: 0,
+                          maxWidth: 160,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={`${meta.label}${
+                          s.watchUrl ? ` (${hostOf(s.watchUrl)})` : ""
+                        }`}
+                      >
+                        {meta.label}
+                      </Button>
+                    );
+                  })}
+                  {secMore > 0 && (
+                    <>
+                      <Chip
+                        size="small"
+                        icon={<MoreHorizIcon />}
+                        label={`+${secMore}`}
+                        variant="outlined"
+                        onClick={openMore}
+                        sx={{ cursor: "pointer" }}
+                      />
+                      <Popover
+                        open={Boolean(moreAnchor)}
+                        anchorEl={moreAnchor}
+                        onClose={closeMore}
+                        anchorOrigin={{
+                          vertical: "bottom",
+                          horizontal: "left",
+                        }}
+                        transformOrigin={{
+                          vertical: "top",
+                          horizontal: "left",
+                        }}
+                        disableRestoreFocus
+                      >
+                        <Box sx={{ p: 1, minWidth: 240 }}>
+                          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                            Nền tảng khác
+                          </Typography>
+                          <Stack spacing={0.75}>
+                            {secondary.slice(2).map((s, i) => {
+                              const meta = providerMeta(s.provider);
+                              return (
+                                <Button
+                                  key={i}
+                                  size="small"
+                                  variant="text"
+                                  startIcon={meta.icon}
+                                  href={s.watchUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  sx={{
+                                    justifyContent: "flex-start",
+                                    textTransform: "none",
+                                  }}
+                                >
+                                  {meta.label} · {hostOf(s.watchUrl)}
+                                </Button>
+                              );
+                            })}
+                          </Stack>
+                        </Box>
+                      </Popover>
+                    </>
+                  )}
+                </Stack>
+              )}
+            </Box>
           </Box>
-        </Box>
-      </Card>
+        </Card>
+      </Box>
 
       {/* Info: Popover/Dialog */}
       {smDown ? (

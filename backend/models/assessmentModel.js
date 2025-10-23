@@ -4,8 +4,8 @@ import mongoose from "mongoose";
 const assessmentItemSchema = new mongoose.Schema(
   {
     skillId: { type: Number, required: true },
-    single: { type: Number, required: true, min: 0, max: 10 },
-    double: { type: Number, required: true, min: 0, max: 10 },
+    single: { type: Number, required: true, min: 1.6, max: 8 },
+    double: { type: Number, required: true, min: 1.6, max: 8 },
   },
   { _id: false }
 );

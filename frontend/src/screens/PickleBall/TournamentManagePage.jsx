@@ -89,6 +89,7 @@ import AssignCourtDialog from "../../components/AssignCourtDialog";
 import AssignRefDialog from "../../components/AssignRefDialog";
 import CourtManagerDialog from "../../components/CourtManagerDialog";
 import ManageRefereesDialog from "../../components/RefereeManagerDialog";
+import LiveSetupDialog from "../../components/LiveSetupDialog";
 
 /* ---------------- helpers ---------------- */
 const _num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -1162,6 +1163,29 @@ export default function TournamentManagePage() {
     liveStore,
   ]);
 
+  const [liveSetup, setLiveSetup] = useState({
+    open: false,
+    bracketId: null,
+    bracketName: "",
+  });
+
+  const openLiveSetup = useCallback((bid, bname) => {
+    setLiveSetup({
+      open: true,
+      bracketId: String(bid),
+      bracketName: bname || "",
+    });
+  }, []);
+  const closeLiveSetup = useCallback(
+    () => setLiveSetup((s) => ({ ...s, open: false })),
+    []
+  );
+
+  const matchesForLiveSetup = useMemo(() => {
+    if (!liveSetup.open) return [];
+    return groupedLists.get(liveSetup.bracketId) || [];
+  }, [liveSetup, groupedLists]);
+
   const socket = useSocket();
   const joinedRef = useRef(new Set());
   const matchRefetchTimer = useRef(null);
@@ -1809,6 +1833,14 @@ export default function TournamentManagePage() {
                   >
                     Quản lý sân
                   </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<MovieIcon />}
+                    onClick={() => openLiveSetup(bid, b?.name)}
+                  >
+                    Thiết lập LIVE
+                  </Button>
 
                   <Chip
                     size="small"
@@ -2039,6 +2071,13 @@ export default function TournamentManagePage() {
           refetchMatches?.();
           refetchBrackets?.();
         }}
+      />
+
+      <LiveSetupDialog
+        open={liveSetup.open}
+        onClose={closeLiveSetup}
+        tournamentId={id}
+        bracketId={liveSetup.bracketId}
       />
 
       {/* Popup xem/tracking trận */}

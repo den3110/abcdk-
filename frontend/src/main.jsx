@@ -52,6 +52,7 @@ import "@fontsource-variable/montserrat";
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { theme } from "./theme.js";
 import LiveMatchesPage from "./screens/live/LiveMatchesPage.jsx";
+import CourtLiveStudioPage from "./screens/live/CourtLiveStudio.jsx";
 
 dayjs.locale("vi");
 
@@ -114,6 +115,10 @@ const router = createBrowserRouter(
       <Route path="/overlay/score" element={<ScoreOverlay />} />
       <Route path="/503" element={<ServiceUnavailable />} />
       <Route path="/studio/live" element={<LiveStudioPage />} />
+      <Route
+        path="/live/:tid/brackets/:bid/live-studio/:courtId"
+        element={<CourtLiveStudioPage />}
+      />
 
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<Navigate to="/admin/users" replace />} />

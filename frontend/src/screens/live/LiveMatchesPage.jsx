@@ -34,7 +34,8 @@ import LiveMatchCard from "./LiveMatchCard";
 import { useGetLiveMatchesQuery } from "../../slices/liveApiSlice";
 
 const LIMIT = 12;
-const CARD_HEIGHT = 232;
+// CARD_HEIGHT chỉ dùng cho skeleton lúc loading để UI đỡ nhảy
+const SKELETON_HEIGHT = 232;
 const STATUS_OPTIONS = ["scheduled", "queued", "assigned", "live", "finished"];
 const HOUR_PRESETS = [2, 4, 8, 24];
 
@@ -57,6 +58,7 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
   const [windowHours, setWindowHours] = useState(initial.windowHours);
   const [autoRefresh, setAutoRefresh] = useState(initial.autoRefresh);
   const [refreshSec, setRefreshSec] = useState(initial.refreshSec);
+
   useEffect(() => {
     if (!open) return;
     setStatuses(initial.statuses);
@@ -214,11 +216,9 @@ export default function LiveMatchesPage() {
   const [filterOpen, setFilterOpen] = useState(false);
 
   const qArgs = useMemo(() => {
-    // Lọc bỏ "finished" nếu excludeFinished = true
     const filteredStatuses = excludeFinished
       ? statuses.filter((s) => s !== "finished")
       : statuses;
-
     const args = {
       keyword,
       page: page - 1,
@@ -226,12 +226,7 @@ export default function LiveMatchesPage() {
       statuses: filteredStatuses.join(","),
       windowMs: windowHours * 3600 * 1000,
     };
-
-    // Chỉ gửi excludeFinished khi giá trị là false (khác mặc định)
-    if (!excludeFinished) {
-      args.excludeFinished = false;
-    }
-
+    if (!excludeFinished) args.excludeFinished = false;
     return args;
   }, [keyword, page, statuses, excludeFinished, windowHours]);
 
@@ -243,13 +238,11 @@ export default function LiveMatchesPage() {
     }
   );
 
-  // Auto-refresh với dependencies đầy đủ
   useEffect(() => {
     if (!autoRefresh) return;
     const id = setInterval(() => refetch(), Math.max(5, refreshSec) * 1000);
     return () => clearInterval(id);
   }, [autoRefresh, refreshSec, refetch, qArgs]);
-  // ☝️ Chỉ cần qArgs thôi, vì qArgs đã useMemo rồi
 
   const pages = data?.pages || 1;
   const items = data?.items || [];
@@ -295,6 +288,7 @@ export default function LiveMatchesPage() {
     [statuses, excludeFinished, windowHours, autoRefresh, refreshSec]
   );
 
+  // CSS Grid: mỗi hàng tự cao theo item cao nhất; item bên trong phải stretch
   const gridSx = {
     display: "grid",
     gap: (theme) => theme.spacing(2),
@@ -308,7 +302,7 @@ export default function LiveMatchesPage() {
     "@media (min-width:1200px)": {
       gridTemplateColumns: "repeat(4, minmax(0,1fr))",
     },
-    alignItems: "stretch",
+    alignItems: "stretch", // ✅ các grid item cao bằng nhau theo hàng
   };
 
   return (
@@ -405,7 +399,8 @@ export default function LiveMatchesPage() {
             <Box
               key={i}
               sx={{
-                height: CARD_HEIGHT,
+                // skeleton có chiều cao cố định để tránh layout shift lúc tải
+                height: SKELETON_HEIGHT,
                 display: "flex",
                 minWidth: 0,
                 overflow: "hidden",
@@ -422,10 +417,10 @@ export default function LiveMatchesPage() {
               <Box
                 key={it.matchId}
                 sx={{
-                  height: CARD_HEIGHT,
+                  // ❗ Không đặt height cố định ở đây
                   display: "flex",
                   minWidth: 0,
-                  overflow: "hidden",
+                  alignItems: "stretch", // để con stretch full chiều cao grid item
                 }}
               >
                 <LiveMatchCard item={it} />
