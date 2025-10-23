@@ -206,7 +206,7 @@ const HEX = {
   red: "#f44336",
   grey: "#616161",
 };
-const MIN_RATING = 2;
+const MIN_RATING = 1.6;
 const MAX_RATING = 8.0;
 const fmt3 = (x) => (Number.isFinite(x) ? Number(x).toFixed(3) : "0.000");
 const prettyDate = (d) => (d ? new Date(d).toLocaleDateString("vi-VN") : "—");
