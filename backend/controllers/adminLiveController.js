@@ -1,11 +1,12 @@
 import expressAsyncHandler from "express-async-handler";
+import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import Bracket from "../models/bracketModel.js";
 
 /* ================== POPULATE ================== */
 const matchPop = [
   { path: "tournament", select: "name" },
-  { path: "bracket", select: "name type stage order" }, // thêm order
+  { path: "bracket", select: "name type stage order" },
   {
     path: "pairA",
     populate: [
@@ -54,15 +55,22 @@ function isFbEndedStatus(status) {
 const GROUPISH_TYPES = new Set(["group", "round_robin", "gsl"]);
 
 function roundsInBracket(br) {
-  // group-like = 1 vòng; KO/PO = meta.maxRounds -> drawRounds -> 1
   if (GROUPISH_TYPES.has(br.type)) return 1;
   return br?.meta?.maxRounds || br?.drawRounds || 1;
 }
 
-/** Gom sẵn danh sách bracket đã sort theo order cho mỗi giải */
+/** Gom danh sách bracket đã sort theo order cho mỗi giải (an toàn ObjectId) */
 async function buildBracketIndexByTournament(tournamentIds = []) {
-  if (!tournamentIds.length) return new Map();
-  const rows = await Bracket.find({ tournament: { $in: tournamentIds } })
+  const ids = (Array.isArray(tournamentIds) ? tournamentIds : [tournamentIds])
+    .map((x) =>
+      mongoose.isValidObjectId(x)
+        ? new mongoose.Types.ObjectId(String(x))
+        : null
+    )
+    .filter(Boolean);
+  if (!ids.length) return new Map();
+
+  const rows = await Bracket.find({ tournament: { $in: ids } })
     .select("_id tournament type order meta.maxRounds drawRounds")
     .sort({ tournament: 1, order: 1, _id: 1 })
     .lean();
@@ -78,7 +86,7 @@ async function buildBracketIndexByTournament(tournamentIds = []) {
 
 /** Tính v cộng dồn cho 1 match, dựa vào danh sách bracket của giải */
 function computeGlobalVForMatch(m, bracketListOfTournament = []) {
-  const bracketId = String(m.bracket?._id || m.bracket);
+  const bracketId = String(m.bracket?._id || m.bracket || "");
   let acc = 0;
   for (const b of bracketListOfTournament) {
     if (String(b._id) === bracketId) {
@@ -104,7 +112,7 @@ function renderNewMatchCode({ bracketType, poolName, order0, v }) {
 /** Gán code mới (v[-b]-t) lên m (mutate object) */
 function applyNewCodeOnMatch(m, bracketsOfTournament = []) {
   const v = computeGlobalVForMatch(m, bracketsOfTournament);
-  const bracketType = m?.bracket?.type || m?.format; // populate có type
+  const bracketType = m?.bracket?.type || m?.format;
   const poolName = m?.pool?.name || null;
   m.code = renderNewMatchCode({
     bracketType,
@@ -112,14 +120,13 @@ function applyNewCodeOnMatch(m, bracketsOfTournament = []) {
     order0: m.order,
     v,
   });
-  // (option) shortCode giống code mới
   m.shortCode = m.code;
 }
 
 /** Áp dụng code mới hàng loạt trước khi map DTO */
 function applyNewCodeOnMatches(matches = [], bracketIndexByT = new Map()) {
   for (const m of matches) {
-    const tKey = String(m?.tournament?._id || m.tournament);
+    const tKey = String(m?.tournament?._id || m.tournament || "");
     const list = bracketIndexByT.get(tKey) || [];
     applyNewCodeOnMatch(m, list);
   }
@@ -221,7 +228,7 @@ function toSessionDTO(m) {
     startedBy: m.liveBy || null,
     tournament: m.tournament,
     bracket: m.bracket,
-    match: m, // m.code đã được thay bằng mã mới
+    match: m, // đã áp mã mới
     outputs: uniqOutputs,
   };
 }
@@ -262,7 +269,7 @@ function derivePagesLiveFromSessions(sessions = []) {
       if (o?.meta?.liveId) rec.liveIds.add(o.meta.liveId);
       rec.matches.push({
         id: s.id,
-        code: s.match?.code, // đã là mã mới
+        code: s.match?.code,
         tournament: s.tournament?.name,
         bracket: s.bracket?.name,
       });
@@ -282,39 +289,56 @@ function derivePagesLiveFromSessions(sessions = []) {
   return pages;
 }
 
-/* ================== ROUTES ================== */
+/* ================== CONTROLLERS ================== */
 export const adminListLivePages = expressAsyncHandler(async (req, res) => {
-  const filter = {
-    status: { $ne: "finished" },
-    $or: [
-      { "facebookLive.id": { $type: "string" } },
-      { "meta.facebook.live.id": { $exists: true } },
-      { "meta.facebook.permalinkUrl": { $type: "string" } },
-    ],
-  };
+  try {
+    const filter = {
+      status: { $ne: "finished" },
+      $or: [
+        { "facebookLive.id": { $type: "string" } },
+        { "meta.facebook.live.id": { $exists: true } },
+        { "meta.facebook.permalinkUrl": { $type: "string" } },
+      ],
+    };
 
-  const matches = await Match.find(filter)
-    .select(
-      "code shortCode status tournament bracket round order pool.name facebookLive meta startedAt"
-    )
-    .populate([
-      { path: "tournament", select: "name" },
-      { path: "bracket", select: "name type order" },
-    ])
-    .lean();
+    const matches = await Match.find(filter)
+      .select(
+        "code shortCode status tournament bracket round order pool.name facebookLive meta startedAt"
+      )
+      .populate([
+        { path: "tournament", select: "name" },
+        { path: "bracket", select: "name type order" },
+      ])
+      .lean({ getters: true, virtuals: true });
 
-  // Tính mã trận mới trước khi map DTO
-  const tournamentIds = [
-    ...new Set(matches.map((m) => String(m?.tournament?._id || m.tournament))),
-  ];
-  const bracketIndexByT = await buildBracketIndexByTournament(tournamentIds);
-  applyNewCodeOnMatches(matches, bracketIndexByT);
+    // Tính mã trận mới trước khi map DTO
+    const tournamentIds = [
+      ...new Set(
+        matches
+          .map((m) => m?.tournament?._id || m.tournament)
+          .filter((t) => mongoose.isValidObjectId(t))
+          .map(String)
+      ),
+    ];
+    const bracketIndexByT = await buildBracketIndexByTournament(tournamentIds);
+    applyNewCodeOnMatches(matches, bracketIndexByT);
 
-  const sessions = matches
-    .map((m) => toSessionDTO(m))
-    .filter((s) => isSessionLiveable(s));
-  const pagesLive = derivePagesLiveFromSessions(sessions);
-  res.json({ items: pagesLive });
+    const sessions = matches
+      .map((m) => toSessionDTO(m))
+      .filter((s) => isSessionLiveable(s));
+
+    const pagesLive = derivePagesLiveFromSessions(sessions);
+    return res.json({ items: pagesLive });
+  } catch (err) {
+    console.error("[adminListLivePages] error:", err);
+    const isProd =
+      String(process.env.NODE_ENV || "").toLowerCase() === "production";
+    return res.status(500).json({
+      message: "Internal error",
+      code: "ADMIN_LIVE_PAGES_LIST_FAILED",
+      error: isProd ? undefined : err?.message || String(err),
+    });
+  }
 });
 
 export const adminListLiveSessions = expressAsyncHandler(async (req, res) => {
@@ -328,7 +352,25 @@ export const adminListLiveSessions = expressAsyncHandler(async (req, res) => {
     } = req.query;
 
     const filter = { status: { $ne: "finished" } };
-    if (tournamentId) filter.tournament = tournamentId;
+
+    // Sanitize tournamentId (chấp nhận nhiều id, phân tách bởi dấu phẩy)
+    if (tournamentId) {
+      const tokens = String(tournamentId)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const ids = tokens
+        .map((t) =>
+          mongoose.isValidObjectId(t) ? new mongoose.Types.ObjectId(t) : null
+        )
+        .filter(Boolean);
+
+      if (ids.length === 0) {
+        // Không có id hợp lệ → trả rỗng, tránh BSONError
+        return res.status(200).json({ items: [], pagesLive: [] });
+      }
+      filter.tournament = ids.length === 1 ? ids[0] : { $in: ids };
+    }
 
     const matches = await Match.find(filter)
       .select(
@@ -337,12 +379,15 @@ export const adminListLiveSessions = expressAsyncHandler(async (req, res) => {
       .populate(matchPop)
       .sort({ startedAt: -1, createdAt: -1 })
       .limit(Math.min(Number(limit) || 200, 500))
-      .lean();
+      .lean({ getters: true, virtuals: true });
 
-    // Tính mã trận mới (v[-b]-t) cho tất cả trận
+    // Lấy danh sách tournamentId hợp lệ từ matches và build index
     const tournamentIds = [
       ...new Set(
-        matches.map((m) => String(m?.tournament?._id || m.tournament))
+        matches
+          .map((m) => m?.tournament?._id || m.tournament)
+          .filter((t) => mongoose.isValidObjectId(t))
+          .map(String)
       ),
     ];
     const bracketIndexByT = await buildBracketIndexByTournament(tournamentIds);
@@ -413,49 +458,71 @@ export const adminListLiveSessions = expressAsyncHandler(async (req, res) => {
 });
 
 export const adminGetLiveSession = expressAsyncHandler(async (req, res) => {
-  const m = await Match.findById(req.params.id)
-    .select(
-      "code shortCode status startedAt liveBy video tournament bracket pairA pairB referee facebookLive meta round order pool.name"
-    )
-    .populate(matchPop)
-    .lean(); // giữ nguyên như bạn đang dùng
+  try {
+    const m = await Match.findById(req.params.id)
+      .select(
+        "code shortCode status startedAt liveBy video tournament bracket pairA pairB referee facebookLive meta round order pool.name"
+      )
+      .populate(matchPop)
+      .lean({ getters: true, virtuals: true });
 
-  // Không có -> trả rỗng 200
-  if (!m) return res.json({});
+    // Không có / đã kết thúc -> trả rỗng 200
+    if (!m || m.status === "finished") return res.json({});
 
-  // Trận đã kết thúc -> trả rỗng 200
-  if (m.status === "finished") return res.json({});
+    // Gán mã mới cho 1 trận đơn lẻ (an toàn ObjectId)
+    const tRaw = m?.tournament?._id || m.tournament;
+    const tId = mongoose.isValidObjectId(tRaw) ? String(tRaw) : null;
+    const bracketIndexByT = await buildBracketIndexByTournament(
+      tId ? [tId] : []
+    );
+    const list = tId ? bracketIndexByT.get(tId) || [] : [];
+    applyNewCodeOnMatch(m, list);
 
-  // Gán mã mới cho 1 trận đơn lẻ
-  const tid = String(m?.tournament?._id || m.tournament);
-  const bracketIndexByT = await buildBracketIndexByTournament([tid]);
-  const list = bracketIndexByT.get(tid) || [];
-  applyNewCodeOnMatch(m, list);
+    const dto = toSessionDTO(m);
 
-  const dto = toSessionDTO(m);
+    // Không có stream khả dụng -> trả rỗng 200
+    if (!isSessionLiveable(dto)) return res.json({});
 
-  // Không có stream khả dụng -> trả rỗng 200
-  if (!isSessionLiveable(dto)) return res.json({});
-
-  // Có -> trả DTO
-  return res.json(dto);
+    // Có -> trả DTO
+    return res.json(dto);
+  } catch (err) {
+    console.error("[adminGetLiveSession] error:", err);
+    const isProd =
+      String(process.env.NODE_ENV || "").toLowerCase() === "production";
+    return res.status(500).json({
+      message: "Internal error",
+      code: "ADMIN_LIVE_SESSION_GET_FAILED",
+      error: isProd ? undefined : err?.message || String(err),
+    });
+  }
 });
 
 export const adminStopLiveSession = expressAsyncHandler(async (req, res) => {
-  const m = await Match.findById(req.params.id);
-  if (!m) return res.status(404).json({ message: "Không tìm thấy trận" });
+  try {
+    const m = await Match.findById(req.params.id);
+    if (!m) return res.status(404).json({ message: "Không tìm thấy trận" });
 
-  const fb = m.facebookLive || {};
-  fb.status = "ENDED";
-  fb.secure_stream_url = "";
-  fb.server_url = "";
-  fb.stream_key = "";
-  m.facebookLive = fb;
-  await m.save();
+    const fb = m.facebookLive || {};
+    fb.status = "ENDED";
+    fb.secure_stream_url = "";
+    fb.server_url = "";
+    fb.stream_key = "";
+    m.facebookLive = fb;
+    await m.save();
 
-  res.json({
-    message: "Đã dừng live Facebook cho trận",
-    id: m._id,
-    facebook: fb,
-  });
+    return res.json({
+      message: "Đã dừng live Facebook cho trận",
+      id: m._id,
+      facebook: fb,
+    });
+  } catch (err) {
+    console.error("[adminStopLiveSession] error:", err);
+    const isProd =
+      String(process.env.NODE_ENV || "").toLowerCase() === "production";
+    return res.status(500).json({
+      message: "Internal error",
+      code: "ADMIN_LIVE_SESSION_STOP_FAILED",
+      error: isProd ? undefined : err?.message || String(err),
+    });
+  }
 });
