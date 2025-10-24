@@ -48,6 +48,7 @@ import adminSponsorRoutes from "./routes/adminSponsorRoutes.js";
 import publicSponsorRoutes from "./routes/publicSponsorRoutes.js";
 import oauthRoutes from "./routes/oauthRoutes.js";
 import liveRoutes from "./routes/live.routes.js";
+import courtRoutes from "./routes/courtRoutes.js"
 
 dotenv.config();
 const port = process.env.PORT;
@@ -125,6 +126,7 @@ app.use("/api/admin/sponsors", adminSponsorRoutes);
 app.use("/api/sponsors", publicSponsorRoutes);
 app.use("/api/oauth", oauthRoutes);
 app.use("/api/live", liveRoutes);
+app.use("/api/courts", courtRoutes);
 
 app.get("/dl/file/:id", async (req, res) => {
   try {

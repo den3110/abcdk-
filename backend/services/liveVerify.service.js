@@ -59,13 +59,12 @@ async function pickFacebookAccessTokens() {
   const csv = (await getCfgStr("FB_BOOT_LONG_USER_TOKEN", "")).trim();
   if (csv) {
     for (const t of csv
-      .split(",")
+      .split(/[,\r\n]+/) // tách bởi dấu phẩy hoặc xuống dòng (CR/LF)
       .map((s) => s.trim())
       .filter(Boolean)) {
       tokens.push({ type: "user", token: t });
     }
   }
-
   return tokens;
 }
 
@@ -111,7 +110,7 @@ export async function verifyFacebookLiveWithBestToken({
       //   if (liveItem) return ok(liveItem);
       // }
     } catch (e) {
-      console.log(e)
+      console.log(e);
       // tiếp tục thử token kế tiếp
     }
   }

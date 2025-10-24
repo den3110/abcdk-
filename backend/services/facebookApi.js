@@ -58,17 +58,25 @@ export async function getPageViaFields(longUserToken, pageId) {
   return j;
 }
 
-export async function debugToken(token) {
-  const appToken = `${await fbAppId()}|${await fbAppSecret()}`;
+// services/facebookApi.js
+export async function debugToken(token, appIdOverride = null, appSecretOverride = null) {
+  const appId = appIdOverride ?? (await fbAppId());
+  const appSecret = appSecretOverride ?? (await fbAppSecret());
+
+  if (!appId || !appSecret) {
+    throw new Error("debug_token: missing appId/appSecret");
+  }
+
+  const appToken = `${appId}|${appSecret}`;
   const url =
     (await base(`/debug_token`)) +
-    `?input_token=${encodeURIComponent(
-      token
-    )}&access_token=${encodeURIComponent(appToken)}`;
+    `?input_token=${encodeURIComponent(token)}&access_token=${encodeURIComponent(appToken)}`;
+
   const r = await fetch(url);
   const j = await r.json();
-  if (!r.ok)
+  if (!r.ok) {
     throw new Error(`debug_token failed: ${r.status} ${JSON.stringify(j)}`);
+  }
   const d = j?.data || {};
   return {
     isValid: !!d.is_valid,

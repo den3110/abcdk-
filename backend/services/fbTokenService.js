@@ -18,20 +18,68 @@ const now = () => new Date();
 // ───────────────────────────────────────────────────────────────────────────────
 // Config helpers
 
-/** Đọc nhiều LONG USER TOKENS từ DB (CSV, cách nhau dấu phẩy) */
+/** Tách list bằng dấu phẩy hoặc xuống dòng */
+function parseCsvMulti(s) {
+  return String(s || "")
+    .split(/[,\r\n]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+/** Đọc danh sách long user tokens (ngăn cách phẩy/line) */
 async function getLongUserTokensFromConfig() {
   const csv = await getCfgStr("FB_BOOT_LONG_USER_TOKEN", "");
-  return csv
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return parseCsvMulti(csv);
+}
+
+/** Đọc pool token + appId + appSecret và ghép theo index */
+async function getBootPairsFromConfig() {
+  const tokens = parseCsvMulti(await getCfgStr("FB_BOOT_LONG_USER_TOKEN", ""));
+  const appIds = parseCsvMulti(await getCfgStr("FB_APP_ID", ""));
+  const appSecrets = parseCsvMulti(await getCfgStr("FB_APP_SECRET", ""));
+  const pairs = [];
+
+  if (tokens.length === 0) return pairs;
+
+  const oneGlobal = appIds.length === 1 && appSecrets.length === 1;
+  const equalLen =
+    tokens.length === appIds.length && appIds.length === appSecrets.length;
+
+  if (equalLen) {
+    for (let i = 0; i < tokens.length; i++) {
+      pairs.push({
+        token: tokens[i],
+        appId: appIds[i],
+        appSecret: appSecrets[i],
+      });
+    }
+  } else if (oneGlobal) {
+    for (const t of tokens)
+      pairs.push({ token: t, appId: appIds[0], appSecret: appSecrets[0] });
+  } else if (appIds.length === 0 && appSecrets.length === 0) {
+    // Không cấu hình app list → để null, debugToken sẽ tự fallback sang env (nếu có)
+    for (const t of tokens)
+      pairs.push({ token: t, appId: null, appSecret: null });
+  } else {
+    const n = Math.min(tokens.length, appIds.length, appSecrets.length);
+    log.warn(
+      `[FB] Config length mismatch: tokens=${tokens.length}, appIds=${appIds.length}, appSecrets=${appSecrets.length} → using first ${n} pairs`
+    );
+    for (let i = 0; i < n; i++) {
+      pairs.push({
+        token: tokens[i],
+        appId: appIds[i],
+        appSecret: appSecrets[i],
+      });
+    }
+  }
+  return pairs;
 }
 
 /** Xoá FbToken theo pool token trong config.
  *  - tokens rỗng  → xoá toàn bộ FbToken (reset sạch)
  *  - tokens có giá trị → xoá doc có longUserToken ∉ tokens, hoặc null/""/không có field
  */
-
 async function pruneFbTokensByConfig(tokens) {
   const allow = Array.isArray(tokens)
     ? tokens.map((s) => s.trim()).filter(Boolean)
@@ -73,7 +121,7 @@ async function pruneFbTokensByConfig(tokens) {
   const res = await FbToken.deleteMany(query);
   const deleted = res?.deletedCount ?? res?.result?.n ?? 0;
   if (deleted > 0) log.warn(`[FB] Pruned ${deleted} FbToken docs`);
-  else log.v(`[FB] prune: nothing to delete`);
+  else log.v(`[FB] prune: nothing to delete]`);
   return { deleted, total };
 }
 
@@ -91,10 +139,31 @@ async function isNearExpiryAsync(d) {
   return t - Date.now() <= ms;
 }
 
+/** Tìm appId/appSecret ứng với một long token (dựa trên config zip) */
+async function findCredsForLongToken(longToken) {
+  const pairs = await getBootPairsFromConfig();
+  const hit = pairs.find((p) => p.token === longToken);
+  if (hit) return { appId: hit.appId, appSecret: hit.appSecret };
+
+  // fallback: nếu toàn bộ pairs dùng chung 1 bộ creds
+  const creds = Array.from(
+    new Set(
+      pairs.map((p) =>
+        p.appId && p.appSecret ? `${p.appId}|${p.appSecret}` : ""
+      )
+    )
+  ).filter(Boolean);
+  if (creds.length === 1) {
+    const [appId, appSecret] = creds[0].split("|");
+    return { appId, appSecret };
+  }
+  return { appId: null, appSecret: null }; // để debugToken tự fallback env nếu có
+}
+
 // ───────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 
-async function upsertFromLong(page, longUserToken, longDbg) {
+async function upsertFromLong(page, longUserToken, longDbg, appId, appSecret) {
   const p = page;
   const pageObj = p?.access_token
     ? p
@@ -130,7 +199,8 @@ async function upsertFromLong(page, longUserToken, longDbg) {
     return { createdOrUpdated: true, tokenOk: false };
   }
 
-  const pageDbg = await debugToken(pageObj.access_token);
+  // Debug page token bằng đúng app của long token
+  const pageDbg = await debugToken(pageObj.access_token, appId, appSecret);
   await FbToken.updateOne(
     { pageId: p.id },
     {
@@ -156,8 +226,9 @@ async function upsertFromLong(page, longUserToken, longDbg) {
 export async function bootstrapFromEnvIfNeeded() {
   const t0 = Date.now();
   const count = await FbToken.countDocuments({});
-  const tokens = await getLongUserTokensFromConfig();
-  console.info("tokens", tokens);
+
+  const pairs = await getBootPairsFromConfig(); // [{ token, appId, appSecret }]
+  const tokens = pairs.map((p) => p.token);
 
   // Nếu DB trống mà lại thiếu long token → không làm gì được
   if (count === 0 && tokens.length === 0) {
@@ -171,12 +242,12 @@ export async function bootstrapFromEnvIfNeeded() {
   const { deleted: prunedAtBootstrap } = await pruneFbTokensByConfig(tokens);
   log.info(`[FB] prune@bootstrap: deleted=${prunedAtBootstrap}`);
 
-  // Validate tất cả tokens, giữ lại token hợp lệ
+  // Validate tất cả tokens, giữ lại token hợp lệ (dùng đúng app theo cặp)
   const valid = [];
-  for (const tok of tokens) {
+  for (const { token: tok, appId, appSecret } of pairs) {
     try {
-      const dbg = await debugToken(tok);
-      if (dbg.isValid) valid.push({ tok, dbg });
+      const dbg = await debugToken(tok, appId, appSecret);
+      if (dbg.isValid) valid.push({ tok, dbg, appId, appSecret });
       else log.warn("Bootstrap/Sync: LONG user token invalid (skipped).");
     } catch (e) {
       log.warn("Bootstrap/Sync: debug long token error (skipped):", e.message);
@@ -188,17 +259,17 @@ export async function bootstrapFromEnvIfNeeded() {
   }
 
   // Lấy danh sách page từ tất cả tokens (dedupe theo pageId, ưu tiên token xuất hiện trước)
-  const byPageId = new Map(); // pageId -> { p, tok, dbg }
-  for (const { tok, dbg } of valid) {
+  const byPageId = new Map(); // pageId -> { p, tok, dbg, appId, appSecret }
+  for (const v of valid) {
     try {
-      const arr = await getAllPages(tok);
+      const arr = await getAllPages(v.tok);
       log.info(
         `[FB] ${count === 0 ? "Bootstrap" : "Sync"}: token ok → ${
           arr.length
         } pages`
       );
       for (const p of arr) {
-        if (!byPageId.has(p.id)) byPageId.set(p.id, { p, tok, dbg });
+        if (!byPageId.has(p.id)) byPageId.set(p.id, { p, ...v });
       }
     } catch (e) {
       log.warn(`[FB] getAllPages error for one token: ${e.message}`);
@@ -216,10 +287,10 @@ export async function bootstrapFromEnvIfNeeded() {
   let created = 0,
     updated = 0,
     fail = 0;
-  for (const { p, tok, dbg } of pages) {
+  for (const { p, tok, dbg, appId, appSecret } of pages) {
     try {
       const exists = await FbToken.findOne({ pageId: p.id }).lean();
-      const r = await upsertFromLong(p, tok, dbg);
+      const r = await upsertFromLong(p, tok, dbg, appId, appSecret);
       if (exists) updated += r.createdOrUpdated ? 1 : 0;
       else created += r.createdOrUpdated ? 1 : 0;
     } catch (e) {
@@ -248,14 +319,16 @@ export async function bootstrapFromEnvIfNeeded() {
 export async function ensureValidPageToken(pageId) {
   log.v(`ensureValidPageToken(pageId=${pageId})`);
   let doc = await FbToken.findOne({ pageId });
-  const tokens = await getLongUserTokensFromConfig();
+
+  const pairs = await getBootPairsFromConfig();
+  const poolTokens = pairs.map((p) => p.token);
 
   // 🔥 Nếu record đang trỏ longUserToken không thuộc pool → xoá record
   if (
     doc &&
-    tokens.length > 0 &&
+    poolTokens.length > 0 &&
     doc.longUserToken &&
-    !tokens.includes(doc.longUserToken)
+    !poolTokens.includes(doc.longUserToken)
   ) {
     await FbToken.deleteOne({ _id: doc._id });
     log.warn(
@@ -266,18 +339,20 @@ export async function ensureValidPageToken(pageId) {
 
   // Auto-provision nếu chưa có record
   if (!doc) {
-    if (tokens.length === 0) {
+    if (pairs.length === 0) {
       throw new Error(
         `No record for pageId=${pageId} and no LONG tokens in DB`
       );
     }
     let picked = null;
-    for (const tok of tokens) {
-      const dbg = await debugToken(tok).catch(() => ({ isValid: false }));
+    for (const { token: tok, appId, appSecret } of pairs) {
+      const dbg = await debugToken(tok, appId, appSecret).catch(() => ({
+        isValid: false,
+      }));
       if (!dbg.isValid) continue;
       const pageObj = await getPageViaFields(tok, pageId).catch(() => null);
       if (pageObj) {
-        picked = { tok, dbg, pageObj };
+        picked = { tok, dbg, appId, appSecret, pageObj };
         break;
       }
     }
@@ -314,7 +389,11 @@ export async function ensureValidPageToken(pageId) {
       log.info(`[FB] ensure: provisioned record for ${pageId} (needs reauth)`);
       throw new Error(`Cannot fetch page access_token for ${pageId}`);
     } else {
-      const pageDbg = await debugToken(picked.pageObj.access_token);
+      const pageDbg = await debugToken(
+        picked.pageObj.access_token,
+        picked.appId,
+        picked.appSecret
+      );
       await FbToken.updateOne(
         { pageId },
         {
@@ -362,18 +441,26 @@ export async function ensureValidPageToken(pageId) {
   }
 
   // LONG user token hợp lệ? nếu không → thử switch sang token khác có quyền
-  const longDbg = await debugToken(doc.longUserToken).catch(() => ({
+  const { appId: curAppId, appSecret: curAppSecret } =
+    await findCredsForLongToken(doc.longUserToken);
+  const longDbg = await debugToken(
+    doc.longUserToken,
+    curAppId,
+    curAppSecret
+  ).catch(() => ({
     isValid: false,
   }));
   if (!longDbg.isValid || (await isNearExpiryAsync(longDbg.expiresAt))) {
     let switched = null;
-    for (const tok of tokens) {
+    for (const { token: tok, appId: a2, appSecret: s2 } of pairs) {
       if (tok === doc.longUserToken) continue;
-      const dbg2 = await debugToken(tok).catch(() => ({ isValid: false }));
+      const dbg2 = await debugToken(tok, a2, s2).catch(() => ({
+        isValid: false,
+      }));
       if (!dbg2.isValid || (await isNearExpiryAsync(dbg2.expiresAt))) continue;
       const pageObj2 = await getPageViaFields(tok, pageId).catch(() => null);
       if (pageObj2) {
-        switched = { tok, dbg2 };
+        switched = { tok, dbg2, appId: a2, appSecret: s2 };
         break;
       }
     }
@@ -416,7 +503,10 @@ export async function ensureValidPageToken(pageId) {
     throw new Error(`Cannot fetch page access_token for ${pageId}`);
   }
 
-  const pageDbg = await debugToken(pageObj.access_token);
+  const { appId: a3, appSecret: s3 } = await findCredsForLongToken(
+    doc.longUserToken
+  );
+  const pageDbg = await debugToken(pageObj.access_token, a3, s3);
   await FbToken.updateOne(
     { _id: doc._id },
     {
@@ -440,8 +530,10 @@ export async function ensureValidPageToken(pageId) {
 export async function sweepRefreshAll() {
   const t0 = Date.now();
   // 🔥 Prune trước khi sweep để dọn rác theo config hiện tại
-  const tokens = await getLongUserTokensFromConfig();
-  const { deleted: prunedAtSweep } = await pruneFbTokensByConfig(tokens);
+  const pairs = await getBootPairsFromConfig();
+  const { deleted: prunedAtSweep } = await pruneFbTokensByConfig(
+    pairs.map((p) => p.token)
+  );
   log.info(`[FB] prune@sweep: deleted=${prunedAtSweep}`);
   const docs = await FbToken.find({});
   log.info(`[FB] Sweep: ${docs.length} pages`);
@@ -480,15 +572,14 @@ export async function getValidPageToken(pageId) {
   return doc.pageToken;
 }
 
-
-// services/fbTokenService.js
+// ───────────────────────────────────────────────────────────────────────────────
 let _resyncTimer = null;
 
 export async function resyncNow() {
   try {
     log.info("[FB] ResyncNow: start");
-    const boot = await bootstrapFromEnvIfNeeded();  // prune + sync pages
-    const sweep = await sweepRefreshAll();          // ensure tokens fresh
+    const boot = await bootstrapFromEnvIfNeeded(); // prune + sync pages
+    const sweep = await sweepRefreshAll(); // ensure tokens fresh
     log.info("[FB] ResyncNow: done");
     return { boot, sweep };
   } catch (e) {

@@ -32,13 +32,13 @@ export async function listLiveMatches(req, res) {
       statuses,
     });
     // log nhanh để debug
-    console.log("[LiveMatches] candidates:", candidates.length);
+    // console.log("[LiveMatches] candidates:", candidates.length);
 
     const verified = await verifyStrict(candidates, { concurrency });
-    console.log(
-      "[LiveMatches] verified (rows with >=1 session):",
-      verified.length
-    );
+    // console.log(
+    //   "[LiveMatches] verified (rows with >=1 session):",
+    //   verified.length
+    // );
 
     res.json({
       count: verified.length,

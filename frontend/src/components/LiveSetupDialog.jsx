@@ -131,7 +131,7 @@ export default function LiveSetupDialog({
     (tid, bid, court) =>
       buildCourtLiveUrl
         ? buildCourtLiveUrl(tid, bid, court) // hàm của bạn có thể nhận 2 hoặc 3 tham số đều ổn
-        : `/live/${tid}/brackets/${bid}/live-studio/${court._id}`,
+        : `/streaming/${court._id}`,
     [buildCourtLiveUrl]
   );
 

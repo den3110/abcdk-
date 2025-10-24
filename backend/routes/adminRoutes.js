@@ -147,6 +147,8 @@ import {
 } from "../controllers/adminConfigController.js";
 import { ytCallback, ytGetOrCreateStreamKey, ytInit, ytRevoke } from "../controllers/youtubeSetupController.js";
 import { bulkSetCourtLiveConfig, getCourtLiveConfig, listCourtsByTournamentLive, setCourtLiveConfig } from "../controllers/courtLiveConfigController.js";
+import { adminGetLiveSession, adminListLiveSessions, adminStopLiveSession } from "../controllers/adminLiveController.js";
+import { exchangeLongUserToken } from "../controllers/adminFacebookController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -678,7 +680,11 @@ router.get("/youtube/init", protect, authorize("admin"), ytInit);
 router.get("/youtube/stream-key", protect, authorize("admin"), ytGetOrCreateStreamKey);
 router.post("/youtube/revoke", protect, authorize("admin"), ytRevoke);
 
+router.get("/live-sessions", protect, authorize("admin"), adminListLiveSessions);
+router.get("/live-sessions/:id", protect, authorize("admin"), adminGetLiveSession);
+router.patch("/live-sessions/:id/stop", protect, authorize("admin"), adminStopLiveSession);
 
+router.post("/fb/long-user-token/exchange", protect, authorize("admin"), exchangeLongUserToken);
 
 
 export default router;

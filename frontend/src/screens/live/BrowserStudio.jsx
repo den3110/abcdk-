@@ -1094,7 +1094,6 @@ export default function FacebookLiveStreamerMUI({
     }
     setLoading(true);
     try {
-
       setStatus("Đang kết nối WebSocket...");
       const ws = await new Promise((resolve, reject) => {
         const socket = new WebSocket(wsUrl);

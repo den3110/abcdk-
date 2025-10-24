@@ -17,5 +17,6 @@ router.patch("/:id/live", protect, isManagerTournament, setMatchLive);
 router.patch("/:id/admin", protect, isManagerTournament, adminPatchMatch);
 
 router.post("/:matchId/live/facebook", createFacebookLiveForMatch);
+router.post("/:matchId/live/create", createFacebookLiveForMatch);
 
 export default router;

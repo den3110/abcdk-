@@ -23,11 +23,11 @@ function redirectTo404() {
 
   try {
     // Điều hướng SPA để React Router render NotFound
-    window.history.pushState({}, "", "/404");
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    // window.history.pushState({}, "", "/404");
+    // window.dispatchEvent(new PopStateEvent("popstate"));
   } catch {
     // Fallback hard redirect
-    window.location.assign("/404");
+    // window.location.assign("/404");
   }
 }
 

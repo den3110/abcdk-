@@ -983,7 +983,7 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     .populate({ path: "tournament", select: "name eventType" })
     .populate({
       path: "bracket",
-      select: "name type stage round rules format eventType",
+      select: "name type stage round rules format eventType order meta",
     })
     .populate({
       path: "pairA",
@@ -1019,6 +1019,70 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     throw new Error("Match không tồn tại");
   }
 
+  /* ===================== build displayCode v[-b]-t ===================== */
+  const groupTypes = new Set(["group", "round_robin", "gsl"]);
+  const isGroup = groupTypes.has(match?.bracket?.type);
+
+  // Lấy toàn bộ bracket của giải để cộng dồn số vòng trước bracket hiện tại
+  const tournamentId = String(
+    match?.tournament?._id || match?.tournament || ""
+  );
+  const curBracketId = String(match?.bracket?._id || match?.bracket || "");
+
+  // Sắp thứ tự theo stage rồi order để cộng dồn ổn định
+  const allBrackets = await Bracket.find({ tournament: tournamentId })
+    .select("_id type stage order meta")
+    .sort({ stage: 1, order: 1, _id: 1 })
+    .lean();
+
+  const effRounds = (br) => {
+    if (groupTypes.has(br.type)) return 1; // vòng bảng coi như 1 vòng
+    // cố gắng dùng meta.maxRounds (đã đồng bộ trong pre-save)
+    const mr = br?.meta?.maxRounds;
+    if (Number.isFinite(mr) && mr > 0) return mr;
+    return 1; // fallback an toàn
+  };
+
+  // Cộng dồn số vòng của các bracket đứng trước bracket hiện tại
+  let vOffset = 0;
+  for (const b of allBrackets) {
+    if (String(b._id) === curBracketId) break;
+    vOffset += effRounds(b);
+  }
+
+  // v hiện tại: KO: offset + round; Group: offset + 1
+  const roundInBracket = Number(match.round) > 0 ? Number(match.round) : 1;
+  const vIndex = isGroup ? vOffset + 1 : vOffset + roundInBracket;
+
+  // b: tên bảng (nếu có)
+  let bKey =
+    match?.pool?.name ||
+    match?.pool?.key ||
+    (match?.pool?.id ? String(match.pool.id) : "");
+  if (typeof bKey !== "string") bKey = String(bKey || "");
+
+  // t: thứ tự trận trong round; với group → thứ tự trong bảng (ổn định hơn)
+  let tIndex = (Number(match.order) || 0) + 1;
+  if (isGroup) {
+    const q = { bracket: match.bracket };
+    if (match?.pool?.id) q["pool.id"] = match.pool.id;
+    else if (match?.pool?.name) q["pool.name"] = match.pool.name;
+
+    // Sắp theo rrRound -> order -> createdAt để có thứ tự nhất quán trong bảng
+    const samePool = await Match.find(q)
+      .select("_id rrRound order createdAt")
+      .sort({ rrRound: 1, order: 1, createdAt: 1 })
+      .lean();
+
+    const idx = samePool.findIndex((m) => String(m._id) === String(match._id));
+    if (idx >= 0) tIndex = idx + 1;
+  }
+
+  const displayCode = isGroup
+    ? `V${vIndex}-B${bKey || "NA"}-T${tIndex}` // v-b-t
+    : `V${vIndex}-T${tIndex}`; // v-t
+
+  /* ===================== (giữ nguyên phần enrich cũ) ===================== */
   const toIntOrNull = (v) =>
     v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null;
 
@@ -1145,12 +1209,18 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
 
   const slotsOut = { ...slotsRaw, base: { A: baseA, B: baseB } };
 
-  // Nếu cần enrich thêm:
-  const enriched = decorateServeAndSlots
-    ? decorateServeAndSlots({ ...match, pairA, pairB, serve, slots: slotsOut })
-    : match;
+  const enriched =
+    typeof decorateServeAndSlots === "function"
+      ? decorateServeAndSlots({
+          ...match,
+          pairA,
+          pairB,
+          serve,
+          slots: slotsOut,
+        })
+      : match;
 
-  // ✅ Trả về MỘT lần duy nhất
+  // ✅ Trả về kèm mã hiển thị mới
   return res.json({
     ...enriched,
     pairA,
@@ -1158,9 +1228,13 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     rules: mergedRules,
     serve,
     slots: slotsOut,
+    // ===== new fields for FE =====
+    displayCode, // "v-t" hoặc "v-b-t" theo yêu cầu
+    vIndex, // số vòng cộng dồn trong giải
+    bKey, // tên bảng (nếu có)
+    tIndex, // thứ tự trận
   });
 });
-
 /**
  * DELETE /api/matches/:matchId
  * Xoá 1 match:
