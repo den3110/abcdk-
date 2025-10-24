@@ -405,23 +405,27 @@ export const adminGetLiveSession = expressAsyncHandler(async (req, res) => {
       "code shortCode status startedAt liveBy video tournament bracket pairA pairB referee facebookLive meta round order pool.name"
     )
     .populate(matchPop)
-    .lean();
-  if (!m) return res.status(404).json({ message: "Không tìm thấy trận" });
-  if (m.status === "finished")
-    return res.status(400).json({ message: "Trận đã kết thúc" });
+    .lean(); // giữ nguyên như bạn đang dùng
+
+  // Không có -> trả rỗng 200
+  if (!m) return res.json({});
+
+  // Trận đã kết thúc -> trả rỗng 200
+  if (m.status === "finished") return res.json({});
 
   // Gán mã mới cho 1 trận đơn lẻ
-  const bracketIndexByT = await buildBracketIndexByTournament([
-    String(m?.tournament?._id || m.tournament),
-  ]);
-  const list =
-    bracketIndexByT.get(String(m?.tournament?._id || m.tournament)) || [];
+  const tid = String(m?.tournament?._id || m.tournament);
+  const bracketIndexByT = await buildBracketIndexByTournament([tid]);
+  const list = bracketIndexByT.get(tid) || [];
   applyNewCodeOnMatch(m, list);
 
   const dto = toSessionDTO(m);
-  if (!isSessionLiveable(dto))
-    return res.status(404).json({ message: "Chưa có stream khả dụng" });
-  res.status(200).json(dto);
+
+  // Không có stream khả dụng -> trả rỗng 200
+  if (!isSessionLiveable(dto)) return res.json({});
+
+  // Có -> trả DTO
+  return res.json(dto);
 });
 
 export const adminStopLiveSession = expressAsyncHandler(async (req, res) => {
