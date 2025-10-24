@@ -54,8 +54,6 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
   // ---------- Helpers nhỏ ----------
   const isNum = (v, def = 0) => (Number.isFinite(Number(v)) ? Number(v) : def);
   const isBool = (v, def = false) => (typeof v === "boolean" ? v : def);
-
-  // Chuẩn hoá số ĐT để dedupe (không ghi vào DB, chỉ dùng so sánh)
   const normPhone = (v) => {
     if (typeof v !== "string") return "";
     let s = v.trim();
@@ -81,6 +79,13 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
   const randomSeed = isNum(body.randomSeed, Date.now());
   const dryRun = isBool(body.dryRun, false);
   const diagnose = isBool(body.diagnose, true); // luôn trả diag hữu ích
+
+  // ✅ NEW: lọc email theo suffix & chỉ lấy user CHƯA KYC
+  const onlyEmailSuffix = String(body.onlyEmailSuffix || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^@+/, ""); // chấp nhận cả "@example.com" hoặc "example.com"
+  const onlyNotKyc = isBool(body.onlyNotKyc, false);
 
   // ---------- Tournament ----------
   const tour = await Tournament.findById(tourId).lean();
@@ -122,7 +127,6 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
   const regs = await Registration.find({ tournament: tour._id })
     .select("player1.user player1.phone player2.user player2.phone")
     .lean();
-
   const usedUsers = new Set();
   const usedPhones = new Set();
   for (const r of regs) {
@@ -145,6 +149,25 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
   if (province)
     baseMatch.province = { $regex: new RegExp(escapeRegExp(province), "i") };
 
+  // ✅ NEW: lọc email theo đuôi
+  if (onlyEmailSuffix) {
+    // ví dụ onlyEmailSuffix = "example.com" -> khớp "...@example.com" (không phân biệt hoa thường)
+    baseMatch.email = {
+      $regex: new RegExp(`@${escapeRegExp(onlyEmailSuffix)}$`, "i"),
+    };
+  }
+
+  // ✅ NEW: chỉ lấy user CHƯA KYC (phủ rộng theo nhiều schema phổ biến)
+  if (onlyNotKyc) {
+    baseMatch.$or = [
+      { kycVerified: { $ne: true } },
+      { kycApproved: { $ne: true } },
+      { kycStatus: { $nin: ["approved", "verified"] } },
+      { "kyc.status": { $nin: ["approved", "verified"] } },
+      { kyc: { $exists: false } },
+    ];
+  }
+
   // Lọc phone KHÔNG rỗng ngay từ pipeline để tránh lỗi required
   const pipeline = [
     { $match: baseMatch },
@@ -159,7 +182,6 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
         ratingR: { $ifNull: [ratingPath, 3.5] }, // thiếu rating => 3.5
       },
     },
-    // ✅ chỉ lấy user có phone khác rỗng (trim)
     {
       $match: {
         $expr: {
@@ -192,7 +214,7 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
 
   // ---------- Dedupe pool ----------
   let candidates = agg.filter((u) => {
-    if (!hasPhone(u)) return false; // ✅ double-check
+    if (!hasPhone(u)) return false;
     if (dedupeByUser && usedUsers.has(String(u._id))) return false;
     if (dedupeByPhone && usedPhones.has(normPhone(u.phone))) return false;
     if (enforceCaps && capSingle > 0 && Number(u.ratingR) > capSingle)
@@ -214,7 +236,7 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
             candidatesTotal,
             afterDedupe,
             notes:
-              "Pool rỗng sau khi lọc thiếu phone/dedupe/capSingle hoặc capacity.",
+              "Pool rỗng sau khi lọc thiếu phone/dedupe/capSingle/emailSuffix/kyc hoặc capacity.",
           }
         : undefined,
     });
@@ -253,7 +275,6 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
       });
     }
 
-    // bulk insert — dùng selected
     const ops = [];
     for (const u of selected) {
       const paid = pickPaid(paymentMode, paidRatio, rnd);
@@ -267,7 +288,7 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
                 _id: u._id,
                 name: u.name,
                 nickname: u.nickname,
-                phone: u.phone, // ✅ luôn có
+                phone: u.phone,
                 email: u.email,
                 avatar: u.avatar,
               },
@@ -300,15 +321,12 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
   /* ============================================================
    *  DOUBLES
    * ============================================================ */
-  // Chuẩn bị pool { user, score }
   let pool = candidates.map((u) => ({ user: u, score: Number(u.ratingR) }));
 
-  // Sắp xếp theo phương pháp
   if (pairMethod === "random") {
     pool = shuffle(pool, rnd);
   } else {
-    // balance/adjacent cùng sort asc
-    pool.sort((a, b) => a.score - b.score);
+    pool.sort((a, b) => a.score - b.score); // balance/adjacent
   }
 
   const applies = {
@@ -327,10 +345,8 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
     return true;
   };
 
-  // Pairing
   const used = new Set();
   const resultPairs = [];
-
   const tryPush = (A, B) => {
     if (used.has(String(A.user._id)) || used.has(String(B.user._id)))
       return false;
@@ -452,7 +468,7 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
               _id: A.user._id,
               name: A.user.name,
               nickname: A.user.nickname,
-              phone: A.user.phone, // ✅ luôn có phone
+              phone: A.user.phone,
               email: A.user.email,
               avatar: A.user.avatar,
             },
@@ -463,7 +479,7 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
               _id: B.user._id,
               name: B.user.name,
               nickname: B.user.nickname,
-              phone: B.user.phone, // ✅ luôn có phone
+              phone: B.user.phone,
               email: B.user.email,
               avatar: B.user.avatar,
             },
