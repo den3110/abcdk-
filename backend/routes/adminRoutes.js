@@ -680,8 +680,7 @@ router.get("/youtube/init", protect, authorize("admin"), ytInit);
 router.get("/youtube/stream-key", protect, authorize("admin"), ytGetOrCreateStreamKey);
 router.post("/youtube/revoke", protect, authorize("admin"), ytRevoke);
 
-router.get("/live-sessions", protect, authorize("admin"), adminListLiveSessions);
-router.patch("/live-sessions/:id/stop", protect, authorize("admin"), adminStopLiveSession);
+
 
 router.post("/fb/long-user-token/exchange", protect, authorize("admin"), exchangeLongUserToken);
 
