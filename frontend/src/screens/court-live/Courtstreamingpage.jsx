@@ -4,7 +4,7 @@
 //   - /streaming/:courtId  (ví dụ: /streaming/court_123)
 //   - /streaming?courtId=court_123
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import {
   Box,
@@ -45,6 +45,20 @@ export default function CourtStreamingPage() {
   } = useGetCourtInfoQuery(courtId, {
     skip: !courtId,
   });
+
+  // apiUrl: .env full -> .env base -> same-origin
+  const apiUrl = useMemo(() => {
+    const full = import.meta.env.VITE_API_URL + "/api/overlay/match";
+    console.log(full);
+    if (full) return full.replace(/\/+$/, "");
+
+    const apiBase = import.meta.env.VITE_API_URL;
+
+    if (apiBase) return `${apiBase.replace(/\/+$/, "")}/api/overlay/match`;
+
+    return `${import.meta.env.VITE_API_URL}/api/overlay/match`;
+  }, []);
+
 
   // Nếu không có courtId
   if (!courtId) {
@@ -183,6 +197,7 @@ export default function CourtStreamingPage() {
         wsUrl={"wss://pickletour.vn/ws/rtmp"}
         enableAutoMode={true}
         pollInterval={5000}
+        apiUrl={apiUrl}
       />
     </Box>
   );
