@@ -396,7 +396,7 @@ export const adminListLiveSessions = expressAsyncHandler(async (req, res) => {
     pagesLive = derivePagesLiveFromSessions(sessions);
   }
 
-  res.json({ items: sessions, pagesLive });
+  res.status(200).json({ items: sessions, pagesLive });
 });
 
 export const adminGetLiveSession = expressAsyncHandler(async (req, res) => {
@@ -421,7 +421,7 @@ export const adminGetLiveSession = expressAsyncHandler(async (req, res) => {
   const dto = toSessionDTO(m);
   if (!isSessionLiveable(dto))
     return res.status(404).json({ message: "Chưa có stream khả dụng" });
-  res.json(dto);
+  res.status(200).json(dto);
 });
 
 export const adminStopLiveSession = expressAsyncHandler(async (req, res) => {
