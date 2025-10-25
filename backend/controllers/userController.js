@@ -777,11 +777,16 @@ const getUserProfile = asyncHandler(async (req, res) => {
     throw new Error("User not found");
   }
 
-  // (tuỳ thích) ghép URL tuyệt đối cho ảnh
+  // Ghép URL tuyệt đối cho ảnh nếu là path tương đối
   const toUrl = (p) =>
     p && !p.startsWith("http") ? `${req.protocol}://${req.get("host")}${p}` : p;
 
   const userObj = user.toObject();
+
+  // 👇 chuẩn hoá URL ảnh
+  userObj.avatar = toUrl(userObj.avatar);
+  userObj.cover = toUrl(userObj.cover);
+
   if (userObj.cccdImages) {
     userObj.cccdImages.front = toUrl(userObj.cccdImages.front);
     userObj.cccdImages.back = toUrl(userObj.cccdImages.back);
@@ -800,7 +805,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy người dùng");
   }
 
-  // Destructure including avatar
+  // Destructure including avatar + cover
   let {
     name,
     nickname,
@@ -812,6 +817,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     password,
     gender,
     avatar,
+    cover, // 👈 ADD
   } = req.body;
 
   // Normalize strings
@@ -825,25 +831,22 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   email = norm(email);
   gender = norm(gender);
   avatar = typeof avatar === "string" ? avatar.trim() : avatar;
+  cover = typeof cover === "string" ? cover.trim() : cover; // 👈 ADD
 
   /* ----------------------- Server-side validate ----------------------- */
-  // gender
   const ALLOWED_GENDERS = ["male", "female", "unspecified", "other"];
   if (gender !== undefined && !ALLOWED_GENDERS.includes(gender)) {
     res.status(400);
     throw new Error("Giới tính không hợp lệ");
   }
-  // phone
   if (phone !== undefined && phone && !/^0\d{9}$/.test(phone)) {
     res.status(400);
     throw new Error("Số điện thoại phải bắt đầu bằng 0 và đủ 10 chữ số.");
   }
-  // cccd
   if (cccd !== undefined && cccd && !/^\d{12}$/.test(cccd)) {
     res.status(400);
     throw new Error("CCCD phải bao gồm đúng 12 chữ số.");
   }
-  // email
   if (
     email !== undefined &&
     email &&
@@ -852,12 +855,10 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Email không hợp lệ.");
   }
-  // password
   if (password !== undefined && password && String(password).length < 6) {
     res.status(400);
     throw new Error("Mật khẩu phải có ít nhất 6 ký tự.");
   }
-  // dob
   if (dob !== undefined && dob) {
     const d = new Date(dob);
     if (Number.isNaN(d.getTime())) {
@@ -916,6 +917,11 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (Object.prototype.hasOwnProperty.call(req.body, "avatar")) {
     user.avatar = avatar || ""; // empty string to clear
   }
+  // 👇 Cover: giống avatar — set/clear nếu client gửi lên
+  if (Object.prototype.hasOwnProperty.call(req.body, "cover")) {
+    user.cover = cover || "";
+  }
+
   if (password) user.password = password;
 
   const updatedUser = await user.save();
@@ -930,6 +936,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     cccd: updatedUser.cccd,
     email: updatedUser.email,
     avatar: updatedUser.avatar,
+    cover: updatedUser.cover, // 👈 ADD vào payload trả về
     verified: updatedUser.verified,
     createdAt: updatedUser.createdAt,
     updatedAt: updatedUser.updatedAt,
@@ -994,11 +1001,7 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
     let spcMeta = null;
 
     try {
-      const q =
-        userDoc.phone ||
-        userDoc.nickname ||
-        userDoc.name ||
-        ""; // ưu tiên SĐT, rồi đến nickname/name
+      const q = userDoc.phone || userDoc.nickname || userDoc.name || ""; // ưu tiên SĐT, rồi đến nickname/name
 
       if (q) {
         const controller = new AbortController();
@@ -1007,7 +1010,7 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
         try {
           const { status, data, proxyUrl } =
             await SportConnectService.listLevelPoint({
-              searchCriterial: q,   // hỗ trợ chuỗi có dấu cách
+              searchCriterial: q, // hỗ trợ chuỗi có dấu cách
               sportId: 2,
               page: 0,
               waitingInformation: "",
@@ -1076,7 +1079,7 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
       spc: {
         single: spcSingle, // có thể null nếu không có dữ liệu
         double: spcDouble, // có thể null nếu không có dữ liệu
-        meta: spcMeta,     // mô tả thêm (null nếu không có)
+        meta: spcMeta, // mô tả thêm (null nếu không có)
       },
     });
   }
@@ -1101,7 +1104,6 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
     avatar: user.avatar || "",
   });
 });
-
 
 function clampInt(v, min, max, dflt) {
   const n = parseInt(v, 10);

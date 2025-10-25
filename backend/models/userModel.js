@@ -111,6 +111,7 @@ const userSchema = new mongoose.Schema(
 
     /* ------- Avatar + giới thiệu ------- */
     avatar: { type: String, default: "" },
+    cover: { type: String, default: "" }, // 👈 ADD
     bio: { type: String, default: "" },
 
     /* ------- Thông tin phụ ------- */
@@ -285,7 +286,8 @@ userSchema.methods.isRefereeForTournament = function (tournamentId) {
 
 // (tuỳ chọn) Tìm danh sách trọng tài của 1 giải
 userSchema.statics.findRefereesForTournament = function (tournamentId) {
-  if (!mongoose.Types.ObjectId.isValid(tournamentId)) return Promise.resolve([]);
+  if (!mongoose.Types.ObjectId.isValid(tournamentId))
+    return Promise.resolve([]);
   return this.find({
     isDeleted: { $ne: true },
     role: "referee",

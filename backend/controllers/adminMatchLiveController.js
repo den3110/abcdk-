@@ -76,6 +76,67 @@ async function buildCandidatePageIds(req, tournament) {
   return ordered;
 }
 
+// Gom page theo từng "user" dựa trên longUserToken, sắp theo createdAt
+async function buildCandidateUserBuckets(req, tournament) {
+  const fromReq = req.body?.pageId || req.query?.pageId || null;
+  const fromTournament =
+    tournament?.facebookPageId ||
+    tournament?.facebook?.pageId ||
+    tournament?.meta?.facebook?.pageId ||
+    null;
+
+  const tokens = await FbToken.find(
+    {},
+    { pageId: 1, longUserToken: 1, createdAt: 1 },
+    { sort: { createdAt: 1 } }
+  ).lean();
+
+  const pageToUser = new Map();
+  const userOrder = [];
+  const userPages = new Map();
+
+  const getUserKey = (t) =>
+    t?.longUserToken
+      ? `user:${t.longUserToken}`
+      : `page:${t?.pageId || "unknown"}`;
+
+  // seed từ DB
+  for (const t of tokens) {
+    const pid = String(t?.pageId || "").trim();
+    if (!pid) continue;
+    const ukey = getUserKey(t);
+    pageToUser.set(pid, ukey);
+    if (!userPages.has(ukey)) {
+      userPages.set(ukey, []);
+      userOrder.push(ukey);
+    }
+    userPages.get(ukey).push(pid);
+  }
+
+  // Ưu tiên user chứa fromReq / fromTournament (nếu có)
+  const prioritize = (pid) => {
+    if (!pid) return;
+    const ukey = pageToUser.get(pid) || `page:${pid}`; // nếu page chưa có trong DB, coi như 1 bucket riêng
+    if (!userPages.has(ukey)) userPages.set(ukey, [pid]);
+    const idx = userOrder.indexOf(ukey);
+    if (idx > 0) {
+      userOrder.splice(idx, 1);
+      userOrder.unshift(ukey);
+    } else if (idx === -1) {
+      userOrder.unshift(ukey);
+    }
+  };
+
+  prioritize(fromTournament);
+  prioritize(fromReq);
+
+  // Trả mảng bucket theo thứ tự user → pages
+  return userOrder.map((ukey) => ({
+    userKey: ukey,
+    pages: [...new Set(userPages.get(ukey) || [])],
+  }));
+}
+
 async function getPageLabel(pageId) {
   const doc = await FbToken.findOne({ pageId }, { pageName: 1 }).lean();
   return doc?.pageName ? `${doc.pageName} (${pageId})` : String(pageId);
@@ -243,156 +304,196 @@ export const createFacebookLiveForMatch = async (req, res) => {
     const platformErrors = [];
 
     /* ───── 5) FACEBOOK ───── */
+    /* ───── 5) FACEBOOK ───── */
     if (fbEnabled) {
-      const candidates = await buildCandidatePageIds(req, t);
-      if (!candidates.length) {
+      // ❗ Duyệt theo từng USER → từng PAGE của user đó
+      const buckets = await buildCandidateUserBuckets(req, t);
+
+      if (!buckets.length) {
         platformErrors.push({
           platform: "facebook",
           message:
-            "Không tìm thấy Facebook Page để tạo live. Hãy cấu hình pageId ở giải hoặc seed FbToken trước.",
+            "Không tìm thấy Facebook Page để tạo live. Hãy cấu hình pageId ở giải/req hoặc seed FbToken trước.",
         });
       } else {
-        for (const pageId of candidates) {
-          const label = await getPageLabel(pageId);
+        let createdForSomeUser = false;
 
-          // token
-          let pageAccessToken;
-          try {
-            pageAccessToken = await getValidPageToken(pageId);
-          } catch (e) {
-            console.warn(`[FB][token] Skip ${label}: ${e?.message || e}`);
-            continue;
-          }
+        // Lần lượt theo từng user
+        for (const bucket of buckets) {
+          const { userKey, pages } = bucket;
 
-          // preflight
-          try {
-            const state = await getPageLiveState({ pageId, pageAccessToken });
-            if (state.busy) {
-              console.warn(
-                `[FB][skip] Page busy → ${label}: live=${state.liveNow.length} prepared=${state.prepared.length}`
-              );
-              continue;
-            }
-          } catch (preflightErr) {
-            console.warn(
-              `[FB][preflight] ${label} failed, will attempt create anyway:`,
-              preflightErr?.message || preflightErr
-            );
-          }
-
-          // create live
-          try {
-            const live = await fbCreateLiveOnPage({
-              pageId,
-              pageAccessToken,
-              title,
-              description,
-              status: "LIVE_NOW",
-            });
-            const liveId = live.liveVideoId || live.id;
-
-            // Resolve permalink chắc chắn
-            let permalinkResolved = "";
+          // 5.1) Kiểm tra: nếu user này đã có live ở BẤT KỲ page nào → bỏ qua toàn bộ user
+          let userBusy = false;
+          for (const pid of pages) {
             try {
-              const s2 = await getPageLiveState({ pageId, pageAccessToken });
-              const list = [...(s2.liveNow || []), ...(s2.prepared || [])];
-              const found = list.find((v) => String(v.id) === String(liveId));
-              if (found?.permalink_url)
-                permalinkResolved = toFullUrl(found.permalink_url);
-            } catch {}
-            if (!permalinkResolved && live?.permalink_url) {
-              permalinkResolved = toFullUrl(live.permalink_url);
-            }
-            if (!permalinkResolved) {
-              permalinkResolved = `https://www.facebook.com/${pageId}/videos/${liveId}/`;
-            }
-
-            // comment overlay (non-fatal)
-            try {
-              await fbPostComment({
-                liveVideoId: liveId,
-                pageAccessToken,
-                message: `Overlay (OBS Browser Source): ${overlayUrl}`,
+              const pat = await getValidPageToken(pid);
+              const st = await getPageLiveState({
+                pageId: pid,
+                pageAccessToken: pat,
               });
-            } catch (err) {
-              console.log(
-                "[FB] comment overlay error:",
-                err?.response?.data || err.message
+              if (st?.busy) {
+                userBusy = true;
+                break;
+              }
+            } catch {
+              // ignore preflight lỗi, không xem là busy
+            }
+          }
+          if (userBusy) {
+            console.warn(
+              `[FB][user-skip] ${userKey} đang có live → bỏ qua user này`
+            );
+            continue; // sang user kế tiếp
+          }
+
+          // 5.2) Thử tạo live trên CÁC PAGE của user này (tối đa 1 live cho user)
+          let created = false;
+          for (const pageId of pages) {
+            const label = await getPageLabel(pageId);
+
+            // token cho page
+            let pageAccessToken;
+            try {
+              pageAccessToken = await getValidPageToken(pageId);
+            } catch (e) {
+              console.warn(`[FB][token] Skip ${label}: ${e?.message || e}`);
+              continue;
+            }
+
+            // preflight: nếu page riêng đang bận thì thử page kế tiếp (vẫn trong cùng user)
+            try {
+              const state = await getPageLiveState({ pageId, pageAccessToken });
+              if (state.busy) {
+                console.warn(
+                  `[FB][skip] Page busy → ${label}: live=${state.liveNow.length} prepared=${state.prepared.length}`
+                );
+                continue;
+              }
+            } catch (preflightErr) {
+              console.warn(
+                `[FB][preflight] ${label} failed, vẫn thử create:`,
+                preflightErr?.message || preflightErr
               );
             }
 
-            // server/key
-            const { server, streamKey } = splitServerAndKey(
-              live?.secure_stream_url
-            );
-
-            // save to match + meta (đầy đủ)
             try {
-              match.facebookLive = {
-                id: liveId,
-                permalink_url: permalinkResolved,
-                secure_stream_url: live.secure_stream_url,
-                server_url: server,
-                stream_key: streamKey,
-                createdAt: new Date(),
-                status: "CREATED",
+              // Tạo live
+              const live = await fbCreateLiveOnPage({
                 pageId,
-              };
-            } catch {}
-            const pageName = await getPageLabel(pageId);
-            setMetaFacebook(match, {
-              pageId,
-              pageName,
-              permalinkUrl: permalinkResolved,
-              live: {
+                pageAccessToken,
+                title,
+                description,
+                status: "LIVE_NOW",
+              });
+              const liveId = live.liveVideoId || live.id;
+
+              // permalink chắc chắn
+              let permalinkResolved = "";
+              try {
+                const s2 = await getPageLiveState({ pageId, pageAccessToken });
+                const list = [...(s2.liveNow || []), ...(s2.prepared || [])];
+                const found = list.find((v) => String(v.id) === String(liveId));
+                if (found?.permalink_url)
+                  permalinkResolved = toFullUrl(found.permalink_url);
+              } catch {}
+              if (!permalinkResolved && live?.permalink_url) {
+                permalinkResolved = toFullUrl(live.permalink_url);
+              }
+              if (!permalinkResolved) {
+                permalinkResolved = `https://www.facebook.com/${pageId}/videos/${liveId}/`;
+              }
+
+              // comment overlay (non-fatal)
+              try {
+                await fbPostComment({
+                  liveVideoId: liveId,
+                  pageAccessToken,
+                  message: `Overlay (OBS Browser Source): ${overlayUrl}`,
+                });
+              } catch (err) {
+                console.log(
+                  "[FB] comment overlay error:",
+                  err?.response?.data || err.message
+                );
+              }
+
+              // server/key
+              const { server, streamKey } = splitServerAndKey(
+                live?.secure_stream_url
+              );
+
+              // save match + meta
+              try {
+                match.facebookLive = {
+                  id: liveId,
+                  permalink_url: permalinkResolved,
+                  secure_stream_url: live.secure_stream_url,
+                  server_url: server,
+                  stream_key: streamKey,
+                  createdAt: new Date(),
+                  status: "CREATED",
+                  pageId,
+                };
+              } catch {}
+              const pageName = await getPageLabel(pageId);
+              setMetaFacebook(match, {
+                pageId,
+                pageName,
+                permalinkUrl: permalinkResolved,
+                live: {
+                  id: liveId,
+                  server_url: server,
+                  stream_key: streamKey,
+                  status: "CREATED",
+                  createdAt: new Date(),
+                },
+                raw: live,
+              });
+              await match.save();
+
+              // push destination
+              destinations.push({
+                platform: "facebook",
                 id: liveId,
                 server_url: server,
                 stream_key: streamKey,
-                status: "CREATED",
-                createdAt: new Date(),
-              },
-              raw: live,
-            });
-            await match.save();
+                permalink_url: permalinkResolved,
+                extras: { pageId, pageName, userKey },
+              });
 
-            // push destination
-            destinations.push({
-              platform: "facebook",
-              id: liveId,
-              server_url: server,
-              stream_key: streamKey,
-              permalink_url: permalinkResolved,
-              extras: { pageId, pageName },
-            });
-
-            break; // done FB after first success
-          } catch (e) {
-            if (isBusyCreateError(e)) {
-              console.warn(
-                `[FB][create-busy] ${label}: ${
-                  e?.response?.data?.error?.message || e.message
-                }`
+              created = true;
+              createdForSomeUser = true;
+              break; // ✅ đã tạo xong cho user này → không tạo thêm page khác của user này
+            } catch (e) {
+              if (isBusyCreateError(e)) {
+                console.warn(
+                  `[FB][create-busy] ${label}: ${
+                    e?.response?.data?.error?.message || e.message
+                  }`
+                );
+                continue; // thử page khác trong cùng user
+              }
+              console.error(
+                `[FB][create-error] ${label}:`,
+                e?.response?.data || e.message || e
               );
               continue;
             }
-            console.error(
-              `[FB][create-error] ${label}:`,
-              e?.response?.data || e.message || e
-            );
-            continue;
-          }
+          } // end for pages
+
+          if (created) break; // ✅ đã tạo xong cho 1 user → không xét user tiếp theo (FB là primary)
+          // nếu không tạo được ở bất kỳ page nào của user này → chuyển user tiếp theo
         }
 
-        if (!destinations.find((d) => d.platform === "facebook")) {
+        if (!createdForSomeUser) {
           platformErrors.push({
             platform: "facebook",
             message:
-              "Không thể tạo live Facebook (không còn page trống/khả dụng).",
+              "Không thể tạo live Facebook (tất cả user/page đều bận hoặc lỗi).",
           });
         }
       }
     }
-
     /* ───── 6) YOUTUBE ───── */
     if (ytEnabled) {
       const pickErr = (e) => e?.response?.data || e?.errors || e?.message || e;
@@ -764,6 +865,317 @@ export const createFacebookLiveForMatch = async (req, res) => {
     console.error(err);
     return res.status(500).json({
       message: "Create Live failed",
+      error: err?.response?.data || err.message,
+    });
+  }
+};
+
+// ⬇️ THÊM VÀO CUỐI FILE: controllers/adminMatchLiveController.js
+export const createFacebookLiveForCourt = async (req, res) => {
+  try {
+    // Chỉ dùng Facebook cho flow theo sân (map mỗi sân → 1 page)
+    const fbEnabled =
+      (await getCfgStr("LIVE_FACEBOOK_ENABLED", "1")).trim() === "1";
+    if (!fbEnabled) {
+      return res.status(400).json({
+        message:
+          "LIVE_FACEBOOK_ENABLED=0. Bật cờ này trong Config để tạo live theo sân.",
+      });
+    }
+
+    const { courtId } = req.params;
+    const explicitMatchId = req.body?.matchId || req.query?.matchId || null;
+
+    // Dynamic import để không thay import đầu file
+    const Court = (await import("../models/courtModel.js")).default;
+
+    // 1) Court + (optional) Match để dựng title/overlay
+    const court = await Court.findById(courtId).lean();
+    if (!court) return res.status(404).json({ message: "Court not found" });
+
+    const matchId = explicitMatchId || court.currentMatch || null;
+    const match = matchId
+      ? await Match.findById(matchId).populate("tournament court")
+      : null;
+
+    const OVERLAY_BASE = await resolveOverlayBase();
+    const STUDIO_BASE = await resolveStudioBase();
+    const OBS_AUTO_START = await isObsAutoStart();
+
+    const t = match?.tournament;
+    const tName = t?.name || "PickleTour";
+    const courtName = match?.court?.name || court?.name || "";
+    const overlayUrl = match
+      ? `${OVERLAY_BASE}/overlay/score?matchId=${match._id}&theme=fb&ratio=16:9&safe=1`
+      : ""; // không có match thì bỏ overlay
+
+    const roundLabel = match
+      ? match?.roundLabel || match?.labelKey || match?.code || "Match"
+      : "Court Live";
+    const title = `${tName} – ${roundLabel}${
+      courtName ? " · " + courtName : ""
+    }`;
+    const description = `Trực tiếp sân ${courtName} trên PickleTour.${
+      overlayUrl ? `\nScoreboard overlay: ${overlayUrl}` : ""
+    }`;
+
+    // 2) Xây danh sách pageId candidate cho SÂN
+    const candidates = [];
+    const pushUnique = (id) =>
+      id && !candidates.includes(String(id)) && candidates.push(String(id));
+
+    // a) ưu tiên req.body/query
+    pushUnique(req.body?.pageId || req.query?.pageId);
+
+    // b) Config mapping theo sân (3 biến thể)
+    const safeName = String(court.name || "")
+      .trim()
+      .replace(/\s+/g, "_")
+      .toUpperCase();
+    const cfgKeys = [
+      `LIVE_COURT_PAGE_${courtId}`,
+      `LIVE_COURT_PAGE_${court.tournament}_${safeName}`,
+      `LIVE_COURT_PAGE_${court.bracket}_${safeName}`,
+    ];
+    for (const k of cfgKeys) {
+      try {
+        const v = (await getCfgStr(k, "")).trim();
+        pushUnique(v);
+      } catch {}
+    }
+
+    // c) Fallback: dùng buildCandidatePageIds (theo giải) nếu có match.tournament
+    if (t) {
+      const byTournament = await buildCandidatePageIds(req, t);
+      byTournament.forEach(pushUnique);
+    } else {
+      const tokens = await FbToken.find(
+        {},
+        { pageId: 1 },
+        { sort: { createdAt: 1 } }
+      ).lean();
+      tokens
+        .map((x) => x.pageId)
+        .filter(Boolean)
+        .forEach(pushUnique);
+    }
+
+    if (!candidates.length) {
+      return res.status(400).json({
+        message:
+          "Không tìm thấy Facebook Page cho sân này. Truyền pageId hoặc cấu hình LIVE_COURT_PAGE_*.",
+      });
+    }
+
+    // 3) Thử tạo live trên từng page theo thứ tự ưu tiên
+    let created = null;
+    let usedPageId = null;
+    const platformErrors = [];
+
+    for (const pageId of candidates) {
+      const label = await getPageLabel(pageId);
+
+      // token
+      let pageAccessToken;
+      try {
+        pageAccessToken = await getValidPageToken(pageId);
+      } catch (e) {
+        platformErrors.push({
+          platform: "facebook",
+          pageId,
+          message: e?.message || String(e),
+        });
+        continue;
+      }
+
+      // preflight: skip nếu bận
+      try {
+        const state = await getPageLiveState({ pageId, pageAccessToken });
+        if (state.busy) {
+          platformErrors.push({
+            platform: "facebook",
+            pageId,
+            message: `[FB][skip] Page busy → ${label}: live=${state.liveNow.length} prepared=${state.prepared.length}`,
+          });
+          continue;
+        }
+      } catch {
+        // preflight fail thì vẫn thử tạo
+      }
+
+      try {
+        // create
+        const live = await fbCreateLiveOnPage({
+          pageId,
+          pageAccessToken,
+          title,
+          description,
+          status: "LIVE_NOW",
+        });
+        const liveId = live.liveVideoId || live.id;
+
+        // permalink chắc chắn
+        let permalinkResolved = "";
+        try {
+          const s2 = await getPageLiveState({ pageId, pageAccessToken });
+          const list = [...(s2.liveNow || []), ...(s2.prepared || [])];
+          const found = list.find((v) => String(v.id) === String(liveId));
+          if (found?.permalink_url)
+            permalinkResolved = toFullUrl(found.permalink_url);
+        } catch {}
+        if (!permalinkResolved && live?.permalink_url) {
+          permalinkResolved = toFullUrl(live.permalink_url);
+        }
+        if (!permalinkResolved) {
+          permalinkResolved = `https://www.facebook.com/${pageId}/videos/${liveId}/`;
+        }
+
+        // comment overlay (nếu có)
+        if (overlayUrl) {
+          try {
+            await fbPostComment({
+              liveVideoId: liveId,
+              pageAccessToken,
+              message: `Overlay (OBS Browser Source): ${overlayUrl}`,
+            });
+          } catch {}
+        }
+
+        // tách server/key
+        const { server, streamKey } = splitServerAndKey(
+          live?.secure_stream_url
+        );
+
+        // nếu có match → lưu vào match.meta để client phát OBS/relay
+        if (match?._id) {
+          try {
+            const mm = await Match.findById(match._id);
+            if (mm) {
+              mm.facebookLive = {
+                id: liveId,
+                pageId,
+                permalink_url: permalinkResolved,
+                secure_stream_url: live.secure_stream_url,
+                server_url: server,
+                stream_key: streamKey,
+                createdAt: new Date(),
+                status: "CREATED",
+              };
+              const pageName = await getPageLabel(pageId);
+              setMetaFacebook(mm, {
+                pageId,
+                pageName,
+                permalinkUrl: permalinkResolved,
+                live: {
+                  id: liveId,
+                  server_url: server,
+                  stream_key: streamKey,
+                  status: "CREATED",
+                  createdAt: new Date(),
+                },
+                raw: live,
+              });
+              await mm.save();
+            }
+          } catch {}
+
+          // cập nhật Court: status + videoUrl (non-blocking)
+          try {
+            await Court.updateOne(
+              { _id: court._id },
+              {
+                $set: {
+                  status: "live",
+                  "liveConfig.videoUrl": permalinkResolved,
+                },
+              }
+            );
+          } catch {}
+        }
+
+        created = { liveId, permalinkResolved, server, streamKey, raw: live };
+        usedPageId = pageId;
+        break;
+      } catch (e) {
+        if (isBusyCreateError(e)) {
+          platformErrors.push({
+            platform: "facebook",
+            pageId,
+            message:
+              e?.response?.data?.error?.message || e?.message || "Page busy",
+          });
+          continue;
+        }
+        platformErrors.push({
+          platform: "facebook",
+          pageId,
+          message: e?.response?.data || e?.message || String(e),
+        });
+      }
+    }
+
+    if (!created) {
+      return res.status(409).json({
+        message: "Không thể tạo live Facebook cho sân này.",
+        errors: platformErrors,
+      });
+    }
+
+    // 4) OBS auto-start + studio URL
+    const pageName = await getPageLabel(usedPageId);
+    const studioUrl =
+      `${STUDIO_BASE}/studio/live` +
+      `?courtId=${court._id}` +
+      (match?._id ? `&matchId=${match._id}` : "") +
+      `&server=${encodeURIComponent(created.server || "")}` +
+      `&key=${encodeURIComponent(created.streamKey || "")}`;
+
+    if (OBS_AUTO_START && created.server && created.streamKey) {
+      try {
+        await startObsStreamingWithOverlay({
+          server_url: created.server,
+          stream_key: created.streamKey,
+          overlay_url: overlayUrl || "",
+        });
+      } catch {}
+    }
+
+    return res.json({
+      ok: true,
+      court: {
+        id: String(court._id),
+        name: court.name,
+        bracketId: court.bracket,
+        tournamentId: court.tournament,
+      },
+      match: match
+        ? {
+            id: String(match._id),
+            code: match.code,
+            labelKey: match.labelKey,
+            courtName,
+            tournamentName: tName,
+          }
+        : null,
+      primary: {
+        platform: "facebook",
+        pageId: usedPageId,
+        pageName,
+        server_url: created.server,
+        stream_key: created.streamKey,
+        stream_key_masked: mask(created.streamKey),
+        permalink_url: created.permalinkResolved,
+        live_id: created.liveId,
+      },
+      overlay_url: overlayUrl || null,
+      studio_url: studioUrl,
+      errors: platformErrors,
+      note: "Đã tạo live cho SÂN. Dùng server/key phía trên để phát (OBS/relay).",
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      message: "Create Court Live failed",
       error: err?.response?.data || err.message,
     });
   }
