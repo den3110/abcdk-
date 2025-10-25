@@ -1037,10 +1037,9 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
 
   const effRounds = (br) => {
     if (groupTypes.has(br.type)) return 1; // vòng bảng coi như 1 vòng
-    // cố gắng dùng meta.maxRounds (đã đồng bộ trong pre-save)
     const mr = br?.meta?.maxRounds;
     if (Number.isFinite(mr) && mr > 0) return mr;
-    return 1; // fallback an toàn
+    return 1;
   };
 
   // Cộng dồn số vòng của các bracket đứng trước bracket hiện tại
@@ -1054,21 +1053,67 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
   const roundInBracket = Number(match.round) > 0 ? Number(match.round) : 1;
   const vIndex = isGroup ? vOffset + 1 : vOffset + roundInBracket;
 
-  // b: tên bảng (nếu có)
-  let bKey =
+  // ===== BẢNG: chuyển A/B/... -> chỉ số (1/2/...)
+  const letterToIndex = (s) => {
+    if (!s) return null;
+    const str = String(s).trim();
+    // Ưu tiên số trong tên (Group 2, Bảng 3, v.v.)
+    const num = str.match(/(\d+)/);
+    if (num) return Number(num[1]);
+
+    // Lấy chữ cái cuối (A, B, C, …)
+    const m = str.match(/([A-Za-z])$/);
+    if (m) return m[1].toUpperCase().charCodeAt(0) - 64;
+
+    return null;
+  };
+
+  // bAlpha: tên/khóa bảng dạng chữ (nếu có) để giữ tương thích
+  let bAlpha =
     match?.pool?.name ||
     match?.pool?.key ||
     (match?.pool?.id ? String(match.pool.id) : "");
-  if (typeof bKey !== "string") bKey = String(bKey || "");
+  if (typeof bAlpha !== "string") bAlpha = String(bAlpha || "");
 
-  // t: thứ tự trận trong round; với group → thứ tự trong bảng (ổn định hơn)
+  // Ưu tiên các field order/index nếu có
+  let bIndex = Number.isFinite(Number(match?.pool?.order))
+    ? Number(match.pool.order) + 1
+    : Number.isFinite(Number(match?.pool?.index))
+    ? Number(match.pool.index) + 1
+    : null;
+
+  // Nếu chưa suy ra, thử từ tên/khóa
+  if (!bIndex) {
+    const fromName = letterToIndex(match?.pool?.name || match?.pool?.key);
+    if (fromName) bIndex = fromName;
+  }
+
+  // Nếu vẫn chưa có, tính theo vị trí của pool.id trong danh sách unique pool của bracket
+  if (!bIndex && match?.pool?.id) {
+    const sameBracket = await Match.find({ bracket: match.bracket })
+      .select("pool createdAt")
+      .sort({ "pool.order": 1, createdAt: 1 })
+      .lean();
+
+    const uniqIds = [];
+    for (const m of sameBracket) {
+      const pid = m?.pool?.id ? String(m.pool.id) : null;
+      if (pid && !uniqIds.includes(pid)) uniqIds.push(pid);
+    }
+    const pos = uniqIds.indexOf(String(match.pool.id));
+    if (pos >= 0) bIndex = pos + 1;
+  }
+
+  if (isGroup && !bIndex) bIndex = 1; // fallback an toàn cho group
+  if (!isGroup) bIndex = null; // KO không dùng b
+
+  // t: thứ tự trận trong round; với group → thứ tự trong bảng
   let tIndex = (Number(match.order) || 0) + 1;
   if (isGroup) {
     const q = { bracket: match.bracket };
     if (match?.pool?.id) q["pool.id"] = match.pool.id;
     else if (match?.pool?.name) q["pool.name"] = match.pool.name;
 
-    // Sắp theo rrRound -> order -> createdAt để có thứ tự nhất quán trong bảng
     const samePool = await Match.find(q)
       .select("_id rrRound order createdAt")
       .sort({ rrRound: 1, order: 1, createdAt: 1 })
@@ -1078,9 +1123,10 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     if (idx >= 0) tIndex = idx + 1;
   }
 
+  // Hiển thị: v-b-t (b là số), hoặc v-t cho KO
   const displayCode = isGroup
-    ? `V${vIndex}-B${bKey || "NA"}-T${tIndex}` // v-b-t
-    : `V${vIndex}-T${tIndex}`; // v-t
+    ? `V${vIndex}-B${bIndex}-T${tIndex}` // ✅ b là số (b1, b2, …)
+    : `V${vIndex}-T${tIndex}`;
 
   /* ===================== (giữ nguyên phần enrich cũ) ===================== */
   const toIntOrNull = (v) =>
@@ -1229,12 +1275,14 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
     serve,
     slots: slotsOut,
     // ===== new fields for FE =====
-    displayCode, // "v-t" hoặc "v-b-t" theo yêu cầu
-    vIndex, // số vòng cộng dồn trong giải
-    bKey, // tên bảng (nếu có)
-    tIndex, // thứ tự trận
+    displayCode, // "Vx-B{number}-T{number}" hoặc "Vx-T{number}"
+    vIndex,
+    bIndex, // ✅ số thứ tự bảng (1,2,...)
+    bKeyAlpha: bAlpha, // ✅ chữ cái bảng cũ (A/B/...), giữ nếu cần
+    tIndex,
   });
 });
+
 /**
  * DELETE /api/matches/:matchId
  * Xoá 1 match:

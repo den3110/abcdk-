@@ -1883,3 +1883,177 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     updatedAt: match.updatedAt,
   });
 });
+
+
+const ALLOWED_PLATFORMS = new Set([
+  "facebook",
+  "youtube",
+  "tiktok",
+  "rtmp",
+  "other",
+]);
+
+const normPlatform = (p) => {
+  if (!p) return "other";
+  const s = String(p).toLowerCase().trim();
+  return ALLOWED_PLATFORMS.has(s) ? s : "other";
+};
+
+const parseTs = (ts) => {
+  const d = ts ? new Date(ts) : new Date();
+  return Number.isFinite(d.getTime()) ? d : new Date();
+};
+
+const ensureLiveShape = (live = {}) => {
+  const out = { status: "idle", platforms: {}, sessions: [], lastChangedAt: new Date() };
+  if (live && typeof live === "object") {
+    out.status = live.status || "idle";
+    out.platforms = live.platforms && typeof live.platforms === "object" ? { ...live.platforms } : {};
+    out.sessions = Array.isArray(live.sessions) ? [...live.sessions] : [];
+    out.lastChangedAt = live.lastChangedAt ? new Date(live.lastChangedAt) : new Date();
+  }
+  return out;
+};
+
+const emitSocket = (req, matchId, payload) => {
+  try {
+    const io = req.app?.get?.("io");
+    if (io) io.to(`match:${matchId}`).emit("live_status", payload);
+  } catch {}
+};
+
+/**
+ * POST /api/matches/:id/live/start
+ * body: { platform, timestamp? }
+ */
+export const notifyStreamStarted = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    res.status(400);
+    throw new Error("matchId không hợp lệ");
+  }
+
+  const platform = normPlatform(req.body?.platform);
+  const startedAt = parseTs(req.body?.timestamp);
+
+  const match = await Match.findById(id).select("live").lean();
+  if (!match) {
+    res.status(404);
+    throw new Error("Match không tồn tại");
+  }
+
+  const live = ensureLiveShape(match.live);
+
+  // Idempotent: nếu đã có session đang mở cho platform thì không push thêm
+  const hasOpen = live.sessions.some(
+    (s) => s.platform === platform && !s.endedAt
+  );
+
+  if (!hasOpen) {
+    live.sessions.push({ platform, startedAt, endedAt: null });
+  }
+
+  // Bật cờ platform và trạng thái tổng
+  live.platforms[platform] = {
+    ...(live.platforms[platform] || {}),
+    active: true,
+    lastStartAt: startedAt,
+  };
+  live.status = "live";
+  live.lastChangedAt = new Date();
+
+  const updated = await Match.findByIdAndUpdate(
+    id,
+    {
+      $set: {
+        "live.status": live.status,
+        "live.lastChangedAt": live.lastChangedAt,
+        [`live.platforms.${platform}`]: live.platforms[platform],
+        // Ghi đè toàn bộ sessions (đơn giản, dễ hiểu; nếu muốn atomic bằng arrayFilters có thể nâng cấp sau)
+        "live.sessions": live.sessions,
+      },
+    },
+    { new: true }
+  )
+    .select("live")
+    .lean();
+
+  emitSocket(req, id, { matchId: id, platform, status: "live", live: updated.live });
+
+  res.json({
+    ok: true,
+    matchId: id,
+    platform,
+    status: "live",
+    live: updated.live,
+  });
+});
+
+/**
+ * POST /api/matches/:id/live/end
+ * body: { platform, timestamp? }
+ */
+export const notifyStreamEnded = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    res.status(400);
+    throw new Error("matchId không hợp lệ");
+  }
+
+  const platform = normPlatform(req.body?.platform);
+  const endedAt = parseTs(req.body?.timestamp);
+
+  const match = await Match.findById(id).select("live").lean();
+  if (!match) {
+    res.status(404);
+    throw new Error("Match không tồn tại");
+  }
+
+  const live = ensureLiveShape(match.live);
+
+  // Tìm session mở gần nhất cho platform và đóng lại
+  for (let i = live.sessions.length - 1; i >= 0; i--) {
+    const s = live.sessions[i];
+    if (s.platform === platform && !s.endedAt) {
+      s.endedAt = endedAt;
+      break;
+    }
+  }
+
+  // Tắt cờ cho platform này
+  live.platforms[platform] = {
+    ...(live.platforms[platform] || {}),
+    active: false,
+    lastEndAt: endedAt,
+  };
+
+  // Nếu không còn platform nào active => idle
+  const anyActive = Object.values(live.platforms).some((p) => p?.active === true);
+  live.status = anyActive ? "live" : "idle";
+  live.lastChangedAt = new Date();
+
+  const updated = await Match.findByIdAndUpdate(
+    id,
+    {
+      $set: {
+        "live.status": live.status,
+        "live.lastChangedAt": live.lastChangedAt,
+        [`live.platforms.${platform}`]: live.platforms[platform],
+        "live.sessions": live.sessions,
+      },
+    },
+    { new: true }
+  )
+    .select("live")
+    .lean();
+
+  emitSocket(req, id, { matchId: id, platform, status: live.status, live: updated.live });
+
+  res.json({
+    ok: true,
+    matchId: id,
+    platform,
+    status: live.status,
+    live: updated.live,
+  });
+});

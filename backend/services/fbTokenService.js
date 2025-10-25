@@ -229,7 +229,7 @@ export async function bootstrapFromEnvIfNeeded() {
 
   const pairs = await getBootPairsFromConfig(); // [{ token, appId, appSecret }]
   const tokens = pairs.map((p) => p.token);
-
+  // console.log("token", tokens)
   // Nếu DB trống mà lại thiếu long token → không làm gì được
   if (count === 0 && tokens.length === 0) {
     log.error(
@@ -257,9 +257,9 @@ export async function bootstrapFromEnvIfNeeded() {
     log.error("Bootstrap/Sync failed: no valid LONG user tokens in DB.");
     return false;
   }
-
   // Lấy danh sách page từ tất cả tokens (dedupe theo pageId, ưu tiên token xuất hiện trước)
   const byPageId = new Map(); // pageId -> { p, tok, dbg, appId, appSecret }
+
   for (const v of valid) {
     try {
       const arr = await getAllPages(v.tok);
