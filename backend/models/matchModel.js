@@ -161,6 +161,7 @@ const matchSchema = new Schema(
             "serve",
             "sideout",
             "rotate",
+             "rules",
           ],
           required: true,
         },

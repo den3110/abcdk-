@@ -831,9 +831,9 @@ export function initSocket(
     // Payload: { matchId, side?: "A"|"B", server?: 1|2, serverId?: "<userId>" }
     socket.on("serve:set", async ({ matchId, side, server, serverId }, ack) => {
       try {
-        if (!ensureReferee(socket)) {
-          return ack?.({ ok: false, message: "Forbidden" });
-        }
+        // if (!ensureReferee(socket)) {
+        //   return ack?.({ ok: false, message: "Forbidden" });
+        // }
         if (!isObjectIdString(matchId)) {
           return ack?.({ ok: false, message: "Invalid matchId" });
         }
@@ -1067,63 +1067,83 @@ export function initSocket(
     // Payload: { matchId, pointsToWin }
     socket.on("rules:setPointsToWin", async (payload, ack) => {
       try {
-        if (!ensureReferee(socket)) {
-          return ack?.({ ok: false, message: "Forbidden" });
-        }
-
-        const { matchId, pointsToWin } = payload || {};
+        const { matchId } = payload || {};
         if (!isObjectIdString(matchId)) {
           return ack?.({ ok: false, message: "Invalid matchId" });
         }
 
-        const nextPTW = Number(pointsToWin);
-        if (!Number.isInteger(nextPTW)) {
-          return ack?.({
-            ok: false,
-            message: "pointsToWin must be an integer",
-          });
-        }
-
-        // Cho phép 11/15 (thêm 21 nếu bạn muốn)
-        const ALLOWED_PTW = (process.env.ALLOWED_PTW &&
-          String(process.env.ALLOWED_PTW)
-            .split(",")
-            .map((x) => Number(x.trim()))
-            .filter((n) => Number.isInteger(n) && n > 0)) || [11, 15];
-        if (!ALLOWED_PTW.includes(nextPTW)) {
-          return ack?.({
-            ok: false,
-            message: `pointsToWin allowed: ${ALLOWED_PTW.join(", ")}`,
-          });
-        }
-
         const m = await Match.findById(matchId);
         if (!m) return ack?.({ ok: false, message: "Match not found" });
-
         if (String(m.status) === "finished") {
           return ack?.({ ok: false, message: "Match already finished" });
         }
 
-        // Nếu không đổi gì thì thôi
+        // Giá trị hiện tại
         const prevPTW = Number(m?.rules?.pointsToWin ?? 11);
-        if (prevPTW === nextPTW) {
-          return ack?.({ ok: true, unchanged: true, pointsToWin: nextPTW });
+
+        // Cách hiểu input "thoáng":
+        // - op: "inc" | "dec"
+        // - delta: số nguyên (vd: +1, -1, +2)
+        // - pointsToWin: nếu là số nguyên dương → set tuyệt đối; nếu là chuỗi bắt đầu bằng +/− → hiểu như delta
+        let nextPTW = prevPTW;
+
+        const { op, delta, pointsToWin } = payload || {};
+
+        const parseIntOrNull = (v) => {
+          const n = Number(v);
+          return Number.isInteger(n) ? n : null;
+        };
+
+        let d = 0;
+
+        if (op === "inc" || op === "+") d = 1;
+        else if (op === "dec" || op === "-") d = -1;
+        else if (delta != null && parseIntOrNull(delta) !== null)
+          d = parseIntOrNull(delta);
+        else if (typeof pointsToWin !== "undefined") {
+          // Nếu chuỗi có dấu +/- ở đầu → xem như delta
+          if (
+            typeof pointsToWin === "string" &&
+            /^[+-]\d+$/.test(pointsToWin.trim())
+          ) {
+            d = parseInt(pointsToWin.trim(), 10);
+          } else {
+            // cố gắng set tuyệt đối
+            const abs = parseIntOrNull(pointsToWin);
+            if (abs != null) {
+              nextPTW = abs;
+            } else {
+              // fallback: không hiểu -> coi như +1
+              d = 1;
+            }
+          }
+        } else {
+          // Không truyền gì → mặc định +1
+          d = 1;
         }
 
-        // Cập nhật rules
+        if (d !== 0) nextPTW = prevPTW + d;
+
+        // Ràng buộc mềm: tối thiểu 1 (tránh 0 hoặc âm)
+        if (!Number.isInteger(nextPTW) || nextPTW < 1) {
+          nextPTW = 1;
+        }
+
+        // Cập nhật
         m.rules = m.rules || {};
         m.rules.pointsToWin = nextPTW;
         m.markModified?.("rules");
 
-        // Ghi live log + meta history (tuỳ chọn)
+        // Log thay đổi
         m.liveLog = m.liveLog || [];
         m.liveLog.push({
           type: "rules",
           subtype: "pointsToWin",
           by: socket.user?._id || null,
-          payload: { from: prevPTW, to: nextPTW },
+          payload: { from: prevPTW, to: nextPTW, delta: nextPTW - prevPTW },
           at: new Date(),
         });
+
         m.meta = m.meta || {};
         m.meta.ptwHistory = m.meta.ptwHistory || [];
         m.meta.ptwHistory.push({
@@ -1132,34 +1152,34 @@ export function initSocket(
           from: prevPTW,
           to: nextPTW,
         });
+
         m.liveVersion = (m.liveVersion || 0) + 1;
 
         await m.save();
 
-        // Trả ACK cho caller
-        ack?.({ ok: true, pointsToWin: nextPTW });
+        // ACK
+        ack?.({
+          ok: true,
+          pointsToWin: nextPTW,
+          prev: prevPTW,
+          delta: nextPTW - prevPTW,
+        });
 
-        // Broadcast nhẹ để FE refetch (đúng với FE của bạn đang nghe "match:patched")
+        // Broadcast patch
         io.to(`match:${matchId}`).emit("match:patched", {
           matchId: String(matchId),
           payload: { rules: { ...m.rules } },
         });
 
-        // (tuỳ chọn) phát thêm event chuyên biệt
+        // Event chuyên biệt
         io.to(`match:${matchId}`).emit("rules:pointsToWinUpdated", {
           matchId: String(matchId),
           pointsToWin: nextPTW,
+          prev: prevPTW,
         });
 
-        // (tuỳ chọn nâng cao) Nếu muốn phát full snapshot giống serve:set:
-        // let snap = await loadMatchForSnapshot(m._id);
-        // if (snap) {
-        //   snap = await postprocessSnapshotLikeJoin(snap);
-        //   const dto = toDTO(decorateServeAndSlots(snap));
-        //   io.to(`match:${matchId}`).emit("match:snapshot", dto);
-        //   if (dto?.bracket?._id) io.to(`bracket:${dto.bracket._id}`).emit("match:snapshot", dto);
-        //   if (dto?.tournament?._id) io.to(`tournament:${dto.tournament._id}`).emit("match:snapshot", dto);
-        // }
+        // (tuỳ chọn nâng cao) phát snapshot nếu cần
+        // ...
       } catch (e) {
         console.error("[rules:setPointsToWin] error:", e?.message || e);
         ack?.({ ok: false, message: e?.message || "Internal error" });

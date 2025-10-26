@@ -159,7 +159,6 @@ router.post("/login", adminLogin);
 router.get(
   "/matches/:id([0-9a-fA-F]{24})",
   protect,
-  authorize("admin", "referee"),
   adminGetMatchById
 );
 
