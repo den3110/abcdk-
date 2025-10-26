@@ -1,8 +1,10 @@
-// FacebookLiveStreamerAutoRTK.jsx — AUTO + BINARY PIPELINE (thừa hưởng từ bản cũ)
+// FacebookLiveStreamerAutoRTK.jsx — AUTO + BINARY PIPELINE (refactor + serve indicator)
 // - WebCodecs H.264 Annex-B (binary) + Audio (MediaRecorder, prefix 0x01)
-// - Giữ toàn bộ Auto Mode (RTK Query): phát khi có trận, tạo live, tự đếm 3-2-1
+// - Auto Mode (RTK Query): phát khi có trận, tạo live, tự đếm 3-2-1
 // - Rút outputs trực tiếp từ payload (tránh race), fallback từ state
 // - Overlay + Preview mượt, health stats
+// - ✅ Score Board luôn bật (không tắt được), có placeholder khi chưa có data
+// - ✅ Serve indicator lấy từ data (serve.team / serve.number), có fallback các key phổ biến
 
 import React, {
   useEffect,
@@ -34,7 +36,6 @@ import {
   useTheme,
 } from "@mui/material";
 import {
-  RadioButtonChecked,
   PlayArrow,
   Stop,
   Videocam,
@@ -50,6 +51,7 @@ import {
   OpenInNew,
   VideoLibrary,
   CheckCircle,
+  Lock,
 } from "@mui/icons-material";
 
 // RTK Query hooks
@@ -107,7 +109,7 @@ const joinRtmp = (server, key) => {
   return `${base}/${key}`;
 };
 
-// Convert ISO-BMFF -> AnnexB, giống bản cũ
+// Convert ISO-BMFF -> AnnexB
 const convertToAnnexB = (data, description, isKeyframe) => {
   const startCode = new Uint8Array([0, 0, 0, 1]);
   const result = [];
@@ -255,13 +257,15 @@ export default function FacebookLiveStreamerAutoRTK({
   const [tiktokRoomUrl, setTiktokRoomUrl] = useState("");
 
   // Video settings
-  const [qualityMode, setQualityMode] = useState("high");
-  const [facingMode, setFacingMode] = useState("user");
+  const [qualityMode] = useState("high");
+  const [facingMode] = useState("user");
 
   // Overlay
   const [overlayData, setOverlayData] = useState(null);
+  const lastOverlayRef = useRef(null); // giữ last non-null để tránh chớp
+
   const [overlayConfig, setOverlayConfig] = useState({
-    scoreBoard: true,
+    scoreBoard: true, // ✅ luôn bật
     timer: true,
     tournamentName: true,
     logo: true,
@@ -311,11 +315,18 @@ export default function FacebookLiveStreamerAutoRTK({
   const streamTimeRef = useRef(0);
   const startingRef = useRef(false); // lock tránh start trùng
 
-  // Từ bản cũ (binary pipeline)
+  // Binary pipeline refs
   const videoEncoderRef = useRef(null);
   const audioRecorderRef = useRef(null);
   const isEncodingRef = useRef(false);
   const frameCountRef = useRef(0);
+
+  // ✅ đảm bảo scoreBoard luôn true (kể cả hot reload)
+  useEffect(() => {
+    setOverlayConfig((prev) =>
+      prev?.scoreBoard ? prev : { ...prev, scoreBoard: true }
+    );
+  }, []);
 
   // ==================== FETCH OVERLAY DATA ====================
   const fetchOverlayData = useCallback(async () => {
@@ -326,7 +337,8 @@ export default function FacebookLiveStreamerAutoRTK({
       const response = await fetch(url, { cache: "no-store" });
       if (!response.ok) throw new Error("Overlay fetch failed");
       const data = await response.json();
-      setOverlayData(data);
+      setOverlayData(data || null);
+      if (data) lastOverlayRef.current = data;
     } catch (error) {
       console.error("❌ Error fetching overlay:", error);
     } finally {
@@ -335,11 +347,11 @@ export default function FacebookLiveStreamerAutoRTK({
   }, [currentMatch, apiUrl]);
 
   useEffect(() => {
-    if (!currentMatch) return;
-    fetchOverlayData();
-    const id = setInterval(fetchOverlayData, 1000);
+    if (!currentMatch?._id) return;
+    fetchOverlayData(); // fetch ngay
+    const id = setInterval(fetchOverlayData, 1000); // 1s
     return () => clearInterval(id);
-  }, [currentMatch, fetchOverlayData]);
+  }, [currentMatch?._id, fetchOverlayData]);
 
   // ==================== APPLY STREAM KEYS & ARM AUTO ====================
   const applyStreamKeys = useCallback((liveData) => {
@@ -596,13 +608,82 @@ export default function FacebookLiveStreamerAutoRTK({
     ctx.closePath();
   }, []);
 
+  // --- Serve helpers ---
+  const getServingInfo = useCallback((data) => {
+    // ƯU TIÊN: data.serve.team / data.serve.number (đã có trong data như bạn nói)
+    if (!data) return { team: null, number: null };
+
+    let team =
+      data?.serve?.team ??
+      data?.servingTeam ??
+      data?.serveTeam ??
+      data?.serverTeam ??
+      data?.server ??
+      data?.status?.servingTeam ??
+      data?.service?.team ??
+      null;
+
+    let number =
+      data?.serve?.number ??
+      data?.serve?.serverNumber ??
+      data?.serverNumber ??
+      data?.service?.serverNumber ??
+      data?.service?.number ??
+      data?.service?.index ??
+      null;
+
+    // Cho phép dạng "A1"/"B2"
+    if (typeof team === "string") {
+      const up = team.trim().toUpperCase();
+      const m = up.match(/^([AB])\s*([12])?$/);
+      if (m) {
+        team = m[1];
+        if (m[2] && !number) number = parseInt(m[2], 10);
+      }
+    }
+
+    // Fallback boolean
+    if (!team) {
+      if (data?.teams?.A?.serving) team = "A";
+      else if (data?.teams?.B?.serving) team = "B";
+    }
+
+    number = Number.isFinite(number) ? Number(number) : null;
+
+    return { team, number };
+  }, []);
+
+  const drawServeIndicator = useCallback((ctx, cx, cy, scale, serverNumber) => {
+    ctx.save();
+    ctx.lineWidth = 3 * scale;
+    ctx.strokeStyle = "rgba(255,215,0,0.95)";
+    ctx.shadowColor = "rgba(255,215,0,0.8)";
+    ctx.shadowBlur = 8 * scale;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 10 * scale, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    if (serverNumber) {
+      ctx.fillStyle = "#FFD700";
+      ctx.font = `bold ${10 * scale}px Arial`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(serverNumber), cx, cy);
+    }
+    ctx.restore();
+  }, []);
+
+  // ✅ LUÔN VẼ SCORE BOARD (placeholder khi chưa có overlayData)
   const drawScoreBoard = useCallback(
-    (ctx, w, h, data) => {
-      if (!data) return;
+    (ctx, w, h, dataIn) => {
+      const data = dataIn || lastOverlayRef.current || null;
+
       const scale = Math.min(w / 1280, 1);
       const x = 20 * scale;
       const y = 20 * scale;
       const width = 320 * scale;
+
       ctx.save();
       ctx.fillStyle = "rgba(11,15,20,0.9)";
       ctx.shadowColor = "rgba(0,0,0,0.5)";
@@ -610,6 +691,8 @@ export default function FacebookLiveStreamerAutoRTK({
       roundRect(ctx, x, y, width, 120 * scale, 12 * scale);
       ctx.fill();
       ctx.shadowBlur = 0;
+
+      // tiêu đề
       ctx.fillStyle = "#9AA4AF";
       ctx.font = `500 ${11 * scale}px Arial`;
       ctx.textAlign = "left";
@@ -618,12 +701,19 @@ export default function FacebookLiveStreamerAutoRTK({
         x + 14 * scale,
         y + 22 * scale
       );
+
+      // Team A
       const teamA = data?.teams?.A?.name || "Team A";
-      const scoreA = data?.gameScores?.[data?.currentGame || 0]?.a ?? 0;
+      const scoreA =
+        data?.gameScores?.[data?.currentGame || 0]?.a ?? data?.score?.a ?? 0;
+
+      const dotAx = x + 18 * scale;
+      const dotAy = y + 45 * scale;
       ctx.fillStyle = "#25C2A0";
       ctx.beginPath();
-      ctx.arc(x + 18 * scale, y + 45 * scale, 5 * scale, 0, Math.PI * 2);
+      ctx.arc(dotAx, dotAy, 5 * scale, 0, Math.PI * 2);
       ctx.fill();
+
       ctx.fillStyle = "#E6EDF3";
       ctx.font = `600 ${16 * scale}px Arial`;
       ctx.textAlign = "left";
@@ -631,12 +721,19 @@ export default function FacebookLiveStreamerAutoRTK({
       ctx.font = `800 ${24 * scale}px Arial`;
       ctx.textAlign = "right";
       ctx.fillText(String(scoreA), x + width - 14 * scale, y + 50 * scale);
+
+      // Team B
       const teamB = data?.teams?.B?.name || "Team B";
-      const scoreB = data?.gameScores?.[data?.currentGame || 0]?.b ?? 0;
+      const scoreB =
+        data?.gameScores?.[data?.currentGame || 0]?.b ?? data?.score?.b ?? 0;
+
+      const dotBx = x + 18 * scale;
+      const dotBy = y + 85 * scale;
       ctx.fillStyle = "#4F46E5";
       ctx.beginPath();
-      ctx.arc(x + 18 * scale, y + 85 * scale, 5 * scale, 0, Math.PI * 2);
+      ctx.arc(dotBx, dotBy, 5 * scale, 0, Math.PI * 2);
       ctx.fill();
+
       ctx.fillStyle = "#E6EDF3";
       ctx.font = `600 ${16 * scale}px Arial`;
       ctx.textAlign = "left";
@@ -644,9 +741,18 @@ export default function FacebookLiveStreamerAutoRTK({
       ctx.font = `800 ${24 * scale}px Arial`;
       ctx.textAlign = "right";
       ctx.fillText(String(scoreB), x + width - 14 * scale, y + 90 * scale);
+
+      // 👉 Serve indicator (đọc trực tiếp từ data)
+      const { team: servingTeam, number: serverNumber } = getServingInfo(data);
+      if (servingTeam === "A") {
+        drawServeIndicator(ctx, dotAx, dotAy, scale, serverNumber);
+      } else if (servingTeam === "B") {
+        drawServeIndicator(ctx, dotBx, dotBy, scale, serverNumber);
+      }
+
       ctx.restore();
     },
-    [roundRect]
+    [roundRect, getServingInfo, drawServeIndicator]
   );
 
   const drawTimer = useCallback(
@@ -900,15 +1006,20 @@ export default function FacebookLiveStreamerAutoRTK({
     [roundRect]
   );
 
+  // ✅ LUÔN gọi vẽ ScoreBoard; các lớp khác tùy toggle
   const drawOverlay = useCallback(
     (ctx, w, h) => {
       ctx.clearRect(0, 0, w, h);
       if (!overlayConfig) return;
-      if (overlayConfig.scoreBoard && overlayData)
-        drawScoreBoard(ctx, w, h, overlayData);
+
+      drawScoreBoard(ctx, w, h, overlayData);
+
       if (overlayConfig.timer) drawTimer(ctx, w);
-      if (overlayConfig.tournamentName && overlayData)
-        drawTournamentName(ctx, w, h, overlayData);
+      if (
+        overlayConfig.tournamentName &&
+        (overlayData || lastOverlayRef.current)
+      )
+        drawTournamentName(ctx, w, h, overlayData || lastOverlayRef.current);
       if (overlayConfig.logo) drawLogo(ctx, w);
       if (overlayConfig.sponsors) drawSponsors(ctx, w, h);
       if (overlayConfig.lowerThird) drawLowerThird(ctx, w, h);
@@ -1035,7 +1146,7 @@ export default function FacebookLiveStreamerAutoRTK({
       setStatusType("info");
 
       // Camera
-      const preset = QUALITY_PRESETS[qualityMode];
+      const preset = QUALITY_PRESETS.high;
       const constraints = {
         video: {
           width: { ideal: videoSize.w },
@@ -1107,9 +1218,7 @@ export default function FacebookLiveStreamerAutoRTK({
               }
             }
             wsRef.current.send(payload.buffer);
-          } catch (e) {
-            // drop silently
-          }
+          } catch {}
         },
         error: (e) => {
           console.error("Encoder error:", e);
@@ -1128,8 +1237,8 @@ export default function FacebookLiveStreamerAutoRTK({
         codec: "avc1.42001f", // baseline
         width: encW,
         height: encH,
-        bitrate: QUALITY_PRESETS[qualityMode].videoBitsPerSecond * 1000,
-        framerate: QUALITY_PRESETS[qualityMode].fps,
+        bitrate: QUALITY_PRESETS.high.videoBitsPerSecond * 1000,
+        framerate: QUALITY_PRESETS.high.fps,
         hardwareAcceleration: "prefer-hardware",
         latencyMode: "realtime",
         bitrateMode: "constant",
@@ -1146,8 +1255,8 @@ export default function FacebookLiveStreamerAutoRTK({
             outputs: outs,
             width: encW,
             height: encH,
-            fps: QUALITY_PRESETS[qualityMode].fps,
-            videoBitrate: `${QUALITY_PRESETS[qualityMode].videoBitsPerSecond}k`,
+            fps: QUALITY_PRESETS.high.fps,
+            videoBitrate: `${QUALITY_PRESETS.high.videoBitsPerSecond}k`,
             audioBitrate: "128k",
           };
           ws.send(JSON.stringify(startPayload));
@@ -1223,14 +1332,12 @@ export default function FacebookLiveStreamerAutoRTK({
       const ctx = canvasRef.current.getContext("2d", { alpha: false });
       const overlayCtx = overlayCanvasRef.current.getContext("2d");
 
-      const frameDurationUs = Math.floor(
-        1_000_000 / QUALITY_PRESETS[qualityMode].fps
-      );
+      const frameDurationUs = Math.floor(1_000_000 / QUALITY_PRESETS.high.fps);
       let nextTsUs = performance.now() * 1000;
       frameCountRef.current = 0;
       isEncodingRef.current = true;
 
-      const encodeLoop = (nowMs) => {
+      const encodeLoop = () => {
         if (!isEncodingRef.current || !videoEncoderRef.current) return;
 
         try {
@@ -1244,7 +1351,7 @@ export default function FacebookLiveStreamerAutoRTK({
           alpha: "discard",
         });
         const forceKey =
-          frameCountRef.current % (QUALITY_PRESETS[qualityMode].fps * 2) === 0;
+          frameCountRef.current % (QUALITY_PRESETS.high.fps * 2) === 0;
         try {
           videoEncoderRef.current.encode(vf, { keyFrame: forceKey });
         } catch {}
@@ -1294,7 +1401,6 @@ export default function FacebookLiveStreamerAutoRTK({
       startingRef.current = false;
     }
   }, [
-    qualityMode,
     videoSize,
     facingMode,
     wsUrl,
@@ -1334,16 +1440,21 @@ export default function FacebookLiveStreamerAutoRTK({
 
   // ==================== UI HELPERS ====================
   const toggleOverlay = useCallback((key) => {
+    if (key === "scoreBoard") return; // ✅ luôn bật: bỏ qua toggle
     setOverlayConfig((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
+
   const toggleAllOverlays = useCallback((enabled) => {
-    setOverlayConfig((prev) =>
-      Object.keys(prev).reduce((acc, key) => {
+    setOverlayConfig((prev) => {
+      const next = Object.keys(prev).reduce((acc, key) => {
         acc[key] = enabled;
         return acc;
-      }, {})
-    );
+      }, {});
+      next.scoreBoard = true; // ✅ giữ luôn bật dù bấm Disable All
+      return next;
+    });
   }, []);
+
   const activeOverlayCount = useMemo(
     () => Object.values(overlayConfig).filter(Boolean).length,
     [overlayConfig]
@@ -1603,20 +1714,6 @@ export default function FacebookLiveStreamerAutoRTK({
                       style={{ display: "none" }}
                     />
 
-                    {isStreaming && (
-                      <Chip
-                        icon={<RadioButtonChecked />}
-                        label="LIVE"
-                        color="error"
-                        sx={{
-                          position: "absolute",
-                          top: 16,
-                          left: 16,
-                          fontWeight: "bold",
-                        }}
-                      />
-                    )}
-
                     {!isStreaming && (
                       <Box
                         sx={{
@@ -1736,16 +1833,17 @@ export default function FacebookLiveStreamerAutoRTK({
                       📊 Match Info
                     </Typography>
                     <Box sx={{ pl: { xs: 0, md: 2 }, mb: 2 }}>
+                      {/* ✅ Score Board luôn bật & khoá UI */}
                       <FormControlLabel
-                        control={
-                          <Switch
-                            checked={overlayConfig.scoreBoard}
-                            onChange={() => toggleOverlay("scoreBoard")}
-                            size="small"
-                          />
-                        }
+                        control={<Switch checked size="small" disabled />}
                         label={
-                          <Typography variant="body2">Score Board</Typography>
+                          <Typography variant="body2">
+                            <Lock
+                              fontSize="small"
+                              sx={{ mr: 0.5, verticalAlign: "middle" }}
+                            />
+                            Score Board (luôn bật)
+                          </Typography>
                         }
                       />
                       <FormControlLabel
@@ -1904,8 +2002,8 @@ export default function FacebookLiveStreamerAutoRTK({
                       icon={<CheckCircle />}
                     >
                       <Typography variant="caption">
-                        ✅ Overlay đầy đủ & pipeline stream y hệt bản cũ
-                        (binary)
+                        ✅ Score Board luôn bật • ✅ Tay phát bóng hiển thị từ
+                        data
                       </Typography>
                     </Alert>
                   </Collapse>
@@ -2089,7 +2187,6 @@ export default function FacebookLiveStreamerAutoRTK({
                       </Typography>
                     </Box>
 
-                    {/* Debug quick check for armed outputs */}
                     {process.env.NODE_ENV !== "production" && (
                       <Alert severity={canStartNow() ? "success" : "warning"}>
                         <Typography variant="caption">

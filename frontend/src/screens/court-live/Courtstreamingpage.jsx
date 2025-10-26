@@ -49,7 +49,6 @@ export default function CourtStreamingPage() {
   // apiUrl: .env full -> .env base -> same-origin
   const apiUrl = useMemo(() => {
     const full = import.meta.env.VITE_API_URL + "/api/overlay/match";
-    console.log(full);
     if (full) return full.replace(/\/+$/, "");
 
     const apiBase = import.meta.env.VITE_API_URL;
