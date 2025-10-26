@@ -1,10 +1,12 @@
-// FacebookLiveStreamerAutoRTK.jsx — AUTO + BINARY PIPELINE (refactor + serve indicator)
+// FacebookLiveStreamerAutoRTK.jsx — AUTO + BINARY PIPELINE (refactor + serve indicator + camera switch)
 // - WebCodecs H.264 Annex-B (binary) + Audio (MediaRecorder, prefix 0x01)
 // - Auto Mode (RTK Query): phát khi có trận, tạo live, tự đếm 3-2-1
 // - Rút outputs trực tiếp từ payload (tránh race), fallback từ state
 // - Overlay + Preview mượt, health stats
 // - ✅ Score Board luôn bật (không tắt được), có placeholder khi chưa có data
 // - ✅ Serve indicator lấy từ data (serve.team / serve.number), có fallback các key phổ biến
+// - ✅ Nút Đổi camera (xoay giữa các camera / trước-sau), đổi nóng khi đang LIVE
+// - 🔧 FIX: startPreviewLoop hoist (function declaration) + remove khỏi deps của switchCamera để tránh TDZ
 
 import React, {
   useEffect,
@@ -52,6 +54,7 @@ import {
   VideoLibrary,
   CheckCircle,
   Lock,
+  Cameraswitch,
 } from "@mui/icons-material";
 
 // RTK Query hooks
@@ -258,7 +261,20 @@ export default function FacebookLiveStreamerAutoRTK({
 
   // Video settings
   const [qualityMode] = useState("high");
-  const [facingMode] = useState("user");
+  // ✅ ưu tiên camera sau theo query (?cam/front/back)
+  const [preferBackCamera, setPreferBackCamera] = useState(() => {
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const cam = (sp.get("cam") || sp.get("camera") || "back").toLowerCase();
+      return cam !== "front";
+    } catch {
+      return true;
+    }
+  });
+
+  // ✅ danh sách thiết bị video & thiết bị đang dùng
+  const [videoDevices, setVideoDevices] = useState([]);
+  const [activeVideoDeviceId, setActiveVideoDeviceId] = useState(null);
 
   // Overlay
   const [overlayData, setOverlayData] = useState(null);
@@ -328,272 +344,36 @@ export default function FacebookLiveStreamerAutoRTK({
     );
   }, []);
 
-  // ==================== FETCH OVERLAY DATA ====================
-  const fetchOverlayData = useCallback(async () => {
-    if (!currentMatch?._id || overlayFetchingRef.current) return;
+  // ==================== CAMERA DEVICES ====================
+  const refreshVideoDevices = useCallback(async () => {
     try {
-      overlayFetchingRef.current = true;
-      const url = `${apiUrl}/${currentMatch._id}`;
-      const response = await fetch(url, { cache: "no-store" });
-      if (!response.ok) throw new Error("Overlay fetch failed");
-      const data = await response.json();
-      setOverlayData(data || null);
-      if (data) lastOverlayRef.current = data;
-    } catch (error) {
-      console.error("❌ Error fetching overlay:", error);
-    } finally {
-      overlayFetchingRef.current = false;
-    }
-  }, [currentMatch, apiUrl]);
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const vids = devices.filter((d) => d.kind === "videoinput");
+      setVideoDevices(vids);
+      if (!activeVideoDeviceId && vids[0]) {
+        setActiveVideoDeviceId(vids[0].deviceId);
+      }
+    } catch {}
+  }, [activeVideoDeviceId]);
 
   useEffect(() => {
-    if (!currentMatch?._id) return;
-    fetchOverlayData(); // fetch ngay
-    const id = setInterval(fetchOverlayData, 1000); // 1s
-    return () => clearInterval(id);
-  }, [currentMatch?._id, fetchOverlayData]);
-
-  // ==================== APPLY STREAM KEYS & ARM AUTO ====================
-  const applyStreamKeys = useCallback((liveData) => {
-    if (!liveData) return;
-
-    if (liveData.overlay_url) setOverlayUrl(liveData.overlay_url);
-    if (liveData.studio_url) setStudioUrl(liveData.studio_url);
-    if (liveData.facebook_permalink_url)
-      setFacebookPermalinkUrl(liveData.facebook_permalink_url);
-    if (liveData.youtube_watch_url)
-      setYoutubeWatchUrl(liveData.youtube_watch_url);
-    if (liveData.tiktok_room_url) setTiktokRoomUrl(liveData.tiktok_room_url);
-
-    const { platforms, primary, platformsEnabled } = liveData;
-
-    // Facebook
-    if (platforms?.facebook?.live?.stream_key) {
-      setStreamKey(platforms.facebook.live.stream_key);
-      setTargetFacebook(platformsEnabled?.facebook !== false);
-    } else if (primary?.platform === "facebook" && primary?.stream_key) {
-      setStreamKey(primary.stream_key);
-      setTargetFacebook(platformsEnabled?.facebook !== false);
-    }
-
-    // YouTube
-    if (platforms?.youtube?.live) {
-      setYtServer(
-        platforms.youtube.live.server_url || "rtmps://a.rtmps.youtube.com/live2"
+    navigator.mediaDevices?.addEventListener?.(
+      "devicechange",
+      refreshVideoDevices
+    );
+    return () =>
+      navigator.mediaDevices?.removeEventListener?.(
+        "devicechange",
+        refreshVideoDevices
       );
-      if (platforms.youtube.live.stream_key) {
-        setYtKey(platforms.youtube.live.stream_key);
-        setTargetYoutube(platformsEnabled?.youtube !== false);
-      }
-    } else if (primary?.platform === "youtube" && primary?.stream_key) {
-      setYtServer(primary.server_url || "rtmps://a.rtmps.youtube.com/live2");
-      setYtKey(primary.stream_key);
-      setTargetYoutube(platformsEnabled?.youtube !== false);
-    }
+  }, [refreshVideoDevices]);
 
-    // TikTok
-    if (platforms?.tiktok?.live) {
-      setTtServer(platforms.tiktok.live.server_url || "");
-      if (platforms.tiktok.live.stream_key) {
-        setTtKey(platforms.tiktok.live.stream_key);
-        setTargetTiktok(platformsEnabled?.tiktok !== false);
-      }
-    }
-  }, []);
-
-  const cleanup = useCallback(async () => {
-    try {
-      camStreamRef.current?.getTracks?.().forEach((t) => t.stop());
-    } catch {}
-    camStreamRef.current = null;
-
-    try {
-      audioRecorderRef.current?.stop?.();
-    } catch {}
-    audioRecorderRef.current = null;
-
-    try {
-      if (
-        videoEncoderRef.current &&
-        videoEncoderRef.current.state !== "closed"
-      ) {
-        await videoEncoderRef.current.flush();
-        videoEncoderRef.current.close();
-      }
-    } catch {}
-    videoEncoderRef.current = null;
-
-    if (wsRef.current) {
-      try {
-        wsRef.current.close();
-      } catch {}
-      wsRef.current = null;
-    }
-    if (videoRef.current) videoRef.current.srcObject = null;
-  }, []);
-
-  const stopStreamingPro = useCallback(async () => {
-    setStatus("⏹️ Đang dừng stream...");
-    setStatusType("info");
-
-    if (autoStartTimerRef.current) {
-      clearInterval(autoStartTimerRef.current);
-      autoStartTimerRef.current = null;
-    }
-    setAutoStartCountdown(null);
-
-    if (previewLoopRef.current) {
-      cancelAnimationFrame(previewLoopRef.current);
-      previewLoopRef.current = null;
-    }
-    if (encodingLoopRef.current) {
-      cancelAnimationFrame(encodingLoopRef.current);
-      encodingLoopRef.current = null;
-    }
-
-    isEncodingRef.current = false;
-    try {
-      audioRecorderRef.current?.stop?.();
-    } catch {}
-    audioRecorderRef.current = null;
-    try {
-      if (
-        videoEncoderRef.current &&
-        videoEncoderRef.current.state !== "closed"
-      ) {
-        await videoEncoderRef.current.flush();
-        videoEncoderRef.current.close();
-      }
-    } catch {}
-    videoEncoderRef.current = null;
-
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      try {
-        wsRef.current.send(JSON.stringify({ type: "stop" }));
-      } catch {}
-      try {
-        wsRef.current.close();
-      } catch {}
-    }
-
-    if (currentMatch) {
-      try {
-        await notifyStreamEnded({ matchId: currentMatch._id, platform: "all" });
-      } catch {}
-    }
-
-    await cleanup();
-
-    setIsStreaming(false);
-    setIsConnected(false);
-    setStatus("⏹️ Đã dừng stream");
-    setStatusType("info");
-  }, [currentMatch, notifyStreamEnded, cleanup]);
-
-  // ============ NEW: Arm auto start ngay khi có outputs hợp lệ ============
-  const armAutoStart = useCallback(() => {
-    if (autoStartTimerRef.current || isStreaming || loading) return;
-    setAutoStatus("🚦 Có stream key — sẽ tự động phát sau 3s...");
-    setAutoStartCountdown(3);
-    autoStartTimerRef.current = setInterval(() => {
-      setAutoStartCountdown((prev) => {
-        if (prev === null) return null;
-        if (prev <= 1) {
-          if (autoStartTimerRef.current) {
-            clearInterval(autoStartTimerRef.current);
-            autoStartTimerRef.current = null;
-          }
-          setTimeout(() => {
-            startStreamingPro();
-          }, 0);
-          return null;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  }, [isStreaming, loading]);
-
-  // ==================== HANDLE NEW MATCH ====================
-  const handleNewMatch = useCallback(
-    async (match) => {
-      setCurrentMatch(match);
-      const matchLabel = match.labelKey || `Match ${match.code || match._id}`;
-      setAutoStatus(`🎾 Trận mới: ${matchLabel}`);
-
-      if (isStreaming) {
-        setAutoStatus("⏸️ Dừng live trận cũ...");
-        await stopStreamingPro();
-      }
-
-      try {
-        setAutoStatus("🔄 Đang tạo live session...");
-        const result = await createLiveSession({ matchId: match._id }).unwrap();
-        if (!result?.ok) throw new Error("Live session creation failed");
-
-        setLiveSession(result);
-        applyStreamKeys(result);
-
-        const outs = outputsFromLiveData(result);
-        armedOutputsRef.current = outs.length ? outs : null;
-        if (outs.length > 0) armAutoStart();
-        else setAutoStatus("⚠️ Chưa có output hợp lệ từ payload");
-
-        // History
-        setMatchHistory((prev) => [
-          ...prev,
-          {
-            matchId: match._id,
-            matchLabel,
-            startTime: new Date(),
-            liveUrls: {
-              facebook: result.facebook_permalink_url || null,
-              youtube: result.youtube_watch_url || null,
-              tiktok: result.tiktok_room_url || null,
-            },
-          },
-        ]);
-      } catch (error) {
-        console.error("❌ Error creating live:", error);
-        setAutoStatus(`❌ Lỗi tạo live: ${error.message}`);
-      }
-    },
-    [
-      isStreaming,
-      createLiveSession,
-      applyStreamKeys,
-      stopStreamingPro,
-      armAutoStart,
-    ]
-  );
-
-  // ==================== WATCH COURT DATA ====================
+  // Gọi enumerateDevices sớm sau khi có quyền
   useEffect(() => {
-    if (!autoMode || !courtData) return;
+    refreshVideoDevices();
+  }, [refreshVideoDevices]);
 
-    const court = courtData.court;
-    const match = courtData.match;
-
-    if (!match) {
-      if (isStreaming) {
-        setAutoStatus("⏹️ Trận đã kết thúc, dừng stream...");
-        stopStreamingPro();
-      }
-      setCurrentMatch(null);
-      armedOutputsRef.current = null;
-      setAutoStatus(`⏳ Chờ trận đấu tiếp theo tại ${court?.name || ""}...`);
-      return;
-    }
-
-    if (currentMatchIdRef.current !== String(match._id)) {
-      currentMatchIdRef.current = String(match._id);
-      handleNewMatch(match);
-    } else if (match.status === "finished" && isStreaming) {
-      setAutoStatus("✅ Trận đã kết thúc, dừng stream...");
-      stopStreamingPro();
-    }
-  }, [courtData, autoMode, isStreaming, handleNewMatch, stopStreamingPro]);
-
-  // ==================== OVERLAY RENDERING ====================
+  // ==================== OVERLAY RENDERING HELPERS ====================
   const roundRect = useCallback((ctx, x, y, width, height, radius) => {
     ctx.beginPath();
     ctx.moveTo(x + radius, y);
@@ -610,7 +390,6 @@ export default function FacebookLiveStreamerAutoRTK({
 
   // --- Serve helpers ---
   const getServingInfo = useCallback((data) => {
-    // ƯU TIÊN: data.serve.team / data.serve.number (đã có trong data như bạn nói)
     if (!data) return { team: null, number: null };
 
     let team =
@@ -632,7 +411,6 @@ export default function FacebookLiveStreamerAutoRTK({
       data?.service?.index ??
       null;
 
-    // Cho phép dạng "A1"/"B2"
     if (typeof team === "string") {
       const up = team.trim().toUpperCase();
       const m = up.match(/^([AB])\s*([12])?$/);
@@ -642,7 +420,6 @@ export default function FacebookLiveStreamerAutoRTK({
       }
     }
 
-    // Fallback boolean
     if (!team) {
       if (data?.teams?.A?.serving) team = "A";
       else if (data?.teams?.B?.serving) team = "B";
@@ -1005,21 +782,22 @@ export default function FacebookLiveStreamerAutoRTK({
     },
     [roundRect]
   );
-
-  // ✅ LUÔN gọi vẽ ScoreBoard; các lớp khác tùy toggle
+  // ==================== COMPOSE OVERLAY (LUÔN GỌI SCOREBOARD) ====================
   const drawOverlay = useCallback(
     (ctx, w, h) => {
       ctx.clearRect(0, 0, w, h);
-      if (!overlayConfig) return;
 
+      // Luôn vẽ scoreboard, dùng overlayData hiện tại (hoặc lastOverlayRef để tránh chớp)
       drawScoreBoard(ctx, w, h, overlayData);
 
+      // Các lớp khác theo toggle
       if (overlayConfig.timer) drawTimer(ctx, w);
       if (
         overlayConfig.tournamentName &&
         (overlayData || lastOverlayRef.current)
-      )
+      ) {
         drawTournamentName(ctx, w, h, overlayData || lastOverlayRef.current);
+      }
       if (overlayConfig.logo) drawLogo(ctx, w);
       if (overlayConfig.sponsors) drawSponsors(ctx, w, h);
       if (overlayConfig.lowerThird) drawLowerThird(ctx, w, h);
@@ -1046,17 +824,20 @@ export default function FacebookLiveStreamerAutoRTK({
     ]
   );
 
-  // ==================== PREVIEW LOOP ====================
-  const startPreviewLoop = useCallback(() => {
+  // ==================== PREVIEW LOOP (hoisted function) ====================
+  function startPreviewLoop() {
     const video = videoRef.current;
     const previewCanvas = previewCanvasRef.current;
     const overlayCanvas = overlayCanvasRef.current;
     if (!video || !previewCanvas) return;
+
     const previewCtx = previewCanvas.getContext("2d");
     const overlayCtx = overlayCanvas?.getContext("2d");
+
     let lastTime = 0;
     const targetFPS = 30;
     const frameTime = 1000 / targetFPS;
+
     const renderFrame = (ts) => {
       if (!video.videoWidth) {
         previewLoopRef.current = requestAnimationFrame(renderFrame);
@@ -1085,8 +866,339 @@ export default function FacebookLiveStreamerAutoRTK({
       }
       previewLoopRef.current = requestAnimationFrame(renderFrame);
     };
+
     previewLoopRef.current = requestAnimationFrame(renderFrame);
-  }, [drawOverlay]);
+  }
+
+  // ==================== CAMERA SWITCH ====================
+  const switchCamera = useCallback(async () => {
+    try {
+      const preset = QUALITY_PRESETS.high;
+
+      // Quyết định ràng buộc video mới
+      let constraint = {};
+      if (videoDevices.length > 1 && activeVideoDeviceId) {
+        const idx = videoDevices.findIndex(
+          (d) => d.deviceId === activeVideoDeviceId
+        );
+        const next = videoDevices[(idx + 1) % videoDevices.length];
+        setActiveVideoDeviceId(next.deviceId);
+        constraint = { deviceId: { exact: next.deviceId } };
+      } else {
+        const nextPrefer = !preferBackCamera;
+        setPreferBackCamera(nextPrefer);
+        constraint = { facingMode: nextPrefer ? "environment" : "user" };
+      }
+
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          ...constraint,
+          width: { ideal: videoSize.w },
+          height: { ideal: videoSize.h },
+          frameRate: { ideal: preset.fps },
+        },
+        audio: false,
+      });
+
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      const oldAudioTrack = camStreamRef.current?.getAudioTracks?.()[0] || null;
+
+      // Dừng video cũ, giữ audio
+      camStreamRef.current?.getVideoTracks?.().forEach((t) => t.stop());
+
+      // Gộp stream mới (video) với audio cũ (nếu có)
+      const combined = new MediaStream();
+      combined.addTrack(newVideoTrack);
+      if (oldAudioTrack) combined.addTrack(oldAudioTrack);
+
+      camStreamRef.current = combined;
+      if (videoRef.current) {
+        videoRef.current.srcObject = combined;
+        await videoRef.current.play().catch(() => {});
+      }
+
+      // Nếu chưa có preview loop thì bật
+      if (!previewLoopRef.current) startPreviewLoop();
+
+      setStatus("✅ Đã đổi camera");
+      setStatusType("success");
+    } catch (e) {
+      setStatus("⚠️ Không thể đổi camera: " + (e?.message || e));
+      setStatusType("warning");
+    }
+  }, [
+    videoDevices,
+    activeVideoDeviceId,
+    preferBackCamera,
+    videoSize.w,
+    videoSize.h,
+    // ⚠️ KHÔNG đưa startPreviewLoop vào deps để tránh TDZ
+  ]);
+
+  // ==================== FETCH OVERLAY DATA ====================
+  const fetchOverlayData = useCallback(async () => {
+    if (!currentMatch?._id || overlayFetchingRef.current) return;
+    try {
+      overlayFetchingRef.current = true;
+      const url = `${apiUrl}/${currentMatch._id}`;
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error("Overlay fetch failed");
+      const data = await response.json();
+      setOverlayData(data || null);
+      if (data) lastOverlayRef.current = data;
+    } catch (error) {
+      console.error("❌ Error fetching overlay:", error);
+    } finally {
+      overlayFetchingRef.current = false;
+    }
+  }, [currentMatch, apiUrl]);
+
+  useEffect(() => {
+    if (!currentMatch?._id) return;
+    fetchOverlayData(); // fetch ngay
+    const id = setInterval(fetchOverlayData, 1000); // 1s
+    return () => clearInterval(id);
+  }, [currentMatch?._id, fetchOverlayData]);
+
+  // ==================== APPLY STREAM KEYS & ARM AUTO ====================
+  const applyStreamKeys = useCallback((liveData) => {
+    if (!liveData) return;
+
+    if (liveData.overlay_url) setOverlayUrl(liveData.overlay_url);
+    if (liveData.studio_url) setStudioUrl(liveData.studio_url);
+    if (liveData.facebook_permalink_url)
+      setFacebookPermalinkUrl(liveData.facebook_permalink_url);
+    if (liveData.youtube_watch_url)
+      setYoutubeWatchUrl(liveData.youtube_watch_url);
+    if (liveData.tiktok_room_url) setTiktokRoomUrl(liveData.tiktok_room_url);
+
+    const { platforms, primary, platformsEnabled } = liveData;
+
+    // Facebook
+    if (platforms?.facebook?.live?.stream_key) {
+      setStreamKey(platforms.facebook.live.stream_key);
+      setTargetFacebook(platformsEnabled?.facebook !== false);
+    } else if (primary?.platform === "facebook" && primary?.stream_key) {
+      setStreamKey(primary.stream_key);
+      setTargetFacebook(platformsEnabled?.facebook !== false);
+    }
+
+    // YouTube
+    if (platforms?.youtube?.live) {
+      setYtServer(
+        platforms.youtube.live.server_url || "rtmps://a.rtmps.youtube.com/live2"
+      );
+      if (platforms.youtube.live.stream_key) {
+        setYtKey(platforms.youtube.live.stream_key);
+        setTargetYoutube(platformsEnabled?.youtube !== false);
+      }
+    } else if (primary?.platform === "youtube" && primary?.stream_key) {
+      setYtServer(primary.server_url || "rtmps://a.rtmps.youtube.com/live2");
+      setYtKey(primary.stream_key);
+      setTargetYoutube(platformsEnabled?.youtube !== false);
+    }
+
+    // TikTok
+    if (platforms?.tiktok?.live) {
+      setTtServer(platforms.tiktok.live.server_url || "");
+      if (platforms.tiktok.live.stream_key) {
+        setTtKey(platforms.tiktok.live.stream_key);
+        setTargetTiktok(platformsEnabled?.tiktok !== false);
+      }
+    }
+  }, []);
+
+  const cleanup = useCallback(async () => {
+    try {
+      camStreamRef.current?.getTracks?.().forEach((t) => t.stop());
+    } catch {}
+    camStreamRef.current = null;
+
+    try {
+      audioRecorderRef.current?.stop?.();
+    } catch {}
+    audioRecorderRef.current = null;
+
+    try {
+      if (
+        videoEncoderRef.current &&
+        videoEncoderRef.current.state !== "closed"
+      ) {
+        await videoEncoderRef.current.flush();
+        videoEncoderRef.current.close();
+      }
+    } catch {}
+    videoEncoderRef.current = null;
+
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch {}
+      wsRef.current = null;
+    }
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }, []);
+
+  const stopStreamingPro = useCallback(async () => {
+    setStatus("⏹️ Đang dừng stream...");
+    setStatusType("info");
+
+    if (autoStartTimerRef.current) {
+      clearInterval(autoStartTimerRef.current);
+      autoStartTimerRef.current = null;
+    }
+    setAutoStartCountdown(null);
+
+    if (previewLoopRef.current) {
+      cancelAnimationFrame(previewLoopRef.current);
+      previewLoopRef.current = null;
+    }
+    if (encodingLoopRef.current) {
+      cancelAnimationFrame(encodingLoopRef.current);
+      encodingLoopRef.current = null;
+    }
+
+    isEncodingRef.current = false;
+    try {
+      audioRecorderRef.current?.stop?.();
+    } catch {}
+    audioRecorderRef.current = null;
+    try {
+      if (
+        videoEncoderRef.current &&
+        videoEncoderRef.current.state !== "closed"
+      ) {
+        await videoEncoderRef.current.flush();
+        videoEncoderRef.current.close();
+      }
+    } catch {}
+    videoEncoderRef.current = null;
+
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        wsRef.current.send(JSON.stringify({ type: "stop" }));
+      } catch {}
+      try {
+        wsRef.current.close();
+      } catch {}
+    }
+
+    if (currentMatch) {
+      try {
+        await notifyStreamEnded({ matchId: currentMatch._id, platform: "all" });
+      } catch {}
+    }
+
+    await cleanup();
+
+    setIsStreaming(false);
+    setIsConnected(false);
+    setStatus("⏹️ Đã dừng stream");
+    setStatusType("info");
+  }, [currentMatch, notifyStreamEnded, cleanup]);
+
+  // ============ NEW: Arm auto start ngay khi có outputs hợp lệ ============
+  const armAutoStart = useCallback(() => {
+    if (autoStartTimerRef.current || isStreaming || loading) return;
+    setAutoStatus("🚦 Có stream key — sẽ tự động phát sau 3s...");
+    setAutoStartCountdown(3);
+    autoStartTimerRef.current = setInterval(() => {
+      setAutoStartCountdown((prev) => {
+        if (prev === null) return null;
+        if (prev <= 1) {
+          if (autoStartTimerRef.current) {
+            clearInterval(autoStartTimerRef.current);
+            autoStartTimerRef.current = null;
+          }
+          setTimeout(() => {
+            startStreamingPro();
+          }, 0);
+          return null;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  }, [isStreaming, loading]);
+
+  // ==================== HANDLE NEW MATCH ====================
+  const handleNewMatch = useCallback(
+    async (match) => {
+      setCurrentMatch(match);
+      const matchLabel = match.labelKey || `Match ${match.code || match._id}`;
+      setAutoStatus(`🎾 Trận mới: ${matchLabel}`);
+
+      if (isStreaming) {
+        setAutoStatus("⏸️ Dừng live trận cũ...");
+        await stopStreamingPro();
+      }
+
+      try {
+        setAutoStatus("🔄 Đang tạo live session...");
+        const result = await createLiveSession({ matchId: match._id }).unwrap();
+        if (!result?.ok) throw new Error("Live session creation failed");
+
+        setLiveSession(result);
+        applyStreamKeys(result);
+
+        const outs = outputsFromLiveData(result);
+        armedOutputsRef.current = outs.length ? outs : null;
+        if (outs.length > 0) armAutoStart();
+        else setAutoStatus("⚠️ Chưa có output hợp lệ từ payload");
+
+        // History
+        setMatchHistory((prev) => [
+          ...prev,
+          {
+            matchId: match._id,
+            matchLabel,
+            startTime: new Date(),
+            liveUrls: {
+              facebook: result.facebook_permalink_url || null,
+              youtube: result.youtube_watch_url || null,
+              tiktok: result.tiktok_room_url || null,
+            },
+          },
+        ]);
+      } catch (error) {
+        console.error("❌ Error creating live:", error);
+        setAutoStatus(`❌ Lỗi tạo live: ${error.message}`);
+      }
+    },
+    [
+      isStreaming,
+      createLiveSession,
+      applyStreamKeys,
+      stopStreamingPro,
+      armAutoStart,
+    ]
+  );
+
+  // ==================== WATCH COURT DATA ====================
+  useEffect(() => {
+    if (!autoMode || !courtData) return;
+
+    const court = courtData.court;
+    const match = courtData.match;
+
+    if (!match) {
+      if (isStreaming) {
+        setAutoStatus("⏹️ Trận đã kết thúc, dừng stream...");
+        stopStreamingPro();
+      }
+      setCurrentMatch(null);
+      armedOutputsRef.current = null;
+      setAutoStatus(`⏳ Chờ trận đấu tiếp theo tại ${court?.name || ""}...`);
+      return;
+    }
+
+    if (currentMatchIdRef.current !== String(match._id)) {
+      currentMatchIdRef.current = String(match._id);
+      handleNewMatch(match);
+    } else if (match.status === "finished" && isStreaming) {
+      setAutoStatus("✅ Trận đã kết thúc, dừng stream...");
+      stopStreamingPro();
+    }
+  }, [courtData, autoMode, isStreaming, handleNewMatch, stopStreamingPro]);
 
   // ==================== BUILD OUTPUTS TỪ STATE (fallback) ====================
   const buildOutputs = useCallback(() => {
@@ -1147,12 +1259,16 @@ export default function FacebookLiveStreamerAutoRTK({
 
       // Camera
       const preset = QUALITY_PRESETS.high;
+      const chosenConstraint = activeVideoDeviceId
+        ? { deviceId: { exact: activeVideoDeviceId } }
+        : { facingMode: preferBackCamera ? "environment" : "user" };
+
       const constraints = {
         video: {
           width: { ideal: videoSize.w },
           height: { ideal: videoSize.h },
           frameRate: { ideal: preset.fps },
-          facingMode,
+          ...chosenConstraint,
         },
         audio: {
           echoCancellation: true,
@@ -1184,6 +1300,8 @@ export default function FacebookLiveStreamerAutoRTK({
           } catch {}
         }
         startPreviewLoop();
+        // cập nhật danh sách device sau khi có quyền
+        refreshVideoDevices();
       }
 
       // WebSocket binary
@@ -1402,15 +1520,17 @@ export default function FacebookLiveStreamerAutoRTK({
     }
   }, [
     videoSize,
-    facingMode,
     wsUrl,
     currentMatch,
     notifyStreamStarted,
-    startPreviewLoop,
+    // startPreviewLoop không cần có trong deps (hoisted & stable)
     buildOutputs,
     drawOverlay,
     cleanup,
     isStreaming,
+    activeVideoDeviceId,
+    preferBackCamera,
+    refreshVideoDevices,
   ]);
 
   // Đồng hồ cho timer overlay
@@ -1688,6 +1808,28 @@ export default function FacebookLiveStreamerAutoRTK({
                       bgcolor: "black",
                     }}
                   >
+                    {/* Camera switch button */}
+                    <Box
+                      sx={{ position: "absolute", top: 8, right: 8, zIndex: 2 }}
+                    >
+                      <Tooltip title="Đổi camera">
+                        <span>
+                          <IconButton
+                            size="small"
+                            onClick={switchCamera}
+                            disabled={loading}
+                            sx={{
+                              bgcolor: "rgba(0,0,0,0.4)",
+                              color: "#fff",
+                              "&:hover": { bgcolor: "rgba(0,0,0,0.6)" },
+                            }}
+                          >
+                            <Cameraswitch />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </Box>
+
                     <canvas
                       ref={previewCanvasRef}
                       width={videoSize.w}
