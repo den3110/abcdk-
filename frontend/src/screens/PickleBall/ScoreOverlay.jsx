@@ -1,14 +1,14 @@
 // src/pages/overlay/ScoreOverlay.jsx
 /* eslint-disable react/prop-types */
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef, forwardRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import {
   useGetOverlaySnapshotQuery,
   useLazyGetTournamentQuery,
   useLazyGetNextByCourtQuery,
 } from "../../slices/tournamentsApiSlice";
+import { useGetOverlayConfigQuery } from "../../slices/overlayApiSlice";
 import { useSocket } from "../../context/SocketContext";
-import { forwardRef } from "react";
 import { toHttpsIfNotLocalhost } from "../../utils/url";
 
 /* ========================== Utils ========================== */
@@ -86,24 +86,20 @@ const canonicalRoundLabel = (data) => {
   return "";
 };
 
-// Chip phase theo yêu cầu: group / play-off / knockout
-// Chip phase theo yêu cầu: group / roundElim (Vòng N) / knockout khác
+// Chip phase
 const phaseLabelFromData = (data) => {
   const bt = (data?.bracketType || data?.bracket?.type || "").toLowerCase();
   if (bt === "group") return "Vòng bảng";
 
   if (bt === "roundelim") {
-    // ✅ Ưu tiên “Vòng N” tăng dần
     const byOrdinal = roundElimOrdinalLabel(data);
     if (byOrdinal) return byOrdinal;
-    // fallback nếu không suy ra được
     const byName = readStr(data?.roundName);
     if (byName) return byName;
     const byCode = codeToRoundLabel(data?.roundCode);
     return byCode || "Vòng loại";
   }
 
-  // Các kiểu KO khác giữ nguyên mapping cũ
   const roundLabel = canonicalRoundLabel(data);
   if (
     bt === "po" ||
@@ -118,8 +114,6 @@ const phaseLabelFromData = (data) => {
   ) {
     return roundLabel || "Vòng loại trực tiếp";
   }
-
-  // fallback
   return roundLabel || "";
 };
 
@@ -220,7 +214,6 @@ function normalizePayload(p) {
     };
   }
 
-  // ⬇️ Court thông tin (id & name) để auto-next
   const courtId = p?.court?.id || p?.courtId || null;
   const courtName = p?.court?.name || p?.courtName || "";
 
@@ -251,7 +244,6 @@ function normalizePayload(p) {
     roundName,
     roundNumber,
     court: { id: courtId, name: courtName },
-    // pass-through for replay
     liveLog:
       p?.liveLog ||
       p?.livelog ||
@@ -279,6 +271,7 @@ const OVERLAY_KEYS = new Set([
   "scoreScale",
   "customCss",
   "logoUrl",
+  "webLogoUrl",
 ]);
 
 const looksLikeOverlay = (obj) =>
@@ -304,7 +297,7 @@ const pickOverlay = (obj) => {
   return out;
 };
 
-// merge helpers (KHÔNG ghi đè bằng chuỗi rỗng/undefined)
+// merge helpers
 const hasVal = (v) =>
   v !== null && v !== undefined && (typeof v !== "string" || v.trim() !== "");
 const keep = (prev, next) => (hasVal(next) ? next : prev);
@@ -324,7 +317,6 @@ const mergeTeam = (prev = {}, next = {}) => ({
 const mergeNormalized = (prev, next) => {
   if (!prev) return next || null;
   if (!next) return prev;
-
   return {
     ...prev,
     ...next,
@@ -358,7 +350,6 @@ const teamNameFull = (team) => {
 const knockoutRoundLabel = (data) => {
   const t = (data?.bracketType || data?.bracket?.type || "").toLowerCase();
   if (!t || t === "group") return "";
-
   if (t === "roundelim") {
     const ord = roundElimOrdinalLabel(data);
     if (ord) return ord;
@@ -366,20 +357,18 @@ const knockoutRoundLabel = (data) => {
   return readStr(data?.roundName, codeToRoundLabel(data?.roundCode));
 };
 
-// --- helpers cho roundElim: tính "Vòng N" tăng dần ---
+// --- helpers cho roundElim
 const ordFromSize = (size) => {
   const s = Number(size);
   if (!Number.isFinite(s) || s <= 0) return null;
   const lg = Math.log2(s);
-  return Number.isFinite(lg) ? lg : null; // log2(2)=1 (final), 4=>2 (SF), 8=>3 (QF)...
+  return Number.isFinite(lg) ? lg : null;
 };
 
 const inferMaxRounds = (data) => {
-  // Ưu tiên meta.maxRounds nếu có
   const mr = Number(data?.bracket?.meta?.maxRounds);
   if (Number.isFinite(mr) && mr > 0) return mr;
 
-  // Thử expectedFirstRoundMatches => drawSize ≈ matches*2 => maxRounds = log2(drawSize)
   const m = Number(data?.bracket?.meta?.expectedFirstRoundMatches);
   if (Number.isFinite(m) && m > 0) {
     const drawSize = m * 2;
@@ -387,13 +376,11 @@ const inferMaxRounds = (data) => {
     if (Number.isFinite(lg) && lg > 0) return lg;
   }
 
-  // Thử config.roundElim.drawSize
   const ds = Number(data?.bracket?.config?.roundElim?.drawSize);
   if (Number.isFinite(ds) && ds > 1) {
     const lg = Math.log2(ds);
     if (Number.isFinite(lg) && lg > 0) return lg;
   }
-
   return null;
 };
 
@@ -401,24 +388,18 @@ const roundElimOrdinal = (data) => {
   const bt = (data?.bracketType || data?.bracket?.type || "").toLowerCase();
   if (bt !== "roundelim") return null;
 
-  // 1) Ưu tiên field round/roundNumber nếu có (đã là số tăng dần)
   const rnRaw = data?.roundNumber ?? data?.round;
   const rn = Number(rnRaw);
   if (Number.isInteger(rn) && rn > 0) return rn;
 
-  // 2) Tính từ roundCode (R{size}) + maxRounds
-  const size = parseRoundSize(data?.roundCode); // 2,4,8,16...
-  const lgSize = ordFromSize(size); // 1 (final), 2 (SF), 3 (QF)...
-  const maxR = inferMaxRounds(data); // tổng số vòng
+  const size = parseRoundSize(data?.roundCode);
+  const lgSize = ordFromSize(size);
+  const maxR = inferMaxRounds(data);
 
   if (lgSize && maxR) {
-    // Đổi về thứ tự tăng dần: vòng sớm nhất = 1, chung kết = maxR
-    // lgSize=1 (final) => ord = maxR - 1 + 1 = maxR
-    // lgSize=2 (SF)    => ord = maxR - 2 + 1 = maxR-1
     const ord = maxR - lgSize + 1;
     if (ord >= 1 && ord <= maxR) return ord;
   }
-
   return null;
 };
 
@@ -427,7 +408,7 @@ const roundElimOrdinalLabel = (data) => {
   return Number.isInteger(n) && n > 0 ? `Vòng ${n}` : "";
 };
 
-/* ======================== REPLAY helpers (live log) ======================== */
+/* ======================== REPLAY helpers ======================== */
 const pickLiveLog = (obj) => {
   const cands = [
     obj?.liveLog,
@@ -479,7 +460,6 @@ function applyLiveEvent(state, ev, rules) {
     cur[team] = Math.max(0, (Number(cur[team]) || 0) + step);
     gs[gi] = cur;
 
-    // kết thúc set
     const pts = Number(rules.pointsToWin || 11);
     const byTwo = !!rules.winByTwo;
     const aWin = gameWon(cur.a, cur.b, pts, byTwo);
@@ -496,7 +476,6 @@ function applyLiveEvent(state, ev, rules) {
     state.gameScores = gs;
     return state;
   }
-
   return state;
 }
 
@@ -525,7 +504,7 @@ function buildFramesFromFinalScores(base) {
 
     let a = 0,
       b = 0;
-    let turn = A >= B ? "A" : "B"; // pace
+    let turn = A >= B ? "A" : "B";
     while (a < A || b < B) {
       if (turn === "A" && a < A) a += 1;
       else if (turn === "B" && b < B) b += 1;
@@ -536,7 +515,6 @@ function buildFramesFromFinalScores(base) {
     frames.push(cloneWith(i, A, B));
     frames.push(cloneWith(i, A, B));
   }
-
   return frames;
 }
 
@@ -547,13 +525,10 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   const navigate = useNavigate();
 
   const matchId = props?.matchIdProp || q.get("matchId") || "";
-  const replay = parseQPBool(q.get("replay")) === true; // replay=1 to enable
+  const replay = parseQPBool(q.get("replay")) === true;
 
-  // Live-log timing controls (only used when replay=1)
   const replayLoop = parseQPBool(q.get("replayLoop"));
   const replayRate = Math.max(0.01, Number(q.get("replayRate") || 1));
-
-  // nếu muốn bật clamp thì truyền ?replayMinMs=... / ?replayMaxMs=...
   const replayMinMs =
     q.get("replayMinMs") != null
       ? Math.max(0, Number(q.get("replayMinMs")))
@@ -569,21 +544,19 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       : Date.parse(replayStartParam)
     : undefined;
 
-  // Legacy fixed-step fallback (used ONLY when no live log present)
   const stepMsQP = q.get("replayMs") || q.get("ms");
   const replayStepMs = Number.isFinite(+stepMsQP)
     ? Math.max(100, +stepMsQP)
     : 700;
 
-  // autoNext is disabled in replay mode
   const autoNext = !replay && parseQPBool(q.get("autoNext"));
 
   const { data: snapRaw } = useGetOverlaySnapshotQuery(matchId, {
-    skip: !matchId, // still fetch once for base data even in replay
+    skip: !matchId,
     refetchOnMountOrArgChange: !replay,
     refetchOnFocus: !replay,
     refetchOnReconnect: !replay,
-    pollingInterval: replay ? undefined : 3000, // disable polling when replay
+    pollingInterval: replay ? undefined : 3000,
   });
   const [getTournament] = useLazyGetTournamentQuery();
   const [getNextByCourt] = useLazyGetNextByCourtQuery();
@@ -591,7 +564,25 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   const [data, setData] = useState(null);
   const [overlayBE, setOverlayBE] = useState(null);
 
-  // transparent bg (dùng cho OBS)
+  // Bật overlay extras khi &overlay=1
+  const overlayEnabled =
+    String(q.get("overlay") || "").trim() === "1" ||
+    String(q.get("overlay") || "").toLowerCase() === "true";
+
+  // Tham số gọi API công khai (RTK Query)
+  const overlayParams = useMemo(() => {
+    const limit = Number.isFinite(+q.get("sLimit")) ? +q.get("sLimit") : 12;
+    const featured = q.get("sFeatured") ?? "1"; // "1" | "0"
+    const tier = q.get("sTier") || undefined; // "gold,silver"
+    return { limit, featured, tier };
+  }, [q]);
+
+  // RTK Query: lấy webLogo + sponsors (chỉ khi overlayEnabled)
+  const { data: overlayCfg } = useGetOverlayConfigQuery(overlayParams, {
+    skip: !overlayEnabled,
+  });
+
+  // transparent bg (OBS)
   useEffect(() => {
     const prevBodyBg = document.body.style.background;
     const root = document.getElementById("root");
@@ -604,11 +595,10 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     };
   }, []);
 
-  // snapshot -> data + overlay  (merge khi bình thường; giữ base 1 lần khi replay)
+  // snapshot -> data + overlay
   useEffect(() => {
     if (!snapRaw) return;
     const n = normalizePayload(snapRaw);
-    // seed 0–0 khi replay
     const maxSets = Math.max(1, Number(n?.rules?.bestOf || 3));
     const nSeed = replay
       ? {
@@ -625,7 +615,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     if (snapOverlay) setOverlayBE((p) => ({ ...(p || {}), ...snapOverlay }));
   }, [snapRaw, replay]);
 
-  // fetch tournament overlay + name/image khi có id
+  // fetch tournament overlay + name/image
   useEffect(() => {
     const tId = data?.tournament?.id;
     if (!tId) return;
@@ -658,7 +648,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     };
   }, [data?.tournament?.id, getTournament]);
 
-  // socket live updates  (merge, không replace)  — disabled when replay
+  // socket live updates (merge) — disabled when replay
   useEffect(() => {
     if (!matchId || !socket || replay) return;
     socket.emit("match:join", { matchId });
@@ -743,6 +733,15 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
           (typeof window !== "undefined" && data?.tournament?.image) || ""
         );
 
+    // Logo website (top-right). Cho phép override qua ?webLogo=..., fallback RTK Query
+    const webLogoUrl = firstDefined(
+      q.get("webLogo"),
+      q.get("webLogoUrl"),
+      overlayBE?.webLogoUrl,
+      overlayCfg?.webLogoUrl,
+      ""
+    );
+
     const customCss = overlayBE?.customCss || "";
 
     return {
@@ -759,8 +758,9 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       scoreScale,
       logoUrl,
       customCss,
+      webLogoUrl,
     };
-  }, [overlayBE, q, data?.tournament?.image]);
+  }, [overlayBE, q, data?.tournament?.image, overlayCfg?.webLogoUrl]);
 
   /* ---------- CSS variables (inline) ---------- */
   const cssVarStyle = useMemo(() => {
@@ -778,6 +778,12 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       effective.size === "lg" ? 12 : effective.size === "sm" ? 10 : 11;
     const baseCell =
       effective.size === "lg" ? 26 : effective.size === "sm" ? 20 : 22;
+
+    // chiều cao logo sponsor theo size
+    const sponsorH =
+      effective.size === "lg" ? 34 : effective.size === "sm" ? 24 : 28;
+    const webLogoH =
+      effective.size === "lg" ? 32 : effective.size === "sm" ? 22 : 26;
 
     return {
       "--accent-a": effective.accentA,
@@ -806,6 +812,8 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       "--shadow": effective.shadow ? "0 8px 24px rgba(0,0,0,.25)" : "none",
       "--table": `${baseTable}px`,
       "--table-cell": `${baseCell}px`,
+      "--sponsor-h": `${sponsorH}px`,
+      "--weblogo-h": `${webLogoH}px`,
     };
   }, [effective]);
 
@@ -871,7 +879,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     zIndex: 2147483647,
   };
 
-  /* ---------- Auto-next theo sân khi FT (poll 3s) ---------- */
+  /* ---------- Auto-next theo sân khi FT ---------- */
   const pollRef = useRef(null);
   useEffect(() => {
     if (!autoNext) {
@@ -881,11 +889,9 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       }
       return;
     }
-
     const finished = String(rawStatus) === "FINISHED";
     const cid = data?.court?.id || data?.courtId || null;
     const afterId = data?.matchId || matchId || null;
-
     if (!finished || !cid || !afterId) {
       if (pollRef.current) {
         clearInterval(pollRef.current);
@@ -893,7 +899,6 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       }
       return;
     }
-
     if (pollRef.current) return;
 
     let inFlight = false;
@@ -924,12 +929,10 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
           );
         }
       } catch {
-        // ignore; keep polling
       } finally {
         inFlight = false;
       }
     };
-
     pollRef.current = setInterval(tick, 3000);
     return () => {
       if (pollRef.current) {
@@ -939,28 +942,24 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     };
   }, [autoNext, rawStatus, data?.court?.id, data?.courtId, data?.matchId, matchId, getNextByCourt, navigate]);
 
-  /* ---------- REPLAY driver (only when replay=1) ---------- */
+  /* ---------- REPLAY driver ---------- */
   const replayTimerRef = useRef(null);
   const replayIndexRef = useRef(0);
 
   useEffect(() => {
     if (!replay || !snapRaw) {
-      // if turning off replay, ensure timers cleared
       if (replayTimerRef.current) {
         clearTimeout(replayTimerRef.current);
         replayTimerRef.current = null;
       }
       return;
     }
-
-    // clear any previous timer
     if (replayTimerRef.current) {
       clearTimeout(replayTimerRef.current);
       replayTimerRef.current = null;
     }
     replayIndexRef.current = 0;
 
-    // base sim starts from snapshot
     let sim = normalizePayload(snapRaw);
     const rulesLocal = {
       bestOf: Number(sim?.rules?.bestOf ?? 3),
@@ -968,7 +967,6 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       winByTwo: Boolean(sim?.rules?.winByTwo ?? true),
     };
 
-    // bắt đầu từ 0–0 khi replay
     const maxSetsLocal = Math.max(1, Number(rulesLocal.bestOf) || 3);
     sim = mergeNormalized(sim, {
       currentGame: 0,
@@ -977,14 +975,11 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       ),
     });
 
-    // push initial 0–0 state
     setData((prev) => mergeNormalized(prev || {}, sim));
 
-    // pick & sort live log
     const rawLog = pickLiveLog(sim) || pickLiveLog(snapRaw);
     const log = buildSortedLog(rawLog, replayStartMs);
 
-    // Fallback if no live log: synthesize frames from final scores
     if (!log.length) {
       const frames = buildFramesFromFinalScores(sim);
       let i = 0;
@@ -994,7 +989,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         i += 1;
         if (i >= frames.length) {
           if (replayLoop) i = 0;
-          else return; // stop
+          else return;
         }
         replayTimerRef.current = setTimeout(tick, replayStepMs);
       };
@@ -1007,13 +1002,12 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       };
     }
 
-    // Live-log time-accurate stepping
     const step = () => {
       const i = replayIndexRef.current;
       if (i >= log.length) {
         if (replayLoop) {
           replayIndexRef.current = 0;
-          sim = normalizePayload(snapRaw); // reset to base
+          sim = normalizePayload(snapRaw);
         } else {
           replayTimerRef.current = null;
           return;
@@ -1030,9 +1024,8 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         const t1 = toMs(log[j].at) || 0;
         const t0 = toMs(ev.at) || 0;
         const realDelta = Math.max(0, t1 - t0);
-        wait = realDelta / replayRate; // mặc định 1x = thời gian thực
+        wait = realDelta / replayRate;
 
-        // chỉ clamp khi QP có truyền min/max
         if (replayMinMs != null || replayMaxMs != null) {
           wait = clamp(
             wait,
@@ -1070,226 +1063,301 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
 
   if (!ready) return null;
 
+  /* ---------- UI ---------- */
+  const tourLogoUrl = effective.logoUrl
+    ? toHttpsIfNotLocalhost(effective.logoUrl)
+    : "";
+  const webLogoUrl = effective.webLogoUrl
+    ? toHttpsIfNotLocalhost(effective.webLogoUrl)
+    : "";
+
   return (
-    <div
-      className="ovl-wrap"
-      style={wrapStyle}
-      ref={overlayRef}
-      data-ovl=""
-      data-theme={effective.theme}
-      data-size={effective.size}
-      data-bracket-type={data?.bracketType || ""}
-      data-round-code={data?.roundCode || ""}
-    >
+    <>
+      {/* CARD CHÍNH */}
       <div
-        className={`ovl ovl--${effective.theme} ovl--${effective.size} ovl-card`}
+        className="ovl-wrap"
+        style={wrapStyle}
+        ref={overlayRef}
+        data-ovl=""
         data-theme={effective.theme}
-        style={{
-          ...styles.card,
-          ...cssVarStyle,
-          fontFamily: effective.fontFamily,
-        }}
+        data-size={effective.size}
+        data-bracket-type={data?.bracketType || ""}
+        data-round-code={data?.roundCode || ""}
       >
-        {/* Meta */}
-        <div className="ovl-meta" style={styles.meta}>
-          <span
-            className="ovl-meta-left ovl-brand"
-            title={tourName}
-            style={{
-              minWidth: 0,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 8,
-            }}
-          >
-            {effective.logoUrl ? (
-              <img
-                className="ovl-logo"
-                src={toHttpsIfNotLocalhost(effective.logoUrl)}
-                alt="logo"
-                style={{
-                  height: 18,
-                  width: "auto",
-                  display: "block",
-                  borderRadius: 4,
-                }}
-              />
-            ) : null}
+        <div
+          className={`ovl ovl--${effective.theme} ovl--${effective.size} ovl-card`}
+          data-theme={effective.theme}
+          style={{
+            ...styles.card,
+            ...cssVarStyle,
+            fontFamily: effective.fontFamily,
+          }}
+        >
+          {/* Meta */}
+          <div className="ovl-meta" style={styles.meta}>
             <span
-              className="ovl-tournament"
-              style={{ overflow: "hidden", textOverflow: "ellipsis" }}
+              className="ovl-meta-left ovl-brand"
+              title={tourName}
+              style={{
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+              }}
             >
-              {tourName || "—"}
-            </span>
-          </span>
-
-          {/* CHIP PHASE */}
-          <span
-            className="ovl-meta-right"
-            style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
-          >
-            {phaseText ? (
-              <span
-                className="ovl-phase chip"
-                style={{ ...styles.badge, ...styles.badgePhase }}
-              >
-                {phaseText}
-              </span>
-            ) : null}
-          </span>
-        </div>
-
-        {/* Team A */}
-        <div className="ovl-row ovl-row--a" style={styles.row} data-team="A">
-          <div
-            className="ovl-team ovl-team--a"
-            style={styles.team}
-            data-team="A"
-          >
-            <span
-              className="ovl-pill ovl-pill--a"
-              style={{ ...styles.pill, background: "var(--accent-a)" }}
-            />
-            <span className="ovl-name" style={styles.name} title={nameA}>
-              {nameA}
-            </span>
-            {serveSide === "A" && <ServeBalls count={serveCount} team="A" />}
-          </div>
-          <div className="ovl-score ovl-score--a" style={styles.score}>
-            {scoreA}
-          </div>
-        </div>
-
-        {/* Team B */}
-        <div className="ovl-row ovl-row--b" style={styles.row} data-team="B">
-          <div
-            className="ovl-team ovl-team--b"
-            style={styles.team}
-            data-team="B"
-          >
-            <span
-              className="ovl-pill ovl-pill--b"
-              style={{ ...styles.pill, background: "var(--accent-b)" }}
-            />
-            <span className="ovl-name" style={styles.name} title={nameB}>
-              {nameB}
-            </span>
-            {serveSide === "B" && <ServeBalls count={serveCount} team="B" />}
-          </div>
-          <div className="ovl-score ovl-score--b" style={styles.score}>
-            {scoreB}
-          </div>
-        </div>
-
-        {/* Bảng set */}
-        {effective.showSets && (
-          <div className="ovl-sets" style={styles.tableWrap}>
-            <div className="ovl-sets-head" style={styles.tableRowHeader}>
-              <div
-                className="ovl-sets-head-gap"
-                style={{ ...styles.th, ...styles.thHidden }}
-              />
-              {setSummary.map((s, i) => (
-                <div
-                  key={`h-${i}`}
-                  className={`ovl-th ${i === gi ? "ovl-th--active" : ""}`}
+              {tourLogoUrl ? (
+                <img
+                  className="ovl-logo"
+                  src={tourLogoUrl}
+                  alt="logo"
                   style={{
-                    ...styles.th,
-                    ...(i === gi ? styles.thActive : null),
+                    height: 18,
+                    width: "auto",
+                    display: "block",
+                    borderRadius: 4,
                   }}
-                >
-                  S{i + 1}
-                </div>
-              ))}
-            </div>
+                />
+              ) : null}
+              <span
+                className="ovl-tournament"
+                style={{ overflow: "hidden", textOverflow: "ellipsis" }}
+              >
+                {tourName || "—"}
+              </span>
+            </span>
 
+            {/* CHIP PHASE */}
+            <span
+              className="ovl-meta-right"
+              style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+            >
+              {phaseText ? (
+                <span
+                  className="ovl-phase chip"
+                  style={{ ...styles.badge, ...styles.badgePhase }}
+                >
+                  {phaseText}
+                </span>
+              ) : null}
+            </span>
+          </div>
+
+          {/* Team A */}
+          <div className="ovl-row ovl-row--a" style={styles.row} data-team="A">
             <div
-              className="ovl-sets-row ovl-sets-row--a"
-              style={styles.tableRow}
+              className="ovl-team ovl-team--a"
+              style={styles.team}
               data-team="A"
             >
-              <div
-                className="ovl-sets-label ovl-sets-label--a"
-                style={{ ...styles.tdTeam, color: "var(--muted)" }}
-              >
-                A
-              </div>
-              {setSummary.map((s, i) => {
-                const isWin = s.winner === "A";
-                const isCur = i === gi;
-                return (
-                  <div
-                    key={`a-${i}`}
-                    className={`ovl-td ${
-                      isWin ? "ovl-td--win ovl-td--a" : ""
-                    } ${isCur ? "ovl-td--active" : ""}`}
-                    style={{
-                      ...styles.td,
-                      ...(isWin
-                        ? {
-                            background: "var(--accent-a)",
-                            color: "#fff",
-                            borderColor: "transparent",
-                          }
-                        : isCur
-                        ? styles.cellActive
-                        : {}),
-                    }}
-                  >
-                    {Number.isFinite(s.a) ? s.a : "–"}
-                  </div>
-                );
-              })}
+              <span
+                className="ovl-pill ovl-pill--a"
+                style={{ ...styles.pill, background: "var(--accent-a)" }}
+              />
+              <span className="ovl-name" style={styles.name} title={nameA}>
+                {nameA}
+              </span>
+              {serveSide === "A" && <ServeBalls count={serveCount} team="A" />}
             </div>
-
-            <div
-              className="ovl-sets-row ovl-sets-row--b"
-              style={styles.tableRow}
-              data-team="B"
-            >
-              <div
-                className="ovl-sets-label ovl-sets-label--b"
-                style={{ ...styles.tdTeam, color: "var(--muted)" }}
-              >
-                B
-              </div>
-              {setSummary.map((s, i) => {
-                const isWin = s.winner === "B";
-                const isCur = i === gi;
-                return (
-                  <div
-                    key={`b-${i}`}
-                    className={`ovl-td ${
-                      isWin ? "ovl-td--win ovl-td--b" : ""
-                    } ${isCur ? "ovl-td--active" : ""}`}
-                    style={{
-                      ...styles.td,
-                      ...(isWin
-                        ? {
-                            background: "var(--accent-b)",
-                            color: "#fff",
-                            borderColor: "transparent",
-                          }
-                        : isCur
-                        ? styles.cellActive
-                        : {}),
-                    }}
-                  >
-                    {Number.isFinite(s.b) ? s.b : "–"}
-                  </div>
-                );
-              })}
+            <div className="ovl-score ovl-score--a" style={styles.score}>
+              {scoreA}
             </div>
           </div>
-        )}
+
+          {/* Team B */}
+          <div className="ovl-row ovl-row--b" style={styles.row} data-team="B">
+            <div
+              className="ovl-team ovl-team--b"
+              style={styles.team}
+              data-team="B"
+            >
+              <span
+                className="ovl-pill ovl-pill--b"
+                style={{ ...styles.pill, background: "var(--accent-b)" }}
+              />
+              <span className="ovl-name" style={styles.name} title={nameB}>
+                {nameB}
+              </span>
+              {serveSide === "B" && <ServeBalls count={serveCount} team="B" />}
+            </div>
+            <div className="ovl-score ovl-score--b" style={styles.score}>
+              {scoreB}
+            </div>
+          </div>
+
+          {/* Bảng set */}
+          {effective.showSets && (
+            <div className="ovl-sets" style={styles.tableWrap}>
+              <div className="ovl-sets-head" style={styles.tableRowHeader}>
+                <div
+                  className="ovl-sets-head-gap"
+                  style={{ ...styles.th, ...styles.thHidden }}
+                />
+                {setSummary.map((s, i) => (
+                  <div
+                    key={`h-${i}`}
+                    className={`ovl-th ${i === gi ? "ovl-th--active" : ""}`}
+                    style={{
+                      ...styles.th,
+                      ...(i === gi ? styles.thActive : null),
+                    }}
+                  >
+                    S{i + 1}
+                  </div>
+                ))}
+              </div>
+
+              <div
+                className="ovl-sets-row ovl-sets-row--a"
+                style={styles.tableRow}
+                data-team="A"
+              >
+                <div
+                  className="ovl-sets-label ovl-sets-label--a"
+                  style={{ ...styles.tdTeam, color: "var(--muted)" }}
+                >
+                  A
+                </div>
+                {setSummary.map((s, i) => {
+                  const isWin = s.winner === "A";
+                  const isCur = i === gi;
+                  return (
+                    <div
+                      key={`a-${i}`}
+                      className={`ovl-td ${
+                        isWin ? "ovl-td--win ovl-td--a" : ""
+                      } ${isCur ? "ovl-td--active" : ""}`}
+                      style={{
+                        ...styles.td,
+                        ...(isWin
+                          ? {
+                              background: "var(--accent-a)",
+                              color: "#fff",
+                              borderColor: "transparent",
+                            }
+                          : isCur
+                          ? styles.cellActive
+                          : {}),
+                      }}
+                    >
+                      {Number.isFinite(s.a) ? s.a : "–"}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div
+                className="ovl-sets-row ovl-sets-row--b"
+                style={styles.tableRow}
+                data-team="B"
+              >
+                <div
+                  className="ovl-sets-label ovl-sets-label--b"
+                  style={{ ...styles.tdTeam, color: "var(--muted)" }}
+                >
+                  B
+                </div>
+                {setSummary.map((s, i) => {
+                  const isWin = s.winner === "B";
+                  const isCur = i === gi;
+                  return (
+                    <div
+                      key={`b-${i}`}
+                      className={`ovl-td ${
+                        isWin ? "ovl-td--win ovl-td--b" : ""
+                      } ${isCur ? "ovl-td--active" : ""}`}
+                      style={{
+                        ...styles.td,
+                        ...(isWin
+                          ? {
+                              background: "var(--accent-b)",
+                              color: "#fff",
+                              borderColor: "transparent",
+                            }
+                          : isCur
+                          ? styles.cellActive
+                          : {}),
+                      }}
+                    >
+                      {Number.isFinite(s.b) ? s.b : "–"}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* inject customCss của BE (nếu có) */}
+        {effective.customCss ? <style>{effective.customCss}</style> : null}
       </div>
 
-      {/* inject customCss của BE (nếu có) */}
-      {effective.customCss ? <style>{effective.customCss}</style> : null}
-    </div>
+      {/* WEB LOGO (TOP-RIGHT, fixed) — chỉ hiện nếu overlay=1 & có webLogoUrl */}
+      {overlayEnabled && webLogoUrl ? (
+        <img
+          src={webLogoUrl}
+          alt="web-logo"
+          className="ovl-weblogo"
+          style={{
+            position: "fixed",
+            top: 16,
+            right: 16,
+            height: "var(--weblogo-h)",
+            width: "auto",
+            display: "block",
+            borderRadius: 6,
+            background: "rgba(0,0,0,.0)",
+            zIndex: 2147483646,
+            pointerEvents: "none",
+            ...cssVarStyle,
+          }}
+        />
+      ) : null}
+
+      {/* SPONSOR STRIP (BOTTOM-LEFT, fixed) — overlay=1 & có sponsors */}
+      {overlayEnabled && overlayCfg?.sponsors?.length ? (
+        <div
+          className="ovl-sponsors"
+          style={{
+            position: "fixed",
+            left: 16,
+            bottom: 16,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "8px 10px",
+            borderRadius: 12,
+            background: "var(--bg)",
+            boxShadow: "var(--shadow)",
+            zIndex: 2147483646,
+            pointerEvents: "none",
+            ...cssVarStyle,
+          }}
+        >
+          {overlayCfg.sponsors.map((s, idx) => {
+            const src = s?.imageUrl || s?.logoUrl || s?.image || s?.logo || "";
+            if (!src) return null;
+            return (
+              <img
+                key={s?._id || idx}
+                src={toHttpsIfNotLocalhost(src)}
+                alt={s?.name || "sponsor"}
+                style={{
+                  height: "var(--sponsor-h)",
+                  width: "auto",
+                  display: "block",
+                  borderRadius: 8,
+                  filter:
+                    effective.theme === "dark" ? "brightness(1.1)" : "none",
+                }}
+              />
+            );
+          })}
+        </div>
+      ) : null}
+    </>
   );
 });
 
@@ -1417,7 +1485,7 @@ const styles = {
   badgeFt: { background: "#16a34a" },
   badgeLive: { background: "#ef4444" },
   badgePhase: {
-    background: "#334155", // slate-700
+    background: "#334155",
   },
 };
 

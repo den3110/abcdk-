@@ -14,6 +14,7 @@ export const DEFAULT_OVERLAY_CONFIG = {
   frameDecor: false,
   liveBadge: true,
   viewerCount: false,
+  
 };
 
 // ==================== HELPER ====================

@@ -18,6 +18,12 @@ import { notifyComplaintStatusChange } from "../services/telegram/notifyNewCompl
 import { notifyKycReviewed } from "../services/telegram/telegramNotifyKyc.js";
 import SportConnectService from "../services/sportconnect.service.js";
 import { replySafe } from "../utils/telegramSafe.js";
+import {
+  search as spcSearch,
+  adaptForCaption as spcAdapt,
+  getMeta as spcGetMeta,
+  loadAll as spcLoadAll,
+} from "../services/spcStore.js";
 
 dotenv.config();
 
@@ -1124,11 +1130,8 @@ export async function initKycBot(app) {
         const raw = ctx.message?.text || "";
         const after = raw.replace(/^\/spc(?:@\w+)?\s*/i, "");
         const debug = /(?:^|\s)--debug(?:\s|$)/i.test(after);
-
-        // loại bỏ flag --debug để parse tham số
         const cleaned = after.replace(/(?:^|\s)--debug(?:\s|$)/gi, "").trim();
 
-        // Hỗ trợ "search;province" (2 phần đầu)
         let mainQuery = cleaned;
         let provinceQuery = "";
         if (cleaned.includes(";")) {
@@ -1143,38 +1146,22 @@ export async function initKycBot(app) {
             [
               "Cách dùng:",
               "/spc <chuỗi tìm kiếm>[;<tỉnh/thành>] [--debug]",
-              "VD: /spc 0888698383",
-              "VD: /spc Quân nông cống;Hà",
-              "VD: /spc Hoàng sẻo;Hà nam --debug",
+              "VD: /spc 0941xxxxxx",
+              "VD: /spc Truong Vinh Hien;Ho Chi Minh",
             ].join("\n")
           );
         }
 
-        const { status, data, proxyUrl } =
-          await SportConnectService.listLevelPoint({
-            searchCriterial: mainQuery || provinceQuery, // nếu chỉ nhập tỉnh thì vẫn gọi API
-            sportId: 2,
-            page: 0,
-            waitingInformation: "",
-          });
-
-        const arr = Array.isArray(data?.data) ? data.data : [];
-
-        // Lọc theo tỉnh (fuzzy, bỏ dấu)
-        const filtered = provinceQuery
-          ? arr.filter((it) =>
-              fuzzyIncludes(it?.TenTinhThanh || "", provinceQuery)
-            )
-          : arr;
-
-        if (!filtered.length) {
+        const all = await spcLoadAll();
+        if (!all.length) {
+          const meta = await spcGetMeta();
           return replySafe(
             ctx,
             [
-              "❌ Không tìm thấy dữ liệu trên SportConnect.",
-              provinceQuery ? `• Bộ lọc tỉnh: "${provinceQuery}"` : "",
+              "❌ Chưa có dữ liệu SPC trong hệ thống.",
+              "• Vào Admin → SPC để tải file .txt (mảng JSON)",
               debug
-                ? `Status: ${status}${proxyUrl ? ` • Proxy: ${proxyUrl}` : ""}`
+                ? `Meta: count=${meta?.count ?? 0} size=${meta?.size ?? 0}`
                 : "",
             ]
               .filter(Boolean)
@@ -1182,19 +1169,51 @@ export async function initKycBot(app) {
           );
         }
 
-        const total = filtered.length;
-        const parts = [];
-        for (let i = 0; i < filtered.length; i++) {
-          const it = filtered[i];
-          const cap = renderSpcCaption(it, {
-            index: i + 1,
-            total,
-            proxyUrl,
-            status,
-            debug,
-          });
-          parts.push(cap);
+        const results = await spcSearch({
+          q: mainQuery,
+          province: provinceQuery,
+          limit: 40,
+        });
+        if (!results.length) {
+          return replySafe(
+            ctx,
+            [
+              "❌ Không tìm thấy kết quả phù hợp trong dữ liệu SPC.",
+              provinceQuery ? `• Bộ lọc tỉnh: \"${provinceQuery}\"` : "",
+            ]
+              .filter(Boolean)
+              .join("\n")
+          );
         }
+
+        const total = results.length;
+        const parts = results.map((it, idx) => {
+          const x = spcAdapt(it);
+          const when = x.joinedAt
+            ? new Date(x.joinedAt).toLocaleString("vi-VN")
+            : "—";
+          const s1 = Number.isFinite(Number(x.single))
+            ? Number(x.single).toFixed(2)
+            : "—";
+          const s2 = Number.isFinite(Number(x.double))
+            ? Number(x.double).toFixed(2)
+            : "—";
+          return [
+            `🏸 <b>SportConnect • LevelPoint</b> (#${idx + 1}/${total})`,
+            `🆔 ID: <b>${esc(x.id)}</b>`,
+            `👤 Họ tên: <b>${esc(x.name)}</b>` +
+              (x.nick && x.nick !== x.name
+                ? ` (aka <i>${esc(x.nick)}</i>)`
+                : ""),
+            x.tinh ? `📍 Tỉnh/TP: <b>${esc(x.tinh)}</b>` : "",
+            x.phone ? `📞 SĐT: <b>${esc(x.phone)}</b>` : "",
+            `🥇 Điểm: <b>Single ${s1}</b> • <b>Double ${s2}</b>`,
+            when ? `📅 Tham gia: <i>${when}</i>` : "",
+            debug ? `\n<b>Debug</b> • Source: local .txt` : "",
+          ]
+            .filter(Boolean)
+            .join("\n");
+        });
 
         let buffer = "";
         for (const p of parts) {
