@@ -9,6 +9,7 @@ import {
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
 import { forwardRef } from "react";
+import { toHttpsIfNotLocalhost } from "../../utils/url";
 
 /* ========================== Utils ========================== */
 const smax = (v) => (Number.isFinite(+v) ? +v : 0);
@@ -1107,7 +1108,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
             {effective.logoUrl ? (
               <img
                 className="ovl-logo"
-                src={effective.logoUrl}
+                src={toHttpsIfNotLocalhost(effective.logoUrl)}
                 alt="logo"
                 style={{
                   height: 18,
