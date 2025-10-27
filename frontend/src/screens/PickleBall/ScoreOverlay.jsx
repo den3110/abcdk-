@@ -1061,6 +1061,35 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     };
   }, [replay, replayLoop, replayRate, replayMinMs, replayMaxMs, replayStartMs, replayStepMs, snapRaw]);
 
+  /* ---------- NEW: scale-score (transform scale) ---------- */
+  const scaleScoreParam = q.get("scale-score");
+
+  const scaleScore = useMemo(() => {
+    const hasParam =
+      typeof q.has === "function"
+        ? q.has("scale-score")
+        : scaleScoreParam != null;
+    if (!hasParam) return 1; // mặc định 1 khi KHÔNG có param
+    const n = Number(scaleScoreParam);
+    return Number.isFinite(n) ? clamp(n, 0.25, 4) : 1; // có param nhưng sai -> 1
+  }, [q, scaleScoreParam]);
+
+  const scaleOrigin = useMemo(() => {
+    const c = String(effective.corner || "tl");
+    const vert = c.includes("t") ? "top" : "bottom";
+    const hori = c.includes("l") ? "left" : "right";
+    return `${vert} ${hori}`;
+  }, [effective.corner]);
+
+  const scaleWrapStyle = useMemo(
+    () => ({
+      transform: `scale(${scaleScore})`,
+      transformOrigin: scaleOrigin,
+      willChange: "transform",
+    }),
+    [scaleScore, scaleOrigin]
+  );
+
   if (!ready) return null;
 
   /* ---------- UI ---------- */
@@ -1084,210 +1113,225 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         data-bracket-type={data?.bracketType || ""}
         data-round-code={data?.roundCode || ""}
       >
-        <div
-          className={`ovl ovl--${effective.theme} ovl--${effective.size} ovl-card`}
-          data-theme={effective.theme}
-          style={{
-            ...styles.card,
-            ...cssVarStyle,
-            fontFamily: effective.fontFamily,
-          }}
-        >
-          {/* Meta */}
-          <div className="ovl-meta" style={styles.meta}>
-            <span
-              className="ovl-meta-left ovl-brand"
-              title={tourName}
-              style={{
-                minWidth: 0,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              {tourLogoUrl ? (
-                <img
-                  className="ovl-logo"
-                  src={tourLogoUrl}
-                  alt="logo"
-                  style={{
-                    height: 18,
-                    width: "auto",
-                    display: "block",
-                    borderRadius: 4,
-                  }}
-                />
-              ) : null}
+        {/* ✅ LỚP SCALE BÊN NGOÀI CARD */}
+        <div style={scaleWrapStyle}>
+          <div
+            className={`ovl ovl--${effective.theme} ovl--${effective.size} ovl-card`}
+            data-theme={effective.theme}
+            style={{
+              ...styles.card,
+              ...cssVarStyle,
+              fontFamily: effective.fontFamily,
+            }}
+          >
+            {/* Meta */}
+            <div className="ovl-meta" style={styles.meta}>
               <span
-                className="ovl-tournament"
-                style={{ overflow: "hidden", textOverflow: "ellipsis" }}
+                className="ovl-meta-left ovl-brand"
+                title={tourName}
+                style={{
+                  minWidth: 0,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
               >
-                {tourName || "—"}
-              </span>
-            </span>
-
-            {/* CHIP PHASE */}
-            <span
-              className="ovl-meta-right"
-              style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
-            >
-              {phaseText ? (
+                {tourLogoUrl ? (
+                  <img
+                    className="ovl-logo"
+                    src={tourLogoUrl}
+                    alt="logo"
+                    style={{
+                      height: 18,
+                      width: "auto",
+                      display: "block",
+                      borderRadius: 4,
+                    }}
+                  />
+                ) : null}
                 <span
-                  className="ovl-phase chip"
-                  style={{ ...styles.badge, ...styles.badgePhase }}
+                  className="ovl-tournament"
+                  style={{ overflow: "hidden", textOverflow: "ellipsis" }}
                 >
-                  {phaseText}
+                  {tourName || "—"}
                 </span>
-              ) : null}
-            </span>
-          </div>
+              </span>
 
-          {/* Team A */}
-          <div className="ovl-row ovl-row--a" style={styles.row} data-team="A">
+              {/* CHIP PHASE */}
+              <span
+                className="ovl-meta-right"
+                style={{ display: "inline-flex", alignItems: "center", gap: 8 }}
+              >
+                {phaseText ? (
+                  <span
+                    className="ovl-phase chip"
+                    style={{ ...styles.badge, ...styles.badgePhase }}
+                  >
+                    {phaseText}
+                  </span>
+                ) : null}
+              </span>
+            </div>
+
+            {/* Team A */}
             <div
-              className="ovl-team ovl-team--a"
-              style={styles.team}
+              className="ovl-row ovl-row--a"
+              style={styles.row}
               data-team="A"
             >
-              <span
-                className="ovl-pill ovl-pill--a"
-                style={{ ...styles.pill, background: "var(--accent-a)" }}
-              />
-              <span className="ovl-name" style={styles.name} title={nameA}>
-                {nameA}
-              </span>
-              {serveSide === "A" && <ServeBalls count={serveCount} team="A" />}
-            </div>
-            <div className="ovl-score ovl-score--a" style={styles.score}>
-              {scoreA}
-            </div>
-          </div>
-
-          {/* Team B */}
-          <div className="ovl-row ovl-row--b" style={styles.row} data-team="B">
-            <div
-              className="ovl-team ovl-team--b"
-              style={styles.team}
-              data-team="B"
-            >
-              <span
-                className="ovl-pill ovl-pill--b"
-                style={{ ...styles.pill, background: "var(--accent-b)" }}
-              />
-              <span className="ovl-name" style={styles.name} title={nameB}>
-                {nameB}
-              </span>
-              {serveSide === "B" && <ServeBalls count={serveCount} team="B" />}
-            </div>
-            <div className="ovl-score ovl-score--b" style={styles.score}>
-              {scoreB}
-            </div>
-          </div>
-
-          {/* Bảng set */}
-          {effective.showSets && (
-            <div className="ovl-sets" style={styles.tableWrap}>
-              <div className="ovl-sets-head" style={styles.tableRowHeader}>
-                <div
-                  className="ovl-sets-head-gap"
-                  style={{ ...styles.th, ...styles.thHidden }}
-                />
-                {setSummary.map((s, i) => (
-                  <div
-                    key={`h-${i}`}
-                    className={`ovl-th ${i === gi ? "ovl-th--active" : ""}`}
-                    style={{
-                      ...styles.th,
-                      ...(i === gi ? styles.thActive : null),
-                    }}
-                  >
-                    S{i + 1}
-                  </div>
-                ))}
-              </div>
-
               <div
-                className="ovl-sets-row ovl-sets-row--a"
-                style={styles.tableRow}
+                className="ovl-team ovl-team--a"
+                style={styles.team}
                 data-team="A"
               >
-                <div
-                  className="ovl-sets-label ovl-sets-label--a"
-                  style={{ ...styles.tdTeam, color: "var(--muted)" }}
-                >
-                  A
-                </div>
-                {setSummary.map((s, i) => {
-                  const isWin = s.winner === "A";
-                  const isCur = i === gi;
-                  return (
-                    <div
-                      key={`a-${i}`}
-                      className={`ovl-td ${
-                        isWin ? "ovl-td--win ovl-td--a" : ""
-                      } ${isCur ? "ovl-td--active" : ""}`}
-                      style={{
-                        ...styles.td,
-                        ...(isWin
-                          ? {
-                              background: "var(--accent-a)",
-                              color: "#fff",
-                              borderColor: "transparent",
-                            }
-                          : isCur
-                          ? styles.cellActive
-                          : {}),
-                      }}
-                    >
-                      {Number.isFinite(s.a) ? s.a : "–"}
-                    </div>
-                  );
-                })}
+                <span
+                  className="ovl-pill ovl-pill--a"
+                  style={{ ...styles.pill, background: "var(--accent-a)" }}
+                />
+                <span className="ovl-name" style={styles.name} title={nameA}>
+                  {nameA}
+                </span>
+                {serveSide === "A" && (
+                  <ServeBalls count={serveCount} team="A" />
+                )}
               </div>
-
-              <div
-                className="ovl-sets-row ovl-sets-row--b"
-                style={styles.tableRow}
-                data-team="B"
-              >
-                <div
-                  className="ovl-sets-label ovl-sets-label--b"
-                  style={{ ...styles.tdTeam, color: "var(--muted)" }}
-                >
-                  B
-                </div>
-                {setSummary.map((s, i) => {
-                  const isWin = s.winner === "B";
-                  const isCur = i === gi;
-                  return (
-                    <div
-                      key={`b-${i}`}
-                      className={`ovl-td ${
-                        isWin ? "ovl-td--win ovl-td--b" : ""
-                      } ${isCur ? "ovl-td--active" : ""}`}
-                      style={{
-                        ...styles.td,
-                        ...(isWin
-                          ? {
-                              background: "var(--accent-b)",
-                              color: "#fff",
-                              borderColor: "transparent",
-                            }
-                          : isCur
-                          ? styles.cellActive
-                          : {}),
-                      }}
-                    >
-                      {Number.isFinite(s.b) ? s.b : "–"}
-                    </div>
-                  );
-                })}
+              <div className="ovl-score ovl-score--a" style={styles.score}>
+                {scoreA}
               </div>
             </div>
-          )}
+
+            {/* Team B */}
+            <div
+              className="ovl-row ovl-row--b"
+              style={styles.row}
+              data-team="B"
+            >
+              <div
+                className="ovl-team ovl-team--b"
+                style={styles.team}
+                data-team="B"
+              >
+                <span
+                  className="ovl-pill ovl-pill--b"
+                  style={{ ...styles.pill, background: "var(--accent-b)" }}
+                />
+                <span className="ovl-name" style={styles.name} title={nameB}>
+                  {nameB}
+                </span>
+                {serveSide === "B" && (
+                  <ServeBalls count={serveCount} team="B" />
+                )}
+              </div>
+              <div className="ovl-score ovl-score--b" style={styles.score}>
+                {scoreB}
+              </div>
+            </div>
+
+            {/* Bảng set */}
+            {effective.showSets && (
+              <div className="ovl-sets" style={styles.tableWrap}>
+                <div className="ovl-sets-head" style={styles.tableRowHeader}>
+                  <div
+                    className="ovl-sets-head-gap"
+                    style={{ ...styles.th, ...styles.thHidden }}
+                  />
+                  {setSummary.map((s, i) => (
+                    <div
+                      key={`h-${i}`}
+                      className={`ovl-th ${i === gi ? "ovl-th--active" : ""}`}
+                      style={{
+                        ...styles.th,
+                        ...(i === gi ? styles.thActive : null),
+                      }}
+                    >
+                      S{i + 1}
+                    </div>
+                  ))}
+                </div>
+
+                <div
+                  className="ovl-sets-row ovl-sets-row--a"
+                  style={styles.tableRow}
+                  data-team="A"
+                >
+                  <div
+                    className="ovl-sets-label ovl-sets-label--a"
+                    style={{ ...styles.tdTeam, color: "var(--muted)" }}
+                  >
+                    A
+                  </div>
+                  {setSummary.map((s, i) => {
+                    const isWin = s.winner === "A";
+                    const isCur = i === gi;
+                    return (
+                      <div
+                        key={`a-${i}`}
+                        className={`ovl-td ${
+                          isWin ? "ovl-td--win ovl-td--a" : ""
+                        } ${isCur ? "ovl-td--active" : ""}`}
+                        style={{
+                          ...styles.td,
+                          ...(isWin
+                            ? {
+                                background: "var(--accent-a)",
+                                color: "#fff",
+                                borderColor: "transparent",
+                              }
+                            : isCur
+                            ? styles.cellActive
+                            : {}),
+                        }}
+                      >
+                        {Number.isFinite(s.a) ? s.a : "–"}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div
+                  className="ovl-sets-row ovl-sets-row--b"
+                  style={styles.tableRow}
+                  data-team="B"
+                >
+                  <div
+                    className="ovl-sets-label ovl-sets-label--b"
+                    style={{ ...styles.tdTeam, color: "var(--muted)" }}
+                  >
+                    B
+                  </div>
+                  {setSummary.map((s, i) => {
+                    const isWin = s.winner === "B";
+                    const isCur = i === gi;
+                    return (
+                      <div
+                        key={`b-${i}`}
+                        className={`ovl-td ${
+                          isWin ? "ovl-td--win ovl-td--b" : ""
+                        } ${isCur ? "ovl-td--active" : ""}`}
+                        style={{
+                          ...styles.td,
+                          ...(isWin
+                            ? {
+                                background: "var(--accent-b)",
+                                color: "#fff",
+                                borderColor: "transparent",
+                              }
+                            : isCur
+                            ? styles.cellActive
+                            : {}),
+                        }}
+                      >
+                        {Number.isFinite(s.b) ? s.b : "–"}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* inject customCss của BE (nếu có) */}
