@@ -2,7 +2,7 @@
 import fetch from "node-fetch";
 import asyncHandler from "express-async-handler";
 import SportConnectService from "../sportconnect.service.js";
-
+import { loadAll as spcLoadAll, getMeta as spcGetMeta } from "../../services/spcStore.js";
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 const DEFAULT_CHAT_ID = process.env.TELEGRAM_CHAT_NEWUSER_ID ?? "";
 const FRONTEND_URL = (process.env.HOST ?? process.env.WEB_URL ?? "").replace(
@@ -128,6 +128,7 @@ export async function tgSend(
  * @param {{user:Object, chatId?:string|number, debug?:boolean}} params
  * @returns {Promise<boolean>}
  */
+
 export async function notifyNewUser({ user, chatId, debug = false }) {
   try {
     if (!user) {
@@ -155,53 +156,90 @@ export async function notifyNewUser({ user, chatId, debug = false }) {
     ].filter(Boolean);
 
     const phone = onlyDigits(user?.phone);
-    let spcBlock = "⚠️ Không có SĐT để tra SportConnect.";
+    let spcBlock = "⚠️ Không có SĐT đủ dài để tra SPC (cần ≥ 6 chữ số).";
     let debugLine = "";
 
     if (phone?.length >= 6) {
       try {
-        const { status, data, proxyUrl } =
-          await SportConnectService.listLevelPoint({
-            searchCriterial: phone,
-            sportId: SPC_SPORT_ID,
-            page: 0,
-            waitingInformation: "",
+        // Đọc dữ liệu SPC từ file local
+        const [meta, all] = await Promise.all([
+          spcGetMeta().catch(() => null),
+          spcLoadAll(), // mảng object SPC
+        ]);
+
+        // So khớp theo SĐT (ưu tiên: =, endsWith, includes). Nếu trùng điểm, ưu tiên bản ghi mới hơn.
+        const scored = (all || [])
+          .map((it) => {
+            const p = onlyDigits(it?.Phone || it?.SoDienThoai || "");
+            let score = 0;
+            if (p && phone) {
+              if (p === phone) score = 3;
+              else if (p.endsWith(phone) || phone.endsWith(p)) score = 2;
+              else if (p.includes(phone) || phone.includes(p)) score = 1;
+            }
+            return { it, p, score };
+          })
+          .filter((x) => x.score > 0)
+          .sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            // ưu tiên bản ghi có thời gian tham gia/updated mới hơn
+            const ta =
+              new Date(
+                a.it?.ThoiGianThamGia || a.it?.JoinDate || 0
+              ).getTime() || 0;
+            const tb =
+              new Date(
+                b.it?.ThoiGianThamGia || b.it?.JoinDate || 0
+              ).getTime() || 0;
+            if (tb !== ta) return tb - ta;
+            // tie-break theo điểm đôi (cao hơn trước)
+            const da = Number(a.it?.DiemDoi) || 0;
+            const db = Number(b.it?.DiemDoi) || 0;
+            return db - da;
           });
-        const arr = Array.isArray(data?.data) ? data.data : [];
-        if (arr.length) {
-          const it = arr[0];
+
+        if (scored.length) {
+          const best = scored[0].it;
+          const name = best?.HoVaTen || "—";
+          const nick = best?.NickName
+            ? ` <i>(${htmlEscape(String(best.NickName).trim())})</i>`
+            : "";
+          const province = best?.TinhThanh || best?.TenTinhThanh || "";
+          const sport =
+            best?.IDMonTheThao != null
+              ? sportNameById(best.IDMonTheThao)
+              : "Pickleball";
+
           spcBlock = [
-            "🧩 <b>SportConnect</b>",
-            `• ID: <b>${htmlEscape(it?.ID ?? it?.MaskId ?? "—")}</b>`,
-            `• Họ tên: <b>${htmlEscape(it?.HoVaTen || "—")}</b>${
-              it?.NickName
-                ? ` <i>(${htmlEscape(String(it.NickName).trim())})</i>`
-                : ""
-            }`,
-            `• Điểm: <b>Single ${fmt1(it?.DiemDon)}</b> • <b>Double ${fmt1(
-              it?.DiemDoi
+            "🧩 <b>SportConnect (Local)</b>",
+            `• ID: <b>${htmlEscape(best?.ID ?? best?.MaskId ?? "—")}</b>`,
+            `• Họ tên: <b>${htmlEscape(name)}</b>${nick}`,
+            `• Điểm: <b>Single ${fmt1(best?.DiemDon)}</b> • <b>Double ${fmt1(
+              best?.DiemDoi
             )}</b>`,
-            it?.TenTinhThanh
-              ? `• Tỉnh/TP: <b>${htmlEscape(it.TenTinhThanh)}</b>`
+            province ? `• Tỉnh/TP: <b>${htmlEscape(province)}</b>` : "",
+            `• Môn: <b>${htmlEscape(sport)}</b>`,
+            meta?.updatedAt
+              ? `• Dữ liệu: <i>cập nhật ${new Date(
+                  meta.updatedAt
+                ).toLocaleString("vi-VN")}</i>`
               : "",
-            `• Môn: <b>${htmlEscape(sportNameById(it?.IDMonTheThao))}</b>`,
           ]
             .filter(Boolean)
             .join("\n");
-          if (debug)
-            debugLine = `\n<code>Status ${status}${
-              proxyUrl ? " • " + htmlEscape(proxyUrl) : ""
+
+          if (debug) {
+            debugLine = `\n<code>local matches=${scored.length}${
+              meta?.count ? ` • rows=${meta.count}` : ""
             }</code>`;
+          }
         } else {
-          spcBlock = "❌ Không tìm thấy dữ liệu trên SportConnect.";
-          if (debug)
-            debugLine = `\n<code>Status ${status}${
-              proxyUrl ? " • " + htmlEscape(proxyUrl) : ""
-            }</code>`;
+          spcBlock = "❌ Không tìm thấy dữ liệu tương ứng trong SPC (local).";
+          if (debug) debugLine = `\n<code>local matches=0</code>`;
         }
       } catch (e) {
-        console.warn("[notifyNewUser] SportConnect error:", e?.message || e);
-        spcBlock = "❌ Lỗi gọi SportConnect.";
+        console.warn("[notifyNewUser] SPC local error:", e?.message || e);
+        spcBlock = "❌ Lỗi đọc dữ liệu SPC (local).";
         if (debug)
           debugLine = `\n<code>${htmlEscape(e?.message || "error")}</code>`;
       }
@@ -223,7 +261,10 @@ export async function notifyNewUser({ user, chatId, debug = false }) {
       debugLine,
     ].join("\n");
 
-    const sendRes = await tgSend(text, { chat_id: chatId, reply_markup });
+    const sendRes = await tgSend(text, {
+      chat_id: chatId || DEFAULT_CHAT_ID,
+      reply_markup,
+    });
     if (!sendRes?.ok) {
       console.warn("[notifyNewUser] tgSend failed:", sendRes?.error || sendRes);
       return false;
