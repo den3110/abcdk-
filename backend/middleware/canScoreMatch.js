@@ -34,8 +34,8 @@ export const canScoreMatch = asyncHandler(async (req, res, next) => {
   }
 
   if (m.status === "finished") {
-    res.status(400);
-    throw new Error("Trận đấu đã kết thúc");
+    return res.status(200).json({ok: true, message: "Đã kết thúc trận đấu"});
+    // throw new Error("Trận đấu đã kết thúc");
   }
 
   req._match = m;
