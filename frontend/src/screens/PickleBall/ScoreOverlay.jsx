@@ -13,6 +13,7 @@ import { toHttpsIfNotLocalhost } from "../../utils/url";
 
 /* ========================== Utils ========================== */
 const smax = (v) => (Number.isFinite(+v) ? +v : 0);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const gameWon = (x, y, pts, byTwo) =>
   smax(x) >= smax(pts) && (byTwo ? x - y >= 2 : x - y >= 1);
 
@@ -34,10 +35,6 @@ const preferNick = (p) =>
     p?.name,
     p?.fullName
   );
-
-const pad2 = (n) => String(n).padStart(2, "0");
-const fmtTime = (d) =>
-  `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
 
 const codeToRoundLabel = (code) => {
   if (!code) return "";
@@ -424,7 +421,6 @@ const pickLiveLog = (obj) => {
   return [];
 };
 const toMs = (t) => (t ? Date.parse(t) : NaN);
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 function buildSortedLog(raw, startAtMs) {
   const arr = (Array.isArray(raw) ? raw : []).filter(Boolean);
@@ -942,7 +938,16 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         pollRef.current = null;
       }
     };
-  }, [autoNext, rawStatus, data?.court?.id, data?.courtId, data?.matchId, matchId, getNextByCourt, navigate]);
+  }, [
+    autoNext,
+    rawStatus,
+    data?.court?.id,
+    data?.courtId,
+    data?.matchId,
+    matchId,
+    getNextByCourt,
+    navigate,
+  ]);
 
   /* ---------- REPLAY driver ---------- */
   const replayTimerRef = useRef(null);
@@ -1061,11 +1066,19 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         replayTimerRef.current = null;
       }
     };
-  }, [replay, replayLoop, replayRate, replayMinMs, replayMaxMs, replayStartMs, replayStepMs, snapRaw]);
+  }, [
+    replay,
+    replayLoop,
+    replayRate,
+    replayMinMs,
+    replayMaxMs,
+    replayStartMs,
+    replayStepMs,
+    snapRaw,
+  ]);
 
   /* ---------- NEW: scale-score (transform scale) ---------- */
   const scaleScoreParam = q.get("scale-score");
-
   const scaleScore = useMemo(() => {
     const hasParam =
       typeof q.has === "function"
@@ -1092,14 +1105,33 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     [scaleScore, scaleOrigin]
   );
 
-  /* ---------- CLOCK (HH:mm:ss) ---------- */
-  const showClock = overlayEnabled || parseQPBool(q.get("showClock")) === true;
-  const [nowStr, setNowStr] = useState(() => fmtTime(new Date()));
+  /* ---------- CLOCK (overlay=1) ---------- */
+  const [nowStr, setNowStr] = useState("");
+  const showClock = overlayEnabled;
   useEffect(() => {
     if (!showClock) return;
-    const id = setInterval(() => setNowStr(fmtTime(new Date())), 500);
-    return () => clearInterval(id);
+    const fmt = () => {
+      const d = new Date();
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      const ss = String(d.getSeconds()).padStart(2, "0");
+      setNowStr(`${hh}:${mm}:${ss}`);
+    };
+    fmt();
+    const t = setInterval(fmt, 1000);
+    return () => clearInterval(t);
   }, [showClock]);
+
+  /* ---------- SPONSORS images (logoUrl only) ---------- */
+  const sponsorLogos = useMemo(() => {
+    return Array.isArray(overlayCfg?.sponsors)
+      ? overlayCfg.sponsors
+          .map((s) =>
+            s?.logoUrl ? toHttpsIfNotLocalhost(s.logoUrl) : ""
+          )
+          .filter(Boolean)
+      : [];
+  }, [overlayCfg]);
 
   if (!ready) return null;
 
@@ -1110,13 +1142,6 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   const webLogoUrl = effective.webLogoUrl
     ? toHttpsIfNotLocalhost(effective.webLogoUrl)
     : "";
-
-  // Lấy danh sách logoUrl hợp lệ từ Sponsor model
-  const sponsorLogos = Array.isArray(overlayCfg?.sponsors)
-    ? overlayCfg.sponsors
-        .map((s) => (s?.logoUrl ? toHttpsIfNotLocalhost(s.logoUrl) : ""))
-        .filter(Boolean)
-    : [];
 
   return (
     <>
@@ -1195,8 +1220,16 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
             </div>
 
             {/* Team A */}
-            <div className="ovl-row ovl-row--a" style={styles.row} data-team="A">
-              <div className="ovl-team ovl-team--a" style={styles.team} data-team="A">
+            <div
+              className="ovl-row ovl-row--a"
+              style={styles.row}
+              data-team="A"
+            >
+              <div
+                className="ovl-team ovl-team--a"
+                style={styles.team}
+                data-team="A"
+              >
                 <span
                   className="ovl-pill ovl-pill--a"
                   style={{ ...styles.pill, background: "var(--accent-a)" }}
@@ -1204,7 +1237,9 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                 <span className="ovl-name" style={styles.name} title={nameA}>
                   {nameA}
                 </span>
-                {serveSide === "A" && <ServeBalls count={serveCount} team="A" />}
+                {serveSide === "A" && (
+                  <ServeBalls count={serveCount} team="A" />
+                )}
               </div>
               <div className="ovl-score ovl-score--a" style={styles.score}>
                 {scoreA}
@@ -1212,8 +1247,16 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
             </div>
 
             {/* Team B */}
-            <div className="ovl-row ovl-row--b" style={styles.row} data-team="B">
-              <div className="ovl-team ovl-team--b" style={styles.team} data-team="B">
+            <div
+              className="ovl-row ovl-row--b"
+              style={styles.row}
+              data-team="B"
+            >
+              <div
+                className="ovl-team ovl-team--b"
+                style={styles.team}
+                data-team="B"
+              >
                 <span
                   className="ovl-pill ovl-pill--b"
                   style={{ ...styles.pill, background: "var(--accent-b)" }}
@@ -1221,7 +1264,9 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                 <span className="ovl-name" style={styles.name} title={nameB}>
                   {nameB}
                 </span>
-                {serveSide === "B" && <ServeBalls count={serveCount} team="B" />}
+                {serveSide === "B" && (
+                  <ServeBalls count={serveCount} team="B" />
+                )}
               </div>
               <div className="ovl-score ovl-score--b" style={styles.score}>
                 {scoreB}
@@ -1267,9 +1312,9 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                     return (
                       <div
                         key={`a-${i}`}
-                        className={`ovl-td ${isWin ? "ovl-td--win ovl-td--a" : ""} ${
-                          isCur ? "ovl-td--active" : ""
-                        }`}
+                        className={`ovl-td ${
+                          isWin ? "ovl-td--win ovl-td--a" : ""
+                        } ${isCur ? "ovl-td--active" : ""}`}
                         style={{
                           ...styles.td,
                           ...(isWin
@@ -1306,9 +1351,9 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                     return (
                       <div
                         key={`b-${i}`}
-                        className={`ovl-td ${isWin ? "ovl-td--win ovl-td--b" : ""} ${
-                          isCur ? "ovl-td--active" : ""
-                        }`}
+                        className={`ovl-td ${
+                          isWin ? "ovl-td--win ovl-td--b" : ""
+                        } ${isCur ? "ovl-td--active" : ""}`}
                         style={{
                           ...styles.td,
                           ...(isWin
@@ -1358,8 +1403,45 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         />
       ) : null}
 
-      {/* CLOCK + SPONSORS (BOTTOM-RIGHT, fixed) — overlay=1 */}
-      {overlayEnabled && (showClock || sponsorLogos.length) ? (
+      {/* SPONSORS (BOTTOM-LEFT, fixed) — overlay=1, chỉ lấy s.logoUrl */}
+      {overlayEnabled && sponsorLogos.length ? (
+        <div
+          className="ovl-sponsors"
+          style={{
+            position: "fixed",
+            left: 16,
+            bottom: 16,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "8px 10px",
+            borderRadius: 12,
+            background: "var(--bg)",
+            boxShadow: "var(--shadow)",
+            zIndex: 2147483646,
+            pointerEvents: "none",
+            ...cssVarStyle,
+          }}
+        >
+          {sponsorLogos.slice(0, overlayParams.limit).map((src, idx) => (
+            <img
+              key={idx}
+              src={src}
+              alt={`sponsor-${idx}`}
+              style={{
+                height: "var(--sponsor-h)",
+                width: "auto",
+                display: "block",
+                borderRadius: 8,
+                filter: effective.theme === "dark" ? "brightness(1.1)" : "none",
+              }}
+            />
+          ))}
+        </div>
+      ) : null}
+
+      {/* CLOCK (BOTTOM-RIGHT, fixed) — overlay=1 */}
+      {overlayEnabled ? (
         <div
           className="ovl-bottom-right"
           style={{
@@ -1376,56 +1458,22 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
             ...cssVarStyle,
           }}
         >
-          {showClock && (
-            <div
-              className="ovl-clock"
-              style={{
-                background: "var(--bg)",
-                color: "var(--fg)",
-                borderRadius: 8,
-                padding: "4px 10px",
-                fontWeight: 700,
-                fontSize: 12,
-                lineHeight: 1,
-                boxShadow: "var(--shadow)",
-                backdropFilter: "blur(8px)",
-              }}
-            >
-              {nowStr}
-            </div>
-          )}
-
-          {sponsorLogos.length ? (
-            <div
-              className="ovl-sponsors"
-              style={{
-                display: "flex",
-                gap: 10,
-                alignItems: "center",
-                flexWrap: "wrap",
-                justifyContent: "flex-end",
-                background: "var(--bg)",
-                boxShadow: "var(--shadow)",
-                borderRadius: 12,
-                padding: "8px 10px",
-              }}
-            >
-              {sponsorLogos.slice(0, overlayParams.limit).map((src, idx) => (
-                <img
-                  key={idx}
-                  src={src}
-                  alt={`sponsor-${idx}`}
-                  style={{
-                    height: "var(--sponsor-h)",
-                    width: "auto",
-                    display: "block",
-                    borderRadius: 8,
-                    filter: effective.theme === "dark" ? "brightness(1.1)" : "none",
-                  }}
-                />
-              ))}
-            </div>
-          ) : null}
+          <div
+            className="ovl-clock"
+            style={{
+              background: "var(--bg)",
+              color: "var(--fg)",
+              borderRadius: 8,
+              padding: "4px 10px",
+              fontWeight: 700,
+              fontSize: 12,
+              lineHeight: 1,
+              boxShadow: "var(--shadow)",
+              backdropFilter: "blur(8px)",
+            }}
+          >
+            {nowStr}
+          </div>
         </div>
       ) : null}
     </>
@@ -1553,8 +1601,6 @@ const styles = {
     background: "#0ea5e9",
     color: "#fff",
   },
-  badgeFt: { background: "#16a34a" },
-  badgeLive: { background: "#ef4444" },
   badgePhase: {
     background: "#334155",
   },
