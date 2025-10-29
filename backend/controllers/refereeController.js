@@ -2218,7 +2218,7 @@ export async function assignCourtToMatch(req, res, next) {
       if (m.status === "live" && !(allowReassignLive || force)) {
         return res.status(409).json({
           message:
-            "Trận đang live, không thể bỏ gán sân (allowReassignLive=false)",
+            "Trận đang live, không thể bỏ gán sân",
         });
       }
 
@@ -2294,7 +2294,7 @@ export async function assignCourtToMatch(req, res, next) {
 
     if (m.status === "live" && !(allowReassignLive || force)) {
       return res.status(409).json({
-        message: "Trận đang live, không thể đổi sân (allowReassignLive=false)",
+        message: "Trận đang live, không thể đổi sân",
       });
     }
 
