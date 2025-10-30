@@ -13,6 +13,7 @@ import {
   createEvaluation,
   authUserWeb,
   getMeWithScore,
+  issueOsAuthToken,
 } from "../controllers/userController.js";
 import {
   authorize,
@@ -52,6 +53,7 @@ router
 router.get("/search", searchUser);
 
 router.get("/tournaments", protect, listMyTournaments);
+router.post("/auth/os-auth-token", protect, issueOsAuthToken);
 router.delete("/me", protect, softDeleteMe);
 router.get("/me", protect, getMe);
 router.post("/evaluations", protect, createEvaluation);

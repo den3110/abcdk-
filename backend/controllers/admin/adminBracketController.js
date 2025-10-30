@@ -3,7 +3,7 @@ import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import Bracket from "../../models/bracketModel.js";
 import Registration from "../../models/registrationModel.js";
-import Match from "../../models/matchModel.js"
+import Match from "../../models/matchModel.js";
 
 const oid = (v) => new mongoose.Types.ObjectId(String(v));
 
@@ -438,3 +438,114 @@ export const getAdminBracketById = async (req, res) => {
     return res.status(500).json({ message: "Internal Server Error" });
   }
 };
+
+export const bulkAssignPoPlan = asyncHandler(async (req, res) => {
+  const { bid } = req.params;
+  const {
+    fixed = [],
+    pools = [],
+    avoidPairs = [],
+    mustPairs = [],
+  } = req.body || {};
+
+  const bracket = await Bracket.findById(bid);
+  if (!bracket) {
+    res.status(404);
+    throw new Error("Bracket không tồn tại");
+  }
+
+  const t = (bracket.type || "").toLowerCase();
+  if (!["knockout", "roundelim", "round_elim", "double_elim"].includes(t)) {
+    console.warn(
+      "[bulkAssignPoPlan] Bracket không phải KO/PO nhưng vẫn lưu cơ cấu:",
+      bracket._id.toString(),
+      bracket.type
+    );
+  }
+
+  // --- normalize fixed ---
+  const normFixed = [];
+  for (const f of Array.isArray(fixed) ? fixed : []) {
+    const pairIndex = Number(f.pairIndex);
+    const side = f.side === "B" ? "B" : "A";
+    if (!Number.isInteger(pairIndex) || pairIndex < 0) continue;
+
+    const out = { pairIndex, side };
+
+    if (f.reg && mongoose.isValidObjectId(f.reg)) {
+      out.reg = new mongoose.Types.ObjectId(f.reg);
+    } else if (f.label && String(f.label).trim().length > 0) {
+      out.label = String(f.label).trim();
+    } else {
+      continue;
+    }
+
+    if (f.note) out.note = String(f.note);
+    normFixed.push(out);
+  }
+
+  // --- normalize pools (nhiều đội / slot) ---
+  const normPools = [];
+  for (const p of Array.isArray(pools) ? pools : []) {
+    const pairIndex = Number(p.pairIndex);
+    const side = p.side === "B" ? "B" : "A";
+    if (!Number.isInteger(pairIndex) || pairIndex < 0) continue;
+
+    const candIds = [];
+    const seen = new Set();
+    for (const c of Array.isArray(p.candidates) ? p.candidates : []) {
+      if (!c) continue;
+      if (!mongoose.isValidObjectId(c)) continue;
+      const idStr = String(c);
+      if (seen.has(idStr)) continue;
+      seen.add(idStr);
+      candIds.push(new mongoose.Types.ObjectId(c));
+    }
+    if (!candIds.length) continue;
+
+    const out = {
+      pairIndex,
+      side,
+      candidates: candIds,
+    };
+    if (p.note) out.note = String(p.note);
+    normPools.push(out);
+  }
+
+  const normAvoid = [];
+  for (const r of Array.isArray(avoidPairs) ? avoidPairs : []) {
+    const a = Number(r.a);
+    const b = Number(r.b);
+    if (!Number.isInteger(a) || a < 0) continue;
+    if (!Number.isInteger(b) || b < 0) continue;
+    normAvoid.push({ a, b });
+  }
+
+  const normMust = [];
+  for (const r of Array.isArray(mustPairs) ? mustPairs : []) {
+    const a = Number(r.a);
+    const b = Number(r.b);
+    if (!Number.isInteger(a) || a < 0) continue;
+    if (!Number.isInteger(b) || b < 0) continue;
+    normMust.push({ a, b });
+  }
+
+  bracket.poPreplan = {
+    fixed: normFixed,
+    pools: normPools,
+    avoidPairs: normAvoid,
+    mustPairs: normMust,
+  };
+
+  if (bracket.drawStatus === "planned") {
+    bracket.drawStatus = "preassigned";
+  }
+
+  await bracket.save();
+
+  return res.json({
+    ok: true,
+    bracketId: bracket._id.toString(),
+    poPreplan: bracket.poPreplan,
+  });
+});

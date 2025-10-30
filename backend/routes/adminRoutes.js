@@ -113,6 +113,7 @@ import {
   updateEvaluatorScopes,
 } from "../controllers/admin/adminEvaluatorController.js";
 import {
+  bulkAssignPoPlan,
   bulkAssignSlotPlan,
   generateGroupMatchesForTeam,
   getAdminBracketById,
@@ -684,6 +685,14 @@ router.get("/l/live-sessions/all", protect, authorize("admin"), adminListLiveSes
 router.patch("/live-sessions/:id/stop", protect, authorize("admin"), adminStopLiveSession);
 
 router.post("/fb/long-user-token/exchange", protect, authorize("admin"), exchangeLongUserToken);
+
+router.post(
+  "/brackets/:bid/po-plan/bulk-assign",
+  protect,
+  authorize("admin"),
+  bulkAssignPoPlan
+);
+
 
 
 export default router;

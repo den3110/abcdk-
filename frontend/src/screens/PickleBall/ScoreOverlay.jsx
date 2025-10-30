@@ -13,7 +13,6 @@ import { toHttpsIfNotLocalhost } from "../../utils/url";
 
 /* ========================== Utils ========================== */
 const smax = (v) => (Number.isFinite(+v) ? +v : 0);
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const gameWon = (x, y, pts, byTwo) =>
   smax(x) >= smax(pts) && (byTwo ? x - y >= 2 : x - y >= 1);
 
@@ -421,6 +420,7 @@ const pickLiveLog = (obj) => {
   return [];
 };
 const toMs = (t) => (t ? Date.parse(t) : NaN);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 function buildSortedLog(raw, startAtMs) {
   const arr = (Array.isArray(raw) ? raw : []).filter(Boolean);
@@ -938,16 +938,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         pollRef.current = null;
       }
     };
-  }, [
-    autoNext,
-    rawStatus,
-    data?.court?.id,
-    data?.courtId,
-    data?.matchId,
-    matchId,
-    getNextByCourt,
-    navigate,
-  ]);
+  }, [autoNext, rawStatus, data?.court?.id, data?.courtId, data?.matchId, matchId, getNextByCourt, navigate]);
 
   /* ---------- REPLAY driver ---------- */
   const replayTimerRef = useRef(null);
@@ -1066,16 +1057,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         replayTimerRef.current = null;
       }
     };
-  }, [
-    replay,
-    replayLoop,
-    replayRate,
-    replayMinMs,
-    replayMaxMs,
-    replayStartMs,
-    replayStepMs,
-    snapRaw,
-  ]);
+  }, [replay, replayLoop, replayRate, replayMinMs, replayMaxMs, replayStartMs, replayStepMs, snapRaw]);
 
   /* ---------- NEW: scale-score (transform scale) ---------- */
   const scaleScoreParam = q.get("scale-score");
@@ -1105,30 +1087,11 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     [scaleScore, scaleOrigin]
   );
 
-  /* ---------- CLOCK (overlay=1) ---------- */
-  const [nowStr, setNowStr] = useState("");
-  const showClock = overlayEnabled;
-  useEffect(() => {
-    if (!showClock) return;
-    const fmt = () => {
-      const d = new Date();
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      const ss = String(d.getSeconds()).padStart(2, "0");
-      setNowStr(`${hh}:${mm}:${ss}`);
-    };
-    fmt();
-    const t = setInterval(fmt, 1000);
-    return () => clearInterval(t);
-  }, [showClock]);
-
-  /* ---------- SPONSORS images (logoUrl only) ---------- */
+  /* ---------- SPONSORS (BOTTOM-LEFT, fixed) — overlay=1, chỉ lấy s.logoUrl ---------- */
   const sponsorLogos = useMemo(() => {
     return Array.isArray(overlayCfg?.sponsors)
       ? overlayCfg.sponsors
-          .map((s) =>
-            s?.logoUrl ? toHttpsIfNotLocalhost(s.logoUrl) : ""
-          )
+          .map((s) => (s?.logoUrl ? toHttpsIfNotLocalhost(s.logoUrl) : ""))
           .filter(Boolean)
       : [];
   }, [overlayCfg]);
@@ -1439,43 +1402,6 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
           ))}
         </div>
       ) : null}
-
-      {/* CLOCK (BOTTOM-RIGHT, fixed) — overlay=1 */}
-      {overlayEnabled ? (
-        <div
-          className="ovl-bottom-right"
-          style={{
-            position: "fixed",
-            right: 16,
-            bottom: 16,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "flex-end",
-            gap: 8,
-            zIndex: 2147483646,
-            pointerEvents: "none",
-            maxWidth: "72vw",
-            ...cssVarStyle,
-          }}
-        >
-          <div
-            className="ovl-clock"
-            style={{
-              background: "var(--bg)",
-              color: "var(--fg)",
-              borderRadius: 8,
-              padding: "4px 10px",
-              fontWeight: 700,
-              fontSize: 12,
-              lineHeight: 1,
-              boxShadow: "var(--shadow)",
-              backdropFilter: "blur(8px)",
-            }}
-          >
-            {nowStr}
-          </div>
-        </div>
-      ) : null}
     </>
   );
 });
@@ -1601,6 +1527,8 @@ const styles = {
     background: "#0ea5e9",
     color: "#fff",
   },
+  badgeFt: { background: "#16a34a" },
+  badgeLive: { background: "#ef4444" },
   badgePhase: {
     background: "#334155",
   },

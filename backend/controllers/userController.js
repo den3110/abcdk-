@@ -1833,7 +1833,10 @@ export async function listMyTournaments(req, res) {
 
 // controllers/userController.js
 export const softDeleteMe = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id).select("_id isDeleted");
+  const { password, osAuthToken } = req.body || {};
+
+  // Lấy user + password để verify khi cần
+  const user = await User.findById(req.user._id).select("+password isDeleted");
   if (!user) {
     res.status(404);
     throw new Error("User not found");
@@ -1845,13 +1848,64 @@ export const softDeleteMe = asyncHandler(async (req, res) => {
     return res.status(204).end();
   }
 
-  // ✅ Chỉ bật cờ isDeleted, không thay đổi bất kỳ field nào khác
+  // ---- Nhánh OS-auth: chấp nhận token chỉ khi hợp lệ ----
+  let allowed = false;
+  if (typeof osAuthToken === "string" && osAuthToken.trim()) {
+    try {
+      const secret = process.env.JWT_SECRET;
+      const payload = jwt.verify(osAuthToken.trim(), secret, {
+        algorithms: ["HS256"],
+      });
+      // Kỳ vọng payload: { kind: 'os-auth', sub: userId, iat, (exp?) }
+      const sameUser = String(payload?.sub) === String(user._id);
+      const rightKind = payload?.kind === "os-auth";
+      const now = Math.floor(Date.now() / 1000);
+      const freshEnough =
+        typeof payload?.exp === "number"
+          ? now <= payload.exp
+          : typeof payload?.iat === "number" && now - payload.iat <= 300; // 5 phút
+
+      if (sameUser && rightKind && freshEnough) {
+        allowed = true; // OS-auth OK → bỏ qua password
+      }
+    } catch {
+      // token sai/hết hạn → rơi xuống check password
+    }
+  }
+
+  // ---- Nhánh password (fallback / không có OS-auth) ----
+  if (!allowed) {
+    if (typeof password !== "string" || !password.trim()) {
+      res.status(400);
+      throw new Error("Password is required");
+    }
+    const ok = await user.matchPassword(password.trim());
+    if (!ok) {
+      res.status(401);
+      throw new Error("Sai mật khẩu");
+    }
+    allowed = true;
+  }
+
+  // ✅ Chỉ bật cờ isDeleted, không thay đổi field khác
   user.isDeleted = true;
   await user.save({ validateModifiedOnly: true });
 
-  // (tuỳ chọn) revoke session hiện tại
+  // Revoke phiên hiện tại
   res.clearCookie("jwt");
   return res.status(204).end();
+});
+
+
+export const issueOsAuthToken = asyncHandler(async (req, res) => {
+  const OS_SECRET = process.env.JWT_SECRET;
+  // Tuỳ chọn: kiểm tra thêm tần suất/phát hành 1 lần mỗi X giây
+  const token = jwt.sign(
+    { kind: "os-auth", sub: req.user._id },
+    OS_SECRET,
+    { algorithm: "HS256", expiresIn: "3m" } // sống 3 phút
+  );
+  res.json({ osAuthToken: token });
 });
 
 /**

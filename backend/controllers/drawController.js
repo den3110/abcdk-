@@ -408,6 +408,15 @@ async function findPreassignedRegForSlot(bracketId, board, gi, si) {
 /**
  * POST /api/draw/:bracketId/start
  */
+// Helpers
+const pow2Ceil = (n) => 1 << Math.ceil(Math.log2(Math.max(1, Number(n) || 1)));
+const isPow2 = (n) => n > 0 && (n & (n - 1)) === 0;
+const parseTeamsFromRoundKey = (key) => {
+  if (!key || typeof key !== "string") return null;
+  const m = key.trim().match(/^R(\d+)$/i);
+  return m ? Number(m[1]) : null;
+};
+
 export const startDraw = expressAsyncHandler(async (req, res) => {
   const { bracketId } = req.params;
   const {
@@ -650,10 +659,145 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
     });
   }
 
-  // ───────────────────── KNOCKOUT / PLAYOFF ─────────────────────
-  if (mode === "knockout" || mode === "po" || mode === "playoff") {
-    const sessMode = mode === "playoff" ? "po" : mode;
+  // ───────────────────── PO / PLAYOFF (roundElim) — tách riêng ─────────────────────
+  if (mode === "po" || mode === "playoff") {
+    // chuẩn hoá thành "po" cho DrawSession.mode
+    const sessMode = "po";
 
+    // Pool mặc định = Paid; có thể override bằng winners nếu usePrevWinners
+    let poolIds = regs.map((r) => r._id);
+    let entrants = poolIds.length;
+
+    if (usePrevWinners) {
+      // Cố gắng xác định vòng trước dựa vào round (nếu có), ngược lại suy diễn theo calcRoundNumberForCode
+      const desiredTeams =
+        parseTeamsFromRoundKey(round) ??
+        (round ? codeToTeams(round) : null) ??
+        entrants;
+
+      const tempPairs = Math.floor(desiredTeams / 2);
+      const tempRoundNumber = await calcRoundNumberForCode(
+        bracket,
+        `R${desiredTeams}`,
+        tempPairs
+      );
+      if (!tempRoundNumber || tempRoundNumber <= 1) {
+        res.status(400);
+        throw new Error("Vòng đầu tiên không có vòng trước để lấy đội thắng.");
+      }
+
+      const prevRound = tempRoundNumber - 1;
+      const prevMatches = await Match.find({
+        bracket: bracket._id,
+        round: prevRound,
+      }).select("pairA pairB winner");
+
+      const winners = [];
+      for (const m of prevMatches) {
+        const w =
+          m.winner === "A" ? m.pairA : m.winner === "B" ? m.pairB : null;
+        if (w) winners.push(w);
+      }
+      poolIds = winners;
+      entrants = winners.length;
+    }
+
+    // Xác định stageTeams & số cặp cho vòng này — KHÔNG ép 2^k
+    // - Nếu admin truyền round="R{X}" → dùng X.
+    // - Nếu X < entrants → nâng X = entrants (không bỏ đội).
+    let stageTeams =
+      parseTeamsFromRoundKey(round) ??
+      (round ? codeToTeams(round) : null) ??
+      entrants;
+
+    if (!Number.isFinite(stageTeams) || stageTeams < entrants) {
+      stageTeams = entrants;
+    }
+
+    const pairCount = Math.floor(stageTeams / 2);
+    const availableSlots = pairCount * 2;
+    const byeCount = Math.abs(availableSlots - entrants); // cả hai trường hợp N lẻ hoặc thiếu người so với X
+
+    const target = `R${stageTeams}`;
+
+    // Dọn các trận đúng vòng nếu tính được roundNumber
+    try {
+      const roundNumber = await calcRoundNumberForCode(
+        bracket,
+        target,
+        pairCount
+      );
+      if (Number.isFinite(roundNumber)) {
+        await Match.deleteMany({ bracket: bracket._id, round: roundNumber });
+      }
+    } catch (e) {
+      console.error(
+        "[startDraw] Failed to clear matches for bracket",
+        bracket._id,
+        "target",
+        target,
+        e
+      );
+    }
+
+    // Tạo board roundElim (PO)
+    const board = {
+      type: "roundElim",
+      roundKey: target,
+      pairs: Array.from({ length: pairCount }, (_, i) => ({
+        index: i,
+        a: null,
+        b: null,
+      })),
+    };
+
+    // Tạo session
+    const sess = await DrawSession.create({
+      tournament: bracket.tournament._id,
+      bracket: bracket._id,
+      mode: sessMode, // "po"
+      board,
+      pool: poolIds, // có thể < availableSlots → sẽ có BYE
+      taken: [],
+      targetRound: target,
+      cursor: { pairIndex: 0, side: "A" },
+      status: "active",
+      settings: { ...settings, seed },
+      history: [{ action: "start", by: req.user?._id || null }],
+      computedMeta: {
+        po: {
+          entrants: poolIds.length,
+          stageTeams,
+          pairCount,
+          byes: byeCount,
+        },
+      },
+    });
+
+    emitPlanned(io, bracketId, { groupSizes: [], byes: byeCount }, []);
+    await emitUpdate(io, sess);
+
+    return res.json({
+      ok: true,
+      drawId: String(sess._id),
+      state: "running",
+      reveals: [],
+      message: `Đã khởi tạo bốc thăm Playoff (${target}), số cặp: ${pairCount}, đội: ${
+        poolIds.length
+      }${byeCount ? `, BYE: ${byeCount}` : ""}.`,
+      meta: {
+        paidCount,
+        poolCount: poolIds.length,
+        pairCount,
+        round: target,
+        byes: byeCount,
+        stageTeams,
+      },
+    });
+  }
+
+  // ───────────────────── KNOCKOUT ─────────────────────
+  if (mode === "knockout") {
     const pairCount = roundKeyToPairs(round);
     if (!pairCount) {
       res.status(400);
@@ -662,7 +806,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
 
     const target = normalizeRoundKey(round) || null;
 
-    await purgePreviousDrawResults(bracket._id, sessMode, target);
+    await purgePreviousDrawResults(bracket._id, "knockout", target);
 
     let poolIds = regs.map((r) => r._id);
     const stageTeams = (target && codeToTeams(target)) || pairCount * 2;
@@ -713,7 +857,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
     }
 
     const board = {
-      type: sessMode === "po" ? "roundElim" : "knockout",
+      type: "knockout",
       roundKey: target || null,
       pairs: Array.from({ length: pairCount }, (_, i) => ({
         index: i,
@@ -725,7 +869,7 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
     const sess = await DrawSession.create({
       tournament: bracket.tournament._id,
       bracket: bracket._id,
-      mode: sessMode,
+      mode: "knockout",
       board,
       pool: poolIds,
       taken: [],
@@ -745,20 +889,17 @@ export const startDraw = expressAsyncHandler(async (req, res) => {
       drawId: String(sess._id),
       state: "running",
       reveals: [],
-      message:
-        sessMode === "po"
-          ? `Đã khởi tạo bốc thăm Playoff (${
-              target || "vòng hiện tại"
-            }), số cặp: ${pairCount}, đội tham dự: ${poolIds.length}.`
-          : `Đã khởi tạo bốc thăm Knockout (${
-              target || "vòng hiện tại"
-            }), số cặp: ${pairCount}, đội tham dự: ${poolIds.length}.`,
+      message: `Đã khởi tạo bốc thăm Knockout (${
+        target || "vòng hiện tại"
+      }), số cặp: ${pairCount}, đội tham dự: ${poolIds.length}.`,
       meta: { paidCount, poolCount: poolIds.length, pairCount, round: target },
     });
   }
 
   res.status(400);
-  throw new Error("Unsupported mode. Use 'group' or 'knockout'.");
+  throw new Error(
+    "Unsupported mode. Use 'group', 'po'/'playoff' hoặc 'knockout'."
+  );
 });
 
 /**
@@ -782,11 +923,51 @@ const displayNameFromReg = (reg, eventType) => {
   return p1 || teamFallback || "—";
 };
 
+// helper: slot (pi,side)A đứng trước (pi,side)B
+function isAfterSlot(targetPi, targetSide, curPi, curSide) {
+  if (targetPi > curPi) return true;
+  if (targetPi < curPi) return false;
+  // cùng pairIndex → A trước B
+  if (curSide === "A" && targetSide === "B") return true;
+  return false;
+}
+
+// helper: reg đã được dùng chưa (dùng cho cả board và taken)
+function isRegUsed(board, taken, regId) {
+  const idStr = String(regId);
+  if (Array.isArray(taken) && taken.some((t) => String(t) === idStr)) {
+    return true;
+  }
+  // KO
+  if (Array.isArray(board?.pairs)) {
+    for (const p of board.pairs) {
+      if (!p) continue;
+      if (p.a && String(p.a) === idStr) return true;
+      if (p.b && String(p.b) === idStr) return true;
+    }
+  }
+  // group
+  if (Array.isArray(board?.groups)) {
+    for (const g of board.groups) {
+      if (!g?.slots) continue;
+      if (g.slots.some((s) => s && String(s) === idStr)) return true;
+    }
+  }
+  return false;
+}
+
+// helper: chọn random 1 phần tử từ mảng (an toàn)
+function pickRandom(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return null;
+  const idx = Math.floor(Math.random() * arr.length);
+  return arr[idx];
+}
+
 export const drawNext = expressAsyncHandler(async (req, res) => {
   const { drawId } = req.params;
 
   const sess = await DrawSession.findById(drawId).select(
-    "+board +mode +pool +taken +cursor +history +settings +status +tournament +bracket"
+    "+board +mode +pool +taken +cursor +history +settings +status +tournament +bracket +preplan"
   );
   if (!sess) {
     res.status(404);
@@ -797,14 +978,14 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     throw new Error(`Cannot draw when session status = ${sess.status}`);
   }
 
-  // Lấy eventType
+  // lấy thông tin để build tên đội
   const tour = await Tournament.findById(sess.tournament).select("eventType");
   if (!tour) {
     res.status(404);
     throw new Error("Tournament not found for this draw session");
   }
 
-  // Chuẩn hoá DTO
+  // dto làm việc tạm
   const dto = sess.toObject();
   dto.__eventType = eventTypeOf(tour);
   dto.pool = Array.isArray(dto.pool) ? dto.pool : [];
@@ -814,7 +995,7 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
   dto.mode =
     dto.mode ?? (Array.isArray(dto.board?.groups) ? "group" : "knockout");
 
-  // Chuẩn hoá board theo mode
+  // ========== chuẩn hoá board ==========
   if (dto.mode === "group") {
     if (!Array.isArray(dto.board.groups) || dto.board.groups.length === 0) {
       const ok = rebuildGroupsFromMeta(dto);
@@ -839,10 +1020,12 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  // Đảm bảo cursor hiện ở slot trống
+  // luôn đứng ở slot trống
   advanceCursor(dto);
 
-  // ===== GROUP MODE =====
+  // ==================================================================
+  // ======================== GROUP MODE ==============================
+  // ==================================================================
   if (dto.mode === "group") {
     const { gIndex: gi, slotIndex: si } = dto.cursor || {};
     if (
@@ -859,7 +1042,7 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
       throw new Error("Slot already filled (concurrent op?)");
     }
 
-    // Ưu tiên preassign
+    // ưu tiên slotPlan đã cơ cấu sẵn
     let chosen = await findPreassignedRegForSlot(
       sess.bracket,
       dto.board,
@@ -867,7 +1050,7 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
       si
     );
 
-    // Nếu không có preassign → rút từ pool
+    // nếu slot đó chưa được cơ cấu → rơi về pool chung
     if (!chosen) {
       if (!Array.isArray(dto.pool) || dto.pool.length === 0) {
         res.status(400);
@@ -880,20 +1063,20 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
       }
     }
 
-    // Đặt vào slot
     dto.board.groups[gi].slots[si] = asId(chosen);
 
-    // Ghi lại vị trí vừa gán (trước khi cursor nhảy)
     const filledGroup = dto.board.groups[gi] || {};
     const filledGroupCode =
       filledGroup.key || filledGroup.code || String.fromCharCode(65 + gi);
 
-    // Cập nhật pool/taken và cursor
+    // bỏ khỏi pool + đánh dấu đã lấy
     dto.pool = dto.pool.filter((x) => String(x) !== String(chosen));
     dto.taken = [...dto.taken, asId(chosen)];
+
+    // chuyển con trỏ
     advanceCursor(dto);
 
-    // Persist
+    // lưu session
     sess.board = dto.board;
     sess.pool = dto.pool;
     sess.taken = dto.taken;
@@ -907,11 +1090,11 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     });
     await sess.save();
 
-    // Socket update
+    // socket
     const io = req.app.get("io");
     await emitUpdate(io, sess);
 
-    // Lấy tên đội vừa bốc
+    // build tên
     const reg = await Registration.findById(chosen)
       .select("teamName nickName name displayName player1 player2")
       .populate("player1", "nickName fullName name displayName")
@@ -921,7 +1104,6 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
       displayNameFromReg(reg, dto.__eventType) ||
       `#${String(chosen).slice(-6)}`;
 
-    // Response có thêm field `next`
     const out = sess.toObject();
     out.next = {
       type: "group",
@@ -933,15 +1115,13 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     return res.json(out);
   }
 
-  // ===== KO / PAIRS MODE =====
+  // ==================================================================
+  // ========================== KO / PO ===============================
+  // ==================================================================
+
   if (!Array.isArray(dto.pool) || dto.pool.length === 0) {
     res.status(400);
     throw new Error("Pool is empty");
-  }
-  const chosen = await selectNextCandidate(dto);
-  if (!chosen) {
-    res.status(400);
-    throw new Error("No candidate available");
   }
 
   const { pairIndex: pi, side } = dto.cursor || {};
@@ -950,6 +1130,166 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     throw new Error("Invalid cursor for KO mode");
   }
 
+  // ===== helpers =====
+  const isRegUsed = (board, taken, regId) => {
+    const s = String(regId);
+    if (Array.isArray(taken) && taken.some((t) => String(t) === s)) return true;
+    if (Array.isArray(board?.pairs)) {
+      for (const p of board.pairs) {
+        if (!p) continue;
+        if (p.a && String(p.a) === s) return true;
+        if (p.b && String(p.b) === s) return true;
+      }
+    }
+    if (Array.isArray(board?.groups)) {
+      for (const g of board.groups) {
+        if (!g?.slots) continue;
+        if (g.slots.some((x) => x && String(x) === s)) return true;
+      }
+    }
+    return false;
+  };
+
+  const slotIsAfter = (targetPi, targetSide, curPi, curSide) => {
+    if (targetPi > curPi) return true;
+    if (targetPi < curPi) return false;
+    // cùng match → A trước B
+    if (curSide === "A" && targetSide === "B") return true;
+    return false;
+  };
+
+  const normIndex = (x) => {
+    if (x == null) return null;
+    if (typeof x.pairIndex === "number") return x.pairIndex;
+    if (typeof x.pair === "number") return x.pair - 1;
+    return null;
+  };
+
+  const pickRandom = (arr) => {
+    if (!Array.isArray(arr) || !arr.length) return null;
+    const i = Math.floor(Math.random() * arr.length);
+    return arr[i];
+  };
+
+  const hasPreplanData = (pp) =>
+    pp &&
+    ((Array.isArray(pp.fixed) && pp.fixed.length > 0) ||
+      (Array.isArray(pp.pools) && pp.pools.length > 0));
+
+  // 👉 lấy preplan: ưu tiên mỗi phiên, không có thì lấy ở bracket
+  let preplan = hasPreplanData(sess.preplan) ? sess.preplan : null;
+  if (!preplan) {
+    const br = await Bracket.findById(sess.bracket).select("poPreplan").lean();
+    if (hasPreplanData(br?.poPreplan)) {
+      preplan = br.poPreplan;
+      // cache lại cho session
+      sess.preplan = br.poPreplan;
+    }
+  }
+
+  let chosen = null;
+  const reservedForLater = new Set();
+
+  if (preplan) {
+    const fixedAll = Array.isArray(preplan.fixed) ? preplan.fixed : [];
+    const poolsAll = Array.isArray(preplan.pools) ? preplan.pools : [];
+
+    // ================= 1) cố định đúng slot này trước =================
+    // ở đây slot này có thể có nhiều fixed (ít gặp) → lấy cái đầu còn dùng được
+    const fixedForThis = fixedAll.filter((f) => {
+      const idx = normIndex(f);
+      if (idx == null) return false;
+      return f.side === side && (idx === pi || idx === pi + 1);
+    });
+
+    for (const fx of fixedForThis) {
+      if (fx.reg) {
+        const regId = String(fx.reg);
+        if (!isRegUsed(dto.board, dto.taken, regId)) {
+          chosen = regId;
+          break;
+        }
+      }
+    }
+
+    // ================= 2) nếu chưa có → gom TẤT CẢ pools của slot này =================
+    if (!chosen) {
+      const poolsForThis = poolsAll.filter((p) => {
+        const idx = normIndex(p);
+        if (idx == null) return false;
+        return p.side === side && (idx === pi || idx === pi + 1);
+      });
+
+      if (poolsForThis.length) {
+        // gộp candidates từ nhiều mảng → unique
+        const candSet = new Set();
+        for (const p of poolsForThis) {
+          for (const c of p.candidates || []) {
+            // chỉ add nếu chưa dùng ở slot trước
+            if (!isRegUsed(dto.board, dto.taken, c)) {
+              candSet.add(String(c));
+            }
+          }
+        }
+        const available = Array.from(candSet);
+        if (available.length) {
+          // random TRONG CHÍNH DANH SÁCH NÀY
+          chosen = pickRandom(available);
+        }
+      }
+    }
+
+    // ================= 3) build danh sách đội để dành cho slot SAU =================
+    // mục đích: khi fallback từ pool chung thì không chạm vào các đội đã cơ cấu cho slot sau
+    for (const f of fixedAll) {
+      const fIdx = normIndex(f);
+      const fSide = f.side === "B" ? "B" : "A";
+      if (fIdx == null) continue;
+      if (slotIsAfter(fIdx, fSide, pi, side) && f.reg) {
+        reservedForLater.add(String(f.reg));
+      }
+    }
+    for (const p of poolsAll) {
+      const pIdx = normIndex(p);
+      const pSide = p.side === "B" ? "B" : "A";
+      if (pIdx == null) continue;
+      if (slotIsAfter(pIdx, pSide, pi, side)) {
+        for (const c of p.candidates || []) {
+          reservedForLater.add(String(c));
+        }
+      }
+    }
+  }
+
+  // ================= 4) Fallback về pool chung =================
+  if (!chosen) {
+    // pool chung nhưng loại hết đội đã cơ cấu cho slot sau + đội đã dùng
+    const filteredPool = dto.pool.filter(
+      (id) =>
+        !reservedForLater.has(String(id)) &&
+        !isRegUsed(dto.board, dto.taken, id)
+    );
+
+    if (!filteredPool.length) {
+      res.status(400);
+      throw new Error(
+        "Pool hiện chỉ còn các đội đã được cơ cấu cho slot phía sau, không thể bốc ngẫu nhiên."
+      );
+    }
+
+    // mượn lại hàm cũ để vẫn giữ logic chọn của bạn
+    const backup = dto.pool;
+    dto.pool = filteredPool;
+    chosen = await selectNextCandidate(dto);
+    dto.pool = backup;
+
+    if (!chosen) {
+      res.status(400);
+      throw new Error("No candidate available");
+    }
+  }
+
+  // ================= 5) gán vào board =================
   if (side === "A") {
     if (dto.board.pairs[pi].a) {
       res.status(409);
@@ -964,16 +1304,17 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     dto.board.pairs[pi].b = asId(chosen);
   }
 
-  // Ghi lại vị trí vừa gán (trước khi cursor nhảy)
-  const filledPairIndex = pi;
-  const filledSide = side;
+  const chosenStr = String(chosen);
 
-  // Cập nhật pool/taken và cursor
-  dto.pool = dto.pool.filter((x) => String(x) !== String(chosen));
-  dto.taken = [...dto.taken, asId(chosen)];
+  // nếu đội đó đang nằm trong pool thì xoá
+  dto.pool = dto.pool.filter((x) => String(x) !== chosenStr);
+  // và đánh dấu đã lấy
+  dto.taken = [...dto.taken, asId(chosenStr)];
+
+  // tới slot tiếp theo
   advanceCursor(dto);
 
-  // Persist
+  // lưu session
   sess.board = dto.board;
   sess.pool = dto.pool;
   sess.taken = dto.taken;
@@ -981,33 +1322,33 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
   if (!Array.isArray(sess.history)) sess.history = [];
   sess.history.push({
     action: "pick",
-    payload: { regId: chosen, cursor: dto.cursor },
+    payload: { regId: chosenStr, cursor: dto.cursor },
     by: req.user?._id || null,
     at: new Date(),
   });
   await sess.save();
 
-  // Socket update
+  // socket
   const io = req.app.get("io");
   await emitUpdate(io, sess);
 
-  // Lấy tên đội vừa bốc
-  const reg = await Registration.findById(chosen)
+  // build response cuối
+  const reg = await Registration.findById(chosenStr)
     .select("teamName nickName name displayName player1 player2")
     .populate("player1", "nickName fullName name displayName")
     .populate("player2", "nickName fullName name displayName")
     .lean();
   const nextName =
-    displayNameFromReg(reg, dto.__eventType) || `#${String(chosen).slice(-6)}`;
+    displayNameFromReg(reg, dto.__eventType) ||
+    `#${String(chosenStr).slice(-6)}`;
 
-  // Response có thêm field `next`
   const out = sess.toObject();
   out.next = {
     type: "ko",
-    regId: asId(chosen),
+    regId: asId(chosenStr),
     name: nextName,
-    pairIndex: filledPairIndex,
-    side: filledSide, // 'A' | 'B'
+    pairIndex: pi,
+    side,
   };
   return res.json(out);
 });
@@ -1699,4 +2040,86 @@ export const assignByes = expressAsyncHandler(async (req, res) => {
 
   // ⛔️ Không propagateWinnerToNextMatch ở đây
   return res.json({ ok: true, assigned: assignments.length, preview });
+});
+
+// ghi cơ cấu
+export const updatePoPreplan = expressAsyncHandler(async (req, res) => {
+  const { drawId } = req.params;
+  const {
+    fixed = [],
+    pools = [],
+    avoidPairs = [],
+    mustPairs = [],
+  } = req.body || {};
+
+  const sess = await DrawSession.findById(drawId);
+  if (!sess) {
+    res.status(404);
+    throw new Error("DrawSession not found");
+  }
+  if (sess.mode !== "po" || sess.board?.type !== "roundElim") {
+    res.status(400);
+    throw new Error("Chỉ hỗ trợ cơ cấu cho PO (roundElim).");
+  }
+
+  const pairCount = Array.isArray(sess.board?.pairs)
+    ? sess.board.pairs.length
+    : 0;
+  const okSlot = (p, s) =>
+    Number.isInteger(p) && p >= 0 && p < pairCount && (s === "A" || s === "B");
+
+  for (const f of fixed) {
+    if (!okSlot(f.pairIndex, f.side)) {
+      res.status(400);
+      throw new Error("fixed: pairIndex/side không hợp lệ");
+    }
+  }
+  for (const p of pools) {
+    if (!okSlot(p.pairIndex, p.side)) {
+      res.status(400);
+      throw new Error("pools: pairIndex/side không hợp lệ");
+    }
+  }
+
+  const poolSet = new Set((sess.pool || []).map(String));
+  for (const f of fixed) {
+    if (!poolSet.has(String(f.reg))) {
+      res.status(400);
+      throw new Error(`fixed: đội ${f.reg} không nằm trong pool hiện tại`);
+    }
+  }
+  for (const p of pools) {
+    for (const c of p.candidates || []) {
+      if (!poolSet.has(String(c))) {
+        res.status(400);
+        throw new Error(`pools: đội ${c} không nằm trong pool hiện tại`);
+      }
+    }
+  }
+
+  sess.preplan = { fixed, pools, avoidPairs, mustPairs };
+  await sess.save();
+
+  const io = req.app.get("io");
+  await emitUpdate(io, sess);
+
+  return res.json({ ok: true, preplan: sess.preplan });
+});
+
+// xem thử (optional)
+export const previewPoPreplan = expressAsyncHandler(async (req, res) => {
+  const { drawId } = req.params;
+  const sess = await DrawSession.findById(drawId)
+    .select("+board +pool +preplan +mode")
+    .lean();
+  if (!sess) {
+    res.status(404);
+    throw new Error("DrawSession not found");
+  }
+  if (sess.mode !== "po" || sess.board?.type !== "roundElim") {
+    res.status(400);
+    throw new Error("Chỉ hỗ trợ PO.");
+  }
+  // ở đây bạn có thể gọi solvePoAssignment nếu có, còn không thì chỉ trả về preplan cho FE render
+  return res.json({ ok: true, preplan: sess.preplan, board: sess.board });
 });

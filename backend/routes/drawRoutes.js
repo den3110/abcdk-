@@ -9,6 +9,8 @@ import {
   getDrawStatusByBracket,
   generateGroupMatches,
   assignByes,
+  updatePoPreplan,
+  previewPoPreplan,
 } from "../controllers/drawController.js";
 import { protect, authorize } from "../middleware/authMiddleware.js";
 
@@ -23,5 +25,8 @@ router.post("/:drawId/cancel", protect, authorize("admin"), drawCancel);
 router.get("/:drawId", protect, authorize("admin"), getDrawSession);
 router.get("/brackets/:bracketId/draw/status", protect, authorize("admin"), getDrawStatusByBracket);
 router.post("/brackets/:bracketId/group/generate-matches", protect, authorize("admin"), generateGroupMatches);
+
+router.post("/sessions/:drawId/po/preplan", protect,  authorize("admin"), updatePoPreplan);
+router.get("/sessions/:drawId/po/preplan/preview", protect,  authorize("admin"), previewPoPreplan);
 
 export default router;

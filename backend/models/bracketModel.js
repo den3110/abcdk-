@@ -5,35 +5,72 @@ import seedSourceSchema from "./seedSourceSchema.js";
 
 const { Schema } = mongoose;
 
-/** Sub-schema: metadata nhẹ cho UI (không ràng buộc logic business) */
+/* ====== PO PREPLAN SUB-SCHEMAS ====== */
+const PoFixedSchema = new Schema(
+  {
+    pairIndex: { type: Number, min: 0, required: true }, // 0-based
+    side: { type: String, enum: ["A", "B"], default: "A" },
+    reg: { type: Schema.Types.ObjectId, ref: "Registration", default: null }, // cố định 1 đội
+    label: { type: String, default: "" }, // ví dụ: "Nhất bảng A"
+    note: { type: String, default: "" },
+    locked: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
+const PoPoolSchema = new Schema(
+  {
+    pairIndex: { type: Number, min: 0, required: true },
+    side: { type: String, enum: ["A", "B"], default: "A" },
+    // 👇 nhiều đội để random 1 đội
+    candidates: [{ type: Schema.Types.ObjectId, ref: "Registration" }],
+    note: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const PoPreplanSchema = new Schema(
+  {
+    fixed: { type: [PoFixedSchema], default: [] },
+    pools: { type: [PoPoolSchema], default: [] },
+    avoidPairs: [
+      {
+        a: { type: Number, min: 0 },
+        b: { type: Number, min: 0 },
+      },
+    ],
+    mustPairs: [
+      {
+        a: { type: Number, min: 0 },
+        b: { type: Number, min: 0 },
+      },
+    ],
+  },
+  { _id: false }
+);
+/* ==================================== */
+
+/** Sub-schema: metadata nhẹ cho UI */
 const bracketMetaSchema = new Schema(
   {
-    /** Quy mô vẽ khung (2^n đội). Nếu truyền số bất kỳ, sẽ được làm tròn lên 2^k trong pre-save. */
     drawSize: { type: Number, default: 0 },
-    /** Số vòng tối đa (n). Nếu có drawSize > 0, sẽ tính = log2(drawSize) trong pre-save. */
     maxRounds: { type: Number, default: 0 },
-    /** Số cặp dự kiến ở vòng 1 (drawSize / 2) */
     expectedFirstRoundMatches: { type: Number, default: 0 },
   },
   { _id: false }
 );
 
-/** ⭐ Dàn xếp slot (pre-assign) cho vòng bảng/round-robin/GSL */
+/** ⭐ Dàn xếp slot (pre-assign) cho vòng bảng */
 const SlotPlanSchema = new Schema(
   {
-    /** Khóa bảng: dùng cùng giá trị với group.name (VD: "A","B","C"...). */
     poolKey: { type: String, required: true },
-    /** Vị trí trong bảng (1-based). */
     slotIndex: { type: Number, required: true, min: 1 },
-    /** Registration được chỉ định vào slot. */
     registration: {
       type: Schema.Types.ObjectId,
       ref: "Registration",
       required: true,
     },
-    /** Khoá slot: true = giữ nguyên khi bốc thăm/fill. */
     locked: { type: Boolean, default: true },
-    /** Ghi chú & auditor */
     note: { type: String, default: "" },
     by: { type: Schema.Types.ObjectId, ref: "User" },
     updatedAt: { type: Date, default: Date.now },
@@ -41,25 +78,20 @@ const SlotPlanSchema = new Schema(
   { _id: false }
 );
 
-/** Nhóm/pool dùng cho round-robin & GSL */
 const groupSchema = new Schema(
   {
-    /** Nhãn bảng (A/B/C...). Đây cũng là khóa dùng bởi slotPlan.poolKey */
-    name: { type: String, required: true }, // ví dụ: "A", "B", "C"...
-    /** Quy mô dự kiến của bảng (số slot). */
+    name: { type: String, required: true },
     expectedSize: { type: Number, default: 0 },
-    /** Nếu bạn đang lưu đội đã gắn thực tế vào bảng. */
     regIds: [{ type: Schema.Types.ObjectId, ref: "Registration" }],
   },
   { _id: true, toJSON: { virtuals: true }, toObject: { virtuals: true } }
 );
 
-/** Giữ tương thích FE cũ: g.key & g.size */
+// giữ tương thích FE cũ
 groupSchema.virtual("key").get(function () {
   return this.name;
 });
 groupSchema.virtual("size").get(function () {
-  // Ưu tiên expectedSize; fallback regIds.length
   if (Number.isFinite(this.expectedSize) && this.expectedSize > 0)
     return this.expectedSize;
   return Array.isArray(this.regIds) ? this.regIds.length : 0;
@@ -72,16 +104,8 @@ const bracketSchema = new Schema(
       ref: "Tournament",
       required: true,
     },
-    noRankDelta: { type: Boolean, default: false }, // ⭐ NEW
+    noRankDelta: { type: Boolean, default: false },
     name: { type: String, required: true },
-
-    /**
-     * Hỗ trợ:
-     * - "group"
-     * - "knockout"
-     * - "roundElim"
-     * - "double_elim" / "round_robin" / "swiss" / "gsl" (mở rộng)
-     */
     type: {
       type: String,
       enum: [
@@ -96,13 +120,10 @@ const bracketSchema = new Schema(
       default: "knockout",
       index: true,
     },
-
     stage: { type: Number, default: 1 },
     order: { type: Number, default: 0 },
 
-    /** Cấu hình thể thức (mặc định giữ nguyên như bạn đang dùng) */
     config: {
-      // Luật trận mặc định cho bracket (match có thể override)
       rules: {
         bestOf: { type: Number, enum: [1, 3, 5], default: 1 },
         pointsToWin: { type: Number, enum: [11, 15, 21], default: 11 },
@@ -113,15 +134,9 @@ const bracketSchema = new Schema(
             enum: ["none", "hard", "soft"],
             default: "none",
           },
-          points: {
-            type: Number,
-            min: 1,
-            default: null, // ví dụ 15 => chạm 15
-          },
+          points: { type: Number, min: 1, default: null },
         },
       },
-
-      // Cấu hình seed/bốc thăm
       seeding: {
         method: {
           type: String,
@@ -135,13 +150,9 @@ const bracketSchema = new Schema(
         },
         protectSameClub: { type: Boolean, default: false },
       },
-
-      // Double Elimination
       doubleElim: {
         hasGrandFinalReset: { type: Boolean, default: true },
       },
-
-      // Round Robin
       roundRobin: {
         points: {
           win: { type: Number, default: 1 },
@@ -153,8 +164,6 @@ const bracketSchema = new Schema(
         },
         groupSize: { type: Number, default: 4 },
       },
-
-      // Swiss
       swiss: {
         rounds: { type: Number, default: 4 },
         points: {
@@ -166,26 +175,19 @@ const bracketSchema = new Schema(
           model: { type: String, default: "hungarian" },
         },
       },
-
-      // GSL
       gsl: {
         groupSize: { type: Number, default: 4 },
       },
-
-      // (tuỳ bạn mở rộng: config.roundElim nếu muốn)
       roundElim: {
-        drawSize: { type: Number, default: 0 }, // nếu bạn muốn lưu riêng cho roundElim
-        cutRounds: { type: Number, default: 0 }, // k: n → n/(2^k)
+        drawSize: { type: Number, default: 0 },
+        cutRounds: { type: Number, default: 0 },
       },
     },
 
-    /** Dùng cho round_robin/gsl nếu cần */
     groups: [groupSchema],
 
-    /** ⭐ Pre-assign slot kế hoạch cho vòng bảng (không bắt buộc) */
     slotPlan: { type: [SlotPlanSchema], default: [] },
 
-    // Trạng thái quy trình draw
     drawStatus: {
       type: String,
       enum: ["planned", "preassigned", "drawn", "in_progress", "done"],
@@ -193,43 +195,41 @@ const bracketSchema = new Schema(
       index: true,
     },
 
-    // Optional: cờ tôn trọng pre-assign khi bốc thăm/fill
     drawConfig: {
       respectPreassignments: { type: Boolean, default: true },
     },
 
-    // Counters
     matchesCount: { type: Number, default: 0 },
     teamsCount: { type: Number, default: 0 },
 
-    // Cấu hình bốc thăm chung
     drawSettings: { type: DrawSettingsSchema, default: () => ({}) },
 
-    /** KO scale theo số vòng: drawRounds = n → drawSize = 2^n (UI dùng meta để hiển thị) */
     drawRounds: { type: Number, default: 0 },
 
-    /** ⭐ META nhẹ cho UI (quy mô hiển thị) */
     meta: { type: bracketMetaSchema, default: () => ({}) },
 
     prefill: {
-      roundKey: { type: String, default: "" }, // "R16"
+      roundKey: { type: String, default: "" },
       seeds: [
         {
-          pair: { type: Number, required: true }, // 1..N ở vòng đầu
+          pair: { type: Number, required: true },
           A: { type: seedSourceSchema, default: null },
           B: { type: seedSourceSchema, default: null },
         },
       ],
     },
 
+    // 👇 chính cái này để FE cơ cấu trước, BE bốc ra đúng
+    poPreplan: { type: PoPreplanSchema, default: () => ({}) },
+
     feedPolicy: [
       {
-        to: { type: String, required: true }, // ví dụ "R1#3A" (round 1, match #3, slot A)
-        from: seedSourceSchema, // nguồn cố định
+        to: { type: String, required: true },
+        from: seedSourceSchema,
       },
     ],
     scheduler: {
-      autoAssign: { type: Boolean, default: true }, // true: tự động fill sau mỗi trận kết thúc
+      autoAssign: { type: Boolean, default: true },
     },
   },
   { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } }
@@ -244,11 +244,9 @@ function isPow2(n) {
   return Number.isInteger(n) && n >= 1 && (n & (n - 1)) === 0;
 }
 
-// Đồng bộ meta trước khi lưu (an toàn)
 bracketSchema.pre("save", function (next) {
   this.meta = this.meta || {};
 
-  // Nếu có meta.drawSize → làm tròn lên 2^k và sync maxRounds/expectedFirstRoundMatches
   if (typeof this.meta.drawSize === "number" && this.meta.drawSize > 0) {
     const pow2 = isPow2(this.meta.drawSize)
       ? this.meta.drawSize
@@ -258,7 +256,6 @@ bracketSchema.pre("save", function (next) {
     this.meta.expectedFirstRoundMatches = pow2 / 2;
   }
 
-  // Nếu type = knockout & có drawRounds mà meta còn thiếu → sync meta từ drawRounds
   if (
     this.type === "knockout" &&
     Number.isInteger(this.drawRounds) &&
@@ -277,9 +274,7 @@ bracketSchema.pre("save", function (next) {
 
 bracketSchema.index({ tournament: 1, order: 1 });
 bracketSchema.index({ tournament: 1, type: 1 });
-// Tối ưu truy vấn theo tournament + sort
 bracketSchema.index({ tournament: 1, stage: 1, order: 1 });
-// Hỗ trợ lọc nhanh các slot đã dàn xếp theo bảng/slotIndex (không đảm bảo uniqueness trong array)
 bracketSchema.index({ "slotPlan.poolKey": 1, "slotPlan.slotIndex": 1 });
 
 export default mongoose.model("Bracket", bracketSchema);

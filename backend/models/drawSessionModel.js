@@ -1,9 +1,8 @@
-// models/drawSessionModel.js
 import mongoose from "mongoose";
 
 const GroupBoardSchema = new mongoose.Schema(
   {
-    key: { type: String, required: true }, // 'A','B',...
+    key: { type: String, required: true },
     size: { type: Number, required: true },
     slots: [
       {
@@ -33,6 +32,75 @@ const KnockoutPairSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/* ================== PREPLAN CHO PO ================== */
+const PreplanFixedSchema = new mongoose.Schema(
+  {
+    pairIndex: { type: Number, required: true, min: 0 },
+    side: { type: String, enum: ["A", "B"], required: true },
+    reg: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Registration",
+      required: true,
+    },
+    note: { type: String, default: "" },
+    locked: { type: Boolean, default: true },
+  },
+  { _id: false }
+);
+
+const PreplanPoolSchema = new mongoose.Schema(
+  {
+    pairIndex: { type: Number, required: true, min: 0 },
+    side: { type: String, enum: ["A", "B"], required: true },
+    candidates: [{ type: mongoose.Schema.Types.ObjectId, ref: "Registration" }],
+    note: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const PreplanSchema = new mongoose.Schema(
+  {
+    fixed: { type: [PreplanFixedSchema], default: [] },
+    pools: { type: [PreplanPoolSchema], default: [] },
+    avoidPairs: {
+      type: [
+        {
+          a: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Registration",
+            required: true,
+          },
+          b: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Registration",
+            required: true,
+          },
+        },
+      ],
+      default: [],
+    },
+    mustPairs: {
+      type: [
+        {
+          a: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Registration",
+            required: true,
+          },
+          b: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Registration",
+            required: true,
+          },
+        },
+      ],
+      default: [],
+    },
+  },
+  { _id: false }
+);
+/* ==================================================== */
+
 const DrawSessionSchema = new mongoose.Schema(
   {
     tournament: {
@@ -47,10 +115,16 @@ const DrawSessionSchema = new mongoose.Schema(
     },
 
     mode: { type: String, enum: ["group", "knockout", "po"], required: true },
+
+    // cho phép R<number> bất kỳ + QF/SF/F
     targetRound: {
       type: String,
-      enum: ["R256", "R128", "R64", "R32", "R16", "QF", "SF", "F", null],
       default: null,
+      validate: {
+        validator: (v) =>
+          v === null || /^R\d+$/i.test(v) || /^(QF|SF|F)$/i.test(v),
+        message: 'targetRound phải là null, "R<number>" (vd: R20) hoặc QF/SF/F',
+      },
     },
 
     status: {
@@ -63,7 +137,6 @@ const DrawSessionSchema = new mongoose.Schema(
     pool: [{ type: mongoose.Schema.Types.ObjectId, ref: "Registration" }],
     taken: [{ type: mongoose.Schema.Types.ObjectId, ref: "Registration" }],
 
-    // >>> BOARD (khai báo đầy đủ cả 2 mode)
     board: {
       type: {
         type: String,
@@ -72,24 +145,26 @@ const DrawSessionSchema = new mongoose.Schema(
       },
       roundKey: { type: String, default: null },
 
-      // group mode
       groups: {
         type: [GroupBoardSchema],
-        default: undefined, // chỉ có khi type='group'
+        default: undefined,
       },
 
-      // knockout mode
+      // dùng cho knockout & roundElim
       pairs: {
         type: [KnockoutPairSchema],
-        default: undefined, // chỉ có khi type='knockout'
+        default: undefined,
       },
     },
 
+    // >>> NEW: preplan cho PO
+    preplan: { type: PreplanSchema, default: () => ({}) },
+
     cursor: {
-      gIndex: { type: Number, default: 0 }, // group mode
-      slotIndex: { type: Number, default: 0 }, // group mode
-      pairIndex: { type: Number, default: 0 }, // ko mode
-      side: { type: String, enum: ["A", "B", null], default: "A" }, // ko mode
+      gIndex: { type: Number, default: 0 },
+      slotIndex: { type: Number, default: 0 },
+      pairIndex: { type: Number, default: 0 },
+      side: { type: String, enum: ["A", "B", null], default: "A" },
     },
 
     settings: {
@@ -135,7 +210,6 @@ const DrawSessionSchema = new mongoose.Schema(
       },
     },
 
-    // Audit / scoring (optional)
     score: { type: Number, default: 0 },
     metrics: {
       groupFairness: { type: Number, default: 0 },
@@ -160,7 +234,6 @@ const DrawSessionSchema = new mongoose.Schema(
       },
     ],
 
-    // Meta để rebuild khi cần
     computedMeta: {
       ko: {
         entrants: Number,
@@ -173,6 +246,13 @@ const DrawSessionSchema = new mongoose.Schema(
       group: {
         sizes: [Number],
         count: Number,
+        byes: Number,
+      },
+      // >>> NEW: po meta
+      po: {
+        entrants: Number,
+        stageTeams: Number,
+        pairCount: Number,
         byes: Number,
       },
     },
