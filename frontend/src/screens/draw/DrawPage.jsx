@@ -1484,6 +1484,32 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                 }`
               : "none";
 
+          // 🆕 tên cặp: ưu tiên meta.pairIndex server trả về
+          const pairTitle =
+            mode !== "group"
+              ? typeof c.meta?.pairIndex === "number"
+                ? `Cặp #${Number(c.meta.pairIndex) + 1}`
+                : c.pairId != null
+                ? `Cặp #${c.pairId + 1}`
+                : null
+              : null;
+
+          // 🆕 nếu cặp đã đủ 2 thẻ và thẻ kia đã lật, lấy tên để hiển thị "vs ..."
+          let mateName = null;
+          if (mode !== "group" && c.pairId != null) {
+            const mates = pairLinks[c.pairId] || [];
+            const otherIdx = mates.find((x) => x !== idx);
+            if (typeof otherIdx === "number") {
+              // thử lấy từ displayDeck trước, nếu không có thì lấy từ deck gốc
+              const otherCard =
+                (otherIdx < displayDeck.length && displayDeck[otherIdx]) ||
+                (otherIdx < deck.length && deck[otherIdx]);
+              if (otherCard?.label) {
+                mateName = otherCard.label;
+              }
+            }
+          }
+
           return (
             <Box
               key={c.key}
@@ -1501,7 +1527,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                   : "pointer",
                 transition: "transform .18s ease",
                 transform: !isGhost && isHovered ? "translateY(-2px)" : "none",
-                opacity: isGhost ? 0.35 : 1, // ô trống mờ
+                opacity: isGhost ? 0.35 : 1,
                 pointerEvents: isGhost ? "none" : "auto",
               }}
             >
@@ -1515,7 +1541,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                   transform: c.flipped ? "rotateY(180deg)" : "rotateY(0deg)",
                 }}
               >
-                {/* Back */}
+                {/* Mặt sau */}
                 <Box
                   sx={{
                     position: "absolute",
@@ -1545,7 +1571,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                   )}
                 </Box>
 
-                {/* Front */}
+                {/* Mặt trước */}
                 <Box
                   sx={{
                     position: "absolute",
@@ -1565,9 +1591,12 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                 >
                   {!isGhost && (
                     <Box sx={{ px: 0.5 }}>
+                      {/* tên đội vừa bốc */}
                       <Typography sx={{ fontWeight: 800, lineHeight: 1.2 }}>
                         {c.label || "…"}
                       </Typography>
+
+                      {/* group mode: giữ nguyên */}
                       {mode === "group" && c.meta?.groupCode != null && (
                         <Typography
                           variant="caption"
@@ -1575,6 +1604,33 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                         >
                           Bảng {c.meta.groupCode} • Slot{" "}
                           {Number(c.meta.slotIndex) + 1}
+                        </Typography>
+                      )}
+
+                      {/* 🆕 KO/PO: show tên cặp */}
+                      {mode !== "group" && pairTitle && (
+                        <Typography
+                          variant="caption"
+                          sx={{ opacity: 0.85, display: "block", mt: 0.35 }}
+                        >
+                          {pairTitle}
+                          {/* nếu server gửi side thì show luôn cho ref biết */}
+                          {c.meta?.side && (
+                            <span style={{ opacity: 0.6 }}>
+                              {" "}
+                              • {c.meta.side === "A" ? "Side A" : "Side B"}
+                            </span>
+                          )}
+                        </Typography>
+                      )}
+
+                      {/* 🆕 nếu cặp đã đủ 2 đội thì hiển thị vs */}
+                      {mode !== "group" && mateName && (
+                        <Typography
+                          variant="caption"
+                          sx={{ opacity: 0.6, display: "block", mt: 0.25 }}
+                        >
+                          vs {mateName}
                         </Typography>
                       )}
                     </Box>
