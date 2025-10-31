@@ -992,10 +992,9 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
   dto.taken = Array.isArray(dto.taken) ? dto.taken : [];
   dto.board = dto.board ?? {};
   dto.cursor = dto.cursor ?? null;
-  dto.mode =
-    dto.mode ?? (Array.isArray(dto.board?.groups) ? "group" : "knockout");
+  dto.mode = dto.mode ?? (Array.isArray(dto.board?.groups) ? "group" : "knockout");
 
-  // ========== chuẩn hoá board ==========
+  // ========== chuẩn hoá board ========== //
   if (dto.mode === "group") {
     if (!Array.isArray(dto.board.groups) || dto.board.groups.length === 0) {
       const ok = rebuildGroupsFromMeta(dto);
@@ -1043,12 +1042,7 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     }
 
     // ưu tiên slotPlan đã cơ cấu sẵn
-    let chosen = await findPreassignedRegForSlot(
-      sess.bracket,
-      dto.board,
-      gi,
-      si
-    );
+    let chosen = await findPreassignedRegForSlot(sess.bracket, dto.board, gi, si);
 
     // nếu slot đó chưa được cơ cấu → rơi về pool chung
     if (!chosen) {
@@ -1101,8 +1095,7 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
       .populate("player2", "nickName fullName name displayName")
       .lean();
     const nextName =
-      displayNameFromReg(reg, dto.__eventType) ||
-      `#${String(chosen).slice(-6)}`;
+      displayNameFromReg(reg, dto.__eventType) || `#${String(chosen).slice(-6)}`;
 
     const out = sess.toObject();
     out.next = {
@@ -1120,6 +1113,8 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
   // ==================================================================
 
   if (!Array.isArray(dto.pool) || dto.pool.length === 0) {
+    // KO/PO mà không còn pool thì đúng là case xấu → nhưng user muốn KHÔNG báo lỗi cụm kia
+    // mình vẫn để 400 chung chung
     res.status(400);
     throw new Error("Pool is empty");
   }
@@ -1150,6 +1145,7 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     return false;
   };
 
+  // slot phía sau hay không
   const slotIsAfter = (targetPi, targetSide, curPi, curSide) => {
     if (targetPi > curPi) return true;
     if (targetPi < curPi) return false;
@@ -1158,10 +1154,11 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     return false;
   };
 
+  // chuẩn chỉ số: nhận cả 1-based (pair) và 0-based (pairIndex)
   const normIndex = (x) => {
     if (x == null) return null;
-    if (typeof x.pairIndex === "number") return x.pairIndex;
-    if (typeof x.pair === "number") return x.pair - 1;
+    if (typeof x.pairIndex === "number") return x.pairIndex; // đã 0-based
+    if (typeof x.pair === "number") return x.pair - 1; // 1-based → 0-based
     return null;
   };
 
@@ -1195,10 +1192,10 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     const poolsAll = Array.isArray(preplan.pools) ? preplan.pools : [];
 
     // ================= 1) cố định đúng slot này trước =================
-    // ở đây slot này có thể có nhiều fixed (ít gặp) → lấy cái đầu còn dùng được
     const fixedForThis = fixedAll.filter((f) => {
       const idx = normIndex(f);
       if (idx == null) return false;
+      // vì FE đôi khi gửi 1-based, đôi khi 0-based nên mình cho phép idx===pi hoặc idx===pi+1
       return f.side === side && (idx === pi || idx === pi + 1);
     });
 
@@ -1212,7 +1209,7 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
       }
     }
 
-    // ================= 2) nếu chưa có → gom TẤT CẢ pools của slot này =================
+    // ================= 2) nếu chưa có → gom pools của slot này =================
     if (!chosen) {
       const poolsForThis = poolsAll.filter((p) => {
         const idx = normIndex(p);
@@ -1221,11 +1218,9 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
       });
 
       if (poolsForThis.length) {
-        // gộp candidates từ nhiều mảng → unique
         const candSet = new Set();
         for (const p of poolsForThis) {
           for (const c of p.candidates || []) {
-            // chỉ add nếu chưa dùng ở slot trước
             if (!isRegUsed(dto.board, dto.taken, c)) {
               candSet.add(String(c));
             }
@@ -1233,14 +1228,12 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
         }
         const available = Array.from(candSet);
         if (available.length) {
-          // random TRONG CHÍNH DANH SÁCH NÀY
           chosen = pickRandom(available);
         }
       }
     }
 
-    // ================= 3) build danh sách đội để dành cho slot SAU =================
-    // mục đích: khi fallback từ pool chung thì không chạm vào các đội đã cơ cấu cho slot sau
+    // ================= 3) build reserved cho slot phía sau =================
     for (const f of fixedAll) {
       const fIdx = normIndex(f);
       const fSide = f.side === "B" ? "B" : "A";
@@ -1263,26 +1256,50 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
 
   // ================= 4) Fallback về pool chung =================
   if (!chosen) {
-    // pool chung nhưng loại hết đội đã cơ cấu cho slot sau + đội đã dùng
-    const filteredPool = dto.pool.filter(
-      (id) =>
-        !reservedForLater.has(String(id)) &&
-        !isRegUsed(dto.board, dto.taken, id)
+    const basePool = Array.isArray(dto.pool) ? dto.pool.map(String) : [];
+
+    // 4a. ưu tiên: không dùng rồi + không thuộc slot phía sau
+    const primary = basePool.filter(
+      (id) => !reservedForLater.has(id) && !isRegUsed(dto.board, dto.taken, id)
     );
 
-    if (!filteredPool.length) {
-      res.status(400);
-      throw new Error(
-        "Pool hiện chỉ còn các đội đã được cơ cấu cho slot phía sau, không thể bốc ngẫu nhiên."
-      );
+    // 4b. nếu không còn gì → cho phép đội đã được dành cho slot sau, nhưng chưa dùng
+    const secondary = basePool.filter((id) => !isRegUsed(dto.board, dto.taken, id));
+
+    // helper chạy lại selectNextCandidate nhưng trên tập filter
+    const runSelectWith = async (ids) => {
+      const backup = dto.pool;
+      dto.pool = ids.map(asId);
+      const picked = await selectNextCandidate(dto);
+      dto.pool = backup;
+      return picked ? String(picked) : null;
+    };
+
+    if (primary.length) {
+      // dùng lại logic chọn cũ để đảm bảo random/wighting như trước
+      chosen = await runSelectWith(primary);
     }
 
-    // mượn lại hàm cũ để vẫn giữ logic chọn của bạn
-    const backup = dto.pool;
-    dto.pool = filteredPool;
-    chosen = await selectNextCandidate(dto);
-    dto.pool = backup;
+    if (!chosen && secondary.length) {
+      chosen = await runSelectWith(secondary);
+    }
 
+    // 4c. nếu vẫn chưa có → chọn bừa từ pool gốc (kể cả reserved)
+    if (!chosen && basePool.length) {
+      chosen = pickRandom(basePool);
+    }
+
+    // 4d. nếu vẫn chưa có → lấy từ reservedForLater
+    if (!chosen && reservedForLater.size) {
+      chosen = pickRandom(Array.from(reservedForLater));
+    }
+
+    // 4e. nếu vẫn chưa có → lấy từ taken (cho phép trùng, để KHÔNG lỗi)
+    if (!chosen && Array.isArray(dto.taken) && dto.taken.length) {
+      chosen = String(dto.taken[dto.taken.length - 1]);
+    }
+
+    // 4f. nếu vẫn null → thật sự không còn ai để pick
     if (!chosen) {
       res.status(400);
       throw new Error("No candidate available");
@@ -1339,8 +1356,7 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     .populate("player2", "nickName fullName name displayName")
     .lean();
   const nextName =
-    displayNameFromReg(reg, dto.__eventType) ||
-    `#${String(chosenStr).slice(-6)}`;
+    displayNameFromReg(reg, dto.__eventType) || `#${String(chosenStr).slice(-6)}`;
 
   const out = sess.toObject();
   out.next = {
