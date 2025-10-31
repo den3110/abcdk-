@@ -1,5 +1,5 @@
 // src/screens/RegisterScreen.jsx
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef, useEffect } from "react"; // ✅ NEW: useEffect
 import React from "react";
 import {
   Box,
@@ -21,9 +21,13 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { useDispatch } from "react-redux";
 import { useRegisterMutation } from "../slices/usersApiSlice";
-import { useUploadAvatarMutation } from "../slices/uploadApiSlice"; // 👈 chỉ còn avatar thôi
+import {
+  useUploadAvatarMutation,
+  useUploadRegisterCccdMutation,
+} from "../slices/uploadApiSlice";
 import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
+import CccdDropzone from "../components/CccdDropzone";
 
 /* MUI X Date Pickers */
 import dayjs from "dayjs";
@@ -121,7 +125,9 @@ const EMPTY = {
   gender: "unspecified",
   avatar: "",
 };
+const norm = (p) => (typeof p === "string" ? p.replace(/\\/g, "/") : "");
 
+/* ---------- Component ---------- */
 export default function RegisterScreen() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -129,6 +135,8 @@ export default function RegisterScreen() {
   const [register, { isLoading }] = useRegisterMutation();
   const [uploadAvatar, { isLoading: uploadingAvatar }] =
     useUploadAvatarMutation();
+  const [uploadRegisterCccd, { isLoading: uploadingCccd }] =
+    useUploadRegisterCccdMutation();
 
   const [form, setForm] = useState(EMPTY);
   const [touched, setTouched] = useState({});
@@ -138,10 +146,15 @@ export default function RegisterScreen() {
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState("");
 
+  // CCCD images (files)
+  const [frontImg, setFrontImg] = useState(null);
+  const [backImg, setBackImg] = useState(null);
+
   // Refs để scroll tới khu vực lỗi
   const avatarRef = useRef(null);
-
+  const cccdRef = useRef(null);
   const [highlightAvatar, setHighlightAvatar] = useState(false);
+  const [highlightCccd, setHighlightCccd] = useState(false);
 
   const dobValue = useMemo(() => {
     if (!form.dob) return null;
@@ -163,6 +176,7 @@ export default function RegisterScreen() {
   const onBlur = (e) => {
     const { name } = e.target;
     setTouched((t) => ({ ...t, [name]: true }));
+    // ✅ NEW: re-validate ngay khi blur để nếu hợp lệ thì xóa khung đỏ
     setErrors((prev) => {
       const next = validate({ ...form });
       return next;
@@ -205,24 +219,33 @@ export default function RegisterScreen() {
     if (!d.cccd.trim()) e.cccd = "Bắt buộc";
     else if (!/^\d{12}$/.test(d.cccd.trim())) e.cccd = "CCCD phải đủ 12 số";
 
-    // Avatar vẫn bắt
+    // Required images (chỉ tạo lỗi để hiển thị, KHÔNG disable nút)
     if (!avatarFile) e.avatar = "Vui lòng tải ảnh đại diện.";
+    if (!frontImg) e.cccdFront = "Vui lòng tải ảnh CCCD mặt trước.";
+    if (!backImg) e.cccdBack = "Vui lòng tải ảnh CCCD mặt sau.";
+
+    // Size guards
     if (avatarFile && avatarFile.size > MAX_FILE_SIZE)
       e.avatar = "Ảnh không vượt quá 10MB";
+    if (frontImg && frontImg.size > MAX_FILE_SIZE)
+      e.cccdFront = "Ảnh không vượt quá 10MB";
+    if (backImg && backImg.size > MAX_FILE_SIZE)
+      e.cccdBack = "Ảnh không vượt quá 10MB";
 
-    // ❗️KHÔNG còn validate ảnh CCCD nữa
     return e;
   };
 
-  // luôn tính lại lỗi khi form/ảnh thay đổi
+  // ✅ NEW: luôn tính lại lỗi khi form/ảnh thay đổi
   useEffect(() => {
     setErrors(validate(form));
-  }, [form, avatarFile]);
+  }, [form, avatarFile, frontImg, backImg]); // đảm bảo sửa xong là hết đỏ
 
-  // nếu avatar ok thì tắt highlight
+  // ✅ NEW: nếu đã hợp lệ, tắt highlight khối Avatar/CCCD
   useEffect(() => {
     if (!errors.avatar) setHighlightAvatar(false);
-  }, [errors.avatar]);
+    if (!errors.cccdFront && !errors.cccdBack && isCccdValid)
+      setHighlightCccd(false);
+  }, [errors.avatar, errors.cccdFront, errors.cccdBack, isCccdValid]);
 
   const jumpAndHighlight = (ref, setHighlight) => {
     ref?.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -244,18 +267,22 @@ export default function RegisterScreen() {
       province: true,
       gender: true,
       avatar: true,
-      // ❌ không còn cccdFront / cccdBack
+      cccdFront: true,
+      cccdBack: true,
     });
 
     const errs = validate(form);
     setErrors(errs);
 
+    // Nếu thiếu ảnh → scroll tới khu vực liên quan & hiển thị helper text
     if (errs.avatar) {
       jumpAndHighlight(avatarRef, setHighlightAvatar);
+    } else if (errs.cccdFront || errs.cccdBack || !isCccdValid) {
+      jumpAndHighlight(cccdRef, setHighlightCccd);
     }
 
     if (Object.keys(errs).length) {
-      toast.error("Vui lòng kiểm tra lại thông tin.");
+      toast.error("Vui lòng kiểm tra và tải đủ ảnh/điền đủ thông tin.");
       return;
     }
 
@@ -268,7 +295,21 @@ export default function RegisterScreen() {
         if (!avatarUrl) throw new Error("Upload avatar thất bại");
       }
 
-      // 2) Register — chỉ gửi số CCCD, KHÔNG gửi ảnh
+      // 2) Upload CCCD front & back
+      let cccdFrontUrl = "";
+      let cccdBackUrl = "";
+      if (frontImg) {
+        const r1 = await uploadRegisterCccd(frontImg).unwrap();
+        cccdFrontUrl = norm(r1?.url);
+      }
+      if (backImg) {
+        const r2 = await uploadRegisterCccd(backImg).unwrap();
+        cccdBackUrl = norm(r2?.url);
+      }
+      if (!cccdFrontUrl || !cccdBackUrl)
+        throw new Error("Upload CCCD thất bại");
+
+      // 3) Register
       const payload = {
         name: form.name.trim(),
         nickname: form.nickname.trim(),
@@ -280,7 +321,7 @@ export default function RegisterScreen() {
         province: form.province,
         gender: form.gender,
         avatar: avatarUrl,
-        // cccdImages: { ... } // ❌ tạm ẩn
+        cccdImages: { front: cccdFrontUrl, back: cccdBackUrl },
       };
 
       const res = await register(payload).unwrap();
@@ -448,36 +489,36 @@ export default function RegisterScreen() {
             </FormControl>
 
             {/* DOB */}
-            <DatePicker
-              label="Ngày sinh"
-              value={dobValue}
-              onChange={(newVal) => {
-                setTouched((t) => ({ ...t, dob: true }));
-                setForm((p) => ({
-                  ...p,
-                  dob:
-                    newVal && newVal.isValid()
-                      ? newVal.format("YYYY-MM-DD")
-                      : "",
-                }));
-              }}
-              format="DD/MM/YYYY"
-              minDate={MIN_DOB}
-              defaultCalendarMonth={MIN_DOB}
-              referenceDate={MIN_DOB}
-              disableFuture
-              views={["year", "month", "day"]}
-              slotProps={{
-                textField: {
-                  fullWidth: true,
-                  required: true,
-                  placeholder: "DD/MM/YYYY",
-                  onBlur: () => setTouched((t) => ({ ...t, dob: true })),
-                  error: showErr("dob"),
-                  helperText: showErr("dob") ? errors.dob : " ",
-                },
-              }}
-            />
+              <DatePicker
+                label="Ngày sinh"
+                value={dobValue}
+                onChange={(newVal) => {
+                  setTouched((t) => ({ ...t, dob: true }));
+                  setForm((p) => ({
+                    ...p,
+                    dob:
+                      newVal && newVal.isValid()
+                        ? newVal.format("YYYY-MM-DD")
+                        : "",
+                  }));
+                }}
+                format="DD/MM/YYYY"
+                minDate={MIN_DOB}
+                defaultCalendarMonth={MIN_DOB}
+                referenceDate={MIN_DOB}
+                disableFuture
+                views={["year", "month", "day"]}
+                slotProps={{
+                  textField: {
+                    fullWidth: true,
+                    required: true,
+                    placeholder: "DD/MM/YYYY",
+                    onBlur: () => setTouched((t) => ({ ...t, dob: true })),
+                    error: showErr("dob"),
+                    helperText: showErr("dob") ? errors.dob : " ",
+                  },
+                }}
+              />
 
             {/* Province */}
             <FormControl fullWidth required error={showErr("province")}>
@@ -525,11 +566,75 @@ export default function RegisterScreen() {
               helperText={showErr("cccd") ? errors.cccd : " "}
             />
 
-            {/* ❌ Tạm ẩn block upload ảnh CCCD
-            <Box>...</Box>
-            */}
+            {/* CCCD images */}
+            <Box
+              ref={cccdRef}
+              sx={{
+                p: 1,
+                borderRadius: 1.5,
+                transition: "box-shadow .2s, border-color .2s",
+                border: highlightCccd ? "1px solid" : "1px solid transparent",
+                borderColor: highlightCccd ? "error.main" : "transparent",
+                boxShadow: highlightCccd ? 3 : 0,
+              }}
+            >
+              <Typography variant="subtitle1" fontWeight={600}>
+                Ảnh CCCD (Bắt buộc)
+              </Typography>
+              {!isCccdValid && (
+                <Alert severity="info" sx={{ mt: 1 }}>
+                  Nhập <strong>số CCCD (12 số)</strong> hợp lệ trước khi gửi
+                  ảnh.
+                </Alert>
+              )}
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={2}
+                sx={{ mt: 1 }}
+              >
+                <CccdDropzone
+                  label="Mặt trước"
+                  file={frontImg}
+                  onFile={(f) => {
+                    setFrontImg(f);
+                    if (f && f.size > MAX_FILE_SIZE) {
+                      setErrors((p) => ({
+                        ...p,
+                        cccdFront: "Ảnh không vượt quá 10MB",
+                      }));
+                      jumpAndHighlight(cccdRef, setHighlightCccd);
+                    } else {
+                      setErrors((p) => ({ ...p, cccdFront: undefined }));
+                    }
+                  }}
+                />
+                <CccdDropzone
+                  label="Mặt sau"
+                  file={backImg}
+                  onFile={(f) => {
+                    setBackImg(f);
+                    if (f && f.size > MAX_FILE_SIZE) {
+                      setErrors((p) => ({
+                        ...p,
+                        cccdBack: "Ảnh không vượt quá 10MB",
+                      }));
+                      jumpAndHighlight(cccdRef, setHighlightCccd);
+                    } else {
+                      setErrors((p) => ({ ...p, cccdBack: undefined }));
+                    }
+                  }}
+                />
+              </Stack>
+              {(showErr("cccdFront") && errors.cccdFront) ||
+              (showErr("cccdBack") && errors.cccdBack) ? (
+                <Alert severity="error" sx={{ mt: 1 }} role="alert">
+                  {errors.cccdFront || errors.cccdBack}
+                </Alert>
+              ) : null}
+            </Box>
 
-            {/* Password */}
+            {/* Email + Password */}
+
             <TextField
               label="Mật khẩu"
               type="password"
@@ -563,12 +668,16 @@ export default function RegisterScreen() {
               fullWidth
               variant="contained"
               color="primary"
-              disabled={isLoading || uploadingAvatar}
+              disabled={isLoading || uploadingAvatar || uploadingCccd}
               startIcon={
-                (isLoading || uploadingAvatar) && <CircularProgress size={20} />
+                (isLoading || uploadingAvatar || uploadingCccd) && (
+                  <CircularProgress size={20} />
+                )
               }
             >
-              {isLoading || uploadingAvatar ? "Đang xử lý..." : "Đăng ký"}
+              {isLoading || uploadingAvatar || uploadingCccd
+                ? "Đang xử lý..."
+                : "Đăng ký"}
             </Button>
           </Stack>
         </Box>

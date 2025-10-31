@@ -1080,22 +1080,83 @@ export const planAuto = expressAsyncHandler(async (req, res) => {
  * }
  */
 /* ---------- Helper: tự động cho đội gặp BYE đi tiếp ---------- */
-const isByeSeed = (s) => !!s && String(s.type || "").toLowerCase() === "bye";
+const isByeSeed = (s) => {
+  if (!s) return false;
+  const t = String(s.type || "").toLowerCase();
+  if (t === "bye") return true;
+  // phòng trường hợp FE gửi label/name = "BYE"
+  const lbl = (s.label || s.name || "").toString().toUpperCase();
+  if (lbl === "BYE") return true;
+  return false;
+};
+
+// chuẩn hoá 1 rule để chắc chắn có đủ field
+function normalizeRule(r) {
+  if (!r) {
+    return {
+      bestOf: 1,
+      pointsToWin: 11,
+      winByTwo: true,
+      cap: { mode: "none", points: null },
+    };
+  }
+  const bestOf = Number(r.bestOf ?? 1);
+  const pointsToWin = Number(r.pointsToWin ?? 11);
+  const winByTwo = r.winByTwo !== false;
+  const rawMode = String(r?.cap?.mode ?? "none").toLowerCase();
+  const mode = ["none", "soft", "hard"].includes(rawMode) ? rawMode : "none";
+  let points = r?.cap?.points;
+  if (mode === "none") {
+    points = null;
+  } else {
+    const n = Number(points);
+    points = Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+  }
+  return {
+    bestOf,
+    pointsToWin,
+    winByTwo,
+    cap: { mode, points },
+  };
+}
+
+// gán rule vào bản ghi Match để cả FE/BE cũ đọc được
+function applyRuleToMatch(mDoc, ruleObj) {
+  const r = normalizeRule(ruleObj);
+  mDoc.rules = r;
+  mDoc.bestOf = r.bestOf;
+  mDoc.pointsToWin = r.pointsToWin;
+  mDoc.winByTwo = r.winByTwo;
+  mDoc.capMode = r.cap.mode;
+  mDoc.capPoints = r.cap.points;
+}
+
 /**
  * Sau khi build bracket, tự động:
  *  - Kết thúc các trận có 1 bên BYE (winner = bên còn lại)
  *  - Gán seed thắng thẳng vào trận vòng sau, xóa previousA/previousB tương ứng
- * Chạy nhiều pass để xử lý các chuỗi BYE liên tiếp (BYE→BYE→…).
+ *  - GÁN LUÔN RULE THEO VÒNG CHO CẢ TRẬN HIỆN TẠI & TRẬN VÒNG SAU
  */
 async function autoAdvanceByesForBracket(bracketId, session) {
   if (!bracketId) return;
 
+  // ⬅️ Lấy bracket để biết roundRules mà FE đã gửi
+  const bracket = await Bracket.findById(bracketId).session(session);
+
+  const baseRule = normalizeRule(bracket?.rules);
+  const roundRules = Array.isArray(bracket?.config?.roundRules)
+    ? bracket.config.roundRules.map((r) => normalizeRule(r))
+    : [];
+
+  const ruleForRound = (roundNum) => {
+    const idx = Math.max(0, Number(roundNum || 1) - 1);
+    return roundRules[idx] || baseRule;
+  };
+
   // Lấy toàn bộ trận của bracket
   let matches = await Match.find({ bracket: bracketId }).session(session);
 
-  // Dễ tra cứu
   const idOf = (x) => String(x?._id || x || "");
-  const byId = new Map(matches.map((m) => [idOf(m), m]));
 
   // Build chỉ số "trận kế tiếp" theo previousA/B
   const nextMap = new Map(); // matchId -> [{match,nextSide:'A'|'B'}]
@@ -1120,7 +1181,6 @@ async function autoAdvanceByesForBracket(bracketId, session) {
     pass += 1;
 
     for (const m of matches) {
-      // Bỏ qua trận không thuộc bracket (phòng hờ) hoặc đã kết thúc hợp lệ
       const status = String(m.status || "").toLowerCase();
       const aBye = isByeSeed(m.seedA);
       const bBye = isByeSeed(m.seedB);
@@ -1130,6 +1190,7 @@ async function autoAdvanceByesForBracket(bracketId, session) {
 
       const winnerSide = aBye ? "B" : "A";
       const advSeed = aBye ? m.seedB : m.seedA; // seed đi tiếp
+      const thisRound = Number(m.round || 1);
 
       // 1) Kết thúc trận nếu chưa kết thúc
       if (status !== "finished" || m.winner !== winnerSide) {
@@ -1137,9 +1198,13 @@ async function autoAdvanceByesForBracket(bracketId, session) {
         m.winner = winnerSide;
         m.startedAt = m.startedAt || new Date();
         m.finishedAt = new Date();
-        // gắn flag nhẹ để dễ debug (không bắt buộc)
         m.auto = true;
         m.autoReason = "bye";
+
+        // ⬅️ gán đúng rule của vòng hiện tại (VD: V2 là BO3 thì ở đây sẽ được BO3)
+        const curRule = ruleForRound(thisRound);
+        applyRuleToMatch(m, curRule);
+
         await m.save({ session });
         changed = true;
       }
@@ -1154,6 +1219,12 @@ async function autoAdvanceByesForBracket(bracketId, session) {
         if (idOf(nx[sideKeyPrev]) === idOf(m)) {
           nx[sideKeySeed] = advSeed; // giữ nguyên object seed (registration/groupRank/…)
           nx[sideKeyPrev] = undefined; // bỏ phụ thuộc, hiển thị seed luôn
+
+          // ⬅️ và gán rule cho TRẬN VÒNG SAU theo round của nó
+          const nxRound = Number(nx.round || thisRound + 1);
+          const nxRule = ruleForRound(nxRound);
+          applyRuleToMatch(nx, nxRule);
+
           await nx.save({ session });
           changed = true;
         }
@@ -1178,11 +1249,17 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       throw new Error("Tournament not found");
     }
 
-    const { groups, po, ko } = req.body || {};
+    const { groups, po, ko, force } = req.body || {};
     const created = { groupBracket: null, poBracket: null, koBracket: null };
 
-    const withCap = (rules) => {
+    // chuẩn hoá rule có CAP
+    const normalizeRule = (rules) => {
       if (!rules) return undefined;
+      const base = {
+        bestOf: Number(rules.bestOf ?? 1),
+        pointsToWin: Number(rules.pointsToWin ?? 11),
+        winByTwo: rules.winByTwo !== false,
+      };
       const rawMode = String(rules?.cap?.mode ?? "none").toLowerCase();
       const mode = ["none", "soft", "hard"].includes(rawMode)
         ? rawMode
@@ -1194,18 +1271,48 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         const n = Number(points);
         points = Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
       }
-      return { ...rules, cap: { mode, points } };
+      return { ...base, cap: { mode, points } };
     };
 
-    const hasGroup = Boolean(groups?.count > 0);
-    const hasPO = Boolean(po?.drawSize > 0);
-    const hasKO = Boolean(ko?.drawSize > 0);
+    // chuẩn hoá mảng rule theo round cho PO
+    const normalizeRoundRules = (arr, fallback, maxRounds) => {
+      if (!Array.isArray(arr) || !arr.length) {
+        // không gửi -> fill theo fallback
+        return Array.from({ length: maxRounds }, () => normalizeRule(fallback));
+      }
+      const out = arr.map((r) => normalizeRule(r || fallback));
+      // nếu FE gửi thiếu round -> fill thêm
+      while (out.length < maxRounds) {
+        out.push(normalizeRule(fallback));
+      }
+      // nếu gửi thừa -> cắt bớt
+      return out.slice(0, maxRounds);
+    };
+
+    const hasGroup = Boolean(Number(groups?.count) > 0);
+    const hasPO = Boolean(Number(po?.drawSize) > 0);
+    const hasKO = Boolean(Number(ko?.drawSize) > 0);
+
+    if (!hasGroup && !hasPO && !hasKO) {
+      res.status(400);
+      throw new Error("Nothing to create from plan");
+    }
+
+    // nếu FE cho phép ghi đè → xoá toàn bộ bracket cũ của giải này
+    if (force === true) {
+      try {
+        await Bracket.deleteMany({ tournament: t._id }).session(session);
+      } catch (err) {
+        // không xoá được cũng không làm hỏng transaction chính
+      }
+    }
 
     let orderCounter = 1;
     const groupOrder = hasGroup ? orderCounter++ : null;
     const poOrder = hasPO ? orderCounter++ : null;
     const koOrder = hasKO ? orderCounter++ : null;
 
+    // ===== GROUP =====
     if (hasGroup) {
       const payload = {
         tournamentId: t._id,
@@ -1213,52 +1320,77 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         order: groupOrder,
         stage: groupOrder,
         groupCount: Number(groups.count),
-        groupSize: Number(groups.size || 0) || undefined,
+        // nếu FE gửi totalTeams thì bỏ groupSize để builder tự chia
+        groupSize:
+          Number(groups.totalTeams || 0) > 0
+            ? undefined
+            : Number(groups.size || 0) || undefined,
         totalTeams: Number(groups.totalTeams || 0) || undefined,
         groupSizes: Array.isArray(groups.groupSizes)
           ? groups.groupSizes
           : undefined,
-        rules: withCap(groups?.rules),
+        // ✅ FE có gửi groups.qualifiersPerGroup
+        qualifiersPerGroup: Number(groups.qualifiersPerGroup || 1),
+        rules: normalizeRule(groups?.rules),
         session,
       };
       created.groupBracket = await buildGroupBracket(payload);
     }
 
+    // ===== PO =====
     if (hasPO) {
+      const drawSize = Number(po.drawSize);
+      const maxRounds = Math.max(1, Number(po.maxRounds || 1));
       const firstRoundSeeds = Array.isArray(po.seeds) ? po.seeds : [];
+
+      // ✅ chuẩn hoá rule tổng và từng round
+      const poRules = normalizeRule(po?.rules);
+      const poRoundRules = normalizeRoundRules(
+        po?.roundRules,
+        po?.rules,
+        maxRounds
+      );
+
       const { bracket } = await buildRoundElimBracket({
         tournamentId: t._id,
-        name: "Pre-Qualifying",
+        name: po?.name || "Pre-Qualifying",
         order: poOrder,
         stage: poOrder,
-        drawSize: Number(po.drawSize),
-        maxRounds: Math.max(1, Number(po.maxRounds || 1)),
+        drawSize,
+        maxRounds,
         firstRoundSeeds,
-        rules: withCap(po?.rules),
+        rules: poRules,
+        // ✅ truyền xuống BE để lưu cạnh bracket (builder tuỳ bạn xử lý)
+        roundRules: poRoundRules,
         session,
       });
       created.poBracket = bracket;
 
-      // ⬇️ MỚI THÊM: tự động đẩy đội gặp BYE qua vòng sau
+      // tự động đẩy BYE
       await autoAdvanceByesForBracket(bracket._id, session);
     }
 
+    // ===== KO =====
     if (hasKO) {
+      const drawSize = Number(ko.drawSize);
       const firstRoundSeeds = Array.isArray(ko.seeds) ? ko.seeds : [];
+
+      const koRules = normalizeRule(ko?.rules);
+      const koFinalRules = ko?.finalRules ? normalizeRule(ko.finalRules) : null;
+
       const { bracket } = await buildKnockoutBracket({
         tournamentId: t._id,
-        name: "Knockout",
+        name: ko?.name || "Knockout",
         order: koOrder,
         stage: koOrder,
-        drawSize: Number(ko.drawSize),
+        drawSize,
         firstRoundSeeds,
-        rules: withCap(ko?.rules),
-        finalRules: ko?.finalRules ? withCap(ko.finalRules) : null,
+        rules: koRules,
+        finalRules: koFinalRules,
         session,
       });
       created.koBracket = bracket;
 
-      // ⬇️ MỚI THÊM: tự động đẩy đội gặp BYE qua vòng sau
       await autoAdvanceByesForBracket(bracket._id, session);
     }
 
@@ -1482,5 +1614,3 @@ export const upsertTournamentReferees = async (req, res, next) => {
     next(err);
   }
 };
-
-

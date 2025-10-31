@@ -169,15 +169,23 @@ export async function buildRoundElimBracket({
   drawSize,
   maxRounds = 1,
   firstRoundSeeds = [],
-  // ✅ NEW:
+  // ✅ base rule chung
   rules = undefined,
+  // ✅ NEW: rule theo từng vòng: [ruleV1, ruleV2, ...]
+  roundRules = undefined,
   session = null,
 }) {
   const N = Math.max(0, Number(drawSize || 0));
   const R1Pairs = Math.max(1, Math.ceil(N / 2));
   const Rmax = Math.max(1, Number(maxRounds || 1));
 
+  // rule gốc (nếu không có thì BO1, 11 điểm, win by 2, cap none)
   const baseRules = sanitizeRules(rules);
+
+  // chuẩn hoá từng rule theo vòng
+  const perRoundRules = Array.isArray(roundRules)
+    ? roundRules.map((r) => sanitizeRules(r))
+    : [];
 
   // R1 seeds: nếu thiếu hoặc N lẻ -> BYE cho slot B
   const r1Seeds = Array.from({ length: R1Pairs }, (_, i) => {
@@ -197,18 +205,25 @@ export async function buildRoundElimBracket({
     return { pair: i + 1, A, B };
   });
 
+  // ✅ lưu cả rules + roundRules vào bracket để auto-advance đọc được
   const bracket = await Bracket.create(
     [
       {
         tournament: tournamentId,
         name,
-        type: "roundElim", // ⭐ PO là roundElim, không phải knockout
+        type: "roundElim", // PO
         order,
         stage,
+        rules: baseRules,
         meta: {
-          drawSize: 0, // (giữ đúng bản #1) KHÔNG ép 2^n
+          drawSize: 0, // giữ hành vi cũ
           maxRounds: Rmax,
           expectedFirstRoundMatches: R1Pairs,
+        },
+        config: {
+          drawSize: N,
+          maxRounds: Rmax,
+          roundRules: perRoundRules, // ✅ chỗ này autoAdvance sẽ đọc
         },
         prefill: { roundKey: `R1`, seeds: r1Seeds },
       },
@@ -218,18 +233,33 @@ export async function buildRoundElimBracket({
 
   const created = {};
 
+  // helper chọn rule theo vòng
+  const ruleForRound = (roundNum) => {
+    const idx = Math.max(0, Number(roundNum || 1) - 1);
+    return perRoundRules[idx] || baseRules;
+  };
+
   // V1
   created[1] = await Match.insertMany(
-    r1Seeds.map((s, idx) => ({
-      tournament: tournamentId,
-      bracket: bracket._id,
-      format: "roundElim",
-      round: 1,
-      order: idx,
-      seedA: s.A || null,
-      seedB: s.B || null,
-      rules: baseRules, // ✅ NEW
-    })),
+    r1Seeds.map((s, idx) => {
+      const rRule = ruleForRound(1);
+      return {
+        tournament: tournamentId,
+        bracket: bracket._id,
+        format: "roundElim",
+        round: 1,
+        order: idx,
+        seedA: s.A || null,
+        seedB: s.B || null,
+        rules: rRule,
+        // ✅ ghi ra field phẳng để client cũ xài
+        bestOf: rRule.bestOf,
+        pointsToWin: rRule.pointsToWin,
+        winByTwo: rRule.winByTwo,
+        capMode: rRule.cap?.mode ?? "none",
+        capPoints: rRule.cap?.points ?? null,
+      };
+    }),
     { session }
   );
 
@@ -238,6 +268,7 @@ export async function buildRoundElimBracket({
     const pairs = poMatchesForRound(N, r);
     if (pairs <= 0) break;
     const prevPairs = poMatchesForRound(N, r - 1);
+    const rRule = ruleForRound(r); // ✅ rule riêng của vòng này
 
     const ms = [];
     for (let i = 0; i < pairs; i++) {
@@ -266,7 +297,12 @@ export async function buildRoundElimBracket({
         order: i,
         seedA,
         seedB,
-        rules: baseRules, // ✅ NEW
+        rules: rRule, // ✅ vòng này xài rule này
+        bestOf: rRule.bestOf,
+        pointsToWin: rRule.pointsToWin,
+        winByTwo: rRule.winByTwo,
+        capMode: rRule.cap?.mode ?? "none",
+        capPoints: rRule.cap?.points ?? null,
       });
     }
 
@@ -279,7 +315,7 @@ export async function buildRoundElimBracket({
   }
 
   return { bracket, matchesByRound: created };
-}
+} 
 
 /* ====================== Group Builder (có expectedSize) ====================== */
 /**

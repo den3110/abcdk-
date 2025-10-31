@@ -624,16 +624,16 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 
   // ✅ Nếu đã gửi CCCD thì BẮT BUỘC phải có đủ 2 ảnh
-  if (cccd) {
-    if (!hasBothCccdImages) {
-      res.status(400);
-      throw new Error("Cần cung cấp đủ 2 ảnh CCCD (mặt trước và mặt sau)");
-    }
-  } else {
-    // Không có CCCD → bỏ ảnh nếu có
-    cccdFront = "";
-    cccdBack = "";
-  }
+  // if (cccd) {
+  //   if (!hasBothCccdImages) {
+  //     res.status(400);
+  //     throw new Error("Cần cung cấp đủ 2 ảnh CCCD (mặt trước và mặt sau)");
+  //   }
+  // } else {
+  //   // Không có CCCD → bỏ ảnh nếu có
+  //   cccdFront = "";
+  //   cccdBack = "";
+  // }
 
   // Thu thập ngữ cảnh đăng ký (nền tảng, thiết bị, IP, geo, nguồn)
   const signupCtx = extractClientContext(req);
@@ -659,7 +659,7 @@ const registerUser = asyncHandler(async (req, res) => {
       if (cccd) {
         doc.cccd = cccd;
         doc.cccdImages = { front: cccdFront || "", back: cccdBack || "" };
-        doc.cccdStatus = "pending";
+        // doc.cccdStatus = "pending";
       }
 
       const created = await User.create([doc], { session });
