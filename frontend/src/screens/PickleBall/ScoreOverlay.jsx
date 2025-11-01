@@ -148,6 +148,33 @@ function normalizePayload(p) {
     p?.roundName || p?.round_name || codeToRoundLabel(roundCode) || "";
   const roundNumber = Number.isFinite(+p?.round) ? +p?.round : undefined;
 
+  // ✅ normalize isBreak về 1 kiểu duy nhất
+  const rawBreak =
+    p?.isBreak ?? p?.isbreak ?? p?.is_break ?? p?.break ?? p?.pause ?? null;
+  let normBreak = null;
+  if (rawBreak) {
+    if (typeof rawBreak === "object") {
+      normBreak = {
+        active:
+          rawBreak.active === true ||
+          rawBreak.isActive === true ||
+          rawBreak.enabled === true,
+        afterGame:
+          typeof rawBreak.afterGame === "number" ? rawBreak.afterGame : null,
+        note: rawBreak.note || "",
+        startedAt: rawBreak.startedAt || rawBreak.startAt || null,
+        expectedResumeAt:
+          rawBreak.expectedResumeAt || rawBreak.resumeAt || null,
+      };
+    } else {
+      // true / "1" / "true"
+      const s = String(rawBreak).toLowerCase();
+      if (s === "1" || s === "true") {
+        normBreak = { active: true, afterGame: null, note: "" };
+      }
+    }
+  }
+
   let teams = { A: {}, B: {} };
   if (p?.teams?.A || p?.teams?.B) {
     const playersA =
@@ -219,6 +246,7 @@ function normalizePayload(p) {
     matchId: String(p?._id || p?.matchId || ""),
     status: p?.status || "",
     winner: p?.winner || "",
+    isBreak: normBreak, // ✅ luôn có dạng chuẩn hoặc null
     tournament: {
       id: p?.tournament?._id || p?.tournament?.id || p?.tournamentId || null,
       name: p?.tournament?.name || readStr(p?.tournamentName) || "",
@@ -323,6 +351,8 @@ const mergeNormalized = (prev, next) => {
       A: mergeTeam(prev?.teams?.A, next?.teams?.A),
       B: mergeTeam(prev?.teams?.B, next?.teams?.B),
     },
+    // ✅ giữ isBreak nếu BE không bắn mới
+    isBreak: next?.isBreak != null ? next.isBreak : prev?.isBreak ?? null,
   };
 };
 
@@ -549,6 +579,9 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
 
   const autoNext = !replay && parseQPBool(q.get("autoNext"));
 
+  // ✅ chỉ bật break nếu URL cho phép
+  const isActiveBreakQP = parseQPBool(q.get("isActiveBreak")) === true || (q.get("isactivebreak")) == 1;
+
   const { data: snapRaw } = useGetOverlaySnapshotQuery(matchId, {
     skip: !matchId,
     refetchOnMountOrArgChange: !replay,
@@ -758,7 +791,13 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       customCss,
       webLogoUrl,
     };
-  }, [overlayBE, q, data?.tournament?.image, overlayCfg?.webLogoUrl]);
+  }, [
+    overlayBE,
+    q,
+    data?.tournament?.image,
+    overlayCfg?.webLogoUrl,
+    props?.disableLogo,
+  ]);
 
   /* ---------- CSS variables (inline) ---------- */
   const cssVarStyle = useMemo(() => {
@@ -938,7 +977,16 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         pollRef.current = null;
       }
     };
-  }, [autoNext, rawStatus, data?.court?.id, data?.courtId, data?.matchId, matchId, getNextByCourt, navigate]);
+  }, [
+    autoNext,
+    rawStatus,
+    data?.court?.id,
+    data?.courtId,
+    data?.matchId,
+    matchId,
+    getNextByCourt,
+    navigate,
+  ]);
 
   /* ---------- REPLAY driver ---------- */
   const replayTimerRef = useRef(null);
@@ -1057,7 +1105,16 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         replayTimerRef.current = null;
       }
     };
-  }, [replay, replayLoop, replayRate, replayMinMs, replayMaxMs, replayStartMs, replayStepMs, snapRaw]);
+  }, [
+    replay,
+    replayLoop,
+    replayRate,
+    replayMinMs,
+    replayMaxMs,
+    replayStartMs,
+    replayStepMs,
+    snapRaw,
+  ]);
 
   /* ---------- NEW: scale-score (transform scale) ---------- */
   const scaleScoreParam = q.get("scale-score");
@@ -1098,6 +1155,13 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
 
   if (!ready) return null;
 
+  /* ---------- TÍNH CỜ BREAK ---------- */
+  const isBreakFromData =
+    data?.isBreak?.active === true || data?.isBreak?.isActive === true;
+
+  // ✅ chỉ khi URL cho phép & API báo nghỉ thì mới show giao diện chờ
+  const showBreak = isActiveBreakQP && isBreakFromData;
+
   /* ---------- UI ---------- */
   const tourLogoUrl = effective.logoUrl
     ? toHttpsIfNotLocalhost(effective.logoUrl)
@@ -1106,6 +1170,161 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     ? toHttpsIfNotLocalhost(effective.webLogoUrl)
     : "";
 
+  // ✅ GIAO DIỆN BREAK
+  if (showBreak) {
+    return (
+      <>
+        <div
+          className="ovl-wrap"
+          style={wrapStyle}
+          ref={overlayRef}
+          data-ovl=""
+          data-theme={effective.theme}
+          data-size={effective.size}
+          data-break="1"
+        >
+          <div style={scaleWrapStyle}>
+            <div
+              className={`ovl ovl--${effective.theme} ovl--${effective.size} ovl-card ovl-card--break`}
+              style={{
+                ...styles.card,
+                ...cssVarStyle,
+                fontFamily: effective.fontFamily,
+                gap: 10,
+                alignItems: "flex-start",
+              }}
+            >
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {tourLogoUrl ? (
+                  <img
+                    src={tourLogoUrl}
+                    alt="logo"
+                    style={{
+                      height: 26,
+                      width: "auto",
+                      borderRadius: 6,
+                      display: "block",
+                    }}
+                  />
+                ) : null}
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: "var(--meta)",
+                      color: "var(--muted)",
+                      lineHeight: 1.1,
+                      whiteSpace: "nowrap",
+                      textOverflow: "ellipsis",
+                      overflow: "hidden",
+                      maxWidth: 260,
+                    }}
+                  >
+                    {tourName || "Giải đấu"}
+                  </div>
+                  {data?.court?.name ? (
+                    <div
+                      style={{
+                        fontSize: "var(--meta)",
+                        color: "var(--muted)",
+                      }}
+                    >
+                      Sân: <strong>{data.court.name}</strong>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div style={{ marginTop: 2 }}>
+                <div
+                  style={{
+                    fontSize: "1.05rem",
+                    fontWeight: 700,
+                    marginBottom: 4,
+                  }}
+                >
+                  ĐANG TẠM NGHỈ
+                </div>
+                <div style={{ fontSize: "var(--meta)", lineHeight: 1.25 }}>
+                  Chờ trọng tài bắt đầu game tiếp theo...
+                </div>
+                {data?.isBreak?.note ? (
+                  <div
+                    style={{
+                      marginTop: 4,
+                      fontSize: "var(--meta)",
+                      opacity: 0.7,
+                    }}
+                  >
+                    Ghi chú: {data.isBreak.note}
+                  </div>
+                ) : null}
+              </div>
+
+              <div
+                style={{
+                  marginTop: 6,
+                  display: "flex",
+                  gap: 6,
+                  flexWrap: "wrap",
+                }}
+              >
+                {nameA || nameB ? (
+                  <div
+                    style={{
+                      background: "rgba(148, 163, 184, .06)",
+                      border: "1px solid rgba(148,163,184,.35)",
+                      borderRadius: 999,
+                      padding: "2px 10px 2px 2px",
+                      display: "flex",
+                      gap: 6,
+                      alignItems: "center",
+                      fontSize: "var(--meta)",
+                    }}
+                  >
+                    <span
+                      style={{
+                        width: 6,
+                        height: 28,
+                        background: "var(--accent-a)",
+                        borderRadius: 999,
+                        display: "block",
+                      }}
+                    />
+                    <span style={{ fontWeight: 600, lineHeight: 1.1 }}>
+                      {nameA}
+                    </span>
+                    <span style={{ opacity: 0.5 }}>vs</span>
+                    <span style={{ fontWeight: 600, lineHeight: 1.1 }}>
+                      {nameB}
+                    </span>
+                  </div>
+                ) : null}
+
+                {roundLabel || phaseText ? (
+                  <div
+                    style={{
+                      ...styles.badge,
+                      background:
+                        effective.theme === "dark" ? "#1f2937" : "#e2e8f0",
+                      color: effective.theme === "dark" ? "#fff" : "#0f172a",
+                      display: "flex", justifyContent: "center", alignItems: "center"
+                    }}
+                  >
+                    {roundLabel || phaseText}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ❗️Break thì KHÔNG render web logo và sponsor */}
+        {effective.customCss ? <style>{effective.customCss}</style> : null}
+      </>
+    );
+  }
+
+  // ✅ BÌNH THƯỜNG: render scoreboard như cũ
   return (
     <>
       {/* CARD CHÍNH */}
@@ -1186,7 +1405,6 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
             <div
               className="ovl-row ovl-row--a"
               style={styles.row}
-              data-team="A"
             >
               <div
                 className="ovl-team ovl-team--a"
@@ -1213,7 +1431,6 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
             <div
               className="ovl-row ovl-row--b"
               style={styles.row}
-              data-team="B"
             >
               <div
                 className="ovl-team ovl-team--b"

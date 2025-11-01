@@ -157,7 +157,14 @@ export async function getOverlayMatch(req, res) {
 
     if (!m) return res.status(404).json({ message: "Match not found" });
 
-    // ===== Chuẩn hoá nickname từ user nếu thiếu trên player.* =====
+    // ===== helper cũ của bạn =====
+    const pick = (v) => (v == null ? "" : String(v).trim());
+    const preferNick = (p) =>
+      pick(p?.nickname) ||
+      pick(p?.nickName) ||
+      pick(p?.user?.nickname) ||
+      pick(p?.user?.nickName);
+
     const fillNick = (p) => {
       if (!p) return p;
       const n =
@@ -171,6 +178,7 @@ export async function getOverlayMatch(req, res) {
       }
       return p;
     };
+
     if (m.pairA) {
       m.pairA.player1 = fillNick(m.pairA.player1);
       m.pairA.player2 = fillNick(m.pairA.player2);
@@ -186,7 +194,7 @@ export async function getOverlayMatch(req, res) {
         ? "single"
         : "double";
 
-    // ===== Rules (giữ cả cap) =====
+    // ===== Rules =====
     const rules = {
       bestOf: Number(m?.rules?.bestOf ?? 3),
       pointsToWin: Number(m?.rules?.pointsToWin ?? 11),
@@ -201,9 +209,28 @@ export async function getOverlayMatch(req, res) {
           : { mode: "none", points: null },
     };
 
+    // mấy helper cũ bạn đang dùng
+    const setWins = (gameScores = [], rules) => {
+      const pts = Number(rules.pointsToWin || 11);
+      const byTwo = !!rules.winByTwo;
+      let a = 0;
+      let b = 0;
+      for (const g of gameScores) {
+        const ga = Number(g?.a ?? 0);
+        const gb = Number(g?.b ?? 0);
+        const max = Math.max(ga, gb);
+        const min = Math.min(ga, gb);
+        const done = max >= pts && (byTwo ? max - min >= 2 : true);
+        if (!done) continue;
+        if (ga > gb) a += 1;
+        else b += 1;
+      }
+      return { a, b };
+    };
+    const gamesToWin = (bestOf = 1) => Math.floor(Number(bestOf) / 2) + 1;
+
     const { a: setsA, b: setsB } = setWins(m?.gameScores || [], rules);
 
-    // ===== Players/Teams =====
     const playersFromReg = (reg) => {
       if (!reg) return [];
       return [reg.player1, reg.player2].filter(Boolean).map((p) => ({
@@ -213,7 +240,6 @@ export async function getOverlayMatch(req, res) {
         shortName: p?.shortName || undefined,
       }));
     };
-
     const regName = (reg) => {
       if (!reg) return "";
       if (evType === "single") {
@@ -223,7 +249,6 @@ export async function getOverlayMatch(req, res) {
       const b = preferNick(reg.player2);
       return [a, b].filter(Boolean).join(" & ");
     };
-
     const teamName = (reg) => {
       const ps = playersFromReg(reg);
       const nick = ps
@@ -233,13 +258,28 @@ export async function getOverlayMatch(req, res) {
       return nick || regName(reg);
     };
 
-    // ===== Serve fallback =====
     const serve =
       m?.serve && (m.serve.side || m.serve.server || m.serve.playerIndex)
         ? m.serve
         : { side: "A", server: 1 };
 
-    // ===== Court (kèm fallback) =====
+    const serveUser =
+      m?.serve?.serverId && typeof m.serve.serverId === "object"
+        ? {
+            id: String(m.serve.serverId._id),
+            name:
+              m.serve.serverId.name ||
+              m.serve.serverId.fullName ||
+              preferNick(m.serve.serverId) ||
+              "",
+            nickname:
+              pick(m.serve.serverId.nickname) ||
+              pick(m.serve.serverId.nickName) ||
+              undefined,
+          }
+        : undefined;
+
+    // court
     const courtId = m?.court?._id || m?.courtId || null;
     const courtNumber = m?.court?.number ?? m?.courtNo ?? undefined;
     const courtName =
@@ -257,18 +297,14 @@ export async function getOverlayMatch(req, res) {
       group: m?.court?.group || undefined,
     };
 
-    // ===== Streams / Video =====
     const streams =
       (Array.isArray(m?.streams) && m.streams.length && m.streams) ||
       (Array.isArray(m?.meta?.streams) && m.meta.streams) ||
       [];
     const video = pick(m?.video);
-
-    // ===== Overlay trên root (để FE pick ngay) =====
     const rootOverlay =
       m?.overlay || m?.tournament?.overlay || m?.bracket?.overlay || undefined;
 
-    // ===== Round code/size từ bracket meta =====
     const brType = (m?.bracket?.type || m?.format || "").toString();
     const drawSize =
       Number(m?.bracket?.meta?.drawSize) > 0
@@ -280,25 +316,21 @@ export async function getOverlayMatch(req, res) {
 
     let roundSize;
     if (drawSize && ["knockout", "double_elim", "roundElim"].includes(brType)) {
-      // R1 = drawSize, R2 = drawSize/2, ...
       roundSize = Math.max(2, drawSize >> (roundNo - 1));
     }
     const roundCode =
       m?.roundCode ||
       (Number.isFinite(roundSize) ? `R${roundSize}` : undefined);
 
-    // ===== Seeds raw (giữ thô cho FE mới) =====
     const seeds = {
       A: m?.seedA || undefined,
       B: m?.seedB || undefined,
     };
 
-    // ===== liveLog tail (tránh payload quá nặng) =====
     const liveLogTail = Array.isArray(m?.liveLog)
       ? m.liveLog.slice(-10)
       : undefined;
 
-    // ===== referee mảng + giữ field cũ (referee[0]) =====
     const referees =
       Array.isArray(m?.referee) && m.referee.length
         ? m.referee.map((r) => ({
@@ -307,7 +339,6 @@ export async function getOverlayMatch(req, res) {
             nickname: pick(r?.nickname) || pick(r?.nickName) || undefined,
           }))
         : [];
-
     const referee =
       referees[0] ||
       (m?.referee
@@ -321,24 +352,6 @@ export async function getOverlayMatch(req, res) {
           }
         : undefined);
 
-    // ===== serve.serverId (đã populate) =====
-    const serveUser =
-      m?.serve?.serverId && typeof m.serve.serverId === "object"
-        ? {
-            id: String(m.serve.serverId._id),
-            name:
-              m.serve.serverId.name ||
-              m.serve.serverId.fullName ||
-              preferNick(m.serve.serverId) ||
-              "",
-            nickname:
-              pick(m.serve.serverId.nickname) ||
-              pick(m.serve.serverId.nickName) ||
-              undefined,
-          }
-        : undefined;
-
-    // ===== previous / next =====
     const previousA = m?.previousA
       ? {
           id: String(m.previousA._id),
@@ -365,7 +378,6 @@ export async function getOverlayMatch(req, res) {
         }
       : undefined;
 
-    // ===== times =====
     const times = {
       scheduledAt: m?.scheduledAt || null,
       assignedAt: m?.assignedAt || null,
@@ -375,14 +387,31 @@ export async function getOverlayMatch(req, res) {
       createdAt: m?.createdAt || null,
     };
 
-    // ===== Response DTO =====
+    // 🆕 isBreak đưa ra ngoài cho overlay
+    const isBreak = m?.isBreak
+      ? {
+          active: !!m.isBreak.active,
+          afterGame:
+            m.isBreak.afterGame != null
+              ? Number(m.isBreak.afterGame)
+              : m.currentGame ?? null,
+          note: m.isBreak.note || "",
+          startedAt: m.isBreak.startedAt || null,
+          expectedResumeAt: m.isBreak.expectedResumeAt || null,
+        }
+      : {
+          active: false,
+          afterGame: null,
+          note: "",
+          startedAt: null,
+          expectedResumeAt: null,
+        };
+
     res.json({
-      // core ids/status
       matchId: String(m._id),
-      status: (m.status || "").toUpperCase(), // scheduled/queued/assigned/live/finished
+      status: (m.status || "").toUpperCase(),
       winner: m.winner || "",
 
-      // tournament (giữ overlay)
       tournament: {
         id: m?.tournament?._id || null,
         name: m?.tournament?.name || "",
@@ -391,7 +420,6 @@ export async function getOverlayMatch(req, res) {
         overlay: m?.tournament?.overlay || undefined,
       },
 
-      // bracket (mở rộng)
       bracket: m?.bracket
         ? {
             id: String(m.bracket._id),
@@ -403,11 +431,8 @@ export async function getOverlayMatch(req, res) {
             drawRounds: m.bracket.drawRounds ?? undefined,
             drawStatus: m.bracket.drawStatus || undefined,
             noRankDelta: !!m.bracket.noRankDelta,
-            // cấu hình để FE biết rule mặc định của nhánh
             config: m.bracket.config || undefined,
-            // meta quy mô để FE render round label
             meta: m.bracket.meta || undefined,
-            // group info nếu type = group
             groups:
               Array.isArray(m.bracket.groups) && m.bracket.groups.length
                 ? m.bracket.groups.map((g) => ({
@@ -425,28 +450,23 @@ export async function getOverlayMatch(req, res) {
           }
         : undefined,
 
-      // giữ field rời cho FE cũ
       bracketType: m?.bracket?.type || "",
       format: m?.format || m?.bracket?.type || "",
       branch: m?.branch || "main",
       phase: m?.phase || null,
       pool: m?.pool || { id: null, name: "" },
 
-      // round mapping
       roundCode,
       roundName: m?.roundName || "",
       round: roundNo,
       roundSize: roundSize || undefined,
 
-      // seeding raw
       seeds,
 
-      // label/keys
-      code: m?.code || undefined, // ví dụ R1#0
-      labelKey: m?.labelKey || undefined, // ví dụ V2#R1#3
+      code: m?.code || undefined,
+      labelKey: m?.labelKey || undefined,
       stageIndex: m?.stageIndex || undefined,
 
-      // teams
       teams: {
         A: {
           name: teamName(m.pairA),
@@ -464,7 +484,6 @@ export async function getOverlayMatch(req, res) {
         },
       },
 
-      // giữ pair raw tối giản (optional)
       pairA: m?.pairA
         ? {
             id: String(m.pairA._id),
@@ -482,7 +501,6 @@ export async function getOverlayMatch(req, res) {
           }
         : null,
 
-      // rules + score
       rules,
       currentGame: Number.isInteger(m?.currentGame) ? m.currentGame : 0,
       serve: {
@@ -495,7 +513,6 @@ export async function getOverlayMatch(req, res) {
       sets: { A: setsA, B: setsB },
       needSetsToWin: gamesToWin(rules.bestOf),
 
-      // court & scheduling
       court: courtId
         ? { id: courtId, name: courtName, number: courtNumber, ...courtExtra }
         : null,
@@ -504,9 +521,8 @@ export async function getOverlayMatch(req, res) {
       courtNo: courtNumber ?? undefined,
       queueOrder: m?.queueOrder ?? undefined,
 
-      // liên kết
       referees,
-      referee, // giữ field cũ (first)
+      referee,
       liveBy: m?.liveBy
         ? {
             id: String(m.liveBy._id),
@@ -519,26 +535,20 @@ export async function getOverlayMatch(req, res) {
       previousB,
       nextMatch,
 
-      // thời gian
       ...times,
 
-      // media & live
       video: video || undefined,
       streams,
       liveVersion: m?.liveVersion ?? undefined,
       liveLogTail,
-      liveLog: m?.liveLog ?? undefined, // luôn undefined để tránh lộ thông tin
+      liveLog: undefined,
 
-      // participants (ids) để tránh trùng người
       participants:
         Array.isArray(m?.participants) && m.participants.length
           ? m.participants.map((x) => String(x))
           : undefined,
 
-      // overlay gắn root để FE pickOverlay()
       overlay: rootOverlay || undefined,
-
-      // free-form meta (nếu cần UI khác đọc)
       meta: m?.meta || undefined,
       note: m?.note || undefined,
       rating: {
@@ -546,6 +556,9 @@ export async function getOverlayMatch(req, res) {
         applied: !!m?.ratingApplied,
         appliedAt: m?.ratingAppliedAt || null,
       },
+
+      // 🆕 gửi ra cho overlay
+      isBreak,
     });
   } catch (err) {
     console.error("GET /overlay/match error:", err);

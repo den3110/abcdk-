@@ -14,14 +14,22 @@ export const getCourtById = async (req, res) => {
       .populate("bracket", "name type")
       .populate({
         path: "currentMatch",
+        // ✅ lấy status của trận
+        select: "status labelKey code court courtLabel facebookLive",
         populate: [
           {
             path: "pairA",
-            populate: { path: "player1.user player2.user", select: "name" },
+            populate: {
+              path: "player1.user player2.user",
+              select: "name",
+            },
           },
           {
             path: "pairB",
-            populate: { path: "player1.user player2.user", select: "name" },
+            populate: {
+              path: "player1.user player2.user",
+              select: "name",
+            },
           },
         ],
       })

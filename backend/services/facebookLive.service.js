@@ -31,13 +31,6 @@ async function fbFetch(url, options) {
 
 /**
  * Tạo live trên Page
- * @param {Object} args
- * @param {string} args.pageId
- * @param {string} args.pageAccessToken
- * @param {string} [args.title]
- * @param {string} [args.description]
- * @param {("LIVE_NOW"|"UNPUBLISHED"|"SCHEDULED_UNPUBLISHED"|"SCHEDULED_LIVE")} [args.status]
- * @returns {Promise<any>} Graph response { id, secure_stream_url, permalink_url, ... }
  */
 export async function fbCreateLiveOnPage({
   pageId,
@@ -58,15 +51,86 @@ export async function fbCreateLiveOnPage({
     method: "POST",
     body: params,
   });
+  console.log("res", res)
   return res; // { id, secure_stream_url, permalink_url, ... }
+}
+
+
+/**
+ * Đọc thông tin 1 live video
+ */
+export async function fbGetLiveVideo({
+  liveVideoId,
+  pageAccessToken,
+  fields = "id,status,permalink_url,ingest_streams,stream_url,secure_stream_url",
+}) {
+  const url = await base(`/${liveVideoId}?fields=${encodeURIComponent(fields)}&access_token=${pageAccessToken}`);
+  const res = await fbFetch(url, {
+    method: "GET",
+  });
+  return res;
+}
+
+/**
+ * Ép 1 live chuyển sang LIVE_NOW
+ */
+export async function fbGoLive({ liveVideoId, pageAccessToken, status = "LIVE_NOW" }) {
+  const params = new URLSearchParams({
+    access_token: pageAccessToken,
+    status,
+  });
+
+  const url = await base(`/${liveVideoId}`);
+  const res = await fbFetch(url, {
+    method: "POST",
+    body: params,
+  });
+  return res;
+}
+
+/**
+ * Poll đợi permalink (dùng khi: tạo sớm → vài giây sau mới stream)
+ */
+export async function fbPollPermalink({
+  liveVideoId,
+  pageAccessToken,
+  attempts = 6,
+  intervalMs = 2000,
+  autoGoLive = true,
+}) {
+  for (let i = 0; i < attempts; i++) {
+    const info = await fbGetLiveVideo({ liveVideoId, pageAccessToken });
+
+    const hasIngest =
+      Array.isArray(info.ingest_streams) &&
+      info.ingest_streams.some((s) => s.has_video);
+
+    // nếu đã có stream mà vẫn chưa LIVE thì ép
+    if (hasIngest && autoGoLive && info.status !== "LIVE" && info.status !== "LIVE_NOW") {
+      await fbGoLive({ liveVideoId, pageAccessToken });
+      // đọc lại ngay để lấy permalink
+      const info2 = await fbGetLiveVideo({ liveVideoId, pageAccessToken });
+      if (info2.permalink_url) {
+        return { ok: true, url: info2.permalink_url, data: info2 };
+      }
+    }
+
+    if (info.permalink_url) {
+      return { ok: true, url: info.permalink_url, data: info };
+    }
+
+    // chờ thêm
+    if (i < attempts - 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+  }
+
+  return { ok: false, url: null };
 }
 
 /**
  * Comment vào live video bằng Page token
- * @param {Object} args
- * @param {string} args.liveVideoId
- * @param {string} args.pageAccessToken
- * @param {string} args.message
  */
 export async function fbPostComment({ liveVideoId, pageAccessToken, message }) {
   const params = new URLSearchParams({

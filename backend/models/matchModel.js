@@ -3,8 +3,72 @@ import mongoose from "mongoose";
 import seedSourceSchema from "./seedSourceSchema.js";
 import Bracket from "./bracketModel.js";
 import Court from "./courtModel.js";
+import {
+  markFacebookPageFreeByMatch,
+  markFacebookPageFreeByPage,
+} from "../services/facebookPagePool.service.js";
 
 const { Schema } = mongoose;
+
+/* =========================================
+ * BREAK helpers (để chơi được cả dữ liệu cũ isBreak: false)
+ * ========================================= */
+const BREAK_DEFAULT = {
+  active: false,
+  afterGame: null,
+  note: "",
+  startedAt: null,
+  expectedResumeAt: null,
+};
+
+function normalizeBreak(val) {
+  // case cũ: false / null / undefined / string linh tinh
+  if (!val || typeof val !== "object" || Array.isArray(val)) {
+    return { ...BREAK_DEFAULT };
+  }
+  return {
+    active: !!val.active,
+    afterGame:
+      typeof val.afterGame === "number" ? val.afterGame : BREAK_DEFAULT.afterGame,
+    note: typeof val.note === "string" ? val.note : BREAK_DEFAULT.note,
+    startedAt: val.startedAt ? new Date(val.startedAt) : BREAK_DEFAULT.startedAt,
+    expectedResumeAt: val.expectedResumeAt
+      ? new Date(val.expectedResumeAt)
+      : BREAK_DEFAULT.expectedResumeAt,
+  };
+}
+
+// dùng cho các update kiểu $set: { isBreak } hoặc $set: { "isBreak.active": ... }
+function normalizeBreakInUpdate(ctx, next) {
+  const update = ctx.getUpdate() || {};
+  const $set = update.$set || {};
+  let changed = false;
+
+  // 1) set thẳng isBreak
+  if (Object.prototype.hasOwnProperty.call($set, "isBreak")) {
+    $set.isBreak = normalizeBreak($set.isBreak);
+    changed = true;
+  }
+
+  // 2) set từng field: "isBreak.active", "isBreak.note", ...
+  const dotKeys = Object.keys($set).filter((k) => k.startsWith("isBreak."));
+  if (dotKeys.length) {
+    const nextBreak = { ...BREAK_DEFAULT };
+    for (const k of dotKeys) {
+      const field = k.slice("isBreak.".length);
+      nextBreak[field] = $set[k];
+      delete $set[k];
+    }
+    $set.isBreak = normalizeBreak(nextBreak);
+    changed = true;
+  }
+
+  if (changed) {
+    update.$set = $set;
+    ctx.setUpdate(update);
+  }
+  next();
+}
 
 const matchSchema = new Schema(
   {
@@ -78,14 +142,13 @@ const matchSchema = new Schema(
       cap: {
         mode: {
           type: String,
-          enum: ["none", "hard", "soft"], // hard = chạm là thắng; soft = tới cap rồi vẫn cần chênh 1 nếu đang hòa, không kéo vô tận
+          enum: ["none", "hard", "soft"],
           default: "none",
         },
         points: {
           type: Number,
-          // cho phép bất kỳ số nguyên dương hợp lệ; nếu muốn gò chặt có thể thay bằng enum
           min: 1,
-          default: null, // ví dụ 15 => chạm 15 là thắng (nếu mode="hard")
+          default: null,
         },
       },
     },
@@ -125,19 +188,26 @@ const matchSchema = new Schema(
     court: { type: Schema.Types.ObjectId, ref: "Court", default: null },
     courtLabel: { type: String, default: "" },
     courtCluster: { type: String, default: "Main", index: true }, // cụm sân
-    queueOrder: { type: Number, default: null, index: true }, // thứ tự trong hàng đợi
-    assignedAt: { type: Date, default: null }, // thời điểm gán sân
+    queueOrder: { type: Number, default: null, index: true },
+    assignedAt: { type: Date, default: null },
     participants: [
       { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
-    ], // VĐV tham gia trận (denormalize để lọc eligibility nhanh)
+    ],
+
     // Live state
     currentGame: { type: Number, default: 0 },
     serve: {
       side: { type: String, enum: ["A", "B"], default: "A" },
       server: { type: Number, enum: [1, 2], default: 2 },
-      // ⬇️ NEW: id người đang giao (ưu tiên hiển thị chấm xanh lá)
       serverId: { type: Schema.Types.ObjectId, ref: "User", default: null },
     },
+
+    // 👇 QUAN TRỌNG: Mixed để nhận cả dữ liệu cũ (boolean) lẫn mới (object)
+    isBreak: {
+      type: Schema.Types.Mixed,
+      default: () => ({ ...BREAK_DEFAULT }),
+    },
+
     startedAt: { type: Date, default: null },
     finishedAt: { type: Date, default: null },
     liveBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
@@ -161,7 +231,7 @@ const matchSchema = new Schema(
             "serve",
             "sideout",
             "rotate",
-             "rules",
+            "rules",
           ],
           required: true,
         },
@@ -177,16 +247,23 @@ const matchSchema = new Schema(
     ratingAppliedAt: { type: Date, default: null },
 
     // Stage & label
-    stageIndex: { type: Number, default: 1, index: true }, // V1, V2, ...
-    labelKey: { type: String, default: "" }, // ví dụ: V2#R1#3
+    stageIndex: { type: Number, default: 1, index: true },
+    labelKey: { type: String, default: "" },
     meta: { type: Schema.Types.Mixed, default: {} },
+
     facebookLive: {
-      id: String,
-      pageId: String,
-      permalink_url: String,
-      secure_stream_url: String,
-      server_url: String,
-      stream_key: String,
+      id: { type: String, trim: true },
+      videoId: { type: String, trim: true },
+      pageId: { type: String, trim: true },
+      permalink_url: { type: String, trim: true },
+      raw_permalink_url: { type: String, trim: true },
+      video_permalink_url: { type: String, trim: true },
+      watch_url: { type: String, trim: true },
+      embed_html: { type: String },
+      embed_url: { type: String, trim: true },
+      secure_stream_url: { type: String, trim: true },
+      server_url: { type: String, trim: true },
+      stream_key: { type: String, trim: true },
       status: { type: String, default: "CREATED" },
       createdAt: Date,
     },
@@ -197,20 +274,21 @@ const matchSchema = new Schema(
 /* ======================= VALIDATE ======================= */
 /** Cho phép seed thay cho pair/previous */
 matchSchema.pre("validate", function (next) {
+  // ép isBreak về object chuẩn để tránh lỗi "cannot create field active..."
+  this.isBreak = normalizeBreak(this.isBreak);
+
   const hasResolvedA = !!this.pairA || !!this.previousA;
   const hasResolvedB = !!this.pairB || !!this.previousB;
   const hasSeedA = !!this.seedA && !!this.seedA.type;
   const hasSeedB = !!this.seedB && !!this.seedB.type;
   if (this.winner == null) this.winner = "";
 
-  //
   if (this.referee && !Array.isArray(this.referee)) {
     this.referee = [this.referee];
   }
-  // if (!hasResolvedA)
-  //   return next(new Error("Either pairA/previousA or seedA is required"));
-  // if (!hasResolvedB )
-  //   return next(new Error("Either pairB/previousB or seedB is required"));
+  // giữ nguyên comment cũ
+  // if (!hasResolvedA) return next(new Error("Either pairA/previousA or seedA is required"));
+  // if (!hasResolvedB) return next(new Error("Either pairB/previousB or seedB is required"));
   next();
 });
 
@@ -238,7 +316,6 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
 
   switch (seed.type) {
     case "registration": {
-      // hỗ trợ ref.registration, ref.reg hoặc hard id
       const regId =
         (seed.ref && (seed.ref.registration || seed.ref.reg)) ||
         (mongoose.isValidObjectId(seed.ref) ? seed.ref : null);
@@ -247,7 +324,6 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
     }
 
     case "matchWinner": {
-      // Winner (trong cùng bracket)
       const Match = doc.model("Match");
       const branch = seed.ref?.branch || doc.branch || "main";
       if (
@@ -266,11 +342,10 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
     }
 
     case "matchLoser":
-      // Không set previous* (previous đại diện winner). Loser sẽ propagate ở hook sau.
+      // loser propagate sau
       break;
 
     case "stageMatchWinner": {
-      // Winner từ bracket khác theo stageIndex
       const st = seed.ref?.stageIndex ?? seed.ref?.stage;
       if (
         Number.isInteger(st) &&
@@ -295,13 +370,12 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
     }
 
     case "stageMatchLoser":
-      // Không set previous* (chỉ propagate loser ở hook sau).
+      // propagate sau
       break;
 
     case "groupRank":
     case "bye":
     default:
-      // Không resolve ngay được; giữ seed để UI hiển thị placeholder
       break;
   }
 }
@@ -310,7 +384,7 @@ async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
 async function propagateFromFinishedMatch(doc) {
   const MatchModel = doc.model("Match");
 
-  // stageIndex fallback từ bracket nếu chưa có
+  // stageIndex fallback
   let st = doc.stageIndex;
   if (!st) {
     const br = await Bracket.findById(doc.bracket).select("stage").lean();
@@ -320,7 +394,7 @@ async function propagateFromFinishedMatch(doc) {
   const winnerReg = doc.winner === "A" ? doc.pairA : doc.pairB;
   const loserReg = doc.winner === "A" ? doc.pairB : doc.pairA;
 
-  // 1) Winner → previousA/B (giữ logic KO cũ)
+  // 1) KO chaining
   if (doc.nextMatch && doc.nextSlot && winnerReg) {
     const nm = await MatchModel.findById(doc.nextMatch);
     if (nm) {
@@ -340,7 +414,7 @@ async function propagateFromFinishedMatch(doc) {
     { $set: { pairB: winnerReg }, $unset: { previousB: "" } }
   );
 
-  // 2) Winner → seedA/B = stageMatchWinner (cross-bracket)
+  // 2) stageMatchWinner
   await MatchModel.updateMany(
     {
       tournament: doc.tournament,
@@ -372,7 +446,7 @@ async function propagateFromFinishedMatch(doc) {
     { $set: { pairB: winnerReg }, $unset: { seedB: "" } }
   );
 
-  // 3) Loser → seedA/B = stageMatchLoser (cross-bracket)
+  // 3) stageMatchLoser
   await MatchModel.updateMany(
     {
       tournament: doc.tournament,
@@ -404,7 +478,7 @@ async function propagateFromFinishedMatch(doc) {
     { $set: { pairB: loserReg }, $unset: { seedB: "" } }
   );
 
-  // 4) Loser → seedA/B = matchLoser (trong-bracket)
+  // 4) matchLoser trong cùng bracket
   await MatchModel.updateMany(
     {
       tournament: doc.tournament,
@@ -429,10 +503,8 @@ async function propagateFromFinishedMatch(doc) {
 
 async function triggerAutoFeedGroupRank(doc, { log = false } = {}) {
   try {
-    // chỉ chạy cho định dạng bảng
     if (!["group", "round_robin", "gsl"].includes(doc.format)) return;
 
-    // stageIndex fallback từ bracket nếu chưa có
     let st = doc.stageIndex;
     if (!st) {
       const br = await Bracket.findById(doc.bracket).select("stage").lean();
@@ -446,7 +518,7 @@ async function triggerAutoFeedGroupRank(doc, { log = false } = {}) {
       tournamentId: doc.tournament,
       bracketId: doc.bracket,
       stageIndex: st,
-      provisional: true, // lock sớm: dùng BXH hiện tại, vẫn cập nhật nếu BXH đổi
+      provisional: true,
       log,
     });
   } catch (e) {
@@ -454,12 +526,11 @@ async function triggerAutoFeedGroupRank(doc, { log = false } = {}) {
   }
 }
 
-// đặt dưới nhóm Helpers khác
 async function releaseCourtFromFinishedMatch(doc) {
   try {
     if (!doc?.court) return;
     await Court.updateOne(
-      { _id: doc.court, currentMatch: doc._id }, // chỉ free nếu sân đang giữ đúng match này
+      { _id: doc.court, currentMatch: doc._id },
       { $set: { status: "idle" }, $unset: { currentMatch: "" } }
     );
   } catch (e) {
@@ -488,6 +559,9 @@ matchSchema.methods.computeParticipants = async function () {
 /* ======================= PRE-SAVE ======================= */
 matchSchema.pre("save", async function (next) {
   try {
+    // đảm bảo isBreak chuẩn trước khi save
+    this.isBreak = normalizeBreak(this.isBreak);
+
     // code: R{round}#{order}
     if (!this.code) {
       const r = this.round ?? "";
@@ -512,32 +586,43 @@ matchSchema.pre("save", async function (next) {
       this.labelKey = `V${v}#R${r}#${o}`;
     }
 
-    // Thử resolve seed → pair/previous (nếu có thể)
+    // resolve seed
     await resolveSeedToSlots(this, "A");
     await resolveSeedToSlots(this, "B");
+
     try {
       const willMatter = ["queued", "assigned", "live"].includes(this.status);
       if (willMatter && typeof this.computeParticipants === "function") {
         await this.computeParticipants();
       }
     } catch (e) {
-      // an toàn, không chặn save nếu lỗi phụ
+      // bỏ qua lỗi phụ
     }
+
     next();
   } catch (e) {
     next(e);
   }
 });
 
+/* ======================= PRE-UPDATE (fix isBreak cũ) ======================= */
+matchSchema.pre("updateOne", function (next) {
+  normalizeBreakInUpdate(this, next);
+});
+matchSchema.pre("findOneAndUpdate", function (next) {
+  normalizeBreakInUpdate(this, next);
+});
+matchSchema.pre("updateMany", function (next) {
+  normalizeBreakInUpdate(this, next);
+});
+
 /* ======================= POST-SAVE ======================= */
 matchSchema.post("save", async function (doc, next) {
   try {
-    // Propagate winner/loser & KO chaining
     if (
       doc.status === "finished" &&
       (doc.winner === "A" || doc.winner === "B")
     ) {
-      // Logic push nextMatch (KO cũ)
       if (doc.nextMatch && doc.nextSlot) {
         const winnerRegId = doc.winner === "A" ? doc.pairA : doc.pairB;
         if (winnerRegId) {
@@ -555,16 +640,15 @@ matchSchema.post("save", async function (doc, next) {
       await propagateFromFinishedMatch(doc);
     }
 
-    // === AUTO APPLY LOCAL RATING (DUPr-like) ===
+    // auto rating
     try {
       if (
         doc.status === "finished" &&
         (doc.winner === "A" || doc.winner === "B") &&
         doc.pairA &&
-        doc.pairB && // tránh BYE/missing pair
-        !doc.ratingApplied // idempotent
+        doc.pairB &&
+        !doc.ratingApplied
       ) {
-        // chạy async tách tick để không block hook
         setImmediate(async () => {
           try {
             const { applyRatingForMatch } = await import(
@@ -580,15 +664,13 @@ matchSchema.post("save", async function (doc, next) {
       console.error("[rating] schedule error:", e?.message);
     }
 
+    // auto-feed group
     try {
-      // nếu trận thuộc bracket type = group → auto-feed groupRank
       if (doc.status === "finished") {
-        // Lấy stage/type nhanh
         const br = await Bracket.findById(doc.bracket)
           .select("type stage")
           .lean();
         if (br?.type === "group") {
-          // chạy async không block
           setImmediate(async () => {
             try {
               const { autoFeedGroupRank } = await import(
@@ -625,13 +707,18 @@ matchSchema.post("save", async function (doc, next) {
       );
     }
 
-    // 🔔 Nếu là trận vòng bảng → auto-feed BXH sang các seed groupRank
-    if (
-      doc.status === "finished" &&
-      ["group", "round_robin", "gsl"].includes(doc.format)
-    ) {
-      // chạy async không block hook
-      // setImmediate(() => triggerAutoFeedGroupRank(doc, { log: false }));
+    // auto free FB page
+    if (doc.status === "finished") {
+      try {
+        const fbPageId = doc.facebookLive?.pageId;
+        if (fbPageId) {
+          await markFacebookPageFreeByPage(fbPageId);
+        } else {
+          await markFacebookPageFreeByMatch(doc._id);
+        }
+      } catch (e) {
+        console.error("[fb] auto-free page (post-save) failed:", e?.message);
+      }
     }
 
     next();
@@ -641,7 +728,6 @@ matchSchema.post("save", async function (doc, next) {
 });
 
 /* =================== POST findOneAndUpdate =================== */
-/** Luôn load lại doc "sau update" để không phụ thuộc new:true */
 matchSchema.post("findOneAndUpdate", async function (res) {
   try {
     const q = this.getQuery?.() || {};
@@ -658,7 +744,7 @@ matchSchema.post("findOneAndUpdate", async function (res) {
       await propagateFromFinishedMatch(fresh);
     }
 
-    // === AUTO APPLY LOCAL RATING (DUPr-like) ===
+    // auto rating
     try {
       if (
         fresh.status === "finished" &&
@@ -682,6 +768,7 @@ matchSchema.post("findOneAndUpdate", async function (res) {
       console.error("[rating] schedule(update) error:", e?.message);
     }
 
+    // auto-feed group
     try {
       if (fresh.status === "finished") {
         const br = await Bracket.findById(fresh.bracket)
@@ -723,6 +810,23 @@ matchSchema.post("findOneAndUpdate", async function (res) {
       }
     } catch (error) {
       console.log(error);
+    }
+
+    // auto free FB page
+    if (fresh.status === "finished") {
+      try {
+        const fbPageId = fresh.facebookLive?.pageId;
+        if (fbPageId) {
+          await markFacebookPageFreeByPage(fbPageId);
+        } else {
+          await markFacebookPageFreeByMatch(fresh._id);
+        }
+      } catch (e) {
+        console.error(
+          "[fb] auto-free page (post-findOneAndUpdate) failed:",
+          e?.message
+        );
+      }
     }
   } catch (err) {
     console.error("[Match post(findOneAndUpdate)] propagate error:", err);
@@ -768,10 +872,8 @@ matchSchema.index({ bracket: 1, swissRound: 1, order: 1 });
 matchSchema.index({ format: 1 });
 matchSchema.index({ stageIndex: 1 });
 matchSchema.index({ labelKey: 1 });
-// giúp truy seed/propagate nhanh
 matchSchema.index({ bracket: 1, "seedA.type": 1 });
 matchSchema.index({ bracket: 1, "seedB.type": 1 });
-// hỗ trợ propagate cross-bracket theo stage/round/order
 matchSchema.index({
   tournament: 1,
   "seedA.ref.stageIndex": 1,
@@ -796,9 +898,27 @@ matchSchema.index(
   { "facebookLive.id": 1 },
   { partialFilterExpression: { "facebookLive.id": { $type: "string" } } }
 );
+
+// index cho videoId
+matchSchema.index(
+  { "facebookLive.videoId": 1 },
+  { partialFilterExpression: { "facebookLive.videoId": { $type: "string" } } }
+);
 matchSchema.index(
   { "facebookLive.permalink_url": 1 },
-  { partialFilterExpression: { "facebookLive.permalink_url": { $type: "string" } } }
+  {
+    partialFilterExpression: {
+      "facebookLive.permalink_url": { $type: "string" },
+    },
+  }
+);
+matchSchema.index(
+  { "facebookLive.permalink_url": 1 },
+  {
+    partialFilterExpression: {
+      "facebookLive.permalink_url": { $type: "string" },
+    },
+  }
 );
 
 export default mongoose.model("Match", matchSchema);

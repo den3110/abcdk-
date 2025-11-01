@@ -51,6 +51,7 @@ import liveRoutes from "./routes/live.routes.js";
 import courtRoutes from "./routes/courtRoutes.js"
 import spcRoutes from "./routes/spc.routes.js";
 import publicOverlayRoutes from "./routes/publicOverlayRoutes.js";
+import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
 
 dotenv.config();
 const port = process.env.PORT;
@@ -192,6 +193,7 @@ server.listen(port, async () => {
     console.log(`✅ Server started on port ${port}`);
     startTournamentCrons();
     startFbRefreshCron();
+    startFacebookBusyCron();
     initEmail();
     await startAgenda();
   } catch (error) {

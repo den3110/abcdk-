@@ -415,7 +415,7 @@ export default function LiveMatchesPage() {
           <Box sx={gridSx}>
             {items.map((it) => (
               <Box
-                key={it.matchId}
+                key={it._id}  
                 sx={{
                   // ❗ Không đặt height cố định ở đây
                   display: "flex",

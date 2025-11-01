@@ -2217,8 +2217,7 @@ export async function assignCourtToMatch(req, res, next) {
     if (!courtId) {
       if (m.status === "live" && !(allowReassignLive || force)) {
         return res.status(409).json({
-          message:
-            "Trận đang live, không thể bỏ gán sân",
+          message: "Trận đang live, không thể bỏ gán sân",
         });
       }
 
@@ -2541,3 +2540,56 @@ export async function patchCourtStatus(req, res, next) {
     next(e);
   }
 }
+
+export const refereeSetBreak = async (req, res) => {
+  try {
+    const { id } = req.params; // matchId
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid match id" });
+    }
+
+    const { active, note, afterGame, expectedResumeAt } = req.body || {};
+
+    // build object chuẩn
+    const nextBreak = active
+      ? {
+          active: true,
+          note: note || "",
+          afterGame: typeof afterGame === "number" ? afterGame : null,
+          startedAt: new Date(),
+          expectedResumeAt: expectedResumeAt
+            ? new Date(expectedResumeAt)
+            : null,
+        }
+      : {
+          active: false,
+          note: note || "",
+          afterGame: typeof afterGame === "number" ? afterGame : null,
+          startedAt: null,
+          expectedResumeAt: null,
+        };
+
+    const m = await Match.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          // 🔒 luôn overwrite nguyên object
+          isBreak: nextBreak,
+        },
+      },
+      { new: true }
+    ).lean();
+
+    if (!m) {
+      return res.status(404).json({ message: "Match not found" });
+    }
+
+    return res.json({
+      ok: true,
+      isBreak: nextBreak,
+    });
+  } catch (err) {
+    console.error("refereeSetBreak error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
