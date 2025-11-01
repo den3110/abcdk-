@@ -6,6 +6,7 @@ import {
   fbPostComment,
 } from "../services/facebookLive.service.js";
 import Match from "../models/matchModel.js";
+import Bracket from "../models/bracketModel.js";
 import { startObsStreamingWithOverlay } from "../services/obs.service.js";
 
 import FbToken from "../models/fbTokenModel.js";
@@ -1201,14 +1202,123 @@ export const createFacebookLiveForMatch = async (req, res) => {
 
     // 2) match
     const { matchId } = req.params;
-    const match = await Match.findById(matchId).populate("tournament court");
+    const match = await Match.findById(matchId)
+      .populate("tournament court")
+      .populate({
+        path: "pairA",
+        populate: [
+          { path: "player1.user", select: "name nickname nickName" },
+          { path: "player2.user", select: "name nickname nickName" },
+        ],
+      })
+      .populate({
+        path: "pairB",
+        populate: [
+          { path: "player1.user", select: "name nickname nickName" },
+          { path: "player2.user", select: "name nickname nickName" },
+        ],
+      });
+
     if (!match) {
       return res.status(404).json({ message: "Match not found" });
     }
 
+    /* ================== 🔢 build displayCode chuẩn Vx-Bx-Tx ================== */
+    // lấy toàn bộ bracket của giải để cộng dồn
+    const allBrackets = await Bracket.find({
+      tournament: match.tournament,
+    })
+      .select("_id tournament type stage order meta")
+      .lean();
+
+    // sort giống các chỗ khác
+    allBrackets.sort((a, b) => {
+      if (a.stage !== b.stage) return a.stage - b.stage;
+      if (a.order !== b.order) return a.order - b.order;
+      return String(a._id).localeCompare(String(b._id));
+    });
+
+    const groupTypes = new Set(["group", "round_robin", "gsl"]);
+    const effRounds = (br) => {
+      if (groupTypes.has(br.type)) return 1;
+      const mr = br?.meta?.maxRounds;
+      if (Number.isFinite(mr) && mr > 0) return mr;
+      return 1;
+    };
+
+    const letterToIndex = (s) => {
+      if (!s) return null;
+      const str = String(s).trim();
+      const num = str.match(/(\d+)/);
+      if (num) return Number(num[1]);
+      const m = str.match(/([A-Za-z])$/);
+      if (m) return m[1].toUpperCase().charCodeAt(0) - 64;
+      return null;
+    };
+
+    const curBracketId = String(match.bracket || "");
+    const curBracket = allBrackets.find((b) => String(b._id) === curBracketId);
+    const isGroup = curBracket ? groupTypes.has(curBracket.type) : false;
+
+    // cộng dồn V
+    let vOffset = 0;
+    for (const b of allBrackets) {
+      if (String(b._id) === curBracketId) break;
+      vOffset += effRounds(b);
+    }
+    const roundInBracket =
+      Number(match.round) && Number(match.round) > 0 ? Number(match.round) : 1;
+    const vIndex = isGroup ? vOffset + 1 : vOffset + roundInBracket;
+
+    // B
+    let bAlpha =
+      match?.pool?.name ||
+      match?.pool?.key ||
+      (match?.pool?.id ? String(match.pool.id) : "");
+    if (typeof bAlpha !== "string") bAlpha = String(bAlpha || "");
+    let bIndex = Number.isFinite(Number(match?.pool?.order))
+      ? Number(match.pool.order) + 1
+      : Number.isFinite(Number(match?.pool?.index))
+      ? Number(match.pool.index) + 1
+      : null;
+    if (!bIndex) {
+      const fromName = letterToIndex(match?.pool?.name || match?.pool?.key);
+      if (fromName) bIndex = fromName;
+    }
+    // nếu vẫn chưa có mà là group thì fallback 1
+    if (isGroup && !bIndex) bIndex = 1;
+    if (!isGroup) bIndex = null;
+
+    // T
+    let tIndex = (Number(match.order) || 0) + 1;
+    if (isGroup) {
+      // lấy các trận cùng bracket + cùng pool để sort
+      const samePoolMatches = await Match.find({
+        bracket: match.bracket,
+        ...(match?.pool?.id
+          ? { "pool.id": match.pool.id }
+          : match?.pool?.name
+          ? { "pool.name": match.pool.name }
+          : {}),
+      })
+        .select("_id rrRound order createdAt")
+        .sort({ rrRound: 1, order: 1, createdAt: 1 })
+        .lean();
+
+      const idx = samePoolMatches.findIndex(
+        (m) => String(m._id) === String(match._id)
+      );
+      if (idx >= 0) tIndex = idx + 1;
+    }
+
+    const displayCode = isGroup
+      ? `V${vIndex}-B${bIndex}-T${tIndex}`
+      : `V${vIndex}-T${tIndex}`;
+
+    // gán lại vào match để lần sau dùng luôn
+    match.displayCode = displayCode;
+
     // 3) chọn page
-    // ✅ mới: nếu match đã từng live và đang có pageId thì ưu tiên lấy đúng page đó
-    // kể cả match.status không phải "live" vẫn lấy, miễn là FbToken đang bận đúng trận này
     const existingPageId = match.facebookLive?.pageId;
     let pageDoc = null;
 
@@ -1222,16 +1332,10 @@ export const createFacebookLiveForMatch = async (req, res) => {
         pageDoc.busy.matchId &&
         String(pageDoc.busy.matchId) !== String(match._id)
       ) {
-        // page này đang bận cho trận khác → bỏ, lát nữa pick free
-        pageDoc = null;
+        pageDoc = null; // page đang bận → bỏ
       }
-      // ❗️ngược lại:
-      // - nếu pageDoc.busy không có matchId
-      // - hoặc pageDoc.busy.matchId === match._id
-      // thì vẫn dùng page này và tạo live mới để "recreate"
     }
 
-    // nếu không lấy được page từ match cũ → pick page rảnh
     if (!pageDoc) {
       pageDoc = await pickFreeFacebookPage();
     }
@@ -1248,14 +1352,62 @@ export const createFacebookLiveForMatch = async (req, res) => {
     const OBS_AUTO_START = await isObsAutoStart();
 
     const t = match.tournament;
+
+    const getPlayerDisplayName = (p) => {
+      if (!p) return null;
+      return (
+        p.user?.nickname ||
+        p.user?.nickName ||
+        p.user?.name ||
+        p.nickname ||
+        p.nickName ||
+        p.name ||
+        null
+      );
+    };
+
+    const buildPairName = (
+      pair,
+      fallbackSingle = "VĐV",
+      fallbackDouble = "Đội"
+    ) => {
+      if (!pair) return fallbackSingle;
+      const p1 = pair.player1 || {};
+      const p2 = pair.player2 || {};
+      const n1 = getPlayerDisplayName(p1) || pair.player1Name || null;
+      const n2 = getPlayerDisplayName(p2) || pair.player2Name || null;
+      const isSingles = !p2 || (!n2 && !p2.user && !pair.player2Name);
+      if (isSingles) {
+        if (n1) return n1;
+        return fallbackSingle;
+      }
+      if (n1 && n2) return `${n1} / ${n2}`;
+      if (n1) return n1;
+      if (n2) return n2;
+      return fallbackDouble;
+    };
+
+    const pairAName = buildPairName(match.pairA, "VĐV A", "Đội A");
+    const pairBName = buildPairName(match.pairB, "VĐV B", "Đội B");
+
+    // 🧠 mã trận ưu tiên: dùng cái mình vừa build
+    const matchCode = displayCode;
+
     const overlayUrl = `${OVERLAY_BASE}/overlay/score?matchId=${match._id}&theme=fb&ratio=16:9&safe=1`;
     const courtName = match?.court?.name || match?.courtLabel || "";
-    const roundLabel =
-      match?.roundLabel || match?.labelKey || match?.code || "Match";
-    const title = `${t?.name || "PickleTour"} – ${roundLabel}${
-      courtName ? " · " + courtName : ""
-    }`;
-    const description = `Trực tiếp trận đấu trên PickleTour.\nScoreboard overlay: ${overlayUrl}`;
+
+    let fbTitle = `${
+      t?.name || "PickleTour"
+    } - ${matchCode} - ${pairAName} vs ${pairBName}`;
+    if (fbTitle.length > 250) {
+      fbTitle = fbTitle.slice(0, 247) + "...";
+    }
+
+    const fbDescriptionLines = [
+      `Trực tiếp ${t?.name || "giải đấu"} - ${matchCode}`,
+      `${pairAName} vs ${pairBName}`,
+    ];
+    const fbDescription = fbDescriptionLines.join("\n");
 
     // 5) token
     const pageId = pageDoc.pageId;
@@ -1271,12 +1423,12 @@ export const createFacebookLiveForMatch = async (req, res) => {
       });
     }
 
-    // 6) tạo live (không poll)
+    // 6) tạo live
     const live = await fbCreateLiveOnPage({
       pageId,
       pageAccessToken,
-      title,
-      description,
+      title: fbTitle,
+      description: fbDescription,
       status: "LIVE_NOW",
     });
     const liveId = live.liveVideoId || live.id;
@@ -1294,19 +1446,18 @@ export const createFacebookLiveForMatch = async (req, res) => {
     const livePermalink =
       liveInfo?.permalink_url || live?.permalink_url || null;
 
-    // build link xem được (ưu tiên video → live → watch)
     const shareUrl =
       (videoPermalink && toFullUrl(videoPermalink)) ||
       (livePermalink && toFullUrl(livePermalink)) ||
       `https://www.facebook.com/watch/?v=${videoId || liveId}`;
 
-    // 9) tách server/key
     const { server, streamKey } = splitServerAndKey(
       liveInfo?.secure_stream_url || live?.secure_stream_url
     );
 
-    // 10) lưu vào match (✅ ghi đè facebookLive cũ luôn → "tạo lại")
     const pageName = await getPageLabel(pageId);
+
+    // ✅ lưu lại vào match
     match.facebookLive = {
       id: liveId,
       videoId,
@@ -1322,6 +1473,8 @@ export const createFacebookLiveForMatch = async (req, res) => {
       status: "CREATED",
       createdAt: new Date(),
       watch_url: `https://www.facebook.com/watch/?v=${videoId || liveId}`,
+      title: fbTitle,
+      description: fbDescription,
     };
     match.meta = match.meta || {};
     match.meta.facebook = {
@@ -1332,10 +1485,14 @@ export const createFacebookLiveForMatch = async (req, res) => {
       videoId,
       permalinkUrl: shareUrl,
       rawPermalink: livePermalink ? toFullUrl(livePermalink) : null,
+      title: fbTitle,
+      description: fbDescription,
     };
+
+    // lưu lại để displayCode lần sau đúng
     await match.save();
 
-    // 11) đánh dấu page bận lại (trường hợp recreate vẫn cập nhật lại)
+    // 11) đánh dấu page bận lại
     await markFacebookPageBusy({
       pageId,
       matchId: match._id,
@@ -1343,19 +1500,20 @@ export const createFacebookLiveForMatch = async (req, res) => {
     });
 
     // 12) auto start OBS
+    const OVERLAY_URL = overlayUrl;
     if (OBS_AUTO_START && server && streamKey) {
       try {
         await startObsStreamingWithOverlay({
           server_url: server,
           stream_key: streamKey,
-          overlay_url: overlayUrl,
+          overlay_url: OVERLAY_URL,
         });
       } catch (e) {
         console.error("[OBS] start failed:", e?.message || e);
       }
     }
 
-    // 13) build studio url
+    // 13) studio url
     const studioUrl =
       `${STUDIO_BASE}/studio/live` +
       `?matchId=${match._id}&server=${encodeURIComponent(
@@ -1366,7 +1524,9 @@ export const createFacebookLiveForMatch = async (req, res) => {
       ok: true,
       match: {
         id: String(match._id),
-        code: match.code,
+        // 👇 code trả ra = displayCode luôn
+        code: displayCode,
+        displayCode,
         status: match.status,
         courtName,
         tournamentName: t?.name || null,
@@ -1384,6 +1544,8 @@ export const createFacebookLiveForMatch = async (req, res) => {
         server_url: server,
         stream_key: streamKey,
         stream_key_masked: mask(streamKey),
+        title: fbTitle,
+        description: fbDescription,
       },
       overlay_url: overlayUrl,
       studio_url: studioUrl,

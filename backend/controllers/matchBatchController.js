@@ -4,6 +4,7 @@ import Match from "../models/matchModel.js";
 import Bracket from "../models/bracketModel.js";
 import mongoose from "mongoose";
 import User from "../models/userModel.js"
+import { toDTO } from "../socket/liveHandlers.js";
 
 /** POST /admin/matches/batch/update-referee
  * body: { ids: [matchId...], referee: userId }
@@ -55,9 +56,134 @@ export const batchAssignReferee = expressAsyncHandler(async (req, res) => {
   // 4) Update all matches: set array (or clear with [])
   const result = await Match.updateMany(
     { _id: { $in: ids } },
-    { $set: { referee: refIds } }, // field 'referee' is an array<ObjectId>
+    { $set: { referee: refIds } },
     { runValidators: true }
   );
+
+  // 5) SOCKET: bắn lại snapshot từng trận để FE thấy referee mới
+  const io = req.app.get("io");
+
+  // lấy lại toàn bộ match đã update với populate đầy đủ
+  const updatedMatches = await Match.find({ _id: { $in: ids } })
+    .populate({
+      path: "pairA",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({ path: "referee", select: "name fullName nickname nickName" })
+    .populate({ path: "previousA", select: "round order" })
+    .populate({ path: "previousB", select: "round order" })
+    .populate({ path: "nextMatch", select: "_id" })
+    .populate({ path: "tournament", select: "name image eventType overlay" })
+    .populate({
+      path: "bracket",
+      select: [
+        "noRankDelta",
+        "name",
+        "type",
+        "stage",
+        "order",
+        "drawRounds",
+        "drawStatus",
+        "scheduler",
+        "drawSettings",
+        "meta.drawSize",
+        "meta.maxRounds",
+        "meta.expectedFirstRoundMatches",
+        "groups._id",
+        "groups.name",
+        "groups.expectedSize",
+        "config.rules",
+        "config.doubleElim",
+        "config.roundRobin",
+        "config.swiss",
+        "config.gsl",
+        "config.roundElim",
+        "overlay",
+      ].join(" "),
+    })
+    .populate({
+      path: "court",
+      select: "name number code label zone area venue building floor",
+    })
+    .populate({ path: "liveBy", select: "name fullName nickname nickName" })
+    .select(
+      "label managers court courtLabel courtCluster " +
+        "scheduledAt startAt startedAt finishedAt status " +
+        "tournament bracket rules currentGame gameScores " +
+        "round order code roundCode roundName " +
+        "seedA seedB previousA previousB nextMatch winner serve overlay " +
+        "video videoUrl stream streams meta " +
+        "format rrRound pool " +
+        "liveBy liveVersion"
+    )
+    .lean();
+
+  // hàm fill nickname giống đoạn bạn gửi
+  const pick = (v) => (v && String(v).trim()) || "";
+  const fillNick = (p) => {
+    if (!p) return p;
+    const primary = pick(p.nickname) || pick(p.nickName);
+    const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+    const n = primary || fromUser || "";
+    if (n) {
+      p.nickname = n;
+      p.nickName = n;
+    }
+    return p;
+  };
+
+  for (const m of updatedMatches) {
+    if (!m) continue;
+
+    if (m.pairA) {
+      m.pairA.player1 = fillNick(m.pairA.player1);
+      m.pairA.player2 = fillNick(m.pairA.player2);
+    }
+    if (m.pairB) {
+      m.pairB.player1 = fillNick(m.pairB.player1);
+      m.pairB.player2 = fillNick(m.pairB.player2);
+    }
+
+    // fallback stream
+    if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
+    // 5.1) báo đơn giản: status
+    io?.to(String(m._id)).emit("status:updated", {
+      matchId: m._id,
+      status: m.status,
+    });
+
+    // 5.2) báo đầy đủ để FE refetch UI
+    io?.to(`match:${String(m._id)}`).emit("match:snapshot", toDTO(m));
+  }
 
   res.json({
     matched: result.matchedCount ?? result.n ?? ids.length,
