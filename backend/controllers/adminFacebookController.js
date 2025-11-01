@@ -17,11 +17,9 @@ export const exchangeLongUserToken = expressAsyncHandler(async (req, res) => {
     return res.status(400).json({ message: "shortToken is required" });
   }
 
-  // Ưu tiên appId/appSecret từ body, fallback ENV
   const appId = typeof appIdBody === "string" && appIdBody.trim();
-
   const appSecret = typeof appSecretBody === "string" && appSecretBody.trim();
-  
+
   if (!appId || !appSecret) {
     return res.status(400).json({
       message:
@@ -30,7 +28,7 @@ export const exchangeLongUserToken = expressAsyncHandler(async (req, res) => {
   }
 
   try {
-    // 1) Đổi short-lived → long-lived user token
+    // 1) đổi short → long
     const { data: tokenRes } = await axios.get(`${GRAPH}/oauth/access_token`, {
       params: {
         grant_type: "fb_exchange_token",
@@ -51,10 +49,11 @@ export const exchangeLongUserToken = expressAsyncHandler(async (req, res) => {
         .json({ message: "Facebook không trả về access_token hợp lệ" });
     }
 
-    // 2) Debug token để lấy meta (expires_at, scopes, is_valid)
+    // 2) debug để lấy meta
     let expiresAt = null;
     let scopes = [];
     let isValid = true;
+    let isNever = false;
 
     try {
       const appAccessToken = `${appId}|${appSecret}`;
@@ -67,15 +66,31 @@ export const exchangeLongUserToken = expressAsyncHandler(async (req, res) => {
       });
 
       const d = dbg?.data || {};
-      if (typeof d.expires_at === "number") {
-        expiresAt = new Date(d.expires_at * 1000).toISOString();
+
+      const exp = typeof d.expires_at === "number" ? d.expires_at : null;
+      const dataExp =
+        typeof d.data_access_expires_at === "number"
+          ? d.data_access_expires_at
+          : null;
+
+      // ✅ chỉ nhận expires_at nếu > 0
+      if (exp && exp > 0) {
+        expiresAt = new Date(exp * 1000).toISOString();
+      } else if (dataExp && dataExp > 0) {
+        // nhiều token user giờ chỉ set data_access_expires_at
+        expiresAt = new Date(dataExp * 1000).toISOString();
+      } else {
+        // exp = 0 → có thể là "never"
+        isNever = true;
       }
+
       if (Array.isArray(d.scopes)) scopes = d.scopes;
       if (typeof d.is_valid === "boolean") isValid = d.is_valid;
-    } catch {
-      // Không chặn flow nếu debug thất bại; fallback bằng expiresIn
+    } catch (e) {
+      // bỏ qua
     }
 
+    // ✅ fallback bằng expires_in nếu trên không ra gì
     if (!expiresAt && expiresIn) {
       expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
     }
@@ -84,9 +99,10 @@ export const exchangeLongUserToken = expressAsyncHandler(async (req, res) => {
       longToken,
       tokenType,
       expiresIn,
-      expiresAt,
+      expiresAt, // sẽ KHÔNG còn 1970 nữa
       scopes,
       isValid,
+      isNever,
     });
   } catch (err) {
     const status = err?.response?.status || 502;
