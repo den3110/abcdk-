@@ -1224,14 +1224,12 @@ export const createFacebookLiveForMatch = async (req, res) => {
     }
 
     /* ================== 🔢 build displayCode chuẩn Vx-Bx-Tx ================== */
-    // lấy toàn bộ bracket của giải để cộng dồn
     const allBrackets = await Bracket.find({
       tournament: match.tournament,
     })
       .select("_id tournament type stage order meta")
       .lean();
 
-    // sort giống các chỗ khác
     allBrackets.sort((a, b) => {
       if (a.stage !== b.stage) return a.stage - b.stage;
       if (a.order !== b.order) return a.order - b.order;
@@ -1285,14 +1283,12 @@ export const createFacebookLiveForMatch = async (req, res) => {
       const fromName = letterToIndex(match?.pool?.name || match?.pool?.key);
       if (fromName) bIndex = fromName;
     }
-    // nếu vẫn chưa có mà là group thì fallback 1
     if (isGroup && !bIndex) bIndex = 1;
     if (!isGroup) bIndex = null;
 
     // T
     let tIndex = (Number(match.order) || 0) + 1;
     if (isGroup) {
-      // lấy các trận cùng bracket + cùng pool để sort
       const samePoolMatches = await Match.find({
         bracket: match.bracket,
         ...(match?.pool?.id
@@ -1315,7 +1311,6 @@ export const createFacebookLiveForMatch = async (req, res) => {
       ? `V${vIndex}-B${bIndex}-T${tIndex}`
       : `V${vIndex}-T${tIndex}`;
 
-    // gán lại vào match để lần sau dùng luôn
     match.displayCode = displayCode;
 
     // 3) chọn page
@@ -1332,7 +1327,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
         pageDoc.busy.matchId &&
         String(pageDoc.busy.matchId) !== String(match._id)
       ) {
-        pageDoc = null; // page đang bận → bỏ
+        pageDoc = null;
       }
     }
 
@@ -1390,7 +1385,6 @@ export const createFacebookLiveForMatch = async (req, res) => {
     const pairAName = buildPairName(match.pairA, "VĐV A", "Đội A");
     const pairBName = buildPairName(match.pairB, "VĐV B", "Đội B");
 
-    // 🧠 mã trận ưu tiên: dùng cái mình vừa build
     const matchCode = displayCode;
 
     const overlayUrl = `${OVERLAY_BASE}/overlay/score?matchId=${match._id}&theme=fb&ratio=16:9&safe=1`;
@@ -1446,6 +1440,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
     const livePermalink =
       liveInfo?.permalink_url || live?.permalink_url || null;
 
+    // link public ưu tiên: video → live → watch
     const shareUrl =
       (videoPermalink && toFullUrl(videoPermalink)) ||
       (livePermalink && toFullUrl(livePermalink)) ||
@@ -1457,7 +1452,15 @@ export const createFacebookLiveForMatch = async (req, res) => {
 
     const pageName = await getPageLabel(pageId);
 
-    // ✅ lưu lại vào match
+    // ✅ GÁN LINK LIVE VÀO FIELD video CỦA MATCH
+    // ưu tiên video permalink (ổn định), nếu không có thì dùng shareUrl
+    const canonicalVideoUrl =
+      (videoPermalink && toFullUrl(videoPermalink)) ||
+      (livePermalink && toFullUrl(livePermalink)) ||
+      shareUrl;
+    match.video = canonicalVideoUrl; // 👈 chỗ bạn yêu cầu
+
+    // ✅ lưu lại vào match.facebookLive như cũ
     match.facebookLive = {
       id: liveId,
       videoId,
@@ -1489,7 +1492,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
       description: fbDescription,
     };
 
-    // lưu lại để displayCode lần sau đúng
+    // ✅ save luôn để video được lưu
     await match.save();
 
     // 11) đánh dấu page bận lại
@@ -1524,12 +1527,12 @@ export const createFacebookLiveForMatch = async (req, res) => {
       ok: true,
       match: {
         id: String(match._id),
-        // 👇 code trả ra = displayCode luôn
         code: displayCode,
         displayCode,
         status: match.status,
         courtName,
         tournamentName: t?.name || null,
+        video: match.video, // 👈 FE lấy nhanh từ đây
       },
       facebook: {
         pageId,
