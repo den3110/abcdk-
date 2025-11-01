@@ -2,6 +2,7 @@
 // GET /api/public/overlay/config?limit=0&featured=1[&tier=Gold,Silver]
 import asyncHandler from "express-async-handler";
 import { Sponsor, SPONSOR_TIERS } from "../models/sponsorModel.js";
+import CmsBlock from "../models/cmsBlockModel.js";
 
 /* ---------- helpers ---------- */
 const parseBoolQP = (v) => {
@@ -53,14 +54,37 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
 
   const sponsors = await q.lean();
 
-  // Trả tạm webLogoUrl — bạn thay bằng cấu hình hệ thống khi cần
-  const webLogoUrl = "https://placehold.co/240x60/png?text=PickleTour";
+  // ✅ fallback như cũ
+  const FALLBACK_LOGO =
+    "https://placehold.co/240x60/png?text=PickleTour";
+
+  // ✅ lấy từ CMS block 'hero'
+  let webLogoUrl = FALLBACK_LOGO;
+  let webLogoAlt = "";
+
+  const heroBlock = await CmsBlock.findOne({ slug: "hero" }).lean();
+  if (heroBlock?.data) {
+    // ưu tiên overlayLogoUrl
+    if (heroBlock.data.overlayLogoUrl) {
+      webLogoUrl = heroBlock.data.overlayLogoUrl;
+    } else {
+      // nếu không có thì để fallback, KHÔNG lấy imageUrl hero
+      webLogoUrl = FALLBACK_LOGO;
+    }
+
+    // alt ưu tiên overlayLogoAlt, rồi tới imageAlt, không có thì để rỗng
+    webLogoAlt =
+      heroBlock.data.overlayLogoAlt ||
+      heroBlock.data.imageAlt ||
+      "";
+  }
 
   // Cache nhẹ (CDN + browser)
   res.set("Cache-Control", "public, max-age=30, s-maxage=60");
 
   res.json({
     webLogoUrl,
+    webLogoAlt,
     sponsors,
   });
 });

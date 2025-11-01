@@ -820,7 +820,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     const sponsorH =
       effective.size === "lg" ? 34 : effective.size === "sm" ? 24 : 28;
     const webLogoH =
-      effective.size === "lg" ? 32 : effective.size === "sm" ? 22 : 26;
+      effective.size === "lg" ? 32 : effective.size === "sm" ? 22 : 40;
 
     return {
       "--accent-a": effective.accentA,
