@@ -1,10 +1,32 @@
-// controllers/courtController.js
+// controllers/courtController.js (ví dụ)
 import Court from "../models/courtModel.js";
 
-/**
- * GET /api/courts/:courtId
- * Lấy thông tin sân bao gồm currentMatch
- */
+// giống cái normalize trong matchModel để tránh case isBreak = false
+const BREAK_DEFAULT = {
+  active: false,
+  afterGame: null,
+  note: "",
+  startedAt: null,
+  expectedResumeAt: null,
+};
+const normalizeBreak = (val) => {
+  if (!val || typeof val !== "object" || Array.isArray(val)) {
+    return { ...BREAK_DEFAULT };
+  }
+  return {
+    active: !!val.active,
+    afterGame:
+      typeof val.afterGame === "number"
+        ? val.afterGame
+        : BREAK_DEFAULT.afterGame,
+    note: typeof val.note === "string" ? val.note : BREAK_DEFAULT.note,
+    startedAt: val.startedAt ? new Date(val.startedAt) : null,
+    expectedResumeAt: val.expectedResumeAt
+      ? new Date(val.expectedResumeAt)
+      : null,
+  };
+};
+
 export const getCourtById = async (req, res) => {
   try {
     const { courtId } = req.params;
@@ -14,8 +36,8 @@ export const getCourtById = async (req, res) => {
       .populate("bracket", "name type")
       .populate({
         path: "currentMatch",
-        // ✅ lấy status của trận
-        select: "status labelKey code court courtLabel facebookLive",
+        // ✅ lấy thêm isBreak
+        select: "status labelKey code court courtLabel facebookLive isBreak",
         populate: [
           {
             path: "pairA",
@@ -40,6 +62,11 @@ export const getCourtById = async (req, res) => {
         success: false,
         message: "Court not found",
       });
+    }
+
+    // ✅ đảm bảo isBreak luôn là object để FE không bị văng
+    if (court.currentMatch) {
+      court.currentMatch.isBreak = normalizeBreak(court.currentMatch.isBreak);
     }
 
     res.json(court);
