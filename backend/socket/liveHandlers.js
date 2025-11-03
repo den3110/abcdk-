@@ -71,7 +71,7 @@ export const toDTO = (m) => {
 
   const normPlayer = (p) => {
     if (!p) return null;
-    const _id = p._id || p.id || p; // hỗ trợ cả ObjectId và đã map sẵn
+    const _id = p._id || p.id || p;
     return {
       _id,
       nickname: preferNick(p),
@@ -82,10 +82,7 @@ export const toDTO = (m) => {
 
   const playersFromReg = (reg) => {
     if (!reg || typeof reg !== "object") return [];
-    const list = [normPlayer(reg.player1), normPlayer(reg.player2)].filter(
-      Boolean
-    );
-    return list;
+    return [normPlayer(reg.player1), normPlayer(reg.player2)].filter(Boolean);
   };
 
   const teamNameFromReg = (reg) => {
@@ -95,7 +92,6 @@ export const toDTO = (m) => {
       .filter(Boolean)
       .join(" & ");
     if (nick) return nick;
-    // fallback: single -> p1, double -> p1 & p2 nếu có
     const a = preferNick(reg?.player1);
     const b = preferNick(reg?.player2);
     return [a, b].filter(Boolean).join(" & ");
@@ -112,14 +108,12 @@ export const toDTO = (m) => {
       stage: b.stage ?? undefined,
       drawRounds: b.drawRounds ?? 0,
       drawStatus: b.drawStatus || undefined,
-      // meta cho tính rounds/scale
       meta: {
         drawSize: Number(b?.meta?.drawSize) || 0,
         maxRounds: Number(b?.meta?.maxRounds) || 0,
         expectedFirstRoundMatches:
           Number(b?.meta?.expectedFirstRoundMatches) || 0,
       },
-      // groups để map B-index
       groups: Array.isArray(b.groups)
         ? b.groups.map((g) => ({
             _id: g._id || g.id || undefined,
@@ -129,7 +123,6 @@ export const toDTO = (m) => {
               : undefined,
           }))
         : [],
-      // nếu cần FE hiển thị luật mặc định
       config: b.config
         ? {
             rules: b.config.rules || undefined,
@@ -159,17 +152,17 @@ export const toDTO = (m) => {
       }
     : undefined;
 
-  // ================= Bracket (đủ field để FE tính V/B) =================
+  // ================= Bracket =================
   const bracket = m.bracket ? mapBracket(m.bracket) : undefined;
 
-  // 🆕 prevBracket/prevBrackets (nếu đã được tính ở controller/socket)
+  // 🆕 prevBracket/prevBrackets
   const prevBracket = m.prevBracket ? mapBracket(m.prevBracket) : null;
   const prevBrackets =
     Array.isArray(m.prevBrackets) && m.prevBrackets.length
       ? m.prevBrackets.map(mapBracket)
       : [];
 
-  // ================= Overlay fallback: match → bracket → tournament =================
+  // ================= Overlay fallback =================
   const overlayFromMatch =
     m.overlay && typeof m.overlay === "object" && Object.keys(m.overlay).length
       ? m.overlay
@@ -177,16 +170,11 @@ export const toDTO = (m) => {
   const overlay =
     overlayFromMatch ?? bracket?.overlay ?? tournament?.overlay ?? undefined;
 
-  // ================= Media =================
-  const primaryVideo =
-    typeof m.video === "string" && m.video.trim().length ? m.video.trim() : "";
-  const videoUrl = typeof m.videoUrl === "string" ? m.videoUrl : undefined;
-  const stream = typeof m.stream === "string" ? m.stream : undefined;
-  const streams = Array.isArray(m.streams)
-    ? m.streams
-    : Array.isArray(m.meta?.streams)
-    ? m.meta.streams
-    : undefined;
+  // ================= Media (CHỈ DÙNG m.video) =================
+  const video =
+    typeof m.video === "string" && m.video.trim().length
+      ? m.video.trim()
+      : undefined;
 
   // ================= Users (lite) =================
   const normUserLite = (u) => {
@@ -221,7 +209,7 @@ export const toDTO = (m) => {
       }
     : undefined;
 
-  // ================= Format & Pool (phục vụ B-index) =================
+  // ================= Format & Pool =================
   const format = (m.format || "").toLowerCase() || undefined;
   const rrRound = Number.isFinite(Number(m.rrRound))
     ? Number(m.rrRound)
@@ -230,11 +218,11 @@ export const toDTO = (m) => {
     m.pool && (m.pool.id || m.pool._id || m.pool.name)
       ? {
           id: m.pool.id || m.pool._id || undefined,
-          name: m.pool.name || undefined, // "A" / "B" / ...
+          name: m.pool.name || undefined,
         }
       : undefined;
 
-  // ================= roundCode & roundName (bổ sung) =================
+  // ================= roundCode & roundName =================
   let roundCode = m.roundCode || undefined;
   if (!roundCode) {
     const drawSize =
@@ -252,7 +240,7 @@ export const toDTO = (m) => {
   }
   const roundName = m.roundName || undefined;
 
-  // ================= Teams (gộp sẵn để FE có thể dùng trực tiếp) =================
+  // ================= Teams =================
   const teams =
     m.pairA || m.pairB
       ? {
@@ -277,38 +265,31 @@ export const toDTO = (m) => {
         }
       : undefined;
 
-  // ================= Build DTO (giữ nguyên field cũ, chỉ thêm mới) =================
+  // ================= Build DTO =================
   return {
     _id: m._id,
-    // 🔹 added: matchId (alias) cho FE nào expect matchId
     matchId: String(m._id),
 
     status: m.status,
     winner: m.winner,
 
-    // vòng và thứ tự trong vòng
     round: m.round,
-    rrRound, // <-- RR/Group round theo mẫu
+    rrRound,
     order: m.order,
 
-    // 🔹 added: stageIndex, labelKey cho các màn hiển thị/điều hướng
     stageIndex: m.stageIndex ?? undefined,
     labelKey: m.labelKey || undefined,
 
-    // 🔹 added: roundCode & roundName để FE render "Tứ kết/Bán kết..."
     roundCode,
     roundName,
 
-    // format & pool để FE build mã Vx-Bx-Tx
     format,
     pool,
 
-    // giữ nguyên rules, serve, scores...
     rules: m.rules || {},
     currentGame: m.currentGame ?? 0,
     gameScores: Array.isArray(m.gameScores) ? m.gameScores : [],
 
-    // cặp/seed & phụ thuộc (giữ nguyên)
     pairA: m.pairA || null,
     pairB: m.pairB || null,
     seedA: m.seedA || null,
@@ -317,43 +298,33 @@ export const toDTO = (m) => {
     previousB: m.previousB || null,
     nextMatch: m.nextMatch || null,
 
-    // 🔹 added: teams (gộp sẵn tên + players); KHÔNG thay thế pairA/pairB
     teams,
 
-    // referee list
     referees,
-    // live controller
     liveBy,
 
-    // thời gian
     scheduledAt: m.scheduledAt || null,
-    startAt: m.startAt || undefined, // giữ nếu backend còn dùng
+    startAt: m.startAt || undefined,
     startedAt: m.startedAt || null,
     finishedAt: m.finishedAt || null,
 
     version: m.liveVersion ?? 0,
 
-    // giao ban đầu
     serve: m.serve || { side: "A", server: 2 },
 
-    // liên kết
     tournament,
     bracket,
     bracketType: bracket?.type || undefined,
 
-    // 🆕 thêm prevBracket & prevBrackets
-    prevBracket, // object hoặc null
-    prevBrackets, // mảng (có thể rỗng)
+    prevBracket,
+    prevBrackets,
 
     overlay,
 
-    // media
-    video: primaryVideo || undefined,
-    videoUrl,
-    stream,
-    streams,
+    // Media: chỉ 1 trường
+    video,
 
-    // court (đầy đủ + fallback keys)
+    // Court
     court: courtObj || null,
     courtId: courtObj?._id || undefined,
     courtName: courtObj?.name || undefined,
@@ -363,7 +334,7 @@ export const toDTO = (m) => {
     label: m.label || undefined,
     managers: m.managers,
 
-    // (tuỳ chọn) các field hàng chờ/sân nếu có — thêm không ảnh hưởng API cũ
+    // optional hàng chờ/sân
     queueOrder: m.queueOrder ?? undefined,
     courtCluster: m.courtCluster || undefined,
     assignedAt: m.assignedAt || undefined,

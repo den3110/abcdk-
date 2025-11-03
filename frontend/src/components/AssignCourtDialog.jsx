@@ -29,7 +29,7 @@ import { toast } from "react-toastify";
  */
 import {
   useAdminListCourtsQuery,
-//   useAdminUpsertCourtsMutation, // không dùng ở đây nhưng để sẵn nếu bạn muốn mở rộng
+  // useAdminUpsertCourtsMutation, // không dùng ở đây nhưng để sẵn nếu bạn muốn mở rộng
 } from "../slices/adminCourtApiSlice";
 import {
   useAdminAssignMatchToCourtMutation,
@@ -49,12 +49,10 @@ const matchCode = (m) => {
 };
 
 function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
-  const bracketId = match?.bracket?._id || match?.bracket || "";
-
-  // chỉ load khi mở dialog & có bracket
+  // ❌ BỎ BRACKET: chỉ còn lấy sân theo GIẢI
   const { data: courts = [], isLoading } = useAdminListCourtsQuery(
-    { tid: tournamentId, bracket: bracketId },
-    { skip: !open || !tournamentId || !bracketId }
+    { tid: tournamentId }, // không truyền bracket nữa
+    { skip: !open || !tournamentId }
   );
 
   const [assign, { isLoading: assigning }] =
@@ -96,6 +94,10 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
     }
   };
 
+  // ID sân đang gán (hỗ trợ cả object & string)
+  const linkedCourtId =
+    (match?.court && (match.court._id || match.court)) || null;
+
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md" keepMounted>
       <DialogTitle>
@@ -112,11 +114,11 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
           </Box>
         ) : (courts?.length || 0) === 0 ? (
           <Typography color="text.secondary">
-            Chưa có sân nào cho bracket này.
+            Chưa có sân nào cho <b>giải</b> này.
           </Typography>
         ) : (
           <Box>
-            {match?.court?._id && (
+            {linkedCourtId && (
               <Paper variant="outlined" sx={{ p: 1.25, mb: 2 }}>
                 <Stack
                   direction="row"
@@ -128,7 +130,9 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
                     size="small"
                     color="secondary"
                     variant="outlined"
-                    label={`Đang gán: ${match?.court?.name || ""}`}
+                    label={`Đang gán: ${
+                      match?.court?.name || match?.court?.label || ""
+                    }`}
                   />
                   <Chip
                     size="small"
@@ -139,14 +143,14 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
                     onClick={handleClear}
                     disabled={clearing}
                   />
-                  {match?.court?._id && (
+                  {linkedCourtId && (
                     <Chip
                       size="small"
                       variant="outlined"
                       icon={<OpenInNewIcon />}
                       label="Mở overlay"
                       component="a"
-                      href={`/overlay?court=${match.court._id}`}
+                      href={`/overlay/score?matchId=${match?._id}`}
                       clickable
                     />
                   )}

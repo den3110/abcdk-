@@ -75,6 +75,7 @@ import {
 import {
   batchAssignReferee,
   batchDeleteMatches,
+  batchSetLiveUrl,
   buildRoundElimSkeleton,
   clearBracketMatches,
 } from "../controllers/matchBatchController.js";
@@ -190,6 +191,7 @@ router.get(
 
 // Batch matches
 router.post("/matches/batch/update-referee", protect, batchAssignReferee);
+router.post("/matches/batch/live-url", protect, batchSetLiveUrl);
 
 router.post("/tournaments/:tournamentId/courts", protect, upsertCourts);
 

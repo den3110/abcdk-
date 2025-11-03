@@ -38,7 +38,6 @@ import {
   ContentCopy as ContentCopyIcon,
   OpenInNew as OpenInNewIcon,
   AccessTime as TimeIcon,
-  LiveTv as LiveTvIcon,
   Edit as EditIcon,
   Save as SaveIcon,
   Add as AddIcon,
@@ -79,7 +78,9 @@ const getMatchIdFromPayload = (payload = {}) =>
   sid(payload._id) ||
   sid(payload?.data?.matchId) ||
   sid(payload?.data?.match) ||
+  sid(payload?.snapshot?._id) ||
   "";
+
 const isSameId = (a, b) => a && b && String(a) === String(b);
 
 function ts(x) {
@@ -162,16 +163,17 @@ function extractCurrentV(m) {
     .filter((n) => Number.isFinite(n));
   return nums.length ? nums[0] : null;
 }
-
-
 function smartDepLabel(m, prevDep) {
   const raw = depLabel(prevDep);
-  // console.log(raw)
   const currV = extractCurrentV(m);
-  console.log(m.prevBracket)
   return String(raw).replace(/\b([WL])-V(\d+)-T(\d+)\b/gi, (_s, wl, v, t) => {
     const pv = parseInt(v, 10);
-    const newV = currV != null ? Math.max(1, currV - 1) : (m?.prevBracket?.type !== "group" ? pv + 2 : pv + 1);
+    const newV =
+      currV != null
+        ? Math.max(1, currV - 1)
+        : m?.prevBracket?.type !== "group"
+        ? pv + 2
+        : pv + 1;
     return `${wl}-V${newV}-T${t}`;
   });
 }
@@ -203,7 +205,6 @@ function makeMatchGroupLabelFnFor(bracket) {
     return key ? String(key) : null;
   };
 }
-/** Số trận kỳ vọng cho vòng tròn đơn/đôi (hỗ trợ roundsPerPair) */
 function expectedRRMatchesLocal(bracket, g) {
   const n =
     (Array.isArray(g?.regIds) ? g.regIds.length : 0) ||
@@ -398,8 +399,7 @@ function normalizeStreams(m) {
     ["Stream", m?.sources?.stream],
     ["URL", m?.sources?.url],
   ];
-  for (const [label, val] of singles)
-    if (isNonEmptyString(val)) pushUrl(val, { label });
+  for (const [label, val] of singles) pushUrl(val, { label });
 
   const asStrArray = (arr) =>
     Array.isArray(arr) ? arr.filter(isNonEmptyString) : [];
@@ -540,6 +540,7 @@ function StreamPlayer({ stream }) {
       return (
         <AspectBox ratio={ratio}>
           <iframe
+            key={stream.embedUrl} // force remount when url changes
             src={stream.embedUrl}
             title="Video"
             allow={stream.allow || "autoplay; fullscreen; picture-in-picture"}
@@ -553,6 +554,7 @@ function StreamPlayer({ stream }) {
         <>
           <AspectBox ratio={ratio}>
             <video
+              key={stream.embedUrl} // force remount when url changes
               ref={videoRef}
               controls
               autoPlay
@@ -581,6 +583,7 @@ function StreamPlayer({ stream }) {
       return (
         <AspectBox ratio={ratio}>
           <video
+            key={stream.embedUrl} // force remount when url changes
             src={stream.embedUrl}
             controls
             autoPlay
@@ -848,16 +851,10 @@ function useDelayedFlag(flag, ms = 250) {
 }
 
 /* ====================== LOCK: chỉ cập nhật đúng match đang mở ====================== */
-/**
- * Khóa vào match đầu tiên có id trong props m. Trong suốt vòng đời component,
- * chỉ nhận update cho đúng lockedId. Nếu parent truyền m của match khác, sẽ BỎ QUA,
- * tránh “nhảy” sang trận khác giữa chừng.
- */
 function useLockedMatch(m, { loading }) {
   const [lockedId, setLockedId] = useState(() => (m?._id ? String(m._id) : ""));
   const [view, setView] = useState(() => (m?._id ? m : null));
 
-  // Khi có dữ liệu đầu tiên => khóa lại
   useEffect(() => {
     if (!lockedId && m?._id) {
       setLockedId(String(m._id));
@@ -865,19 +862,16 @@ function useLockedMatch(m, { loading }) {
     }
   }, [m?._id, lockedId, m]);
 
-  // Nếu props m update cùng lockedId => cập nhật view
   useEffect(() => {
     if (!m) return;
     if (lockedId && String(m._id) === String(lockedId)) {
       setView((prev) => (isMatchEqual(prev, m) ? prev : m));
     } else if (!lockedId && m?._id) {
-      // Trường hợp hiếm khi lock chưa set
       setLockedId(String(m._id));
       setView(m);
     }
   }, [m, lockedId]);
 
-  // Nếu parent đang loading và chưa có view => show spinner
   const waiting = loading && !view;
 
   return { lockedId, view, setView, waiting };
@@ -917,7 +911,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     m?.tournament?.id ||
     null;
 
-  // Lấy danh sách brackets & matches của giải
   const { data: brackets = [] } = useListTournamentBracketsQuery(
     tournamentId ? tournamentId : skipToken
   );
@@ -926,7 +919,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     { refetchOnFocus: false, refetchOnReconnect: true }
   );
 
-  // Gom matches theo bracketId
   const byBracket = useMemo(() => {
     const m = {};
     (brackets || []).forEach((b) => (m[b._id] = []));
@@ -943,7 +935,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const isManager = !!verifyRes?.isManager;
   const canEdit = isAdmin || isManager;
 
-  // Profile dialog (chỉ cần userId)
   const [profileUserId, setProfileUserId] = useState(null);
   const openProfile = (uid) => {
     if (!uid) return;
@@ -955,18 +946,15 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const socketCtx = useSocket();
   const socket = socketCtx?.socket || socketCtx;
 
-  // LOCKED VIEW
   const loading = Boolean(isLoading || liveLoading);
   const {
     lockedId,
     view: mm,
-    setView,
     waiting,
   } = useLockedMatch(m, {
     loading,
   });
 
-  // Map stage → Map(groupKeyNorm → đã hoàn tất?)
   const groupDoneByStage = useMemo(() => {
     const stageMap = new Map();
 
@@ -1014,7 +1002,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     return stageMap;
   }, [brackets, byBracket]);
 
-  // Nếu seed đến từ GROUP và bảng chưa xong → chặn fill tên đội (giữ nhãn seed)
   const isSeedBlockedByUnfinishedGroup = useCallback(
     (seed) => {
       if (!seed || seed.type !== "groupRank") return false;
@@ -1032,27 +1019,24 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       const groupCode = String(
         seed?.ref?.groupCode ?? seed?.ref?.group ?? ""
       ).trim();
-      if (!Number.isFinite(stageNo) || !groupCode) return true; // thiếu info → coi như chặn
+      if (!Number.isFinite(stageNo) || !groupCode) return true;
 
       const stageMap = groupDoneByStage.get(stageNo);
       if (!stageMap) return true;
 
       const done = stageMap.get(_norm(groupCode));
-      return done !== true; // chỉ pass khi done === true
+      return done !== true;
     },
     [groupDoneByStage, mm?.bracket?.stage, mm?.stage]
   );
 
   const showSpinnerDelayed = useDelayedFlag(waiting, 250);
 
-  // Local patch: chỉ ghi đè field cần thiết (scores/status/teams), giữ nguyên id
   const [localPatch, setLocalPatch] = useState(null);
   useEffect(() => {
-    // Reset local patch khi đổi trận (lockedId đổi)
     setLocalPatch(null);
   }, [lockedId]);
 
-  // Hiển thị dựa trên view + localPatch
   const status = localPatch?.status || mm?.status || "scheduled";
   const shownGameScores = localPatch?.gameScores ?? mm?.gameScores ?? [];
 
@@ -1070,8 +1054,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     return 0;
   });
   const [showPlayer, setShowPlayer] = useState(false);
+
+  // Reset chọn stream khi đổi trận
   useEffect(() => {
-    // Khi đổi trận (lockedId), chọn lại stream mặc định
     const arr = normalizeStreams(mm || {});
     const pick = () => {
       if (!arr.length) return -1;
@@ -1083,12 +1068,38 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     };
     setActiveIdx(pick());
     setShowPlayer(false);
-  }, [lockedId]); // chỉ khi đổi trận
+  }, [lockedId]);
+
+  // Auto-bật player khi lần đầu có stream
+  const prevStreamsLenRef = useRef(0);
+  useEffect(() => {
+    const curr = streams || [];
+    const prevLen = prevStreamsLenRef.current;
+
+    if (prevLen === 0 && curr.length > 0) {
+      const pick = () => {
+        const p = curr.findIndex((s) => s.primary);
+        if (p >= 0) return p;
+        const e = curr.findIndex((s) => s.canEmbed);
+        if (e >= 0) return e;
+        return 0;
+      };
+      const idx = pick();
+      setActiveIdx(idx);
+      if (curr[idx]?.canEmbed) setShowPlayer(true);
+    }
+
+    if (activeIdx >= curr.length) {
+      setActiveIdx(curr.length ? 0 : -1);
+    }
+
+    prevStreamsLenRef.current = curr.length;
+  }, [streams, activeIdx]);
 
   const activeStream =
     activeIdx >= 0 && activeIdx < streams.length ? streams[activeIdx] : null;
 
-  // Overlay URL (tham khảo)
+  // Overlay URL
   const overlayUrl =
     lockedId && typeof window !== "undefined" && window?.location?.origin
       ? `${window.location.origin}/overlay/score?matchId=${lockedId}&theme=dark&size=md&showSets=1&autoNext=1`
@@ -1117,6 +1128,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     String(mm?.tournament?.eventType || "").toLowerCase() === "single";
   const blockA = isSeedBlockedByUnfinishedGroup(mm?.seedA);
   const blockB = isSeedBlockedByUnfinishedGroup(mm?.seedB);
+
   // ====== Edit scores ======
   const [editMode, setEditMode] = useState(false);
   const [editScores, setEditScores] = useState(() => [
@@ -1160,7 +1172,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       setLocalPatch((p) => ({ ...(p || {}), gameScores: editScores }));
       toast.success("Đã lưu tỉ số.");
       setEditMode(false);
-      onSaved?.(); // cho parent refetch list (không ảnh hưởng dialog vì đã lock)
     } catch (e) {
       toast.error(`Lưu tỉ số thất bại: ${e?.data?.message || e?.message || e}`);
     }
@@ -1175,7 +1186,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       }).unwrap();
       setLocalPatch((p) => ({ ...(p || {}), status: "finished" }));
       toast.success(`Đã đặt đội ${side} thắng & kết thúc trận.`);
-      onSaved?.();
     } catch (e) {
       toast.error(
         `Đặt thắng/thua thất bại: ${e?.data?.message || e?.message || e}`
@@ -1192,7 +1202,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       }).unwrap();
       setLocalPatch((p) => ({ ...(p || {}), status: newStatus }));
       toast.success(`Đã đổi trạng thái: ${newStatus}`);
-      onSaved?.();
     } catch (e) {
       toast.error(
         `Đổi trạng thái thất bại: ${e?.data?.message || e?.message || e}`
@@ -1213,7 +1222,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     }
   };
   const handleTeamsSavedLocal = (newA, newB) => {
-    // Cập nhật view tại chỗ, vẫn giữ lockedId
     setLocalPatch((p) => ({
       ...(p || {}),
       pairA: newA
@@ -1233,10 +1241,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
           }
         : null,
     }));
-    onSaved?.();
   };
 
-  /* ====================== Socket: chỉ nghe đúng lockedId ====================== */
+  /* ====================== Socket listeners ====================== */
   const onSavedRef = useRef(onSaved);
   useEffect(() => {
     onSavedRef.current = onSaved;
@@ -1255,10 +1262,53 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       payload.gameScores ??
       payload.scores ??
       payload.data?.gameScores ??
-      payload.data?.scores;
+      payload.data?.scores ??
+      payload.snapshot?.gameScores;
     if (Array.isArray(gameScores)) {
       setLocalPatch((p) => ({ ...(p || {}), gameScores }));
     }
+  };
+
+  const applyLocalStreamIfAny = (payload = {}) => {
+    const snap = payload.snapshot || payload.data || payload || {};
+
+    const candidates = [
+      snap.video,
+      snap.videoUrl,
+      snap.meta?.video,
+      snap.link,
+      snap.url,
+      snap.sources?.video,
+    ]
+      .map((x) => (typeof x === "string" ? x.trim() : ""))
+      .filter(Boolean);
+
+    const streamsArr =
+      snap.streams ||
+      snap.meta?.streams ||
+      snap.links?.items ||
+      snap.sources?.items ||
+      [];
+
+    const hasVideo = candidates.length > 0;
+    const hasStreams = Array.isArray(streamsArr) && streamsArr.length > 0;
+
+    if (!hasVideo && !hasStreams) return;
+
+    setLocalPatch((p) => {
+      const next = { ...(p || {}) };
+      if (hasVideo) {
+        const v = candidates[0];
+        next.video = v;
+        next.videoUrl = v;
+        next.meta = { ...(next.meta || {}), video: v };
+      }
+      if (hasStreams) {
+        next.streams = streamsArr;
+        next.meta = { ...(next.meta || {}), streams: streamsArr };
+      }
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -1280,17 +1330,20 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       "match:forfeited",
       "draw:matchUpdated",
       "match:teamsUpdated",
+      "status:updated", // BE emits this in some flows
     ];
-    const SERVE_EVENTS = ["serve:set", "match:serveSet"];
+    // ❗KHÔNG dùng 'match:updated' theo yêu cầu. Chỉ nghe các event dưới:
+    const STREAM_EVENTS = ["match:snapshot", "stream:updated", "video:set"];
 
     const onScore = (payload = {}) => {
       if (!forThis(payload)) return;
-      applyLocalScoreIfAny(payload); // cập nhật tại chỗ để không nháy
+      applyLocalScoreIfAny(payload);
       const hasScores = Array.isArray(
         payload.gameScores ??
           payload.scores ??
           payload?.data?.gameScores ??
-          payload?.data?.scores
+          payload?.data?.scores ??
+          payload?.snapshot?.gameScores
       );
       if (!hasScores) debouncedRefresh();
     };
@@ -1300,19 +1353,19 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       debouncedRefresh();
     };
 
-    const onServe = (payload = {}) => {
+    const onStream = (payload = {}) => {
       if (!forThis(payload)) return;
-      debouncedRefresh();
+      applyLocalStreamIfAny(payload);
     };
 
     SCORE_EVENTS.forEach((ev) => socket.on(ev, onScore));
     REFRESH_EVENTS.forEach((ev) => socket.on(ev, onGenericRefresh));
-    SERVE_EVENTS.forEach((ev) => socket.on(ev, onServe));
+    STREAM_EVENTS.forEach((ev) => socket.on(ev, onStream));
 
     return () => {
       SCORE_EVENTS.forEach((ev) => socket.off(ev, onScore));
       REFRESH_EVENTS.forEach((ev) => socket.off(ev, onGenericRefresh));
-      SERVE_EVENTS.forEach((ev) => socket.off(ev, onServe));
+      STREAM_EVENTS.forEach((ev) => socket.off(ev, onStream));
       if (debouncedRefreshRef.current) {
         clearTimeout(debouncedRefreshRef.current);
         debouncedRefreshRef.current = null;
@@ -1763,7 +1816,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         patching={patching}
       />
 
-      {/* Popup hồ sơ VĐV (nếu bạn cần dùng, có thể bật lại openProfile ở trên) */}
+      {/* Popup hồ sơ VĐV */}
       <PublicProfileDialog
         open={Boolean(profileUserId)}
         onClose={closeProfile}

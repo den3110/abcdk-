@@ -701,15 +701,24 @@ function makeCodes(match, bracket) {
   };
 }
 
+// ✅ Courts theo GIẢI, bỏ phụ thuộc bracket
 export async function listCourtsByTournament(req, res) {
   try {
     const { tid } = req.params;
-    const { bracket: bid, q = "", cluster = "", limit, page, heal } = req.query;
+    // Giữ tham số 'bracket' để tương thích ngược nhưng ❌ KHÔNG dùng
+    const {
+      /* bracket: _bid, */ q = "",
+      cluster = "",
+      limit,
+      page,
+      heal,
+    } = req.query || {};
 
     if (!mongoose.Types.ObjectId.isValid(tid)) {
       return res.status(400).json({ message: "Invalid tournament id" });
     }
 
+    // Quyền
     const me = req.user;
     const isAdmin = me?.role === "admin";
     const ownerOrMgr = await canManageTournament(me?._id, tid);
@@ -717,49 +726,8 @@ export async function listCourtsByTournament(req, res) {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    if (!bid || !mongoose.Types.ObjectId.isValid(bid)) {
-      return res
-        .status(400)
-        .json({ message: "Query 'bracket' is required and must be ObjectId" });
-    }
-
-    // 1) Lấy bracket hiện tại (đủ để build code)
-    const bracket = await Bracket.findOne({ _id: bid, tournament: tid })
-      .select("_id type stage order meta.maxRounds drawRounds groups.name")
-      .lean();
-    if (!bracket) {
-      return res
-        .status(404)
-        .json({ message: "Bracket not found in this tournament" });
-    }
-
-    // 2) baseOffset = tổng số vòng của các bracket trước đó (order nhỏ hơn)
-    const prevBrackets = await Bracket.find({
-      tournament: tid,
-      order: { $lt: bracket.order ?? 0 },
-    })
-      .select("type meta.maxRounds drawRounds")
-      .sort({ order: 1 })
-      .lean();
-
-    const countBracketRounds = (b) => {
-      const t = String(b?.type || "");
-      // Vòng bảng coi như 1 vòng
-      if (["group", "round_robin", "gsl", "swiss"].includes(t)) return 1;
-
-      // KO/roundElim: lấy số vòng thật
-      const metaRounds = Number(b?.meta?.maxRounds || 0);
-      const drawRounds = Number(b?.drawRounds || 0);
-      return Math.max(metaRounds, drawRounds, 0);
-    };
-
-    const baseOffset = (prevBrackets || []).reduce(
-      (sum, b) => sum + countBracketRounds(b),
-      0
-    );
-
-    // 3) Truy vấn court
-    const where = { tournament: tid, bracket: bid };
+    // ----- Truy vấn COURTS theo GIẢI (không theo bracket) -----
+    const where = { tournament: tid };
 
     const qTrim = String(q || "").trim();
     if (qTrim) {
@@ -768,10 +736,11 @@ export async function listCourtsByTournament(req, res) {
 
     const clusterTrim = String(cluster || "").trim();
     if (clusterTrim) {
+      // cluster là string; giữ nhánh ObjectId để tương thích dữ liệu cũ nếu có
       if (mongoose.Types.ObjectId.isValid(clusterTrim)) {
         where.$or = [
           { cluster: new mongoose.Types.ObjectId(clusterTrim) },
-          { cluster: clusterTrim }, // phòng khi field lưu dạng string
+          { cluster: clusterTrim },
         ];
       } else {
         where.cluster = clusterTrim;
@@ -792,11 +761,11 @@ export async function listCourtsByTournament(req, res) {
         path: "currentMatch",
         model: "Match",
         select:
-          "_id code status format pool.name pool.key rrRound swissRound round order globalRound",
+          "_id code labelKey status format type pool key rrRound swissRound round order globalRound",
       })
       .lean();
 
-    // 4) Optional self-heal
+    // ----- Optional self-heal -----
     if (String(heal) === "1") {
       const staleIds = docs
         .filter(
@@ -821,76 +790,79 @@ export async function listCourtsByTournament(req, res) {
       }
     }
 
-    // 5) Helpers build code
-    const isGroupLike = (t) =>
-      ["group", "round_robin", "gsl", "swiss"].includes(String(t || ""));
+    // ----- Build code/displayCode KHÔNG phụ thuộc bracket -----
+    const GROUP_LIKE = new Set(["group", "round_robin", "gsl", "swiss"]);
+    const isGroupLike = (m) => {
+      const t1 = String(m?.type || "").toLowerCase();
+      const f1 = String(m?.format || "").toLowerCase();
+      if (GROUP_LIKE.has(t1) || GROUP_LIKE.has(f1)) return true;
+      // có pool thì mặc định coi là group-like
+      if (m?.pool) return true;
+      return false;
+    };
 
-    // Chuẩn hoá chỉ số bảng: "3" -> 3; "A" -> 1, "B" -> 2; tìm theo groups.name nếu cần
-    const getPoolIndex = (raw, curBracket) => {
-      const s = String(raw ?? "").trim();
-      if (!s) return null;
+    const letterToIndex = (s) => {
+      const ch = String(s || "")
+        .trim()
+        .toUpperCase();
+      if (/^[A-Z]$/.test(ch)) return ch.charCodeAt(0) - 64; // A=1
+      return null;
+    };
 
-      if (/^\d+$/.test(s)) {
-        const n = parseInt(s, 10);
+    const getPoolIndex = (pool) => {
+      if (!pool) return null;
+      const cand = String(
+        pool.index ?? pool.idx ?? pool.code ?? pool.key ?? pool.name ?? ""
+      ).trim();
+      if (!cand) return null;
+
+      if (/^\d+$/.test(cand)) {
+        const n = parseInt(cand, 10);
         return n > 0 ? n : null;
       }
+      const mB = /^B(\d+)$/i.exec(cand);
+      if (mB) return parseInt(mB[1], 10);
 
-      const up = s.toUpperCase();
-      if (/^[A-Z]$/.test(up)) return up.charCodeAt(0) - 64; // A=1
-
-      if (Array.isArray(curBracket?.groups) && curBracket.groups.length) {
-        const idx = curBracket.groups.findIndex(
-          (g) =>
-            String(g?.name || "")
-              .trim()
-              .toUpperCase() === up
-        );
-        if (idx >= 0) return idx + 1; // 1-based
-      }
+      const byLetter = letterToIndex(cand);
+      if (byLetter) return byLetter;
 
       return null;
     };
 
-    const makeCodesWithOffset = (match, curBracket, offset) => {
-      if (!match) return { code: "", displayCode: "" };
+    const extractT = (m) => {
+      const o = Number(m?.order);
+      if (Number.isFinite(o) && o >= 0) return o + 1;
+      // fallback: lấy số cuối trong labelKey nếu có
+      const lk = String(m?.labelKey || "");
+      const mm = lk.match(/(\d+)$/);
+      if (mm) return Number(mm[1]);
+      return 1;
+    };
 
-      const t = String(curBracket?.type || "");
-      // localRound: group-like = 1; KO/roundElim = match.round (1-based, fallback 1)
-      let localRound = 1;
-      if (!isGroupLike(t)) {
-        const r = Number(match?.round);
-        localRound = Number.isFinite(r) && r > 0 ? r : 1;
-      }
+    const computeDisplayCode = (m) => {
+      if (!m) return { code: "", displayCode: "" };
 
-      // V cộng dồn
-      const V = offset + localRound;
-
-      // T luôn = (order + 1), fallback 1 nếu thiếu
-      const rawOrder = Number(match?.order);
-      const T = Number.isFinite(rawOrder) && rawOrder >= 0 ? rawOrder + 1 : 1;
-
-      if (isGroupLike(t)) {
-        // Vòng bảng: V - B(1/2/3/…) - T
-        const poolRaw = match?.pool?.key ?? match?.pool?.name ?? "";
-        const poolIdx = getPoolIndex(poolRaw, curBracket);
-        const B = poolIdx != null ? `-B${poolIdx}` : "";
-        const code = `V${V}${B}-T${T}`;
+      const T = extractT(m);
+      if (isGroupLike(m)) {
+        const B = getPoolIndex(m?.pool);
+        // Không còn offset theo bracket => group-like mặc định V=1
+        const code = `V1${B ? `-B${B}` : ""}-T${T}`;
         return { code, displayCode: code };
       } else {
-        // PO/KO: V - T
-        const code = `V${V}-T${T}`;
+        // KO/Elim: dùng globalRound nếu có, fallback round, mặc định 1
+        const r =
+          (Number.isFinite(Number(m?.globalRound)) && Number(m.globalRound)) ||
+          (Number.isFinite(Number(m?.round)) && Number(m.round)) ||
+          1;
+        const code = `V${r}-T${T}`;
         return { code, displayCode: code };
       }
     };
 
-    // 6) Gắn code/displayCode cho currentMatch
+    // Gắn code/displayCode cho currentMatch
     for (const c of docs) {
       if (c.currentMatch && c.currentMatch._id) {
-        const { code, displayCode } = makeCodesWithOffset(
-          c.currentMatch,
-          bracket,
-          baseOffset
-        );
+        const { code, displayCode } = computeDisplayCode(c.currentMatch);
         c.currentMatch.code = code;
         c.currentMatch.displayCode = displayCode;
       }
@@ -1025,14 +997,12 @@ export const deleteAllCourts = async (req, res) => {
   }
 };
 
-
 export const deleteOneCourt = asyncHandler(async (req, res) => {
   const { tournamentId, courtId } = req.params || {};
 
   if (!mongoose.isValidObjectId(courtId)) {
     return res.status(400).json({ message: "Invalid courtId" });
   }
-
 
   const session = await mongoose.startSession();
   session.startTransaction();

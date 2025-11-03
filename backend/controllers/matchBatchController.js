@@ -3,7 +3,7 @@ import expressAsyncHandler from "express-async-handler";
 import Match from "../models/matchModel.js";
 import Bracket from "../models/bracketModel.js";
 import mongoose from "mongoose";
-import User from "../models/userModel.js"
+import User from "../models/userModel.js";
 import { toDTO } from "../socket/liveHandlers.js";
 
 /** POST /admin/matches/batch/update-referee
@@ -313,4 +313,153 @@ export const clearBracketMatches = expressAsyncHandler(async (req, res) => {
 
   const result = await Match.deleteMany(query);
   res.json({ deleted: result.deletedCount || 0 });
+});
+
+export const batchSetLiveUrl = expressAsyncHandler(async (req, res) => {
+  const { ids, video } = req.body || {};
+
+  // 1) validate ids
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400);
+    throw new Error("ids must be a non-empty array");
+  }
+  const uniqIds = Array.from(new Set(ids.map(String)));
+  const invalid = uniqIds.filter((id) => !mongoose.isValidObjectId(id));
+  if (invalid.length) {
+    res.status(400);
+    throw new Error(`Invalid match ids: ${invalid.join(", ")}`);
+  }
+
+  // 2) normalize video
+  const v = typeof video === "string" ? video.trim() : "";
+  const update = v
+    ? { $set: { video: v, videoUrl: v, "meta.video": v } }
+    : { $unset: { video: "", videoUrl: "", "meta.video": "" } };
+
+  // 3) updateMany
+  const result = await Match.updateMany({ _id: { $in: uniqIds } }, update, {
+    runValidators: true,
+  });
+
+  // 4) lấy lại match đã cập nhật + populate cần thiết để toDTO
+  const updatedMatches = await Match.find({ _id: { $in: uniqIds } })
+    .populate({
+      path: "pairA",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({
+      path: "pairB",
+      select: "player1 player2 seed label teamName",
+      populate: [
+        {
+          path: "player1",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+        {
+          path: "player2",
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "nickname nickName" },
+        },
+      ],
+    })
+    .populate({ path: "referee", select: "name fullName nickname nickName" })
+    .populate({ path: "previousA", select: "round order" })
+    .populate({ path: "previousB", select: "round order" })
+    .populate({ path: "nextMatch", select: "_id" })
+    .populate({ path: "tournament", select: "name image eventType overlay" })
+    .populate({
+      path: "bracket",
+      select: [
+        "noRankDelta",
+        "name",
+        "type",
+        "stage",
+        "order",
+        "drawRounds",
+        "drawStatus",
+        "scheduler",
+        "drawSettings",
+        "meta.drawSize",
+        "meta.maxRounds",
+        "meta.expectedFirstRoundMatches",
+        "groups._id",
+        "groups.name",
+        "groups.expectedSize",
+        "config.rules",
+        "config.doubleElim",
+        "config.roundRobin",
+        "config.swiss",
+        "config.gsl",
+        "config.roundElim",
+        "overlay",
+      ].join(" "),
+    })
+    .populate({
+      path: "court",
+      select: "name number code label zone area venue building floor",
+    })
+    .populate({ path: "liveBy", select: "name fullName nickname nickName" })
+    .select(
+      "label managers court courtLabel courtCluster " +
+        "scheduledAt startAt startedAt finishedAt status " +
+        "tournament bracket rules currentGame gameScores " +
+        "round order code roundCode roundName " +
+        "seedA seedB previousA previousB nextMatch winner serve overlay " +
+        "video videoUrl stream streams meta " +
+        "format rrRound pool " +
+        "liveBy liveVersion"
+    )
+    .lean();
+
+  // helper: fill nickname
+  const pick = (v) => (v && String(v).trim()) || "";
+  const fillNick = (p) => {
+    if (!p) return p;
+    const primary = pick(p.nickname) || pick(p.nickName);
+    const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+    const n = primary || fromUser || "";
+    if (n) {
+      p.nickname = n;
+      p.nickName = n;
+    }
+    return p;
+  };
+
+  // 5) SOCKET: phát snapshot/updated để FE nhận ngay link video mới
+  const io = req.app.get("io");
+  for (const m of updatedMatches) {
+    if (!m) continue;
+
+    if (m.pairA) {
+      m.pairA.player1 = fillNick(m.pairA.player1);
+      m.pairA.player2 = fillNick(m.pairA.player2);
+    }
+    if (m.pairB) {
+      m.pairB.player1 = fillNick(m.pairB.player1);
+      m.pairB.player2 = fillNick(m.pairB.player2);
+    }
+    if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
+    // emit snapshot đầy đủ
+    io?.to(`match:${String(m._id)}`).emit("match:snapshot", toDTO(m));
+  }
+
+  res.json({
+    matched: result.matchedCount ?? result.n ?? uniqIds.length,
+    updated: result.modifiedCount ?? result.nModified ?? 0,
+    video: v, // giá trị đã set ("" nếu xoá)
+  });
 });

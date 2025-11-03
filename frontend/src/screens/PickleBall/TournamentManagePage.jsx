@@ -75,6 +75,7 @@ import {
   useAdminGetBracketsQuery,
   useAdminListMatchesByTournamentQuery,
   useAdminSetMatchLiveUrlMutation,
+  useAdminBatchSetMatchLiveUrlMutation,
 } from "../../slices/tournamentsApiSlice";
 
 import {
@@ -535,7 +536,7 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
     <TableRow
       hover
       onClick={() => onRowClick(match._id)}
-      sx={{ cursor: "pointer", }}
+      sx={{ cursor: "pointer" }}
     >
       <TableCell
         padding="checkbox"
@@ -783,6 +784,62 @@ const MatchCard = React.memo(function MatchCard({
   );
 });
 
+const BulkVideoDialog = React.memo(function BulkVideoDialog({
+  open,
+  selectedCount = 0,
+  busy = false,
+  onClose,
+  onSubmit, // (url) => void
+}) {
+  const [url, setUrl] = React.useState("");
+
+  // reset ô nhập mỗi lần mở lại
+  React.useEffect(() => {
+    if (open) setUrl("");
+  }, [open]);
+
+  const handleSubmit = React.useCallback(() => {
+    const v = (url || "").trim();
+    if (!v || !selectedCount || busy) return;
+    onSubmit?.(v);
+  }, [url, selectedCount, busy, onSubmit]);
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" keepMounted>
+      <DialogTitle>Gán video cho {selectedCount} trận</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2}>
+          <TextField
+            autoFocus
+            label="Link video (Facebook, YouTube, v.v.)"
+            placeholder="https://..."
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            fullWidth
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSubmit();
+            }}
+          />
+          <Alert severity="info">
+            Link này sẽ được áp dụng cho tất cả các trận đang chọn.
+          </Alert>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Đóng</Button>
+        <Button
+          variant="contained"
+          startIcon={<MovieIcon />}
+          disabled={busy || !url.trim() || !selectedCount}
+          onClick={handleSubmit}
+        >
+          Gán
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+});
+
 /* ---------------- Component chính ---------------- */
 export default function TournamentManagePage() {
   const navigate = useNavigate();
@@ -1010,7 +1067,35 @@ export default function TournamentManagePage() {
   // === Batch assign dialog state ===
   const [bulkDlgOpen, setBulkDlgOpen] = useState(false);
   const [pickedRefs, setPickedRefs] = useState([]);
+  // NEW: batch gán video
+  const [bulkVideoDlg, setBulkVideoDlg] = useState({ open: false, url: "" });
+  const [batchSetLiveUrl, { isLoading: batchingVideo }] =
+    useAdminBatchSetMatchLiveUrlMutation();
 
+  const submitBatchSetVideo = useCallback(
+    async (urlParam) => {
+      const ids = Array.from(selectedMatchIds);
+      const url = (urlParam || "").trim();
+      if (!ids.length) {
+        toast.info("Chưa chọn trận nào.");
+        return;
+      }
+      if (!url) {
+        toast.info("Hãy nhập link video hợp lệ.");
+        return;
+      }
+      try {
+        await batchSetLiveUrl({ ids, video: url }).unwrap();
+        toast.success(`Đã gán video cho ${ids.length} trận`);
+        setBulkVideoDlg({ open: false, url: "" }); // chỉ đóng, không cần lưu url ở cha nữa
+        clearSelection();
+        await refetchMatches?.();
+      } catch (e) {
+        toast.error(e?.data?.message || "Gán video thất bại");
+      }
+    },
+    [selectedMatchIds, batchSetLiveUrl, refetchMatches, clearSelection]
+  );
   // ref options theo payload { items: [...] }
   const refOptions = useMemo(() => {
     const list = Array.isArray(refData?.items)
@@ -1923,6 +2008,15 @@ export default function TournamentManagePage() {
                   Gán trọng tài
                 </Button>
                 <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<MovieIcon />}
+                  onClick={() => setBulkVideoDlg({ open: true, url: "" })}
+                  sx={{ whiteSpace: "nowrap" }}
+                >
+                  Gán video
+                </Button>
+                <Button
                   size="small"
                   onClick={clearSelection}
                   sx={{ whiteSpace: "nowrap" }}
@@ -1970,6 +2064,15 @@ export default function TournamentManagePage() {
                       sx={{ whiteSpace: "nowrap" }}
                     >
                       Gán trọng tài
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      fullWidth
+                      startIcon={<MovieIcon />}
+                      onClick={() => setBulkVideoDlg({ open: true, url: "" })}
+                      sx={{ whiteSpace: "nowrap" }}
+                    >
+                      Gán video
                     </Button>
                     <Button fullWidth onClick={clearSelection}>
                       Bỏ chọn
@@ -2345,6 +2448,14 @@ export default function TournamentManagePage() {
           </Button>
         </DialogActions>
       </Dialog>
+      {/* ===== Dialog gán video (batch) ===== */}
+      <BulkVideoDialog
+        open={bulkVideoDlg.open}
+        selectedCount={selectedMatchIds.size}
+        busy={batchingVideo}
+        onClose={() => setBulkVideoDlg({ open: false, url: "" })}
+        onSubmit={submitBatchSetVideo}
+      />
     </Box>
   );
 }

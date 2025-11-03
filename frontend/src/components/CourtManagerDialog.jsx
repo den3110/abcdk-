@@ -750,26 +750,6 @@ export default function CourtManagerDialog({
               </Stack>
             </PaperLike>
           </Grid>
-
-          {/* <Grid item xs={12} md={5}>
-            <PaperLike>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                Hàng đợi vòng bảng (toàn giải)
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Thuật toán: A1, B1, C1… sau đó A2, B2… (tránh VĐV đang thi
-                đấu/chờ sân).
-              </Typography>
-              <Button
-                variant="contained"
-                startIcon={<QueuePlayNextIcon />}
-                onClick={handleBuildQueue}
-                disabled={buildingQueue}
-              >
-                {buildingQueue ? "Đang xếp..." : "Xếp hàng đợi"}
-              </Button>
-            </PaperLike>
-          </Grid> */}
         </Grid>
       </Box>
 

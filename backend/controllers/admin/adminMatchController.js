@@ -334,6 +334,7 @@ export async function assignMatchToCourt(req, res) {
     const { tid, mid } = req.params;
     const { courtId } = req.body || {};
 
+    // ===== Validate =====
     if (!mongoose.Types.ObjectId.isValid(tid)) {
       return res.status(400).json({ message: "Invalid tournament id" });
     }
@@ -343,6 +344,8 @@ export async function assignMatchToCourt(req, res) {
     if (!mongoose.Types.ObjectId.isValid(courtId)) {
       return res.status(400).json({ message: "Invalid court id" });
     }
+
+    // ===== Auth =====
     const me = req.user;
     const isAdmin = me?.role === "admin";
     const ownerOrMgr = await canManageTournament(me?._id, tid);
@@ -350,10 +353,10 @@ export async function assignMatchToCourt(req, res) {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    // Load match + validate thuộc giải
+    // ===== Load match (thuộc giải) =====
     const match = await Match.findById(mid)
       .select(
-        "_id tournament bracket status court courtLabel courtCluster assignedAt"
+        "_id tournament bracket status court courtLabel courtCluster assignedAt type format pool round order globalRound"
       )
       .lean();
     if (!match) return res.status(404).json({ message: "Match not found" });
@@ -361,33 +364,28 @@ export async function assignMatchToCourt(req, res) {
       return res.status(400).json({ message: "Match not in this tournament" });
     }
 
-    // Load court + validate cùng giải + cùng bracket
+    // ===== Load court (chỉ cần cùng giải; KHÔNG kiểm bracket) =====
     const court = await Court.findById(courtId)
       .select(
-        "_id tournament bracket name cluster status currentMatch isActive"
+        "_id tournament name label code cluster status currentMatch isActive"
       )
       .lean();
     if (!court) return res.status(404).json({ message: "Court not found" });
     if (String(court.tournament) !== String(tid)) {
       return res.status(400).json({ message: "Court not in this tournament" });
     }
-    if (String(court.bracket) !== String(match.bracket)) {
-      return res
-        .status(400)
-        .json({ message: "Court and match must be in the same bracket" });
-    }
     if (court.isActive === false) {
       return res.status(409).json({ message: "Court is inactive" });
     }
 
-    // Nếu sân đang gắn trận khác -> từ chối
+    // Sân đang gắn match khác → từ chối
     if (court.currentMatch && String(court.currentMatch) !== String(mid)) {
       return res
         .status(409)
         .json({ message: "Court is already assigned to another match" });
     }
 
-    // Nếu trận đã gắn sân A → bỏ gán ở sân A trước khi gán sân B
+    // Nếu match đang gắn sân A → gỡ ở sân A trước (không đổi status match)
     if (match.court && String(match.court) !== String(courtId)) {
       await Court.updateOne(
         { _id: match.court, currentMatch: match._id },
@@ -395,18 +393,24 @@ export async function assignMatchToCourt(req, res) {
       );
     }
 
-    // Cập nhật match
+    // ===== Cập nhật match → gán sân mới =====
     const nextStatus =
       match.status === "scheduled" || match.status === "queued"
         ? "assigned"
         : match.status;
+
+    const courtLabel =
+      court.name ||
+      court.label ||
+      court.code ||
+      `Sân #${String(court._id).slice(-4)}`;
 
     const updatedMatch = await Match.findByIdAndUpdate(
       mid,
       {
         $set: {
           court: court._id,
-          courtLabel: court.name,
+          courtLabel,
           courtCluster: court.cluster || "Main",
           status: nextStatus,
           assignedAt: new Date(),
@@ -415,7 +419,7 @@ export async function assignMatchToCourt(req, res) {
       { new: true }
     ).select("_id code status court courtLabel courtCluster assignedAt");
 
-    // Cập nhật court
+    // ===== Cập nhật court =====
     await Court.findByIdAndUpdate(court._id, {
       $set: {
         currentMatch: updatedMatch._id,
@@ -423,79 +427,72 @@ export async function assignMatchToCourt(req, res) {
       },
     });
 
-    // Emit status:updated (fix: dùng updatedMatch.status)
+    // ===== Emit status:updated =====
     const io = req.app.get("io");
     io?.to(String(match._id)).emit("status:updated", {
       matchId: match._id,
       status: updatedMatch.status,
     });
 
-    // ===== Helpers cho mã trận =====
-    const isGroupLike = (t) =>
-      ["group", "round_robin", "gsl", "swiss"].includes(String(t || ""));
-
-    const countBracketRounds = (b) => {
-      const t = String(b?.type || "");
-      if (isGroupLike(t)) return 1; // vòng bảng tính 1 vòng
-      const metaRounds = Number(b?.meta?.maxRounds || 0);
-      const drawRounds = Number(b?.drawRounds || 0);
-      return Math.max(metaRounds, drawRounds, 0);
+    // ===== Build mã trận KHÔNG phụ thuộc bracket =====
+    const GROUP_LIKE = new Set(["group", "round_robin", "gsl", "swiss"]);
+    const isGroupLike = (m) => {
+      const t1 = String(m?.type || "").toLowerCase();
+      const f1 = String(m?.format || "").toLowerCase();
+      if (GROUP_LIKE.has(t1) || GROUP_LIKE.has(f1)) return true;
+      if (m?.pool) return true; // có pool coi là group-like
+      return false;
     };
-
-    // "A"→1, "B"→2; "3"→3; nếu tên lạ thì tìm index trong bracket.groups
-    const getPoolIndex = (raw, curBracket) => {
-      const s = String(raw ?? "").trim();
-      if (!s) return null;
-      if (/^\d+$/.test(s)) {
-        const n = parseInt(s, 10);
+    const letterToIndex = (s) => {
+      const ch = String(s || "")
+        .trim()
+        .toUpperCase();
+      if (/^[A-Z]$/.test(ch)) return ch.charCodeAt(0) - 64; // A=1
+      return null;
+    };
+    const getPoolIndex = (pool) => {
+      if (!pool) return null;
+      const cand = String(
+        pool.index ?? pool.idx ?? pool.code ?? pool.key ?? pool.name ?? ""
+      ).trim();
+      if (!cand) return null;
+      if (/^\d+$/.test(cand)) {
+        const n = parseInt(cand, 10);
         return n > 0 ? n : null;
       }
-      const up = s.toUpperCase();
-      if (/^[A-Z]$/.test(up)) return up.charCodeAt(0) - 64; // A=1
-      const groups = curBracket?.groups || [];
-      const idx = groups.findIndex(
-        (g) =>
-          String(g?.name || "")
-            .trim()
-            .toUpperCase() === up
-      );
-      return idx >= 0 ? idx + 1 : null;
+      const mB = /^B(\d+)$/i.exec(cand);
+      if (mB) return parseInt(mB[1], 10);
+      const byLetter = letterToIndex(cand);
+      if (byLetter) return byLetter;
+      return null;
     };
-
-    const buildMatchCodeWithOffset = (mDoc, curBracket, offset) => {
-      if (!mDoc || !curBracket) {
-        // Fallback đơn giản nếu thiếu bracket
-        const r = Math.max(1, Number(mDoc?.round || 1));
-        const T = Math.max(
-          1,
-          Number(mDoc?.order) >= 0 ? Number(mDoc.order) + 1 : 1
-        );
-        const V = offset + r;
-        return { code: `V${V}-T${T}`, displayCode: `V${V}-T${T}` };
-      }
-      const t = String(curBracket?.type || "");
-      const localRound = isGroupLike(t)
-        ? 1
-        : Math.max(1, Number(mDoc?.round || 1));
-      const V = offset + localRound;
-      const T = Math.max(
-        1,
-        Number(mDoc?.order) >= 0 ? Number(mDoc.order) + 1 : 1
-      );
-
-      if (isGroupLike(t)) {
-        const poolRaw = mDoc?.pool?.key ?? mDoc?.pool?.name ?? "";
-        const poolIdx = getPoolIndex(poolRaw, curBracket);
-        const B = poolIdx != null ? `-B${poolIdx}` : "";
-        const code = `V${V}${B}-T${T}`;
+    const extractT = (m) => {
+      const o = Number(m?.order);
+      if (Number.isFinite(o) && o >= 0) return o + 1;
+      const lk = String(m?.labelKey || "");
+      const mm = lk.match(/(\d+)$/);
+      if (mm) return Number(mm[1]);
+      return 1;
+    };
+    const computeDisplayCode = (m) => {
+      const T = extractT(m);
+      if (isGroupLike(m)) {
+        // Group-like: V1 -[B]- T
+        const B = getPoolIndex(m?.pool);
+        const code = `V1${B ? `-B${B}` : ""}-T${T}`;
         return { code, displayCode: code };
       } else {
-        const code = `V${V}-T${T}`;
+        // KO/Elim: V{globalRound|round|1} - T
+        const r =
+          (Number.isFinite(Number(m?.globalRound)) && Number(m.globalRound)) ||
+          (Number.isFinite(Number(m?.round)) && Number(m.round)) ||
+          1;
+        const code = `V${r}-T${T}`;
         return { code, displayCode: code };
       }
     };
 
-    // Lấy snapshot đầy đủ cho client
+    // ===== Emit snapshot đầy đủ (kèm code mới) =====
     const m = await Match.findById(match._id)
       .populate({
         path: "pairA",
@@ -535,35 +532,8 @@ export async function assignMatchToCourt(req, res) {
       .populate({ path: "nextMatch", select: "_id" })
       .populate({ path: "tournament", select: "name image eventType overlay" })
       .populate({
-        path: "bracket",
-        select: [
-          "noRankDelta",
-          "name",
-          "type",
-          "stage",
-          "order",
-          "drawRounds",
-          "drawStatus",
-          "scheduler",
-          "drawSettings",
-          "meta.drawSize",
-          "meta.maxRounds",
-          "meta.expectedFirstRoundMatches",
-          "groups._id",
-          "groups.name",
-          "groups.expectedSize",
-          "config.rules",
-          "config.doubleElim",
-          "config.roundRobin",
-          "config.swiss",
-          "config.gsl",
-          "config.roundElim",
-          "overlay",
-        ].join(" "),
-      })
-      .populate({
         path: "court",
-        select: "name number code label zone area venue building floor",
+        select: "name number code label zone area venue building floor cluster",
       })
       .populate({ path: "liveBy", select: "name fullName nickname nickName" })
       .select(
@@ -573,13 +543,13 @@ export async function assignMatchToCourt(req, res) {
           "round order code roundCode roundName " +
           "seedA seedB previousA previousB nextMatch winner serve overlay " +
           "video videoUrl stream streams meta " +
-          "format rrRound pool " +
+          "type format rrRound pool " +
           "liveBy liveVersion"
       )
       .lean();
 
     if (m) {
-      // 1) Bổ sung nickname fallback
+      // Nickname fallback
       const pick = (v) => (v && String(v).trim()) || "";
       const fillNick = (p) => {
         if (!p) return p;
@@ -601,38 +571,27 @@ export async function assignMatchToCourt(req, res) {
         m.pairB.player2 = fillNick(m.pairB.player2);
       }
 
-      // 2) Fallback streams
       if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
-      // 3) Tính baseOffset & build mã trận chuẩn, rồi gắn vào snapshot
-      let baseOffset = 0;
-      if (m.bracket) {
-        const prevBrs = await Bracket.find({
-          tournament: tid,
-          order: { $lt: m.bracket.order ?? 0 },
-        })
-          .select("type meta.maxRounds drawRounds")
-          .sort({ order: 1 })
-          .lean();
+      // Build code không cần offset
+      const { code, displayCode } = computeDisplayCode(m);
+      m.code = code;
+      m.displayCode = displayCode;
+      m.roundCode = code;
 
-        baseOffset = (prevBrs || []).reduce(
-          (sum, b) => sum + countBracketRounds(b),
-          0
-        );
-
-        const { code, displayCode } = buildMatchCodeWithOffset(
-          m,
-          m.bracket,
-          baseOffset
-        );
-        m.code = code; // FE có thể đọc m.code
-        m.displayCode = displayCode;
-        m.roundCode = code; // tương thích nơi đọc roundCode
-      }
-
-      // Emit snapshot với mã trận chuẩn (V…[-B…]-T…)
       io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
     }
+
+    // (tuỳ chọn) báo phòng scheduler của cluster này refresh state
+    try {
+      const clusterKey = court.cluster || "Main";
+      io?.to(`tour:${tid}:${clusterKey}`).emit("scheduler:state:dirty", {
+        at: Date.now(),
+        reason: "assign:court",
+        courtId: String(court._id),
+        matchId: String(match._id),
+      });
+    } catch (_) {}
 
     return res.json({ ok: true, match: updatedMatch });
   } catch (err) {

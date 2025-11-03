@@ -595,10 +595,18 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
       query: ({ tid, matchId }) =>
         `/api/admin/tournaments/${tid}/matches/${matchId}/referees`,
       providesTags: (result, error, { matchId }) => [
-        { type: 'MatchReferees', id: matchId },
+        { type: "MatchReferees", id: matchId },
       ],
       // Optional: chuẩn hoá data
-      transformResponse: (res) => Array.isArray(res) ? res : (res?.referees || []),
+      transformResponse: (res) =>
+        Array.isArray(res) ? res : res?.referees || [],
+    }),
+    adminBatchSetMatchLiveUrl: builder.mutation({
+      query: ({ ids, video }) => ({
+        url: `/api/admin/matches/batch/live-url`, // BE: nhận { ids: string[], video: string }
+        method: "POST",
+        body: { ids, video },
+      }),
     }),
   }),
 });
@@ -659,5 +667,6 @@ export const {
   useAdminSearchRefereesQuery,
   useAdminAssignMatchToCourtMutation,
   useAdminClearMatchCourtMutation,
-  useAdminGetMatchRefereesQuery
+  useAdminGetMatchRefereesQuery,
+  useAdminBatchSetMatchLiveUrlMutation,
 } = tournamentsApiSlice;

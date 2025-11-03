@@ -578,8 +578,6 @@ export function initSocket(
           p.nickname = n;
           p.nickName = n;
         }
-        // (tuỳ chọn) giảm payload: xoá user nếu không cần về FE
-        // if (p.user) delete p.user;
         return p;
       };
 
@@ -654,7 +652,6 @@ export function initSocket(
         m?.court?.name ??
         m?.courtName ??
         (courtNumber != null ? `Sân ${courtNumber}` : "");
-      // không thay đổi m.court hiện có; chỉ bổ sung key rời
       m.courtId = courtId || undefined;
       m.courtName = courtName || undefined;
       m.courtNo = courtNumber ?? undefined;
@@ -697,14 +694,12 @@ export function initSocket(
           return bb;
         };
 
-        // guard: cần có tournament & bracket hiện tại
         const curBracketId = m?.bracket?._id;
         const tourId = m?.tournament?._id || m?.tournament;
         m.prevBracket = null;
         m.prevBrackets = [];
 
         if (curBracketId && tourId) {
-          // kéo tất cả bracket của cùng tournament để tránh lỗi kiểu dữ liệu khi filter
           const prevSelect = [
             "name",
             "type",
@@ -754,7 +749,7 @@ export function initSocket(
             const { __k, ...prevRaw } = list[curIdx - 1];
             const prev = normalizeBracketShape(prevRaw);
             m.prevBracket = prev;
-            m.prevBrackets = [prev]; // giữ tương thích nếu FE đang đọc mảng
+            m.prevBrackets = [prev];
           }
         }
       } catch (e) {
@@ -762,6 +757,18 @@ export function initSocket(
           "[socket match:join] prevBracket error:",
           e?.message || e
         );
+      }
+
+      // ✅ CHỈ BỔ SUNG ĐOẠN NÀY: ép có m.video
+      if (!m.video) {
+        m.video =
+          m.videoUrl ||
+          m?.meta?.video ||
+          m?.facebookLive?.permalinkUrl ||
+          m?.facebookLive?.liveUrl ||
+          m?.facebookLive?.hls || // HLS của FB
+          m?.facebookLive?.m3u8 || // 1 số page trả m3u8
+          null;
       }
 
       // ✅ giữ nguyên emit cũ
