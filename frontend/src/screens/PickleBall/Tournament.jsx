@@ -15,9 +15,6 @@ import {
   TableCell,
   TableBody,
   Avatar,
-  Dialog,
-  DialogContent,
-  IconButton,
   Button,
   Alert,
   Chip,
@@ -38,7 +35,6 @@ import HowToRegIcon from "@mui/icons-material/HowToReg";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import EventNoteIcon from "@mui/icons-material/EventNote";
-import CloseIcon from "@mui/icons-material/Close";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import PlaceIcon from "@mui/icons-material/Place";
@@ -52,8 +48,9 @@ import { useSelector } from "react-redux";
 import dayjs from "dayjs";
 import "dayjs/locale/vi";
 import { DateRangePicker } from "@mui/x-date-pickers-pro/DateRangePicker";
-// v6 (tuỳ dự án): có thể dùng SingleInputDateRangeField để gộp 1 input
-// import { SingleInputDateRangeField } from "@mui/x-date-pickers-pro/SingleInputDateRangeField";
+
+// ====== Zoom components ======
+import { ZoomProvider, ZoomItem, ImgWithFallback } from "../../components/Zoom";
 
 const THUMB_SIZE = 84;
 
@@ -184,8 +181,6 @@ export default function TournamentDashboard() {
   }, [dateRange, setParams]);
 
   const clearRange = () => setDateRange([null, null]);
-
-  const [previewSrc, setPreviewSrc] = useState(null);
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -519,7 +514,7 @@ export default function TournamentDashboard() {
                   textField: {
                     size: "small",
                     sx: {
-                        width: "100%",
+                      width: "100%",
                       "& .MuiOutlinedInput-root": { height: FIELD_HEIGHT },
                       "& .MuiOutlinedInput-input": {
                         py: 0,
@@ -543,7 +538,6 @@ export default function TournamentDashboard() {
                       placeholder="Từ ngày"
                       sx={{
                         "& .MuiOutlinedInput-root": { height: FIELD_HEIGHT },
-                        // optional: tinh chỉnh chữ nằm giữa tuyệt đối
                         "& .MuiOutlinedInput-input": {
                           py: 0,
                           my: 0,
@@ -569,16 +563,6 @@ export default function TournamentDashboard() {
                   </Stack>
                 )}
               />
-              {/* v6 (tuỳ dự án): gộp 1 input, dùng slots */}
-              {/*
-                <DateRangePicker
-                  value={dateRange}
-                  onChange={(v) => setDateRange(v)}
-                  calendars={2}
-                  slots={{ field: SingleInputDateRangeField }}
-                  slotProps={{ field: { size: "small", fullWidth: true, placeholder: "Khoảng ngày (Từ — Đến)" } }}
-                />
-                */}
             </Box>
 
             {(dateRange?.[0] || dateRange?.[1]) && (
@@ -644,7 +628,7 @@ export default function TournamentDashboard() {
         )
       ) : (
         tournaments && (
-          <Fragment>
+          <ZoomProvider maskOpacity={0.65}>
             {isMobile ? (
               <Stack spacing={2}>
                 {filtered.length === 0 && (
@@ -664,18 +648,20 @@ export default function TournamentDashboard() {
                         alignItems="flex-start"
                         mb={1.5}
                       >
-                        <Avatar
-                          src={t.image}
-                          alt={t.name}
-                          variant="rounded"
-                          sx={{
-                            width: 72,
-                            height: 72,
-                            cursor: "zoom-in",
-                            flexShrink: 0,
-                          }}
-                          onClick={() => setPreviewSrc(t.image)}
-                        />
+                        <ZoomItem src={t.image}>
+                          <Avatar
+                            src={t.image}
+                            alt={t.name}
+                            variant="rounded"
+                            sx={{
+                              width: 72,
+                              height: 72,
+                              cursor: "zoom-in",
+                              flexShrink: 0,
+                            }}
+                          />
+                        </ZoomItem>
+
                         <Box flex={1} minWidth={0}>
                           <Stack
                             direction="row"
@@ -804,21 +790,30 @@ export default function TournamentDashboard() {
                         filtered.map((t) => (
                           <TableRow hover key={t._id}>
                             <TableCell sx={{ py: 1.2 }}>
-                              <Box
-                                component="img"
-                                src={t.image}
-                                alt={t.name}
-                                sx={{
-                                  width: THUMB_SIZE,
-                                  height: THUMB_SIZE,
-                                  objectFit: "cover",
-                                  borderRadius: 1,
-                                  cursor: "zoom-in",
-                                  transition: "transform 0.2s",
-                                  "&:hover": { transform: "scale(1.06)" },
-                                }}
-                                onClick={() => setPreviewSrc(t.image)}
-                              />
+                              <ZoomItem src={t.image}>
+                                <Box
+                                  sx={{
+                                    width: THUMB_SIZE,
+                                    height: THUMB_SIZE,
+                                    borderRadius: 1,
+                                    overflow: "hidden",
+                                    cursor: "zoom-in",
+                                    transition: "transform 0.2s",
+                                    "&:hover img": { transform: "scale(1.06)" },
+                                  }}
+                                >
+                                  <ImgWithFallback
+                                    src={t.image}
+                                    alt={t.name}
+                                    style={{
+                                      width: "100%",
+                                      height: "100%",
+                                      objectFit: "cover",
+                                      display: "block",
+                                    }}
+                                  />
+                                </Box>
+                              </ZoomItem>
                             </TableCell>
                             <TableCell>
                               <Typography fontWeight={600}>{t.name}</Typography>
@@ -852,40 +847,9 @@ export default function TournamentDashboard() {
                 </TableContainer>
               </Paper>
             )}
-          </Fragment>
+          </ZoomProvider>
         )
       )}
-
-      <Dialog
-        open={Boolean(previewSrc)}
-        onClose={() => setPreviewSrc(null)}
-        maxWidth="md"
-        fullWidth
-      >
-        <IconButton
-          aria-label="close"
-          onClick={() => setPreviewSrc(null)}
-          sx={{
-            position: "absolute",
-            right: 8,
-            top: 8,
-            bgcolor: "rgba(0,0,0,0.65)",
-            color: "#fff",
-            boxShadow: 3,
-            "&:hover": { bgcolor: "rgba(0,0,0,0.8)" },
-          }}
-        >
-          <CloseIcon />
-        </IconButton>
-        <DialogContent sx={{ p: 0 }}>
-          <Box
-            component="img"
-            src={previewSrc || ""}
-            alt="Preview"
-            sx={{ width: "100%", height: "auto" }}
-          />
-        </DialogContent>
-      </Dialog>
     </Container>
   );
 }
