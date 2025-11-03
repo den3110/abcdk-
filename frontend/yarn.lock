@@ -3129,6 +3129,11 @@ react-virtuoso@^4.14.0:
   resolved "https://registry.yarnpkg.com/react-virtuoso/-/react-virtuoso-4.14.1.tgz#78a5e796a3f9ec501499f01962ec6fc7eed77d8d"
   integrity sha512-NRUF1ak8lY+Tvc6WN9cce59gU+lilzVtOozP+pm9J7iHshLGGjsiAB4rB2qlBPHjFbcXOQpT+7womNHGDUql8w==
 
+react-window@^2.2.2:
+  version "2.2.2"
+  resolved "https://registry.yarnpkg.com/react-window/-/react-window-2.2.2.tgz#09a7a8b2b1d3ab68e45c757c28f22a015f117adc"
+  integrity sha512-kvHKwFImKBWNbx2S87NZOhQhAVkBthjmnOfHlhQI45p3A+D+V53E+CqQMsyHrxNe3ke+YtWXuKDa1eoHAaIWJg==
+
 react@^18.2.0:
   version "18.3.1"
   resolved "https://registry.yarnpkg.com/react/-/react-18.3.1.tgz#49ab892009c53933625bd16b2533fc754cab2891"

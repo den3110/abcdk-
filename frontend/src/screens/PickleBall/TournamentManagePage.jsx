@@ -515,7 +515,8 @@ const ActionChips = React.memo(function ActionChips({
   );
 });
 
-const MatchRow = React.memo(function MatchRow({
+/* ======= NEW: Desktop two-line rows ======= */
+const MatchDesktopRows = React.memo(function MatchDesktopRows({
   match,
   liveStore,
   onRowClick,
@@ -530,7 +531,7 @@ const MatchRow = React.memo(function MatchRow({
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
 
-  return (
+  const MainRow = (
     <TableRow
       hover
       onClick={() => onRowClick(match._id)}
@@ -538,7 +539,7 @@ const MatchRow = React.memo(function MatchRow({
     >
       <TableCell
         padding="checkbox"
-        sx={{ width: 44 }}
+        sx={{ width: 56, minWidth: 56, py: 0.5 }}
         onClick={(e) => e.stopPropagation()}
       >
         <Checkbox
@@ -550,31 +551,31 @@ const MatchRow = React.memo(function MatchRow({
           size="small"
         />
       </TableCell>
-      <TableCell sx={{ width: 64, whiteSpace: "nowrap", py: 0.5 }}>
+      <TableCell sx={{ width: 68, whiteSpace: "nowrap", py: 0.5 }}>
         {matchCode(merged)}
       </TableCell>
-      <TableCell sx={{ width: 180, maxWidth: 180, py: 0.5 }}>
+      <TableCell sx={{ width: 200, maxWidth: 200, py: 0.5 }}>
         <Typography noWrap>{pairLabel(merged?.pairA)}</Typography>
       </TableCell>
-      <TableCell sx={{ width: 180, maxWidth: 180, py: 0.5 }}>
+      <TableCell sx={{ width: 200, maxWidth: 200, py: 0.5 }}>
         <Typography noWrap>{pairLabel(merged?.pairB)}</Typography>
       </TableCell>
-      <TableCell sx={{ width: 90, whiteSpace: "nowrap", py: 0.5 }}>
+      <TableCell sx={{ width: 96, whiteSpace: "nowrap", py: 0.5 }}>
         {courtLabel(merged)}
       </TableCell>
-      <TableCell sx={{ width: 64, whiteSpace: "nowrap", py: 0.5 }}>
+      <TableCell sx={{ width: 68, whiteSpace: "nowrap", py: 0.5 }}>
         {Number.isFinite(merged?.order) ? `T${merged.order + 1}` : "—"}
       </TableCell>
-      <TableCell sx={{ width: 100, whiteSpace: "nowrap", py: 0.5 }}>
+      <TableCell sx={{ width: 110, whiteSpace: "nowrap", py: 0.5 }}>
         {scoreSummary(merged)}
       </TableCell>
-      <TableCell sx={{ width: 100, whiteSpace: "nowrap", py: 0.5 }}>
+      <TableCell sx={{ width: 110, whiteSpace: "nowrap", py: 0.5 }}>
         {statusChip(merged?.status)}
       </TableCell>
       <TableCell
         onClick={(e) => e.stopPropagation()}
         align="center"
-        sx={{ width: 64, py: 0.5 }}
+        sx={{ width: 76, py: 0.5 }}
       >
         {merged?.video ? (
           <Tooltip title={merged.video} arrow>
@@ -592,17 +593,41 @@ const MatchRow = React.memo(function MatchRow({
           <Chip size="small" variant="outlined" label="—" />
         )}
       </TableCell>
-      <TableCell sx={{ width: 260, whiteSpace: "nowrap", py: 0.5 }}>
-        <ActionChips
-          match={merged}
-          onOpenVideo={onOpenVideo}
-          onDeleteVideo={onDeleteVideo}
-          onAssignCourt={onAssignCourt}
-          onAssignRef={onAssignRef}
-          onExportRefNote={onExportRefNote}
-        />
+    </TableRow>
+  );
+
+  const ActionRow = (
+    <TableRow>
+      {/* spacer for checkbox column to align actions */}
+      <TableCell sx={{ width: 56, minWidth: 56, py: 0.25 }} />
+      <TableCell colSpan={8} sx={{ py: 0.75, whiteSpace: "normal" }}>
+        <Box
+          onClick={(e) => e.stopPropagation()}
+          sx={{
+            display: "flex",
+            flexWrap: "wrap",
+            columnGap: 0.75,
+            rowGap: 0.75,
+          }}
+        >
+          <ActionChips
+            match={merged}
+            onOpenVideo={onOpenVideo}
+            onDeleteVideo={onDeleteVideo}
+            onAssignCourt={onAssignCourt}
+            onAssignRef={onAssignRef}
+            onExportRefNote={onExportRefNote}
+          />
+        </Box>
       </TableCell>
     </TableRow>
+  );
+
+  return (
+    <>
+      {MainRow}
+      {ActionRow}
+    </>
   );
 });
 
@@ -1565,7 +1590,7 @@ export default function TournamentManagePage() {
             Quản lý giải: {tour?.name}
           </Typography>
 
-          {/* Desktop actions: không phải vuốt màn hình => wrap gọn */}
+          {/* Desktop actions */}
           <Stack
             direction="row"
             spacing={1}
@@ -2004,7 +2029,7 @@ export default function TournamentManagePage() {
                 </Stack>
               </Box>
 
-              {/* Desktop table — compact, fixed layout để không phải vuốt ngang */}
+              {/* Desktop table — fixed layout để không phải vuốt ngang */}
               <Box sx={{ display: { xs: "none", md: "block" } }}>
                 <TableContainer>
                   <Table
@@ -2021,7 +2046,10 @@ export default function TournamentManagePage() {
                   >
                     <TableHead>
                       <TableRow>
-                        <TableCell padding="checkbox" sx={{ width: 44 }}>
+                        <TableCell
+                          padding="checkbox"
+                          sx={{ width: 56, minWidth: 56 }}
+                        >
                           <Checkbox
                             size="small"
                             checked={allSelected}
@@ -2036,27 +2064,26 @@ export default function TournamentManagePage() {
                             }
                           />
                         </TableCell>
-                        <TableCell sx={{ width: 64 }}>Mã</TableCell>
-                        <TableCell sx={{ width: 180 }}>Cặp A</TableCell>
-                        <TableCell sx={{ width: 180 }}>Cặp B</TableCell>
-                        <TableCell sx={{ width: 90 }}>Sân</TableCell>
-                        <TableCell sx={{ width: 64 }}>Thứ tự</TableCell>
-                        <TableCell sx={{ width: 100 }}>Tỉ số</TableCell>
-                        <TableCell sx={{ width: 100 }}>Trạng thái</TableCell>
-                        <TableCell sx={{ width: 64 }} align="center">
+                        <TableCell sx={{ width: 68 }}>Mã</TableCell>
+                        <TableCell sx={{ width: 200 }}>Cặp A</TableCell>
+                        <TableCell sx={{ width: 200 }}>Cặp B</TableCell>
+                        <TableCell sx={{ width: 96 }}>Sân</TableCell>
+                        <TableCell sx={{ width: 68 }}>Thứ tự</TableCell>
+                        <TableCell sx={{ width: 110 }}>Tỉ số</TableCell>
+                        <TableCell sx={{ width: 110 }}>Trạng thái</TableCell>
+                        <TableCell sx={{ width: 76 }} align="center">
                           Video
                         </TableCell>
-                        <TableCell sx={{ width: 260 }}>Hành động</TableCell>
                       </TableRow>
                     </TableHead>
 
                     {mLoading ? (
-                      <TableSkeletonRows rows={8} cols={10} />
+                      <TableSkeletonRows rows={8} cols={9} />
                     ) : (
                       <TableBody>
                         {list.length === 0 ? (
                           <TableRow>
-                            <TableCell colSpan={10} align="center">
+                            <TableCell colSpan={9} align="center">
                               <Typography color="text.secondary">
                                 Chưa có trận nào.
                               </Typography>
@@ -2064,7 +2091,7 @@ export default function TournamentManagePage() {
                           </TableRow>
                         ) : (
                           list.map((m) => (
-                            <MatchRow
+                            <MatchDesktopRows
                               key={m._id}
                               match={m}
                               liveStore={liveStore}

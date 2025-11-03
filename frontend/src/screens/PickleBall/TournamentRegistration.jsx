@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, memo } from "react";
+import { useState, useMemo, useEffect, useCallback, memo, useRef } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
 import {
   Avatar,
@@ -570,6 +570,48 @@ const PlayerCell = memo(
   )
 );
 
+/* ==================== Lazy Rendering Hook (No external deps!) ==================== */
+function useLazyRender(totalItems, initialBatch = 50, batchSize = 30) {
+  const [displayCount, setDisplayCount] = useState(initialBatch);
+  const loaderRef = useRef(null);
+  const observerRef = useRef(null);
+
+  useEffect(() => {
+    // Reset when total items change (e.g., search)
+    setDisplayCount(initialBatch);
+  }, [totalItems, initialBatch]);
+
+  useEffect(() => {
+    const loader = loaderRef.current;
+    if (!loader || displayCount >= totalItems) return;
+
+    // Cleanup previous observer
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
+
+    // Create new observer
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && displayCount < totalItems) {
+          setDisplayCount((prev) => Math.min(prev + batchSize, totalItems));
+        }
+      },
+      { rootMargin: "100px" } // Load before user reaches bottom
+    );
+
+    observerRef.current.observe(loader);
+
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
+    };
+  }, [displayCount, totalItems, batchSize]);
+
+  return { displayCount, loaderRef, hasMore: displayCount < totalItems };
+}
+
 /* ==================== Memoized Desktop Row - Responsive ==================== */
 const DesktopTableRow = memo(
   ({
@@ -1041,6 +1083,9 @@ export default function TournamentRegistration() {
     ? searching || searchingFetching
     : regsLoading;
   const listError = searchingActive ? searchErr : regsErr;
+
+  // Lazy rendering for performance - load rows progressively
+  const { displayCount, loaderRef, hasMore } = useLazyRender(regCount, 50, 30);
 
   const playersOfReg = useCallback(
     (r) => [r?.player1, r?.player2].filter(Boolean),
@@ -1782,115 +1827,138 @@ export default function TournamentRegistration() {
           })}
         </Stack>
       ) : (
-        <TableContainer component={Paper} variant="outlined" sx={{ mt: 1 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell
-                  sx={{
-                    whiteSpace: "nowrap",
-                    py: 1,
-                    px: { xs: 0.5, md: 1 },
-                    fontWeight: 600,
-                  }}
-                >
-                  #
-                </TableCell>
-                <TableCell
-                  sx={{
-                    whiteSpace: "nowrap",
-                    py: 1,
-                    px: { xs: 0.5, md: 1 },
-                    fontWeight: 600,
-                  }}
-                >
-                  Mã ĐK
-                </TableCell>
-                <TableCell
-                  sx={{ py: 1, px: { xs: 0.5, md: 1 }, fontWeight: 600 }}
-                >
-                  {isSingles ? "VĐV" : "VĐV 1"}
-                </TableCell>
-                {!isSingles && (
+        // Lazy-loaded desktop table
+        <Paper variant="outlined" sx={{ mt: 1 }}>
+          <TableContainer sx={{ maxHeight: 600, overflow: "auto" }}>
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell
+                    sx={{
+                      whiteSpace: "nowrap",
+                      py: 1,
+                      px: { xs: 0.5, md: 1 },
+                      fontWeight: 600,
+                    }}
+                  >
+                    #
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      whiteSpace: "nowrap",
+                      py: 1,
+                      px: { xs: 0.5, md: 1 },
+                      fontWeight: 600,
+                    }}
+                  >
+                    Mã ĐK
+                  </TableCell>
                   <TableCell
                     sx={{ py: 1, px: { xs: 0.5, md: 1 }, fontWeight: 600 }}
                   >
-                    VĐV 2
+                    {isSingles ? "VĐV" : "VĐV 1"}
                   </TableCell>
+                  {!isSingles && (
+                    <TableCell
+                      sx={{ py: 1, px: { xs: 0.5, md: 1 }, fontWeight: 600 }}
+                    >
+                      VĐV 2
+                    </TableCell>
+                  )}
+                  <TableCell
+                    sx={{
+                      whiteSpace: "nowrap",
+                      py: 1,
+                      px: { xs: 0.5, md: 1 },
+                      fontWeight: 600,
+                    }}
+                  >
+                    Điểm
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      whiteSpace: "nowrap",
+                      py: 1,
+                      px: { xs: 0.5, md: 1 },
+                      fontWeight: 600,
+                      display: { xs: "none", lg: "table-cell" },
+                    }}
+                  >
+                    Thời gian
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      whiteSpace: "nowrap",
+                      py: 1,
+                      px: { xs: 0.5, md: 1 },
+                      fontWeight: 600,
+                    }}
+                  >
+                    Trạng thái
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      whiteSpace: "nowrap",
+                      py: 1,
+                      px: { xs: 0.5, md: 1 },
+                      fontWeight: 600,
+                      textAlign: "right",
+                    }}
+                  >
+                    Hành động
+                  </TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {/* Only render up to displayCount for performance */}
+                {listRegs.slice(0, displayCount).map((r, i) => {
+                  const isOwner =
+                    isLoggedIn && String(r?.createdBy) === String(me?._id);
+                  return (
+                    <DesktopTableRow
+                      key={r._id}
+                      r={r}
+                      index={i}
+                      isSingles={isSingles}
+                      cap={cap}
+                      delta={delta}
+                      canManage={canManage}
+                      isOwner={isOwner}
+                      onTogglePayment={togglePayment}
+                      onCancel={handleCancel}
+                      onOpenComplaint={openComplaint}
+                      onOpenPayment={openPayment}
+                      onOpenReplace={openReplace}
+                      onOpenPreview={openPreview}
+                      onOpenProfile={openProfileByPlayer}
+                      busy={busy}
+                      regCodeOf={regCodeOf}
+                    />
+                  );
+                })}
+
+                {/* Loader - triggers loading more when visible */}
+                {hasMore && (
+                  <TableRow ref={loaderRef}>
+                    <TableCell
+                      colSpan={isSingles ? 8 : 9}
+                      sx={{ textAlign: "center", py: 2 }}
+                    >
+                      <CircularProgress size={20} />
+                      <Typography
+                        variant="caption"
+                        sx={{ ml: 1 }}
+                        color="text.secondary"
+                      >
+                        Đang tải thêm... ({displayCount}/{regCount})
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
                 )}
-                <TableCell
-                  sx={{
-                    whiteSpace: "nowrap",
-                    py: 1,
-                    px: { xs: 0.5, md: 1 },
-                    fontWeight: 600,
-                  }}
-                >
-                  Điểm
-                </TableCell>
-                <TableCell
-                  sx={{
-                    whiteSpace: "nowrap",
-                    py: 1,
-                    px: { xs: 0.5, md: 1 },
-                    fontWeight: 600,
-                    display: { xs: "none", lg: "table-cell" },
-                  }}
-                >
-                  Thời gian
-                </TableCell>
-                <TableCell
-                  sx={{
-                    whiteSpace: "nowrap",
-                    py: 1,
-                    px: { xs: 0.5, md: 1 },
-                    fontWeight: 600,
-                  }}
-                >
-                  Trạng thái
-                </TableCell>
-                <TableCell
-                  sx={{
-                    whiteSpace: "nowrap",
-                    py: 1,
-                    px: { xs: 0.5, md: 1 },
-                    fontWeight: 600,
-                    textAlign: "right",
-                  }}
-                >
-                  Hành động
-                </TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {listRegs.map((r, i) => {
-                const isOwner =
-                  isLoggedIn && String(r?.createdBy) === String(me?._id);
-                return (
-                  <DesktopTableRow
-                    key={r._id}
-                    r={r}
-                    index={i}
-                    isSingles={isSingles}
-                    cap={cap}
-                    delta={delta}
-                    canManage={canManage}
-                    isOwner={isOwner}
-                    onTogglePayment={togglePayment}
-                    onCancel={handleCancel}
-                    onOpenComplaint={openComplaint}
-                    onOpenPayment={openPayment}
-                    onOpenReplace={openReplace}
-                    onOpenPreview={openPreview}
-                    onOpenProfile={openProfileByPlayer}
-                    busy={busy}
-                    regCodeOf={regCodeOf}
-                  />
-                );
-              })}
-            </TableBody>
-          </Table>
-        </TableContainer>
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Paper>
       )}
 
       {/* Dialogs */}
