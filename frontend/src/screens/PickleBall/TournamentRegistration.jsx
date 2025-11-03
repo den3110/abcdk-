@@ -396,7 +396,11 @@ const ActionCell = memo(
       <Stack
         direction="row"
         spacing={0.5}
-        sx={{ alignItems: "center", flexWrap: "nowrap" }}
+        sx={{
+          alignItems: "center",
+          flexWrap: "wrap",
+          justifyContent: "flex-end",
+        }}
       >
         {canManage && (
           <Tooltip
@@ -407,63 +411,60 @@ const ActionCell = memo(
                 : "Xác nhận ĐÃ thanh toán"
             }
           >
-            <span>
-              <IconButton
-                size="small"
-                onClick={() => onTogglePayment(r)}
-                disabled={busy?.settingPayment}
-              >
-                {r.payment?.status === "Paid" ? (
-                  <MoneyOff fontSize="small" />
-                ) : (
-                  <MonetizationOn fontSize="small" />
-                )}
-              </IconButton>
-            </span>
+            <IconButton
+              size="small"
+              onClick={() => onTogglePayment(r)}
+              disabled={busy?.settingPayment}
+            >
+              {r.payment?.status === "Paid" ? (
+                <MoneyOff sx={{ fontSize: 18 }} />
+              ) : (
+                <MonetizationOn sx={{ fontSize: 18 }} />
+              )}
+            </IconButton>
           </Tooltip>
         )}
 
         <Tooltip arrow title="Thanh toán bằng mã QR">
-          <span>
-            <Button
-              size="small"
-              variant="contained"
-              onClick={() => onOpenPayment(r)}
-              startIcon={<QrCode fontSize="small" />}
-              sx={{ textTransform: "none" }}
-            >
-              Thanh toán
-            </Button>
-          </span>
+          <IconButton
+            size="small"
+            color="primary"
+            onClick={() => onOpenPayment(r)}
+            sx={{
+              bgcolor: "primary.main",
+              color: "white",
+              "&:hover": { bgcolor: "primary.dark" },
+            }}
+          >
+            <QrCode sx={{ fontSize: 18 }} />
+          </IconButton>
         </Tooltip>
 
         <Tooltip arrow title="Gửi khiếu nại cho đăng ký này">
-          <span>
-            <Button
-              size="small"
-              variant="contained"
-              color="warning"
-              onClick={() => onOpenComplaint(r)}
-              startIcon={<ReportProblem fontSize="small" />}
-              sx={{ textTransform: "none" }}
-            >
-              Khiếu nại
-            </Button>
-          </span>
+          <IconButton
+            size="small"
+            color="warning"
+            onClick={() => onOpenComplaint(r)}
+            sx={{
+              bgcolor: "warning.main",
+              color: "white",
+              "&:hover": { bgcolor: "warning.dark" },
+            }}
+          >
+            <ReportProblem sx={{ fontSize: 18 }} />
+          </IconButton>
         </Tooltip>
 
         {(canManage || isOwner) && (
           <Tooltip arrow title={canManage ? "Huỷ cặp đấu" : "Huỷ đăng ký"}>
-            <span>
-              <IconButton
-                size="small"
-                color="error"
-                onClick={() => onCancel(r)}
-                disabled={busy?.deletingId === r._id}
-              >
-                <DeleteOutline fontSize="small" />
-              </IconButton>
-            </span>
+            <IconButton
+              size="small"
+              color="error"
+              onClick={() => onCancel(r)}
+              disabled={busy?.deletingId === r._id}
+            >
+              <DeleteOutline sx={{ fontSize: 18 }} />
+            </IconButton>
           </Tooltip>
         )}
       </Stack>
@@ -471,10 +472,15 @@ const ActionCell = memo(
   }
 );
 
-/* ==================== Memoized Player Cell ==================== */
+/* ==================== Memoized Player Cell - Compact Version ==================== */
 const PlayerCell = memo(
   ({ player, onEdit, canEdit, onOpenPreview, onOpenProfile }) => (
-    <Stack direction="row" spacing={1} alignItems="center">
+    <Stack
+      direction="row"
+      spacing={0.75}
+      alignItems="center"
+      sx={{ minWidth: 0 }}
+    >
       <Box
         onClick={() =>
           onOpenPreview(player?.avatar || PLACE, displayName(player))
@@ -484,18 +490,20 @@ const PlayerCell = memo(
           overflow: "hidden",
           lineHeight: 0,
           cursor: "zoom-in",
+          flexShrink: 0,
         }}
       >
         <Avatar
           src={safeSrc(player?.avatar || PLACE)}
           imgProps={{ onError: (e) => (e.currentTarget.src = PLACE) }}
+          sx={{ width: 36, height: 36 }}
         />
       </Box>
 
       <Box
         sx={{
-          maxWidth: 300,
-          overflow: "hidden",
+          minWidth: 0,
+          flex: 1,
           cursor: getUserId(player) ? "pointer" : "default",
         }}
         onClick={() => onOpenProfile(player)}
@@ -504,7 +512,12 @@ const PlayerCell = memo(
         <Typography
           variant="body2"
           noWrap
-          sx={{ display: "flex", alignItems: "center", gap: 0.25 }}
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 0.25,
+            fontSize: { xs: "0.875rem", lg: "0.875rem" },
+          }}
         >
           <span
             style={{
@@ -517,35 +530,47 @@ const PlayerCell = memo(
           </span>
           <VerifyBadge status={kycOf(player)} />
         </Typography>
-        <Typography variant="caption" color="text.secondary" noWrap>
-          {player?.phone}
-        </Typography>
+        <Stack
+          direction="row"
+          spacing={0.5}
+          alignItems="center"
+          sx={{ mt: 0.25 }}
+        >
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            noWrap
+            sx={{ fontSize: "0.7rem" }}
+          >
+            {player?.phone}
+          </Typography>
+          <Chip
+            size="small"
+            variant="outlined"
+            icon={<Equalizer sx={{ fontSize: 12 }} />}
+            label={fmt3(player?.score ?? 0)}
+            sx={{
+              height: 18,
+              fontSize: "0.65rem",
+              "& .MuiChip-icon": { ml: 0.5, mr: -0.25 },
+              "& .MuiChip-label": { px: 0.5 },
+            }}
+          />
+        </Stack>
       </Box>
-
-      <Tooltip arrow title="Điểm trình (chốt lúc đăng ký)">
-        <Chip
-          size="small"
-          variant="outlined"
-          icon={<Equalizer fontSize="small" />}
-          label={fmt3(player?.score ?? 0)}
-          sx={{ whiteSpace: "nowrap" }}
-        />
-      </Tooltip>
 
       {canEdit && (
         <Tooltip arrow title="Thay VĐV">
-          <span>
-            <IconButton size="small" onClick={onEdit}>
-              <EditOutlined fontSize="small" />
-            </IconButton>
-          </span>
+          <IconButton size="small" onClick={onEdit} sx={{ flexShrink: 0 }}>
+            <EditOutlined sx={{ fontSize: 18 }} />
+          </IconButton>
         </Tooltip>
       )}
     </Stack>
   )
 );
 
-/* ==================== Memoized Desktop Row ==================== */
+/* ==================== Memoized Desktop Row - Responsive ==================== */
 const DesktopTableRow = memo(
   ({
     r,
@@ -570,12 +595,26 @@ const DesktopTableRow = memo(
 
     return (
       <TableRow hover>
-        <TableCell sx={{ whiteSpace: "nowrap" }}>{index + 1}</TableCell>
-        <TableCell sx={{ whiteSpace: "nowrap" }}>
+        <TableCell sx={{ whiteSpace: "nowrap", py: 1, px: { xs: 0.5, md: 1 } }}>
+          <Typography
+            variant="body2"
+            sx={{ fontSize: { xs: "0.75rem", md: "0.875rem" } }}
+          >
+            {index + 1}
+          </Typography>
+        </TableCell>
+
+        <TableCell sx={{ whiteSpace: "nowrap", py: 1, px: { xs: 0.5, md: 1 } }}>
           <CodeBadge code={regCodeOf(r)} withLabel={false} />
         </TableCell>
 
-        <TableCell>
+        <TableCell
+          sx={{
+            py: 1,
+            px: { xs: 0.5, md: 1 },
+            minWidth: { xs: 140, sm: 180, md: 200 },
+          }}
+        >
           <PlayerCell
             player={r.player1}
             onEdit={() => onOpenReplace(r, "p1")}
@@ -586,7 +625,13 @@ const DesktopTableRow = memo(
         </TableCell>
 
         {!isSingles && (
-          <TableCell>
+          <TableCell
+            sx={{
+              py: 1,
+              px: { xs: 0.5, md: 1 },
+              minWidth: { xs: 140, sm: 180, md: 200 },
+            }}
+          >
             {r.player2 ? (
               <PlayerCell
                 player={r.player2}
@@ -600,8 +645,9 @@ const DesktopTableRow = memo(
                 size="small"
                 variant="outlined"
                 onClick={() => onOpenReplace(r, "p2")}
+                sx={{ fontSize: "0.75rem", py: 0.25, px: 0.75 }}
               >
-                Thêm VĐV 2
+                + VĐV 2
               </Button>
             ) : (
               <Typography color="text.secondary">—</Typography>
@@ -609,7 +655,7 @@ const DesktopTableRow = memo(
           </TableCell>
         )}
 
-        <TableCell sx={{ whiteSpace: "nowrap" }}>
+        <TableCell sx={{ whiteSpace: "nowrap", py: 1, px: { xs: 0.5, md: 1 } }}>
           <Tooltip
             arrow
             title={`Tổng điểm trình (chốt lúc đăng ký): ${fmt3(
@@ -618,28 +664,48 @@ const DesktopTableRow = memo(
           >
             <Chip
               size="small"
-              icon={<Equalizer fontSize="small" />}
+              icon={<Equalizer sx={{ fontSize: 14 }} />}
               label={fmt3(total)}
               color={color}
               variant="filled"
-              sx={{ whiteSpace: "nowrap" }}
+              sx={{
+                whiteSpace: "nowrap",
+                height: 24,
+                fontSize: "0.75rem",
+                "& .MuiChip-icon": { ml: 0.5, mr: -0.25 },
+              }}
             />
           </Tooltip>
         </TableCell>
 
-        <TableCell sx={{ whiteSpace: "nowrap" }}>
-          {new Date(r.createdAt).toLocaleString()}
+        <TableCell
+          sx={{
+            py: 1,
+            px: { xs: 0.5, md: 1 },
+            display: { xs: "none", lg: "table-cell" },
+          }}
+        >
+          <Typography variant="caption" sx={{ fontSize: "0.75rem" }}>
+            {new Date(r.createdAt).toLocaleString("vi-VN", {
+              day: "2-digit",
+              month: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </Typography>
         </TableCell>
 
-        <TableCell>
-          <PaymentChip status={r.payment?.status} paidAt={r.payment?.paidAt} />
+        <TableCell sx={{ py: 1, px: { xs: 0.5, md: 1 } }}>
+          <Stack spacing={0.5}>
+            <PaymentChip
+              status={r.payment?.status}
+              paidAt={r.payment?.paidAt}
+            />
+            <CheckinChip checkinAt={r.checkinAt} />
+          </Stack>
         </TableCell>
 
-        <TableCell>
-          <CheckinChip checkinAt={r.checkinAt} />
-        </TableCell>
-
-        <TableCell sx={{ whiteSpace: "nowrap" }}>
+        <TableCell sx={{ whiteSpace: "nowrap", py: 1, px: { xs: 0.5, md: 1 } }}>
           <ActionCell
             r={r}
             canManage={canManage}
@@ -1720,17 +1786,78 @@ export default function TournamentRegistration() {
           <Table size="small">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ whiteSpace: "nowrap" }}>#</TableCell>
-                <TableCell sx={{ whiteSpace: "nowrap" }}>Mã đăng ký</TableCell>
-                <TableCell>{isSingles ? "VĐV" : "VĐV 1"}</TableCell>
-                {!isSingles && <TableCell>VĐV 2</TableCell>}
-                <TableCell sx={{ whiteSpace: "nowrap" }}>Tổng điểm</TableCell>
-                <TableCell sx={{ whiteSpace: "nowrap" }}>
-                  Thời gian tạo
+                <TableCell
+                  sx={{
+                    whiteSpace: "nowrap",
+                    py: 1,
+                    px: { xs: 0.5, md: 1 },
+                    fontWeight: 600,
+                  }}
+                >
+                  #
                 </TableCell>
-                <TableCell sx={{ whiteSpace: "nowrap" }}>Lệ phí</TableCell>
-                <TableCell sx={{ whiteSpace: "nowrap" }}>Check-in</TableCell>
-                <TableCell sx={{ whiteSpace: "nowrap", minWidth: 200 }}>
+                <TableCell
+                  sx={{
+                    whiteSpace: "nowrap",
+                    py: 1,
+                    px: { xs: 0.5, md: 1 },
+                    fontWeight: 600,
+                  }}
+                >
+                  Mã ĐK
+                </TableCell>
+                <TableCell
+                  sx={{ py: 1, px: { xs: 0.5, md: 1 }, fontWeight: 600 }}
+                >
+                  {isSingles ? "VĐV" : "VĐV 1"}
+                </TableCell>
+                {!isSingles && (
+                  <TableCell
+                    sx={{ py: 1, px: { xs: 0.5, md: 1 }, fontWeight: 600 }}
+                  >
+                    VĐV 2
+                  </TableCell>
+                )}
+                <TableCell
+                  sx={{
+                    whiteSpace: "nowrap",
+                    py: 1,
+                    px: { xs: 0.5, md: 1 },
+                    fontWeight: 600,
+                  }}
+                >
+                  Điểm
+                </TableCell>
+                <TableCell
+                  sx={{
+                    whiteSpace: "nowrap",
+                    py: 1,
+                    px: { xs: 0.5, md: 1 },
+                    fontWeight: 600,
+                    display: { xs: "none", lg: "table-cell" },
+                  }}
+                >
+                  Thời gian
+                </TableCell>
+                <TableCell
+                  sx={{
+                    whiteSpace: "nowrap",
+                    py: 1,
+                    px: { xs: 0.5, md: 1 },
+                    fontWeight: 600,
+                  }}
+                >
+                  Trạng thái
+                </TableCell>
+                <TableCell
+                  sx={{
+                    whiteSpace: "nowrap",
+                    py: 1,
+                    px: { xs: 0.5, md: 1 },
+                    fontWeight: 600,
+                    textAlign: "right",
+                  }}
+                >
                   Hành động
                 </TableCell>
               </TableRow>

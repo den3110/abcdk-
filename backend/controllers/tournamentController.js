@@ -647,7 +647,7 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       hasCourt,
       courtStatus,
       page = 1,
-      limit = 200,
+      limit = 200000,
       sort = "round,order,createdAt",
     } = req.query;
 
