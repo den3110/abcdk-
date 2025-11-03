@@ -1,3 +1,4 @@
+// src/components/CourtManagerDialog.jsx
 /* eslint-disable react/prop-types */
 import React, {
   useEffect,
@@ -12,10 +13,6 @@ import {
   Box,
   Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Divider,
   FormControlLabel,
   Grid,
@@ -28,7 +25,6 @@ import {
   Tooltip,
   Typography,
 } from "@mui/material";
-import CloseIcon from "@mui/icons-material/Close";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SaveIcon from "@mui/icons-material/Save";
 import QueuePlayNextIcon from "@mui/icons-material/QueuePlayNext";
@@ -43,8 +39,12 @@ import {
   useUpsertCourtsMutation,
   useBuildGroupsQueueMutation,
   useAssignNextHttpMutation,
-  useDeleteCourtsMutation,
+  useDeleteCourtsMutation,   // bulk delete (giữ nguyên)
+  useDeleteCourtMutation,    // NEW: delete 1 court
 } from "../slices/adminCourtApiSlice";
+
+/* 👉 chỉnh path cho khớp dự án của bạn */
+import ResponsiveModal from "./ResponsiveModal";
 
 /* ---------------- helpers / formatters ---------------- */
 
@@ -242,59 +242,53 @@ function AssignSpecificDialog({ open, onClose, court, matches, onConfirm }) {
   }, []);
 
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        Gán trận vào sân
-        <IconButton onClick={onClose} size="small">
-          <CloseIcon />
-        </IconButton>
-      </DialogTitle>
-      <DialogContent dividers>
-        <Stack spacing={2}>
-          <Alert severity="info">
-            Sân:{" "}
-            <strong>
-              {court?.name ||
-                court?.label ||
-                court?.title ||
-                court?.code ||
-                "(không rõ)"}
-            </strong>
-          </Alert>
-          <Autocomplete
-            options={matches || []}
-            getOptionLabel={optionLabel}
-            value={value}
-            onChange={(e, v) => setValue(v || null)}
-            renderInput={(params) => (
-              <TextField
-                {...params}
-                label="Chọn trận để gán"
-                placeholder="Nhập mã hoặc tên đội..."
-              />
-            )}
-            isOptionEqualToValue={(o, v) =>
-              String(o._id || o.id) === String(v._id || v.id)
-            }
-          />
-          <Typography variant="caption" color="text.secondary">
-            * Hệ thống sẽ thay thế trận đang gán (nếu có) bằng trận bạn chọn.
-          </Typography>
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Huỷ</Button>
-        <Button variant="contained" disabled={!value} onClick={handleOk}>
-          Xác nhận gán
-        </Button>
-      </DialogActions>
-    </Dialog>
+    <ResponsiveModal
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      icon={<StadiumIcon />}
+      title="Gán trận vào sân"
+      actions={
+        <>
+          <Button onClick={onClose}>Huỷ</Button>
+          <Button variant="contained" disabled={!value} onClick={handleOk}>
+            Xác nhận gán
+          </Button>
+        </>
+      }
+    >
+      <Stack spacing={2}>
+        <Alert severity="info">
+          Sân:{" "}
+          <strong>
+            {court?.name ||
+              court?.label ||
+              court?.title ||
+              court?.code ||
+              "(không rõ)"}
+          </strong>
+        </Alert>
+        <Autocomplete
+          options={matches || []}
+          getOptionLabel={optionLabel}
+          value={value}
+          onChange={(e, v) => setValue(v || null)}
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Chọn trận để gán"
+              placeholder="Nhập mã hoặc tên đội..."
+            />
+          )}
+          isOptionEqualToValue={(o, v) =>
+            String(o._id || o.id) === String(v._id || v.id)
+          }
+        />
+        <Typography variant="caption" color="text.secondary">
+          * Hệ thống sẽ thay thế trận đang gán (nếu có) bằng trận bạn chọn.
+        </Typography>
+      </Stack>
+    </ResponsiveModal>
   );
 }
 
@@ -337,7 +331,8 @@ export default function CourtManagerDialog({
     useBuildGroupsQueueMutation();
   const [assignNextHttp] = useAssignNextHttpMutation();
   const [deleteCourts, { isLoading: deletingCourts }] =
-    useDeleteCourtsMutation();
+    useDeleteCourtsMutation(); // bulk
+  const [deleteCourt, { isLoading: deletingOne }] = useDeleteCourtMutation(); // NEW single
 
   // Join/leave socket room khi mở/đóng dialog — TOÀN GIẢI
   useEffect(() => {
@@ -549,7 +544,7 @@ export default function CourtManagerDialog({
     );
     if (!ok) return;
     socket?.emit?.("scheduler:resetAll", { tournamentId });
-    toast.success("Đã gửi lệnh reset tất cả sân (toàn giải).");
+    toast.success("Đã gửi lệnh reset tất cả sân .");
     requestState();
   };
 
@@ -564,10 +559,58 @@ export default function CourtManagerDialog({
     if (!ok) return;
     try {
       await deleteCourts({ tournamentId }).unwrap();
-      toast.success("Đã xoá tất cả sân (toàn giải).");
+      toast.success("Đã xoá tất cả sân.");
       requestState();
     } catch (e) {
       toast.error(e?.data?.message || e?.error || "Xoá sân thất bại");
+    }
+  };
+
+  // NEW: per-court delete busy set
+  const [busyDelete, setBusyDelete] = useState(() => new Set());
+
+  // NEW: Xoá 1 sân
+  const handleDeleteOneCourt = async (court) => {
+    if (!tournamentId || !court) return;
+
+    const courtId = court._id || court.id;
+    const label =
+      court?.name ||
+      court?.label ||
+      court?.title ||
+      court?.code ||
+      `#${String(courtId).slice(-4)}`;
+
+    // Cảnh báo nếu sân đang có trận hoặc live
+    const m = getMatchForCourt(court);
+    const isLive = String(m?.status || "").toLowerCase() === "live";
+    const note = isLive
+      ? "\n⚠️ Sân đang có TRẬN ĐANG THI ĐẤU. Bạn vẫn muốn xoá sân?"
+      : m
+      ? "\nSân đang có trận được gán. Bạn vẫn muốn xoá sân?"
+      : "";
+
+    const ok = window.confirm(
+      `Xoá sân "${label}"?${note}\nHành động này không thể hoàn tác.`
+    );
+    if (!ok) return;
+
+    const next = new Set(busyDelete);
+    next.add(String(courtId));
+    setBusyDelete(next);
+
+    try {
+      await deleteCourt({ tournamentId, courtId }).unwrap();
+      toast.success(`Đã xoá sân "${label}".`);
+      requestState();
+    } catch (e) {
+      toast.error(e?.data?.message || e?.error || "Xoá sân thất bại");
+    } finally {
+      setBusyDelete((s) => {
+        const d = new Set(s);
+        d.delete(String(courtId));
+        return d;
+      });
     }
   };
 
@@ -597,249 +640,257 @@ export default function CourtManagerDialog({
 
   /* ---------- UI ---------- */
   return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md" keepMounted>
-      <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-        <StadiumIcon fontSize="small" />
-        <span>
-          Quản lý sân — Toàn giải
-          {tournamentName ? ` • ${tournamentName}` : ""}
-        </span>
-        <Box sx={{ flex: 1 }} />
-        <Tooltip title="Làm mới">
-          <IconButton size="small" onClick={requestState}>
-            <RefreshIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
-        <IconButton onClick={onClose} size="small">
-          <CloseIcon />
-        </IconButton>
-      </DialogTitle>
-
-      <DialogContent dividers>
-        {/* Cấu hình sân */}
-        <Box sx={{ mb: 2 }}>
-          <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
-            Cấu hình sân cho toàn giải
-          </Typography>
-          <Grid container spacing={2}>
-            <Grid item xs={12} md={7}>
-              <PaperLike>
-                <RadioGroup
-                  value={mode}
-                  onChange={(e) => setMode(e.target.value)}
-                  row
-                  sx={{ mb: 1 }}
-                >
-                  <FormControlLabel
-                    value="count"
-                    control={<Radio />}
-                    label="Theo số lượng"
-                  />
-                  <FormControlLabel
-                    value="names"
-                    control={<Radio />}
-                    label="Theo tên từng sân"
-                  />
-                </RadioGroup>
-                {mode === "count" ? (
-                  <TextField
-                    type="number"
-                    label="Số lượng sân"
-                    value={count}
-                    onChange={(e) => setCount(e.target.value)}
-                    fullWidth
-                    inputProps={{ min: 0 }}
-                    sx={{ mb: 1.5 }}
-                  />
-                ) : (
-                  <TextField
-                    label="Tên sân (mỗi dòng 1 tên)"
-                    value={namesText}
-                    onChange={(e) => setNamesText(e.target.value)}
-                    fullWidth
-                    multiline
-                    minRows={5}
-                    sx={{ mb: 1.5 }}
-                  />
-                )}
+    <ResponsiveModal
+      open={open}
+      onClose={onClose}
+      maxWidth="md"
+      icon={<StadiumIcon />}
+      title={
+        <Stack direction="row" alignItems="center" spacing={1}>
+          <span>
+            Quản lý sân — Toàn giải
+            {tournamentName ? ` • ${tournamentName}` : ""}
+          </span>
+          <Box sx={{ flex: 1 }} />
+          <Tooltip title="Làm mới">
+            <IconButton size="small" onClick={requestState}>
+              <RefreshIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+      }
+      actions={<Button onClick={onClose}>Đóng</Button>}
+      contentProps={{ sx: { pt: 1 } }}
+    >
+      {/* Cấu hình sân */}
+      <Box sx={{ mb: 2 }}>
+        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
+          Cấu hình sân cho toàn giải
+        </Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={7}>
+            <PaperLike>
+              <RadioGroup
+                value={mode}
+                onChange={(e) => setMode(e.target.value)}
+                row
+                sx={{ mb: 1 }}
+              >
                 <FormControlLabel
-                  control={
-                    <Switch
-                      checked={autoAssign}
-                      onChange={(e) => setAutoAssign(e.target.checked)}
-                    />
-                  }
-                  label="Tự động gán trận sau khi lưu"
+                  value="count"
+                  control={<Radio />}
+                  label="Theo số lượng"
                 />
-                <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-                  <Button
-                    variant="contained"
-                    startIcon={<SaveIcon />}
-                    onClick={handleSaveCourts}
-                    disabled={savingCourts}
-                  >
-                    {savingCourts ? "Đang lưu..." : "Lưu danh sách sân"}
-                  </Button>
-                  <Tooltip title="Reset tất cả sân (gỡ gán & xoá khỏi bộ lập lịch)">
-                    <Button
-                      variant="outlined"
-                      color="error"
-                      startIcon={<RestartAltIcon />}
-                      onClick={handleResetAll}
-                    >
-                      Reset tất cả
-                    </Button>
-                  </Tooltip>
-                  <Tooltip title="Xoá TẤT CẢ sân của giải (không thể hoàn tác)">
-                    <Button
-                      variant="contained"
-                      color="error"
-                      startIcon={<DeleteForeverIcon />}
-                      onClick={handleDeleteAllCourts}
-                      disabled={deletingCourts}
-                    >
-                      {deletingCourts ? "Đang xoá..." : "Xoá tất cả sân"}
-                    </Button>
-                  </Tooltip>
-                </Stack>
-              </PaperLike>
-            </Grid>
-
-            <Grid item xs={12} md={5}>
-              <PaperLike>
-                <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                  Hàng đợi vòng bảng (toàn giải)
-                </Typography>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  sx={{ mb: 1 }}
-                >
-                  Thuật toán: A1, B1, C1… sau đó A2, B2… (tránh VĐV đang thi
-                  đấu/chờ sân).
-                </Typography>
+                <FormControlLabel
+                  value="names"
+                  control={<Radio />}
+                  label="Theo tên từng sân"
+                />
+              </RadioGroup>
+              {mode === "count" ? (
+                <TextField
+                  type="number"
+                  label="Số lượng sân"
+                  value={count}
+                  onChange={(e) => setCount(e.target.value)}
+                  fullWidth
+                  inputProps={{ min: 0 }}
+                  sx={{ mb: 1.5 }}
+                />
+              ) : (
+                <TextField
+                  label="Tên sân (mỗi dòng 1 tên)"
+                  value={namesText}
+                  onChange={(e) => setNamesText(e.target.value)}
+                  fullWidth
+                  multiline
+                  minRows={5}
+                  sx={{ mb: 1.5 }}
+                />
+              )}
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={autoAssign}
+                    onChange={(e) => setAutoAssign(e.target.checked)}
+                  />
+                }
+                label="Tự động gán trận sau khi lưu"
+              />
+              <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
                 <Button
                   variant="contained"
-                  startIcon={<QueuePlayNextIcon />}
-                  onClick={handleBuildQueue}
-                  disabled={buildingQueue}
+                  startIcon={<SaveIcon />}
+                  onClick={handleSaveCourts}
+                  disabled={savingCourts}
                 >
-                  {buildingQueue ? "Đang xếp..." : "Xếp hàng đợi"}
+                  {savingCourts ? "Đang lưu..." : "Lưu danh sách sân"}
                 </Button>
-              </PaperLike>
-            </Grid>
-          </Grid>
-        </Box>
-
-        <Divider sx={{ my: 2 }} />
-
-        {/* Danh sách sân + trận đang gán */}
-        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
-          Danh sách sân ({courts.length})
-        </Typography>
-
-        {courts.length === 0 ? (
-          <Alert severity="info">Chưa có sân nào cho giải này.</Alert>
-        ) : (
-          <Stack spacing={1}>
-            {courts.map((c) => {
-              const m = getMatchForCourt(c);
-              const hasMatch = Boolean(m);
-              const code = getMatchCodeForCourt(c);
-              const teams = getTeamsForCourt(c);
-              const cs = courtStatus(c);
-              return (
-                <PaperRow key={c._id || c.id}>
-                  <Stack
-                    direction="row"
-                    spacing={1}
-                    alignItems="center"
-                    flexWrap="wrap"
+                <Tooltip title="Reset tất cả sân (gỡ gán & xoá khỏi bộ lập lịch)">
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    startIcon={<RestartAltIcon />}
+                    onClick={handleResetAll}
                   >
+                    Reset tất cả
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Xoá TẤT CẢ sân của giải (không thể hoàn tác)">
+                  <Button
+                    variant="contained"
+                    color="error"
+                    startIcon={<DeleteForeverIcon />}
+                    onClick={handleDeleteAllCourts}
+                    disabled={deletingCourts}
+                  >
+                    {deletingCourts ? "Đang xoá..." : "Xoá tất cả sân"}
+                  </Button>
+                </Tooltip>
+              </Stack>
+            </PaperLike>
+          </Grid>
+
+          {/* <Grid item xs={12} md={5}>
+            <PaperLike>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                Hàng đợi vòng bảng (toàn giải)
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Thuật toán: A1, B1, C1… sau đó A2, B2… (tránh VĐV đang thi
+                đấu/chờ sân).
+              </Typography>
+              <Button
+                variant="contained"
+                startIcon={<QueuePlayNextIcon />}
+                onClick={handleBuildQueue}
+                disabled={buildingQueue}
+              >
+                {buildingQueue ? "Đang xếp..." : "Xếp hàng đợi"}
+              </Button>
+            </PaperLike>
+          </Grid> */}
+        </Grid>
+      </Box>
+
+      <Divider sx={{ my: 2 }} />
+
+      {/* Danh sách sân + trận đang gán */}
+      <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
+        Danh sách sân ({courts.length})
+      </Typography>
+
+      {courts.length === 0 ? (
+        <Alert severity="info">Chưa có sân nào cho giải này.</Alert>
+      ) : (
+        <Stack spacing={1}>
+          {courts.map((c) => {
+            const m = getMatchForCourt(c);
+            const hasMatch = Boolean(m);
+            const code = getMatchCodeForCourt(c);
+            const teams = getTeamsForCourt(c);
+            const cs = courtStatus(c);
+            const cid = String(c._id || c.id);
+            const deletingThis = busyDelete.has(cid) || deletingOne;
+
+            return (
+              <PaperRow key={cid}>
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  alignItems="center"
+                  flexWrap="wrap"
+                >
+                  <Chip
+                    label={c.name || c.label || c.title || c.code || "Sân"}
+                    color={
+                      cs === "idle"
+                        ? "default"
+                        : cs === "live"
+                        ? "success"
+                        : cs === "maintenance"
+                        ? "warning"
+                        : "info"
+                    }
+                  />
+                  <Typography variant="body2">{viCourtStatus(cs)}</Typography>
+
+                  {hasMatch && (
                     <Chip
-                      label={c.name || c.label || c.title || c.code || "Sân"}
-                      color={
-                        cs === "idle"
-                          ? "default"
-                          : cs === "live"
-                          ? "success"
-                          : cs === "maintenance"
-                          ? "warning"
-                          : "info"
-                      }
+                      size="small"
+                      color={matchStatusColor(m.status)}
+                      label={`Trận: ${viMatchStatus(m.status)}`}
                     />
-                    <Typography variant="body2">{viCourtStatus(cs)}</Typography>
+                  )}
 
-                    {hasMatch && (
-                      <Chip
-                        size="small"
-                        color={matchStatusColor(m.status)}
-                        label={`Trận: ${viMatchStatus(m.status)}`}
-                      />
-                    )}
-
-                    {hasMatch && (
-                      <Stack
-                        direction="row"
-                        spacing={1}
-                        alignItems="center"
-                        flexWrap="wrap"
-                      >
-                        {code && (
-                          <Chip
-                            size="small"
-                            variant="outlined"
-                            label={`Mã: ${code}`}
-                            sx={{ cursor: "default" }}
-                          />
-                        )}
-                        {(teams.A || teams.B) && (
-                          <Typography variant="body2" sx={{ opacity: 0.85 }}>
-                            {teams.A || "Đội A"} <b>vs</b> {teams.B || "Đội B"}
-                          </Typography>
-                        )}
-                        {isGroupLike(m) && (
-                          <Chip
-                            size="small"
-                            label={`Bảng ${poolBoardLabel(m)}`}
-                          />
-                        )}
-                        {isGroupLike(m) && isNum(m?.rrRound) && (
-                          <Chip size="small" label={`Lượt ${m.rrRound}`} />
-                        )}
-                      </Stack>
-                    )}
-                  </Stack>
-
-                  <Stack direction="row" spacing={1}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<EditNoteIcon />}
-                      onClick={() => openAssignDlg(c)}
+                  {hasMatch && (
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      alignItems="center"
+                      flexWrap="wrap"
                     >
-                      Sửa trận vào sân
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<AutorenewIcon />}
-                      disabled={courtStatus(c) !== "idle"}
-                      onClick={() => handleAssignNext(c._id || c.id)}
-                    >
-                      Gán trận kế tiếp
-                    </Button>
-                  </Stack>
-                </PaperRow>
-              );
-            })}
-          </Stack>
-        )}
-      </DialogContent>
+                      {code && (
+                        <Chip
+                          size="small"
+                          variant="outlined"
+                          label={`Mã: ${code}`}
+                          sx={{ cursor: "default" }}
+                        />
+                      )}
+                      {(teams.A || teams.B) && (
+                        <Typography variant="body2" sx={{ opacity: 0.85 }}>
+                          {teams.A || "Đội A"} <b>vs</b> {teams.B || "Đội B"}
+                        </Typography>
+                      )}
+                      {isGroupLike(m) && (
+                        <Chip
+                          size="small"
+                          label={`Bảng ${poolBoardLabel(m)}`}
+                        />
+                      )}
+                      {isGroupLike(m) && isNum(m?.rrRound) && (
+                        <Chip size="small" label={`Lượt ${m.rrRound}`} />
+                      )}
+                    </Stack>
+                  )}
+                </Stack>
 
-      <DialogActions>
-        <Button onClick={onClose}>Đóng</Button>
-      </DialogActions>
+                <Stack direction="row" spacing={1}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<EditNoteIcon />}
+                    onClick={() => openAssignDlg(c)}
+                  >
+                    Sửa trận vào sân
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AutorenewIcon />}
+                    disabled={courtStatus(c) !== "idle"}
+                    onClick={() => handleAssignNext(c._id || c.id)}
+                  >
+                    Gán trận kế tiếp
+                  </Button>
+                  {/* NEW: Xoá sân */}
+                  <Button
+                    size="small"
+                    color="error"
+                    variant="outlined"
+                    startIcon={<DeleteForeverIcon />}
+                    disabled={deletingThis}
+                    onClick={() => handleDeleteOneCourt(c)}
+                  >
+                    {deletingThis ? "Đang xoá..." : "Xoá sân"}
+                  </Button>
+                </Stack>
+              </PaperRow>
+            );
+          })}
+        </Stack>
+      )}
 
       <AssignSpecificDialog
         open={assignDlgOpen}
@@ -848,7 +899,7 @@ export default function CourtManagerDialog({
         matches={selectableMatches}
         onConfirm={confirmAssignSpecific}
       />
-    </Dialog>
+    </ResponsiveModal>
   );
 }
 

@@ -909,14 +909,25 @@ const resolveClusterKey = (_bracket, cluster) =>
 
 export const deleteAllCourts = async (req, res) => {
   try {
-    const { tournamentId, bracket, cluster, force = true } = req.body || {};
+    const { tournamentId, bracket, cluster, force } = req.body || {};
 
-    if (!isObjectIdString(tournamentId) || !isObjectIdString(bracket)) {
-      return res
-        .status(400)
-        .json({ message: "Invalid tournamentId hoặc bracket" });
+    const toBool = (v) =>
+      v === true ||
+      v === 1 ||
+      v === "1" ||
+      (typeof v === "string" && v.toLowerCase() === "true");
+
+    const forceDelete = toBool(force ?? true);
+
+    if (!mongoose.isValidObjectId(tournamentId)) {
+      return res.status(400).json({ message: "Invalid tournamentId" });
+    }
+    // bracket KHÔNG bắt buộc nữa, nhưng nếu có truyền thì phải hợp lệ
+    if (bracket && !mongoose.isValidObjectId(bracket)) {
+      return res.status(400).json({ message: "Invalid bracket id" });
     }
 
+    // Quyền
     const me = req.user;
     const isAdmin = me?.role === "admin";
     const ownerOrMgr = await canManageTournament(me?._id, tournamentId);
@@ -928,42 +939,32 @@ export const deleteAllCourts = async (req, res) => {
     session.startTransaction();
 
     try {
-      const filter = {
-        tournament: tournamentId,
-        bracket,
-      };
-      if (cluster) {
-        filter.cluster = resolveClusterKey(bracket, cluster);
+      // ❗️Chỉ lọc theo giải; CHỈ áp dụng filter cluster nếu client truyền vào
+      const filter = { tournament: tournamentId };
+      if (typeof cluster === "string" && cluster.trim()) {
+        filter.cluster = cluster.trim();
       }
 
-      // Lấy danh sách court trước để biết courtIds
+      // Lấy trước danh sách court + cluster để dùng emit sau khi xoá
       const courts = await Court.find(filter)
-        .select("_id")
+        .select("_id cluster")
         .session(session)
         .lean();
 
       const courtIds = courts.map((c) => c._id);
       let clearedMatches = 0;
 
-      if (force && courtIds.length) {
-        // Gỡ liên kết sân khỏi match (không đổi status)
+      if (forceDelete && courtIds.length) {
+        // Gỡ liên kết court khỏi match (không đổi status), KHÔNG còn lọc theo bracket
         const upd = await Match.updateMany(
-          {
-            tournament: tournamentId,
-            bracket,
-            court: { $in: courtIds },
-          },
-          {
-            $set: { court: null },
-            $unset: { courtCluster: "" },
-          },
+          { tournament: tournamentId, court: { $in: courtIds } },
+          { $set: { court: null }, $unset: { courtCluster: "" } },
           { session }
         );
-        clearedMatches =
-          upd.modifiedCount ?? upd.nModified ?? upd.acknowledged ? 0 : 0;
+        clearedMatches = Number(upd.modifiedCount || upd.nModified || 0);
       }
 
-      // Xoá tất cả court
+      // Xoá tất cả court tìm được
       const del = await Court.deleteMany(
         { _id: { $in: courtIds } },
         { session }
@@ -972,24 +973,43 @@ export const deleteAllCourts = async (req, res) => {
       await session.commitTransaction();
       session.endSession();
 
-      // (tuỳ chọn) thông báo realtime cho clients refresh state
+      // Thông báo realtime cho từng cluster bị ảnh hưởng
       try {
-        const io = req.app.get("io"); // nếu bạn đã set io vào app
+        const io = req.app.get("io");
         if (io) {
-          const room = `scheduler:${tournamentId}:${bracket}`;
-          io.to(room).emit("scheduler:state:dirty", {
-            at: Date.now(),
-            reason: "courts:deletedAll",
-          });
+          const touchedClusters = [
+            ...new Set(courts.map((c) => String(c.cluster || "Main"))),
+          ];
+
+          for (const cl of touchedClusters) {
+            io.to(`tour:${tournamentId}:${cl}`).emit("scheduler:state:dirty", {
+              at: Date.now(),
+              reason: "courts:deletedAll",
+              cluster: cl,
+            });
+          }
+
+          // Legacy channel (giữ tương thích cũ nếu FE còn join theo bracket)
+          if (bracket) {
+            io.to(`scheduler:${tournamentId}:${bracket}`).emit(
+              "scheduler:state:dirty",
+              {
+                at: Date.now(),
+                reason: "courts:deletedAll (legacy)",
+                bracket: String(bracket),
+              }
+            );
+          }
         }
-      } catch (e) {
-        // ignore
+      } catch (_) {
+        // ignore realtime errors
       }
 
       return res.json({
         ok: true,
-        deleted: del.deletedCount || 0,
+        deleted: Number(del.deletedCount || 0),
         clearedMatches,
+        clusters: [...new Set(courts.map((c) => String(c.cluster || "Main")))],
       });
     } catch (err) {
       await session.abortTransaction().catch(() => {});
@@ -1004,3 +1024,70 @@ export const deleteAllCourts = async (req, res) => {
       .json({ message: e?.message || "Unexpected server error" });
   }
 };
+
+
+export const deleteOneCourt = asyncHandler(async (req, res) => {
+  const { tournamentId, courtId } = req.params || {};
+
+  if (!mongoose.isValidObjectId(courtId)) {
+    return res.status(400).json({ message: "Invalid courtId" });
+  }
+
+
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    // Lấy court để biết cluster/bracket trước khi xoá
+    const court = await Court.findOne({
+      _id: courtId,
+    })
+      .select("_id cluster bracket")
+      .session(session);
+
+    if (!court) {
+      await session.abortTransaction();
+      session.endSession();
+      return res.status(404).json({ message: "Court not found in tournament" });
+    }
+
+    // Gỡ liên kết court khỏi các trận (giữ nguyên status)
+    const upd = await Match.updateMany(
+      { court: court._id },
+      {
+        $set: { court: null },
+        $unset: {
+          courtCluster: "",
+          courtLabel: "",
+          assignedCourt: "",
+          courtAssigned: "",
+        },
+      },
+      { session }
+    );
+    const clearedMatches =
+      Number(upd?.modifiedCount || 0) + Number(upd?.nModified || 0);
+
+    // Xoá court
+    const del = await Court.deleteOne({ _id: court._id }, { session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    // Emit realtime cho cluster đã bị ảnh hưởng
+
+    return res.json({
+      ok: true,
+      deleted: Number(del?.deletedCount || 0),
+      clearedMatches,
+      courtId: String(court._id),
+      cluster: String(court.cluster || "Main"),
+    });
+  } catch (err) {
+    await session.abortTransaction().catch(() => {});
+    session.endSession();
+    return res
+      .status(500)
+      .json({ message: err?.message || "Delete court failed" });
+  }
+});

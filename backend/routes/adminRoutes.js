@@ -94,6 +94,7 @@ import {
   assignSpecificHttp,
   buildGroupsQueueHttp,
   deleteAllCourts,
+  deleteOneCourt,
   fetchSchedulerMatches,
   freeCourtHttp,
   getSchedulerState,
@@ -170,7 +171,7 @@ router.post("/tournaments/:tid/referees", protect, upsertTournamentReferees);
 router.get("/referees/search", protect, searchUsersForRefereeAssign);
 router.get("/tournaments/:tid/courts", protect, listCourtsByTournament);
 router.post("/courts/deleteAll", protect, deleteAllCourts);
-
+router.delete('/courts/:courtId', protect, deleteOneCourt);
 // POST   /api/admin/tournaments/:tid/matches/:mid/court  -> gán sân
 router.post(
   "/tournaments/:tid/matches/:mid/court",

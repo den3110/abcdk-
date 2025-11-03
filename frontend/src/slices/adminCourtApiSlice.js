@@ -243,6 +243,18 @@ export const adminCourtApiSlice = apiSlice.injectEndpoints({
         { type: "Matches", id: `${arg.tournamentId}_${arg.bracket}` },
       ],
     }),
+    // NEW: Xoá 1 sân cụ thể
+    deleteCourt: builder.mutation({
+      query: ({ tournamentId, courtId }) => ({
+        url: `/api/admin/courts/${courtId}`,
+        method: "DELETE",
+        body: { tournamentId },
+      }),
+      invalidatesTags: (_res, _err, arg) => [
+        { type: "Courts", id: arg.tournamentId },
+        { type: "Court", id: arg.courtId },
+      ],
+    }),
   }),
 
   // nếu file này được inject nhiều lần ở môi trường hot-reload:
@@ -260,5 +272,6 @@ export const {
   useResetCourtsHttpMutation,
   useLazyGetSchedulerMatchesLiteQuery,
   useAdminListCourtsQuery,
-  useDeleteCourtsMutation
+  useDeleteCourtsMutation,
+  useDeleteCourtMutation
 } = adminCourtApiSlice;

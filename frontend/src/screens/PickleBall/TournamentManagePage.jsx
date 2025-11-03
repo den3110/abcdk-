@@ -535,7 +535,7 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
     <TableRow
       hover
       onClick={() => onRowClick(match._id)}
-      sx={{ cursor: "pointer" }}
+      sx={{ cursor: "pointer", }}
     >
       <TableCell
         padding="checkbox"
@@ -1732,7 +1732,7 @@ export default function TournamentManagePage() {
                   <ListItemIcon>
                     <StadiumIcon fontSize="small" />
                   </ListItemIcon>
-                  <ListItemText primary="Quản lý sân (toàn giải)" />
+                  <ListItemText primary="Quản lý sân" />
                 </MenuItem>
 
                 <MenuItem
@@ -1744,7 +1744,7 @@ export default function TournamentManagePage() {
                   <ListItemIcon>
                     <MovieIcon fontSize="small" />
                   </ListItemIcon>
-                  <ListItemText primary="Thiết lập LIVE (toàn giải)" />
+                  <ListItemText primary="Thiết lập LIVE" />
                 </MenuItem>
 
                 <Divider />

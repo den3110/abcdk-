@@ -197,93 +197,141 @@ const kycMeta = (status) => {
       return {
         icon: <VerifiedIcon fontSize="inherit" />,
         color: "success.main",
-        tip: "Đã KYC (CCCD: Xác thực)",
+        tip: "Đã KYC",
       };
     case "pending":
       return {
         icon: <PendingIcon fontSize="inherit" />,
         color: "warning.main",
-        tip: "Đang chờ duyệt KYC (CCCD: Chờ xác thực)",
+        tip: "Đang chờ KYC",
       };
     default:
       return {
         icon: <DangerousSharpIcon fontSize="inherit" />,
         color: "text.disabled",
-        tip: "Chưa xác thực (CCCD: Chưa xác thực)",
+        tip: "Chưa KYC",
       };
   }
 };
 
+// Optimized: Remove Tooltip, use title attribute
 const VerifyBadge = memo(({ status, sx }) => {
   const { icon, color, tip } = kycMeta(status);
   return (
-    <Tooltip arrow title={tip}>
-      <Box
-        component="span"
-        sx={{
-          display: "inline-flex",
-          alignItems: "center",
-          lineHeight: 0,
-          ml: 0.5,
-          color,
-          fontSize: 18,
-          verticalAlign: "middle",
-          ...sx,
-        }}
-      >
-        {icon}
-      </Box>
-    </Tooltip>
+    <Box
+      component="span"
+      title={tip}
+      sx={{
+        display: "inline-flex",
+        alignItems: "center",
+        lineHeight: 0,
+        ml: 0.5,
+        color,
+        fontSize: 18,
+        verticalAlign: "middle",
+        ...sx,
+      }}
+    >
+      {icon}
+    </Box>
   );
 });
 
 const kycOf = (pl) => pl?.cccdStatus || "unverified";
 
-/* ==================== Memoized Chips ==================== */
+/* ==================== Lazy Loading Avatar ==================== */
+const LazyAvatar = memo(({ src, alt, size = 36, onClick, sx }) => {
+  const [imgSrc, setImgSrc] = useState(PLACE);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const imgRef = useRef(null);
+
+  useEffect(() => {
+    const targetSrc = safeSrc(src || PLACE);
+
+    // Use IntersectionObserver for lazy loading
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const img = new Image();
+            img.src = targetSrc;
+            img.onload = () => {
+              setImgSrc(targetSrc);
+              setIsLoaded(true);
+            };
+            img.onerror = () => {
+              setImgSrc(PLACE);
+              setIsLoaded(true);
+            };
+            observer.disconnect();
+          }
+        });
+      },
+      { rootMargin: "50px" }
+    );
+
+    if (imgRef.current) {
+      observer.observe(imgRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [src]);
+
+  return (
+    <Avatar
+      ref={imgRef}
+      src={imgSrc}
+      alt={alt}
+      onClick={onClick}
+      sx={{
+        width: size,
+        height: size,
+        opacity: isLoaded ? 1 : 0.5,
+        transition: "opacity 0.2s",
+        cursor: onClick ? "zoom-in" : "default",
+        ...sx,
+      }}
+    />
+  );
+});
+
+/* ==================== Memoized Chips - Optimized ==================== */
 const PaymentChip = memo(({ status, paidAt }) => {
   const isPaid = status === "Paid";
+  const title = isPaid
+    ? `Đã thanh toán: ${paidAt ? new Date(paidAt).toLocaleString() : ""}`
+    : "Chưa thanh toán";
+
   return (
-    <Tooltip
-      title={
-        isPaid
-          ? `Đã thanh toán: ${paidAt ? new Date(paidAt).toLocaleString() : ""}`
-          : "Chưa thanh toán"
-      }
-      arrow
-    >
-      <Chip
-        size="small"
-        color={isPaid ? "success" : "default"}
-        label={isPaid ? "Đã thanh toán" : "Chưa thanh toán"}
-        sx={{ whiteSpace: "nowrap" }}
-      />
-    </Tooltip>
+    <Chip
+      size="small"
+      color={isPaid ? "success" : "default"}
+      label={isPaid ? "Đã Thanh toán" : "Chưa Thanh toán"}
+      title={title}
+      sx={{ whiteSpace: "nowrap" }}
+    />
   );
 });
 
 const CheckinChip = memo(({ checkinAt }) => {
   const ok = !!checkinAt;
+  const title = ok
+    ? `Đã check-in: ${new Date(checkinAt).toLocaleString()}`
+    : "Chưa check-in";
+
   return (
-    <Tooltip
-      title={
-        ok
-          ? `Đã check-in: ${new Date(checkinAt).toLocaleString()}`
-          : "Chưa check-in"
-      }
-      arrow
-    >
-      <Chip
-        size="small"
-        color={ok ? "info" : "default"}
-        label={ok ? "Đã check-in" : "Chưa check-in"}
-        sx={{ whiteSpace: "nowrap" }}
-      />
-    </Tooltip>
+    <Chip
+      size="small"
+      color={ok ? "info" : "default"}
+      label={ok ? "Đã Check-in" : "Chưa Check-in"}
+      title={title}
+      sx={{ whiteSpace: "nowrap" }}
+    />
   );
 });
 
 const CodeBadge = memo(({ code, withLabel = true }) => {
-  const text = withLabel ? `Mã đăng ký: ${code}` : String(code);
+  const text = withLabel ? `Mã: ${code}` : String(code);
   return (
     <Chip
       size="small"
@@ -351,10 +399,7 @@ const SelfPlayerReadonly = memo(({ me, isSingles }) => {
         VĐV 1 (Bạn)
       </Typography>
       <Stack direction="row" spacing={1.5} alignItems="center">
-        <Avatar
-          src={safeSrc(me?.avatar || PLACE)}
-          imgProps={{ onError: (e) => (e.currentTarget.src = PLACE) }}
-        />
+        <LazyAvatar src={me?.avatar || PLACE} alt={display} size={40} />
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography variant="body2" noWrap title={display}>
             {display}
@@ -363,24 +408,20 @@ const SelfPlayerReadonly = memo(({ me, isSingles }) => {
             {me?.phone || "—"}
           </Typography>
         </Box>
-        <Tooltip
-          arrow
-          title={`Điểm ${isSingles ? "đơn" : "đôi"} hiện tại của bạn`}
-        >
-          <Chip
-            size="small"
-            variant="outlined"
-            icon={<Equalizer fontSize="small" />}
-            label={fmt3(scoreVal ?? 0)}
-            sx={{ whiteSpace: "nowrap" }}
-          />
-        </Tooltip>
+        <Chip
+          size="small"
+          variant="outlined"
+          icon={<Equalizer fontSize="small" />}
+          label={fmt3(scoreVal ?? 0)}
+          title={`Điểm ${isSingles ? "đơn" : "đôi"} hiện tại`}
+          sx={{ whiteSpace: "nowrap" }}
+        />
       </Stack>
     </Box>
   );
 });
 
-/* ==================== Memoized Action Cell ==================== */
+/* ==================== Optimized Action Cell - No Tooltips ==================== */
 const ActionCell = memo(
   ({
     r,
@@ -392,6 +433,11 @@ const ActionCell = memo(
     onOpenPayment,
     busy,
   }) => {
+    const paymentTitle =
+      r.payment?.status === "Paid"
+        ? "Đánh dấu CHƯA thanh toán"
+        : "Xác nhận ĐÃ thanh toán";
+
     return (
       <Stack
         direction="row"
@@ -403,181 +449,185 @@ const ActionCell = memo(
         }}
       >
         {canManage && (
-          <Tooltip
-            arrow
-            title={
-              r.payment?.status === "Paid"
-                ? "Đánh dấu CHƯA thanh toán"
-                : "Xác nhận ĐÃ thanh toán"
-            }
+          <IconButton
+            size="small"
+            onClick={() => onTogglePayment(r)}
+            disabled={busy?.settingPayment}
+            title={paymentTitle}
           >
-            <IconButton
-              size="small"
-              onClick={() => onTogglePayment(r)}
-              disabled={busy?.settingPayment}
-            >
-              {r.payment?.status === "Paid" ? (
-                <MoneyOff sx={{ fontSize: 18 }} />
-              ) : (
-                <MonetizationOn sx={{ fontSize: 18 }} />
-              )}
-            </IconButton>
-          </Tooltip>
+            {r.payment?.status === "Paid" ? (
+              <MoneyOff sx={{ fontSize: 18 }} />
+            ) : (
+              <MonetizationOn sx={{ fontSize: 18 }} />
+            )}
+          </IconButton>
         )}
 
-        <Tooltip arrow title="Thanh toán bằng mã QR">
-          <IconButton
-            size="small"
-            color="primary"
-            onClick={() => onOpenPayment(r)}
-            sx={{
-              bgcolor: "primary.main",
-              color: "white",
-              "&:hover": { bgcolor: "primary.dark" },
-            }}
-          >
-            <QrCode sx={{ fontSize: 18 }} />
-          </IconButton>
-        </Tooltip>
+        <IconButton
+          size="small"
+          color="primary"
+          onClick={() => onOpenPayment(r)}
+          title="Thanh toán QR"
+          sx={{
+            bgcolor: "primary.main",
+            color: "white",
+            "&:hover": { bgcolor: "primary.dark" },
+          }}
+        >
+          <QrCode sx={{ fontSize: 18 }} />
+        </IconButton>
 
-        <Tooltip arrow title="Gửi khiếu nại cho đăng ký này">
-          <IconButton
-            size="small"
-            color="warning"
-            onClick={() => onOpenComplaint(r)}
-            sx={{
-              bgcolor: "warning.main",
-              color: "white",
-              "&:hover": { bgcolor: "warning.dark" },
-            }}
-          >
-            <ReportProblem sx={{ fontSize: 18 }} />
-          </IconButton>
-        </Tooltip>
+        <IconButton
+          size="small"
+          color="warning"
+          onClick={() => onOpenComplaint(r)}
+          title="Gửi khiếu nại"
+          sx={{
+            bgcolor: "warning.main",
+            color: "white",
+            "&:hover": { bgcolor: "warning.dark" },
+          }}
+        >
+          <ReportProblem sx={{ fontSize: 18 }} />
+        </IconButton>
 
         {(canManage || isOwner) && (
-          <Tooltip arrow title={canManage ? "Huỷ cặp đấu" : "Huỷ đăng ký"}>
-            <IconButton
-              size="small"
-              color="error"
-              onClick={() => onCancel(r)}
-              disabled={busy?.deletingId === r._id}
-            >
-              <DeleteOutline sx={{ fontSize: 18 }} />
-            </IconButton>
-          </Tooltip>
+          <IconButton
+            size="small"
+            color="error"
+            onClick={() => onCancel(r)}
+            disabled={busy?.deletingId === r._id}
+            title={canManage ? "Huỷ cặp đấu" : "Huỷ đăng ký"}
+          >
+            <DeleteOutline sx={{ fontSize: 18 }} />
+          </IconButton>
         )}
       </Stack>
     );
   }
 );
 
-/* ==================== Memoized Player Cell - Compact Version ==================== */
+/* ==================== Optimized Player Cell ==================== */
 const PlayerCell = memo(
-  ({ player, onEdit, canEdit, onOpenPreview, onOpenProfile }) => (
-    <Stack
-      direction="row"
-      spacing={0.75}
-      alignItems="center"
-      sx={{ minWidth: 0 }}
-    >
-      <Box
-        onClick={() =>
-          onOpenPreview(player?.avatar || PLACE, displayName(player))
-        }
-        sx={{
-          borderRadius: "50%",
-          overflow: "hidden",
-          lineHeight: 0,
-          cursor: "zoom-in",
-          flexShrink: 0,
-        }}
-      >
-        <Avatar
-          src={safeSrc(player?.avatar || PLACE)}
-          imgProps={{ onError: (e) => (e.currentTarget.src = PLACE) }}
-          sx={{ width: 36, height: 36 }}
-        />
-      </Box>
+  ({ player, onEdit, canEdit, onOpenPreview, onOpenProfile }) => {
+    const handleAvatarClick = useCallback(() => {
+      onOpenPreview(player?.avatar || PLACE, displayName(player));
+    }, [player, onOpenPreview]);
 
-      <Box
-        sx={{
-          minWidth: 0,
-          flex: 1,
-          cursor: getUserId(player) ? "pointer" : "default",
-        }}
-        onClick={() => onOpenProfile(player)}
-        title="Xem hồ sơ"
+    const handleProfileClick = useCallback(() => {
+      onOpenProfile(player);
+    }, [player, onOpenProfile]);
+
+    const handleEdit = useCallback(() => {
+      onEdit();
+    }, [onEdit]);
+
+    return (
+      <Stack
+        direction="row"
+        spacing={0.75}
+        alignItems="center"
+        sx={{ minWidth: 0 }}
       >
-        <Typography
-          variant="body2"
-          noWrap
+        <Box
+          onClick={handleAvatarClick}
           sx={{
-            display: "flex",
-            alignItems: "center",
-            gap: 0.25,
-            fontSize: { xs: "0.875rem", lg: "0.875rem" },
+            borderRadius: "50%",
+            overflow: "hidden",
+            lineHeight: 0,
+            cursor: "zoom-in",
+            flexShrink: 0,
           }}
         >
-          <span
-            style={{
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {displayName(player)}
-          </span>
-          <VerifyBadge status={kycOf(player)} />
-        </Typography>
-        <Stack
-          direction="row"
-          spacing={0.5}
-          alignItems="center"
-          sx={{ mt: 0.25 }}
+          <LazyAvatar
+            src={player?.avatar || PLACE}
+            alt={displayName(player)}
+            size={36}
+          />
+        </Box>
+
+        <Box
+          sx={{
+            minWidth: 0,
+            flex: 1,
+            cursor: getUserId(player) ? "pointer" : "default",
+          }}
+          onClick={handleProfileClick}
+          title="Xem hồ sơ"
         >
           <Typography
-            variant="caption"
-            color="text.secondary"
+            variant="body2"
             noWrap
-            sx={{ fontSize: "0.7rem" }}
-          >
-            {player?.phone}
-          </Typography>
-          <Chip
-            size="small"
-            variant="outlined"
-            icon={<Equalizer sx={{ fontSize: 12 }} />}
-            label={fmt3(player?.score ?? 0)}
             sx={{
-              height: 18,
-              fontSize: "0.65rem",
-              "& .MuiChip-icon": { ml: 0.5, mr: -0.25 },
-              "& .MuiChip-label": { px: 0.5 },
+              display: "flex",
+              alignItems: "center",
+              gap: 0.25,
+              fontSize: { xs: "0.875rem", lg: "0.875rem" },
             }}
-          />
-        </Stack>
-      </Box>
+          >
+            <span
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {displayName(player)}
+            </span>
+            <VerifyBadge status={kycOf(player)} />
+          </Typography>
+          <Stack
+            direction="row"
+            spacing={0.5}
+            alignItems="center"
+            sx={{ mt: 0.25 }}
+          >
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              noWrap
+              sx={{ fontSize: "0.7rem" }}
+            >
+              {player?.phone}
+            </Typography>
+            <Chip
+              size="small"
+              variant="outlined"
+              icon={<Equalizer sx={{ fontSize: 12 }} />}
+              label={fmt3(player?.score ?? 0)}
+              sx={{
+                height: 18,
+                fontSize: "0.65rem",
+                "& .MuiChip-icon": { ml: 0.5, mr: -0.25 },
+                "& .MuiChip-label": { px: 0.5 },
+              }}
+            />
+          </Stack>
+        </Box>
 
-      {canEdit && (
-        <Tooltip arrow title="Thay VĐV">
-          <IconButton size="small" onClick={onEdit} sx={{ flexShrink: 0 }}>
+        {canEdit && (
+          <IconButton
+            size="small"
+            onClick={handleEdit}
+            sx={{ flexShrink: 0 }}
+            title="Thay VĐV"
+          >
             <EditOutlined sx={{ fontSize: 18 }} />
           </IconButton>
-        </Tooltip>
-      )}
-    </Stack>
-  )
+        )}
+      </Stack>
+    );
+  }
 );
 
-/* ==================== Lazy Rendering Hook (No external deps!) ==================== */
-function useLazyRender(totalItems, initialBatch = 50, batchSize = 30) {
+/* ==================== Enhanced Lazy Rendering Hook ==================== */
+function useLazyRender(totalItems, initialBatch = 30, batchSize = 20) {
   const [displayCount, setDisplayCount] = useState(initialBatch);
   const loaderRef = useRef(null);
   const observerRef = useRef(null);
+  const timeoutRef = useRef(null);
 
   useEffect(() => {
-    // Reset when total items change (e.g., search)
     setDisplayCount(initialBatch);
   }, [totalItems, initialBatch]);
 
@@ -585,34 +635,36 @@ function useLazyRender(totalItems, initialBatch = 50, batchSize = 30) {
     const loader = loaderRef.current;
     if (!loader || displayCount >= totalItems) return;
 
-    // Cleanup previous observer
     if (observerRef.current) {
       observerRef.current.disconnect();
     }
 
-    // Create new observer
     observerRef.current = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && displayCount < totalItems) {
-          setDisplayCount((prev) => Math.min(prev + batchSize, totalItems));
+          // Debounce loading to prevent too many updates
+          if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
+          timeoutRef.current = setTimeout(() => {
+            setDisplayCount((prev) => Math.min(prev + batchSize, totalItems));
+          }, 100);
         }
       },
-      { rootMargin: "100px" } // Load before user reaches bottom
+      { rootMargin: "200px" }
     );
 
     observerRef.current.observe(loader);
 
     return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-      }
+      if (observerRef.current) observerRef.current.disconnect();
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, [displayCount, totalItems, batchSize]);
 
   return { displayCount, loaderRef, hasMore: displayCount < totalItems };
 }
 
-/* ==================== Memoized Desktop Row - Responsive ==================== */
+/* ==================== Optimized Desktop Row ==================== */
 const DesktopTableRow = memo(
   ({
     r,
@@ -632,8 +684,20 @@ const DesktopTableRow = memo(
     busy,
     regCodeOf,
   }) => {
-    const total = totalScoreOf(r, isSingles);
-    const { color, title } = totalChipStyle(total, cap, delta);
+    const total = useMemo(() => totalScoreOf(r, isSingles), [r, isSingles]);
+    const chipStyle = useMemo(
+      () => totalChipStyle(total, cap, delta),
+      [total, cap, delta]
+    );
+
+    const handleReplaceP1 = useCallback(
+      () => onOpenReplace(r, "p1"),
+      [r, onOpenReplace]
+    );
+    const handleReplaceP2 = useCallback(
+      () => onOpenReplace(r, "p2"),
+      [r, onOpenReplace]
+    );
 
     return (
       <TableRow hover>
@@ -659,7 +723,7 @@ const DesktopTableRow = memo(
         >
           <PlayerCell
             player={r.player1}
-            onEdit={() => onOpenReplace(r, "p1")}
+            onEdit={handleReplaceP1}
             canEdit={canManage}
             onOpenPreview={onOpenPreview}
             onOpenProfile={onOpenProfile}
@@ -677,7 +741,7 @@ const DesktopTableRow = memo(
             {r.player2 ? (
               <PlayerCell
                 player={r.player2}
-                onEdit={() => onOpenReplace(r, "p2")}
+                onEdit={handleReplaceP2}
                 canEdit={canManage}
                 onOpenPreview={onOpenPreview}
                 onOpenProfile={onOpenProfile}
@@ -686,7 +750,7 @@ const DesktopTableRow = memo(
               <Button
                 size="small"
                 variant="outlined"
-                onClick={() => onOpenReplace(r, "p2")}
+                onClick={handleReplaceP2}
                 sx={{ fontSize: "0.75rem", py: 0.25, px: 0.75 }}
               >
                 + VĐV 2
@@ -698,26 +762,20 @@ const DesktopTableRow = memo(
         )}
 
         <TableCell sx={{ whiteSpace: "nowrap", py: 1, px: { xs: 0.5, md: 1 } }}>
-          <Tooltip
-            arrow
-            title={`Tổng điểm trình (chốt lúc đăng ký): ${fmt3(
-              total
-            )} • ${title}`}
-          >
-            <Chip
-              size="small"
-              icon={<Equalizer sx={{ fontSize: 14 }} />}
-              label={fmt3(total)}
-              color={color}
-              variant="filled"
-              sx={{
-                whiteSpace: "nowrap",
-                height: 24,
-                fontSize: "0.75rem",
-                "& .MuiChip-icon": { ml: 0.5, mr: -0.25 },
-              }}
-            />
-          </Tooltip>
+          <Chip
+            size="small"
+            icon={<Equalizer sx={{ fontSize: 14 }} />}
+            label={fmt3(total)}
+            color={chipStyle.color}
+            variant="filled"
+            title={`Tổng điểm: ${fmt3(total)} • ${chipStyle.title}`}
+            sx={{
+              whiteSpace: "nowrap",
+              height: 24,
+              fontSize: "0.75rem",
+              "& .MuiChip-icon": { ml: 0.5, mr: -0.25 },
+            }}
+          />
         </TableCell>
 
         <TableCell
@@ -764,7 +822,7 @@ const DesktopTableRow = memo(
   }
 );
 
-/* ==================== Memoized Mobile Card ==================== */
+/* ==================== Optimized Mobile Card ==================== */
 const MobileCard = memo(
   ({
     r,
@@ -785,8 +843,12 @@ const MobileCard = memo(
     regCodeOf,
     playersOfReg,
   }) => {
-    const total = totalScoreOf(r, isSingles);
-    const { color, title } = totalChipStyle(total, cap, delta);
+    const total = useMemo(() => totalScoreOf(r, isSingles), [r, isSingles]);
+    const chipStyle = useMemo(
+      () => totalChipStyle(total, cap, delta),
+      [total, cap, delta]
+    );
+    const players = useMemo(() => playersOfReg(r), [r, playersOfReg]);
 
     return (
       <Paper sx={{ p: 2 }}>
@@ -801,7 +863,7 @@ const MobileCard = memo(
           </Typography>
         </Stack>
 
-        {playersOfReg(r).map((pl, idx) => (
+        {players.map((pl, idx) => (
           <Stack
             key={`${pl?.phone || pl?.fullName || idx}`}
             direction="row"
@@ -820,9 +882,10 @@ const MobileCard = memo(
                 cursor: "zoom-in",
               }}
             >
-              <Avatar
-                src={safeSrc(pl?.avatar || PLACE)}
-                imgProps={{ onError: (e) => (e.currentTarget.src = PLACE) }}
+              <LazyAvatar
+                src={pl?.avatar || PLACE}
+                alt={displayName(pl)}
+                size={40}
               />
             </Box>
 
@@ -856,27 +919,23 @@ const MobileCard = memo(
               </Typography>
             </Box>
 
-            <Tooltip arrow title="Điểm trình (chốt lúc đăng ký)">
-              <Chip
-                size="small"
-                variant="outlined"
-                icon={<Equalizer fontSize="small" />}
-                label={fmt3(pl?.score ?? 0)}
-                sx={{ whiteSpace: "nowrap" }}
-              />
-            </Tooltip>
+            <Chip
+              size="small"
+              variant="outlined"
+              icon={<Equalizer fontSize="small" />}
+              label={fmt3(pl?.score ?? 0)}
+              title="Điểm trình"
+              sx={{ whiteSpace: "nowrap" }}
+            />
 
             {canManage && (
-              <Tooltip arrow title={`Thay ${idx === 0 ? "VĐV 1" : "VĐV 2"}`}>
-                <span>
-                  <IconButton
-                    size="small"
-                    onClick={() => onOpenReplace(r, idx === 0 ? "p1" : "p2")}
-                  >
-                    <EditOutlined fontSize="small" />
-                  </IconButton>
-                </span>
-              </Tooltip>
+              <IconButton
+                size="small"
+                onClick={() => onOpenReplace(r, idx === 0 ? "p1" : "p2")}
+                title={`Thay ${idx === 0 ? "VĐV 1" : "VĐV 2"}`}
+              >
+                <EditOutlined fontSize="small" />
+              </IconButton>
             )}
           </Stack>
         ))}
@@ -903,17 +962,16 @@ const MobileCard = memo(
         </Stack>
 
         <Stack direction="row" spacing={1} mt={1} alignItems="center">
-          <Typography variant="body2">Tổng điểm:</Typography>
-          <Tooltip arrow title={`Tổng điểm: ${fmt3(total)} • ${title}`}>
-            <Chip
-              size="small"
-              icon={<Equalizer fontSize="small" />}
-              label={fmt3(total)}
-              color={color}
-              variant="filled"
-              sx={{ whiteSpace: "nowrap" }}
-            />
-          </Tooltip>
+          <Typography variant="body2">Tổng:</Typography>
+          <Chip
+            size="small"
+            icon={<Equalizer fontSize="small" />}
+            label={fmt3(total)}
+            color={chipStyle.color}
+            variant="filled"
+            title={`Tổng điểm: ${fmt3(total)} • ${chipStyle.title}`}
+            sx={{ whiteSpace: "nowrap" }}
+          />
         </Stack>
 
         <Box mt={1}>
@@ -933,6 +991,31 @@ const MobileCard = memo(
   }
 );
 
+/* ==================== Optimized Search Field ==================== */
+const SearchField = memo(({ value, onChange, onClear }) => (
+  <TextField
+    value={value}
+    onChange={onChange}
+    placeholder="Tìm theo VĐV, SĐT, mã đăng ký…"
+    size="small"
+    sx={{ maxWidth: 420 }}
+    InputProps={{
+      startAdornment: (
+        <InputAdornment position="start">
+          <Search fontSize="small" />
+        </InputAdornment>
+      ),
+      endAdornment: value ? (
+        <InputAdornment position="end">
+          <IconButton size="small" onClick={onClear}>
+            <Clear fontSize="small" />
+          </IconButton>
+        </InputAdornment>
+      ) : null,
+    }}
+  />
+));
+
 /* ==================== Main Component ==================== */
 export default function TournamentRegistration() {
   const { id } = useParams();
@@ -941,9 +1024,6 @@ export default function TournamentRegistration() {
 
   const { data: me, isLoading: meLoading, error: meErr } = useGetMeScoreQuery();
   const isLoggedIn = !!me?._id;
-
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
 
   const {
     data: tour,
@@ -958,17 +1038,8 @@ export default function TournamentRegistration() {
     refetch: refetchRegs,
   } = useGetRegistrationsQuery(id);
 
-  const {
-    data: myInvites = [],
-    error: invitesErr,
-    refetch: refetchInvites,
-  } = useListMyRegInvitesQuery(undefined, { skip: !isLoggedIn });
-
   const [createInvite, { isLoading: saving }] = useCreateRegInviteMutation();
-  const [respondInvite, { isLoading: responding }] =
-    useRespondRegInviteMutation();
   const [cancelReg] = useCancelRegistrationMutation();
-
   const [setPaymentStatus, { isLoading: settingPayment }] =
     useManagerSetRegPaymentStatusMutation();
   const [adminDeleteReg] = useManagerDeleteRegistrationMutation();
@@ -1004,8 +1075,9 @@ export default function TournamentRegistration() {
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
 
+  // Increased debounce delay for better performance
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQ(q.trim()), 350);
+    const t = setTimeout(() => setDebouncedQ(q.trim()), 500);
     return () => clearTimeout(t);
   }, [q]);
 
@@ -1044,13 +1116,6 @@ export default function TournamentRegistration() {
 
   const canManage = isLoggedIn && (isManager || isAdmin);
 
-  const pendingInvitesHere = useMemo(() => {
-    if (!isLoggedIn) return [];
-    return (myInvites || []).filter(
-      (it) => String(it?.tournament?._id || it?.tournament) === String(id)
-    );
-  }, [myInvites, id, isLoggedIn]);
-
   const location = useLocation();
   const drawPath = useMemo(() => {
     try {
@@ -1069,13 +1134,6 @@ export default function TournamentRegistration() {
     [regs]
   );
 
-  const totalPages = Math.max(1, Math.ceil(overallRegCount / pageSize));
-  const baseIndex = (page - 1) * pageSize;
-  const paginatedRegs = useMemo(
-    () => regs.slice(baseIndex, baseIndex + pageSize),
-    [regs, baseIndex, pageSize]
-  );
-
   const searchingActive = !!debouncedQ;
   const listRegs = searchingActive ? searchedRegs || [] : regs || [];
   const regCount = listRegs?.length ?? 0;
@@ -1084,8 +1142,8 @@ export default function TournamentRegistration() {
     : regsLoading;
   const listError = searchingActive ? searchErr : regsErr;
 
-  // Lazy rendering for performance - load rows progressively
-  const { displayCount, loaderRef, hasMore } = useLazyRender(regCount, 50, 30);
+  // Enhanced lazy rendering with smaller initial batch
+  const { displayCount, loaderRef, hasMore } = useLazyRender(regCount, 30, 20);
 
   const playersOfReg = useCallback(
     (r) => [r?.player1, r?.player2].filter(Boolean),
@@ -1102,6 +1160,7 @@ export default function TournamentRegistration() {
     (d) => (d ? new Date(d).toLocaleDateString() : ""),
     []
   );
+
   const formatRange = useCallback(
     (a, b) => {
       const A = formatDate(a);
@@ -1418,6 +1477,9 @@ export default function TournamentRegistration() {
     () => setPaymentDlg({ open: false, reg: null }),
     []
   );
+
+  const handleSearchChange = useCallback((e) => setQ(e.target.value), []);
+  const handleSearchClear = useCallback(() => setQ(""), []);
 
   // Memoized busy state
   const busy = useMemo(
@@ -1753,26 +1815,10 @@ export default function TournamentRegistration() {
         alignItems={{ xs: "stretch", sm: "center" }}
         sx={{ mb: 1 }}
       >
-        <TextField
+        <SearchField
           value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Tìm theo VĐV, SĐT, mã đăng ký…"
-          size="small"
-          sx={{ maxWidth: 420 }}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <Search fontSize="small" />
-              </InputAdornment>
-            ),
-            endAdornment: q ? (
-              <InputAdornment position="end">
-                <IconButton size="small" onClick={() => setQ("")}>
-                  <Clear fontSize="small" />
-                </IconButton>
-              </InputAdornment>
-            ) : null,
-          }}
+          onChange={handleSearchChange}
+          onClear={handleSearchClear}
         />
         <Typography
           variant="caption"
@@ -1790,7 +1836,9 @@ export default function TournamentRegistration() {
       </Stack>
 
       {listLoading ? (
-        <CircularProgress />
+        <Box sx={{ textAlign: "center", py: 3 }}>
+          <CircularProgress />
+        </Box>
       ) : listError ? (
         <Alert severity="error">
           {listError?.data?.message || listError?.error || "Lỗi tải danh sách"}
@@ -1799,7 +1847,7 @@ export default function TournamentRegistration() {
         <Typography color="text.secondary">Danh sách đăng ký trống!</Typography>
       ) : isMobile ? (
         <Stack spacing={2}>
-          {listRegs.map((r, i) => {
+          {listRegs.slice(0, displayCount).map((r, i) => {
             const isOwner =
               isLoggedIn && String(r?.createdBy) === String(me?._id);
             return (
@@ -1825,9 +1873,21 @@ export default function TournamentRegistration() {
               />
             );
           })}
+          {hasMore && (
+            <Box ref={loaderRef} sx={{ textAlign: "center", py: 2 }}>
+              <CircularProgress size={20} />
+              <Typography
+                variant="caption"
+                sx={{ ml: 1 }}
+                color="text.secondary"
+              >
+                Đang tải thêm... ({displayCount}/{regCount})
+              </Typography>
+            </Box>
+          )}
         </Stack>
       ) : (
-        // Lazy-loaded desktop table
+        // Desktop table with lazy loading
         <Paper variant="outlined" sx={{ mt: 1 }}>
           <TableContainer sx={{ maxHeight: 600, overflow: "auto" }}>
             <Table size="small" stickyHeader>
@@ -1910,7 +1970,6 @@ export default function TournamentRegistration() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {/* Only render up to displayCount for performance */}
                 {listRegs.slice(0, displayCount).map((r, i) => {
                   const isOwner =
                     isLoggedIn && String(r?.createdBy) === String(me?._id);
@@ -1937,7 +1996,6 @@ export default function TournamentRegistration() {
                   );
                 })}
 
-                {/* Loader - triggers loading more when visible */}
                 {hasMore && (
                   <TableRow ref={loaderRef}>
                     <TableCell

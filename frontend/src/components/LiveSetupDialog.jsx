@@ -2,12 +2,9 @@
 import React from "react";
 import {
   Alert,
+  Box,
   Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Paper,
   Stack,
   Table,
@@ -21,6 +18,8 @@ import {
   Typography,
   Checkbox,
   LinearProgress,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
 import {
   Stadium as StadiumIcon,
@@ -30,6 +29,9 @@ import {
 } from "@mui/icons-material";
 import { Link as RouterLink } from "react-router-dom";
 import { toast } from "react-toastify";
+
+/* 👉 chỉnh path cho khớp dự án của bạn */
+import ResponsiveModal from "./ResponsiveModal";
 
 /* RTK hooks – dialog tự xử lý dữ liệu */
 import {
@@ -123,14 +125,16 @@ export default function LiveSetupDialog({
    */
   buildCourtLiveUrl,
 }) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
   // Wrapper: ưu tiên custom, mặc định dùng route trang riêng CourtLiveStudio
   const buildLiveUrl = React.useCallback(
     (tid, bid, court) =>
       buildCourtLiveUrl
-        ? // Cho phép function 2 hoặc 3 tham số
-          (buildCourtLiveUrl.length >= 3
-            ? buildCourtLiveUrl(tid, bid ?? null, court)
-            : buildCourtLiveUrl(tid, court))
+        ? buildCourtLiveUrl.length >= 3
+          ? buildCourtLiveUrl(tid, bid ?? null, court)
+          : buildCourtLiveUrl(tid, court)
         : `/streaming/${court._id}`,
     [buildCourtLiveUrl]
   );
@@ -313,200 +317,333 @@ export default function LiveSetupDialog({
   const loadingAny = courtsLoading || matchesLoading;
 
   return (
-    <Dialog
+    <ResponsiveModal
       open={open}
       onClose={onClose}
-      fullWidth
       maxWidth="xl"
-      scroll="paper"
-      PaperProps={{
-        sx: {
-          width: { xs: "100%", sm: "96vw" },
-          maxWidth: 1500,
-          height: { xs: "100%", md: "90vh" },
-        },
+      icon={<MovieIcon />}
+      title="Thiết lập LIVE — Toàn giải"
+      paperSx={{
+        width: { xs: "100%", sm: "96vw" },
+        maxWidth: 1500,
+        height: { xs: "100%", md: "90vh" },
       }}
+      contentProps={{ sx: { pt: 1 } }}
+      actions={
+        <>
+          <Button onClick={onClose}>Đóng</Button>
+          <Button
+            variant="contained"
+            onClick={saveAll}
+            startIcon={<MovieIcon />}
+            disabled={bulkSaving || saving || courts.length === 0}
+          >
+            Lưu tất cả sân
+          </Button>
+        </>
+      }
     >
-      <DialogTitle>Thiết lập LIVE — Toàn giải</DialogTitle>
-      <DialogContent dividers>
-        {loadingAny && <LinearProgress sx={{ mb: 2 }} />}
+      {loadingAny && <LinearProgress sx={{ mb: 2 } } />}
 
-        <Stack spacing={2}>
-          <Alert severity="info">
-            Cấu hình LIVE <b>theo SÂN</b>. Khi trọng tài bắt đầu trận (hoặc khi
-            server áp dụng), URL LIVE mặc định của sân sẽ tự gán cho trận thuộc
-            sân đó.
-          </Alert>
+      <Stack spacing={2}>
+        <Alert severity="info">
+          Cấu hình LIVE <b>theo SÂN</b>. Khi trọng tài bắt đầu trận (hoặc khi
+          server áp dụng), URL LIVE mặc định của sân sẽ tự gán cho trận thuộc
+          sân đó.
+        </Alert>
 
-          {courtsErr ? (
-            <Alert severity="error">Không tải được danh sách sân.</Alert>
-          ) : courts.length === 0 ? (
-            <Alert severity="warning">Chưa có sân trong giải này.</Alert>
-          ) : (
-            <>
-              {/* Tuỳ chọn toàn cục */}
-              <Stack direction="row" alignItems="center" spacing={1}>
-                <Checkbox
-                  size="small"
-                  checked={overrideExisting}
-                  onChange={(e) => setOverrideExisting(e.target.checked)}
-                />
-                <Typography variant="body2">
-                  Cho phép <b>ghi đè</b> link LIVE đã có trong trận
-                </Typography>
-              </Stack>
+        {courtsErr ? (
+          <Alert severity="error">Không tải được danh sách sân.</Alert>
+        ) : courts.length === 0 ? (
+          <Alert severity="warning">Chưa có sân trong giải này.</Alert>
+        ) : (
+          <>
+            {/* Tuỳ chọn toàn cục */}
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <Checkbox
+                size="small"
+                checked={overrideExisting}
+                onChange={(e) => setOverrideExisting(e.target.checked)}
+              />
+              <Typography variant="body2">
+                Cho phép <b>ghi đè</b> link LIVE đã có trong trận
+              </Typography>
+            </Stack>
 
-              <TableContainer component={Paper} variant="outlined">
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>Sân</TableCell>
-                      <TableCell>Trận (tổng / live / chưa kết thúc)</TableCell>
-                      <TableCell>LIVE hiện tại (mẫu từ trận)</TableCell>
-                      <TableCell>Bật</TableCell>
-                      <TableCell>URL LIVE mặc định</TableCell>
-                      <TableCell align="right">Thao tác</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {courts.map((c) => {
-                      const cMatches = matchesByCourtId.get(c._id) || [];
-                      const cnt = countByStatus(cMatches);
-                      const sample = mostCommonUrl(cMatches);
-                      const v = form[c._id] || { enabled: false, videoUrl: "" };
-                      const isBusy = busy.has(c._id);
+            {/* ===== Desktop: Bảng ===== */}
+            <TableContainer
+              component={Paper}
+              variant="outlined"
+              sx={{ display: { xs: "none", md: "block" } }}
+            >
+              <Table size="small" stickyHeader>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Sân</TableCell>
+                    <TableCell>Trận (tổng / live / chưa kết thúc)</TableCell>
+                    <TableCell>LIVE hiện tại (mẫu từ trận)</TableCell>
+                    <TableCell sx={{ width: 80 }}>Bật</TableCell>
+                    <TableCell>URL LIVE mặc định</TableCell>
+                    <TableCell align="right">Thao tác</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {courts.map((c) => {
+                    const cMatches = matchesByCourtId.get(c._id) || [];
+                    const cnt = countByStatus(cMatches);
+                    const sample = mostCommonUrl(cMatches);
+                    const v = form[c._id] || { enabled: false, videoUrl: "" };
+                    const isBusy = busy.has(c._id);
 
-                      return (
-                        <TableRow key={c._id}>
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>
-                            <Chip
-                              size="small"
-                              icon={<StadiumIcon />}
-                              label={c.displayLabel}
-                            />
-                          </TableCell>
+                    return (
+                      <TableRow key={c._id}>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>
+                          <Chip
+                            size="small"
+                            icon={<StadiumIcon />}
+                            label={c.displayLabel}
+                          />
+                        </TableCell>
 
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>
-                            {cnt.total} / {cnt.live} / {cnt.notFinished}
-                          </TableCell>
+                        <TableCell sx={{ whiteSpace: "nowrap" }}>
+                          {cnt.total} / {cnt.live} / {cnt.notFinished}
+                        </TableCell>
 
-                          <TableCell sx={{ maxWidth: 280 }}>
-                            {sample ? (
-                              <Tooltip title={sample} arrow>
-                                <Typography
-                                  variant="body2"
-                                  noWrap
-                                  sx={{ maxWidth: 260 }}
-                                >
-                                  {sample}
-                                </Typography>
-                              </Tooltip>
-                            ) : (
-                              <Typography
-                                variant="body2"
-                                color="text.secondary"
-                              >
-                                (chưa có)
+                        <TableCell sx={{ maxWidth: 320 }}>
+                          {sample ? (
+                            <Tooltip title={sample} arrow>
+                              <Typography variant="body2" noWrap>
+                                {sample}
                               </Typography>
-                            )}
-                          </TableCell>
+                            </Tooltip>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              (chưa có)
+                            </Typography>
+                          )}
+                        </TableCell>
 
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>
-                            <Checkbox
+                        <TableCell sx={{ whiteSpace: "nowrap", width: 80 }}>
+                          <Checkbox
+                            size="small"
+                            checked={!!v.enabled}
+                            sx={{ mx: 0.5 }}
+                            onChange={(e) =>
+                              onChangeCourtField(c._id, {
+                                enabled: e.target.checked,
+                              })
+                            }
+                          />
+                        </TableCell>
+
+                        <TableCell sx={{ minWidth: 320 }}>
+                          <TextField
+                            size="small"
+                            fullWidth
+                            placeholder="https://… (để trống nếu muốn tắt/xoá)"
+                            value={v.videoUrl}
+                            onChange={(e) =>
+                              onChangeCourtField(c._id, {
+                                videoUrl: e.target.value,
+                              })
+                            }
+                          />
+                        </TableCell>
+
+                        <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                          <Stack direction="row" spacing={1}>
+                            <Button
                               size="small"
-                              checked={!!v.enabled}
-                              onChange={(e) =>
-                                onChangeCourtField(c._id, {
-                                  enabled: e.target.checked,
-                                })
-                              }
-                            />
-                          </TableCell>
-
-                          <TableCell sx={{ minWidth: 280 }}>
-                            <TextField
+                              variant="contained"
+                              startIcon={<MovieIcon />}
+                              disabled={isBusy || saving || bulkSaving}
+                              onClick={() => saveCourt(c._id)}
+                            >
+                              Lưu sân
+                            </Button>
+                            <Button
                               size="small"
-                              fullWidth
-                              placeholder="https://… (để trống nếu muốn tắt/xoá)"
-                              value={v.videoUrl}
-                              onChange={(e) =>
+                              color="error"
+                              variant="outlined"
+                              startIcon={<LinkOffIcon />}
+                              disabled={isBusy || saving || bulkSaving}
+                              onClick={() => {
                                 onChangeCourtField(c._id, {
-                                  videoUrl: e.target.value,
-                                })
-                              }
-                            />
-                          </TableCell>
-
-                          <TableCell
-                            align="right"
-                            sx={{ whiteSpace: "nowrap" }}
-                          >
-                            <Stack direction="row" spacing={1}>
+                                  enabled: false,
+                                  videoUrl: "",
+                                });
+                                saveCourt(c._id);
+                              }}
+                            >
+                              Tắt
+                            </Button>
+                            {v.enabled && (
                               <Button
                                 size="small"
-                                variant="contained"
-                                startIcon={<MovieIcon />}
-                                disabled={isBusy || saving || bulkSaving}
-                                onClick={() => saveCourt(c._id)}
-                              >
-                                Lưu sân
-                              </Button>
-                              <Button
-                                size="small"
-                                color="error"
                                 variant="outlined"
-                                startIcon={<LinkOffIcon />}
-                                disabled={isBusy || saving || bulkSaving}
-                                onClick={() => {
-                                  onChangeCourtField(c._id, {
-                                    enabled: false,
-                                    videoUrl: "",
-                                  });
-                                  saveCourt(c._id);
-                                }}
+                                startIcon={<OpenInNewIcon />}
+                                component={RouterLink}
+                                to={buildLiveUrl(
+                                  tournamentId,
+                                  bracketId ?? null,
+                                  c
+                                )}
+                                target="_blank"
+                                rel="noopener"
                               >
-                                Tắt
+                                Mở studio LIVE
                               </Button>
-                              {v.enabled && (
-                                <Button
-                                  size="small"
-                                  variant="outlined"
-                                  startIcon={<OpenInNewIcon />}
-                                  component={RouterLink}
-                                  to={buildLiveUrl(
-                                    tournamentId,
-                                    bracketId ?? null,
-                                    c
-                                  )}
-                                  target="_blank"
-                                  rel="noopener"
-                                >
-                                  Mở studio LIVE
-                                </Button>
-                              )}
-                            </Stack>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </>
-          )}
-        </Stack>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>Đóng</Button>
-        <Button
-          variant="contained"
-          onClick={saveAll}
-          startIcon={<MovieIcon />}
-          disabled={bulkSaving || saving || courts.length === 0}
-        >
-          Lưu tất cả sân
-        </Button>
-      </DialogActions>
-    </Dialog>
+                            )}
+                          </Stack>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            {/* ===== Mobile: Cards/List ===== */}
+            <Stack spacing={1} sx={{ display: { xs: "flex", md: "none" } }}>
+              {courts.map((c) => {
+                const cMatches = matchesByCourtId.get(c._id) || [];
+                const cnt = countByStatus(cMatches);
+                const sample = mostCommonUrl(cMatches);
+                const v = form[c._id] || { enabled: false, videoUrl: "" };
+                const isBusy = busy.has(c._id);
+
+                return (
+                  <Paper
+                    key={c._id}
+                    variant="outlined"
+                    sx={{ p: 1.25, borderRadius: 2 }}
+                  >
+                    <Stack spacing={1.25}>
+                      <Stack
+                        direction="row"
+                        alignItems="center"
+                        spacing={1}
+                        flexWrap="wrap"
+                      >
+                        <Chip
+                          size="small"
+                          icon={<StadiumIcon />}
+                          label={c.displayLabel}
+                          sx={{ mr: 0.5 }}
+                        />
+                        <Typography variant="body2" color="text.secondary">
+                          {cnt.total} / {cnt.live} / {cnt.notFinished}
+                        </Typography>
+                        <Box sx={{ flex: 1 }} />
+                        <Stack
+                          direction="row"
+                          alignItems="center"
+                          spacing={0.5}
+                        >
+                          <Typography variant="caption">Bật</Typography>
+                          <Checkbox
+                            size="small"
+                            checked={!!v.enabled}
+                            sx={{ p: 0.5 }}
+                            onChange={(e) =>
+                              onChangeCourtField(c._id, {
+                                enabled: e.target.checked,
+                              })
+                            }
+                          />
+                        </Stack>
+                      </Stack>
+
+                      <Box>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ display: "block", mb: 0.5 }}
+                        >
+                          LIVE hiện tại (mẫu từ trận)
+                        </Typography>
+                        {sample ? (
+                          <Tooltip title={sample} arrow>
+                            <Typography
+                              variant="body2"
+                              noWrap
+                              sx={{ maxWidth: "100%" }}
+                            >
+                              {sample}
+                            </Typography>
+                          </Tooltip>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">
+                            (chưa có)
+                          </Typography>
+                        )}
+                      </Box>
+
+                      <TextField
+                        size="small"
+                        fullWidth
+                        placeholder="URL LIVE mặc định https://…"
+                        value={v.videoUrl}
+                        onChange={(e) =>
+                          onChangeCourtField(c._id, {
+                            videoUrl: e.target.value,
+                          })
+                        }
+                      />
+
+                      <Stack
+                        direction="row"
+                        spacing={1}
+                        flexWrap="wrap"
+                        useFlexGap
+                      >
+                        <Button
+                          size="small"
+                          variant="contained"
+                          startIcon={<MovieIcon />}
+                          disabled={isBusy || saving || bulkSaving}
+                          onClick={() => saveCourt(c._id)}
+                        >
+                          Lưu sân
+                        </Button>
+                        <Button
+                          size="small"
+                          color="error"
+                          variant="outlined"
+                          startIcon={<LinkOffIcon />}
+                          disabled={isBusy || saving || bulkSaving}
+                          onClick={() => {
+                            onChangeCourtField(c._id, {
+                              enabled: false,
+                              videoUrl: "",
+                            });
+                            saveCourt(c._id);
+                          }}
+                        >
+                          Tắt
+                        </Button>
+                        {v.enabled && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            startIcon={<OpenInNewIcon />}
+                            component={RouterLink}
+                            to={buildLiveUrl(tournamentId, bracketId ?? null, c)}
+                            target="_blank"
+                            rel="noopener"
+                          >
+                            Mở studio LIVE
+                          </Button>
+                        )}
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                );
+              })}
+            </Stack>
+          </>
+        )}
+      </Stack>
+    </ResponsiveModal>
   );
 }
