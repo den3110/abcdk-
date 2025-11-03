@@ -23,11 +23,12 @@ const isId = (id) => mongoose.Types.ObjectId.isValid(id);
  */
 // GET /tournaments
 const getTournaments = asyncHandler(async (req, res) => {
-  const sort = (req.query.sort || "-startDate").toString();
+  const hasSortQP = Object.prototype.hasOwnProperty.call(req.query, "sort");
+  const sortQP = (req.query.sort || "").toString().trim();
   const limit = req.query.limit
     ? Math.max(parseInt(req.query.limit, 10) || 0, 0)
     : null;
-  const status = (req.query.status || "").toString().toLowerCase(); // upcoming|ongoing|finished
+  const status = (req.query.status || "").toString().toLowerCase(); // upcoming|ongoing|finished (chỉ dùng lọc nếu có)
   const rawKeyword = (req.query.keyword ?? req.query.q ?? "").toString().trim();
 
   const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -39,13 +40,7 @@ const getTournaments = asyncHandler(async (req, res) => {
       else acc[key] = 1;
       return acc;
     }, {});
-  const sortSpecRaw = parseSort(sort);
-  const sortSpec = Object.keys(sortSpecRaw).length
-    ? sortSpecRaw
-    : { startDate: -1, _id: -1 };
-
-  // Nếu cần hiển thị theo TZ cụ thể ở FE thì dùng; còn logic trạng thái dựa trên *_At (UTC) đã chuẩn từ TZ của từng giải.
-  const TZ = "Asia/Bangkok";
+  const sortSpecFromQP = hasSortQP ? parseSort(sortQP) : {};
 
   const pipeline = [];
 
@@ -57,9 +52,9 @@ const getTournaments = asyncHandler(async (req, res) => {
         { name: { $regex: tk, $options: "i" } },
         { slug: { $regex: tk, $options: "i" } },
         { code: { $regex: tk, $options: "i" } },
-        { "location.city": { $regex: tk, $options: "i" } }, // nếu location là object
+        { "location.city": { $regex: tk, $options: "i" } },
         { "location.province": { $regex: tk, $options: "i" } },
-        { location: { $regex: tk, $options: "i" } }, // nếu location là string
+        { location: { $regex: tk, $options: "i" } },
         { venueName: { $regex: tk, $options: "i" } },
       ],
     }));
@@ -76,52 +71,84 @@ const getTournaments = asyncHandler(async (req, res) => {
     });
   }
 
-  // ----- Tính status theo "instant" (ưu tiên finishedAt) -----
+  // ----- Chuẩn hoá mốc thời gian -----
+  pipeline.push({
+    $addFields: {
+      _startInstant: { $ifNull: ["$startAt", "$startDate"] },
+      _endInstant: {
+        $ifNull: [
+          { $ifNull: ["$endAt", "$endDate"] },
+          { $ifNull: ["$startAt", "$startDate"] }, // fallback
+        ],
+      },
+    },
+  });
+
+  // ----- Tính “độ gần để sort” KHÔNG dựa trên status -----
+  // nearDeltaMs: 0 cho giải đang diễn ra (now ∈ [start,end])
+  //              (start - now) cho giải sắp diễn ra
+  //              (now - end) cho giải đã kết thúc
+  // tieMs:      ưu tiên kết thúc sớm hơn trong ongoing; bắt đầu sớm hơn trong upcoming; kết thúc gần hơn trong finished
   pipeline.push(
     {
       $addFields: {
-        _startInstant: { $ifNull: ["$startAt", "$startDate"] },
-        _endInstant: { $ifNull: ["$endAt", "$endDate"] },
+        _isOngoing: {
+          $and: [
+            { $lte: ["$_startInstant", "$$NOW"] },
+            { $gte: ["$_endInstant", "$$NOW"] },
+          ],
+        },
+        _isUpcoming: { $gt: ["$_startInstant", "$$NOW"] },
       },
     },
     {
       $addFields: {
-        status: {
-          $switch: {
-            branches: [
-              { case: { $ne: ["$finishedAt", null] }, then: "finished" },
-              { case: { $lt: ["$$NOW", "$_startInstant"] }, then: "upcoming" },
-              { case: { $gt: ["$$NOW", "$_endInstant"] }, then: "finished" },
-            ],
-            default: "ongoing",
-          },
+        nearDeltaMs: {
+          $cond: [
+            "$_isOngoing",
+            0,
+            {
+              $cond: [
+                "$_isUpcoming",
+                { $subtract: ["$_startInstant", "$$NOW"] },
+                { $subtract: ["$$NOW", "$_endInstant"] },
+              ],
+            },
+          ],
+        },
+        tieMs: {
+          $cond: [
+            "$_isOngoing",
+            { $max: [0, { $subtract: ["$_endInstant", "$$NOW"] }] }, // sắp kết thúc trước → lên trước
+            {
+              $cond: [
+                "$_isUpcoming",
+                { $max: [0, { $subtract: ["$_startInstant", "$$NOW"] }] }, // bắt đầu sớm hơn → lên trước
+                { $max: [0, { $subtract: ["$$NOW", "$_endInstant"] }] }, // vừa kết thúc → lên trước
+              ],
+            },
+          ],
         },
       },
     }
   );
 
-  // ----- Lọc theo status (nếu truyền) -----
+  // ----- (Tuỳ chọn) Lọc theo status nếu client truyền, nhưng KHÔNG dùng status để sort -----
   if (["upcoming", "ongoing", "finished"].includes(status)) {
+    // dùng status lưu trong DB (nếu muốn vẫn có thể tính runtime như trước)
     pipeline.push({ $match: { status } });
   }
 
-  // ----- Ưu tiên sort theo status trước -----
+  // ----- Sort / Limit -----
+  // Ưu tiên tuyệt đối theo nearDeltaMs -> tieMs; sau đó cho phép ép thêm trường phụ từ QP (nếu có) -> _id ổn định
   pipeline.push({
-    $addFields: {
-      statusPriority: {
-        $switch: {
-          branches: [
-            { case: { $eq: ["$status", "ongoing"] }, then: 0 },
-            { case: { $eq: ["$status", "upcoming"] }, then: 1 },
-          ],
-          default: 2, // finished
-        },
-      },
+    $sort: {
+      nearDeltaMs: 1,
+      tieMs: 1,
+      ...sortSpecFromQP,
+      _id: -1,
     },
   });
-
-  // ----- Sort / Limit -----
-  pipeline.push({ $sort: { statusPriority: 1, ...sortSpec } });
   if (limit) pipeline.push({ $limit: limit });
 
   // ----- registered / isFull / remaining -----
@@ -247,7 +274,10 @@ const getTournaments = asyncHandler(async (req, res) => {
         _bc: 0,
         _startInstant: 0,
         _endInstant: 0,
-        statusPriority: 0,
+        _isOngoing: 0,
+        _isUpcoming: 0,
+        nearDeltaMs: 0,
+        tieMs: 0,
       },
     }
   );
@@ -602,16 +632,22 @@ const toObjectId = (id) => {
 
 export { getTournaments, getTournamentById };
 
-
 export const listTournamentMatches = asyncHandler(async (req, res, next) => {
   try {
     const { id } = req.params;
-    if (!isId(id)) return res.status(400).json({ message: "Invalid tournament id" });
+    if (!isId(id))
+      return res.status(400).json({ message: "Invalid tournament id" });
 
     const {
-      bracket, stage, type, status,
-      court, hasCourt, courtStatus,
-      page = 1, limit = 200,
+      bracket,
+      stage,
+      type,
+      status,
+      court,
+      hasCourt,
+      courtStatus,
+      page = 1,
+      limit = 200,
       sort = "round,order,createdAt",
     } = req.query;
 
@@ -622,17 +658,24 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
         .reduce((acc, tok) => {
           const key = tok.trim();
           if (!key) return acc;
-          acc[key.startsWith("-") ? key.slice(1) : key] = key.startsWith("-") ? -1 : 1;
+          acc[key.startsWith("-") ? key.slice(1) : key] = key.startsWith("-")
+            ? -1
+            : 1;
           return acc;
         }, {});
-    const sortSpec = Object.keys(parseSort(sort)).length ? parseSort(sort) : { round: 1, order: 1, createdAt: 1 };
+    const sortSpec = Object.keys(parseSort(sort)).length
+      ? parseSort(sort)
+      : { round: 1, order: 1, createdAt: 1 };
 
     // ---- base filter ----
     const filter = { tournament: id };
     if (status) filter.status = status;
     if (bracket && isId(bracket)) filter.bracket = bracket;
 
-    if ((stage && Number.isFinite(Number(stage))) || (type && typeof type === "string")) {
+    if (
+      (stage && Number.isFinite(Number(stage))) ||
+      (type && typeof type === "string")
+    ) {
       const bFilter = { tournament: id };
       if (stage) bFilter.stage = Number(stage);
       if (type) bFilter.type = type;
@@ -651,7 +694,9 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
     if (courtStatus) {
       const courtCond = { tournament: id };
       if (bracket && isId(bracket)) courtCond.bracket = bracket;
-      const courts = await Court.find({ ...courtCond, status: courtStatus }).select("_id").lean();
+      const courts = await Court.find({ ...courtCond, status: courtStatus })
+        .select("_id")
+        .lean();
       const ids = courts.map((c) => c._id);
       if (filter.court && filter.court.$ne === null) {
         filter.court = { $in: ids };
@@ -674,14 +719,18 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
         .populate({
           path: "bracket",
           // cần groups để map B từ pool/name/_id
-          select: "name type stage order prefill ko meta config drawRounds groups._id groups.name",
+          select:
+            "name type stage order prefill ko meta config drawRounds groups._id groups.name",
         })
         .populate({ path: "pairA", select: "player1 player2 name teamName" })
         .populate({ path: "pairB", select: "player1 player2 name teamName" })
         .populate({ path: "previousA", select: "round order" })
         .populate({ path: "previousB", select: "round order" })
         .populate({ path: "referee", select: "name nickname" })
-        .populate({ path: "court", select: "name cluster status bracket order" })
+        .populate({
+          path: "court",
+          select: "name cluster status bracket order",
+        })
         .sort(sortSpec)
         .skip(lim ? skip : 0)
         .limit(lim || 0)
@@ -699,7 +748,9 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       { $match: { tournament: toObjectId(id) } }, // dùng helper toObjectId của bạn
       { $group: { _id: "$bracket", maxRound: { $max: "$round" } } },
     ]);
-    const maxRoundByBracket = new Map(roundsAgg.map((r) => [String(r._id), Number(r.maxRound) || 0]));
+    const maxRoundByBracket = new Map(
+      roundsAgg.map((r) => [String(r._id), Number(r.maxRound) || 0])
+    );
 
     const tkey = (t) => String(t || "").toLowerCase();
     const isGroupish = (t) => {
@@ -716,15 +767,33 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       const m = /^R(\d+)$/i.exec(up);
       return m ? parseInt(m[1], 10) : 0;
     };
-    const ceilPow2 = (n) => Math.pow(2, Math.ceil(Math.log2(Math.max(1, n || 1))));
+    const ceilPow2 = (n) =>
+      Math.pow(2, Math.ceil(Math.log2(Math.max(1, n || 1))));
     const readBracketScale = (br) => {
-      const fromKey = teamsFromRoundKey(br?.ko?.startKey) || teamsFromRoundKey(br?.prefill?.roundKey);
-      const fromPrefillPairs = Array.isArray(br?.prefill?.pairs) ? br.prefill.pairs.length * 2 : 0;
-      const fromPrefillSeeds = Array.isArray(br?.prefill?.seeds) ? br.prefill.seeds.length * 2 : 0;
+      const fromKey =
+        teamsFromRoundKey(br?.ko?.startKey) ||
+        teamsFromRoundKey(br?.prefill?.roundKey);
+      const fromPrefillPairs = Array.isArray(br?.prefill?.pairs)
+        ? br.prefill.pairs.length * 2
+        : 0;
+      const fromPrefillSeeds = Array.isArray(br?.prefill?.seeds)
+        ? br.prefill.seeds.length * 2
+        : 0;
       const cands = [
-        br?.drawScale, br?.targetScale, br?.maxSlots, br?.capacity, br?.size, br?.scale,
-        br?.meta?.drawSize, br?.meta?.scale, fromKey, fromPrefillPairs, fromPrefillSeeds,
-      ].map(Number).filter((x) => Number.isFinite(x) && x >= 2);
+        br?.drawScale,
+        br?.targetScale,
+        br?.maxSlots,
+        br?.capacity,
+        br?.size,
+        br?.scale,
+        br?.meta?.drawSize,
+        br?.meta?.scale,
+        fromKey,
+        fromPrefillPairs,
+        fromPrefillSeeds,
+      ]
+        .map(Number)
+        .filter((x) => Number.isFinite(x) && x >= 2);
       return cands.length ? ceilPow2(Math.max(...cands)) : 0;
     };
     const roundsCountForBracket = (br) => {
@@ -734,7 +803,10 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
 
       // roundElim / playoff
       if (["roundelim", "po", "playoff"].includes(type)) {
-        let k = Number(br?.meta?.maxRounds) || Number(br?.config?.roundElim?.maxRounds) || 0;
+        let k =
+          Number(br?.meta?.maxRounds) ||
+          Number(br?.config?.roundElim?.maxRounds) ||
+          0;
         if (!k) k = maxRoundByBracket.get(bid) || 1;
         return Math.max(1, k);
       }
@@ -745,7 +817,8 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
 
       const firstPairs =
         (Array.isArray(br?.prefill?.seeds) && br.prefill.seeds.length) ||
-        (Array.isArray(br?.prefill?.pairs) && br.prefill.pairs.length) || 0;
+        (Array.isArray(br?.prefill?.pairs) && br.prefill.pairs.length) ||
+        0;
       if (firstPairs > 0) return Math.ceil(Math.log2(firstPairs * 2));
 
       const scale = readBracketScale(br);
@@ -757,7 +830,8 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
 
     const groupBrs = allBrackets.filter((b) => isGroupish(b.type));
     const nonGroupBrs = allBrackets.filter((b) => !isGroupish(b.type));
-    const stageVal = (b) => (Number.isFinite(b?.stage) ? Number(b.stage) : 9999);
+    const stageVal = (b) =>
+      Number.isFinite(b?.stage) ? Number(b.stage) : 9999;
 
     const buckets = [];
     if (groupBrs.length) {
@@ -809,7 +883,9 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       return Number.isFinite(n) ? n : undefined;
     };
     const alphaToNum = (s) => {
-      const m = String(s || "").trim().match(/^[A-Za-z]/);
+      const m = String(s || "")
+        .trim()
+        .match(/^[A-Za-z]/);
       if (!m) return undefined;
       return m[0].toUpperCase().charCodeAt(0) - 64; // A=1, B=2, ...
     };
@@ -826,22 +902,36 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       const groups = Array.isArray(br?.groups) ? br.groups : [];
       if (groups.length) {
         if (m?.pool?.id) {
-          const i = groups.findIndex((g) => String(g?._id) === String(m.pool.id));
+          const i = groups.findIndex(
+            (g) => String(g?._id) === String(m.pool.id)
+          );
           if (i >= 0) return i + 1;
         }
         if (poolName) {
           const i = groups.findIndex(
-            (g) => String(g?.name || "").trim().toUpperCase() === String(poolName).trim().toUpperCase()
+            (g) =>
+              String(g?.name || "")
+                .trim()
+                .toUpperCase() === String(poolName).trim().toUpperCase()
           );
           if (i >= 0) return i + 1;
         }
       }
       // 3) các field số trực tiếp
       const direct = [
-        m?.groupNo, m?.groupIndex, m?.groupIdx, m?.group,
-        m?.meta?.groupNo, m?.meta?.groupIndex, m?.meta?.pool,
-        m?.group?.no, m?.group?.index, m?.group?.order,
-        m?.pool?.index, m?.pool?.no, m?.pool?.order,
+        m?.groupNo,
+        m?.groupIndex,
+        m?.groupIdx,
+        m?.group,
+        m?.meta?.groupNo,
+        m?.meta?.groupIndex,
+        m?.meta?.pool,
+        m?.group?.no,
+        m?.group?.index,
+        m?.group?.order,
+        m?.pool?.index,
+        m?.pool?.no,
+        m?.pool?.order,
       ];
       for (const c of direct) {
         const n = safeInt(c);
@@ -884,7 +974,11 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       const groupStage = isGroupish(br?.type);
 
       const base = baseByBracketId.get(bid) ?? 0;
-      const localRound = groupStage ? 1 : (Number.isFinite(m.round) ? m.round : 1);
+      const localRound = groupStage
+        ? 1
+        : Number.isFinite(m.round)
+        ? m.round
+        : 1;
       const globalRound = base + localRound; // KO ngay sau group => 2
 
       let code;
@@ -917,7 +1011,7 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
         courtCluster,
         globalRound,
         globalCode, // "V1", "V2", ...
-        code,       // "V1-Bx-Ty" hoặc "V2-Tz" ...
+        code, // "V1-Bx-Ty" hoặc "V2-Tz" ...
       };
     });
 
