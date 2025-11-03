@@ -11,11 +11,15 @@ const courtSchema = new Schema(
     },
     name: { type: String, required: true },
 
+    // Giữ cluster để scheduler dùng nội bộ, mặc định “Main”
     cluster: { type: String, default: "Main", index: true },
+
+    // KHÔNG BẮT BUỘC nữa (để tương thích chỗ code cũ có populate vẫn ổn)
     bracket: {
       type: Types.ObjectId,
       ref: "Bracket",
-      required: true,
+      required: false,
+      default: null,
       index: true,
     },
 
@@ -28,17 +32,20 @@ const courtSchema = new Schema(
     },
     currentMatch: { type: Types.ObjectId, ref: "Match", default: null },
 
-    /* 🔴 NEW: cấu hình LIVE theo sân */
+    /* LIVE per-court */
     liveConfig: {
-      enabled: { type: Boolean, default: false }, // bật/tắt auto dùng link LIVE này cho sân
-      videoUrl: { type: String, default: "" }, // URL LIVE mặc định của sân
-      overrideExisting: { type: Boolean, default: false }, // true: cho phép ghi đè match.video (nếu sau này dùng)
+      enabled: { type: Boolean, default: false },
+      videoUrl: { type: String, default: "" },
+      overrideExisting: { type: Boolean, default: false },
     },
   },
   { timestamps: true }
 );
 
-// Mỗi bracket trong 1 tournament không được trùng tên sân
-courtSchema.index({ tournament: 1, bracket: 1, name: 1 }, { unique: true });
+// ➜ Mỗi GIẢI (tournament) không được trùng tên sân
+courtSchema.index(
+  { tournament: 1, name: 1 },
+  { unique: true, partialFilterExpression: { name: { $type: "string" } } }
+);
 
 export default mongoose.model("Court", courtSchema);

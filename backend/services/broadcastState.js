@@ -10,8 +10,9 @@ import Court from "../models/courtModel.js";
 const GROUP_LIKE = new Set(["group", "round_robin", "gsl", "swiss"]);
 const isGroupType = (t) => GROUP_LIKE.has(String(t || "").toLowerCase());
 
-const resolveClusterKey = (bracket, cluster = "Main") =>
-  bracket ? String(bracket) : cluster ?? "Main";
+// Courts theo giải -> cluster chỉ lấy từ tham số, KHÔNG phụ thuộc bracket
+const resolveClusterKey = (cluster = "Main") =>
+  String(cluster ?? "Main").trim() || "Main";
 
 const safeTrim = (s) => (typeof s === "string" ? s.trim() : "");
 
@@ -139,31 +140,32 @@ async function buildBracketRoundMeta(tournamentId) {
  *  Main: broadcastState
  * ------------------------------------------*/
 /**
- * Phát trạng thái điều phối cho 1 cluster (hoặc 1 bracket) của giải:
+ * Phát trạng thái điều phối cho 1 cluster của giải (courts theo GIẢI):
  *  - courts: kèm currentMatchCode/Teams
- *  - matches: bản rút gọn + codeDisplay chuẩn
+ *  - matches: bản rút gọn + codeDisplay chuẩn (tính theo bracket của match)
  *
  * @param {import("socket.io").Server} io
  * @param {string|mongoose.Types.ObjectId} tournamentId
- * @param {{ bracket?: string|mongoose.Types.ObjectId, cluster?: string }} options
+ * @param {{ cluster?: string }} options
  */
 export const broadcastState = async (
   io,
   tournamentId,
-  { bracket, cluster = "Main" } = {}
+  { cluster = "Main" } = {}
 ) => {
-  const clusterKey = resolveClusterKey(bracket, cluster);
+  const clusterKey = resolveClusterKey(cluster);
 
-  // 0) Meta phục vụ tính "V"
+  // 0) Meta phục vụ tính "V" cho codeDisplay
   const { offsetMap: roundOffsetMap, typeMap: bracketTypeMap } =
     await buildBracketRoundMeta(tournamentId);
 
-  // 1) Sân theo bracket/cluster
-  const courtsQuery = bracket
-    ? { tournament: tournamentId, bracket }
-    : { tournament: tournamentId, cluster: clusterKey };
-
-  const courts = await Court.find(courtsQuery).sort({ order: 1 }).lean();
+  // 1) SÂN THEO GIẢI + CLUSTER (KHÔNG lọc theo bracket nữa)
+  const courts = await Court.find({
+    tournament: tournamentId,
+    cluster: clusterKey,
+  })
+    .sort({ order: 1 })
+    .lean();
 
   // 2) Id các currentMatch trên sân
   const currentIds = courts
@@ -171,11 +173,11 @@ export const broadcastState = async (
     .filter(Boolean)
     .map((x) => String(x));
 
-  // 3) Danh sách các trận cần lên lịch/đang diễn ra
+  // 3) Danh sách các trận trong cluster này (xếp hàng/đang thi đấu)
   const baseMatchFilter = {
     tournament: tournamentId,
     status: { $in: ["queued", "assigned", "live", "scheduled"] },
-    ...(bracket ? { bracket } : { courtCluster: clusterKey }),
+    courtCluster: clusterKey, // matches đã được gán vào cluster này bởi queue builder
   };
 
   const MATCH_BASE_SELECT =
@@ -232,14 +234,14 @@ export const broadcastState = async (
       queueOrder: m.queueOrder,
       court: m.court,
       courtLabel: m.courtLabel,
-      pool: m.pool, // { id, name } nếu có
+      pool: m.pool,
       rrRound: m.rrRound,
       round: m.round,
       order: m.order,
       code: m.code, // raw
       labelKey: m.labelKey, // raw
       labelKeyDisplay, // R→B cho group-like
-      codeDisplay, // ✅ mã hiển thị CHUẨN: group-like có B, KO không có B
+      codeDisplay, // ✅ CHUẨN: group-like có B, KO không có B
       type: m.type,
       format: m.format,
       scheduledAt: m.scheduledAt,

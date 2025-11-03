@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback, memo } from "react";
 import { Link, useParams, useLocation } from "react-router-dom";
 import {
   Avatar,
@@ -41,13 +41,12 @@ import {
   ReportProblem,
   Search,
   Clear,
-  Verified as VerifiedIcon, // ✅ NEW
-  HourglassBottom as PendingIcon, // ✅ NEW
-  Block as RejectedIcon, // ✅ NEW
-  HelpOutline as UnverifiedIcon, // ✅ NEW
-  
+  Verified as VerifiedIcon,
+  HourglassBottom as PendingIcon,
+  Block as RejectedIcon,
+  HelpOutline as UnverifiedIcon,
 } from "@mui/icons-material";
-import DangerousSharpIcon from '@mui/icons-material/DangerousSharp';
+import DangerousSharpIcon from "@mui/icons-material/DangerousSharp";
 
 import {
   useGetTournamentQuery,
@@ -60,7 +59,6 @@ import {
   useManagerDeleteRegistrationMutation,
   useManagerReplaceRegPlayerMutation,
   useCreateComplaintMutation,
-  // 🔎 hook search
   useSearchRegistrationsQuery,
 } from "../../slices/tournamentsApiSlice";
 import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
@@ -71,7 +69,6 @@ import { getFeeAmount } from "../../utils/fee";
 /* ---------------- helpers ---------------- */
 const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";
 
-/** round to 3 decimals and trim trailing zeros */
 const fmt3 = (v) => {
   const n = Number(v);
   if (!isFinite(n)) return "—";
@@ -103,7 +100,6 @@ const getUserId = (pl) => {
 const totalScoreOf = (r, isSingles) =>
   (r?.player1?.score || 0) + (isSingles ? 0 : r?.player2?.score || 0);
 
-/** Lấy cap theo loại giải */
 const getScoreCap = (tour, isSingles) => {
   if (!tour) return 0;
   return isSingles
@@ -111,7 +107,6 @@ const getScoreCap = (tour, isSingles) => {
     : Number(tour?.scoreCap ?? 0);
 };
 
-/** Lấy chênh lệch tối đa cho phép (đặt tên field linh hoạt) */
 const getMaxDelta = (tour) => {
   return Number(
     tour?.scoreGap ??
@@ -122,7 +117,6 @@ const getMaxDelta = (tour) => {
   );
 };
 
-/** Quyết định màu & tooltip cho chip Tổng điểm */
 const totalChipStyle = (total, cap, delta) => {
   const hasCap = Number.isFinite(cap) && cap > 0;
   if (!hasCap || !Number.isFinite(total)) {
@@ -154,7 +148,6 @@ const totalChipStyle = (total, cap, delta) => {
 };
 
 /* ====== HTTPS forcing helpers ====== */
-// Ép https khi KHÔNG phải localhost / LAN
 const shouldForceHttps = (() => {
   if (typeof window === "undefined") return false;
   const h = window.location.hostname || "";
@@ -165,12 +158,11 @@ const shouldForceHttps = (() => {
   return !isLocal;
 })();
 
-/** Nếu là URL tuyệt đối http(s), đổi sang https (trừ host local/LAN) */
 const toHttpsIfNeeded = (u) => {
   if (!shouldForceHttps || !u || typeof u !== "string") return u;
   try {
-    if (u.startsWith("//")) return "https:" + u; // //domain/path
-    if (!/^https?:\/\//i.test(u)) return u; // relative, data:, blob:...
+    if (u.startsWith("//")) return "https:" + u;
+    if (!/^https?:\/\//i.test(u)) return u;
     const url = new URL(u);
     const isPrivate =
       /(^localhost$)|(^127\.)|(^10\.)|(^192\.168\.)|(^172\.(1[6-9]|2\d|3[0-1])\.)|(\.local$)|(\.lan$)/i.test(
@@ -184,10 +176,8 @@ const toHttpsIfNeeded = (u) => {
   return u;
 };
 
-/** Bọc cho src ảnh/video */
 const safeSrc = (u) => toHttpsIfNeeded(u);
 
-/** Sửa các src/href trong HTML chèn vào (http -> https, // -> https://) */
 const fixHtmlHttps = (html) => {
   if (!shouldForceHttps || !html) return html || "";
   try {
@@ -199,8 +189,7 @@ const fixHtmlHttps = (html) => {
   }
 };
 
-/* ==================== NEW: Badge KYC ==================== */
-/** Map status -> icon + màu + tooltip */
+/* ==================== Badge KYC ==================== */
 const kycMeta = (status) => {
   const s = String(status || "").toLowerCase();
   switch (s) {
@@ -216,12 +205,6 @@ const kycMeta = (status) => {
         color: "warning.main",
         tip: "Đang chờ duyệt KYC (CCCD: Chờ xác thực)",
       };
-    // case "rejected":
-    //   return {
-    //     icon: <RejectedIcon fontSize="inherit" />,
-    //     color: "error.main",
-    //     tip: "KYC bị từ chối (CCCD: rejected)",
-    //   };
     default:
       return {
         icon: <DangerousSharpIcon fontSize="inherit" />,
@@ -231,7 +214,7 @@ const kycMeta = (status) => {
   }
 };
 
-function VerifyBadge({ status, sx }) {
+const VerifyBadge = memo(({ status, sx }) => {
   const { icon, color, tip } = kycMeta(status);
   return (
     <Tooltip arrow title={tip}>
@@ -252,13 +235,12 @@ function VerifyBadge({ status, sx }) {
       </Box>
     </Tooltip>
   );
-}
+});
 
-/** Helper lấy status từ player (ưu tiên kycStatus, fallback cccdStatus) */
 const kycOf = (pl) => pl?.cccdStatus || "unverified";
 
-/* ==================== Chips nhỏ ==================== */
-function PaymentChip({ status, paidAt }) {
+/* ==================== Memoized Chips ==================== */
+const PaymentChip = memo(({ status, paidAt }) => {
   const isPaid = status === "Paid";
   return (
     <Tooltip
@@ -277,9 +259,9 @@ function PaymentChip({ status, paidAt }) {
       />
     </Tooltip>
   );
-}
+});
 
-function CheckinChip({ checkinAt }) {
+const CheckinChip = memo(({ checkinAt }) => {
   const ok = !!checkinAt;
   return (
     <Tooltip
@@ -298,10 +280,9 @@ function CheckinChip({ checkinAt }) {
       />
     </Tooltip>
   );
-}
+});
 
-/* Badge mã đăng ký */
-function CodeBadge({ code, withLabel = true }) {
+const CodeBadge = memo(({ code, withLabel = true }) => {
   const text = withLabel ? `Mã đăng ký: ${code}` : String(code);
   return (
     <Chip
@@ -311,10 +292,9 @@ function CodeBadge({ code, withLabel = true }) {
       sx={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}
     />
   );
-}
+});
 
-/* Stat item */
-function StatItem({ icon, label, value, hint }) {
+const StatItem = memo(({ icon, label, value, hint }) => {
   return (
     <Box sx={{ p: 1, height: "100%" }}>
       <Stack direction="row" spacing={1.5} alignItems="center">
@@ -351,10 +331,9 @@ function StatItem({ icon, label, value, hint }) {
       </Stack>
     </Box>
   );
-}
+});
 
-/** VĐV 1 (Bạn) readonly cho user thường */
-function SelfPlayerReadonly({ me, isSingles }) {
+const SelfPlayerReadonly = memo(({ me, isSingles }) => {
   if (!me?._id) return null;
   const display = me?.nickname || me?.name || "Tôi";
   const scoreVal = isSingles ? me?.score?.single : me?.score?.double;
@@ -399,561 +378,106 @@ function SelfPlayerReadonly({ me, isSingles }) {
       </Stack>
     </Box>
   );
-}
+});
 
-/* Ô hành động: luôn hiện Thanh toán & Khiếu nại cho mọi người */
-function ActionCell({
-  r,
-  canManage,
-  isOwner,
-  onTogglePayment,
-  onCancel,
-  onOpenComplaint,
-  onOpenPayment,
-  busy,
-}) {
-  return (
-    <Stack
-      direction="row"
-      spacing={0.5}
-      sx={{ alignItems: "center", flexWrap: "nowrap" }}
-    >
-      {canManage && (
-        <Tooltip
-          arrow
-          title={
-            r.payment?.status === "Paid"
-              ? "Đánh dấu CHƯA thanh toán"
-              : "Xác nhận ĐÃ thanh toán"
-          }
-        >
+/* ==================== Memoized Action Cell ==================== */
+const ActionCell = memo(
+  ({
+    r,
+    canManage,
+    isOwner,
+    onTogglePayment,
+    onCancel,
+    onOpenComplaint,
+    onOpenPayment,
+    busy,
+  }) => {
+    return (
+      <Stack
+        direction="row"
+        spacing={0.5}
+        sx={{ alignItems: "center", flexWrap: "nowrap" }}
+      >
+        {canManage && (
+          <Tooltip
+            arrow
+            title={
+              r.payment?.status === "Paid"
+                ? "Đánh dấu CHƯA thanh toán"
+                : "Xác nhận ĐÃ thanh toán"
+            }
+          >
+            <span>
+              <IconButton
+                size="small"
+                onClick={() => onTogglePayment(r)}
+                disabled={busy?.settingPayment}
+              >
+                {r.payment?.status === "Paid" ? (
+                  <MoneyOff fontSize="small" />
+                ) : (
+                  <MonetizationOn fontSize="small" />
+                )}
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+
+        <Tooltip arrow title="Thanh toán bằng mã QR">
           <span>
-            <IconButton
+            <Button
               size="small"
-              onClick={() => onTogglePayment(r)}
-              disabled={busy?.settingPayment}
+              variant="contained"
+              onClick={() => onOpenPayment(r)}
+              startIcon={<QrCode fontSize="small" />}
+              sx={{ textTransform: "none" }}
             >
-              {r.payment?.status === "Paid" ? (
-                <MoneyOff fontSize="small" />
-              ) : (
-                <MonetizationOn fontSize="small" />
-              )}
-            </IconButton>
+              Thanh toán
+            </Button>
           </span>
         </Tooltip>
-      )}
 
-      <Tooltip arrow title="Thanh toán bằng mã QR">
-        <span>
-          <Button
-            size="small"
-            variant="contained"
-            onClick={() => onOpenPayment(r)}
-            startIcon={<QrCode fontSize="small" />}
-            sx={{ textTransform: "none" }}
-          >
-            Thanh toán
-          </Button>
-        </span>
-      </Tooltip>
-
-      <Tooltip arrow title="Gửi khiếu nại cho đăng ký này">
-        <span>
-          <Button
-            size="small"
-            variant="contained"
-            color="warning"
-            onClick={() => onOpenComplaint(r)}
-            startIcon={<ReportProblem fontSize="small" />}
-            sx={{ textTransform: "none" }}
-          >
-            Khiếu nại
-          </Button>
-        </span>
-      </Tooltip>
-
-      {(canManage || isOwner) && (
-        <Tooltip arrow title={canManage ? "Huỷ cặp đấu" : "Huỷ đăng ký"}>
+        <Tooltip arrow title="Gửi khiếu nại cho đăng ký này">
           <span>
-            <IconButton
+            <Button
               size="small"
-              color="error"
-              onClick={() => onCancel(r)}
-              disabled={busy?.deletingId === r._id}
+              variant="contained"
+              color="warning"
+              onClick={() => onOpenComplaint(r)}
+              startIcon={<ReportProblem fontSize="small" />}
+              sx={{ textTransform: "none" }}
             >
-              <DeleteOutline fontSize="small" />
-            </IconButton>
+              Khiếu nại
+            </Button>
           </span>
         </Tooltip>
-      )}
-    </Stack>
-  );
-}
 
-export default function TournamentRegistration() {
-  const { id } = useParams();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
-
-  // Lấy "mình" + điểm
-  const { data: me, isLoading: meLoading, error: meErr } = useGetMeScoreQuery();
-  const isLoggedIn = !!me?._id;
-
-  // Pagination (client-side)
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
-
-  /* ───────── queries ───────── */
-  const {
-    data: tour,
-    isLoading: tourLoading,
-    error: tourErr,
-  } = useGetTournamentQuery(id);
-
-  const {
-    data: regs = [],
-    isLoading: regsLoading,
-    error: regsErr,
-    refetch: refetchRegs,
-  } = useGetRegistrationsQuery(id);
-
-  // invites (nếu cần)
-  const {
-    data: myInvites = [],
-    error: invitesErr,
-    refetch: refetchInvites,
-  } = useListMyRegInvitesQuery(undefined, { skip: !isLoggedIn });
-
-  const [createInvite, { isLoading: saving }] = useCreateRegInviteMutation();
-  const [respondInvite, { isLoading: responding }] =
-    useRespondRegInviteMutation();
-  const [cancelReg] = useCancelRegistrationMutation();
-
-  // quản lý
-  const [setPaymentStatus, { isLoading: settingPayment }] =
-    useManagerSetRegPaymentStatusMutation();
-  const [adminDeleteReg] = useManagerDeleteRegistrationMutation();
-  const [replacePlayer, { isLoading: replacing }] =
-    useManagerReplaceRegPlayerMutation();
-
-  const [createComplaint, { isLoading: sendingComplaint }] =
-    useCreateComplaintMutation();
-
-  /* ───────── local state ───────── */
-  // Admin chọn VĐV1; user thường: VĐV1 là me (readonly)
-  const [p1, setP1] = useState(null);
-  const [p2, setP2] = useState(null);
-  const [msg, setMsg] = useState("");
-  const [cancelingId, setCancelingId] = useState(null);
-
-  const [imgPreview, setImgPreview] = useState({
-    open: false,
-    src: "",
-    name: "",
-  });
-
-  const [replaceDlg, setReplaceDlg] = useState({
-    open: false,
-    reg: null,
-    slot: "p1",
-  });
-  const [newPlayer, setNewPlayer] = useState(null);
-
-  // Khiếu nại + Thanh toán (QR)
-  const [complaintDlg, setComplaintDlg] = useState({
-    open: false,
-    reg: null,
-    text: "",
-  });
-  const [paymentDlg, setPaymentDlg] = useState({ open: false, reg: null });
-
-  // Public profile dialog
-  const [profileDlg, setProfileDlg] = useState({ open: false, userId: null });
-  const openProfileByPlayer = (pl) => {
-    const uid = getUserId(pl);
-    if (uid) setProfileDlg({ open: true, userId: uid });
-    else toast.info("Không tìm thấy userId của VĐV này.");
-  };
-  const closeProfileDlg = () => setProfileDlg({ open: false, userId: null });
-
-  const evType = useMemo(() => normType(tour?.eventType), [tour]);
-  const isSingles = evType === "single";
-  const isDoubles = evType === "double";
-  const cap = useMemo(() => getScoreCap(tour, isSingles), [tour, isSingles]);
-  const delta = useMemo(() => getMaxDelta(tour), [tour]);
-
-  // quyền
-  const isManager = useMemo(() => {
-    if (!isLoggedIn || !tour) return false;
-    if (String(tour.createdBy) === String(me._id)) return true;
-    if (Array.isArray(tour.managers)) {
-      return tour.managers.some((m) => String(m?.user ?? m) === String(me._id));
-    }
-    return !!tour.isManager;
-  }, [isLoggedIn, me, tour]);
-
-  const isAdmin = !!(
-    me?.isAdmin ||
-    me?.role === "admin" ||
-    (Array.isArray(me?.roles) && me.roles.includes("admin"))
-  );
-  const canManage = isLoggedIn && (isManager || isAdmin);
-
-  // invites của giải hiện tại
-  const pendingInvitesHere = useMemo(() => {
-    if (!isLoggedIn) return [];
-    return (myInvites || []).filter(
-      (it) => String(it?.tournament?._id || it?.tournament) === String(id)
-    );
-  }, [myInvites, id, isLoggedIn]);
-
-  // path bốc thăm
-  const location = useLocation();
-  const drawPath = useMemo(() => {
-    try {
-      const parts = (location?.pathname || "").split("/").filter(Boolean);
-      if (parts.length === 0) return `/tournament/${id}/draw`;
-      parts[parts.length - 1] = "draw";
-      return "/" + parts.join("/");
-    } catch {
-      return `/tournament/${id}/draw`;
-    }
-  }, [location?.pathname, id]);
-
-  /* ───────── SEARCH state + query ───────── */
-  const [q, setQ] = useState("");
-  const [debouncedQ, setDebouncedQ] = useState("");
-  useEffect(() => {
-    const t = setTimeout(() => setDebouncedQ(q.trim()), 350);
-    return () => clearTimeout(t);
-  }, [q]);
-
-  const {
-    data: searchedRegs = [],
-    isLoading: searching,
-    isFetching: searchingFetching,
-    error: searchErr,
-  } = useSearchRegistrationsQuery({ id, q: debouncedQ }, { skip: !debouncedQ });
-
-  /* ───────── derived helpers ───────── */
-  // Tổng số toàn bộ (không phụ thuộc search) để hiển thị ở khu "Thông tin giải"
-  const overallRegCount = regs?.length ?? 0;
-  const paidCount = useMemo(
-    () => (regs || []).filter((r) => r?.payment?.status === "Paid").length,
-    [regs]
-  );
-
-  const totalPages = Math.max(1, Math.ceil(overallRegCount / pageSize));
-  const baseIndex = (page - 1) * pageSize;
-  const paginatedRegs = useMemo(
-    () => regs.slice(baseIndex, baseIndex + pageSize),
-    [regs, baseIndex, pageSize]
-  );
-
-  // Dataset hiển thị theo search
-  const searchingActive = !!debouncedQ;
-  const listRegs = searchingActive ? searchedRegs || [] : regs || [];
-  const regCount = listRegs?.length ?? 0;
-
-  const listLoading = searchingActive
-    ? searching || searchingFetching
-    : regsLoading;
-  const listError = searchingActive ? searchErr : regsErr;
-
-  const playersOfReg = (r) => [r?.player1, r?.player2].filter(Boolean);
-
-  const disableSubmit =
-    saving ||
-    meLoading ||
-    !isLoggedIn ||
-    (isAdmin ? !p1 || (isDoubles && !p2) : isDoubles && !p2);
-
-  const formatDate = (d) => (d ? new Date(d).toLocaleDateString() : "");
-  const formatRange = (a, b) => {
-    const A = formatDate(a);
-    const B = formatDate(b);
-    if (A && B) return `${A} – ${B}`;
-    return A || B || "—";
-  };
-
-  /* ───────── actions ───────── */
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!isLoggedIn) return toast.info("Vui lòng đăng nhập để đăng ký.");
-
-    const player1Id = isAdmin ? p1?._id : String(me?._id);
-    if (!player1Id) {
-      return toast.error(
-        isAdmin ? "Vui lòng chọn VĐV 1." : "Không xác định được VĐV 1 (bạn)."
-      );
-    }
-    if (isDoubles && !p2?._id) return toast.error("Giải đôi cần 2 VĐV");
-
-    try {
-      const res = await createInvite({
-        tourId: id,
-        message: msg,
-        player1Id,
-        ...(isDoubles ? { player2Id: p2._id } : {}),
-      }).unwrap();
-
-      if (
-        res?.registration ||
-        res?.mode === "direct_by_admin" ||
-        res?.mode === "direct_by_kyc" ||
-        res?.mode === "direct"
-      ) {
-        const mode = res?.mode || "direct";
-        const label =
-          mode === "direct_by_admin"
-            ? "Admin"
-            : mode === "direct_by_kyc"
-            ? "KYC"
-            : "Trực tiếp";
-        toast.success(`Đã tạo đăng ký (${label}).`);
-
-        if (isAdmin) setP1(null);
-        setP2(null);
-        setMsg("");
-        await refetchRegs();
-        return;
-      }
-
-      toast.error("Không thể tạo đăng ký.");
-    } catch (err) {
-      if (err?.status === 412) {
-        toast.error(
-          err?.data?.message ||
-            "VĐV cần hoàn tất KYC (đã xác minh) trước khi đăng ký."
-        );
-      } else {
-        toast.error(
-          err?.data?.message || err?.error || "Không thể tạo đăng ký."
-        );
-      }
-    }
-  };
-
-  const handleCancel = async (r) => {
-    if (!isLoggedIn) return toast.info("Vui lòng đăng nhập.");
-    if (!canManage && r?.payment?.status === "Paid") {
-      toast.info(
-        "Không thể huỷ khi đã nộp lệ phí, vui lòng liên hệ BTC để hỗ trợ"
-      );
-      return;
-    }
-    if (!canManage) {
-      const isOwner = me && String(r?.createdBy) === String(me?._id);
-      if (!isOwner) return toast.error("Bạn không có quyền huỷ đăng ký này");
-    }
-
-    const extraWarn =
-      r?.payment?.status === "Paid"
-        ? "\n⚠️ Cặp này đã nộp lệ phí. Hãy đảm bảo hoàn tiền/offline theo quy trình trước khi xoá."
-        : "";
-    if (!window.confirm(`Bạn chắc chắn muốn huỷ cặp đăng ký này?${extraWarn}`))
-      return;
-
-    try {
-      setCancelingId(r._id);
-      if (canManage) await adminDeleteReg(r._id).unwrap();
-      else await cancelReg(r._id).unwrap();
-      toast.success("Đã huỷ đăng ký");
-      refetchRegs();
-    } catch (e) {
-      toast.error(e?.data?.message || e?.error || "Huỷ đăng ký thất bại");
-    } finally {
-      setCancelingId(null);
-    }
-  };
-
-  const togglePayment = async (r) => {
-    if (!canManage) {
-      toast.info("Bạn không có quyền cập nhật thanh toán.");
-      return;
-    }
-    const next = r?.payment?.status === "Paid" ? "Unpaid" : "Paid";
-
-    try {
-      await setPaymentStatus({ regId: r._id, status: next }).unwrap();
-      toast.success(
-        next === "Paid"
-          ? "Đã xác nhận đã thanh toán"
-          : "Đã chuyển về chưa thanh toán"
-      );
-      refetchRegs();
-    } catch (e) {
-      toast.error(
-        e?.data?.message || e?.error || "Cập nhật thanh toán thất bại"
-      );
-    }
-  };
-
-  const handleInviteRespond = async (inviteId, action) => {
-    if (!isLoggedIn)
-      return toast.info("Vui lòng đăng nhập để phản hồi lời mời.");
-    try {
-      await respondInvite({ inviteId, action }).unwrap();
-      if (action === "accept") toast.success("Đã chấp nhận lời mời");
-      else toast.info("Đã từ chối lời mời");
-      await Promise.all([refetchInvites(), refetchRegs()]);
-    } catch (e) {
-      toast.error(e?.data?.message || e?.error || "Không thể gửi phản hồi");
-    }
-  };
-
-  const openPreview = (src, name) =>
-    setImgPreview({ open: true, src: safeSrc(src), name: name || "" });
-  const closePreview = () => setImgPreview({ open: false, src: "", name: "" });
-
-  const openReplace = (reg, slot) => {
-    if (!canManage) return;
-    setReplaceDlg({ open: true, reg, slot });
-    setNewPlayer(null);
-  };
-  const closeReplace = () =>
-    setReplaceDlg({ open: false, reg: null, slot: "p1" });
-
-  const submitReplace = async () => {
-    if (!replaceDlg?.reg?._id) return;
-    if (!newPlayer?._id) return toast.error("Chọn VĐV mới");
-    try {
-      await replacePlayer({
-        regId: replaceDlg.reg._id,
-        slot: replaceDlg.slot,
-        userId: newPlayer._id,
-      }).unwrap();
-      toast.success("Đã thay VĐV");
-      closeReplace();
-      refetchRegs();
-    } catch (e) {
-      toast.error(e?.data?.message || e?.error || "Không thể thay VĐV");
-    }
-  };
-
-  // ===== Helpers for Complaint & Payment =====
-  const maskPhone = (phone) => {
-    if (!phone) return "*******???";
-    const d = String(phone).replace(/\D/g, "");
-    const tail = d.slice(-3) || "???";
-    return "*******" + tail;
-  };
-  const regCodeOf = (r) =>
-    r?.code ||
-    r?.shortCode ||
-    String(r?._id || "")
-      .slice(-5)
-      .toUpperCase();
-
-  // des của VietQR yêu cầu KHÔNG DẤU
-  const normalizeNoAccent = (s) =>
-    (s || "")
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^\w\s-]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-
-  // Ưu tiên cấu hình trong tour, fallback ENV
-  const getQrProviderConfig = () => {
-    const bank =
-      tour?.bankShortName ||
-      tour?.qrBank ||
-      tour?.bankCode ||
-      tour?.bank ||
-      import.meta.env?.VITE_QR_BANK ||
-      "";
-    const acc =
-      tour?.bankAccountNumber ||
-      tour?.qrAccount ||
-      tour?.bankAccount ||
-      import.meta.env?.VITE_QR_ACC ||
-      "";
-    return { bank, acc };
-  };
-
-  // Tạo ảnh QR bằng SEPay VietQR
-  const qrImgUrlFor = (r) => {
-    const { bank, acc } = getQrProviderConfig();
-    if (!bank || !acc) return null;
-
-    const code = regCodeOf(r);
-    const ph = maskPhone(
-      r?.player1?.phone || r?.player2?.phone || me?.phone || ""
-    );
-    const des = normalizeNoAccent(`Ma giai ${id} Ma dang ky ${code} SDT ${ph}`);
-
-    const params = new URLSearchParams({
-      bank,
-      acc,
-      des,
-      template: "compact",
-    });
-
-    const amount = getFeeAmount(tour, r);
-    if (amount > 0) params.set("amount", String(amount));
-
-    return `https://qr.sepay.vn/img?${params.toString()}`;
-  };
-
-  const openComplaint = (reg) => setComplaintDlg({ open: true, reg, text: "" });
-  const closeComplaint = () =>
-    setComplaintDlg({ open: false, reg: null, text: "" });
-  const submitComplaint = async () => {
-    const regId = complaintDlg?.reg?._id;
-    const content = complaintDlg.text?.trim();
-
-    if (!content) {
-      toast.info("Vui lòng nhập nội dung khiếu nại.");
-      return;
-    }
-    if (!regId) {
-      toast.error("Không tìm thấy mã đăng ký để gửi khiếu nại.");
-      return;
-    }
-    // Guest vẫn thấy nút nhưng cần đăng nhập để gửi
-    if (!isLoggedIn) {
-      toast.info("Vui lòng đăng nhập để gửi khiếu nại.");
-      return;
-    }
-
-    try {
-      await createComplaint({ tournamentId: id, regId, content }).unwrap();
-      toast.success("Đã gửi khiếu nại. BTC sẽ phản hồi sớm.");
-      closeComplaint();
-    } catch (e) {
-      toast.error(e?.data?.message || e?.error || "Gửi khiếu nại thất bại");
-    }
-  };
-
-  const openPayment = (reg) => setPaymentDlg({ open: true, reg });
-  const closePayment = () => setPaymentDlg({ open: false, reg: null });
-
-  /* ───────── UI guard ───────── */
-  if (tourLoading) {
-    return (
-      <Box p={3} textAlign="center">
-        <CircularProgress />
-      </Box>
+        {(canManage || isOwner) && (
+          <Tooltip arrow title={canManage ? "Huỷ cặp đấu" : "Huỷ đăng ký"}>
+            <span>
+              <IconButton
+                size="small"
+                color="error"
+                onClick={() => onCancel(r)}
+                disabled={busy?.deletingId === r._id}
+              >
+                <DeleteOutline fontSize="small" />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )}
+      </Stack>
     );
   }
-  if (tourErr) {
-    return (
-      <Box p={3}>
-        <Alert severity="error">
-          {tourErr?.data?.message || tourErr?.error || "Lỗi tải giải đấu"}
-        </Alert>
-      </Box>
-    );
-  }
-  if (!tour) return null;
+);
 
-  /* ==================== PlayerCell (DESKTOP) ==================== */
-  const PlayerCell = ({ player, onEdit, canEdit }) => (
+/* ==================== Memoized Player Cell ==================== */
+const PlayerCell = memo(
+  ({ player, onEdit, canEdit, onOpenPreview, onOpenProfile }) => (
     <Stack direction="row" spacing={1} alignItems="center">
       <Box
         onClick={() =>
-          openPreview(player?.avatar || PLACE, displayName(player))
+          onOpenPreview(player?.avatar || PLACE, displayName(player))
         }
         sx={{
           borderRadius: "50%",
@@ -974,7 +498,7 @@ export default function TournamentRegistration() {
           overflow: "hidden",
           cursor: getUserId(player) ? "pointer" : "default",
         }}
-        onClick={() => openProfileByPlayer(player)}
+        onClick={() => onOpenProfile(player)}
         title="Xem hồ sơ"
       >
         <Typography
@@ -1018,9 +542,799 @@ export default function TournamentRegistration() {
         </Tooltip>
       )}
     </Stack>
+  )
+);
+
+/* ==================== Memoized Desktop Row ==================== */
+const DesktopTableRow = memo(
+  ({
+    r,
+    index,
+    isSingles,
+    cap,
+    delta,
+    canManage,
+    isOwner,
+    onTogglePayment,
+    onCancel,
+    onOpenComplaint,
+    onOpenPayment,
+    onOpenReplace,
+    onOpenPreview,
+    onOpenProfile,
+    busy,
+    regCodeOf,
+  }) => {
+    const total = totalScoreOf(r, isSingles);
+    const { color, title } = totalChipStyle(total, cap, delta);
+
+    return (
+      <TableRow hover>
+        <TableCell sx={{ whiteSpace: "nowrap" }}>{index + 1}</TableCell>
+        <TableCell sx={{ whiteSpace: "nowrap" }}>
+          <CodeBadge code={regCodeOf(r)} withLabel={false} />
+        </TableCell>
+
+        <TableCell>
+          <PlayerCell
+            player={r.player1}
+            onEdit={() => onOpenReplace(r, "p1")}
+            canEdit={canManage}
+            onOpenPreview={onOpenPreview}
+            onOpenProfile={onOpenProfile}
+          />
+        </TableCell>
+
+        {!isSingles && (
+          <TableCell>
+            {r.player2 ? (
+              <PlayerCell
+                player={r.player2}
+                onEdit={() => onOpenReplace(r, "p2")}
+                canEdit={canManage}
+                onOpenPreview={onOpenPreview}
+                onOpenProfile={onOpenProfile}
+              />
+            ) : canManage ? (
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => onOpenReplace(r, "p2")}
+              >
+                Thêm VĐV 2
+              </Button>
+            ) : (
+              <Typography color="text.secondary">—</Typography>
+            )}
+          </TableCell>
+        )}
+
+        <TableCell sx={{ whiteSpace: "nowrap" }}>
+          <Tooltip
+            arrow
+            title={`Tổng điểm trình (chốt lúc đăng ký): ${fmt3(
+              total
+            )} • ${title}`}
+          >
+            <Chip
+              size="small"
+              icon={<Equalizer fontSize="small" />}
+              label={fmt3(total)}
+              color={color}
+              variant="filled"
+              sx={{ whiteSpace: "nowrap" }}
+            />
+          </Tooltip>
+        </TableCell>
+
+        <TableCell sx={{ whiteSpace: "nowrap" }}>
+          {new Date(r.createdAt).toLocaleString()}
+        </TableCell>
+
+        <TableCell>
+          <PaymentChip status={r.payment?.status} paidAt={r.payment?.paidAt} />
+        </TableCell>
+
+        <TableCell>
+          <CheckinChip checkinAt={r.checkinAt} />
+        </TableCell>
+
+        <TableCell sx={{ whiteSpace: "nowrap" }}>
+          <ActionCell
+            r={r}
+            canManage={canManage}
+            isOwner={isOwner}
+            onTogglePayment={onTogglePayment}
+            onCancel={onCancel}
+            onOpenComplaint={onOpenComplaint}
+            onOpenPayment={onOpenPayment}
+            busy={busy}
+          />
+        </TableCell>
+      </TableRow>
+    );
+  }
+);
+
+/* ==================== Memoized Mobile Card ==================== */
+const MobileCard = memo(
+  ({
+    r,
+    index,
+    isSingles,
+    cap,
+    delta,
+    canManage,
+    isOwner,
+    onTogglePayment,
+    onCancel,
+    onOpenComplaint,
+    onOpenPayment,
+    onOpenReplace,
+    onOpenPreview,
+    onOpenProfile,
+    busy,
+    regCodeOf,
+    playersOfReg,
+  }) => {
+    const total = totalScoreOf(r, isSingles);
+    const { color, title } = totalChipStyle(total, cap, delta);
+
+    return (
+      <Paper sx={{ p: 2 }}>
+        <Stack
+          direction="row"
+          alignItems="center"
+          justifyContent="space-between"
+        >
+          <CodeBadge code={regCodeOf(r)} />
+          <Typography variant="caption" color="text.secondary">
+            #{index + 1}
+          </Typography>
+        </Stack>
+
+        {playersOfReg(r).map((pl, idx) => (
+          <Stack
+            key={`${pl?.phone || pl?.fullName || idx}`}
+            direction="row"
+            spacing={1}
+            alignItems="center"
+            mt={1}
+          >
+            <Box
+              onClick={() =>
+                onOpenPreview(pl?.avatar || PLACE, displayName(pl))
+              }
+              sx={{
+                borderRadius: "50%",
+                overflow: "hidden",
+                lineHeight: 0,
+                cursor: "zoom-in",
+              }}
+            >
+              <Avatar
+                src={safeSrc(pl?.avatar || PLACE)}
+                imgProps={{ onError: (e) => (e.currentTarget.src = PLACE) }}
+              />
+            </Box>
+
+            <Box
+              sx={{
+                flex: 1,
+                minWidth: 0,
+                cursor: getUserId(pl) ? "pointer" : "default",
+              }}
+              onClick={() => onOpenProfile(pl)}
+              title="Xem hồ sơ"
+            >
+              <Typography
+                variant="body2"
+                noWrap
+                sx={{ display: "flex", alignItems: "center", gap: 0.25 }}
+              >
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {displayName(pl)}
+                </span>
+                <VerifyBadge status={kycOf(pl)} />
+              </Typography>
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {pl?.phone || ""}
+              </Typography>
+            </Box>
+
+            <Tooltip arrow title="Điểm trình (chốt lúc đăng ký)">
+              <Chip
+                size="small"
+                variant="outlined"
+                icon={<Equalizer fontSize="small" />}
+                label={fmt3(pl?.score ?? 0)}
+                sx={{ whiteSpace: "nowrap" }}
+              />
+            </Tooltip>
+
+            {canManage && (
+              <Tooltip arrow title={`Thay ${idx === 0 ? "VĐV 1" : "VĐV 2"}`}>
+                <span>
+                  <IconButton
+                    size="small"
+                    onClick={() => onOpenReplace(r, idx === 0 ? "p1" : "p2")}
+                  >
+                    <EditOutlined fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            )}
+          </Stack>
+        ))}
+
+        {!isSingles && !r.player2 && canManage && (
+          <Box mt={1}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => onOpenReplace(r, "p2")}
+            >
+              Thêm VĐV 2
+            </Button>
+          </Box>
+        )}
+
+        <Typography variant="caption" color="text.secondary" mt={1}>
+          {new Date(r.createdAt).toLocaleString()}
+        </Typography>
+
+        <Stack direction="row" spacing={1} mt={1} alignItems="center">
+          <PaymentChip status={r.payment?.status} paidAt={r.payment?.paidAt} />
+          <CheckinChip checkinAt={r.checkinAt} />
+        </Stack>
+
+        <Stack direction="row" spacing={1} mt={1} alignItems="center">
+          <Typography variant="body2">Tổng điểm:</Typography>
+          <Tooltip arrow title={`Tổng điểm: ${fmt3(total)} • ${title}`}>
+            <Chip
+              size="small"
+              icon={<Equalizer fontSize="small" />}
+              label={fmt3(total)}
+              color={color}
+              variant="filled"
+              sx={{ whiteSpace: "nowrap" }}
+            />
+          </Tooltip>
+        </Stack>
+
+        <Box mt={1}>
+          <ActionCell
+            r={r}
+            canManage={canManage}
+            isOwner={isOwner}
+            onTogglePayment={onTogglePayment}
+            onCancel={onCancel}
+            onOpenComplaint={onOpenComplaint}
+            onOpenPayment={onOpenPayment}
+            busy={busy}
+          />
+        </Box>
+      </Paper>
+    );
+  }
+);
+
+/* ==================== Main Component ==================== */
+export default function TournamentRegistration() {
+  const { id } = useParams();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
+  const { data: me, isLoading: meLoading, error: meErr } = useGetMeScoreQuery();
+  const isLoggedIn = !!me?._id;
+
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(10);
+
+  const {
+    data: tour,
+    isLoading: tourLoading,
+    error: tourErr,
+  } = useGetTournamentQuery(id);
+
+  const {
+    data: regs = [],
+    isLoading: regsLoading,
+    error: regsErr,
+    refetch: refetchRegs,
+  } = useGetRegistrationsQuery(id);
+
+  const {
+    data: myInvites = [],
+    error: invitesErr,
+    refetch: refetchInvites,
+  } = useListMyRegInvitesQuery(undefined, { skip: !isLoggedIn });
+
+  const [createInvite, { isLoading: saving }] = useCreateRegInviteMutation();
+  const [respondInvite, { isLoading: responding }] =
+    useRespondRegInviteMutation();
+  const [cancelReg] = useCancelRegistrationMutation();
+
+  const [setPaymentStatus, { isLoading: settingPayment }] =
+    useManagerSetRegPaymentStatusMutation();
+  const [adminDeleteReg] = useManagerDeleteRegistrationMutation();
+  const [replacePlayer, { isLoading: replacing }] =
+    useManagerReplaceRegPlayerMutation();
+  const [createComplaint, { isLoading: sendingComplaint }] =
+    useCreateComplaintMutation();
+
+  const [p1, setP1] = useState(null);
+  const [p2, setP2] = useState(null);
+  const [msg, setMsg] = useState("");
+  const [cancelingId, setCancelingId] = useState(null);
+
+  const [imgPreview, setImgPreview] = useState({
+    open: false,
+    src: "",
+    name: "",
+  });
+  const [replaceDlg, setReplaceDlg] = useState({
+    open: false,
+    reg: null,
+    slot: "p1",
+  });
+  const [newPlayer, setNewPlayer] = useState(null);
+  const [complaintDlg, setComplaintDlg] = useState({
+    open: false,
+    reg: null,
+    text: "",
+  });
+  const [paymentDlg, setPaymentDlg] = useState({ open: false, reg: null });
+  const [profileDlg, setProfileDlg] = useState({ open: false, userId: null });
+
+  const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q.trim()), 350);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const {
+    data: searchedRegs = [],
+    isLoading: searching,
+    isFetching: searchingFetching,
+    error: searchErr,
+  } = useSearchRegistrationsQuery({ id, q: debouncedQ }, { skip: !debouncedQ });
+
+  // Memoized values
+  const evType = useMemo(() => normType(tour?.eventType), [tour]);
+  const isSingles = evType === "single";
+  const isDoubles = evType === "double";
+  const cap = useMemo(() => getScoreCap(tour, isSingles), [tour, isSingles]);
+  const delta = useMemo(() => getMaxDelta(tour), [tour]);
+
+  const isManager = useMemo(() => {
+    if (!isLoggedIn || !tour) return false;
+    if (String(tour.createdBy) === String(me._id)) return true;
+    if (Array.isArray(tour.managers)) {
+      return tour.managers.some((m) => String(m?.user ?? m) === String(me._id));
+    }
+    return !!tour.isManager;
+  }, [isLoggedIn, me, tour]);
+
+  const isAdmin = useMemo(
+    () =>
+      !!(
+        me?.isAdmin ||
+        me?.role === "admin" ||
+        (Array.isArray(me?.roles) && me.roles.includes("admin"))
+      ),
+    [me]
   );
 
-  /* ───────── RENDER ───────── */
+  const canManage = isLoggedIn && (isManager || isAdmin);
+
+  const pendingInvitesHere = useMemo(() => {
+    if (!isLoggedIn) return [];
+    return (myInvites || []).filter(
+      (it) => String(it?.tournament?._id || it?.tournament) === String(id)
+    );
+  }, [myInvites, id, isLoggedIn]);
+
+  const location = useLocation();
+  const drawPath = useMemo(() => {
+    try {
+      const parts = (location?.pathname || "").split("/").filter(Boolean);
+      if (parts.length === 0) return `/tournament/${id}/draw`;
+      parts[parts.length - 1] = "draw";
+      return "/" + parts.join("/");
+    } catch {
+      return `/tournament/${id}/draw`;
+    }
+  }, [location?.pathname, id]);
+
+  const overallRegCount = regs?.length ?? 0;
+  const paidCount = useMemo(
+    () => (regs || []).filter((r) => r?.payment?.status === "Paid").length,
+    [regs]
+  );
+
+  const totalPages = Math.max(1, Math.ceil(overallRegCount / pageSize));
+  const baseIndex = (page - 1) * pageSize;
+  const paginatedRegs = useMemo(
+    () => regs.slice(baseIndex, baseIndex + pageSize),
+    [regs, baseIndex, pageSize]
+  );
+
+  const searchingActive = !!debouncedQ;
+  const listRegs = searchingActive ? searchedRegs || [] : regs || [];
+  const regCount = listRegs?.length ?? 0;
+  const listLoading = searchingActive
+    ? searching || searchingFetching
+    : regsLoading;
+  const listError = searchingActive ? searchErr : regsErr;
+
+  const playersOfReg = useCallback(
+    (r) => [r?.player1, r?.player2].filter(Boolean),
+    []
+  );
+
+  const disableSubmit =
+    saving ||
+    meLoading ||
+    !isLoggedIn ||
+    (isAdmin ? !p1 || (isDoubles && !p2) : isDoubles && !p2);
+
+  const formatDate = useCallback(
+    (d) => (d ? new Date(d).toLocaleDateString() : ""),
+    []
+  );
+  const formatRange = useCallback(
+    (a, b) => {
+      const A = formatDate(a);
+      const B = formatDate(b);
+      if (A && B) return `${A} – ${B}`;
+      return A || B || "—";
+    },
+    [formatDate]
+  );
+
+  // Memoized callbacks
+  const submit = useCallback(
+    async (e) => {
+      e.preventDefault();
+      if (!isLoggedIn) return toast.info("Vui lòng đăng nhập để đăng ký.");
+
+      const player1Id = isAdmin ? p1?._id : String(me?._id);
+      if (!player1Id) {
+        return toast.error(
+          isAdmin ? "Vui lòng chọn VĐV 1." : "Không xác định được VĐV 1 (bạn)."
+        );
+      }
+      if (isDoubles && !p2?._id) return toast.error("Giải đôi cần 2 VĐV");
+
+      try {
+        const res = await createInvite({
+          tourId: id,
+          message: msg,
+          player1Id,
+          ...(isDoubles ? { player2Id: p2._id } : {}),
+        }).unwrap();
+
+        if (
+          res?.registration ||
+          res?.mode === "direct_by_admin" ||
+          res?.mode === "direct_by_kyc" ||
+          res?.mode === "direct"
+        ) {
+          const mode = res?.mode || "direct";
+          const label =
+            mode === "direct_by_admin"
+              ? "Admin"
+              : mode === "direct_by_kyc"
+              ? "KYC"
+              : "Trực tiếp";
+          toast.success(`Đã tạo đăng ký (${label}).`);
+
+          if (isAdmin) setP1(null);
+          setP2(null);
+          setMsg("");
+          await refetchRegs();
+          return;
+        }
+
+        toast.error("Không thể tạo đăng ký.");
+      } catch (err) {
+        if (err?.status === 412) {
+          toast.error(
+            err?.data?.message ||
+              "VĐV cần hoàn tất KYC (đã xác minh) trước khi đăng ký."
+          );
+        } else {
+          toast.error(
+            err?.data?.message || err?.error || "Không thể tạo đăng ký."
+          );
+        }
+      }
+    },
+    [
+      isLoggedIn,
+      isAdmin,
+      p1,
+      p2,
+      msg,
+      isDoubles,
+      createInvite,
+      id,
+      me,
+      refetchRegs,
+    ]
+  );
+
+  const handleCancel = useCallback(
+    async (r) => {
+      if (!isLoggedIn) return toast.info("Vui lòng đăng nhập.");
+      if (!canManage && r?.payment?.status === "Paid") {
+        toast.info(
+          "Không thể huỷ khi đã nộp lệ phí, vui lòng liên hệ BTC để hỗ trợ"
+        );
+        return;
+      }
+      if (!canManage) {
+        const isOwner = me && String(r?.createdBy) === String(me?._id);
+        if (!isOwner) return toast.error("Bạn không có quyền huỷ đăng ký này");
+      }
+
+      const extraWarn =
+        r?.payment?.status === "Paid"
+          ? "\n⚠️ Cặp này đã nộp lệ phí. Hãy đảm bảo hoàn tiền/offline theo quy trình trước khi xoá."
+          : "";
+      if (
+        !window.confirm(`Bạn chắc chắn muốn huỷ cặp đăng ký này?${extraWarn}`)
+      )
+        return;
+
+      try {
+        setCancelingId(r._id);
+        if (canManage) await adminDeleteReg(r._id).unwrap();
+        else await cancelReg(r._id).unwrap();
+        toast.success("Đã huỷ đăng ký");
+        refetchRegs();
+      } catch (e) {
+        toast.error(e?.data?.message || e?.error || "Huỷ đăng ký thất bại");
+      } finally {
+        setCancelingId(null);
+      }
+    },
+    [isLoggedIn, canManage, me, adminDeleteReg, cancelReg, refetchRegs]
+  );
+
+  const togglePayment = useCallback(
+    async (r) => {
+      if (!canManage) {
+        toast.info("Bạn không có quyền cập nhật thanh toán.");
+        return;
+      }
+      const next = r?.payment?.status === "Paid" ? "Unpaid" : "Paid";
+
+      try {
+        await setPaymentStatus({ regId: r._id, status: next }).unwrap();
+        toast.success(
+          next === "Paid"
+            ? "Đã xác nhận đã thanh toán"
+            : "Đã chuyển về chưa thanh toán"
+        );
+        refetchRegs();
+      } catch (e) {
+        toast.error(
+          e?.data?.message || e?.error || "Cập nhật thanh toán thất bại"
+        );
+      }
+    },
+    [canManage, setPaymentStatus, refetchRegs]
+  );
+
+  const openPreview = useCallback(
+    (src, name) =>
+      setImgPreview({ open: true, src: safeSrc(src), name: name || "" }),
+    []
+  );
+
+  const closePreview = useCallback(
+    () => setImgPreview({ open: false, src: "", name: "" }),
+    []
+  );
+
+  const openProfileByPlayer = useCallback((pl) => {
+    const uid = getUserId(pl);
+    if (uid) setProfileDlg({ open: true, userId: uid });
+    else toast.info("Không tìm thấy userId của VĐV này.");
+  }, []);
+
+  const closeProfileDlg = useCallback(
+    () => setProfileDlg({ open: false, userId: null }),
+    []
+  );
+
+  const openReplace = useCallback(
+    (reg, slot) => {
+      if (!canManage) return;
+      setReplaceDlg({ open: true, reg, slot });
+      setNewPlayer(null);
+    },
+    [canManage]
+  );
+
+  const closeReplace = useCallback(
+    () => setReplaceDlg({ open: false, reg: null, slot: "p1" }),
+    []
+  );
+
+  const submitReplace = useCallback(async () => {
+    if (!replaceDlg?.reg?._id) return;
+    if (!newPlayer?._id) return toast.error("Chọn VĐV mới");
+    try {
+      await replacePlayer({
+        regId: replaceDlg.reg._id,
+        slot: replaceDlg.slot,
+        userId: newPlayer._id,
+      }).unwrap();
+      toast.success("Đã thay VĐV");
+      closeReplace();
+      refetchRegs();
+    } catch (e) {
+      toast.error(e?.data?.message || e?.error || "Không thể thay VĐV");
+    }
+  }, [replaceDlg, newPlayer, replacePlayer, closeReplace, refetchRegs]);
+
+  const maskPhone = useCallback((phone) => {
+    if (!phone) return "*******???";
+    const d = String(phone).replace(/\D/g, "");
+    const tail = d.slice(-3) || "???";
+    return "*******" + tail;
+  }, []);
+
+  const regCodeOf = useCallback(
+    (r) =>
+      r?.code ||
+      r?.shortCode ||
+      String(r?._id || "")
+        .slice(-5)
+        .toUpperCase(),
+    []
+  );
+
+  const normalizeNoAccent = useCallback(
+    (s) =>
+      (s || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^\w\s-]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim(),
+    []
+  );
+
+  const getQrProviderConfig = useCallback(() => {
+    const bank =
+      tour?.bankShortName ||
+      tour?.qrBank ||
+      tour?.bankCode ||
+      tour?.bank ||
+      import.meta.env?.VITE_QR_BANK ||
+      "";
+    const acc =
+      tour?.bankAccountNumber ||
+      tour?.qrAccount ||
+      tour?.bankAccount ||
+      import.meta.env?.VITE_QR_ACC ||
+      "";
+    return { bank, acc };
+  }, [tour]);
+
+  const qrImgUrlFor = useCallback(
+    (r) => {
+      const { bank, acc } = getQrProviderConfig();
+      if (!bank || !acc) return null;
+
+      const code = regCodeOf(r);
+      const ph = maskPhone(
+        r?.player1?.phone || r?.player2?.phone || me?.phone || ""
+      );
+      const des = normalizeNoAccent(
+        `Ma giai ${id} Ma dang ky ${code} SDT ${ph}`
+      );
+
+      const params = new URLSearchParams({
+        bank,
+        acc,
+        des,
+        template: "compact",
+      });
+
+      const amount = getFeeAmount(tour, r);
+      if (amount > 0) params.set("amount", String(amount));
+
+      return `https://qr.sepay.vn/img?${params.toString()}`;
+    },
+    [getQrProviderConfig, regCodeOf, maskPhone, normalizeNoAccent, me, id, tour]
+  );
+
+  const openComplaint = useCallback(
+    (reg) => setComplaintDlg({ open: true, reg, text: "" }),
+    []
+  );
+
+  const closeComplaint = useCallback(
+    () => setComplaintDlg({ open: false, reg: null, text: "" }),
+    []
+  );
+
+  const submitComplaint = useCallback(async () => {
+    const regId = complaintDlg?.reg?._id;
+    const content = complaintDlg.text?.trim();
+
+    if (!content) {
+      toast.info("Vui lòng nhập nội dung khiếu nại.");
+      return;
+    }
+    if (!regId) {
+      toast.error("Không tìm thấy mã đăng ký để gửi khiếu nại.");
+      return;
+    }
+    if (!isLoggedIn) {
+      toast.info("Vui lòng đăng nhập để gửi khiếu nại.");
+      return;
+    }
+
+    try {
+      await createComplaint({ tournamentId: id, regId, content }).unwrap();
+      toast.success("Đã gửi khiếu nại. BTC sẽ phản hồi sớm.");
+      closeComplaint();
+    } catch (e) {
+      toast.error(e?.data?.message || e?.error || "Gửi khiếu nại thất bại");
+    }
+  }, [complaintDlg, isLoggedIn, createComplaint, id, closeComplaint]);
+
+  const openPayment = useCallback(
+    (reg) => setPaymentDlg({ open: true, reg }),
+    []
+  );
+
+  const closePayment = useCallback(
+    () => setPaymentDlg({ open: false, reg: null }),
+    []
+  );
+
+  // Memoized busy state
+  const busy = useMemo(
+    () => ({
+      settingPayment,
+      deletingId: cancelingId,
+    }),
+    [settingPayment, cancelingId]
+  );
+
+  if (tourLoading) {
+    return (
+      <Box p={3} textAlign="center">
+        <CircularProgress />
+      </Box>
+    );
+  }
+  if (tourErr) {
+    return (
+      <Box p={3}>
+        <Alert severity="error">
+          {tourErr?.data?.message || tourErr?.error || "Lỗi tải giải đấu"}
+        </Alert>
+      </Box>
+    );
+  }
+  if (!tour) return null;
+
   return (
     <RBContainer fluid="xl" className="py-4">
       {/* Header */}
@@ -1041,7 +1355,7 @@ export default function TournamentRegistration() {
         </Stack>
       </Stack>
 
-      {/* Thông tin giải */}
+      {/* Tournament Info */}
       <Box sx={{ mb: 2 }}>
         <Grid container spacing={1.5} alignItems="center">
           <Grid item xs={12} md={5}>
@@ -1118,7 +1432,7 @@ export default function TournamentRegistration() {
         </Grid>
       </Box>
 
-      {/* Thông báo đăng nhập */}
+      {/* Login notice */}
       {meLoading
         ? null
         : !isLoggedIn && (
@@ -1129,7 +1443,7 @@ export default function TournamentRegistration() {
             </Paper>
           )}
 
-      {/* FORM đăng ký */}
+      {/* Registration Form */}
       <Paper variant="outlined" sx={{ p: 2, mb: 1.5, maxWidth: 760 }}>
         <Typography variant="h6" gutterBottom>
           {isAdmin ? "Tạo đăng ký (admin)" : "Đăng ký thi đấu"}
@@ -1148,7 +1462,6 @@ export default function TournamentRegistration() {
             </Alert>
           ) : isAdmin ? (
             <>
-              {/* Admin chọn VĐV 1 */}
               <Box mt={1}>
                 <PlayerSelector
                   label="VĐV 1"
@@ -1157,8 +1470,6 @@ export default function TournamentRegistration() {
                   onChange={setP1}
                 />
               </Box>
-
-              {/* Admin chọn VĐV 2 nếu là đôi */}
               {isDoubles && (
                 <Box mt={2}>
                   <PlayerSelector
@@ -1226,7 +1537,7 @@ export default function TournamentRegistration() {
         </Grid>
       </Paper>
 
-      {/* === Nội dung/ liên hệ (nếu có) === */}
+      {/* Content/Contact */}
       {(tour?.contactHtml || tour?.contentHtml) && (
         <Box
           sx={{
@@ -1284,7 +1595,7 @@ export default function TournamentRegistration() {
         </Box>
       )}
 
-      {/* Khu quản lý */}
+      {/* Management area */}
       {canManage && (
         <Box sx={{ mb: 3 }}>
           <Typography variant="h5" className="mb-1">
@@ -1311,7 +1622,7 @@ export default function TournamentRegistration() {
         </Box>
       )}
 
-      {/* LIST đăng ký */}
+      {/* Registration List */}
       <Stack direction="row" alignItems="center" spacing={1} className="mb-1">
         <Typography variant="h5">Danh sách đăng ký ({regCount})</Typography>
         <Chip
@@ -1376,185 +1687,35 @@ export default function TournamentRegistration() {
       ) : regCount === 0 ? (
         <Typography color="text.secondary">Danh sách đăng ký trống!</Typography>
       ) : isMobile ? (
-        // mobile cards
         <Stack spacing={2}>
           {listRegs.map((r, i) => {
             const isOwner =
               isLoggedIn && String(r?.createdBy) === String(me?._id);
             return (
-              <Paper key={r._id} sx={{ p: 2 }}>
-                {/* Header card: Mã ĐK + index */}
-                <Stack
-                  direction="row"
-                  alignItems="center"
-                  justifyContent="space-between"
-                >
-                  <CodeBadge code={regCodeOf(r)} />
-                  <Typography variant="caption" color="text.secondary">
-                    #{i + 1}
-                  </Typography>
-                </Stack>
-
-                {playersOfReg(r).map((pl, idx) => (
-                  <Stack
-                    key={`${pl?.phone || pl?.fullName || idx}`}
-                    direction="row"
-                    spacing={1}
-                    alignItems="center"
-                    mt={1}
-                  >
-                    <Box
-                      onClick={() =>
-                        openPreview(pl?.avatar || PLACE, displayName(pl))
-                      }
-                      sx={{
-                        borderRadius: "50%",
-                        overflow: "hidden",
-                        lineHeight: 0,
-                        cursor: "zoom-in",
-                      }}
-                    >
-                      <Avatar
-                        src={safeSrc(pl?.avatar || PLACE)}
-                        imgProps={{
-                          onError: (e) => (e.currentTarget.src = PLACE),
-                        }}
-                      />
-                    </Box>
-
-                    <Box
-                      sx={{
-                        flex: 1,
-                        minWidth: 0,
-                        cursor: getUserId(pl) ? "pointer" : "default",
-                      }}
-                      onClick={() => openProfileByPlayer(pl)}
-                      title="Xem hồ sơ"
-                    >
-                      <Typography
-                        variant="body2"
-                        noWrap
-                        sx={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 0.25,
-                        }}
-                      >
-                        <span
-                          style={{
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {displayName(pl)}
-                        </span>
-                        <VerifyBadge status={kycOf(pl)} />
-                      </Typography>
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        noWrap
-                      >
-                        {pl?.phone || ""}
-                      </Typography>
-                    </Box>
-
-                    <Tooltip arrow title="Điểm trình (chốt lúc đăng ký)">
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        icon={<Equalizer fontSize="small" />}
-                        label={fmt3(pl?.score ?? 0)}
-                        sx={{ whiteSpace: "nowrap" }}
-                      />
-                    </Tooltip>
-
-                    {canManage && (
-                      <Tooltip
-                        arrow
-                        title={`Thay ${idx === 0 ? "VĐV 1" : "VĐV 2"}`}
-                      >
-                        <span>
-                          <IconButton
-                            size="small"
-                            onClick={() =>
-                              openReplace(r, idx === 0 ? "p1" : "p2")
-                            }
-                          >
-                            <EditOutlined fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    )}
-                  </Stack>
-                ))}
-
-                {!isSingles && !r.player2 && canManage && (
-                  <Box mt={1}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => openReplace(r, "p2")}
-                    >
-                      Thêm VĐV 2
-                    </Button>
-                  </Box>
-                )}
-
-                <Typography variant="caption" color="text.secondary" mt={1}>
-                  {new Date(r.createdAt).toLocaleString()}
-                </Typography>
-
-                <Stack direction="row" spacing={1} mt={1} alignItems="center">
-                  <PaymentChip
-                    status={r.payment?.status}
-                    paidAt={r.payment?.paidAt}
-                  />
-                  <CheckinChip checkinAt={r.checkinAt} />
-                </Stack>
-
-                <Stack direction="row" spacing={1} mt={1} alignItems="center">
-                  <Typography variant="body2">Tổng điểm:</Typography>
-                  {(() => {
-                    const total = totalScoreOf(r, isSingles);
-                    const { color, title } = totalChipStyle(total, cap, delta);
-                    return (
-                      <Tooltip
-                        arrow
-                        title={`Tổng điểm: ${fmt3(total)} • ${title}`}
-                      >
-                        <Chip
-                          size="small"
-                          icon={<Equalizer fontSize="small" />}
-                          label={fmt3(total)}
-                          color={color}
-                          variant="filled"
-                          sx={{ whiteSpace: "nowrap" }}
-                        />
-                      </Tooltip>
-                    );
-                  })()}
-                </Stack>
-
-                <Box mt={1}>
-                  <ActionCell
-                    r={r}
-                    canManage={canManage}
-                    isOwner={isOwner}
-                    onTogglePayment={togglePayment}
-                    onCancel={handleCancel}
-                    onOpenComplaint={openComplaint}
-                    onOpenPayment={openPayment}
-                    busy={{ settingPayment, deletingId: cancelingId }}
-                  />
-                </Box>
-              </Paper>
+              <MobileCard
+                key={r._id}
+                r={r}
+                index={i}
+                isSingles={isSingles}
+                cap={cap}
+                delta={delta}
+                canManage={canManage}
+                isOwner={isOwner}
+                onTogglePayment={togglePayment}
+                onCancel={handleCancel}
+                onOpenComplaint={openComplaint}
+                onOpenPayment={openPayment}
+                onOpenReplace={openReplace}
+                onOpenPreview={openPreview}
+                onOpenProfile={openProfileByPlayer}
+                busy={busy}
+                regCodeOf={regCodeOf}
+                playersOfReg={playersOfReg}
+              />
             );
           })}
         </Stack>
       ) : (
-        // desktop table
         <TableContainer component={Paper} variant="outlined" sx={{ mt: 1 }}>
           <Table size="small">
             <TableHead>
@@ -1579,98 +1740,25 @@ export default function TournamentRegistration() {
                 const isOwner =
                   isLoggedIn && String(r?.createdBy) === String(me?._id);
                 return (
-                  <TableRow key={r._id} hover>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>{i + 1}</TableCell>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>
-                      <CodeBadge code={regCodeOf(r)} withLabel={false} />
-                    </TableCell>
-
-                    <TableCell>
-                      <PlayerCell
-                        player={r.player1}
-                        onEdit={() => openReplace(r, "p1")}
-                        canEdit={canManage}
-                      />
-                    </TableCell>
-
-                    {!isSingles && (
-                      <TableCell>
-                        {r.player2 ? (
-                          <PlayerCell
-                            player={r.player2}
-                            onEdit={() => openReplace(r, "p2")}
-                            canEdit={canManage}
-                          />
-                        ) : canManage ? (
-                          <Button
-                            size="small"
-                            variant="outlined"
-                            onClick={() => openReplace(r, "p2")}
-                          >
-                            Thêm VĐV 2
-                          </Button>
-                        ) : (
-                          <Typography color="text.secondary">—</Typography>
-                        )}
-                      </TableCell>
-                    )}
-
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>
-                      {(() => {
-                        const total = totalScoreOf(r, isSingles);
-                        const { color, title } = totalChipStyle(
-                          total,
-                          cap,
-                          delta
-                        );
-                        return (
-                          <Tooltip
-                            arrow
-                            title={`Tổng điểm trình (chốt lúc đăng ký): ${fmt3(
-                              total
-                            )} • ${title}`}
-                          >
-                            <Chip
-                              size="small"
-                              icon={<Equalizer fontSize="small" />}
-                              label={fmt3(total)}
-                              color={color}
-                              variant="filled"
-                              sx={{ whiteSpace: "nowrap" }}
-                            />
-                          </Tooltip>
-                        );
-                      })()}
-                    </TableCell>
-
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>
-                      {new Date(r.createdAt).toLocaleString()}
-                    </TableCell>
-
-                    <TableCell>
-                      <PaymentChip
-                        status={r.payment?.status}
-                        paidAt={r.payment?.paidAt}
-                      />
-                    </TableCell>
-
-                    <TableCell>
-                      <CheckinChip checkinAt={r.checkinAt} />
-                    </TableCell>
-
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>
-                      <ActionCell
-                        r={r}
-                        canManage={canManage}
-                        isOwner={isOwner}
-                        onTogglePayment={togglePayment}
-                        onCancel={handleCancel}
-                        onOpenComplaint={openComplaint}
-                        onOpenPayment={openPayment}
-                        busy={{ settingPayment, deletingId: cancelingId }}
-                      />
-                    </TableCell>
-                  </TableRow>
+                  <DesktopTableRow
+                    key={r._id}
+                    r={r}
+                    index={i}
+                    isSingles={isSingles}
+                    cap={cap}
+                    delta={delta}
+                    canManage={canManage}
+                    isOwner={isOwner}
+                    onTogglePayment={togglePayment}
+                    onCancel={handleCancel}
+                    onOpenComplaint={openComplaint}
+                    onOpenPayment={openPayment}
+                    onOpenReplace={openReplace}
+                    onOpenPreview={openPreview}
+                    onOpenProfile={openProfileByPlayer}
+                    busy={busy}
+                    regCodeOf={regCodeOf}
+                  />
                 );
               })}
             </TableBody>
@@ -1678,7 +1766,7 @@ export default function TournamentRegistration() {
         </TableContainer>
       )}
 
-      {/* Preview ảnh */}
+      {/* Dialogs */}
       <Dialog
         open={imgPreview.open}
         onClose={closePreview}
@@ -1707,7 +1795,6 @@ export default function TournamentRegistration() {
         </DialogActions>
       </Dialog>
 
-      {/* Dialog thay VĐV */}
       <Dialog
         open={replaceDlg.open}
         onClose={closeReplace}
@@ -1740,14 +1827,12 @@ export default function TournamentRegistration() {
         </DialogActions>
       </Dialog>
 
-      {/* Dialog hồ sơ công khai */}
       <PublicProfileDialog
         open={profileDlg.open}
         onClose={closeProfileDlg}
         userId={profileDlg.userId}
       />
 
-      {/* Dialog Khiếu nại */}
       <Dialog
         open={complaintDlg.open}
         onClose={closeComplaint}
@@ -1785,7 +1870,6 @@ export default function TournamentRegistration() {
         </DialogActions>
       </Dialog>
 
-      {/* Dialog Thanh toán QR */}
       <Dialog
         open={paymentDlg.open}
         onClose={closePayment}
@@ -1815,13 +1899,11 @@ export default function TournamentRegistration() {
                 const url = safeSrc(qrImgUrlFor(paymentDlg.reg));
                 if (!url) {
                   return (
-                    <>
-                      <Alert severity="info" sx={{ textAlign: "left", mb: 1 }}>
-                        Hiện chưa có mã QR thanh toán. Bạn có thể dùng mục{" "}
-                        <b>Khiếu nại</b> để liên hệ Ban tổ chức (BTC) nhận hướng
-                        dẫn thanh toán.
-                      </Alert>
-                    </>
+                    <Alert severity="info" sx={{ textAlign: "left", mb: 1 }}>
+                      Hiện chưa có mã QR thanh toán. Bạn có thể dùng mục{" "}
+                      <b>Khiếu nại</b> để liên hệ Ban tổ chức (BTC) nhận hướng
+                      dẫn thanh toán.
+                    </Alert>
                   );
                 }
                 return (
@@ -1848,7 +1930,6 @@ export default function TournamentRegistration() {
           ) : null}
         </DialogContent>
         <DialogActions>
-          {/* Nếu chưa có QR: cho nút Khiếu nại nhanh */}
           {!paymentDlg.reg || !safeSrc(qrImgUrlFor(paymentDlg.reg)) ? (
             <Button
               color="warning"

@@ -37,10 +37,7 @@ import {
   useAdminSetCourtLiveConfigMutation,
   useAdminBulkSetCourtLiveConfigMutation,
 } from "../slices/courtsApiSlice";
-import {
-  useAdminGetBracketsQuery,
-  useAdminListMatchesByTournamentQuery,
-} from "../slices/tournamentsApiSlice";
+import { useAdminListMatchesByTournamentQuery } from "../slices/tournamentsApiSlice";
 
 /* ===== Helpers ===== */
 const isMongoId = (s) => typeof s === "string" && /^[a-f0-9]{24}$/i.test(s);
@@ -118,11 +115,11 @@ export default function LiveSetupDialog({
   open,
   onClose,
   tournamentId, // REQUIRED
-  bracketId, // REQUIRED
+  bracketId, // OPTIONAL (không còn bắt buộc)
   /**
    * Optional: override URL trang LIVE STUDIO của sân
-   * (tid, bid, court) => string
-   * Tương thích ngược: nếu bạn truyền hàm (tid, court) cũ vẫn OK (JS bỏ qua tham số thừa)
+   * (tid, court) hoặc (tid, bid, court) => string
+   * Giữ tương thích ngược: nếu bạn truyền hàm (tid, bid, court) cũ vẫn OK.
    */
   buildCourtLiveUrl,
 }) {
@@ -130,32 +127,22 @@ export default function LiveSetupDialog({
   const buildLiveUrl = React.useCallback(
     (tid, bid, court) =>
       buildCourtLiveUrl
-        ? buildCourtLiveUrl(tid, bid, court) // hàm của bạn có thể nhận 2 hoặc 3 tham số đều ổn
+        ? // Cho phép function 2 hoặc 3 tham số
+          (buildCourtLiveUrl.length >= 3
+            ? buildCourtLiveUrl(tid, bid ?? null, court)
+            : buildCourtLiveUrl(tid, court))
         : `/streaming/${court._id}`,
     [buildCourtLiveUrl]
   );
 
-  /* 1) Lấy tên bracket (giảm props truyền vào) */
-  const { data: bracketsData, isLoading: brLoading } = useAdminGetBracketsQuery(
-    tournamentId,
-    { skip: !open }
-  );
-  const bracketName = React.useMemo(() => {
-    const list = Array.isArray(bracketsData)
-      ? bracketsData
-      : bracketsData?.items || [];
-    const b = list.find((x) => String(x?._id) === String(bracketId));
-    return b?.name || "";
-  }, [bracketsData, bracketId]);
-
-  /* 2) Lấy danh sách sân của giải (filter theo bracket ở server) */
+  /* 1) Lấy danh sách sân của GIẢI (KHÔNG theo bracket nữa) */
   const {
     data: courtsResp,
     isLoading: courtsLoading,
     isError: courtsErr,
     refetch: refetchCourts,
   } = useAdminListCourtsByTournamentQuery(
-    { tid: tournamentId, bracketId },
+    { tid: tournamentId }, // ❗️chỉ theo giải
     { skip: !open }
   );
 
@@ -184,24 +171,21 @@ export default function LiveSetupDialog({
     }));
   }, [courtsResp]);
 
-  /* 3) Lấy danh sách trận để tính thống kê theo sân */
+  /* 2) Lấy danh sách trận của GIẢI để thống kê theo sân (không lọc theo bracket) */
   const { data: matchPage, isLoading: matchesLoading } =
     useAdminListMatchesByTournamentQuery(
       { tid: tournamentId, page: 1, pageSize: 1000 },
       { skip: !open }
     );
 
-  const matchesOfBracket = React.useMemo(() => {
-    const list = Array.isArray(matchPage?.list) ? matchPage.list : [];
-    return list.filter(
-      (m) => String(m?.bracket?._id || m?.bracket || "") === String(bracketId)
-    );
-  }, [matchPage, bracketId]);
+  const matchesAll = React.useMemo(() => {
+    return Array.isArray(matchPage?.list) ? matchPage.list : [];
+  }, [matchPage]);
 
   const matchesByCourtId = React.useMemo(() => {
     const map = new Map();
     for (const c of courts) map.set(String(c._id), []);
-    for (const m of matchesOfBracket) {
+    for (const m of matchesAll) {
       let assigned = false;
       const mid = extractCourtId(
         m?.courtAssigned || m?.assignedCourt || m?.court
@@ -220,9 +204,9 @@ export default function LiveSetupDialog({
       }
     }
     return map;
-  }, [courts, matchesOfBracket]);
+  }, [courts, matchesAll]);
 
-  /* 4) Form state (prefill từ liveConfig hiện tại) */
+  /* 3) Form state (prefill từ liveConfig hiện tại) */
   const [form, setForm] = React.useState({}); // { courtId: { enabled, videoUrl } }
   const [overrideExisting, setOverrideExisting] = React.useState(false); // global
   const [busy, setBusy] = React.useState(new Set());
@@ -242,7 +226,7 @@ export default function LiveSetupDialog({
     initialFormRef.current = next;
   }, [open, courts]);
 
-  /* 5) Mutations */
+  /* 4) Mutations */
   const [setCourtCfg, { isLoading: saving }] =
     useAdminSetCourtLiveConfigMutation();
   const [bulkSetCourtCfg, { isLoading: bulkSaving }] =
@@ -326,24 +310,24 @@ export default function LiveSetupDialog({
     setForm((s) => ({ ...s, [courtId]: { ...(s[courtId] || {}), ...patch } }));
   };
 
-  const loadingAny = courtsLoading || matchesLoading || brLoading;
+  const loadingAny = courtsLoading || matchesLoading;
 
   return (
     <Dialog
       open={open}
       onClose={onClose}
       fullWidth
-      maxWidth="xl" // trước là "md"
+      maxWidth="xl"
       scroll="paper"
       PaperProps={{
         sx: {
-          width: { xs: "100%", sm: "96vw" }, // rộng gần full màn
-          maxWidth: 1500, // trần 1500px (có thể tăng/giảm)
-          height: { xs: "100%", md: "90vh" }, // cao tới 90% chiều cao màn
+          width: { xs: "100%", sm: "96vw" },
+          maxWidth: 1500,
+          height: { xs: "100%", md: "90vh" },
         },
       }}
     >
-      <DialogTitle>{`Thiết lập LIVE — ${bracketName || ""}`}</DialogTitle>
+      <DialogTitle>Thiết lập LIVE — Toàn giải</DialogTitle>
       <DialogContent dividers>
         {loadingAny && <LinearProgress sx={{ mb: 2 }} />}
 
@@ -357,7 +341,7 @@ export default function LiveSetupDialog({
           {courtsErr ? (
             <Alert severity="error">Không tải được danh sách sân.</Alert>
           ) : courts.length === 0 ? (
-            <Alert severity="warning">Chưa có sân trong bracket này.</Alert>
+            <Alert severity="warning">Chưa có sân trong giải này.</Alert>
           ) : (
             <>
               {/* Tuỳ chọn toàn cục */}
@@ -489,7 +473,11 @@ export default function LiveSetupDialog({
                                   variant="outlined"
                                   startIcon={<OpenInNewIcon />}
                                   component={RouterLink}
-                                  to={buildLiveUrl(tournamentId, bracketId, c)}
+                                  to={buildLiveUrl(
+                                    tournamentId,
+                                    bracketId ?? null,
+                                    c
+                                  )}
                                   target="_blank"
                                   rel="noopener"
                                 >

@@ -153,7 +153,8 @@ const scoreSummary = (m) => {
 const TYPE_LABEL = (t) => {
   const key = String(t || "").toLowerCase();
   if (key === "group") return "Vòng bảng";
-  if (key === "po" || key === "playoff") return "Playoff";
+  if (key === "po" || key === "playoff" || key === "roundelim")
+    return "Playoff";
   if (key === "knockout" || key === "ko") return "Knockout";
   if (key === "double_elim" || key === "doubleelim") return "Double Elim";
   if (key === "swiss") return "Swiss";
@@ -346,7 +347,6 @@ const statusPriority = (st) => {
 function createLiveStore() {
   const map = new Map();
   const listeners = new Map();
-
   return {
     get(id) {
       return map.get(String(id)) || null;
@@ -394,7 +394,7 @@ function TableSkeletonRows({ rows = 8, cols = 8 }) {
       {Array.from({ length: rows }).map((_, r) => (
         <TableRow key={r}>
           {Array.from({ length: cols }).map((__, c) => (
-            <TableCell key={c}>
+            <TableCell key={c} sx={{ py: 0.5 }}>
               <Skeleton variant="text" />
             </TableCell>
           ))}
@@ -407,23 +407,23 @@ function MatchCardSkeleton() {
   return (
     <Card variant="outlined" sx={{ height: "100%" }}>
       <CardHeader
-        sx={{ py: 1.2 }}
-        avatar={<Skeleton variant="circular" width={24} height={24} />}
+        sx={{ py: 1 }}
+        avatar={<Skeleton variant="circular" width={22} height={22} />}
         title={<Skeleton variant="text" width="60%" />}
         subheader={
           <Stack direction="row" spacing={0.5}>
-            <Skeleton variant="rounded" width={60} height={22} />
-            <Skeleton variant="rounded" width={48} height={22} />
+            <Skeleton variant="rounded" width={56} height={20} />
+            <Skeleton variant="rounded" width={44} height={20} />
           </Stack>
         }
-        action={<Skeleton variant="circular" width={28} height={28} />}
+        action={<Skeleton variant="circular" width={24} height={24} />}
       />
       <Divider />
-      <CardContent sx={{ py: 1.25 }}>
+      <CardContent sx={{ py: 1 }}>
         <Stack spacing={0.5}>
           <Skeleton variant="text" width="90%" />
           <Skeleton variant="text" width="85%" />
-          <Skeleton variant="rounded" width={120} height={24} />
+          <Skeleton variant="rounded" width={120} height={22} />
         </Stack>
       </CardContent>
     </Card>
@@ -465,7 +465,7 @@ const ActionChips = React.memo(function ActionChips({
   return (
     <Box
       onClick={(e) => e.stopPropagation()}
-      sx={{ display: "flex", flexWrap: "wrap", columnGap: 1, rowGap: 1 }}
+      sx={{ display: "flex", flexWrap: "wrap", columnGap: 0.75, rowGap: 0.75 }}
     >
       <Chip
         size="small"
@@ -536,59 +536,63 @@ const MatchRow = React.memo(function MatchRow({
       onClick={() => onRowClick(match._id)}
       sx={{ cursor: "pointer" }}
     >
-      <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+      <TableCell
+        padding="checkbox"
+        sx={{ width: 44 }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <Checkbox
           checked={checked}
           onChange={(e) => {
-            e.stopPropagation(); // không mở viewer khi tick
+            e.stopPropagation();
             onToggleSelect?.(match._id);
           }}
           size="small"
         />
       </TableCell>
-      <TableCell sx={{ whiteSpace: "nowrap" }}>{matchCode(merged)}</TableCell>
-      <TableCell>{pairLabel(merged?.pairA)}</TableCell>
-      <TableCell>{pairLabel(merged?.pairB)}</TableCell>
-      <TableCell sx={{ whiteSpace: "nowrap" }}>{courtLabel(merged)}</TableCell>
-      <TableCell sx={{ whiteSpace: "nowrap" }}>
+      <TableCell sx={{ width: 64, whiteSpace: "nowrap", py: 0.5 }}>
+        {matchCode(merged)}
+      </TableCell>
+      <TableCell sx={{ width: 180, maxWidth: 180, py: 0.5 }}>
+        <Typography noWrap>{pairLabel(merged?.pairA)}</Typography>
+      </TableCell>
+      <TableCell sx={{ width: 180, maxWidth: 180, py: 0.5 }}>
+        <Typography noWrap>{pairLabel(merged?.pairB)}</Typography>
+      </TableCell>
+      <TableCell sx={{ width: 90, whiteSpace: "nowrap", py: 0.5 }}>
+        {courtLabel(merged)}
+      </TableCell>
+      <TableCell sx={{ width: 64, whiteSpace: "nowrap", py: 0.5 }}>
         {Number.isFinite(merged?.order) ? `T${merged.order + 1}` : "—"}
       </TableCell>
-      <TableCell sx={{ whiteSpace: "nowrap" }}>
+      <TableCell sx={{ width: 100, whiteSpace: "nowrap", py: 0.5 }}>
         {scoreSummary(merged)}
       </TableCell>
-      <TableCell>{statusChip(merged?.status)}</TableCell>
-      <TableCell onClick={(e) => e.stopPropagation()}>
+      <TableCell sx={{ width: 100, whiteSpace: "nowrap", py: 0.5 }}>
+        {statusChip(merged?.status)}
+      </TableCell>
+      <TableCell
+        onClick={(e) => e.stopPropagation()}
+        align="center"
+        sx={{ width: 64, py: 0.5 }}
+      >
         {merged?.video ? (
-          <Stack
-            direction="row"
-            spacing={1}
-            alignItems="center"
-            flexWrap="wrap"
-          >
-            <Chip
+          <Tooltip title={merged.video} arrow>
+            <IconButton
               size="small"
-              color="success"
-              variant="outlined"
-              label="Đã gắn"
-              icon={<MovieIcon />}
-            />
-            <Tooltip title={merged.video} arrow>
-              <IconButton
-                size="small"
-                component="a"
-                href={merged.video}
-                target="_blank"
-                rel="noopener"
-              >
-                <OpenInNewIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Stack>
+              component="a"
+              href={merged.video}
+              target="_blank"
+              rel="noopener"
+            >
+              <OpenInNewIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         ) : (
-          <Chip size="small" variant="outlined" label="Chưa có" />
+          <Chip size="small" variant="outlined" label="—" />
         )}
       </TableCell>
-      <TableCell sx={{ whiteSpace: "nowrap" }}>
+      <TableCell sx={{ width: 260, whiteSpace: "nowrap", py: 0.5 }}>
         <ActionChips
           match={merged}
           onOpenVideo={onOpenVideo}
@@ -651,7 +655,7 @@ const MatchCard = React.memo(function MatchCard({
         />
       </Box>
       <CardHeader
-        sx={{ py: 1.2 }}
+        sx={{ py: 1 }}
         avatar={<SportsIcon fontSize="small" />}
         titleTypographyProps={{ variant: "subtitle2", noWrap: true }}
         title={
@@ -681,7 +685,7 @@ const MatchCard = React.memo(function MatchCard({
         }
       />
       <Divider />
-      <CardContent sx={{ py: 1.25 }}>
+      <CardContent sx={{ py: 1 }}>
         <Stack spacing={0.75}>
           <Box>
             <Typography variant="caption" color="text.secondary">
@@ -867,9 +871,10 @@ export default function TournamentManagePage() {
 
   // Viewer
   const [viewer, setViewer] = useState({ open: false, matchId: null });
-  const openMatch = useCallback((mid) => {
-    setViewer({ open: true, matchId: mid });
-  }, []);
+  const openMatch = useCallback(
+    (mid) => setViewer({ open: true, matchId: mid }),
+    []
+  );
   const closeMatch = useCallback(
     () => setViewer({ open: false, matchId: null }),
     []
@@ -915,7 +920,7 @@ export default function TournamentManagePage() {
   });
   const [refMgrOpen, setRefMgrOpen] = useState(false);
 
-  // ⚠️ cập nhật: mặc định mở theo TOÀN GIẢI (không truyền bid)
+  // mở theo TOÀN GIẢI (không truyền bid)
   const openManageCourts = useCallback((bid = null, bname = "") => {
     setManageCourts({
       open: true,
@@ -1043,7 +1048,6 @@ export default function TournamentManagePage() {
           team2: pairLabel(merged?.pairB),
           logoUrl: WEB_LOGO_URL,
         });
-
         const w = window.open("", "_blank");
         if (!w) {
           toast.error(
@@ -1054,15 +1058,12 @@ export default function TournamentManagePage() {
         w.document.open();
         w.document.write(html);
         w.document.close();
-
         const tryPrint = () => {
           try {
             if (w.document && w.document.readyState === "complete") {
               w.focus?.();
               w.print?.();
-            } else {
-              setTimeout(tryPrint, 100);
-            }
+            } else setTimeout(tryPrint, 100);
           } catch {}
         };
         tryPrint();
@@ -1163,28 +1164,19 @@ export default function TournamentManagePage() {
     liveStore,
   ]);
 
+  // LIVE Setup — TOÀN GIẢI
   const [liveSetup, setLiveSetup] = useState({
     open: false,
     bracketId: null,
     bracketName: "",
   });
-
-  const openLiveSetup = useCallback((bid, bname) => {
-    setLiveSetup({
-      open: true,
-      bracketId: String(bid),
-      bracketName: bname || "",
-    });
+  const openLiveSetup = useCallback(() => {
+    setLiveSetup({ open: true, bracketId: null, bracketName: "" }); // null => toàn giải
   }, []);
   const closeLiveSetup = useCallback(
     () => setLiveSetup((s) => ({ ...s, open: false })),
     []
   );
-
-  const matchesForLiveSetup = useMemo(() => {
-    if (!liveSetup.open) return [];
-    return groupedLists.get(liveSetup.bracketId) || [];
-  }, [liveSetup, groupedLists]);
 
   const socket = useSocket();
   const joinedRef = useRef(new Set());
@@ -1222,9 +1214,7 @@ export default function TournamentManagePage() {
       if (Object.keys(partial).length === 0) return;
 
       const statusChanged = liveStore.set(mid, partial);
-      if (statusChanged) {
-        startTransition(() => setOrderVersion((v) => v + 1));
-      }
+      if (statusChanged) startTransition(() => setOrderVersion((v) => v + 1));
     },
     [liveStore, startTransition]
   );
@@ -1339,8 +1329,8 @@ export default function TournamentManagePage() {
     try {
       setExporting(true);
       const { default: pdfMake } = await import("pdfmake/build/pdfmake");
-      const { vfs } = await import("pdfmake/build/vfs_fonts");
-      pdfMake.vfs = vfs;
+      const pdfFonts = await import("pdfmake/build/vfs_fonts");
+      pdfMake.vfs = pdfFonts.pdfMake.vfs;
 
       const data = buildExportPayload();
       const title = `Quản lý giải: ${tour?.name || ""}`;
@@ -1515,6 +1505,20 @@ export default function TournamentManagePage() {
     }
   };
 
+  // ======= Header hành động (Desktop & Mobile Dropdown) =======
+  const [actionAnchor, setActionAnchor] = useState(null);
+  const openActionMenu = (e) => setActionAnchor(e.currentTarget);
+  const closeActionMenu = () => setActionAnchor(null);
+
+  const onMobileExportPDF = async () => {
+    closeActionMenu();
+    await handleExportPDF();
+  };
+  const onMobileExportWord = async () => {
+    closeActionMenu();
+    await handleExportWord();
+  };
+
   /* ---------- guards ---------- */
   if (tourLoading || brLoading) {
     return (
@@ -1550,163 +1554,308 @@ export default function TournamentManagePage() {
   return (
     <Box p={{ xs: 2, md: 3 }}>
       {/* Header */}
-      <Stack
-        direction={isMobile ? "column" : "row"}
-        alignItems="center"
-        justifyContent="space-between"
-        mb={2}
-      >
-        <Typography variant="h5" noWrap mb={isMobile ? 2 : 0}>
-          Quản lý giải: {tour?.name}
-        </Typography>
-        <Stack direction={"row"} spacing={1}>
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<RefereeIcon />}
-            onClick={() => setRefMgrOpen(true)}
-          >
-            Quản lý trọng tài
-          </Button>
+      <Stack spacing={1.5} mb={2}>
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          alignItems={{ xs: "flex-start", md: "center" }}
+          justifyContent="space-between"
+          sx={{ gap: 1 }}
+        >
+          <Typography variant="h5" noWrap>
+            Quản lý giải: {tour?.name}
+          </Typography>
 
-          {/* ✅ MỚI: đưa nút Quản lý sân ra đây để áp dụng TOÀN GIẢI */}
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<StadiumIcon />}
-            onClick={() => openManageCourts()} // không truyền bid => toàn giải
+          {/* Desktop actions: không phải vuốt màn hình => wrap gọn */}
+          <Stack
+            direction="row"
+            spacing={1}
+            useFlexGap
+            flexWrap="wrap"
+            sx={{
+              display: { xs: "none", md: "flex" },
+              "& > *": { flexShrink: 0 },
+              maxWidth: "100%",
+              justifyContent: "flex-end",
+            }}
           >
-            Quản lý sân
-          </Button>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<RefereeIcon />}
+              onClick={() => setRefMgrOpen(true)}
+            >
+              Quản lý trọng tài
+            </Button>
 
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<FileDownloadIcon />}
-            onClick={openExportMenu}
-            disabled={exporting || bracketsOfTab.length === 0}
-          >
-            Xuất file
-          </Button>
-          <Menu
-            anchorEl={exportAnchor}
-            open={Boolean(exportAnchor)}
-            onClose={closeExportMenu}
-            keepMounted
-          >
-            <MenuItem
-              onClick={handleExportPDF}
+            {/* Quản lý sân TOÀN GIẢI */}
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<StadiumIcon />}
+              onClick={() => openManageCourts()}
+            >
+              Quản lý sân
+            </Button>
+
+            {/* Thiết lập LIVE TOÀN GIẢI (đặt cạnh Quản lý sân) */}
+            <Tooltip title="Áp dụng TOÀN GIẢI" arrow>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<MovieIcon />}
+                onClick={openLiveSetup}
+              >
+                Thiết lập LIVE
+              </Button>
+            </Tooltip>
+
+            {/* Export menu (desktop) */}
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<FileDownloadIcon />}
+              onClick={openExportMenu}
               disabled={exporting || bracketsOfTab.length === 0}
             >
-              <ListItemIcon>
-                <PictureAsPdfIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText
-                primary={exporting ? "Đang xuất PDF…" : "Xuất PDF"}
-              />
-            </MenuItem>
-            <MenuItem
-              onClick={handleExportWord}
-              disabled={exporting || bracketsOfTab.length === 0}
+              Xuất file
+            </Button>
+            <Menu
+              anchorEl={exportAnchor}
+              open={Boolean(exportAnchor)}
+              onClose={closeExportMenu}
+              keepMounted
             >
-              <ListItemIcon>
-                <DescriptionIcon fontSize="small" />
-              </ListItemIcon>
-              <ListItemText
-                primary={exporting ? "Đang xuất Word…" : "Xuất Word (.docx)"}
-              />
-            </MenuItem>
-          </Menu>
+              <MenuItem
+                onClick={handleExportPDF}
+                disabled={exporting || bracketsOfTab.length === 0}
+              >
+                <ListItemIcon>
+                  <PictureAsPdfIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText
+                  primary={exporting ? "Đang xuất PDF…" : "Xuất PDF"}
+                />
+              </MenuItem>
+              <MenuItem
+                onClick={handleExportWord}
+                disabled={exporting || bracketsOfTab.length === 0}
+              >
+                <ListItemIcon>
+                  <DescriptionIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText
+                  primary={exporting ? "Đang xuất Word…" : "Xuất Word (.docx)"}
+                />
+              </MenuItem>
+            </Menu>
 
-          <Button
-            component={Link}
-            to={`/tournament/${id}`}
-            variant="outlined"
-            size="small"
-          >
-            Trang giải
-          </Button>
-          {isAdmin && (
             <Button
               component={Link}
-              to={`/tournament/${id}/draw`}
-              variant="contained"
+              to={`/tournament/${id}`}
+              variant="outlined"
               size="small"
             >
-              Bốc thăm
+              Trang giải
             </Button>
-          )}
-        </Stack>
-      </Stack>
+            {isAdmin && (
+              <Button
+                component={Link}
+                to={`/tournament/${id}/draw`}
+                variant="contained"
+                size="small"
+              >
+                Bốc thăm
+              </Button>
+            )}
+          </Stack>
 
-      <Paper variant="outlined" sx={{ mb: 2 }}>
-        {/* Tabs */}
-        <Tabs
-          value={tab}
-          onChange={(_, v) => setTab(v)}
-          variant="scrollable"
-          scrollButtons="auto"
-        >
-          {typesAvailable.map((t) => (
-            <Tab key={t.type} label={TYPE_LABEL(t.type)} value={t.type} />
-          ))}
-        </Tabs>
+          {/* Mobile actions: Dropdown "Hành động" */}
+          <Box sx={{ display: { xs: "block", md: "none" }, width: "100%" }}>
+            <Stack direction="row" justifyContent="flex-end">
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={openActionMenu}
+                startIcon={<MovieIcon />}
+              >
+                Hành động
+              </Button>
+              <Menu
+                anchorEl={actionAnchor}
+                open={Boolean(actionAnchor)}
+                onClose={closeActionMenu}
+                keepMounted
+              >
+                <MenuItem
+                  onClick={() => {
+                    closeActionMenu();
+                    setRefMgrOpen(true);
+                  }}
+                >
+                  <ListItemIcon>
+                    <RefereeIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText primary="Quản lý trọng tài" />
+                </MenuItem>
+
+                <MenuItem
+                  onClick={() => {
+                    closeActionMenu();
+                    openManageCourts();
+                  }}
+                >
+                  <ListItemIcon>
+                    <StadiumIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText primary="Quản lý sân (toàn giải)" />
+                </MenuItem>
+
+                <MenuItem
+                  onClick={() => {
+                    closeActionMenu();
+                    openLiveSetup();
+                  }}
+                >
+                  <ListItemIcon>
+                    <MovieIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText primary="Thiết lập LIVE (toàn giải)" />
+                </MenuItem>
+
+                <Divider />
+
+                <MenuItem
+                  onClick={onMobileExportPDF}
+                  disabled={exporting || bracketsOfTab.length === 0}
+                >
+                  <ListItemIcon>
+                    <PictureAsPdfIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={exporting ? "Đang xuất PDF…" : "Xuất PDF"}
+                  />
+                </MenuItem>
+                <MenuItem
+                  onClick={onMobileExportWord}
+                  disabled={exporting || bracketsOfTab.length === 0}
+                >
+                  <ListItemIcon>
+                    <DescriptionIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={
+                      exporting ? "Đang xuất Word…" : "Xuất Word (.docx)"
+                    }
+                  />
+                </MenuItem>
+
+                <Divider />
+
+                <MenuItem
+                  component={Link}
+                  to={`/tournament/${id}`}
+                  onClick={closeActionMenu}
+                >
+                  <ListItemText primary="Trang giải" />
+                </MenuItem>
+                {isAdmin && (
+                  <MenuItem
+                    component={Link}
+                    to={`/tournament/${id}/draw`}
+                    onClick={closeActionMenu}
+                  >
+                    <ListItemText primary="Bốc thăm" />
+                  </MenuItem>
+                )}
+              </Menu>
+            </Stack>
+          </Box>
+        </Stack>
 
         {/* Filter bar */}
-        <Box p={2} display="flex" gap={1} flexWrap="wrap" alignItems="center">
-          <TextField
-            size="small"
-            placeholder="Tìm trận, cặp đấu, sân, link…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
+        <Paper variant="outlined">
+          <Box
+            p={2}
+            display="grid"
+            sx={{
+              gap: 1,
+              gridTemplateColumns: {
+                xs: "1fr",
+                md: "minmax(260px, 420px) 200px 140px auto",
+              },
+              alignItems: "center",
             }}
-            sx={{ minWidth: 240 }}
-          />
-          <TextField
-            select
-            size="small"
-            label="Sắp xếp"
-            value={sortKey}
-            onChange={(e) => setSortKey(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SortIcon fontSize="small" />
-                </InputAdornment>
-              ),
-            }}
-            sx={{ minWidth: 200 }}
           >
-            <MenuItem value="round">Vòng (global → order)</MenuItem>
-            <MenuItem value="order">Thứ tự (order)</MenuItem>
-            <MenuItem value="time">Thời gian</MenuItem>
-          </TextField>
-          <TextField
-            select
-            size="small"
-            label="Chiều"
-            value={sortDir}
-            onChange={(e) => setSortDir(e.target.value)}
-            sx={{ minWidth: 120 }}
-          >
-            <MenuItem value="asc">Tăng dần</MenuItem>
-            <MenuItem value="desc">Giảm dần</MenuItem>
-          </TextField>
+            <TextField
+              size="small"
+              placeholder="Tìm trận, cặp đấu, sân, link…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+            <TextField
+              select
+              size="small"
+              label="Sắp xếp"
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SortIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+              }}
+            >
+              <MenuItem value="round">Vòng (global → order)</MenuItem>
+              <MenuItem value="order">Thứ tự (order)</MenuItem>
+              <MenuItem value="time">Thời gian</MenuItem>
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label="Chiều"
+              value={sortDir}
+              onChange={(e) => setSortDir(e.target.value)}
+            >
+              <MenuItem value="asc">Tăng dần</MenuItem>
+              <MenuItem value="desc">Giảm dần</MenuItem>
+            </TextField>
 
-          <Chip
-            size="small"
-            variant="outlined"
-            label={`${bracketsOfTab.length} bracket • ${TYPE_LABEL(tab)}`}
-            sx={{ ml: 1 }}
-          />
-        </Box>
-      </Paper>
+            <Stack
+              direction="row"
+              justifyContent={{ xs: "flex-start", md: "flex-end" }}
+            >
+              <Chip
+                size="small"
+                variant="outlined"
+                label={`${bracketsOfTab.length} bracket • ${TYPE_LABEL(tab)}`}
+              />
+            </Stack>
+          </Box>
+        </Paper>
+
+        {/* Tabs */}
+        <Paper variant="outlined" sx={{ mt: 1 }}>
+          <Tabs
+            value={tab}
+            onChange={(_, v) => setTab(v)}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{ px: 1 }}
+          >
+            {typesAvailable.map((t) => (
+              <Tab key={t.type} label={TYPE_LABEL(t.type)} value={t.type} />
+            ))}
+          </Tabs>
+        </Paper>
+      </Stack>
 
       {/* === Floating Action Bar (hiện khi có chọn) === */}
       {selectedMatchIds.size > 0 && (
@@ -1774,11 +1923,7 @@ export default function TournamentManagePage() {
             >
               <Paper
                 elevation={8}
-                sx={{
-                  borderRadius: "16px 16px 0 0",
-                  px: 2,
-                  py: 1.25,
-                }}
+                sx={{ borderRadius: "16px 16px 0 0", px: 2, py: 1.25 }}
               >
                 <Stack spacing={1}>
                   <Stack direction="row" alignItems="center" spacing={1}>
@@ -1836,16 +1981,7 @@ export default function TournamentManagePage() {
                     {b?.name || "Bracket"}
                   </Typography>
 
-                  {/* ❌ ĐÃ BỎ nút Quản lý sân theo bracket */}
-
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<MovieIcon />}
-                    onClick={() => openLiveSetup(bid, b?.name)}
-                  >
-                    Thiết lập LIVE
-                  </Button>
+                  {/* LIVE toàn giải đã đưa lên header */}
 
                   <Chip
                     size="small"
@@ -1868,13 +2004,24 @@ export default function TournamentManagePage() {
                 </Stack>
               </Box>
 
-              {/* Desktop */}
+              {/* Desktop table — compact, fixed layout để không phải vuốt ngang */}
               <Box sx={{ display: { xs: "none", md: "block" } }}>
                 <TableContainer>
-                  <Table size="small">
+                  <Table
+                    size="small"
+                    sx={{
+                      tableLayout: "fixed",
+                      "& th, & td": {
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        py: 0.5,
+                      },
+                    }}
+                  >
                     <TableHead>
                       <TableRow>
-                        <TableCell padding="checkbox">
+                        <TableCell padding="checkbox" sx={{ width: 44 }}>
                           <Checkbox
                             size="small"
                             checked={allSelected}
@@ -1889,23 +2036,17 @@ export default function TournamentManagePage() {
                             }
                           />
                         </TableCell>
-                        <TableCell sx={{ whiteSpace: "nowrap" }}>Mã</TableCell>
-                        <TableCell sx={{ minWidth: 240 }}>Cặp A</TableCell>
-                        <TableCell sx={{ minWidth: 240 }}>Cặp B</TableCell>
-                        <TableCell sx={{ whiteSpace: "nowrap" }}>Sân</TableCell>
-                        <TableCell sx={{ whiteSpace: "nowrap" }}>
-                          Thứ tự
+                        <TableCell sx={{ width: 64 }}>Mã</TableCell>
+                        <TableCell sx={{ width: 180 }}>Cặp A</TableCell>
+                        <TableCell sx={{ width: 180 }}>Cặp B</TableCell>
+                        <TableCell sx={{ width: 90 }}>Sân</TableCell>
+                        <TableCell sx={{ width: 64 }}>Thứ tự</TableCell>
+                        <TableCell sx={{ width: 100 }}>Tỉ số</TableCell>
+                        <TableCell sx={{ width: 100 }}>Trạng thái</TableCell>
+                        <TableCell sx={{ width: 64 }} align="center">
+                          Video
                         </TableCell>
-                        <TableCell sx={{ whiteSpace: "nowrap" }}>
-                          Tỉ số
-                        </TableCell>
-                        <TableCell sx={{ whiteSpace: "nowrap" }}>
-                          Trạng thái
-                        </TableCell>
-                        <TableCell sx={{ minWidth: 200 }}>Link video</TableCell>
-                        <TableCell sx={{ whiteSpace: "nowrap" }}>
-                          Hành động
-                        </TableCell>
+                        <TableCell sx={{ width: 260 }}>Hành động</TableCell>
                       </TableRow>
                     </TableHead>
 
@@ -1944,13 +2085,13 @@ export default function TournamentManagePage() {
                 </TableContainer>
               </Box>
 
-              {/* Mobile */}
+              {/* Mobile cards */}
               <Box sx={{ display: { xs: "block", md: "none" } }}>
                 <Box p={2} pt={1}>
                   {mLoading ? (
                     <Grid container spacing={1.2}>
                       {Array.from({ length: 6 }).map((_, k) => (
-                        <Grid key={k} item width={"100%"} xs={6}>
+                        <Grid key={k} item xs={12}>
                           <MatchCardSkeleton />
                         </Grid>
                       ))}
@@ -2000,7 +2141,7 @@ export default function TournamentManagePage() {
 
                       <Grid container spacing={1.2}>
                         {list.map((m) => (
-                          <Grid key={m._id} item width={"100%"} xs={6}>
+                          <Grid key={m._id} item xs={12} sm={6}>
                             <MatchCard
                               match={m}
                               liveStore={liveStore}
@@ -2057,7 +2198,7 @@ export default function TournamentManagePage() {
         }}
       />
 
-      {/* ✅ Court Manager TOÀN GIẢI (bracketId = null) */}
+      {/* Court Manager TOÀN GIẢI (bracketId = null) */}
       <CourtManagerDialog
         open={manageCourts.open}
         onClose={closeManageCourts}
@@ -2077,6 +2218,7 @@ export default function TournamentManagePage() {
         }}
       />
 
+      {/* Thiết lập LIVE TOÀN GIẢI */}
       <LiveSetupDialog
         open={liveSetup.open}
         onClose={closeLiveSetup}
@@ -2091,7 +2233,7 @@ export default function TournamentManagePage() {
         onClose={closeMatch}
       />
 
-      {/* ===== Dialog gán trọng tài (batch) — mở bằng nút trên thanh nổi ===== */}
+      {/* ===== Dialog gán trọng tài (batch) ===== */}
       <Dialog
         open={bulkDlgOpen}
         onClose={() => setBulkDlgOpen(false)}

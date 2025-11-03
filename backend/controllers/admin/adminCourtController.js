@@ -81,55 +81,66 @@ function groupFirstComparator(a, b) {
  */
 export const upsertCourts = asyncHandler(async (req, res) => {
   const { tournamentId } = req.params;
-  const { bracket, names, count } = req.body || {};
+  const { names, count, cluster } = req.body || {};
 
-  // NEW: cho phép nhận nhiều khóa để linh hoạt từ FE
+  const toBool = (v) => {
+    if (typeof v === "boolean") return v;
+    const s = String(v ?? "")
+      .trim()
+      .toLowerCase();
+    if (["1", "true", "yes", "on"].includes(s)) return true;
+    if (["0", "false", "no", "off"].includes(s)) return false;
+    return false;
+  };
+  const toInt = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.floor(n) : NaN;
+  };
+
   const rawAutoAssign =
     req.body?.autoAssign ??
     req.body?.assignOnCreate ??
     req.body?.enableAutoAssign ??
     false;
-
-  // NEW: parse bool thân thiện "true"/"1"/true
-  const toBool = (v) =>
-    v === true ||
-    v === 1 ||
-    v === "1" ||
-    (typeof v === "string" && v.toLowerCase() === "true");
-
   const autoAssign = toBool(rawAutoAssign);
 
   if (!mongoose.isValidObjectId(tournamentId)) {
     return res.status(400).json({ message: "Invalid tournament id" });
   }
-  if (!mongoose.isValidObjectId(bracket)) {
-    return res
-      .status(400)
-      .json({ message: "Thiếu hoặc sai 'bracket' (ObjectId)" });
-  }
+  const tid = new mongoose.Types.ObjectId(tournamentId);
+  const clusterKey = String(cluster ?? "Main").trim() || "Main";
 
-  // chuẩn hóa danh sách tên sân mong muốn
+  // Chuẩn hoá danh sách tên sân
   let desired = [];
   if (Array.isArray(names) && names.length) {
-    desired = [...new Set(names.map((s) => String(s).trim()).filter(Boolean))];
-  } else if (Number.isInteger(count) && count > 0) {
-    desired = Array.from({ length: count }, (_, i) => `Sân ${i + 1}`);
+    const seen = new Set();
+    for (const raw of names) {
+      const s = String(raw ?? "").trim();
+      if (s && !seen.has(s)) {
+        seen.add(s);
+        desired.push(s);
+      }
+    }
   } else {
-    return res.status(400).json({ message: "Thiếu 'names' hoặc 'count' > 0" });
+    const n = toInt(count);
+    if (!Number.isFinite(n) || n <= 0) {
+      return res
+        .status(400)
+        .json({ message: "Thiếu 'names' hoặc 'count' > 0" });
+    }
+    desired = Array.from({ length: n }, (_, i) => `Sân ${i + 1}`);
   }
 
-  const tid = new mongoose.Types.ObjectId(tournamentId);
-  const bid = new mongoose.Types.ObjectId(bracket);
-
-  // chỉ thao tác trong BRACKET này
-  const existing = await Court.find({ tournament: tid, bracket: bid }).lean();
+  // Lấy toàn bộ courts của GIẢI này (theo cluster hiện tại)
+  const existing = await Court.find({
+    tournament: tid,
+    cluster: clusterKey,
+  }).lean();
   const byName = new Map(existing.map((c) => [c.name, c]));
-
-  const clusterKey = String(bracket); // dùng bracketId làm cluster nội bộ (ẩn với client)
 
   const bulk = [];
 
-  // upsert theo thứ tự names
+  // Upsert theo thứ tự desired
   desired.forEach((name, idx) => {
     const found = byName.get(name);
     if (found) {
@@ -141,8 +152,9 @@ export const upsertCourts = asyncHandler(async (req, res) => {
               order: idx,
               isActive: true,
               status: found.status === "maintenance" ? "idle" : found.status,
-              // không nhận cluster từ client; gán theo bracketId để tương thích service cũ
               cluster: clusterKey,
+              bracket: null, // chuẩn hoá: không gắn bracket nữa
+              updatedAt: new Date(),
             },
           },
         },
@@ -152,21 +164,22 @@ export const upsertCourts = asyncHandler(async (req, res) => {
         insertOne: {
           document: {
             tournament: tid,
-            bracket: bid,
             name,
             order: idx,
             isActive: true,
             status: "idle",
             currentMatch: null,
-            // ẩn với client, dùng nội bộ
             cluster: clusterKey,
+            bracket: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
           },
         },
       });
     }
   });
 
-  // deactivate những sân không còn trong danh sách của BRACKET này
+  // Deactivate các sân trong cluster này nhưng không còn trong desired
   for (const c of existing) {
     if (!desired.includes(c.name)) {
       bulk.push({
@@ -177,6 +190,7 @@ export const upsertCourts = asyncHandler(async (req, res) => {
               isActive: false,
               status: "maintenance",
               currentMatch: null,
+              updatedAt: new Date(),
             },
           },
         },
@@ -184,25 +198,32 @@ export const upsertCourts = asyncHandler(async (req, res) => {
     }
   }
 
-  if (bulk.length) await Court.bulkWrite(bulk, { ordered: false });
+  if (bulk.length) {
+    await Court.bulkWrite(bulk, { ordered: false });
+  }
 
-  // NEW: chỉ rebuild & fill hàng đợi khi autoAssign = true
+  // Auto assign (nếu bật)
   if (autoAssign) {
     try {
       await buildGroupsRotationQueue({ tournamentId, cluster: clusterKey });
       await fillIdleCourtsForCluster({ tournamentId, cluster: clusterKey });
     } catch (e) {
-      // không chặn response nếu service hàng đợi lỗi nhẹ
       console.error("[queue] rebuild/fill error:", e?.message || e);
     }
   }
 
-  const items = await Court.find({ tournament: tid, bracket: bid })
+  const items = await Court.find({ tournament: tid, cluster: clusterKey })
     .sort({ order: 1 })
     .lean();
 
-  // NEW: trả về meta cho FE biết lần này có áp dụng autoAssign hay không
-  return res.json({ items, meta: { autoAssignApplied: autoAssign } });
+  return res.json({
+    items,
+    meta: {
+      scope: "tournament",
+      cluster: clusterKey,
+      autoAssignApplied: autoAssign,
+    },
+  });
 });
 
 export const buildGroupsQueueHttp = asyncHandler(async (req, res) => {

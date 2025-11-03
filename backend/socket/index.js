@@ -1473,11 +1473,13 @@ export function initSocket(
       }
     );
 
+    // ===== socket handler (request current state) =====
     socket.on(
       "scheduler:requestState",
-      ({ tournamentId, bracket, cluster = "Main" }) => {
+      ({ tournamentId, cluster = "Main" }) => {
         if (!tournamentId) return;
-        broadcastState(io, tournamentId, { bracket, cluster });
+        // Courts giờ theo GIẢI (không phụ thuộc bracket)
+        broadcastState(io, tournamentId, { cluster });
       }
     );
 
