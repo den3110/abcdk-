@@ -907,17 +907,19 @@ export default function TournamentManagePage() {
     [setLiveUrl, videoDlg.match, closeVideoDlg]
   );
 
+  // === Court manager (TOÀN GIẢI) ===
   const [manageCourts, setManageCourts] = useState({
     open: false,
     bracketId: null,
     bracketName: "",
   });
-
   const [refMgrOpen, setRefMgrOpen] = useState(false);
-  const openManageCourts = useCallback((bid, bname) => {
+
+  // ⚠️ cập nhật: mặc định mở theo TOÀN GIẢI (không truyền bid)
+  const openManageCourts = useCallback((bid = null, bname = "") => {
     setManageCourts({
       open: true,
-      bracketId: String(bid),
+      bracketId: bid ? String(bid) : null,
       bracketName: bname || "",
     });
   }, []);
@@ -995,8 +997,6 @@ export default function TournamentManagePage() {
       r?.name || r?.nickname || (idOfRef(r) ? `#${idOfRef(r).slice(-4)}` : ""),
     [idOfRef]
   );
-
-  // ⛔ BỎ auto-open dialog khi tick (không còn useEffect mở/đóng theo selection)
 
   const submitBatchAssign = useCallback(async () => {
     const ids = Array.from(selectedMatchIds);
@@ -1569,6 +1569,16 @@ export default function TournamentManagePage() {
             Quản lý trọng tài
           </Button>
 
+          {/* ✅ MỚI: đưa nút Quản lý sân ra đây để áp dụng TOÀN GIẢI */}
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<StadiumIcon />}
+            onClick={() => openManageCourts()} // không truyền bid => toàn giải
+          >
+            Quản lý sân
+          </Button>
+
           <Button
             variant="outlined"
             size="small"
@@ -1707,7 +1717,7 @@ export default function TournamentManagePage() {
                 position: "fixed",
                 left: "50%",
                 transform: "translateX(-50%)",
-                top: { xs: 72, md: 86 }, // ngay dưới header/filter
+                top: { xs: 72, md: 86 },
                 zIndex: 1300,
               }}
             >
@@ -1825,14 +1835,9 @@ export default function TournamentManagePage() {
                   <Typography variant="h6" noWrap>
                     {b?.name || "Bracket"}
                   </Typography>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    startIcon={<StadiumIcon />}
-                    onClick={() => openManageCourts(bid, b?.name)}
-                  >
-                    Quản lý sân
-                  </Button>
+
+                  {/* ❌ ĐÃ BỎ nút Quản lý sân theo bracket */}
+
                   <Button
                     size="small"
                     variant="outlined"
@@ -1975,7 +1980,6 @@ export default function TournamentManagePage() {
                           onChange={(e) =>
                             toggleSelectAllIn(list, e.target.checked)
                           }
-                          // chặn bubble đề phòng
                           onClick={(e) => e.stopPropagation()}
                           onMouseDown={(e) => e.stopPropagation()}
                           onTouchStart={(e) => e.stopPropagation()}
@@ -2053,12 +2057,12 @@ export default function TournamentManagePage() {
         }}
       />
 
-      {/* Popup quản lý sân */}
+      {/* ✅ Court Manager TOÀN GIẢI (bracketId = null) */}
       <CourtManagerDialog
         open={manageCourts.open}
         onClose={closeManageCourts}
         tournamentId={id}
-        bracketId={manageCourts.bracketId}
+        bracketId={manageCourts.bracketId} // null => toàn giải
         bracketName={manageCourts.bracketName}
         tournamentName={tour?.name || ""}
       />
@@ -2090,7 +2094,7 @@ export default function TournamentManagePage() {
       {/* ===== Dialog gán trọng tài (batch) — mở bằng nút trên thanh nổi ===== */}
       <Dialog
         open={bulkDlgOpen}
-        onClose={() => setBulkDlgOpen(false)} // không auto-clear selection
+        onClose={() => setBulkDlgOpen(false)}
         fullWidth
         maxWidth="sm"
       >

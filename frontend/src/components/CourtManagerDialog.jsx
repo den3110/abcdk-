@@ -48,7 +48,6 @@ import {
 
 /* ---------------- helpers / formatters ---------------- */
 
-// Ưu tiên type từ bracket nếu FE có (match.bracketType), rồi tới match.type/format
 const GROUP_LIKE_SET = new Set(["group", "round_robin", "gsl", "swiss"]);
 const KO_SET = new Set([
   "ko",
@@ -67,7 +66,6 @@ const isGroupLike = (m) => {
   if (KO_SET.has(bt)) return false;
   if (GROUP_LIKE_SET.has(t1) || GROUP_LIKE_SET.has(t2)) return true;
   if (KO_SET.has(t1) || KO_SET.has(t2)) return false;
-  // Fallback cuối: có pool => group-like
   return !!m?.pool;
 };
 
@@ -129,15 +127,11 @@ const poolBoardLabel = (m) => {
   return raw;
 };
 
-/* ---------- Build mã trận (V/B/T) ưu tiên dữ liệu từ server ---------- */
+/* ---------- Build mã trận (V/B/T) ---------- */
 
 const isGlobalCodeString = (s) =>
   typeof s === "string" && /^V\d+(?:-B\d+)?-T\d+$/.test(s);
 
-/**
- * Convert từ labelKey/labelKeyDisplay dạng "V1#R1#4" hoặc "V1#B1#4"
- * -> "V1-T4" (KO) hoặc "V1-B1-T4" (group-like)
- */
 const codeFromLabelKeyish = (lk) => {
   const s = String(lk || "").trim();
   if (!s) return null;
@@ -145,27 +139,15 @@ const codeFromLabelKeyish = (lk) => {
   if (!nums || nums.length < 2) return null;
 
   const v = Number(nums[0]);
-  // Nhiều format: "V1#R1#4" (3 số) hoặc "V1#4" (2 số)
   if (/#B\d+/i.test(s)) {
-    // Group-like hiển thị B
     const b = nums.length >= 3 ? Number(nums[1]) : 1;
     const t = Number(nums[nums.length - 1]);
     return `V${v}-B${b}-T${t}`;
   }
-
-  // Không có #B: coi như KO -> không thêm B
   const t = Number(nums[nums.length - 1]);
   return `V${v}-T${t}`;
 };
 
-/**
- * Build mã trận theo thứ tự ưu tiên:
- * 1) m.codeDisplay (server đã tính chuẩn)
- * 2) m.globalCode (đã chuẩn)
- * 3) m.code (đã chuẩn)
- * 4) m.labelKeyDisplay / m.labelKey (parser)
- * 5) Fallback đơn giản theo group-like
- */
 const fallbackGlobalCode = (m, idx) => {
   const baseOrder =
     typeof m?.order === "number" && Number.isFinite(m.order)
@@ -176,16 +158,13 @@ const fallbackGlobalCode = (m, idx) => {
   const T = baseOrder + 1;
 
   if (isGroupLike(m)) {
-    // Không biết B chính xác -> cố gắng suy B từ pool
     const rawB = poolBoardLabel(m);
     const hit = /^B(\d+)$/.exec(rawB);
     const B = hit ? Number(hit[1]) : 1;
-    // V trong fallback không có offset chính xác (thiếu elim offset) -> để V1
     return `V1-B${B}-T${T}`;
   }
 
   const r = Number.isFinite(Number(m?.round)) ? Number(m.round) : 1;
-  // V trong fallback cũng không có offset chính xác -> dùng V=round
   return `V${r}-T${T}`;
 };
 
@@ -319,13 +298,14 @@ function AssignSpecificDialog({ open, onClose, court, matches, onConfirm }) {
   );
 }
 
-/* ---------------- Dialog chính: Quản lý sân ---------------- */
+/* ---------------- Dialog chính: Quản lý sân (TOÀN GIẢI) ---------------- */
 export default function CourtManagerDialog({
   open,
   onClose,
   tournamentId,
-  bracketId,
-  bracketName,
+  // giữ tương thích prop cũ nhưng KHÔNG dùng nữa:
+  bracketId, // eslint-disable-line no-unused-vars
+  bracketName, // eslint-disable-line no-unused-vars
   tournamentName,
 }) {
   const socket = useSocket();
@@ -359,11 +339,11 @@ export default function CourtManagerDialog({
   const [deleteCourts, { isLoading: deletingCourts }] =
     useDeleteCourtsMutation();
 
-  // Join/leave socket room khi mở/đóng dialog
+  // Join/leave socket room khi mở/đóng dialog — TOÀN GIẢI
   useEffect(() => {
-    if (!open || !socket || !tournamentId || !bracketId) return;
+    if (!open || !socket || !tournamentId) return;
 
-    const room = { tournamentId, bracket: bracketId };
+    const room = { tournamentId };
 
     const onState = ({ courts, matches, queue }) => {
       setCourts(courts || []);
@@ -397,7 +377,7 @@ export default function CourtManagerDialog({
       socket.off?.("match:update", reqState);
       socket.off?.("match:finish", reqState);
     };
-  }, [open, socket, tournamentId, bracketId]);
+  }, [open, socket, tournamentId]);
 
   const matchMap = useMemo(() => {
     const map = new Map();
@@ -420,9 +400,7 @@ export default function CourtManagerDialog({
   const getMatchCodeForCourt = (c) => {
     const m = getMatchForCourt(c);
     if (!m) return "";
-    // Ưu tiên codeDisplay đã chuẩn từ server
     if (isGlobalCodeString(m.codeDisplay)) return m.codeDisplay;
-    // Fallback sang currentMatchCode từ server (nếu có) hoặc tự build
     return m.currentMatchCode || buildMatchCode(m);
   };
   const getTeamsForCourt = (c) => {
@@ -449,7 +427,6 @@ export default function CourtManagerDialog({
       if (["scheduled", "queued", "assigned"].includes(st)) push(m);
     }
 
-    // sort theo V/B/T và status
     const STATUS_RANK = {
       queued: 0,
       scheduled: 1,
@@ -485,16 +462,13 @@ export default function CourtManagerDialog({
       const gb = isGroupLike(b);
 
       if (ga && gb) {
-        // ưu tiên theo T rồi B (giữ nguyên thứ tự lượt)
         if ((ta.t || 0) !== (tb.t || 0)) return (ta.t || 0) - (tb.t || 0);
         const ba = ta.b ?? 999,
           bb = tb.b ?? 999;
         if (ba !== bb) return ba - bb;
       } else if (!ga && !gb) {
-        // KO: theo T
         if ((ta.t || 0) !== (tb.t || 0)) return (ta.t || 0) - (tb.t || 0);
       } else {
-        // group trước KO
         return ga ? -1 : 1;
       }
 
@@ -509,25 +483,21 @@ export default function CourtManagerDialog({
 
   /* ---------- handlers ---------- */
   const requestState = () => {
-    if (socket && tournamentId && bracketId) {
-      socket.emit("scheduler:requestState", {
-        tournamentId,
-        bracket: bracketId,
-      });
+    if (socket && tournamentId) {
+      socket.emit("scheduler:requestState", { tournamentId });
     }
   };
 
   const handleSaveCourts = async () => {
-    if (!tournamentId || !bracketId) {
-      toast.error("Thiếu tournamentId hoặc bracketId.");
+    if (!tournamentId) {
+      toast.error("Thiếu tournamentId.");
       return;
     }
     const payload =
       mode === "names"
-        ? { tournamentId, bracket: bracketId, names, autoAssign }
+        ? { tournamentId, names, autoAssign }
         : {
             tournamentId,
-            bracket: bracketId,
             count: Number(count) || 0,
             autoAssign,
           };
@@ -535,8 +505,8 @@ export default function CourtManagerDialog({
       await upsertCourts(payload).unwrap();
       toast.success(
         autoAssign
-          ? "Đã lưu danh sách sân. Tự động gán trận đang BẬT."
-          : "Đã lưu danh sách sân."
+          ? "Đã lưu danh sách sân toàn giải. Tự động gán trận đang BẬT."
+          : "Đã lưu danh sách sân toàn giải."
       );
       requestState();
     } catch (e) {
@@ -545,13 +515,14 @@ export default function CourtManagerDialog({
   };
 
   const handleBuildQueue = async () => {
-    if (!tournamentId || !bracketId) return;
+    if (!tournamentId) return;
     try {
       const res = await buildQueue({
         tournamentId,
-        bracket: bracketId,
       }).unwrap();
-      toast.success(`Đã xếp ${res?.totalQueued ?? 0} trận vào hàng đợi.`);
+      toast.success(
+        `Đã xếp ${res?.totalQueued ?? 0} trận vào hàng đợi toàn giải.`
+      );
     } catch (e) {
       toast.error(e?.data?.message || e?.error || "Xếp hàng đợi thất bại");
     } finally {
@@ -560,40 +531,40 @@ export default function CourtManagerDialog({
   };
 
   const handleAssignNext = async (courtId) => {
-    if (!tournamentId || !bracketId || !courtId) return;
+    if (!tournamentId || !courtId) return;
     socket?.emit?.("scheduler:assignNext", {
       tournamentId,
       courtId,
-      bracket: bracketId,
     });
-    await assignNextHttp({ tournamentId, courtId, bracket: bracketId })
+    await assignNextHttp({ tournamentId, courtId })
       .unwrap()
       .catch(() => {});
     requestState();
   };
 
   const handleResetAll = () => {
-    if (!tournamentId || !bracketId) return;
-    const ok = window.confirm("Xoá TẤT CẢ sân và gán trận hiện tại?");
+    if (!tournamentId) return;
+    const ok = window.confirm(
+      "Reset TẤT CẢ sân của giải (gỡ gán & xoá khỏi bộ lập lịch)?"
+    );
     if (!ok) return;
-    socket?.emit?.("scheduler:resetAll", { tournamentId, bracket: bracketId });
-    toast.success("Đã gửi lệnh reset tất cả sân.");
+    socket?.emit?.("scheduler:resetAll", { tournamentId });
+    toast.success("Đã gửi lệnh reset tất cả sân (toàn giải).");
     requestState();
   };
 
-  // Xoá TẤT CẢ sân bằng API (không xử lý gỡ trận qua socket)
   const handleDeleteAllCourts = async () => {
-    if (!tournamentId || !bracketId) {
-      toast.error("Thiếu tournamentId hoặc bracketId.");
+    if (!tournamentId) {
+      toast.error("Thiếu tournamentId.");
       return;
     }
     const ok = window.confirm(
-      "Bạn chắc chắn muốn XOÁ TẤT CẢ SÂN của giai đoạn này?\nHành động này không thể hoàn tác."
+      "Bạn chắc chắn muốn XOÁ TẤT CẢ SÂN của giải này?\nHành động này không thể hoàn tác."
     );
     if (!ok) return;
     try {
-      await deleteCourts({ tournamentId, bracket: bracketId }).unwrap();
-      toast.success("Đã xoá tất cả sân.");
+      await deleteCourts({ tournamentId }).unwrap();
+      toast.success("Đã xoá tất cả sân (toàn giải).");
       requestState();
     } catch (e) {
       toast.error(e?.data?.message || e?.error || "Xoá sân thất bại");
@@ -612,10 +583,9 @@ export default function CourtManagerDialog({
     setAssignDlgCourt(null);
   };
   const confirmAssignSpecific = (matchId) => {
-    if (!tournamentId || !bracketId || !assignDlgCourt || !matchId) return;
+    if (!tournamentId || !assignDlgCourt || !matchId) return;
     socket?.emit?.("scheduler:assignSpecific", {
       tournamentId,
-      bracket: bracketId,
       courtId: assignDlgCourt._id || assignDlgCourt.id,
       matchId,
       replace: true,
@@ -631,7 +601,7 @@ export default function CourtManagerDialog({
       <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
         <StadiumIcon fontSize="small" />
         <span>
-          Quản lý sân — {bracketName || "Bracket"}
+          Quản lý sân — Toàn giải
           {tournamentName ? ` • ${tournamentName}` : ""}
         </span>
         <Box sx={{ flex: 1 }} />
@@ -649,7 +619,7 @@ export default function CourtManagerDialog({
         {/* Cấu hình sân */}
         <Box sx={{ mb: 2 }}>
           <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
-            Cấu hình sân cho giai đoạn
+            Cấu hình sân cho toàn giải
           </Typography>
           <Grid container spacing={2}>
             <Grid item xs={12} md={7}>
@@ -710,7 +680,7 @@ export default function CourtManagerDialog({
                   >
                     {savingCourts ? "Đang lưu..." : "Lưu danh sách sân"}
                   </Button>
-                  <Tooltip title="Reset tất cả sân (xoá sân & gỡ gán)">
+                  <Tooltip title="Reset tất cả sân (gỡ gán & xoá khỏi bộ lập lịch)">
                     <Button
                       variant="outlined"
                       color="error"
@@ -720,7 +690,7 @@ export default function CourtManagerDialog({
                       Reset tất cả
                     </Button>
                   </Tooltip>
-                  <Tooltip title="Xoá TẤT CẢ sân bằng API (không thể hoàn tác)">
+                  <Tooltip title="Xoá TẤT CẢ sân của giải (không thể hoàn tác)">
                     <Button
                       variant="contained"
                       color="error"
@@ -738,7 +708,7 @@ export default function CourtManagerDialog({
             <Grid item xs={12} md={5}>
               <PaperLike>
                 <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                  Hàng đợi vòng bảng
+                  Hàng đợi vòng bảng (toàn giải)
                 </Typography>
                 <Typography
                   variant="body2"
@@ -769,7 +739,7 @@ export default function CourtManagerDialog({
         </Typography>
 
         {courts.length === 0 ? (
-          <Alert severity="info">Chưa có sân nào cho giai đoạn này.</Alert>
+          <Alert severity="info">Chưa có sân nào cho giải này.</Alert>
         ) : (
           <Stack spacing={1}>
             {courts.map((c) => {

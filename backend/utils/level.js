@@ -1,5 +1,5 @@
 // utils/level.js
-export const DUPR_MIN = 2.0;
+export const DUPR_MIN = 1.6;
 export const DUPR_MAX = 8.0;
 
 export const clamp = (n, min, max) =>
