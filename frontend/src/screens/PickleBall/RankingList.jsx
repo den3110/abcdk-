@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useState, useCallback, useMemo, memo } from "react";
 import {
   Container,
   Typography,
@@ -65,13 +65,11 @@ function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
   const [err, setErr] = React.useState(false);
   const imgRef = React.useRef(null);
 
-  // reset khi src đổi
   React.useEffect(() => {
     setLoaded(false);
     setErr(false);
   }, [src]);
 
-  // Nếu ảnh có sẵn trong cache: complete + naturalWidth > 0
   React.useEffect(() => {
     const img = imgRef.current;
     if (!img) return;
@@ -80,16 +78,13 @@ function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
       return;
     }
     let cancelled = false;
-    // decode() giúp chắc chắn onLoad/complete diễn ra
     if (img.decode) {
       img
         .decode()
         .then(() => {
           if (!cancelled) setLoaded(true);
         })
-        .catch(() => {
-          /* ignore, sẽ chờ onLoad/onError */
-        });
+        .catch(() => {});
     }
     return () => {
       cancelled = true;
@@ -102,11 +97,10 @@ function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
         position: "relative",
         cursor: src ? "zoom-in" : "default",
         bgcolor: "background.default",
-        minHeight: maxHeight, // giữ chỗ, tránh layout shift
+        minHeight: maxHeight,
       }}
       onClick={() => src && onClick?.()}
     >
-      {/* Skeleton overlay */}
       {!loaded && !err && (
         <Skeleton
           variant="rectangular"
@@ -120,13 +114,11 @@ function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
         />
       )}
 
-      {/* Ảnh luôn render (opacity 0 khi chưa tải) */}
       {src && (
         <img
           ref={imgRef}
           src={src}
           alt={alt}
-          // Quan trọng: bỏ lazy trong Drawer (hoặc dùng "eager")
           loading="eager"
           onLoad={() => setLoaded(true)}
           onError={() => {
@@ -145,7 +137,6 @@ function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
         />
       )}
 
-      {/* Badge góc trái */}
       <Chip
         size="small"
         label={label}
@@ -159,7 +150,6 @@ function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
         }}
       />
 
-      {/* Lỗi ảnh */}
       {err && (
         <Box
           sx={{
@@ -176,7 +166,6 @@ function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
         </Box>
       )}
 
-      {/* Không có src */}
       {!src && (
         <Box
           sx={{
@@ -196,7 +185,7 @@ function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
   );
 }
 
-/* ================= Color & constants ================= */
+/* ================= Constants ================= */
 const VIEW_KEY = "ranking_desktop_view";
 const PLACE = "https://dummyimage.com/40x40/cccccc/ffffff&text=";
 const HEX = {
@@ -215,7 +204,7 @@ const SKELETON_CARDS_MOBILE = 6;
 const SKELETON_ROWS_DESKTOP = 10;
 const SKELETON_CARDS_DESKTOP = 9;
 
-/* ================= Helpers ================= */
+/* ================= Helper Functions (memoized) ================= */
 const calcAge = (u) => {
   if (!u) return null;
   const today = new Date();
@@ -268,7 +257,6 @@ const genderLabel = (g) => {
   }
 };
 
-// quyền chấm
 const canGradeUser = (me, targetProvince) => {
   if (me?.role === "admin") return true;
   if (!me?.evaluator?.enabled) return false;
@@ -276,7 +264,6 @@ const canGradeUser = (me, targetProvince) => {
   return !!targetProvince && scopes.includes(String(targetProvince).trim());
 };
 
-// quyền xem KYC
 const canViewKycAdmin = (me, status) =>
   me?.role === "admin" && (status === "verified" || status === "pending");
 
@@ -299,7 +286,6 @@ const getBaselineScores = (u, r) => {
   };
 };
 
-// URL params helpers
 const parsePageFromParams = (sp) => {
   const raw = sp.get("page");
   const n = parseInt(raw ?? "1", 10);
@@ -307,7 +293,7 @@ const parsePageFromParams = (sp) => {
 };
 const parseKeywordFromParams = (sp) => sp.get("q") ?? "";
 
-/* ================= Flame podium styles ================= */
+/* ================= Flame Effects ================= */
 const FLAME = {
   gold: ["#fff8b0", "#ffd54f", "#ffb300", "#ffd54f", "#fff8b0"],
   silver: ["#eceff1", "#cfd8dc", "#b0bec5", "#cfd8dc", "#eceff1"],
@@ -353,15 +339,14 @@ const flameRingSx = (type = "gold") => ({
   },
 });
 
-// 1) Thu gọn hiệu ứng để không vượt khung
 const flameCardSx = (type = "gold") => ({
   position: "relative",
-  overflow: "hidden", // was: 'visible'
+  overflow: "hidden",
   borderRadius: 6,
   "&::before": {
     content: '""',
     position: "absolute",
-    inset: 0, // was: -2
+    inset: 0,
     padding: "2px",
     borderRadius: 6,
     background: flameGradient(FLAME[type] || FLAME.gold),
@@ -377,7 +362,7 @@ const flameCardSx = (type = "gold") => ({
   "&::after": {
     content: '""',
     position: "absolute",
-    inset: 0, // was: -6
+    inset: 0,
     borderRadius: 6,
     boxShadow:
       type === "gold"
@@ -423,7 +408,7 @@ const medalChipStyleFull = (medal) => ({
   alignSelf: "stretch",
   "& .MuiChip-label": {
     display: "block",
-    whiteSpace: "normal", // cho phép xuống dòng
+    whiteSpace: "normal",
     wordBreak: "break-word",
     lineHeight: 1.2,
     paddingTop: "2px",
@@ -435,13 +420,193 @@ const medalChipStyleFull = (medal) => ({
     medal === "gold" ? "#ff8f00" : medal === "silver" ? "#607d8b" : "#e65100",
 });
 
-/* ================= Component ================= */
+/* ================= Memoized Desktop Card Component ================= */
+const DesktopCard = memo(
+  ({
+    r,
+    idx,
+    me,
+    cccdPatch,
+    patchMap,
+    topMedalByUser,
+    labelFullByUser,
+    hrefByUser,
+    onOpenProfile,
+    onOpenGrade,
+    onOpenKyc,
+    onZoomAvatar,
+  }) => {
+    const u = r?.user || {};
+    const effectiveStatus = (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
+    const badge = useMemo(() => cccdBadge(effectiveStatus), [effectiveStatus]);
+    const avatarSrc =
+      u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
+    const tierHex = HEX[r?.tierColor] || HEX.grey;
+    const age = useMemo(() => calcAge(u), [u]);
+    const canGrade = useMemo(
+      () => canGradeUser(me, u?.province),
+      [me, u?.province]
+    );
+
+    const patched = useMemo(() => {
+      const p = patchMap[u?._id || ""] || {};
+      return {
+        single: p?.single ?? r?.single,
+        double: p?.double ?? r?.double,
+        updatedAt: p?.updatedAt ?? r?.updatedAt,
+      };
+    }, [patchMap, u?._id, r]);
+
+    const allowKyc = useMemo(
+      () => canViewKycAdmin(me, effectiveStatus),
+      [me, effectiveStatus]
+    );
+
+    const uid = u?._id && String(u._id);
+    const topMedal = uid ? topMedalByUser.get(uid) : null;
+
+    return (
+      <Box sx={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <Card
+          variant="outlined"
+          sx={{
+            ...(topMedal ? flameCardSx(topMedal) : { borderRadius: 6 }),
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <CardContent
+            sx={{ flexGrow: 1, display: "flex", flexDirection: "column" }}
+          >
+            <Box display="flex" alignItems="center" mb={1.5} gap={2}>
+              <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
+                <Avatar
+                  src={avatarSrc}
+                  alt={u?.nickname || "?"}
+                  onClick={() => onZoomAvatar(avatarSrc)}
+                  sx={{ cursor: "zoom-in", width: 44, height: 44 }}
+                />
+              </Box>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography fontWeight={700} noWrap>
+                  {u?.nickname || "---"}
+                </Typography>
+                <Stack direction="row" spacing={1} alignItems="center" mt={0.5}>
+                  {Number.isFinite(age) && (
+                    <Chip size="small" label={`${age} tuổi`} />
+                  )}
+                  <Chip label={badge.text} size="small" color={badge.color} />
+                </Stack>
+              </Box>
+            </Box>
+
+            <Box sx={{ mb: 1, display: "flex", alignItems: "flex-start" }}>
+              {topMedal && (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  clickable
+                  component={Link}
+                  to={hrefByUser.get(uid) || "/tournaments"}
+                  label={labelFullByUser.get(uid)}
+                  sx={medalChipStyleFull(topMedal)}
+                  onMouseDown={(e) => e.stopPropagation()}
+                />
+              )}
+            </Box>
+
+            <Stack
+              direction="row"
+              flexWrap="wrap"
+              useFlexGap
+              sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
+            >
+              <Chip
+                size="small"
+                label={`Giới tính: ${genderLabel(u?.gender)}`}
+              />
+              <Chip size="small" label={`Tỉnh: ${u?.province || "--"}`} />
+            </Stack>
+
+            <Divider sx={{ mb: 1.25 }} />
+
+            <Stack
+              direction="row"
+              spacing={2}
+              mb={0.5}
+              sx={{ "& .score": { color: tierHex, fontWeight: 700 } }}
+            >
+              <Typography variant="body2" className="score">
+                Đôi: {fmt3(patched.double)}
+              </Typography>
+              <Typography variant="body2" className="score">
+                Đơn: {fmt3(patched.single)}
+              </Typography>
+            </Stack>
+
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              display="block"
+            >
+              Cập nhật:{" "}
+              {patched?.updatedAt
+                ? new Date(patched.updatedAt).toLocaleDateString()
+                : "--"}
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              display="block"
+            >
+              Tham gia:{" "}
+              {u?.createdAt ? new Date(u.createdAt).toLocaleDateString() : "--"}
+            </Typography>
+
+            <Stack direction="row" spacing={1} mt="auto">
+              <Button
+                size="small"
+                variant="contained"
+                color="success"
+                onClick={() => onOpenProfile(u?._id)}
+              >
+                Hồ sơ
+              </Button>
+              {canGrade && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => onOpenGrade(u, r)}
+                >
+                  Chấm trình
+                </Button>
+              )}
+              {allowKyc && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => onOpenKyc(u)}
+                >
+                  Xem KYC
+                </Button>
+              )}
+            </Stack>
+          </CardContent>
+        </Card>
+      </Box>
+    );
+  }
+);
+
+/* ================= Main Component ================= */
 export default function RankingList() {
   const dispatch = useDispatch();
   const { keyword, page } = useSelector((s) => s?.rankingUi || {});
   const [searchParams, setSearchParams] = useSearchParams();
+  const containerRef = useRef(null);
 
-  // const [desktopView, setDesktopView] = useState("list");
   const [desktopView, setDesktopView] = useState(() => {
     try {
       const cached = localStorage.getItem(VIEW_KEY);
@@ -449,13 +614,11 @@ export default function RankingList() {
     } catch (e) {
       console.log(e);
     }
-    return "cards"; // mặc định là cards
+    return "cards";
   });
 
-  // Debounced input state
   const [searchInput, setSearchInput] = useState(keyword || "");
 
-  // Query data (API mới có podiums30d)
   const {
     data = { docs: [], totalPages: 0, podiums30d: {} },
     isLoading,
@@ -479,7 +642,6 @@ export default function RankingList() {
 
   const desktopCards = !isMobile && desktopView === "cards";
 
-  // token
   const token = useSelector(
     (s) =>
       s?.auth?.userInfo?.token ??
@@ -499,20 +661,31 @@ export default function RankingList() {
   const me = meData || null;
   const canSelfAssess = !me || me.isScoreVerified === false;
 
-  // URL -> Redux & Input
+  // ✅ SCROLL TO TOP KHI CHUYỂN TRANG - FIX LAG QUAN TRỌNG NHẤT
   useEffect(() => {
-    const urlPage = parsePageFromParams(searchParams);
+    if (containerRef.current) {
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }, [page]);
+
+  // URL -> Redux & Input - OPTIMIZE: chỉ chạy khi searchParams thực sự thay đổi
+  const urlPage = useMemo(
+    () => parsePageFromParams(searchParams),
+    [searchParams]
+  );
+  const urlKeyword = useMemo(
+    () => parseKeywordFromParams(searchParams),
+    [searchParams]
+  );
+
+  useEffect(() => {
     if (urlPage !== page) dispatch(setPage(urlPage));
-
-    const urlQ = parseKeywordFromParams(searchParams);
-    if ((urlQ || "") !== (keyword || "")) {
-      dispatch(setKeyword(urlQ));
+    if ((urlKeyword || "") !== (keyword || "")) {
+      dispatch(setKeyword(urlKeyword));
     }
-    if ((urlQ || "") !== (searchInput || "")) {
-      setSearchInput(urlQ || "");
+    if ((urlKeyword || "") !== (searchInput || "")) {
+      setSearchInput(urlKeyword || "");
     }
-
-    // view mode from URL (optional)
 
     const v = searchParams.get("view");
     if (v === "cards" || v === "list") {
@@ -523,9 +696,7 @@ export default function RankingList() {
         console.log(e);
       }
     }
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [urlPage, urlKeyword, searchParams]);
 
   // Redux -> URL (only page)
   useEffect(() => {
@@ -535,9 +706,8 @@ export default function RankingList() {
       const next = new URLSearchParams(searchParams);
       if (desiredPageParam) next.set("page", desiredPageParam);
       else next.delete("page");
-      setSearchParams(next);
+      setSearchParams(next, { replace: true }); // ✅ replace: true để không tạo history mới
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
   // Debounce searchInput -> keyword
@@ -554,10 +724,8 @@ export default function RankingList() {
       }
     }, 400);
     return () => clearTimeout(handler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchInput]);
 
-  // Immediate search on Enter
   const doImmediateSearch = useCallback(() => {
     if ((searchInput || "") === (keyword || "")) return;
     dispatch(setKeyword(searchInput || ""));
@@ -567,20 +735,22 @@ export default function RankingList() {
     else next.delete("q");
     next.delete("page");
     setSearchParams(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchInput, keyword, dispatch, searchParams, setSearchParams]);
 
-  const handleInputKeyDown = (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      doImmediateSearch();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      if (searchInput) setSearchInput("");
-    }
-  };
+  const handleInputKeyDown = useCallback(
+    (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        doImmediateSearch();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        if (searchInput) setSearchInput("");
+      }
+    },
+    [doImmediateSearch, searchInput]
+  );
 
-  const handleClear = () => {
+  const handleClear = useCallback(() => {
     if (!searchInput && !keyword) return;
     setSearchInput("");
     dispatch(setKeyword(""));
@@ -589,26 +759,30 @@ export default function RankingList() {
     next.delete("q");
     next.delete("page");
     setSearchParams(next);
-  };
+  }, [searchInput, keyword, dispatch, searchParams, setSearchParams]);
 
   // Profile dialog
   const [openProfile, setOpenProfile] = useState(false);
   const [selectedId, setSelectedId] = useState(null);
   const [profileRefreshKey, setProfileRefreshKey] = useState(0);
-  const handleOpenProfile = (id) => {
+
+  const handleOpenProfile = useCallback((id) => {
     setSelectedId(id);
     setOpenProfile(true);
-  };
-  const handleCloseProfile = () => setOpenProfile(false);
+  }, []);
+
+  const handleCloseProfile = useCallback(() => setOpenProfile(false), []);
 
   // Zoom avatar
   const [zoomSrc, setZoomSrc] = useState("");
   const [zoomOpen, setZoomOpen] = useState(false);
-  const openZoom = (src) => {
+
+  const openZoom = useCallback((src) => {
     setZoomSrc(src || PLACE);
     setZoomOpen(true);
-  };
-  const closeZoom = () => setZoomOpen(false);
+  }, []);
+
+  const closeZoom = useCallback(() => setZoomOpen(false), []);
 
   // Grade dialog
   const [gradeDlg, setGradeDlg] = useState({
@@ -624,35 +798,49 @@ export default function RankingList() {
     useCreateEvaluationMutation();
 
   const [snack, setSnack] = useState({ open: false, type: "success", msg: "" });
-  const showSnack = (type, msg) => setSnack({ open: true, type, msg });
+  const showSnack = useCallback(
+    (type, msg) => setSnack({ open: true, type, msg }),
+    []
+  );
 
-  // Patch map (optimistic refresh)
   const [patchMap, setPatchMap] = useState({});
-  const getPatched = (r, u) => {
-    const p = patchMap[u?._id || ""] || {};
-    return {
-      single: p?.single ?? r?.single,
-      double: p?.double ?? r?.double,
-      updatedAt: p?.updatedAt ?? r?.updatedAt,
-    };
-  };
+  const [cccdPatch, setCccdPatch] = useState({});
 
-  const openGrade = (u, r) => {
-    const base = getBaselineScores(u, r);
-    setGradeDlg({
-      open: true,
-      userId: u?._id,
-      nickname: u?.nickname || "--",
-      province: u?.province || "",
-    });
-    setGradeSingles(
-      Number.isFinite(base.single) ? String(Number(base.single).toFixed(2)) : ""
-    );
-    setGradeDoubles(
-      Number.isFinite(base.double) ? String(Number(base.double).toFixed(2)) : ""
-    );
-    setGradeNotes("");
-  };
+  const openGrade = useCallback(
+    (u, r) => {
+      const p = patchMap[u?._id || ""] || {};
+      const base = {
+        single:
+          p?.single ??
+          r?.single ??
+          numOrUndef(u?.localRatings?.singles) ??
+          numOrUndef(u?.ratingSingle),
+        double:
+          p?.double ??
+          r?.double ??
+          numOrUndef(u?.localRatings?.doubles) ??
+          numOrUndef(u?.ratingDouble),
+      };
+      setGradeDlg({
+        open: true,
+        userId: u?._id,
+        nickname: u?.nickname || "--",
+        province: u?.province || "",
+      });
+      setGradeSingles(
+        Number.isFinite(base.single)
+          ? String(Number(base.single).toFixed(2))
+          : ""
+      );
+      setGradeDoubles(
+        Number.isFinite(base.double)
+          ? String(Number(base.double).toFixed(2))
+          : ""
+      );
+      setGradeNotes("");
+    },
+    [patchMap]
+  );
 
   const submitGrade = async () => {
     try {
@@ -719,9 +907,9 @@ export default function RankingList() {
   // KYC drawer
   const [kycView, setKycView] = useState(null);
   const [reviewKycMut, { isLoading: reviewing }] = useReviewKycMutation();
-  const [cccdPatch, setCccdPatch] = useState({});
-  const openKyc = (u) => setKycView(u || null);
-  const closeKyc = () => setKycView(null);
+
+  const openKyc = useCallback((u) => setKycView(u || null), []);
+  const closeKyc = useCallback(() => setKycView(null), []);
 
   const doReview = async (action) => {
     if (!kycView?._id) return;
@@ -742,17 +930,15 @@ export default function RankingList() {
     }
   };
 
-  const chipMobileSx = { mr: { xs: 0.75, sm: 0 }, mb: { xs: 0.75, sm: 0 } };
-
-  /* ===== Build top-achievement map từ API podiums30d ===== */
+  /* ===== Build top-achievement map ===== */
   const { topMedalByUser, labelShortByUser, labelFullByUser, hrefByUser } =
     useMemo(() => {
       const rank = { gold: 3, silver: 2, bronze: 1 };
 
-      const topMap = new Map(); // userId -> medal
-      const shortMap = new Map(); // userId -> "Nhà vô địch / Á quân / Đồng hạng 3"
-      const fullMap = new Map(); // userId -> "Nhà vô địch – Tên giải (+n giải khác)"
-      const hrefMap = new Map(); // userId -> link
+      const topMap = new Map();
+      const shortMap = new Map();
+      const fullMap = new Map();
+      const hrefMap = new Map();
 
       const entries = Object.entries(podiums30d || {});
 
@@ -804,188 +990,27 @@ export default function RankingList() {
       };
     }, [podiums30d]);
 
-  // handle desktop view mode change & sync URL
-  const handleChangeDesktopView = (_, next) => {
-    if (!next) return;
-    setDesktopView(next);
-    const nextParams = new URLSearchParams(searchParams);
-    if (next === "list") nextParams.delete("view");
-    else nextParams.set("view", next);
-    setSearchParams(nextParams);
-    try {
-      localStorage.setItem(VIEW_KEY, next);
-    } catch (e) {
-      console.log(e);
-    }
-  };
-
-  // ======== Render helpers ========
-  const DesktopCard = ({ r, idx }) => {
-    const u = r?.user || {};
-    const effectiveStatus = (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
-    const badge = cccdBadge(effectiveStatus);
-    const avatarSrc =
-      u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
-    const tierHex = HEX[r?.tierColor] || HEX.grey;
-    const age = calcAge(u);
-    const canGrade = canGradeUser(me, u?.province);
-    const patched = getPatched(r, u);
-    const allowKyc = canViewKycAdmin(me, effectiveStatus);
-
-    const uid = u?._id && String(u._id);
-    const topMedal = uid ? topMedalByUser.get(uid) : null;
-
-    return (
-      <>
-        {/* <SponsorMarquee /> */}
-        <Box sx={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
-          <Card
-            variant="outlined"
-            sx={{
-              ...(topMedal ? flameCardSx(topMedal) : { borderRadius: 6 }),
-              width: "100%", // full bề rộng ô grid
-              height: "100%", // kéo cao đều
-              display: "flex",
-              flexDirection: "column",
-            }}
-          >
-            <CardContent
-              sx={{ flexGrow: 1, display: "flex", flexDirection: "column" }}
-            >
-              <Box display="flex" alignItems="center" mb={1.5} gap={2}>
-                <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
-                  <Avatar
-                    src={avatarSrc}
-                    alt={u?.nickname || "?"}
-                    onClick={() => openZoom(avatarSrc)}
-                    sx={{ cursor: "zoom-in", width: 44, height: 44 }}
-                  />
-                </Box>
-                <Box sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography fontWeight={700} noWrap>
-                    {u?.nickname || "---"}
-                  </Typography>
-                  <Stack
-                    direction="row"
-                    spacing={1}
-                    alignItems="center"
-                    mt={0.5}
-                  >
-                    {Number.isFinite(age) && (
-                      <Chip size="small" label={`${age} tuổi`} />
-                    )}
-                    <Chip label={badge.text} size="small" color={badge.color} />
-                  </Stack>
-                </Box>
-              </Box>
-
-              {/* SLOT cố định cho chip thành tích (28px) */}
-              <Box sx={{ mb: 1, display: "flex", alignItems: "flex-start" }}>
-                {topMedal && (
-                  <Chip
-                    size="small"
-                    variant="outlined"
-                    clickable
-                    component={Link}
-                    to={hrefByUser.get(uid) || "/tournaments"}
-                    label={labelFullByUser.get(uid)} // <<< FULL
-                    sx={medalChipStyleFull(topMedal)} // <<< WRAP
-                    onMouseDown={(e) => e.stopPropagation()}
-                  />
-                )}
-              </Box>
-
-              <Stack
-                direction="row"
-                flexWrap="wrap"
-                useFlexGap
-                sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
-              >
-                <Chip
-                  size="small"
-                  label={`Giới tính: ${genderLabel(u?.gender)}`}
-                />
-                <Chip size="small" label={`Tỉnh: ${u?.province || "--"}`} />
-              </Stack>
-
-              <Divider sx={{ mb: 1.25 }} />
-
-              <Stack
-                direction="row"
-                spacing={2}
-                mb={0.5}
-                sx={{ "& .score": { color: tierHex, fontWeight: 700 } }}
-              >
-                <Typography variant="body2" className="score">
-                  Đôi: {fmt3(patched.double)}
-                </Typography>
-                <Typography variant="body2" className="score">
-                  Đơn: {fmt3(patched.single)}
-                </Typography>
-              </Stack>
-
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                display="block"
-              >
-                Cập nhật:{" "}
-                {patched?.updatedAt
-                  ? new Date(patched.updatedAt).toLocaleDateString()
-                  : "--"}
-              </Typography>
-              <Typography
-                variant="caption"
-                color="text.secondary"
-                display="block"
-              >
-                Tham gia:{" "}
-                {u?.createdAt
-                  ? new Date(u.createdAt).toLocaleDateString()
-                  : "--"}
-              </Typography>
-
-              {/* đẩy nút xuống đáy card */}
-              <Stack direction="row" spacing={1} mt="auto">
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="success"
-                  onClick={() => handleOpenProfile(u?._id)}
-                >
-                  Hồ sơ
-                </Button>
-                {canGrade && (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => openGrade(u, r)}
-                  >
-                    Chấm trình
-                  </Button>
-                )}
-                {allowKyc && (
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => openKyc(u)}
-                  >
-                    Xem KYC
-                  </Button>
-                )}
-              </Stack>
-            </CardContent>
-          </Card>
-        </Box>
-      </>
-    );
-  };
+  const handleChangeDesktopView = useCallback(
+    (_, next) => {
+      if (!next) return;
+      setDesktopView(next);
+      const nextParams = new URLSearchParams(searchParams);
+      if (next === "list") nextParams.delete("view");
+      else nextParams.set("view", next);
+      setSearchParams(nextParams);
+      try {
+        localStorage.setItem(VIEW_KEY, next);
+      } catch (e) {
+        console.log(e);
+      }
+    },
+    [searchParams, setSearchParams]
+  );
 
   return (
     <>
       <SponsorMarquee />
-      <Container maxWidth="xl" sx={{ py: 3 }}>
-        {/* Global keyframes for flame animation */}
+      <Container maxWidth="xl" sx={{ py: 3 }} ref={containerRef}>
         <GlobalStyles
           styles={{
             "@keyframes flameFlicker": {
@@ -1055,7 +1080,6 @@ export default function RankingList() {
           </Stack>
         </Box>
 
-        {/* Legend */}
         <Stack
           direction="row"
           flexWrap="wrap"
@@ -1111,7 +1135,6 @@ export default function RankingList() {
           <Alert severity="error">{error?.data?.message || error?.error}</Alert>
         ) : isLoading ? (
           isMobile ? (
-            // mobile skeleton (cards 1 cột)
             <Stack spacing={2}>
               {Array.from({ length: SKELETON_CARDS_MOBILE }).map((_, i) => (
                 <Card key={i} variant="outlined">
@@ -1151,7 +1174,6 @@ export default function RankingList() {
               ))}
             </Stack>
           ) : desktopCards ? (
-            // desktop skeleton (cards 3 cột)
             <Box
               sx={{
                 display: "grid",
@@ -1197,7 +1219,6 @@ export default function RankingList() {
               ))}
             </Box>
           ) : (
-            // desktop table skeleton
             <TableContainer component={Paper}>
               <Table size="small">
                 <TableHead>
@@ -1269,7 +1290,6 @@ export default function RankingList() {
             </TableContainer>
           )
         ) : isMobile ? (
-          /* ===== MOBILE LIST (cards 1 cột) ===== */
           <Stack spacing={2}>
             {list?.map((r) => {
               const u = r?.user || {};
@@ -1281,7 +1301,12 @@ export default function RankingList() {
               const tierHex = HEX[r?.tierColor] || HEX.grey;
               const age = calcAge(u);
               const canGrade = canGradeUser(me, u?.province);
-              const patched = getPatched(r, u);
+              const patched = patchMap[u?._id || ""] || {};
+              const patchedScores = {
+                single: patched?.single ?? r?.single,
+                double: patched?.double ?? r?.double,
+                updatedAt: patched?.updatedAt ?? r?.updatedAt,
+              };
               const allowKyc = canViewKycAdmin(me, effectiveStatus);
 
               const uid = u?._id && String(u._id);
@@ -1340,8 +1365,8 @@ export default function RankingList() {
                           clickable
                           component={Link}
                           to={hrefByUser.get(uid) || "/tournaments"}
-                          label={labelFullByUser.get(uid)} // <<< FULL
-                          sx={medalChipStyleFull(topMedal)} // <<< WRAP
+                          label={labelFullByUser.get(uid)}
+                          sx={medalChipStyleFull(topMedal)}
                           onMouseDown={(e) => e.stopPropagation()}
                         />
                       </Stack>
@@ -1371,10 +1396,10 @@ export default function RankingList() {
                       sx={{ "& .score": { color: tierHex, fontWeight: 600 } }}
                     >
                       <Typography variant="body2" className="score">
-                        Đôi: {fmt3(patched.double)}
+                        Đôi: {fmt3(patchedScores.double)}
                       </Typography>
                       <Typography variant="body2" className="score">
-                        Đơn: {fmt3(patched.single)}
+                        Đơn: {fmt3(patchedScores.single)}
                       </Typography>
                     </Stack>
 
@@ -1384,8 +1409,8 @@ export default function RankingList() {
                       display="block"
                     >
                       Cập nhật:{" "}
-                      {patched?.updatedAt
-                        ? new Date(patched.updatedAt).toLocaleDateString()
+                      {patchedScores?.updatedAt
+                        ? new Date(patchedScores.updatedAt).toLocaleDateString()
                         : "--"}
                     </Typography>
                     <Typography
@@ -1433,7 +1458,6 @@ export default function RankingList() {
             })}
           </Stack>
         ) : desktopCards ? (
-          /* ===== DESKTOP CARDS (grid 3 cột) ===== */
           <Box
             sx={{
               display: "grid",
@@ -1442,20 +1466,29 @@ export default function RankingList() {
                 sm: "repeat(2, minmax(0, 1fr))",
                 md: "repeat(3, minmax(0, 1fr))",
               },
-              gap: 2, // tương đương spacing={2}
+              gap: 2,
               alignItems: "stretch",
             }}
           >
             {list?.map((r, idx) => (
               <DesktopCard
+                key={r?._id || r?.user?._id || idx}
                 r={r}
                 idx={idx}
-                key={r?._id || r?.user?._id || idx}
+                me={me}
+                cccdPatch={cccdPatch}
+                patchMap={patchMap}
+                topMedalByUser={topMedalByUser}
+                labelFullByUser={labelFullByUser}
+                hrefByUser={hrefByUser}
+                onOpenProfile={handleOpenProfile}
+                onOpenGrade={openGrade}
+                onOpenKyc={openKyc}
+                onZoomAvatar={openZoom}
               />
             ))}
           </Box>
         ) : (
-          /* ===== DESKTOP TABLE (list) ===== */
           <TableContainer component={Paper}>
             <Table size="small">
               <TableHead>
@@ -1486,7 +1519,12 @@ export default function RankingList() {
                   const tierHex = HEX[r?.tierColor] || HEX.grey;
                   const age = calcAge(u);
                   const canGrade = canGradeUser(me, u?.province);
-                  const patched = getPatched(r, u);
+                  const patched = patchMap[u?._id || ""] || {};
+                  const patchedScores = {
+                    single: patched?.single ?? r?.single,
+                    double: patched?.double ?? r?.double,
+                    updatedAt: patched?.updatedAt ?? r?.updatedAt,
+                  };
                   const allowKyc = canViewKycAdmin(me, effectiveStatus);
 
                   const uid = u?._id && String(u._id);
@@ -1542,14 +1580,16 @@ export default function RankingList() {
                       <TableCell>{genderLabel(u?.gender)}</TableCell>
                       <TableCell>{u?.province || "--"}</TableCell>
                       <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
-                        {fmt3(patched.double)}
+                        {fmt3(patchedScores.double)}
                       </TableCell>
                       <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
-                        {fmt3(patched.single)}
+                        {fmt3(patchedScores.single)}
                       </TableCell>
                       <TableCell>
-                        {patched?.updatedAt
-                          ? new Date(patched.updatedAt).toLocaleDateString()
+                        {patchedScores?.updatedAt
+                          ? new Date(
+                              patchedScores.updatedAt
+                            ).toLocaleDateString()
                           : "--"}
                       </TableCell>
                       <TableCell>
@@ -1620,7 +1660,6 @@ export default function RankingList() {
           refreshKey={profileRefreshKey}
         />
 
-        {/* Zoom dialog (avatar) */}
         <Dialog
           open={zoomOpen}
           onClose={closeZoom}
@@ -1650,11 +1689,6 @@ export default function RankingList() {
           </DialogActions>
         </Dialog>
 
-        {/* KYC Drawer */}
-        {/* ... (phần Drawer giữ nguyên như bản trước của bạn) ... */}
-        {/* Mình không cắt dán lại toàn bộ cho gọn tin nhắn, nhưng không đổi logic phần Drawer/KYC/Grade Dialog */}
-
-        {/* KYC Drawer */}
         <Drawer
           anchor="right"
           open={!!kycView}
@@ -1842,7 +1876,6 @@ export default function RankingList() {
           </Box>
         </Drawer>
 
-        {/* Grade dialog */}
         <Dialog
           open={gradeDlg.open}
           onClose={() => setGradeDlg({ open: false })}
