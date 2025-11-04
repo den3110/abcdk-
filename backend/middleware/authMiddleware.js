@@ -1,47 +1,13 @@
 // middleware/authMiddleware.js
 import jwt from "jsonwebtoken";
 import asyncHandler from "express-async-handler";
-import mongoose from "mongoose";
 import User from "../models/userModel.js";
 import Match from "../models/matchModel.js";
 import Tournament from "../models/tournamentModel.js";
-import TournamentManager from "../models/tournamentManagerModel.js";
+import TournamentManager from "../models/tournamentManagerModel.js"
+import mongoose from "mongoose";
 
 const isValidId = (v) => !!v && mongoose.isValidObjectId(String(v));
-
-/* ----------------------------------------------------------
- | Field gọn đúng với model hiện tại
- * -------------------------------------------------------- */
-const USER_SAFE_SELECT =
-  "_id name nickname phone email role isDeleted deletedAt";
-
-/* ----------------------------------------------------------
- | Chuẩn hoá quyền từ user: CHỈ dùng role
- * -------------------------------------------------------- */
-function computeRoleFlags(user) {
-  const role = user?.role || "";
-  const isAdmin = role === "admin";
-  const isReferee = isAdmin || role === "referee";
-  return { role, isAdmin, isReferee };
-}
-
-/* ----------------------------------------------------------
- | Gắn cờ quyền lên req.* để chỗ cũ vẫn chạy
- * -------------------------------------------------------- */
-function attachFlags(req, userObj) {
-  const flags = computeRoleFlags(userObj);
-  req.isAdmin = !!flags.isAdmin;
-  req.isReferee = !!flags.isReferee;
-
-  // hợp nhất lại vào req.user để code cũ không phải sửa
-  const idStr = String(userObj?._id || userObj?.id || "");
-  if (req.user) {
-    req.user._id = idStr;
-    req.user.role = flags.role;
-  } else {
-    req.user = { _id: idStr, role: flags.role };
-  }
-}
 
 /* ----------------------------------------------------------
  | Tiện ích lấy JWT:
@@ -49,54 +15,35 @@ function attachFlags(req, userObj) {
  |  2. Fallback header 'Authorization: Bearer <token>'
  * -------------------------------------------------------- */
 function extractToken(req) {
+  // 1) Cookie
   if (req.cookies?.jwt) return req.cookies.jwt;
+
+  // 2) Header
   const auth = req.headers.authorization || "";
   if (auth.startsWith("Bearer ")) return auth.slice(7);
+
   return null;
 }
 
-/* ----------------------------------------------------------
- | Verify token → trả về userId (hoặc null)
- * -------------------------------------------------------- */
-function decodeUserIdFromToken(token) {
-  const decoded = jwt.verify(token, process.env.JWT_SECRET);
-  return decoded.userId || decoded.id || decoded._id || null;
-}
-
-/* ----------------------------------------------------------
- | Luôn load user “tươi” từ DB bằng _id (lean để nhanh)
- * -------------------------------------------------------- */
-async function loadFreshUser(userId, select = USER_SAFE_SELECT) {
-  if (!userId || !isValidId(userId)) return null;
-  return User.findById(userId).select(select).lean();
-}
-
-/* --------- Bảo vệ tất cả route yêu cầu đăng nhập (cookie/header) --------- */
+/* --------- Bảo vệ tất cả route yêu cầu đăng nhập --------- */
 export const protect = asyncHandler(async (req, res, next) => {
   const token = extractToken(req);
+
   if (!token) {
     res.status(403);
     throw new Error("Not authorized – no token");
   }
 
   try {
-    const userId = decodeUserIdFromToken(token);
-    if (!userId) {
-      res.status(401);
-      throw new Error("Not authorized – token invalid");
-    }
-    const user = await loadFreshUser(userId, USER_SAFE_SELECT);
-    if (!user) {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Gắn user (đã có .role) vào req
+    req.user = await User.findById(decoded.userId).select("-password");
+
+    if (!req.user) {
       res.status(401);
       throw new Error("Not authorized – user not found");
     }
-    if (user.isDeleted || user.deletedAt) {
-      res.status(403);
-      throw new Error("Account disabled");
-    }
 
-    req.user = user; // lean object
-    attachFlags(req, user);
     return next();
   } catch (err) {
     console.error("JWT verify failed:", err.message);
@@ -105,34 +52,35 @@ export const protect = asyncHandler(async (req, res, next) => {
   }
 });
 
-/* --------- Bảo vệ kiểu chỉ header Bearer (tương thích cũ) --------- */
 export const protectJwt = asyncHandler(async (req, res, next) => {
-  const auth = req.headers.authorization || "";
-  if (!auth.startsWith("Bearer ")) {
+  let token;
+
+  // 1. Extract Bearer token from Authorization header
+  if (
+    req.headers.authorization &&
+    req.headers.authorization.startsWith("Bearer ")
+  ) {
+    token = req.headers.authorization.split(" ")[1];
+  }
+
+  if (!token) {
     res.status(401);
     throw new Error("Not authorized — no token provided");
   }
 
   try {
-    const token = auth.split(" ")[1];
-    const userId = decodeUserIdFromToken(token);
-    if (!userId) {
-      res.status(401);
-      throw new Error("Not authorized — token invalid");
-    }
-    const user = await loadFreshUser(userId, USER_SAFE_SELECT);
+    // 2. Verify & decode
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // 3. Lookup user in DB (exclude password)
+    const user = await User.findById(decoded.userId).select("-password");
     if (!user) {
       res.status(401);
       throw new Error("Not authorized — user not found");
     }
-    if (user.isDeleted || user.deletedAt) {
-      res.status(403);
-      throw new Error("Account disabled");
-    }
 
-    req.user = user; // lean
-    attachFlags(req, user);
-    return next();
+    // 4. Attach to request
+    req.user = user;
+    next();
   } catch (err) {
     console.error("JWT verification failed:", err.message);
     res.status(401);
@@ -144,88 +92,83 @@ export const protectJwt = asyncHandler(async (req, res, next) => {
 export const authorize =
   (...allowedRoles) =>
   (req, res, next) => {
-    if (!req.user?._id) {
+    if (!req.user) {
       res.status(401);
       throw new Error("Not authorized");
     }
-    // admin luôn pass
-    if (req.isAdmin) return next();
 
-    const flags = computeRoleFlags(req.user);
-    const ok = allowedRoles.some((r) => r && flags.role === r);
-    if (!ok) {
+    if (!allowedRoles.includes(req.user.role)) {
       res.status(403);
       throw new Error("Forbidden – insufficient role");
     }
+
     return next();
   };
 
-/* --------- Chỉ referee hoặc admin --------- */
+/* Chỉ referee hoặc admin */
 export const refereeOnly = (req, res, next) => {
-  if (!req.user?._id) {
-    res.status(401);
-    throw new Error("Not authorized");
-  }
-  if (req.isAdmin || req.isReferee) return next();
+  const role = req.user?.role;
+  if (role === "referee" || role === "admin") return next();
   res.status(403);
   throw new Error("Referee-only endpoint");
 };
 
-/* --------- Admin/Referee chấm bất kỳ; user chỉ chấm chính mình --------- */
 export function canScore(req, res, next) {
-  if (!req.user?._id) {
-    res.status(401);
-    throw new Error("Not authorized");
-  }
-  const targetUserId =
-    req.params?.userId || req.body?.userId || req.query?.userId || "";
-
-  const actorId = String(req.user._id || req.user.id || "");
-  const isSelf = targetUserId && actorId === String(targetUserId);
-
-  if (isSelf || req.isAdmin || req.isReferee) return next();
+  // Admin/Referee chấm bất kỳ; user chỉ chấm chính mình
+  const targetUserId = req.params.userId || req.body.userId;
+  const isSelf = String(req.user._id) === String(targetUserId);
+  const role = req.user.role;
+  if (isSelf || role === "admin" || role === "referee") return next();
   return res.status(403).json({ message: "Forbidden" });
 }
 
-/* --------- optionalAuth: có token thì gắn user tươi; không có thì khách --------- */
 export async function optionalAuth(req, res, next) {
   try {
     let token = null;
+
     if (req.headers.authorization?.startsWith("Bearer ")) {
       token = req.headers.authorization.split(" ")[1];
     } else if (req.cookies?.jwt) {
       token = req.cookies.jwt;
     }
+
     if (!token) return next(); // khách vãng lai
 
-    const userId = decodeUserIdFromToken(token);
-    if (!userId) return next();
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const uid = payload.userId || payload.id || payload._id;
 
-    const user = await loadFreshUser(userId, USER_SAFE_SELECT);
-    if (!user) return next();
-    if (user.isDeleted || user.deletedAt) return next();
-
-    req.user = user; // lean
-    attachFlags(req, user);
-  } catch {
+    if (uid) {
+      const u = await User.findById(uid)
+        .select("_id roles role isAdmin")
+        .lean();
+      if (u) {
+        req.user = {
+          _id: String(u._id),
+          roles: Array.isArray(u.roles) ? u.roles : u.role ? [u.role] : [],
+          role: u.role,
+          isAdmin: !!u.isAdmin,
+        };
+      }
+    }
+  } catch (e) {
     // token hỏng/expire → coi như khách, không 401
   }
   next();
 }
 
-/* --------- Kiểm tra quyền quản lý/owner/admin theo Tournament --------- */
 export const isManagerTournament = asyncHandler(async (req, res, next) => {
   if (!req.user?._id) {
     res.status(401);
     throw new Error("Not authorized – no user");
   }
-  attachFlags(req, req.user); // đảm bảo flags có
 
   const uid = String(req.user._id);
 
   // 1) Nếu có matchId → ưu tiên suy ra tournament từ match
   const matchIdParam =
-    req.params?.matchId || (isValidId(req.params?.id) ? req.params.id : null);
+    req.params?.matchId ||
+    // nhiều route cũ dùng :id cho match → thử luôn nhưng chỉ coi là match nếu tồn tại
+    (isValidId(req.params?.id) ? req.params.id : null);
 
   let matchDoc = null;
   let tournamentId = null;
@@ -269,10 +212,15 @@ export const isManagerTournament = asyncHandler(async (req, res, next) => {
     throw new Error("Tournament not found");
   }
 
-  // 4) Admin luôn pass
-  if (req.isAdmin) {
-    req.tournament = tournament;
-    if (matchDoc) req.match = matchDoc;
+  // 4) Quyền admin luôn pass
+  const isAdmin =
+    req.user.isAdmin === true ||
+    req.user.role === "admin" ||
+    (Array.isArray(req.user.roles) && req.user.roles.includes("admin"));
+
+  if (isAdmin) {
+    req.tournament = tournament; // lean
+    if (matchDoc) req.match = matchDoc; // doc thật để controller sử dụng
     return next();
   }
 
@@ -292,7 +240,9 @@ export const isManagerTournament = asyncHandler(async (req, res, next) => {
     .select("_id")
     .lean();
 
-  if (!tm) {
+  const isManager = !!tm;
+
+  if (!isManager) {
     res.status(403);
     throw new Error("Forbidden – require tournament manager/owner/admin");
   }
@@ -303,7 +253,6 @@ export const isManagerTournament = asyncHandler(async (req, res, next) => {
   return next();
 });
 
-/* --------- Gắn user nếu header có Bearer (không fail route) --------- */
 export const attachJwtIfPresent = asyncHandler(async (req, res, next) => {
   const auth = req.headers.authorization || "";
   if (!auth.startsWith("Bearer ")) return next();
@@ -312,38 +261,37 @@ export const attachJwtIfPresent = asyncHandler(async (req, res, next) => {
   if (!token) return next();
 
   try {
-    const userId = decodeUserIdFromToken(token);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Hỗ trợ cả 'userId' và 'id' cho linh hoạt cách sign
+    const userId = decoded.userId || decoded.id;
     if (!userId) return next();
 
-    const user = await loadFreshUser(userId, USER_SAFE_SELECT);
+    const user = await User.findById(userId).select("-password");
     if (!user) return next();
-    if (user.isDeleted || user.deletedAt) return next();
 
-    req.user = user; // lean
-    attachFlags(req, user);
+    req.user = user;
     return next();
-  } catch {
+  } catch (err) {
     // Token hỏng/hết hạn: không gắn user và cho đi tiếp (fail-open)
     return next();
   }
 });
 
-/* --------- passProtect: có token thì gắn user (tươi), không có thì cho qua --------- */
 export const passProtect = asyncHandler(async (req, res, next) => {
   const token = extractToken(req);
   if (!token) return next();
 
   try {
-    const userId = decodeUserIdFromToken(token);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    // Hỗ trợ cả userId/id/_id cho linh hoạt cách sign
+    const userId = decoded.userId || decoded.id || decoded._id;
     if (!userId) return next();
 
-    const user = await loadFreshUser(userId, USER_SAFE_SELECT);
+    const user = await User.findById(userId).select("-password");
     if (!user) return next();
-    if (user.isDeleted || user.deletedAt) return next();
 
-    req.user = user; // lean
-    attachFlags(req, user);
-  } catch {
+    req.user = user;
+  } catch (err) {
     // Token hỏng/hết hạn: không gắn user và cho đi tiếp (fail-open)
   }
   return next();
