@@ -1086,6 +1086,7 @@ export default function TournamentRegistration() {
     isLoading: searching,
     isFetching: searchingFetching,
     error: searchErr,
+    refetch: refetchSearchRegs,
   } = useSearchRegistrationsQuery({ id, q: debouncedQ }, { skip: !debouncedQ });
 
   // Memoized values
@@ -1271,14 +1272,24 @@ export default function TournamentRegistration() {
         if (canManage) await adminDeleteReg(r._id).unwrap();
         else await cancelReg(r._id).unwrap();
         toast.success("Đã huỷ đăng ký");
-        refetchRegs();
+        if (searchingActive) await refetchSearchRegs();
+        await refetchRegs();
       } catch (e) {
         toast.error(e?.data?.message || e?.error || "Huỷ đăng ký thất bại");
       } finally {
         setCancelingId(null);
       }
     },
-    [isLoggedIn, canManage, me, adminDeleteReg, cancelReg, refetchRegs]
+    [
+      isLoggedIn,
+      canManage,
+      me,
+      adminDeleteReg,
+      cancelReg,
+      refetchRegs,
+      searchingActive,
+      refetchSearchRegs,
+    ]
   );
 
   const togglePayment = useCallback(
@@ -1296,14 +1307,21 @@ export default function TournamentRegistration() {
             ? "Đã xác nhận đã thanh toán"
             : "Đã chuyển về chưa thanh toán"
         );
-        refetchRegs();
+        if (searchingActive) await refetchSearchRegs();
+        await refetchRegs();
       } catch (e) {
         toast.error(
           e?.data?.message || e?.error || "Cập nhật thanh toán thất bại"
         );
       }
     },
-    [canManage, setPaymentStatus, refetchRegs]
+    [
+      canManage,
+      setPaymentStatus,
+      refetchRegs,
+      searchingActive,
+      refetchSearchRegs,
+    ]
   );
 
   const openPreview = useCallback(
@@ -1353,11 +1371,20 @@ export default function TournamentRegistration() {
       }).unwrap();
       toast.success("Đã thay VĐV");
       closeReplace();
-      refetchRegs();
+      if (searchingActive) await refetchSearchRegs();
+      await refetchRegs();
     } catch (e) {
       toast.error(e?.data?.message || e?.error || "Không thể thay VĐV");
     }
-  }, [replaceDlg, newPlayer, replacePlayer, closeReplace, refetchRegs]);
+  }, [
+    replaceDlg,
+    newPlayer,
+    replacePlayer,
+    closeReplace,
+    refetchRegs,
+    searchingActive,
+    refetchSearchRegs,
+  ]);
 
   const maskPhone = useCallback((phone) => {
     if (!phone) return "*******???";
