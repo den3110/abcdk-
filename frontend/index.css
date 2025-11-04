@@ -1,3 +1,79 @@
 .MuiDateRangeCalendar-root > div:first-of-type {
-    display: none !important
+  display: none !important;
+}
+
+/* ===== HeaderSeed responsive ===== */
+.header-seed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--seed-bg);
+  color: var(--seed-fg);
+  font-weight: 700;
+  line-height: 1.1;
+}
+.seed-code {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.seed-meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+.meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.meta-icon {
+  font-size: 16px !important;
+  opacity: 0.9;
+}
+.meta-text {
+  display: inline-block;
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mobile: tách xuống hàng, co icon, giãn đều 2 bên */
+@media (max-width: 560px) {
+  .header-seed {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 8px;
+  }
+  .seed-meta {
+    width: 100%;
+    margin-left: 0;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .meta-icon {
+    font-size: 14px !important;
+  }
+  .meta-text {
+    max-width: 40vw;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+}
+
+/* Rất nhỏ: cho phép wrap nhiều item */
+@media (max-width: 360px) {
+  .seed-meta {
+    justify-content: flex-start;
+    gap: 10px;
+  }
+  .meta-text {
+    max-width: 65vw;
+  }
 }

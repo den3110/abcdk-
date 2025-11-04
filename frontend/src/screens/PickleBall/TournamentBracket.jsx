@@ -716,53 +716,28 @@ const CustomSeed = ({
           {m && (
             <div
               className="header-seed"
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "4px 8px",
-                borderRadius: 6,
-                background: color.bg,
-                color: color.fg,
-                fontWeight: 700,
-                lineHeight: 1.1,
-              }}
+              style={{ "--seed-bg": color.bg, "--seed-fg": color.fg }}
             >
-              <span style={{ fontVariantNumeric: "tabular-nums" }}>{code}</span>
+              <span className="seed-code">{code}</span>
 
-              <span
-                style={{
-                  marginLeft: "auto",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
+              <span className="seed-meta">
                 {t && (
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                  >
-                    <AccessTimeIcon sx={{ fontSize: 14 }} />
-                    <span>{t}</span>
+                  <span className="meta-item" title={String(t)}>
+                    <AccessTimeIcon className="meta-icon" />
+                    <span className="meta-text">{t}</span>
                   </span>
                 )}
                 {c && (
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                  >
-                    <StadiumIcon sx={{ fontSize: 14 }} />
-                    <span>{c}</span>
+                  <span className="meta-item" title={String(c)}>
+                    <StadiumIcon className="meta-icon" />
+                    <span className="meta-text">{c}</span>
                   </span>
                 )}
-                {vid && <VideoIcon sx={{ fontSize: 16 }} />}
+                {vid && (
+                  <span className="meta-item">
+                    <VideoIcon className="meta-icon" />
+                  </span>
+                )}
               </span>
             </div>
           )}
