@@ -911,13 +911,13 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     m?.tournament?.id ||
     null;
 
-  const { data: brackets = [] } = useListTournamentBracketsQuery(
-    tournamentId ? tournamentId : skipToken
-  );
-  const { data: allMatchesFetched = [] } = useListTournamentMatchesQuery(
-    tournamentId ? { tournamentId } : skipToken,
-    { refetchOnFocus: false, refetchOnReconnect: true }
-  );
+  const { data: brackets = [], isFetching: fetchingBrackets } =
+    useListTournamentBracketsQuery(tournamentId ? tournamentId : skipToken);
+  const { data: allMatchesFetched = [], isFetching: fetchingMatches } =
+    useListTournamentMatchesQuery(tournamentId ? { tournamentId } : skipToken, {
+      refetchOnFocus: false,
+      refetchOnReconnect: true,
+    });
 
   const byBracket = useMemo(() => {
     const m = {};
@@ -947,13 +947,12 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const socket = socketCtx?.socket || socketCtx;
 
   const loading = Boolean(isLoading || liveLoading);
+  const globalLoading = Boolean(loading || fetchingBrackets || fetchingMatches);
   const {
     lockedId,
     view: mm,
     waiting,
-  } = useLockedMatch(m, {
-    loading,
-  });
+  } = useLockedMatch(m, { loading: globalLoading });
 
   const groupDoneByStage = useMemo(() => {
     const stageMap = new Map();
@@ -1030,7 +1029,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     [groupDoneByStage, mm?.bracket?.stage, mm?.stage]
   );
 
-  const showSpinnerDelayed = useDelayedFlag(waiting, 250);
+  const booting = globalLoading || !lockedId; // chưa biết matchId thì coi như đang boot
+  const showSpinnerDelayed = useDelayedFlag(booting, 250);
+  const showErrorDelayed = useDelayedFlag(!booting && !mm, 600); // chỉ báo lỗi khi chắc chắn không còn load
 
   const [localPatch, setLocalPatch] = useState(null);
   useEffect(() => {
@@ -1374,15 +1375,19 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   }, [socket, lockedId]);
 
   /* ====================== Render ====================== */
-  if (waiting && showSpinnerDelayed) {
+  if (showSpinnerDelayed) {
     return (
       <Box py={4} textAlign="center">
         <CircularProgress />
       </Box>
     );
   }
-  if (!mm) {
+  if (showErrorDelayed) {
     return <Alert severity="error">Không tải được dữ liệu trận.</Alert>;
+  }
+  if (!mm) {
+    // vẫn còn chờ nhưng không muốn hiện lỗi sớm
+    return null;
   }
 
   const canSeeOverlay = canEdit;

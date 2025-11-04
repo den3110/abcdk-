@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   Alert,
   Avatar,
@@ -22,7 +22,7 @@ import {
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import { useDispatch } from "react-redux";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   useGetProfileQuery,
   useUpdateUserMutation,
@@ -139,7 +139,22 @@ const EMPTY = {
 export default function ProfileScreen() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
+  const cccdSectionRef = useRef(null);
+  const HEADER_OFFSET = 72; // nếu header cố định cao ~72px
 
+  const scrollToEl = useCallback((el) => {
+    if (!el || typeof window === "undefined") return;
+    const top =
+      el.getBoundingClientRect().top + window.pageYOffset - HEADER_OFFSET;
+    window.scrollTo({ top, behavior: "smooth" });
+    // nháy viền nhẹ để user thấy điểm đến
+    el.style.outline = "2px solid #0284c7";
+    el.style.borderRadius = "8px";
+    setTimeout(() => {
+      el.style.outline = "none";
+    }, 1500);
+  }, []);
   const { data: user, isLoading: fetching, refetch } = useGetProfileQuery();
   const [updateProfile, { isLoading }] = useUpdateUserMutation();
   const [logoutApiCall] = useLogoutMutation();
@@ -178,6 +193,14 @@ export default function ProfileScreen() {
     setCccdZoomSrc(src);
     setCccdZoomOpen(true);
   };
+
+  useEffect(() => {
+    if (fetching) return; // chờ load xong
+    const hash = (location.hash || "").replace("#", "");
+    if (hash === "2" || hash === "cccd") {
+      requestAnimationFrame(() => scrollToEl(cccdSectionRef.current));
+    }
+  }, [location.hash, fetching, scrollToEl]);
 
   /* Prefill khi user đến */
   useEffect(() => {
@@ -507,35 +530,35 @@ export default function ProfileScreen() {
             </FormControl>
 
             {/* ✅ DatePicker cho Ngày sinh */}
-              <DatePicker
-                label="Ngày sinh"
-                value={dobValue}
-                onChange={(newVal) => {
-                  setTouched((t) => ({ ...t, dob: true }));
-                  setForm((p) => ({
-                    ...p,
-                    dob:
-                      newVal && newVal.isValid()
-                        ? newVal.format("YYYY-MM-DD")
-                        : "",
-                  }));
-                }}
-                format="DD/MM/YYYY"
-                minDate={MIN_DOB}
-                defaultCalendarMonth={MIN_DOB} // mở đúng tháng/năm 01/1990 khi chưa có giá trị
-                referenceDate={MIN_DOB} // tham chiếu mặc định 01/01/1990
-                disableFuture
-                views={["year", "month", "day"]}
-                slotProps={{
-                  textField: {
-                    fullWidth: true,
-                    placeholder: "DD/MM/YYYY", // 👈 placeholder khi chưa chọn
-                    onBlur: () => setTouched((t) => ({ ...t, dob: true })),
-                    error: showErr("dob"),
-                    helperText: showErr("dob") ? errors.dob : " ",
-                  },
-                }}
-              />
+            <DatePicker
+              label="Ngày sinh"
+              value={dobValue}
+              onChange={(newVal) => {
+                setTouched((t) => ({ ...t, dob: true }));
+                setForm((p) => ({
+                  ...p,
+                  dob:
+                    newVal && newVal.isValid()
+                      ? newVal.format("YYYY-MM-DD")
+                      : "",
+                }));
+              }}
+              format="DD/MM/YYYY"
+              minDate={MIN_DOB}
+              defaultCalendarMonth={MIN_DOB} // mở đúng tháng/năm 01/1990 khi chưa có giá trị
+              referenceDate={MIN_DOB} // tham chiếu mặc định 01/01/1990
+              disableFuture
+              views={["year", "month", "day"]}
+              slotProps={{
+                textField: {
+                  fullWidth: true,
+                  placeholder: "DD/MM/YYYY", // 👈 placeholder khi chưa chọn
+                  onBlur: () => setTouched((t) => ({ ...t, dob: true })),
+                  error: showErr("dob"),
+                  helperText: showErr("dob") ? errors.dob : " ",
+                },
+              }}
+            />
 
             <FormControl fullWidth required error={showErr("province")}>
               <InputLabel id="province-lbl" shrink>
@@ -624,9 +647,15 @@ export default function ProfileScreen() {
             />
 
             {/* ------ Upload / Preview CCCD ------ */}
-            <Typography variant="subtitle1" fontWeight={600} mt={1}>
-              Ảnh CCCD
-            </Typography>
+            <Box
+              ref={cccdSectionRef}
+              id="cccd"
+              sx={{ scrollMarginTop: `${HEADER_OFFSET + 8}px` }}
+            >
+              <Typography variant="subtitle1" fontWeight={600} mt={1}>
+                Ảnh CCCD
+              </Typography>
+            </Box>
             {showUpload ? (
               <>
                 {isCccdEmpty && (

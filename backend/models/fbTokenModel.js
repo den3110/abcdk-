@@ -21,7 +21,10 @@ const FbTokenSchema = new mongoose.Schema(
     needsReauth: { type: Boolean, default: false },
     lastCheckedAt: Date,
     lastError: String,
-
+    // ✅ lưu kết quả health check gần nhất
+    lastStatusCode: { type: String, default: null }, // "OK" | "INVALID" | ...
+    lastStatusProblems: [String],
+    lastStatusHints: [String],
     // ➕ NEW: quản lý "rảnh/bận"
     isBusy: { type: Boolean, default: false }, // mặc định rảnh
     busyMatch: {

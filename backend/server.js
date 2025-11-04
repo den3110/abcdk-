@@ -50,6 +50,7 @@ import oauthRoutes from "./routes/oauthRoutes.js";
 import liveRoutes from "./routes/live.routes.js";
 import courtRoutes from "./routes/courtRoutes.js"
 import spcRoutes from "./routes/spc.routes.js";
+import fbTokenRoutes from "./routes/fbTokenRoutes.js"
 import publicOverlayRoutes from "./routes/publicOverlayRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
 
@@ -132,6 +133,7 @@ app.use("/api/live", liveRoutes);
 app.use("/api/courts", courtRoutes);
 app.use("/api/admin/spc", spcRoutes);
 app.use("/api/public", publicOverlayRoutes);
+app.use("/api/fb-tokens", fbTokenRoutes);
 
 app.get("/dl/file/:id", async (req, res) => {
   try {

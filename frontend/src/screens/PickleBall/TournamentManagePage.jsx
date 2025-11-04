@@ -10,7 +10,7 @@ import React, {
   useSyncExternalStore,
   useTransition,
 } from "react";
-import { Link, useParams, useNavigate } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
   Alert,
@@ -53,9 +53,9 @@ import {
   DialogContent,
   DialogActions,
   Slide,
+  FormControlLabel,
 } from "@mui/material";
 import {
-  LinkOff as LinkOffIcon,
   OpenInNew as OpenInNewIcon,
   Search as SearchIcon,
   Sort as SortIcon,
@@ -120,35 +120,20 @@ const _normGame = (g) => {
   return null;
 };
 
-const scoreSummary = (m) => {
-  if (!m?.pairA || !m?.pairB) {
-    return String(m?.status || "").toLowerCase() === "finished" ? "BYE" : "—";
-  }
-  const raw =
-    (Array.isArray(m?.gameScores) && m.gameScores) ||
-    (Array.isArray(m?.scores) && m.scores) ||
-    (Array.isArray(m?.sets) && m.sets) ||
-    [];
+const personNickname = (p) =>
+  p?.nickname ||
+  p?.nickName ||
+  p?.nick ||
+  p?.displayName ||
+  p?.fullName ||
+  p?.name ||
+  "—";
 
-  const games = raw.map(_normGame).filter(Boolean);
-  let wa = 0,
-    wb = 0;
-  games.forEach((p) => {
-    if (p.a > p.b) wa++;
-    else if (p.b > p.a) wb++;
-  });
-
-  const aSets = _num(m?.scoreA) ?? _num(m?.setsWonA) ?? (games.length ? wa : 0);
-  const bSets = _num(m?.scoreB) ?? _num(m?.setsWonB) ?? (games.length ? wb : 0);
-
-  const main =
-    aSets || bSets ? `${aSets}–${bSets}` : games.length ? `${wa}–${wb}` : "—";
-
-  const detail = games.length
-    ? `(${games.map((p) => `${p.a}–${p.b}`).join(", ")})`
-    : "";
-
-  return detail ? `${main} ${detail}` : main;
+const pairLabel = (pair) => {
+  if (!pair) return "—";
+  if (pair.name) return pair.name;
+  const ps = [pair.player1, pair.player2].filter(Boolean).map(personNickname);
+  return ps.join(" / ") || "—";
 };
 
 const TYPE_LABEL = (t) => {
@@ -164,15 +149,6 @@ const TYPE_LABEL = (t) => {
 };
 
 const WEB_LOGO_URL = "/icon.png";
-
-const personNickname = (p) =>
-  p?.nickname ||
-  p?.nickName ||
-  p?.nick ||
-  p?.displayName ||
-  p?.fullName ||
-  p?.name ||
-  "—";
 
 const refereeNames = (m) => {
   const pickOne = (u) => personNickname(u);
@@ -273,13 +249,6 @@ const buildRefReportHTML = ({
   </body></html>`;
 };
 
-const pairLabel = (pair) => {
-  if (!pair) return "—";
-  if (pair.name) return pair.name;
-  const ps = [pair.player1, pair.player2].filter(Boolean).map(personNickname);
-  return ps.join(" / ") || "—";
-};
-
 const isMongoId = (s) => typeof s === "string" && /^[a-f0-9]{24}$/i.test(s);
 
 const courtLabel = (m) => {
@@ -344,6 +313,44 @@ const statusPriority = (st) => {
   }
 };
 
+/** Trận BYE: có cờ isBye/bye hoặc thiếu 1 cặp đấu hợp lệ */
+const isByeMatch = (m) => {
+  if (m?.isBye || m?.bye) return true;
+  const aOK = !!(
+    m?.pairA &&
+    (m.pairA.name || m.pairA.player1 || m.pairA.player2)
+  );
+  const bOK = !!(
+    m?.pairB &&
+    (m.pairB.name || m.pairB.player1 || m.pairB.player2)
+  );
+  return !(aOK && bOK);
+};
+
+const scoreSummary = (m) => {
+  if (isByeMatch(m)) return "BYE";
+  const raw =
+    (Array.isArray(m?.gameScores) && m.gameScores) ||
+    (Array.isArray(m?.scores) && m.scores) ||
+    (Array.isArray(m?.sets) && m.sets) ||
+    [];
+  const games = raw.map(_normGame).filter(Boolean);
+  let wa = 0,
+    wb = 0;
+  games.forEach((p) => {
+    if (p.a > p.b) wa++;
+    else if (p.b > p.a) wb++;
+  });
+  const aSets = _num(m?.scoreA) ?? _num(m?.setsWonA) ?? (games.length ? wa : 0);
+  const bSets = _num(m?.scoreB) ?? _num(m?.setsWonB) ?? (games.length ? wb : 0);
+  const main =
+    aSets || bSets ? `${aSets}–${bSets}` : games.length ? `${wa}–${wb}` : "—";
+  const detail = games.length
+    ? `(${games.map((p) => `${p.a}–${p.b}`).join(", ")})`
+    : "";
+  return detail ? `${main} ${detail}` : main;
+};
+
 /* ========= Live store ========= */
 function createLiveStore() {
   const map = new Map();
@@ -378,7 +385,7 @@ function createLiveStore() {
 }
 function useLiveMatch(liveStore, matchId) {
   const subscribe = useCallback(
-    (cb) => liveStore.subscribe(matchId, cb),
+    () => liveStore.subscribe(matchId, () => {}),
     [liveStore, matchId]
   );
   const getSnapshot = useCallback(
@@ -389,7 +396,10 @@ function useLiveMatch(liveStore, matchId) {
 }
 
 /* ============== Skeletons ============== */
-function TableSkeletonRows({ rows = 8, cols = 8 }) {
+const TableSkeletonRows = React.memo(function TableSkeletonRows({
+  rows = 8,
+  cols = 8,
+}) {
   return (
     <TableBody>
       {Array.from({ length: rows }).map((_, r) => (
@@ -403,7 +413,7 @@ function TableSkeletonRows({ rows = 8, cols = 8 }) {
       ))}
     </TableBody>
   );
-}
+});
 function MatchCardSkeleton() {
   return (
     <Card variant="outlined" sx={{ height: "100%" }}>
@@ -489,7 +499,6 @@ const ActionChips = React.memo(function ActionChips({
           size="small"
           color="error"
           variant="outlined"
-          icon={<LinkOffIcon />}
           label="Xoá video"
           onClick={() => onDeleteVideo(match)}
         />
@@ -536,7 +545,10 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
     <TableRow
       hover
       onClick={() => onRowClick(match._id)}
-      sx={{ cursor: "pointer" }}
+      sx={{
+        cursor: "pointer",
+        "& td, & th": { borderBottom: "none !important" },
+      }}
     >
       <TableCell
         padding="checkbox"
@@ -552,19 +564,19 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
           size="small"
         />
       </TableCell>
-      <TableCell sx={{ width: 68, whiteSpace: "nowrap", py: 0.5 }}>
+      <TableCell sx={{ width: 100, whiteSpace: "nowrap", py: 0.5 }}>
         {matchCode(merged)}
       </TableCell>
-      <TableCell sx={{ width: 200, maxWidth: 200, py: 0.5 }}>
+      <TableCell sx={{ width: 220, maxWidth: 220, py: 0.5 }}>
         <Typography noWrap>{pairLabel(merged?.pairA)}</Typography>
       </TableCell>
-      <TableCell sx={{ width: 200, maxWidth: 200, py: 0.5 }}>
+      <TableCell sx={{ width: 220, maxWidth: 220, py: 0.5 }}>
         <Typography noWrap>{pairLabel(merged?.pairB)}</Typography>
       </TableCell>
       <TableCell sx={{ width: 96, whiteSpace: "nowrap", py: 0.5 }}>
         {courtLabel(merged)}
       </TableCell>
-      <TableCell sx={{ width: 68, whiteSpace: "nowrap", py: 0.5 }}>
+      <TableCell sx={{ width: 68, whiteSpace: "nowrap, py: 0.5" }}>
         {Number.isFinite(merged?.order) ? `T${merged.order + 1}` : "—"}
       </TableCell>
       <TableCell sx={{ width: 110, whiteSpace: "nowrap", py: 0.5 }}>
@@ -599,27 +611,16 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
 
   const ActionRow = (
     <TableRow>
-      {/* spacer for checkbox column to align actions */}
       <TableCell sx={{ width: 56, minWidth: 56, py: 0.25 }} />
       <TableCell colSpan={8} sx={{ py: 0.75, whiteSpace: "normal" }}>
-        <Box
-          onClick={(e) => e.stopPropagation()}
-          sx={{
-            display: "flex",
-            flexWrap: "wrap",
-            columnGap: 0.75,
-            rowGap: 0.75,
-          }}
-        >
-          <ActionChips
-            match={merged}
-            onOpenVideo={onOpenVideo}
-            onDeleteVideo={onDeleteVideo}
-            onAssignCourt={onAssignCourt}
-            onAssignRef={onAssignRef}
-            onExportRefNote={onExportRefNote}
-          />
-        </Box>
+        <ActionChips
+          match={merged}
+          onOpenVideo={onOpenVideo}
+          onDeleteVideo={onDeleteVideo}
+          onAssignCourt={onAssignCourt}
+          onAssignRef={onAssignRef}
+          onExportRefNote={onExportRefNote}
+        />
       </TableCell>
     </TableRow>
   );
@@ -784,16 +785,15 @@ const MatchCard = React.memo(function MatchCard({
   );
 });
 
+/* ===== Batch video dialog ===== */
 const BulkVideoDialog = React.memo(function BulkVideoDialog({
   open,
   selectedCount = 0,
   busy = false,
   onClose,
-  onSubmit, // (url) => void
+  onSubmit,
 }) {
   const [url, setUrl] = React.useState("");
-
-  // reset ô nhập mỗi lần mở lại
   React.useEffect(() => {
     if (open) setUrl("");
   }, [open]);
@@ -842,7 +842,6 @@ const BulkVideoDialog = React.memo(function BulkVideoDialog({
 
 /* ---------------- Component chính ---------------- */
 export default function TournamentManagePage() {
-  const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
@@ -874,15 +873,8 @@ export default function TournamentManagePage() {
 
   const [setLiveUrl, { isLoading: savingVideo }] =
     useAdminSetMatchLiveUrlMutation();
-
-  // NEW: ds trọng tài + batch mutation
-  const {
-    data: refData,
-    isLoading: refsLoading,
-    error: refsErr,
-  } = useListTournamentRefereesQuery({ tid: id }, { skip: false });
-  const [batchAssign, { isLoading: batching }] =
-    useBatchAssignRefereeMutation();
+  const [batchSetLiveUrl, { isLoading: batchingVideo }] =
+    useAdminBatchSetMatchLiveUrlMutation();
 
   // Quyền
   const isAdmin = !!(
@@ -900,13 +892,13 @@ export default function TournamentManagePage() {
   const canManage = isAdmin || isManager;
 
   // Tabs
-  const typeOrderWeight = (t) => {
+  const typeOrderWeight = useCallback((t) => {
     const k = String(t || "").toLowerCase();
     if (k === "group") return 1;
     if (k === "roundelim" || k === "playoff") return 2;
     if (k === "knockout" || k === "ko") return 3;
     return 9;
-  };
+  }, []);
   const typesAvailable = useMemo(() => {
     const uniq = new Map();
     (brackets || []).forEach((b) => {
@@ -922,13 +914,12 @@ export default function TournamentManagePage() {
     if (uniq.size === 0)
       uniq.set("group", { type: "group", label: "Vòng bảng", weight: 1 });
     return Array.from(uniq.values()).sort((a, b) => a.weight - b.weight);
-  }, [brackets]);
+  }, [brackets, typeOrderWeight]);
 
   const [tab, setTab] = useState(typesAvailable[0]?.type || "group");
   useEffect(() => {
-    if (!typesAvailable.find((t) => t.type === tab)) {
+    if (!typesAvailable.find((t) => t.type === tab))
       setTab(typesAvailable[0]?.type || "group");
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typesAvailable]);
 
@@ -950,6 +941,36 @@ export default function TournamentManagePage() {
   const qDeferred = useDeferredValue(q);
   const [sortKey, setSortKey] = useState("round"); // round | order | time
   const [sortDir, setSortDir] = useState("asc"); // asc | desc
+  const [showBye, setShowBye] = useState(false); // NEW: Hiện trận BYE
+
+  // NEW: Lọc theo Sân (đa lựa chọn)
+  const [courtFilter, setCourtFilter] = useState([]); // array<string>
+  const naturalCompare = useCallback(
+    (a, b) =>
+      String(a).localeCompare(String(b), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      }),
+    []
+  );
+  const allMatchesBase = matchPage?.list || [];
+
+  // Tập hợp danh sách sân
+  const courtOptions = useMemo(() => {
+    const s = new Set();
+    let hasUnassigned = false;
+    for (const m of allMatchesBase) {
+      const lbl = courtLabel(m);
+      if (lbl && lbl !== "—") s.add(lbl);
+      else hasUnassigned = true;
+    }
+    const arr = Array.from(s).sort(naturalCompare);
+    return hasUnassigned ? ["Chưa gán sân", ...arr] : arr;
+  }, [allMatchesBase, naturalCompare]);
+
+  useEffect(() => {
+    setCourtFilter((prev) => prev.filter((x) => courtOptions.includes(x)));
+  }, [courtOptions]);
 
   // Viewer
   const [viewer, setViewer] = useState({ open: false, matchId: null });
@@ -994,15 +1015,13 @@ export default function TournamentManagePage() {
     [setLiveUrl, videoDlg.match, closeVideoDlg]
   );
 
-  // === Court manager (TOÀN GIẢI) ===
+  // Court/Ref manager
   const [manageCourts, setManageCourts] = useState({
     open: false,
     bracketId: null,
     bracketName: "",
   });
   const [refMgrOpen, setRefMgrOpen] = useState(false);
-
-  // mở theo TOÀN GIẢI (không truyền bid)
   const openManageCourts = useCallback((bid = null, bname = "") => {
     setManageCourts({
       open: true,
@@ -1046,7 +1065,6 @@ export default function TournamentManagePage() {
     });
   }, []);
   const clearSelection = useCallback(() => setSelectedMatchIds(new Set()), []);
-
   const isAllSelectedIn = useCallback(
     (arr) =>
       arr.length > 0 && arr.every((m) => selectedMatchIds.has(String(m._id))),
@@ -1064,39 +1082,19 @@ export default function TournamentManagePage() {
     });
   }, []);
 
-  // === Batch assign dialog state ===
+  // Batch assign
   const [bulkDlgOpen, setBulkDlgOpen] = useState(false);
   const [pickedRefs, setPickedRefs] = useState([]);
-  // NEW: batch gán video
   const [bulkVideoDlg, setBulkVideoDlg] = useState({ open: false, url: "" });
-  const [batchSetLiveUrl, { isLoading: batchingVideo }] =
-    useAdminBatchSetMatchLiveUrlMutation();
 
-  const submitBatchSetVideo = useCallback(
-    async (urlParam) => {
-      const ids = Array.from(selectedMatchIds);
-      const url = (urlParam || "").trim();
-      if (!ids.length) {
-        toast.info("Chưa chọn trận nào.");
-        return;
-      }
-      if (!url) {
-        toast.info("Hãy nhập link video hợp lệ.");
-        return;
-      }
-      try {
-        await batchSetLiveUrl({ ids, video: url }).unwrap();
-        toast.success(`Đã gán video cho ${ids.length} trận`);
-        setBulkVideoDlg({ open: false, url: "" }); // chỉ đóng, không cần lưu url ở cha nữa
-        clearSelection();
-        await refetchMatches?.();
-      } catch (e) {
-        toast.error(e?.data?.message || "Gán video thất bại");
-      }
-    },
-    [selectedMatchIds, batchSetLiveUrl, refetchMatches, clearSelection]
-  );
-  // ref options theo payload { items: [...] }
+  const [batchAssign, { isLoading: batching }] =
+    useBatchAssignRefereeMutation();
+  const {
+    data: refData,
+    isLoading: refsLoading,
+    error: refsErr,
+  } = useListTournamentRefereesQuery({ tid: id }, { skip: false });
+
   const refOptions = useMemo(() => {
     const list = Array.isArray(refData?.items)
       ? refData.items
@@ -1116,14 +1114,8 @@ export default function TournamentManagePage() {
   const submitBatchAssign = useCallback(async () => {
     const ids = Array.from(selectedMatchIds);
     const refs = pickedRefs.map(idOfRef).filter(Boolean);
-    if (!ids.length) {
-      toast.info("Chưa chọn trận nào.");
-      return;
-    }
-    if (!refs.length) {
-      toast.info("Hãy chọn ít nhất 1 trọng tài.");
-      return;
-    }
+    if (!ids.length) return toast.info("Chưa chọn trận nào.");
+    if (!refs.length) return toast.info("Hãy chọn ít nhất 1 trọng tài.");
     try {
       await batchAssign({ ids, referees: refs }).unwrap();
       toast.success(`Đã gán trọng tài cho ${ids.length} trận`);
@@ -1142,6 +1134,25 @@ export default function TournamentManagePage() {
     refetchMatches,
     clearSelection,
   ]);
+
+  const submitBatchSetVideo = useCallback(
+    async (urlParam) => {
+      const ids = Array.from(selectedMatchIds);
+      const url = (urlParam || "").trim();
+      if (!ids.length) return toast.info("Chưa chọn trận nào.");
+      if (!url) return toast.info("Hãy nhập link video hợp lệ.");
+      try {
+        await batchSetLiveUrl({ ids, video: url }).unwrap();
+        toast.success(`Đã gán video cho ${ids.length} trận`);
+        setBulkVideoDlg({ open: false, url: "" });
+        clearSelection();
+        await refetchMatches?.();
+      } catch (e) {
+        toast.error(e?.data?.message || "Gán video thất bại");
+      }
+    },
+    [selectedMatchIds, batchSetLiveUrl, refetchMatches, clearSelection]
+  );
 
   /* ====== Live store + realtime ====== */
   const liveStore = useMemo(() => createLiveStore(), []);
@@ -1187,13 +1198,12 @@ export default function TournamentManagePage() {
   const [orderVersion, setOrderVersion] = useState(0);
   const [isPending, startTransition] = useTransition();
 
-  const allMatchesBase = matchPage?.list || [];
-
   const getLiveStatus = useCallback(
     (m) => liveStore.get(String(m?._id))?.status ?? m?.status,
     [liveStore]
   );
 
+  // ======= NHÓM & LỌC =======
   const groupedLists = useMemo(() => {
     const norm = (s) =>
       String(s || "")
@@ -1212,6 +1222,10 @@ export default function TournamentManagePage() {
       const bid = String(m?.bracket?._id || m?.bracket || "");
       if (!bid) continue;
 
+      // filter BYE
+      if (!showBye && isByeMatch(m)) continue;
+
+      // keyword search
       if (kw) {
         const merged = { ...m, ...(liveStore.get(String(m._id)) || {}) };
         const text = norm(
@@ -1226,6 +1240,17 @@ export default function TournamentManagePage() {
           ].join(" ")
         );
         if (!text.includes(kw)) continue;
+      }
+
+      // court filter
+      if (courtFilter.length) {
+        const merged = { ...m, ...(liveStore.get(String(m._id)) || {}) };
+        const lbl = courtLabel(merged);
+        const isUn = lbl === "—";
+        const matchByCourt =
+          (isUn && courtFilter.includes("Chưa gán sân")) ||
+          (!!lbl && lbl !== "—" && courtFilter.includes(lbl));
+        if (!matchByCourt) continue;
       }
 
       push(bid, m);
@@ -1272,6 +1297,8 @@ export default function TournamentManagePage() {
     getLiveStatus,
     orderVersion,
     liveStore,
+    courtFilter,
+    showBye,
   ]);
 
   // LIVE Setup — TOÀN GIẢI
@@ -1280,14 +1307,16 @@ export default function TournamentManagePage() {
     bracketId: null,
     bracketName: "",
   });
-  const openLiveSetup = useCallback(() => {
-    setLiveSetup({ open: true, bracketId: null, bracketName: "" }); // null => toàn giải
-  }, []);
+  const openLiveSetup = useCallback(
+    () => setLiveSetup({ open: true, bracketId: null, bracketName: "" }),
+    []
+  );
   const closeLiveSetup = useCallback(
     () => setLiveSetup((s) => ({ ...s, open: false })),
     []
   );
 
+  // Socket realtime
   const socket = useSocket();
   const joinedRef = useRef(new Set());
   const matchRefetchTimer = useRef(null);
@@ -1463,7 +1492,7 @@ export default function TournamentManagePage() {
         });
 
         const tableBody = [
-          ["Mã", "Cặp A", "Cặp B", "Sân", "Thứ tự", "Tỉ số"],
+          ["Mã trận", "Cặp A", "Cặp B", "Sân", "Thứ tự", "Tỉ số"],
           ...sec.rows.map((r) =>
             r.map((cell) => (cell == null ? "" : String(cell)))
           ),
@@ -1472,7 +1501,7 @@ export default function TournamentManagePage() {
         content.push({
           table: {
             headerRows: 1,
-            widths: [50, 140, 140, 80, 55, 65],
+            widths: [50, 160, 160, 80, 55, 65],
             body: tableBody,
           },
           layout: "lightHorizontalLines",
@@ -1561,9 +1590,14 @@ export default function TournamentManagePage() {
             heading: HeadingLevel.HEADING_2,
           })
         );
-        const head = ["Mã", "Cặp A", "Cặp B", "Sân", "Thứ tự", "Tỉ số"].map(
-          (t) => new TableCell({ children: [new Paragraph({ text: t })] })
-        );
+        const head = [
+          "Mã trận",
+          "Cặp A",
+          "Cặp B",
+          "Sân",
+          "Thứ tự",
+          "Tỉ số",
+        ].map((t) => new TableCell({ children: [new Paragraph({ text: t })] }));
         const rows = [
           new TableRow({ children: head }),
           ...sec.rows.map(
@@ -1615,11 +1649,10 @@ export default function TournamentManagePage() {
     }
   };
 
-  // ======= Header hành động (Desktop & Mobile Dropdown) =======
+  // ======= Header hành động (Mobile Dropdown) =======
   const [actionAnchor, setActionAnchor] = useState(null);
   const openActionMenu = (e) => setActionAnchor(e.currentTarget);
   const closeActionMenu = () => setActionAnchor(null);
-
   const onMobileExportPDF = async () => {
     closeActionMenu();
     await handleExportPDF();
@@ -1707,7 +1740,7 @@ export default function TournamentManagePage() {
               Quản lý sân
             </Button>
 
-            {/* Thiết lập LIVE TOÀN GIẢI (đặt cạnh Quản lý sân) */}
+            {/* Thiết lập LIVE TOÀN GIẢI */}
             <Tooltip title="Áp dụng TOÀN GIẢI" arrow>
               <Button
                 variant="outlined"
@@ -1767,19 +1800,9 @@ export default function TournamentManagePage() {
             >
               Trang giải
             </Button>
-            {isAdmin && (
-              <Button
-                component={Link}
-                to={`/tournament/${id}/draw`}
-                variant="contained"
-                size="small"
-              >
-                Bốc thăm
-              </Button>
-            )}
           </Stack>
 
-          {/* Mobile actions: Dropdown "Hành động" */}
+          {/* Mobile actions */}
           <Box sx={{ display: { xs: "block", md: "none" }, width: "100%" }}>
             <Stack direction="row" justifyContent="flex-end">
               <Button
@@ -1868,15 +1891,6 @@ export default function TournamentManagePage() {
                 >
                   <ListItemText primary="Trang giải" />
                 </MenuItem>
-                {isAdmin && (
-                  <MenuItem
-                    component={Link}
-                    to={`/tournament/${id}/draw`}
-                    onClick={closeActionMenu}
-                  >
-                    <ListItemText primary="Bốc thăm" />
-                  </MenuItem>
-                )}
               </Menu>
             </Stack>
           </Box>
@@ -1891,7 +1905,7 @@ export default function TournamentManagePage() {
               gap: 1,
               gridTemplateColumns: {
                 xs: "1fr",
-                md: "minmax(260px, 420px) 200px 140px auto",
+                md: "minmax(260px, 420px) 200px 140px minmax(200px, 320px) 200px auto",
               },
               alignItems: "center",
             }}
@@ -1937,6 +1951,37 @@ export default function TournamentManagePage() {
               <MenuItem value="asc">Tăng dần</MenuItem>
               <MenuItem value="desc">Giảm dần</MenuItem>
             </TextField>
+
+            {/* Lọc theo Sân */}
+            <Autocomplete
+              multiple
+              size="small"
+              options={courtOptions}
+              disableCloseOnSelect
+              value={courtFilter}
+              onChange={(_, val) => setCourtFilter(val)}
+              renderOption={(props, option, { selected }) => (
+                <li {...props} key={option}>
+                  <Checkbox size="small" checked={selected} sx={{ mr: 1 }} />
+                  {option}
+                </li>
+              )}
+              renderInput={(params) => (
+                <TextField {...params} label="Sân" placeholder="Chọn sân" />
+              )}
+            />
+
+            {/* NEW: Hiện trận BYE */}
+            <FormControlLabel
+              control={
+                <Checkbox
+                  size="small"
+                  checked={showBye}
+                  onChange={(e) => setShowBye(e.target.checked)}
+                />
+              }
+              label="Hiện trận BYE"
+            />
 
             <Stack
               direction="row"
@@ -2061,7 +2106,6 @@ export default function TournamentManagePage() {
                       fullWidth
                       startIcon={<RefereeIcon />}
                       onClick={() => setBulkDlgOpen(true)}
-                      sx={{ whiteSpace: "nowrap" }}
                     >
                       Gán trọng tài
                     </Button>
@@ -2070,7 +2114,6 @@ export default function TournamentManagePage() {
                       fullWidth
                       startIcon={<MovieIcon />}
                       onClick={() => setBulkVideoDlg({ open: true, url: "" })}
-                      sx={{ whiteSpace: "nowrap" }}
                     >
                       Gán video
                     </Button>
@@ -2109,8 +2152,6 @@ export default function TournamentManagePage() {
                     {b?.name || "Bracket"}
                   </Typography>
 
-                  {/* LIVE toàn giải đã đưa lên header */}
-
                   <Chip
                     size="small"
                     variant="outlined"
@@ -2129,10 +2170,12 @@ export default function TournamentManagePage() {
                     variant="outlined"
                     label={`${list.length} trận`}
                   />
+
+                  <Box sx={{ flexGrow: 1 }} />
                 </Stack>
               </Box>
 
-              {/* Desktop table — fixed layout để không phải vuốt ngang */}
+              {/* Desktop table — fixed layout */}
               <Box sx={{ display: { xs: "none", md: "block" } }}>
                 <TableContainer>
                   <Table
@@ -2167,9 +2210,9 @@ export default function TournamentManagePage() {
                             }
                           />
                         </TableCell>
-                        <TableCell sx={{ width: 68 }}>Mã</TableCell>
-                        <TableCell sx={{ width: 200 }}>Cặp A</TableCell>
-                        <TableCell sx={{ width: 200 }}>Cặp B</TableCell>
+                        <TableCell sx={{ width: 100 }}>Mã trận</TableCell>
+                        <TableCell sx={{ width: 220 }}>Cặp A</TableCell>
+                        <TableCell sx={{ width: 220 }}>Cặp B</TableCell>
                         <TableCell sx={{ width: 96 }}>Sân</TableCell>
                         <TableCell sx={{ width: 68 }}>Thứ tự</TableCell>
                         <TableCell sx={{ width: 110 }}>Tỉ số</TableCell>
@@ -2198,7 +2241,7 @@ export default function TournamentManagePage() {
                               key={m._id}
                               match={m}
                               liveStore={liveStore}
-                              onRowClick={(id) => openMatch(id)}
+                              onRowClick={(mid) => openMatch(mid)}
                               onOpenVideo={openVideoDlg}
                               onDeleteVideo={deleteVideoDlg}
                               onAssignCourt={openAssignCourt}
@@ -2275,7 +2318,7 @@ export default function TournamentManagePage() {
                             <MatchCard
                               match={m}
                               liveStore={liveStore}
-                              onCardClick={(id) => openMatch(id)}
+                              onCardClick={(mid) => openMatch(mid)}
                               onOpenVideo={openVideoDlg}
                               onDeleteVideo={deleteVideoDlg}
                               onAssignCourt={openAssignCourt}
@@ -2328,12 +2371,12 @@ export default function TournamentManagePage() {
         }}
       />
 
-      {/* Court Manager TOÀN GIẢI (bracketId = null) */}
+      {/* Court Manager TOÀN GIẢI */}
       <CourtManagerDialog
         open={manageCourts.open}
         onClose={closeManageCourts}
         tournamentId={id}
-        bracketId={manageCourts.bracketId} // null => toàn giải
+        bracketId={manageCourts.bracketId}
         bracketName={manageCourts.bracketName}
         tournamentName={tour?.name || ""}
       />
@@ -2448,6 +2491,7 @@ export default function TournamentManagePage() {
           </Button>
         </DialogActions>
       </Dialog>
+
       {/* ===== Dialog gán video (batch) ===== */}
       <BulkVideoDialog
         open={bulkVideoDlg.open}

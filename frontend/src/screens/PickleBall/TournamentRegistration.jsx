@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, memo, useRef } from "react";
-import { Link, useParams, useLocation } from "react-router-dom";
+import { Link, useParams, useLocation, useNavigate } from "react-router-dom";
 import {
   Avatar,
   Box,
@@ -1074,7 +1074,7 @@ export default function TournamentRegistration() {
 
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
-
+  const navigate= useNavigate()
   // Increased debounce delay for better performance
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim()), 500);
@@ -1221,7 +1221,53 @@ export default function TournamentRegistration() {
         if (err?.status === 412) {
           toast.error(
             err?.data?.message ||
-              "VĐV cần hoàn tất KYC (đã xác minh) trước khi đăng ký."
+              "VĐV cần hoàn tất KYC (đã xác minh) trước khi đăng ký.",
+            {
+              closeButton: (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    maxWidth: "100%",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // dùng react-router nếu sẵn có
+                      try {
+                        navigate("/profile#cccd");
+                      } catch(e) {
+                        console.log(e)
+                      }
+                      // fallback hard redirect
+                    }}
+                    style={{
+                      padding: "6px 10px",
+                      fontWeight: 700,
+                      borderRadius: "8px",
+                      border: "1px solid rgba(0,0,0,0.08)",
+                      background: "linear-gradient(180deg,#0ea5e9,#0284c7)",
+                      color: "#fff",
+                      cursor: "pointer",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.12)",
+                      whiteSpace: "nowrap",
+                      lineHeight: 1.1,
+                      transition: "filter .12s ease",
+                    }}
+                    onMouseEnter={(e) =>
+                      (e.currentTarget.style.filter = "brightness(0.96)")
+                    }
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.filter = "none")
+                    }
+                  >
+                    Xác minh ngay
+                  </button>
+                </div>
+              ),
+            }
           );
         } else {
           toast.error(

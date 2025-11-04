@@ -4,7 +4,7 @@ import asyncHandler from "express-async-handler";
 import User from "../models/userModel.js";
 import Match from "../models/matchModel.js";
 import Tournament from "../models/tournamentModel.js";
-import TournamentManager from "../models/tournamentManagerModel.js"
+import TournamentManager from "../models/tournamentManagerModel.js";
 import mongoose from "mongoose";
 
 const isValidId = (v) => !!v && mongoose.isValidObjectId(String(v));
@@ -106,21 +106,65 @@ export const authorize =
   };
 
 /* Chỉ referee hoặc admin */
-export const refereeOnly = (req, res, next) => {
-  const role = req.user?.role;
-  if (role === "referee" || role === "admin") return next();
+// ✅ Referee/Admin only — luôn fetch user từ DB
+export const refereeOnly = asyncHandler(async (req, res, next) => {
+  const uid = req.user?._id || req.user?.id;
+  if (!uid || !isValidId(String(uid))) {
+    res.status(401);
+    throw new Error("Not authorized");
+  }
+
+  const actor = await User.findById(uid)
+    .select("_id role isDeleted deletedAt")
+    .lean();
+
+  if (!actor) {
+    res.status(401);
+    throw new Error("Not authorized");
+  }
+  if (actor.isDeleted || actor.deletedAt) {
+    res.status(403);
+    throw new Error("Account disabled");
+  }
+
+  if (actor.role === "admin" || actor.role === "referee") return next();
+
   res.status(403);
   throw new Error("Referee-only endpoint");
-};
+});
 
-export function canScore(req, res, next) {
-  // Admin/Referee chấm bất kỳ; user chỉ chấm chính mình
-  const targetUserId = req.params.userId || req.body.userId;
-  const isSelf = String(req.user._id) === String(targetUserId);
-  const role = req.user.role;
-  if (isSelf || role === "admin" || role === "referee") return next();
+// ✅ Admin/Referee chấm bất kỳ; user chỉ chấm chính mình — luôn fetch user từ DB
+export const canScore = asyncHandler(async (req, res, next) => {
+  const uid = req.user?._id || req.user?.id;
+  if (!uid || !isValidId(String(uid))) {
+    res.status(401);
+    throw new Error("Not authorized");
+  }
+
+  const actor = await User.findById(uid)
+    .select("_id role isDeleted deletedAt")
+    .lean();
+
+  if (!actor) {
+    res.status(401);
+    throw new Error("Not authorized");
+  }
+  if (actor.isDeleted || actor.deletedAt) {
+    res.status(403);
+    throw new Error("Account disabled");
+  }
+
+  const targetUserId =
+    req.params?.userId || req.body?.userId || req.query?.userId || "";
+
+  const isSelf = targetUserId && String(actor._id) === String(targetUserId);
+
+  if (isSelf || actor.role === "admin" || actor.role === "referee") {
+    return next();
+  }
+
   return res.status(403).json({ message: "Forbidden" });
-}
+});
 
 export async function optionalAuth(req, res, next) {
   try {
@@ -157,23 +201,37 @@ export async function optionalAuth(req, res, next) {
 }
 
 export const isManagerTournament = asyncHandler(async (req, res, next) => {
-  if (!req.user?._id) {
+  // 0) Lấy actor từ DB cho "tươi"
+  const rawUid = req.user?._id || req.user?.id;
+  if (!rawUid || !isValidId(String(rawUid))) {
     res.status(401);
     throw new Error("Not authorized – no user");
   }
 
-  const uid = String(req.user._id);
+  const actor = await User.findById(rawUid)
+    .select("_id role isDeleted deletedAt")
+    .lean();
+
+  if (!actor) {
+    res.status(401);
+    throw new Error("Not authorized – user not found");
+  }
+  if (actor.isDeleted || actor.deletedAt) {
+    res.status(403);
+    throw new Error("Account disabled");
+  }
+
+  const uid = String(actor._id);
 
   // 1) Nếu có matchId → ưu tiên suy ra tournament từ match
   const matchIdParam =
-    req.params?.matchId ||
-    // nhiều route cũ dùng :id cho match → thử luôn nhưng chỉ coi là match nếu tồn tại
-    (isValidId(req.params?.id) ? req.params.id : null);
+    req.params?.matchId || (isValidId(req.params?.id) ? req.params.id : null);
 
   let matchDoc = null;
   let tournamentId = null;
 
   if (isValidId(matchIdParam)) {
+    // Giữ nguyên dạng doc thật để controller downstream có thể .save()
     matchDoc = await Match.findById(matchIdParam);
     if (!matchDoc) {
       res.status(404);
@@ -196,6 +254,7 @@ export const isManagerTournament = asyncHandler(async (req, res, next) => {
       req.body?.tournament ||
       req.query?.tournamentId ||
       req.query?.tournament;
+
     if (!isValidId(p)) {
       res.status(400);
       throw new Error("Missing or invalid tournament id");
@@ -207,20 +266,18 @@ export const isManagerTournament = asyncHandler(async (req, res, next) => {
   const tournament = await Tournament.findById(tournamentId)
     .select("_id createdBy")
     .lean();
+
   if (!tournament) {
     res.status(404);
     throw new Error("Tournament not found");
   }
 
-  // 4) Quyền admin luôn pass
-  const isAdmin =
-    req.user.isAdmin === true ||
-    req.user.role === "admin" ||
-    (Array.isArray(req.user.roles) && req.user.roles.includes("admin"));
-
+  // 4) Admin luôn pass (CHỈ dùng role)
+  const isAdmin = actor.role === "admin";
   if (isAdmin) {
-    req.tournament = tournament; // lean
-    if (matchDoc) req.match = matchDoc; // doc thật để controller sử dụng
+    req.tournament = tournament;
+    if (matchDoc) req.match = matchDoc;
+    req.isAdmin = true; // tiện cho downstream nếu cần
     return next();
   }
 
@@ -240,9 +297,7 @@ export const isManagerTournament = asyncHandler(async (req, res, next) => {
     .select("_id")
     .lean();
 
-  const isManager = !!tm;
-
-  if (!isManager) {
+  if (!tm) {
     res.status(403);
     throw new Error("Forbidden – require tournament manager/owner/admin");
   }
