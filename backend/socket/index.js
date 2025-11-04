@@ -32,6 +32,7 @@ import {
   removeConnection,
   sweepStaleSockets,
 } from "../services/presenceService.js";
+import { ensureAdmin, ensureReferee } from "../utils/socketAuth.js";
 
 function guessClientType(socket) {
   try {
@@ -413,9 +414,9 @@ export function initSocket(
 
   const isObjectIdString = (s) => /^[a-f\d]{24}$/i.test(String(s || ""));
 
-  const ensureReferee = (socket) =>
-    socket.user?.role === "referee" || socket.user?.role === "admin";
-  const ensureAdmin = (socket) => socket.user?.role === "admin";
+  // const ensureReferee = (socket) =>
+  //   socket.user?.role === "referee" || socket.user?.role === "admin";
+  // const ensureAdmin = (socket) => socket.user?.role === "admin";
 
   // Resolve cluster-key: ưu tiên bracketId, fallback cluster string
   const resolveClusterKey = (bracket, cluster = "Main") =>

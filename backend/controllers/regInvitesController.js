@@ -365,10 +365,12 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     throw new Error("VĐV 1 phải là chính bạn (tài khoản đang đăng nhập).");
   }
 
-  // lấy user snapshots (kèm cccd/cccdStatus)
+  // lấy user snapshots (kèm cccd/cccdStatus + dob/birthYear)
   const ids = isDouble ? [player1Id, player2Id] : [player1Id];
   const users = await User.find({ _id: { $in: ids } })
-    .select("_id name nickname phone avatar province score cccd cccdStatus")
+    .select(
+      "_id name nickname phone avatar province score cccd cccdStatus dob dateOfBirth birthYear"
+    )
     .lean();
 
   if (users.length !== ids.length) {
@@ -379,7 +381,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
   const u1 = byId.get(String(player1Id));
   const u2 = isDouble ? byId.get(String(player2Id)) : null;
 
-  // ====== NHÁNH ADMIN: tạo trực tiếp, bỏ qua KYC ======
+  // ====== NHÁNH ADMIN: tạo trực tiếp, bỏ qua mọi kiểm tra ======
   if (isAdmin) {
     const [rank1, rank2] = await Promise.all([
       getRankingScore(u1._id, eventType),
@@ -419,7 +421,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
       mode: "direct_by_admin",
       registration: reg,
       message:
-        "Đã tạo đăng ký trực tiếp bởi admin (bỏ qua kiểm tra CCCD & giới hạn).",
+        "Đã tạo đăng ký trực tiếp bởi admin (bỏ qua kiểm tra KYC/độ tuổi/phạm vi).",
     });
   }
 
@@ -452,41 +454,161 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     }
   }
 
-  // 2) Yêu cầu KYC VERIFIED tuyệt đối
-  const isKycVerified = (u) =>
-    !!u?.cccd && String(u?.cccdStatus || "").toLowerCase() === "verified";
+  // 2) Giới hạn độ tuổi (nếu bật)
+  const ar = tour.ageRestriction || {};
+  if (ar.enabled) {
+    const refDate = tour.startDate ? new Date(tour.startDate) : new Date();
+    const clamp = (n, lo, hi) =>
+      Number.isFinite(n) ? Math.max(lo, Math.min(hi, Math.floor(n))) : n;
+    const minAge = clamp(ar.minAge ?? 0, 0, 100);
+    const maxAge = clamp(ar.maxAge ?? 100, 0, 120);
 
-  const needKycP1 = !isKycVerified(u1);
-  const needKycP2 = isDouble ? !isKycVerified(u2) : false;
+    const getAge = (u) => {
+      const dob = u?.dob || u?.dateOfBirth;
+      const by = u?.birthYear;
+      if (dob) {
+        const d = new Date(dob);
+        if (!Number.isNaN(d.getTime())) {
+          let age = refDate.getFullYear() - d.getFullYear();
+          const m = refDate.getMonth() - d.getMonth();
+          if (m < 0 || (m === 0 && refDate.getDate() < d.getDate())) age--;
+          return age;
+        }
+      }
+      if (Number.isFinite(Number(by))) {
+        return refDate.getFullYear() - Number(by);
+      }
+      return null; // thiếu dữ liệu tuổi
+    };
 
-  if (needKycP1 || needKycP2) {
-    const baseMsg =
-      needKycP1 && needKycP2
-        ? "VĐV 1 và VĐV 2 cần hoàn tất KYC (đã xác minh) trước khi đăng ký."
-        : needKycP1
-        ? "VĐV 1 cần hoàn tất KYC (đã xác minh) trước khi đăng ký."
-        : "VĐV 2 cần hoàn tất KYC (đã xác minh) trước khi đăng ký.";
+    const a1 = getAge(u1);
+    const a2 = isSingle ? null : getAge(u2);
 
-    if (needKycP1 && !needKycP2) {
-      return res
-        .status(412)
-        .json({ message: baseMsg, userId: u1._id, slot: "p1" });
+    const needAgeP1 = a1 == null;
+    const needAgeP2 = isDouble ? a2 == null : false;
+
+    if (needAgeP1 || needAgeP2) {
+      const baseMsg =
+        needAgeP1 && needAgeP2
+          ? "VĐV 1 và VĐV 2 cần cập nhật năm sinh/ngày sinh để kiểm tra độ tuổi."
+          : needAgeP1
+          ? "VĐV 1 cần cập nhật năm sinh/ngày sinh để kiểm tra độ tuổi."
+          : "VĐV 2 cần cập nhật năm sinh/ngày sinh để kiểm tra độ tuổi.";
+      if (needAgeP1 && !needAgeP2) {
+        return res
+          .status(412)
+          .json({
+            message: baseMsg,
+            userId: u1._id,
+            slot: "p1",
+            code: "NEED_DOB",
+          });
+      }
+      if (!needAgeP1 && needAgeP2) {
+        return res
+          .status(412)
+          .json({
+            message: baseMsg,
+            userId: u2._id,
+            slot: "p2",
+            code: "NEED_DOB",
+          });
+      }
+      return res.status(412).json({
+        message: baseMsg,
+        targets: [
+          { userId: u1._id, slot: "p1" },
+          { userId: u2._id, slot: "p2" },
+        ],
+        code: "NEED_DOB",
+      });
     }
-    if (!needKycP1 && needKycP2) {
-      return res
-        .status(412)
-        .json({ message: baseMsg, userId: u2._id, slot: "p2" });
+
+    const outP1 = a1 < minAge || a1 > maxAge;
+    const outP2 = isDouble ? a2 < minAge || a2 > maxAge : false;
+
+    if (outP1 || outP2) {
+      const rangeMsg = `Tuổi yêu cầu từ ${minAge}–${maxAge}.`;
+      if (outP1 && !outP2) {
+        return res
+          .status(412)
+          .json({
+            message: `VĐV 1 không nằm trong giới hạn độ tuổi. ${rangeMsg}`,
+            userId: u1._id,
+            slot: "p1",
+            code: "AGE_OUT_OF_RANGE",
+          });
+      }
+      if (!outP1 && outP2) {
+        return res
+          .status(412)
+          .json({
+            message: `VĐV 2 không nằm trong giới hạn độ tuổi. ${rangeMsg}`,
+            userId: u2._id,
+            slot: "p2",
+            code: "AGE_OUT_OF_RANGE",
+          });
+      }
+      return res.status(412).json({
+        message: `VĐV 1 và VĐV 2 không nằm trong giới hạn độ tuổi. ${rangeMsg}`,
+        targets: [
+          { userId: u1._id, slot: "p1" },
+          { userId: u2._id, slot: "p2" },
+        ],
+        code: "AGE_OUT_OF_RANGE",
+      });
     }
-    return res.status(412).json({
-      message: baseMsg,
-      targets: [
-        { userId: u1._id, slot: "p1" },
-        { userId: u2._id, slot: "p2" },
-      ],
-    });
   }
 
-  // 3) Preflight checks
+  // 3) Yêu cầu KYC (nếu giải bật). Mặc định requireKyc=true.
+  const requireKyc = tour.requireKyc !== false;
+  if (requireKyc) {
+    const isKycVerified = (u) =>
+      !!u?.cccd && String(u?.cccdStatus || "").toLowerCase() === "verified";
+
+    const needKycP1 = !isKycVerified(u1);
+    const needKycP2 = isDouble ? !isKycVerified(u2) : false;
+
+    if (needKycP1 || needKycP2) {
+      const baseMsg =
+        needKycP1 && needKycP2
+          ? "VĐV 1 và VĐV 2 cần hoàn tất KYC (đã xác minh) trước khi đăng ký."
+          : needKycP1
+          ? "VĐV 1 cần hoàn tất KYC (đã xác minh) trước khi đăng ký."
+          : "VĐV 2 cần hoàn tất KYC (đã xác minh) trước khi đăng ký.";
+
+      if (needKycP1 && !needKycP2) {
+        return res
+          .status(412)
+          .json({
+            message: baseMsg,
+            userId: u1._id,
+            slot: "p1",
+            code: "KYC_REQUIRED",
+          });
+      }
+      if (!needKycP1 && needKycP2) {
+        return res
+          .status(412)
+          .json({
+            message: baseMsg,
+            userId: u2._id,
+            slot: "p2",
+            code: "KYC_REQUIRED",
+          });
+      }
+      return res.status(412).json({
+        message: baseMsg,
+        targets: [
+          { userId: u1._id, slot: "p1" },
+          { userId: u2._id, slot: "p2" },
+        ],
+        code: "KYC_REQUIRED",
+      });
+    }
+  }
+
+  // 4) Preflight checks
   const pf = await preflightChecks({
     tour,
     eventType,
@@ -498,7 +620,7 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     throw new Error(pf.message || "Không thể tạo đăng ký");
   }
 
-  // 4) Tạo Registration trực tiếp (KYC ok)
+  // 5) Tạo Registration trực tiếp
   const [rank1, rank2] = await Promise.all([
     getRankingScore(u1._id, eventType),
     isSingle ? Promise.resolve(null) : getRankingScore(u2._id, eventType),
@@ -525,20 +647,18 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     message,
     createdBy: me._id,
     payment: { status: "Unpaid" },
-    meta: { autoByKyc: true },
+    meta: { autoByKyc: requireKyc === true, ageChecked: !!ar.enabled },
   });
 
   notifyNewPair({
     tournamentId: tour._id,
     reg: typeof reg.toObject === "function" ? reg.toObject() : reg,
-  }).catch((e) => console.error("[tele] notify new pair (kyc) failed:", e));
+  }).catch((e) => console.error("[tele] notify new pair (user) failed:", e));
 
   return res.status(201).json({
-    mode: "direct_by_kyc",
+    mode: requireKyc ? "direct_by_kyc" : "direct",
     registration: reg,
-    message: isSingle
-      ? "Đã tạo đăng ký (VĐV đã xác thực kyc)."
-      : "Đã tạo đăng ký (cả 2 VĐV đã xác thực kyc).",
+    message: isSingle ? "Đã tạo đăng ký." : "Đã tạo đăng ký cho cả 2 VĐV.",
   });
 });
 

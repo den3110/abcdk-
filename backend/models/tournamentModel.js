@@ -1,7 +1,9 @@
+// models/tournamentModel.js
 import mongoose from "mongoose";
 import { DateTime } from "luxon";
 import DrawSettingsSchema from "./drawSettingsSchema.js";
 
+/* ------------ Sub-schemas ------------ */
 const TeleSchema = new mongoose.Schema(
   {
     hubChatId: { type: String },
@@ -12,6 +14,19 @@ const TeleSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const AgeRestrictionSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    minAge: { type: Number, default: 0, min: 0, max: 100 },
+    maxAge: { type: Number, default: 100, min: 0, max: 100 },
+    // Tự tính theo startDate + timezone
+    minBirthYear: { type: Number, default: null },
+    maxBirthYear: { type: Number, default: null },
+  },
+  { _id: false }
+);
+
+/* ------------- Main schema ------------ */
 const tournamentSchema = new mongoose.Schema(
   {
     /* Thông tin cơ bản */
@@ -22,7 +37,6 @@ const tournamentSchema = new mongoose.Schema(
 
     /* Cấu hình đăng ký & giới hạn điểm */
     regOpenDate: { type: Date, required: true, default: Date.now },
-    maxPairs: { type: Number, default: 0, min: 0 },
     registrationDeadline: { type: Date, required: true, default: Date.now },
     startDate: { type: Date, required: true, default: Date.now },
     endDate: { type: Date, required: true, default: Date.now },
@@ -30,10 +44,7 @@ const tournamentSchema = new mongoose.Schema(
     scoreCap: { type: Number, required: true, default: 0 },
     scoreGap: { type: Number, required: true, default: 0 },
     singleCap: { type: Number, required: true, default: 0 },
-
-    /* Thống kê */
-    expected: { type: Number, default: 0 },
-    matchesCount: { type: Number, default: 0 },
+    maxPairs: { type: Number, default: 0, min: 0 },
 
     /* Trạng thái & mô tả */
     status: {
@@ -56,7 +67,7 @@ const tournamentSchema = new mongoose.Schema(
     startAt: { type: Date, default: null },
     endAt: { type: Date, default: null },
 
-    // === NEW: override theo từng giải ===
+    // Tuỳ biến draw/overlay
     drawSettings: { type: DrawSettingsSchema, default: () => ({}) },
     overlay: {
       theme: { type: String, enum: ["dark", "light"], default: "dark" },
@@ -73,8 +84,10 @@ const tournamentSchema = new mongoose.Schema(
       logoUrl: { type: String, default: "" },
     },
 
+    // Điểm trình toàn giải
     noRankDelta: { type: Boolean, default: false },
 
+    // Phạm vi giải (đa tỉnh)
     scoringScope: {
       type: {
         type: String,
@@ -84,12 +97,12 @@ const tournamentSchema = new mongoose.Schema(
       provinces: { type: [String], default: [] },
     },
 
-    // ===== NEW: Thông tin thanh toán (SePay VietQR compatible) =====
-    bankShortName: { type: String, trim: true, default: "" }, // ví dụ: "Vietcombank", "MBBank"
+    // Thanh toán (SePay VietQR)
+    bankShortName: { type: String, trim: true, default: "" }, // ví dụ: "Vietcombank"
     bankAccountNumber: {
       type: String,
       default: "",
-      set: (v) => String(v || "").replace(/\D/g, ""), // chỉ giữ digits
+      set: (v) => String(v || "").replace(/\D/g, ""), // chỉ giữ số
       validate: {
         validator: (v) => v === "" || /^\d{4,32}$/.test(v),
         message: "bankAccountNumber phải là 4–32 chữ số.",
@@ -98,12 +111,27 @@ const tournamentSchema = new mongoose.Schema(
     bankAccountName: { type: String, trim: true, default: "", maxlength: 64 },
     registrationFee: { type: Number, default: 0, min: 0 }, // VND
 
+    // Liên kết Telegram
     tele: TeleSchema,
+
+    /* Điều kiện tham gia */
+    requireKyc: { type: Boolean, default: true },
+    ageRestriction: { type: AgeRestrictionSchema, default: () => ({}) },
+
+    /* Thống kê */
+    expected: { type: Number, default: 0 },
+    matchesCount: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
 
-// helper chuẩn hóa mốc UTC từ field + timezone
+/* ------------- Helpers ------------- */
+function clampAge(n) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.floor(n)));
+}
+
+// chuẩn hóa mốc UTC theo timezone
 function recomputeUTC(doc) {
   const tz = doc.timezone || "Asia/Ho_Chi_Minh";
   if (doc.startDate) {
@@ -116,30 +144,53 @@ function recomputeUTC(doc) {
   }
 }
 
+// tính lại năm sinh min/max dựa theo startDate + timezone
+function recomputeBirthYears(doc) {
+  const ar = doc.ageRestriction || {};
+  if (!ar.enabled || !doc.startDate) {
+    doc.ageRestriction = { ...ar, minBirthYear: null, maxBirthYear: null };
+    return;
+  }
+  const tz = doc.timezone || "Asia/Ho_Chi_Minh";
+  const year = DateTime.fromJSDate(doc.startDate).setZone(tz).year;
+  const minAge = clampAge(ar.minAge);
+  const maxAge = clampAge(ar.maxAge);
+  doc.ageRestriction = {
+    ...ar,
+    minAge,
+    maxAge,
+    minBirthYear: year - maxAge, // tuổi lớn → năm sinh nhỏ hơn
+    maxBirthYear: year - minAge, // tuổi nhỏ → năm sinh lớn hơn
+  };
+}
+
+/* ------------- Hooks ------------- */
 tournamentSchema.pre("save", function (next) {
+  // clamp tuổi trước khi lưu
+  if (this.ageRestriction) {
+    this.ageRestriction.minAge = clampAge(this.ageRestriction.minAge);
+    this.ageRestriction.maxAge = clampAge(this.ageRestriction.maxAge);
+  }
   recomputeUTC(this);
+  recomputeBirthYears(this);
   next();
 });
 
-// khi update bằng findOneAndUpdate
 tournamentSchema.pre("findOneAndUpdate", function (next) {
+  // bật validators + trả doc mới sau update
+  const opts = this.getOptions?.() || {};
+  this.setOptions({ ...opts, new: true, runValidators: true });
+
+  // clamp nếu client set trực tiếp qua $set
   const update = this.getUpdate() || {};
-
-  // ✅ luôn bật runValidators để validate bank fields khi update
-  const currentOpts = this.getOptions ? this.getOptions() : {};
-  this.setOptions({ ...currentOpts, new: true, runValidators: true });
-
-  // nếu đổi timezone hoặc mốc thời gian → sau update sẽ recompute
-  if (
-    update.$set?.timezone ||
-    update.$set?.endDate ||
-    update.$set?.startDate ||
-    update.timezone ||
-    update.endDate ||
-    update.startDate
-  ) {
-    // đã set new: true ở trên
+  const set = update.$set || {};
+  if (set["ageRestriction.minAge"] !== undefined) {
+    set["ageRestriction.minAge"] = clampAge(set["ageRestriction.minAge"]);
   }
+  if (set["ageRestriction.maxAge"] !== undefined) {
+    set["ageRestriction.maxAge"] = clampAge(set["ageRestriction.maxAge"]);
+  }
+  this.setUpdate({ ...update, $set: set });
   next();
 });
 
@@ -147,22 +198,16 @@ tournamentSchema.post("findOneAndUpdate", async function (doc, next) {
   try {
     if (!doc) return next();
     recomputeUTC(doc);
-    await doc.save();
+    recomputeBirthYears(doc);
+    await doc.save(); // lưu lại thay đổi min/maxBirthYear & startAt/endAt
     next();
   } catch (e) {
     next(e);
   }
 });
 
+/* ------------- Indexes ------------- */
 tournamentSchema.index({ status: 1, endAt: 1 });
 tournamentSchema.index({ status: 1, startAt: 1 });
-
-// 👇 virtual populate: các manager của giải đấu
-// tournamentSchema.virtual('managers', {
-//   ref: 'TournamentManager',
-//   localField: '_id',
-//   foreignField: 'tournament',
-//   justOne: false,
-// });
 
 export default mongoose.model("Tournament", tournamentSchema);

@@ -1437,10 +1437,12 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       {/* Overlay */}
       {overlayUrl && canSeeOverlay && (
         <Paper variant="outlined" sx={{ p: 1.5 }}>
-          <Stack spacing={1}>
+          <Stack spacing={1.25}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
               Overlay tỉ số trực tiếp
             </Typography>
+
+            {/* Hàng chính: field + 1 nút chính */}
             <Stack
               direction={{ xs: "column", sm: "row" }}
               spacing={1}
@@ -1450,38 +1452,56 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 size="small"
                 fullWidth
                 value={overlayUrl}
-                InputProps={{ readOnly: true }}
+                InputProps={{
+                  readOnly: true,
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton
+                        edge="end"
+                        aria-label="Copy overlay URL"
+                        onClick={() => {
+                          try {
+                            navigator.clipboard.writeText(overlayUrl);
+                            toast.success("Đã copy overlay URL");
+                          } catch {
+                            toast.info(
+                              "Không copy được, vui lòng bôi đen và copy thủ công."
+                            );
+                          }
+                        }}
+                      >
+                        <ContentCopyIcon fontSize="small" />
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
               />
-              <Stack direction="row" spacing={1}>
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<ContentCopyIcon />}
-                  onClick={() => navigator.clipboard.writeText(overlayUrl)}
-                  sx={{ whiteSpace: "nowrap" }}
-                >
-                  Copy link
-                </Button>
-                <Button
-                  size="small"
-                  variant="contained"
-                  color="primary"
-                  startIcon={<OpenInNewIcon />}
-                  component={MuiLink}
-                  href={overlayUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  underline="none"
-                  sx={{ color: "white !important", whiteSpace: "nowrap" }}
-                >
-                  Mở overlay
-                </Button>
-                <MatchRowActions match={m} />
-              </Stack>
+
+              <Button
+                size="small"
+                variant="contained"
+                color="primary"
+                startIcon={<OpenInNewIcon />}
+                component={MuiLink}
+                href={overlayUrl}
+                target="_blank"
+                rel="noreferrer"
+                underline="none"
+                sx={{ color: "white !important", whiteSpace: "nowrap" }}
+              >
+                Mở overlay
+              </Button>
             </Stack>
+
             <Typography variant="caption" color="text.secondary">
               Dán link vào OBS/StreamYard (Browser Source) để hiển thị tỉ số.
             </Typography>
+
+            {/* Hành động khác của match (được tách xuống dưới, tự wrap) */}
+            <Divider sx={{ my: 0.5 }} />
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
+              <MatchRowActions match={m} />
+            </Box>
           </Stack>
         </Paper>
       )}
