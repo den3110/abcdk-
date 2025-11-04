@@ -38,6 +38,8 @@ import {
   Tooltip,
   ToggleButton,
   ToggleButtonGroup,
+  LinearProgress,
+  Fade,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import VerifiedIcon from "@mui/icons-material/HowToReg";
@@ -619,9 +621,11 @@ export default function RankingList() {
 
   const [searchInput, setSearchInput] = useState(keyword || "");
 
+  // ✅ isFetching để detect page change
   const {
     data = { docs: [], totalPages: 0, podiums30d: {} },
     isLoading,
+    isFetching,
     error,
   } = useGetRankingsQuery({ keyword, page });
 
@@ -661,14 +665,12 @@ export default function RankingList() {
   const me = meData || null;
   const canSelfAssess = !me || me.isScoreVerified === false;
 
-  // ✅ SCROLL TO TOP KHI CHUYỂN TRANG - FIX LAG QUAN TRỌNG NHẤT
+  // ✅ SCROLL TO TOP KHI CHUYỂN TRANG - QUAN TRỌNG NHẤT
   useEffect(() => {
-    if (containerRef.current) {
-      window.scrollTo({ top: 0, behavior: "instant" });
-    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }, [page]);
 
-  // URL -> Redux & Input - OPTIMIZE: chỉ chạy khi searchParams thực sự thay đổi
+  // URL -> Redux & Input
   const urlPage = useMemo(
     () => parsePageFromParams(searchParams),
     [searchParams]
@@ -706,7 +708,7 @@ export default function RankingList() {
       const next = new URLSearchParams(searchParams);
       if (desiredPageParam) next.set("page", desiredPageParam);
       else next.delete("page");
-      setSearchParams(next, { replace: true }); // ✅ replace: true để không tạo history mới
+      setSearchParams(next, { replace: true });
     }
   }, [page]);
 
@@ -1007,9 +1009,22 @@ export default function RankingList() {
     [searchParams, setSearchParams]
   );
 
+  // ✅ Show skeleton khi đang fetch (page change)
+  const showSkeleton = isLoading || isFetching;
+
   return (
     <>
       <SponsorMarquee />
+
+      {/* ✅ PROGRESS BAR KHI FETCHING */}
+      {isFetching && !isLoading && (
+        <Box
+          sx={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999 }}
+        >
+          <LinearProgress />
+        </Box>
+      )}
+
       <Container maxWidth="xl" sx={{ py: 3 }} ref={containerRef}>
         <GlobalStyles
           styles={{
@@ -1045,6 +1060,7 @@ export default function RankingList() {
                 exclusive
                 onChange={handleChangeDesktopView}
                 aria-label="Chế độ hiển thị desktop"
+                disabled={isFetching}
               >
                 <ToggleButton value="list" aria-label="Danh sách">
                   <Tooltip
@@ -1109,6 +1125,7 @@ export default function RankingList() {
           onKeyDown={handleInputKeyDown}
           sx={{ mb: 2, width: 320 }}
           inputProps={{ maxLength: 120 }}
+          disabled={isFetching}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -1122,6 +1139,7 @@ export default function RankingList() {
                   onClick={handleClear}
                   edge="end"
                   size="small"
+                  disabled={isFetching}
                 >
                   <ClearIcon fontSize="small" />
                 </IconButton>
@@ -1133,47 +1151,373 @@ export default function RankingList() {
 
         {error ? (
           <Alert severity="error">{error?.data?.message || error?.error}</Alert>
-        ) : isLoading ? (
+        ) : showSkeleton ? (
+          // ✅ SKELETON KHI LOADING HOẶC FETCHING (CHUYỂN TRANG)
           isMobile ? (
-            <Stack spacing={2}>
-              {Array.from({ length: SKELETON_CARDS_MOBILE }).map((_, i) => (
-                <Card key={i} variant="outlined">
-                  <CardContent>
-                    <Box display="flex" alignItems="center" mb={1} gap={2}>
-                      <Skeleton variant="circular" width={40} height={40} />
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Skeleton variant="text" width="40%" />
+            <Fade in timeout={300}>
+              <Stack spacing={2}>
+                {Array.from({ length: SKELETON_CARDS_MOBILE }).map((_, i) => (
+                  <Card key={i} variant="outlined">
+                    <CardContent>
+                      <Box display="flex" alignItems="center" mb={1} gap={2}>
+                        <Skeleton variant="circular" width={40} height={40} />
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Skeleton variant="text" width="40%" />
+                        </Box>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Skeleton variant="rounded" width={64} height={24} />
+                          <Skeleton variant="rounded" width={90} height={24} />
+                        </Stack>
                       </Box>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <Skeleton variant="rounded" width={64} height={24} />
-                        <Skeleton variant="rounded" width={90} height={24} />
+                      <Stack
+                        direction="row"
+                        flexWrap="wrap"
+                        useFlexGap
+                        sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
+                      >
+                        <Skeleton variant="rounded" width={140} height={24} />
+                        <Skeleton variant="rounded" width={160} height={24} />
                       </Stack>
-                    </Box>
-                    <Stack
-                      direction="row"
-                      flexWrap="wrap"
-                      useFlexGap
-                      sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
-                    >
-                      <Skeleton variant="rounded" width={140} height={24} />
-                      <Skeleton variant="rounded" width={160} height={24} />
-                    </Stack>
-                    <Divider sx={{ mb: 1 }} />
-                    <Stack direction="row" spacing={2} mb={0.5}>
-                      <Skeleton variant="text" width={100} />
-                      <Skeleton variant="text" width={100} />
-                    </Stack>
-                    <Skeleton variant="text" width={180} />
-                    <Skeleton variant="text" width={200} />
-                    <Stack direction="row" spacing={1} mt={2}>
-                      <Skeleton variant="rounded" width={80} height={32} />
-                      <Skeleton variant="rounded" width={100} height={32} />
-                    </Stack>
-                  </CardContent>
-                </Card>
-              ))}
-            </Stack>
+                      <Divider sx={{ mb: 1 }} />
+                      <Stack direction="row" spacing={2} mb={0.5}>
+                        <Skeleton variant="text" width={100} />
+                        <Skeleton variant="text" width={100} />
+                      </Stack>
+                      <Skeleton variant="text" width={180} />
+                      <Skeleton variant="text" width={200} />
+                      <Stack direction="row" spacing={1} mt={2}>
+                        <Skeleton variant="rounded" width={80} height={32} />
+                        <Skeleton variant="rounded" width={100} height={32} />
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Stack>
+            </Fade>
           ) : desktopCards ? (
+            <Fade in timeout={300}>
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: {
+                    xs: "1fr",
+                    sm: "repeat(2, minmax(0, 1fr))",
+                    md: "repeat(3, minmax(0, 1fr))",
+                  },
+                  gap: 2,
+                  alignItems: "stretch",
+                }}
+              >
+                {Array.from({ length: SKELETON_CARDS_DESKTOP }).map((_, i) => (
+                  <Card key={i} variant="outlined">
+                    <CardContent>
+                      <Box display="flex" alignItems="center" mb={1.5} gap={2}>
+                        <Skeleton variant="circular" width={44} height={44} />
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Skeleton variant="text" width="60%" />
+                          <Stack direction="row" spacing={1} mt={0.5}>
+                            <Skeleton
+                              variant="rounded"
+                              width={60}
+                              height={22}
+                            />
+                            <Skeleton
+                              variant="rounded"
+                              width={100}
+                              height={22}
+                            />
+                          </Stack>
+                        </Box>
+                      </Box>
+                      <Stack direction="row" spacing={1} mb={1}>
+                        <Skeleton variant="rounded" width={120} height={24} />
+                        <Skeleton variant="rounded" width={120} height={24} />
+                      </Stack>
+                      <Divider sx={{ mb: 1.25 }} />
+                      <Stack direction="row" spacing={2} mb={0.5}>
+                        <Skeleton variant="text" width={90} />
+                        <Skeleton variant="text" width={90} />
+                      </Stack>
+                      <Skeleton variant="text" width={160} />
+                      <Skeleton variant="text" width={180} />
+                      <Stack direction="row" spacing={1} mt={2}>
+                        <Skeleton variant="rounded" width={90} height={32} />
+                        <Skeleton variant="rounded" width={100} height={32} />
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Box>
+            </Fade>
+          ) : (
+            <Fade in timeout={300}>
+              <TableContainer component={Paper}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      {[
+                        "#",
+                        "Ảnh",
+                        "Nick",
+                        "Tuổi",
+                        "Giới tính",
+                        "Tỉnh",
+                        "Điểm đôi",
+                        "Điểm đơn",
+                        "Cập nhật",
+                        "Tham gia",
+                        "Xác thực",
+                        "",
+                      ].map((h) => (
+                        <TableCell key={h}>{h}</TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {Array.from({ length: SKELETON_ROWS_DESKTOP }).map(
+                      (_, i) => (
+                        <TableRow key={i}>
+                          <TableCell>
+                            <Skeleton variant="text" width={24} />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton
+                              variant="circular"
+                              width={32}
+                              height={32}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton variant="text" width={120} />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton variant="text" width={40} />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton variant="text" width={70} />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton variant="text" width={90} />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton variant="text" width={80} />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton variant="text" width={80} />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton variant="text" width={110} />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton variant="text" width={110} />
+                          </TableCell>
+                          <TableCell>
+                            <Skeleton
+                              variant="rounded"
+                              width={90}
+                              height={24}
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Stack direction="row" spacing={1}>
+                              <Skeleton
+                                variant="rounded"
+                                width={64}
+                                height={28}
+                              />
+                              <Skeleton
+                                variant="rounded"
+                                width={96}
+                                height={28}
+                              />
+                            </Stack>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    )}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Fade>
+          )
+        ) : isMobile ? (
+          // ✅ MOBILE LIST WITH FADE
+          <Fade in timeout={400}>
+            <Stack spacing={2}>
+              {list?.map((r) => {
+                const u = r?.user || {};
+                const effectiveStatus =
+                  (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
+                const badge = cccdBadge(effectiveStatus);
+                const avatarSrc =
+                  u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
+                const tierHex = HEX[r?.tierColor] || HEX.grey;
+                const age = calcAge(u);
+                const canGrade = canGradeUser(me, u?.province);
+                const patched = patchMap[u?._id || ""] || {};
+                const patchedScores = {
+                  single: patched?.single ?? r?.single,
+                  double: patched?.double ?? r?.double,
+                  updatedAt: patched?.updatedAt ?? r?.updatedAt,
+                };
+                const allowKyc = canViewKycAdmin(me, effectiveStatus);
+
+                const uid = u?._id && String(u._id);
+                const topMedal = uid ? topMedalByUser.get(uid) : null;
+
+                return (
+                  <Card
+                    key={r?._id || u?._id}
+                    variant="outlined"
+                    sx={{
+                      ...(topMedal
+                        ? flameCardSx(topMedal)
+                        : { borderRadius: 6 }),
+                      width: "100%",
+                      height: "100%",
+                      display: "flex",
+                      flexDirection: "column",
+                    }}
+                  >
+                    <CardContent>
+                      <Box display="flex" alignItems="center" mb={1} gap={2}>
+                        <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
+                          <Avatar
+                            src={avatarSrc}
+                            alt={u?.nickname || "?"}
+                            onClick={() => openZoom(avatarSrc)}
+                            sx={{ cursor: "zoom-in", width: 40, height: 40 }}
+                          />
+                        </Box>
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Typography fontWeight={600} noWrap>
+                            {u?.nickname || "---"}
+                          </Typography>
+                        </Box>
+
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          {Number.isFinite(age) && (
+                            <Chip size="small" label={`${age} tuổi`} />
+                          )}
+                          <Chip
+                            label={badge.text}
+                            size="small"
+                            color={badge.color}
+                          />
+                        </Stack>
+                      </Box>
+
+                      {topMedal && (
+                        <Stack
+                          direction="row"
+                          flexWrap="wrap"
+                          useFlexGap
+                          sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
+                        >
+                          <Chip
+                            size="small"
+                            variant="outlined"
+                            clickable
+                            component={Link}
+                            to={hrefByUser.get(uid) || "/tournaments"}
+                            label={labelFullByUser.get(uid)}
+                            sx={medalChipStyleFull(topMedal)}
+                            onMouseDown={(e) => e.stopPropagation()}
+                          />
+                        </Stack>
+                      )}
+                      <Stack
+                        direction="row"
+                        flexWrap="wrap"
+                        useFlexGap
+                        sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
+                      >
+                        <Chip
+                          size="small"
+                          label={`Giới tính: ${genderLabel(u?.gender)}`}
+                        />
+                        <Chip
+                          size="small"
+                          label={`Tỉnh: ${u?.province || "--"}`}
+                        />
+                      </Stack>
+
+                      <Divider sx={{ mb: 1 }} />
+
+                      <Stack
+                        direction="row"
+                        spacing={2}
+                        mb={0.5}
+                        sx={{ "& .score": { color: tierHex, fontWeight: 600 } }}
+                      >
+                        <Typography variant="body2" className="score">
+                          Đôi: {fmt3(patchedScores.double)}
+                        </Typography>
+                        <Typography variant="body2" className="score">
+                          Đơn: {fmt3(patchedScores.single)}
+                        </Typography>
+                      </Stack>
+
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        display="block"
+                      >
+                        Cập nhật:{" "}
+                        {patchedScores?.updatedAt
+                          ? new Date(
+                              patchedScores.updatedAt
+                            ).toLocaleDateString()
+                          : "--"}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        display="block"
+                      >
+                        Tham gia:{" "}
+                        {u?.createdAt
+                          ? new Date(u.createdAt).toLocaleDateString()
+                          : "--"}
+                      </Typography>
+
+                      <Stack direction="row" spacing={1} mt={2}>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          color="success"
+                          onClick={() => handleOpenProfile(u?._id)}
+                        >
+                          Hồ sơ
+                        </Button>
+                        {canGrade && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => openGrade(u, r)}
+                          >
+                            Chấm trình
+                          </Button>
+                        )}
+                        {allowKyc && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => openKyc(u)}
+                          >
+                            Xem KYC
+                          </Button>
+                        )}
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </Stack>
+          </Fade>
+        ) : desktopCards ? (
+          // ✅ DESKTOP CARDS WITH FADE
+          <Fade in timeout={400}>
             <Box
               sx={{
                 display: "grid",
@@ -1186,469 +1530,195 @@ export default function RankingList() {
                 alignItems: "stretch",
               }}
             >
-              {Array.from({ length: SKELETON_CARDS_DESKTOP }).map((_, i) => (
-                <Card key={i} variant="outlined">
-                  <CardContent>
-                    <Box display="flex" alignItems="center" mb={1.5} gap={2}>
-                      <Skeleton variant="circular" width={44} height={44} />
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Skeleton variant="text" width="60%" />
-                        <Stack direction="row" spacing={1} mt={0.5}>
-                          <Skeleton variant="rounded" width={60} height={22} />
-                          <Skeleton variant="rounded" width={100} height={22} />
-                        </Stack>
-                      </Box>
-                    </Box>
-                    <Stack direction="row" spacing={1} mb={1}>
-                      <Skeleton variant="rounded" width={120} height={24} />
-                      <Skeleton variant="rounded" width={120} height={24} />
-                    </Stack>
-                    <Divider sx={{ mb: 1.25 }} />
-                    <Stack direction="row" spacing={2} mb={0.5}>
-                      <Skeleton variant="text" width={90} />
-                      <Skeleton variant="text" width={90} />
-                    </Stack>
-                    <Skeleton variant="text" width={160} />
-                    <Skeleton variant="text" width={180} />
-                    <Stack direction="row" spacing={1} mt={2}>
-                      <Skeleton variant="rounded" width={90} height={32} />
-                      <Skeleton variant="rounded" width={100} height={32} />
-                    </Stack>
-                  </CardContent>
-                </Card>
+              {list?.map((r, idx) => (
+                <DesktopCard
+                  key={r?._id || r?.user?._id || idx}
+                  r={r}
+                  idx={idx}
+                  me={me}
+                  cccdPatch={cccdPatch}
+                  patchMap={patchMap}
+                  topMedalByUser={topMedalByUser}
+                  labelFullByUser={labelFullByUser}
+                  hrefByUser={hrefByUser}
+                  onOpenProfile={handleOpenProfile}
+                  onOpenGrade={openGrade}
+                  onOpenKyc={openKyc}
+                  onZoomAvatar={openZoom}
+                />
               ))}
             </Box>
-          ) : (
+          </Fade>
+        ) : (
+          // ✅ DESKTOP TABLE WITH FADE
+          <Fade in timeout={400}>
             <TableContainer component={Paper}>
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    {[
-                      "#",
-                      "Ảnh",
-                      "Nick",
-                      "Tuổi",
-                      "Giới tính",
-                      "Tỉnh",
-                      "Điểm đôi",
-                      "Điểm đơn",
-                      "Cập nhật",
-                      "Tham gia",
-                      "Xác thực",
-                      "",
-                    ].map((h) => (
-                      <TableCell key={h}>{h}</TableCell>
-                    ))}
+                    <TableCell>#</TableCell>
+                    <TableCell>Ảnh</TableCell>
+                    <TableCell>Nick</TableCell>
+                    <TableCell>Tuổi</TableCell>
+                    <TableCell>Giới&nbsp;tính</TableCell>
+                    <TableCell>Tỉnh</TableCell>
+                    <TableCell>Điểm&nbsp;đôi</TableCell>
+                    <TableCell>Điểm&nbsp;đơn</TableCell>
+                    <TableCell>Cập nhật</TableCell>
+                    <TableCell>Tham gia</TableCell>
+                    <TableCell>Xác thực</TableCell>
+                    <TableCell></TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {Array.from({ length: SKELETON_ROWS_DESKTOP }).map((_, i) => (
-                    <TableRow key={i}>
-                      <TableCell>
-                        <Skeleton variant="text" width={24} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="circular" width={32} height={32} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="text" width={120} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="text" width={40} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="text" width={70} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="text" width={90} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="text" width={80} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="text" width={80} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="text" width={110} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="text" width={110} />
-                      </TableCell>
-                      <TableCell>
-                        <Skeleton variant="rounded" width={90} height={24} />
-                      </TableCell>
-                      <TableCell>
-                        <Stack direction="row" spacing={1}>
-                          <Skeleton variant="rounded" width={64} height={28} />
-                          <Skeleton variant="rounded" width={96} height={28} />
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {list?.map((r, idx) => {
+                    const u = r?.user || {};
+                    const effectiveStatus =
+                      (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
+                    const badge = cccdBadge(effectiveStatus);
+                    const avatarSrc =
+                      u?.avatar ||
+                      PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
+                    const tierHex = HEX[r?.tierColor] || HEX.grey;
+                    const age = calcAge(u);
+                    const canGrade = canGradeUser(me, u?.province);
+                    const patched = patchMap[u?._id || ""] || {};
+                    const patchedScores = {
+                      single: patched?.single ?? r?.single,
+                      double: patched?.double ?? r?.double,
+                      updatedAt: patched?.updatedAt ?? r?.updatedAt,
+                    };
+                    const allowKyc = canViewKycAdmin(me, effectiveStatus);
+
+                    const uid = u?._id && String(u._id);
+                    const topMedal = uid ? topMedalByUser.get(uid) : null;
+                    const label = uid ? labelShortByUser.get(uid) : null;
+
+                    return (
+                      <TableRow key={r?._id || u?._id} hover>
+                        <TableCell>{page * 10 + idx + 1}</TableCell>
+                        <TableCell>
+                          <Box
+                            sx={topMedal ? flameRingSx(topMedal) : undefined}
+                          >
+                            <Avatar
+                              src={avatarSrc}
+                              alt={u?.nickname || "?"}
+                              sx={{ width: 32, height: 32, cursor: "zoom-in" }}
+                              onClick={() => openZoom(avatarSrc)}
+                            />
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          <Box
+                            sx={{
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "flex-start",
+                              gap: 0.5,
+                            }}
+                          >
+                            <Typography
+                              variant="body2"
+                              sx={{ fontWeight: 600 }}
+                              noWrap
+                            >
+                              {u?.nickname || "--"}
+                            </Typography>
+                            {topMedal && (
+                              <Tooltip title={label || ""}>
+                                <Chip
+                                  size="small"
+                                  variant="outlined"
+                                  clickable
+                                  component={Link}
+                                  to={hrefByUser.get(uid) || "/tournaments"}
+                                  label={label}
+                                  sx={medalChipStyle(topMedal, 240)}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                />
+                              </Tooltip>
+                            )}
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          {Number.isFinite(age) ? age : "--"}
+                        </TableCell>
+                        <TableCell>{genderLabel(u?.gender)}</TableCell>
+                        <TableCell>{u?.province || "--"}</TableCell>
+                        <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
+                          {fmt3(patchedScores.double)}
+                        </TableCell>
+                        <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
+                          {fmt3(patchedScores.single)}
+                        </TableCell>
+                        <TableCell>
+                          {patchedScores?.updatedAt
+                            ? new Date(
+                                patchedScores.updatedAt
+                              ).toLocaleDateString()
+                            : "--"}
+                        </TableCell>
+                        <TableCell>
+                          {u?.createdAt
+                            ? new Date(u.createdAt).toLocaleDateString()
+                            : "--"}
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={badge.text}
+                            size="small"
+                            color={badge.color}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Stack direction="row" spacing={1}>
+                            <Button
+                              size="small"
+                              variant="contained"
+                              color="success"
+                              onClick={() => handleOpenProfile(u?._id)}
+                            >
+                              Hồ sơ
+                            </Button>
+                            {canGrade && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => openGrade(u, r)}
+                              >
+                                Chấm trình
+                              </Button>
+                            )}
+                            {allowKyc && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => openKyc(u)}
+                              >
+                                Xem KYC
+                              </Button>
+                            )}
+                          </Stack>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </TableContainer>
-          )
-        ) : isMobile ? (
-          <Stack spacing={2}>
-            {list?.map((r) => {
-              const u = r?.user || {};
-              const effectiveStatus =
-                (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
-              const badge = cccdBadge(effectiveStatus);
-              const avatarSrc =
-                u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
-              const tierHex = HEX[r?.tierColor] || HEX.grey;
-              const age = calcAge(u);
-              const canGrade = canGradeUser(me, u?.province);
-              const patched = patchMap[u?._id || ""] || {};
-              const patchedScores = {
-                single: patched?.single ?? r?.single,
-                double: patched?.double ?? r?.double,
-                updatedAt: patched?.updatedAt ?? r?.updatedAt,
-              };
-              const allowKyc = canViewKycAdmin(me, effectiveStatus);
-
-              const uid = u?._id && String(u._id);
-              const topMedal = uid ? topMedalByUser.get(uid) : null;
-
-              return (
-                <Card
-                  key={r?._id || u?._id}
-                  variant="outlined"
-                  sx={{
-                    ...(topMedal ? flameCardSx(topMedal) : { borderRadius: 6 }),
-                    width: "100%",
-                    height: "100%",
-                    display: "flex",
-                    flexDirection: "column",
-                  }}
-                >
-                  <CardContent>
-                    <Box display="flex" alignItems="center" mb={1} gap={2}>
-                      <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
-                        <Avatar
-                          src={avatarSrc}
-                          alt={u?.nickname || "?"}
-                          onClick={() => openZoom(avatarSrc)}
-                          sx={{ cursor: "zoom-in", width: 40, height: 40 }}
-                        />
-                      </Box>
-                      <Box sx={{ minWidth: 0, flex: 1 }}>
-                        <Typography fontWeight={600} noWrap>
-                          {u?.nickname || "---"}
-                        </Typography>
-                      </Box>
-
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        {Number.isFinite(age) && (
-                          <Chip size="small" label={`${age} tuổi`} />
-                        )}
-                        <Chip
-                          label={badge.text}
-                          size="small"
-                          color={badge.color}
-                        />
-                      </Stack>
-                    </Box>
-
-                    {topMedal && (
-                      <Stack
-                        direction="row"
-                        flexWrap="wrap"
-                        useFlexGap
-                        sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
-                      >
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          clickable
-                          component={Link}
-                          to={hrefByUser.get(uid) || "/tournaments"}
-                          label={labelFullByUser.get(uid)}
-                          sx={medalChipStyleFull(topMedal)}
-                          onMouseDown={(e) => e.stopPropagation()}
-                        />
-                      </Stack>
-                    )}
-                    <Stack
-                      direction="row"
-                      flexWrap="wrap"
-                      useFlexGap
-                      sx={{ columnGap: 1, rowGap: 1, mb: 1 }}
-                    >
-                      <Chip
-                        size="small"
-                        label={`Giới tính: ${genderLabel(u?.gender)}`}
-                      />
-                      <Chip
-                        size="small"
-                        label={`Tỉnh: ${u?.province || "--"}`}
-                      />
-                    </Stack>
-
-                    <Divider sx={{ mb: 1 }} />
-
-                    <Stack
-                      direction="row"
-                      spacing={2}
-                      mb={0.5}
-                      sx={{ "& .score": { color: tierHex, fontWeight: 600 } }}
-                    >
-                      <Typography variant="body2" className="score">
-                        Đôi: {fmt3(patchedScores.double)}
-                      </Typography>
-                      <Typography variant="body2" className="score">
-                        Đơn: {fmt3(patchedScores.single)}
-                      </Typography>
-                    </Stack>
-
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      display="block"
-                    >
-                      Cập nhật:{" "}
-                      {patchedScores?.updatedAt
-                        ? new Date(patchedScores.updatedAt).toLocaleDateString()
-                        : "--"}
-                    </Typography>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      display="block"
-                    >
-                      Tham gia:{" "}
-                      {u?.createdAt
-                        ? new Date(u.createdAt).toLocaleDateString()
-                        : "--"}
-                    </Typography>
-
-                    <Stack direction="row" spacing={1} mt={2}>
-                      <Button
-                        size="small"
-                        variant="contained"
-                        color="success"
-                        onClick={() => handleOpenProfile(u?._id)}
-                      >
-                        Hồ sơ
-                      </Button>
-                      {canGrade && (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => openGrade(u, r)}
-                        >
-                          Chấm trình
-                        </Button>
-                      )}
-                      {allowKyc && (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          onClick={() => openKyc(u)}
-                        >
-                          Xem KYC
-                        </Button>
-                      )}
-                    </Stack>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </Stack>
-        ) : desktopCards ? (
-          <Box
-            sx={{
-              display: "grid",
-              gridTemplateColumns: {
-                xs: "1fr",
-                sm: "repeat(2, minmax(0, 1fr))",
-                md: "repeat(3, minmax(0, 1fr))",
-              },
-              gap: 2,
-              alignItems: "stretch",
-            }}
-          >
-            {list?.map((r, idx) => (
-              <DesktopCard
-                key={r?._id || r?.user?._id || idx}
-                r={r}
-                idx={idx}
-                me={me}
-                cccdPatch={cccdPatch}
-                patchMap={patchMap}
-                topMedalByUser={topMedalByUser}
-                labelFullByUser={labelFullByUser}
-                hrefByUser={hrefByUser}
-                onOpenProfile={handleOpenProfile}
-                onOpenGrade={openGrade}
-                onOpenKyc={openKyc}
-                onZoomAvatar={openZoom}
-              />
-            ))}
-          </Box>
-        ) : (
-          <TableContainer component={Paper}>
-            <Table size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>#</TableCell>
-                  <TableCell>Ảnh</TableCell>
-                  <TableCell>Nick</TableCell>
-                  <TableCell>Tuổi</TableCell>
-                  <TableCell>Giới&nbsp;tính</TableCell>
-                  <TableCell>Tỉnh</TableCell>
-                  <TableCell>Điểm&nbsp;đôi</TableCell>
-                  <TableCell>Điểm&nbsp;đơn</TableCell>
-                  <TableCell>Cập nhật</TableCell>
-                  <TableCell>Tham gia</TableCell>
-                  <TableCell>Xác thực</TableCell>
-                  <TableCell></TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {list?.map((r, idx) => {
-                  const u = r?.user || {};
-                  const effectiveStatus =
-                    (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
-                  const badge = cccdBadge(effectiveStatus);
-                  const avatarSrc =
-                    u?.avatar ||
-                    PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
-                  const tierHex = HEX[r?.tierColor] || HEX.grey;
-                  const age = calcAge(u);
-                  const canGrade = canGradeUser(me, u?.province);
-                  const patched = patchMap[u?._id || ""] || {};
-                  const patchedScores = {
-                    single: patched?.single ?? r?.single,
-                    double: patched?.double ?? r?.double,
-                    updatedAt: patched?.updatedAt ?? r?.updatedAt,
-                  };
-                  const allowKyc = canViewKycAdmin(me, effectiveStatus);
-
-                  const uid = u?._id && String(u._id);
-                  const topMedal = uid ? topMedalByUser.get(uid) : null;
-                  const label = uid ? labelShortByUser.get(uid) : null;
-
-                  return (
-                    <TableRow key={r?._id || u?._id} hover>
-                      <TableCell>{page * 10 + idx + 1}</TableCell>
-                      <TableCell>
-                        <Box sx={topMedal ? flameRingSx(topMedal) : undefined}>
-                          <Avatar
-                            src={avatarSrc}
-                            alt={u?.nickname || "?"}
-                            sx={{ width: 32, height: 32, cursor: "zoom-in" }}
-                            onClick={() => openZoom(avatarSrc)}
-                          />
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        <Box
-                          sx={{
-                            display: "flex",
-                            flexDirection: "column",
-                            alignItems: "flex-start",
-                            gap: 0.5,
-                          }}
-                        >
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600 }}
-                            noWrap
-                          >
-                            {u?.nickname || "--"}
-                          </Typography>
-                          {topMedal && (
-                            <Tooltip title={label || ""}>
-                              <Chip
-                                size="small"
-                                variant="outlined"
-                                clickable
-                                component={Link}
-                                to={hrefByUser.get(uid) || "/tournaments"}
-                                label={label}
-                                sx={medalChipStyle(topMedal, 240)}
-                                onMouseDown={(e) => e.stopPropagation()}
-                              />
-                            </Tooltip>
-                          )}
-                        </Box>
-                      </TableCell>
-                      <TableCell>{Number.isFinite(age) ? age : "--"}</TableCell>
-                      <TableCell>{genderLabel(u?.gender)}</TableCell>
-                      <TableCell>{u?.province || "--"}</TableCell>
-                      <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
-                        {fmt3(patchedScores.double)}
-                      </TableCell>
-                      <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
-                        {fmt3(patchedScores.single)}
-                      </TableCell>
-                      <TableCell>
-                        {patchedScores?.updatedAt
-                          ? new Date(
-                              patchedScores.updatedAt
-                            ).toLocaleDateString()
-                          : "--"}
-                      </TableCell>
-                      <TableCell>
-                        {u?.createdAt
-                          ? new Date(u.createdAt).toLocaleDateString()
-                          : "--"}
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          label={badge.text}
-                          size="small"
-                          color={badge.color}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Stack direction="row" spacing={1}>
-                          <Button
-                            size="small"
-                            variant="contained"
-                            color="success"
-                            onClick={() => handleOpenProfile(u?._id)}
-                          >
-                            Hồ sơ
-                          </Button>
-                          {canGrade && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() => openGrade(u, r)}
-                            >
-                              Chấm trình
-                            </Button>
-                          )}
-                          {allowKyc && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              onClick={() => openKyc(u)}
-                            >
-                              Xem KYC
-                            </Button>
-                          )}
-                        </Stack>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          </Fade>
         )}
 
-        {totalPages > 1 && !isLoading && (
+        {/* ✅ PAGINATION - LUÔN HIỂN THỊ, DISABLED KHI FETCHING */}
+        {totalPages > 1 && (
           <Box mt={2} display="flex" justifyContent="center">
             <Pagination
               count={totalPages}
               page={page + 1}
               onChange={(_, v) => dispatch(setPage(v - 1))}
               color="primary"
+              disabled={isFetching}
             />
           </Box>
         )}
