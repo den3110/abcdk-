@@ -548,6 +548,62 @@ function buildFramesFromFinalScores(base) {
   return frames;
 }
 
+const ClockBox = React.memo(function ClockBox({
+  show = true,
+  cssVarStyle,
+  corner = "tl",
+}) {
+  const [nowMs, setNowMs] = React.useState(Date.now());
+  React.useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const text = React.useMemo(
+    () =>
+      new Date(nowMs).toLocaleTimeString("vi-VN", {
+        hour12: false,
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      }),
+    [nowMs]
+  );
+
+  const pos = React.useMemo(() => {
+    const isBR = String(corner).includes("b") && String(corner).includes("r");
+    return { right: 16, bottom: isBR ? 132 : 16 };
+  }, [corner]);
+
+  const style = React.useMemo(
+    () => ({
+      position: "fixed",
+      ...pos,
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 8,
+      padding: "6px 10px",
+      borderRadius: 12,
+      background: "var(--bg)",
+      color: "var(--fg)",
+      boxShadow: "var(--shadow)",
+      fontSize: "var(--meta)",
+      zIndex: 2147483646,
+      pointerEvents: "none",
+      ...cssVarStyle,
+    }),
+    [pos, cssVarStyle]
+  );
+
+  if (!show) return null;
+  return (
+    <div className="ovl-clock" style={style}>
+      <span style={{ opacity: 0.7 }}>🕒</span>
+      <strong style={{ letterSpacing: 0.3 }}>{text}</strong>
+    </div>
+  );
+});
+
 /* ======================== Component ======================== */
 const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   const socket = useSocket();
@@ -556,7 +612,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
 
   const matchId = props?.matchIdProp || q.get("matchId") || "";
   const replay = parseQPBool(q.get("replay")) === true;
-
+  const showClock = parseQPBool(q.get("clock")) == 1;
   const replayLoop = parseQPBool(q.get("replayLoop"));
   const replayRate = Math.max(0.01, Number(q.get("replayRate") || 1));
   const replayMinMs =
@@ -1611,6 +1667,11 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
           ))}
         </div>
       ) : null}
+      <ClockBox
+        show={showClock}
+        cssVarStyle={cssVarStyle}
+        corner={effective.corner}
+      />
     </>
   );
 });

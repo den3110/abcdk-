@@ -80,6 +80,7 @@ function HighlightProvider({ children }) {
 }
 
 /* ===================== Helpers (names) ===================== */
+
 // ✅ Trả về string an toàn để render
 const toText = (v) => {
   if (v == null) return "";
@@ -286,6 +287,7 @@ const courtName = (mm) => pickName(mm?.court) || pickName(mm?.venue) || "";
 // nhận dạng có stream
 const hasVideo = (m) =>
   !!(
+    m?.video ||
     m?.streamUrl ||
     m?.videoUrl ||
     m?.stream?.url ||
@@ -2535,7 +2537,6 @@ export default function TournamentBracket() {
       const time = formatTime(pickGroupKickoffTime(m));
       const court = getStickyCourt(m);
       const score = scoreLabel(m);
-      const hasVid = hasVideo(m); // ⟵ NEW
       return {
         id: String(m._id),
         code,
@@ -2545,7 +2546,6 @@ export default function TournamentBracket() {
         court,
         score,
         match: m,
-        hasVid, // ⟵ NEW
       };
     });
 
@@ -2624,11 +2624,17 @@ export default function TournamentBracket() {
                   },
                 }}
               >
-                <Stack spacing={0.75}>
-                  <Stack
-                    direction="row"
-                    alignItems="center"
-                    justifyContent="space-between"
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  justifyContent="space-between"
+                >
+                  <Box
+                    sx={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 0.5,
+                    }}
                   >
                     {(() => {
                       const badge = codeBadge(r.match);
@@ -2648,42 +2654,17 @@ export default function TournamentBracket() {
                       );
                     })()}
 
-                    <Typography
-                      variant="subtitle2"
-                      sx={{ fontWeight: 800, ml: 1 }}
-                    >
-                      {r.score || "LIVE"}
-                    </Typography>
-                  </Stack>
+                    {r.video && (
+                      <VideoIcon sx={{ fontSize: 18, color: "error.main" }} />
+                    )}
+                  </Box>
 
                   <Typography
-                    variant="body2"
-                    sx={{ fontWeight: 600, lineHeight: 1.3 }}
+                    variant="subtitle2"
+                    sx={{ fontWeight: 800, ml: 1 }}
                   >
-                    {r.aName} <b style={{ opacity: 0.6 }}>vs</b> {r.bName}
+                    {r.score || "—"}
                   </Typography>
-
-                  <Stack
-                    direction="row"
-                    spacing={1}
-                    alignItems="center"
-                    flexWrap="wrap"
-                  >
-                    <Chip
-                      size="small"
-                      icon={<AccessTimeIcon sx={{ fontSize: 14 }} />}
-                      label={r.time || "—"}
-                      variant="outlined"
-                    />
-                    {r.court && (
-                      <Chip
-                        size="small"
-                        icon={<StadiumIcon sx={{ fontSize: 14 }} />}
-                        label={r.court}
-                        variant="outlined"
-                      />
-                    )}
-                  </Stack>
                 </Stack>
               </Paper>
             ))}
@@ -2869,6 +2850,7 @@ export default function TournamentBracket() {
               const time = formatTime(pickGroupKickoffTime(m));
               const court = courtName(m);
               const score = scoreLabel(m);
+              const video = hasVideo(m);
               return {
                 _id: String(m._id),
                 code,
@@ -2878,6 +2860,7 @@ export default function TournamentBracket() {
                 court,
                 score,
                 match: m,
+                video,
               };
             });
           } else {
@@ -3030,23 +3013,42 @@ export default function TournamentBracket() {
                                         r.time ? ` • Giờ: ${r.time}` : ""
                                       }`;
                                 return (
-                                  <Tooltip title={tip} arrow>
-                                    <Chip
-                                      size="small"
-                                      label={r.code}
-                                      sx={{
-                                        fontWeight: 700,
-                                        bgcolor: badge.bg,
-                                        color: badge.fg,
-                                        ...(badge.border
-                                          ? {
-                                              border: "1px solid",
-                                              borderColor: "divider",
-                                            }
-                                          : {}),
-                                      }}
-                                    />
-                                  </Tooltip>
+                                  <Box
+                                    sx={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      gap: 0.5,
+                                    }}
+                                  >
+                                    <Tooltip title={tip} arrow>
+                                      <Chip
+                                        size="small"
+                                        label={r.code}
+                                        sx={{
+                                          fontWeight: 700,
+                                          bgcolor: badge.bg,
+                                          color: badge.fg,
+                                          ...(badge.border
+                                            ? {
+                                                border: "1px solid",
+                                                borderColor: "divider",
+                                              }
+                                            : {}),
+                                        }}
+                                      />
+                                    </Tooltip>
+
+                                    {r.video && (
+                                      <Tooltip title="Có video/stream" arrow>
+                                        <VideoIcon
+                                          sx={{
+                                            fontSize: 18,
+                                            color: "error.main",
+                                          }}
+                                        />
+                                      </Tooltip>
+                                    )}
+                                  </Box>
                                 );
                               })()}
                             </TableCell>
@@ -3101,11 +3103,17 @@ export default function TournamentBracket() {
                           },
                         }}
                       >
-                        <Stack spacing={0.75}>
-                          <Stack
-                            direction="row"
-                            alignItems="center"
-                            justifyContent="space-between"
+                        <Stack
+                          direction="row"
+                          alignItems="center"
+                          justifyContent="space-between"
+                        >
+                          <Box
+                            sx={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 0.5,
+                            }}
                           >
                             {(() => {
                               const badge = codeBadge(r.match);
@@ -3127,43 +3135,20 @@ export default function TournamentBracket() {
                                 />
                               );
                             })()}
-                            <Typography
-                              variant="subtitle2"
-                              sx={{ fontWeight: 800, ml: 1 }}
-                            >
-                              {r.score || "—"}
-                            </Typography>
-                          </Stack>
 
-                          <Typography
-                            variant="body2"
-                            sx={{ fontWeight: 600, lineHeight: 1.3 }}
-                          >
-                            {r.aName} <b style={{ opacity: 0.6 }}>vs</b>{" "}
-                            {r.bName}
-                          </Typography>
-
-                          <Stack
-                            direction="row"
-                            spacing={1}
-                            alignItems="center"
-                            flexWrap="wrap"
-                          >
-                            <Chip
-                              size="small"
-                              icon={<AccessTimeIcon sx={{ fontSize: 14 }} />}
-                              label={r.time || "—"}
-                              variant="outlined"
-                            />
-                            {r.court && (
-                              <Chip
-                                size="small"
-                                icon={<StadiumIcon sx={{ fontSize: 14 }} />}
-                                label={r.court}
-                                variant="outlined"
+                            {r.video && (
+                              <VideoIcon
+                                sx={{ fontSize: 18, color: "error.main" }}
                               />
                             )}
-                          </Stack>
+                          </Box>
+
+                          <Typography
+                            variant="subtitle2"
+                            sx={{ fontWeight: 800, ml: 1 }}
+                          >
+                            {r.score || "—"}
+                          </Typography>
                         </Stack>
                       </Paper>
                     ))

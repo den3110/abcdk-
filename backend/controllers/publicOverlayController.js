@@ -33,75 +33,53 @@ const normalizeTier = (name) => {
 export const getOverlayConfig = asyncHandler(async (req, res) => {
   const limit = parseLimitQP(req.query.limit, 12, 200);
   const featured = parseBoolQP(req.query.featured);
-  const tierQP = req.query.tier; // e.g. "Gold,Silver"
+  const tierQP = req.query.tier;
 
-  // nhận tournament id từ ?tournamentId hoặc ?tid
   const tidRaw = req.query.tournamentId || req.query.tid || null;
-  const isValidTid = !!(tidRaw && mongoose.Types.ObjectId.isValid(tidRaw));
-  const tid = isValidTid ? new mongoose.Types.ObjectId(tidRaw) : null;
+  const tid =
+    tidRaw && mongoose.Types.ObjectId.isValid(tidRaw)
+      ? new mongoose.Types.ObjectId(tidRaw)
+      : null;
 
+  // Logo từ CMS (giữ nguyên như bạn đang làm)
+  const FALLBACK_LOGO = "https://placehold.co/240x60/png?text=PickleTour";
+  let webLogoUrl = FALLBACK_LOGO,
+    webLogoAlt = "";
+  try {
+    const heroBlock = await CmsBlock.findOne({ slug: "hero" }).lean();
+    if (heroBlock?.data) {
+      webLogoUrl = heroBlock.data.overlayLogoUrl || FALLBACK_LOGO;
+      webLogoAlt =
+        heroBlock.data.overlayLogoAlt || heroBlock.data.imageAlt || "";
+    }
+  } catch {}
+
+  // ❗ Không có tid -> trả mảng rỗng (đúng yêu cầu bạn)
+  if (!tid) {
+    return res.json({ webLogoUrl, webLogoAlt, sponsors: [] });
+  }
+
+  // Có tid -> chỉ lấy sponsor gắn đúng giải
   const filter = {};
   if (featured !== undefined) filter.featured = featured;
 
   if (tierQP) {
-    const tiers = String(tierQP)
-      .split(",")
-      .map((s) => normalizeTier(s))
-      .filter(Boolean);
+    const tiers = String(tierQP).split(",").map(normalizeTier).filter(Boolean);
     if (tiers.length) filter.tier = { $in: tiers };
   }
 
-  // Nếu có tournamentId: trả sponsor của giải + sponsor chung (không gắn giải)
-  if (tid) {
-    filter.$or = [
-      { tournamentIds: tid }, // gắn đúng giải
-      { tournamentIds: { $exists: false } }, // sponsor chung (legacy)
-      { tournamentIds: { $size: 0 } }, // sponsor chung (mảng rỗng)
-    ];
-  }
+  // ✅ lọc đúng field theo schema
+  filter.tournaments = tid; // chỉ những sponsor có chứa tid
 
   const q = Sponsor.find(filter)
     .select(
-      "_id name slug logoUrl websiteUrl refLink tier weight featured tournamentIds"
+      "_id name slug logoUrl websiteUrl refLink tier weight featured tournaments updatedAt"
     )
-    // Ưu tiên: featured → weight desc → updatedAt desc → name asc
     .sort({ featured: -1, weight: -1, updatedAt: -1, name: 1 });
 
   if (limit > 0) q.limit(limit);
 
   const sponsors = await q.lean();
 
-  // ✅ fallback như cũ
-  const FALLBACK_LOGO = "https://placehold.co/240x60/png?text=PickleTour";
-
-  // ✅ lấy từ CMS block 'hero'
-  let webLogoUrl = FALLBACK_LOGO;
-  let webLogoAlt = "";
-
-  try {
-    const heroBlock = await CmsBlock.findOne({ slug: "hero" }).lean();
-    if (heroBlock?.data) {
-      // ưu tiên overlayLogoUrl
-      if (heroBlock.data.overlayLogoUrl) {
-        webLogoUrl = heroBlock.data.overlayLogoUrl;
-      } else {
-        // nếu không có thì để fallback, KHÔNG lấy imageUrl hero
-        webLogoUrl = FALLBACK_LOGO;
-      }
-      // alt ưu tiên overlayLogoAlt, rồi tới imageAlt, không có thì để rỗng
-      webLogoAlt =
-        heroBlock.data.overlayLogoAlt || heroBlock.data.imageAlt || "";
-    }
-  } catch {
-    // ignore CMS errors, keep fallbacks
-  }
-
-  // Cache nhẹ (CDN + browser). Vary theo URL nên ổn cho tham số khác nhau.
-  res.set("Cache-Control", "public, max-age=30, s-maxage=60");
-
-  res.json({
-    webLogoUrl,
-    webLogoAlt,
-    sponsors,
-  });
+  return res.json({ webLogoUrl, webLogoAlt, sponsors });
 });
