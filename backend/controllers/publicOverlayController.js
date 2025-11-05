@@ -1,6 +1,7 @@
 // controllers/publicOverlayController.js
-// GET /api/public/overlay/config?limit=0&featured=1[&tier=Gold,Silver]
+// GET /api/public/overlay/config?limit=0&featured=1[&tier=Gold,Silver][&tournamentId=...|&tid=...]
 import asyncHandler from "express-async-handler";
+import mongoose from "mongoose";
 import { Sponsor, SPONSOR_TIERS } from "../models/sponsorModel.js";
 import CmsBlock from "../models/cmsBlockModel.js";
 
@@ -34,6 +35,11 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
   const featured = parseBoolQP(req.query.featured);
   const tierQP = req.query.tier; // e.g. "Gold,Silver"
 
+  // nhận tournament id từ ?tournamentId hoặc ?tid
+  const tidRaw = req.query.tournamentId || req.query.tid || null;
+  const isValidTid = !!(tidRaw && mongoose.Types.ObjectId.isValid(tidRaw));
+  const tid = isValidTid ? new mongoose.Types.ObjectId(tidRaw) : null;
+
   const filter = {};
   if (featured !== undefined) filter.featured = featured;
 
@@ -45,8 +51,19 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
     if (tiers.length) filter.tier = { $in: tiers };
   }
 
+  // Nếu có tournamentId: trả sponsor của giải + sponsor chung (không gắn giải)
+  if (tid) {
+    filter.$or = [
+      { tournamentIds: tid }, // gắn đúng giải
+      { tournamentIds: { $exists: false } }, // sponsor chung (legacy)
+      { tournamentIds: { $size: 0 } }, // sponsor chung (mảng rỗng)
+    ];
+  }
+
   const q = Sponsor.find(filter)
-    .select("_id name slug logoUrl websiteUrl refLink tier weight featured")
+    .select(
+      "_id name slug logoUrl websiteUrl refLink tier weight featured tournamentIds"
+    )
     // Ưu tiên: featured → weight desc → updatedAt desc → name asc
     .sort({ featured: -1, weight: -1, updatedAt: -1, name: 1 });
 
@@ -55,31 +72,31 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
   const sponsors = await q.lean();
 
   // ✅ fallback như cũ
-  const FALLBACK_LOGO =
-    "https://placehold.co/240x60/png?text=PickleTour";
+  const FALLBACK_LOGO = "https://placehold.co/240x60/png?text=PickleTour";
 
   // ✅ lấy từ CMS block 'hero'
   let webLogoUrl = FALLBACK_LOGO;
   let webLogoAlt = "";
 
-  const heroBlock = await CmsBlock.findOne({ slug: "hero" }).lean();
-  if (heroBlock?.data) {
-    // ưu tiên overlayLogoUrl
-    if (heroBlock.data.overlayLogoUrl) {
-      webLogoUrl = heroBlock.data.overlayLogoUrl;
-    } else {
-      // nếu không có thì để fallback, KHÔNG lấy imageUrl hero
-      webLogoUrl = FALLBACK_LOGO;
+  try {
+    const heroBlock = await CmsBlock.findOne({ slug: "hero" }).lean();
+    if (heroBlock?.data) {
+      // ưu tiên overlayLogoUrl
+      if (heroBlock.data.overlayLogoUrl) {
+        webLogoUrl = heroBlock.data.overlayLogoUrl;
+      } else {
+        // nếu không có thì để fallback, KHÔNG lấy imageUrl hero
+        webLogoUrl = FALLBACK_LOGO;
+      }
+      // alt ưu tiên overlayLogoAlt, rồi tới imageAlt, không có thì để rỗng
+      webLogoAlt =
+        heroBlock.data.overlayLogoAlt || heroBlock.data.imageAlt || "";
     }
-
-    // alt ưu tiên overlayLogoAlt, rồi tới imageAlt, không có thì để rỗng
-    webLogoAlt =
-      heroBlock.data.overlayLogoAlt ||
-      heroBlock.data.imageAlt ||
-      "";
+  } catch {
+    // ignore CMS errors, keep fallbacks
   }
 
-  // Cache nhẹ (CDN + browser)
+  // Cache nhẹ (CDN + browser). Vary theo URL nên ổn cho tham số khác nhau.
   res.set("Cache-Control", "public, max-age=30, s-maxage=60");
 
   res.json({

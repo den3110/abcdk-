@@ -29,6 +29,15 @@ const sponsorSchema = new mongoose.Schema(
     description: { type: String, default: "" },
     featured: { type: Boolean, default: false, index: true },
     weight: { type: Number, default: 0, index: true }, // số càng lớn càng ưu tiên (sort desc)
+
+    // ⬇️ NEW: gán nhiều giải đấu (optional)
+    tournaments: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Tournament",
+        index: true,
+      },
+    ],
   },
   { timestamps: true }
 );
@@ -37,6 +46,8 @@ sponsorSchema.pre("validate", function (next) {
   if (!this.slug && this.name) this.slug = slugify(this.name);
   next();
 });
+
+sponsorSchema.index({ tournaments: 1, weight: -1, createdAt: -1 });
 
 export const Sponsor = mongoose.model("Sponsor", sponsorSchema);
 export const SPONSOR_TIERS = TIERS;

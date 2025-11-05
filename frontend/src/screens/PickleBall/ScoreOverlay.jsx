@@ -55,7 +55,9 @@ const codeToRoundLabel = (code) => {
 
 const parseRoundSize = (roundCode) => {
   if (!roundCode) return null;
-  const m = String(roundCode).toUpperCase().match(/^R(\d+)$/);
+  const m = String(roundCode)
+    .toUpperCase()
+    .match(/^R(\d+)$/);
   return m ? +m[1] : null;
 };
 
@@ -580,7 +582,8 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   const autoNext = !replay && parseQPBool(q.get("autoNext"));
 
   // ✅ chỉ bật break nếu URL cho phép
-  const isActiveBreakQP = parseQPBool(q.get("isActiveBreak")) === true || (q.get("isactivebreak")) == 1;
+  const isActiveBreakQP =
+    parseQPBool(q.get("isActiveBreak")) === true || q.get("isactivebreak") == 1;
 
   const { data: snapRaw } = useGetOverlaySnapshotQuery(matchId, {
     skip: !matchId,
@@ -599,18 +602,29 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   const overlayEnabled =
     String(q.get("overlay") || "").trim() === "1" ||
     String(q.get("overlay") || "").toLowerCase() === "true";
+  const tidFromQP = q.get("tournamentId") || q.get("tid") || undefined;
+  const overlayTid = tidFromQP || data?.tournament?.id || undefined;
 
   // Tham số gọi API công khai (RTK Query)
   const overlayParams = useMemo(() => {
     const limit = Number.isFinite(+q.get("sLimit")) ? +q.get("sLimit") : 12;
     const featured = q.get("sFeatured") ?? "1"; // "1" | "0"
     const tier = q.get("sTier") || undefined; // "gold,silver"
-    return { limit, featured, tier };
-  }, [q]);
+    // NEW: tournamentId từ QP hoặc từ snapshot
+    const tidFromQP = q.get("tournamentId") || q.get("tid") || undefined;
+    const tid = tidFromQP || data?.tournament?.id || undefined;
 
+    return {
+      limit,
+      featured,
+      tier,
+      ...(tid ? { tournamentId: tid } : {}),
+    };
+    // cần phụ thuộc vào id của tournament để refetch khi snapshot xong
+  }, [q, data?.tournament?.id]);
   // RTK Query: lấy webLogo + sponsors (chỉ khi overlayEnabled)
   const { data: overlayCfg } = useGetOverlayConfigQuery(overlayParams, {
-    skip: !overlayEnabled,
+    skip: !overlayEnabled || !overlayTid,
   });
 
   // transparent bg (OBS)
@@ -977,16 +991,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         pollRef.current = null;
       }
     };
-  }, [
-    autoNext,
-    rawStatus,
-    data?.court?.id,
-    data?.courtId,
-    data?.matchId,
-    matchId,
-    getNextByCourt,
-    navigate,
-  ]);
+  }, [autoNext, rawStatus, data?.court?.id, data?.courtId, data?.matchId, matchId, getNextByCourt, navigate]);
 
   /* ---------- REPLAY driver ---------- */
   const replayTimerRef = useRef(null);
@@ -1105,16 +1110,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         replayTimerRef.current = null;
       }
     };
-  }, [
-    replay,
-    replayLoop,
-    replayRate,
-    replayMinMs,
-    replayMaxMs,
-    replayStartMs,
-    replayStepMs,
-    snapRaw,
-  ]);
+  }, [replay, replayLoop, replayRate, replayMinMs, replayMaxMs, replayStartMs, replayStepMs, snapRaw]);
 
   /* ---------- NEW: scale-score (transform scale) ---------- */
   const scaleScoreParam = q.get("scale-score");
@@ -1307,7 +1303,9 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                       background:
                         effective.theme === "dark" ? "#1f2937" : "#e2e8f0",
                       color: effective.theme === "dark" ? "#fff" : "#0f172a",
-                      display: "flex", justifyContent: "center", alignItems: "center"
+                      display: "flex",
+                      justifyContent: "center",
+                      alignItems: "center",
                     }}
                   >
                     {roundLabel || phaseText}
@@ -1402,10 +1400,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
             </div>
 
             {/* Team A */}
-            <div
-              className="ovl-row ovl-row--a"
-              style={styles.row}
-            >
+            <div className="ovl-row ovl-row--a" style={styles.row}>
               <div
                 className="ovl-team ovl-team--a"
                 style={styles.team}
@@ -1428,10 +1423,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
             </div>
 
             {/* Team B */}
-            <div
-              className="ovl-row ovl-row--b"
-              style={styles.row}
-            >
+            <div className="ovl-row ovl-row--b" style={styles.row}>
               <div
                 className="ovl-team ovl-team--b"
                 style={styles.team}

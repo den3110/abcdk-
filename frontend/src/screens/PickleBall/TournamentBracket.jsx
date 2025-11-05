@@ -2535,6 +2535,7 @@ export default function TournamentBracket() {
       const time = formatTime(pickGroupKickoffTime(m));
       const court = getStickyCourt(m);
       const score = scoreLabel(m);
+      const hasVid = hasVideo(m); // ⟵ NEW
       return {
         id: String(m._id),
         code,
@@ -2544,6 +2545,7 @@ export default function TournamentBracket() {
         court,
         score,
         match: m,
+        hasVid, // ⟵ NEW
       };
     });
 

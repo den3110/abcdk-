@@ -724,13 +724,75 @@ export const searchRegistrations = async (req, res, next) => {
       return res.status(400).json({ message: "Tournament id không hợp lệ" });
     }
 
+    // ===== Quyền xem số điện thoại đầy đủ (giống getRegistrations) =====
+    const meId = req.user?._id ? String(req.user._id) : "";
+    const isAdmin =
+      Boolean(req.user?.isAdmin) ||
+      req.user?.role === "admin" ||
+      (Array.isArray(req.user?.roles) && req.user.roles.includes("admin"));
+
+    let canSeeFullPhone = false;
+    if (isAdmin) {
+      canSeeFullPhone = true;
+    } else if (meId) {
+      const [t, isMgr] = await Promise.all([
+        Tournament.findById(id).select("_id createdBy").lean(),
+        TournamentManager.exists({ tournament: id, user: meId }),
+      ]);
+      if (t && String(t.createdBy) === meId) canSeeFullPhone = true;
+      if (isMgr) canSeeFullPhone = true;
+    }
+
+    // ===== Helpers giống getRegistrations =====
+    const maskPhone = (val) => {
+      if (!val) return val;
+      const s = String(val);
+      if (canSeeFullPhone) return s;
+
+      if (s.length <= 6) {
+        const keepHead = Math.min(1, s.length);
+        const keepTail = s.length > 2 ? 1 : 0;
+        const head = s.slice(0, keepHead);
+        const tail = keepTail ? s.slice(-keepTail) : "";
+        const stars = "*".repeat(Math.max(0, s.length - keepHead - keepTail));
+        return `${head}${stars}${tail}`;
+      }
+      return `${s.slice(0, 3)}****${s.slice(-3)}`;
+    };
+
+    const finalKycStatusOf = (u) => {
+      const c = String(u?.cccdStatus || "").toLowerCase();
+      if (["verified", "pending", "rejected"].includes(c)) return c;
+      const v = String(u?.verified || "").toLowerCase(); // 'verified' | 'pending'
+      if (v === "verified") return "verified";
+      if (v === "pending") return "pending";
+      return "unverified";
+    };
+
+    const enrichPlayerAfterAgg = (pl, uMeta = {}) => {
+      if (!pl) return pl;
+      // pl: { avatar, fullName, nickName, phone, score, user }
+      // uMeta: { cccdStatus, verified }
+      const kycStatus = finalKycStatusOf(uMeta);
+      const isVerified = kycStatus === "verified";
+
+      return {
+        ...pl,
+        phone: maskPhone(pl.phone ?? ""), // mask sau khi đã merge phone (user > snapshot)
+        cccdStatus: uMeta?.cccdStatus || "unverified",
+        verifiedLegacy: uMeta?.verified || "pending",
+        kycStatus,
+        isVerified,
+      };
+    };
+
     // Helper
     const escapeRegExp = (s = "") =>
       String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
     // === Nếu không có q: trả tất cả trong giải (giới hạn limit) ===
     if (!rawQ) {
-      const results = await Registration.aggregate([
+      const rows = await Registration.aggregate([
         { $match: { tournament: new ObjectId(id) } },
 
         // Join user cho player1 & player2
@@ -753,7 +815,7 @@ export const searchRegistrations = async (req, res, next) => {
         },
         { $unwind: { path: "$u2", preserveNullAndEmptyArrays: true } },
 
-        // Trả player mixed để UI hiển thị
+        // Trả player mixed + kèm meta user để tính KYC ở ngoài
         {
           $addFields: {
             player1Mixed: {
@@ -798,6 +860,12 @@ export const searchRegistrations = async (req, res, next) => {
                 null,
               ],
             },
+
+            // Meta để tính KYC phía Node
+            _u1cccdStatus: "$u1.cccdStatus",
+            _u1verified: "$u1.verified",
+            _u2cccdStatus: "$u2.cccdStatus",
+            _u2verified: "$u2.verified",
           },
         },
 
@@ -810,27 +878,52 @@ export const searchRegistrations = async (req, res, next) => {
             code: 1,
             checkinAt: 1,
             payment: 1,
+
             player1: "$player1Mixed",
             player2: "$player2Mixed",
+
             // giữ snapshot nếu cần
             player1Snapshot: "$player1",
             player2Snapshot: "$player2",
+
+            // giữ meta user để xử lý KYC ở ngoài
+            _u1cccdStatus: 1,
+            _u1verified: 1,
+            _u2cccdStatus: 1,
+            _u2verified: 1,
           },
         },
         { $sort: { createdAt: -1 } },
         { $limit: limit },
       ]).collation({ locale: "vi", strength: 1 });
 
-      return res.json(results);
+      // Post-process: mask phone + gán KYC
+      const out = rows.map((r) => ({
+        ...r,
+        player1: enrichPlayerAfterAgg(r.player1, {
+          cccdStatus: r._u1cccdStatus,
+          verified: r._u1verified,
+        }),
+        player2: r.player2
+          ? enrichPlayerAfterAgg(r.player2, {
+              cccdStatus: r._u2cccdStatus,
+              verified: r._u2verified,
+            })
+          : null,
+        // xoá meta tạm
+        _u1cccdStatus: undefined,
+        _u1verified: undefined,
+        _u2cccdStatus: undefined,
+        _u2verified: undefined,
+      }));
+
+      return res.json(out);
     }
 
     // === Có q: build điều kiện tìm kiếm theo từng VĐV (tên & nickname) ===
-
-    // exact phrase nếu có ngoặc kép
     const quoted = /^["“].*["”]$/.test(rawQ);
     if (quoted) rawQ = rawQ.replace(/^["“]|["”]$/g, "").trim();
 
-    // tokens & chế độ
     const tokens = rawQ.split(/\s+/).filter(Boolean);
     const tokensLen = tokens.length;
     const exactMode = quoted || tokensLen >= 2;
@@ -838,21 +931,16 @@ export const searchRegistrations = async (req, res, next) => {
     const qUpper = rawQ.toUpperCase();
     const qDigits = (rawQ.match(/\d/g) || []).join("");
 
-    // phone
     const phoneRegex = qDigits.length >= 6 ? new RegExp(qDigits) : null;
-
-    // code
     const codeExact = /^\d+$/.test(rawQ) ? Number(rawQ) : undefined;
     const codePrefixRegex =
       qDigits.length >= 2 ? new RegExp("^" + escapeRegExp(qDigits)) : null;
 
-    // short5
     const short5Prefix =
       !exactMode && tokensLen === 1
         ? new RegExp("^" + escapeRegExp(tokens[0].toUpperCase()))
         : null;
 
-    // regex token
     const tokenPrefixRegexes = tokens.map(
       (t) => new RegExp("(?:^|\\s)" + escapeRegExp(t), "i")
     );
@@ -937,7 +1025,7 @@ export const searchRegistrations = async (req, res, next) => {
         },
       },
 
-      // ====== HIT FLAGS / SCORES (theo TỪNG VĐV) ======
+      // HIT FLAGS / SCORES
       {
         $addFields: {
           exactNameHit: {
@@ -1063,7 +1151,7 @@ export const searchRegistrations = async (req, res, next) => {
       { $sort: { rank: 1, createdAt: -1 } },
       { $limit: limit },
 
-      // Trả player mixed (gộp user + snapshot)
+      // Trả player mixed (gộp user + snapshot) + meta KYC
       {
         $addFields: {
           player1Mixed: {
@@ -1108,6 +1196,11 @@ export const searchRegistrations = async (req, res, next) => {
               null,
             ],
           },
+
+          _u1cccdStatus: "$u1.cccdStatus",
+          _u1verified: "$u1.verified",
+          _u2cccdStatus: "$u2.cccdStatus",
+          _u2verified: "$u2.verified",
         },
       },
 
@@ -1126,16 +1219,40 @@ export const searchRegistrations = async (req, res, next) => {
 
           player1Snapshot: "$player1",
           player2Snapshot: "$player2",
+
+          _u1cccdStatus: 1,
+          _u1verified: 1,
+          _u2cccdStatus: 1,
+          _u2verified: 1,
         },
       },
     ];
 
-    const results = await Registration.aggregate(pipeline).collation({
+    const rows = await Registration.aggregate(pipeline).collation({
       locale: "vi",
-      strength: 1, // ignore case + accents cho so sánh thường; (regex vẫn phân biệt dấu)
+      strength: 1,
     });
 
-    return res.json(results);
+    // Post-process: mask phone + gán KYC (giống nhánh không-q)
+    const out = rows.map((r) => ({
+      ...r,
+      player1: enrichPlayerAfterAgg(r.player1, {
+        cccdStatus: r._u1cccdStatus,
+        verified: r._u1verified,
+      }),
+      player2: r.player2
+        ? enrichPlayerAfterAgg(r.player2, {
+            cccdStatus: r._u2cccdStatus,
+            verified: r._u2verified,
+          })
+        : null,
+      _u1cccdStatus: undefined,
+      _u1verified: undefined,
+      _u2cccdStatus: undefined,
+      _u2verified: undefined,
+    }));
+
+    return res.json(out);
   } catch (err) {
     return next(err);
   }

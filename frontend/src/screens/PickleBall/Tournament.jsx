@@ -346,6 +346,56 @@ export default function TournamentDashboard() {
     const size = dense ? "small" : "medium";
     const gap = 1.2;
 
+    const adminOrMgr = canManage(t);
+    if (adminOrMgr) {
+      // Admin/Manager: luôn show đủ 4 nút
+      return (
+        <Box display="flex" flexWrap="wrap" justifyContent="center" gap={gap}>
+          <Button
+            component={RouterLink}
+            to={`/tournament/${t._id}/schedule`}
+            size={size}
+            variant="contained"
+            color="primary"
+            startIcon={<EventNoteIcon />}
+          >
+            Lịch đấu
+          </Button>
+          <Button
+            component={RouterLink}
+            to={`/tournament/${t._id}/register`}
+            size={size}
+            variant="contained"
+            color="primary"
+            startIcon={<HowToRegIcon />}
+          >
+            Đăng ký
+          </Button>
+          <Button
+            component={RouterLink}
+            to={`/tournament/${t._id}/checkin`}
+            size={size}
+            variant="contained"
+            color="success"
+            startIcon={<CheckCircleIcon />}
+          >
+            Check-in
+          </Button>
+          <Button
+            component={RouterLink}
+            to={`/tournament/${t._id}/bracket`}
+            size={size}
+            variant="outlined"
+            color="info"
+            startIcon={<AccountTreeIcon />}
+          >
+            Sơ đồ
+          </Button>
+        </Box>
+      );
+    }
+
+    // Người dùng thường: giữ nguyên như cũ theo status
     if (t.status === "upcoming") {
       return (
         <Box display="flex" flexWrap="wrap" justifyContent="center" gap={gap}>
@@ -386,22 +436,6 @@ export default function TournamentDashboard() {
           >
             Lịch đấu
           </Button>
-          {canManage(t) && (
-            <Tooltip title="Chỉ quản lý có thể thêm đăng ký trong lúc giải đang diễn ra">
-              <span>
-                <Button
-                  component={RouterLink}
-                  to={`/tournament/${t._id}/register`}
-                  size={size}
-                  variant="contained"
-                  color="primary"
-                  startIcon={<HowToRegIcon />}
-                >
-                  Đăng ký
-                </Button>
-              </span>
-            </Tooltip>
-          )}
           <Button
             component={RouterLink}
             to={`/tournament/${t._id}/checkin`}
