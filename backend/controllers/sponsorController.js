@@ -1,4 +1,6 @@
+import mongoose from "mongoose";
 import { Sponsor } from "../models/sponsorModel.js";
+import Tournament from "../models/tournamentModel.js";
 
 function parseBool(v) {
   if (v === undefined) return undefined;
@@ -12,7 +14,6 @@ function parseBool(v) {
 }
 
 function parseSort(sortStr = "weight:desc,createdAt:desc") {
-  // vd: "weight:desc,createdAt:desc"
   const obj = {};
   sortStr
     .split(",")
@@ -23,6 +24,17 @@ function parseSort(sortStr = "weight:desc,createdAt:desc") {
       obj[k] = String(dir).toLowerCase() === "asc" ? 1 : -1;
     });
   return obj;
+}
+
+function coerceIdArray(input) {
+  if (!input) return [];
+  const arr = Array.isArray(input) ? input : String(input).split(",");
+  const ids = arr
+    .map((x) => String(x).trim())
+    .filter(Boolean)
+    .filter((x) => mongoose.Types.ObjectId.isValid(x));
+  // unique
+  return [...new Set(ids)];
 }
 
 export async function adminListSponsors(req, res, next) {
@@ -38,13 +50,35 @@ export async function adminListSponsors(req, res, next) {
     } = req.query;
     const featured = parseBool(req.query.featured);
 
+    // ⬇️ NEW: filter theo giải
+    // chấp nhận: tournamentId, tid, tids (CSV)
+    const tidSingle = req.query.tournamentId || req.query.tid;
+    const tidList = coerceIdArray(req.query.tids || tidSingle);
+    const hasTournament = parseBool(req.query.hasTournament); // optional: true = chỉ sponsor có gán giải; false = chỉ sponsor global
+
     const filter = {};
     if (search) filter.name = { $regex: search, $options: "i" };
     if (tier) filter.tier = tier;
     if (featured !== undefined) filter.featured = featured;
 
+    if (tidList.length) {
+      filter.tournaments = { $in: tidList };
+    }
+    if (hasTournament !== undefined) {
+      filter["tournaments.0"] = hasTournament
+        ? { $exists: true }
+        : { $exists: false };
+    }
+
     const [items, total] = await Promise.all([
-      Sponsor.find(filter).sort(parseSort(sort)).skip(skip).limit(limit),
+      Sponsor.find(filter)
+        .sort(parseSort(sort))
+        .skip(skip)
+        .limit(limit)
+        .populate({
+          path: "tournaments",
+          select: "name status startDate endDate",
+        }),
       Sponsor.countDocuments(filter),
     ]);
 
@@ -56,7 +90,10 @@ export async function adminListSponsors(req, res, next) {
 
 export async function adminGetSponsor(req, res, next) {
   try {
-    const item = await Sponsor.findById(req.params.id);
+    const item = await Sponsor.findById(req.params.id).populate({
+      path: "tournaments",
+      select: "name status startDate endDate",
+    });
     if (!item) return res.status(404).json({ message: "Sponsor not found" });
     res.json(item);
   } catch (err) {
@@ -83,7 +120,11 @@ export async function adminCreateSponsor(req, res, next) {
       description,
       featured,
       weight,
+      // ⬇️ NEW
+      tournamentIds,
+      tournaments, // alias
     } = req.body;
+
     if (!name) return res.status(400).json({ message: "name is required" });
 
     const baseSlug = (slug || name)
@@ -98,6 +139,18 @@ export async function adminCreateSponsor(req, res, next) {
     );
     const finalSlug = ensureUniqueSlug(baseSlug, slugs);
 
+    // ⬇️ NEW: chuẩn hóa danh sách giải
+    const tids = coerceIdArray(tournamentIds || tournaments);
+    // (optional) chỉ nhận những id tồn tại
+    let validTids = tids;
+    if (tids.length) {
+      const existed = await Tournament.find({ _id: { $in: tids } }).select(
+        "_id"
+      );
+      const existedSet = new Set(existed.map((d) => String(d._id)));
+      validTids = tids.filter((id) => existedSet.has(id));
+    }
+
     const doc = await Sponsor.create({
       name,
       slug: finalSlug,
@@ -108,6 +161,7 @@ export async function adminCreateSponsor(req, res, next) {
       description,
       featured: !!featured,
       weight: Number.isFinite(+weight) ? +weight : 0,
+      tournaments: validTids,
     });
     res.status(201).json(doc);
   } catch (err) {
@@ -133,6 +187,7 @@ export async function adminUpdateSponsor(req, res, next) {
       "weight",
       "slug",
     ];
+
     updatable.forEach((k) => {
       if (body[k] !== undefined)
         doc[k] = k === "featured" ? !!body[k] : body[k];
@@ -157,8 +212,26 @@ export async function adminUpdateSponsor(req, res, next) {
       }
     }
 
+    // ⬇️ NEW: cập nhật tournaments (nhận tournamentIds hoặc tournaments)
+    if (body.tournamentIds !== undefined || body.tournaments !== undefined) {
+      const tids = coerceIdArray(body.tournamentIds || body.tournaments);
+      if (tids.length) {
+        const existed = await Tournament.find({ _id: { $in: tids } }).select(
+          "_id"
+        );
+        const existedSet = new Set(existed.map((d) => String(d._id)));
+        doc.tournaments = tids.filter((id) => existedSet.has(id));
+      } else {
+        doc.tournaments = [];
+      }
+    }
+
     await doc.save();
-    res.json(doc);
+    const saved = await doc.populate({
+      path: "tournaments",
+      select: "name status startDate endDate",
+    });
+    res.json(saved);
   } catch (err) {
     next(err);
   }
