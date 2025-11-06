@@ -117,18 +117,12 @@ export default function LiveSetupDialog({
   open,
   onClose,
   tournamentId, // REQUIRED
-  bracketId, // OPTIONAL (không còn bắt buộc)
-  /**
-   * Optional: override URL trang LIVE STUDIO của sân
-   * (tid, court) hoặc (tid, bid, court) => string
-   * Giữ tương thích ngược: nếu bạn truyền hàm (tid, bid, court) cũ vẫn OK.
-   */
+  bracketId, // OPTIONAL
   buildCourtLiveUrl,
 }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
-  // Wrapper: ưu tiên custom, mặc định dùng route trang riêng CourtLiveStudio
   const buildLiveUrl = React.useCallback(
     (tid, bid, court) =>
       buildCourtLiveUrl
@@ -139,18 +133,17 @@ export default function LiveSetupDialog({
     [buildCourtLiveUrl]
   );
 
-  /* 1) Lấy danh sách sân của GIẢI (KHÔNG theo bracket nữa) */
+  /* 1) Courts theo giải */
   const {
     data: courtsResp,
     isLoading: courtsLoading,
     isError: courtsErr,
     refetch: refetchCourts,
   } = useAdminListCourtsByTournamentQuery(
-    { tid: tournamentId }, // ❗️chỉ theo giải
-    { skip: !open }
+    { tid: tournamentId },
+    { skip: !open || !tournamentId }
   );
 
-  // Tương thích cả 2 kiểu: array hoặc { items: [...] }
   const courts = React.useMemo(() => {
     const items = Array.isArray(courtsResp)
       ? courtsResp
@@ -175,16 +168,28 @@ export default function LiveSetupDialog({
     }));
   }, [courtsResp]);
 
-  /* 2) Lấy danh sách trận của GIẢI để thống kê theo sân (không lọc theo bracket) */
-  const { data: matchPage, isLoading: matchesLoading } =
-    useAdminListMatchesByTournamentQuery(
-      { tid: tournamentId, page: 1, pageSize: 1000 },
-      { skip: !open }
-    );
+  /* 2) Matches theo giải */
+  const {
+    data: matchPage,
+    isLoading: matchesLoading,
+    refetch: refetchMatches,
+  } = useAdminListMatchesByTournamentQuery(
+    { tid: tournamentId, page: 1, pageSize: 1000 },
+    { skip: !open || !tournamentId }
+  );
 
-  const matchesAll = React.useMemo(() => {
-    return Array.isArray(matchPage?.list) ? matchPage.list : [];
-  }, [matchPage]);
+  // 🔁 GỌI API MỖI LẦN MỞ
+  React.useEffect(() => {
+    if (open && tournamentId) {
+      refetchCourts?.();
+      refetchMatches?.();
+    }
+  }, [open, tournamentId, refetchCourts, refetchMatches]);
+
+  const matchesAll = React.useMemo(
+    () => (Array.isArray(matchPage?.list) ? matchPage.list : []),
+    [matchPage]
+  );
 
   const matchesByCourtId = React.useMemo(() => {
     const map = new Map();
@@ -210,11 +215,11 @@ export default function LiveSetupDialog({
     return map;
   }, [courts, matchesAll]);
 
-  /* 3) Form state (prefill từ liveConfig hiện tại) */
-  const [form, setForm] = React.useState({}); // { courtId: { enabled, videoUrl } }
-  const [overrideExisting, setOverrideExisting] = React.useState(false); // global
+  /* 3) Form state */
+  const [form, setForm] = React.useState({});
+  const [overrideExisting, setOverrideExisting] = React.useState(false);
   const [busy, setBusy] = React.useState(new Set());
-  const initialFormRef = React.useRef({}); // snapshot để dirty-check bulk
+  const initialFormRef = React.useRef({});
 
   React.useEffect(() => {
     if (!open) return;
@@ -235,6 +240,10 @@ export default function LiveSetupDialog({
     useAdminSetCourtLiveConfigMutation();
   const [bulkSetCourtCfg, { isLoading: bulkSaving }] =
     useAdminBulkSetCourtLiveConfigMutation();
+
+  const onChangeCourtField = (courtId, patch) => {
+    setForm((s) => ({ ...s, [courtId]: { ...(s[courtId] || {}), ...patch } }));
+  };
 
   const saveCourt = async (courtId) => {
     const v = form[courtId] || { enabled: false, videoUrl: "" };
@@ -310,10 +319,6 @@ export default function LiveSetupDialog({
     }
   };
 
-  const onChangeCourtField = (courtId, patch) => {
-    setForm((s) => ({ ...s, [courtId]: { ...(s[courtId] || {}), ...patch } }));
-  };
-
   const loadingAny = courtsLoading || matchesLoading;
 
   return (
@@ -343,7 +348,7 @@ export default function LiveSetupDialog({
         </>
       }
     >
-      {loadingAny && <LinearProgress sx={{ mb: 2 } } />}
+      {loadingAny && <LinearProgress sx={{ mb: 2 }} />}
 
       <Stack spacing={2}>
         <Alert severity="info">
@@ -358,7 +363,6 @@ export default function LiveSetupDialog({
           <Alert severity="warning">Chưa có sân trong giải này.</Alert>
         ) : (
           <>
-            {/* Tuỳ chọn toàn cục */}
             <Stack direction="row" alignItems="center" spacing={1}>
               <Checkbox
                 size="small"
@@ -370,7 +374,7 @@ export default function LiveSetupDialog({
               </Typography>
             </Stack>
 
-            {/* ===== Desktop: Bảng ===== */}
+            {/* Desktop */}
             <TableContainer
               component={Paper}
               variant="outlined"
@@ -392,7 +396,10 @@ export default function LiveSetupDialog({
                     const cMatches = matchesByCourtId.get(c._id) || [];
                     const cnt = countByStatus(cMatches);
                     const sample = mostCommonUrl(cMatches);
-                    const v = form[c._id] || { enabled: false, videoUrl: "" };
+                    const v = form[c._id] || {
+                      enabled: false,
+                      videoUrl: "",
+                    };
                     const isBusy = busy.has(c._id);
 
                     return (
@@ -423,7 +430,7 @@ export default function LiveSetupDialog({
                           )}
                         </TableCell>
 
-                        <TableCell sx={{ whiteSpace: "nowrap", width: 80 }}>
+                        <TableCell sx={{ width: 80 }}>
                           <Checkbox
                             size="small"
                             checked={!!v.enabled}
@@ -450,7 +457,7 @@ export default function LiveSetupDialog({
                           />
                         </TableCell>
 
-                        <TableCell align="right" sx={{ whiteSpace: "nowrap" }}>
+                        <TableCell align="right">
                           <Stack direction="row" spacing={1}>
                             <Button
                               size="small"
@@ -503,13 +510,16 @@ export default function LiveSetupDialog({
               </Table>
             </TableContainer>
 
-            {/* ===== Mobile: Cards/List ===== */}
+            {/* Mobile */}
             <Stack spacing={1} sx={{ display: { xs: "flex", md: "none" } }}>
               {courts.map((c) => {
                 const cMatches = matchesByCourtId.get(c._id) || [];
                 const cnt = countByStatus(cMatches);
                 const sample = mostCommonUrl(cMatches);
-                const v = form[c._id] || { enabled: false, videoUrl: "" };
+                const v = form[c._id] || {
+                  enabled: false,
+                  videoUrl: "",
+                };
                 const isBusy = busy.has(c._id);
 
                 return (
@@ -529,7 +539,6 @@ export default function LiveSetupDialog({
                           size="small"
                           icon={<StadiumIcon />}
                           label={c.displayLabel}
-                          sx={{ mr: 0.5 }}
                         />
                         <Typography variant="body2" color="text.secondary">
                           {cnt.total} / {cnt.live} / {cnt.notFinished}
@@ -628,7 +637,11 @@ export default function LiveSetupDialog({
                             variant="outlined"
                             startIcon={<OpenInNewIcon />}
                             component={RouterLink}
-                            to={buildLiveUrl(tournamentId, bracketId ?? null, c)}
+                            to={buildLiveUrl(
+                              tournamentId,
+                              bracketId ?? null,
+                              c
+                            )}
                             target="_blank"
                             rel="noopener"
                           >

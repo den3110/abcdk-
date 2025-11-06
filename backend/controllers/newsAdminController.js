@@ -1,6 +1,8 @@
 // src/controllers/newsAdminController.js
 import NewsSettings from "../models/newsSettingsModel.js";
 import NewsLinkCandidate from "../models/newsLinkCandicateModel.js";
+import { discoverFeaturedArticles } from "../services/articleDiscoveryService.js";
+import { runCrawlEngine } from "../services/crawlEngine.js";
 
 /**
  * GET /api/admin/news/settings
@@ -45,7 +47,7 @@ export const updateNewsSettings = async (req, res) => {
 
 /**
  * GET /api/admin/news/candidates
- * Xem danh sách link candidate (debug / monitoring)
+ * Danh sách link candidate để monitor (kèm status, lastError, lastErrorCode)
  */
 export const getNewsCandidates = async (req, res) => {
   const items = await NewsLinkCandidate.find()
@@ -54,4 +56,31 @@ export const getNewsCandidates = async (req, res) => {
     .lean();
 
   res.json(items);
+};
+
+/**
+ * POST /api/admin/news/run
+ * Chạy discovery + crawl thủ công, trả full kết quả cho FE
+ */
+export const runNewsSyncNow = async (req, res) => {
+  try {
+    const discovery = await discoverFeaturedArticles();
+    const crawl = await runCrawlEngine();
+
+    // crawl đã bao gồm:
+    // { crawled, skipped, failed, errorsByType, failedSamples }
+    return res.json({
+      ok: true,
+      message: "Đã chạy đồng bộ tin tức thủ công.",
+      discovery,
+      crawl,
+    });
+  } catch (e) {
+    console.error("[NewsSyncNow] Error:", e);
+    return res.status(500).json({
+      ok: false,
+      message: "Chạy đồng bộ tin tức thất bại.",
+      error: e.message,
+    });
+  }
 };

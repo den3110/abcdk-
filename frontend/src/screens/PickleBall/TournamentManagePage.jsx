@@ -91,6 +91,7 @@ import AssignRefDialog from "../../components/AssignRefDialog";
 import CourtManagerDialog from "../../components/CourtManagerDialog";
 import ManageRefereesDialog from "../../components/RefereeManagerDialog";
 import LiveSetupDialog from "../../components/LiveSetupDialog";
+import BulkAssignRefDialog from "../../components/BulkAssignRefDialog";
 
 /* ---------------- helpers ---------------- */
 const _num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -2407,90 +2408,15 @@ export default function TournamentManagePage() {
       />
 
       {/* ===== Dialog gán trọng tài (batch) ===== */}
-      <Dialog
+      <BulkAssignRefDialog
         open={bulkDlgOpen}
         onClose={() => setBulkDlgOpen(false)}
-        fullWidth
-        maxWidth="sm"
-      >
-        <DialogTitle>Gán trọng tài</DialogTitle>
-        <DialogContent dividers>
-          <Stack spacing={2}>
-            <Typography variant="body2" color="text.secondary">
-              Đang chọn <b>{selectedMatchIds.size}</b> trận.
-            </Typography>
-            <Autocomplete
-              multiple
-              disableCloseOnSelect
-              options={refOptions}
-              loading={refsLoading}
-              getOptionLabel={labelOfRef}
-              isOptionEqualToValue={(a, b) => idOfRef(a) === idOfRef(b)}
-              value={pickedRefs}
-              onChange={(_, val) => setPickedRefs(val)}
-              renderOption={(props, option, { selected }) => (
-                <li {...props} key={idOfRef(option)}>
-                  <Checkbox
-                    style={{ marginRight: 8 }}
-                    checked={selected}
-                    size="small"
-                  />
-                  <Avatar
-                    src={option?.avatar || ""}
-                    alt={labelOfRef(option)}
-                    sx={{ width: 24, height: 24, mr: 1 }}
-                  />
-                  <span style={{ fontWeight: 600 }}>
-                    {option?.name || option?.nickname || "—"}
-                  </span>
-                  {option?.nickname && option?.name && (
-                    <span style={{ marginLeft: 6, color: "#666" }}>
-                      ({option.nickname})
-                    </span>
-                  )}
-                </li>
-              )}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Chọn trọng tài"
-                  placeholder="Tìm theo tên/nickname"
-                />
-              )}
-              renderTags={(value, getTagProps) =>
-                value.map((opt, idx) => (
-                  <Chip
-                    {...getTagProps({ index: idx })}
-                    size="small"
-                    label={labelOfRef(opt)}
-                  />
-                ))
-              }
-            />
-            {refsErr && (
-              <Alert severity="warning">
-                Không tải được danh sách trọng tài.
-              </Alert>
-            )}
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setBulkDlgOpen(false)}>Đóng</Button>
-          <Button
-            variant="contained"
-            startIcon={<RefereeIcon />}
-            disabled={
-              batching ||
-              refsLoading ||
-              pickedRefs.length === 0 ||
-              selectedMatchIds.size === 0
-            }
-            onClick={submitBatchAssign}
-          >
-            Gán
-          </Button>
-        </DialogActions>
-      </Dialog>
+        tournamentId={id}
+        selectedMatchIds={selectedMatchIds}
+        onAssigned={() => {
+          refetchMatches?.();
+        }}
+      />
 
       {/* ===== Dialog gán video (batch) ===== */}
       <BulkVideoDialog

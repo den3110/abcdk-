@@ -179,7 +179,9 @@ export default function ResponsiveModal({
               justifyContent="flex-end"
               alignItems="center"
             >
-              {Array.isArray(actions) ? actions : [actions]}
+              {React.Children.toArray(
+                Array.isArray(actions) ? actions : [actions]
+              )}
             </Stack>
           </Box>
         ) : null}
@@ -257,7 +259,7 @@ export default function ResponsiveModal({
 
       {actions ? (
         <DialogActions {...actionsProps}>
-          {Array.isArray(actions) ? actions : [actions]}
+          {React.Children.toArray(Array.isArray(actions) ? actions : [actions])}
         </DialogActions>
       ) : null}
     </Dialog>

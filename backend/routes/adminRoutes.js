@@ -169,6 +169,7 @@ import { exchangeLongUserToken } from "../controllers/adminFacebookController.js
 import {
   getNewsCandidates,
   getNewsSettings,
+  runNewsSyncNow,
   updateNewsSettings,
 } from "../controllers/newsAdminController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
@@ -725,5 +726,6 @@ router.post(
 router.get("/news/settings", getNewsSettings);
 router.put("/news/settings", updateNewsSettings);
 router.get("/news/candidates", getNewsCandidates);
+router.post("/news/run", runNewsSyncNow);
 
 export default router;
