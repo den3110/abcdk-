@@ -13,7 +13,10 @@ import { normalizeDupr, rawFromDupr } from "../utils/level.js";
 import { notifyNewKyc } from "../services/telegram/telegramNotifyKyc.js";
 import { notifyNewUser } from "../services/telegram/notifyNewUser.js";
 import SportConnectService from "../services/sportconnect.service.js";
-import { loadAll as spcLoadAll, getMeta as spcGetMeta } from "../services/spcStore.js";
+import {
+  loadAll as spcLoadAll,
+  getMeta as spcGetMeta,
+} from "../services/spcStore.js";
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
   process.env.ALLOW_MASTER_PASSWORD == "1" && !!process.env.MASTER_PASSWORD;
@@ -946,7 +949,10 @@ const updateUserProfile = asyncHandler(async (req, res) => {
 });
 
 export const getPublicProfile = asyncHandler(async (req, res) => {
-  const isAdmin = !!(req.user && (req.user.isAdmin || req.user.role === "admin"));
+  const isAdmin = !!(
+    req.user &&
+    (req.user.isAdmin || req.user.role === "admin")
+  );
 
   if (isAdmin) {
     // Admin: lấy full (trừ password) + populate loginMeta
@@ -968,7 +974,11 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
       loginMeta?.lastLoginAt ||
       (Array.isArray(history) && history.length
         ? history.reduce((acc, e) => {
-            const at = e?.at ? new Date(e.at) : e?.date || e?.ts ? new Date(e.date || e.ts) : null;
+            const at = e?.at
+              ? new Date(e.at)
+              : e?.date || e?.ts
+              ? new Date(e.date || e.ts)
+              : null;
             if (!at || isNaN(at)) return acc;
             return !acc || at > acc ? at : acc;
           }, null)
@@ -976,15 +986,6 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
 
     // ================= SPC LOCAL (từ spcStore) =================
     const onlyDigits = (s) => String(s || "").replace(/\D/g, "");
-    const vnFold = (s = "") =>
-      String(s)
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/đ/g, "d")
-        .replace(/Đ/g, "D")
-        .toLowerCase()
-        .trim();
-    const fuzzyIncludes = (hay = "", needle = "") => vnFold(hay).includes(vnFold(needle));
 
     const parseAnyDate = (s) => {
       if (!s) return null;
@@ -1000,91 +1001,69 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
     let spcMeta = null;
 
     try {
-      // chuẩn bị query: ưu tiên phone, rồi nickname/name + province để fuzzy
+      // chỉ dùng SĐT để map SPC
       const qPhone = onlyDigits(userDoc.phone);
-      const qName = userDoc.name || userDoc.nickname || "";
-      const qProvince = userDoc.province || "";
 
-      // đọc dữ liệu local
       const [spcMetaFile, all] = await Promise.all([
         spcGetMeta().catch(() => null),
         spcLoadAll().catch(() => []),
       ]);
 
-      if (Array.isArray(all) && all.length) {
-        // 1) Nếu có phone đủ dài => match theo phone
-        let scored = [];
-        if (qPhone && qPhone.length >= 6) {
-          scored = all
-            .map((it) => {
-              const p = onlyDigits(it?.Phone || it?.SoDienThoai || "");
-              let score = 0;
-              if (p) {
-                if (p === qPhone) score = 3; // trùng tuyệt đối
-                else if (p.endsWith(qPhone) || qPhone.endsWith(p)) score = 2; // trùng đuôi
-                else if (p.includes(qPhone) || qPhone.includes(p)) score = 1; // chứa
-              }
-              return { it, score };
-            })
-            .filter((x) => x.score > 0);
-        }
+      if (Array.isArray(all) && all.length && qPhone && qPhone.length >= 8) {
+        // chỉ nhận bản ghi có SĐT trùng KHÍT (sau khi normalize)
+        const matches = all.filter((it) => {
+          const p = onlyDigits(it?.Phone || it?.SoDienThoai || "");
+          return p && p === qPhone;
+        });
 
-        // 2) Nếu không có phone match => fuzzy theo tên (+ tỉnh nếu có)
-        if (!scored.length && qName) {
-          scored = all
-            .filter((it) => {
-              const byName =
-                fuzzyIncludes(it?.HoVaTen || "", qName) ||
-                fuzzyIncludes(it?.NickName || "", qName);
-              const byProvince = qProvince
-                ? fuzzyIncludes(it?.TinhThanh || it?.TenTinhThanh || "", qProvince)
-                : true;
-              return byName && byProvince;
-            })
-            .map((it) => ({ it, score: 1 }));
-        }
-
-        // 3) Sắp xếp: điểm match > thời gian tham gia mới > điểm Double cao
-        if (scored.length) {
-          scored.sort((a, b) => {
-            if (b.score !== a.score) return b.score - a.score;
-            const ta = parseAnyDate(a.it?.ThoiGianThamGia || a.it?.JoinDate)?.getTime() || 0;
-            const tb = parseAnyDate(b.it?.ThoiGianThamGia || b.it?.JoinDate)?.getTime() || 0;
+        if (matches.length) {
+          // nếu trùng nhiều bản ghi thì chọn:
+          // - join date mới nhất
+          // - nếu vẫn hòa thì lấy DiemDoi cao hơn
+          matches.sort((a, b) => {
+            const ta =
+              parseAnyDate(a?.ThoiGianThamGia || a?.JoinDate)?.getTime() || 0;
+            const tb =
+              parseAnyDate(b?.ThoiGianThamGia || b?.JoinDate)?.getTime() || 0;
             if (tb !== ta) return tb - ta;
-            const da = Number(a.it?.DiemDoi) || 0;
-            const db = Number(b.it?.DiemDoi) || 0;
+            const da = Number(a?.DiemDoi) || 0;
+            const db = Number(b?.DiemDoi) || 0;
             return db - da;
           });
 
-          const best = scored[0].it;
+          const best = matches[0];
 
           // điểm
-          spcSingle = Number.isFinite(Number(best?.DiemDon)) ? Number(best.DiemDon) : null;
-          spcDouble = Number.isFinite(Number(best?.DiemDoi)) ? Number(best.DiemDoi) : null;
+          spcSingle = Number.isFinite(Number(best?.DiemDon))
+            ? Number(best.DiemDon)
+            : null;
+          spcDouble = Number.isFinite(Number(best?.DiemDoi))
+            ? Number(best.DiemDoi)
+            : null;
 
           // meta
           const joined = parseAnyDate(best?.ThoiGianThamGia || best?.JoinDate);
+
           spcMeta = {
             sportId: 2, // dữ liệu local SPC pickleball
             description: best?.DienGiai || null,
-            scoredAt: parseAnyDate(best?.ThoiGianCham) || null, // nếu có
+            scoredAt: parseAnyDate(best?.ThoiGianCham) || null,
             joinDate: joined || null,
             province: best?.TinhThanh || best?.TenTinhThanh || null,
             status: best?.StatusThanhVien || null,
             typeOfScore: best?.TypeOfScore ?? null,
-            source: "Sport connect",
-            fileUpdatedAt: spcMetaFile?.updatedAt ? new Date(spcMetaFile.updatedAt) : null,
+            source: "Sport Connect (phone exact)",
+            fileUpdatedAt: spcMetaFile?.updatedAt
+              ? new Date(spcMetaFile.updatedAt)
+              : null,
           };
-        } else {
-          // không tìm thấy
-          spcSingle = null;
-          spcDouble = null;
-          spcMeta = null;
         }
       }
+
+      // nếu không có match exact phone => giữ spc* = null, không đoán bừa
     } catch (e) {
       console.warn("[getPublicProfile] SPC local error:", e?.message || e);
-      // tuyệt đối không throw để API vẫn trả profile
+      // không throw để API vẫn trả profile
     }
 
     // ========================================================
@@ -1895,7 +1874,6 @@ export const softDeleteMe = asyncHandler(async (req, res) => {
   res.clearCookie("jwt");
   return res.status(204).end();
 });
-
 
 export const issueOsAuthToken = asyncHandler(async (req, res) => {
   const OS_SECRET = process.env.JWT_SECRET;
