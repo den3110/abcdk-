@@ -48,11 +48,13 @@ import adminSponsorRoutes from "./routes/adminSponsorRoutes.js";
 import publicSponsorRoutes from "./routes/publicSponsorRoutes.js";
 import oauthRoutes from "./routes/oauthRoutes.js";
 import liveRoutes from "./routes/live.routes.js";
-import courtRoutes from "./routes/courtRoutes.js"
+import courtRoutes from "./routes/courtRoutes.js";
 import spcRoutes from "./routes/spc.routes.js";
-import fbTokenRoutes from "./routes/fbTokenRoutes.js"
+import fbTokenRoutes from "./routes/fbTokenRoutes.js";
 import publicOverlayRoutes from "./routes/publicOverlayRoutes.js";
+import newsRoutes from "./routes/newsPublicRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
+import { initNewsCron } from "./jobs/newsCron.js";
 
 dotenv.config();
 const port = process.env.PORT;
@@ -61,7 +63,7 @@ const WHITELIST = [
   "https://abcde-xi.vercel.app",
   "https://admin.pickletour.vn",
   "http://localhost:3001",
-  "http://localhost:3000"
+  "http://localhost:3000",
 ];
 
 connectDB();
@@ -125,6 +127,7 @@ app.use("/api/cccd", cccdRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api/clubs", clubRoutes);
 app.use("/api/capture", captureRoutes);
+app.use("/api/news", newsRoutes);
 
 app.use("/api/admin/sponsors", adminSponsorRoutes);
 app.use("/api/sponsors", publicSponsorRoutes);
@@ -197,6 +200,7 @@ server.listen(port, async () => {
     startFbRefreshCron();
     startFacebookBusyCron();
     initEmail();
+    initNewsCron();
     await startAgenda();
   } catch (error) {
     console.error(`❌ Error starting server: ${error.message}`);

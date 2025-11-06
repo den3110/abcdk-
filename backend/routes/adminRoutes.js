@@ -148,10 +148,29 @@ import {
   triggerFbResync,
   upsertConfig,
 } from "../controllers/adminConfigController.js";
-import { ytCallback, ytGetOrCreateStreamKey, ytInit, ytRevoke } from "../controllers/youtubeSetupController.js";
-import { bulkSetCourtLiveConfig, getCourtLiveConfig, listCourtsByTournamentLive, setCourtLiveConfig } from "../controllers/courtLiveConfigController.js";
-import { adminGetLiveSession, adminListLiveSessions, adminStopLiveSession } from "../controllers/adminLiveController.js";
+import {
+  ytCallback,
+  ytGetOrCreateStreamKey,
+  ytInit,
+  ytRevoke,
+} from "../controllers/youtubeSetupController.js";
+import {
+  bulkSetCourtLiveConfig,
+  getCourtLiveConfig,
+  listCourtsByTournamentLive,
+  setCourtLiveConfig,
+} from "../controllers/courtLiveConfigController.js";
+import {
+  adminGetLiveSession,
+  adminListLiveSessions,
+  adminStopLiveSession,
+} from "../controllers/adminLiveController.js";
 import { exchangeLongUserToken } from "../controllers/adminFacebookController.js";
+import {
+  getNewsCandidates,
+  getNewsSettings,
+  updateNewsSettings,
+} from "../controllers/newsAdminController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -159,11 +178,7 @@ const router = express.Router();
 
 router.post("/login", adminLogin);
 
-router.get(
-  "/matches/:id([0-9a-fA-F]{24})",
-  protect,
-  adminGetMatchById
-);
+router.get("/matches/:id([0-9a-fA-F]{24})", protect, adminGetMatchById);
 
 router.get("/tournaments/:id/referees", protect, listTournamentRefereesInScope);
 
@@ -172,7 +187,7 @@ router.post("/tournaments/:tid/referees", protect, upsertTournamentReferees);
 router.get("/referees/search", protect, searchUsersForRefereeAssign);
 router.get("/tournaments/:tid/courts", protect, listCourtsByTournament);
 router.post("/courts/deleteAll", protect, deleteAllCourts);
-router.delete('/courts/:courtId', protect, deleteOneCourt);
+router.delete("/courts/:courtId", protect, deleteOneCourt);
 // POST   /api/admin/tournaments/:tid/matches/:mid/court  -> gán sân
 router.post(
   "/tournaments/:tid/matches/:mid/court",
@@ -195,31 +210,17 @@ router.post("/matches/batch/live-url", protect, batchSetLiveUrl);
 
 router.post("/tournaments/:tournamentId/courts", protect, upsertCourts);
 
+router.get("/tournaments/c/:tid/courts", protect, listCourtsByTournamentLive);
 
-router.get(
-  "/tournaments/c/:tid/courts",
-  protect,
-  listCourtsByTournamentLive
-);
+router.get("/courts/:courtId/live-config", protect, getCourtLiveConfig);
 
-router.get(
-  "/courts/:courtId/live-config",
-  protect,
-  getCourtLiveConfig
-);
-
-router.patch(
-  "/courts/:courtId/live-config",
-  protect,
-  setCourtLiveConfig
-);
+router.patch("/courts/:courtId/live-config", protect, setCourtLiveConfig);
 
 router.patch(
   "/tournaments/:tid/courts/live-config/bulk",
   protect,
   bulkSetCourtLiveConfig
 );
-
 
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
 
@@ -680,14 +681,39 @@ router.post("/fb/resync", protect, authorize("admin"), triggerFbResync);
 
 router.get("/youtube/init", protect, authorize("admin"), ytInit);
 // router.get("/oauth/google/youtube/callback", ytCallback); // public callback
-router.get("/youtube/stream-key", protect, authorize("admin"), ytGetOrCreateStreamKey);
+router.get(
+  "/youtube/stream-key",
+  protect,
+  authorize("admin"),
+  ytGetOrCreateStreamKey
+);
 router.post("/youtube/revoke", protect, authorize("admin"), ytRevoke);
 
-router.get("/live-sessions/:id([0-9a-fA-F]{24})", protect, authorize("admin"), adminGetLiveSession);
-router.get("/l/live-sessions/all", protect, authorize("admin"), adminListLiveSessions);
-router.patch("/live-sessions/:id/stop", protect, authorize("admin"), adminStopLiveSession);
+router.get(
+  "/live-sessions/:id([0-9a-fA-F]{24})",
+  protect,
+  authorize("admin"),
+  adminGetLiveSession
+);
+router.get(
+  "/l/live-sessions/all",
+  protect,
+  authorize("admin"),
+  adminListLiveSessions
+);
+router.patch(
+  "/live-sessions/:id/stop",
+  protect,
+  authorize("admin"),
+  adminStopLiveSession
+);
 
-router.post("/fb/long-user-token/exchange", protect, authorize("admin"), exchangeLongUserToken);
+router.post(
+  "/fb/long-user-token/exchange",
+  protect,
+  authorize("admin"),
+  exchangeLongUserToken
+);
 
 router.post(
   "/brackets/:bid/po-plan/bulk-assign",
@@ -696,6 +722,8 @@ router.post(
   bulkAssignPoPlan
 );
 
-
+router.get("/news/settings", getNewsSettings);
+router.put("/news/settings", updateNewsSettings);
+router.get("/news/candidates", getNewsCandidates);
 
 export default router;

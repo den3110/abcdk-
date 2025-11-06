@@ -2,7 +2,10 @@
 import fetch from "node-fetch";
 import asyncHandler from "express-async-handler";
 import SportConnectService from "../sportconnect.service.js";
-import { loadAll as spcLoadAll, getMeta as spcGetMeta } from "../../services/spcStore.js";
+import {
+  loadAll as spcLoadAll,
+  getMeta as spcGetMeta,
+} from "../../services/spcStore.js";
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 const DEFAULT_CHAT_ID = process.env.TELEGRAM_CHAT_NEWUSER_ID ?? "";
 const FRONTEND_URL = (process.env.HOST ?? process.env.WEB_URL ?? "").replace(
@@ -156,10 +159,11 @@ export async function notifyNewUser({ user, chatId, debug = false }) {
     ].filter(Boolean);
 
     const phone = onlyDigits(user?.phone);
-    let spcBlock = "⚠️ Không có SĐT đủ dài để tra SPC (cần ≥ 6 chữ số).";
+    let spcBlock =
+      "⚠️ Không có SĐT đủ dài để tra SPC (cần ≥ 8 chữ số, yêu cầu trùng khớp tuyệt đối).";
     let debugLine = "";
 
-    if (phone?.length >= 6) {
+    if (phone && phone.length >= 8) {
       try {
         // Đọc dữ liệu SPC từ file local
         const [meta, all] = await Promise.all([
@@ -167,22 +171,16 @@ export async function notifyNewUser({ user, chatId, debug = false }) {
           spcLoadAll(), // mảng object SPC
         ]);
 
-        // So khớp theo SĐT (ưu tiên: =, endsWith, includes). Nếu trùng điểm, ưu tiên bản ghi mới hơn.
-        const scored = (all || [])
+        const matches = (all || [])
           .map((it) => {
             const p = onlyDigits(it?.Phone || it?.SoDienThoai || "");
-            let score = 0;
-            if (p && phone) {
-              if (p === phone) score = 3;
-              else if (p.endsWith(phone) || phone.endsWith(p)) score = 2;
-              else if (p.includes(phone) || phone.includes(p)) score = 1;
-            }
-            return { it, p, score };
+            return { it, p };
           })
-          .filter((x) => x.score > 0)
-          .sort((a, b) => {
-            if (b.score !== a.score) return b.score - a.score;
-            // ưu tiên bản ghi có thời gian tham gia/updated mới hơn
+          .filter((x) => x.p && x.p === phone); // 🔒 chỉ nhận đúng số
+
+        if (matches.length) {
+          // Nếu có nhiều bản ghi trùng SĐT: ưu tiên joinDate mới hơn, rồi điểm đôi cao hơn
+          matches.sort((a, b) => {
             const ta =
               new Date(
                 a.it?.ThoiGianThamGia || a.it?.JoinDate || 0
@@ -192,14 +190,14 @@ export async function notifyNewUser({ user, chatId, debug = false }) {
                 b.it?.ThoiGianThamGia || b.it?.JoinDate || 0
               ).getTime() || 0;
             if (tb !== ta) return tb - ta;
-            // tie-break theo điểm đôi (cao hơn trước)
+
             const da = Number(a.it?.DiemDoi) || 0;
             const db = Number(b.it?.DiemDoi) || 0;
             return db - da;
           });
 
-        if (scored.length) {
-          const best = scored[0].it;
+          const best = matches[0].it;
+
           const name = best?.HoVaTen || "—";
           const nick = best?.NickName
             ? ` <i>(${htmlEscape(String(best.NickName).trim())})</i>`
@@ -211,7 +209,7 @@ export async function notifyNewUser({ user, chatId, debug = false }) {
               : "Pickleball";
 
           spcBlock = [
-            "🧩 <b>SportConnect (Local)</b>",
+            "🧩 <b>SportConnect (Local – phone exact)</b>",
             `• ID: <b>${htmlEscape(best?.ID ?? best?.MaskId ?? "—")}</b>`,
             `• Họ tên: <b>${htmlEscape(name)}</b>${nick}`,
             `• Điểm: <b>Single ${fmt1(best?.DiemDon)}</b> • <b>Double ${fmt1(
@@ -229,19 +227,21 @@ export async function notifyNewUser({ user, chatId, debug = false }) {
             .join("\n");
 
           if (debug) {
-            debugLine = `\n<code>local matches=${scored.length}${
+            debugLine = `\n<code>local_exact_matches=${matches.length}${
               meta?.count ? ` • rows=${meta.count}` : ""
             }</code>`;
           }
         } else {
-          spcBlock = "❌ Không tìm thấy dữ liệu tương ứng trong SPC (local).";
-          if (debug) debugLine = `\n<code>local matches=0</code>`;
+          spcBlock =
+            "❌ Không tìm thấy dữ liệu tương ứng trong SPC (local) theo SĐT trùng khớp.";
+          if (debug) debugLine = `\n<code>local_exact_matches=0</code>`;
         }
       } catch (e) {
         console.warn("[notifyNewUser] SPC local error:", e?.message || e);
         spcBlock = "❌ Lỗi đọc dữ liệu SPC (local).";
-        if (debug)
+        if (debug) {
           debugLine = `\n<code>${htmlEscape(e?.message || "error")}</code>`;
+        }
       }
     }
 
