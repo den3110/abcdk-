@@ -711,7 +711,7 @@ export default function RankingList() {
   const { keyword, page } = useSelector((s) => s?.rankingUi || {});
   const [searchParams, setSearchParams] = useSearchParams();
   const containerRef = useRef(null);
-
+  const searchInputRef = useRef(null);
   const [desktopView, setDesktopView] = useState(() => {
     try {
       const cached = localStorage.getItem(VIEW_KEY);
@@ -1217,7 +1217,10 @@ export default function RankingList() {
           onKeyDown={handleInputKeyDown}
           sx={{ mb: 2, width: 320 }}
           inputProps={{ maxLength: 120 }}
-          disabled={isFetching}
+          // ❌ bỏ disabled={isFetching}
+          // Nếu muốn chặn lúc load lần đầu thì dùng isLoading:
+          // disabled={isLoading}
+          inputRef={searchInputRef}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
