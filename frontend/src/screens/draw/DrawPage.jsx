@@ -1075,6 +1075,75 @@ const RevealOverlay = memo(function RevealOverlay({
   );
 });
 
+// Thêm vào đầu file, sau các import
+/********************** LocalStorage helpers **********************/
+const STORAGE_PREFIX = "draw-cards-";
+
+const getStorageKey = (bracketId, drawType, roundCode) => {
+  if (drawType === "group") {
+    return `${STORAGE_PREFIX}${bracketId}-group`;
+  }
+  return `${STORAGE_PREFIX}${bracketId}-${roundCode || "ko"}`;
+};
+
+const saveCardDeckToStorage = (bracketId, drawType, roundCode, deckState) => {
+  try {
+    const key = getStorageKey(bracketId, drawType, roundCode);
+    const data = {
+      timestamp: Date.now(),
+      deck: deckState,
+      bracketId,
+      drawType,
+      roundCode,
+    };
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (e) {
+    console.warn("Failed to save deck to localStorage:", e);
+  }
+};
+
+const loadCardDeckFromStorage = (bracketId, drawType, roundCode) => {
+  try {
+    const key = getStorageKey(bracketId, drawType, roundCode);
+    const stored = localStorage.getItem(key);
+    if (!stored) return null;
+
+    const data = JSON.parse(stored);
+    // Kiểm tra data không quá cũ (> 24h)
+    if (Date.now() - data.timestamp > 24 * 60 * 60 * 1000) {
+      localStorage.removeItem(key);
+      return null;
+    }
+
+    return data.deck;
+  } catch (e) {
+    console.warn("Failed to load deck from localStorage:", e);
+    return null;
+  }
+};
+
+const clearCardDeckFromStorage = (bracketId, drawType, roundCode) => {
+  try {
+    const key = getStorageKey(bracketId, drawType, roundCode);
+    localStorage.removeItem(key);
+  } catch (e) {
+    console.warn("Failed to clear deck from localStorage:", e);
+  }
+};
+
+// Clear all draw-cards data (dọn dẹp toàn bộ)
+const clearAllCardDecks = () => {
+  try {
+    Object.keys(localStorage).forEach((key) => {
+      if (key.startsWith(STORAGE_PREFIX)) {
+        localStorage.removeItem(key);
+      }
+    });
+  } catch (e) {
+    console.warn("Failed to clear all decks:", e);
+  }
+};
+
 /********************** CARD MODE OVERLAY **********************/
 // ===== CardDeckOverlay.jsx (inline trong DrawPage.jsx cũng được) =====
 
@@ -1086,19 +1155,21 @@ const RevealOverlay = memo(function RevealOverlay({
  * - onFlipOne: () => Promise<string|null>  // gọi drawNext; trả về tên đội vừa bốc
  * - muted?: boolean
  */
-// ===== CardDeckOverlay.jsx (REPLACE TOÀN BỘ) =====
+/********************** CARD MODE OVERLAY (CẬP NHẬT) **********************/
 const CardDeckOverlay = memo(function CardDeckOverlay({
   open,
   onClose,
-  mode = "group", // 'group' | 'ko'
-  cards = [], // [{ id, label }]
-  onFlipOne, // () => Promise<{name, meta?} | string | null>
+  mode = "group",
+  cards = [],
+  onFlipOne,
   muted = false,
   reveals,
-  targetInfo, // { groupCode, slotIndex } | null
+  targetInfo,
+  bracketId, // ← THÊM PROP
+  roundCode, // ← THÊM PROP
+  onRestore, // ← THÊM CALLBACK
 }) {
   const HEADER_H = 52;
-  // Bảng màu cơ bản + sinh màu vô hạn (không trùng) bằng golden-angle
   const pairPalette = useMemo(
     () => [
       "#00BCD4",
@@ -1115,38 +1186,116 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
   const getDistinctPairColor = useCallback(
     (id) => {
       if (id < pairPalette.length) return pairPalette[id];
-      const hue = (id * 137.508) % 360; // golden-angle
+      const hue = (id * 137.508) % 360;
       return `hsl(${hue} 75% 55%)`;
     },
     [pairPalette]
   );
 
-  // Snapshot deck khi mở overlay
   const initialDeck = useMemo(
     () =>
       cards.map((c, i) => ({
         key: c.id || `${i}`,
-        label: null, // tên sau khi flip
-        flipped: false, // đã lật?
-        meta: null, // {type:'group'|'ko', groupCode, slotIndex, side, pairIndex}
-        pairId: null, // id cặp (KO/PO)
-        pairColor: null, // màu viền cặp
+        label: null,
+        flipped: false,
+        meta: null,
+        pairId: null,
+        pairColor: null,
       })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [open]
   );
 
   const [deck, setDeck] = useState(initialDeck);
-
   const initialCountRef = useRef(initialDeck.length);
-  useEffect(() => {
-    if (open) {
-      setDeck(initialDeck);
-      initialCountRef.current = initialDeck.length;
-    }
-  }, [open, initialDeck]);
 
-  // layout grid cố định theo tổng số thẻ ban đầu
+  // ===== LOAD FROM LOCALSTORAGE KHI MỞ =====
+  useEffect(() => {
+    if (open && bracketId) {
+      // Thử load từ localStorage
+      const savedDeck = loadCardDeckFromStorage(bracketId, mode, roundCode);
+
+      if (savedDeck && Array.isArray(savedDeck) && savedDeck.length > 0) {
+        // Có data saved → restore
+        setDeck(savedDeck);
+        initialCountRef.current = savedDeck.length;
+        toast.info("Đã khôi phục trạng thái thẻ từ lần bốc trước");
+        // ===== GỌI CALLBACK ĐỂ ĐỒNG BỘ REVEALS =====
+        if (onRestore) {
+          // Tạo lại reveals array từ các thẻ đã flip
+          const restoredReveals = [];
+
+          if (mode === "group") {
+            // Group mode: mỗi thẻ flip = 1 reveal
+            savedDeck.forEach((card) => {
+              if (card.flipped && card.label && card.meta?.groupCode != null) {
+                restoredReveals.push({
+                  groupCode: card.meta.groupCode,
+                  groupKey: card.meta.groupCode,
+                  slotIndex: card.meta.slotIndex,
+                  regId: card.key, // id của reg
+                  name: card.label,
+                });
+              }
+            });
+          } else {
+            // KO/PO mode: 2 thẻ = 1 pair reveal
+            const pairMap = new Map(); // pairIndex -> {A, B}
+
+            savedDeck.forEach((card) => {
+              if (
+                card.flipped &&
+                card.label &&
+                typeof card.meta?.pairIndex === "number"
+              ) {
+                const pIdx = card.meta.pairIndex;
+                if (!pairMap.has(pIdx)) {
+                  pairMap.set(pIdx, { A: null, B: null });
+                }
+                const pair = pairMap.get(pIdx);
+                if (card.meta.side === "A") {
+                  pair.A = card.label;
+                } else if (card.meta.side === "B") {
+                  pair.B = card.label;
+                }
+              }
+            });
+
+            // Convert map to array
+            Array.from(pairMap.entries())
+              .sort((a, b) => a[0] - b[0]) // sort by pairIndex
+              .forEach(([pIdx, pair]) => {
+                restoredReveals.push({
+                  AName: pair.A || "Chưa có đội",
+                  BName: pair.B || "Chưa có đội",
+                  A: pair.A || "Chưa có đội",
+                  B: pair.B || "Chưa có đội",
+                  pairIndex: pIdx,
+                });
+              });
+          }
+
+          onRestore(restoredReveals);
+        }
+      } else {
+        // Không có data → dùng initialDeck
+        setDeck(initialDeck);
+        initialCountRef.current = initialDeck.length;
+      }
+    }
+  }, [open, initialDeck, bracketId, mode, roundCode, onRestore]);
+
+  // ===== SAVE TO LOCALSTORAGE KHI DECK THAY ĐỔI =====
+  useEffect(() => {
+    if (open && bracketId && deck.length > 0) {
+      // Chỉ save khi có ít nhất 1 thẻ đã flip
+      const hasFlipped = deck.some((c) => c.flipped && !c.ghost);
+      if (hasFlipped) {
+        saveCardDeckToStorage(bracketId, mode, roundCode, deck);
+      }
+    }
+  }, [deck, open, bracketId, mode, roundCode]);
+
   const gridRef = useRef(null);
   const [layout, setLayout] = useState({
     cols: 1,
@@ -1156,7 +1305,6 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
     gap: 12,
   });
 
-  // bên trong CardDeckOverlay
   const slots =
     layout.slots || layout.rows * layout.cols || initialCountRef.current;
 
@@ -1165,21 +1313,20 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
     if (N >= slots) return deck.slice(0, slots);
     const pad = Array.from({ length: slots - N }, (_, i) => ({
       key: `ghost-${i}`,
-      label: "", // hiển thị trống
-      flipped: true, // mặt trước để giữ viền/khung, nhưng không nội dung
+      label: "",
+      flipped: true,
       meta: null,
       pairId: null,
       pairColor: null,
-      ghost: true, // cờ nhận diện ô trống
+      ghost: true,
     }));
     return deck.concat(pad);
   }, [deck, slots]);
-  // đặt trong CardDeckOverlay
+
   const pickGridRectangle = (N, W, H, GAP, AR) => {
-    let M = N % 2 === 1 ? N + 1 : N; // nếu lẻ → cộng 1
+    let M = N % 2 === 1 ? N + 1 : N;
     let best = null;
 
-    // duyệt quanh phương án tốt (M..M+6) để dễ tìm lưới gần-vuông nhất nhưng vẫn fit
     for (let m = M; m <= M + 6; m++) {
       const r0 = Math.floor(Math.sqrt(m));
       for (let r = Math.max(1, r0 - 2); r <= r0 + 2; r++) {
@@ -1189,12 +1336,11 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         const heightLimit = (H - GAP * (r - 1)) / r;
         if (widthLimit <= 0 || heightLimit <= 0) continue;
 
-        // thẻ phải fit cả chiều rộng và chiều cao
         const cardH = Math.min(heightLimit, widthLimit / AR);
         const cardW = cardH * AR;
         if (cardH <= 0 || cardW <= 0) continue;
 
-        const score = cardH * cardW; // ưu tiên thẻ to nhất (vẫn fit)
+        const score = cardH * cardW;
         const cand = { rows: r, cols: c, w: cardW, h: cardH, m };
         if (!best || score > best.w * best.h) best = cand;
       }
@@ -1204,13 +1350,12 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
 
   const computeLayout = useCallback(() => {
     const GAP = 12,
-      AR = 130 / 180; // w/h thẻ
+      AR = 130 / 180;
     const el = gridRef.current;
     if (!el) return;
 
     const W = el.clientWidth || window.innerWidth || 0;
-    // nếu overlay nằm trong flex:1 mà clientHeight=0 (hiếm), fallback chiều cao màn hình trừ header
-    const headerH = 56; // ước lượng header của overlay
+    const headerH = 56;
     const H =
       el.clientHeight && el.clientHeight > 0
         ? el.clientHeight
@@ -1225,7 +1370,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         w: Math.floor(best.w),
         h: Math.floor(best.h),
         gap: GAP,
-        slots: best.rows * best.cols, // tổng ô cố định của lưới
+        slots: best.rows * best.cols,
       });
     }
   }, [cards.length]);
@@ -1243,11 +1388,11 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
     };
   }, [open, computeLayout]);
 
-  // Ghép cặp KO: lưu 2 index đã lật, set viền cùng màu
-  const [pairBuffer, setPairBuffer] = useState([]); // [{idx, name}]
-  const [pairCount, setPairCount] = useState(0); // tăng dần → màu mới
-  const [pairLinks, setPairLinks] = useState({}); // pairId -> [idxA, idxB]
+  const [pairBuffer, setPairBuffer] = useState([]);
+  const [pairCount, setPairCount] = useState(0);
+  const [pairLinks, setPairLinks] = useState({});
   const [lastPair, setLastPair] = useState(null);
+
   useEffect(() => {
     if (open) {
       setPairBuffer([]);
@@ -1257,14 +1402,12 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
     }
   }, [open, mode]);
 
-  // Hover: sáng thẻ và “đối tác” nếu có
   const [hoverIdx, setHoverIdx] = useState(null);
   const setHover = useCallback((i) => setHoverIdx(i), []);
   const clearHover = useCallback(() => setHoverIdx(null), []);
 
   const [busy, setBusy] = useState(false);
 
-  // Lật 1 thẻ
   const flipCard = useCallback(
     async (idx) => {
       setDeck((d) => {
@@ -1282,7 +1425,6 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         const teamName = obj?.name ?? "—";
         const meta = obj?.meta ?? null;
 
-        // Gán label + meta ngay cho thẻ
         setDeck((d) => {
           const c = d[idx];
           if (!c) return d;
@@ -1291,8 +1433,71 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
           return next;
         });
 
+        // ===== CẬP NHẬT: Gọi onRestore để sync reveals ngay sau khi flip =====
+        if (onRestore && meta) {
+          // Lấy deck hiện tại và tạo partial reveal cho thẻ vừa flip
+          setTimeout(() => {
+            setDeck((currentDeck) => {
+              // Tạo lại reveals từ deck hiện tại
+              const restoredReveals = [];
+
+              if (mode === "group") {
+                currentDeck.forEach((card) => {
+                  if (
+                    card.flipped &&
+                    card.label &&
+                    card.meta?.groupCode != null
+                  ) {
+                    restoredReveals.push({
+                      groupCode: card.meta.groupCode,
+                      groupKey: card.meta.groupCode,
+                      slotIndex: card.meta.slotIndex,
+                      regId: card.key,
+                      name: card.label,
+                    });
+                  }
+                });
+              } else {
+                const pairMap = new Map();
+                currentDeck.forEach((card) => {
+                  if (
+                    card.flipped &&
+                    card.label &&
+                    typeof card.meta?.pairIndex === "number"
+                  ) {
+                    const pIdx = card.meta.pairIndex;
+                    if (!pairMap.has(pIdx)) {
+                      pairMap.set(pIdx, { A: null, B: null });
+                    }
+                    const pair = pairMap.get(pIdx);
+                    if (card.meta.side === "A") {
+                      pair.A = card.label;
+                    } else if (card.meta.side === "B") {
+                      pair.B = card.label;
+                    }
+                  }
+                });
+
+                Array.from(pairMap.entries())
+                  .sort((a, b) => a[0] - b[0])
+                  .forEach(([pIdx, pair]) => {
+                    restoredReveals.push({
+                      AName: pair.A || "Chưa có đội",
+                      BName: pair.B || "Chưa có đội",
+                      A: pair.A || "Chưa có đội",
+                      B: pair.B || "Chưa có đội",
+                      pairIndex: pIdx,
+                    });
+                  });
+              }
+
+              onRestore(restoredReveals);
+              return currentDeck;
+            });
+          }, 100); // delay nhỏ để đảm bảo state đã update
+        }
+
         if (mode !== "group") {
-          // KO/PO: gom 2 thẻ thành 1 cặp → tô cùng màu (mỗi cặp 1 màu khác nhau)
           setPairBuffer((buf) => {
             const nextBuf = [...buf, { idx, name: teamName }];
             if (nextBuf.length === 2) {
@@ -1316,7 +1521,6 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
           });
         }
       } catch {
-        // lỗi → rollback flipped
         setDeck((d) => {
           const c = d[idx];
           if (!c) return d;
@@ -1328,9 +1532,8 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         setBusy(false);
       }
     },
-    [onFlipOne, mode, pairCount, getDistinctPairColor]
+    [onFlipOne, mode, pairCount, getDistinctPairColor, onRestore]
   );
-
   if (!open) return null;
 
   const remaining = deck.filter((c) => !c.flipped).length;
@@ -1348,8 +1551,6 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         color: "#fff",
       }}
     >
-      {/* Header */}
-
       <Stack
         direction="row"
         alignItems="center"
@@ -1398,14 +1599,13 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         </Tooltip>
       </Stack>
 
-      {/* Pair banner (KO/PO) */}
       {mode !== "group" && lastPair && (
         <Box
           sx={{
             position: "absolute",
             left: 0,
             right: 0,
-            bottom: 10, // đặt ở dưới để không đè lên hàng thẻ đầu
+            bottom: 10,
             textAlign: "center",
             pointerEvents: "none",
             zIndex: 3,
@@ -1434,7 +1634,6 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         </Box>
       )}
 
-      {/* Grid */}
       <Box
         ref={gridRef}
         sx={{
@@ -1484,7 +1683,6 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                 }`
               : "none";
 
-          // 🆕 tên cặp: ưu tiên meta.pairIndex server trả về
           const pairTitle =
             mode !== "group"
               ? typeof c.meta?.pairIndex === "number"
@@ -1494,13 +1692,11 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                 : null
               : null;
 
-          // 🆕 nếu cặp đã đủ 2 thẻ và thẻ kia đã lật, lấy tên để hiển thị "vs ..."
           let mateName = null;
           if (mode !== "group" && c.pairId != null) {
             const mates = pairLinks[c.pairId] || [];
             const otherIdx = mates.find((x) => x !== idx);
             if (typeof otherIdx === "number") {
-              // thử lấy từ displayDeck trước, nếu không có thì lấy từ deck gốc
               const otherCard =
                 (otherIdx < displayDeck.length && displayDeck[otherIdx]) ||
                 (otherIdx < deck.length && deck[otherIdx]);
@@ -1541,7 +1737,6 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                   transform: c.flipped ? "rotateY(180deg)" : "rotateY(0deg)",
                 }}
               >
-                {/* Mặt sau */}
                 <Box
                   sx={{
                     position: "absolute",
@@ -1571,7 +1766,6 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                   )}
                 </Box>
 
-                {/* Mặt trước */}
                 <Box
                   sx={{
                     position: "absolute",
@@ -1590,49 +1784,103 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                   }}
                 >
                   {!isGhost && (
-                    <Box sx={{ px: 0.5 }}>
-                      {/* tên đội vừa bốc */}
-                      <Typography sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-                        {c.label || "…"}
-                      </Typography>
+                    <Box sx={{ px: 0.4 }}>
+                      {(() => {
+                        const labelText = c.label || "…";
+                        const len = labelText.length || 1;
 
-                      {/* group mode: giữ nguyên */}
-                      {mode === "group" && c.meta?.groupCode != null && (
-                        <Typography
-                          variant="caption"
-                          sx={{ opacity: 0.85, display: "block", mt: 0.5 }}
-                        >
-                          Bảng {c.meta.groupCode} • Slot{" "}
-                          {Number(c.meta.slotIndex) + 1}
-                        </Typography>
-                      )}
+                        const cardH = layout.h || 160;
+                        const cardW = layout.w || 110;
 
-                      {/* 🆕 KO/PO: show tên cặp */}
-                      {mode !== "group" && pairTitle && (
-                        <Typography
-                          variant="caption"
-                          sx={{ opacity: 0.85, display: "block", mt: 0.35 }}
-                        >
-                          {pairTitle}
-                          {/* nếu server gửi side thì show luôn cho ref biết */}
-                          {c.meta?.side && (
-                            <span style={{ opacity: 0.6 }}>
-                              {" "}
-                              • {c.meta.side === "A" ? "Side A" : "Side B"}
-                            </span>
-                          )}
-                        </Typography>
-                      )}
+                        const paddingY = 34;
+                        const maxTextHeight = Math.max(34, cardH - paddingY);
 
-                      {/* 🆕 nếu cặp đã đủ 2 đội thì hiển thị vs */}
-                      {mode !== "group" && mateName && (
-                        <Typography
-                          variant="caption"
-                          sx={{ opacity: 0.6, display: "block", mt: 0.25 }}
-                        >
-                          vs {mateName}
-                        </Typography>
-                      )}
+                        let fontSize = Math.min(10, cardH * 0.2, cardW * 0.2);
+                        if (!Number.isFinite(fontSize) || fontSize <= 0)
+                          fontSize = 18;
+                        if (fontSize < 11) fontSize = 11;
+
+                        const lineHeight = 1.12;
+
+                        for (let i = 0; i < 6; i++) {
+                          const charW = fontSize * 0.6;
+                          const perLine = Math.max(
+                            4,
+                            Math.floor(cardW / charW)
+                          );
+                          const lines = Math.max(1, Math.ceil(len / perLine));
+                          const need = lines * fontSize * lineHeight;
+
+                          if (need <= maxTextHeight || fontSize <= 10) break;
+                          fontSize -= 1.5;
+                        }
+
+                        return (
+                          <>
+                            <Typography
+                              sx={{
+                                fontWeight: 800,
+                                lineHeight,
+                                fontSize,
+                                wordBreak: "break-word",
+                                whiteSpace: "normal",
+                                maxWidth: "100%",
+                              }}
+                            >
+                              {labelText}
+                            </Typography>
+
+                            {mode === "group" && c.meta?.groupCode != null && (
+                              <Typography
+                                variant="caption"
+                                sx={{
+                                  opacity: 0.9,
+                                  display: "block",
+                                  mt: 0.35,
+                                  maxWidth: "100%",
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                }}
+                              >
+                                Bảng {c.meta.groupCode} • Slot{" "}
+                                {Number(c.meta.slotIndex) + 1}
+                              </Typography>
+                            )}
+
+                            {mode !== "group" &&
+                              (typeof c.meta?.pairIndex === "number" ||
+                                c.pairId != null) && (
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    opacity: 0.9,
+                                    display: "block",
+                                    mt: 0.25,
+                                    maxWidth: "100%",
+                                    whiteSpace: "nowrap",
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                >
+                                  {typeof c.meta?.pairIndex === "number"
+                                    ? `Cặp #${Number(c.meta.pairIndex) + 1}`
+                                    : `Cặp #${(c.pairId ?? 0) + 1}`}
+                                  {c.meta?.side && (
+                                    <>
+                                      <div style={{ opacity: 0.6 }}> </div>
+                                      <div style={{ opacity: 0.6 }}>
+                                        {c.meta.side === "A"
+                                          ? "Đội A"
+                                          : "Đội B"}
+                                      </div>
+                                    </>
+                                  )}
+                                </Typography>
+                              )}
+                          </>
+                        );
+                      })()}
                     </Box>
                   )}
                 </Box>
@@ -1644,7 +1892,6 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
     </Box>
   );
 });
-
 /********************** Prefill round logic **********************/
 const getPreferredRoundCode = (bracket, bracketDetail) => {
   const seedsLen =
@@ -3283,6 +3530,29 @@ export default function DrawPage() {
     if (drawType !== "group") return null;
     return inferNextGroupCursor(drawDoc?.board, groupsMeta, revealsForGroup);
   }, [drawType, drawDoc?.board, groupsMeta, revealsForGroup]);
+
+  // ===== THÊM HANDLER ĐỂ NHẬN RESTORED REVEALS TỪ CARD OVERLAY =====
+  const handleCardRestore = useCallback(
+    (restoredReveals) => {
+      if (Array.isArray(restoredReveals) && restoredReveals.length > 0) {
+        console.log("Restoring reveals from localStorage:", restoredReveals);
+        setReveals(restoredReveals);
+
+        // Nếu là group mode, cập nhật lastHighlight để hiển thị slot cuối cùng
+        if (drawType === "group" && restoredReveals.length > 0) {
+          const lastReveal = restoredReveals[restoredReveals.length - 1];
+          if (lastReveal.groupCode != null && lastReveal.slotIndex != null) {
+            setLastHighlight({
+              type: "group",
+              groupCode: lastReveal.groupCode,
+              slotIndex: lastReveal.slotIndex,
+            });
+          }
+        }
+      }
+    },
+    [drawType]
+  );
   /* ===== Render ===== */
   if (!isAdmin) {
     return (
@@ -3499,11 +3769,20 @@ export default function DrawPage() {
               disabled={!canOperate || committing}
               onClick={async () => {
                 await drawCommit({ drawId }).unwrap();
-                // kéo nhanh dữ liệu mới về thay vì đợi socket/network
                 try {
                   await Promise.all([refetchMatches?.(), refetchBracket?.()]);
                 } catch {}
+
+                // ===== CLEAR LOCALSTORAGE =====
+                clearCardDeckFromStorage(
+                  selBracketId,
+                  drawType,
+                  selectRoundValue
+                );
+
                 setShowDoneBanner(false);
+                setCardOpen(false); // Đóng overlay nếu đang mở
+                toast.success("Đã commit kết quả và xóa dữ liệu thẻ tạm");
               }}
               sx={{ color: "white !important" }}
             >
@@ -3517,12 +3796,19 @@ export default function DrawPage() {
               onClick={async () => {
                 try {
                   await drawCancel({ drawId }).unwrap();
-                  // kéo nhanh dữ liệu mới về thay vì đợi socket/network
                 } catch (e) {
                   toast.error(
                     e?.data?.message || e?.error || "Có lỗi khi huỷ phiên bốc."
                   );
                 }
+
+                // ===== CLEAR LOCALSTORAGE =====
+                clearCardDeckFromStorage(
+                  selBracketId,
+                  drawType,
+                  selectRoundValue
+                );
+
                 setDrawId(null);
                 setState("idle");
                 setReveals([]);
@@ -3532,7 +3818,7 @@ export default function DrawPage() {
                 setCardQueue([]);
                 setCardSnapshot([]);
                 toast.success(
-                  "Đã huỷ phiên bốc. Bạn có thể bắt đầu phiên mới."
+                  "Đã huỷ phiên bốc và xóa dữ liệu thẻ tạm. Bạn có thể bắt đầu phiên mới."
                 );
               }}
             >
@@ -3745,6 +4031,9 @@ export default function DrawPage() {
           onFlipOne={onFlipOneForCards}
           muted={fxMuted}
           targetInfo={targetInfo}
+          bracketId={selBracketId} // ← THÊM
+          roundCode={selectRoundValue} // ← THÊM
+          onRestore={handleCardRestore} // ← THÊM
         />
       )}
 
