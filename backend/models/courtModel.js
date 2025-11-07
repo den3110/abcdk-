@@ -38,14 +38,19 @@ const courtSchema = new Schema(
       videoUrl: { type: String, default: "" },
       overrideExisting: { type: Boolean, default: false },
     },
+    // ✅ Nhiều trọng tài mặc định cho sân
+    // Lưu TournamentReferee (hoặc model referee mà bạn đang dùng cho giải)
+    defaultReferees: [
+      { type: Types.ObjectId, ref: "User", default: undefined },
+    ],
   },
   { timestamps: true }
 );
 
-// ➜ Mỗi GIẢI (tournament) không được trùng tên sân
-courtSchema.index(
-  { tournament: 1, name: 1 },
-  { unique: true, partialFilterExpression: { name: { $type: "string" } } }
-);
+// // ➜ Mỗi GIẢI (tournament) không được trùng tên sân
+// courtSchema.index(
+//   { tournament: 1, name: 1 },
+//   { unique: true, partialFilterExpression: { name: { $type: "string" } } }
+// );
 
 export default mongoose.model("Court", courtSchema);

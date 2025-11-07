@@ -147,7 +147,7 @@ function isAllowedDomain(url, settings) {
   }
 }
 
-// Thời gian: nếu có publishedAt thì check trong maxHours; nếu không có thì cho qua (vì đã ép trong prompt)
+// Thời gian: nếu có publishedAt thì check trong maxHours; nếu không có thì cho qua
 function isFreshEnough(publishedAt, maxHours) {
   if (!publishedAt) return true;
   const d = new Date(publishedAt);
@@ -158,26 +158,30 @@ function isFreshEnough(publishedAt, maxHours) {
 
 // Helper: bóc JSON từ Responses API
 function extractJsonFromResponse(response) {
-  // 1. Nếu có output_text (tiện nhất)
+  // 1) output_text trực tiếp
   if (typeof response.output_text === "string" && response.output_text.trim()) {
     try {
       return JSON.parse(response.output_text);
     } catch {
-      // ignore, thử cách khác
+      // ignore
     }
   }
 
   const out = response.output;
   if (!Array.isArray(out) || !out.length) return null;
-  const part = out[0]?.content?.[0];
+
+  const msg = out[0];
+  if (!msg || !Array.isArray(msg.content)) return null;
+
+  const part = msg.content[0];
   if (!part) return null;
 
-  // 2. output_json
+  // 2) output_json
   if (part.type === "output_json" && part.json) {
     return part.json;
   }
 
-  // 3. output_text (text.value hoặc text string)
+  // 3) output_text (các variant)
   if (part.type === "output_text") {
     if (part.text && typeof part.text.value === "string") {
       try {
@@ -213,7 +217,8 @@ export async function discoverFeaturedArticles() {
   const minScore = settings.minAiScore ?? 0.75;
 
   const response = await openai.responses.create({
-    model: "gpt-5",
+    // ✅ đổi sang model rẻ hơn
+    model: "gpt-5-nano",
     instructions: SYSTEM_PROMPT_VI,
     input: [
       {
@@ -229,8 +234,8 @@ export async function discoverFeaturedArticles() {
     text: {
       format: {
         type: "json_schema",
-        name: "featured_news_links", // 🔥 cái này là bắt buộc
-        strict: false, // cho mềm, mình tự filter
+        name: "featured_news_links",
+        strict: false, // vẫn cho mềm, mình tự filter domain/time/score phía dưới
         schema: {
           type: "object",
           properties: {
@@ -267,7 +272,7 @@ export async function discoverFeaturedArticles() {
 
   if (!data || !Array.isArray(data.items)) {
     console.error(
-      "[NewsDiscovery] Không đọc được JSON hợp lệ từ gpt-5 Responses.",
+      "[NewsDiscovery] Không đọc được JSON hợp lệ từ gpt-5-nano Responses.",
       JSON.stringify(response, null, 500)
     );
     return { inserted: 0, total: 0 };
@@ -336,7 +341,7 @@ export async function discoverFeaturedArticles() {
   }
 
   console.log(
-    `[NewsDiscovery][gpt-5+web_search][VN only] model_items=${items.length}, passed_filter=${considered}, inserted=${inserted}`
+    `[NewsDiscovery][gpt-5-nano+web_search][VN only] model_items=${items.length}, passed_filter=${considered}, inserted=${inserted}`
   );
 
   return {

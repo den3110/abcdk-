@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import Court from "../../models/courtModel.js";
 import Match from "../../models/matchModel.js";
 import Bracket from "../../models/bracketModel.js";
+import User from "../../models/userModel.js";
 import {
   buildGroupsRotationQueue,
   assignNextToCourt,
@@ -11,7 +12,7 @@ import {
   fillIdleCourtsForCluster,
 } from "../../services/courtQueueService.js";
 import { canManageTournament } from "../../utils/tournamentAuth.js";
-
+const { Types } = mongoose;
 /**
  * Upsert danh sách sân cho 1 giải + bracket
  * Sau khi lưu: build queue (tạm reuse 'cluster' = bracketId) + fill ngay các sân idle
@@ -1061,3 +1062,98 @@ export const deleteOneCourt = asyncHandler(async (req, res) => {
       .json({ message: err?.message || "Delete court failed" });
   }
 });
+
+// PUT /api/admin/tournaments/:tournamentId/courts/:courtId/referee
+// body: { refereeIds: string[] }  // có thể trống để clear
+// (hỗ trợ legacy refereeId: string)
+export const setCourtReferee = async (req, res) => {
+  try {
+    const { tournamentId, courtId } = req.params;
+    const { refereeIds, refereeId } = req.body || {};
+
+    if (!tournamentId || !courtId) {
+      return res
+        .status(400)
+        .json({ message: "Thiếu tournamentId hoặc courtId." });
+    }
+
+    // 1. Tìm sân thuộc đúng giải
+    const court = await Court.findOne({
+      _id: courtId,
+      tournament: tournamentId,
+    });
+
+    if (!court) {
+      return res
+        .status(404)
+        .json({ message: "Không tìm thấy sân thuộc giải này." });
+    }
+
+    // 2. Chuẩn hoá danh sách refereeIds
+    let rawIds = [];
+
+    if (Array.isArray(refereeIds)) {
+      rawIds = refereeIds;
+    }
+
+    // Hỗ trợ legacy 1 id đơn
+    if (refereeId) {
+      rawIds = rawIds.concat(refereeId);
+    }
+
+    const normalizedIds = [
+      ...new Set(
+        rawIds
+          .map((id) => String(id || "").trim())
+          .filter((id) => id && Types.ObjectId.isValid(id))
+      ),
+    ];
+
+    // 3. Không có id hợp lệ => xoá hết trọng tài mặc định
+    if (!normalizedIds.length) {
+      court.defaultReferees = [];
+      await court.save();
+
+      return res.json({
+        message: "Đã xoá tất cả trọng tài mặc định của sân.",
+        court,
+      });
+    }
+
+    // 4. Validate các user này là trọng tài của giải
+    // Điều kiện:
+    // - isDeleted != true
+    // - role = "referee"
+    // - referee.tournaments có chứa tournamentId
+    const validRefs = await User.find({
+      _id: { $in: normalizedIds },
+      isDeleted: { $ne: true },
+      role: "referee",
+      "referee.tournaments": tournamentId,
+    }).select("_id");
+
+    if (validRefs.length !== normalizedIds.length) {
+      return res.status(400).json({
+        message:
+          "Có trọng tài không tồn tại, không phải referee, hoặc không thuộc giải này.",
+      });
+    }
+
+    // 5. Lưu vào court.defaultReferees
+    court.defaultReferees = validRefs.map((u) => u._id);
+    await court.save();
+
+    // Nếu muốn trả kèm info chi tiết cho FE:
+    // await court.populate("defaultReferees", "name nickname email phone");
+
+    return res.json({
+      message: "Đã cập nhật trọng tài mặc định cho sân.",
+      court,
+    });
+  } catch (err) {
+    console.error("setCourtReferee error:", err);
+    return res
+      .status(500)
+      .json({ message: "Lỗi server khi gán trọng tài cho sân." });
+  }
+};

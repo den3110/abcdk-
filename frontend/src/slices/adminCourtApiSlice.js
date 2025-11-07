@@ -255,6 +255,15 @@ export const adminCourtApiSlice = apiSlice.injectEndpoints({
         { type: "Court", id: arg.courtId },
       ],
     }),
+    setCourtReferee: builder.mutation({
+      query: ({ tournamentId, courtId, refereeIds }) => ({
+        url: `/api/admin/tournaments/${tournamentId}/courts/${courtId}/referee`,
+        method: "PUT",
+        body: {
+          refereeIds: Array.isArray(refereeIds) ? refereeIds : [],
+        },
+      }),
+    }),
   }),
 
   // nếu file này được inject nhiều lần ở môi trường hot-reload:
@@ -273,5 +282,6 @@ export const {
   useLazyGetSchedulerMatchesLiteQuery,
   useAdminListCourtsQuery,
   useDeleteCourtsMutation,
-  useDeleteCourtMutation
+  useDeleteCourtMutation,
+  useSetCourtRefereeMutation,
 } = adminCourtApiSlice;

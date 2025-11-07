@@ -27,23 +27,23 @@ import {
 } from "@mui/material";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import SaveIcon from "@mui/icons-material/Save";
-import QueuePlayNextIcon from "@mui/icons-material/QueuePlayNext";
 import AutorenewIcon from "@mui/icons-material/Autorenew";
 import EditNoteIcon from "@mui/icons-material/EditNote";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import StadiumIcon from "@mui/icons-material/Stadium";
 import DeleteForeverIcon from "@mui/icons-material/DeleteForever";
+import PersonSearchIcon from "@mui/icons-material/PersonSearch";
 import { toast } from "react-toastify";
 import { useSocket } from "../context/SocketContext";
 import {
   useUpsertCourtsMutation,
   useBuildGroupsQueueMutation,
   useAssignNextHttpMutation,
-  useDeleteCourtsMutation,   // bulk delete (giữ nguyên)
-  useDeleteCourtMutation,    // NEW: delete 1 court
+  useDeleteCourtsMutation,
+  useDeleteCourtMutation,
+  useSetCourtRefereeMutation,
 } from "../slices/adminCourtApiSlice";
-
-/* 👉 chỉnh path cho khớp dự án của bạn */
+import { useListTournamentRefereesQuery } from "../slices/refereeScopeApiSlice";
 import ResponsiveModal from "./ResponsiveModal";
 
 /* ---------------- helpers / formatters ---------------- */
@@ -87,6 +87,7 @@ const viMatchStatus = (s) => {
       return s || "";
   }
 };
+
 const matchStatusColor = (s) => {
   switch (s) {
     case "assigned":
@@ -99,6 +100,7 @@ const matchStatusColor = (s) => {
       return "default";
   }
 };
+
 const viCourtStatus = (st) => {
   if (st === "idle") return "Trống";
   if (st === "maintenance") return "Bảo trì";
@@ -114,6 +116,7 @@ const letterToIndex = (s) => {
   if (/^[A-Z]$/.test(ch)) return ch.charCodeAt(0) - 64;
   return null;
 };
+
 const poolBoardLabel = (m) => {
   const p = m?.pool || {};
   if (isNum(p.index)) return `B${p.index}`;
@@ -182,6 +185,7 @@ const buildMatchCode = (m, idx) => {
 };
 
 /* ---------- Tên đội/ người ---------- */
+
 const personName = (p) => {
   if (!p || typeof p !== "object") return "";
   const cands = [
@@ -197,9 +201,12 @@ const personName = (p) => {
     p.email,
     p.phone,
   ];
-  for (const v of cands) if (typeof v === "string" && v.trim()) return v.trim();
+  for (const v of cands) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
   return "";
 };
+
 const pairName = (pair) => {
   if (!pair) return "";
   const names = [];
@@ -222,12 +229,72 @@ const pairName = (pair) => {
   return names.filter(Boolean).join(" & ");
 };
 
-/* ---------------- Dialog nội bộ: chọn trận cụ thể để gán vào sân ---------------- */
+/* ---------- Trọng tài helpers ---------- */
+
+const getRefId = (r) =>
+  r && (r._id || r.id || r.userId || r.refId || r.uid)
+    ? String(r._id || r.id || r.userId || r.refId || r.uid)
+    : r
+    ? String(r)
+    : "";
+
+const refDisplayName = (r) => {
+  if (!r || typeof r !== "object") return "";
+  const cands = [
+    r.nickname,
+    r.nickName,
+    r.nick,
+    r.displayName,
+    r.fullName,
+    r.name,
+    r.code,
+    r.email,
+    r.phone,
+  ];
+  for (const v of cands) {
+    if (v && String(v).trim()) return String(v).trim();
+  }
+  return getRefId(r) || "";
+};
+
+// Lấy list trọng tài mặc định của sân (đa trọng tài)
+// Đọc từ court.defaultReferees (array), fallback legacy field nếu có.
+const getCourtRefsFromCourt = (court, referees) => {
+  if (!court || !Array.isArray(referees) || referees.length === 0) return [];
+
+  const ids = [];
+
+  if (Array.isArray(court.defaultReferees) && court.defaultReferees.length) {
+    for (const it of court.defaultReferees) {
+      const id = getRefId(it);
+      if (id) ids.push(id);
+    }
+  } else {
+    // fallback legacy: nếu còn field đơn
+    const legacy =
+      court.defaultReferee ||
+      court.defaultRefereeId ||
+      court.refereeId ||
+      court.refId;
+    const id = getRefId(legacy);
+    if (id) ids.push(id);
+  }
+
+  const uniqIds = [...new Set(ids)];
+  if (!uniqIds.length) return [];
+
+  return referees.filter((r) => uniqIds.includes(getRefId(r)));
+};
+
+/* ---------------- Dialog: chọn trận cụ thể để gán vào sân ---------------- */
+
 function AssignSpecificDialog({ open, onClose, court, matches, onConfirm }) {
   const [value, setValue] = useState(null);
+
   const handleOk = () => {
     if (value) onConfirm(String(value._id || value.id));
   };
+
   useEffect(() => {
     if (!open) setValue(null);
   }, [open]);
@@ -273,6 +340,13 @@ function AssignSpecificDialog({ open, onClose, court, matches, onConfirm }) {
           getOptionLabel={optionLabel}
           value={value}
           onChange={(e, v) => setValue(v || null)}
+          isOptionEqualToValue={(o, v) =>
+            String(o._id || o.id) === String(v._id || v.id)
+          }
+          disablePortal
+          PopperProps={{
+            sx: { zIndex: (theme) => theme.zIndex.modal + 2 },
+          }}
           renderInput={(params) => (
             <TextField
               {...params}
@@ -280,12 +354,107 @@ function AssignSpecificDialog({ open, onClose, court, matches, onConfirm }) {
               placeholder="Nhập mã hoặc tên đội..."
             />
           )}
-          isOptionEqualToValue={(o, v) =>
-            String(o._id || o.id) === String(v._id || v.id)
-          }
         />
         <Typography variant="caption" color="text.secondary">
-          * Hệ thống sẽ thay thế trận đang gán (nếu có) bằng trận bạn chọn.
+          * Sẽ thay thế trận đang gán (nếu có) bằng trận bạn chọn.
+        </Typography>
+      </Stack>
+    </ResponsiveModal>
+  );
+}
+
+/* ---------------- Dialog: gán nhiều trọng tài mặc định ---------------- */
+
+function AssignRefereeDialog({
+  open,
+  onClose,
+  court,
+  referees,
+  currentRefs,
+  loadingRefs,
+  onConfirm, // (refListArray) => void
+}) {
+  const [value, setValue] = useState(currentRefs || []);
+
+  useEffect(() => {
+    if (open) {
+      setValue(currentRefs || []);
+    } else {
+      setValue([]);
+    }
+  }, [open, currentRefs]);
+
+  if (!open || !court) return null;
+
+  const handleSave = () => {
+    onConfirm(value || []);
+  };
+
+  const handleClear = () => {
+    onConfirm([]);
+  };
+
+  const courtLabel =
+    court?.name || court?.label || court?.title || court?.code || "(không rõ)";
+
+  return (
+    <ResponsiveModal
+      open={open}
+      onClose={onClose}
+      maxWidth="sm"
+      icon={<PersonSearchIcon />}
+      title="Gán trọng tài mặc định cho sân"
+      actions={
+        <>
+          <Button color="error" onClick={handleClear}>
+            Xoá tất cả
+          </Button>
+          <Button onClick={onClose}>Đóng</Button>
+          <Button
+            variant="contained"
+            onClick={handleSave}
+            disabled={loadingRefs}
+          >
+            Lưu
+          </Button>
+        </>
+      }
+    >
+      <Stack spacing={2}>
+        <Alert severity="info">
+          Sân: <strong>{courtLabel}</strong>
+        </Alert>
+
+        <Autocomplete
+          multiple
+          options={referees || []}
+          value={value}
+          onChange={(e, v) => setValue(v || [])}
+          getOptionLabel={refDisplayName}
+          isOptionEqualToValue={(o, v) => getRefId(o) === getRefId(v)}
+          loading={loadingRefs}
+          filterSelectedOptions
+          disablePortal
+          PopperProps={{
+            sx: { zIndex: (theme) => theme.zIndex.modal + 2 },
+          }}
+          noOptionsText={
+            loadingRefs
+              ? "Đang tải trọng tài..."
+              : "Chưa có trọng tài nào trong giải"
+          }
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="Chọn trọng tài mặc định"
+              placeholder="Nhập tên / mã / số điện thoại..."
+            />
+          )}
+        />
+
+        <Typography variant="caption" color="text.secondary">
+          Có thể chọn nhiều trọng tài. Khi sân này nhận trận mới, hệ thống sẽ
+          ưu tiên set theo danh sách này (tuỳ logic backend/socket của bạn).
         </Typography>
       </Stack>
     </ResponsiveModal>
@@ -293,19 +462,19 @@ function AssignSpecificDialog({ open, onClose, court, matches, onConfirm }) {
 }
 
 /* ---------------- Dialog chính: Quản lý sân (TOÀN GIẢI) ---------------- */
+
 export default function CourtManagerDialog({
   open,
   onClose,
   tournamentId,
-  // giữ tương thích prop cũ nhưng KHÔNG dùng nữa:
-  bracketId, // eslint-disable-line no-unused-vars
-  bracketName, // eslint-disable-line no-unused-vars
+  bracketId, // giữ tương thích, không dùng
+  bracketName, // giữ tương thích, không dùng
   tournamentName,
 }) {
   const socket = useSocket();
 
   // Cấu hình sân
-  const [mode, setMode] = useState("count"); // "count" | "names"
+  const [mode, setMode] = useState("count");
   const [count, setCount] = useState(4);
   const [namesText, setNamesText] = useState("Sân 1\nSân 2\nSân 3\nSân 4");
   const [autoAssign, setAutoAssign] = useState(false);
@@ -323,6 +492,24 @@ export default function CourtManagerDialog({
   const [courts, setCourts] = useState([]);
   const [socketMatches, setSocketMatches] = useState([]);
   const [queue, setQueue] = useState([]);
+
+  // Trọng tài của giải
+  const {
+    data: refsData,
+    isLoading: loadingRefs,
+  } = useListTournamentRefereesQuery(
+    { tid: tournamentId, q: "" },
+    { skip: !open || !tournamentId }
+  );
+
+  const referees = useMemo(() => {
+    if (!refsData) return [];
+    if (Array.isArray(refsData.items)) return refsData.items;
+    if (Array.isArray(refsData.data)) return refsData.data;
+    if (Array.isArray(refsData)) return refsData;
+    return [];
+  }, [refsData]);
+
   const notifQueueRef = useRef([]);
 
   // Mutations
@@ -331,10 +518,11 @@ export default function CourtManagerDialog({
     useBuildGroupsQueueMutation();
   const [assignNextHttp] = useAssignNextHttpMutation();
   const [deleteCourts, { isLoading: deletingCourts }] =
-    useDeleteCourtsMutation(); // bulk
-  const [deleteCourt, { isLoading: deletingOne }] = useDeleteCourtMutation(); // NEW single
+    useDeleteCourtsMutation();
+  const [deleteCourt, { isLoading: deletingOne }] = useDeleteCourtMutation();
+  const [setCourtReferee] = useSetCourtRefereeMutation();
 
-  // Join/leave socket room khi mở/đóng dialog — TOÀN GIẢI
+  // join socket room
   useEffect(() => {
     if (!open || !socket || !tournamentId) return;
 
@@ -350,9 +538,11 @@ export default function CourtManagerDialog({
         }))
       );
     };
+
     const onNotify = (msg) => {
       notifQueueRef.current = [msg, ...notifQueueRef.current].slice(0, 20);
     };
+
     const reqState = () => socket.emit("scheduler:requestState", room);
 
     socket.emit("scheduler:join", room);
@@ -374,9 +564,17 @@ export default function CourtManagerDialog({
     };
   }, [open, socket, tournamentId]);
 
+  const requestState = useCallback(() => {
+    if (socket && tournamentId) {
+      socket.emit("scheduler:requestState", { tournamentId });
+    }
+  }, [socket, tournamentId]);
+
   const matchMap = useMemo(() => {
     const map = new Map();
-    for (const m of socketMatches) map.set(String(m._id || m.id), m);
+    for (const m of socketMatches) {
+      map.set(String(m._id || m.id), m);
+    }
     return map;
   }, [socketMatches]);
 
@@ -385,6 +583,7 @@ export default function CourtManagerDialog({
     if (c?.currentMatch) return matchMap.get(String(c.currentMatch)) || null;
     return null;
   };
+
   const courtStatus = (c) => {
     const m = getMatchForCourt(c);
     if (c?.status) return c.status;
@@ -392,12 +591,14 @@ export default function CourtManagerDialog({
     if (m.status === "live") return "live";
     return "assigned";
   };
+
   const getMatchCodeForCourt = (c) => {
     const m = getMatchForCourt(c);
     if (!m) return "";
     if (isGlobalCodeString(m.codeDisplay)) return m.codeDisplay;
     return m.currentMatchCode || buildMatchCode(m);
   };
+
   const getTeamsForCourt = (c) => {
     const m = getMatchForCourt(c);
     if (!m) return { A: "", B: "" };
@@ -409,6 +610,7 @@ export default function CourtManagerDialog({
   const selectableMatches = useMemo(() => {
     const seen = new Set();
     const out = [];
+
     const push = (m) => {
       if (!m) return;
       const id = String(m._id || m.id);
@@ -416,6 +618,7 @@ export default function CourtManagerDialog({
       seen.add(id);
       out.push(m);
     };
+
     for (const m of queue || []) push(m);
     for (const m of socketMatches || []) {
       const st = String(m?.status || "");
@@ -437,6 +640,7 @@ export default function CourtManagerDialog({
         ? { v: Number(m[1]), b: m[2] ? Number(m[2]) : null, t: Number(m[3]) }
         : null;
     };
+
     const tripletOf = (m) => {
       const code =
         (isGlobalCodeString(m?.codeDisplay) && m.codeDisplay) ||
@@ -451,6 +655,7 @@ export default function CourtManagerDialog({
     out.sort((a, b) => {
       const ta = tripletOf(a);
       const tb = tripletOf(b);
+
       if (ta.v !== tb.v) return ta.v - tb.v;
 
       const ga = isGroupLike(a);
@@ -458,8 +663,8 @@ export default function CourtManagerDialog({
 
       if (ga && gb) {
         if ((ta.t || 0) !== (tb.t || 0)) return (ta.t || 0) - (tb.t || 0);
-        const ba = ta.b ?? 999,
-          bb = tb.b ?? 999;
+        const ba = ta.b ?? 999;
+        const bb = tb.b ?? 999;
         if (ba !== bb) return ba - bb;
       } else if (!ga && !gb) {
         if ((ta.t || 0) !== (tb.t || 0)) return (ta.t || 0) - (tb.t || 0);
@@ -476,12 +681,146 @@ export default function CourtManagerDialog({
     return out;
   }, [queue, socketMatches]);
 
-  /* ---------- handlers ---------- */
-  const requestState = () => {
-    if (socket && tournamentId) {
-      socket.emit("scheduler:requestState", { tournamentId });
+  /* ---------- assign specific dialog state ---------- */
+
+  const [assignDlgOpen, setAssignDlgOpen] = useState(false);
+  const [assignDlgCourt, setAssignDlgCourt] = useState(null);
+
+  const openAssignDlg = (court) => {
+    setAssignDlgCourt(court || null);
+    setAssignDlgOpen(true);
+  };
+
+  const closeAssignDlg = () => {
+    setAssignDlgOpen(false);
+    setAssignDlgCourt(null);
+  };
+
+  const confirmAssignSpecific = (matchId) => {
+    if (!tournamentId || !assignDlgCourt || !matchId) return;
+    socket?.emit?.("scheduler:assignSpecific", {
+      tournamentId,
+      courtId: assignDlgCourt._id || assignDlgCourt.id,
+      matchId,
+      replace: true,
+    });
+    toast.success("Đã yêu cầu gán trận vào sân.");
+    requestState();
+    closeAssignDlg();
+  };
+
+  /* ---------- assign referee dialog state ---------- */
+
+  const [refDlgOpen, setRefDlgOpen] = useState(false);
+  const [refDlgCourt, setRefDlgCourt] = useState(null);
+
+  const openRefDlg = (court) => {
+    setRefDlgCourt(court || null);
+    setRefDlgOpen(true);
+  };
+
+  const closeRefDlg = () => {
+    setRefDlgOpen(false);
+    setRefDlgCourt(null);
+  };
+
+  // per-court delete
+  const [busyDelete, setBusyDelete] = useState(() => new Set());
+
+  const handleDeleteOneCourt = async (court) => {
+    if (!tournamentId || !court) return;
+
+    const courtId = court._id || court.id;
+    const label =
+      court?.name ||
+      court?.label ||
+      court?.title ||
+      court?.code ||
+      `#${String(courtId).slice(-4)}`;
+
+    const m = getMatchForCourt(court);
+    const isLive = String(m?.status || "").toLowerCase() === "live";
+    const note = isLive
+      ? "\n⚠️ Sân đang có TRẬN ĐANG THI ĐẤU. Bạn vẫn muốn xoá sân?"
+      : m
+      ? "\nSân đang có trận được gán. Bạn vẫn muốn xoá sân?"
+      : "";
+
+    const ok = window.confirm(
+      `Xoá sân "${label}"?${note}\nHành động này không thể hoàn tác.`
+    );
+    if (!ok) return;
+
+    setBusyDelete((prev) => {
+      const next = new Set(prev);
+      next.add(String(courtId));
+      return next;
+    });
+
+    try {
+      await deleteCourt({ tournamentId, courtId }).unwrap();
+      toast.success(`Đã xoá sân "${label}".`);
+      requestState();
+    } catch (e) {
+      toast.error(e?.data?.message || e?.error || "Xoá sân thất bại");
+    } finally {
+      setBusyDelete((prev) => {
+        const next = new Set(prev);
+        next.delete(String(courtId));
+        return next;
+      });
     }
   };
+
+  // gán nhiều trọng tài mặc định cho sân
+  const [busyRefCourts, setBusyRefCourts] = useState(() => new Set());
+
+  const handleChangeCourtReferee = async (court, selectedRefs) => {
+    if (!tournamentId || !court) return;
+
+    const courtId = court._id || court.id;
+    const refereeIds = Array.isArray(selectedRefs)
+      ? selectedRefs.map(getRefId).filter(Boolean)
+      : [];
+
+    setBusyRefCourts((prev) => {
+      const next = new Set(prev);
+      next.add(String(courtId));
+      return next;
+    });
+
+    try {
+      await setCourtReferee({
+        tournamentId,
+        courtId,
+        refereeIds,
+      }).unwrap();
+
+      toast.success(
+        refereeIds.length
+          ? `Đã cập nhật ${refereeIds.length} trọng tài mặc định cho sân.`
+          : "Đã xoá tất cả trọng tài mặc định của sân."
+      );
+
+      requestState();
+    } catch (e) {
+      toast.error(e?.data?.message || e?.error || "Gán trọng tài thất bại");
+    } finally {
+      setBusyRefCourts((prev) => {
+        const next = new Set(prev);
+        next.delete(String(courtId));
+        return next;
+      });
+    }
+  };
+
+  const handleConfirmReferee = async (selectedRefs) => {
+    if (!refDlgCourt) return;
+    await handleChangeCourtReferee(refDlgCourt, selectedRefs || []);
+    closeRefDlg();
+  };
+
+  /* ---------- handlers: cấu hình chung ---------- */
 
   const handleSaveCourts = async () => {
     if (!tournamentId) {
@@ -512,9 +851,7 @@ export default function CourtManagerDialog({
   const handleBuildQueue = async () => {
     if (!tournamentId) return;
     try {
-      const res = await buildQueue({
-        tournamentId,
-      }).unwrap();
+      const res = await buildQueue({ tournamentId }).unwrap();
       toast.success(
         `Đã xếp ${res?.totalQueued ?? 0} trận vào hàng đợi toàn giải.`
       );
@@ -527,10 +864,7 @@ export default function CourtManagerDialog({
 
   const handleAssignNext = async (courtId) => {
     if (!tournamentId || !courtId) return;
-    socket?.emit?.("scheduler:assignNext", {
-      tournamentId,
-      courtId,
-    });
+    socket?.emit?.("scheduler:assignNext", { tournamentId, courtId });
     await assignNextHttp({ tournamentId, courtId })
       .unwrap()
       .catch(() => {});
@@ -544,7 +878,7 @@ export default function CourtManagerDialog({
     );
     if (!ok) return;
     socket?.emit?.("scheduler:resetAll", { tournamentId });
-    toast.success("Đã gửi lệnh reset tất cả sân .");
+    toast.success("Đã gửi lệnh reset tất cả sân.");
     requestState();
   };
 
@@ -566,79 +900,8 @@ export default function CourtManagerDialog({
     }
   };
 
-  // NEW: per-court delete busy set
-  const [busyDelete, setBusyDelete] = useState(() => new Set());
-
-  // NEW: Xoá 1 sân
-  const handleDeleteOneCourt = async (court) => {
-    if (!tournamentId || !court) return;
-
-    const courtId = court._id || court.id;
-    const label =
-      court?.name ||
-      court?.label ||
-      court?.title ||
-      court?.code ||
-      `#${String(courtId).slice(-4)}`;
-
-    // Cảnh báo nếu sân đang có trận hoặc live
-    const m = getMatchForCourt(court);
-    const isLive = String(m?.status || "").toLowerCase() === "live";
-    const note = isLive
-      ? "\n⚠️ Sân đang có TRẬN ĐANG THI ĐẤU. Bạn vẫn muốn xoá sân?"
-      : m
-      ? "\nSân đang có trận được gán. Bạn vẫn muốn xoá sân?"
-      : "";
-
-    const ok = window.confirm(
-      `Xoá sân "${label}"?${note}\nHành động này không thể hoàn tác.`
-    );
-    if (!ok) return;
-
-    const next = new Set(busyDelete);
-    next.add(String(courtId));
-    setBusyDelete(next);
-
-    try {
-      await deleteCourt({ tournamentId, courtId }).unwrap();
-      toast.success(`Đã xoá sân "${label}".`);
-      requestState();
-    } catch (e) {
-      toast.error(e?.data?.message || e?.error || "Xoá sân thất bại");
-    } finally {
-      setBusyDelete((s) => {
-        const d = new Set(s);
-        d.delete(String(courtId));
-        return d;
-      });
-    }
-  };
-
-  // Dialog con: gán trận cụ thể
-  const [assignDlgOpen, setAssignDlgOpen] = useState(false);
-  const [assignDlgCourt, setAssignDlgCourt] = useState(null);
-  const openAssignDlg = (court) => {
-    setAssignDlgCourt(court || null);
-    setAssignDlgOpen(true);
-  };
-  const closeAssignDlg = () => {
-    setAssignDlgOpen(false);
-    setAssignDlgCourt(null);
-  };
-  const confirmAssignSpecific = (matchId) => {
-    if (!tournamentId || !assignDlgCourt || !matchId) return;
-    socket?.emit?.("scheduler:assignSpecific", {
-      tournamentId,
-      courtId: assignDlgCourt._id || assignDlgCourt.id,
-      matchId,
-      replace: true,
-    });
-    toast.success("Đã yêu cầu gán trận vào sân.");
-    requestState();
-    closeAssignDlg();
-  };
-
   /* ---------- UI ---------- */
+
   return (
     <ResponsiveModal
       open={open}
@@ -747,6 +1010,16 @@ export default function CourtManagerDialog({
                     {deletingCourts ? "Đang xoá..." : "Xoá tất cả sân"}
                   </Button>
                 </Tooltip>
+                <Tooltip title="Build hàng đợi toàn giải theo bracket">
+                  <Button
+                    variant="outlined"
+                    startIcon={<AutorenewIcon />}
+                    onClick={handleBuildQueue}
+                    disabled={buildingQueue}
+                  >
+                    {buildingQueue ? "Đang xếp..." : "Xếp hàng đợi"}
+                  </Button>
+                </Tooltip>
               </Stack>
             </PaperLike>
           </Grid>
@@ -755,7 +1028,7 @@ export default function CourtManagerDialog({
 
       <Divider sx={{ my: 2 }} />
 
-      {/* Danh sách sân + trận đang gán */}
+      {/* Danh sách sân */}
       <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
         Danh sách sân ({courts.length})
       </Typography>
@@ -772,36 +1045,50 @@ export default function CourtManagerDialog({
             const cs = courtStatus(c);
             const cid = String(c._id || c.id);
             const deletingThis = busyDelete.has(cid) || deletingOne;
+            const settingRef = busyRefCourts.has(cid);
+            const currentRefs = getCourtRefsFromCourt(c, referees);
 
             return (
               <PaperRow key={cid}>
                 <Stack
-                  direction="row"
-                  spacing={1}
-                  alignItems="center"
-                  flexWrap="wrap"
+                  direction="column"
+                  spacing={0.5}
+                  sx={{ flex: 1, minWidth: 0 }}
                 >
-                  <Chip
-                    label={c.name || c.label || c.title || c.code || "Sân"}
-                    color={
-                      cs === "idle"
-                        ? "default"
-                        : cs === "live"
-                        ? "success"
-                        : cs === "maintenance"
-                        ? "warning"
-                        : "info"
-                    }
-                  />
-                  <Typography variant="body2">{viCourtStatus(cs)}</Typography>
-
-                  {hasMatch && (
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    alignItems="center"
+                    flexWrap="wrap"
+                  >
                     <Chip
-                      size="small"
-                      color={matchStatusColor(m.status)}
-                      label={`Trận: ${viMatchStatus(m.status)}`}
+                      label={
+                        c.name ||
+                        c.label ||
+                        c.title ||
+                        c.code ||
+                        "Sân không tên"
+                      }
+                      color={
+                        cs === "idle"
+                          ? "default"
+                          : cs === "live"
+                          ? "success"
+                          : cs === "maintenance"
+                          ? "warning"
+                          : "info"
+                      }
                     />
-                  )}
+                    <Typography variant="body2">{viCourtStatus(cs)}</Typography>
+
+                    {hasMatch && (
+                      <Chip
+                        size="small"
+                        color={matchStatusColor(m.status)}
+                        label={`Trận: ${viMatchStatus(m.status)}`}
+                      />
+                    )}
+                  </Stack>
 
                   {hasMatch && (
                     <Stack
@@ -819,7 +1106,11 @@ export default function CourtManagerDialog({
                         />
                       )}
                       {(teams.A || teams.B) && (
-                        <Typography variant="body2" sx={{ opacity: 0.85 }}>
+                        <Typography
+                          variant="body2"
+                          sx={{ opacity: 0.85 }}
+                          noWrap
+                        >
                           {teams.A || "Đội A"} <b>vs</b> {teams.B || "Đội B"}
                         </Typography>
                       )}
@@ -834,9 +1125,21 @@ export default function CourtManagerDialog({
                       )}
                     </Stack>
                   )}
+
+                  <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ mt: 0.25 }}
+                  >
+                    Trọng tài mặc định:{" "}
+                    {currentRefs.length
+                      ? currentRefs.map(refDisplayName).join(", ")
+                      : "Chưa thiết lập"}
+                  </Typography>
                 </Stack>
 
-                <Stack direction="row" spacing={1}>
+                {/* Actions */}
+                <Stack direction="column" spacing={0.5} alignItems="flex-end">
                   <Button
                     size="small"
                     variant="outlined"
@@ -848,13 +1151,21 @@ export default function CourtManagerDialog({
                   <Button
                     size="small"
                     variant="outlined"
+                    startIcon={<PersonSearchIcon />}
+                    onClick={() => openRefDlg(c)}
+                    disabled={settingRef || loadingRefs}
+                  >
+                    Trọng tài mặc định
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
                     startIcon={<AutorenewIcon />}
                     disabled={courtStatus(c) !== "idle"}
                     onClick={() => handleAssignNext(c._id || c.id)}
                   >
                     Gán trận kế tiếp
                   </Button>
-                  {/* NEW: Xoá sân */}
                   <Button
                     size="small"
                     color="error"
@@ -879,11 +1190,24 @@ export default function CourtManagerDialog({
         matches={selectableMatches}
         onConfirm={confirmAssignSpecific}
       />
+
+      <AssignRefereeDialog
+        open={refDlgOpen}
+        onClose={closeRefDlg}
+        court={refDlgCourt}
+        referees={referees}
+        currentRefs={
+          refDlgCourt ? getCourtRefsFromCourt(refDlgCourt, referees) : []
+        }
+        loadingRefs={loadingRefs}
+        onConfirm={handleConfirmReferee}
+      />
     </ResponsiveModal>
   );
 }
 
 /* ------------- small presentational wrappers ------------- */
+
 function PaperLike({ children }) {
   return (
     <Box sx={{ p: 1.5, border: "1px solid rgba(0,0,0,0.12)", borderRadius: 1 }}>
@@ -891,6 +1215,7 @@ function PaperLike({ children }) {
     </Box>
   );
 }
+
 function PaperRow({ children }) {
   return (
     <Box
@@ -899,8 +1224,9 @@ function PaperRow({ children }) {
         border: "1px solid rgba(0,0,0,0.12)",
         borderRadius: 1,
         display: "flex",
-        alignItems: "center",
+        alignItems: "stretch",
         justifyContent: "space-between",
+        gap: 1.5,
       }}
     >
       {children}

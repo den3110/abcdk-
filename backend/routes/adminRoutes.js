@@ -101,6 +101,7 @@ import {
   getSchedulerState,
   listCourtsByTournament,
   resetCourtsHttp,
+  setCourtReferee,
   upsertCourts,
 } from "../controllers/admin/adminCourtController.js";
 import {
@@ -221,6 +222,12 @@ router.patch(
   "/tournaments/:tid/courts/live-config/bulk",
   protect,
   bulkSetCourtLiveConfig
+);
+
+router.put(
+  "/tournaments/:tournamentId/courts/:courtId/referee",
+  protect,
+  setCourtReferee
 );
 
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
