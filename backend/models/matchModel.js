@@ -29,9 +29,13 @@ function normalizeBreak(val) {
   return {
     active: !!val.active,
     afterGame:
-      typeof val.afterGame === "number" ? val.afterGame : BREAK_DEFAULT.afterGame,
+      typeof val.afterGame === "number"
+        ? val.afterGame
+        : BREAK_DEFAULT.afterGame,
     note: typeof val.note === "string" ? val.note : BREAK_DEFAULT.note,
-    startedAt: val.startedAt ? new Date(val.startedAt) : BREAK_DEFAULT.startedAt,
+    startedAt: val.startedAt
+      ? new Date(val.startedAt)
+      : BREAK_DEFAULT.startedAt,
     expectedResumeAt: val.expectedResumeAt
       ? new Date(val.expectedResumeAt)
       : BREAK_DEFAULT.expectedResumeAt,
@@ -293,6 +297,221 @@ matchSchema.pre("validate", function (next) {
 });
 
 /* ======================= Helpers ======================= */
+
+async function emitMatchRefereeSnapshot(matchIds = []) {
+  try {
+    if (!Array.isArray(matchIds) || matchIds.length === 0) return;
+
+    // unique + stringify id
+    const ids = [
+      ...new Set(
+        matchIds
+          .map((id) => {
+            try {
+              return String(id);
+            } catch {
+              return "";
+            }
+          })
+          .filter(Boolean)
+      ),
+    ];
+    if (!ids.length) return;
+
+    // dynamic import để tránh circular giữa socket <-> model
+    const [{ getIO }, { toDTO }] = await Promise.all([
+      import("../socket/index.js"),
+      import("../socket/liveHandlers.js"),
+    ]);
+
+    const io = getIO?.();
+    if (!io) return;
+
+    const Match = mongoose.model("Match");
+
+    const updatedMatches = await Match.find({ _id: { $in: ids } })
+      .populate({
+        path: "pairA",
+        select: "player1 player2 seed label teamName",
+        populate: [
+          {
+            path: "player1",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+          {
+            path: "player2",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+        ],
+      })
+      .populate({
+        path: "pairB",
+        select: "player1 player2 seed label teamName",
+        populate: [
+          {
+            path: "player1",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+          {
+            path: "player2",
+            select: "fullName name shortName nickname nickName user",
+            populate: { path: "user", select: "nickname nickName" },
+          },
+        ],
+      })
+      .populate({
+        path: "referee",
+        select: "name fullName nickname nickName",
+      })
+      .populate({ path: "previousA", select: "round order" })
+      .populate({ path: "previousB", select: "round order" })
+      .populate({ path: "nextMatch", select: "_id" })
+      .populate({
+        path: "tournament",
+        select: "name image eventType overlay",
+      })
+      .populate({
+        path: "bracket",
+        select: [
+          "noRankDelta",
+          "name",
+          "type",
+          "stage",
+          "order",
+          "drawRounds",
+          "drawStatus",
+          "scheduler",
+          "drawSettings",
+          "meta.drawSize",
+          "meta.maxRounds",
+          "meta.expectedFirstRoundMatches",
+          "groups._id",
+          "groups.name",
+          "groups.expectedSize",
+          "config.rules",
+          "config.doubleElim",
+          "config.roundRobin",
+          "config.swiss",
+          "config.gsl",
+          "config.roundElim",
+          "overlay",
+        ].join(" "),
+      })
+      .populate({
+        path: "court",
+        select: "name number code label zone area venue building floor",
+      })
+      .populate({
+        path: "liveBy",
+        select: "name fullName nickname nickName",
+      })
+      .select(
+        "label managers court courtLabel courtCluster " +
+          "scheduledAt startAt startedAt finishedAt status " +
+          "tournament bracket rules currentGame gameScores " +
+          "round order code roundCode roundName " +
+          "seedA seedB previousA previousB nextMatch winner serve overlay " +
+          "video videoUrl stream streams meta " +
+          "format rrRound pool " +
+          "liveBy liveVersion"
+      )
+      .lean();
+
+    const pick = (v) => (v && String(v).trim()) || "";
+    const fillNick = (p) => {
+      if (!p) return p;
+      const primary = pick(p.nickname) || pick(p.nickName);
+      const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+      const n = primary || fromUser || "";
+      if (n) {
+        p.nickname = n;
+        p.nickName = n;
+      }
+      return p;
+    };
+
+    for (const m of updatedMatches) {
+      if (!m) continue;
+
+      if (m.pairA) {
+        m.pairA.player1 = fillNick(m.pairA.player1);
+        m.pairA.player2 = fillNick(m.pairA.player2);
+      }
+      if (m.pairB) {
+        m.pairB.player1 = fillNick(m.pairB.player1);
+        m.pairB.player2 = fillNick(m.pairB.player2);
+      }
+
+      if (!m.streams && m.meta?.streams) {
+        m.streams = m.meta.streams;
+      }
+
+      // 1) báo status đơn giản
+      io.to(String(m._id)).emit("status:updated", {
+        matchId: m._id,
+        status: m.status,
+      });
+
+      // 2) báo snapshot đầy đủ để FE refresh
+      io.to(`match:${String(m._id)}`).emit("match:snapshot", toDTO(m));
+    }
+  } catch (e) {
+    console.error("[match] emitMatchRefereeSnapshot error:", e?.message || e);
+  }
+}
+
+// Tự động nhận + MERGE trọng tài mặc định từ sân
+async function applyDefaultRefereesFromCourt(doc) {
+  try {
+    if (!doc?.court || !doc?.tournament) return false;
+
+    if (!Array.isArray(doc.referee)) {
+      doc.referee = doc.referee ? [doc.referee] : [];
+    }
+
+    const court = await Court.findOne({
+      _id: doc.court,
+      tournament: doc.tournament,
+    }).select("defaultReferees");
+
+    if (
+      !court ||
+      !Array.isArray(court.defaultReferees) ||
+      court.defaultReferees.length === 0
+    ) {
+      return false;
+    }
+
+    const existingIds = doc.referee.map((id) => String(id));
+    const merged = [...doc.referee];
+    let changed = false;
+
+    for (const refId of court.defaultReferees) {
+      const idStr = String(refId);
+      if (!existingIds.includes(idStr)) {
+        merged.push(refId);
+        existingIds.push(idStr);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      doc.referee = merged;
+      return true;
+    }
+    return false;
+  } catch (e) {
+    console.error(
+      "[match] applyDefaultRefereesFromCourt error:",
+      e?.message || e
+    );
+    return false;
+  }
+}
+
 async function resolveSeedToSlots(doc, side /* "A" | "B" */) {
   const seed = side === "A" ? doc.seedA : doc.seedB;
   if (!seed || !seed.type) return;
@@ -599,6 +818,22 @@ matchSchema.pre("save", async function (next) {
       // bỏ qua lỗi phụ
     }
 
+    // ✅ Auto merge trọng tài mặc định từ sân:
+    // chỉ cần khi:
+    // - match mới tạo, hoặc
+    // - court thay đổi
+    // (nếu đã có referee thì merge thêm, KHÔNG xoá)
+    try {
+      if (this.isNew || this.isModified("court")) {
+        const merged = await applyDefaultRefereesFromCourt(this);
+        if (merged) {
+          this.__autoRefereeMergedFromCourt = true; // flag nội bộ
+        }
+      }
+    } catch (e) {
+      console.error("[match] pre-save auto referees error:", e?.message || e);
+    }
+
     next();
   } catch (e) {
     next(e);
@@ -619,6 +854,11 @@ matchSchema.pre("updateMany", function (next) {
 /* ======================= POST-SAVE ======================= */
 matchSchema.post("save", async function (doc, next) {
   try {
+    // 👉 chỉ bắn khi auto gán trọng tài mặc định
+    if (doc.__autoRefereeMergedFromCourt) {
+      await emitMatchRefereeSnapshot([doc._id]);
+    }
+
     if (
       doc.status === "finished" &&
       (doc.winner === "A" || doc.winner === "B")
@@ -737,6 +977,15 @@ matchSchema.post("findOneAndUpdate", async function (res) {
     const fresh = await this.model.findById(id);
     if (!fresh) return;
 
+    // auto merge defaultReferees khi update qua findOneAndUpdate
+    if (fresh.court) {
+      const merged = await applyDefaultRefereesFromCourt(fresh);
+      if (merged) {
+        await fresh.save();
+        await emitMatchRefereeSnapshot([fresh._id]);
+      }
+    }
+
     if (
       fresh.status === "finished" &&
       (fresh.winner === "A" || fresh.winner === "B")
@@ -744,7 +993,7 @@ matchSchema.post("findOneAndUpdate", async function (res) {
       await propagateFromFinishedMatch(fresh);
     }
 
-    // auto rating
+    // auto rating (giữ nguyên)
     try {
       if (
         fresh.status === "finished" &&
@@ -768,7 +1017,7 @@ matchSchema.post("findOneAndUpdate", async function (res) {
       console.error("[rating] schedule(update) error:", e?.message);
     }
 
-    // auto-feed group
+    // auto-feed group (giữ nguyên)
     try {
       if (fresh.status === "finished") {
         const br = await Bracket.findById(fresh.bracket)
@@ -812,7 +1061,7 @@ matchSchema.post("findOneAndUpdate", async function (res) {
       console.log(error);
     }
 
-    // auto free FB page
+    // auto free FB page (giữ nguyên)
     if (fresh.status === "finished") {
       try {
         const fbPageId = fresh.facebookLive?.pageId;
@@ -832,7 +1081,6 @@ matchSchema.post("findOneAndUpdate", async function (res) {
     console.error("[Match post(findOneAndUpdate)] propagate error:", err);
   }
 });
-
 /* ========== tiện ích: compile seeds cho cả bracket sau khi tạo khung ========== */
 matchSchema.statics.compileSeedsForBracket = async function (bracketId) {
   const list = await this.find({

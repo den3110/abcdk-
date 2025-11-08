@@ -34,6 +34,11 @@ import {
 } from "../services/presenceService.js";
 import { ensureAdmin, ensureReferee } from "../utils/socketAuth.js";
 
+/* 👇 THÊM BIẾN TOÀN CỤC LƯU IO */
+let ioInstance = null;
+let sweeperStarted = false;
+
+
 function guessClientType(socket) {
   try {
     const raw = socket.handshake.query?.client || "";
@@ -327,11 +332,20 @@ export function initSocket(
   httpServer,
   { whitelist = [], path = "/socket.io" } = {}
 ) {
+
+  // Nếu đã init rồi thì dùng lại (tránh đúp handler)
+  if (ioInstance) {
+    console.warn("[socket] initSocket called again -> reuse existing io instance");
+    return ioInstance;
+  }
+  
   const io = new Server(httpServer, {
     path,
     cors: { origin: whitelist, credentials: true },
     transports: ["websocket", "polling"],
   });
+
+  ioInstance = io; // 👈 LƯU LẠI ĐỂ FILE KHÁC LẤY
 
   // Optional Redis adapter (clustered scale-out)
   (async () => {
@@ -2002,5 +2016,16 @@ export function initSocket(
     }
   }, SWEEP_EVERY_MS);
 
-  return io;
+  return ioInstance;
+}
+
+
+/* 👇 EXPORT HÀM LẤY IO ĐỂ DÙNG Ở CONTROLLER / SERVICE */
+export function getIO() {
+  if (!ioInstance) {
+    throw new Error(
+      "[socket] IO not initialized. Hãy gọi initSocket(httpServer) trong server trước."
+    );
+  }
+  return ioInstance;
 }
