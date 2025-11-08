@@ -7,6 +7,8 @@ import { fileURLToPath } from "url";
 import { protect } from "../middleware/authMiddleware.js";
 import { cccdUpload } from "../middleware/cccdUpload.js";
 import { uploadCccd } from "../controllers/uploadController.js";
+import { processAvatarWithLogoAlways } from "../services/avatarProcessor.js"; // ✅ dùng service
+import SystemSettings from "../models/systemSettingsModel.js";
 
 const router = express.Router();
 
@@ -52,6 +54,32 @@ function getBaseUrl(req) {
   return `${proto}://${host}`;
 }
 
+// helper nhỏ trong file uploadRoute.js, đặt trên Routes cũng được
+function buildAbsoluteUrl(baseUrl, urlPath) {
+  if (!urlPath) return baseUrl;
+  if (urlPath.startsWith("http://") || urlPath.startsWith("https://")) {
+    return urlPath;
+  }
+  const normalizedBase = baseUrl.replace(/\/+$/, "");
+  const normalizedPath = urlPath.replace(/^\/+/, "");
+  return `${normalizedBase}/${normalizedPath}`;
+}
+
+// helper đọc flag từ SystemSettings (fail-safe: nếu lỗi thì coi như bật logo)
+async function isAvatarLogoEnabled() {
+  try {
+    const doc = await SystemSettings.findById("system").lean();
+    // default: true nếu chưa set
+    return doc?.uploads?.avatarLogoEnabled !== false;
+  } catch (err) {
+    console.error(
+      "[upload/avatar] Failed to read system settings, defaulting avatarLogoEnabled = true:",
+      err?.message || err
+    );
+    return true;
+  }
+}
+
 const ALLOWED_IMAGE_MIME = new Set(Object.keys(MIME_EXT));
 const MAX_IMG_SIZE =
   parseInt(process.env.MAX_AVATAR_SIZE || "", 10) || 10 * 1024 * 1024;
@@ -84,7 +112,7 @@ const avatarUpload = multer({
   },
 });
 
-// CCCD (single file)  👇 **ĐƯỢC KHAI BÁO TRƯỚC KHI DÙNG**
+// CCCD (single file)
 const cccdStorage = multer.diskStorage({
   destination(req, file, cb) {
     cb(null, CCCD_DIR);
@@ -92,7 +120,10 @@ const cccdStorage = multer.diskStorage({
   filename(req, file, cb) {
     const base =
       slugify(
-        path.basename(file.originalname || "cccd", path.extname(file.originalname || ""))
+        path.basename(
+          file.originalname || "cccd",
+          path.extname(file.originalname || "")
+        )
       ) || "cccd";
     cb(null, `${Date.now()}-${base}.${getExt(file)}`);
   },
@@ -109,31 +140,91 @@ const cccdUploadSingle = multer({
 });
 
 /* ===== Routes ===== */
+
+// /api/upload/avatar  → { url }
+// /api/upload/avatar  → { url }
 // /api/upload/avatar  → { url }
 router.post("/avatar", (req, res) => {
-  avatarUpload.single("avatar")(req, res, (err) => {
-    if (err) {
-      const msg =
-        err?.message ||
-        (err?.code === "LIMIT_FILE_SIZE" ? "Ảnh vượt quá dung lượng tối đa" : "Upload thất bại");
-      return res.status(400).json({ message: msg });
+  avatarUpload.single("avatar")(req, res, async (err) => {
+    const baseUrl = getBaseUrl(req);
+
+    try {
+      // 1) Multer lỗi hoặc không có file -> dùng service fallback (default avatar, không quan tâm flag)
+      if (err || !req.file) {
+        if (err) {
+          console.warn(
+            "[upload/avatar] Multer error, fallback:",
+            err.code || err.message
+          );
+        } else {
+          console.warn(
+            "[upload/avatar] No file received, fallback to default avatar"
+          );
+        }
+
+        const { avatarUrl } = await processAvatarWithLogoAlways(
+          null,
+          AVATAR_DIR,
+          `fallback_${Date.now()}`
+        );
+
+        const fullUrl = buildAbsoluteUrl(baseUrl, avatarUrl);
+        return res.status(200).json({ url: fullUrl });
+      }
+
+      // 2) Có file hợp lệ → check config xem có chèn logo không
+      const avatarLogoEnabled = await isAvatarLogoEnabled();
+
+      if (!avatarLogoEnabled) {
+        // Không chèn logo: trả luôn URL file mà Multer đã lưu
+        const rawPath = `/uploads/avatars/${req.file.filename}`;
+        const fullUrl = buildAbsoluteUrl(baseUrl, rawPath);
+        return res.status(200).json({ url: fullUrl });
+      }
+
+      // 3) Có file & được phép chèn logo → giao cho service xử lý full (logo + fallback)
+      const safeBaseName = path.basename(
+        req.file.filename,
+        path.extname(req.file.filename)
+      );
+
+      const { avatarUrl } = await processAvatarWithLogoAlways(
+        req.file,
+        AVATAR_DIR,
+        safeBaseName
+      );
+
+      const fullUrl = buildAbsoluteUrl(baseUrl, avatarUrl);
+      return res.status(200).json({ url: fullUrl });
+    } catch (e) {
+      console.error(
+        "[upload/avatar] Fatal error, hard fallback:",
+        e?.message || e
+      );
+
+      // 4) Last resort: vẫn trả URL hợp lệ trỏ về default (hoặc file gốc nếu còn)
+      const fallbackPath =
+        (req.file && `/uploads/avatars/${req.file.filename}`) ||
+        "/uploads/avatars/default-avatar.jpg";
+
+      const fullUrl = buildAbsoluteUrl(baseUrl, fallbackPath);
+      return res.status(200).json({ url: fullUrl });
     }
-    if (!req.file) return res.status(400).json({ message: "Không nhận được file 'avatar'" });
-    const publicUrl = `${getBaseUrl(req)}/uploads/avatars/${req.file.filename}`;
-    res.status(200).json({ url: publicUrl });
   });
 });
-
 // /api/upload/register-cccd  → { url } (field 'image')
 router.post("/register-cccd", (req, res) => {
   cccdUploadSingle.single("image")(req, res, (err) => {
     if (err) {
       const msg =
         err?.message ||
-        (err?.code === "LIMIT_FILE_SIZE" ? "Ảnh vượt quá dung lượng tối đa" : "Upload thất bại");
+        (err?.code === "LIMIT_FILE_SIZE"
+          ? "Ảnh vượt quá dung lượng tối đa"
+          : "Upload thất bại");
       return res.status(400).json({ message: msg });
     }
-    if (!req.file) return res.status(400).json({ message: "Không nhận được file 'image'" });
+    if (!req.file)
+      return res.status(400).json({ message: "Không nhận được file 'image'" });
     const publicUrl = `${getBaseUrl(req)}/uploads/cccd/${req.file.filename}`;
     res.status(200).json({ url: publicUrl });
   });

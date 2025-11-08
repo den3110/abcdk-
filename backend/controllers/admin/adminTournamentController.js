@@ -1235,63 +1235,229 @@ async function autoAdvanceByesForBracket(bracketId, session) {
   }
 }
 
+/* ---------- Plan helpers (for blueprint + commit) ---------- */
+const normalizePlanRule = (rules) => {
+  if (!rules) return undefined;
+  const bestOf = Number(rules.bestOf ?? 1);
+  const pointsToWin = Number(rules.pointsToWin ?? 11);
+  const winByTwo = rules.winByTwo !== false;
+  const rawMode = String(rules?.cap?.mode ?? "none").toLowerCase();
+  const mode = ["none", "soft", "hard"].includes(rawMode) ? rawMode : "none";
+  let points = rules?.cap?.points;
+  if (mode === "none") points = null;
+  else {
+    const n = Number(points);
+    points = Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+  }
+  return { bestOf, pointsToWin, winByTwo, cap: { mode, points } };
+};
+
+const normalizePlanRoundRules = (arr, fallback, maxRounds) => {
+  const fb = normalizePlanRule(fallback);
+  const rounds = Math.max(1, Number(maxRounds) || 1);
+
+  if (!Array.isArray(arr) || !arr.length) {
+    return Array.from({ length: rounds }, () => fb);
+  }
+
+  const out = arr.map((r) => normalizePlanRule(r || fallback) || fb);
+  while (out.length < rounds) out.push(fb);
+  return out.slice(0, rounds);
+};
+
+/**
+ * GET /api/admin/tournaments/:id/plan
+ * Trả về blueprint (drawPlan) đã lưu cho giải.
+ */
+export const planGet = expressAsyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!isObjectId(id)) {
+    res.status(400);
+    throw new Error("Invalid ID");
+  }
+
+  const t = await Tournament.findById(id).lean();
+  if (!t) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+
+  const plan = t.drawPlan || null;
+  res.json({ ok: true, plan });
+});
+
+/**
+ * PUT /api/admin/tournaments/:id/plan
+ * Lưu blueprint (drawPlan) để dùng lại cho /plan/commit.
+ */
+export const planUpdate = expressAsyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!isObjectId(id)) {
+    res.status(400);
+    throw new Error("Invalid ID");
+  }
+
+  const t = await Tournament.findById(id);
+  if (!t) {
+    res.status(404);
+    throw new Error("Tournament not found");
+  }
+
+  const { groups, po, ko } = req.body || {};
+  if (!groups && !po && !ko) {
+    res.status(400);
+    throw new Error("No plan data to update");
+  }
+
+  const nextPlan = {};
+
+  if (groups) {
+    const g = { ...groups };
+
+    if (g.count !== undefined) g.count = Number(g.count) || 0;
+    if (g.totalTeams !== undefined) g.totalTeams = Number(g.totalTeams) || 0;
+    if (g.qualifiersPerGroup !== undefined) {
+      g.qualifiersPerGroup = Number(g.qualifiersPerGroup) || 1;
+    }
+    if (!Array.isArray(g.groupSizes) || !g.groupSizes.length) {
+      delete g.groupSizes;
+    }
+    if (g.rules) {
+      g.rules = normalizePlanRule(g.rules);
+    }
+
+    nextPlan.groups = g;
+  }
+
+  if (po) {
+    const p = { ...po };
+    if (p.drawSize !== undefined) p.drawSize = Number(p.drawSize) || 0;
+    const maxRounds = p.maxRounds !== undefined ? Number(p.maxRounds) || 1 : 1;
+    p.maxRounds = maxRounds;
+
+    p.rules = normalizePlanRule(p.rules);
+    p.roundRules = normalizePlanRoundRules(p.roundRules, p.rules, maxRounds);
+
+    nextPlan.po = p;
+  }
+
+  if (ko) {
+    const k = { ...ko };
+    if (k.drawSize !== undefined) k.drawSize = Number(k.drawSize) || 0;
+    k.rules = normalizePlanRule(k.rules);
+    k.finalRules = normalizePlanRule(k.finalRules);
+    nextPlan.ko = k;
+  }
+
+  nextPlan.savedAt = new Date();
+
+  t.drawPlan = nextPlan;
+  await t.save();
+
+  res.json({ ok: true, plan: t.drawPlan });
+});
+
+/**
+ * POST /api/admin/tournaments/:id/plan/commit
+ * Dùng blueprint hiện tại (hoặc body) để tạo các bracket & match.
+ */
 export const planCommit = expressAsyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
     const { id } = req.params;
+    if (!isObjectId(id)) {
+      res.status(400);
+      throw new Error("Invalid ID");
+    }
+
     const t = await Tournament.findById(id).session(session);
     if (!t) {
       res.status(404);
       throw new Error("Tournament not found");
     }
 
-    const { groups, po, ko, force } = req.body || {};
-    const created = { groupBracket: null, poBracket: null, koBracket: null };
+    const body = req.body || {};
+    let { groups, po, ko } = body;
 
-    const normalizeRuleLocal = (rules) => {
-      if (!rules) return undefined;
-      const base = {
-        bestOf: Number(rules.bestOf ?? 1),
-        pointsToWin: Number(rules.pointsToWin ?? 11),
-        winByTwo: rules.winByTwo !== false,
-      };
-      const rawMode = String(rules?.cap?.mode ?? "none").toLowerCase();
-      const mode = ["none", "soft", "hard"].includes(rawMode)
-        ? rawMode
-        : "none";
-      let points = rules?.cap?.points;
-      if (mode === "none") points = null;
-      else {
-        const n = Number(points);
-        points = Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
-      }
-      return { ...base, cap: { mode, points } };
-    };
-    const normalizeRoundRules = (arr, fallback, maxRounds) => {
-      if (!Array.isArray(arr) || !arr.length) {
-        return Array.from({ length: maxRounds }, () =>
-          normalizeRuleLocal(fallback)
-        );
-      }
-      const out = arr.map((r) => normalizeRuleLocal(r || fallback));
-      while (out.length < maxRounds) out.push(normalizeRuleLocal(fallback));
-      return out.slice(0, maxRounds);
-    };
+    const force =
+      body.force === true ||
+      body.force === "true" ||
+      body.force === 1 ||
+      body.force === "1";
 
-    const hasGroup = Boolean(Number(groups?.count) > 0);
-    const hasPO = Boolean(Number(po?.drawSize) > 0);
-    const hasKO = Boolean(Number(ko?.drawSize) > 0);
+    const hasBodyPlan = Boolean(groups || po || ko);
+
+    // Nếu body không gửi plan thì fallback sang blueprint đã lưu
+    if (!hasBodyPlan && t.drawPlan) {
+      groups = t.drawPlan.groups || undefined;
+      po = t.drawPlan.po || undefined;
+      ko = t.drawPlan.ko || undefined;
+    }
+
+    const hasGroup = Boolean(groups && Number(groups.count) > 0);
+    const hasPO = Boolean(po && Number(po.drawSize) > 0);
+    const hasKO = Boolean(ko && Number(ko.drawSize) > 0);
+
     if (!hasGroup && !hasPO && !hasKO) {
       res.status(400);
       throw new Error("Nothing to create from plan");
     }
 
-    if (force === true) {
+    // Nếu force thì xoá toàn bộ bracket cũ của giải
+    if (force) {
       try {
         await Bracket.deleteMany({ tournament: t._id }).session(session);
-      } catch (err) {}
+      } catch (_) {
+        // ignore
+      }
     }
+
+    // Nếu plan được gửi qua body, lưu lại thành blueprint để lần sau GET /plan dùng
+    if (hasBodyPlan) {
+      const toSave = {};
+
+      if (groups) {
+        toSave.groups = {
+          ...groups,
+          rules: normalizePlanRule(groups.rules),
+        };
+      }
+
+      if (po) {
+        const poMaxRounds =
+          po.maxRounds !== undefined ? Number(po.maxRounds) || 1 : 1;
+        toSave.po = {
+          ...po,
+          maxRounds: poMaxRounds,
+          rules: normalizePlanRule(po.rules),
+          roundRules: normalizePlanRoundRules(
+            po.roundRules,
+            po.rules,
+            poMaxRounds
+          ),
+        };
+      }
+
+      if (ko) {
+        toSave.ko = {
+          ...ko,
+          rules: normalizePlanRule(ko.rules),
+          finalRules: normalizePlanRule(ko.finalRules),
+        };
+      }
+
+      toSave.savedAt = new Date();
+      t.drawPlan = toSave;
+      await t.save({ session });
+
+      // đồng bộ lại biến local (để dùng khi build bracket)
+      groups = toSave.groups || groups;
+      po = toSave.po || po;
+      ko = toSave.ko || ko;
+    }
+
+    const created = { groupBracket: null, poBracket: null, koBracket: null };
 
     let orderCounter = 1;
     const groupOrder = hasGroup ? orderCounter++ : null;
@@ -1314,7 +1480,7 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
           ? groups.groupSizes
           : undefined,
         qualifiersPerGroup: Number(groups.qualifiersPerGroup || 1),
-        rules: normalizeRuleLocal(groups?.rules),
+        rules: normalizePlanRule(groups.rules),
         session,
       };
       created.groupBracket = await buildGroupBracket(payload);
@@ -1322,19 +1488,25 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
 
     if (hasPO) {
       const drawSize = Number(po.drawSize);
-      const maxRounds = Math.max(1, Number(po.maxRounds || 1));
+      const maxRounds = Math.max(
+        1,
+        Number(
+          po.maxRounds ||
+            (Array.isArray(po.roundRules) ? po.roundRules.length : 1)
+        ) || 1
+      );
       const firstRoundSeeds = Array.isArray(po.seeds) ? po.seeds : [];
 
-      const poRules = normalizeRuleLocal(po?.rules);
-      const poRoundRules = normalizeRoundRules(
-        po?.roundRules,
-        po?.rules,
+      const poRules = normalizePlanRule(po.rules);
+      const poRoundRules = normalizePlanRoundRules(
+        po.roundRules,
+        po.rules,
         maxRounds
       );
 
       const { bracket } = await buildRoundElimBracket({
         tournamentId: t._id,
-        name: po?.name || "Pre-Qualifying",
+        name: po.name || "Pre-Qualifying",
         order: poOrder,
         stage: poOrder,
         drawSize,
@@ -1352,14 +1524,12 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       const drawSize = Number(ko.drawSize);
       const firstRoundSeeds = Array.isArray(ko.seeds) ? ko.seeds : [];
 
-      const koRules = normalizeRuleLocal(ko?.rules);
-      const koFinalRules = ko?.finalRules
-        ? normalizeRuleLocal(ko.finalRules)
-        : null;
+      const koRules = normalizePlanRule(ko.rules);
+      const koFinalRules = normalizePlanRule(ko.finalRules);
 
       const { bracket } = await buildKnockoutBracket({
         tournamentId: t._id,
-        name: ko?.name || "Knockout",
+        name: ko.name || "Knockout",
         order: koOrder,
         stage: koOrder,
         drawSize,

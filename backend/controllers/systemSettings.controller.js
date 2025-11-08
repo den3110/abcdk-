@@ -8,7 +8,11 @@ const DEFAULTS = {
   registration: { open: true },
   kyc: { enabled: true, autoApprove: false, faceMatchThreshold: 0.78 },
   security: { enforce2FAForAdmins: false, sessionTTLHours: 72 },
-  uploads: { maxAvatarSizeMB: 5 },
+  uploads: {
+    maxAvatarSizeMB: 5,
+    // 👇 default cùng phía model: đang bật chèn logo
+    avatarLogoEnabled: true,
+  },
   notifications: { telegramEnabled: false, telegramComplaintChatId: "" },
 };
 

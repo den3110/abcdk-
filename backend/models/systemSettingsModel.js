@@ -16,7 +16,7 @@ const SystemSettingsSchema = new mongoose.Schema(
 
     kyc: {
       enabled: { type: Boolean, default: true }, // có dùng KYC trong hệ thống
-      autoApprove: { type: Boolean, default: false }, // ⬅️ TỰ ĐỘNG DUYỆT KYC
+      autoApprove: { type: Boolean, default: false }, // tự động duyệt KYC
       faceMatchThreshold: { type: Number, default: 0.78, min: 0, max: 1 },
     },
 
@@ -27,6 +27,8 @@ const SystemSettingsSchema = new mongoose.Schema(
 
     uploads: {
       maxAvatarSizeMB: { type: Number, default: 5, min: 1, max: 50 },
+      // 👇 bật/tắt chèn logo vào avatar
+      avatarLogoEnabled: { type: Boolean, default: true },
     },
 
     notifications: {

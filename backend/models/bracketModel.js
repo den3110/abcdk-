@@ -2,6 +2,7 @@
 import mongoose from "mongoose";
 import DrawSettingsSchema from "./drawSettingsSchema.js";
 import seedSourceSchema from "./seedSourceSchema.js";
+import Tournament from "./tournamentModel.js"; // 👈 dùng để auto-clear drawPlan
 
 const { Schema } = mongoose;
 
@@ -269,6 +270,80 @@ bracketSchema.pre("save", function (next) {
       this.meta.expectedFirstRoundMatches = pow2 / 2;
   }
 
+  next();
+});
+
+// ===== Auto clear Tournament.drawPlan khi xoá hết brackets =====
+
+// Gom logic chung để đọc tournamentId từ doc hoặc query
+async function tryAutoClearDrawPlan(source) {
+  try {
+    if (!source) return;
+
+    let tournamentId = null;
+
+    // Trường hợp doc (findOneAndDelete, remove, document.deleteOne, ...)
+    if (source.tournament) {
+      tournamentId = source.tournament;
+    }
+    // Trường hợp query (deleteOne / deleteMany)
+    else if (typeof source.getFilter === "function") {
+      const filter = source.getFilter() || {};
+      if (filter.tournament) {
+        tournamentId = filter.tournament;
+      }
+    }
+
+    if (!tournamentId) return;
+
+    if (typeof Tournament.clearDrawPlanIfNoBrackets === "function") {
+      await Tournament.clearDrawPlanIfNoBrackets(tournamentId);
+    }
+  } catch (err) {
+    console.error("[Bracket] auto clear drawPlan error:", err);
+  }
+}
+
+// Xoá bằng findOneAndDelete / findByIdAndDelete
+bracketSchema.post("findOneAndDelete", async function (doc, next) {
+  await tryAutoClearDrawPlan(doc);
+  next();
+});
+
+// Xoá bằng document.deleteOne() (ví dụ trong deleteBracketCascade)
+bracketSchema.post(
+  "deleteOne",
+  { document: true, query: false },
+  async function (_res, next) {
+    // `this` là document
+    await tryAutoClearDrawPlan(this);
+    next();
+  }
+);
+
+// Xoá bằng deleteOne({ tournament: ... }) dạng query
+bracketSchema.post(
+  "deleteOne",
+  { document: false, query: true },
+  async function (_res, next) {
+    await tryAutoClearDrawPlan(this);
+    next();
+  }
+);
+
+// Xoá bằng deleteMany({ tournament: ... })
+bracketSchema.post(
+  "deleteMany",
+  { document: false, query: true },
+  async function (_res, next) {
+    await tryAutoClearDrawPlan(this);
+    next();
+  }
+);
+
+// Xoá doc.remove()
+bracketSchema.post("remove", async function (doc, next) {
+  await tryAutoClearDrawPlan(doc || this);
   next();
 });
 

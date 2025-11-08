@@ -121,6 +121,9 @@ const tournamentSchema = new mongoose.Schema(
     /* Thống kê */
     expected: { type: Number, default: 0 },
     matchesCount: { type: Number, default: 0 },
+
+    // === NEW: Lưu blueprint sơ đồ để lần sau load lại sửa tiếp ===
+    drawPlan: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { timestamps: true }
 );
@@ -190,6 +193,7 @@ tournamentSchema.pre("findOneAndUpdate", function (next) {
   if (set["ageRestriction.maxAge"] !== undefined) {
     set["ageRestriction.maxAge"] = clampAge(set["ageRestriction.maxAge"]);
   }
+
   this.setUpdate({ ...update, $set: set });
   next();
 });
@@ -205,6 +209,42 @@ tournamentSchema.post("findOneAndUpdate", async function (doc, next) {
     next(e);
   }
 });
+
+/* ------------- Statics ------------- */
+/**
+ * Tự clear drawPlan nếu KHÔNG còn bracket nào của giải.
+ * Dùng trực tiếp collection brackets, không phụ thuộc matchesCount.
+ * Được gọi tự động từ middleware của Bracket model sau khi xoá.
+ */
+tournamentSchema.statics.clearDrawPlanIfNoBrackets = async function (
+  tournamentId
+) {
+  if (!tournamentId) return;
+
+  const BracketModel =
+    mongoose.models.Bracket ||
+    mongoose.models.TournamentBracket ||
+    mongoose.models.Brackets ||
+    null;
+
+  if (!BracketModel) return;
+
+  try {
+    const count = await BracketModel.countDocuments({
+      tournament: tournamentId,
+    });
+    if (count === 0) {
+      await this.findByIdAndUpdate(
+        tournamentId,
+        { $set: { drawPlan: null } },
+        { new: false }
+      );
+    }
+  } catch (err) {
+    if (err?.name === "MissingSchemaError") return;
+    console.error("[Tournament] clearDrawPlanIfNoBrackets error:", err);
+  }
+};
 
 /* ------------- Indexes ------------- */
 tournamentSchema.index({ status: 1, endAt: 1 });

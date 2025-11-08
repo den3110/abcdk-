@@ -33,6 +33,8 @@ import {
   listTournamentRefereesInScope,
   planAuto,
   planCommit,
+  planGet,
+  planUpdate,
   updateTournamentOverlay,
   upsertTournamentReferees,
 } from "../controllers/admin/adminTournamentController.js";
@@ -462,6 +464,11 @@ router.post(
   authorize("admin"),
   planCommit
 );
+
+router
+  .route("/tournaments/:id/plan")
+  .get(protect, authorize("admin"), planGet)
+  .put(protect, authorize("admin"), planUpdate);
 
 router.post(
   "/tournaments/:id/plan/suggest",
