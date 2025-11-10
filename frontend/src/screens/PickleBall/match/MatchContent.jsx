@@ -540,7 +540,7 @@ function StreamPlayer({ stream }) {
       return (
         <AspectBox ratio={ratio}>
           <iframe
-            key={stream.embedUrl} // force remount when url changes
+            key={stream.embedUrl}
             src={stream.embedUrl}
             title="Video"
             allow={stream.allow || "autoplay; fullscreen; picture-in-picture"}
@@ -554,7 +554,7 @@ function StreamPlayer({ stream }) {
         <>
           <AspectBox ratio={ratio}>
             <video
-              key={stream.embedUrl} // force remount when url changes
+              key={stream.embedUrl}
               ref={videoRef}
               controls
               autoPlay
@@ -583,7 +583,7 @@ function StreamPlayer({ stream }) {
       return (
         <AspectBox ratio={ratio}>
           <video
-            key={stream.embedUrl} // force remount when url changes
+            key={stream.embedUrl}
             src={stream.embedUrl}
             controls
             autoPlay
@@ -948,6 +948,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
 
   const loading = Boolean(isLoading || liveLoading);
   const globalLoading = Boolean(loading || fetchingBrackets || fetchingMatches);
+
   const {
     lockedId,
     view: mm,
@@ -1029,9 +1030,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     [groupDoneByStage, mm?.bracket?.stage, mm?.stage]
   );
 
-  const booting = globalLoading || !lockedId; // chưa biết matchId thì coi như đang boot
+  const booting = globalLoading || !lockedId;
   const showSpinnerDelayed = useDelayedFlag(booting, 250);
-  const showErrorDelayed = useDelayedFlag(!booting && !mm, 600); // chỉ báo lỗi khi chắc chắn không còn load
+  const showErrorDelayed = useDelayedFlag(!booting && !mm, 600);
 
   const [localPatch, setLocalPatch] = useState(null);
   useEffect(() => {
@@ -1069,7 +1070,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     };
     setActiveIdx(pick());
     setShowPlayer(false);
-  }, [lockedId]);
+  }, [lockedId, mm]);
 
   // Auto-bật player khi lần đầu có stream
   const prevStreamsLenRef = useRef(0);
@@ -1135,9 +1136,30 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const [editScores, setEditScores] = useState(() => [
     ...(shownGameScores || []),
   ]);
+
+  // Khi đổi match: thoát edit, sync lại từ server/localPatch
   useEffect(() => {
+    setEditMode(false);
     setEditScores([...(localPatch?.gameScores ?? mm?.gameScores ?? [])]);
-  }, [lockedId, localPatch?.gameScores, mm?.gameScores]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lockedId]);
+
+  // Khi có cập nhật gameScores từ socket/server:
+  // - Nếu KHÔNG ở editMode -> cập nhật editScores để luôn khớp.
+  // - Nếu đang editMode -> giữ nguyên editScores (user đang nhập tay).
+  useEffect(() => {
+    if (!editMode) {
+      setEditScores([...(localPatch?.gameScores ?? mm?.gameScores ?? [])]);
+    }
+  }, [localPatch?.gameScores, mm?.gameScores, editMode]);
+
+  // 👉 ĐẢM BẢO luôn có 1 dòng khi vào edit (kể cả đang LIVE và chưa có set)
+  const enterEditMode = useCallback(() => {
+    setEditMode(true);
+    setEditScores((prev) =>
+      Array.isArray(prev) && prev.length > 0 ? prev : [{ a: 0, b: 0 }]
+    );
+  }, []);
 
   const sanitizeInt = (v) => {
     const n = parseInt(String(v).replace(/[^\d-]/g, ""), 10);
@@ -1154,7 +1176,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       return arr;
     });
   };
-  const addSet = () => setEditScores((old) => [...(old || []), { a: 0, b: 0 }]);
+  const addSet = () =>
+    setEditScores((old) => [...(old || []), { a: 0, b: 0 }]);
   const removeSet = (idx) =>
     setEditScores((old) => (old || []).filter((_, i) => i !== idx));
   const resetEdits = () =>
@@ -1331,9 +1354,8 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       "match:forfeited",
       "draw:matchUpdated",
       "match:teamsUpdated",
-      "status:updated", // BE emits this in some flows
+      "status:updated",
     ];
-    // ❗KHÔNG dùng 'match:updated' theo yêu cầu. Chỉ nghe các event dưới:
     const STREAM_EVENTS = ["match:snapshot", "stream:updated", "video:set"];
 
     const onScore = (payload = {}) => {
@@ -1386,7 +1408,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     return <Alert severity="error">Không tải được dữ liệu trận.</Alert>;
   }
   if (!mm) {
-    // vẫn còn chờ nhưng không muốn hiện lỗi sớm
     return null;
   }
 
@@ -1447,7 +1468,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               Overlay tỉ số trực tiếp
             </Typography>
 
-            {/* Hàng chính: field + 1 nút chính */}
             <Stack
               direction={{ xs: "column", sm: "row" }}
               spacing={1}
@@ -1502,7 +1522,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               Dán link vào OBS/StreamYard (Browser Source) để hiển thị tỉ số.
             </Typography>
 
-            {/* Hành động khác của match (được tách xuống dưới, tự wrap) */}
             <Divider sx={{ my: 0.5 }} />
             <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
               <MatchRowActions match={m} />
@@ -1549,6 +1568,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
               </Typography>
             )}
           </Box>
+
           {/* Điểm hiện tại */}
           <Box textAlign="center" minWidth={140}>
             {status === "live" && (
@@ -1562,9 +1582,17 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Sets:{" "}
-              {shownGameScores.filter((g) => (g?.a ?? 0) > (g?.b ?? 0)).length}{" "}
+              {
+                shownGameScores.filter(
+                  (g) => (g?.a ?? 0) > (g?.b ?? 0)
+                ).length
+              }{" "}
               –{" "}
-              {shownGameScores.filter((g) => (g?.b ?? 0) > (g?.a ?? 0)).length}
+              {
+                shownGameScores.filter(
+                  (g) => (g?.b ?? 0) > (g?.a ?? 0)
+                ).length
+              }
             </Typography>
           </Box>
 
@@ -1605,7 +1633,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 <TableCell>Set</TableCell>
                 <TableCell align="center">A</TableCell>
                 <TableCell align="center">B</TableCell>
-                {canEdit && editMode && <TableCell align="center" width={56} />}
+                {canEdit && editMode && (
+                  <TableCell align="center" width={56} />
+                )}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1617,7 +1647,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                       <TextField
                         size="small"
                         type="number"
-                        inputProps={{ min: 0, max: 99, inputMode: "numeric" }}
+                        inputProps={{
+                          min: 0,
+                          max: 99,
+                          inputMode: "numeric",
+                        }}
                         value={g?.a ?? 0}
                         onChange={(e) => setCell(idx, "a", e.target.value)}
                         sx={{ width: 88 }}
@@ -1631,7 +1665,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                       <TextField
                         size="small"
                         type="number"
-                        inputProps={{ min: 0, max: 99, inputMode: "numeric" }}
+                        inputProps={{
+                          min: 0,
+                          max: 99,
+                          inputMode: "numeric",
+                        }}
                         value={g?.b ?? 0}
                         onChange={(e) => setCell(idx, "b", e.target.value)}
                         sx={{ width: 88 }}
@@ -1723,7 +1761,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                   variant="outlined"
                   size="small"
                   startIcon={<EditIcon />}
-                  onClick={() => setEditMode(true)}
+                  onClick={enterEditMode} // <-- luôn có 1 dòng input khi bật edit
                 >
                   Chỉnh sửa tỉ số
                 </Button>

@@ -54,8 +54,16 @@ import { theme } from "./theme.js";
 import LiveMatchesPage from "./screens/live/LiveMatchesPage.jsx";
 import CourtLiveStudioPage from "./screens/live/CourtLiveStudio.jsx";
 import CourtStreamingPage from "./screens/court-live/Courtstreamingpage.jsx";
+import { useGetAppInitQuery } from "./slices/appInitApiSlice.js";
 
 dayjs.locale("vi");
+
+// ví dụ trong App.jsx / RootLayout.jsx
+
+function AppInitGate({ children }) {
+  useGetAppInitQuery(); // auto fire 1 lần, set cookie session
+  return children;
+}
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -135,11 +143,13 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <React.StrictMode>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <SocketProvider>
-          <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
-            <RouterProvider router={router} />
-          </LocalizationProvider>
-        </SocketProvider>
+        <AppInitGate>
+          <SocketProvider>
+            <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
+              <RouterProvider router={router} />
+            </LocalizationProvider>
+          </SocketProvider>
+        </AppInitGate>
       </ThemeProvider>
     </React.StrictMode>
   </Provider>

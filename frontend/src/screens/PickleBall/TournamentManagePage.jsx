@@ -942,7 +942,7 @@ export default function TournamentManagePage() {
   const qDeferred = useDeferredValue(q);
   const [sortKey, setSortKey] = useState("round"); // round | order | time
   const [sortDir, setSortDir] = useState("asc"); // asc | desc
-  const [showBye, setShowBye] = useState(false); // NEW: Hiện trận BYE
+  const [showBye, setShowBye] = useState(true); // NEW: Hiện trận BYE
 
   // NEW: Lọc theo Sân (đa lựa chọn)
   const [courtFilter, setCourtFilter] = useState([]); // array<string>

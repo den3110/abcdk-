@@ -21,6 +21,7 @@
     "@mui/x-date-pickers-pro": "8.11.3",
     "@reduxjs/toolkit": "^1.9.5",
     "bootstrap": "^5.2.3",
+    "crypto-js": "^4.2.0",
     "dayjs": "^1.11.18",
     "docx": "^9.5.1",
     "hls.js": "^1.6.11",

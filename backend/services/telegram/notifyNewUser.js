@@ -209,7 +209,7 @@ export async function notifyNewUser({ user, chatId, debug = false }) {
               : "Pickleball";
 
           spcBlock = [
-            "🧩 <b>SportConnect (Local – phone exact)</b>",
+            "🧩 <b>Điểm trên SportConnect</b>",
             `• ID: <b>${htmlEscape(best?.ID ?? best?.MaskId ?? "—")}</b>`,
             `• Họ tên: <b>${htmlEscape(name)}</b>${nick}`,
             `• Điểm: <b>Single ${fmt1(best?.DiemDon)}</b> • <b>Double ${fmt1(

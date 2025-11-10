@@ -163,6 +163,7 @@ function BulkAssignRefDialog({
             getOptionLabel={labelOfRef}
             isOptionEqualToValue={(a, b) => idOfRef(a) === idOfRef(b)}
             filterSelectedOptions
+            // Nếu muốn search client-side mặc định của MUI thì KHÔNG cần keyword riêng.
             renderOption={(props, option, { selected }) => (
               <li {...props} key={idOfRef(option)}>
                 <Checkbox
@@ -190,18 +191,20 @@ function BulkAssignRefDialog({
                 {...params}
                 label="Chọn trọng tài"
                 placeholder="Tìm theo tên/nickname"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
                 InputProps={{
                   ...params.InputProps,
                   startAdornment: (
-                    <InputAdornment position="start">
-                      {loading ? (
-                        <CircularProgress size={16} />
-                      ) : (
-                        <SearchIcon fontSize="small" />
-                      )}
-                    </InputAdornment>
+                    <>
+                      <InputAdornment position="start">
+                        {loading ? (
+                          <CircularProgress size={16} />
+                        ) : (
+                          <SearchIcon fontSize="small" />
+                        )}
+                      </InputAdornment>
+                      {/* Giữ lại chỗ render chip + selected values */}
+                      {params.InputProps.startAdornment}
+                    </>
                   ),
                 }}
               />
@@ -209,6 +212,7 @@ function BulkAssignRefDialog({
             renderTags={(value, getTagProps) =>
               value.map((opt, idx) => (
                 <Chip
+                  key={idOfRef(opt)}
                   {...getTagProps({ index: idx })}
                   size="small"
                   label={labelOfRef(opt)}

@@ -53,6 +53,7 @@ import spcRoutes from "./routes/spc.routes.js";
 import fbTokenRoutes from "./routes/fbTokenRoutes.js";
 import publicOverlayRoutes from "./routes/publicOverlayRoutes.js";
 import newsRoutes from "./routes/newsPublicRoutes.js";
+import appInitRoutes from "./routes/appInitRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
 import { initNewsCron } from "./jobs/newsCron.js";
 
@@ -105,6 +106,7 @@ app.use("/api/tournaments", tournamentRoute);
 app.use("/api/brackets", bracketRoutes);
 app.use("/api/registrations", registrationRoutes);
 app.use("/api/rankings", rankingRoutes);
+app.use("/api/v1/rankings", rankingRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/upload", uploadRoutes);
 app.use("/api/admin", adminRoutes);
@@ -137,6 +139,7 @@ app.use("/api/courts", courtRoutes);
 app.use("/api/admin/spc", spcRoutes);
 app.use("/api/public", publicOverlayRoutes);
 app.use("/api/fb-tokens", fbTokenRoutes);
+app.use("/api/app/init", appInitRoutes);
 
 app.get("/dl/file/:id", async (req, res) => {
   try {

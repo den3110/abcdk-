@@ -3,6 +3,7 @@ import Match from "../models/matchModel.js";
 import mongoose from "mongoose";
 import Registration from "../models/registrationModel.js";
 import Bracket from "../models/bracketModel.js";
+import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
 // controllers/matchController.js
 const getMatchesByTournament = asyncHandler(async (req, res) => {
   const raw = await Match.find({ tournament: req.params.id })
@@ -1756,9 +1757,10 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
   };
 
   // Chuẩn hoá A/B (nếu được gửi)
+  let A, B;
   try {
-    var A = await normPairInput(pairA, "A");
-    var B = await normPairInput(pairB, "B");
+    A = await normPairInput(pairA, "A");
+    B = await normPairInput(pairB, "B");
   } catch (e) {
     res.status(400);
     throw e;
@@ -1864,12 +1866,165 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
   match.set(updates);
   await match.save();
 
+  // 10) nếu match đã finished + winner hợp lệ -> apply rating
+  if (
+    match.status === "finished" &&
+    match.winner &&
+    (match.winner === "A" || match.winner === "B")
+  ) {
+    try {
+      await applyRatingForFinishedMatch(match._id);
+    } catch (err) {
+      console.error(
+        "[adminPatchMatch] applyRatingForFinishedMatch error:",
+        err
+      );
+    }
+  }
+
   const tournamentId = String(match.tournament);
 
+  // 11) SOCKET: bắn snapshot match vừa update
+  try {
+    const io = req.app.get("io");
+    if (io) {
+      const m = await Match.findById(match._id)
+        .populate({
+          path: "pairA",
+          select: "player1 player2 seed label teamName",
+          populate: [
+            {
+              path: "player1",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+          ],
+        })
+        .populate({
+          path: "pairB",
+          select: "player1 player2 seed label teamName",
+          populate: [
+            {
+              path: "player1",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+          ],
+        })
+        .populate({
+          path: "referee",
+          select: "name fullName nickname nickName",
+        })
+        .populate({ path: "previousA", select: "round order" })
+        .populate({ path: "previousB", select: "round order" })
+        .populate({ path: "nextMatch", select: "_id" })
+        .populate({
+          path: "tournament",
+          select: "name image eventType overlay",
+        })
+        .populate({
+          path: "bracket",
+          select: [
+            "noRankDelta",
+            "name",
+            "type",
+            "stage",
+            "order",
+            "drawRounds",
+            "drawStatus",
+            "scheduler",
+            "drawSettings",
+            "meta.drawSize",
+            "meta.maxRounds",
+            "meta.expectedFirstRoundMatches",
+            "groups._id",
+            "groups.name",
+            "groups.expectedSize",
+            "config.rules",
+            "config.doubleElim",
+            "config.roundRobin",
+            "config.swiss",
+            "config.gsl",
+            "config.roundElim",
+            "overlay",
+          ].join(" "),
+        })
+        .populate({
+          path: "court",
+          select: "name number code label zone area venue building floor",
+        })
+        .populate({
+          path: "liveBy",
+          select: "name fullName nickname nickName",
+        })
+        .select(
+          "label managers court courtLabel courtCluster " +
+            "scheduledAt startAt startedAt finishedAt status " +
+            "tournament bracket rules currentGame gameScores " +
+            "round order code roundCode roundName " +
+            "seedA seedB previousA previousB nextMatch winner serve overlay " +
+            "video videoUrl stream streams meta " +
+            "format rrRound pool " +
+            "liveBy liveVersion"
+        )
+        .lean();
+
+      if (m) {
+        const pick = (v) => (v && String(v).trim()) || "";
+        const fillNick = (p) => {
+          if (!p) return p;
+          const primary = pick(p.nickname) || pick(p.nickName);
+          const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+          const n = primary || fromUser || "";
+          if (n) {
+            p.nickname = n;
+            p.nickName = n;
+          }
+          return p;
+        };
+
+        if (m.pairA) {
+          m.pairA.player1 = fillNick(m.pairA.player1);
+          m.pairA.player2 = fillNick(m.pairA.player2);
+        }
+        if (m.pairB) {
+          m.pairB.player1 = fillNick(m.pairB.player1);
+          m.pairB.player2 = fillNick(m.pairB.player2);
+        }
+
+        if (!m.streams && m.meta?.streams) {
+          m.streams = m.meta.streams;
+        }
+
+        const dto = typeof toDTO === "function" ? toDTO(m) : m;
+
+        io.to(String(m._id)).emit("status:updated", {
+          matchId: m._id,
+          status: m.status,
+        });
+
+        io.to(`match:${String(m._id)}`).emit("match:snapshot", dto);
+      }
+    }
+  } catch (err) {
+    console.error("[adminPatchMatch] socket emit error:", err);
+  }
+
+  // 12) response
   res.json({
     _id: match._id,
-    tournament: match.tournament, // 👈 thêm
-    tournamentId, // 👈 thêm (string)
+    tournament: match.tournament,
+    tournamentId,
     status: match.status,
     winner: match.winner,
     gameScores: match.gameScores,
@@ -1883,8 +2038,6 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
     updatedAt: match.updatedAt,
   });
 });
-
-
 const ALLOWED_PLATFORMS = new Set([
   "facebook",
   "youtube",
@@ -1905,12 +2058,22 @@ const parseTs = (ts) => {
 };
 
 const ensureLiveShape = (live = {}) => {
-  const out = { status: "idle", platforms: {}, sessions: [], lastChangedAt: new Date() };
+  const out = {
+    status: "idle",
+    platforms: {},
+    sessions: [],
+    lastChangedAt: new Date(),
+  };
   if (live && typeof live === "object") {
     out.status = live.status || "idle";
-    out.platforms = live.platforms && typeof live.platforms === "object" ? { ...live.platforms } : {};
+    out.platforms =
+      live.platforms && typeof live.platforms === "object"
+        ? { ...live.platforms }
+        : {};
     out.sessions = Array.isArray(live.sessions) ? [...live.sessions] : [];
-    out.lastChangedAt = live.lastChangedAt ? new Date(live.lastChangedAt) : new Date();
+    out.lastChangedAt = live.lastChangedAt
+      ? new Date(live.lastChangedAt)
+      : new Date();
   }
   return out;
 };
@@ -1978,7 +2141,12 @@ export const notifyStreamStarted = asyncHandler(async (req, res) => {
     .select("live")
     .lean();
 
-  emitSocket(req, id, { matchId: id, platform, status: "live", live: updated.live });
+  emitSocket(req, id, {
+    matchId: id,
+    platform,
+    status: "live",
+    live: updated.live,
+  });
 
   res.json({
     ok: true,
@@ -2028,7 +2196,9 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
   };
 
   // Nếu không còn platform nào active => idle
-  const anyActive = Object.values(live.platforms).some((p) => p?.active === true);
+  const anyActive = Object.values(live.platforms).some(
+    (p) => p?.active === true
+  );
   live.status = anyActive ? "live" : "idle";
   live.lastChangedAt = new Date();
 
@@ -2047,7 +2217,12 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
     .select("live")
     .lean();
 
-  emitSocket(req, id, { matchId: id, platform, status: live.status, live: updated.live });
+  emitSocket(req, id, {
+    matchId: id,
+    platform,
+    status: live.status,
+    live: updated.live,
+  });
 
   res.json({
     ok: true,
