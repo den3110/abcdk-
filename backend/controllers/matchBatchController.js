@@ -138,7 +138,7 @@ export const batchAssignReferee = expressAsyncHandler(async (req, res) => {
       "label managers court courtLabel courtCluster " +
         "scheduledAt startAt startedAt finishedAt status " +
         "tournament bracket rules currentGame gameScores " +
-        "round order code roundCode roundName " +
+        "round order roundCode roundName " +
         "seedA seedB previousA previousB nextMatch winner serve overlay " +
         "video videoUrl stream streams meta " +
         "format rrRound pool " +
@@ -416,7 +416,7 @@ export const batchSetLiveUrl = expressAsyncHandler(async (req, res) => {
       "label managers court courtLabel courtCluster " +
         "scheduledAt startAt startedAt finishedAt status " +
         "tournament bracket rules currentGame gameScores " +
-        "round order code roundCode roundName " +
+        "round order roundCode roundName " +
         "seedA seedB previousA previousB nextMatch winner serve overlay " +
         "video videoUrl stream streams meta " +
         "format rrRound pool " +

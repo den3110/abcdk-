@@ -1346,6 +1346,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       "score:patched",
       "score:added",
       "score:undone",
+      "match:snapshot",
     ];
     const REFRESH_EVENTS = [
       "match:patched",

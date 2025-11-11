@@ -637,6 +637,9 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
 
   const autoNext = !replay && parseQPBool(q.get("autoNext"));
 
+  // bật layout default khi ?default=1
+  const isDefaultDesign = parseQPBool(q.get("default")) === true;
+
   // ✅ chỉ bật break nếu URL cho phép
   const isActiveBreakQP =
     parseQPBool(q.get("isActiveBreak")) === true || q.get("isactivebreak") == 1;
@@ -666,7 +669,6 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     const limit = Number.isFinite(+q.get("sLimit")) ? +q.get("sLimit") : 12;
     const featured = q.get("sFeatured") ?? "1"; // "1" | "0"
     const tier = q.get("sTier") || undefined; // "gold,silver"
-    // NEW: tournamentId từ QP hoặc từ snapshot
     const tidFromQP = q.get("tournamentId") || q.get("tid") || undefined;
     const tid = tidFromQP || data?.tournament?.id || undefined;
 
@@ -676,8 +678,8 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       tier,
       ...(tid ? { tournamentId: tid } : {}),
     };
-    // cần phụ thuộc vào id của tournament để refetch khi snapshot xong
   }, [q, data?.tournament?.id]);
+
   // RTK Query: lấy webLogo + sponsors (chỉ khi overlayEnabled)
   const { data: overlayCfg } = useGetOverlayConfigQuery(overlayParams, {
     skip: !overlayEnabled || !overlayTid,
@@ -1373,6 +1375,128 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
         </div>
 
         {/* ❗️Break thì KHÔNG render web logo và sponsor */}
+        {effective.customCss ? <style>{effective.customCss}</style> : null}
+      </>
+    );
+  }
+
+  // ✅ GIAO DIỆN DEFAULT=1 (theo hình) — luôn sau break, không ảnh hưởng logic khác
+  if (isDefaultDesign) {
+    const topTitle = (tourName && tourName.toUpperCase()) || "GIẢI PICKLEBALL";
+
+    const rowBase = {
+      display: "grid",
+      gridTemplateColumns: "1fr auto",
+      alignItems: "center",
+      padding: "6px 14px",
+      background: "#000",
+      color: "#fff",
+      fontWeight: 700,
+      fontSize: 18,
+      gap: 8,
+      whiteSpace: "nowrap",
+    };
+
+    return (
+      <>
+        <div
+          className="ovl-wrap ovl-wrap--default"
+          style={wrapStyle}
+          ref={overlayRef}
+          data-ovl=""
+          data-theme={effective.theme}
+          data-size={effective.size}
+          data-default="1"
+        >
+          <div
+            className="ovl-default"
+            style={{
+              minWidth: 360,
+              maxWidth: 480,
+              boxShadow: "0 8px 22px rgba(0,0,0,.55)",
+              overflow: "hidden",
+              fontFamily: effective.fontFamily,
+              borderRadius: effective.rounded || 16,
+              background: "#000",
+              pointerEvents: "none",
+            }}
+          >
+            {/* Title gradient xanh - đen, căn giữa, bo góc */}
+            <div
+              className="ovl-default-title"
+              style={{
+                background: "linear-gradient(90deg, #17873b 0%, #0b0f14 100%)",
+                padding: "6px 14px",
+                color: "#fff",
+                fontSize: 16,
+                fontWeight: 800,
+                textTransform: "uppercase",
+                textAlign: "center",
+                letterSpacing: 0.4,
+                borderTopLeftRadius: effective.rounded || 16,
+                borderTopRightRadius: effective.rounded || 16,
+              }}
+              title={topTitle}
+            >
+              {topTitle}
+            </div>
+
+            {/* Row A */}
+            <div className="ovl-default-row ovl-default-row--a" style={rowBase}>
+              <div
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  textTransform: "uppercase",
+                }}
+                title={nameA}
+              >
+                {nameA}
+              </div>
+              <div
+                style={{
+                  fontSize: 20,
+                  minWidth: 28,
+                  textAlign: "right",
+                }}
+              >
+                {scoreA}
+              </div>
+            </div>
+
+            {/* Row B */}
+            <div
+              className="ovl-default-row ovl-default-row--b"
+              style={{
+                ...rowBase,
+                borderTop: "1px solid #262626",
+                borderBottomLeftRadius: effective.rounded || 16,
+                borderBottomRightRadius: effective.rounded || 16,
+              }}
+            >
+              <div
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  textTransform: "uppercase",
+                }}
+                title={nameB}
+              >
+                {nameB}
+              </div>
+              <div
+                style={{
+                  fontSize: 20,
+                  minWidth: 28,
+                  textAlign: "right",
+                }}
+              >
+                {scoreB}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {effective.customCss ? <style>{effective.customCss}</style> : null}
       </>
     );
