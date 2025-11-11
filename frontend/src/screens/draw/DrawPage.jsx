@@ -3782,7 +3782,7 @@ export default function DrawPage() {
 
                 setShowDoneBanner(false);
                 setCardOpen(false); // Đóng overlay nếu đang mở
-                toast.success("Đã commit kết quả và xóa dữ liệu thẻ tạm");
+                toast.success("Đã lưu kết quả");
               }}
               sx={{ color: "white !important" }}
             >

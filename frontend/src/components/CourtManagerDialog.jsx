@@ -1157,7 +1157,7 @@ export default function CourtManagerDialog({
                   >
                     Trọng tài mặc định
                   </Button>
-                  <Button
+                  {/* <Button
                     size="small"
                     variant="outlined"
                     startIcon={<AutorenewIcon />}
@@ -1165,7 +1165,7 @@ export default function CourtManagerDialog({
                     onClick={() => handleAssignNext(c._id || c.id)}
                   >
                     Gán trận kế tiếp
-                  </Button>
+                  </Button> */}
                   <Button
                     size="small"
                     color="error"

@@ -754,15 +754,26 @@ export async function listCourtsByTournament(req, res) {
     const pg = Number.isFinite(Number(page)) ? Math.max(1, Number(page)) : 1;
 
     let docs = await Court.find(where)
-      .select("+currentMatch")
+      .select("+currentMatch") // đảm bảo lấy field currentMatch nếu có select: false
       .sort({ order: 1, createdAt: 1 })
       .skip((pg - 1) * lim)
       .limit(lim)
       .populate({
         path: "currentMatch",
         model: "Match",
+        // 👇 THÊM pairA, pairB, participants để FE detect trùng đội
         select:
-          "_id code labelKey status format type pool key rrRound swissRound round order globalRound",
+          "_id code labelKey status format type pool rrRound swissRound round order globalRound pairA pairB participants",
+        populate: [
+          {
+            path: "pairA",
+            select: "player1 player2 teamName label",
+          },
+          {
+            path: "pairB",
+            select: "player1 player2 teamName label",
+          },
+        ],
       })
       .lean();
 
@@ -794,6 +805,7 @@ export async function listCourtsByTournament(req, res) {
     // ----- Build code/displayCode KHÔNG phụ thuộc bracket -----
     const GROUP_LIKE = new Set(["group", "round_robin", "gsl", "swiss"]);
     const isGroupLike = (m) => {
+      if (!m) return false;
       const t1 = String(m?.type || "").toLowerCase();
       const f1 = String(m?.format || "").toLowerCase();
       if (GROUP_LIKE.has(t1) || GROUP_LIKE.has(f1)) return true;
@@ -860,7 +872,7 @@ export async function listCourtsByTournament(req, res) {
       }
     };
 
-    // Gắn code/displayCode cho currentMatch
+    // Gắn code/displayCode cho currentMatch (để FE show)
     for (const c of docs) {
       if (c.currentMatch && c.currentMatch._id) {
         const { code, displayCode } = computeDisplayCode(c.currentMatch);
@@ -875,6 +887,7 @@ export async function listCourtsByTournament(req, res) {
     return res.status(500).json({ message: "Server error" });
   }
 }
+
 
 const isObjectIdString = (s) => mongoose.Types.ObjectId.isValid(String(s));
 const resolveClusterKey = (_bracket, cluster) =>

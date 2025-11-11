@@ -382,7 +382,7 @@ export async function assignMatchToCourt(req, res) {
     if (court.currentMatch && String(court.currentMatch) !== String(mid)) {
       return res
         .status(409)
-        .json({ message: "Court is already assigned to another match" });
+        .json({ message: "Sân đã được gán cho một trận khác" });
     }
 
     // Nếu match đang gắn sân A → gỡ ở sân A trước (không đổi status match)

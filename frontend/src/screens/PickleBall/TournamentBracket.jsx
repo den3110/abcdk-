@@ -2851,6 +2851,14 @@ export default function TournamentBracket() {
               const court = courtName(m);
               const score = scoreLabel(m);
               const video = hasVideo(m);
+
+              // 🔍 check xem user đang login có trong trận không
+              const isMineA =
+                m?.pairA?._id && myRegIdsAll.has(String(m.pairA._id));
+              const isMineB =
+                m?.pairB?._id && myRegIdsAll.has(String(m.pairB._id));
+              const isMine = !!(isMineA || isMineB);
+
               return {
                 _id: String(m._id),
                 code,
@@ -2861,6 +2869,9 @@ export default function TournamentBracket() {
                 score,
                 match: m,
                 video,
+                isMine,
+                isMineA,
+                isMineB,
               };
             });
           } else {
@@ -2986,6 +2997,14 @@ export default function TournamentBracket() {
                                 !r.isPlaceholder && r.match
                                   ? "pointer"
                                   : "default",
+                              ...(r.isMine && !r.isPlaceholder
+                                ? {
+                                    bgcolor: "rgba(25,118,210,0.06)",
+                                    "&:hover": {
+                                      bgcolor: "rgba(25,118,210,0.12)",
+                                    },
+                                  }
+                                : {}),
                             }}
                           >
                             <TableCell sx={{ whiteSpace: "nowrap" }}>
@@ -3053,8 +3072,23 @@ export default function TournamentBracket() {
                               })()}
                             </TableCell>
                             <TableCell sx={{ wordBreak: "break-word" }}>
-                              {r.aName} <b style={{ opacity: 0.6 }}>vs</b>{" "}
-                              {r.bName}
+                              <span
+                                style={{
+                                  fontWeight: r.isMineA ? 700 : 500,
+                                  color: r.isMineA ? "#1976d2" : "inherit",
+                                }}
+                              >
+                                {r.aName}
+                              </span>{" "}
+                              <b style={{ opacity: 0.6 }}>vs</b>{" "}
+                              <span
+                                style={{
+                                  fontWeight: r.isMineB ? 700 : 500,
+                                  color: r.isMineB ? "#1976d2" : "inherit",
+                                }}
+                              >
+                                {r.bName}
+                              </span>
                             </TableCell>
                             <TableCell>{r.time || "—"}</TableCell>
                             <TableCell>{r.court || "—"}</TableCell>
@@ -3091,6 +3125,13 @@ export default function TournamentBracket() {
                           borderRadius: 2,
                           cursor:
                             !r.isPlaceholder && r.match ? "pointer" : "default",
+                          borderColor: r.isMine ? "primary.main" : "divider",
+                          bgcolor: r.isMine
+                            ? "rgba(25,118,210,0.06)"
+                            : "background.paper",
+                          boxShadow: r.isMine
+                            ? "0 0 0 1px rgba(25,118,210,.16), 0 4px 12px rgba(25,118,210,.2)"
+                            : "none",
                           "&:hover": {
                             borderColor:
                               !r.isPlaceholder && r.match
@@ -3103,10 +3144,12 @@ export default function TournamentBracket() {
                           },
                         }}
                       >
+                        {/* Hàng 1: mã trận + video + tỉ số */}
                         <Stack
                           direction="row"
                           alignItems="center"
                           justifyContent="space-between"
+                          sx={{ mb: 0.5 }}
                         >
                           <Box
                             sx={{
@@ -3150,6 +3193,47 @@ export default function TournamentBracket() {
                             {r.score || "—"}
                           </Typography>
                         </Stack>
+
+                        {/* Hàng 2: tên đội */}
+                        {!r.isPlaceholder && (
+                          <Typography
+                            variant="body2"
+                            sx={{ mb: 0.25, lineHeight: 1.3 }}
+                          >
+                            <span
+                              style={{
+                                fontWeight: r.isMineA ? 700 : 500,
+                                color: r.isMineA ? "#1976d2" : "inherit",
+                              }}
+                            >
+                              {r.aName}
+                            </span>
+                            <span style={{ opacity: 0.6 }}>
+                              {" "}
+                              &nbsp;vs&nbsp;{" "}
+                            </span>
+                            <span
+                              style={{
+                                fontWeight: r.isMineB ? 700 : 500,
+                                color: r.isMineB ? "#1976d2" : "inherit",
+                              }}
+                            >
+                              {r.bName}
+                            </span>
+                          </Typography>
+                        )}
+
+                        {/* Hàng 3: giờ + sân */}
+                        {(r.time || r.court) && (
+                          <Typography
+                            variant="caption"
+                            sx={{ color: "text.secondary" }}
+                          >
+                            {r.time && <>🕒 {r.time}</>}
+                            {r.time && r.court && " • "}
+                            {r.court && <>🏟 {r.court}</>}
+                          </Typography>
+                        )}
                       </Paper>
                     ))
                   ) : (

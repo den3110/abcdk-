@@ -10,8 +10,8 @@ import ScoreHistory from "../models/scoreHistoryModel.js";
 import Bracket from "../models/bracketModel.js";
 
 /* GET điểm kèm user (dùng trong danh sách) */ // Admin
+/* GET điểm kèm user (dùng trong danh sách) */ // Admin
 export const getUsersWithRank = asyncHandler(async (req, res) => {
-  // pageSize: ưu tiên lấy từ req.body.pageSize, mặc định 10, kẹp [1..100]
   const parseIntOr = (v, d) => {
     const n = Number.parseInt(v, 10);
     return Number.isFinite(n) ? n : d;
@@ -20,10 +20,9 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
     100,
     Math.max(1, parseIntOr(req.query?.pageSize, 10))
   );
-
   const page = Math.max(Number(req.query.page) || 1, 1);
 
-  // ── Build keyword filter: name + nickname + phone + email (+ domain suffix)
+  // ── Build keyword filter: name + nickname + phone + email + cccd (+ domain suffix)
   const kw = (req.query.keyword || "").trim();
   const escapeRegex = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const rx = kw ? new RegExp(escapeRegex(kw), "i") : null;
@@ -38,6 +37,21 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
       { email: rx },
     ];
 
+    // --- Search theo CCCD ---
+    // Nếu keyword toàn số: ưu tiên match prefix CCCD (hợp với tìm theo 6/12 số đầu)
+    if (/^\d+$/.test(kw)) {
+      orList.push({
+        cccd: {
+          $regex: "^" + escapeRegex(kw),
+          $options: "i",
+        },
+      });
+    } else {
+      // fallback: cho phép gõ lẫn chữ, vẫn check chứa trong cccd (hầu như không dùng, nhưng an toàn)
+      orList.push({ cccd: rx });
+    }
+
+    // --- Search theo domain email (@gmail, @yahoo, ...) ---
     if (kw.startsWith("@")) {
       const domain = kw.slice(1).trim();
       if (domain) {
