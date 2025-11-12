@@ -33,6 +33,14 @@ import {
 } from "../controllers/passwordController.js";
 import { simpleRateLimit } from "../middleware/rateLimit.js";
 import { getUserAchievements } from "../controllers/achievements.controller.js";
+import {
+  breakdown,
+  heatmap,
+  overview,
+  profile,
+  series,
+  top,
+} from "../controllers/userStatsController.js";
 
 const router = express.Router();
 
@@ -70,5 +78,12 @@ router.delete(
   authorize("admin"),
   deleteRatingHistoryItem
 );
+
+router.get("/stats/:uid/stats/overview", protect, overview);
+router.get("/stats/:uid/stats/series", protect, series);
+router.get("/stats/:uid/stats/breakdown", protect, breakdown);
+router.get("/stats/:uid/stats/heatmap", protect, heatmap);
+router.get("/stats/:uid/stats/top", protect, top);
+router.get("/stats/:uid/stats/profile", protect, profile);
 
 export default router;

@@ -666,7 +666,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
 
   // Tham số gọi API công khai (RTK Query)
   const overlayParams = useMemo(() => {
-    const limit = Number.isFinite(+q.get("sLimit")) ? +q.get("sLimit") : 12;
+    const limit = Number.isFinite(+q.get("slimit")) ? +q.get("slimit") : 12;
     const featured = q.get("sFeatured") ?? "1"; // "1" | "0"
     const tier = q.get("sTier") || undefined; // "gold,silver"
     const tidFromQP = q.get("tournamentId") || q.get("tid") || undefined;
@@ -890,7 +890,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
 
     // chiều cao logo sponsor theo size
     const sponsorH =
-      effective.size === "lg" ? 34 : effective.size === "sm" ? 24 : 28;
+      effective.size === "lg" ? 34 : effective.size === "sm" ? 24 : 32;
     const webLogoH =
       effective.size === "lg" ? 32 : effective.size === "sm" ? 22 : 40;
 
@@ -1767,9 +1767,9 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
             alignItems: "center",
             gap: 10,
             padding: "8px 10px",
-            borderRadius: 12,
-            background: "var(--bg)",
-            boxShadow: "var(--shadow)",
+            // borderRadius: 12,
+            background: "transparent",
+            // boxShadow: "var(--shadow)",
             zIndex: 2147483646,
             pointerEvents: "none",
             ...cssVarStyle,
@@ -1784,7 +1784,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                 height: "var(--sponsor-h)",
                 width: "auto",
                 display: "block",
-                borderRadius: 8,
+                borderRadius: 0,
                 filter: effective.theme === "dark" ? "brightness(1.1)" : "none",
               }}
             />
