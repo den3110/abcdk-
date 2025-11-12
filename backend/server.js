@@ -54,6 +54,7 @@ import fbTokenRoutes from "./routes/fbTokenRoutes.js";
 import publicOverlayRoutes from "./routes/publicOverlayRoutes.js";
 import newsRoutes from "./routes/newsPublicRoutes.js";
 import appInitRoutes from "./routes/appInitRoutes.js";
+import leaderboardRoutes from "./routes/leaderboardRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
 import { initNewsCron } from "./jobs/newsCron.js";
 
@@ -140,6 +141,7 @@ app.use("/api/admin/spc", spcRoutes);
 app.use("/api/public", publicOverlayRoutes);
 app.use("/api/fb-tokens", fbTokenRoutes);
 app.use("/api/app/init", appInitRoutes);
+app.use("/api/leaderboards", leaderboardRoutes);
 
 app.get("/dl/file/:id", async (req, res) => {
   try {

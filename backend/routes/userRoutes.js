@@ -14,6 +14,7 @@ import {
   authUserWeb,
   getMeWithScore,
   issueOsAuthToken,
+  reauthUser,
 } from "../controllers/userController.js";
 import {
   authorize,
@@ -36,6 +37,7 @@ import { getUserAchievements } from "../controllers/achievements.controller.js";
 const router = express.Router();
 
 router.post("/", registerUser);
+router.get("/reauth", protect, reauthUser);
 router.post("/auth", authUser); // mobile
 router.post("/auth/web", authUserWeb); // web
 router.post("/logout", logoutUser);

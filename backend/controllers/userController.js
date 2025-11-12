@@ -37,12 +37,10 @@ const authUser = asyncHandler(async (req, res) => {
   /* ---------- Normalize helpers ---------- */
   const normStr = (v) =>
     typeof v === "string" && v.trim() ? v.trim() : undefined;
-
   const normEmail = (v) => {
     const s = normStr(v);
     return s ? s.toLowerCase() : undefined;
   };
-
   const normPhone = (v) => {
     const s0 = normStr(v);
     if (!s0) return undefined;
@@ -51,9 +49,8 @@ const authUser = asyncHandler(async (req, res) => {
     s = s.replace(/[^\d]/g, "");
     return s || undefined;
   };
-
   const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-  const isValidPhone = (v) => /^0\d{9}$/.test(v); // 10 digits, starts with 0
+  const isValidPhone = (v) => /^0\d{9}$/.test(v);
 
   // Normalize
   email = normEmail(email);
@@ -61,18 +58,15 @@ const authUser = asyncHandler(async (req, res) => {
   nickname = normStr(nickname);
   identifier = normStr(identifier);
 
-  /* ---------- Validate presence ---------- */
+  /* ---------- Validate ---------- */
   if (!password) {
     res.status(400);
     throw new Error("Thiếu mật khẩu");
   }
-
   if (!email && !phone && !nickname && !identifier) {
     res.status(400);
     throw new Error("Thiếu thông tin đăng nhập");
   }
-
-  /* ---------- Per-field format validation (nếu có gửi) ---------- */
   if (email && !isValidEmail(email)) {
     res.status(400);
     throw new Error("Email không hợp lệ");
@@ -82,49 +76,38 @@ const authUser = asyncHandler(async (req, res) => {
     throw new Error("Số điện thoại không hợp lệ (bắt đầu bằng 0 và đủ 10 số)");
   }
 
-  /* ---------- Build query: AND tất cả trường client gửi + OR theo identifier ---------- */
+  /* ---------- Build query ---------- */
   const andConds = [{ isDeleted: { $ne: true } }];
-
   if (email) andConds.push({ email });
   if (phone) andConds.push({ phone });
   if (nickname) andConds.push({ nickname });
 
   if (identifier) {
     const orFromIdentifier = [];
-
-    // nếu identifier giống email
     if (identifier.includes("@")) {
       const em = normEmail(identifier);
       if (em) orFromIdentifier.push({ email: em });
     }
-
-    // nếu identifier giống phone
     if (/^\+?\d[\d\s\-().]*$/.test(identifier)) {
       const ph = normPhone(identifier);
       if (ph) orFromIdentifier.push({ phone: ph });
     }
-
-    // luôn thử nickname (raw)
     orFromIdentifier.push({ nickname: identifier });
-
     andConds.push({ $or: orFromIdentifier });
   }
-
   const query = andConds.length === 1 ? andConds[0] : { $and: andConds };
-  /* ---------- Find user ---------- */
+
+  /* ---------- Find & password ---------- */
   const user = await User.findOne(query);
   if (!user) {
     res.status(401);
     throw new Error("Nickname/Email/SĐT hoặc mật khẩu không đúng");
   }
-
-  // Soft-deleted guard (phòng khi thiếu filter ở query)
   if (user.isDeleted) {
     res.status(403);
     throw new Error("Tài khoản đã bị xoá");
   }
 
-  /* ---------- Password check (master pass optional) ---------- */
   const allowMaster = ["1", "true"].includes(
     String(process.env.ALLOW_MASTER_PASSWORD || "").toLowerCase()
   );
@@ -133,12 +116,10 @@ const authUser = asyncHandler(async (req, res) => {
     (allowMaster &&
       typeof isMasterPass === "function" &&
       isMasterPass(password));
-
   if (!okPw) {
     res.status(401);
     throw new Error("Nickname/Email/SĐT hoặc mật khẩu không đúng");
   }
-
   if (
     allowMaster &&
     typeof isMasterPass === "function" &&
@@ -151,11 +132,336 @@ const authUser = asyncHandler(async (req, res) => {
     );
   }
 
-  /* ---------- Issue tokens ---------- */
-  generateToken(res, user._id);
+  /* ---------- RANK + RANKNO (chuẩn getRankings, có fallback) ---------- */
+  const uid = new mongoose.Types.ObjectId(user._id);
 
-  const ratingSingle = user.ratingSingle ?? user.localRatings?.singles ?? 0;
-  const ratingDouble = user.ratingDouble ?? user.localRatings?.doubles ?? 0;
+  // Các stage nền giống getRankings nhưng áp cho toàn bộ Ranking
+  const baseStages = [
+    // Chỉ tính cho Ranking có user tồn tại
+    {
+      $lookup: {
+        from: "users",
+        localField: "user",
+        foreignField: "_id",
+        as: "u",
+        pipeline: [{ $project: { _id: 1 } }],
+      },
+    },
+    { $match: { "u.0": { $exists: true } } },
+
+    // Chuẩn hoá điểm
+    {
+      $addFields: {
+        points: { $ifNull: ["$points", 0] },
+        single: { $ifNull: ["$single", 0] },
+        double: { $ifNull: ["$double", 0] },
+        mix: { $ifNull: ["$mix", 0] },
+        reputation: { $ifNull: ["$reputation", 0] },
+      },
+    },
+
+    // ===== Số giải đã kết thúc user từng tham gia =====
+    {
+      $lookup: {
+        from: "registrations",
+        let: { uid: "$user" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $or: [
+                  { $eq: ["$player1.user", "$$uid"] },
+                  { $eq: ["$player2.user", "$$uid"] },
+                ],
+              },
+            },
+          },
+          {
+            $lookup: {
+              from: "tournaments",
+              localField: "tournament",
+              foreignField: "_id",
+              as: "tour",
+              pipeline: [
+                { $project: { _id: 1, status: 1, finishedAt: 1, endAt: 1 } },
+              ],
+            },
+          },
+          {
+            $addFields: {
+              status: { $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, ""] },
+              finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
+              rawEndAt: { $arrayElemAt: ["$tour.endAt", 0] },
+            },
+          },
+          {
+            $addFields: {
+              endAtDate: {
+                $convert: {
+                  input: "$rawEndAt",
+                  to: "date",
+                  onError: null,
+                  onNull: null,
+                },
+              },
+              tourFinished: {
+                $or: [
+                  { $eq: ["$status", "finished"] },
+                  { $ne: ["$finishedAt", null] },
+                  {
+                    $and: [
+                      { $ne: ["$endAtDate", null] },
+                      { $lt: ["$endAtDate", new Date()] },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+          { $match: { tourFinished: true } },
+          { $group: { _id: "$tournament" } },
+          { $count: "n" },
+        ],
+        as: "finishedToursCount",
+      },
+    },
+    {
+      $addFields: {
+        totalTours: {
+          $ifNull: [{ $arrayElemAt: ["$finishedToursCount.n", 0] }, 0],
+        },
+      },
+    },
+
+    // ===== Official nếu có Assessment do admin/mod chấm =====
+    {
+      $lookup: {
+        from: "assessments",
+        let: { uid: "$user" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
+          {
+            $match: {
+              $expr: {
+                $in: [
+                  { $toLower: "$meta.scoreBy" },
+                  ["admin", "mod", "moderator"],
+                ],
+              },
+            },
+          },
+          { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
+          { $limit: 1 },
+          { $project: { _id: 1 } },
+        ],
+        as: "assess_staff",
+      },
+    },
+    {
+      $addFields: {
+        hasStaffAssessment: { $gt: [{ $size: "$assess_staff" }, 0] },
+      },
+    },
+
+    // ===== Tier/màu giống hệt getRankings =====
+    {
+      $addFields: {
+        zeroPoints: {
+          $and: [
+            { $eq: ["$points", 0] },
+            { $eq: ["$single", 0] },
+            { $eq: ["$double", 0] },
+            { $eq: ["$mix", 0] },
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        isGrey: { $and: ["$zeroPoints", { $eq: ["$totalTours", 0] }] },
+      },
+    },
+    {
+      $addFields: {
+        isGold: {
+          $and: [
+            { $not: ["$isGrey"] },
+            { $or: [{ $gt: ["$totalTours", 0] }, "$hasStaffAssessment"] },
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        isRed: {
+          $and: [
+            { $eq: ["$totalTours", 0] },
+            { $not: ["$isGold"] },
+            { $not: ["$isGrey"] },
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        colorRank: {
+          $cond: [
+            "$isGold",
+            0,
+            { $cond: ["$isRed", 1, { $cond: ["$isGrey", 2, 3] }] },
+          ],
+        },
+        tierLabel: {
+          $switch: {
+            branches: [
+              { case: "$isGold", then: "Official/Đã duyệt" },
+              { case: "$isRed", then: "Tự chấm" },
+              { case: "$isGrey", then: "0 điểm / Chưa đấu" },
+            ],
+            default: "Chưa có điểm",
+          },
+        },
+        tierColor: {
+          $switch: {
+            branches: [
+              { case: "$isGold", then: "yellow" },
+              { case: "$isRed", then: "red" },
+              { case: "$isGrey", then: "grey" },
+            ],
+            default: "grey",
+          },
+        },
+        reputation: { $min: [100, { $multiply: ["$totalTours", 10] }] },
+      },
+    },
+  ];
+
+  // Lấy doc của chính user (tóm tắt rank)
+  const meAgg = await Ranking.aggregate(
+    [
+      ...baseStages,
+      { $match: { user: uid } },
+      { $limit: 1 },
+      {
+        $project: {
+          _id: 0,
+          user: 1,
+          single: 1,
+          double: 1,
+          mix: 1,
+          points: 1,
+          updatedAt: 1,
+          tierLabel: 1,
+          tierColor: 1,
+          colorRank: 1,
+          totalTours: 1,
+          reputation: 1,
+        },
+      },
+    ],
+    { allowDiskUse: true }
+  );
+
+  const rank = meAgg[0] || {
+    user: uid,
+    single: 0,
+    double: 0,
+    mix: 0,
+    points: 0,
+    updatedAt: null,
+    tierLabel: "Chưa có điểm",
+    tierColor: "grey",
+    colorRank: 3,
+    totalTours: 0,
+    reputation: 0,
+  };
+
+  // Nếu user chưa có Ranking doc => không có thứ hạng
+  const hasRankingDoc = !!meAgg[0];
+
+  // Tổng số người có trong bảng xếp hạng (user hợp lệ)
+  const totalAgg = await Ranking.aggregate(
+    [
+      ...baseStages.slice(0, 2), // chỉ đến chỗ match user hợp lệ
+      { $count: "n" },
+    ],
+    { allowDiskUse: true }
+  );
+  let rankTotal = totalAgg?.[0]?.n ?? 0;
+
+  // Tính rankNo: ưu tiên window function, fallback nếu Mongo < 5
+  let rankNo = null;
+  if (hasRankingDoc) {
+    try {
+      const ranked = await Ranking.aggregate(
+        [
+          ...baseStages,
+          {
+            $setWindowFields: {
+              sortBy: {
+                colorRank: 1,
+                double: -1,
+                single: -1,
+                points: -1,
+                updatedAt: -1,
+                _id: 1,
+              },
+              output: { rankNo: { $rank: {} } },
+            },
+          },
+          { $match: { user: uid } },
+          { $limit: 1 },
+          { $project: { _id: 0, rankNo: 1 } },
+        ],
+        { allowDiskUse: true }
+      );
+      rankNo = ranked?.[0]?.rankNo ?? null;
+    } catch (e) {
+      // Fallback: sort + group + indexOfArray
+      const ord = await Ranking.aggregate(
+        [
+          ...baseStages,
+          {
+            $sort: {
+              colorRank: 1,
+              double: -1,
+              single: -1,
+              points: -1,
+              updatedAt: -1,
+              _id: 1,
+            },
+          },
+          { $group: { _id: null, users: { $push: "$user" } } },
+          {
+            $project: {
+              _id: 0,
+              rankNo: {
+                $let: {
+                  vars: { i: { $indexOfArray: ["$users", uid] } },
+                  in: {
+                    $cond: [{ $gte: ["$$i", 0] }, { $add: ["$$i", 1] }, null],
+                  },
+                },
+              },
+              total: { $size: "$users" },
+            },
+          },
+        ],
+        { allowDiskUse: true }
+      );
+      rankNo = ord?.[0]?.rankNo ?? null;
+      rankTotal = ord?.[0]?.total ?? rankTotal;
+    }
+  }
+
+  // Điểm ưu tiên lấy từ Ranking; fallback legacy User
+  const ratingSingle =
+    (rank?.single ?? user.ratingSingle ?? user.localRatings?.singles) || 0;
+  const ratingDouble =
+    (rank?.double ?? user.ratingDouble ?? user.localRatings?.doubles) || 0;
+
+  /* ---------- Token & response ---------- */
+  generateToken(res, user._id);
 
   const token = jwt.sign(
     {
@@ -178,8 +484,9 @@ const authUser = asyncHandler(async (req, res) => {
     process.env.JWT_SECRET,
     { expiresIn: "30d" }
   );
+
   void User.recordLogin(user._id, { req, method: "password", success: true });
-  /* ---------- Response ---------- */
+
   res.json({
     _id: user._id,
     name: user.name,
@@ -196,6 +503,9 @@ const authUser = asyncHandler(async (req, res) => {
     createdAt: user.createdAt,
     cccd: user.cccd,
     role: user.role,
+    rank, // điểm/tier theo đúng getRankings
+    rankNo, // ✅ thứ hạng 1-based (null nếu chưa có Ranking doc)
+    rankTotal, // tổng số người trong bảng xếp hạng hợp lệ
     token,
   });
 });
@@ -2391,4 +2701,272 @@ export const createEvaluation = asyncHandler(async (req, res) => {
     res.status(code);
     throw new Error(err?.message || "Không thể tạo phiếu chấm");
   }
+});
+
+
+export const reauthUser = asyncHandler(async (req, res) => {
+  // YÊU CẦU middleware protect đã set req.user._id từ JWT (cookie hoặc Bearer)
+  if (!req?.user?._id) {
+    res.status(401);
+    throw new Error("Không xác thực được người dùng");
+  }
+
+  const uid = new mongoose.Types.ObjectId(String(req.user._id));
+  const user = await User.findById(uid);
+  if (!user || user.isDeleted) {
+    res.status(403);
+    throw new Error("Tài khoản không khả dụng");
+  }
+
+  // ===== Pipeline nền giống getRankings để tính tier & điểm =====
+  const baseStages = [
+    {
+      $lookup: {
+        from: "users",
+        localField: "user",
+        foreignField: "_id",
+        as: "u",
+        pipeline: [{ $project: { _id: 1 } }],
+      },
+    },
+    { $match: { "u.0": { $exists: true } } },
+    {
+      $addFields: {
+        points: { $ifNull: ["$points", 0] },
+        single: { $ifNull: ["$single", 0] },
+        double: { $ifNull: ["$double", 0] },
+        mix: { $ifNull: ["$mix", 0] },
+        reputation: { $ifNull: ["$reputation", 0] },
+      },
+    },
+    {
+      $lookup: {
+        from: "registrations",
+        let: { uid: "$user" },
+        pipeline: [
+          { $match: { $expr: { $or: [ { $eq: ["$player1.user", "$$uid"] }, { $eq: ["$player2.user", "$$uid"] } ] } } },
+          {
+            $lookup: {
+              from: "tournaments",
+              localField: "tournament",
+              foreignField: "_id",
+              as: "tour",
+              pipeline: [{ $project: { _id: 1, status: 1, finishedAt: 1, endAt: 1 } }],
+            },
+          },
+          {
+            $addFields: {
+              status: { $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, "" ] },
+              finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
+              rawEndAt: { $arrayElemAt: ["$tour.endAt", 0] },
+            },
+          },
+          {
+            $addFields: {
+              endAtDate: { $convert: { input: "$rawEndAt", to: "date", onError: null, onNull: null } },
+              tourFinished: {
+                $or: [
+                  { $eq: ["$status", "finished"] },
+                  { $ne: ["$finishedAt", null] },
+                  { $and: [ { $ne: ["$endAtDate", null] }, { $lt: ["$endAtDate", new Date()] } ] },
+                ],
+              },
+            },
+          },
+          { $match: { tourFinished: true } },
+          { $group: { _id: "$tournament" } },
+          { $count: "n" },
+        ],
+        as: "finishedToursCount",
+      },
+    },
+    { $addFields: { totalTours: { $ifNull: [{ $arrayElemAt: ["$finishedToursCount.n", 0] }, 0] } } },
+    {
+      $lookup: {
+        from: "assessments",
+        let: { uid: "$user" },
+        pipeline: [
+          { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
+          { $match: { $expr: { $in: [{ $toLower: "$meta.scoreBy" }, ["admin", "mod", "moderator"]] } } },
+          { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
+          { $limit: 1 },
+          { $project: { _id: 1 } },
+        ],
+        as: "assess_staff",
+      },
+    },
+    { $addFields: { hasStaffAssessment: { $gt: [{ $size: "$assess_staff" }, 0] } } },
+    {
+      $addFields: {
+        zeroPoints: {
+          $and: [
+            { $eq: ["$points", 0] },
+            { $eq: ["$single", 0] },
+            { $eq: ["$double", 0] },
+            { $eq: ["$mix", 0] },
+          ],
+        },
+      },
+    },
+    { $addFields: { isGrey: { $and: ["$zeroPoints", { $eq: ["$totalTours", 0] }] } } },
+    {
+      $addFields: {
+        isGold: { $and: [ { $not: ["$isGrey"] }, { $or: [ { $gt: ["$totalTours", 0] }, "$hasStaffAssessment" ] } ] },
+      },
+    },
+    { $addFields: { isRed: { $and: [ { $eq: ["$totalTours", 0] }, { $not: ["$isGold"] }, { $not: ["$isGrey"] } ] } } },
+    {
+      $addFields: {
+        colorRank: { $cond: ["$isGold", 0, { $cond: ["$isRed", 1, { $cond: ["$isGrey", 2, 3] }] }] },
+        tierLabel: {
+          $switch: {
+            branches: [
+              { case: "$isGold", then: "Official/Đã duyệt" },
+              { case: "$isRed", then: "Tự chấm" },
+              { case: "$isGrey", then: "0 điểm / Chưa đấu" },
+            ],
+            default: "Chưa có điểm",
+          },
+        },
+        tierColor: {
+          $switch: {
+            branches: [
+              { case: "$isGold", then: "yellow" },
+              { case: "$isRed", then: "red" },
+              { case: "$isGrey", then: "grey" },
+            ],
+            default: "grey",
+          },
+        },
+        reputation: { $min: [100, { $multiply: ["$totalTours", 10] }] },
+      },
+    },
+  ];
+
+  // Lấy doc rank của chính user
+  const meAgg = await Ranking.aggregate(
+    [
+      ...baseStages,
+      { $match: { user: uid } },
+      { $limit: 1 },
+      {
+        $project: {
+          _id: 0,
+          user: 1,
+          single: 1,
+          double: 1,
+          mix: 1,
+          points: 1,
+          updatedAt: 1,
+          tierLabel: 1,
+          tierColor: 1,
+          colorRank: 1,
+          totalTours: 1,
+          reputation: 1,
+        },
+      },
+    ],
+    { allowDiskUse: true }
+  );
+
+  const rank = meAgg[0] || {
+    user: uid,
+    single: 0,
+    double: 0,
+    mix: 0,
+    points: 0,
+    updatedAt: null,
+    tierLabel: "Chưa có điểm",
+    tierColor: "grey",
+    colorRank: 3,
+    totalTours: 0,
+    reputation: 0,
+  };
+
+  // rankNo bằng window function (Mongo 7/8 OK) — khớp getRankings
+  let rankNo = null;
+  try {
+    const ranked = await Ranking.aggregate(
+      [
+        ...baseStages,
+        {
+          $setWindowFields: {
+            sortBy: {
+              colorRank: 1,
+              double: -1,
+              single: -1,
+              points: -1,
+              updatedAt: -1,
+              _id: 1,
+            },
+            output: { rankNo: { $rank: {} } },
+          },
+        },
+        { $match: { user: uid } },
+        { $limit: 1 },
+        { $project: { _id: 0, rankNo: 1 } },
+      ],
+      { allowDiskUse: true }
+    );
+    rankNo = ranked?.[0]?.rankNo ?? null;
+  } catch (e) {
+    // (hiếm khi cần với Mongo 7/8)
+    rankNo = null;
+  }
+
+  // Tính điểm để nhét vào token/user object (ưu tiên Ranking)
+  const ratingSingle =
+    (rank?.single ?? user.ratingSingle ?? user.localRatings?.singles) || 0;
+  const ratingDouble =
+    (rank?.double ?? user.ratingDouble ?? user.localRatings?.doubles) || 0;
+
+  // Gia hạn phiên (tuỳ bạn, có thể bỏ nếu không muốn)
+  generateToken(res, user._id);
+
+  const token = jwt.sign(
+    {
+      userId: user._id,
+      name: user.name,
+      nickname: user.nickname,
+      phone: user.phone,
+      email: user.email,
+      avatar: user.avatar,
+      province: user.province,
+      dob: user.dob,
+      verified: user.verified,
+      cccdStatus: user.cccdStatus,
+      ratingSingle,
+      ratingDouble,
+      createdAt: user.createdAt,
+      cccd: user.cccd,
+      role: user.role,
+      // KHÔNG nhét rankNo vào JWT để tránh phình token; client lấy từ payload user bên dưới
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "30d" }
+  );
+
+  // Trả shape { user, token } để reuse logic “giống login”
+  res.json({
+    token,
+    user: {
+      _id: user._id,
+      name: user.name,
+      nickname: user.nickname,
+      phone: user.phone,
+      email: user.email,
+      avatar: user.avatar,
+      province: user.province,
+      dob: user.dob,
+      verified: user.verified,
+      cccdStatus: user.cccdStatus,
+      ratingSingle,
+      ratingDouble,
+      createdAt: user.createdAt,
+      cccd: user.cccd,
+      role: user.role,
+      rank,
+      rankNo, // ✅ thứ hạng 1-based
+    },
+  });
 });
