@@ -3208,7 +3208,7 @@ async function extractCccdFieldsFromImages({ frontUrl, backUrl }) {
   if (backPart) imageContents.push(backPart);
 
   if (!imageContents.length) {
-    throw new Error("Không có ảnh CCCD hợp lệ để gửi OpenAI");
+    throw new Error("Không có ảnh CCCD hợp lệ để check");
   }
 
   const resp = await openai.chat.completions.create({
@@ -3293,14 +3293,14 @@ async function extractCccdFieldsFromImages({ frontUrl, backUrl }) {
   }
 
   if (!jsonText) {
-    throw new Error("OpenAI không trả về nội dung JSON");
+    throw new Error("API không trả về nội dung JSON");
   }
 
   let parsed;
   try {
     parsed = JSON.parse(jsonText);
   } catch (e) {
-    throw new Error("Không parse được JSON từ OpenAI");
+    throw new Error("Không parse được JSON từ API");
   }
 
   return {
@@ -3469,7 +3469,7 @@ export const backfillUsersFromCccd = asyncHandler(async (req, res) => {
   if (dryRun) {
     // Chế độ xem trước: chỉ trả danh sách user sẽ bị ảnh hưởng, không gọi OpenAI
     return res.json({
-      message: "Dry-run: chỉ liệt kê user sẽ gọi OpenAI, không cập nhật DB.",
+      message: "Dry-run: chỉ liệt kê user sẽ gọi, không cập nhật DB.",
       totalCandidates: users.length,
       users: users.map((u) => ({
         id: u._id,

@@ -29,6 +29,26 @@ const normalizeTier = (name) => {
   return found || null;
 };
 
+// ✅ chỉ ép https ở môi trường production
+const FORCE_HTTPS = process.env.NODE_ENV === "production";
+
+const ensureHttps = (url) => {
+  if (!url) return url;
+  const s = String(url).trim();
+  if (!s) return s;
+
+  // đã là https rồi thì giữ nguyên
+  if (/^https:\/\//i.test(s)) return s;
+
+  // http => https
+  if (/^http:\/\//i.test(s)) {
+    return s.replace(/^http:\/\//i, "https://");
+  }
+
+  // relative path (/uploads/...) thì kệ, để frontend/normalizeUrl xử lý
+  return s;
+};
+
 /* ---------- controller ---------- */
 export const getOverlayConfig = asyncHandler(async (req, res) => {
   const limit = parseLimitQP(req.query.limit, 12, 200);
@@ -54,8 +74,12 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
     }
   } catch {}
 
-  // ❗ Không có tid -> trả mảng rỗng (đúng yêu cầu bạn)
+  // ❗ Không có tid -> trả mảng rỗng
   if (!tid) {
+    // ép https cho logo nếu đang chạy prod
+    if (FORCE_HTTPS) {
+      webLogoUrl = ensureHttps(webLogoUrl);
+    }
     return res.json({ webLogoUrl, webLogoAlt, sponsors: [] });
   }
 
@@ -79,7 +103,19 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
 
   if (limit > 0) q.limit(limit);
 
-  const sponsors = await q.lean();
+  let sponsors = await q.lean();
+
+  // ✅ ép https cho sponsor khi chạy production
+  if (FORCE_HTTPS) {
+    webLogoUrl = ensureHttps(webLogoUrl);
+
+    sponsors = sponsors.map((s) => ({
+      ...s,
+      logoUrl: ensureHttps(s.logoUrl),
+      websiteUrl: ensureHttps(s.websiteUrl),
+      refLink: ensureHttps(s.refLink),
+    }));
+  }
 
   return res.json({ webLogoUrl, webLogoAlt, sponsors });
 });

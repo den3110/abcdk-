@@ -230,7 +230,7 @@ export async function extractCCCDOpenAI(req, res) {
   } catch (err) {
     console.error("[cccd-openai] extract error:", err);
     return res.status(500).json({
-      message: "OpenAI extract lỗi",
+      message: "Ảnh extract lỗi",
       error: String(err?.message || err),
     });
   }
