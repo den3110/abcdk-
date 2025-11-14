@@ -61,7 +61,7 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
 
   // Có tid -> chỉ lấy sponsor gắn đúng giải
   const filter = {};
-  if (featured !== undefined) filter.featured = featured;
+  // if (featured !== undefined) filter.featured = featured;
 
   if (tierQP) {
     const tiers = String(tierQP).split(",").map(normalizeTier).filter(Boolean);
