@@ -189,7 +189,7 @@ export default function AppInstallBanner({ links }) {
     <>
       <div
         ref={barRef}
-        className="position-fixed top-0 start-0 end-0"
+        className="position-fixed bottom-0 start-0 end-0"
         style={{
           zIndex: 1050,
           background: "linear-gradient(90deg, #111827, #0b1220)",

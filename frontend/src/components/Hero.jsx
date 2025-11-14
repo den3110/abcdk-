@@ -227,7 +227,7 @@ export default function Hero() {
   return (
     <>
       {/* ======= Smart install banner (mobile) ======= */}
-      {contactInfo?.apps && (
+      {/* {contactInfo?.apps && ( */}
         <AppInstallBanner
           links={{
             appStore: contactInfo.apps.appStore || "",
@@ -235,7 +235,7 @@ export default function Hero() {
             apkPickleTour: contactInfo.apps.apkPickleTour || "",
           }}
         />
-      )}
+      {/* )} */}
 
       {/* HERO */}
       <section className="bg-light py-5 text-center text-lg-start">
