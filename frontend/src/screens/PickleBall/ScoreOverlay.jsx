@@ -1734,15 +1734,15 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       </div>
 
       {/* WEB LOGO (TOP-RIGHT, fixed) — chỉ hiện nếu overlay=1 & có webLogoUrl */}
-      {/* {overlayEnabled && webLogoUrl ? (
+      {overlayEnabled && webLogoUrl ? (
         <img
           src={webLogoUrl}
           alt="web-logo"
           className="ovl-weblogo"
           style={{
             position: "fixed",
-            top: 16,
-            right: 16,
+            left: 16,
+            bottom: 16,
             height: "var(--weblogo-h)",
             width: "auto",
             display: "block",
@@ -1753,7 +1753,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
             ...cssVarStyle,
           }}
         />
-      ) : null} */}
+      ) : null}
 
       {/* SPONSORS (BOTTOM-LEFT, fixed) — overlay=1, chỉ lấy s.logoUrl */}
       {overlayEnabled && sponsorLogos.length ? (
