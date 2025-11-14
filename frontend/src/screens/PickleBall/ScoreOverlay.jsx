@@ -1734,7 +1734,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
       </div>
 
       {/* WEB LOGO (TOP-RIGHT, fixed) — chỉ hiện nếu overlay=1 & có webLogoUrl */}
-      {overlayEnabled && webLogoUrl ? (
+      {/* {overlayEnabled && webLogoUrl ? (
         <img
           src={webLogoUrl}
           alt="web-logo"
@@ -1753,7 +1753,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
             ...cssVarStyle,
           }}
         />
-      ) : null}
+      ) : null} */}
 
       {/* SPONSORS (BOTTOM-LEFT, fixed) — overlay=1, chỉ lấy s.logoUrl */}
       {overlayEnabled && sponsorLogos.length ? (
@@ -1761,8 +1761,8 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
           className="ovl-sponsors"
           style={{
             position: "fixed",
-            left: 16,
-            bottom: 16,
+            right: 16,
+            top: 16,
             display: "inline-flex",
             alignItems: "center",
             gap: 10,
@@ -1775,7 +1775,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
             ...cssVarStyle,
           }}
         >
-          {sponsorLogos.slice(0, overlayParams.limit).map((src, idx) => (
+          {sponsorLogos.slice(0, overlayParams.limit || 12).map((src, idx) => (
             <img
               key={idx}
               src={src}
