@@ -1741,8 +1741,8 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
           className="ovl-weblogo"
           style={{
             position: "fixed",
-            left: 16,
-            bottom: 16,
+            top: 16,
+            right: 16,
             height: "var(--weblogo-h)",
             width: "auto",
             display: "block",
@@ -1761,8 +1761,8 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
           className="ovl-sponsors"
           style={{
             position: "fixed",
-            right: 16,
-            top: 16,
+            left: 16,
+            bottom: 16,
             display: "inline-flex",
             alignItems: "center",
             gap: 10,
