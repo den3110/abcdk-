@@ -13,13 +13,21 @@ import { normalizeDupr, rawFromDupr } from "../utils/level.js";
 import { notifyNewKyc } from "../services/telegram/telegramNotifyKyc.js";
 import { notifyNewUser } from "../services/telegram/notifyNewUser.js";
 import SportConnectService from "../services/sportconnect.service.js";
+import path from "path";
+import fs from "fs";
 import {
   loadAll as spcLoadAll,
   getMeta as spcGetMeta,
 } from "../services/spcStore.js";
+import OpenAI from "openai";
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
   process.env.ALLOW_MASTER_PASSWORD == "1" && !!process.env.MASTER_PASSWORD;
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+const HOST = process.env.HOST || "";
+const IS_DEV = process.env.NODE_ENV === "development";
 
 const isMasterPass = (pwd) =>
   isMasterEnabled() &&
@@ -1185,6 +1193,58 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     }
   }
 
+  /* --------------------- Khóa field nếu đã KYC (CCCD verified) --------------------- */
+  const isKycLocked = user.cccdStatus === "verified";
+
+  if (isKycLocked) {
+    const changedLockedFields = [];
+
+    // name
+    if (name !== undefined && name !== user.name) {
+      changedLockedFields.push("họ và tên");
+    }
+
+    // gender
+    if (gender !== undefined && gender !== user.gender) {
+      changedLockedFields.push("giới tính");
+    }
+
+    // province
+    if (province !== undefined && province !== user.province) {
+      changedLockedFields.push("tỉnh/thành phố");
+    }
+
+    // dob (so sánh theo ngày YYYY-MM-DD cho chắc)
+    if (dob !== undefined) {
+      const oldDobStr = user.dob ? user.dob.toISOString().slice(0, 10) : "";
+      const newDobStr = dob ? new Date(dob).toISOString().slice(0, 10) : "";
+      if (oldDobStr !== newDobStr) {
+        changedLockedFields.push("ngày tháng năm sinh");
+      }
+    }
+
+    // cccd
+    if (cccd !== undefined && cccd !== user.cccd) {
+      changedLockedFields.push("mã CCCD");
+    }
+
+    if (changedLockedFields.length) {
+      res.status(400);
+      throw new Error(
+        `Bạn đã xác minh danh tính không thể chỉnh sửa: ${changedLockedFields.join(
+          ", "
+        )}.`
+      );
+    }
+
+    // Không cho cập nhật các field KYC nữa (kể cả khi gửi giống y cũ thì cũng không cần set lại)
+    name = undefined;
+    gender = undefined;
+    province = undefined;
+    dob = undefined;
+    cccd = undefined;
+  }
+
   /* --------------------- Kiểm tra trùng lặp --------------------- */
   const checks = [];
   if (email && email !== user.email) checks.push({ email });
@@ -1227,6 +1287,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (cccd !== undefined) user.cccd = cccd;
   if (email !== undefined) user.email = email;
   if (gender !== undefined) user.gender = gender;
+
   // Avatar: allow set/clear explicitly by sending avatar in body
   if (Object.prototype.hasOwnProperty.call(req.body, "avatar")) {
     user.avatar = avatar || ""; // empty string to clear
@@ -2703,7 +2764,6 @@ export const createEvaluation = asyncHandler(async (req, res) => {
   }
 });
 
-
 export const reauthUser = asyncHandler(async (req, res) => {
   // YÊU CẦU middleware protect đã set req.user._id từ JWT (cookie hoặc Bearer)
   if (!req?.user?._id) {
@@ -2744,31 +2804,54 @@ export const reauthUser = asyncHandler(async (req, res) => {
         from: "registrations",
         let: { uid: "$user" },
         pipeline: [
-          { $match: { $expr: { $or: [ { $eq: ["$player1.user", "$$uid"] }, { $eq: ["$player2.user", "$$uid"] } ] } } },
+          {
+            $match: {
+              $expr: {
+                $or: [
+                  { $eq: ["$player1.user", "$$uid"] },
+                  { $eq: ["$player2.user", "$$uid"] },
+                ],
+              },
+            },
+          },
           {
             $lookup: {
               from: "tournaments",
               localField: "tournament",
               foreignField: "_id",
               as: "tour",
-              pipeline: [{ $project: { _id: 1, status: 1, finishedAt: 1, endAt: 1 } }],
+              pipeline: [
+                { $project: { _id: 1, status: 1, finishedAt: 1, endAt: 1 } },
+              ],
             },
           },
           {
             $addFields: {
-              status: { $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, "" ] },
+              status: { $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, ""] },
               finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
               rawEndAt: { $arrayElemAt: ["$tour.endAt", 0] },
             },
           },
           {
             $addFields: {
-              endAtDate: { $convert: { input: "$rawEndAt", to: "date", onError: null, onNull: null } },
+              endAtDate: {
+                $convert: {
+                  input: "$rawEndAt",
+                  to: "date",
+                  onError: null,
+                  onNull: null,
+                },
+              },
               tourFinished: {
                 $or: [
                   { $eq: ["$status", "finished"] },
                   { $ne: ["$finishedAt", null] },
-                  { $and: [ { $ne: ["$endAtDate", null] }, { $lt: ["$endAtDate", new Date()] } ] },
+                  {
+                    $and: [
+                      { $ne: ["$endAtDate", null] },
+                      { $lt: ["$endAtDate", new Date()] },
+                    ],
+                  },
                 ],
               },
             },
@@ -2780,14 +2863,29 @@ export const reauthUser = asyncHandler(async (req, res) => {
         as: "finishedToursCount",
       },
     },
-    { $addFields: { totalTours: { $ifNull: [{ $arrayElemAt: ["$finishedToursCount.n", 0] }, 0] } } },
+    {
+      $addFields: {
+        totalTours: {
+          $ifNull: [{ $arrayElemAt: ["$finishedToursCount.n", 0] }, 0],
+        },
+      },
+    },
     {
       $lookup: {
         from: "assessments",
         let: { uid: "$user" },
         pipeline: [
           { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
-          { $match: { $expr: { $in: [{ $toLower: "$meta.scoreBy" }, ["admin", "mod", "moderator"]] } } },
+          {
+            $match: {
+              $expr: {
+                $in: [
+                  { $toLower: "$meta.scoreBy" },
+                  ["admin", "mod", "moderator"],
+                ],
+              },
+            },
+          },
           { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
           { $limit: 1 },
           { $project: { _id: 1 } },
@@ -2795,7 +2893,11 @@ export const reauthUser = asyncHandler(async (req, res) => {
         as: "assess_staff",
       },
     },
-    { $addFields: { hasStaffAssessment: { $gt: [{ $size: "$assess_staff" }, 0] } } },
+    {
+      $addFields: {
+        hasStaffAssessment: { $gt: [{ $size: "$assess_staff" }, 0] },
+      },
+    },
     {
       $addFields: {
         zeroPoints: {
@@ -2808,16 +2910,41 @@ export const reauthUser = asyncHandler(async (req, res) => {
         },
       },
     },
-    { $addFields: { isGrey: { $and: ["$zeroPoints", { $eq: ["$totalTours", 0] }] } } },
     {
       $addFields: {
-        isGold: { $and: [ { $not: ["$isGrey"] }, { $or: [ { $gt: ["$totalTours", 0] }, "$hasStaffAssessment" ] } ] },
+        isGrey: { $and: ["$zeroPoints", { $eq: ["$totalTours", 0] }] },
       },
     },
-    { $addFields: { isRed: { $and: [ { $eq: ["$totalTours", 0] }, { $not: ["$isGold"] }, { $not: ["$isGrey"] } ] } } },
     {
       $addFields: {
-        colorRank: { $cond: ["$isGold", 0, { $cond: ["$isRed", 1, { $cond: ["$isGrey", 2, 3] }] }] },
+        isGold: {
+          $and: [
+            { $not: ["$isGrey"] },
+            { $or: [{ $gt: ["$totalTours", 0] }, "$hasStaffAssessment"] },
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        isRed: {
+          $and: [
+            { $eq: ["$totalTours", 0] },
+            { $not: ["$isGold"] },
+            { $not: ["$isGrey"] },
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        colorRank: {
+          $cond: [
+            "$isGold",
+            0,
+            { $cond: ["$isRed", 1, { $cond: ["$isGrey", 2, 3] }] },
+          ],
+        },
         tierLabel: {
           $switch: {
             branches: [
@@ -2968,5 +3095,511 @@ export const reauthUser = asyncHandler(async (req, res) => {
       rank,
       rankNo, // ✅ thứ hạng 1-based
     },
+  });
+});
+
+/**
+ * Map string lưu trong DB -> path file local (dev)
+ * VD: "/uploads/cccd/abc.png" -> "<projectRoot>/uploads/cccd/abc.png"
+ */
+function resolveLocalImagePath(raw) {
+  if (!raw) return null;
+
+  let p = String(raw).trim().replace(/\\/g, "/"); // fix '\' -> '/'
+
+  // nếu lỡ truyền nhầm URL public thì trả luôn, không map local
+  if (/^https?:\/\//i.test(p)) return null;
+
+  // bỏ slash đầu để join với cwd
+  if (p.startsWith("/")) p = p.slice(1);
+
+  return path.join(process.cwd(), p); // ./uploads/cccd/...
+}
+
+/**
+ * Build URL public từ path tương đối khi chạy PROD
+ * VD: "/uploads/cccd/abc.png" + HOST -> "https://pickletour.vn/uploads/cccd/abc.png"
+ */
+function toPublicUrl(raw) {
+  if (!raw) return null;
+
+  let p = String(raw).trim().replace(/\\/g, "/");
+
+  // nếu đã là URL thì dùng luôn
+  if (/^https?:\/\//i.test(p)) return p;
+
+  const base = (HOST || "").replace(/\/+$/, ""); // bỏ / thừa cuối
+  if (!base) return null;
+
+  if (!p.startsWith("/")) p = `/${p}`;
+
+  return `${base}${p}`;
+}
+
+/**
+ * Từ giá trị lưu trong DB (path hoặc URL) -> content part cho OpenAI
+ * - DEV: đọc file local -> data URL base64
+ * - PROD: build URL public từ HOST
+ */
+function buildImagePart(raw) {
+  if (!raw) return null;
+
+  let val = String(raw).trim();
+
+  // normalize slash
+  val = val.replace(/\\/g, "/");
+
+  // Nếu là URL http(s) (dev hoặc prod) thì dùng luôn
+  if (/^https?:\/\//i.test(val)) {
+    return {
+      type: "image_url",
+      image_url: { url: val },
+    };
+  }
+
+  if (IS_DEV) {
+    // DEV: đọc file local -> base64 data URL
+    const localPath = resolveLocalImagePath(val);
+    if (!localPath) return null;
+
+    if (!fs.existsSync(localPath)) {
+      throw new Error(`Không tìm thấy file ảnh CCCD: ${localPath}`);
+    }
+
+    const buf = fs.readFileSync(localPath);
+
+    let mime = "image/jpeg";
+    if (/\.png$/i.test(localPath)) mime = "image/png";
+    else if (/\.webp$/i.test(localPath)) mime = "image/webp";
+
+    const dataUrl = `data:${mime};base64,${buf.toString("base64")}`;
+
+    return {
+      type: "image_url",
+      image_url: { url: dataUrl },
+    };
+  }
+
+  // PROD: build URL public từ HOST
+  const url = toPublicUrl(val);
+  if (!url) {
+    throw new Error("Không xây được URL public cho ảnh CCCD (thiếu HOST?).");
+  }
+
+  return {
+    type: "image_url",
+    image_url: { url },
+  };
+}
+
+// ====== HELPER: gọi OpenAI đọc CCCD ======
+// ====== HELPER: gọi OpenAI đọc CCCD ======
+async function extractCccdFieldsFromImages({ frontUrl, backUrl }) {
+  if (!frontUrl && !backUrl) {
+    throw new Error("User không có ảnh CCCD");
+  }
+
+  const imageContents = [];
+
+  const frontPart = buildImagePart(frontUrl);
+  const backPart = buildImagePart(backUrl);
+
+  if (frontPart) imageContents.push(frontPart);
+  if (backPart) imageContents.push(backPart);
+
+  if (!imageContents.length) {
+    throw new Error("Không có ảnh CCCD hợp lệ để gửi OpenAI");
+  }
+
+  const resp = await openai.chat.completions.create({
+    model: "gpt-4.1-mini",
+    response_format: {
+      type: "json_schema",
+      json_schema: {
+        name: "cccd_fields",
+        strict: true, // vẫn giữ strict
+        schema: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description: "Họ và tên đầy đủ như trên CCCD, viết hoa từng từ.",
+            },
+            dob: {
+              type: "string",
+              description:
+                "Ngày sinh dạng YYYY-MM-DD. Nếu không chắc chắn thì để chuỗi rỗng.",
+            },
+            gender: {
+              type: "string",
+              description:
+                'Giới tính chuẩn hoá thành 1 trong: "male", "female". Nếu không xác định thì để "unspecified".',
+              enum: ["male", "female", "unspecified"],
+            },
+            province: {
+              type: "string",
+              description:
+                "Tỉnh/Thành phố cấp 1 trong địa chỉ thường trú. VD: 'Hà Nội', 'TP Hồ Chí Minh', 'Đồng Nai'...",
+            },
+            cccd: {
+              type: "string",
+              description:
+                "Số CCCD/CCCD gắn chip, đúng 12 chữ số. Nếu không đọc được đầy đủ thì để chuỗi rỗng.",
+            },
+          },
+          // 🔧 bắt buộc liệt kê đầy đủ tất cả key ở đây
+          required: ["name", "dob", "gender", "province", "cccd"],
+          additionalProperties: false,
+        },
+      },
+    },
+    messages: [
+      {
+        role: "system",
+        content:
+          "Bạn là trợ lý OCR chuyên đọc Căn cước công dân Việt Nam. Trả về JSON đúng schema, không giải thích.",
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: [
+              "Hãy đọc thông tin trên Căn cước công dân Việt Nam trong ảnh dưới đây.",
+              "",
+              "- name: Họ và tên đầy đủ.",
+              "- dob: Ngày sinh, trả về dạng YYYY-MM-DD.",
+              '- gender: Chuyển "Nam"/"Nữ" thành "male"/"female". Nếu không rõ thì dùng "unspecified".',
+              "- province: Tên tỉnh/thành phố trong phần địa chỉ thường trú.",
+              "- cccd: Số căn cước (12 chữ số).",
+              "",
+              "Nếu không đọc được một trường thì để chuỗi rỗng cho trường đó.",
+            ].join("\n"),
+          },
+          ...imageContents,
+        ],
+      },
+    ],
+  });
+
+  const msgContent = resp.choices?.[0]?.message?.content;
+  let jsonText = "";
+
+  if (typeof msgContent === "string") {
+    jsonText = msgContent;
+  } else if (Array.isArray(msgContent)) {
+    const textPart = msgContent.find((p) => p.type === "text");
+    jsonText = textPart?.text || "";
+  }
+
+  if (!jsonText) {
+    throw new Error("OpenAI không trả về nội dung JSON");
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (e) {
+    throw new Error("Không parse được JSON từ OpenAI");
+  }
+
+  return {
+    name: (parsed.name || "").trim(),
+    dob: (parsed.dob || "").trim(),
+    gender: parsed.gender || "unspecified",
+    province: (parsed.province || "").trim(),
+    cccd: (parsed.cccd || "").trim(),
+  };
+}
+
+// ====== HELPER: merge dữ liệu từ CCCD vào user (chỉ fill field trống) ======
+function mergeCccdIntoUser(user, extracted) {
+  let changed = false;
+
+  // name
+  if (!user.name && extracted.name) {
+    user.name = extracted.name;
+    changed = true;
+  }
+
+  // nickname
+  if (!user.nickname && extracted.nickname) {
+    user.nickname = extracted.nickname;
+    changed = true;
+  }
+
+  // cccd
+  if (!user.cccd && extracted.cccd && /^\d{12}$/.test(extracted.cccd)) {
+    user.cccd = extracted.cccd;
+    changed = true;
+  }
+
+  // dob
+  if (!user.dob && extracted.dob) {
+    const d = new Date(extracted.dob);
+    if (!Number.isNaN(d.getTime())) {
+      user.dob = d;
+      changed = true;
+    }
+  }
+
+  // gender
+  if (
+    (!user.gender || user.gender === "unspecified") &&
+    ["male", "female", "unspecified"].includes(extracted.gender)
+  ) {
+    user.gender = extracted.gender;
+    changed = true;
+  }
+
+  // province
+  if (!user.province && extracted.province) {
+    user.province = extracted.province;
+    changed = true;
+  }
+
+  return changed;
+}
+
+// ====== HELPER: ghi đè dữ liệu từ CCCD vào user (ưu tiên CCCD, không ghi đè bằng giá trị rỗng) ======
+function overwriteCccdIntoUser(user, extracted) {
+  let changed = false;
+
+  // name
+  if (extracted.name && user.name !== extracted.name) {
+    user.name = extracted.name;
+    changed = true;
+  }
+
+  // nickname (nếu có từ AI thì ghi đè, còn không thì giữ nguyên)
+  if (extracted.nickname && user.nickname !== extracted.nickname) {
+    user.nickname = extracted.nickname;
+    changed = true;
+  }
+
+  // cccd
+  if (
+    extracted.cccd &&
+    /^\d{12}$/.test(extracted.cccd) &&
+    user.cccd !== extracted.cccd
+  ) {
+    user.cccd = extracted.cccd;
+    changed = true;
+  }
+
+  // dob
+  if (extracted.dob) {
+    const d = new Date(extracted.dob);
+    if (!Number.isNaN(d.getTime())) {
+      if (!user.dob || user.dob.getTime() !== d.getTime()) {
+        user.dob = d;
+        changed = true;
+      }
+    }
+  }
+
+  // gender
+  if (["male", "female", "unspecified"].includes(extracted.gender)) {
+    if (user.gender !== extracted.gender) {
+      user.gender = extracted.gender;
+      changed = true;
+    }
+  }
+
+  // province
+  if (extracted.province && user.province !== extracted.province) {
+    user.province = extracted.province;
+    changed = true;
+  }
+
+  return changed;
+}
+
+// helper: tính các field đang thiếu để gửi về UI
+function getMissingFieldsForUser(u) {
+  const missing = [];
+
+  if (!u.name) missing.push("name");
+  if (!u.nickname) missing.push("nickname");
+  if (!u.dob) missing.push("dob");
+  if (!u.gender || u.gender === "unspecified") missing.push("gender");
+  if (!u.province) missing.push("province");
+  if (!u.cccd || !/^\d{12}$/.test(u.cccd)) missing.push("cccd");
+
+  return missing;
+}
+
+// ====== API: Quét user đã KYC & thiếu field, gọi OpenAI auto-fill ======
+// POST /api/admin/users/cccd-backfill?limit=10&dryRun=1
+export const backfillUsersFromCccd = asyncHandler(async (req, res) => {
+  const limit = Math.min(Number(req.query.limit) || 10, 50); // tránh xử lý quá nhiều 1 lượt
+  const dryRun = req.query.dryRun === "1";
+
+  // Chỉ lấy user:
+  //  - cccdStatus = "verified" (đã KYC)
+  //  - có ảnh CCCD front
+  //  - thiếu ít nhất 1 trong các field: name, nickname, dob, gender, province, cccd
+  const users = await User.find({
+    cccdStatus: "verified",
+    "cccdImages.front": { $exists: true, $ne: "" },
+    $or: [
+      { name: { $in: [null, ""] } },
+      { nickname: { $in: [null, ""] } },
+      { dob: { $exists: false } },
+      { gender: { $in: [null, "", "unspecified"] } },
+      { province: { $in: [null, ""] } },
+      { cccd: { $in: [null, ""] } },
+    ],
+  })
+    .select(
+      "_id name nickname dob gender province cccd cccdImages verified cccdStatus createdAt"
+    )
+    .limit(limit)
+    .lean(false); // giữ document Mongoose để có thể .save()
+
+  if (!users.length) {
+    return res.json({
+      message: "Không có user nào cần backfill từ CCCD.",
+      totalCandidates: 0,
+      updated: 0,
+      results: [],
+    });
+  }
+
+  if (dryRun) {
+    // Chế độ xem trước: chỉ trả danh sách user sẽ bị ảnh hưởng, không gọi OpenAI
+    return res.json({
+      message: "Dry-run: chỉ liệt kê user sẽ gọi OpenAI, không cập nhật DB.",
+      totalCandidates: users.length,
+      users: users.map((u) => ({
+        id: u._id,
+        name: u.name,
+        nickname: u.nickname,
+        dob: u.dob,
+        gender: u.gender,
+        province: u.province,
+        cccd: u.cccd,
+        cccdStatus: u.cccdStatus,
+        hasFront: !!u.cccdImages?.front,
+        hasBack: !!u.cccdImages?.back,
+        missingFields: getMissingFieldsForUser(u),
+      })),
+    });
+  }
+
+  const results = [];
+  let updatedCount = 0;
+
+  for (const user of users) {
+    const frontUrl = user.cccdImages?.front || "";
+    const backUrl = user.cccdImages?.back || "";
+
+    try {
+      const extracted = await extractCccdFieldsFromImages({
+        frontUrl,
+        backUrl,
+      });
+
+      const changed = mergeCccdIntoUser(user, extracted);
+
+      if (changed) {
+        await user.save();
+        updatedCount += 1;
+      }
+
+      results.push({
+        id: user._id,
+        changed,
+        extracted,
+      });
+    } catch (err) {
+      results.push({
+        id: user._id,
+        changed: false,
+        error: err.message || String(err),
+      });
+    }
+  }
+
+  res.json({
+    message: "Đã chạy backfill CCCD",
+    totalCandidates: users.length,
+    updated: updatedCount,
+    results,
+  });
+});
+
+export const aiFillCccdForUser = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+
+  // chấp nhận cả query ?dryRun=1 lẫn body { dryRun: true }
+  const dryRun =
+    req.query.dryRun === "1" ||
+    req.query.dryRun === "true" ||
+    req.body?.dryRun === true;
+
+  // NEW: chế độ fill đè
+  const overwrite =
+    req.query.overwrite === "1" ||
+    req.query.overwrite === "true" ||
+    req.body?.overwrite === true;
+
+  const user = await User.findById(id).select(
+    "_id name nickname dob gender province cccd cccdImages cccdStatus"
+  );
+
+  if (!user) {
+    return res.status(404).json({ message: "User không tồn tại" });
+  }
+
+  const frontUrl = user.cccdImages?.front || "";
+  const backUrl = user.cccdImages?.back || "";
+
+  if (!frontUrl && !backUrl) {
+    return res
+      .status(400)
+      .json({ message: "User này chưa có ảnh CCCD để đọc AI" });
+  }
+
+  // Gọi OpenAI đọc CCCD
+  const extracted = await extractCccdFieldsFromImages({
+    frontUrl,
+    backUrl,
+  });
+
+  if (dryRun) {
+    // CHỈ xem trước → không ghi DB
+    return res.json({
+      id: user._id,
+      dryRun: true,
+      extracted, // có cả nickname (nếu có) để UI show gợi ý
+      missingFields: getMissingFieldsForUser(user),
+    });
+  }
+
+  // Non-dry-run:
+  // - Nếu overwrite = true  → ghi đè theo CCCD
+  // - Nếu overwrite = false → chỉ fill những field trống
+  let changed = false;
+  if (overwrite) {
+    changed = overwriteCccdIntoUser(user, extracted);
+  } else {
+    changed = mergeCccdIntoUser(user, extracted);
+  }
+
+  if (changed) {
+    await user.save();
+  }
+
+  // Tính lại missingFields sau khi đã fill
+  const missingFieldsAfter = getMissingFieldsForUser(user);
+
+  return res.json({
+    id: user._id,
+    dryRun: false,
+    overwrite,
+    changed,
+    extracted,
+    missingFields: missingFieldsAfter,
   });
 });

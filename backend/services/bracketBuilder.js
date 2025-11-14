@@ -37,17 +37,40 @@ export async function buildKnockoutBracket({
   stage = 1,
   drawSize,
   firstRoundSeeds = [],
-  // ✅ NEW:
-  rules = undefined, // rule mặc định cho KO
-  finalRules = null, // rule áp riêng trận chung kết KO
+  // Rule mặc định cho toàn bộ KO
+  rules = undefined,
+  // ✅ NEW: rule riêng cho BÁN KẾT
+  semiRules = null,
+  // Rule riêng cho CHUNG KẾT KO
+  finalRules = null,
   session = null,
 }) {
   const size = Math.max(2, ceilPow2(drawSize || 2));
-  const rounds = Math.round(Math.log2(size));
+  const rounds = Math.round(Math.log2(size)); // VD size=8 => rounds=3
   const firstPairs = size / 2;
 
   const baseRules = sanitizeRules(rules);
+  const semiOnly = semiRules ? sanitizeRules(semiRules) : null;
   const finalOnly = finalRules ? sanitizeRules(finalRules) : null;
+
+  // Helper chọn rule cho từng trận
+  function pickRules(roundIndex, matchIndex) {
+    // Trận CHUNG KẾT (vòng cuối, trận đầu tiên)
+    if (roundIndex === rounds && matchIndex === 0 && finalOnly) {
+      return finalOnly;
+    }
+
+    // Trận BÁN KẾT:
+    // - Nếu có >= 2 vòng thì bán kết là vòng "rounds - 1"
+    //   (VD: size=4 => rounds=2 => r=1 là bán kết;
+    //        size=8 => rounds=3 => r=2 là bán kết)
+    if (rounds >= 2 && roundIndex === rounds - 1 && semiOnly) {
+      return semiOnly;
+    }
+
+    // Còn lại dùng rule mặc định
+    return baseRules;
+  }
 
   // Chuẩn hoá seeds cho R1: thiếu -> BYE
   const r1Seeds = Array.from({ length: firstPairs }, (_, i) => {
@@ -71,40 +94,38 @@ export async function buildKnockoutBracket({
           expectedFirstRoundMatches: firstPairs,
         },
         prefill: { roundKey: roundTitleByPairs(firstPairs), seeds: r1Seeds },
-        // (không đổi schema/logic; không cần lưu rules vào config nếu không muốn)
       },
     ],
     { session }
   ).then((arr) => arr[0]);
 
   const created = {};
-  // R1
+
+  // ===== R1 =====
   created[1] = await Match.insertMany(
-    r1Seeds.map((s, idx) => {
-      const isFinal = rounds === 1 && idx === 0; // trường hợp size=2
-      return {
-        tournament: tournamentId,
-        bracket: bracket._id,
-        format: "knockout",
-        round: 1,
-        order: idx,
-        seedA: s.A || null,
-        seedB: s.B || null,
-        rules: isFinal && finalOnly ? finalOnly : baseRules, // ✅ NEW
-      };
-    }),
+    r1Seeds.map((s, idx) => ({
+      tournament: tournamentId,
+      bracket: bracket._id,
+      format: "knockout",
+      round: 1,
+      order: idx,
+      seedA: s.A || null,
+      seedB: s.B || null,
+      rules: pickRules(1, idx),
+    })),
     { session }
   );
 
-  // R2..R
+  // ===== R2..R =====
   for (let r = 2; r <= rounds; r++) {
     const prev = created[r - 1];
     const pairs = Math.ceil(prev.length / 2);
     const ms = [];
+
     for (let i = 0; i < pairs; i++) {
       const aPrev = prev[i * 2];
       const bPrev = prev[i * 2 + 1];
-      const isFinal = r === rounds && i === 0; // ✅ NEW: chỉ trận duy nhất vòng cuối
+
       ms.push({
         tournament: tournamentId,
         bracket: bracket._id,
@@ -113,13 +134,14 @@ export async function buildKnockoutBracket({
         order: i,
         previousA: aPrev?._id || null,
         previousB: bPrev?._id || null,
-        rules: isFinal && finalOnly ? finalOnly : baseRules, // ✅ NEW
+        rules: pickRules(r, i),
       });
     }
+
     created[r] = await Match.insertMany(ms, { session });
   }
 
-  // Link nextMatch/nextSlot (giữ nguyên logic cũ)
+  // Link nextMatch/nextSlot (giữ logic cũ)
   for (let r = 1; r < rounds; r++) {
     const cur = created[r];
     const nxt = created[r + 1];
@@ -127,6 +149,7 @@ export async function buildKnockoutBracket({
       const mNext = nxt[i];
       const mA = cur[i * 2];
       const mB = cur[i * 2 + 1];
+
       if (mA) {
         mA.nextMatch = mNext._id;
         mA.nextSlot = "A";
@@ -140,14 +163,13 @@ export async function buildKnockoutBracket({
     }
   }
 
-  // resolve seeds (giữ như cũ)
+  // resolve seeds (nếu có static method)
   if (typeof Match.compileSeedsForBracket === "function") {
     await Match.compileSeedsForBracket(bracket._id);
   }
 
   return { bracket, matchesByRound: created };
 }
-
 /* ====================== PO Builder (non-2^n round-elim) ====================== */
 // #matches of round r
 function poMatchesForRound(N, r) {
@@ -315,7 +337,7 @@ export async function buildRoundElimBracket({
   }
 
   return { bracket, matchesByRound: created };
-} 
+}
 
 /* ====================== Group Builder (có expectedSize) ====================== */
 /**

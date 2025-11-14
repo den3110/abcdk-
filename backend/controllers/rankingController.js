@@ -8,6 +8,7 @@ import Tournament from "../models/tournamentModel.js"; // (không dùng trực t
 import Assessment from "../models/assessmentModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import Bracket from "../models/bracketModel.js";
+import { decodeCursor, encodeCursor } from "../utils/cursor.js";
 
 /* GET điểm kèm user (dùng trong danh sách) */ // Admin
 /* GET điểm kèm user (dùng trong danh sách) */ // Admin
@@ -538,8 +539,31 @@ async function buildRecentPodiumsByUser({ days = 30 } = {}) {
  * }
  */
 export const getRankings = asyncHandler(async (req, res) => {
-  const page = Math.max(0, parseInt(req.query.page ?? 0, 10));
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 10, 10)));
+  // ===== Cursor-based pagination =====
+  const rawCursor =
+    typeof req.query.cursor === "string" ? req.query.cursor.trim() : "";
+  const limit = Math.min(
+    100,
+    Math.max(1, parseInt(req.query.limit ?? 10, 10))
+  );
+
+  let page = 0;
+
+  if (rawCursor) {
+    const payload = decodeCursor(rawCursor);
+    if (
+      payload &&
+      typeof payload.page === "number" &&
+      // đảm bảo limit khớp, tránh dùng cursor cũ với limit khác
+      (payload.limit === undefined || payload.limit === limit)
+    ) {
+      page = Math.max(0, payload.page);
+    }
+  } else {
+    // fallback: vẫn hỗ trợ ?page= nếu cần
+    page = Math.max(0, parseInt(req.query.page ?? 0, 10));
+  }
+
   const keywordRaw = String(req.query.keyword ?? "").trim();
 
   const isAdmin =
@@ -576,7 +600,14 @@ export const getRankings = asyncHandler(async (req, res) => {
       const rawIds = await User.find({ $or: orConds }, { _id: 1 }).lean();
       const ids = rawIds.map((d) => d?._id).filter((id) => isOID(id));
       if (!ids.length) {
-        return res.json({ docs: [], totalPages: 0, page, podiums30d: {} });
+        return res.json({
+          docs: [],
+          totalPages: 0,
+          page,
+          podiums30d: {},
+          nextCursor: null,
+          hasMore: false,
+        });
       }
       userIdsFilter = ids;
     }
@@ -893,11 +924,19 @@ export const getRankings = asyncHandler(async (req, res) => {
   /* ======= podium 30 ngày (theo user) ======= */
   const { podiumMapByUserId } = await buildRecentPodiumsByUser({ days: 30 });
 
+  const totalPages = first.totalPages || 0;
+  const hasMore = page + 1 < totalPages;
+  const nextCursor = hasMore
+    ? encodeCursor({ page: page + 1, limit })
+    : null;
+
   return res.json({
     docs: first.docs || [],
-    totalPages: first.totalPages || 0,
+    totalPages,
     page,
     podiums30d: podiumMapByUserId,
+    nextCursor,
+    hasMore,
   });
 });
 

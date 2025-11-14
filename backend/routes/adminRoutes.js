@@ -175,6 +175,7 @@ import {
   runNewsSyncNow,
   updateNewsSettings,
 } from "../controllers/newsAdminController.js";
+import { aiFillCccdForUser, backfillUsersFromCccd } from "../controllers/userController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -741,5 +742,21 @@ router.get("/news/settings", getNewsSettings);
 router.put("/news/settings", updateNewsSettings);
 router.get("/news/candidates", getNewsCandidates);
 router.post("/news/run", runNewsSyncNow);
+
+router.post(
+  "/users/cccd-backfill",
+  protect,
+  authorize("admin"),
+  backfillUsersFromCccd
+);
+
+// NEW: AI CCCD cho từng user
+router.post(
+  "/users/:id/ai-cccd",
+  protect,
+  authorize("admin"),
+  aiFillCccdForUser
+);
+
 
 export default router;

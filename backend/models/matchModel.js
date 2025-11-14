@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import seedSourceSchema from "./seedSourceSchema.js";
 import Bracket from "./bracketModel.js";
 import Court from "./courtModel.js";
+import Tournament from "./tournamentModel.js";
 import {
   markFacebookPageFreeByMatch,
   markFacebookPageFreeByPage,
@@ -804,18 +805,38 @@ matchSchema.pre("save", async function (next) {
       const v = this.stageIndex || 1;
       this.labelKey = `V${v}#R${r}#${o}`;
     }
+    // ✅ Auto set scheduledAt = startDate/startAt của tournament (chỉ khi mới tạo)
+    if (this.isNew && !this.scheduledAt && this.tournament) {
+      try {
+        const t = await Tournament.findById(this.tournament)
+          .select("startDate startAt")
+          .lean();
+
+        if (t) {
+          // ưu tiên startAt (UTC chuẩn theo timezone của giải), fallback startDate
+          this.scheduledAt = t.startAt || t.startDate || this.scheduledAt;
+        }
+      } catch (err) {
+        console.error(
+          "[match] pre-save scheduledAt from tournament failed:",
+          err?.message || err
+        );
+      }
+    }
 
     // resolve seed
     await resolveSeedToSlots(this, "A");
     await resolveSeedToSlots(this, "B");
 
     try {
-      const willMatter = ["queued", "assigned", "live"].includes(this.status);
-      if (willMatter && typeof this.computeParticipants === "function") {
+      if (
+        typeof this.computeParticipants === "function" &&
+        (this.isNew || this.isModified("pairA") || this.isModified("pairB"))
+      ) {
         await this.computeParticipants();
       }
     } catch (e) {
-      // bỏ qua lỗi phụ
+      console.error("[match] computeParticipants error:", e?.message || e);
     }
 
     // ✅ Auto merge trọng tài mặc định từ sân:
@@ -836,6 +857,50 @@ matchSchema.pre("save", async function (next) {
 
     next();
   } catch (e) {
+    next(e);
+  }
+});
+
+// Auto set scheduledAt cho insertMany (tạo khung hàng loạt)
+matchSchema.pre("insertMany", async function (next, docs) {
+  try {
+    if (!Array.isArray(docs) || docs.length === 0) return next();
+
+    const ids = [
+      ...new Set(
+        docs
+          .filter((d) => !d.scheduledAt && d.tournament)
+          .map((d) => String(d.tournament))
+      ),
+    ];
+
+    if (!ids.length) return next();
+
+    const tournaments = await Tournament.find({ _id: { $in: ids } })
+      .select("startDate startAt")
+      .lean();
+
+    const map = new Map();
+    for (const t of tournaments) {
+      map.set(String(t._id), t.startAt || t.startDate || null);
+    }
+
+    for (const doc of docs) {
+      if (!doc.scheduledAt && doc.tournament) {
+        const key = String(doc.tournament);
+        const base = map.get(key);
+        if (base) {
+          doc.scheduledAt = base;
+        }
+      }
+    }
+
+    next();
+  } catch (e) {
+    console.error(
+      "[match] pre-insertMany scheduledAt from tournament error:",
+      e?.message || e
+    );
     next(e);
   }
 });

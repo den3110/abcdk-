@@ -86,4 +86,5 @@ router.get("/stats/:uid/stats/heatmap", protect, heatmap);
 router.get("/stats/:uid/stats/top", protect, top);
 router.get("/stats/:uid/stats/profile", protect, profile);
 
+
 export default router;

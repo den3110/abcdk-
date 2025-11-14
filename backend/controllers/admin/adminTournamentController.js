@@ -1344,8 +1344,16 @@ export const planUpdate = expressAsyncHandler(async (req, res) => {
   if (ko) {
     const k = { ...ko };
     if (k.drawSize !== undefined) k.drawSize = Number(k.drawSize) || 0;
+
+    // Luật chung KO
     k.rules = normalizePlanRule(k.rules);
+
+    // NEW: luật riêng bán kết (nếu có)
+    k.semiRules = normalizePlanRule(k.semiRules);
+
+    // Luật riêng chung kết (nếu có)
     k.finalRules = normalizePlanRule(k.finalRules);
+
     nextPlan.ko = k;
   }
 
@@ -1443,6 +1451,8 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         toSave.ko = {
           ...ko,
           rules: normalizePlanRule(ko.rules),
+          // NEW: lưu luôn semiRules nếu FE gửi lên (koSemiOverride = true)
+          semiRules: normalizePlanRule(ko.semiRules),
           finalRules: normalizePlanRule(ko.finalRules),
         };
       }
@@ -1525,6 +1535,7 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       const firstRoundSeeds = Array.isArray(ko.seeds) ? ko.seeds : [];
 
       const koRules = normalizePlanRule(ko.rules);
+      const koSemiRules = normalizePlanRule(ko.semiRules); // NEW
       const koFinalRules = normalizePlanRule(ko.finalRules);
 
       const { bracket } = await buildKnockoutBracket({
@@ -1535,6 +1546,7 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         drawSize,
         firstRoundSeeds,
         rules: koRules,
+        semiRules: koSemiRules, // NEW: pass xuống builder
         finalRules: koFinalRules,
         session,
       });

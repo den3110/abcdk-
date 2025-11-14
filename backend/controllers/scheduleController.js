@@ -51,6 +51,8 @@ export const getMyMatchSchedule = async (req, res) => {
     if (status) filter.status = status;
     if (tournamentId) filter.tournament = tournamentId;
 
+    console.log(filter)
+
     // Query matches với đầy đủ thông tin
     const matches = await Match.find(filter)
       .populate({
@@ -104,7 +106,6 @@ export const getMyMatchSchedule = async (req, res) => {
       })
       .sort({ scheduledAt: 1, queueOrder: 1 })
       .lean();
-
     // Group by date & enhance data
     const scheduleMap = new Map();
 

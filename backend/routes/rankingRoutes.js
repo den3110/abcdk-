@@ -15,9 +15,10 @@ router.get(
 
 router.get(
   "/",
+  requireAppSession,
+  verifyRankingToken,
   passProtect,
   getRankings
 );
-
 
 export default router;

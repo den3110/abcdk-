@@ -19,6 +19,8 @@ import {
   Divider,
   Dialog,
   IconButton,
+  Checkbox,
+  FormControlLabel,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import { useDispatch } from "react-redux";
@@ -44,7 +46,7 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 
 /* ---------- Config ---------- */
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const MIN_DOB = dayjs("1940-01-01"); // minDate 01/01/1990
+const MIN_DOB = dayjs("1940-01-01"); // minDate 01/01/1940
 
 /* ---------- Danh sách tỉnh ---------- */
 const PROVINCES = [
@@ -155,6 +157,7 @@ export default function ProfileScreen() {
       el.style.outline = "none";
     }, 1500);
   }, []);
+
   const { data: user, isLoading: fetching, refetch } = useGetProfileQuery();
   const [updateProfile, { isLoading }] = useUpdateUserMutation();
   const [logoutApiCall] = useLogoutMutation();
@@ -194,6 +197,9 @@ export default function ProfileScreen() {
     setCccdZoomOpen(true);
   };
 
+  // Checkbox Đổi mật khẩu
+  const [changePassword, setChangePassword] = useState(false);
+
   useEffect(() => {
     if (fetching) return; // chờ load xong
     const hash = (location.hash || "").replace("#", "");
@@ -223,6 +229,9 @@ export default function ProfileScreen() {
     setAvatarPreview("");
     setAvatarFile(null);
     setUploadedAvatarUrl("");
+
+    // luôn tắt đổi mật khẩu khi load profile
+    setChangePassword(false);
   }, [user]);
 
   /* Validate */
@@ -230,11 +239,15 @@ export default function ProfileScreen() {
     const e = {};
     if (!d.name.trim()) e.name = "Không được bỏ trống";
     else if (d.name.trim().length < 2) e.name = "Tối thiểu 2 ký tự";
+
     if (!d.nickname.trim()) e.nickname = "Không được bỏ trống";
     else if (d.nickname.trim().length < 2) e.nickname = "Tối thiểu 2 ký tự";
+
     if (!/^0\d{9}$/.test(d.phone.trim())) e.phone = "Sai định dạng (10 chữ số)";
+
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email.trim()))
       e.email = "Email không hợp lệ";
+
     if (d.dob) {
       const day = new Date(d.dob);
       if (Number.isNaN(day)) e.dob = "Ngày sinh không hợp lệ";
@@ -242,19 +255,29 @@ export default function ProfileScreen() {
       else if (new Date(d.dob) < new Date("1940-01-01"))
         e.dob = "Không trước 01/01/1940";
     }
+
     if (!d.province) e.province = "Bắt buộc";
+
     if (d.cccd && !/^\d{12}$/.test(d.cccd.trim()))
       e.cccd = "CCCD phải đủ 12 số";
-    if (d.password) {
-      if (d.password.length < 6) e.password = "Tối thiểu 6 ký tự";
-      if (d.password !== d.confirmPassword) e.confirmPassword = "Không khớp";
+
+    // Chỉ validate mật khẩu khi bật "Đổi mật khẩu"
+    if (changePassword) {
+      if (!d.password) e.password = "Vui lòng nhập mật khẩu mới";
+      else if (d.password.length < 6) e.password = "Tối thiểu 6 ký tự";
+
+      if (!d.confirmPassword) e.confirmPassword = "Vui lòng nhập lại mật khẩu";
+      else if (d.password !== d.confirmPassword)
+        e.confirmPassword = "Không khớp";
     }
+
     if (!["male", "female", "unspecified", "other"].includes(d.gender)) {
       e.gender = "Giới tính không hợp lệ";
     }
     return e;
   };
-  useEffect(() => setErrors(validate(form)), [form]);
+
+  useEffect(() => setErrors(validate(form)), [form, changePassword]);
 
   const isDirty = useMemo(() => {
     const changed = Object.keys(form).some(
@@ -385,6 +408,7 @@ export default function ProfileScreen() {
   const showUpload = status === "unverified" || status === "rejected";
   const frontUrl = user?.cccdImages?.front || "";
   const backUrl = user?.cccdImages?.back || "";
+  const isKycLocked = status === "verified";
 
   const cccdTrim = (form.cccd || "").trim();
   const isCccdEmpty = cccdTrim === "";
@@ -475,6 +499,7 @@ export default function ProfileScreen() {
               onBlur={onBlur}
               required
               fullWidth
+              // disabled={isKycLocked}
               error={showErr("name")}
               helperText={showErr("name") ? errors.name : " "}
             />
@@ -503,7 +528,10 @@ export default function ProfileScreen() {
             />
 
             {/* 🔹 Giới tính */}
-            <FormControl fullWidth error={showErr("gender")}>
+            <FormControl
+              fullWidth
+              error={showErr("gender")}
+            >
               <InputLabel id="gender-lbl" shrink>
                 Giới tính
               </InputLabel>
@@ -545,14 +573,14 @@ export default function ProfileScreen() {
               }}
               format="DD/MM/YYYY"
               minDate={MIN_DOB}
-              defaultCalendarMonth={MIN_DOB} // mở đúng tháng/năm 01/1990 khi chưa có giá trị
-              referenceDate={MIN_DOB} // tham chiếu mặc định 01/01/1990
+              defaultCalendarMonth={MIN_DOB}
+              referenceDate={MIN_DOB}
               disableFuture
               views={["year", "month", "day"]}
               slotProps={{
                 textField: {
                   fullWidth: true,
-                  placeholder: "DD/MM/YYYY", // 👈 placeholder khi chưa chọn
+                  placeholder: "DD/MM/YYYY",
                   onBlur: () => setTouched((t) => ({ ...t, dob: true })),
                   error: showErr("dob"),
                   helperText: showErr("dob") ? errors.dob : " ",
@@ -560,7 +588,11 @@ export default function ProfileScreen() {
               }}
             />
 
-            <FormControl fullWidth required error={showErr("province")}>
+            <FormControl
+              fullWidth
+              required
+              error={showErr("province")}
+            >
               <InputLabel id="province-lbl" shrink>
                 Tỉnh / Thành phố
               </InputLabel>
@@ -598,9 +630,12 @@ export default function ProfileScreen() {
               fullWidth
               placeholder="12 chữ số"
               inputProps={{ inputMode: "numeric", maxLength: 12 }}
+              disabled={isKycLocked}
               error={showErr("cccd")}
               helperText={
-                showErr("cccd")
+                isKycLocked
+                  ? "Không thể chỉnh sửa sau khi đã xác minh danh tính."
+                  : showErr("cccd")
                   ? errors.cccd
                   : isCccdEmpty
                   ? "Bạn cần nhập CCCD để gửi ảnh."
@@ -620,31 +655,66 @@ export default function ProfileScreen() {
               error={showErr("email")}
               helperText={showErr("email") ? errors.email : " "}
             />
-            <TextField
-              label="Mật khẩu mới"
-              type="password"
-              name="password"
-              value={form.password}
-              onChange={onChange}
-              onBlur={onBlur}
-              fullWidth
-              placeholder="Để trống nếu không đổi"
-              error={showErr("password")}
-              helperText={showErr("password") ? errors.password : " "}
-            />
-            <TextField
-              label="Xác nhận mật khẩu"
-              type="password"
-              name="confirmPassword"
-              value={form.confirmPassword}
-              onChange={onChange}
-              onBlur={onBlur}
-              fullWidth
-              error={showErr("confirmPassword")}
-              helperText={
-                showErr("confirmPassword") ? errors.confirmPassword : " "
+
+            {/* ------ Đổi mật khẩu ------ */}
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={changePassword}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setChangePassword(checked);
+
+                    // Nếu tắt => clear luôn password + confirm + touched
+                    if (!checked) {
+                      setForm((p) => ({
+                        ...p,
+                        password: "",
+                        confirmPassword: "",
+                      }));
+                      setTouched((t) => ({
+                        ...t,
+                        password: false,
+                        confirmPassword: false,
+                      }));
+                    }
+                  }}
+                  color="primary"
+                />
               }
+              label="Đổi mật khẩu"
             />
+
+            {changePassword && (
+              <>
+                <TextField
+                  label="Mật khẩu mới"
+                  type="password"
+                  name="password"
+                  value={form.password}
+                  onChange={onChange}
+                  onBlur={onBlur}
+                  fullWidth
+                  placeholder="Nhập mật khẩu mới"
+                  error={showErr("password")}
+                  helperText={showErr("password") ? errors.password : " "}
+                />
+                <TextField
+                  label="Xác nhận mật khẩu mới"
+                  type="password"
+                  name="confirmPassword"
+                  value={form.confirmPassword}
+                  onChange={onChange}
+                  onBlur={onBlur}
+                  fullWidth
+                  placeholder="Nhập lại mật khẩu mới"
+                  error={showErr("confirmPassword")}
+                  helperText={
+                    showErr("confirmPassword") ? errors.confirmPassword : " "
+                  }
+                />
+              </>
+            )}
 
             {/* ------ Upload / Preview CCCD ------ */}
             <Box

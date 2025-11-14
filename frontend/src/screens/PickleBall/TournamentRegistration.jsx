@@ -664,6 +664,125 @@ function useLazyRender(totalItems, initialBatch = 30, batchSize = 20) {
   return { displayCount, loaderRef, hasMore: displayCount < totalItems };
 }
 
+const HTML_PREVIEW_MAX_HEIGHT = 260;
+
+/** Section render HTML có thu gọn + mờ + nút "Xem thêm" (mở dialog full) */
+const HtmlPreviewSection = ({ title, html, mtOnMobile = false }) => {
+  const [open, setOpen] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const contentRef = useRef(null);
+
+  const processedHtml = useMemo(() => fixHtmlHttps(html), [html]);
+
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
+
+    const checkOverflow = () => {
+      const scroll = el.scrollHeight || el.clientHeight || 0;
+      setHasMore(scroll > HTML_PREVIEW_MAX_HEIGHT + 8);
+    };
+
+    checkOverflow();
+
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(checkOverflow);
+      ro.observe(el);
+      return () => ro.disconnect();
+    }
+  }, [processedHtml]);
+
+  return (
+    <>
+      <Box
+        sx={{
+          width: { xs: "100%", md: "48%" },
+          mt: mtOnMobile ? { xs: 2, md: 0 } : 0,
+        }}
+      >
+        <Typography variant="h6" gutterBottom>
+          {title}
+        </Typography>
+
+        {/* Preview thu gọn + mờ */}
+        <Box
+          sx={{
+            position: "relative",
+            maxHeight: HTML_PREVIEW_MAX_HEIGHT,
+            overflow: "hidden",
+            overflowX: "auto",
+            "& a": { color: "primary.main" },
+            "& img": {
+              maxWidth: "100%",
+              height: "auto",
+              borderRadius: 1,
+            },
+          }}
+        >
+          <Box
+            ref={contentRef}
+            component="div"
+            dangerouslySetInnerHTML={{ __html: processedHtml }}
+          />
+
+          {hasMore && (
+            <Box
+              sx={{
+                pointerEvents: "none",
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 72,
+                background: (theme) =>
+                  `linear-gradient(to bottom, rgba(0,0,0,0), ${theme.palette.background.paper})`,
+              }}
+            />
+          )}
+        </Box>
+
+        {hasMore && (
+          <Box sx={{ mt: 1, textAlign: "left" }}>
+            <Button size="small" variant="contained" onClick={() => setOpen(true)}>
+              Xem thêm
+            </Button>
+          </Box>
+        )}
+      </Box>
+
+      {/* Dialog full nội dung */}
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>{title}</DialogTitle>
+        <DialogContent
+          dividers
+          sx={{
+            "& a": { color: "primary.main" },
+            "& img": {
+              maxWidth: "100%",
+              height: "auto",
+              borderRadius: 1,
+            },
+            overflowX: "auto",
+          }}
+        >
+          <Box
+            component="div"
+            dangerouslySetInnerHTML={{ __html: processedHtml }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOpen(false)}>Đóng</Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+};
+
 /* ==================== Optimized Desktop Row ==================== */
 const DesktopTableRow = memo(
   ({
@@ -1074,7 +1193,7 @@ export default function TournamentRegistration() {
 
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
-  const navigate= useNavigate()
+  const navigate = useNavigate();
   // Increased debounce delay for better performance
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim()), 500);
@@ -1238,8 +1357,8 @@ export default function TournamentRegistration() {
                       // dùng react-router nếu sẵn có
                       try {
                         navigate("/profile#cccd");
-                      } catch(e) {
-                        console.log(e)
+                      } catch (e) {
+                        console.log(e);
                       }
                       // fallback hard redirect
                     }}
@@ -1784,6 +1903,7 @@ export default function TournamentRegistration() {
       </Paper>
 
       {/* Content/Contact */}
+      {/* Content/Contact */}
       {(tour?.contactHtml || tour?.contentHtml) && (
         <Box
           sx={{
@@ -1794,49 +1914,18 @@ export default function TournamentRegistration() {
           }}
         >
           {tour?.contactHtml && (
-            <Box sx={{ width: { xs: "100%", md: "48%" } }}>
-              <Typography variant="h6" gutterBottom>
-                Thông tin liên hệ
-              </Typography>
-              <Box
-                sx={{
-                  "& a": { color: "primary.main" },
-                  "& img": {
-                    maxWidth: "100%",
-                    height: "auto",
-                    borderRadius: 1,
-                  },
-                  overflowX: "auto",
-                }}
-                dangerouslySetInnerHTML={{
-                  __html: fixHtmlHttps(tour.contactHtml),
-                }}
-              />
-            </Box>
+            <HtmlPreviewSection
+              title="Thông tin liên hệ"
+              html={tour.contactHtml}
+            />
           )}
 
           {tour?.contentHtml && (
-            <Box
-              sx={{ width: { xs: "100%", md: "48%" }, mt: { xs: 2, md: 0 } }}
-            >
-              <Typography variant="h6" gutterBottom>
-                Nội dung giải đấu
-              </Typography>
-              <Box
-                sx={{
-                  "& a": { color: "primary.main" },
-                  "& img": {
-                    maxWidth: "100%",
-                    height: "auto",
-                    borderRadius: 1,
-                  },
-                  overflowX: "auto",
-                }}
-                dangerouslySetInnerHTML={{
-                  __html: fixHtmlHttps(tour.contentHtml),
-                }}
-              />
-            </Box>
+            <HtmlPreviewSection
+              title="Nội dung giải đấu"
+              html={tour.contentHtml}
+              mtOnMobile
+            />
           )}
         </Box>
       )}

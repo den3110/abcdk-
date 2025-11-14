@@ -371,7 +371,7 @@ export const breakdown = async (req, res) => {
         as: "u",
       },
     },
-    { $unwind: { path: "u", preserveNullAndEmptyArrays: true } },
+    { $unwind: { path: "$u", preserveNullAndEmptyArrays: true } },
     {
       $project: {
         userId: "$_id",

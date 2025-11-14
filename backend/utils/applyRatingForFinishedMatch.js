@@ -6,36 +6,30 @@ import ScoreHistory from "../models/scoreHistoryModel.js";
 import RatingChange from "../models/ratingChangeModel.js";
 
 /* ===================== Tunables (core) ===================== */
-const DUPR_MIN = 2;
+const DUPR_MIN = 1.6;
 const DUPR_MAX = 8.0;
 const DIFF_SCALE = 0.6; // logistic scale cho expected
 
-// ↑ Tăng K nhẹ để thắng được cộng rõ hơn (vẫn tôn trọng reliability)
-const BASE_K_SINGLES = 0.12; // was 0.10
-const BASE_K_DOUBLES = 0.1; // was 0.08
-const FLOOR_K = 0.03; // was 0.02
+// K factors - đã điều chỉnh để tối đa ~0.12/trận
+const BASE_K_SINGLES = 0.12;
+const BASE_K_DOUBLES = 0.1;
+const FLOOR_K = 0.03;
 const MATCHES_FOR_FULL_RELIABILITY = 25;
 const SYNERGY_WEIGHT = 0.05;
 const FORFEIT_K_SCALE = 0.25;
 
 /* ===================== Tunables (margin/phase/context) ===================== */
-/* === RoundElim phase decay (NEW) === */
-// Vòng 1 được +8%, sau đó mỗi vòng giảm 6%, nhưng không thấp hơn 0.85×
-const RE_PHASE_START_BONUS = 0.08; // +8% tại round 1
-const RE_PHASE_STEP_DEC = 0.06; // -6% mỗi round
-const RE_PHASE_CAP_DEC = 0.3; // giảm tối đa 30%
-const RE_PHASE_MIN = 0.85; // sàn 0.85× để không tụt quá mạnh
-// Nhánh roundElim kém “trọng số” hơn KO một chút
-const RE_STAGE_BONUS = -0.02; // -2% so với base
-// ↑ Cho blowout tăng K rõ hơn nhưng vẫn có trần
-const MARGIN_MAX_BOOST = 0.2; // was 0.15
+/* === RoundElim phase decay === */
+const RE_PHASE_START_BONUS = 0.08;
+const RE_PHASE_STEP_DEC = 0.06;
+const RE_PHASE_CAP_DEC = 0.3;
+const RE_PHASE_MIN = 0.85;
+const RE_STAGE_BONUS = -0.02;
 
-// ↑ Vòng sau cộng mạnh hơn (mỗi round +5%, trần +35%)
-const ROUND_PHASE_STEP = 0.05; // was 0.02
-const ROUND_PHASE_CAP = 0.35; // was 0.20
-
-// ↑ KO & roundElim được bonus lớn hơn
-const KO_STAGE_BONUS = 0.1; // was 0.05
+const MARGIN_MAX_BOOST = 0.2;
+const ROUND_PHASE_STEP = 0.05;
+const ROUND_PHASE_CAP = 0.35;
+const KO_STAGE_BONUS = 0.1;
 
 /* ===================== Tunables (form/history) ===================== */
 const FORM_ENABLED = true;
@@ -57,11 +51,9 @@ const UPSET_DIFF_WIDTH = 0.6;
 const UPSET_MAX_BOOST = 0.4;
 
 /* ===================== Soft cap (TEAM level) ===================== */
-// ↑ Nâng trần team một chút để thắng được cộng “đã” hơn
-const SOFT_TEAM_CAP = 0.07; // was 0.05
+const SOFT_TEAM_CAP = 0.07;
 const SOFT_TEAM_SOFTNESS = 0.65;
 
-// min epsilon theo K để không rơi về 0
 const MIN_DELTA_EPS_MIN = 0.001;
 const MIN_DELTA_EPS_MAX = 0.003;
 const MIN_DELTA_EPS_FACTOR = 0.02;
@@ -72,16 +64,17 @@ const MIDLINE_BETA = 0.65;
 const EXP_GAMMA = 1.18;
 const DEFAULT_SEED_RATING = 2;
 
-// === Win negative small ===
-// ↓ Hạn chế âm khi WIN gần như tuyệt đối (trừ case cực lệch & underperform)
-const MAX_WIN_NEG = 0.001 * -1; // was -0.005 (giờ tối đa chỉ -0.001/người)
+// === Win negative limit ===
+// ⭐ Đội thắng CHỈ bị trừ tối đa 0.001/người, chỉ khi kèo QUÁ LỆCH + thắng yếu
+const MAX_WIN_NEG = -0.001;
 
-// ↑ Nếu thiếu điểm set → mặc định coi chất lượng thắng tốt hơn
-const QUALITY_DEFAULT_WIN = 0.82; // was 0.75
+// Quality mặc định khi thiếu điểm set
+const QUALITY_DEFAULT_WIN = 0.82;
 
-// === WIN-TAX (kèo trên thắng vẫn bị “thuế” nhỏ) ===
-// ↓ Giảm “thuế” để hạn chế WIN bị trừ, vẫn giữ răn đe khi kèo quá lệch
-const WIN_TAX_COEF = 0.08; // was 0.16
+// === WIN-TAX (chỉ trừ khi kèo quá lệch) ===
+// ⭐ CHỈ áp dụng khi E_win > 0.85 và giảm mạnh hệ số
+const WIN_TAX_COEF = 0.015; // giảm từ 0.08 xuống 0.015
+const WIN_TAX_THRESHOLD = 0.85; // chỉ trừ khi E_win > 85%
 
 /* ===================== Helpers ===================== */
 const round3 = (x) => Math.round(x * 1000) / 1000;
@@ -91,13 +84,16 @@ function harmonicMean(a, b) {
   if (a <= 0 || b <= 0) return Math.max(0, (a + b) / 2);
   return 2 / (1 / a + 1 / b);
 }
+
 function expectedFromDiff(diff /* A - B */) {
   return 1 / (1 + Math.pow(10, -(diff / DIFF_SCALE)));
 }
+
 function invExpectedToDiff(E) {
   const e = clamp(E, 1e-6, 1 - 1e-6);
   return DIFF_SCALE * (Math.log10(e) - Math.log10(1 - e));
 }
+
 function marginBoostFromScores(match, winnerSide /* "A" | "B" */) {
   const arr = Array.isArray(match.gameScores) ? match.gameScores : [];
   if (!arr.length) return 0;
@@ -117,9 +113,9 @@ function marginBoostFromScores(match, winnerSide /* "A" | "B" */) {
   const total = winPts + losePts;
   if (total <= 0) return 0;
   const m = clamp((winPts - losePts) / total, -1, 1);
-  return MARGIN_MAX_BOOST * m; // ∈ [-0.15, +0.15]
+  return MARGIN_MAX_BOOST * m;
 }
-// điểm chất lượng thắng: 0.5..1, nếu thiếu điểm set → 0.75
+
 function qualityScoreFromScores(match, winnerSide /* "A" | "B" */) {
   const arr = Array.isArray(match.gameScores) ? match.gameScores : [];
   if (!arr.length) return QUALITY_DEFAULT_WIN;
@@ -141,27 +137,23 @@ function qualityScoreFromScores(match, winnerSide /* "A" | "B" */) {
   const m = clamp((winPts - losePts) / total, -1, 1);
   return clamp(0.5 + 0.5 * Math.max(0, m), 0.5, 1);
 }
+
 function teamRatingDoubles(r1, r2) {
   const mean = (r1 + r2) / 2;
   const imbalance = Math.abs(r1 - r2);
   return mean - imbalance * SYNERGY_WEIGHT;
 }
+
 function phaseMultiplier(match, bracketType) {
   const r = Math.max(1, Number(match.round) || 1);
 
   if (bracketType === "roundElim") {
-    // Vòng sau giảm dần: start = 1 + RE_PHASE_START_BONUS, rồi trừ theo round
     const dec = clamp((r - 1) * RE_PHASE_STEP_DEC, 0, RE_PHASE_CAP_DEC);
-    const roundMul = clamp(
-      1 + RE_PHASE_START_BONUS - dec,
-      RE_PHASE_MIN,
-      1.2 // trần an toàn
-    );
-    const stageMul = 1 + RE_STAGE_BONUS; // hơi kém ưu tiên so với KO
+    const roundMul = clamp(1 + RE_PHASE_START_BONUS - dec, RE_PHASE_MIN, 1.2);
+    const stageMul = 1 + RE_STAGE_BONUS;
     return roundMul * stageMul;
   }
 
-  // Giữ nguyên hành vi hiện tại cho knockout & các loại khác
   const roundMul = 1 + clamp((r - 1) * ROUND_PHASE_STEP, 0, ROUND_PHASE_CAP);
   const koMul = bracketType === "knockout" ? 1 + KO_STAGE_BONUS : 1;
   return roundMul * koMul;
@@ -172,9 +164,11 @@ function softCapTeam(delta) {
   const scaled = Math.tanh(x / (SOFT_TEAM_CAP * SOFT_TEAM_SOFTNESS));
   return Math.sign(delta) * SOFT_TEAM_CAP * scaled;
 }
+
 function nextRep(current) {
   return Math.min(100, (Number(current) || 0) + 10);
 }
+
 function upsetAmplification(absDiff, E_win) {
   if (E_win > 0.5) return 0;
   if (E_win > UPSET_UNDERDOG_MAX_EXPECTED) return 0;
@@ -191,32 +185,21 @@ function upsetAmplification(absDiff, E_win) {
   );
   return UPSET_MAX_BOOST * underdogDegree * gapDegree;
 }
+
 function midlineDampen(E) {
-  const closeness = 1 - 4 * Math.pow(E - 0.5, 2); // ∈[0,1]
+  const closeness = 1 - 4 * Math.pow(E - 0.5, 2);
   return 1 - MIDLINE_BETA * Math.max(0, closeness);
 }
 
-/* ===== Weights per player (phân phối Δ theo độ tin cậy & rating) ===== */
-function weightFor({ reliability, rating }) {
-  // ít trận (reliability thấp) → biến động nhiều hơn
-  const relTerm = Math.pow(1 - clamp(reliability ?? 0, 0, 1), 0.6); // 0..1
-  // rating cao → nặng hơn → biến động ít hơn
-  const pivot = 4.0;
-  const over = Math.max(0, (rating ?? pivot) - pivot); // >0 nếu trên 4.0
-  const ratingTerm = 1 / (1 + over); // 1..~0.33 khi rating 7.0
-  // tránh bằng 0
-  return clamp(0.35 + 0.65 * relTerm * ratingTerm, 0.35, 1.0);
-}
-function distributeTeamDelta(
-  deltaTeam,
-  players /* [{uid, reliability, rating}] */
-) {
-  if (!players.length) return [];
-  const ws = players.map(weightFor);
-  const sumW = ws.reduce((s, x) => s + x, 0);
-  return ws.map((w) =>
-    sumW > 0 ? (deltaTeam * w) / sumW : deltaTeam / players.length
-  );
+/* ===== ⭐ PHÂN PHỐI ĐIỂM ĐỀU CHO ĐỒNG ĐỘI ===== */
+/**
+ * Chia đều deltaTeam cho tất cả VĐV trong đội
+ * Không phân biệt reliability hay rating
+ */
+function distributeTeamDeltaEvenly(deltaTeam, playerCount) {
+  if (!playerCount || playerCount <= 0) return [];
+  const perPlayer = deltaTeam / playerCount;
+  return Array(playerCount).fill(perPlayer);
 }
 
 /* ===================== Ratings & reliability ===================== */
@@ -260,6 +243,7 @@ async function getLatestRatingsMap(userIds) {
   });
   return map;
 }
+
 async function getReliabilityMap(userIds, key /* "single"|"double" */) {
   const ids = [...new Set(userIds.map(String))].map(
     (id) => new mongoose.Types.ObjectId(id)
@@ -357,8 +341,8 @@ async function getRecentStats(uid, key, cfg) {
       r.expected > 0 &&
       r.expected < 1
     ) {
-      const diff = invExpectedToDiff(r.expected); // myTeam - oppTeam
-      sosSum += -diff; // opp - me
+      const diff = invExpectedToDiff(r.expected);
+      sosSum += -diff;
       sosCnt += 1;
     }
 
@@ -367,7 +351,7 @@ async function getRecentStats(uid, key, cfg) {
 
   const winPct = total ? wins / total : 0.5;
   const setWinPct = setTotal ? setWins / setTotal : 0.5;
-  const sos = sosCnt ? sosSum / sosCnt : 0; // >0: thường gặp đối thủ mạnh
+  const sos = sosCnt ? sosSum / sosCnt : 0;
   const streak01 =
     0.5 +
     0.5 *
@@ -399,9 +383,8 @@ function teamFormScore(kind, formA, formB) {
 /* ===================== Main ===================== */
 export async function applyRatingForFinishedMatch(matchId) {
   const mt = await Match.findById(matchId)
-    // ⭐ ADD: cần noRankDelta để guard
-    .populate({ path: "tournament", select: "eventType noRankDelta" }) // ⭐
-    .populate({ path: "bracket", select: "type stage name meta noRankDelta" }) // ⭐
+    .populate({ path: "tournament", select: "eventType noRankDelta" })
+    .populate({ path: "bracket", select: "type stage name meta noRankDelta" })
     .populate({ path: "pairA", select: "player1 player2" })
     .populate({ path: "pairB", select: "player1 player2" });
 
@@ -409,7 +392,7 @@ export async function applyRatingForFinishedMatch(matchId) {
   if (mt.status !== "finished" || !mt.winner || !["A", "B"].includes(mt.winner))
     return;
 
-  // BYE/missing pair → đánh dấu đã áp và thoát
+  // BYE/missing pair
   if (!mt.pairA || !mt.pairB) {
     mt.ratingApplied = true;
     mt.ratingAppliedAt = new Date();
@@ -419,26 +402,24 @@ export async function applyRatingForFinishedMatch(matchId) {
   }
   if (mt.ratingApplied) return;
 
-  // ⭐ RATING GUARD (match/bracket/tournament) — nếu bật "không tính điểm", thoát sớm
-  // Ưu tiên: nếu bạn có field noRankDelta ở match thì check luôn; không có thì bỏ mt.noRankDelta.
+  // ⭐ RATING GUARD
   const guardNoDelta =
-    mt.noRankDelta === true || // nếu match-level có
+    mt.noRankDelta === true ||
     mt?.bracket?.noRankDelta === true ||
     mt?.tournament?.noRankDelta === true;
 
   if (guardNoDelta) {
     mt.ratingApplied = true;
     mt.ratingAppliedAt = new Date();
-    mt.ratingDelta = 0; // không thay đổi điểm
+    mt.ratingDelta = 0;
     await mt.save();
     return;
   }
-  // ⭐ END RATING GUARD
 
   const kind = mt.tournament?.eventType === "single" ? "singles" : "doubles";
   const key = mt.tournament?.eventType === "single" ? "single" : "double";
   const when = mt.finishedAt || new Date();
-  const winnerSide = mt.winner; // "A" | "B"
+  const winnerSide = mt.winner;
   const bracketType = mt.bracket?.type || "knockout";
 
   // user ids
@@ -459,7 +440,7 @@ export async function applyRatingForFinishedMatch(matchId) {
     return val > 0 ? val : DEFAULT_SEED_RATING;
   };
 
-  // ===== NEW: prefetch reputation map (để tránh await trong loop) =====
+  // prefetch reputation map
   const repDocs = await Ranking.find({ user: { $in: allIds } })
     .select("user reputation")
     .lean();
@@ -594,26 +575,26 @@ export async function applyRatingForFinishedMatch(matchId) {
   const E_win = winnerSide === "A" ? expA : expB;
   const absDiff = Math.abs(teamA - teamB);
   const upsetBoost = upsetAmplification(absDiff, E_win);
-  const S_win = qualityScoreFromScores(mt, winnerSide); // 0.5..1
+  const S_win = qualityScoreFromScores(mt, winnerSide);
   const diffS = clamp(S_win - E_win, -1, 1);
 
-  // Δ đội thô: sign(S-E) * |S-E|^γ
+  // Δ đội thô
   let D_team_raw =
     K_match * Math.sign(diffS) * Math.pow(Math.abs(diffS), EXP_GAMMA);
 
-  // khuếch đại upset khi underdog thắng và S>E
+  // khuếch đại upset
   if (diffS > 0) D_team_raw *= 1 + upsetBoost;
 
-  // midline dampen theo kỳ vọng của bên thắng
+  // midline dampen
   if (MIDLINE_DAMPEN) D_team_raw *= midlineDampen(E_win);
 
-  // WIN-TAX: kèo trên thắng (E>0.5) bị trừ một ít theo độ “kèo”
-  if (E_win > 0.5) {
-    const winTax = K_match * WIN_TAX_COEF * (E_win - 0.5);
+  // ⭐ WIN-TAX: CHỈ áp dụng khi E_win > 0.85 (kèo quá lệch)
+  if (E_win > WIN_TAX_THRESHOLD) {
+    const winTax = K_match * WIN_TAX_COEF * (E_win - WIN_TAX_THRESHOLD);
     D_team_raw -= winTax;
   }
 
-  // epsilon theo K (giữ dấu)
+  // epsilon theo K
   const epsDyn = clamp(
     K_match * MIN_DELTA_EPS_FACTOR,
     MIN_DELTA_EPS_MIN,
@@ -626,55 +607,35 @@ export async function applyRatingForFinishedMatch(matchId) {
   // soft-cap theo ĐỘI
   let D_team = softCapTeam(D_team_raw);
 
-  // ===== Phân phối Δ theo trọng số từng người (rating & reliability) =====
-  const winnerUsers = (winnerSide === "A" ? usersA : usersB).map((uid) => ({
-    uid,
-    reliability: reliabilityMap.get(uid) ?? 0,
-    rating: getRating(uid),
-  }));
-  const loserUsers = (winnerSide === "A" ? usersB : usersA).map((uid) => ({
-    uid,
-    reliability: reliabilityMap.get(uid) ?? 0,
-    rating: getRating(uid),
-  }));
+  // ===== ⭐ PHÂN PHỐI ĐỀU CHO ĐỒNG ĐỘI =====
+  const winnerUserIds = winnerSide === "A" ? usersA : usersB;
+  const loserUserIds = winnerSide === "A" ? usersB : usersA;
 
-  // phân phối bên thắng tổng +D_team, bên thua tổng -D_team
-  let winnerDeltas = distributeTeamDelta(D_team, winnerUsers);
-  let loserDeltas = distributeTeamDelta(-D_team, loserUsers);
+  let winnerDeltas = distributeTeamDeltaEvenly(D_team, winnerUserIds.length);
+  let loserDeltas = distributeTeamDeltaEvenly(-D_team, loserUserIds.length);
 
-  // Kẹp biên âm khi WIN: mỗi người không bị âm quá -0.005
-  const clampWinNeg = (d) => Math.max(d, -MAX_WIN_NEG);
+  // ⭐ Kẹp biên âm cho đội THẮNG: mỗi người không âm quá MAX_WIN_NEG
   const totalWinBefore = winnerDeltas.reduce((s, x) => s + x, 0);
-  const winnerClamped = winnerDeltas.map(clampWinNeg);
+  const winnerClamped = winnerDeltas.map((d) => Math.max(d, MAX_WIN_NEG));
   const totalWinAfter = winnerClamped.reduce((s, x) => s + x, 0);
-  if (totalWinAfter !== totalWinBefore) {
-    // cần phân phối phần thiếu (dương) vào các slot còn room
-    const room = winnerClamped.map((val, i) =>
-      Math.max(0, winnerDeltas[i] - -MAX_WIN_NEG)
-    );
-    const sumRoom = room.reduce((s, x) => s + x, 0);
+
+  // Nếu bị kẹp, cần redistribute phần thừa
+  if (Math.abs(totalWinAfter - totalWinBefore) > 1e-9) {
     const deficit = totalWinBefore - totalWinAfter;
-    if (sumRoom > 0 && deficit > 0) {
-      winnerDeltas = winnerClamped.map(
-        (val, i) => val + (room[i] / sumRoom) * deficit
-      );
-    } else {
-      // fallback: scale đều
-      const n = winnerClamped.length || 1;
-      winnerDeltas = winnerClamped.map((val) => val + deficit / n);
-    }
-  } else {
-    winnerDeltas = winnerClamped;
+    // Phân phối đều deficit cho bên thua
+    const perLoser = deficit / (loserUserIds.length || 1);
+    loserDeltas = loserDeltas.map((d) => d - perLoser);
   }
+
+  winnerDeltas = winnerClamped;
 
   // Ensure zero-sum strict
   const sumWin = winnerDeltas.reduce((s, x) => s + x, 0);
   const sumLose = loserDeltas.reduce((s, x) => s + x, 0);
-  const drift = sumWin + sumLose; // nên = 0
+  const drift = sumWin + sumLose;
   if (Math.abs(drift) > 1e-9) {
-    // điều chỉnh bên thua theo tỷ lệ để triệt tiêu drift
-    const s = loserDeltas.reduce((a, b) => a + Math.abs(b), 0) || 1;
-    loserDeltas = loserDeltas.map((d) => d - (drift * Math.abs(d)) / s);
+    const n = loserDeltas.length || 1;
+    loserDeltas = loserDeltas.map((d) => d - drift / n);
   }
 
   // === APPLY ===
@@ -683,9 +644,8 @@ export async function applyRatingForFinishedMatch(matchId) {
   const logs = [];
   const perUserDeltasAbs = [];
 
-  const applySide = (users, deltas, isWinner) => {
-    users.forEach((u, idx) => {
-      const uid = u.uid;
+  const applySide = (userIds, deltas, isWinner) => {
+    userIds.forEach((uid, idx) => {
       const current = latest.get(uid) || { single: 0, double: 0 };
       const curVal =
         (Number(current[key]) || 0) > 0
@@ -752,24 +712,8 @@ export async function applyRatingForFinishedMatch(matchId) {
     });
   };
 
-  applySide(
-    (winnerSide === "A" ? usersA : usersB).map((uid) => ({
-      uid,
-      reliability: reliabilityMap.get(uid) ?? 0,
-      rating: getRating(uid),
-    })),
-    winnerDeltas,
-    true
-  );
-  applySide(
-    (winnerSide === "A" ? usersB : usersA).map((uid) => ({
-      uid,
-      reliability: reliabilityMap.get(uid) ?? 0,
-      rating: getRating(uid),
-    })),
-    loserDeltas,
-    false
-  );
+  applySide(winnerUserIds, winnerDeltas, true);
+  applySide(loserUserIds, loserDeltas, false);
 
   if (histDocs.length) await ScoreHistory.insertMany(histDocs);
   if (rankingOps.length) await Ranking.bulkWrite(rankingOps);
@@ -998,8 +942,10 @@ export async function computeRatingPreviewFromParams({
     K_match * Math.sign(diffS) * Math.pow(Math.abs(diffS), EXP_GAMMA);
   if (diffS > 0) D_team_raw *= 1 + upBoost;
   if (MIDLINE_DAMPEN) D_team_raw *= midlineDampen(E_win);
-  if (E_win > 0.5) {
-    const winTax = K_match * WIN_TAX_COEF * (E_win - 0.5);
+
+  // WIN_TAX chỉ khi E_win > threshold
+  if (E_win > WIN_TAX_THRESHOLD) {
+    const winTax = K_match * WIN_TAX_COEF * (E_win - WIN_TAX_THRESHOLD);
     D_team_raw -= winTax;
   }
 
@@ -1014,48 +960,30 @@ export async function computeRatingPreviewFromParams({
 
   let D_team = softCapTeam(D_team_raw);
 
-  const winnerUsers2 = (winnerSide === "A" ? usersA : usersB).map((uid) => ({
-    uid,
-    reliability: reliabilityMap.get(uid) ?? 0,
-    rating: getRating(uid),
-  }));
-  const loserUsers2 = (winnerSide === "A" ? usersB : usersA).map((uid) => ({
-    uid,
-    reliability: reliabilityMap.get(uid) ?? 0,
-    rating: getRating(uid),
-  }));
+  const winnerUserIds = winnerSide === "A" ? usersA : usersB;
+  const loserUserIds = winnerSide === "A" ? usersB : usersA;
 
-  let winnerDeltas = distributeTeamDelta(D_team, winnerUsers2);
-  let loserDeltas = distributeTeamDelta(-D_team, loserUsers2);
+  let winnerDeltas = distributeTeamDeltaEvenly(D_team, winnerUserIds.length);
+  let loserDeltas = distributeTeamDeltaEvenly(-D_team, loserUserIds.length);
 
-  const clampWinNeg = (d) => Math.max(d, -MAX_WIN_NEG);
+  // Clamp win negative
   const totalWinBefore = winnerDeltas.reduce((s, x) => s + x, 0);
-  const winnerClamped = winnerDeltas.map(clampWinNeg);
+  const winnerClamped = winnerDeltas.map((d) => Math.max(d, MAX_WIN_NEG));
   const totalWinAfter = winnerClamped.reduce((s, x) => s + x, 0);
-  if (totalWinAfter !== totalWinBefore) {
-    const room = winnerClamped.map((val, i) =>
-      Math.max(0, winnerDeltas[i] - -MAX_WIN_NEG)
-    );
-    const sumRoom = room.reduce((s, x) => s + x, 0);
+  if (Math.abs(totalWinAfter - totalWinBefore) > 1e-9) {
     const deficit = totalWinBefore - totalWinAfter;
-    if (sumRoom > 0 && deficit > 0) {
-      winnerDeltas = winnerClamped.map(
-        (val, i) => val + (room[i] / sumRoom) * deficit
-      );
-    } else {
-      const n = winnerClamped.length || 1;
-      winnerDeltas = winnerClamped.map((val) => val + deficit / n);
-    }
-  } else {
-    winnerDeltas = winnerClamped;
+    const perLoser = deficit / (loserUserIds.length || 1);
+    loserDeltas = loserDeltas.map((d) => d - perLoser);
   }
+  winnerDeltas = winnerClamped;
 
+  // Zero-sum
   const sumWin = winnerDeltas.reduce((s, x) => s + x, 0);
   const sumLose = loserDeltas.reduce((s, x) => s + x, 0);
   const drift = sumWin + sumLose;
   if (Math.abs(drift) > 1e-9) {
-    const s = loserDeltas.reduce((a, b) => a + Math.abs(b), 0) || 1;
-    loserDeltas = loserDeltas.map((d) => d - (drift * Math.abs(d)) / s);
+    const n = loserDeltas.length || 1;
+    loserDeltas = loserDeltas.map((d) => d - drift / n);
   }
 
   const perUser = [];
@@ -1072,14 +1000,13 @@ export async function computeRatingPreviewFromParams({
       after: round3(next),
     });
   };
-  (winnerSide === "A" ? usersA : usersB).forEach((uid, i) =>
+  winnerUserIds.forEach((uid, i) =>
     push(uid, winnerSide, winnerDeltas[i] ?? 0)
   );
-  (winnerSide === "A" ? usersB : usersA).forEach((uid, i) =>
+  loserUserIds.forEach((uid, i) =>
     push(uid, winnerSide === "A" ? "B" : "A", loserDeltas[i] ?? 0)
   );
 
-  // ⬇️ Thay toàn bộ khối return hiện có bằng khối này
   return {
     params: {
       tournamentId,
@@ -1099,7 +1026,6 @@ export async function computeRatingPreviewFromParams({
       diffRaw: round3(diffRaw),
     },
     expected: { expA: round3(expA), expB: round3(expB), E_win: round3(E_win) },
-    // giữ nguyên shape cũ: context có formDetails
     context: {
       formA: round3(formA),
       formB: round3(formB),
@@ -1111,7 +1037,7 @@ export async function computeRatingPreviewFromParams({
       avgReliability: round3(avgReliability),
       marginBoost: round3(marginBoost),
       phaseMul: round3(phaseMul),
-      upsetBoost: round3(upBoost), // alias đúng tên cũ
+      upsetBoost: round3(upBoost),
       kScale: round3(kScale),
       K_match: round3(K_match),
       shaper: {
@@ -1120,7 +1046,6 @@ export async function computeRatingPreviewFromParams({
         epsDyn: round3(epsDyn),
       },
     },
-    // giữ tên "delta" như trước (cap/softness lấy theo team-cap mới)
     delta: {
       raw: round3(D_team_raw),
       soft: round3(D_team),

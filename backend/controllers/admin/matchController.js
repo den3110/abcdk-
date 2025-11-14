@@ -826,9 +826,39 @@ export const adminGetAllMatches = expressAsyncHandler(async (req, res) => {
     const n = Number(v);
     return Number.isFinite(n) ? n : d;
   };
+
   const vCode = (v) => `V${toInt(v, 1)}`;
   const tCode = (o) => `T${toInt(o, 0) + 1}`;
-  const bCode = (b) => (b ? `B${b}` : "");
+
+  // CHỈNH: chuẩn hoá mã bảng -> số bắt đầu từ 1
+  const normalizeBIndex = (b) => {
+    if (b === null || b === undefined) return null;
+
+    // Nếu truyền sẵn số hoặc chuỗi số ("1", "2", ...)
+    const num = Number(b);
+    if (Number.isFinite(num) && num > 0) return num;
+
+    // Nếu là 1 ký tự chữ cái: A/B/C... -> 1/2/3...
+    if (typeof b === "string") {
+      const s = b.trim();
+      if (/^[A-Z]$/i.test(s)) {
+        return s.toUpperCase().charCodeAt(0) - "A".charCodeAt(0) + 1; // A -> 1
+      }
+    }
+
+    // Không convert được -> trả null để fallback
+    return null;
+  };
+
+  const bCode = (b) => {
+    if (b === null || b === undefined || b === "") return "";
+
+    const idx = normalizeBIndex(b);
+    if (idx !== null) return `B${idx}`;
+
+    // fallback: giữ nguyên (tránh phá các trường hợp custom)
+    return `B${b}`;
+  };
 
   const getGroupKey = (m) => {
     const g =
@@ -878,7 +908,9 @@ export const adminGetAllMatches = expressAsyncHandler(async (req, res) => {
     // Group key (nếu là vòng bảng)
     const gk = isGroup ? getGroupKey(m) : "";
 
-    // Mã hiển thị theo yêu cầu
+    // Mã hiển thị theo đặc tả:
+    // - Group: Vx B<number> Tx
+    // - KO:    Vx Tx
     const code = isGroup
       ? `${vCode(v)} ${bCode(gk)} ${tCode(o)}`
       : `${vCode(v)} ${tCode(o)}`;
@@ -889,6 +921,7 @@ export const adminGetAllMatches = expressAsyncHandler(async (req, res) => {
       // Các trường cũ (giữ tương thích nếu bạn đang dùng)
       roundIndex: Number(m.round || 1),
       orderIndex: o,
+
       // New: cộng dồn vòng theo stage
       vIndex: v,
       vLabel: vCode(v),

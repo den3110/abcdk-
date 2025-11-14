@@ -969,7 +969,7 @@ export const patchWinner = asyncHandler(async (req, res) => {
   }
 
   // chỉ chạy rating khi đã có winner
-  if (!clearing) {
+  if (!clearing && !match.ratingApplied) {
     try {
       await applyRatingForFinishedMatch(match._id);
     } catch (error) {

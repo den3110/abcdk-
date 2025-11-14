@@ -1870,7 +1870,8 @@ export const adminPatchMatch = asyncHandler(async (req, res) => {
   if (
     match.status === "finished" &&
     match.winner &&
-    (match.winner === "A" || match.winner === "B")
+    (match.winner === "A" || match.winner === "B") &&
+    !match?.ratingApplied
   ) {
     try {
       await applyRatingForFinishedMatch(match._id);

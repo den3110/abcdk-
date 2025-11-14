@@ -5,8 +5,8 @@
   "description": "MERN authentication system",
   "main": "server.js",
   "scripts": {
-    "start": "node backend/server.js",
-    "rtmp": "node backend/rtmpRelay.server.js",
+    "start": "cross-env TZ=Asia/Bangkok node backend/server.js",
+    "rtmp": "cross-env TZ=Asia/Bangkok node backend/rtmpRelay.server.js",
     "server": "nodemon backend/server.js",
     "client": "npm run dev --prefix frontend",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
@@ -64,6 +64,7 @@
   },
   "devDependencies": {
     "concurrently": "^8.0.1",
+    "cross-env": "^10.1.0",
     "nodemon": "^2.0.22",
     "prompt-sync": "^4.2.0"
   }
