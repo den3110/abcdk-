@@ -15,8 +15,8 @@ router.get(
 
 router.get(
   "/",
-  requireAppSession,
-  verifyRankingToken,
+//   requireAppSession,
+//   verifyRankingToken,
   passProtect,
   getRankings
 );
