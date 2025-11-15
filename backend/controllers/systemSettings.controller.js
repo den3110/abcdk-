@@ -14,6 +14,10 @@ const DEFAULTS = {
     avatarLogoEnabled: true,
   },
   notifications: { telegramEnabled: false, telegramComplaintChatId: "" },
+  // 👇 NEW: links (link hướng dẫn)
+  links: {
+    guideUrl: "",
+  },
 };
 
 export const getSystemSettings = async (req, res, next) => {
@@ -59,6 +63,23 @@ export const updateSystemSettings = async (req, res, next) => {
     );
     invalidateSettingsCache();
     res.json(updated);
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 👇 NEW: controller lấy riêng link hướng dẫn
+export const getGuideLink = async (req, res, next) => {
+  try {
+    const doc =
+      (await SystemSettings.findById("system")) ||
+      (await SystemSettings.create(DEFAULTS));
+
+    const guideUrl = doc.links?.guideUrl || "";
+
+    res.json({
+      guideUrl,
+    });
   } catch (err) {
     next(err);
   }

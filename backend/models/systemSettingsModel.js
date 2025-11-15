@@ -36,6 +36,11 @@ const SystemSettingsSchema = new mongoose.Schema(
       telegramComplaintChatId: { type: String, default: "" }, // token để ở ENV
     },
 
+    // 👇 NEW: Link hướng dẫn
+    links: {
+      guideUrl: { type: String, default: "", trim: true },
+    },
+
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     updatedAt: { type: Date, default: Date.now },
   },
