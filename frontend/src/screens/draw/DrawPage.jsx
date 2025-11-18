@@ -2484,6 +2484,29 @@ export default function DrawPage() {
     refetchOnReconnect: true,
     forceRefetch: () => true,
   });
+
+  // Xác định quyền bốc thăm
+  // isTournamentManager: người quản lý giải
+  // ⚠️ tuỳ schema của bạn mà chỉnh lại list managers/staff nhé
+  const isTournamentManager = (() => {
+    if (!tournament || !userInfo) return false;
+    const uid = String(userInfo._id || userInfo.id);
+
+    // owner giải
+    const ownerId = tournament.owner
+      ? String(tournament.owner._id || tournament.owner)
+      : null;
+    if (uid === ownerId) return true;
+
+    // các field có thể đang dùng cho quản lý giải
+    const managerCandidates =
+      tournament.managers || tournament.staffs || tournament.organizers || [];
+    return managerCandidates.some((m) => String(m.user || m._id || m) === uid);
+  })();
+
+  // người được phép bốc thăm
+  const canManageDraw = isAdmin || isTournamentManager;
+
   const {
     data: brackets = [],
     isLoading: lb,
@@ -3554,18 +3577,6 @@ export default function DrawPage() {
     [drawType]
   );
   /* ===== Render ===== */
-  if (!isAdmin) {
-    return (
-      <Box p={3}>
-        <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(-1)}>
-          Quay lại
-        </Button>
-        <Alert severity="error" sx={{ mt: 2 }}>
-          Chỉ quản trị viên mới truy cập trang bốc thăm.
-        </Alert>
-      </Box>
-    );
-  }
   if (lt || lb || ls || lRegs || lMatches) {
     return (
       <Box p={3} textAlign="center">
@@ -3573,6 +3584,8 @@ export default function DrawPage() {
       </Box>
     );
   }
+
+
   if (et || eb) {
     return (
       <Box p={3}>
@@ -3583,6 +3596,20 @@ export default function DrawPage() {
       </Box>
     );
   }
+
+  if (!canManageDraw) {
+    return (
+      <Box p={3}>
+        <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(-1)}>
+          Quay lại
+        </Button>
+        <Alert severity="error" sx={{ mt: 2 }}>
+          Chỉ admin hoặc quản lý giải mới truy cập trang bốc thăm.
+        </Alert>
+      </Box>
+    );
+  }
+
 
   return (
     <RBContainer fluid="xl" className="py-4">
@@ -3685,7 +3712,7 @@ export default function DrawPage() {
       >
         <Stack spacing={2}>
           <Alert severity="info">
-            Chỉ admin mới thấy trang này. Thể loại giải:{" "}
+            Chỉ admin hoặc quản lý mới thấy trang này. Thể loại giải:{" "}
             <b>{(tournament?.eventType || "").toUpperCase()}</b>
           </Alert>
 

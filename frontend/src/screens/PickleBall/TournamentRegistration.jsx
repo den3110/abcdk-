@@ -1214,7 +1214,7 @@ export default function TournamentRegistration() {
   const isDoubles = evType === "double";
   const cap = useMemo(() => getScoreCap(tour, isSingles), [tour, isSingles]);
   const delta = useMemo(() => getMaxDelta(tour), [tour]);
-
+  console.log(tour)
   const isManager = useMemo(() => {
     if (!isLoggedIn || !tour) return false;
     if (String(tour.createdBy) === String(me._id)) return true;
@@ -1235,6 +1235,7 @@ export default function TournamentRegistration() {
   );
 
   const canManage = isLoggedIn && (isManager || isAdmin);
+  console.log(isManager)
 
   const location = useLocation();
   const drawPath = useMemo(() => {
