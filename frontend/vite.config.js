@@ -3,7 +3,27 @@ import react from "@vitejs/plugin-react";
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: "configure-well-known",
+      configureServer(server) {
+        server.middlewares.use((req, res, next) => {
+          // Apple App Site Association
+          if (req.url === "/.well-known/apple-app-site-association") {
+            res.setHeader("Content-Type", "application/json");
+            res.setHeader("Cache-Control", "public, max-age=3600");
+          }
+          // Android Asset Links
+          if (req.url === "/.well-known/assetlinks.json") {
+            res.setHeader("Content-Type", "application/json");
+            res.setHeader("Cache-Control", "public, max-age=3600");
+          }
+          next();
+        });
+      },
+    },
+  ],
   server: {
     port: 3000,
     proxy: {

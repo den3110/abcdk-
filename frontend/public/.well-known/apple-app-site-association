@@ -1,0 +1,24 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "22546638563.com.pkt.pickletour",
+        "paths": [
+          "/tournament/*",
+          "/match/*",
+          "/live/*",
+          "/profile/*",
+          "/clubs*",
+          "/levelpoint*",
+          "*"
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": [
+      "22546638563.com.pkt.pickletour"
+    ]
+  }
+}
