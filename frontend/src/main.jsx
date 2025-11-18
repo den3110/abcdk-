@@ -62,6 +62,7 @@ dayjs.locale("vi");
 
 function AppInitGate({ children }) {
   useGetAppInitQuery(); // auto fire 1 lần, set cookie session
+  
   return children;
 }
 
