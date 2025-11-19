@@ -3,6 +3,7 @@ import NewsSettings from "../models/newsSettingsModel.js";
 import NewsLinkCandidate from "../models/newsLinkCandicateModel.js";
 import { discoverFeaturedArticles } from "../services/articleDiscoveryService.js";
 import { runCrawlEngine } from "../services/crawlEngine.js";
+import { discoverFeaturedArticlesV2 } from "../services/articleDiscoveryServiceV2.js";
 
 /**
  * GET /api/admin/news/settings
@@ -65,6 +66,30 @@ export const getNewsCandidates = async (req, res) => {
 export const runNewsSyncNow = async (req, res) => {
   try {
     const discovery = await discoverFeaturedArticles();
+    const crawl = await runCrawlEngine();
+
+    // crawl đã bao gồm:
+    // { crawled, skipped, failed, errorsByType, failedSamples }
+    return res.json({
+      ok: true,
+      message: "Đã chạy đồng bộ tin tức thủ công.",
+      discovery,
+      crawl,
+    });
+  } catch (e) {
+    console.error("[NewsSyncNow] Error:", e);
+    return res.status(500).json({
+      ok: false,
+      message: "Chạy đồng bộ tin tức thất bại.",
+      error: e.message,
+    });
+  }
+};
+
+
+export const runNewsSyncNowV2 = async (req, res) => {
+  try {
+    const discovery = await discoverFeaturedArticlesV2();
     const crawl = await runCrawlEngine();
 
     // crawl đã bao gồm:

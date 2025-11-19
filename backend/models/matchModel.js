@@ -1178,6 +1178,52 @@ matchSchema.statics.compileSeedsForBracket = async function (bracketId) {
   }
 };
 
+/**
+ * Xoá các match mồ côi:
+ *  - bracket không tồn tại (đã xoá bracket)
+ *  - bracket = null / không có field bracket
+ */
+matchSchema.statics.cleanupOrphanMatches = async function () {
+  const Match = this;
+
+  // Tìm các match không còn bracket hợp lệ
+  const orphans = await Match.aggregate([
+    {
+      $lookup: {
+        from: "brackets",
+        localField: "bracket",
+        foreignField: "_id",
+        as: "br",
+      },
+    },
+    {
+      $match: {
+        $or: [
+          { bracket: { $exists: false } },
+          { bracket: null },
+          { br: { $size: 0 } }, // bracket ref nhưng doc đã bị xoá
+        ],
+      },
+    },
+    { $project: { _id: 1 } },
+  ]);
+
+  const ids = orphans.map((o) => o._id);
+  if (!ids.length) {
+    console.log("[Match.cleanupOrphanMatches] No orphan matches found");
+    return { deletedCount: 0 };
+  }
+
+  const result = await Match.deleteMany({ _id: { $in: ids } });
+
+  console.log(
+    "[Match.cleanupOrphanMatches] Deleted orphan matches:",
+    result.deletedCount
+  );
+
+  return { deletedCount: result.deletedCount || 0 };
+};
+
 /* ======================= Indexes ======================= */
 matchSchema.index({ bracket: 1, branch: 1, round: 1, order: 1 });
 matchSchema.index({ bracket: 1, "pool.id": 1, rrRound: 1, order: 1 });

@@ -1,15 +1,11 @@
-// src/pages/MyTournamentsPage.jsx — items full width (normal MUI Container)
-// Quy ước màu:
-// - ongoing/live  → warning (cam)
-// - upcoming/scheduled → primary (lam)
-// - finished → success (lục)
+// src/pages/MyTournamentsPage.jsx — Thêm chức năng Expandable cho List View (MUI v7 Grid v2)
 
 import React, {
   useMemo,
   useState,
   useCallback,
-  useEffect, // ⬅️ NEW
-  useRef, // ⬅️ NEW
+  useEffect,
+  useRef,
 } from "react";
 import {
   Box,
@@ -28,28 +24,48 @@ import {
   useTheme,
   useMediaQuery,
   Collapse,
+  Grid,
 } from "@mui/material";
+
+// ⬇️ Icons
 import SearchIcon from "@mui/icons-material/Search";
 import CloseIcon from "@mui/icons-material/Close";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import LockIcon from "@mui/icons-material/Lock";
 import LoginIcon from "@mui/icons-material/Login";
 import SportsTennisIcon from "@mui/icons-material/SportsTennis";
-import EventIcon from "@mui/icons-material/Event";
 import ScheduleIcon from "@mui/icons-material/Schedule";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import PlaceIcon from "@mui/icons-material/Place";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import AccessTimeIcon from "@mui/icons-material/AccessTime";
+import InfoIcon from "@mui/icons-material/Info";
+import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import PauseIcon from "@mui/icons-material/Pause";
+import GridViewIcon from "@mui/icons-material/GridView";
+import ViewListIcon from "@mui/icons-material/ViewList";
+import { ToggleButton, ToggleButtonGroup } from "@mui/material";
+
 import { useSelector } from "react-redux";
 import { skipToken } from "@reduxjs/toolkit/query";
 import { useNavigate } from "react-router-dom";
 import { useListMyTournamentsQuery } from "../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./PickleBall/match/ResponsiveMatchViewer";
-// ⬇️ NEW: điều chỉnh path theo dự án của bạn
 import { useSocket } from "../context/SocketContext";
 
-/* ================= Utils ================= */
+function normalizeGroupCode(code) {
+  const s = String(code || "")
+    .trim()
+    .toUpperCase();
+  if (!s) return "";
+  if (/^\d+$/.test(s)) return s; // Đã là số
+  if (/^[A-Z]$/.test(s)) return String(s.charCodeAt(0) - 64); // A=1, B=2,...
+  return s;
+}
+
+/* ================= Utils (Giữ nguyên) ================= */
 const dateFmt = (s) => {
   if (!s) return "—";
   const d = new Date(s);
@@ -86,23 +102,94 @@ const teamLabel = (team, eventType) => {
 function roundText(m) {
   if (m.roundName) return m.roundName;
   if (m.phase) return m.phase;
-  if (Number.isFinite(m.rrRound)) return `Vòng bảng ${m.rrRound}`;
-  if (Number.isFinite(m.swissRound)) return `Swiss ${m.swissRound}`;
-  if (Number.isFinite(m.round)) return `Vòng ${m.round}`;
+
+  // ✅ SỬA: Hiển thị vòng bảng đẹp hơn
+  if (m.format === "group") {
+    // Có pool.name (tên bảng) → hiển thị "Bảng A", "Bảng B",...
+    const poolName = m.pool?.name || m.groupCode;
+    if (poolName) {
+      // Nếu là số → "Bảng 1", "Bảng 2"
+      if (/^\d+$/.test(String(poolName))) {
+        return `Bảng ${poolName}`;
+      }
+      // Nếu là chữ → "Bảng A", "Bảng B"
+      return `Bảng ${String(poolName).toUpperCase()}`;
+    }
+
+    // Fallback: có rrRound → "Vòng bảng - Lượt X"
+    if (Number.isFinite(m.rrRound)) {
+      return `Vòng bảng - Lượt ${m.rrRound + 1}`;
+    }
+
+    // Không có gì → chỉ "Vòng bảng"
+    return "Vòng bảng";
+  }
+
+  // ✅ Các format khác
+  if (Number.isFinite(m.swissRound)) {
+    return `Swiss - Vòng ${m.swissRound + 1}`;
+  }
+
+  if (Number.isFinite(m.round)) {
+    // Knockout/Playoff
+    if (m.format === "knockout" || m.format === "roundElim") {
+      const roundNames = {
+        1: "Vòng 1/16",
+        2: "Vòng 1/8",
+        3: "Tứ kết",
+        4: "Bán kết",
+        5: "Chung kết",
+      };
+      return roundNames[m.round] || `Vòng ${m.round}`;
+    }
+    return `Vòng ${m.round}`;
+  }
+
   return "—";
 }
 
-/* ========== Tone helpers (áp màu đồng bộ) ========== */
+/* ========== Tone helpers (Giữ nguyên) ========== */
 const toneToMuiColor = (tone) => {
-  if (tone === "upcoming" || tone === "scheduled") return "primary"; // lam
-  if (tone === "ongoing" || tone === "live") return "warning"; // cam
-  if (tone === "finished") return "success"; // lục
+  if (tone === "upcoming" || tone === "scheduled") return "primary";
+  if (tone === "ongoing" || tone === "live") return "warning";
+  if (tone === "finished") return "success";
   return "primary";
 };
 
-/* ================= Small UI bits ================= */
+/* ================= Small UI bits (Giữ nguyên) ================= */
+
+function StatusChipWithIcon({ status }) {
+  const map = {
+    live: { label: "Đang diễn ra", color: "warning", Icon: PlayArrowIcon },
+    finished: { label: "Đã kết thúc", color: "success", Icon: EmojiEventsIcon },
+    scheduled: { label: "Sắp diễn ra", color: "primary", Icon: PauseIcon },
+    upcoming: { label: "Sắp diễn ra", color: "primary", Icon: PauseIcon },
+    ongoing: { label: "Đang diễn ra", color: "warning", Icon: PlayArrowIcon },
+  };
+  const conf = map[status] || map.scheduled;
+  const Icon = conf.Icon;
+  return (
+    <Chip
+      size="small"
+      label={conf.label}
+      color={conf.color}
+      icon={Icon ? <Icon sx={{ fontSize: 16 }} /> : undefined}
+      sx={{ fontWeight: 600 }}
+    />
+  );
+}
+
 function ToggleChip({ active, label, onClick, tone }) {
   const color = toneToMuiColor(tone);
+  const map = {
+    upcoming: PauseIcon,
+    scheduled: PauseIcon,
+    ongoing: PlayArrowIcon,
+    live: PlayArrowIcon,
+    finished: EmojiEventsIcon,
+  };
+  const Icon = map[tone];
+
   return (
     <Chip
       label={label}
@@ -110,25 +197,8 @@ function ToggleChip({ active, label, onClick, tone }) {
       variant={active ? "filled" : "outlined"}
       color={active ? color : "default"}
       size="small"
+      icon={Icon ? <Icon sx={{ fontSize: 16 }} /> : undefined}
       sx={{ borderRadius: 999, fontWeight: 700 }}
-    />
-  );
-}
-
-function StatusChip({ status }) {
-  // status của TRẬN
-  const map = {
-    live: { label: "Đang diễn ra", color: "warning" }, // cam
-    finished: { label: "Đã kết thúc", color: "success" }, // lục
-    scheduled: { label: "Sắp diễn ra", color: "primary" }, // lam
-  };
-  const conf = map[status] || map.scheduled;
-  return (
-    <Chip
-      size="small"
-      label={conf.label}
-      color={conf.color}
-      sx={{ fontWeight: 600 }}
     />
   );
 }
@@ -150,7 +220,6 @@ function SmallMeta({ icon, text }) {
   );
 }
 
-/* ⬇️ NEW: scoreText ưu tiên, fallback gameScores/sets */
 function formatScoreFromMatch(m) {
   if (typeof m?.scoreText === "string" && m.scoreText.trim()) {
     return m.scoreText.trim();
@@ -186,7 +255,203 @@ function ScoreBadge({ m }) {
   );
 }
 
-/* ================= Rows / Cards ================= */
+/* ⬇️ UPDATED: TournamentListRow - Thêm tính năng mở rộng trận đấu */
+function TournamentListRow({ t, onOpenMatch }) {
+  const onOpen = useCallback((m) => onOpenMatch?.(m), [onOpenMatch]);
+  const [expanded, setExpanded] = useState(false);
+
+  const matches = Array.isArray(t.matches) ? t.matches : [];
+
+  const summaryMatches = useMemo(() => {
+    return matches
+      .filter((m) => m.status === "live" || m.status === "scheduled")
+      .slice(0, 2);
+  }, [matches]);
+
+  const remainingMatches = useMemo(() => {
+    return matches
+      .filter((m) => m.status === "live" || m.status === "scheduled")
+      .slice(2);
+  }, [matches]);
+
+  const hasRemainingMatches = remainingMatches.length > 0;
+
+  const statusColor = toneToMuiColor(t.status);
+  const StatusIcon =
+    t.status === "ongoing"
+      ? AccessTimeIcon
+      : t.status === "finished"
+      ? EmojiEventsIcon
+      : InfoIcon;
+
+  return (
+    <Card
+      variant="outlined"
+      sx={{
+        borderRadius: 2,
+        p: 2,
+        "&:hover": { bgcolor: "action.hover" },
+      }}
+    >
+      {/* Header Row */}
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        spacing={2}
+        alignItems={{ xs: "flex-start", md: "center" }}
+        useFlexGap
+      >
+        {/* Thông tin giải đấu */}
+        <Stack
+          direction="row"
+          spacing={1}
+          alignItems="flex-start"
+          sx={{ minWidth: 0, flex: 5, width: { xs: "100%", md: "auto" } }}
+        >
+          <StatusIcon color={statusColor} sx={{ mt: 0.5, flexShrink: 0 }} />
+          <Stack spacing={0.5} sx={{ minWidth: 0, flex: 1 }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <StatusChipWithIcon status={t.status} />
+            </Stack>
+            <Typography variant="h6" fontWeight={700} noWrap>
+              {t.name || "Giải đấu"}
+            </Typography>
+            <SmallMeta
+              icon={PlaceIcon}
+              text={t.location || "Chưa xác định địa điểm"}
+            />
+            <SmallMeta
+              icon={CalendarMonthIcon}
+              text={
+                (t.startDate || t.startAt) && (t.endDate || t.endAt)
+                  ? `${dateFmt(t.startDate || t.startAt)} → ${dateFmt(
+                      t.endDate || t.endAt
+                    )}`
+                  : "—"
+              }
+            />
+          </Stack>
+        </Stack>
+
+        {/* Trận nổi bật */}
+        <Box sx={{ flex: 7, minWidth: 0, width: { xs: "100%", md: "auto" } }}>
+          {summaryMatches.length > 0 ? (
+            <Stack spacing={1}>
+              {summaryMatches.map((m) => {
+                const a = m.teamA || m.home || m.teams?.[0] || m.pairA;
+                const b = m.teamB || m.away || m.teams?.[1] || m.pairB;
+                const status =
+                  m.status || (m.winner ? "finished" : "scheduled");
+                const accent =
+                  status === "live"
+                    ? "warning.main"
+                    : status === "finished"
+                    ? "success.main"
+                    : "primary.main";
+
+                return (
+                  <Stack
+                    key={m._id}
+                    direction="row"
+                    spacing={1.5}
+                    alignItems="center"
+                    onClick={() => onOpen(m)}
+                    sx={{
+                      cursor: "pointer",
+                      borderRadius: 1,
+                      p: 0.75,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      "&:hover": { bgcolor: "action.selected" },
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        width: 4,
+                        height: 20,
+                        borderRadius: 999,
+                        bgcolor: accent,
+                        flexShrink: 0,
+                      }}
+                    />
+                    <Typography
+                      variant="body2"
+                      fontWeight={600}
+                      sx={{ minWidth: 0, flex: 1 }}
+                      noWrap
+                    >
+                      {teamLabel(a, t.eventType)} vs {teamLabel(b, t.eventType)}
+                    </Typography>
+                    <SmallMeta icon={ScheduleIcon} text={roundText(m)} />
+                    <SmallMeta
+                      icon={AccessTimeIcon}
+                      text={dateFmt(m.scheduledAt || m.startTime || m.time)}
+                    />
+                  </Stack>
+                );
+              })}
+              {hasRemainingMatches && (
+                <Button
+                  onClick={() => setExpanded((v) => !v)}
+                  size="small"
+                  variant="outlined"
+                  endIcon={expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                  sx={{
+                    mt: 0.5,
+                    alignSelf: "flex-start",
+                  }}
+                >
+                  {expanded
+                    ? "Thu gọn danh sách"
+                    : `Xem tất cả ${
+                        remainingMatches.length + summaryMatches.length
+                      } trận`}
+                </Button>
+              )}
+            </Stack>
+          ) : (
+            <Typography
+              color="text.secondary"
+              fontStyle="italic"
+              variant="body2"
+              sx={{ mt: { xs: 1, md: 0 } }}
+            >
+              <Stack direction="row" spacing={1} alignItems="center">
+                <InfoIcon fontSize="small" />{" "}
+                <span>Chưa có trận đấu nào được lên lịch.</span>
+              </Stack>
+            </Typography>
+          )}
+        </Box>
+      </Stack>
+
+      {/* Danh sách trận còn lại (collapse) */}
+      {hasRemainingMatches && (
+        <Collapse in={expanded} timeout="auto" unmountOnExit>
+          <Box
+            sx={{
+              pt: 2,
+              borderTop: "1px solid",
+              borderColor: "divider",
+              mt: 2,
+            }}
+          >
+            <Stack spacing={1.25}>
+              {remainingMatches.map((m) => (
+                <MatchRow
+                  key={m._id}
+                  m={m}
+                  onOpen={onOpen}
+                  eventType={t.eventType}
+                />
+              ))}
+            </Stack>
+          </Box>
+        </Collapse>
+      )}
+    </Card>
+  );
+}
+
 function MatchRow({ m, onOpen, eventType }) {
   const a = m.teamA || m.home || m.teams?.[0] || m.pairA;
   const b = m.teamB || m.away || m.teams?.[1] || m.pairB;
@@ -196,10 +461,10 @@ function MatchRow({ m, onOpen, eventType }) {
 
   const accent =
     status === "live"
-      ? "warning.main" // cam
+      ? "warning.main"
       : status === "finished"
-      ? "success.main" // lục
-      : "primary.main"; // lam
+      ? "success.main"
+      : "primary.main";
 
   return (
     <Card variant="outlined" sx={{ borderRadius: 2, overflow: "hidden" }}>
@@ -216,12 +481,11 @@ function MatchRow({ m, onOpen, eventType }) {
               <Typography noWrap fontWeight={600}>
                 {teamLabel(a, eventType)}
               </Typography>
-              <StatusChip status={status} />
+              <StatusChipWithIcon status={status} />
             </Stack>
             <Typography noWrap fontWeight={600}>
               {teamLabel(b, eventType)}
             </Typography>
-            {/* ⬇️ NEW: realtime score */}
             <ScoreBadge m={m} />
             <Stack
               direction="row"
@@ -230,7 +494,7 @@ function MatchRow({ m, onOpen, eventType }) {
               useFlexGap
               sx={{ mt: 0.5 }}
             >
-              <SmallMeta icon={EventIcon} text={dateFmt(when)} />
+              <SmallMeta icon={AccessTimeIcon} text={dateFmt(when)} />
               {!!court && (
                 <SmallMeta icon={SportsTennisIcon} text={`Sân ${court}`} />
               )}
@@ -247,7 +511,6 @@ function MatchRow({ m, onOpen, eventType }) {
 }
 
 function Banner({ t, collapsed, onToggle }) {
-  // status của GIẢI
   const statusText =
     t.status === "ongoing"
       ? "Đang diễn ra"
@@ -261,6 +524,12 @@ function Banner({ t, collapsed, onToggle }) {
       ? "success"
       : "primary";
   const uri = t.image || t.cover || t.bannerUrl || null;
+  const StatusIcon =
+    t.status === "ongoing"
+      ? PlayArrowIcon
+      : t.status === "finished"
+      ? EmojiEventsIcon
+      : PauseIcon;
 
   return (
     <Box sx={{ width: "100%" }}>
@@ -290,11 +559,9 @@ function Banner({ t, collapsed, onToggle }) {
             }}
           />
         )}
-        {/* overlay tối nhẹ */}
         <Box
           sx={{ position: "absolute", inset: 0, bgcolor: "rgba(0,0,0,0.22)" }}
         />
-        {/* gradient đáy */}
         <Box
           sx={{
             position: "absolute",
@@ -327,13 +594,15 @@ function Banner({ t, collapsed, onToggle }) {
               </Stack>
             )}
           </Box>
-
-          {/* status tag theo quy ước màu + toggle collapse */}
           <Stack direction="row" spacing={0.75} alignItems="center">
             <Chip
               label={statusText}
               color={statusColor}
-              sx={{ fontWeight: 600, color: "#fff" }}
+              icon={<StatusIcon sx={{ fontSize: 16 }} />}
+              sx={{
+                fontWeight: 600,
+                color: statusColor === "warning" ? "inherit" : "#fff",
+              }}
             />
             <IconButton
               size="small"
@@ -355,10 +624,8 @@ function Banner({ t, collapsed, onToggle }) {
 }
 
 function TournamentCard({ t, onOpenMatch }) {
-  // Card-level collapse: mặc định finished → collapse, còn lại mở
   const [collapsed, setCollapsed] = useState(t.status === "finished");
-
-  const [expanded, setExpanded] = useState(false); // chỉ điều khiển "xem thêm" list trận
+  const [expanded, setExpanded] = useState(false);
   const [matchQuery, setMatchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState(
     new Set(["scheduled", "live", "finished"])
@@ -405,25 +672,33 @@ function TournamentCard({ t, onOpenMatch }) {
         onToggle={() => setCollapsed((v) => !v)}
       />
 
-      {/* Phần nội dung có thể collapse toàn bộ */}
       <Collapse in={!collapsed} timeout="auto" unmountOnExit>
         <CardContent sx={{ p: { xs: 1.5, md: 2 }, pt: 1.5 }}>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-            <CalendarMonthIcon sx={{ fontSize: 18, color: "text.secondary" }} />
-            <Typography variant="body2" color="text.secondary">
-              {(t.startDate || t.startAt) && (t.endDate || t.endAt)
-                ? `${dateFmt(t.startDate || t.startAt)}  →  ${dateFmt(
-                    t.endDate || t.endAt
-                  )}`
-                : "—"}
-            </Typography>
+          <Stack
+            direction="row"
+            spacing={2}
+            alignItems="center"
+            justifyContent="space-between"
+            sx={{ mb: 1.5 }}
+          >
+            <Stack direction="row" spacing={1} alignItems="center">
+              <AccessTimeIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+              <Typography variant="body2" color="text.secondary" noWrap>
+                {(t.startDate || t.startAt) && (t.endDate || t.endAt)
+                  ? `${dateFmt(t.startDate || t.startAt)}  →  ${dateFmt(
+                      t.endDate || t.endAt
+                    )}`
+                  : "—"}
+              </Typography>
+            </Stack>
           </Stack>
 
-          {/* SEARCH + FILTER TRẬN (chip có màu theo tone) */}
+          {/* SEARCH + FILTER TRẬN */}
           <Stack
             direction={{ xs: "column", sm: "row" }}
             spacing={1}
             alignItems={{ xs: "stretch", sm: "center" }}
+            sx={{ mb: 1.5 }}
           >
             <TextField
               value={matchQuery}
@@ -446,39 +721,45 @@ function TournamentCard({ t, onOpenMatch }) {
                 ) : null,
               }}
             />
+          </Stack>
 
-            <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-              <ToggleChip
-                label="Sắp diễn ra"
-                active={statusFilter.has("scheduled")}
-                onClick={() => toggleStatus("scheduled")}
-                tone="scheduled"
-              />
-              <ToggleChip
-                label="Đang diễn ra"
-                active={statusFilter.has("live")}
-                onClick={() => toggleStatus("live")}
-                tone="live"
-              />
-              <ToggleChip
-                label="Đã kết thúc"
-                active={statusFilter.has("finished")}
-                onClick={() => toggleStatus("finished")}
-                tone="finished"
-              />
-              {(!!matchQuery || statusFilter.size !== 3) && (
-                <Button
-                  onClick={() => {
-                    setMatchQuery("");
-                    setStatusFilter(new Set(["scheduled", "live", "finished"]));
-                  }}
-                  size="small"
-                  variant="text"
-                >
-                  Reset
-                </Button>
-              )}
-            </Stack>
+          <Stack
+            direction="row"
+            spacing={1}
+            flexWrap="wrap"
+            useFlexGap
+            sx={{ mb: 1.5 }}
+          >
+            <ToggleChip
+              label="Sắp diễn ra"
+              active={statusFilter.has("scheduled")}
+              onClick={() => toggleStatus("scheduled")}
+              tone="scheduled"
+            />
+            <ToggleChip
+              label="Đang diễn ra"
+              active={statusFilter.has("live")}
+              onClick={() => toggleStatus("live")}
+              tone="live"
+            />
+            <ToggleChip
+              label="Đã kết thúc"
+              active={statusFilter.has("finished")}
+              onClick={() => toggleStatus("finished")}
+              tone="finished"
+            />
+            {(!!matchQuery || statusFilter.size !== 3) && (
+              <Button
+                onClick={() => {
+                  setMatchQuery("");
+                  setStatusFilter(new Set(["scheduled", "live", "finished"]));
+                }}
+                size="small"
+                variant="text"
+              >
+                Reset
+              </Button>
+            )}
           </Stack>
 
           {/* LIST MATCHES */}
@@ -531,7 +812,7 @@ function TournamentCard({ t, onOpenMatch }) {
   );
 }
 
-/* ======= Login Prompt ======= */
+/* ======= Login Prompt (Giữ nguyên) ======= */
 function LoginPrompt() {
   const navigate = useNavigate();
   return (
@@ -580,22 +861,40 @@ function LoginPrompt() {
 }
 
 /* ================= Page ================= */
+const LS_VIEW_MODE_KEY = "myTournamentsViewMode";
+
 export default function MyTournamentsPage() {
   const theme = useTheme();
   const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
   const [viewerOpen, setViewerOpen] = useState(false);
   const [matchId, setMatchId] = useState(null);
 
+  const [viewMode, setViewMode] = useState("card");
+
+  // Load viewMode
+  useEffect(() => {
+    const savedMode = localStorage.getItem(LS_VIEW_MODE_KEY);
+    if (savedMode && (savedMode === "list" || savedMode === "card")) {
+      setViewMode(savedMode);
+    }
+  }, []);
+
+  // Save viewMode
+  const handleViewModeChange = useCallback((event, nextMode) => {
+    if (nextMode !== null) {
+      setViewMode(nextMode);
+      localStorage.setItem(LS_VIEW_MODE_KEY, nextMode);
+    }
+  }, []);
+
   const { userInfo } = useSelector((s) => s?.auth || {});
   const isAuthed = !!(userInfo?.token || userInfo?._id || userInfo?.email);
-
   const queryArg = isAuthed
     ? { withMatches: 1, matchLimit: 200, page: 1, limit: 50 }
     : skipToken;
   const { data, isLoading, isError, refetch, isFetching } =
     useListMyTournamentsQuery(queryArg);
 
-  // Chuẩn hóa danh sách tournaments từ API
   const tournamentsRaw = useMemo(() => {
     if (!data) return [];
     if (Array.isArray(data)) return data;
@@ -603,20 +902,13 @@ export default function MyTournamentsPage() {
     return [];
   }, [data]);
 
-  /* ================= Realtime layer ================= */
   const socket = useSocket();
-
-  // Map matchId -> match (đã merge realtime)
   const liveMapRef = useRef(new Map());
   const [liveBump, setLiveBump] = useState(0);
   const pendingRef = useRef(new Map());
   const rafRef = useRef(null);
-
-  // Nhớ state đã join/subscribe để không spam
-  const joinedMatchesRef = useRef(new Set()); // Set<matchId>
-  const subscribedBracketsRef = useRef(new Set()); // Set<bracketId>
-
-  // Danh sách match & bracket hiện có (dựa trên dữ liệu đang hiển thị)
+  const joinedMatchesRef = useRef(new Set());
+  const subscribedBracketsRef = useRef(new Set());
   const allMatchesInitial = useMemo(() => {
     const arr = [];
     for (const t of tournamentsRaw) {
@@ -624,7 +916,6 @@ export default function MyTournamentsPage() {
     }
     return arr;
   }, [tournamentsRaw]);
-
   const allMatchIdsKey = useMemo(
     () =>
       allMatchesInitial
@@ -634,7 +925,6 @@ export default function MyTournamentsPage() {
         .join(","),
     [allMatchesInitial]
   );
-
   const allBracketIdsKey = useMemo(() => {
     const ids = [];
     for (const m of allMatchesInitial) {
@@ -645,25 +935,20 @@ export default function MyTournamentsPage() {
     }
     return Array.from(new Set(ids)).sort().join(",");
   }, [allMatchesInitial]);
-
   const flushPending = useCallback(() => {
     if (!pendingRef.current.size) return;
     const mp = liveMapRef.current;
     for (const [mid, inc] of pendingRef.current) {
       const cur = mp.get(mid);
-      // Không khóa version để tránh chặn các gói không có version
       mp.set(mid, { ...(cur || {}), ...inc });
     }
     pendingRef.current.clear();
     setLiveBump((x) => x + 1);
   }, []);
-
   const queueUpsert = useCallback(
     (incRaw) => {
       const inc = incRaw?.data ?? incRaw?.match ?? incRaw;
       if (!inc?._id) return;
-
-      // Chuẩn hóa nhẹ vài entity để tránh phình object
       const normalizeEntity = (v) => {
         if (v == null) return v;
         if (typeof v === "string" || typeof v === "number") return v;
@@ -692,8 +977,6 @@ export default function MyTournamentsPage() {
     },
     [flushPending]
   );
-
-  // 1) Seed map từ API (khi danh sách thay đổi)
   useEffect(() => {
     const mp = new Map();
     for (const m of allMatchesInitial) {
@@ -702,8 +985,6 @@ export default function MyTournamentsPage() {
     liveMapRef.current = mp;
     setLiveBump((x) => x + 1);
   }, [allMatchesInitial]);
-
-  // Helper diff
   const diffSet = (curSet, nextArr) => {
     const nextSet = new Set(nextArr);
     const added = [];
@@ -716,11 +997,8 @@ export default function MyTournamentsPage() {
     });
     return { added, removed, nextSet };
   };
-
-  // 2) Đăng ký socket listeners 1 lần
   useEffect(() => {
     if (!socket) return;
-
     const onUpsert = (payload) => queueUpsert(payload);
     const onRemove = (payload) => {
       const id = String(payload?.id ?? payload?._id ?? "");
@@ -731,11 +1009,9 @@ export default function MyTournamentsPage() {
       }
     };
     const onRefilled = () => {
-      // Sơ đồ refill → gọi lại API
       refetch();
     };
     const onConnected = () => {
-      // Re-join/subscribe lại theo các set đã nhớ
       subscribedBracketsRef.current.forEach((bid) =>
         socket.emit("draw:subscribe", { bracketId: bid })
       );
@@ -744,17 +1020,15 @@ export default function MyTournamentsPage() {
         socket.emit("match:snapshot:request", { matchId: mid });
       });
     };
-
     socket.on("connect", onConnected);
     socket.on("match:update", onUpsert);
     socket.on("match:snapshot", onUpsert);
-    socket.on("match:patched", onUpsert); // alias phổ biến
+    socket.on("match:patched", onUpsert);
     socket.on("score:updated", onUpsert);
-    socket.on("score:update", onUpsert); // alias phổ biến
+    socket.on("score:update", onUpsert);
     socket.on("match:deleted", onRemove);
     socket.on("draw:refilled", onRefilled);
     socket.on("bracket:updated", onRefilled);
-
     return () => {
       socket.off("connect", onConnected);
       socket.off("match:update", onUpsert);
@@ -765,7 +1039,6 @@ export default function MyTournamentsPage() {
       socket.off("match:deleted", onRemove);
       socket.off("draw:refilled", onRefilled);
       socket.off("bracket:updated", onRefilled);
-
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
@@ -773,8 +1046,6 @@ export default function MyTournamentsPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, queueUpsert, refetch]);
-
-  // 3) Subscribe/unsubscribe BRACKETS theo diff
   useEffect(() => {
     if (!socket) return;
     const nextIds = allBracketIdsKey ? allBracketIdsKey.split(",") : [];
@@ -787,7 +1058,6 @@ export default function MyTournamentsPage() {
       socket.emit("draw:unsubscribe", { bracketId: bid })
     );
     subscribedBracketsRef.current = nextSet;
-
     return () => {
       nextSet.forEach((bid) =>
         socket.emit("draw:unsubscribe", { bracketId: bid })
@@ -795,8 +1065,6 @@ export default function MyTournamentsPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, allBracketIdsKey]);
-
-  // 4) Join/leave MATCH rooms theo diff
   useEffect(() => {
     if (!socket) return;
     const nextIds = allMatchIdsKey ? allMatchIdsKey.split(",") : [];
@@ -804,38 +1072,68 @@ export default function MyTournamentsPage() {
       joinedMatchesRef.current,
       nextIds
     );
-
     added.forEach((mid) => {
       socket.emit("match:join", { matchId: mid });
       socket.emit("match:snapshot:request", { matchId: mid });
     });
     removed.forEach((mid) => socket.emit("match:leave", { matchId: mid }));
-
     joinedMatchesRef.current = nextSet;
-
     return () => {
       nextSet.forEach((mid) => socket.emit("match:leave", { matchId: mid }));
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, allMatchIdsKey]);
 
-  /* ======= Merge live vào tournaments ======= */
   const tournamentsLive = useMemo(() => {
     const getLive = (m) => liveMapRef.current.get(String(m?._id)) || m;
+
     return tournamentsRaw.map((t) => {
+      const tid = String(t._id);
       const base = { ...t };
-      base.matches = Array.isArray(t.matches) ? t.matches.map(getLive) : [];
+
+      // ✅ Lấy trạng thái bảng từ backend
+      const groupStatusMap = t.groupCompletionStatus || {};
+
+      const allMatches = Array.isArray(t.matches) ? t.matches : [];
+
+      // Lọc trận KO
+      const filteredMatches = allMatches.filter((m) => {
+        if (m.format !== "knockout") return true;
+
+        // Kiểm tra seedA
+        if (m.seedA?.type === "groupRank") {
+          const stage = m.seedA.ref?.stage || m.stageIndex || 1;
+          const rawCode = String(m.seedA.ref?.groupCode || "").trim();
+          if (rawCode) {
+            const groupCode = normalizeGroupCode(rawCode);
+            const key = `${stage}_${groupCode}`;
+            if (groupStatusMap[key] !== true) return false; // Bảng chưa xong → ẨN
+          }
+        }
+
+        // Kiểm tra seedB
+        if (m.seedB?.type === "groupRank") {
+          const stage = m.seedB.ref?.stage || m.stageIndex || 1;
+          const rawCode = String(m.seedB.ref?.groupCode || "").trim();
+          if (rawCode) {
+            const groupCode = normalizeGroupCode(rawCode);
+            const key = `${stage}_${groupCode}`;
+            if (groupStatusMap[key] !== true) return false; // Bảng chưa xong → ẨN
+          }
+        }
+
+        return true; // Hiện trận
+      });
+
+      base.matches = filteredMatches.map(getLive);
       return base;
     });
   }, [tournamentsRaw, liveBump]);
 
-  /* ======= Tìm kiếm & sort giải ======= */
   const [tourQuery, setTourQuery] = useState("");
   const [tourStatus, setTourStatus] = useState(
     new Set(["upcoming", "ongoing", "finished"])
   );
-
-  // Sort: ongoing → upcoming → finished; trong nhóm: theo start tăng dần
   const tournaments = useMemo(() => {
     const q = stripVN(tourQuery);
     const filtered = tournamentsLive.filter((t) => {
@@ -866,7 +1164,7 @@ export default function MyTournamentsPage() {
 
   return (
     <Box sx={{ minHeight: "100dvh", bgcolor: "background.default" }}>
-      {/* Sticky header trong Container */}
+      {/* Sticky header */}
       <Box
         sx={{
           position: "sticky",
@@ -883,7 +1181,7 @@ export default function MyTournamentsPage() {
       >
         <Container maxWidth="xl" sx={{ py: 3 }}>
           <Stack spacing={1}>
-            <Typography variant={"h5"} fontWeight={600}>
+            <Typography variant="h5" fontWeight={600}>
               Giải của tôi
             </Typography>
 
@@ -915,11 +1213,39 @@ export default function MyTournamentsPage() {
                 }}
               />
 
+              {isMdUp && (
+                <ToggleButtonGroup
+                  value={viewMode}
+                  exclusive
+                  onChange={handleViewModeChange}
+                  size="small"
+                  sx={{ ml: { sm: "auto" } }}
+                >
+                  <ToggleButton
+                    value="list"
+                    aria-label="list view"
+                    title="Chế độ List"
+                  >
+                    <ViewListIcon />
+                  </ToggleButton>
+                  <ToggleButton
+                    value="card"
+                    aria-label="card view"
+                    title="Chế độ Card"
+                  >
+                    <GridViewIcon />
+                  </ToggleButton>
+                </ToggleButtonGroup>
+              )}
+
               {!!tournaments?.length && (
                 <Typography
                   variant="body2"
                   color="text.secondary"
-                  sx={{ ml: { sm: "auto" } }}
+                  sx={{
+                    ml: { sm: isMdUp ? 1 : "auto" },
+                    alignSelf: { xs: "flex-start", sm: "center" },
+                  }}
                 >
                   {tournaments.length} giải phù hợp
                 </Typography>
@@ -929,12 +1255,16 @@ export default function MyTournamentsPage() {
         </Container>
       </Box>
 
-      {/* MAIN */}
+      {/* MAIN CONTENT */}
       <Container maxWidth="xl" sx={{ pt: 2, pb: 4 }}>
         {isLoading ? (
           <Stack spacing={2}>
             {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} variant="rounded" height={220} />
+              <Skeleton
+                key={i}
+                variant="rounded"
+                height={isMdUp && viewMode === "list" ? 100 : 220}
+              />
             ))}
           </Stack>
         ) : isError ? (
@@ -965,12 +1295,29 @@ export default function MyTournamentsPage() {
               Tham gia giải để theo dõi lịch đấu và kết quả của bạn tại đây.
             </Typography>
           </Box>
-        ) : (
-          <Stack spacing={2}>
+        ) : isMdUp && viewMode === "list" ? (
+          /* Giao diện LIST cho Desktop */
+          <Stack spacing={1.5}>
             {tournaments.map((t) => (
-              <TournamentCard key={t._id} t={t} onOpenMatch={handleOpenMatch} />
+              <TournamentListRow
+                key={t._id}
+                t={t}
+                onOpenMatch={handleOpenMatch}
+              />
             ))}
           </Stack>
+        ) : (
+          /* Giao diện CARD (Mobile & Desktop/Card mode) */
+          <Grid container spacing={2}>
+            {tournaments.map((t) => (
+              <Grid
+                key={t._id}
+                size={{ xs: 12, sm: 12, md: 6, lg: 4 }} // MUI v7 Grid v2 API
+              >
+                <TournamentCard t={t} onOpenMatch={handleOpenMatch} />
+              </Grid>
+            ))}
+          </Grid>
         )}
 
         <Box sx={{ display: "flex", justifyContent: "center", mt: 2 }}>

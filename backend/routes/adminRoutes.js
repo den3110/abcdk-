@@ -173,6 +173,7 @@ import {
   getNewsCandidates,
   getNewsSettings,
   runNewsSyncNow,
+  runNewsSyncNowV2,
   updateNewsSettings,
 } from "../controllers/newsAdminController.js";
 import { aiFillCccdForUser, backfillUsersFromCccd } from "../controllers/userController.js";
@@ -742,6 +743,7 @@ router.get("/news/settings", getNewsSettings);
 router.put("/news/settings", updateNewsSettings);
 router.get("/news/candidates", getNewsCandidates);
 router.post("/news/run", runNewsSyncNow);
+router.post("/news/run/v2", runNewsSyncNowV2);
 
 router.post(
   "/users/cccd-backfill",

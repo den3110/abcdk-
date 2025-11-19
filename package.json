@@ -16,6 +16,7 @@
   "author": "Brad Traversy",
   "license": "MIT",
   "dependencies": {
+    "@google/genai": "^1.30.0",
     "@sendgrid/mail": "^8.1.5",
     "@socket.io/redis-adapter": "^8.3.0",
     "agenda": "^5.0.0",

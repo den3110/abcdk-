@@ -307,6 +307,20 @@ async function tryAutoClearDrawPlan(source) {
 // Xoá bằng findOneAndDelete / findByIdAndDelete
 bracketSchema.post("findOneAndDelete", async function (doc, next) {
   await tryAutoClearDrawPlan(doc);
+
+  try {
+    if (!doc?._id) return;
+    const result = await Match.deleteMany({ bracket: doc._id });
+    console.log(
+      "[Bracket.delete] cascade delete matches:",
+      doc._id,
+      "=>",
+      result.deletedCount
+    );
+  } catch (e) {
+    console.error("[Bracket.delete] cascade error:", e?.message || e);
+  }
+
   next();
 });
 

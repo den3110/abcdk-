@@ -11,32 +11,31 @@ import { useParams, Link as RouterLink } from "react-router-dom";
 import {
   Box,
   Container,
-  Grid,
   Card,
-  CardHeader,
   CardContent,
   Chip,
   Stack,
   Typography,
   Divider,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-  ListItemButton,
-  Alert,
-  Skeleton,
   Button,
   TextField,
-  MenuItem,
+  Tab,
+  Tabs,
+  Avatar,
+  Paper,
+  IconButton,
+  Skeleton,
   useMediaQuery,
   useTheme,
-} from "@mui/material";
-import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+} from "@mui/material"; // Đảm bảo đã import useMediaQuery, useTheme
+import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import ScheduleIcon from "@mui/icons-material/Schedule";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
-import StadiumIcon from "@mui/icons-material/Stadium";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import SearchIcon from "@mui/icons-material/Search";
+import SportsTennisIcon from "@mui/icons-material/SportsTennis";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 
 import {
   useGetTournamentQuery,
@@ -49,7 +48,7 @@ import { useSocket } from "../../context/SocketContext";
 import { skipToken } from "@reduxjs/toolkit/query";
 import { useSelector } from "react-redux";
 
-/* ---------- helpers ---------- */
+/* ---------- KEEPING HELPERS (LOGIC GIỮ NGUYÊN) ---------- */
 const hasVal = (v) =>
   v === 0 ||
   typeof v === "number" ||
@@ -73,13 +72,13 @@ function normRound(m) {
   return Number.isFinite(n) ? String(n) : String(r).trim();
 }
 
-// ===== Group helpers (ổn định B) =====
+// ===== Group helpers =====
 function buildGroupIndex(bracket) {
   const byRegId = new Map();
   const order = new Map();
   (bracket?.groups || []).forEach((g, idx) => {
     const key = String(g.name || g.code || g._id || `${idx + 1}`);
-    order.set(key, idx + 1); // Bảng 1,2,3...
+    order.set(key, idx + 1);
     (g?.regIds || []).forEach((rid) => {
       if (rid) byRegId.set(String(rid), key);
     });
@@ -97,7 +96,6 @@ function normGroup(m) {
     m?.pool?.name ??
     m?.group ??
     m?.pool;
-
   if (!hasVal(g) && typeof m?.bracket?.name === "string") {
     const mm =
       m.bracket.name.match(/bảng\s*([A-Za-z0-9]+)/i) ||
@@ -105,7 +103,6 @@ function normGroup(m) {
     if (mm?.[1]) g = mm[1];
   }
   if (!hasVal(g)) return "";
-
   const s = String(g).trim().toUpperCase();
   const digits = s.match(/\d+/)?.[0];
   if (digits) return String(Number(digits));
@@ -159,7 +156,7 @@ function pairToName(pair) {
   if (!pair) return null;
   const p1 = pair.player1?.nickName || pair.player1?.fullName;
   const p2 = pair.player2?.nickName || pair.player2?.fullName;
-  const name = [p1, p2].filter(Boolean).join(" / ");
+  const name = [p1, p2].filter(Boolean).join(" & ");
   return name || null;
 }
 function seedToName(seed) {
@@ -174,9 +171,8 @@ function teamNameFrom(m, side) {
 function scoreText(m) {
   if (typeof m?.scoreText === "string" && m.scoreText.trim())
     return m.scoreText;
-  if (Array.isArray(m?.gameScores) && m.gameScores.length) {
+  if (Array.isArray(m?.gameScores) && m.gameScores.length)
     return m.gameScores.map((s) => `${s?.a ?? 0}-${s?.b ?? 0}`).join(", ");
-  }
   return "";
 }
 function courtNameOf(m) {
@@ -188,67 +184,7 @@ function courtNameOf(m) {
   );
 }
 
-/* ---------- Chip row ---------- */
-function ChipRow({ children, sx }) {
-  return (
-    <Box
-      sx={{
-        display: "flex",
-        flexWrap: "wrap",
-        columnGap: 0.75,
-        rowGap: 0.75,
-        px: 0.5,
-        py: 0.25,
-        ...sx,
-      }}
-    >
-      {children}
-    </Box>
-  );
-}
-function StatusChip({ m }) {
-  if (isLive(m))
-    return <Chip size="small" color="warning" label="Đang diễn ra" />;
-  if (isFinished(m))
-    return <Chip size="small" color="success" label="Đã diễn ra" />;
-  return <Chip size="small" color="info" label="Sắp diễn ra" />;
-}
-function ScoreChip({ text }) {
-  if (!text) return null;
-  return <Chip size="small" variant="outlined" label={text} />;
-}
-function WinnerChip({ m }) {
-  const side = m?.winner === "A" ? "A" : m?.winner === "B" ? "B" : null;
-  if (!side) return null;
-  return (
-    <Chip
-      size="small"
-      color="success"
-      icon={<EmojiEventsIcon />}
-      label={`Winner: ${teamNameFrom(m, side)}`}
-    />
-  );
-}
-
-/* ---------- Small components ---------- */
-function SectionTitle({ children, right }) {
-  return (
-    <Stack
-      direction={{ xs: "column", sm: "row" }}
-      alignItems={{ xs: "flex-start", sm: "center" }}
-      justifyContent="space-between"
-      gap={1}
-      mb={2}
-    >
-      <Typography variant="h5" sx={{ fontWeight: 700 }}>
-        {children}
-      </Typography>
-      {right}
-    </Stack>
-  );
-}
-
-/* ======== Bracket helpers để tính V tổng hợp ======== */
+/* ======== Bracket helpers ======== */
 const ceilPow2 = (n) => Math.pow(2, Math.ceil(Math.log2(Math.max(1, n || 1))));
 const readBracketScale = (br) => {
   const teamsFromRoundKey = (k) => {
@@ -263,14 +199,12 @@ const readBracketScale = (br) => {
   const fromKey =
     teamsFromRoundKey(br?.ko?.startKey) ||
     teamsFromRoundKey(br?.prefill?.roundKey);
-
   const fromPrefillPairs = Array.isArray(br?.prefill?.pairs)
     ? br.prefill.pairs.length * 2
     : 0;
   const fromPrefillSeeds = Array.isArray(br?.prefill?.seeds)
     ? br.prefill.seeds.length * 2
     : 0;
-
   const cands = [
     br?.drawScale,
     br?.targetScale,
@@ -293,7 +227,6 @@ const readBracketScale = (br) => {
 function roundsCountForBracket(bracket, matchesOfThis = []) {
   const type = String(bracket?.type || "").toLowerCase();
   if (type === "group") return 1;
-
   if (type === "roundElim") {
     let k =
       Number(bracket?.meta?.maxRounds) ||
@@ -309,7 +242,6 @@ function roundsCountForBracket(bracket, matchesOfThis = []) {
     }
     return k;
   }
-
   const roundsFromMatches = (() => {
     const rs = (matchesOfThis || []).map((m) => Number(m.round || 1));
     if (!rs.length) return 0;
@@ -318,16 +250,13 @@ function roundsCountForBracket(bracket, matchesOfThis = []) {
     return Math.max(1, rmax - rmin + 1);
   })();
   if (roundsFromMatches) return roundsFromMatches;
-
   const firstPairs =
     (Array.isArray(bracket?.prefill?.seeds) && bracket.prefill.seeds.length) ||
     (Array.isArray(bracket?.prefill?.pairs) && bracket.prefill.pairs.length) ||
     0;
   if (firstPairs > 0) return Math.ceil(Math.log2(firstPairs * 2));
-
   const scale = readBracketScale(bracket);
   if (scale) return Math.ceil(Math.log2(scale));
-
   return 1;
 }
 
@@ -338,221 +267,532 @@ function computeBaseRoundStart(brackets, byBracket, current) {
     const ms = byBracket?.[b._id] || [];
     sum += roundsCountForBracket(b, ms);
   }
-  return sum + 1; // V bắt đầu của bracket hiện tại
+  return sum + 1;
 }
 
-/* ---------- Court card ---------- */
-function CourtCard({ court, onOpenMatch }) {
-  const hasLive = court.live.length > 0;
-  const hasQueue = court.queue.length > 0;
+/* ---------- UI COMPONENTS ---------- */
 
-  return (
-    <Box
+const TeamDisplay = ({ name, isWinner, align = "left" }) => (
+  <Stack
+    direction={align === "right" ? "row-reverse" : "row"}
+    alignItems="center"
+    gap={1}
+    sx={{ opacity: isWinner === false ? 0.5 : 1, width: "100%" }}
+  >
+    <Typography
+      variant="body1"
+      fontWeight={isWinner ? 700 : 500}
       sx={{
-        border: "1px solid",
-        borderColor: "divider",
-        borderRadius: 2,
-        p: 1.25,
+        color: isWinner ? "success.main" : "text.primary",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        textAlign: align,
+        width: "100%",
       }}
     >
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        alignItems={{ xs: "flex-start", sm: "center" }}
-        justifyContent="space-between"
-        mb={1}
-        gap={1}
-      >
-        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-          {court.name}
-        </Typography>
-        <ChipRow sx={{ px: 0 }}>
-          {hasLive && (
-            <Chip size="small" color="success" label="ĐANG DIỄN RA" />
-          )}
-          {hasQueue && (
-            <Chip
-              size="small"
-              color="warning"
-              icon={<ScheduleIcon fontSize="small" />}
-              label={`${court.queue.length} trận tiếp theo`}
-            />
-          )}
-        </ChipRow>
-      </Stack>
+      {name}
+    </Typography>
+    {isWinner && (
+      <EmojiEventsIcon
+        color="success"
+        fontSize="small"
+        sx={{ flexShrink: 0, fontSize: 18 }}
+      />
+    )}
+  </Stack>
+);
 
-      {/* LIVE */}
-      {court.live.map((m) => (
-        <Box
-          key={m._id}
-          onClick={() => onOpenMatch?.(m._id)}
-          role="button"
-          tabIndex={0}
-          sx={{
-            borderLeft: "4px solid",
-            borderColor: "success.main",
-            p: 1,
-            borderRadius: 1,
-            mb: 1,
-            bgcolor: (t) =>
-              t.palette.mode === "light" ? "success.50" : "success.900",
-            cursor: "pointer",
-          }}
+const LiveMatchCard = ({ m, onOpen }) => (
+  <Paper
+    elevation={0}
+    onClick={() => onOpen(m._id)}
+    sx={{
+      p: 1.5,
+      bgcolor: "success.50",
+      border: "1px solid",
+      borderColor: "success.200",
+      borderRadius: 2,
+      cursor: "pointer",
+      transition: "all 0.2s",
+      "&:hover": { boxShadow: 2, borderColor: "success.main" },
+      width: "100%",
+      boxSizing: "border-box",
+    }}
+  >
+    <Stack
+      direction="row"
+      justifyContent="space-between"
+      alignItems="center"
+      mb={1}
+    >
+      <Chip
+        label="LIVE"
+        color="success"
+        size="small"
+        icon={<PlayCircleOutlineIcon />}
+        sx={{ fontWeight: 700, height: 20, fontSize: "0.7rem", px: 0.5 }}
+      />
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        fontWeight={600}
+        noWrap
+      >
+        {m.__displayCode}
+      </Typography>
+    </Stack>
+    <Stack spacing={1}>
+      <Box>
+        <TeamDisplay name={teamNameFrom(m, "A")} />
+        <TeamDisplay name={teamNameFrom(m, "B")} />
+      </Box>
+      <Divider sx={{ borderStyle: "dashed", borderColor: "success.300" }} />
+      <Typography
+        variant="h6"
+        align="center"
+        color="success.800"
+        fontWeight={800}
+      >
+        {scoreText(m) || "0 - 0"}
+      </Typography>
+    </Stack>
+  </Paper>
+);
+
+const QueueMatchItem = ({ m, onOpen }) => (
+  <Stack
+    direction="row"
+    alignItems="center"
+    spacing={1}
+    onClick={() => onOpen(m._id)}
+    sx={{
+      p: 1,
+      borderRadius: 1,
+      cursor: "pointer",
+      "&:hover": { bgcolor: "action.hover" },
+    }}
+  >
+    <Box
+      sx={{
+        minWidth: 24,
+        height: 24,
+        borderRadius: "50%",
+        bgcolor: "grey.200",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontSize: "0.7rem",
+        fontWeight: 700,
+        color: "text.secondary",
+      }}
+    >
+      {normMatchNo(m)}
+    </Box>
+    <Box sx={{ flex: 1, overflow: "hidden" }}>
+      <Typography variant="caption" display="block" noWrap fontWeight={500}>
+        {teamNameFrom(m, "A")}
+      </Typography>
+      <Typography variant="caption" display="block" noWrap fontWeight={500}>
+        vs {teamNameFrom(m, "B")}
+      </Typography>
+    </Box>
+    <Chip
+      label={m.bracket?.name?.substring(0, 6) || "—"}
+      size="small"
+      sx={{ height: 20, fontSize: "0.65rem" }}
+    />
+  </Stack>
+);
+
+function CourtPanel({ court, onOpenMatch }) {
+  const hasLive = court.live.length > 0;
+  return (
+    <Card
+      sx={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        borderRadius: 3,
+        boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+        minWidth: { xs: 280, md: "auto" },
+        maxWidth: { xs: 320, md: "100%" },
+      }}
+    >
+      <Box
+        sx={{
+          p: 1.5,
+          bgcolor: "grey.50",
+          borderBottom: "1px solid",
+          borderColor: "divider",
+        }}
+      >
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="center"
         >
           <Stack
-            direction={{ xs: "column", sm: "row" }}
-            alignItems={{ xs: "flex-start", sm: "center" }}
+            direction="row"
+            alignItems="center"
             gap={1}
-            flexWrap="wrap"
+            sx={{ overflow: "hidden" }}
           >
-            <Stack direction="row" alignItems="center" gap={0.75}>
-              <PlayArrowIcon fontSize="small" />
-              <Typography fontWeight={700} sx={{ transition: "none" }}>
-                {m.__displayCode}
-              </Typography>
-            </Stack>
-
-            <Typography sx={{ opacity: 0.9 }}>
-              {teamNameFrom(m, "A")} vs {teamNameFrom(m, "B")}
+            <Avatar
+              sx={{
+                width: 24,
+                height: 24,
+                bgcolor: "primary.main",
+                fontSize: "0.8rem",
+              }}
+            >
+              <SportsTennisIcon sx={{ fontSize: 14 }} />
+            </Avatar>
+            <Typography variant="subtitle2" fontWeight={700} noWrap>
+              {court.name}
             </Typography>
-
-            <Box sx={{ flex: 1 }} />
-
-            <ChipRow sx={{ ml: { sm: 0.5 } }}>
-              <ScoreChip text={scoreText(m)} />
-              <StatusChip m={m} />
-            </ChipRow>
           </Stack>
-        </Box>
-      ))}
-
-      {/* QUEUE (KHÔNG hiển thị finished) */}
-      {court.queue.length > 0 && (
-        <List dense disablePadding>
-          {court.queue.map((m) => (
-            <ListItem key={m._id} disableGutters>
-              <ListItemButton
-                onClick={() => onOpenMatch?.(m._id)}
-                sx={{ px: 0, py: 0.5, borderRadius: 1 }}
+          {court.queue.length > 0 && (
+            <Chip
+              size="small"
+              label={`${court.queue.length} chờ`}
+              sx={{ height: 20, fontSize: "0.7rem", flexShrink: 0 }}
+            />
+          )}
+        </Stack>
+      </Box>
+      <CardContent
+        sx={{
+          p: 1.5,
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          gap: 1.5,
+        }}
+      >
+        {hasLive ? (
+          court.live.map((m) => (
+            <LiveMatchCard key={m._id} m={m} onOpen={onOpenMatch} />
+          ))
+        ) : (
+          <Box
+            sx={{
+              py: 2,
+              textAlign: "center",
+              bgcolor: "grey.50",
+              borderRadius: 2,
+              border: "1px dashed",
+              borderColor: "divider",
+            }}
+          >
+            <Typography variant="caption" color="text.secondary">
+              Sân trống
+            </Typography>
+          </Box>
+        )}
+        {court.queue.length > 0 && (
+          <Box>
+            <Typography
+              variant="caption"
+              fontWeight={700}
+              color="text.secondary"
+              sx={{ mb: 0.5, display: "block", textTransform: "uppercase" }}
+            >
+              Tiếp theo
+            </Typography>
+            {court.queue.slice(0, 3).map((m) => (
+              <QueueMatchItem key={m._id} m={m} onOpen={onOpenMatch} />
+            ))}
+            {court.queue.length > 3 && (
+              <Typography
+                variant="caption"
+                align="center"
+                display="block"
+                sx={{ mt: 0.5, color: "text.secondary" }}
               >
-                <ListItemIcon sx={{ minWidth: 28 }}>
-                  <ScheduleIcon fontSize="small" />
-                </ListItemIcon>
-                <ListItemText
-                  primary={
-                    <Stack
-                      direction={{ xs: "column", sm: "row" }}
-                      alignItems={{ xs: "flex-start", sm: "center" }}
-                      gap={1}
-                      flexWrap="wrap"
-                    >
-                      <Typography fontWeight={700} sx={{ transition: "none" }}>
-                        {m.__displayCode}
-                      </Typography>
-                      <Typography sx={{ opacity: 0.9 }}>
-                        {teamNameFrom(m, "A")} vs {teamNameFrom(m, "B")}
-                      </Typography>
-                    </Stack>
-                  }
-                  secondary={
-                    <ChipRow>
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        label={m.bracket?.name || m.phase || "—"}
-                      />
-                      <Chip
-                        size="small"
-                        variant="outlined"
-                        label={courtNameOf(m)}
-                      />
-                    </ChipRow>
-                  }
-                />
-              </ListItemButton>
-            </ListItem>
-          ))}
-        </List>
+                +{court.queue.length - 3} trận khác...
+              </Typography>
+            )}
+          </Box>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function CourtCarousel({ courts, onOpenMatch }) {
+  const scrollRef = useRef(null);
+  const [showLeft, setShowLeft] = useState(false);
+  const [showRight, setShowRight] = useState(true);
+
+  const checkScroll = () => {
+    if (!scrollRef.current) return;
+    const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
+    setShowLeft(scrollLeft > 0);
+    setShowRight(scrollLeft < scrollWidth - clientWidth - 2);
+  };
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) {
+      el.addEventListener("scroll", checkScroll);
+      checkScroll();
+      window.addEventListener("resize", checkScroll);
+    }
+    return () => {
+      if (el) el.removeEventListener("scroll", checkScroll);
+      window.removeEventListener("resize", checkScroll);
+    };
+  }, [courts]);
+
+  const scroll = (direction) => {
+    if (!scrollRef.current) return;
+    const container = scrollRef.current;
+    const scrollAmount = 320;
+    const target =
+      direction === "left"
+        ? container.scrollLeft - scrollAmount
+        : container.scrollLeft + scrollAmount;
+    container.scrollTo({ left: target, behavior: "smooth" });
+  };
+
+  return (
+    <Box sx={{ position: "relative", mx: -2, px: 2 }}>
+      {showLeft && (
+        <IconButton
+          onClick={() => scroll("left")}
+          sx={{
+            position: "absolute",
+            left: 0,
+            top: "50%",
+            transform: "translateY(-50%)",
+            zIndex: 2,
+            bgcolor: "background.paper",
+            boxShadow: 3,
+            border: "1px solid",
+            borderColor: "divider",
+            "&:hover": { bgcolor: "grey.100" },
+            display: { xs: "none", md: "flex" },
+          }}
+        >
+          <ChevronLeftIcon />
+        </IconButton>
+      )}
+      <Box
+        ref={scrollRef}
+        sx={{
+          display: "flex",
+          gap: 2,
+          overflowX: "auto",
+          scrollSnapType: "x mandatory",
+          pb: 2,
+          px: { xs: 2, md: 6 },
+          "&::-webkit-scrollbar": { display: "none" },
+          scrollbarWidth: "none",
+        }}
+      >
+        {courts.map((court) => (
+          <Box
+            key={court.name}
+            sx={{
+              minWidth: { xs: 280, md: 300 },
+              maxWidth: { xs: 320, md: 320 },
+              flexShrink: 0,
+              scrollSnapAlign: "start",
+            }}
+          >
+            <CourtPanel court={court} onOpenMatch={onOpenMatch} />
+          </Box>
+        ))}
+      </Box>
+      {showRight && (
+        <IconButton
+          onClick={() => scroll("right")}
+          sx={{
+            position: "absolute",
+            right: 0,
+            top: "50%",
+            transform: "translateY(-50%)",
+            zIndex: 2,
+            bgcolor: "background.paper",
+            boxShadow: 3,
+            border: "1px solid",
+            borderColor: "divider",
+            "&:hover": { bgcolor: "grey.100" },
+            display: { xs: "none", md: "flex" },
+          }}
+        >
+          <ChevronRightIcon />
+        </IconButton>
       )}
     </Box>
   );
 }
 
-function MatchRow({ m, onOpenMatch }) {
+function MatchListItem({ m, onOpenMatch }) {
+  const finished = isFinished(m);
+  const live = isLive(m);
+  const scheduled = isScheduled(m);
+  const borderColor = live ? "success.main" : "divider";
+  const bgColor = live ? "#f0fdf4" : "background.paper";
+
   return (
-    <ListItem
-      disableGutters
+    <Paper
+      elevation={0}
+      onClick={() => onOpenMatch?.(m._id)}
       sx={{
-        my: 0.75,
-        borderRadius: 1.5,
+        mb: 1.5,
+        borderRadius: 3,
         border: "1px solid",
-        borderColor: isLive(m)
-          ? "success.light"
-          : isFinished(m)
-          ? "divider"
-          : "info.light",
-        bgcolor: isLive(m)
-          ? (t) => (t.palette.mode === "light" ? "success.50" : "success.900")
-          : "transparent",
+        borderColor: borderColor,
+        bgcolor: bgColor,
+        cursor: "pointer",
+        transition: "all 0.2s ease-in-out",
+        overflow: "hidden",
+        "&:hover": {
+          transform: "translateY(-2px)",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+          borderColor: live ? "success.main" : "primary.main",
+        },
       }}
     >
-      <ListItemButton
-        onClick={() => onOpenMatch?.(m._id)}
+      <Box
         sx={{
-          py: { xs: 1, sm: 1.25 },
-          px: 1,
-          borderRadius: 1.5,
-          alignItems: "flex-start",
+          px: 2,
+          py: 0.75,
+          bgcolor: live ? "success.100" : "grey.100",
+          borderBottom: "1px solid",
+          borderColor: live ? "success.200" : "grey.200",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
         }}
       >
-        <ListItemIcon sx={{ minWidth: 28, mt: 0.25 }}>
-          {isLive(m) ? (
-            <PlayArrowIcon fontSize="small" />
-          ) : isFinished(m) ? (
-            <EmojiEventsIcon fontSize="small" />
-          ) : (
-            <ScheduleIcon fontSize="small" />
-          )}
-        </ListItemIcon>
-
-        <ListItemText
-          primary={
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              alignItems={{ xs: "flex-start", sm: "center" }}
-              gap={1}
-              flexWrap="wrap"
-            >
-              <Typography fontWeight={700} sx={{ transition: "none" }}>
-                {m.__displayCode}
-              </Typography>
-              <Typography sx={{ opacity: 0.9 }}>
-                {teamNameFrom(m, "A")} vs {teamNameFrom(m, "B")}
-              </Typography>
-              <Box sx={{ flex: 1 }} />
-              <ChipRow sx={{ mr: 0.5 }}>
-                <ScoreChip text={scoreText(m)} />
-                <StatusChip m={m} />
-              </ChipRow>
-            </Stack>
-          }
-          secondary={
-            <ChipRow>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Chip
+            label={m.__displayCode}
+            size="small"
+            sx={{
+              height: 20,
+              fontSize: "0.65rem",
+              fontWeight: 700,
+              bgcolor: "white",
+              border: "1px solid",
+              borderColor: "divider",
+            }}
+          />
+          <Typography variant="caption" color="text.secondary" fontWeight={500}>
+            {m.bracket?.name}
+          </Typography>
+        </Stack>
+        <Stack direction="row" alignItems="center" gap={0.5}>
+          <Typography
+            variant="caption"
+            fontWeight={600}
+            sx={{ color: live ? "success.700" : "text.secondary" }}
+          >
+            {courtNameOf(m)}
+          </Typography>
+        </Stack>
+      </Box>
+      <Box sx={{ p: 2 }}>
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          alignItems="center"
+          justifyContent="center"
+          spacing={{ xs: 1.5, sm: 3 }}
+        >
+          <Box
+            sx={{
+              flex: 1,
+              width: "100%",
+              display: "flex",
+              justifyContent: { xs: "center", sm: "flex-end" },
+            }}
+          >
+            <TeamDisplay
+              name={teamNameFrom(m, "A")}
+              isWinner={m.winner === "A"}
+              align={window.innerWidth < 600 ? "center" : "right"}
+            />
+          </Box>
+          <Box
+            sx={{
+              minWidth: 80,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {live || finished ? (
               <Chip
-                size="small"
-                variant="outlined"
-                label={m.bracket?.name || m.phase || "—"}
+                label={scoreText(m) || "0 - 0"}
+                color={live ? "success" : "default"}
+                variant={live ? "filled" : "outlined"}
+                sx={{
+                  fontWeight: 800,
+                  fontSize: "1rem",
+                  height: 32,
+                  px: 1,
+                  borderColor: finished ? "text.disabled" : undefined,
+                  color: finished ? "text.primary" : undefined,
+                }}
               />
-              <Chip size="small" variant="outlined" label={courtNameOf(m)} />
-              {isFinished(m) && <WinnerChip m={m} />}
-            </ChipRow>
-          }
-        />
-      </ListItemButton>
-    </ListItem>
+            ) : (
+              <Box
+                sx={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: "50%",
+                  bgcolor: "grey.100",
+                  color: "text.secondary",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "0.75rem",
+                  fontWeight: 700,
+                  border: "1px dashed",
+                  borderColor: "grey.400",
+                }}
+              >
+                VS
+              </Box>
+            )}
+            <Typography
+              variant="caption"
+              sx={{
+                mt: 0.5,
+                color: live ? "success.main" : "text.disabled",
+                fontWeight: 600,
+                fontSize: "0.65rem",
+                textTransform: "uppercase",
+              }}
+            >
+              {live ? "Đang đấu" : finished ? "Kết thúc" : "Chưa đấu"}
+            </Typography>
+          </Box>
+          <Box
+            sx={{
+              flex: 1,
+              width: "100%",
+              display: "flex",
+              justifyContent: { xs: "center", sm: "flex-start" },
+            }}
+          >
+            <TeamDisplay
+              name={teamNameFrom(m, "B")}
+              isWinner={m.winner === "B"}
+              align={window.innerWidth < 600 ? "center" : "left"}
+            />
+          </Box>
+        </Stack>
+      </Box>
+    </Paper>
   );
 }
 
-/* ---------- Page ---------- */
+/* ---------- MAIN PAGE ---------- */
 export default function TournamentSchedule() {
   const { userInfo } = useSelector((s) => s.auth || {});
   const roleStr = String(userInfo?.role || "").toLowerCase();
@@ -568,17 +808,15 @@ export default function TournamentSchedule() {
     roles.has("superadmin")
   );
   const { id } = useParams();
-  const { data: verifyRes, isFetching: verifyingMgr } = useVerifyManagerQuery(
-    id ? id : skipToken
-  );
+  const { data: verifyRes } = useVerifyManagerQuery(id ? id : skipToken);
   const isManager = !!verifyRes?.isManager;
   const canEdit = isAdmin || isManager;
   const theme = useTheme();
-  const upSm = useMediaQuery(theme.breakpoints.up("sm"));
-  const upMd = useMediaQuery(theme.breakpoints.up("md"));
+  // Detect mobile để render skeleton
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState("all"); // all | live | upcoming | finished
+  const [status, setStatus] = useState("all");
   const [viewerOpen, setViewerOpen] = useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState(null);
 
@@ -591,46 +829,36 @@ export default function TournamentSchedule() {
     setSelectedMatchId(null);
   };
 
-  const {
-    data: tournament,
-    isLoading: tLoading,
-    error: tError,
-  } = useGetTournamentQuery(id);
-
+  // API
+  const { data: tournament, isLoading: tLoading } = useGetTournamentQuery(id);
   const {
     data: matchesResp,
     isLoading: mLoading,
-    error: mError,
     refetch: refetchMatches,
   } = useListPublicMatchesByTournamentQuery({
     tid: id,
     params: { limit: 1000 },
   });
+  const {
+    data: brackets = [],
+    isLoading: bLoading,
+    refetch: refetchBrackets,
+  } = useListTournamentBracketsQuery(id, {
+    refetchOnMountOrArgChange: true,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
 
-  const { data: brackets = [], refetch: refetchBrackets } =
-    useListTournamentBracketsQuery(id, {
-      refetchOnMountOrArgChange: true,
-      refetchOnFocus: true,
-      refetchOnReconnect: true,
-    });
+  const isLoading = tLoading || mLoading || bLoading;
 
-  const loading = tLoading || mLoading;
-  const errorMsg =
-    (tError && (tError.data?.message || tError.error)) ||
-    (mError && (mError.data?.message || mError.error));
-
-  /* ===== Realtime layer (fixed) ===== */
+  // Realtime Logic
   const socket = useSocket();
-  const liveMapRef = useRef(new Map()); // id → match
+  const liveMapRef = useRef(new Map());
   const [liveBump, setLiveBump] = useState(0);
   const pendingRef = useRef(new Map());
   const rafRef = useRef(null);
-
-  // NEW: nhớ state subscribe/join giữa các render
-  const subscribedBracketsRef = useRef(new Set()); // Set<bracketId>
-  const joinedMatchesRef = useRef(new Set()); // Set<matchId>
-
-  // NEW: khóa ổn định; effect chỉ rerun khi danh sách id THỰC SỰ đổi
+  const subscribedBracketsRef = useRef(new Set());
+  const joinedMatchesRef = useRef(new Set());
   const bracketsKey = useMemo(
     () =>
       (brackets || [])
@@ -667,11 +895,10 @@ export default function TournamentSchedule() {
     (incRaw) => {
       const inc = incRaw?.data ?? incRaw?.match ?? incRaw;
       if (!inc?._id) return;
-
       const normalizeEntity = (v) => {
         if (v == null) return v;
         if (typeof v === "string" || typeof v === "number") return v;
-        if (typeof v === "object") {
+        if (typeof v === "object")
           return {
             _id: v._id ?? (typeof v.id === "string" ? v.id : undefined),
             name:
@@ -680,13 +907,11 @@ export default function TournamentSchedule() {
               (typeof v.title === "string" && v.title) ||
               "",
           };
-        }
         return v;
       };
       if (inc.court) inc.court = normalizeEntity(inc.court);
       if (inc.venue) inc.venue = normalizeEntity(inc.venue);
       if (inc.location) inc.location = normalizeEntity(inc.location);
-
       pendingRef.current.set(String(inc._id), inc);
       if (rafRef.current) return;
       rafRef.current = requestAnimationFrame(() => {
@@ -697,7 +922,6 @@ export default function TournamentSchedule() {
     [flushPending]
   );
 
-  // 1) Đồng bộ state ban đầu từ API vào liveMap
   useEffect(() => {
     const mp = new Map();
     const list = matchesResp?.list || [];
@@ -706,7 +930,6 @@ export default function TournamentSchedule() {
     setLiveBump((x) => x + 1);
   }, [matchesResp]);
 
-  // Helper diff 2 tập id
   const diffSet = (currentSet, nextArr) => {
     const nextSet = new Set(nextArr);
     const added = [];
@@ -720,10 +943,8 @@ export default function TournamentSchedule() {
     return { added, removed, nextSet };
   };
 
-  // 2) Đăng ký listeners CHỈ 1 lần cho mỗi mount của effect
   useEffect(() => {
     if (!socket) return;
-
     const onUpsert = (payload) => queueUpsert(payload);
     const onRemove = (payload) => {
       const id = String(payload?.id ?? payload?._id ?? "");
@@ -738,7 +959,6 @@ export default function TournamentSchedule() {
       refetchBrackets();
     };
     const onConnected = () => {
-      // Re-join những thứ đã nhớ (không nhân bản)
       subscribedBracketsRef.current.forEach((bid) =>
         socket.emit("draw:subscribe", { bracketId: bid })
       );
@@ -747,7 +967,6 @@ export default function TournamentSchedule() {
         socket.emit("match:snapshot:request", { matchId: mid });
       });
     };
-
     socket.on("connect", onConnected);
     socket.on("match:update", onUpsert);
     socket.on("match:snapshot", onUpsert);
@@ -755,9 +974,6 @@ export default function TournamentSchedule() {
     socket.on("match:deleted", onRemove);
     socket.on("draw:refilled", onRefilled);
     socket.on("bracket:updated", onRefilled);
-
-    // KHÔNG gọi onConnected() thủ công ở đây
-
     return () => {
       socket.off("connect", onConnected);
       socket.off("match:update", onUpsert);
@@ -766,82 +982,60 @@ export default function TournamentSchedule() {
       socket.off("match:deleted", onRemove);
       socket.off("draw:refilled", onRefilled);
       socket.off("bracket:updated", onRefilled);
-
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
     };
-    // chỉ phụ thuộc thứ cần thiết
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, queueUpsert, refetchMatches, refetchBrackets]);
 
-  // 3) Đồng bộ SUBSCRIBE BRACKETS theo diff (không spam)
   useEffect(() => {
     if (!socket) return;
-
     const nextIds =
       (brackets || []).map((b) => String(b._id)).filter(Boolean) ?? [];
     const { added, removed, nextSet } = diffSet(
       subscribedBracketsRef.current,
       nextIds
     );
-
     added.forEach((bid) => socket.emit("draw:subscribe", { bracketId: bid }));
     removed.forEach((bid) =>
       socket.emit("draw:unsubscribe", { bracketId: bid })
     );
-
     subscribedBracketsRef.current = nextSet;
-
     return () => {
-      // Khi unmount page: rời tất cả bracket rooms hiện có
       nextSet.forEach((bid) =>
         socket.emit("draw:unsubscribe", { bracketId: bid })
       );
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, bracketsKey]);
 
-  // 4) Đồng bộ JOIN/LEAVE MATCHES theo diff (không spam)
   useEffect(() => {
     if (!socket) return;
-
     const nextIds =
       (matchesResp?.list || []).map((m) => String(m._id)).filter(Boolean) ?? [];
     const { added, removed, nextSet } = diffSet(
       joinedMatchesRef.current,
       nextIds
     );
-
     added.forEach((mid) => {
       socket.emit("match:join", { matchId: mid });
       socket.emit("match:snapshot:request", { matchId: mid });
     });
-
-    // Nếu server có hỗ trợ match:leave
     removed.forEach((mid) => socket.emit("match:leave", { matchId: mid }));
-
     joinedMatchesRef.current = nextSet;
-
     return () => {
-      // Khi unmount page: rời tất cả match rooms hiện có
       nextSet.forEach((mid) => socket.emit("match:leave", { matchId: mid }));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket, matchesKey]);
 
-  /* ===== Dữ liệu đã merge realtime ===== */
+  // Aggregation
   const matches = useMemo(
     () =>
       Array.from(liveMapRef.current.values()).filter(
         (m) => String(m?.tournament?._id || m?.tournament) === String(id)
       ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [id, liveBump]
   );
-
-  // Gom theo bracket để tính offset V
   const byBracket = useMemo(() => {
     const m = {};
     (brackets || []).forEach((b) => (m[b._id] = []));
@@ -853,7 +1047,6 @@ export default function TournamentSchedule() {
     });
     return m;
   }, [brackets, matches]);
-
   const baseRoundStartMap = useMemo(() => {
     const mp = new Map();
     (brackets || []).forEach((b) => {
@@ -864,15 +1057,11 @@ export default function TournamentSchedule() {
     });
     return mp;
   }, [brackets, byBracket]);
-
-  // sau khi đã có `brackets`
   const groupMaps = useMemo(() => {
     const mp = new Map();
     (brackets || []).forEach((b) => mp.set(String(b._id), buildGroupIndex(b)));
     return mp;
   }, [brackets]);
-
-  // helper: suy ra số B (1,2,3,...) từ match (ưu tiên map nhóm)
   const groupNumberFromMatch = useCallback(
     (m) => {
       const bid = String(m?.bracket?._id || m?.bracket || "");
@@ -882,59 +1071,43 @@ export default function TournamentSchedule() {
       const bId = m?.pairB?._id && String(m.pairB._id);
       const ga = aId && maps.byRegId.get(aId);
       const gb = bId && maps.byRegId.get(bId);
-      if (ga && gb && ga === gb) {
-        return maps.order.get(ga) ?? null; // trả về số 1..N
-      }
+      if (ga && gb && ga === gb) return maps.order.get(ga) ?? null;
       return null;
     },
     [groupMaps]
   );
   const codeStickyRef = useRef(new Map());
-
-  // Tính & gán __displayCode cho từng match (tránh lặp lại logic)
   const matchesWithCode = useMemo(() => {
     return (matches || []).map((m) => {
       const T = normMatchNo(m);
       let label = "Trận";
-
       if (isGroupMatch(m)) {
         const stageNo = Number(m?.bracket?.stage ?? m?.stage ?? 1) || 1;
-
-        // Ưu tiên suy ra số B ổn định từ bracket; fallback normGroup
         const bFromMap = groupNumberFromMatch(m);
         const B = (bFromMap != null ? String(bFromMap) : normGroup(m)) || "";
-
         const parts = [];
         if (stageNo) parts.push(`V${stageNo}`);
         if (B) parts.push(`B${B}`);
         if (T) parts.push(`T${T}`);
         const candidate = parts.length ? parts.join("-") : "Trận";
-
-        // Không downgrade: nếu trước đó có B mà lần này mất B → giữ mã cũ
         const prev = codeStickyRef.current.get(m._id);
         const candHasB = candidate.includes("-B");
         const prevHasB = typeof prev === "string" && prev.includes("-B");
         label = !candHasB && prevHasB ? prev : candidate;
-
         if (!prev || candHasB) codeStickyRef.current.set(m._id, label);
       } else {
-        // KO/PO: dùng baseRoundStart để ra V đúng
         const bid = String(m?.bracket?._id || m?.bracket || "");
         const base = baseRoundStartMap.get(bid) || 1;
         const rNum = Number(m?.round ?? 1);
         const Vdisp = Number.isFinite(rNum) ? base + (rNum - 1) : rNum || 1;
-
         const parts = [];
         if (Vdisp) parts.push(`V${Vdisp}`);
         if (T) parts.push(`T${T}`);
         label = parts.length ? parts.join("-") : "Trận";
       }
-
       return { ...m, __displayCode: label };
     });
   }, [matches, baseRoundStartMap, groupNumberFromMatch]);
-
-  // thay các danh sách sử dụng nguồn matchesWithCode
   const allSorted = useMemo(() => {
     return [...matchesWithCode].sort((a, b) => {
       const ak = orderKey(a);
@@ -944,7 +1117,6 @@ export default function TournamentSchedule() {
       return 0;
     });
   }, [matchesWithCode]);
-
   const filteredAll = useMemo(() => {
     const qnorm = q.trim().toLowerCase();
     return allSorted.filter((m) => {
@@ -978,7 +1150,6 @@ export default function TournamentSchedule() {
       if (isLive(m)) map.get(name).live.push(m);
       else if (!isFinished(m)) map.get(name).queue.push(m);
     });
-
     const byKey = (a, b) => {
       const ak = orderKey(a);
       const bk = orderKey(b);
@@ -990,12 +1161,10 @@ export default function TournamentSchedule() {
       v.live.sort(byKey);
       v.queue.sort(byKey);
     });
-
     const entries = Array.from(map.entries()).map(([name, data]) => ({
       name,
       ...data,
     }));
-
     const isUnassigned = (n) =>
       String(n).toLowerCase().includes("chưa phân sân");
     const natNum = (s) => {
@@ -1011,230 +1180,202 @@ export default function TournamentSchedule() {
       if (an !== bn) return an - bn;
       return a.name.localeCompare(b.name, "vi");
     });
-    return entries;
+    return entries.filter((e) => !isUnassigned(e.name));
   }, [allSorted]);
 
-  const queueLimit = upMd ? 6 : upSm ? 4 : 3;
-
   return (
-    <Container
-      maxWidth="lg"
-      disableGutters
-      sx={{ px: { sm: 2 }, py: { xs: 2, sm: 3 } }}
-    >
-      {/* header */}
-      <SectionTitle
-        right={
-          <Box sx={{ display: "flex", gap: 2 }}>
-            {canEdit && (
+    <Box sx={{ minHeight: "100vh", bgcolor: "#f8fafc", pb: 4 }}>
+      <Paper
+        square
+        elevation={1}
+        sx={{ bgcolor: "background.paper", pt: 2, pb: 2 }}
+      >
+        <Container maxWidth="xl">
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            alignItems="center"
+            justifyContent="space-between"
+            gap={2}
+          >
+            <Box>
+              <Stack direction="row" alignItems="center" gap={1}>
+                <Typography variant="h5" fontWeight={800} color="text.primary">
+                  Lịch thi đấu
+                </Typography>
+                {tournament?.name && (
+                  <Typography
+                    variant="h5"
+                    fontWeight={400}
+                    color="text.secondary"
+                    sx={{ display: { xs: "none", sm: "block" } }}
+                  >
+                    | {tournament.name}
+                  </Typography>
+                )}
+              </Stack>
+            </Box>
+            <Box sx={{ display: "flex", gap: 1.5 }}>
+              {canEdit && (
+                <Button
+                  component={RouterLink}
+                  to={`/tournament/${id}/manage`}
+                  variant="outlined"
+                  color="inherit"
+                  size="small"
+                >
+                  Quản lý giải
+                </Button>
+              )}
               <Button
                 component={RouterLink}
-                to={`/tournament/${id}/manage`}
-                variant="outlined"
+                to={`/tournament/${id}/bracket`}
+                variant="contained"
+                disableElevation
                 size="small"
+                startIcon={<EmojiEventsIcon />}
               >
-                Quản lý giải
+                Xem sơ đồ
               </Button>
-            )}
-            <Button
-              component={RouterLink}
-              to={`/tournament/${id}/bracket`}
-              variant="outlined"
-              size="small"
-              startIcon={<ArrowBackIcon />}
-            >
-              Về sơ đồ
-            </Button>
-          </Box>
-        }
-      >
-        Lịch thi đấu {tournament?.name ? `– ${tournament.name}` : ""}
-      </SectionTitle>
+            </Box>
+          </Stack>
+        </Container>
+      </Paper>
 
-      {/* filters */}
-      <Box
-        sx={{
-          position: { xs: "sticky", md: "static" },
-          top: { xs: 8, sm: 12 },
-          zIndex: 2,
-          bgcolor: "background.paper",
-          border: { xs: "1px solid", md: "none" },
-          borderColor: { xs: "divider", md: "transparent" },
-          p: { xs: 1, sm: 0 },
-          mb: 2,
-          borderRadius: { xs: 0, md: 2 },
-          boxShadow: { xs: 1, md: 0 },
-        }}
-      >
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25}>
-          <TextField
-            size="small"
-            placeholder="Tìm mã trận, người chơi, sân, bracket..."
-            fullWidth
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            inputProps={{ "aria-label": "Tìm kiếm trận đấu" }}
-          />
-          <TextField
-            select
-            size="small"
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            sx={{ width: { xs: "100%", sm: 220 } }}
+      <Container maxWidth="xl" sx={{ mt: 3 }}>
+        {/* SECTION 1: COURTS + SKELETON FIX */}
+        <Box sx={{ mb: 4 }}>
+          <Typography
+            variant="h6"
+            fontWeight={700}
+            gutterBottom
+            sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}
           >
-            <MenuItem value="all">Tất cả</MenuItem>
-            <MenuItem value="live">Đang diễn ra</MenuItem>
-            <MenuItem value="upcoming">Sắp diễn ra</MenuItem>
-            <MenuItem value="finished">Đã diễn ra</MenuItem>
-          </TextField>
-        </Stack>
-      </Box>
+            <ScheduleIcon color="primary" /> Tình trạng sân đấu
+          </Typography>
 
-      {/* loading / error */}
-      {(tLoading || mLoading) && (
-        <Box my={3}>
-          <Grid container spacing={{ xs: 0, md: 2 }}>
-            <Grid item xs={12} md={5}>
-              <Card
-                sx={{
-                  width: 1,
-                  borderRadius: { xs: 0, md: 3 },
-                  overflow: "hidden",
-                }}
-              >
-                <CardHeader
-                  avatar={<StadiumIcon color="primary" />}
-                  title={<Skeleton width={160} />}
-                  subheader={<Skeleton width={220} />}
+          {isLoading ? (
+            // --- SKELETON RESPONSIVE FIX ---
+            <Box
+              sx={{
+                display: "flex",
+                gap: 2,
+                overflow: "hidden", // Giấu phần thừa để tạo cảm giác hàng ngang
+                mx: { xs: -2, md: 0 }, // Full width mobile
+                px: { xs: 2, md: 0 },
+              }}
+            >
+              {/* Mobile: Show 2, Desktop: Show 4 */}
+              {[...Array(isMobile ? 2 : 4)].map((_, i) => (
+                <Skeleton
+                  key={i}
+                  variant="rectangular"
+                  sx={{
+                    borderRadius: 3,
+                    // Quan trọng: Set minWidth giống Card thật
+                    minWidth: { xs: 280, md: 300 },
+                    height: 250,
+                    flexShrink: 0,
+                  }}
                 />
-                <Divider />
-                <CardContent>
-                  {[1, 2, 3].map((i) => (
-                    <Skeleton key={i} height={72} sx={{ mb: 1 }} />
-                  ))}
-                </CardContent>
-              </Card>
-            </Grid>
-            <Grid item xs={12} md={7}>
-              <Card
-                sx={{
-                  width: 1,
-                  borderRadius: { xs: 0, md: 3 },
-                  overflow: "hidden",
-                }}
-              >
-                <CardHeader
-                  title={<Skeleton width={220} />}
-                  subheader={<Skeleton width={160} />}
-                />
-                <Divider />
-                <CardContent>
-                  {[...Array(6)].map((_, i) => (
-                    <Skeleton key={i} height={64} sx={{ mb: 1 }} />
-                  ))}
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
+              ))}
+            </Box>
+          ) : courts.length > 0 ? (
+            <CourtCarousel courts={courts} onOpenMatch={openViewer} />
+          ) : (
+            <Typography
+              variant="body2"
+              color="text.secondary"
+              fontStyle="italic"
+            >
+              Chưa có thông tin sân đấu.
+            </Typography>
+          )}
         </Box>
-      )}
 
-      {errorMsg && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {errorMsg}
-        </Alert>
-      )}
-
-      {!loading && !errorMsg && (
-        <Grid container spacing={{ xs: 0, md: 2 }}>
-          {/* LEFT: on-court */}
-          <Grid
-            item
-            xs={12}
-            md={5}
-            sx={{
-              "@media (max-width:625px)": { width: "100%", marginBottom: 4 },
-            }}
+        {/* SECTION 2: MATCHES + SKELETON */}
+        <Box>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            justifyContent="space-between"
+            alignItems={{ xs: "stretch", sm: "center" }}
+            gap={2}
+            mb={2}
           >
-            <Card
+            <Tabs
+              value={status}
+              onChange={(e, v) => setStatus(v)}
+              variant="scrollable"
+              scrollButtons="auto"
               sx={{
-                width: 1,
-                borderRadius: { xs: 0, md: 3 },
-                overflow: "hidden",
+                minHeight: 40,
+                "& .MuiTab-root": {
+                  fontWeight: 600,
+                  minHeight: 40,
+                  textTransform: "none",
+                },
               }}
             >
-              <CardHeader
-                avatar={<StadiumIcon color="primary" />}
-                title="Các trận đấu trên sân"
-                subheader="Đang diễn ra & hàng chờ (không hiển thị đã diễn ra)"
-                sx={{
-                  "& .MuiCardHeader-avatar": { mr: 1 },
-                  "& .MuiCardHeader-title": { fontWeight: 700 },
-                }}
+              <Tab label="Tất cả" value="all" />
+              <Tab
+                label="Đang diễn ra"
+                value="live"
+                iconPosition="start"
+                icon={<PlayCircleOutlineIcon sx={{ fontSize: 18 }} />}
               />
-              <Divider />
-              <CardContent sx={{ pt: 2 }}>
-                {courts.length === 0 && (
-                  <Alert severity="info">
-                    Chưa có trận nào đang diễn ra hoặc trong hàng chờ.
-                  </Alert>
-                )}
-                <Stack spacing={2}>
-                  {courts.map((c) => (
-                    <CourtCard
-                      key={c.name}
-                      court={c}
-                      onOpenMatch={openViewer}
-                    />
-                  ))}
-                </Stack>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* RIGHT: all matches */}
-          <Grid
-            item
-            xs={12}
-            md={7}
-            sx={{
-              "@media (max-width:625px)": { width: "100%", marginBottom: 4 },
-            }}
-          >
-            <Card
-              sx={{
-                width: 1,
-                borderRadius: { xs: 0, md: 3 },
-                overflow: "hidden",
+              <Tab label="Sắp tới" value="upcoming" />
+              <Tab label="Đã kết thúc" value="finished" />
+            </Tabs>
+            <TextField
+              size="small"
+              placeholder="Tìm mã trận, tên đội..."
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <SearchIcon
+                    fontSize="small"
+                    sx={{ mr: 1, color: "text.secondary" }}
+                  />
+                ),
               }}
-            >
-              <CardHeader
-                title="Danh sách tất cả các trận"
-                subheader={`Sắp xếp theo thứ tự trận • ${filteredAll.length} trận`}
-                sx={{ "& .MuiCardHeader-title": { fontWeight: 700 } }}
-              />
-              <Divider />
-              <CardContent sx={{ pt: 1 }}>
-                {filteredAll.length === 0 ? (
-                  <Alert severity="info">Không có trận phù hợp bộ lọc.</Alert>
-                ) : (
-                  <List disablePadding>
-                    {filteredAll.map((m) => (
-                      <MatchRow key={m._id} m={m} onOpenMatch={openViewer} />
-                    ))}
-                  </List>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
-      )}
+              sx={{
+                width: { xs: "100%", sm: 300 },
+                bgcolor: "background.paper",
+              }}
+            />
+          </Stack>
+
+          <Box>
+            {isLoading ? (
+              [...Array(5)].map((_, i) => (
+                <Skeleton
+                  key={i}
+                  variant="rectangular"
+                  height={80}
+                  sx={{ mb: 1.5, borderRadius: 3 }}
+                />
+              ))
+            ) : filteredAll.length > 0 ? (
+              filteredAll.map((m) => (
+                <MatchListItem key={m._id} m={m} onOpenMatch={openViewer} />
+              ))
+            ) : (
+              <Box sx={{ py: 8, textAlign: "center", opacity: 0.6 }}>
+                <SportsTennisIcon
+                  sx={{ fontSize: 60, color: "grey.300", mb: 2 }}
+                />
+                <Typography>Không tìm thấy trận đấu nào</Typography>
+              </Box>
+            )}
+          </Box>
+        </Box>
+      </Container>
 
       <ResponsiveMatchViewer
         open={viewerOpen}
-        matchId={selectedMatchId}
         onClose={closeViewer}
+        matchId={selectedMatchId}
       />
-    </Container>
+    </Box>
   );
 }

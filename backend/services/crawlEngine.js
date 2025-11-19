@@ -8,6 +8,7 @@ import NewsSettings from "../models/newsSettingsModel.js";
 import NewsLinkCandidate from "../models/newsLinkCandicateModel.js";
 import NewsArticle from "../models/newsArticlesModel.js";
 import { normalizeArticleWithAI } from "./normalizeService.js";
+import { normalizeArticleWithAIV2 } from "./normalizeServiceV2.js";
 
 /**
  * Fetch HTML an toàn, với headers đàng hoàng.
@@ -191,7 +192,7 @@ export async function runCrawlEngine() {
 
       if (settings.useAiNormalize) {
         try {
-          const normalized = await normalizeArticleWithAI({
+          const normalized = await normalizeArticleWithAIV2({
             url: cand.url,
             sourceName: cand.sourceName,
             baseTitle,

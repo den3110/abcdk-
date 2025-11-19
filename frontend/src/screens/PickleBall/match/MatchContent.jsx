@@ -1088,7 +1088,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       };
       const idx = pick();
       setActiveIdx(idx);
-      if (curr[idx]?.canEmbed) setShowPlayer(true);
+      if (curr[idx]?.canEmbed) setShowPlayer(false);
     }
 
     if (activeIdx >= curr.length) {

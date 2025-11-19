@@ -1881,6 +1881,59 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, x));
 }
 
+
+
+// Helper chuẩn hóa groupCode (A→1, B→2,...)
+function normalizeGroupCode(code) {
+  const s = String(code || "")
+    .trim()
+    .toUpperCase();
+  if (!s) return "";
+  if (/^\d+$/.test(s)) return s; // Đã là số
+  if (/^[A-Z]$/.test(s)) return String(s.charCodeAt(0) - 64); // A=1, B=2,...
+  return s;
+}
+
+// Tính trạng thái hoàn thành của các bảng
+async function computeGroupCompletionStatus(tournamentId) {
+  const Match = mongoose.model("Match");
+  
+  const groupMatches = await Match.find({
+    tournament: tournamentId,
+    format: "group",
+  })
+    .select("status stageIndex pool groupCode")
+    .lean();
+
+  const groupStatusMap = new Map();
+
+  for (const m of groupMatches) {
+    const stage = m.stageIndex ?? 1;
+    const rawGroupCode = String(m.pool?.name || m.groupCode || "").trim();
+    
+    if (!rawGroupCode) continue;
+
+    const groupCode = normalizeGroupCode(rawGroupCode);
+    const key = `${stage}_${groupCode}`;
+
+    const isDone = m.status === "finished";
+
+    if (!groupStatusMap.has(key)) {
+      groupStatusMap.set(key, true);
+    }
+    if (!isDone) {
+      groupStatusMap.set(key, false);
+    }
+  }
+
+  const result = {};
+  for (const [key, isFinished] of groupStatusMap.entries()) {
+    result[key] = isFinished;
+  }
+  
+  return result;
+}
+
 /**
  * GET /api/me/tournaments
  * Query:
@@ -1926,14 +1979,14 @@ export async function listMyTournaments(req, res) {
         },
       },
 
-      // 🔒 BẢO HIỂM: luôn cho myRegistrationIds là mảng
+      // 3) Bảo hiểm: luôn cho myRegistrationIds là mảng
       {
         $addFields: {
           myRegistrationIds: { $ifNull: ["$myRegistrationIds", []] },
         },
       },
 
-      // 3) Join sang tournaments
+      // 4) Join sang tournaments
       {
         $lookup: {
           from: "tournaments",
@@ -1944,12 +1997,12 @@ export async function listMyTournaments(req, res) {
       },
       { $unwind: "$tournament" },
 
-      // 4) (tuỳ chọn) lọc status
+      // 5) Lọc status (nếu có)
       ...(statusFilter
         ? [{ $match: { "tournament.status": { $in: statusFilter } } }]
         : []),
 
-      // 5) Nếu cần, kéo matches của CHÍNH user trong từng tournament
+      // 6) Kéo matches của CHÍNH user
       ...(withMatches
         ? [
             {
@@ -1957,8 +2010,7 @@ export async function listMyTournaments(req, res) {
                 from: "matches",
                 let: {
                   tourId: "$_id",
-                  regIds: { $ifNull: ["$myRegistrationIds", []] }, // ✅ luôn mảng
-                  uid: userIdObj,
+                  regIds: { $ifNull: ["$myRegistrationIds", []] },
                 },
                 pipeline: [
                   {
@@ -1970,12 +2022,6 @@ export async function listMyTournaments(req, res) {
                             $or: [
                               { $in: ["$pairA", "$$regIds"] },
                               { $in: ["$pairB", "$$regIds"] },
-                              {
-                                $in: [
-                                  "$$uid",
-                                  { $ifNull: ["$participants", []] },
-                                ],
-                              }, // ✅ luôn mảng
                             ],
                           },
                         ],
@@ -1987,7 +2033,7 @@ export async function listMyTournaments(req, res) {
                   },
                   { $limit: matchLimit },
 
-                  // pairA → registrations -> lấy player1/player2
+                  // pairA → registrations
                   {
                     $lookup: {
                       from: "registrations",
@@ -2003,7 +2049,7 @@ export async function listMyTournaments(req, res) {
                     },
                   },
 
-                  // pairB → registrations -> lấy player1/player2
+                  // pairB → registrations
                   {
                     $lookup: {
                       from: "registrations",
@@ -2019,12 +2065,12 @@ export async function listMyTournaments(req, res) {
                     },
                   },
 
-                  // Project shape gọn cho FE
+                  // Project
                   {
                     $project: {
                       _id: 1,
                       status: 1,
-                      winner: 1, // "A" | "B" | ""
+                      winner: 1,
                       round: 1,
                       rrRound: 1,
                       swissRound: 1,
@@ -2033,6 +2079,11 @@ export async function listMyTournaments(req, res) {
                       format: 1,
                       scheduledAt: 1,
                       courtName: "$courtLabel",
+                      seedA: 1,
+                      seedB: 1,
+                      stageIndex: 1,
+                      pool: 1,
+                      groupCode: 1,
                       sets: {
                         $map: {
                           input: { $ifNull: ["$gameScores", []] },
@@ -2098,7 +2149,7 @@ export async function listMyTournaments(req, res) {
                     },
                   },
 
-                  // Chuẩn hóa thành mảng teams
+                  // Chuẩn hóa teams
                   {
                     $project: {
                       _id: 1,
@@ -2113,6 +2164,11 @@ export async function listMyTournaments(req, res) {
                       scheduledAt: 1,
                       courtName: 1,
                       sets: 1,
+                      seedA: 1,
+                      seedB: 1,
+                      stageIndex: 1,
+                      pool: 1,
+                      groupCode: 1,
                       teams: ["$teamA", "$teamB"],
                     },
                   },
@@ -2123,10 +2179,10 @@ export async function listMyTournaments(req, res) {
           ]
         : []),
 
-      // 6) sort tournaments (mới trước)
+      // 7) Sort tournaments
       { $sort: { "tournament.startAt": -1, "tournament.createdAt": -1 } },
 
-      // 7) phân trang
+      // 8) Phân trang
       {
         $facet: {
           total: [{ $count: "count" }],
@@ -2145,26 +2201,32 @@ export async function listMyTournaments(req, res) {
     const total = agg?.[0]?.total ?? 0;
     const rows = agg?.[0]?.items ?? [];
 
-    const items = rows.map((r) => {
-      const t = r.tournament || {};
-      return {
-        _id: t._id,
-        name: t.name,
-        image: t.image ?? null,
-        location: t.location ?? "",
-        eventType: t.eventType, // "single" | "double"
-        status: t.status, // "upcoming" | "ongoing" | "finished"
-        startDate: t.startDate ?? null,
-        endDate: t.endDate ?? null,
-        startAt: t.startAt ?? null,
-        endAt: t.endAt ?? null,
-        myRegistrationIds: r.myRegistrationIds || [],
-        joinedAt: r.firstJoinedAt || null,
-        paidAny: !!r.paidAny,
-        checkedAny: !!r.checkedAny,
-        matches: r.matches || [], // 👈 danh sách trận của user trong giải
-      };
-    });
+    // ✅ Tính trạng thái bảng + map items
+    const items = await Promise.all(
+      rows.map(async (r) => {
+        const t = r.tournament || {};
+        const groupCompletionStatus = await computeGroupCompletionStatus(t._id);
+        
+        return {
+          _id: t._id,
+          name: t.name,
+          image: t.image ?? null,
+          location: t.location ?? "",
+          eventType: t.eventType,
+          status: t.status,
+          startDate: t.startDate ?? null,
+          endDate: t.endDate ?? null,
+          startAt: t.startAt ?? null,
+          endAt: t.endAt ?? null,
+          myRegistrationIds: r.myRegistrationIds || [],
+          joinedAt: r.firstJoinedAt || null,
+          paidAny: !!r.paidAny,
+          checkedAny: !!r.checkedAny,
+          matches: r.matches || [],
+          groupCompletionStatus, // ✅ THÊM
+        };
+      })
+    );
 
     return res.json({
       items,
