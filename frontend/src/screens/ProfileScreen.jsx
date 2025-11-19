@@ -21,8 +21,21 @@ import {
   IconButton,
   Checkbox,
   FormControlLabel,
+  Grid, // ✅ MUI v7 Grid
+  Badge,
 } from "@mui/material";
+
+// Icons
 import CloseIcon from "@mui/icons-material/Close";
+import LogoutIcon from "@mui/icons-material/Logout";
+import CameraAltIcon from "@mui/icons-material/CameraAlt";
+import DeleteIcon from "@mui/icons-material/Delete";
+import SaveIcon from "@mui/icons-material/Save";
+import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
+import GppBadIcon from "@mui/icons-material/GppBad";
+import PendingIcon from "@mui/icons-material/Pending";
+import ImageNotSupportedIcon from "@mui/icons-material/ImageNotSupported";
+
 import { useDispatch } from "react-redux";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
@@ -36,7 +49,6 @@ import {
 } from "../slices/uploadApiSlice";
 import { logout } from "../slices/authSlice";
 import CccdDropzone from "../components/CccdDropzone";
-import LogoutIcon from "@mui/icons-material/Logout";
 
 /* ✅ MUI X Date Pickers */
 import dayjs from "dayjs";
@@ -45,8 +57,10 @@ import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 
 /* ---------- Config ---------- */
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const MIN_DOB = dayjs("1940-01-01"); // minDate 01/01/1940
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MIN_DOB = dayjs("1940-01-01");
+const PLACEHOLDER_AVATAR = "https://via.placeholder.com/150?text=No+Image"; // Ảnh thế mạng Avatar
+const PLACEHOLDER_CCCD = "https://via.placeholder.com/400x250?text=Image+Error"; // Ảnh thế mạng CCCD
 
 /* ---------- Danh sách tỉnh ---------- */
 const PROVINCES = [
@@ -115,15 +129,13 @@ const PROVINCES = [
   "Yên Bái",
 ];
 
-/* ---------- Gender options ---------- */
 const GENDER_OPTIONS = [
-  { value: "unspecified", label: "--" },
+  { value: "unspecified", label: "Chưa xác định" },
   { value: "male", label: "Nam" },
   { value: "female", label: "Nữ" },
   { value: "other", label: "Khác" },
 ];
 
-/* ---------- Form gốc ---------- */
 const EMPTY = {
   name: "",
   nickname: "",
@@ -143,14 +155,13 @@ export default function ProfileScreen() {
   const navigate = useNavigate();
   const location = useLocation();
   const cccdSectionRef = useRef(null);
-  const HEADER_OFFSET = 72; // nếu header cố định cao ~72px
+  const HEADER_OFFSET = 72;
 
   const scrollToEl = useCallback((el) => {
     if (!el || typeof window === "undefined") return;
     const top =
       el.getBoundingClientRect().top + window.pageYOffset - HEADER_OFFSET;
     window.scrollTo({ top, behavior: "smooth" });
-    // nháy viền nhẹ để user thấy điểm đến
     el.style.outline = "2px solid #0284c7";
     el.style.borderRadius = "8px";
     setTimeout(() => {
@@ -175,20 +186,15 @@ export default function ProfileScreen() {
   const [frontImg, setFrontImg] = useState(null);
   const [backImg, setBackImg] = useState(null);
 
-  // Avatar state
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState("");
   const [uploadedAvatarUrl, setUploadedAvatarUrl] = useState("");
   const [avatarZoomOpen, setAvatarZoomOpen] = useState(false);
   const avatarSrc = useMemo(
-    () =>
-      avatarPreview ||
-      form.avatar ||
-      "https://dummyimage.com/400x400/cccccc/ffffff&text=",
+    () => avatarPreview || form.avatar || PLACEHOLDER_AVATAR,
     [avatarPreview, form.avatar]
   );
 
-  // CCCD Zoom state
   const [cccdZoomOpen, setCccdZoomOpen] = useState(false);
   const [cccdZoomSrc, setCccdZoomSrc] = useState("");
   const openCccdZoom = (src) => {
@@ -197,18 +203,16 @@ export default function ProfileScreen() {
     setCccdZoomOpen(true);
   };
 
-  // Checkbox Đổi mật khẩu
   const [changePassword, setChangePassword] = useState(false);
 
   useEffect(() => {
-    if (fetching) return; // chờ load xong
+    if (fetching) return;
     const hash = (location.hash || "").replace("#", "");
     if (hash === "2" || hash === "cccd") {
       requestAnimationFrame(() => scrollToEl(cccdSectionRef.current));
     }
   }, [location.hash, fetching, scrollToEl]);
 
-  /* Prefill khi user đến */
   useEffect(() => {
     if (!user) return;
     const init = {
@@ -229,12 +233,9 @@ export default function ProfileScreen() {
     setAvatarPreview("");
     setAvatarFile(null);
     setUploadedAvatarUrl("");
-
-    // luôn tắt đổi mật khẩu khi load profile
     setChangePassword(false);
   }, [user]);
 
-  /* Validate */
   const validate = (d) => {
     const e = {};
     if (!d.name.trim()) e.name = "Không được bỏ trống";
@@ -261,7 +262,6 @@ export default function ProfileScreen() {
     if (d.cccd && !/^\d{12}$/.test(d.cccd.trim()))
       e.cccd = "CCCD phải đủ 12 số";
 
-    // Chỉ validate mật khẩu khi bật "Đổi mật khẩu"
     if (changePassword) {
       if (!d.password) e.password = "Vui lòng nhập mật khẩu mới";
       else if (d.password.length < 6) e.password = "Tối thiểu 6 ký tự";
@@ -288,19 +288,16 @@ export default function ProfileScreen() {
 
   const isValid = useMemo(() => !Object.keys(errors).length, [errors]);
 
-  // 🔒 CCCD phải hợp lệ (12 số) mới được gửi ảnh
   const isCccdValid = useMemo(
     () => /^\d{12}$/.test((form.cccd || "").trim()),
     [form.cccd]
   );
 
-  /* Helpers */
   const showErr = (f) => touched[f] && !!errors[f];
   const onChange = (e) =>
     setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
   const onBlur = (e) => setTouched((t) => ({ ...t, [e.target.name]: true }));
 
-  /* Diff payload */
   const diff = () => {
     const out = { _id: user._id };
     for (const k in form) {
@@ -310,19 +307,25 @@ export default function ProfileScreen() {
     return out;
   };
 
-  /* Submit profile */
   const submit = async (e) => {
     e.preventDefault();
     setTouched(Object.fromEntries(Object.keys(form).map((k) => [k, true])));
     const errs = validate(form);
     setErrors(errs);
     if (Object.keys(errs).length)
-      return setSnack({ open: true, type: "error", msg: "Kiểm tra lại!" });
+      return setSnack({
+        open: true,
+        type: "error",
+        msg: "Vui lòng kiểm tra lại thông tin!",
+      });
     if (!isDirty)
-      return setSnack({ open: true, type: "info", msg: "Chưa thay đổi" });
+      return setSnack({
+        open: true,
+        type: "info",
+        msg: "Bạn chưa thay đổi thông tin nào.",
+      });
 
     try {
-      // Upload avatar nếu cần
       let finalAvatarUrl = uploadedAvatarUrl || form.avatar || "";
       if (avatarFile && !uploadedAvatarUrl) {
         if (avatarFile.size > MAX_FILE_SIZE) {
@@ -350,7 +353,11 @@ export default function ProfileScreen() {
       await updateProfile(payload).unwrap();
       await refetch();
       setTouched({});
-      setSnack({ open: true, type: "success", msg: "Đã lưu thành công" });
+      setSnack({
+        open: true,
+        type: "success",
+        msg: "Cập nhật hồ sơ thành công!",
+      });
     } catch (err) {
       setSnack({
         open: true,
@@ -360,7 +367,6 @@ export default function ProfileScreen() {
     }
   };
 
-  /* Upload CCCD */
   const sendCccd = async () => {
     if (!frontImg || !backImg || upLoad) return;
     if (!isCccdValid) {
@@ -379,7 +385,11 @@ export default function ProfileScreen() {
       setFrontImg(null);
       setBackImg(null);
       await refetch();
-      setSnack({ open: true, type: "success", msg: "Đã gửi, chờ xác minh" });
+      setSnack({
+        open: true,
+        type: "success",
+        msg: "Đã gửi ảnh, vui lòng chờ xác minh.",
+      });
     } catch (err) {
       setSnack({
         open: true,
@@ -389,7 +399,6 @@ export default function ProfileScreen() {
     }
   };
 
-  /* Logout */
   const onLogout = async () => {
     try {
       await logoutApiCall().unwrap();
@@ -413,562 +422,722 @@ export default function ProfileScreen() {
   const cccdTrim = (form.cccd || "").trim();
   const isCccdEmpty = cccdTrim === "";
 
-  // Dayjs value cho DatePicker (từ string 'YYYY-MM-DD')
   const dobValue = useMemo(() => {
     if (!form.dob) return null;
     const d = dayjs(form.dob, "YYYY-MM-DD", true);
     return d.isValid() ? d : null;
   }, [form.dob]);
 
+  // ✅ Hàm xử lý khi ảnh lỗi
+  const handleImgError = (e) => {
+    e.target.src = PLACEHOLDER_AVATAR;
+  };
+  const handleCccdError = (e) => {
+    e.target.src = PLACEHOLDER_CCCD;
+  };
+
   if (fetching || !user)
     return (
-      <Box sx={{ display: "flex", justifyContent: "center", mt: 10 }}>
-        <CircularProgress />
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          height: "80vh",
+        }}
+      >
+        <CircularProgress size={60} thickness={4} />
       </Box>
     );
 
   return (
-    <Container maxWidth="sm" sx={{ py: 4 }}>
-      <Paper elevation={2} sx={{ p: 3 }}>
-        <Typography variant="h6" fontWeight={700} mb={2}>
-          Cập nhật hồ sơ
+    <Container maxWidth="md" sx={{ py: 5 }}>
+      <Box mb={4} textAlign="center">
+        <Typography
+          variant="h4"
+          fontWeight={800}
+          gutterBottom
+          sx={{
+            background: "linear-gradient(45deg, #2196F3 30%, #21CBF3 90%)",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+          }}
+        >
+          Hồ sơ cá nhân
         </Typography>
+        <Typography variant="body1" color="text.secondary">
+          Quản lý thông tin hồ sơ và bảo mật tài khoản của bạn
+        </Typography>
+      </Box>
 
-        <Box component="form" onSubmit={submit} noValidate>
-          <Stack spacing={2}>
-            {/* ------ Avatar ------ */}
-            <Box display="flex" alignItems="center" gap={2}>
-              <Avatar
-                src={avatarSrc}
-                sx={{ width: 80, height: 80, cursor: "zoom-in" }}
-                title="Nhấn để phóng to"
-                onClick={() => setAvatarZoomOpen(true)}
-                imgProps={{ loading: "lazy" }}
-              />
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
+      <Box component="form" onSubmit={submit} noValidate>
+        <Grid container spacing={3}>
+          {/* Cột trái: Avatar & Thông tin */}
+          <Grid size={{ xs: 12, md: 4 }}>
+            <Paper
+              elevation={4}
+              sx={{
+                p: 4,
+                textAlign: "center",
+                borderRadius: 4,
+                height: "100%",
+              }}
+            >
+              <Box
+                sx={{ position: "relative", display: "inline-block", mb: 2 }}
+              >
+                <Badge
+                  overlap="circular"
+                  anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+                  badgeContent={
+                    <IconButton
+                      component="label"
+                      disabled={uploadingAvatar || isLoading}
+                      sx={{
+                        bgcolor: "primary.main",
+                        color: "white",
+                        width: 36,
+                        height: 36,
+                        border: "3px solid white",
+                        "&:hover": { bgcolor: "primary.dark" },
+                        boxShadow: 3,
+                      }}
+                    >
+                      {uploadingAvatar ? (
+                        <CircularProgress size={20} color="inherit" />
+                      ) : (
+                        <CameraAltIcon fontSize="small" />
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        hidden
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          if (file.size > MAX_FILE_SIZE) {
+                            setSnack({
+                              open: true,
+                              type: "error",
+                              msg: "Ảnh quá lớn (>10MB).",
+                            });
+                            return;
+                          }
+                          setAvatarFile(file);
+                          setAvatarPreview(URL.createObjectURL(file));
+                          setUploadedAvatarUrl("");
+                        }}
+                      />
+                    </IconButton>
+                  }
+                >
+                  <Avatar
+                    src={avatarSrc}
+                    // ✅ Fallback khi ảnh avatar lỗi
+                    imgProps={{ onError: handleImgError }}
+                    sx={{
+                      width: 140,
+                      height: 140,
+                      border: "4px solid #e3f2fd",
+                      boxShadow: 3,
+                      cursor: "zoom-in",
+                      transition: "transform 0.2s",
+                      "&:hover": { transform: "scale(1.05)" },
+                    }}
+                    onClick={() => setAvatarZoomOpen(true)}
+                  />
+                </Badge>
+              </Box>
+
+              <Typography variant="h6" fontWeight={700}>
+                {form.nickname || "User"}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                {form.email}
+              </Typography>
+
+              {(form.avatar || avatarPreview) && (
+                <Button
+                  size="small"
+                  color="error"
+                  startIcon={<DeleteIcon />}
+                  sx={{ mt: 1, textTransform: "none" }}
+                  onClick={() => {
+                    setAvatarFile(null);
+                    setAvatarPreview("");
+                    setUploadedAvatarUrl("");
+                    setForm((p) => ({ ...p, avatar: "" }));
+                  }}
+                >
+                  Xóa ảnh
+                </Button>
+              )}
+
+              {/* ✅ Desktop: Hiện nút đăng xuất ở Sidebar */}
+              <Box sx={{ display: { xs: "none", md: "block" } }}>
+                <Divider sx={{ my: 3 }} />
                 <Button
                   variant="outlined"
-                  component="label"
-                  disabled={uploadingAvatar || isLoading}
+                  color="error"
+                  fullWidth
+                  startIcon={<LogoutIcon />}
+                  onClick={onLogout}
+                  sx={{ borderRadius: 2, py: 1 }}
                 >
-                  Chọn ảnh đại diện
-                  <input
-                    type="file"
-                    accept="image/*"
-                    hidden
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      if (file.size > MAX_FILE_SIZE) {
-                        setSnack({
-                          open: true,
-                          type: "error",
-                          msg: "Ảnh không được vượt quá 10 MB.",
-                        });
-                        return;
-                      }
-                      setAvatarFile(file);
-                      setAvatarPreview(URL.createObjectURL(file));
-                      setUploadedAvatarUrl("");
-                    }}
-                  />
+                  Đăng xuất
                 </Button>
-                {(form.avatar || avatarPreview) && (
-                  <Button
-                    variant="text"
-                    color="error"
-                    onClick={() => {
-                      setAvatarFile(null);
-                      setAvatarPreview("");
-                      setUploadedAvatarUrl("");
-                      setForm((p) => ({ ...p, avatar: "" }));
-                    }}
-                  >
-                    Xóa ảnh
-                  </Button>
-                )}
-              </Stack>
-            </Box>
+              </Box>
+            </Paper>
+          </Grid>
 
-            {/* ------ Thông tin cá nhân ------ */}
-            <TextField
-              label="Họ và tên"
-              name="name"
-              value={form.name}
-              onChange={onChange}
-              onBlur={onBlur}
-              required
-              fullWidth
-              // disabled={isKycLocked}
-              error={showErr("name")}
-              helperText={showErr("name") ? errors.name : " "}
-            />
-            <TextField
-              label="Biệt danh"
-              name="nickname"
-              value={form.nickname}
-              onChange={onChange}
-              onBlur={onBlur}
-              required
-              fullWidth
-              error={showErr("nickname")}
-              helperText={showErr("nickname") ? errors.nickname : " "}
-            />
-            <TextField
-              label="Số điện thoại"
-              name="phone"
-              value={form.phone}
-              onChange={onChange}
-              onBlur={onBlur}
-              required
-              fullWidth
-              inputProps={{ inputMode: "numeric", pattern: "0\\d{9}" }}
-              error={showErr("phone")}
-              helperText={showErr("phone") ? errors.phone : " "}
-            />
-
-            {/* 🔹 Giới tính */}
-            <FormControl
-              fullWidth
-              error={showErr("gender")}
-            >
-              <InputLabel id="gender-lbl" shrink>
-                Giới tính
-              </InputLabel>
-              <Select
-                labelId="gender-lbl"
-                label="Giới tính"
-                name="gender"
-                value={form.gender}
-                onChange={onChange}
-                onBlur={onBlur}
-                displayEmpty
+          {/* Cột phải: Form */}
+          <Grid size={{ xs: 12, md: 8 }}>
+            <Paper elevation={3} sx={{ p: 4, borderRadius: 4 }}>
+              <Typography
+                variant="h6"
+                fontWeight={700}
+                mb={3}
+                sx={{
+                  borderLeft: "4px solid #1976d2",
+                  pl: 2,
+                  color: "#1976d2",
+                }}
               >
-                {GENDER_OPTIONS.map((opt) => (
-                  <MenuItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </MenuItem>
-                ))}
-              </Select>
-              {showErr("gender") && (
-                <Typography variant="caption" color="error">
-                  {errors.gender}
-                </Typography>
-              )}
-            </FormControl>
+                Thông tin chung
+              </Typography>
 
-            {/* ✅ DatePicker cho Ngày sinh */}
-            <DatePicker
-              label="Ngày sinh"
-              value={dobValue}
-              onChange={(newVal) => {
-                setTouched((t) => ({ ...t, dob: true }));
-                setForm((p) => ({
-                  ...p,
-                  dob:
-                    newVal && newVal.isValid()
-                      ? newVal.format("YYYY-MM-DD")
-                      : "",
-                }));
-              }}
-              format="DD/MM/YYYY"
-              minDate={MIN_DOB}
-              defaultCalendarMonth={MIN_DOB}
-              referenceDate={MIN_DOB}
-              disableFuture
-              views={["year", "month", "day"]}
-              slotProps={{
-                textField: {
-                  fullWidth: true,
-                  placeholder: "DD/MM/YYYY",
-                  onBlur: () => setTouched((t) => ({ ...t, dob: true })),
-                  error: showErr("dob"),
-                  helperText: showErr("dob") ? errors.dob : " ",
-                },
-              }}
-            />
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField
+                    label="Họ và tên"
+                    name="name"
+                    value={form.name}
+                    onChange={onChange}
+                    onBlur={onBlur}
+                    required
+                    fullWidth
+                    error={showErr("name")}
+                    helperText={showErr("name") ? errors.name : ""}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField
+                    label="Biệt danh"
+                    name="nickname"
+                    value={form.nickname}
+                    onChange={onChange}
+                    onBlur={onBlur}
+                    required
+                    fullWidth
+                    error={showErr("nickname")}
+                    helperText={showErr("nickname") ? errors.nickname : ""}
+                  />
+                </Grid>
 
-            <FormControl
-              fullWidth
-              required
-              error={showErr("province")}
-            >
-              <InputLabel id="province-lbl" shrink>
-                Tỉnh / Thành phố
-              </InputLabel>
-              <Select
-                labelId="province-lbl"
-                label="Tỉnh / Thành phố"
-                name="province"
-                value={form.province}
-                onChange={onChange}
-                onBlur={onBlur}
-                displayEmpty
-              >
-                <MenuItem value="">
-                  <em>-- Chọn --</em>
-                </MenuItem>
-                {PROVINCES.map((p) => (
-                  <MenuItem key={p} value={p}>
-                    {p}
-                  </MenuItem>
-                ))}
-              </Select>
-              {showErr("province") && (
-                <Typography variant="caption" color="error">
-                  {errors.province}
-                </Typography>
-              )}
-            </FormControl>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField
+                    label="Số điện thoại"
+                    name="phone"
+                    value={form.phone}
+                    onChange={onChange}
+                    onBlur={onBlur}
+                    required
+                    fullWidth
+                    error={showErr("phone")}
+                    helperText={showErr("phone") ? errors.phone : ""}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField
+                    label="Email"
+                    name="email"
+                    value={form.email}
+                    onChange={onChange}
+                    onBlur={onBlur}
+                    required
+                    fullWidth
+                    disabled
+                    error={showErr("email")}
+                    helperText={showErr("email") ? errors.email : ""}
+                  />
+                </Grid>
 
-            <TextField
-              label="Mã định danh CCCD"
-              name="cccd"
-              value={form.cccd}
-              onChange={onChange}
-              onBlur={onBlur}
-              fullWidth
-              placeholder="12 chữ số"
-              inputProps={{ inputMode: "numeric", maxLength: 12 }}
-              disabled={isKycLocked}
-              error={showErr("cccd")}
-              helperText={
-                isKycLocked
-                  ? "Không thể chỉnh sửa sau khi đã xác minh danh tính."
-                  : showErr("cccd")
-                  ? errors.cccd
-                  : isCccdEmpty
-                  ? "Bạn cần nhập CCCD để gửi ảnh."
-                  : " "
-              }
-            />
-
-            <TextField
-              label="Email"
-              type="email"
-              name="email"
-              value={form.email}
-              onChange={onChange}
-              onBlur={onBlur}
-              required
-              fullWidth
-              error={showErr("email")}
-              helperText={showErr("email") ? errors.email : " "}
-            />
-
-            {/* ------ Đổi mật khẩu ------ */}
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={changePassword}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setChangePassword(checked);
-
-                    // Nếu tắt => clear luôn password + confirm + touched
-                    if (!checked) {
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <FormControl fullWidth error={showErr("gender")}>
+                    <InputLabel id="gender-lbl">Giới tính</InputLabel>
+                    <Select
+                      labelId="gender-lbl"
+                      label="Giới tính"
+                      name="gender"
+                      value={form.gender}
+                      onChange={onChange}
+                      onBlur={onBlur}
+                    >
+                      {GENDER_OPTIONS.map((opt) => (
+                        <MenuItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <DatePicker
+                    label="Ngày sinh"
+                    value={dobValue}
+                    onChange={(newVal) => {
+                      setTouched((t) => ({ ...t, dob: true }));
                       setForm((p) => ({
                         ...p,
-                        password: "",
-                        confirmPassword: "",
+                        dob:
+                          newVal && newVal.isValid()
+                            ? newVal.format("YYYY-MM-DD")
+                            : "",
                       }));
-                      setTouched((t) => ({
-                        ...t,
-                        password: false,
-                        confirmPassword: false,
-                      }));
-                    }
-                  }}
-                  color="primary"
-                />
-              }
-              label="Đổi mật khẩu"
-            />
-
-            {changePassword && (
-              <>
-                <TextField
-                  label="Mật khẩu mới"
-                  type="password"
-                  name="password"
-                  value={form.password}
-                  onChange={onChange}
-                  onBlur={onBlur}
-                  fullWidth
-                  placeholder="Nhập mật khẩu mới"
-                  error={showErr("password")}
-                  helperText={showErr("password") ? errors.password : " "}
-                />
-                <TextField
-                  label="Xác nhận mật khẩu mới"
-                  type="password"
-                  name="confirmPassword"
-                  value={form.confirmPassword}
-                  onChange={onChange}
-                  onBlur={onBlur}
-                  fullWidth
-                  placeholder="Nhập lại mật khẩu mới"
-                  error={showErr("confirmPassword")}
-                  helperText={
-                    showErr("confirmPassword") ? errors.confirmPassword : " "
-                  }
-                />
-              </>
-            )}
-
-            {/* ------ Upload / Preview CCCD ------ */}
-            <Box
-              ref={cccdSectionRef}
-              id="cccd"
-              sx={{ scrollMarginTop: `${HEADER_OFFSET + 8}px` }}
-            >
-              <Typography variant="subtitle1" fontWeight={600} mt={1}>
-                Ảnh CCCD
-              </Typography>
-            </Box>
-            {showUpload ? (
-              <>
-                {isCccdEmpty && (
-                  <Alert severity="info" sx={{ mb: 1 }}>
-                    Nhập <strong>số CCCD</strong> trước khi gửi ảnh xác minh.
-                  </Alert>
-                )}
-                <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                  <CccdDropzone
-                    label="Mặt trước"
-                    file={frontImg}
-                    onFile={setFrontImg}
+                    }}
+                    format="DD/MM/YYYY"
+                    minDate={MIN_DOB}
+                    disableFuture
+                    slotProps={{
+                      textField: {
+                        fullWidth: true,
+                        onBlur: () => setTouched((t) => ({ ...t, dob: true })),
+                        error: showErr("dob"),
+                        helperText: showErr("dob") ? errors.dob : "",
+                      },
+                    }}
                   />
-                  <CccdDropzone
-                    label="Mặt sau"
-                    file={backImg}
-                    onFile={setBackImg}
+                </Grid>
+
+                <Grid size={{ xs: 12 }}>
+                  <FormControl fullWidth required error={showErr("province")}>
+                    <InputLabel id="province-lbl">Tỉnh / Thành phố</InputLabel>
+                    <Select
+                      labelId="province-lbl"
+                      label="Tỉnh / Thành phố"
+                      name="province"
+                      value={form.province}
+                      onChange={onChange}
+                      onBlur={onBlur}
+                    >
+                      <MenuItem value="">
+                        <em>-- Chọn --</em>
+                      </MenuItem>
+                      {PROVINCES.map((p) => (
+                        <MenuItem key={p} value={p}>
+                          {p}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                    {showErr("province") && (
+                      <Typography
+                        variant="caption"
+                        color="error"
+                        sx={{ mx: 2, mt: 0.5 }}
+                      >
+                        {errors.province}
+                      </Typography>
+                    )}
+                  </FormControl>
+                </Grid>
+              </Grid>
+
+              {/* Phần Đổi mật khẩu */}
+              <Box
+                mt={4}
+                p={2}
+                sx={{
+                  bgcolor: "grey.50",
+                  borderRadius: 3,
+                  border: "1px dashed #ccc",
+                }}
+              >
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={changePassword}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setChangePassword(checked);
+                        if (!checked) {
+                          setForm((p) => ({
+                            ...p,
+                            password: "",
+                            confirmPassword: "",
+                          }));
+                          setTouched((t) => ({
+                            ...t,
+                            password: false,
+                            confirmPassword: false,
+                          }));
+                        }
+                      }}
+                      color="primary"
+                    />
+                  }
+                  label={<Typography fontWeight={600}>Đổi mật khẩu</Typography>}
+                />
+
+                {changePassword && (
+                  <Grid container spacing={2} sx={{ mt: 1 }}>
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <TextField
+                        label="Mật khẩu mới"
+                        type="password"
+                        name="password"
+                        value={form.password}
+                        onChange={onChange}
+                        onBlur={onBlur}
+                        fullWidth
+                        error={showErr("password")}
+                        helperText={showErr("password") ? errors.password : ""}
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <TextField
+                        label="Xác nhận mật khẩu"
+                        type="password"
+                        name="confirmPassword"
+                        value={form.confirmPassword}
+                        onChange={onChange}
+                        onBlur={onBlur}
+                        fullWidth
+                        error={showErr("confirmPassword")}
+                        helperText={
+                          showErr("confirmPassword")
+                            ? errors.confirmPassword
+                            : ""
+                        }
+                      />
+                    </Grid>
+                  </Grid>
+                )}
+              </Box>
+
+              {/* Phần CCCD */}
+              <Box
+                mt={4}
+                ref={cccdSectionRef}
+                id="cccd"
+                sx={{ scrollMarginTop: `${HEADER_OFFSET + 16}px` }}
+              >
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  justifyContent="space-between"
+                  mb={2}
+                >
+                  <Typography
+                    variant="h6"
+                    fontWeight={700}
+                    sx={{
+                      borderLeft: "4px solid #ed6c02",
+                      pl: 2,
+                      color: "#ed6c02",
+                    }}
+                  >
+                    Xác minh danh tính (KYC)
+                  </Typography>
+                  <Chip
+                    icon={
+                      status === "verified" ? (
+                        <VerifiedUserIcon />
+                      ) : status === "rejected" ? (
+                        <GppBadIcon />
+                      ) : (
+                        <PendingIcon />
+                      )
+                    }
+                    label={
+                      {
+                        unverified: "Chưa xác minh",
+                        pending: "Đang chờ duyệt",
+                        verified: "Đã xác minh",
+                        rejected: "Bị từ chối",
+                      }[status]
+                    }
+                    color={
+                      {
+                        verified: "success",
+                        pending: "warning",
+                        rejected: "error",
+                        unverified: "default",
+                      }[status]
+                    }
+                    variant="outlined"
+                    sx={{ fontWeight: 600 }}
                   />
                 </Stack>
+
+                <TextField
+                  label="Số CCCD (12 số)"
+                  name="cccd"
+                  value={form.cccd}
+                  onChange={onChange}
+                  onBlur={onBlur}
+                  fullWidth
+                  inputProps={{ inputMode: "numeric", maxLength: 12 }}
+                  disabled={isKycLocked}
+                  error={showErr("cccd")}
+                  helperText={
+                    isKycLocked
+                      ? "Không thể sửa khi đã xác minh"
+                      : showErr("cccd")
+                      ? errors.cccd
+                      : isCccdEmpty
+                      ? "Nhập số CCCD để kích hoạt upload ảnh"
+                      : ""
+                  }
+                  sx={{ mb: 3 }}
+                />
+
+                {showUpload ? (
+                  <Box
+                    p={3}
+                    sx={{
+                      bgcolor: "#f9fafb",
+                      borderRadius: 3,
+                      border: "1px solid #eee",
+                    }}
+                  >
+                    {isCccdEmpty && (
+                      <Alert severity="info" sx={{ mb: 2 }}>
+                        Vui lòng nhập <strong>số CCCD</strong> ở trên để tải ảnh
+                        lên.
+                      </Alert>
+                    )}
+                    <Grid container spacing={2}>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <CccdDropzone
+                          label="Mặt trước"
+                          file={frontImg}
+                          onFile={setFrontImg}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <CccdDropzone
+                          label="Mặt sau"
+                          file={backImg}
+                          onFile={setBackImg}
+                        />
+                      </Grid>
+                    </Grid>
+                    <Button
+                      variant="outlined"
+                      fullWidth
+                      disabled={!frontImg || !backImg || upLoad || !isCccdValid}
+                      startIcon={upLoad && <CircularProgress size={20} />}
+                      onClick={sendCccd}
+                      sx={{
+                        mt: 2,
+                        py: 1.5,
+                        borderStyle: "dashed",
+                        borderWidth: 2,
+                      }}
+                    >
+                      {upLoad ? "Đang gửi yêu cầu..." : "Gửi yêu cầu xác minh"}
+                    </Button>
+                  </Box>
+                ) : (
+                  <Grid container spacing={2}>
+                    <Grid size={{ xs: 6 }}>
+                      <Paper
+                        variant="outlined"
+                        sx={{
+                          p: 1,
+                          bgcolor: "#f4f4f4",
+                          cursor: "zoom-in",
+                          "&:hover": { borderColor: "primary.main" },
+                        }}
+                        onClick={() => openCccdZoom(frontUrl)}
+                      >
+                        {/* ✅ Fallback cho ảnh CCCD */}
+                        <img
+                          src={frontUrl}
+                          alt="Mặt trước"
+                          style={{
+                            width: "100%",
+                            height: 120,
+                            objectFit: "contain",
+                          }}
+                          onError={handleCccdError}
+                        />
+                        <Typography
+                          align="center"
+                          variant="caption"
+                          display="block"
+                        >
+                          Mặt trước
+                        </Typography>
+                      </Paper>
+                    </Grid>
+                    <Grid size={{ xs: 6 }}>
+                      <Paper
+                        variant="outlined"
+                        sx={{
+                          p: 1,
+                          bgcolor: "#f4f4f4",
+                          cursor: "zoom-in",
+                          "&:hover": { borderColor: "primary.main" },
+                        }}
+                        onClick={() => openCccdZoom(backUrl)}
+                      >
+                        {/* ✅ Fallback cho ảnh CCCD */}
+                        <img
+                          src={backUrl}
+                          alt="Mặt sau"
+                          style={{
+                            width: "100%",
+                            height: 120,
+                            objectFit: "contain",
+                          }}
+                          onError={handleCccdError}
+                        />
+                        <Typography
+                          align="center"
+                          variant="caption"
+                          display="block"
+                        >
+                          Mặt sau
+                        </Typography>
+                      </Paper>
+                    </Grid>
+                  </Grid>
+                )}
+              </Box>
+
+              {/* Nút Lưu Form */}
+              <Box mt={5}>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  fullWidth
+                  size="large"
+                  disabled={
+                    !isDirty || !isValid || isLoading || uploadingAvatar
+                  }
+                  startIcon={
+                    isLoading || uploadingAvatar ? (
+                      <CircularProgress size={20} color="inherit" />
+                    ) : (
+                      <SaveIcon />
+                    )
+                  }
+                  sx={{
+                    borderRadius: 3,
+                    py: 1.5,
+                    fontSize: "1rem",
+                    fontWeight: 700,
+                    boxShadow: "0 8px 16px rgba(33, 150, 243, 0.24)",
+                  }}
+                >
+                  {isLoading || uploadingAvatar
+                    ? "Đang xử lý..."
+                    : "Lưu thay đổi"}
+                </Button>
+              </Box>
+
+              {/* ✅ Mobile Only: Nút đăng xuất nằm ở CUỐI CÙNG */}
+              <Box sx={{ display: { xs: "block", md: "none" }, mt: 3 }}>
+                <Divider sx={{ mb: 3 }}>
+                  <Chip label="Tài khoản" size="small" />
+                </Divider>
                 <Button
                   variant="outlined"
-                  disabled={!frontImg || !backImg || upLoad || !isCccdValid}
-                  startIcon={upLoad && <CircularProgress size={20} />}
-                  onClick={sendCccd}
+                  color="error"
+                  fullWidth
+                  startIcon={<LogoutIcon />}
+                  onClick={onLogout}
+                  sx={{ borderRadius: 2, py: 1.5 }}
                 >
-                  {upLoad ? "Đang gửi…" : "Gửi ảnh xác minh"}
+                  Đăng xuất
                 </Button>
-              </>
-            ) : (
-              <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <img
-                    src={frontUrl}
-                    alt="CCCD mặt trước"
-                    style={{
-                      width: "100%",
-                      maxHeight: 160,
-                      objectFit: "contain",
-                      borderRadius: 8,
-                      cursor: frontUrl ? "zoom-in" : "default",
-                      userSelect: "none",
-                    }}
-                    onClick={() => openCccdZoom(frontUrl)}
-                    loading="lazy"
-                    draggable={false}
-                  />
-                  <Typography align="center" variant="caption">
-                    Mặt trước
-                  </Typography>
-                </Box>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <img
-                    src={backUrl}
-                    alt="CCCD mặt sau"
-                    style={{
-                      width: "100%",
-                      maxHeight: 160,
-                      objectFit: "contain",
-                      borderRadius: 8,
-                      cursor: backUrl ? "zoom-in" : "default",
-                      userSelect: "none",
-                    }}
-                    onClick={() => openCccdZoom(backUrl)}
-                    loading="lazy"
-                    draggable={false}
-                  />
-                  <Typography align="center" variant="caption">
-                    Mặt sau
-                  </Typography>
-                </Box>
-              </Stack>
-            )}
+              </Box>
+            </Paper>
+          </Grid>
+        </Grid>
+      </Box>
 
-            {/* Trạng thái */}
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Typography variant="body2">Trạng thái:</Typography>
-              <Chip
-                size="small"
-                color={
-                  status === "verified"
-                    ? "success"
-                    : status === "pending"
-                    ? "warning"
-                    : status === "rejected"
-                    ? "error"
-                    : "default"
-                }
-                label={
-                  {
-                    unverified: "Chưa xác nhận",
-                    pending: "Chờ xác nhận",
-                    verified: "Đã xác nhận",
-                    rejected: "Bị từ chối",
-                  }[status]
-                }
-              />
-            </Stack>
-
-            {/* ------ Lưu thay đổi ------ */}
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={!isDirty || !isValid || isLoading || uploadingAvatar}
-              startIcon={
-                (isLoading || uploadingAvatar) && <CircularProgress size={20} />
-              }
-            >
-              {isLoading || uploadingAvatar ? "Đang lưu..." : "Lưu thay đổi"}
-            </Button>
-          </Stack>
-        </Box>
-
-        {/* ✅ Đăng xuất dưới cùng, chỉ hiện trên mobile */}
-        <Divider sx={{ my: 2, display: { xs: "block", md: "none" } }} />
-        <Button
-          variant="outlined"
-          color="error"
-          fullWidth
-          startIcon={<LogoutIcon />}
-          onClick={onLogout}
-          sx={{ display: { xs: "inline-flex", md: "none" } }}
-        >
-          Đăng xuất
-        </Button>
-      </Paper>
-
-      {/* Snackbar */}
+      {/* Snackbar Alert */}
       <Snackbar
         open={snack.open}
         autoHideDuration={3000}
         onClose={() => setSnack((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
       >
         <Alert
           severity={snack.type}
           variant="filled"
           onClose={() => setSnack((s) => ({ ...s, open: false }))}
+          sx={{ width: "100%", boxShadow: 6 }}
         >
           {snack.msg}
         </Alert>
       </Snackbar>
 
-      {/* Zoom Avatar */}
+      {/* Dialog Zoom Avatar */}
       <Dialog
         open={avatarZoomOpen}
         onClose={() => setAvatarZoomOpen(false)}
         maxWidth="md"
-        fullWidth
       >
-        <Box sx={{ position: "relative" }}>
+        <Box position="relative" p={1} bgcolor="black">
           <IconButton
-            aria-label="Đóng"
             onClick={() => setAvatarZoomOpen(false)}
-            size="large"
             sx={{
               position: "absolute",
               right: 8,
               top: 8,
-              zIndex: 1,
-              bgcolor: "rgba(0,0,0,0.65)",
-              color: "#fff",
-              boxShadow: 3,
-              backdropFilter: "blur(2px)",
-              "&:hover": { bgcolor: "rgba(0,0,0,0.8)" },
+              color: "white",
+              bgcolor: "rgba(0,0,0,0.5)",
             }}
           >
-            <CloseIcon sx={{ fontSize: 26 }} />
+            <CloseIcon />
           </IconButton>
-          <Box
-            sx={{
-              p: { xs: 1, sm: 2 },
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              minHeight: { xs: 280, sm: 400 },
+          <img
+            src={avatarSrc}
+            onError={handleImgError}
+            alt="Avatar Zoom"
+            style={{
+              maxWidth: "100%",
+              maxHeight: "80vh",
+              display: "block",
+              margin: "auto",
             }}
-          >
-            <img
-              src={avatarSrc}
-              alt="Avatar"
-              onClick={() => setAvatarZoomOpen(false)}
-              style={{
-                maxWidth: "100%",
-                maxHeight: "80vh",
-                borderRadius: 12,
-                cursor: "zoom-out",
-                userSelect: "none",
-              }}
-              draggable={false}
-            />
-          </Box>
+          />
         </Box>
       </Dialog>
 
-      {/* 🔍 Zoom CCCD (mặt trước / mặt sau) */}
+      {/* Dialog Zoom CCCD */}
       <Dialog
         open={cccdZoomOpen}
         onClose={() => setCccdZoomOpen(false)}
         maxWidth="md"
-        fullWidth
       >
-        <Box sx={{ position: "relative" }}>
+        <Box position="relative" p={1} bgcolor="black">
           <IconButton
-            aria-label="Đóng"
             onClick={() => setCccdZoomOpen(false)}
-            size="large"
             sx={{
               position: "absolute",
               right: 8,
               top: 8,
-              zIndex: 1,
-              bgcolor: "rgba(0,0,0,0.65)",
-              color: "#fff",
-              boxShadow: 3,
-              backdropFilter: "blur(2px)",
-              "&:hover": { bgcolor: "rgba(0,0,0,0.8)" },
+              color: "white",
+              bgcolor: "rgba(0,0,0,0.5)",
             }}
           >
-            <CloseIcon sx={{ fontSize: 26 }} />
+            <CloseIcon />
           </IconButton>
-          <Box
-            sx={{
-              p: { xs: 1, sm: 2 },
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              minHeight: { xs: 280, sm: 400 },
+          <img
+            src={cccdZoomSrc}
+            onError={handleCccdError}
+            alt="CCCD Zoom"
+            style={{
+              maxWidth: "100%",
+              maxHeight: "80vh",
+              display: "block",
+              margin: "auto",
             }}
-          >
-            <img
-              src={cccdZoomSrc || ""}
-              alt="Ảnh CCCD"
-              onClick={() => setCccdZoomOpen(false)}
-              style={{
-                maxWidth: "100%",
-                maxHeight: "80vh",
-                borderRadius: 12,
-                cursor: "zoom-out",
-                userSelect: "none",
-              }}
-              draggable={false}
-            />
-          </Box>
+          />
         </Box>
       </Dialog>
     </Container>

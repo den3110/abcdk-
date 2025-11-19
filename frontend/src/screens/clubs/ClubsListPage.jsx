@@ -9,7 +9,6 @@ import {
   InputAdornment,
   Tabs,
   Tab,
-  Grid,
   Button,
   MenuItem,
   Alert,
@@ -17,12 +16,25 @@ import {
   CardHeader,
   CardContent,
   Skeleton,
+  Paper,
+  Divider,
+  Chip,
+  useTheme,
+  useMediaQuery,
+  Fade,
+  IconButton,
+  Grid,
 } from "@mui/material";
+// Import Grid2 cho MUI v6
+
 import SearchIcon from "@mui/icons-material/Search";
 import AddIcon from "@mui/icons-material/Add";
 import GroupOffOutlined from "@mui/icons-material/GroupOffOutlined";
 import SearchOffOutlined from "@mui/icons-material/SearchOffOutlined";
 import InboxOutlined from "@mui/icons-material/InboxOutlined";
+import FilterListIcon from "@mui/icons-material/FilterList";
+import ClearIcon from "@mui/icons-material/Clear";
+
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 
@@ -32,39 +44,61 @@ import { useListClubsQuery } from "../../slices/clubsApiSlice";
 
 const SPORT_OPTIONS = ["pickleball"];
 
-// --- Skeleton khớp layout ClubCard ---
+// --- Modern Skeleton ---
 function ClubCardSkeleton() {
   return (
-    <Card variant="outlined" sx={{ borderRadius: 3, overflow: "hidden" }}>
-      {/* Cover 16:9 */}
-      <Box sx={{ position: "relative", width: "100%", pt: "56.25%" }}>
+    <Card
+      elevation={0}
+      sx={{
+        borderRadius: 4,
+        overflow: "hidden",
+        height: "100%",
+        border: "1px solid rgba(0,0,0,0.08)",
+        bgcolor: "#fff",
+      }}
+    >
+      <Box
+        sx={{
+          position: "relative",
+          width: "100%",
+          pt: "56.25%",
+          bgcolor: "#f5f5f5",
+        }}
+      >
         <Skeleton
           variant="rectangular"
           sx={{ position: "absolute", inset: 0 }}
+          animation="wave"
         />
       </Box>
-      {/* Avatar + title/subtitle */}
       <CardHeader
         sx={{ pb: 0.5 }}
-        avatar={<Skeleton variant="circular" width={40} height={40} />}
-        title={<Skeleton variant="text" width="70%" />}
-        subheader={<Skeleton variant="text" width="40%" />}
+        avatar={<Skeleton variant="circular" width={48} height={48} />}
+        title={<Skeleton variant="text" width="60%" height={24} />}
+        subheader={<Skeleton variant="text" width="30%" />}
       />
-      {/* Chips + 2 dòng mô tả */}
-      <CardContent sx={{ pt: 1.5 }}>
-        <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
-          <Skeleton variant="rounded" width={64} height={24} />
-          <Skeleton variant="rounded" width={72} height={24} />
-          <Skeleton variant="rounded" width={52} height={24} />
+      <CardContent sx={{ pt: 1 }}>
+        <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+          <Skeleton
+            variant="rounded"
+            width={60}
+            height={24}
+            sx={{ borderRadius: 2 }}
+          />
+          <Skeleton
+            variant="rounded"
+            width={80}
+            height={24}
+            sx={{ borderRadius: 2 }}
+          />
         </Stack>
         <Skeleton variant="text" width="100%" />
-        <Skeleton variant="text" width="85%" />
+        <Skeleton variant="text" width="80%" />
       </CardContent>
     </Card>
   );
 }
 
-// rút gọn message lỗi từ RTKQ error
 const getApiErrMsg = (err) =>
   err?.data?.message ||
   err?.error ||
@@ -72,10 +106,25 @@ const getApiErrMsg = (err) =>
     ? err.data
     : "Có lỗi xảy ra, vui lòng thử lại.");
 
-export default function ClubsListPage() {
-  const [tab, setTab] = useState("all"); // all | mine
+const tabStyles = {
+  minHeight: 40,
+  borderRadius: 3,
+  textTransform: "none",
+  fontWeight: 600,
+  fontSize: "0.9rem",
+  color: "text.secondary",
+  "&.Mui-selected": {
+    color: "#fff",
+    bgcolor: "#212121",
+  },
+  transition: "all 0.2s",
+};
 
-  // debounce search
+export default function ClubsListPage() {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const [tab, setTab] = useState("all");
+
   const [qInput, setQInput] = useState("");
   const [q, setQ] = useState("");
   useEffect(() => {
@@ -83,11 +132,12 @@ export default function ClubsListPage() {
     return () => clearTimeout(t);
   }, [qInput]);
 
-  const [sport, setSport] = useState("");
+  // === THAY ĐỔI Ở ĐÂY: Mặc định là "pickleball" ===
+  const [sport, setSport] = useState("pickleball");
+
   const [province, setProvince] = useState("");
   const [openCreate, setOpenCreate] = useState(false);
 
-  // xác định đã đăng nhập chưa
   const authUser =
     useSelector((s) => s.auth?.userInfo) ||
     useSelector((s) => s.user?.userInfo) ||
@@ -106,7 +156,6 @@ export default function ClubsListPage() {
     return p;
   }, [q, sport, province, wantMine]);
 
-  // SKIP nếu tab = mine mà chưa đăng nhập → tránh gọi & loop
   const shouldSkip = wantMine && !isAuth;
 
   const { data, isLoading, isFetching, error, refetch, isUninitialized } =
@@ -116,7 +165,6 @@ export default function ClubsListPage() {
       refetchOnReconnect: false,
     });
 
-  // toast lỗi 1 lần/đợt lỗi
   const notifiedRef = useRef(false);
   useEffect(() => {
     if (!error) {
@@ -135,164 +183,373 @@ export default function ClubsListPage() {
 
   const clearFilters = () => {
     setQInput("");
-    setSport("");
+    setSport(""); // Xóa filter sẽ về "Tất cả", nếu muốn về "pickleball" thì điền "pickleball" vào đây
     setProvince("");
   };
 
-  // show skeleton chỉ khi tải lần đầu (không chớp khi refetch)
   const showSkeleton =
     !shouldSkip && (isLoading || isUninitialized || (isFetching && !data));
   const items = data?.items || [];
   const noResults = !showSkeleton && !shouldSkip && items.length === 0;
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-      <Stack
-        direction="row"
-        justifyContent="space-between"
-        alignItems="center"
-        sx={{ mb: 2 }}
+    <Box sx={{ minHeight: "100vh", bgcolor: "#f8faff", pb: 8 }}>
+      {/* === HERO SECTION === */}
+      <Box
+        sx={{
+          bgcolor: "#fff",
+          pt: 4,
+          pb: 3,
+          borderBottom: "1px solid rgba(0,0,0,0.05)",
+          boxShadow: "0 2px 10px rgba(0,0,0,0.02)",
+        }}
       >
-        <Typography variant="h5" fontWeight={600}>
-          Câu lạc bộ
-        </Typography>
-        <Button
-          startIcon={<AddIcon />}
-          variant="contained"
-          onClick={() => setOpenCreate(true)}
-        >
-          Tạo CLB
-        </Button>
-      </Stack>
-
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={2} sx={{ mb: 2 }}>
-        <TextField
-          fullWidth
-          placeholder="Tìm CLB..."
-          value={qInput}
-          onChange={(e) => setQInput(e.target.value)}
-          InputProps={{
-            startAdornment: (
-              <InputAdornment position="start">
-                <SearchIcon />
-              </InputAdornment>
-            ),
-          }}
-        />
-        <TextField
-          select
-          label="Môn"
-          value={sport}
-          onChange={(e) => setSport(e.target.value)}
-          sx={{ minWidth: 160 }}
-        >
-          <MenuItem value="">Tất cả</MenuItem>
-          {SPORT_OPTIONS.map((s) => (
-            <MenuItem key={s} value={s}>
-              {s}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          label="Tỉnh/Thành"
-          value={province}
-          onChange={(e) => setProvince(e.target.value)}
-          sx={{ minWidth: 200 }}
-        />
-      </Stack>
-
-      <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ mb: 2 }}>
-        <Tab label="Tất cả" value="all" />
-        <Tab label="CLB của tôi" value="mine" />
-      </Tabs>
-
-      {/* Nếu đang ở tab "của tôi" mà chưa đăng nhập → chỉ báo, không gọi API */}
-      {wantMine && !isAuth && (
-        <Alert severity="info" sx={{ mb: 2 }}>
-          Vui lòng đăng nhập để xem danh sách CLB của bạn.
-        </Alert>
-      )}
-
-      {/* Loading → Skeleton đẹp */}
-      {showSkeleton && (
-        <Grid container spacing={2}>
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Grid key={i} item xs={12} sm={6} md={4} lg={3}>
-              <ClubCardSkeleton />
-            </Grid>
-          ))}
-        </Grid>
-      )}
-
-      {/* Empty-state có icon */}
-      {noResults && (
-        <Box
-          sx={{
-            py: 8,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            flexDirection: "column",
-            color: "text.secondary",
-          }}
-        >
-          {wantMine ? (
-            <>
-              <GroupOffOutlined sx={{ fontSize: 64, mb: 1 }} />
-              <Typography variant="h6" gutterBottom>
-                Bạn chưa tham gia CLB nào
-              </Typography>
-              <Typography sx={{ mb: 2 }}>
-                Hãy tạo CLB mới hoặc tham gia một CLB public.
-              </Typography>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => setOpenCreate(true)}
+        <Container maxWidth="xl">
+          <Stack
+            direction={{ xs: "column", md: "row" }}
+            justifyContent="space-between"
+            alignItems={{ xs: "flex-start", md: "center" }}
+            spacing={2}
+          >
+            <Box>
+              <Typography
+                variant="h4"
+                fontWeight={800}
+                sx={{
+                  background:
+                    "linear-gradient(135deg, #1e88e5 0%, #1565c0 100%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  mb: 0.5,
+                }}
               >
-                Tạo CLB
-              </Button>
-            </>
-          ) : hasFilters ? (
-            <>
-              <SearchOffOutlined sx={{ fontSize: 64, mb: 1 }} />
-              <Typography variant="h6" gutterBottom>
-                Không tìm thấy CLB phù hợp
+                Cộng đồng & Câu lạc bộ
               </Typography>
-              <Typography sx={{ mb: 2 }}>
-                Hãy thử xoá bộ lọc hoặc từ khoá tìm kiếm.
+              <Typography variant="body1" color="text.secondary">
+                Kết nối, giao lưu và tham gia các giải đấu hấp dẫn
               </Typography>
-              <Button onClick={clearFilters}>Xóa bộ lọc</Button>
-            </>
-          ) : (
-            <>
-              <InboxOutlined sx={{ fontSize: 64, mb: 1 }} />
-              <Typography variant="h6" gutterBottom>
-                Danh sách trống
-              </Typography>
-              <Typography sx={{ mb: 2 }}>Chưa có CLB nào được tạo.</Typography>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => setOpenCreate(true)}
-              >
-                Tạo CLB
-              </Button>
-            </>
-          )}
-        </Box>
-      )}
+            </Box>
 
-      {/* Kết quả */}
-      {!showSkeleton && !noResults && !shouldSkip && (
-        <Grid container spacing={2}>
-          {items.map((club) => (
-            <Grid key={club._id} item xs={12} sm={6} md={4} lg={3}>
-              <ClubCard club={club} />
-            </Grid>
-          ))}
+            <Button
+              startIcon={<AddIcon />}
+              variant="contained"
+              onClick={() => setOpenCreate(true)}
+              sx={{
+                borderRadius: "50px",
+                px: 3,
+                py: 1.2,
+                fontWeight: 700,
+                textTransform: "none",
+                boxShadow: "0 4px 14px rgba(0,0,0,0.15)",
+                background: "linear-gradient(45deg, #212121 30%, #424242 90%)",
+                "&:hover": {
+                  boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
+                },
+              }}
+            >
+              Tạo CLB Mới
+            </Button>
+          </Stack>
+
+          {/* === FILTER BAR === */}
+          <Paper
+            elevation={0}
+            sx={{
+              mt: 4,
+              p: 1,
+              borderRadius: 4,
+              border: "1px solid #e0e0e0",
+              display: "flex",
+              flexDirection: { xs: "column", md: "row" },
+              alignItems: "center",
+              gap: 2,
+              bgcolor: "#f9fafb",
+            }}
+          >
+            {/* Search Input */}
+            <TextField
+              fullWidth
+              placeholder="Tìm kiếm CLB..."
+              value={qInput}
+              onChange={(e) => setQInput(e.target.value)}
+              variant="standard"
+              InputProps={{
+                disableUnderline: true,
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ color: "text.secondary", ml: 1 }} />
+                  </InputAdornment>
+                ),
+                endAdornment: qInput && (
+                  <IconButton size="small" onClick={() => setQInput("")}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                ),
+                sx: {
+                  bgcolor: "#fff",
+                  borderRadius: 3,
+                  px: 1,
+                  py: 0.8,
+                  height: 48,
+                  boxShadow: "0 2px 5px rgba(0,0,0,0.03)",
+                },
+              }}
+              sx={{ flex: 2 }}
+            />
+
+            <Divider
+              orientation="vertical"
+              flexItem
+              sx={{ display: { xs: "none", md: "block" } }}
+            />
+
+            {/* Select Sport */}
+            <TextField
+              select
+              value={sport}
+              onChange={(e) => setSport(e.target.value)}
+              displayEmpty
+              variant="standard"
+              InputProps={{
+                disableUnderline: true,
+                startAdornment: (
+                  <FilterListIcon
+                    fontSize="small"
+                    sx={{ mr: 1, color: "text.secondary" }}
+                  />
+                ),
+                sx: {
+                  height: 48,
+                  bgcolor: "#fff",
+                  borderRadius: 3,
+                  px: 2,
+                  minWidth: 180,
+                  boxShadow: "0 2px 5px rgba(0,0,0,0.03)",
+                },
+              }}
+              sx={{ flex: 1, width: { xs: "100%", md: "auto" } }}
+            >
+              <MenuItem value="">
+                <Typography color="text.secondary">Tất cả môn</Typography>
+              </MenuItem>
+              {SPORT_OPTIONS.map((s) => (
+                <MenuItem
+                  key={s}
+                  value={s}
+                  sx={{ textTransform: "capitalize" }}
+                >
+                  {s}
+                </MenuItem>
+              ))}
+            </TextField>
+
+            {/* Select Province */}
+            <TextField
+              placeholder="Tỉnh/Thành phố"
+              value={province}
+              onChange={(e) => setProvince(e.target.value)}
+              variant="standard"
+              InputProps={{
+                disableUnderline: true,
+                sx: {
+                  height: 48,
+                  bgcolor: "#fff",
+                  borderRadius: 3,
+                  px: 2,
+                  minWidth: 180,
+                  boxShadow: "0 2px 5px rgba(0,0,0,0.03)",
+                },
+              }}
+              sx={{ flex: 1, width: { xs: "100%", md: "auto" } }}
+            />
+          </Paper>
+
+          {/* === TABS === */}
+          <Stack direction="row" alignItems="center" spacing={2} mt={3}>
+            <Tabs
+              value={tab}
+              onChange={(_, v) => setTab(v)}
+              variant="scrollable"
+              scrollButtons="auto"
+              TabIndicatorProps={{ style: { display: "none" } }}
+              sx={{
+                minHeight: 40,
+                "& .MuiTabs-flexContainer": { gap: 1 },
+              }}
+            >
+              <Tab label="Khám phá" value="all" sx={tabStyles} disableRipple />
+              <Tab
+                label={
+                  <Box display="flex" alignItems="center" gap={1}>
+                    CLB của tôi{" "}
+                    {isAuth && (
+                      <Chip
+                        label="Member"
+                        size="small"
+                        sx={{
+                          height: 16,
+                          fontSize: "0.6rem",
+                          bgcolor: "primary.main",
+                          color: "#fff",
+                        }}
+                      />
+                    )}
+                  </Box>
+                }
+                value="mine"
+                sx={tabStyles}
+                disableRipple
+              />
+            </Tabs>
+          </Stack>
+        </Container>
+      </Box>
+
+      {/* === CONTENT SECTION === */}
+      <Container maxWidth="xl" sx={{ py: 4 }}>
+        {wantMine && !isAuth && (
+          <Fade in>
+            <Alert
+              severity="info"
+              sx={{ mb: 4, borderRadius: 3 }}
+              variant="outlined"
+            >
+              Vui lòng{" "}
+              <Button color="inherit" size="small" sx={{ fontWeight: 700 }}>
+                Đăng nhập
+              </Button>{" "}
+              để xem danh sách CLB bạn đang tham gia.
+            </Alert>
+          </Fade>
+        )}
+
+        <Grid container spacing={3}>
+          {showSkeleton &&
+            Array.from({ length: 8 }).map((_, i) => (
+              <Grid key={i} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
+                <ClubCardSkeleton />
+              </Grid>
+            ))}
+
+          {!showSkeleton &&
+            !noResults &&
+            !shouldSkip &&
+            items.map((club) => (
+              <Grid key={club._id} size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
+                <Fade in timeout={500}>
+                  <Box height="100%">
+                    <ClubCard club={club} />
+                  </Box>
+                </Fade>
+              </Grid>
+            ))}
         </Grid>
-      )}
+
+        {noResults && (
+          <Fade in>
+            <Box
+              sx={{
+                py: 10,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexDirection: "column",
+                color: "text.secondary",
+                textAlign: "center",
+              }}
+            >
+              {wantMine ? (
+                <>
+                  <Box
+                    sx={{
+                      p: 3,
+                      bgcolor: "#f5f5f5",
+                      borderRadius: "50%",
+                      mb: 2,
+                    }}
+                  >
+                    <GroupOffOutlined
+                      sx={{ fontSize: 48, color: "text.disabled" }}
+                    />
+                  </Box>
+                  <Typography variant="h6" fontWeight={700} gutterBottom>
+                    Bạn chưa tham gia CLB nào
+                  </Typography>
+                  <Typography sx={{ mb: 3, maxWidth: 400 }}>
+                    Hãy bắt đầu bằng việc tạo CLB riêng của bạn hoặc khám phá
+                    các CLB đang hoạt động.
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={() => setOpenCreate(true)}
+                    sx={{ borderRadius: 20, px: 4 }}
+                  >
+                    Tạo CLB ngay
+                  </Button>
+                </>
+              ) : hasFilters ? (
+                <>
+                  <Box
+                    sx={{
+                      p: 3,
+                      bgcolor: "#f5f5f5",
+                      borderRadius: "50%",
+                      mb: 2,
+                    }}
+                  >
+                    <SearchOffOutlined
+                      sx={{ fontSize: 48, color: "text.disabled" }}
+                    />
+                  </Box>
+                  <Typography variant="h6" fontWeight={700} gutterBottom>
+                    Không tìm thấy kết quả
+                  </Typography>
+                  <Typography sx={{ mb: 3 }}>
+                    Không có CLB nào khớp với từ khóa hoặc bộ lọc hiện tại.
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    onClick={clearFilters}
+                    sx={{ borderRadius: 20 }}
+                  >
+                    Xóa bộ lọc tìm kiếm
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Box
+                    sx={{
+                      p: 3,
+                      bgcolor: "#f5f5f5",
+                      borderRadius: "50%",
+                      mb: 2,
+                    }}
+                  >
+                    <InboxOutlined
+                      sx={{ fontSize: 48, color: "text.disabled" }}
+                    />
+                  </Box>
+                  <Typography variant="h6" fontWeight={700} gutterBottom>
+                    Chưa có CLB nào
+                  </Typography>
+                  <Typography sx={{ mb: 3 }}>
+                    Hệ thống hiện tại chưa có CLB nào được tạo.
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    startIcon={<AddIcon />}
+                    onClick={() => setOpenCreate(true)}
+                    sx={{ borderRadius: 20 }}
+                  >
+                    Tạo CLB đầu tiên
+                  </Button>
+                </>
+              )}
+            </Box>
+          </Fade>
+        )}
+      </Container>
 
       <ClubCreateDialog
         open={openCreate}
@@ -304,6 +561,6 @@ export default function ClubsListPage() {
           }
         }}
       />
-    </Container>
+    </Box>
   );
 }

@@ -1,6 +1,6 @@
 // src/components/Hero.jsx
 import { useMemo } from "react";
-import { Container, Row, Col, Button, Card } from "react-bootstrap";
+import { Container, Row, Col, Button, Card, Badge } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import { useSelector } from "react-redux";
 import { useGetLatestAssessmentQuery } from "../slices/assessmentsApiSlice";
@@ -10,6 +10,7 @@ import {
 } from "../slices/cmsApiSlice";
 import AppInstallBanner from "./AppInstallBanner";
 
+// ===== Assets & Fallbacks =====
 const fallbackImg = `${import.meta.env.BASE_URL}hero.jpg`;
 const APPSTORE_BADGE = `${import.meta.env.BASE_URL}app-store-badge.svg`;
 const PLAY_BADGE = `${import.meta.env.BASE_URL}google-play-badge.svg`;
@@ -38,27 +39,41 @@ const CONTACT_FALLBACK = {
     zalo: "#",
   },
   apps: {
-    appStore: "", // ví dụ: https://apps.apple.com/app/id123456789
-    playStore: "", // ví dụ: https://play.google.com/store/apps/details?id=com.pickletour.app
-    apkPickleTour: "", // link file APK
+    appStore: "",
+    playStore: "",
+    apkPickleTour: "",
     apkReferee: "",
   },
 };
 
-const SkeletonBar = ({ w = "100%", h = 20, r = 8, style = {} }) => (
+// ===== Styled Components =====
+
+const gradientTextStyle = {
+  background: "linear-gradient(135deg, #0d6efd 0%, #0dcaf0 100%)",
+  WebkitBackgroundClip: "text",
+  WebkitTextFillColor: "transparent",
+  backgroundClip: "text",
+  fontWeight: "800",
+};
+
+const glassCardStyle = {
+  background: "rgba(255, 255, 255, 0.9)",
+  backdropFilter: "blur(10px)",
+  border: "1px solid rgba(255,255,255,0.5)",
+  boxShadow: "0 10px 30px -5px rgba(0, 0, 0, 0.05)",
+};
+
+const SkeletonBar = ({ w = "100%", h = 20, r = 8, className = "" }) => (
   <div
-    style={{
-      width: w,
-      height: h,
-      borderRadius: r,
-      background: "rgba(0,0,0,0.08)",
-      ...style,
-    }}
-  />
+    className={`placeholder-glow ${className}`}
+    style={{ width: w, height: h, borderRadius: r }}
+  >
+    <span className="placeholder w-100 h-100 bg-secondary bg-opacity-10"></span>
+  </div>
 );
 
-// ===== Icon helpers (giữ nguyên tối giản SVG) =====
-const Icon = ({ path, size = 18, className = "" }) => (
+// ===== Icons =====
+const Icon = ({ path, size = 20, className = "" }) => (
   <svg
     width={size}
     height={size}
@@ -69,6 +84,7 @@ const Icon = ({ path, size = 18, className = "" }) => (
     strokeLinecap="round"
     strokeLinejoin="round"
     className={className}
+    style={{ verticalAlign: "text-bottom" }}
   >
     {path}
   </svg>
@@ -143,34 +159,7 @@ const IDownload = (p) => (
   />
 );
 
-/* ======================= CONTACT skeleton ======================= */
-const ContactSkeleton = () => (
-  <Card className="shadow-sm rounded-4 border-0">
-    <Card.Body className="p-4">
-      <div className="mb-3 text-center">
-        <SkeletonBar w="40%" h={26} />
-      </div>
-      <Row className="g-4">
-        <Col md={6}>
-          <SkeletonBar w="70%" h={18} />
-          <div style={{ height: 10 }} />
-          <SkeletonBar w="55%" h={18} />
-          <div style={{ height: 10 }} />
-          <SkeletonBar w="65%" h={18} />
-        </Col>
-        <Col md={6}>
-          <SkeletonBar w="60%" h={18} />
-          <div style={{ height: 10 }} />
-          <SkeletonBar w="75%" h={18} />
-          <div style={{ height: 10 }} />
-          <SkeletonBar w="50%" h={18} />
-        </Col>
-      </Row>
-    </Card.Body>
-  </Card>
-);
-
-/* ======================= HERO main ======================= */
+/* ======================= MAIN COMPONENT ======================= */
 export default function Hero() {
   const { userInfo } = useSelector((state) => state.auth);
   const isLoggedIn = !!userInfo;
@@ -190,6 +179,7 @@ export default function Hero() {
     isError: contactError,
   } = useGetContactContentQuery();
 
+  // ===== Data Logic =====
   const heroData = useMemo(() => {
     if (heroLoading) return null;
     if (heroError) return HERO_FALLBACK;
@@ -226,7 +216,7 @@ export default function Hero() {
 
   return (
     <>
-      {/* ======= Smart install banner (mobile) ======= */}
+      {/* ======= Smart install banner (Mobile Only) ======= */}
       {contactInfo?.apps && (
         <AppInstallBanner
           links={{
@@ -237,56 +227,100 @@ export default function Hero() {
         />
       )}
 
-      {/* HERO */}
-      <section className="bg-light py-5 text-center text-lg-start">
-        <Container>
+      {/* ======= HERO SECTION ======= */}
+      <section
+        className="position-relative overflow-hidden py-5"
+        style={{
+          backgroundColor: "#f8faff", // Màu nền xanh rất nhạt
+          minHeight: "85vh",
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        {/* Background Blob */}
+        <div
+          className="position-absolute d-none d-lg-block"
+          style={{
+            top: "-10%",
+            right: "-5%",
+            width: "50vw",
+            height: "50vw",
+            background:
+              "radial-gradient(circle, rgba(13,202,240,0.1) 0%, rgba(255,255,255,0) 70%)",
+            borderRadius: "50%",
+            zIndex: 0,
+          }}
+        />
+
+        <Container className="position-relative" style={{ zIndex: 1 }}>
           <Row className="align-items-center g-5">
-            <Col lg={6}>
+            {/* TEXT COLUMN */}
+            <Col lg={6} className="text-center text-lg-start">
               {heroData ? (
                 <>
-                  <h1 className="display-5 fw-bold mb-4">
+                  <Badge
+                    bg="light"
+                    text="primary"
+                    className="mb-3 px-3 py-2 rounded-pill border shadow-sm fw-bold"
+                  >
+                    🏆 Nền tảng Pickleball số #1
+                  </Badge>
+                  <h1 className="display-4 fw-bolder mb-4 lh-tight">
                     {String(heroData.title || "")
                       .split("\n")
                       .map((line, i) => (
-                        <span key={i}>
+                        <span key={i} style={i === 0 ? gradientTextStyle : {}}>
                           {line}
-                          {i === 0 && <br className="d-none d-lg-block" />}
+                          {i <
+                            String(heroData.title || "").split("\n").length -
+                              1 && <br />}
+                          {i === 0 && " "}
                         </span>
                       ))}
                   </h1>
-                  <p className="lead mb-4">{heroData.lead}</p>
+                  <p className="lead text-secondary mb-4 pe-lg-5 fs-5">
+                    {heroData.lead}
+                  </p>
                 </>
               ) : (
-                <>
-                  <div className="mb-4">
-                    <SkeletonBar w="85%" h={40} />
-                    <div style={{ height: 12 }} />
-                    <SkeletonBar w="70%" h={40} />
-                  </div>
-                  <div className="mb-4">
-                    <SkeletonBar w="95%" h={18} />
-                    <div style={{ height: 8 }} />
-                    <SkeletonBar w="75%" h={18} />
-                  </div>
-                </>
+                <div className="mb-4">
+                  <SkeletonBar
+                    w="100px"
+                    h={30}
+                    className="mb-3 mx-auto mx-lg-0"
+                  />
+                  <SkeletonBar
+                    w="90%"
+                    h={50}
+                    className="mb-2 mx-auto mx-lg-0"
+                  />
+                  <SkeletonBar
+                    w="60%"
+                    h={50}
+                    className="mb-4 mx-auto mx-lg-0"
+                  />
+                  <SkeletonBar w="100%" h={80} />
+                </div>
               )}
 
-              <div className="d-flex flex-column flex-sm-row gap-3 justify-content-center justify-content-lg-start">
+              {/* Action Buttons */}
+              <div className="d-flex flex-column flex-sm-row gap-3 justify-content-center justify-content-lg-start animate__animated animate__fadeInUp">
                 {!isLoggedIn ? (
                   <>
                     <Button
                       as={Link}
                       to="/register"
-                      variant="primary"
-                      className="px-4 py-2"
+                      size="lg"
+                      className="rounded-pill px-5 py-3 fw-bold shadow-sm btn-primary"
                     >
-                      Bắt&nbsp;đầu ngay
+                      Bắt đầu ngay
                     </Button>
                     <Button
                       as={Link}
                       to="/login"
-                      variant="outline-secondary"
-                      className="px-4 py-2"
+                      variant="light"
+                      size="lg"
+                      className="rounded-pill px-5 py-3 fw-bold shadow-sm border text-primary"
                     >
                       Đăng nhập
                     </Button>
@@ -297,30 +331,29 @@ export default function Hero() {
                       <Button
                         as={Link}
                         to="/levelpoint"
-                        variant="primary"
-                        className="px-4 py-2"
+                        size="lg"
+                        className="rounded-pill px-4 py-3 fw-bold shadow btn-primary"
                       >
-                        Tự chấm trình
+                        ✨ Tự chấm trình
                       </Button>
                     )}
                     {needKyc && (
                       <Button
                         as={Link}
                         to="/profile"
-                        variant={
-                          needSelfAssess ? "outline-secondary" : "primary"
-                        }
-                        className="px-4 py-2"
+                        variant={needSelfAssess ? "outline-primary" : "primary"}
+                        size="lg"
+                        className="rounded-pill px-4 py-3 fw-bold shadow-sm"
                       >
-                        Xác minh ngay
+                        Xác minh danh tính
                       </Button>
                     )}
                     {!needSelfAssess && !needKyc && (
                       <Button
                         as={Link}
                         to="/pickle-ball/tournaments"
-                        variant="primary"
-                        className="px-4 py-2"
+                        size="lg"
+                        className="rounded-pill px-5 py-3 fw-bold shadow btn-primary"
                       >
                         Khám phá giải đấu
                       </Button>
@@ -330,24 +363,26 @@ export default function Hero() {
               </div>
             </Col>
 
+            {/* IMAGE COLUMN */}
             <Col lg={6}>
-              <div className="ratio ratio-16x9 shadow rounded">
+              <div className="position-relative">
                 {heroData ? (
-                  <img
-                    src={heroData.imageUrl || fallbackImg}
-                    alt={heroData.imageAlt || "Hero image"}
-                    className="w-100 h-100"
-                    style={{ objectFit: "cover" }}
-                  />
-                ) : (
                   <div
+                    className="rounded-5 shadow-lg overflow-hidden"
                     style={{
-                      width: "100%",
-                      height: "100%",
-                      background: "rgba(0,0,0,0.08)",
-                      borderRadius: 8,
+                      transform: "rotate(-2deg)",
+                      border: "5px solid rgba(255,255,255,0.8)",
                     }}
-                  />
+                  >
+                    <img
+                      src={heroData.imageUrl || fallbackImg}
+                      alt={heroData.imageAlt || "Hero image"}
+                      className="w-100 h-100 object-fit-cover"
+                      style={{ minHeight: "350px", display: "block" }}
+                    />
+                  </div>
+                ) : (
+                  <SkeletonBar w="100%" h={400} r={32} className="shadow-sm" />
                 )}
               </div>
             </Col>
@@ -355,219 +390,241 @@ export default function Hero() {
         </Container>
       </section>
 
-      {/* CONTACT */}
-      <section className="py-5 bg-white border-top">
+      {/* ======= CONTACT INFO & APP SECTION ======= */}
+      <section className="py-5 bg-white">
         <Container>
-          <Card className="shadow-sm rounded-4 border-0">
-            <Card.Body className="p-4 p-lg-5">
-              <h2 className="fw-bold text-center mb-4">Thông tin liên hệ</h2>
+          <Row className="g-4">
+            {/* Card 1: Liên hệ chính */}
+            <Col lg={4} md={6}>
+              <Card className="h-100 border-0" style={glassCardStyle}>
+                <Card.Body className="p-4">
+                  <div
+                    className="d-inline-flex align-items-center justify-content-center bg-primary bg-opacity-10 text-primary rounded-circle mb-3"
+                    style={{ width: 50, height: 50 }}
+                  >
+                    <ILocation size={24} />
+                  </div>
+                  <h5 className="fw-bold mb-3">Trụ sở chính</h5>
 
-              {!contactInfo ? (
-                <ContactSkeleton />
-              ) : (
-                <Row className="g-4">
-                  <Col md={6} lg={5}>
-                    <ul className="list-unstyled mb-0">
-                      <li className="mb-2 d-flex align-items-start gap-2">
-                        <ILocation className="flex-shrink-0 mt-1" />
-                        <span>
-                          <strong>Địa chỉ:</strong> {contactInfo.address}
+                  {!contactInfo ? (
+                    <SkeletonBar h={80} />
+                  ) : (
+                    <ul className="list-unstyled text-secondary mb-0 d-grid gap-3">
+                      <li className="d-flex gap-3">
+                        <span className="fw-semibold text-dark flex-shrink-0">
+                          Địa chỉ:
                         </span>
+                        <span>{contactInfo.address}</span>
                       </li>
-                      <li className="mb-2 d-flex align-items-start gap-2">
-                        <IPhone className="flex-shrink-0 mt-1" />
-                        <span>
-                          <strong>Điện thoại:</strong>{" "}
-                          {contactInfo.phone ? (
-                            <a href={`tel:${contactInfo.phone}`}>
-                              {contactInfo.phone}
-                            </a>
-                          ) : (
-                            "—"
-                          )}
+                      <li className="d-flex gap-3">
+                        <span className="fw-semibold text-dark flex-shrink-0">
+                          Hotline:
                         </span>
-                      </li>
-                      <li className="mb-2 d-flex align-items-start gap-2">
-                        <IEmail className="flex-shrink-0 mt-1" />
-                        <span>
-                          <strong>Email:</strong>{" "}
-                          <a href={`mailto:${contactInfo.email}`}>
-                            {contactInfo.email}
+                        {contactInfo.phone ? (
+                          <a
+                            href={`tel:${contactInfo.phone}`}
+                            className="text-decoration-none fw-bold text-primary"
+                          >
+                            {contactInfo.phone}
                           </a>
+                        ) : (
+                          "—"
+                        )}
+                      </li>
+                      <li className="d-flex gap-3">
+                        <span className="fw-semibold text-dark flex-shrink-0">
+                          Email:
                         </span>
+                        <a
+                          href={`mailto:${contactInfo.email}`}
+                          className="text-decoration-none text-primary text-break"
+                        >
+                          {contactInfo.email}
+                        </a>
                       </li>
                     </ul>
-                  </Col>
+                  )}
+                </Card.Body>
+              </Card>
+            </Col>
 
-                  <Col md={6} lg={4}>
-                    <h5 className="fw-semibold mb-3">Kênh hỗ trợ</h5>
-                    <ul className="list-unstyled mb-0">
-                      <li className="mb-2">
-                        <div className="text-muted small mb-1">Chung</div>
-                        <div>
-                          <a
-                            href={`mailto:${contactInfo.support.generalEmail}`}
-                          >
-                            {contactInfo.support.generalEmail}
-                          </a>{" "}
-                          –{" "}
-                          {contactInfo.support.generalPhone ? (
-                            <a href={`tel:${contactInfo.support.generalPhone}`}>
-                              {contactInfo.support.generalPhone}
-                            </a>
-                          ) : (
-                            "—"
-                          )}
-                        </div>
-                      </li>
-                      <li className="mb-2">
-                        <div className="text-muted small mb-1">Điểm trình</div>
-                        <div>
-                          <a
-                            href={`mailto:${contactInfo.support.scoringEmail}`}
-                          >
-                            {contactInfo.support.scoringEmail}
-                          </a>{" "}
-                          –{" "}
-                          {contactInfo.support.scoringPhone ? (
-                            <a href={`tel:${contactInfo.support.scoringPhone}`}>
-                              {contactInfo.support.scoringPhone}
-                            </a>
-                          ) : (
-                            "—"
-                          )}
-                        </div>
-                      </li>
-                      <li>
-                        <div className="text-muted small mb-1">Bán hàng</div>
-                        <div>
-                          <a href={`mailto:${contactInfo.support.salesEmail}`}>
-                            {contactInfo.support.salesEmail}
-                          </a>
-                        </div>
-                      </li>
-                    </ul>
-                  </Col>
+            {/* Card 2: Kênh hỗ trợ */}
+            <Col lg={4} md={6}>
+              <Card className="h-100 border-0" style={glassCardStyle}>
+                <Card.Body className="p-4">
+                  <div
+                    className="d-inline-flex align-items-center justify-content-center bg-info bg-opacity-10 text-info rounded-circle mb-3"
+                    style={{ width: 50, height: 50 }}
+                  >
+                    <IChat size={24} />
+                  </div>
+                  <h5 className="fw-bold mb-3">Kênh hỗ trợ</h5>
 
-                  <Col lg={3}>
-                    <h5 className="fw-semibold mb-3">Kết nối</h5>
-                    <div className="d-flex flex-wrap gap-2 mb-3">
+                  {!contactInfo ? (
+                    <SkeletonBar h={80} />
+                  ) : (
+                    <div className="d-grid gap-3">
+                      {[
+                        { label: "Chung", ...contactInfo.support },
+                        {
+                          label: "Điểm trình",
+                          email: contactInfo.support.scoringEmail,
+                          phone: contactInfo.support.scoringPhone,
+                        },
+                        {
+                          label: "Hợp tác",
+                          email: contactInfo.support.salesEmail,
+                        },
+                      ].map((item, idx) => (
+                        <div
+                          key={idx}
+                          className="d-flex flex-column bg-light p-2 rounded-3"
+                        >
+                          <small
+                            className="text-uppercase text-muted fw-bold"
+                            style={{ fontSize: "0.7rem" }}
+                          >
+                            {item.label}
+                          </small>
+                          <div className="d-flex justify-content-between align-items-center mt-1">
+                            <a
+                              href={`mailto:${item.email || item.generalEmail}`}
+                              className="text-dark text-decoration-none small text-break"
+                            >
+                              {item.email || item.generalEmail}
+                            </a>
+                            {(item.phone || item.generalPhone) && (
+                              <a
+                                href={`tel:${item.phone || item.generalPhone}`}
+                                className="badge bg-white text-dark border shadow-sm text-decoration-none ms-2 flex-shrink-0"
+                              >
+                                {item.phone || item.generalPhone}
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card.Body>
+              </Card>
+            </Col>
+
+            {/* Card 3: Kết nối & Tải App */}
+            <Col lg={4} md={12}>
+              <div className="h-100 d-flex flex-column gap-4">
+                {/* Socials */}
+                <Card className="border-0" style={glassCardStyle}>
+                  <Card.Body className="p-4 text-center">
+                    <h6 className="fw-bold mb-3 text-start">Mạng xã hội</h6>
+                    <div className="d-flex gap-2 justify-content-start">
                       {contactInfo?.socials?.facebook && (
                         <a
                           href={contactInfo.socials.facebook}
                           target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn btn-outline-primary d-inline-flex align-items-center gap-2"
+                          rel="noreferrer"
+                          className="btn btn-outline-primary border-0 bg-primary bg-opacity-10"
                         >
-                          <IFacebook /> Facebook
+                          <IFacebook />
                         </a>
                       )}
                       {contactInfo?.socials?.youtube && (
                         <a
                           href={contactInfo.socials.youtube}
                           target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn btn-outline-danger d-inline-flex align-items-center gap-2"
+                          rel="noreferrer"
+                          className="btn btn-outline-danger border-0 bg-danger bg-opacity-10"
                         >
-                          <IYouTube /> YouTube
+                          <IYouTube />
                         </a>
                       )}
                       {contactInfo?.socials?.zalo && (
                         <a
                           href={contactInfo.socials.zalo}
                           target="_blank"
-                          rel="noopener noreferrer"
-                          className="btn btn-outline-info d-inline-flex align-items-center gap-2"
+                          rel="noreferrer"
+                          className="btn btn-outline-info border-0 bg-info bg-opacity-10"
                         >
-                          <IChat /> Zalo
+                          <span className="fw-bold small">Zalo</span>
                         </a>
                       )}
                     </div>
+                  </Card.Body>
+                </Card>
 
-                    {(hasAppStore ||
-                      hasPlayStore ||
-                      hasApkPickleTour ||
-                      hasApkReferee) && (
-                      <div>
-                        <h6 className="fw-semibold mb-2">Tải ứng dụng</h6>
-
-                        {(hasAppStore || hasPlayStore) && (
-                          <div className="d-flex flex-column gap-2 mb-2">
-                            {hasAppStore && (
+                {/* App Downloads */}
+                {(hasAppStore || hasPlayStore || hasApkPickleTour) && (
+                  <Card
+                    className="flex-grow-1 border-0 bg-dark text-white"
+                    style={{ ...glassCardStyle, background: "#212529" }}
+                  >
+                    <Card.Body className="p-4">
+                      <h6 className="fw-bold mb-3 text-white">
+                        Tải ứng dụng ngay
+                      </h6>
+                      <div className="d-flex flex-wrap gap-2">
+                        {hasAppStore && (
+                          <a
+                            href={contactInfo.apps.appStore}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="opacity-100 hover-opacity-75 transition"
+                          >
+                            <img
+                              src={APPSTORE_BADGE}
+                              height={35}
+                              alt="App Store"
+                            />
+                          </a>
+                        )}
+                        {hasPlayStore && (
+                          <a
+                            href={contactInfo.apps.playStore}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="opacity-100 hover-opacity-75 transition"
+                          >
+                            <img
+                              src={PLAY_BADGE}
+                              height={35}
+                              alt="Google Play"
+                            />
+                          </a>
+                        )}
+                      </div>
+                      {(hasApkPickleTour || hasApkReferee) && (
+                        <div className="mt-3 pt-3 border-top border-secondary">
+                          <div className="small text-secondary mb-2">
+                            Tải file APK trực tiếp:
+                          </div>
+                          <div className="d-flex gap-2">
+                            {hasApkPickleTour && (
                               <a
-                                href={contactInfo.apps.appStore}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="d-inline-block"
-                                aria-label="Tải trên App Store"
+                                href={contactInfo.apps.apkPickleTour}
+                                className="btn btn-sm btn-outline-light rounded-pill"
+                                download
                               >
-                                <img
-                                  src={APPSTORE_BADGE}
-                                  alt="Download on the App Store"
-                                  height={40}
-                                  style={{ display: "block" }}
-                                  loading="lazy"
-                                />
+                                <IDownload size={14} /> Cho người dùng
                               </a>
                             )}
-                            {hasPlayStore && (
+                            {hasApkReferee && (
                               <a
-                                href={contactInfo.apps.playStore}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="d-inline-block"
-                                aria-label="Tải trên Google Play"
+                                href={contactInfo.apps.apkReferee}
+                                className="btn btn-sm btn-outline-secondary rounded-pill"
+                                download
                               >
-                                <img
-                                  src={PLAY_BADGE}
-                                  alt="Get it on Google Play"
-                                  height={40}
-                                  style={{ display: "block" }}
-                                  loading="lazy"
-                                />
+                                <IDownload size={14} /> Trọng tài
                               </a>
                             )}
                           </div>
-                        )}
-
-                        {(hasApkPickleTour || hasApkReferee) && (
-                          <>
-                            <div className="text-muted small mb-2">
-                              Tải trực tiếp (APK)
-                            </div>
-                            <div className="d-flex flex-column gap-2">
-                              {hasApkPickleTour && (
-                                <a
-                                  href={contactInfo.apps.apkPickleTour}
-                                  download="PickleTour.apk"
-                                  className="btn btn-dark d-inline-flex align-items-center gap-2"
-                                  type="application/vnd.android.package-archive"
-                                  aria-label="Tải APK PickleTour"
-                                >
-                                  <IDownload /> APK PickleTour
-                                </a>
-                              )}
-                              {hasApkReferee && (
-                                <a
-                                  href={contactInfo.apps.apkReferee}
-                                  download="Referee.apk"
-                                  className="btn btn-dark d-inline-flex align-items-center gap-2"
-                                  type="application/vnd.android.package-archive"
-                                  aria-label="Tải APK Trọng tài"
-                                >
-                                  <IDownload /> APK Trọng tài
-                                </a>
-                              )}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </Col>
-                </Row>
-              )}
-            </Card.Body>
-          </Card>
+                        </div>
+                      )}
+                    </Card.Body>
+                  </Card>
+                )}
+              </div>
+            </Col>
+          </Row>
         </Container>
       </section>
     </>

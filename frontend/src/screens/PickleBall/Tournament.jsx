@@ -1,5 +1,5 @@
 // src/pages/TournamentDashboard.jsx
-import { useState, useEffect, useMemo, Fragment } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import {
   Box,
@@ -7,41 +7,37 @@ import {
   Typography,
   Tabs,
   Tab,
-  Paper,
-  TableContainer,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  Avatar,
   Button,
-  Alert,
-  Chip,
   Card,
   CardContent,
-  CardActions,
   Stack,
-  useMediaQuery,
   useTheme,
-  Divider,
   TextField,
   Skeleton,
   InputAdornment,
-  Tooltip,
   IconButton,
+  LinearProgress,
+  Fade,
+  Avatar,
+  Tooltip,
+  styled,
+  alpha,
+  Grid, // MUI v7 Grid
+  CardActions,
 } from "@mui/material";
-import PreviewIcon from "@mui/icons-material/Preview";
+
+// Icons
+import SearchIcon from "@mui/icons-material/Search";
+import ClearIcon from "@mui/icons-material/Clear";
+import PlaceIcon from "@mui/icons-material/Place";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
 import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import EventNoteIcon from "@mui/icons-material/EventNote";
-import SearchIcon from "@mui/icons-material/Search";
-import ClearIcon from "@mui/icons-material/Clear";
-import PlaceIcon from "@mui/icons-material/Place";
-import ScheduleIcon from "@mui/icons-material/Schedule";
-import PeopleOutlineIcon from "@mui/icons-material/PeopleOutline";
-import TodayIcon from "@mui/icons-material/Today";
+import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
+import FilterListIcon from "@mui/icons-material/FilterList";
+
 import { useGetTournamentsQuery } from "../../slices/tournamentsApiSlice";
 import { useSelector } from "react-redux";
 
@@ -51,46 +47,97 @@ import "dayjs/locale/vi";
 import { DateRangePicker } from "@mui/x-date-pickers-pro/DateRangePicker";
 
 // ====== Zoom components ======
-import { ZoomProvider, ZoomItem, ImgWithFallback } from "../../components/Zoom";
+import { ZoomProvider, ZoomItem } from "../../components/Zoom";
 
-const THUMB_SIZE = 84;
+// --- STYLED COMPONENTS ---
+
+const GlassCard = styled(Card)(({ theme }) => ({
+  background:
+    theme.palette.mode === "dark"
+      ? alpha(theme.palette.background.default, 0.6)
+      : "#ffffff",
+  border: `1px solid ${theme.palette.divider}`,
+  borderRadius: 16,
+  overflow: "hidden", // FIX: Ngăn scroll ngang khi zoom ảnh
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  transition: "all 0.3s ease",
+  "&:hover": {
+    transform: "translateY(-4px)",
+    boxShadow: theme.shadows[8],
+    borderColor: theme.palette.primary.main,
+    "& .zoom-image": {
+      transform: "scale(1.08)", // Hiệu ứng zoom mượt bên trong khung
+    },
+  },
+}));
+
+const StatusBadge = styled(Box)(({ theme, status }) => {
+  const colors = {
+    upcoming: theme.palette.info.main,
+    ongoing: theme.palette.success.main,
+    finished: theme.palette.text.disabled,
+  };
+  const bgColors = {
+    upcoming: alpha(theme.palette.info.main, 0.9),
+    ongoing: alpha(theme.palette.success.main, 0.9),
+    finished: alpha(theme.palette.grey[700], 0.9),
+  };
+
+  const color = colors[status] || theme.palette.primary.main;
+  const bg = bgColors[status] || theme.palette.primary.main;
+
+  return {
+    padding: "4px 10px",
+    borderRadius: 6,
+    backgroundColor: bg,
+    color: "#fff",
+    fontWeight: 700,
+    fontSize: "0.75rem",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
+    "& .dot": {
+      width: 6,
+      height: 6,
+      borderRadius: "50%",
+      backgroundColor: "#fff",
+      animation: status === "ongoing" ? "pulse 1.5s infinite" : "none",
+    },
+    "@keyframes pulse": {
+      "0%": { opacity: 1, transform: "scale(1)" },
+      "50%": { opacity: 0.5, transform: "scale(1.2)" },
+      "100%": { opacity: 1, transform: "scale(1)" },
+    },
+  };
+});
+
+const StatBox = styled(Box)(({ theme }) => ({
+  padding: theme.spacing(2),
+  borderRadius: 16,
+  minWidth: 140,
+  backgroundColor: theme.palette.background.paper,
+  border: `1px solid ${theme.palette.divider}`,
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  boxShadow: theme.shadows[1],
+}));
 
 const STATUS_META = {
-  upcoming: {
-    label: "Sắp diễn ra",
-    color: "info",
-    icon: <TodayIcon fontSize="small" />,
-  },
-  ongoing: {
-    label: "Đang diễn ra",
-    color: "success",
-    icon: <ScheduleIcon fontSize="small" />,
-  },
-  finished: {
-    label: "Đã diễn ra",
-    color: "default",
-    icon: <PreviewIcon fontSize="small" />,
-  },
+  upcoming: { label: "Sắp diễn ra", id: "upcoming" },
+  ongoing: { label: "Đang diễn ra", id: "ongoing" },
+  finished: { label: "Đã kết thúc", id: "finished" },
 };
 const TABS = ["upcoming", "ongoing", "finished"];
 
-const columns = [
-  { label: "Ảnh", minWidth: THUMB_SIZE },
-  { label: "Tên giải" },
-  { label: "Hạn đăng ký" },
-  { label: "Đăng ký / Dự kiến", align: "center" },
-  { label: "Thời gian" },
-  { label: "Địa điểm" },
-  { label: "Trạng thái", align: "center" },
-  { label: "Hành động", align: "center" },
-];
-
-const MOBILE_SKELETON_CARDS = 6;
-const DESKTOP_SKELETON_ROWS = 8;
-
 export default function TournamentDashboard() {
-  const FIELD_HEIGHT = 40;
+  const theme = useTheme();
   const me = useSelector((s) => s.auth?.userInfo || null);
+
+  // --- Auth Logic ---
   const isAdmin = !!(
     me?.isAdmin ||
     me?.role === "admin" ||
@@ -99,92 +146,73 @@ export default function TournamentDashboard() {
   const isManagerOf = (t) => {
     if (!me?._id) return false;
     if (String(t?.createdBy) === String(me._id)) return true;
-    if (Array.isArray(t?.managers)) {
+    if (Array.isArray(t?.managers))
       return t.managers.some((m) => String(m?.user ?? m) === String(me._id));
-    }
-    if (typeof t?.isManager !== "undefined") return !!t.isManager;
-    return false;
+    return !!t.isManager;
   };
   const canManage = (t) => isAdmin || isManagerOf(t);
 
+  // --- State ---
   const [params, setParams] = useSearchParams();
   const sportType = params.get("sportType") || 2;
   const groupId = params.get("groupId") || 0;
-
   const initialTab = TABS.includes(params.get("status"))
     ? params.get("status")
     : "upcoming";
-  const [tab, setTab] = useState(initialTab);
 
+  const [tab, setTab] = useState(initialTab);
+  const [keyword, setKeyword] = useState(params.get("q") || "");
+  // FIX: Debounce search state tách biệt để tránh nháy khi gõ
+  const [debouncedKeyword, setDebouncedKeyword] = useState(
+    params.get("q")?.toLowerCase() || ""
+  );
+
+  const [dateRange, setDateRange] = useState([
+    params.get("from") ? dayjs(params.get("from")) : null,
+    params.get("to") ? dayjs(params.get("to")) : null,
+  ]);
+
+  // --- Sync Logic (Optimized) ---
   useEffect(() => {
     const urlTab = params.get("status");
     if (urlTab && TABS.includes(urlTab) && urlTab !== tab) setTab(urlTab);
-  }, [params, tab]);
+  }, [params, tab]); // dependencies refined
 
-  useEffect(() => {
-    const urlTab = params.get("status");
-    if (!urlTab || !TABS.includes(urlTab)) {
-      setParams(
-        (prev) => {
-          const p = new URLSearchParams(prev);
-          p.set("status", initialTab);
-          return p;
-        },
-        { replace: true }
-      );
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const [keyword, setKeyword] = useState(params.get("q") || "");
-  const [search, setSearch] = useState(params.get("q")?.toLowerCase() || "");
-
-  // ====== Date range state (from/to in URL) ======
-  const fromParam = params.get("from");
-  const toParam = params.get("to");
-  const [dateRange, setDateRange] = useState([
-    fromParam ? dayjs(fromParam) : null,
-    toParam ? dayjs(toParam) : null,
-  ]);
-
-  // gentle debounce for search
+  // FIX: Debounce Search Logic - Chỉ update URL sau khi ngừng gõ, không trigger reload toàn bộ
   useEffect(() => {
     const handle = setTimeout(() => {
       const val = keyword.trim().toLowerCase();
-      setSearch(val);
+      setDebouncedKeyword(val);
+
       setParams(
         (prev) => {
           const p = new URLSearchParams(prev);
           if (val) p.set("q", val);
           else p.delete("q");
+          // Giữ nguyên các param khác
           return p;
         },
         { replace: true }
       );
-    }, 250);
+    }, 400); // Tăng delay lên chút để mượt hơn
+
     return () => clearTimeout(handle);
   }, [keyword, setParams]);
 
-  // sync dateRange -> URL
   useEffect(() => {
     const [start, end] = dateRange;
     setParams(
       (prev) => {
         const p = new URLSearchParams(prev);
-        if (start?.isValid()) p.set("from", start.format("YYYY-MM-DD"));
-        else p.delete("from");
-        if (end?.isValid()) p.set("to", end.format("YYYY-MM-DD"));
-        else p.delete("to");
+        start?.isValid()
+          ? p.set("from", start.format("YYYY-MM-DD"))
+          : p.delete("from");
+        end?.isValid() ? p.set("to", end.format("YYYY-MM-DD")) : p.delete("to");
         return p;
       },
       { replace: true }
     );
   }, [dateRange, setParams]);
-
-  const clearRange = () => setDateRange([null, null]);
-
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const {
     data: tournaments,
@@ -192,13 +220,36 @@ export default function TournamentDashboard() {
     error,
   } = useGetTournamentsQuery({ sportType, groupId });
 
+  // --- Filtering ---
   const counts = useMemo(() => {
-    const c = { upcoming: 0, ongoing: 0, finished: 0 };
+    const c = { upcoming: 0, ongoing: 0, finished: 0, total: 0 };
     (tournaments || []).forEach((t) => {
       if (c[t.status] !== undefined) c[t.status] += 1;
+      c.total += 1;
     });
     return c;
   }, [tournaments]);
+
+  const filtered = useMemo(() => {
+    if (!tournaments) return [];
+    const [from, to] = dateRange;
+    // Dùng debouncedKeyword để filter thay vì search trực tiếp
+    return tournaments
+      .filter((t) => t.status === tab)
+      .filter((t) =>
+        debouncedKeyword
+          ? t.name?.toLowerCase().includes(debouncedKeyword)
+          : true
+      )
+      .filter((t) => {
+        if (!from && !to) return true;
+        const tStart = dayjs(t.startDate);
+        const tEnd = dayjs(t.endDate || t.startDate);
+        if (from && tEnd.isBefore(from, "day")) return false;
+        if (to && tStart.isAfter(to, "day")) return false;
+        return true;
+      });
+  }, [tournaments, tab, debouncedKeyword, dateRange]);
 
   const handleChangeTab = (_, v) => {
     setTab(v);
@@ -212,679 +263,523 @@ export default function TournamentDashboard() {
     );
   };
 
-  const formatDate = (d) =>
-    d
-      ? new Date(d).toLocaleDateString(undefined, {
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit",
-        })
-      : "-";
+  const formatDate = (d) => (d ? dayjs(d).format("DD/MM/YYYY") : "--");
 
-  // Overlap: tournament [startDate, endDate] intersects [from, to]
-  const filtered = useMemo(() => {
-    if (!tournaments) return [];
-    const [from, to] = dateRange;
-    return tournaments
-      .filter((t) => t.status === tab)
-      .filter((t) => (search ? t.name?.toLowerCase().includes(search) : true))
-      .filter((t) => {
-        if (!from && !to) return true;
-        const tStart = dayjs(t.startDate);
-        const tEnd = dayjs(t.endDate || t.startDate);
-        if (from && tEnd.isBefore(from, "day")) return false;
-        if (to && tStart.isAfter(to, "day")) return false;
-        return true;
-      });
-  }, [tournaments, tab, search, dateRange]);
-
-  // ========== Skeletons ==========
-  const MobileSkeletonList = () => (
-    <Stack spacing={2}>
-      {Array.from({ length: MOBILE_SKELETON_CARDS }).map((_, i) => (
-        <Card key={i} variant="outlined">
-          <CardContent>
-            <Stack direction="row" spacing={2} alignItems="flex-start" mb={2}>
-              <Skeleton variant="rounded" width={72} height={72} />
-              <Box flex={1} minWidth={0}>
-                <Skeleton variant="text" width="60%" />
-                <Skeleton variant="text" width="40%" />
-              </Box>
-              <Skeleton variant="rounded" width={100} height={24} />
-            </Stack>
-            <Divider sx={{ mb: 1 }} />
-            <Skeleton variant="text" width="70%" />
-            <Skeleton variant="text" width="50%" />
-            <Skeleton variant="text" width="60%" />
-          </CardContent>
-          <CardActions
-            sx={{
-              p: 2,
-              pt: 0,
-              justifyContent: "center",
-              flexWrap: "wrap",
-              gap: 1,
-            }}
-          >
-            <Skeleton variant="rounded" width={96} height={32} />
-            <Skeleton variant="rounded" width={96} height={32} />
-            <Skeleton variant="rounded" width={96} height={32} />
-            <Skeleton variant="rounded" width={96} height={32} />
-          </CardActions>
-        </Card>
-      ))}
-    </Stack>
-  );
-
-  const DesktopSkeletonTable = () => (
-    <Paper elevation={2}>
-      <TableContainer sx={{ maxHeight: 640 }}>
-        <Table stickyHeader size="small">
-          <TableHead>
-            <TableRow>
-              {columns.map((col) => (
-                <TableCell
-                  key={col.label}
-                  align={col.align || "left"}
-                  sx={{ minWidth: col.minWidth, fontWeight: 600 }}
-                >
-                  {col.label}
-                </TableCell>
-              ))}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {Array.from({ length: DESKTOP_SKELETON_ROWS }).map((_, i) => (
-              <TableRow key={i}>
-                <TableCell sx={{ py: 1.5 }}>
-                  <Skeleton
-                    variant="rounded"
-                    width={THUMB_SIZE}
-                    height={THUMB_SIZE}
-                  />
-                </TableCell>
-                <TableCell>
-                  <Skeleton variant="text" width={220} />
-                </TableCell>
-                <TableCell>
-                  <Skeleton variant="text" width={120} />
-                </TableCell>
-                <TableCell align="center">
-                  <Skeleton variant="text" width={80} sx={{ mx: "auto" }} />
-                </TableCell>
-                <TableCell>
-                  <Skeleton variant="text" width={180} />
-                </TableCell>
-                <TableCell>
-                  <Skeleton variant="text" width={160} />
-                </TableCell>
-                <TableCell align="center">
-                  <Skeleton
-                    variant="rounded"
-                    width={100}
-                    height={24}
-                    sx={{ mx: "auto" }}
-                  />
-                </TableCell>
-                <TableCell align="center">
-                  <Stack direction="row" spacing={1} justifyContent="center">
-                    <Skeleton variant="rounded" width={92} height={30} />
-                    <Skeleton variant="rounded" width={92} height={30} />
-                    <Skeleton variant="rounded" width={92} height={30} />
-                  </Stack>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableContainer>
-    </Paper>
-  );
-
-  // ========== Action Buttons Helper ==========
-  const Actions = ({ t, dense = false }) => {
-    const size = dense ? "small" : "medium";
-    const gap = 1.2;
-
+  // --- COMPONENT: Action Buttons (Logic chuẩn 100% từ bản gốc) ---
+  const Actions = ({ t }) => {
+    const btnSx = {
+      borderRadius: 2,
+      textTransform: "none",
+      fontWeight: 600,
+      fontSize: "0.8125rem",
+    };
     const adminOrMgr = canManage(t);
+
+    // Case 1: Admin/Manager - Full quyền
     if (adminOrMgr) {
-      // Admin/Manager: luôn show đủ 4 nút
       return (
-        <Box display="flex" flexWrap="wrap" justifyContent="center" gap={gap}>
-          <Button
-            component={RouterLink}
-            to={`/tournament/${t._id}/schedule`}
-            size={size}
-            variant="contained"
-            color="primary"
-            startIcon={<EventNoteIcon />}
-          >
-            Lịch đấu
-          </Button>
-          <Button
-            component={RouterLink}
-            to={`/tournament/${t._id}/register`}
-            size={size}
-            variant="contained"
-            color="primary"
-            startIcon={<HowToRegIcon />}
-          >
-            Đăng ký
-          </Button>
-          <Button
-            component={RouterLink}
-            to={`/tournament/${t._id}/checkin`}
-            size={size}
-            variant="contained"
-            color="success"
-            startIcon={<CheckCircleIcon />}
-          >
-            Check-in
-          </Button>
-          <Button
-            component={RouterLink}
-            to={`/tournament/${t._id}/bracket`}
-            size={size}
-            variant="outlined"
-            color="info"
-            startIcon={<AccountTreeIcon />}
-          >
-            Sơ đồ
-          </Button>
-        </Box>
+        <Grid container spacing={1}>
+          <Grid size={6}>
+            <Button
+              component={RouterLink}
+              to={`/tournament/${t._id}/schedule`}
+              fullWidth
+              variant="contained"
+              color="primary"
+              startIcon={<EventNoteIcon />}
+              sx={btnSx}
+            >
+              Lịch đấu
+            </Button>
+          </Grid>
+          <Grid size={6}>
+            <Button
+              component={RouterLink}
+              to={`/tournament/${t._id}/checkin`}
+              fullWidth
+              variant="contained"
+              color="success"
+              startIcon={<CheckCircleIcon />}
+              sx={{ ...btnSx, color: "#fff" }}
+            >
+              Check-in
+            </Button>
+          </Grid>
+          <Grid size={6}>
+            <Button
+              component={RouterLink}
+              to={`/tournament/${t._id}/register`}
+              fullWidth
+              variant="outlined"
+              color="primary"
+              startIcon={<HowToRegIcon />}
+              sx={btnSx}
+            >
+              Đăng ký
+            </Button>
+          </Grid>
+          <Grid size={6}>
+            <Button
+              component={RouterLink}
+              to={`/tournament/${t._id}/bracket`}
+              fullWidth
+              variant="outlined"
+              color="info"
+              startIcon={<AccountTreeIcon />}
+              sx={btnSx}
+            >
+              Sơ đồ
+            </Button>
+          </Grid>
+        </Grid>
       );
     }
 
-    // Người dùng thường: giữ nguyên như cũ theo status
+    // Case 2: User - Sắp diễn ra (Register + Bracket)
     if (t.status === "upcoming") {
       return (
-        <Box display="flex" flexWrap="wrap" justifyContent="center" gap={gap}>
-          <Button
-            component={RouterLink}
-            to={`/tournament/${t._id}/register`}
-            size="small"
-            variant="contained"
-            color="primary"
-            startIcon={<HowToRegIcon />}
-          >
-            Đăng ký
-          </Button>
-          <Button
-            component={RouterLink}
-            to={`/tournament/${t._id}/bracket`}
-            size="small"
-            variant="outlined"
-            color="info"
-            startIcon={<AccountTreeIcon />}
-          >
-            Sơ đồ
-          </Button>
-        </Box>
+        <Grid container spacing={1}>
+          <Grid size={6}>
+            <Button
+              component={RouterLink}
+              to={`/tournament/${t._id}/register`}
+              fullWidth
+              variant="contained"
+              color="primary"
+              startIcon={<HowToRegIcon />}
+              sx={btnSx}
+            >
+              Đăng ký
+            </Button>
+          </Grid>
+          <Grid size={6}>
+            <Button
+              component={RouterLink}
+              to={`/tournament/${t._id}/bracket`}
+              fullWidth
+              variant="outlined"
+              color="info"
+              startIcon={<AccountTreeIcon />}
+              sx={btnSx}
+            >
+              Sơ đồ
+            </Button>
+          </Grid>
+        </Grid>
       );
     }
 
+    // Case 3: User - Đang diễn ra (Schedule + Checkin + Bracket)
     if (t.status === "ongoing") {
       return (
-        <Box display="flex" flexWrap="wrap" justifyContent="center" gap={gap}>
-          <Button
-            component={RouterLink}
-            to={`/tournament/${t._id}/schedule`}
-            size={size}
-            variant="contained"
-            color="primary"
-            startIcon={<EventNoteIcon />}
-          >
-            Lịch đấu
-          </Button>
-          <Button
-            component={RouterLink}
-            to={`/tournament/${t._id}/checkin`}
-            size={size}
-            variant="contained"
-            color="success"
-            startIcon={<CheckCircleIcon />}
-          >
-            Check-in
-          </Button>
+        <Stack spacing={1} width="100%">
+          <Stack direction="row" spacing={1}>
+            <Button
+              component={RouterLink}
+              to={`/tournament/${t._id}/schedule`}
+              fullWidth
+              variant="contained"
+              color="primary"
+              startIcon={<EventNoteIcon />}
+              sx={btnSx}
+            >
+              Lịch đấu
+            </Button>
+            <Button
+              component={RouterLink}
+              to={`/tournament/${t._id}/checkin`}
+              fullWidth
+              variant="contained"
+              color="success"
+              startIcon={<CheckCircleIcon />}
+              sx={{ ...btnSx, color: "#fff" }}
+            >
+              Check-in
+            </Button>
+          </Stack>
           <Button
             component={RouterLink}
             to={`/tournament/${t._id}/bracket`}
-            size={size}
+            fullWidth
             variant="outlined"
             color="info"
             startIcon={<AccountTreeIcon />}
+            sx={btnSx}
           >
-            Sơ đồ
+            Xem sơ đồ thi đấu
           </Button>
-        </Box>
+        </Stack>
       );
     }
 
+    // Case 4: User - Đã kết thúc (Bracket only)
     return (
-      <Box display="flex" flexWrap="wrap" justifyContent="center" gap={gap}>
-        <Button
-          component={RouterLink}
-          to={`/tournament/${t._id}/bracket`}
-          size={size}
-          variant="outlined"
-          color="info"
-          startIcon={<AccountTreeIcon />}
+      <Button
+        component={RouterLink}
+        to={`/tournament/${t._id}/bracket`}
+        fullWidth
+        variant="outlined"
+        color="info"
+        startIcon={<AccountTreeIcon />}
+        sx={btnSx}
+      >
+        Xem sơ đồ kết quả
+      </Button>
+    );
+  };
+
+  // --- COMPONENT: Tournament Card ---
+  const TournamentCard = ({ t }) => {
+    const percent = Math.min(
+      100,
+      Math.round((t.registered / t.maxPairs) * 100)
+    );
+
+    return (
+      <GlassCard>
+        {/* Image Area */}
+        <Box
+          sx={{
+            position: "relative",
+            height: 180,
+            overflow: "hidden",
+            bgcolor: "grey.100",
+          }}
         >
-          Sơ đồ
-        </Button>
-      </Box>
+          <Box sx={{ position: "absolute", top: 12, right: 12, zIndex: 2 }}>
+            <StatusBadge status={t.status}>
+              <div className="dot" /> {STATUS_META[t.status].label}
+            </StatusBadge>
+          </Box>
+
+          {/* FIX: Khôi phục ZoomItem để preview ảnh */}
+          <ZoomItem src={t.image}>
+            <Box sx={{ width: "100%", height: "100%", cursor: "zoom-in" }}>
+              <img
+                src={
+                  t.image || "https://via.placeholder.com/400x200?text=No+Image"
+                }
+                alt={t.name}
+                className="zoom-image" // Class for hover effect
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  transition: "transform 0.5s ease",
+                }}
+              />
+            </Box>
+          </ZoomItem>
+        </Box>
+
+        <CardContent sx={{ flexGrow: 1, p: 2, pb: 1 }}>
+          <Typography
+            variant="subtitle1"
+            fontWeight={800}
+            sx={{
+              minHeight: "3rem",
+              lineHeight: 1.3,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              mb: 1,
+            }}
+          >
+            {t.name}
+          </Typography>
+
+          <Stack spacing={1.5}>
+            <Stack
+              direction="row"
+              alignItems="center"
+              spacing={1}
+              color="text.secondary"
+            >
+              <CalendarMonthIcon fontSize="small" color="action" />
+              <Typography variant="body2" fontWeight={500}>
+                {formatDate(t.startDate)} - {formatDate(t.endDate)}
+              </Typography>
+            </Stack>
+
+            <Stack
+              direction="row"
+              alignItems="center"
+              spacing={1}
+              color="text.secondary"
+            >
+              <PlaceIcon fontSize="small" color="action" />
+              <Typography variant="body2" noWrap sx={{ maxWidth: "100%" }}>
+                {t.location || "Chưa cập nhật"}
+              </Typography>
+            </Stack>
+
+            <Box>
+              <Stack direction="row" justifyContent="space-between" mb={0.5}>
+                <Typography
+                  variant="caption"
+                  fontWeight={600}
+                  color="text.secondary"
+                >
+                  Số đội đăng ký
+                </Typography>
+                <Typography
+                  variant="caption"
+                  fontWeight={700}
+                  color={percent >= 100 ? "error.main" : "primary.main"}
+                >
+                  {t.registered} / {t.maxPairs}
+                </Typography>
+              </Stack>
+              <LinearProgress
+                variant="determinate"
+                value={percent}
+                sx={{
+                  height: 6,
+                  borderRadius: 3,
+                  bgcolor: alpha(theme.palette.grey[500], 0.1),
+                  "& .MuiLinearProgress-bar": {
+                    borderRadius: 3,
+                    background:
+                      percent >= 100
+                        ? theme.palette.error.main
+                        : theme.palette.primary.main,
+                  },
+                }}
+              />
+            </Box>
+          </Stack>
+        </CardContent>
+
+        <CardActions sx={{ p: 2, pt: 0, mt: "auto" }}>
+          <Box width="100%">
+            <Actions t={t} />
+          </Box>
+        </CardActions>
+      </GlassCard>
     );
   };
 
   return (
-    <Container maxWidth="xl" sx={{ py: 3 }}>
-      {/* Header / Hero */}
-      <Paper
-        elevation={0}
-        sx={{
-          p: 2.5,
-          mb: 2.5,
-          borderRadius: 3,
-          bgcolor: (th) =>
-            th.palette.mode === "light" ? "#f8fafc" : "#0b1220",
-          backgroundImage: (th) =>
-            th.palette.mode === "light"
-              ? "radial-gradient(circle at 20% 20%, rgba(2,132,199,0.06), transparent 40%), radial-gradient(circle at 80% 0%, rgba(34,197,94,0.06), transparent 40%)"
-              : "radial-gradient(circle at 20% 20%, rgba(56,189,248,0.09), transparent 40%), radial-gradient(circle at 80% 0%, rgba(34,197,94,0.07), transparent 40%)",
-          border: (th) => `1px solid ${th.palette.divider}`,
-        }}
+    <Container maxWidth="xl" sx={{ py: 2, minHeight: "100vh" }}>
+      {/* HEADER STATS */}
+      <Stack
+        direction={{ xs: "column", md: "row" }}
+        spacing={4}
+        alignItems="center"
+        sx={{ mb: 5 }}
       >
+        <Box flex={1}>
+          <Typography variant="h4" fontWeight={600} sx={{ mb: 1 }}>
+            Giải Đấu
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            Quản lý và tham gia các giải đấu thể thao chuyên nghiệp.
+          </Typography>
+        </Box>
+
         <Stack
-          direction={{ xs: "column", sm: "row" }}
+          direction="row"
           spacing={2}
-          alignItems={{ xs: "flex-start", sm: "center" }}
-          justifyContent="space-between"
+          sx={{ width: { xs: "100%", md: "auto" }, overflowX: "auto", pb: 1 }}
         >
-          <Box>
-            <Typography variant="h5" fontWeight={700} gutterBottom>
-              Giải đấu
+          <StatBox>
+            <Typography
+              variant="caption"
+              fontWeight={700}
+              color="text.secondary"
+            >
+              TỔNG GIẢI
             </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {tournaments
-                ? `${tournaments.length} giải • ${STATUS_META[tab].label}`
-                : ""}
+            <Typography variant="h4" fontWeight={800}>
+              {counts.total}
             </Typography>
-          </Box>
-
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={1.5}
-            alignItems={{ xs: "stretch", sm: "center" }}
-            sx={{ width: { xs: "100%", sm: "auto" } }}
+          </StatBox>
+          <StatBox
+            sx={{
+              borderColor: "success.main",
+              bgcolor: alpha(theme.palette.success.main, 0.05),
+            }}
           >
-            <TextField
-              placeholder="Tìm kiếm tên giải..."
-              size="small"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              sx={{ width: { xs: "100%", sm: 280 } }}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon fontSize="small" />
-                  </InputAdornment>
-                ),
-                endAdornment: keyword ? (
-                  <InputAdornment position="end">
-                    <IconButton size="small" onClick={() => setKeyword("")}>
-                      <ClearIcon fontSize="small" />
-                    </IconButton>
-                  </InputAdornment>
-                ) : null,
-              }}
-            />
-
-            {/* Date range (PRO) */}
-            <Box sx={{ minWidth: { xs: "100%", sm: 320 }, flexShrink: 0 }}>
-              <DateRangePicker
-                calendars={2}
-                value={dateRange}
-                onChange={(newValue) => setDateRange(newValue)}
-                slotProps={{
-                  textField: {
-                    size: "small",
-                    sx: {
-                      width: "100%",
-                      "& .MuiOutlinedInput-root": { height: FIELD_HEIGHT },
-                      "& .MuiOutlinedInput-input": {
-                        py: 0,
-                        my: 0,
-                        lineHeight: "40px",
-                      },
-                    },
-                  },
-                }}
-                renderInput={(startProps, endProps) => (
-                  <Stack
-                    direction="row"
-                    spacing={1}
-                    alignItems="center"
-                    sx={{ width: { xs: "100%", sm: 320 } }}
-                  >
-                    <TextField
-                      {...startProps}
-                      size="small"
-                      fullWidth
-                      placeholder="Từ ngày"
-                      sx={{
-                        "& .MuiOutlinedInput-root": { height: FIELD_HEIGHT },
-                        "& .MuiOutlinedInput-input": {
-                          py: 0,
-                          my: 0,
-                          lineHeight: "40px",
-                        },
-                      }}
-                    />
-                    <Box sx={{ color: "text.secondary", px: 0.5 }}>—</Box>
-                    <TextField
-                      {...endProps}
-                      size="small"
-                      fullWidth
-                      placeholder="Đến ngày"
-                      sx={{
-                        "& .MuiOutlinedInput-root": { height: FIELD_HEIGHT },
-                        "& .MuiOutlinedInput-input": {
-                          py: 0,
-                          my: 0,
-                          lineHeight: "40px",
-                        },
-                      }}
-                    />
-                  </Stack>
-                )}
-              />
-            </Box>
-
-            {(dateRange?.[0] || dateRange?.[1]) && (
-              <Button
-                onClick={clearRange}
-                size="small"
-                variant="text"
-                startIcon={<ClearIcon />}
-                sx={{ fontWeight: 600, textTransform: "none" }}
-              >
-                Xoá lọc
-              </Button>
-            )}
-          </Stack>
+            <Typography variant="caption" fontWeight={700} color="success.main">
+              ĐANG DIỄN RA
+            </Typography>
+            <Typography variant="h4" fontWeight={800} color="success.main">
+              {counts.ongoing}
+            </Typography>
+          </StatBox>
+          <StatBox
+            sx={{
+              borderColor: "info.main",
+              bgcolor: alpha(theme.palette.info.main, 0.05),
+            }}
+          >
+            <Typography variant="caption" fontWeight={700} color="info.main">
+              SẮP TỚI
+            </Typography>
+            <Typography variant="h4" fontWeight={800} color="info.main">
+              {counts.upcoming}
+            </Typography>
+          </StatBox>
         </Stack>
+      </Stack>
 
-        {/* Tabs with counts */}
+      {/* CONTROLS */}
+      <Stack
+        direction={{ xs: "column", lg: "row" }}
+        spacing={2}
+        alignItems={{ xs: "stretch", lg: "center" }}
+        justifyContent="space-between"
+        sx={{ mb: 4 }}
+      >
         <Tabs
           value={tab}
           onChange={handleChangeTab}
-          sx={{ mt: 1 }}
           variant="scrollable"
-          allowScrollButtonsMobile
+          sx={{
+            minHeight: 48,
+            "& .MuiTab-root": {
+              borderRadius: 3,
+              mr: 1,
+              px: 3,
+              fontWeight: 700,
+              textTransform: "none",
+              minHeight: 44,
+              transition: "all 0.2s",
+              "&.Mui-selected": { bgcolor: "primary.main", color: "#fff" },
+            },
+            "& .MuiTabs-indicator": { display: "none" },
+          }}
         >
           {TABS.map((v) => (
-            <Tab
-              key={v}
-              value={v}
-              icon={STATUS_META[v].icon}
-              iconPosition="start"
-              label={
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <span>{STATUS_META[v].label}</span>
-                  <Chip
-                    size="small"
-                    label={counts[v] || 0}
-                    color={STATUS_META[v].color}
-                    variant="outlined"
-                  />
-                </Stack>
-              }
-              sx={{
-                textTransform: "none",
-                fontWeight: 600,
-                "& .MuiTab-iconWrapper": { mr: 1 },
-              }}
-            />
+            <Tab key={v} value={v} label={STATUS_META[v].label} />
           ))}
         </Tabs>
-      </Paper>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error?.data?.message || error?.error}
-        </Alert>
-      )}
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+          <TextField
+            placeholder="Tìm tên giải đấu..."
+            size="small"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            sx={{
+              width: { xs: "100%", sm: 240 },
+              "& .MuiOutlinedInput-root": {
+                borderRadius: 3,
+                bgcolor: "background.paper",
+              },
+            }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon fontSize="small" />
+                </InputAdornment>
+              ),
+              endAdornment: keyword && (
+                <IconButton size="small" onClick={() => setKeyword("")}>
+                  <ClearIcon fontSize="small" />
+                </IconButton>
+              ),
+            }}
+          />
+          <Box sx={{ width: { xs: "100%", sm: 300 } }}>
+            {/* FIX: Khôi phục calendars={2} */}
+            <DateRangePicker
+              calendars={2}
+              value={dateRange}
+              onChange={(v) => setDateRange(v)}
+              slotProps={{
+                textField: {
+                  size: "small",
+                  fullWidth: true,
+                  placeholder: "Lọc theo ngày",
+                  InputProps: {
+                    sx: { borderRadius: 3, bgcolor: "background.paper" },
+                  },
+                },
+              }}
+            />
+          </Box>
+          {(dateRange[0] || dateRange[1]) && (
+            <Button
+              color="error"
+              variant="outlined"
+              sx={{ borderRadius: 3, minWidth: 40 }}
+              onClick={() => setDateRange([null, null])}
+            >
+              <FilterListIcon />
+            </Button>
+          )}
+        </Stack>
+      </Stack>
 
-      {isLoading ? (
-        isMobile ? (
-          <MobileSkeletonList />
+      {/* LIST CONTENT (Grid v7) */}
+      <Box sx={{ minHeight: 400 }}>
+        {error && (
+          <Box
+            p={3}
+            bgcolor="error.light"
+            color="error.dark"
+            borderRadius={3}
+            textAlign="center"
+          >
+            Lỗi tải dữ liệu: {error?.data?.message}
+          </Box>
+        )}
+
+        {isLoading ? (
+          <Grid container spacing={3}>
+            {[...Array(8)].map((_, i) => (
+              <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={i}>
+                <Skeleton
+                  variant="rounded"
+                  height={400}
+                  sx={{ borderRadius: 4 }}
+                />
+              </Grid>
+            ))}
+          </Grid>
         ) : (
-          <DesktopSkeletonTable />
-        )
-      ) : (
-        tournaments && (
-          <ZoomProvider maskOpacity={0.65}>
-            {isMobile ? (
-              <Stack spacing={2}>
-                {filtered.length === 0 && (
-                  <Alert severity="info">Không có giải nào phù hợp.</Alert>
-                )}
-
-                {filtered.map((t) => (
-                  <Card
-                    key={t._id}
-                    variant="outlined"
-                    sx={{ overflow: "hidden" }}
-                  >
-                    <CardContent>
-                      <Stack
-                        direction="row"
-                        spacing={2}
-                        alignItems="flex-start"
-                        mb={1.5}
-                      >
-                        <ZoomItem src={t.image}>
-                          <Avatar
-                            src={t.image}
-                            alt={t.name}
-                            variant="rounded"
-                            sx={{
-                              width: 72,
-                              height: 72,
-                              cursor: "zoom-in",
-                              flexShrink: 0,
-                            }}
-                          />
-                        </ZoomItem>
-
-                        <Box flex={1} minWidth={0}>
-                          <Stack
-                            direction="row"
-                            alignItems="center"
-                            spacing={1}
-                            justifyContent="space-between"
-                          >
-                            <Typography
-                              fontWeight={700}
-                              sx={{
-                                wordBreak: "break-word",
-                                lineHeight: 1.25,
-                              }}
-                            >
-                              {t.name}
-                            </Typography>
-                            <Chip
-                              label={STATUS_META[t.status].label}
-                              color={STATUS_META[t.status].color}
-                              size="small"
-                            />
-                          </Stack>
-                          <Stack
-                            direction="row"
-                            spacing={1.5}
-                            mt={1}
-                            flexWrap="wrap"
-                          >
-                            <Typography
-                              variant="body2"
-                              color="text.secondary"
-                              display="flex"
-                              alignItems="center"
-                              gap={0.5}
-                            >
-                              <TodayIcon fontSize="inherit" />{" "}
-                              {formatDate(t.registrationDeadline)}
-                            </Typography>
-                            <Typography
-                              variant="body2"
-                              color="text.secondary"
-                              display="flex"
-                              alignItems="center"
-                              gap={0.5}
-                            >
-                              <ScheduleIcon fontSize="inherit" />{" "}
-                              {formatDate(t.startDate)} –{" "}
-                              {formatDate(t.endDate)}
-                            </Typography>
-                          </Stack>
-                        </Box>
-                      </Stack>
-
-                      <Stack
-                        direction="row"
-                        spacing={2}
-                        flexWrap="wrap"
-                        color="text.secondary"
-                        sx={{ "& svg": { opacity: 0.9 } }}
-                      >
-                        <Typography
-                          variant="body2"
-                          display="flex"
-                          alignItems="center"
-                          gap={0.75}
-                        >
-                          <PeopleOutlineIcon fontSize="small" /> {t.registered}/
-                          {t.maxPairs}
-                        </Typography>
-                        <Typography
-                          variant="body2"
-                          display="flex"
-                          alignItems="center"
-                          gap={0.75}
-                        >
-                          <PlaceIcon fontSize="small" /> {t.location || "-"}
-                        </Typography>
-                      </Stack>
-                    </CardContent>
-
-                    <CardActions
-                      sx={{
-                        p: 2,
-                        pt: 0,
-                        justifyContent: "center",
-                        flexWrap: "wrap",
-                        gap: 1,
-                      }}
-                    >
-                      <Actions t={t} dense />
-                    </CardActions>
-                  </Card>
-                ))}
+          <ZoomProvider maskOpacity={0.8}>
+            {filtered.length === 0 ? (
+              <Stack
+                alignItems="center"
+                justifyContent="center"
+                spacing={2}
+                sx={{ py: 10, opacity: 0.6 }}
+              >
+                <EmojiEventsIcon
+                  sx={{ fontSize: 80, color: "text.disabled" }}
+                />
+                <Typography variant="h6" color="text.disabled">
+                  Không tìm thấy giải đấu nào phù hợp.
+                </Typography>
+                <Button
+                  variant="text"
+                  onClick={() => {
+                    setKeyword("");
+                    setDateRange([null, null]);
+                  }}
+                >
+                  Xoá bộ lọc
+                </Button>
               </Stack>
             ) : (
-              <Paper elevation={2}>
-                <TableContainer sx={{ maxHeight: 640 }}>
-                  <Table stickyHeader size="small">
-                    <TableHead>
-                      <TableRow>
-                        {columns.map((col) => (
-                          <TableCell
-                            key={col.label}
-                            align={col.align || "left"}
-                            sx={{
-                              minWidth: col.minWidth,
-                              fontWeight: 700,
-                              backgroundColor: "background.default",
-                            }}
-                          >
-                            {col.label}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {filtered.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={columns.length}>
-                            <Alert severity="info" sx={{ my: 2 }}>
-                              Không có giải nào phù hợp.
-                            </Alert>
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        filtered.map((t) => (
-                          <TableRow hover key={t._id}>
-                            <TableCell sx={{ py: 1.2 }}>
-                              <ZoomItem src={t.image}>
-                                <Box
-                                  sx={{
-                                    width: THUMB_SIZE,
-                                    height: THUMB_SIZE,
-                                    borderRadius: 1,
-                                    overflow: "hidden",
-                                    cursor: "zoom-in",
-                                    transition: "transform 0.2s",
-                                    "&:hover img": { transform: "scale(1.06)" },
-                                  }}
-                                >
-                                  <ImgWithFallback
-                                    src={t.image}
-                                    alt={t.name}
-                                    style={{
-                                      width: "100%",
-                                      height: "100%",
-                                      objectFit: "cover",
-                                      display: "block",
-                                    }}
-                                  />
-                                </Box>
-                              </ZoomItem>
-                            </TableCell>
-                            <TableCell>
-                              <Typography fontWeight={600}>{t.name}</Typography>
-                            </TableCell>
-                            <TableCell>
-                              {formatDate(t.registrationDeadline)}
-                            </TableCell>
-                            <TableCell align="center">
-                              {t.registered}/{t.maxPairs}
-                            </TableCell>
-                            <TableCell>
-                              {formatDate(t.startDate)} –{" "}
-                              {formatDate(t.endDate)}
-                            </TableCell>
-                            <TableCell>{t.location || "-"}</TableCell>
-                            <TableCell align="center">
-                              <Chip
-                                label={STATUS_META[t.status].label}
-                                color={STATUS_META[t.status].color}
-                                size="small"
-                              />
-                            </TableCell>
-                            <TableCell align="center">
-                              <Actions t={t} />
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              </Paper>
+              <Grid container spacing={3}>
+                {filtered.map((t) => (
+                  <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={t._id}>
+                    <Fade in timeout={500}>
+                      <Box height="100%">
+                        <TournamentCard t={t} />
+                      </Box>
+                    </Fade>
+                  </Grid>
+                ))}
+              </Grid>
             )}
           </ZoomProvider>
-        )
-      )}
+        )}
+      </Box>
     </Container>
   );
 }
