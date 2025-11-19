@@ -94,6 +94,25 @@ import LiveSetupDialog from "../../components/LiveSetupDialog";
 import BulkAssignRefDialog from "../../components/BulkAssignRefDialog";
 
 /* ---------------- helpers ---------------- */
+// ✅ Hàm chuẩn hóa: A→1, B→2, C→3, D→4, hoặc giữ nguyên số
+const normalizeGroupCode = (code) => {
+  const s = String(code || "")
+    .trim()
+    .toUpperCase();
+  if (!s) return "";
+
+  // Nếu đã là số → giữ nguyên
+  if (/^\d+$/.test(s)) return s;
+
+  // Chữ cái A-Z → số 1-26
+  if (/^[A-Z]$/.test(s)) {
+    return String(s.charCodeAt(0) - 64); // A=65 → 65-64=1
+  }
+
+  // Trường hợp khác giữ nguyên (Group1, Bảng A,...)
+  return s;
+};
+
 const _num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 const _normGame = (g) => {
@@ -956,28 +975,6 @@ export default function TournamentManagePage() {
   );
   const allMatchesBase = matchPage?.list || [];
 
-  // NEW: map bracketId -> bracket
-  const bracketMap = useMemo(() => {
-    const map = new Map();
-    (brackets || []).forEach((b) => {
-      const bid = String(b?._id || b?.id || "");
-      if (bid) map.set(bid, b);
-    });
-    return map;
-  }, [brackets]);
-
-  // NEW: map bracketId -> list trận (để check bracket đã xong chưa)
-  const bracketMatchesMap = useMemo(() => {
-    const map = new Map();
-    for (const m of allMatchesBase) {
-      const bid = String(m?.bracket?._id || m?.bracket || "");
-      if (!bid) continue;
-      if (!map.has(bid)) map.set(bid, []);
-      map.get(bid).push(m);
-    }
-    return map;
-  }, [allMatchesBase]);
-
   // Tập hợp danh sách sân
   const courtOptions = useMemo(() => {
     const s = new Set();
@@ -1226,55 +1223,12 @@ export default function TournamentManagePage() {
     [liveStore]
   );
 
-  // NEW: check bracket đã hoàn tất chưa (dựa vào status realtime)
-  const isBracketCompleteMap = useMemo(() => {
-    const map = new Map();
-    for (const [bid, list] of bracketMatchesMap) {
-      if (!list.length) {
-        map.set(bid, false);
-        continue;
-      }
-      const allDone = list.every((m) => {
-        const live = liveStore.get(String(m._id)) || {};
-        const st = String((live.status ?? m?.status) || "").toLowerCase();
-        if (st === "finished") return true;
-        if (isByeMatch(m)) return true; // trận BYE coi như xong
-        return false;
-      });
-      map.set(bid, allDone);
-    }
-    return map;
-  }, [bracketMatchesMap, liveStore, orderVersion]);
-
-  // NEW: giải có dùng vòng bảng không?
-  const hasGroupBrackets = useMemo(
-    () =>
-      (brackets || []).some(
-        (b) => String(b?.type || "").toLowerCase() === "group"
-      ),
-    [brackets]
-  );
-
-  // NEW: tất cả các bracket vòng bảng đã hoàn tất chưa?
-  const allGroupBracketsComplete = useMemo(() => {
-    if (!hasGroupBrackets) return true; // không có vòng bảng => không chặn Knockout
-    for (const b of brackets || []) {
-      const type = String(b?.type || "").toLowerCase();
-      if (type !== "group") continue;
-      const bid = String(b?._id || "");
-      if (!bid) continue;
-      if (!isBracketCompleteMap.get(bid)) return false;
-    }
-    return true;
-  }, [brackets, hasGroupBrackets, isBracketCompleteMap]);
-
   // ======= NHÓM & LỌC =======
   const groupedLists = useMemo(() => {
     const norm = (s) =>
       String(s || "")
         .toLowerCase()
         .replace(/[-\s]/g, "");
-
     const kw = norm(qDeferred);
     const byBracket = new Map();
 
@@ -1283,27 +1237,154 @@ export default function TournamentManagePage() {
       byBracket.get(bid).push(m);
     };
 
+    // Map bracket
+    const bracketMap = new Map();
+    (brackets || []).forEach((b) => {
+      const id = String(b?._id || b?.id || "");
+      if (id) bracketMap.set(id, b);
+    });
+
+    // ✅ LOGIC MỚI: Tính trạng thái từng BẢNG theo stage_groupCode
+    const groupStatusMap = new Map();
+
     for (const m of allMatchesBase) {
       const bid = String(m?.bracket?._id || m?.bracket || "");
       if (!bid) continue;
 
       const bracket = bracketMap.get(bid);
-      const bracketType = String(bracket?.type || "").toLowerCase();
+      const btype = String(bracket?.type || "").toLowerCase();
 
-      // NEW: nếu giải có vòng bảng và chưa đánh xong hết vòng bảng
-      // thì KHÔNG hiển thị các trận thuộc bracket Knockout
-      if (
-        hasGroupBrackets &&
-        !allGroupBracketsComplete &&
-        (bracketType === "knockout" || bracketType === "ko")
-      ) {
-        continue;
+      if (btype === "group") {
+        const stage = bracket?.stage || 1;
+        const rawGroupCode = String(
+          m?.pool?.name || m?.pool?.id || m?.groupCode || ""
+        ).trim();
+
+        if (rawGroupCode) {
+          // ✅ Chuẩn hóa: A→1, B→2,...
+          const groupCode = normalizeGroupCode(rawGroupCode);
+          const key = `${stage}_${groupCode}`;
+
+          const live = liveStore.get(String(m._id)) || {};
+          const st = String(live.status ?? m?.status ?? "").toLowerCase();
+          const isDone = isByeMatch(m) || st === "finished";
+
+          console.log(`📋 Trận ${m.code}:`, {
+            stage,
+            rawGroupCode,
+            normalizedGroupCode: groupCode, // ← thêm log này
+            key,
+            status: m?.status,
+            isDone,
+          });
+
+          if (!groupStatusMap.has(key)) {
+            groupStatusMap.set(key, true);
+          }
+          if (!isDone) {
+            groupStatusMap.set(key, false);
+          }
+        }
       }
+    }
+
+    console.log("🎯 Group Status Map:", Array.from(groupStatusMap.entries()));
+
+    // ✅ Chuyển sang boolean: done = (total === finished && total > 0)
+    const groupDoneMap = new Map();
+    for (const [key, stats] of groupStatusMap.entries()) {
+      groupDoneMap.set(key, stats.total > 0 && stats.total === stats.finished);
+    }
+
+    console.log("📊 Group Status:", Array.from(groupDoneMap.entries()));
+
+    // ✅ Hàm kiểm tra trận KO có thể hiện không
+    const canShowKOMatch = (m, bracket) => {
+      const bracketType = String(bracket?.type || "").toLowerCase();
+      if (bracketType !== "knockout" && bracketType !== "ko") return true;
+
+      console.log(`🔍 Check trận ${m?.code || m?._id}:`, {
+        bracketType,
+        hasSeeds: !!(m?.seedA || m?.seedB), // ← Sửa: check seed của TRẬN này
+      });
+
+      // ✅ FIX: Lấy seed của TRẬN này, không phải của bracket!
+      const seedA = m?.seedA;
+      const seedB = m?.seedB;
+
+      if (!seedA && !seedB) {
+        console.log(`  ↳ Không có seed → HIỆN`);
+        return true;
+      }
+
+      const sourceGroups = new Set();
+
+      // ✅ Check seed A
+      if (seedA?.type === "groupRank") {
+        const stage = seedA.ref?.stage || 1;
+        const rawGroupCode = String(seedA.ref?.groupCode || "").trim();
+        if (rawGroupCode) {
+          const groupCode = normalizeGroupCode(rawGroupCode);
+          sourceGroups.add(`${stage}_${groupCode}`);
+          console.log(
+            `  ↳ Seed A: stage=${stage}, raw="${rawGroupCode}", normalized="${groupCode}"`
+          );
+        }
+      }
+
+      // ✅ Check seed B
+      if (seedB?.type === "groupRank") {
+        const stage = seedB.ref?.stage || 1;
+        const rawGroupCode = String(seedB.ref?.groupCode || "").trim();
+        if (rawGroupCode) {
+          const groupCode = normalizeGroupCode(rawGroupCode);
+          sourceGroups.add(`${stage}_${groupCode}`);
+          console.log(
+            `  ↳ Seed B: stage=${stage}, raw="${rawGroupCode}", normalized="${groupCode}"`
+          );
+        }
+      }
+
+      if (sourceGroups.size === 0) {
+        console.log(
+          `  ↳ Không có bảng nguồn (hoặc seed không phải groupRank) → HIỆN`
+        );
+        return true;
+      }
+
+      console.log(`  ↳ Cần check các bảng:`, Array.from(sourceGroups));
+
+      for (const groupKey of sourceGroups) {
+        const isFinished = groupStatusMap.get(groupKey);
+        console.log(
+          `    - Bảng "${groupKey}": ${
+            isFinished === true ? "✅ xong" : "❌ chưa xong"
+          }`
+        );
+
+        if (isFinished !== true) {
+          console.log(`  ➡️ KẾT LUẬN: ẨN trận ${m.code || m._id}`);
+          return false;
+        }
+      }
+
+      console.log(`  ➡️ KẾT LUẬN: HIỆN trận ${m.code || m._id}`);
+      return true;
+    };
+    // ✅ Lọc trận
+    for (const m of allMatchesBase) {
+      const bid = String(m?.bracket?._id || m?.bracket || "");
+      if (!bid) continue;
+
+      const bracket = bracketMap.get(bid);
+
+      // Kiểm tra nguồn từ vòng bảng
+      if (!canShowKOMatch(m, bracket)) continue;
 
       // filter BYE
       if (!showBye && isByeMatch(m)) continue;
 
-      // keyword search
+      // keyword search (giữ nguyên code cũ)
       if (kw) {
         const merged = { ...m, ...(liveStore.get(String(m._id)) || {}) };
         const text = norm(
@@ -1320,7 +1401,7 @@ export default function TournamentManagePage() {
         if (!text.includes(kw)) continue;
       }
 
-      // court filter
+      // court filter (giữ nguyên code cũ)
       if (courtFilter.length) {
         const merged = { ...m, ...(liveStore.get(String(m._id)) || {}) };
         const lbl = courtLabel(merged);
@@ -1377,10 +1458,7 @@ export default function TournamentManagePage() {
     liveStore,
     courtFilter,
     showBye,
-    bracketMap,
-    hasGroupBrackets,
-    allGroupBracketsComplete,
-    
+    brackets,
   ]);
 
   // LIVE Setup — TOÀN GIẢI
