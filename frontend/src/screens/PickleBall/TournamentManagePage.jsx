@@ -956,6 +956,28 @@ export default function TournamentManagePage() {
   );
   const allMatchesBase = matchPage?.list || [];
 
+  // NEW: map bracketId -> bracket
+  const bracketMap = useMemo(() => {
+    const map = new Map();
+    (brackets || []).forEach((b) => {
+      const bid = String(b?._id || b?.id || "");
+      if (bid) map.set(bid, b);
+    });
+    return map;
+  }, [brackets]);
+
+  // NEW: map bracketId -> list trận (để check bracket đã xong chưa)
+  const bracketMatchesMap = useMemo(() => {
+    const map = new Map();
+    for (const m of allMatchesBase) {
+      const bid = String(m?.bracket?._id || m?.bracket || "");
+      if (!bid) continue;
+      if (!map.has(bid)) map.set(bid, []);
+      map.get(bid).push(m);
+    }
+    return map;
+  }, [allMatchesBase]);
+
   // Tập hợp danh sách sân
   const courtOptions = useMemo(() => {
     const s = new Set();
@@ -1204,6 +1226,48 @@ export default function TournamentManagePage() {
     [liveStore]
   );
 
+  // NEW: check bracket đã hoàn tất chưa (dựa vào status realtime)
+  const isBracketCompleteMap = useMemo(() => {
+    const map = new Map();
+    for (const [bid, list] of bracketMatchesMap) {
+      if (!list.length) {
+        map.set(bid, false);
+        continue;
+      }
+      const allDone = list.every((m) => {
+        const live = liveStore.get(String(m._id)) || {};
+        const st = String((live.status ?? m?.status) || "").toLowerCase();
+        if (st === "finished") return true;
+        if (isByeMatch(m)) return true; // trận BYE coi như xong
+        return false;
+      });
+      map.set(bid, allDone);
+    }
+    return map;
+  }, [bracketMatchesMap, liveStore, orderVersion]);
+
+  // NEW: giải có dùng vòng bảng không?
+  const hasGroupBrackets = useMemo(
+    () =>
+      (brackets || []).some(
+        (b) => String(b?.type || "").toLowerCase() === "group"
+      ),
+    [brackets]
+  );
+
+  // NEW: tất cả các bracket vòng bảng đã hoàn tất chưa?
+  const allGroupBracketsComplete = useMemo(() => {
+    if (!hasGroupBrackets) return true; // không có vòng bảng => không chặn Knockout
+    for (const b of brackets || []) {
+      const type = String(b?.type || "").toLowerCase();
+      if (type !== "group") continue;
+      const bid = String(b?._id || "");
+      if (!bid) continue;
+      if (!isBracketCompleteMap.get(bid)) return false;
+    }
+    return true;
+  }, [brackets, hasGroupBrackets, isBracketCompleteMap]);
+
   // ======= NHÓM & LỌC =======
   const groupedLists = useMemo(() => {
     const norm = (s) =>
@@ -1222,6 +1286,19 @@ export default function TournamentManagePage() {
     for (const m of allMatchesBase) {
       const bid = String(m?.bracket?._id || m?.bracket || "");
       if (!bid) continue;
+
+      const bracket = bracketMap.get(bid);
+      const bracketType = String(bracket?.type || "").toLowerCase();
+
+      // NEW: nếu giải có vòng bảng và chưa đánh xong hết vòng bảng
+      // thì KHÔNG hiển thị các trận thuộc bracket Knockout
+      if (
+        hasGroupBrackets &&
+        !allGroupBracketsComplete &&
+        (bracketType === "knockout" || bracketType === "ko")
+      ) {
+        continue;
+      }
 
       // filter BYE
       if (!showBye && isByeMatch(m)) continue;
@@ -1300,6 +1377,10 @@ export default function TournamentManagePage() {
     liveStore,
     courtFilter,
     showBye,
+    bracketMap,
+    hasGroupBrackets,
+    allGroupBracketsComplete,
+    
   ]);
 
   // LIVE Setup — TOÀN GIẢI
@@ -1799,7 +1880,7 @@ export default function TournamentManagePage() {
               variant="outlined"
               size="small"
             >
-              Trang giải
+              Tổng quan
             </Button>
           </Stack>
 

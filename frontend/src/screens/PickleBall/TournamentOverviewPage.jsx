@@ -548,7 +548,7 @@ export default function TournamentOverviewPage() {
             variant="outlined"
             size="small"
           >
-            Trang giải
+            Tổng quan
           </Button>
           <Button
             component={Link}
