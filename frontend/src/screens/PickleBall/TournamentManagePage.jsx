@@ -405,7 +405,7 @@ function createLiveStore() {
 }
 function useLiveMatch(liveStore, matchId) {
   const subscribe = useCallback(
-    () => liveStore.subscribe(matchId, () => {}),
+    (onStoreChange) => liveStore.subscribe(matchId, onStoreChange),
     [liveStore, matchId]
   );
   const getSnapshot = useCallback(

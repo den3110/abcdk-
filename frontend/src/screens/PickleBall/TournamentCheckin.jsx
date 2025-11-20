@@ -2,7 +2,7 @@
 /* eslint-disable react/prop-types */
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Container } from "react-bootstrap"; // Giữ lại Container nếu layout chung app cần, nhưng chủ yếu dùng MUI Box
+
 import {
   TextField,
   Button as MuiButton,
@@ -30,7 +30,9 @@ import {
   IconButton,
   Tooltip,
   Badge,
+  Container,
 } from "@mui/material";
+
 import {
   Search as SearchIcon,
   SportsTennis as TennisIcon,
@@ -519,7 +521,7 @@ export default function TournamentCheckin() {
         minHeight: "100vh",
         backgroundColor: "#f5f7fa",
         pb: 8,
-        fontFamily: "'Inter', sans-serif", // Gợi ý font
+        fontFamily: "'Inter', sans-serif",
       }}
     >
       {/* HERO HEADER */}
@@ -534,7 +536,7 @@ export default function TournamentCheckin() {
           mb: -4, // Pull content up overlap
         }}
       >
-        <Container>
+        <Container maxWidth="lg">
           <Stack spacing={2}>
             <Stack
               direction={{ xs: "column", md: "row" }}
@@ -575,7 +577,7 @@ export default function TournamentCheckin() {
                   {!tourLoading && (
                     <Chip
                       icon={<TennisIcon sx={{ fill: "white !important" }} />}
-                      label={isSingles ? "Đơn (Singles)" : "Đôi (Doubles)"}
+                      label={isSingles ? "Giải đơn" : "Giải đôi"}
                       sx={{
                         bgcolor: "rgba(255,255,255,0.2)",
                         color: "white",
@@ -623,9 +625,9 @@ export default function TournamentCheckin() {
         </Container>
       </Box>
 
-      <Container style={{ maxWidth: "1200px", margin: "0 auto" }}>
+      <Container maxWidth="lg" sx={{ maxWidth: 1200, mx: "auto" }}>
         {/* SEARCH & CHECK-IN AREA (Overlapping the header) */}
-        <Card sx={{ ...cardStyle, mb: 4, overflow: "visible" }}>
+        <Card sx={{ ...cardStyle, mb: 4, overflow: "visible", mt: 6 }}>
           <Box
             sx={{
               p: 3,
@@ -773,7 +775,6 @@ export default function TournamentCheckin() {
                                     minute: "2-digit",
                                   })}`}
                                   color="primary"
-                                  variant="soft" // Note: 'soft' might need custom theme or use 'filled' with custom bg
                                   sx={{
                                     bgcolor: "#e3f2fd",
                                     color: "#1565c0",
@@ -831,7 +832,7 @@ export default function TournamentCheckin() {
             spacing={2}
           >
             <Typography variant="h5" fontWeight={800} sx={gradientText}>
-              DIỄN BIẾN TRẬN ĐẤU
+              Danh sách các trận
             </Typography>
 
             <TextField
@@ -863,7 +864,7 @@ export default function TournamentCheckin() {
               {matchesLoading || bracketsLoading ? (
                 // Loading Skeleton
                 Array.from({ length: 6 }).map((_, i) => (
-                  <Grid item xs={12} md={6} lg={4} key={i}>
+                  <Grid key={i} size={{ xs: 12, md: 6, lg: 4 }}>
                     <Skeleton
                       variant="rectangular"
                       height={160}
@@ -879,7 +880,7 @@ export default function TournamentCheckin() {
                 </Box>
               ) : (
                 filtered.map((m) => (
-                  <Grid item xs={12} md={6} lg={4} key={m._id || m.code}>
+                  <Grid key={m._id || m.code} size={{ xs: 12, md: 6, lg: 4 }}>
                     <Paper
                       elevation={0}
                       sx={{
