@@ -58,7 +58,7 @@ function evaluateGameFinish(aRaw, bRaw, rules) {
 }
 
 export const toDTO = (m) => {
-  // ================= helpers (chỉ dùng nội bộ, không thay đổi field cũ) ================
+  // ================= helpers ================
   const pick = (v) => (v && String(v).trim()) || "";
   const preferNick = (p) =>
     pick(p?.nickname) ||
@@ -141,15 +141,35 @@ export const toDTO = (m) => {
     };
   };
 
-  // ================= Tournament (lite) =================
+  // ================= Tournament (lite + logo + sponsors) =================
   const tournament = m.tournament
-    ? {
-        _id: m.tournament._id || m.tournament,
-        name: m.tournament.name || "",
-        image: m.tournament.image || "",
-        eventType: (m.tournament.eventType || "").toLowerCase(),
-        overlay: m.tournament.overlay || undefined,
-      }
+    ? (() => {
+        const rawSponsors = Array.isArray(m.tournament.sponsors)
+          ? m.tournament.sponsors
+          : [];
+        return {
+          _id: m.tournament._id || m.tournament,
+          name: m.tournament.name || "",
+          image: m.tournament.image || "",
+          eventType: (m.tournament.eventType || "").toLowerCase(),
+          overlay: m.tournament.overlay || undefined,
+          webLogoUrl: m.tournament.webLogoUrl || undefined,
+          webLogoAlt: m.tournament.webLogoAlt || undefined,
+          sponsors:
+            rawSponsors.length > 0
+              ? rawSponsors.map((s) => ({
+                  id: String(s._id || s.id),
+                  name: s.name,
+                  logoUrl: s.logoUrl || "",
+                  websiteUrl: s.websiteUrl || "",
+                  refLink: s.refLink || "",
+                  tier: s.tier,
+                  featured: !!s.featured,
+                  weight: s.weight ?? 0,
+                }))
+              : undefined,
+        };
+      })()
     : undefined;
 
   // ================= Bracket =================
@@ -162,7 +182,7 @@ export const toDTO = (m) => {
       ? m.prevBrackets.map(mapBracket)
       : [];
 
-  // ================= Overlay fallback =================
+  // ================= Overlay fallback (ưu tiên match.overlay đã build rootOverlay) =================
   const overlayFromMatch =
     m.overlay && typeof m.overlay === "object" && Object.keys(m.overlay).length
       ? m.overlay
@@ -321,7 +341,7 @@ export const toDTO = (m) => {
 
     overlay,
 
-    // Media: chỉ 1 trường
+    // Media
     video,
 
     // Court
