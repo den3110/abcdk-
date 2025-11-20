@@ -1,15 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Container } from "react-bootstrap";
+// src/components/AppInstallBanner.jsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Box,
+  Button,
+  Container,
+  Typography,
+  IconButton,
+  Collapse,
+  useTheme,
+  alpha,
+} from "@mui/material";
+import CloseIcon from "@mui/icons-material/Close";
+import GetAppIcon from "@mui/icons-material/GetApp";
 
 /* =========================================================
-   AppInstallBanner (smart suggest top bar)
-   - Detect iOS/Android
-   - Show "Mở" if app installed, else "Tải"
-   - iOS: memory flag via ?from_app=1
-   - Android: navigator.getInstalledRelatedApps()
-   - Snooze 2 days on "Để sau"
-   - (Optional) Dismiss 14 days via DISMISS_KEY (giữ để mở rộng sau)
-   - Only shows on mobile & when link exists
+   LOGIC GIỮ NGUYÊN (Detect Platform & Store Links)
 ========================================================= */
 function detectPlatform() {
   const ua = (navigator.userAgent || "").toLowerCase();
@@ -22,13 +27,9 @@ function detectPlatform() {
   return { isAndroid, isIOS, isMobile, isStandalone };
 }
 
-const DISMISS_KEY = "pt_app_banner_dismissed_at"; // (14d) nếu cần dùng sau
-const DISMISS_TTL_DAYS = 14;
-
-const SNOOZE_KEY = "pt_app_banner_snoozed_at"; // (2d) cho "Để sau"
+const SNOOZE_KEY = "pt_app_banner_snoozed_at";
 const SNOOZE_TTL_DAYS = 2;
-
-const INSTALLED_FLAG = "pt_app_native_installed"; // ghi nhớ cho iOS
+const INSTALLED_FLAG = "pt_app_native_installed";
 
 function daysToMs(d) {
   return d * 24 * 60 * 60 * 1000;
@@ -37,15 +38,8 @@ function daysToMs(d) {
 function shouldShowFromStorage() {
   try {
     const now = Date.now();
-
-    // 1) Snooze ngắn hạn (2 ngày)
     const s = parseInt(localStorage.getItem(SNOOZE_KEY) || "0", 10);
     if (s && now - s <= daysToMs(SNOOZE_TTL_DAYS)) return false;
-
-    // 2) Dismiss dài hạn (14 ngày) — hiện chưa set ở đâu, để sẵn nếu cần
-    const ts = parseInt(localStorage.getItem(DISMISS_KEY) || "0", 10);
-    if (ts && now - ts <= daysToMs(DISMISS_TTL_DAYS)) return false;
-
     return true;
   } catch {
     return true;
@@ -55,7 +49,7 @@ function shouldShowFromStorage() {
 async function detectInstalledAndroid(androidPackage) {
   try {
     if (!androidPackage) return false;
-    const nav = /** @type {any} */ (navigator);
+    const nav = navigator;
     if (typeof nav.getInstalledRelatedApps !== "function") return false;
     const apps = await nav.getInstalledRelatedApps();
     return !!apps?.find?.(
@@ -67,23 +61,22 @@ async function detectInstalledAndroid(androidPackage) {
 }
 
 export default function AppInstallBanner({ links }) {
+  const theme = useTheme();
   const { isAndroid, isIOS, isMobile, isStandalone } = detectPlatform();
   const [visible, setVisible] = useState(false);
   const [installed, setInstalled] = useState(false);
-  const barRef = useRef(null);
-  const [barH, setBarH] = useState(0);
 
   // inputs
   const hasIOS = !!links?.appStore;
   const hasAndroid = !!links?.playStore || !!links?.apkPickleTour;
-  const androidPackage = links?.androidPackage || ""; // ví dụ "com.pico.picoapp"
-  const deeplinkPath = links?.deeplinkPath || ""; // ví dụ "/u/123"
-  const domain = links?.domain || ""; // ví dụ "https://yourdomain.com"
+  const androidPackage = links?.androidPackage || "";
+  const deeplinkPath = links?.deeplinkPath || "";
+  const domain = links?.domain || "";
 
-  // logo trong public (ổn với mọi base của Vite)
+  // Logo
   const logoSrc = `${import.meta.env.BASE_URL}icon.png`;
 
-  // build deeplink chuẩn HTTPS (Universal/App Links)
+  // Deeplink
   const deeplinkUrl = useMemo(() => {
     if (!deeplinkPath) return "";
     if (deeplinkPath.startsWith("http")) return deeplinkPath;
@@ -91,7 +84,7 @@ export default function AppInstallBanner({ links }) {
     return `${host}${deeplinkPath.startsWith("/") ? "" : "/"}${deeplinkPath}`;
   }, [deeplinkPath, domain]);
 
-  // Store link fallback
+  // Store Href
   const storeHref = useMemo(() => {
     const utm =
       "utm_source=web-banner&utm_medium=smart-banner&utm_campaign=install";
@@ -107,7 +100,7 @@ export default function AppInstallBanner({ links }) {
     return "";
   }, [isIOS, isAndroid, hasIOS, hasAndroid, links]);
 
-  // Android intent URL (mở app nếu có, fallback về deeplink / store)
+  // Intent Href (Android)
   const intentHref = useMemo(() => {
     if (!isAndroid || !deeplinkPath || !androidPackage) return "";
     const pathNoSlash = deeplinkPath.startsWith("/")
@@ -119,7 +112,7 @@ export default function AppInstallBanner({ links }) {
     return `intent://${pathNoSlash}#Intent;scheme=https;package=${androidPackage};S.browser_fallback_url=${fallback};end`;
   }, [isAndroid, deeplinkPath, androidPackage, deeplinkUrl, storeHref]);
 
-  // === Ghi nhớ "đã có app" khi app redirect về web kèm flag (iOS workaround) ===
+  // Check flag installed
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     if (sp.get("from_app") === "1" || sp.get("app_installed") === "1") {
@@ -134,7 +127,7 @@ export default function AppInstallBanner({ links }) {
     } catch {}
   }, []);
 
-  // === Android: detect thật bằng getInstalledRelatedApps ===
+  // Check android api
   useEffect(() => {
     if (!isAndroid) return;
     detectInstalledAndroid(androidPackage).then((ok) => {
@@ -142,29 +135,23 @@ export default function AppInstallBanner({ links }) {
     });
   }, [isAndroid, androidPackage]);
 
-  // === Hiển thị banner khi đủ điều kiện ===
+  // Show condition
   useEffect(() => {
     const can =
       isMobile &&
       !isStandalone &&
       !!(storeHref || deeplinkUrl) &&
       shouldShowFromStorage();
-    setVisible(!!can);
-  }, [isMobile, isStandalone, storeHref, deeplinkUrl]);
 
-  // đo chiều cao spacer
-  useEffect(() => {
-    if (!visible) return;
-    const ro = new ResizeObserver(() => {
-      if (barRef.current) setBarH(barRef.current.offsetHeight || 0);
-    });
-    if (barRef.current) ro.observe(barRef.current);
-    return () => ro.disconnect();
-  }, [visible]);
+    // Delay nhỏ để animation mượt hơn khi mount
+    if (can) {
+      const t = setTimeout(() => setVisible(true), 500);
+      return () => clearTimeout(t);
+    }
+  }, [isMobile, isStandalone, storeHref, deeplinkUrl]);
 
   const onDismiss = () => {
     try {
-      // Snooze 2 ngày
       localStorage.setItem(SNOOZE_KEY, String(Date.now()));
     } catch (e) {
       console.log(e);
@@ -172,86 +159,106 @@ export default function AppInstallBanner({ links }) {
     setVisible(false);
   };
 
-  if (!visible) return null;
-
-  // Nút chính: nếu đã cài → "Mở" (iOS: deeplink, Android: intent)
-  // nếu chưa → "Tải" (đi store)
-  const primaryLabel = installed ? "Mở" : "Tải";
+  const primaryLabel = installed ? "Mở App" : "Tải App";
   const btnHref = installed
     ? (isAndroid ? intentHref || deeplinkUrl : deeplinkUrl) || storeHref
     : storeHref;
 
-  // iOS deeplink KHÔNG target để Universal Link hoạt động
   const btnTarget = installed && !isAndroid ? undefined : "_blank";
   const btnRel = btnTarget ? "noopener noreferrer" : undefined;
 
+  // Nếu không visible thì trả về null luôn để đỡ tốn DOM,
+  // nhưng dùng Collapse thì component vẫn render, chỉ height = 0.
+  // Ta return Collapse để có animation đẹp khi ẩn.
+
   return (
-    <>
-      <div
-        ref={barRef}
-        className="position-fixed top-0 start-0 end-0"
-        style={{
-          zIndex: 1050,
+    <Collapse in={visible} timeout="auto" unmountOnExit>
+      <Box
+        sx={{
+          position: "relative", // Quan trọng: relative để đẩy Header xuống
+          zIndex: 1200, // Cao hơn Header (thường là 1100)
           background: "linear-gradient(90deg, #111827, #0b1220)",
           color: "#fff",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.28)",
+          borderBottom: "1px solid rgba(255,255,255,0.1)",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
         }}
       >
-        <Container className="py-2">
-          <div className="d-flex align-items-center gap-3">
-            <img
-              className="align-self-start"
+        <Container maxWidth="xl" sx={{ py: 1.5 }}>
+          <Box display="flex" alignItems="center" gap={2}>
+            {/* Logo */}
+            <Box
+              component="img"
               src={logoSrc}
-              alt="PickleTour"
-              width={44}
-              height={44}
-              draggable={false}
-              style={{
-                borderRadius: 10,
-                background: "rgba(255,255,255,.08)",
+              alt="App Icon"
+              sx={{
+                width: 44,
+                height: 44,
+                borderRadius: 2,
+                bgcolor: "rgba(255,255,255,0.1)",
                 objectFit: "cover",
-                flex: "0 0 44px",
-                display: "block",
+                flexShrink: 0,
               }}
               onError={(e) => {
-                e.currentTarget.style.visibility = "hidden";
+                e.currentTarget.style.display = "none";
               }}
             />
-            <div className="flex-grow-1">
-              <div className="fw-semibold" style={{ lineHeight: 1.1 }}>
-                Cài đặt ứng dụng PickleTour
-              </div>
-              <div className="text-white-50 small">
-                Trải nghiệm mượt hơn, nhận thông báo & theo dõi giải đấu tức
-                thời.
-              </div>
-            </div>
-            <div className="d-flex align-items-center gap-2">
-              <a
-                href={btnHref || "#"}
+
+            {/* Content */}
+            <Box flexGrow={1} minWidth={0}>
+              <Typography variant="subtitle2" fontWeight={700} lineHeight={1.2}>
+                Trải nghiệm tốt hơn trên App
+              </Typography>
+              <Typography
+                variant="caption"
+                sx={{ color: "rgba(255,255,255,0.7)", display: "block" }}
+                noWrap
+              >
+                Thông báo, chấm trình & cập nhật tức thời.
+              </Typography>
+            </Box>
+
+            {/* Actions */}
+            <Box display="flex" alignItems="center" gap={1}>
+              <Button
+                variant="contained"
+                size="small"
+                href={btnHref}
                 target={btnTarget}
                 rel={btnRel}
-                className="btn btn-sm btn-light fw-semibold"
-                style={{ whiteSpace: "nowrap" }}
+                startIcon={!installed && <GetAppIcon fontSize="inherit" />}
+                sx={{
+                  bgcolor: "#fff",
+                  color: "#000",
+                  fontWeight: 700,
+                  textTransform: "none",
+                  borderRadius: 4,
+                  px: 2,
+                  whiteSpace: "nowrap",
+                  "&:hover": {
+                    bgcolor: "#e0e0e0",
+                  },
+                }}
               >
                 {primaryLabel}
-              </a>
-              <button
-                type="button"
-                className="btn btn-sm btn-outline-light"
+              </Button>
+
+              <IconButton
+                size="small"
                 onClick={onDismiss}
-                aria-label="Đóng"
-                title="Đóng"
-                style={{ whiteSpace: "nowrap" }}
+                sx={{
+                  color: "rgba(255,255,255,0.5)",
+                  "&:hover": {
+                    color: "#fff",
+                    bgcolor: "rgba(255,255,255,0.1)",
+                  },
+                }}
               >
-                Để sau
-              </button>
-            </div>
-          </div>
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          </Box>
         </Container>
-      </div>
-      {/* Spacer để tránh bị che nội dung */}
-      <div style={{ height: barH }} />
-    </>
+      </Box>
+    </Collapse>
   );
 }

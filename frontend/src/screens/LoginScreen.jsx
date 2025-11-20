@@ -2,28 +2,43 @@
 import { useState, useEffect } from "react";
 import { Link as RouterLink, useNavigate } from "react-router-dom";
 import {
-  Container,
   Box,
   TextField,
   Typography,
   Button,
-  Grid,
   CircularProgress,
-  Paper,
   Link,
+  Paper,
+  InputAdornment,
+  IconButton,
+  Container,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
+import {
+  Phone as PhoneIcon,
+  Lock as LockIcon,
+  Visibility,
+  VisibilityOff,
+} from "@mui/icons-material";
 import { useDispatch, useSelector } from "react-redux";
 import { useLoginMutation } from "../slices/usersApiSlice";
 import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
 import apiSlice from "../slices/apiSlice";
 
+// Path đến logo
+const WEB_LOGO_PATH = "/icon.png";
+
 export default function LoginScreen() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [login, { isLoading }] = useLoginMutation();
   const { userInfo } = useSelector((state) => state.auth);
@@ -45,78 +60,201 @@ export default function LoginScreen() {
   };
 
   return (
-    <Container component="main" maxWidth="xs">
-      <Box
-        component={Paper}
-        elevation={3}
-        sx={{
-          p: 4,
-          mt: 8,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-        }}
+    <Box
+      sx={{
+        minHeight: "100vh",
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        p: 2,
+      }}
+    >
+      <Container
+        maxWidth={isMobile ? "sm" : "xs"}
+        sx={{ px: isMobile ? 1 : 3 }}
       >
-        <Typography component="h1" variant="h5" fontWeight={600} mb={2}>
-          Đăng nhập
-        </Typography>
+        <Paper
+          elevation={24}
+          sx={{
+            p: isMobile ? 3 : 4,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            // Hiệu ứng Glassmorphism
+            background: "rgba(255, 255, 255, 0.85)",
+            backdropFilter: "blur(20px)",
+            borderRadius: "24px",
+            border: "1px solid rgba(255, 255, 255, 0.5)",
+            boxShadow: "0 8px 32px 0 rgba(31, 38, 135, 0.37)",
+          }}
+        >
+          {/* --- LOGO ĐÃ SỬA --- */}
+          <Box sx={{ mb: 3, display: "flex", justifyContent: "center" }}>
+            <img
+              src={WEB_LOGO_PATH}
+              alt="Logo"
+              style={{
+                // Kích thước logo (Mobile to hơn chút cho rõ, Desktop vừa phải)
+                width: isMobile ? "100px" : "120px",
+                height: isMobile ? "100px" : "120px",
+                objectFit: "contain", // Giữ nguyên tỉ lệ ảnh
+                borderRadius: "20px", // Bo góc logo (tùy chỉnh độ bo ở đây)
+                // Thêm bóng đổ nhẹ cho logo nổi lên 1 chút (tùy chọn)
+                filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.15))",
+              }}
+            />
+          </Box>
+          {/* ------------------- */}
 
-        <Box component="form" onSubmit={submitHandler} sx={{ width: "100%" }}>
-          <TextField
-            margin="normal"
-            required
-            fullWidth
-            id="phone"
-            label="Số điện thoại"
-            name="phone"
-            autoComplete="tel"
-            autoFocus
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-          />
-
-          <TextField
-            margin="normal"
-            required
-            fullWidth
-            name="password"
-            label="Mật khẩu"
-            type="password"
-            id="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-
-          <Button
-            type="submit"
-            fullWidth
-            variant="contained"
-            size="large"
-            sx={{ mt: 3, mb: 2 }}
-            disabled={isLoading}
+          <Typography
+            component="h1"
+            variant={isMobile ? "h5" : "h4"}
+            fontWeight="800"
+            color="#333"
+            sx={{ mb: 1 }}
+            align="center"
           >
-            {isLoading ? <CircularProgress size={24} /> : "Đăng nhập"}
-          </Button>
+            Chào mừng bạn trở lại Pickletour!
+          </Typography>
+          <Typography
+            variant={isMobile ? "body2" : "body1"}
+            color="text.secondary"
+            sx={{ mb: 4, textAlign: "center" }}
+          >
+            Đăng nhập hệ thống
+          </Typography>
 
-          <Grid container alignItems="center" justifyContent="space-between">
-            <Grid item>
+          <Box component="form" onSubmit={submitHandler} sx={{ width: "100%" }}>
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              id="phone"
+              label="Số điện thoại"
+              name="phone"
+              autoComplete="tel"
+              autoFocus
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: "12px",
+                  backgroundColor: "rgba(255,255,255,0.5)",
+                },
+              }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <PhoneIcon color="primary" />
+                  </InputAdornment>
+                ),
+              }}
+            />
+
+            <TextField
+              margin="normal"
+              required
+              fullWidth
+              name="password"
+              label="Mật khẩu"
+              type={showPassword ? "text" : "password"}
+              id="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: "12px",
+                  backgroundColor: "rgba(255,255,255,0.5)",
+                },
+              }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <LockIcon color="primary" />
+                  </InputAdornment>
+                ),
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowPassword(!showPassword)}
+                      edge="end"
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
+            />
+
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              size="large"
+              sx={{
+                mt: 4,
+                mb: 3,
+                py: 1.5,
+                borderRadius: "12px",
+                fontSize: "1rem",
+                fontWeight: "bold",
+                textTransform: "none",
+                background: "linear-gradient(45deg, #667eea 30%, #764ba2 90%)",
+                boxShadow: "0 3px 5px 2px rgba(100, 105, 255, .3)",
+                transition: "transform 0.2s",
+                "&:hover": {
+                  background:
+                    "linear-gradient(45deg, #5a6fd6 30%, #6b4295 90%)",
+                  transform: "scale(1.02)",
+                },
+              }}
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : (
+                "Đăng nhập"
+              )}
+            </Button>
+
+            <Box
+              display="flex"
+              justifyContent="space-between"
+              width="100%"
+              mt={1}
+              flexDirection={isMobile ? "column" : "row"}
+            >
               <Link
                 component={RouterLink}
                 to="/forgot-password"
-                underline="hover"
+                variant="body2"
+                sx={{
+                  textDecoration: "none",
+                  color: "#667eea",
+                  fontWeight: 600,
+                  mb: isMobile ? 1 : 0,
+                }}
               >
                 Quên mật khẩu?
               </Link>
-            </Grid>
-            <Grid item>
-              <Link component={RouterLink} to="/register" underline="hover">
-                Chưa có tài khoản? Đăng ký ngay
+              <Link
+                component={RouterLink}
+                to="/register"
+                variant="body2"
+                sx={{
+                  textDecoration: "none",
+                  color: "#764ba2",
+                  fontWeight: 600,
+                }}
+              >
+                Đăng ký mới
               </Link>
-            </Grid>
-          </Grid>
-        </Box>
-      </Box>
-    </Container>
+            </Box>
+          </Box>
+        </Paper>
+      </Container>
+    </Box>
   );
 }

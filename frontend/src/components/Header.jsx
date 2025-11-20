@@ -18,24 +18,23 @@ import {
   Tooltip,
   useTheme,
   useMediaQuery,
-  Badge,
+  Container,
+  Divider,
+  alpha,
 } from "@mui/material";
 
 import {
   ArrowBackIosNew as BackIcon,
-  Login as LoginIcon,
-  HowToReg as HowToRegIcon,
+  PersonAdd as PersonAddIcon,
+  FiberManualRecord as LiveDotIcon,
 } from "@mui/icons-material";
+
 import { useGetLiveMatchesQuery } from "../slices/liveApiSlice";
 
-// ⭐ NEW: hook lấy danh sách live để hiện badge
-// import { useGetLiveMatchesQuery } from "../features/live/liveApiSlice";
-
-/* ================== Cấu hình ================== */
-// Nav Pickleball (desktop)
+/* ================== Cấu hình & Constants ================== */
 const navConfig = [
   {
-    label: "Pickle Ball",
+    label: "Pickleball",
     submenu: [
       { label: "Giải đấu", path: "/pickle-ball/tournaments" },
       { label: "Điểm trình", path: "/pickle-ball/rankings" },
@@ -43,9 +42,16 @@ const navConfig = [
   },
 ];
 
-// Badge "Mới" cho Câu lạc bộ: 05/10/2025 → 05/11/2025 (giờ trình duyệt)
-const CLUB_BADGE_START = new Date(2025, 9, 5, 0, 0, 0, 0); // Tháng 10 = 9
-const CLUB_BADGE_END = new Date(2025, 10, 5, 23, 59, 59, 999); // Tháng 11 = 10
+const CLUB_BADGE_START = new Date(2025, 9, 5, 0, 0, 0, 0);
+const CLUB_BADGE_END = new Date(2025, 10, 5, 23, 59, 59, 999);
+
+const pulseKeyframes = {
+  "@keyframes pulse": {
+    "0%": { boxShadow: "0 0 0 0 rgba(255, 68, 68, 0.7)" },
+    "70%": { boxShadow: "0 0 0 6px rgba(255, 68, 68, 0)" },
+    "100%": { boxShadow: "0 0 0 0 rgba(255, 68, 68, 0)" },
+  },
+};
 
 const Header = () => {
   const location = useLocation();
@@ -64,17 +70,19 @@ const Header = () => {
   const BOTTOM_NAV_TABS = useMemo(
     () =>
       new Set([
-        "/", // Trang chủ
+        "/",
         "/pickle-ball/tournaments",
         "/pickle-ball/rankings",
         "/my-tournaments",
         "/profile",
+        "/clubs",
       ]),
     []
   );
-  const isOnBottomNavTab = BOTTOM_NAV_TABS.has(location.pathname);
+  // Logic cũ: Nếu không phải tab chính thì hiện nút back
+  const showBackButton =
+    isMobile && canGoBack && !BOTTOM_NAV_TABS.has(location.pathname);
 
-  // Menu người dùng (desktop)
   const [userAnchor, setUserAnchor] = useState(null);
   const openUserMenu = (e) => setUserAnchor(e.currentTarget);
   const closeUserMenu = () => setUserAnchor(null);
@@ -90,7 +98,6 @@ const Header = () => {
     }
   };
 
-  // Tính toán khả năng back mỗi khi đổi route
   useEffect(() => {
     try {
       const st = window.history?.state;
@@ -104,12 +111,10 @@ const Header = () => {
     }
   }, [location.key]);
 
-  // Đóng user menu khi đổi route/đổi trạng thái đăng nhập
   useEffect(() => {
     setUserAnchor(null);
   }, [location.pathname, !!userInfo]);
 
-  // Avatar initial
   const avatarInitial =
     (userInfo?.name || userInfo?.nickname || userInfo?.email || "?")
       .toString()
@@ -117,238 +122,409 @@ const Header = () => {
       .charAt(0)
       .toUpperCase() || "?";
 
-  // Hiển thị badge "Mới" cho Câu lạc bộ trong khoảng thời gian cấu hình
   const showClubNewBadge = useMemo(() => {
     const now = new Date();
     return now >= CLUB_BADGE_START && now <= CLUB_BADGE_END;
   }, []);
 
-  // ⭐ NEW: gọi API đếm số trận live (strict verify ở BE)
   const liveQueryArgs = {
     keyword: "",
     page: 0,
-    limit: 1, // chỉ cần đếm, dữ liệu trình bày ở trang /live
+    limit: 1,
     statuses: "scheduled,queued,assigned,live",
     excludeFinished: true,
     windowMs: 8 * 3600 * 1000,
   };
   const { data: liveData } = useGetLiveMatchesQuery(liveQueryArgs, {
-    pollingInterval: 15000, // 15s tự cập nhật badge
+    pollingInterval: 15000,
     refetchOnFocus: true,
     refetchOnReconnect: true,
   });
   const liveCount = liveData?.rawCount ?? 0;
 
+  // --- Helper: Kiểm tra Active Tab ---
+  const isActive = (path) => {
+    if (path === "/" && location.pathname !== "/") return false;
+    return location.pathname.startsWith(path);
+  };
+
+  // --- Style cho Nav Button (có trạng thái Active) ---
+  const getNavButtonStyle = (path) => {
+    const active = isActive(path);
+    return {
+      color: active ? theme.palette.primary.main : "text.primary",
+      bgcolor: active ? alpha(theme.palette.primary.main, 0.08) : "transparent",
+      textTransform: "none",
+      fontWeight: active ? 700 : 600,
+      fontSize: "0.95rem",
+      borderRadius: "8px",
+      px: 1.5,
+      py: 0.8,
+      "&:hover": {
+        backgroundColor: alpha(theme.palette.primary.main, 0.12),
+        color: theme.palette.primary.main,
+      },
+      transition: "all 0.2s",
+    };
+  };
+
   return (
-    <AppBar position="static" color="primary" elevation={2}>
-      <Toolbar sx={{ px: { xs: 2, sm: 3 }, justifyContent: "space-between" }}>
-        {/* Trái: Back (mobile) + Logo + Nav desktop */}
-        <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
-          {isMobile && canGoBack && !isOnBottomNavTab && (
-            <IconButton
-              aria-label="Quay lại"
-              edge="start"
-              onClick={() => navigate(-1)}
-              sx={{
-                mr: 0.5,
-                color: "inherit",
-                p: 1,
-                "& .MuiSvgIcon-root": { fontSize: 18 },
-              }}
-            >
-              <BackIcon />
-            </IconButton>
-          )}
-
-          <Typography
-            variant="h6"
-            component={Link}
-            to="/"
-            sx={{ textDecoration: "none", color: "inherit", fontWeight: 700 }}
-          >
-            PickleTour
-          </Typography>
-
-          {/* Nav links trực tiếp (desktop) */}
+    <AppBar
+      position="sticky"
+      elevation={0}
+      sx={{
+        backgroundColor: "rgba(255, 255, 255, 0.9)",
+        backdropFilter: "blur(12px)",
+        borderBottom: "1px solid",
+        borderColor: "divider",
+        top: 0,
+        zIndex: 1300,
+        ...pulseKeyframes,
+      }}
+    >
+      <Container maxWidth="xl">
+        {/* relative để căn chỉnh absolute cho nút Back trên mobile */}
+        <Toolbar
+          disableGutters
+          sx={{
+            justifyContent: "space-between",
+            height: { xs: 56, md: 64 },
+            position: "relative",
+          }}
+        >
+          {/* === LEFT & CENTER LOGO === */}
           <Box
             sx={{
-              display: { xs: "none", md: "flex" },
-              gap: 1,
+              display: "flex",
               alignItems: "center",
+              width: { xs: "100%", md: "auto" },
             }}
           >
-            {navConfig
-              .flatMap((item) => item.submenu)
-              .map((sub) => (
-                <Button
-                  key={sub.path}
-                  component={Link}
-                  to={sub.path}
-                  sx={{ color: "white", textTransform: "none" }}
-                >
-                  {sub.label}
-                </Button>
-              ))}
+            {/* Mobile Back Button (Absolute Left) */}
+            {showBackButton && (
+              <IconButton
+                aria-label="Quay lại"
+                onClick={() => navigate(-1)}
+                size="small"
+                sx={{
+                  position: "absolute",
+                  left: 0,
+                  color: "text.primary",
+                  p: 1,
+                }}
+              >
+                <BackIcon fontSize="small" />
+              </IconButton>
+            )}
 
-            {userInfo && (
-              <>
-                <Button
-                  component={Link}
-                  to="/my-tournaments"
-                  sx={{ color: "white", textTransform: "none" }}
-                >
-                  Giải của tôi
-                </Button>
+            {/* Logo: Desktop (Left) vs Mobile (Center) */}
+            <Link
+              to="/"
+              style={{
+                textDecoration: "none",
+                flexGrow: isMobile ? 1 : 0, // Mobile: chiếm hết chỗ để text-align center hoạt động
+                textAlign: isMobile ? "center" : "left", // Mobile: Căn giữa
+                display: "block",
+              }}
+            >
+              <Typography
+                variant="h5"
+                sx={{
+                  fontWeight: 800,
+                  background:
+                    "linear-gradient(45deg, #0d6efd 30%, #0dcaf0 90%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  letterSpacing: "-0.5px",
+                  fontSize: { xs: "1.35rem", md: "1.5rem" },
+                  // Đảm bảo logo không bị lệch do nút back
+                  mr: isMobile && showBackButton ? 4 : 0,
+                  ml: isMobile && showBackButton ? 4 : 0,
+                }}
+              >
+                PickleTour
+              </Typography>
+            </Link>
 
-                {showClubNewBadge ? (
-                  <Badge
-                    color="error"
-                    badgeContent="Mới"
-                    overlap="rectangular"
-                    sx={{
-                      "& .MuiBadge-badge": {
-                        right: -6,
-                        top: -2,
-                        fontSize: 10,
-                        height: 16,
-                        minWidth: 22,
-                        px: 0.5,
-                        fontWeight: 700,
-                        textTransform: "none",
-                        pointerEvents: "none",
-                      },
-                    }}
+            {/* Desktop Divider */}
+            <Divider
+              orientation="vertical"
+              flexItem
+              sx={{
+                mx: 2,
+                height: 24,
+                alignSelf: "center",
+                display: { xs: "none", md: "block" },
+              }}
+            />
+
+            {/* === DESKTOP NAV LINKS === */}
+            <Box
+              sx={{
+                display: { xs: "none", md: "flex" },
+                gap: 0.5,
+                alignItems: "center",
+              }}
+            >
+              {navConfig
+                .flatMap((item) => item.submenu)
+                .map((sub) => (
+                  <Button
+                    key={sub.path}
+                    component={Link}
+                    to={sub.path}
+                    sx={getNavButtonStyle(sub.path)}
                   >
+                    {sub.label}
+                  </Button>
+                ))}
+
+              {userInfo && (
+                <>
+                  <Button
+                    component={Link}
+                    to="/my-tournaments"
+                    sx={getNavButtonStyle("/my-tournaments")}
+                  >
+                    Giải của tôi
+                  </Button>
+
+                  <Box sx={{ position: "relative" }}>
                     <Button
                       component={Link}
                       to="/clubs"
-                      sx={{ color: "white", textTransform: "none" }}
-                      aria-label="Câu lạc bộ (tính năng mới)"
+                      sx={getNavButtonStyle("/clubs")}
                     >
                       Câu lạc bộ
                     </Button>
-                  </Badge>
-                ) : (
-                  <Button
-                    component={Link}
-                    to="/clubs"
-                    sx={{ color: "white", textTransform: "none" }}
-                  >
-                    Câu lạc bộ
-                  </Button>
-                )}
-              </>
-            )}
-            {/* ⭐ NEW: Nút Trực tiếp + badge (ẩn khi = 0) */}
-            <Button
-              component={Link}
-              to="/live"
-              sx={{ color: "white", textTransform: "none" }}
-              aria-label="Trực tiếp"
-            >
-              <Badge
-                color="error"
-                overlap="rectangular"
-                badgeContent={liveCount > 99 ? "99+" : liveCount}
-                invisible={liveCount === 0}
+                    {showClubNewBadge && (
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          top: -2,
+                          right: -4,
+                          bgcolor: "error.main",
+                          color: "white",
+                          fontSize: "0.6rem",
+                          fontWeight: 700,
+                          px: 0.6,
+                          py: 0,
+                          borderRadius: "4px",
+                          pointerEvents: "none",
+                        }}
+                      >
+                        NEW
+                      </Box>
+                    )}
+                  </Box>
+                </>
+              )}
+
+              {/* LIVE BUTTON */}
+              <Button
+                component={Link}
+                to="/live"
                 sx={{
-                  "& .MuiBadge-badge": {
-                    right: -10,
-                    top: -8,
-                    fontSize: 10,
-                    height: 16,
-                    minWidth: 22,
-                    px: 0.5,
-                    fontWeight: 700,
+                  ...getNavButtonStyle("/live"),
+                  color: isActive("/live")
+                    ? "#d32f2f"
+                    : liveCount > 0
+                    ? "#d32f2f"
+                    : "text.secondary",
+                  bgcolor: isActive("/live")
+                    ? alpha("#d32f2f", 0.08)
+                    : "transparent",
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 0.5,
+                  "&:hover": {
+                    backgroundColor: alpha("#d32f2f", 0.12),
+                    color: "#d32f2f",
                   },
                 }}
               >
+                {liveCount > 0 && (
+                  <LiveDotIcon
+                    sx={{
+                      fontSize: 12,
+                      color: "#d32f2f",
+                      animation: "pulse 1.5s infinite",
+                    }}
+                  />
+                )}
                 Live
-              </Badge>
-            </Button>
-
-            {isAdmin && (
-              <Button
-                component={Link}
-                to="/admin"
-                sx={{ color: "white", textTransform: "none" }}
-              >
-                Quản trị
+                {liveCount > 0 && (
+                  <Box
+                    component="span"
+                    sx={{
+                      ml: 0.5,
+                      bgcolor: "#ffebee",
+                      color: "#c62828",
+                      px: 0.8,
+                      borderRadius: "10px",
+                      fontSize: "0.75rem",
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {liveCount > 99 ? "99+" : liveCount}
+                  </Box>
+                )}
               </Button>
-            )}
-          </Box>
-        </Box>
 
-        {/* Phải: User controls (desktop). Mobile: ẩn menu */}
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-          {userInfo ? (
-            <>
-              {/* Avatar + dropdown (ẩn trên mobile) */}
-              <Box sx={{ display: { xs: "none", md: "inline-flex" } }}>
+              {isAdmin && (
+                <Button
+                  component={Link}
+                  to="/admin"
+                  sx={getNavButtonStyle("/admin")}
+                >
+                  Admin
+                </Button>
+              )}
+            </Box>
+          </Box>
+
+          {/* === RIGHT: User Controls (DESKTOP ONLY) === */}
+          {/* Ẩn hoàn toàn trên Mobile theo yêu cầu */}
+          <Box
+            sx={{
+              display: { xs: "none", md: "flex" },
+              alignItems: "center",
+              gap: 1.5,
+            }}
+          >
+            {userInfo ? (
+              <>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                  {/* Chỉ hiện Nickname, bỏ Role */}
+                  <Typography
+                    variant="subtitle2"
+                    fontWeight={600}
+                    sx={{ lineHeight: 1.2 }}
+                  >
+                    {userInfo.nickname || userInfo.name}
+                  </Typography>
+                </Box>
+
                 <Tooltip title="Tài khoản">
                   <IconButton
                     onClick={openUserMenu}
-                    sx={{ p: 0 }}
-                    aria-haspopup="menu"
-                    aria-controls={
-                      Boolean(userAnchor) ? "user-menu" : undefined
-                    }
-                    aria-expanded={Boolean(userAnchor) ? "true" : undefined}
+                    sx={{
+                      p: 0.5,
+                      border: "2px solid",
+                      borderColor: "transparent",
+                      "&:hover": {
+                        borderColor: alpha(theme.palette.primary.main, 0.2),
+                      },
+                      transition: "all 0.2s",
+                    }}
                   >
-                    <Avatar alt={userInfo?.name} src={userInfo?.avatar || ""}>
+                    <Avatar
+                      alt={userInfo?.name}
+                      src={userInfo?.avatar || ""}
+                      sx={{
+                        width: 36,
+                        height: 36,
+                        bgcolor: theme.palette.primary.main,
+                        fontSize: "0.9rem",
+                        fontWeight: 700,
+                      }}
+                    >
                       {avatarInitial}
                     </Avatar>
                   </IconButton>
                 </Tooltip>
-              </Box>
 
-              {/* Chỉ render Menu khi có anchor (tránh rơi về (0,0)) */}
-              {Boolean(userAnchor) && (
                 <Menu
-                  id="user-menu"
                   anchorEl={userAnchor}
-                  open
+                  open={Boolean(userAnchor)}
                   onClose={closeUserMenu}
-                  anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-                  transformOrigin={{ vertical: "top", horizontal: "right" }}
+                  PaperProps={{
+                    elevation: 0,
+                    sx: {
+                      overflow: "visible",
+                      filter: "drop-shadow(0px 5px 15px rgba(0,0,0,0.1))",
+                      mt: 1.5,
+                      minWidth: 180,
+                      "& .MuiAvatar-root": {
+                        width: 32,
+                        height: 32,
+                        ml: -0.5,
+                        mr: 1,
+                      },
+                      "&:before": {
+                        content: '""',
+                        display: "block",
+                        position: "absolute",
+                        top: 0,
+                        right: 14,
+                        width: 10,
+                        height: 10,
+                        bgcolor: "background.paper",
+                        transform: "translateY(-50%) rotate(45deg)",
+                        zIndex: 0,
+                      },
+                    },
+                  }}
+                  transformOrigin={{ horizontal: "right", vertical: "top" }}
+                  anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
                 >
                   <MenuItem
                     component={Link}
                     to="/profile"
                     onClick={closeUserMenu}
+                    sx={{ fontWeight: 500 }}
                   >
-                    Tài khoản của tôi
+                    Hồ sơ cá nhân
                   </MenuItem>
-                  <MenuItem onClick={logoutHandler}>Đăng xuất</MenuItem>
+                  <Divider />
+                  <MenuItem
+                    onClick={logoutHandler}
+                    sx={{ color: "error.main", fontWeight: 500 }}
+                  >
+                    Đăng xuất
+                  </MenuItem>
                 </Menu>
-              )}
-            </>
-          ) : (
-            // Nút đăng nhập/đăng ký (desktop)
-            <Box sx={{ display: { xs: "none", md: "flex" }, gap: 1 }}>
-              <Button
-                component={Link}
-                to="/login"
-                startIcon={<LoginIcon />}
-                variant="outlined"
-                color="inherit"
-              >
-                Đăng nhập
-              </Button>
-              <Button
-                component={Link}
-                to="/register"
-                startIcon={<HowToRegIcon />}
-                variant="contained"
-                color="secondary"
-              >
-                Đăng ký
-              </Button>
-            </Box>
-          )}
-          {/* ❌ Không có hamburger / mobile menu */}
-        </Box>
-      </Toolbar>
+              </>
+            ) : (
+              // Desktop Auth Buttons
+              <Box sx={{ display: "flex", gap: 1 }}>
+                <Button
+                  component={Link}
+                  to="/login"
+                  variant="text"
+                  sx={{
+                    borderRadius: "50px",
+                    fontWeight: 600,
+                    color: "text.primary",
+                    px: 2.5,
+                    textTransform: "none",
+                  }}
+                >
+                  Đăng nhập
+                </Button>
+                <Button
+                  component={Link}
+                  to="/register"
+                  variant="contained"
+                  startIcon={<PersonAddIcon fontSize="small" />}
+                  sx={{
+                    borderRadius: "50px",
+                    fontWeight: 700,
+                    boxShadow: "0 4px 12px rgba(13, 110, 253, 0.25)",
+                    background:
+                      "linear-gradient(45deg, #212121 30%, #424242 90%)",
+                    px: 2.5,
+                    textTransform: "none",
+                  }}
+                >
+                  Đăng ký
+                </Button>
+              </Box>
+            )}
+          </Box>
+        </Toolbar>
+      </Container>
     </AppBar>
   );
 };

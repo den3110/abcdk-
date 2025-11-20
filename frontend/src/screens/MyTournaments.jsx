@@ -1168,8 +1168,10 @@ export default function MyTournamentsPage() {
       <Box
         sx={{
           position: "sticky",
-          top: 0,
-          zIndex: (t) => t.zIndex.appBar,
+          // cao AppBar: xs ~56px, md+ ~64px
+          top: { xs: 56, md: 64 },
+          // thấp hơn Header một lớp, vẫn nằm trên content
+          zIndex: (t) => t.zIndex.appBar - 1,
           backdropFilter: "saturate(180%) blur(6px)",
           bgcolor: (t) =>
             t.palette.mode === "dark"

@@ -213,7 +213,7 @@ export default function ClubsListPage() {
           >
             <Box>
               <Typography
-                variant="h4"
+                variant="h5"
                 fontWeight={800}
                 sx={{
                   background:

@@ -743,7 +743,11 @@ const HtmlPreviewSection = ({ title, html, mtOnMobile = false }) => {
 
         {hasMore && (
           <Box sx={{ mt: 1, textAlign: "left" }}>
-            <Button size="small" variant="contained" onClick={() => setOpen(true)}>
+            <Button
+              size="small"
+              variant="contained"
+              onClick={() => setOpen(true)}
+            >
               Xem thêm
             </Button>
           </Box>
@@ -1214,7 +1218,7 @@ export default function TournamentRegistration() {
   const isDoubles = evType === "double";
   const cap = useMemo(() => getScoreCap(tour, isSingles), [tour, isSingles]);
   const delta = useMemo(() => getMaxDelta(tour), [tour]);
-  console.log(tour)
+  console.log(tour);
   const isManager = useMemo(() => {
     if (!isLoggedIn || !tour) return false;
     if (String(tour.createdBy) === String(me._id)) return true;
@@ -1235,7 +1239,7 @@ export default function TournamentRegistration() {
   );
 
   const canManage = isLoggedIn && (isManager || isAdmin);
-  console.log(isManager)
+  console.log(isManager);
 
   const location = useLocation();
   const drawPath = useMemo(() => {
@@ -1580,6 +1584,32 @@ export default function TournamentRegistration() {
     []
   );
 
+  // Sinh mã giải từ tên giải: lấy chữ cái đầu của từng từ + chữ số đầu tiên
+  const buildTourCode = useCallback(
+    (name) => {
+      const clean = normalizeNoAccent(name || "").toUpperCase();
+      if (!clean) return "";
+
+      const tokens = clean.split(" ").filter(Boolean);
+      const initials = [];
+
+      for (const token of tokens) {
+        // Nếu token bắt đầu bằng số → lấy chữ số đầu tiên
+        if (/^\d/.test(token)) {
+          const m = token.match(/\d/);
+          if (m) initials.push(m[0]);
+        } else if (/^[A-Z0-9]/.test(token[0])) {
+          // Token chữ → lấy ký tự đầu
+          initials.push(token[0]);
+        }
+      }
+
+      // Giữ mã gọn (tối đa 8 ký tự)
+      return initials.join("").slice(0, 8);
+    },
+    [normalizeNoAccent]
+  );
+
   const getQrProviderConfig = useCallback(() => {
     const bank =
       tour?.bankShortName ||
@@ -1606,8 +1636,16 @@ export default function TournamentRegistration() {
       const ph = maskPhone(
         r?.player1?.phone || r?.player2?.phone || me?.phone || ""
       );
+
+      // Mã giải: lấy chữ cái đầu từ tên giải (không dấu), fallback về đuôi id nếu thiếu
+      const tourCode =
+        buildTourCode(tour?.name) ||
+        String(id || "")
+          .slice(-4)
+          .toUpperCase();
+
       const des = normalizeNoAccent(
-        `Ma giai ${id} Ma dang ky ${code} SDT ${ph}`
+        `Ma giai ${tourCode} Ma dang ky ${code} SDT ${ph}`
       );
 
       const params = new URLSearchParams({
@@ -1622,7 +1660,16 @@ export default function TournamentRegistration() {
 
       return `https://qr.sepay.vn/img?${params.toString()}`;
     },
-    [getQrProviderConfig, regCodeOf, maskPhone, normalizeNoAccent, me, id, tour]
+    [
+      getQrProviderConfig,
+      regCodeOf,
+      maskPhone,
+      normalizeNoAccent,
+      buildTourCode,
+      me,
+      id,
+      tour,
+    ]
   );
 
   const openComplaint = useCallback(

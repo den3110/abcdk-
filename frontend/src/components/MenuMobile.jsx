@@ -162,7 +162,7 @@ export default function MobileBottomNav() {
 
           // ✅ Hiệu ứng Liquid Glass và Bo tròn 50%
           borderRadius: 9999, // ✅ Tạo hình viên thuốc hoàn hảo (bo tròn 50%)
-          background: alpha(theme.palette.background.paper, 0.1), // Nền trong suốt hơn
+          background: alpha(theme.palette.background.paper, 0.2), // Nền trong suốt hơn
           backdropFilter: "blur(30px) saturate(1.8)", // ✅ Tăng blur và saturate để giống iOS hơn
           WebkitBackdropFilter: "blur(30px) saturate(1.8)", // Safari support
           border: `1px solid ${alpha(theme.palette.divider, 0.15)}`, // Viền nhẹ
