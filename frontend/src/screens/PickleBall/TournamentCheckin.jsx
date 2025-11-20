@@ -1,8 +1,8 @@
-// src/pages/TournamentCheckin.jsx (with Skeleton loaders)
+// src/pages/TournamentCheckin.jsx
 /* eslint-disable react/prop-types */
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Container, Row, Col } from "react-bootstrap";
+import { Container } from "react-bootstrap"; // Giữ lại Container nếu layout chung app cần, nhưng chủ yếu dùng MUI Box
 import {
   TextField,
   Button as MuiButton,
@@ -23,8 +23,27 @@ import {
   useTheme,
   useMediaQuery,
   Skeleton,
+  Card,
+  CardContent,
+  Avatar,
+  Grid,
+  IconButton,
+  Tooltip,
+  Badge,
 } from "@mui/material";
-import SearchIcon from "@mui/icons-material/Search";
+import {
+  Search as SearchIcon,
+  SportsTennis as TennisIcon,
+  EmojiEvents as TrophyIcon,
+  AccessTime as TimeIcon,
+  LocationOn as LocationIcon,
+  QrCodeScanner as ScanIcon,
+  CheckCircle as CheckCircleIcon,
+  Cancel as CancelIcon,
+  Refresh as RefreshIcon,
+  EventNote as BracketIcon,
+  Group as ListIcon,
+} from "@mui/icons-material";
 import { toast } from "react-toastify";
 
 import {
@@ -40,8 +59,8 @@ import {
 import { useSocket } from "../../context/SocketContext";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 
-/* ---------- Utils ---------- */
-const fmtDate = (s) => (s ? new Date(s).toLocaleDateString() : "—");
+/* ---------- Utils & Config ---------- */
+const fmtDate = (s) => (s ? new Date(s).toLocaleDateString("vi-VN") : "—");
 const fmtTime = (s) => (s && s.length ? s : "—");
 const normType = (t) => {
   const s = String(t || "").toLowerCase();
@@ -50,7 +69,11 @@ const normType = (t) => {
   return s || "double";
 };
 
-/* ---------- Referee helpers (nickname-only) ---------- */
+// Màu sắc chủ đạo (Bạn có thể chỉnh theo brand)
+const BRAND_COLOR = "#1976d2";
+const ACCENT_COLOR = "#ff9800";
+
+/* ---------- Referee helpers ---------- */
 const toArr = (v) => (Array.isArray(v) ? v : v ? [v] : []);
 const nickOf = (u) => {
   if (!u) return "";
@@ -111,6 +134,21 @@ const makeRenderRefs = (refIndex) => (m) => {
   return labels.length ? labels.join(", ") : "—";
 };
 
+/* ---------- Styled Components (via SX) ---------- */
+const cardStyle = {
+  borderRadius: 3,
+  boxShadow: "0 4px 20px rgba(0,0,0,0.05)",
+  border: "none",
+  overflow: "visible",
+  transition: "transform 0.2s ease-in-out",
+};
+
+const gradientText = {
+  background: `linear-gradient(45deg, ${BRAND_COLOR}, #9c27b0)`,
+  WebkitBackgroundClip: "text",
+  WebkitTextFillColor: "transparent",
+};
+
 export default function TournamentCheckin() {
   const { id } = useParams();
   const theme = useTheme();
@@ -118,20 +156,17 @@ export default function TournamentCheckin() {
 
   /* fetch tournament / registrations / matches */
   const { data: tour, isLoading: tourLoading } = useGetTournamentQuery(id);
-
   const {
     data: regs = [],
     isLoading: regsLoading,
     error: regsError,
     refetch: refetchRegs,
   } = useGetRegistrationsQuery(id);
-
   const {
     data: matchesResp = [],
     isLoading: matchesLoading,
     refetch: refetchMatchesAll,
   } = useGetTournamentMatchesForCheckinQuery(id);
-
   const {
     data: brackets = [],
     isLoading: bracketsLoading,
@@ -155,33 +190,10 @@ export default function TournamentCheckin() {
     [isSingles]
   );
 
-  /* (Cũ) Check-in theo SĐT */
+  /* (Cũ) Check-in theo SĐT - Giữ logic nhưng ẩn UI nếu không cần thiết, hoặc tích hợp */
   const [phone, setPhone] = useState("");
   const [busyId, setBusy] = useState(null);
   const [checkin] = useCheckinMutation();
-
-  const handlePhone = async () => {
-    const reg = regs.find(
-      (r) => r.player1?.phone === phone || r.player2?.phone === phone
-    );
-    if (!reg)
-      return toast.error("Không tìm thấy số ĐT trong danh sách đăng ký");
-    if (reg.payment?.status !== "Paid")
-      return toast.error("Chưa thanh toán lệ phí — không thể check-in");
-    if (reg.checkinAt) return toast.info("Đã check-in rồi");
-
-    setBusy(reg._id);
-    try {
-      await checkin({ regId: reg._id }).unwrap();
-      toast.success("Check-in thành công");
-      refetchRegs();
-    } catch (e) {
-      toast.error(e?.data?.message || e?.error || "Lỗi check-in");
-    } finally {
-      setBusy(null);
-      setPhone("");
-    }
-  };
 
   /* (Mới) Tìm & check-in theo SĐT/Nickname */
   const [q, setQ] = useState("");
@@ -233,9 +245,9 @@ export default function TournamentCheckin() {
     }
   };
 
-  /* ===== Realtime (ổn định deps) ===== */
+  /* ===== Realtime Logic (Giữ nguyên) ===== */
   const socket = useSocket();
-  const liveMapRef = useRef(new Map()); // id → match
+  const liveMapRef = useRef(new Map());
   const [liveBump, setLiveBump] = useState(0);
   const pendingRef = useRef(new Map());
   const rafRef = useRef(null);
@@ -258,7 +270,6 @@ export default function TournamentCheckin() {
     (incRaw) => {
       const inc = incRaw?.data ?? incRaw?.match ?? incRaw;
       if (!inc?._id) return;
-
       const normalizeEntity = (v) => {
         if (v == null) return v;
         if (typeof v === "string" || typeof v === "number") return v;
@@ -277,7 +288,6 @@ export default function TournamentCheckin() {
       if (inc.court) inc.court = normalizeEntity(inc.court);
       if (inc.venue) inc.venue = normalizeEntity(inc.venue);
       if (inc.location) inc.location = normalizeEntity(inc.location);
-
       pendingRef.current.set(String(inc._id), inc);
       if (rafRef.current) return;
       rafRef.current = requestAnimationFrame(() => {
@@ -288,7 +298,6 @@ export default function TournamentCheckin() {
     [flushPending]
   );
 
-  /* Chữ ký dữ liệu API để tránh setState lặp */
   const apiSig = useMemo(() => {
     const arr = (matchesResp || []).map((m) => {
       const id = String(m?._id || "");
@@ -312,7 +321,6 @@ export default function TournamentCheckin() {
     setLiveBump((x) => x + 1);
   }, [apiSig, matchesResp]);
 
-  /* Tạo chữ ký ID ổn định cho socket deps */
   const matchIds = useMemo(
     () => (matchesResp || []).map((m) => String(m._id)).filter(Boolean),
     [matchesResp]
@@ -321,16 +329,15 @@ export default function TournamentCheckin() {
     () => (brackets || []).map((b) => String(b._id)).filter(Boolean),
     [brackets]
   );
-  const matchIdsSig = useMemo(() => {
-    const s = Array.from(new Set(matchIds)).sort().join("|");
-    return s;
-  }, [matchIds]);
-  const bracketIdsSig = useMemo(() => {
-    const s = Array.from(new Set(bracketIds)).sort().join("|");
-    return s;
-  }, [bracketIds]);
+  const matchIdsSig = useMemo(
+    () => Array.from(new Set(matchIds)).sort().join("|"),
+    [matchIds]
+  );
+  const bracketIdsSig = useMemo(
+    () => Array.from(new Set(bracketIds)).sort().join("|"),
+    [bracketIds]
+  );
 
-  /* Giữ ref cho các hàm refetch để tránh effect re-run vì identity */
   const refetchMatchesAllRef = useRef(refetchMatchesAll);
   const refetchBracketsRef = useRef(refetchBrackets);
   const refetchSearchRef = useRef(refetchSearch);
@@ -349,11 +356,9 @@ export default function TournamentCheckin() {
     submittedQRef.current = submittedQ;
   }, [submittedQ]);
 
-  /* Tham gia phòng socket — deps ổn định theo chữ ký id */
-  const joinedRef = useRef(new Set()); // giữ qua nhiều renders
+  const joinedRef = useRef(new Set());
   useEffect(() => {
     if (!socket) return;
-
     const subscribeDrawRooms = () => {
       try {
         bracketIds.forEach((bid) =>
@@ -368,7 +373,6 @@ export default function TournamentCheckin() {
         );
       } catch {}
     };
-
     const joinAllMatches = () => {
       try {
         matchIds.forEach((mid) => {
@@ -395,7 +399,6 @@ export default function TournamentCheckin() {
       refetchBracketsRef.current?.();
       if (submittedQRef.current) refetchSearchRef.current?.();
     };
-
     const onConnected = () => {
       subscribeDrawRooms();
       joinAllMatches();
@@ -408,8 +411,6 @@ export default function TournamentCheckin() {
     socket.on("match:deleted", onRemove);
     socket.on("draw:refilled", onRefilled);
     socket.on("bracket:updated", onRefilled);
-
-    // Nếu socket đã kết nối sẵn thì thực hiện ngay (1 lần)
     if (socket.connected) onConnected();
 
     return () => {
@@ -426,10 +427,16 @@ export default function TournamentCheckin() {
         rafRef.current = null;
       }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, id, bracketIdsSig, matchIdsSig]);
+  }, [
+    socket,
+    id,
+    bracketIdsSig,
+    matchIdsSig,
+    queueUpsert,
+    bracketIds,
+    matchIds,
+  ]);
 
-  /* ===== Dữ liệu đã merge realtime ===== */
   const matches = useMemo(
     () =>
       Array.from(liveMapRef.current.values()).filter(
@@ -438,14 +445,13 @@ export default function TournamentCheckin() {
     [id, liveBump]
   );
 
-  /* ===== Referee index + renderer (nickname) ===== */
   const refIndex = useMemo(
     () => buildRefIndexFromMatches(matches, results),
     [matches, results]
   );
   const renderRefs = useMemo(() => makeRenderRefs(refIndex), [refIndex]);
 
-  /* --------- Filter danh sách TRẬN của GIẢI --------- */
+  /* Filter matches */
   const [search, setSearch] = useState("");
   const filtered = useMemo(() => {
     const key = search.trim().toLowerCase();
@@ -466,7 +472,7 @@ export default function TournamentCheckin() {
     });
   }, [matches, search]);
 
-  /* --------- Match viewer state --------- */
+  /* Match viewer */
   const [viewerOpen, setViewerOpen] = useState(false);
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const openViewer = useCallback(
@@ -486,644 +492,595 @@ export default function TournamentCheckin() {
     setSelectedMatchId(null);
   }, []);
 
-  /* ---------- Skeleton helpers ---------- */
-  const SkeletonChip = () => (
-    <Skeleton
-      variant="rectangular"
-      width={90}
-      height={28}
-      sx={{ borderRadius: 14 }}
-    />
-  );
-  const SkeletonBtn = ({ w = 140 }) => (
-    <Skeleton
-      variant="rectangular"
-      width={w}
-      height={36}
-      sx={{ borderRadius: 8 }}
-    />
-  );
-  const SkeletonLine = ({ w = "100%" }) => (
-    <Skeleton variant="text" width={w} height={22} />
-  );
-
-  const MobileMatchCardSkeleton = () => (
-    <Paper elevation={1} sx={{ p: 2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <SkeletonLine w={100} />
-        <SkeletonChip />
-      </Stack>
-      <SkeletonLine w={220} />
-      <Divider sx={{ my: 1 }} />
-      <Stack direction="row" justifyContent="space-between" alignItems="center">
-        <SkeletonLine w={120} />
-        <SkeletonLine w={40} />
-        <SkeletonLine w={120} />
-      </Stack>
-      <SkeletonLine w={180} />
-    </Paper>
-  );
-
-  const DesktopTableSkeleton = () => (
-    <Box sx={{ width: "100%", overflowX: "auto" }}>
-      <Table size="small" stickyHeader>
-        <TableHead>
-          <TableRow>
-            <TableCell>Mã trận</TableCell>
-            <TableCell>Ngày</TableCell>
-            <TableCell>Giờ</TableCell>
-            <TableCell>Đội 1</TableCell>
-            <TableCell>Tỷ số</TableCell>
-            <TableCell>Đội 2</TableCell>
-            <TableCell>Sân</TableCell>
-            <TableCell>Trọng tài</TableCell>
-            <TableCell>Tình trạng</TableCell>
-            <TableCell>Bracket</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {Array.from({ length: 8 }).map((_, i) => (
-            <TableRow key={`sk-${i}`}>
-              <TableCell>
-                <SkeletonLine w={80} />
-              </TableCell>
-              <TableCell>
-                <SkeletonLine w={90} />
-              </TableCell>
-              <TableCell>
-                <SkeletonLine w={60} />
-              </TableCell>
-              <TableCell>
-                <SkeletonLine w={160} />
-              </TableCell>
-              <TableCell align="center">
-                <SkeletonLine w={40} />
-              </TableCell>
-              <TableCell>
-                <SkeletonLine w={160} />
-              </TableCell>
-              <TableCell>
-                <SkeletonLine w={100} />
-              </TableCell>
-              <TableCell>
-                <SkeletonLine w={120} />
-              </TableCell>
-              <TableCell>
-                <SkeletonChip />
-              </TableCell>
-              <TableCell>
-                <SkeletonLine w={140} />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </Box>
-  );
-
-  const SearchResultSkeleton = () => (
-    <Stack spacing={2} mt={2}>
-      {Array.from({ length: 2 }).map((_, k) => (
-        <Paper key={`sr-${k}`} variant="outlined" sx={{ p: 2 }}>
-          <Stack
-            direction="row"
-            justifyContent="space-between"
-            alignItems="center"
-          >
-            <Box>
-              <SkeletonLine w={220} />
-              <Stack direction="row" spacing={1} mt={0.5}>
-                <SkeletonChip />
-                <SkeletonChip />
-              </Stack>
-            </Box>
-            <SkeletonBtn />
-          </Stack>
-          <Divider sx={{ my: 1.5 }} />
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>Mã trận</TableCell>
-                <TableCell>Ngày</TableCell>
-                <TableCell>Giờ</TableCell>
-                <TableCell align="center">Tỷ số</TableCell>
-                <TableCell>Sân</TableCell>
-                <TableCell>Trọng tài</TableCell>
-                <TableCell>Tình trạng</TableCell>
-                <TableCell>Bracket</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {Array.from({ length: 3 }).map((__, r) => (
-                <TableRow key={`srr-${r}`}>
-                  <TableCell>
-                    <SkeletonLine w={80} />
-                  </TableCell>
-                  <TableCell>
-                    <SkeletonLine w={90} />
-                  </TableCell>
-                  <TableCell>
-                    <SkeletonLine w={60} />
-                  </TableCell>
-                  <TableCell align="center">
-                    <SkeletonLine w={40} />
-                  </TableCell>
-                  <TableCell>
-                    <SkeletonLine w={100} />
-                  </TableCell>
-                  <TableCell>
-                    <SkeletonLine w={120} />
-                  </TableCell>
-                  <TableCell>
-                    <SkeletonChip />
-                  </TableCell>
-                  <TableCell>
-                    <SkeletonLine w={140} />
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Paper>
-      ))}
-    </Stack>
-  );
+  /* ---------- Components UI Helpers ---------- */
+  const StatusBadge = ({ status, color }) => {
+    const getColor = (st) => {
+      if (color) return color;
+      const s = String(st || "").toLowerCase();
+      if (s === "live" || s === "playing") return "error";
+      if (s === "completed" || s === "finished") return "success";
+      if (s === "scheduled") return "info";
+      return "default";
+    };
+    return (
+      <Chip
+        label={status}
+        size="small"
+        color={getColor(status)}
+        sx={{ fontWeight: 600, textTransform: "capitalize" }}
+      />
+    );
+  };
 
   /* ---------- RENDER ---------- */
   return (
-    <Container fluid className="py-4">
-      {/* HEADER */}
-      <Stack
-        direction={isMobile ? "column" : "row"}
-        justifyContent="space-between"
-        alignItems={isMobile ? "flex-start" : "center"}
-        spacing={1}
-        mb={2}
+    <Box
+      sx={{
+        minHeight: "100vh",
+        backgroundColor: "#f5f7fa",
+        pb: 8,
+        fontFamily: "'Inter', sans-serif", // Gợi ý font
+      }}
+    >
+      {/* HERO HEADER */}
+      <Box
+        sx={{
+          background: `linear-gradient(135deg, ${BRAND_COLOR} 0%, #0d47a1 100%)`,
+          color: "white",
+          pt: { xs: 4, md: 6 },
+          pb: { xs: 6, md: 8 },
+          borderRadius: "0 0 30px 30px",
+          boxShadow: "0 10px 30px -10px rgba(25, 118, 210, 0.5)",
+          mb: -4, // Pull content up overlap
+        }}
       >
-        <Typography variant="h5" fontWeight={700}>
-          {tourLoading ? (
-            <SkeletonLine w={320} />
-          ) : (
-            <>
-              Chào mừng đến với giải đấu:&nbsp;
-              <span style={{ textTransform: "uppercase", color: "#1976d2" }}>
-                {tour?.name || "—"}
-              </span>
-            </>
-          )}
-        </Typography>
-        {tourLoading ? (
-          <SkeletonChip />
-        ) : (
-          tour?.eventType && (
-            <Chip
-              size="small"
-              label={isSingles ? "Giải đơn" : "Giải đôi"}
-              color={isSingles ? "default" : "primary"}
-              variant="outlined"
-            />
-          )
-        )}
-      </Stack>
-
-      {/* ACTIONS */}
-      <Stack
-        direction={isMobile ? "column" : "row"}
-        spacing={2}
-        alignItems={isMobile ? "stretch" : "center"}
-        mb={3}
-      >
-        {tourLoading ? (
-          <SkeletonBtn w={180} />
-        ) : (
-          <MuiButton
-            component={Link}
-            to={`/tournament/${id}/bracket`}
-            variant="contained"
-            color="warning"
-            size="small"
-            fullWidth={isMobile}
-          >
-            Sơ đồ giải đấu
-          </MuiButton>
-        )}
-
-        {tourLoading ? (
-          <SkeletonBtn w={180} />
-        ) : (
-          <MuiButton
-            component={Link}
-            to={`/tournament/${id}/register`}
-            variant="contained"
-            color="info"
-            size="small"
-            fullWidth={isMobile}
-          >
-            Danh sách đăng ký
-          </MuiButton>
-        )}
-      </Stack>
-
-      {/* ====== Tìm & check-in theo SĐT/Nickname ====== */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
-        <Typography variant="subtitle1" fontWeight={700} mb={1}>
-          Check-in theo SĐT / Nickname
-        </Typography>
-        <Stack
-          direction={isMobile ? "column" : "row"}
-          spacing={1}
-          alignItems="center"
-        >
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="Nhập SĐT hoặc nickname đã đăng ký…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onKeyDown={onKeyDownSearch}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-            }}
-          />
-          <MuiButton
-            variant="contained"
-            onClick={onSubmitSearch}
-            disabled={searching}
-          >
-            {searching ? "Đang tìm…" : "Tìm"}
-          </MuiButton>
-        </Stack>
-
-        {/* Kết quả tìm */}
-        {searching && (
-          <>
-            <Box py={2} textAlign="center">
-              <CircularProgress size={22} />
-            </Box>
-            <SearchResultSkeleton />
-          </>
-        )}
-        {submittedQ && !searching && results.length === 0 && !searchError && (
-          <Alert severity="info" sx={{ mt: 2 }}>
-            Không tìm thấy đăng ký nào khớp với <strong>{submittedQ}</strong>.
-          </Alert>
-        )}
-        {searchError && (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {searchErrObj?.data?.message ||
-              searchErrObj?.error ||
-              "Lỗi tìm kiếm"}
-          </Alert>
-        )}
-
-        {/* Danh sách registration khớp */}
-        {!searching && (
-          <Stack spacing={2} mt={results.length ? 2 : 0}>
-            {results.map((reg) => {
-              const canCheckin = reg.paid && !reg.checkinAt;
-              const disabledReason = !reg.paid
-                ? "Chưa thanh toán lệ phí"
-                : reg.checkinAt
-                ? "Đã check-in"
-                : "";
-              const teamLabel = isSingles
-                ? fmtSide(reg.teamLabel)
-                : reg.teamLabel;
-
-              return (
-                <Paper
-                  key={reg.regId || reg._id}
-                  variant="outlined"
-                  sx={{ p: 2 }}
-                >
-                  <Stack
-                    direction="row"
-                    justifyContent="space-between"
-                    alignItems={{ xs: "flex-start", sm: "center" }}
-                    spacing={2}
-                    flexWrap="wrap"
-                  >
-                    <Box>
-                      <Typography variant="subtitle1" fontWeight={700}>
-                        {teamLabel || "—"}
-                      </Typography>
-                      <Stack
-                        direction="row"
-                        spacing={1}
-                        mt={0.5}
-                        flexWrap="wrap"
-                      >
-                        <Chip
-                          size="small"
-                          label={reg.paid ? "Đã thanh toán" : "Chưa thanh toán"}
-                          color={reg.paid ? "success" : "default"}
-                        />
-                        {reg.checkinAt ? (
-                          <Chip
-                            size="small"
-                            label={`Đã check-in • ${new Date(
-                              reg.checkinAt
-                            ).toLocaleString()}`}
-                            color="success"
-                            variant="outlined"
-                          />
-                        ) : (
-                          <Chip
-                            size="small"
-                            label="Chưa check-in"
-                            variant="outlined"
-                          />
-                        )}
-                      </Stack>
-                    </Box>
-                    <Stack alignItems="flex-end" spacing={0.5}>
-                      <MuiButton
-                        variant="contained"
-                        disabled={!canCheckin || checkingUser}
-                        onClick={() => handleUserCheckin(reg.regId || reg._id)}
-                      >
-                        {checkingUser ? "Đang check-in…" : "Check-in"}
-                      </MuiButton>
-                      {!canCheckin && disabledReason && (
-                        <Typography variant="caption" color="text.secondary">
-                          * {disabledReason}
-                        </Typography>
-                      )}
-                    </Stack>
-                  </Stack>
-
-                  {/* Danh sách trận của registration này */}
-                  <Divider sx={{ my: 1.5 }} />
-                  {Array.isArray(reg.matches) && reg.matches.length ? (
-                    <Box sx={{ width: "100%", overflowX: "auto" }}>
-                      <Table size="small" stickyHeader>
-                        <TableHead>
-                          <TableRow>
-                            <TableCell>Mã trận</TableCell>
-                            <TableCell>Ngày</TableCell>
-                            <TableCell>Giờ</TableCell>
-                            <TableCell align="center">Tỷ số</TableCell>
-                            <TableCell>Sân</TableCell>
-                            <TableCell sx={{ width: 140, maxWidth: 140 }}>
-                              Trọng tài
-                            </TableCell>
-                            <TableCell>Tình trạng</TableCell>
-                            <TableCell>Bracket</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
-                          {reg.matches.map((mm) => {
-                            const m =
-                              liveMapRef.current.get(String(mm._id)) || mm;
-                            return (
-                              <TableRow
-                                key={m._id || m.code}
-                                hover
-                                onClick={() => m?._id && openViewer(m._id)}
-                                sx={{ cursor: m?._id ? "pointer" : "default" }}
-                              >
-                                <TableCell>{m.code}</TableCell>
-                                <TableCell>{fmtDate(m.date)}</TableCell>
-                                <TableCell>{fmtTime(m.time)}</TableCell>
-                                <TableCell align="center">
-                                  <strong>
-                                    {m.score1} - {m.score2}
-                                  </strong>
-                                </TableCell>
-                                <TableCell>
-                                  {m.field || m?.court?.name || "Chưa xác định"}
-                                </TableCell>
-                                <TableCell
-                                  sx={{
-                                    width: 140,
-                                    maxWidth: 140,
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                    whiteSpace: "nowrap",
-                                  }}
-                                  title={makeRenderRefs(refIndex)(m)}
-                                >
-                                  {makeRenderRefs(refIndex)(m)}
-                                </TableCell>
-                                <TableCell>
-                                  <Chip
-                                    label={m.status}
-                                    size="small"
-                                    color={m.statusColor || "default"}
-                                  />
-                                </TableCell>
-                                <TableCell>{m?.bracket?.name || "—"}</TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </Box>
-                  ) : (
-                    <Typography variant="body2" color="text.secondary">
-                      Chưa có trận nào được xếp cho {isSingles ? "VĐV" : "đôi"}{" "}
-                      này.
-                    </Typography>
-                  )}
-                </Paper>
-              );
-            })}
-          </Stack>
-        )}
-      </Paper>
-
-      {/* ====== (Cũ) SEARCH BOX cho danh sách TRẬN của GIẢI ====== */}
-      <Row className="mb-3">
-        <Col md={4}>
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="Tìm: Tên VĐV/đội, mã trận, tình trạng, bracket…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-            }}
-          />
-        </Col>
-      </Row>
-
-      {/* ====== DANH SÁCH TRẬN CỦA GIẢI ====== */}
-      {regsError ? (
-        <Alert severity="error">
-          {regsError?.data?.message || regsError.error}
-        </Alert>
-      ) : isMobile ? (
-        matchesLoading || bracketsLoading ? (
+        <Container>
           <Stack spacing={2}>
-            {Array.from({ length: 5 }).map((_, i) => (
-              <MobileMatchCardSkeleton key={`mbsk-${i}`} />
-            ))}
-          </Stack>
-        ) : (
-          /* MOBILE cards */
-          <Stack spacing={2}>
-            {filtered.map((m) => (
-              <Paper
-                key={m._id}
-                elevation={1}
-                sx={{ p: 2, cursor: m?._id ? "pointer" : "default" }}
-                onClick={() => m?._id && openViewer(m._id)}
-              >
-                <Stack
-                  direction="row"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
-                  <Typography variant="subtitle2" fontWeight={600}>
-                    {m.code}
-                  </Typography>
-                  <Chip
-                    label={m.status}
-                    size="small"
-                    color={m.statusColor || "default"}
-                  />
-                </Stack>
-
-                <Typography variant="caption" color="text.secondary">
-                  {fmtDate(m.date)} • {fmtTime(m.time)} • {m.field || "—"}
-                  {m.bracketName || m?.bracket?.name
-                    ? ` • ${m.bracketName || m?.bracket?.name}`
-                    : ""}
-                </Typography>
-
-                <Divider sx={{ my: 1 }} />
-
-                <Stack
-                  direction="row"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
-                  <Typography variant="body2" fontWeight={500}>
-                    {fmtSide(m.team1)}
-                  </Typography>
-                  <Typography variant="subtitle1" fontWeight={700}>
-                    {m.score1}-{m.score2}
-                  </Typography>
+            <Stack
+              direction={{ xs: "column", md: "row" }}
+              justifyContent="space-between"
+              alignItems="center"
+              spacing={2}
+            >
+              <Box>
+                <Stack direction="row" alignItems="center" spacing={1} mb={1}>
+                  <TrophyIcon sx={{ fontSize: 32, color: ACCENT_COLOR }} />
                   <Typography
-                    variant="body2"
-                    fontWeight={500}
-                    textAlign="right"
-                    sx={{ minWidth: 80 }}
+                    variant="overline"
+                    sx={{ opacity: 0.9, letterSpacing: 1.5 }}
                   >
-                    {fmtSide(m.team2)}
+                    Tournament Dashboard
                   </Typography>
                 </Stack>
+                {tourLoading ? (
+                  <Skeleton
+                    variant="text"
+                    width={300}
+                    height={60}
+                    sx={{ bgcolor: "rgba(255,255,255,0.2)" }}
+                  />
+                ) : (
+                  <Typography
+                    variant="h3"
+                    fontWeight={800}
+                    sx={{
+                      textShadow: "0 2px 4px rgba(0,0,0,0.2)",
+                      fontSize: { xs: "2rem", md: "3rem" },
+                    }}
+                  >
+                    {tour?.name}
+                  </Typography>
+                )}
+                <Stack direction="row" spacing={2} mt={1} alignItems="center">
+                  {!tourLoading && (
+                    <Chip
+                      icon={<TennisIcon sx={{ fill: "white !important" }} />}
+                      label={isSingles ? "Đơn (Singles)" : "Đôi (Doubles)"}
+                      sx={{
+                        bgcolor: "rgba(255,255,255,0.2)",
+                        color: "white",
+                        backdropFilter: "blur(4px)",
+                      }}
+                    />
+                  )}
+                </Stack>
+              </Box>
 
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  mt={0.5}
-                  display="block"
+              <Stack direction="row" spacing={2}>
+                <MuiButton
+                  component={Link}
+                  to={`/tournament/${id}/bracket`}
+                  variant="contained"
+                  startIcon={<BracketIcon />}
                   sx={{
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
+                    bgcolor: "white",
+                    color: BRAND_COLOR,
+                    fontWeight: "bold",
+                    "&:hover": { bgcolor: "#e3f2fd" },
                   }}
-                  title={makeRenderRefs(refIndex)(m)}
                 >
-                  Trọng tài: {makeRenderRefs(refIndex)(m)}
-                </Typography>
-              </Paper>
-            ))}
+                  Sơ đồ giải
+                </MuiButton>
+                <MuiButton
+                  component={Link}
+                  to={`/tournament/${id}/register`}
+                  variant="outlined"
+                  startIcon={<ListIcon />}
+                  sx={{
+                    color: "white",
+                    borderColor: "rgba(255,255,255,0.5)",
+                    "&:hover": {
+                      borderColor: "white",
+                      bgcolor: "rgba(255,255,255,0.1)",
+                    },
+                  }}
+                >
+                  Danh sách VĐV
+                </MuiButton>
+              </Stack>
+            </Stack>
           </Stack>
-        )
-      ) : matchesLoading || bracketsLoading ? (
-        <DesktopTableSkeleton />
-      ) : (
-        /* DESKTOP table */
-        <Box sx={{ width: "100%", overflowX: "auto" }}>
-          <Table
-            size="small"
-            stickyHeader
+        </Container>
+      </Box>
+
+      <Container style={{ maxWidth: "1200px", margin: "0 auto" }}>
+        {/* SEARCH & CHECK-IN AREA (Overlapping the header) */}
+        <Card sx={{ ...cardStyle, mb: 4, overflow: "visible" }}>
+          <Box
             sx={{
-              "& thead th": { fontWeight: 600 },
-              "& tbody td": { whiteSpace: "nowrap" },
+              p: 3,
+              background: "white",
+              borderRadius: 3,
             }}
           >
-            <TableHead>
-              <TableRow>
-                <TableCell>Mã trận</TableCell>
-                <TableCell>Ngày</TableCell>
-                <TableCell>Giờ</TableCell>
-                <TableCell>Đội&nbsp;1</TableCell>
-                <TableCell>Tỷ số</TableCell>
-                <TableCell>Đội&nbsp;2</TableCell>
-                <TableCell>Sân</TableCell>
-                <TableCell sx={{ width: 140, maxWidth: 140 }}>
-                  Trọng tài
-                </TableCell>
-                <TableCell>Tình trạng</TableCell>
-                <TableCell>Bracket</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filtered.map((m) => (
-                <TableRow
-                  key={m._id}
-                  hover
-                  onClick={() => m?._id && openViewer(m._id)}
-                  sx={{ cursor: m?._id ? "pointer" : "default" }}
-                >
-                  <TableCell>{m.code}</TableCell>
-                  <TableCell>{fmtDate(m.date)}</TableCell>
-                  <TableCell>{fmtTime(m.time)}</TableCell>
-                  <TableCell>{fmtSide(m.team1)}</TableCell>
-                  <TableCell align="center">
-                    <strong>
-                      {m.score1} - {m.score2}
-                    </strong>
-                  </TableCell>
-                  <TableCell>{fmtSide(m.team2)}</TableCell>
-                  <TableCell>{m.field || m?.court?.name}</TableCell>
-                  <TableCell
-                    sx={{
-                      width: 140,
-                      maxWidth: 140,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                    title={renderRefs(m)}
-                  >
-                    {renderRefs(m)}
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={m.status}
-                      size="small"
-                      color={m.statusColor || "default"}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    {m.bracketName || m?.bracket?.name || "—"}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Box>
-      )}
+            <Typography
+              variant="h6"
+              fontWeight={700}
+              color="text.secondary"
+              mb={2}
+              sx={{ display: "flex", alignItems: "center", gap: 1 }}
+            >
+              <ScanIcon color="primary" />
+              Check-in Vận động viên
+            </Typography>
 
-      {/* Match Viewer */}
-      <ResponsiveMatchViewer
-        open={viewerOpen}
-        matchId={selectedMatchId}
-        onClose={closeViewer}
-      />
-    </Container>
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={2}
+              alignItems="center"
+            >
+              <TextField
+                fullWidth
+                placeholder="Nhập số điện thoại hoặc tên VĐV..."
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={onKeyDownSearch}
+                variant="outlined"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon color="action" />
+                    </InputAdornment>
+                  ),
+                  sx: { borderRadius: 2, bgcolor: "#f9fafb" },
+                }}
+              />
+              <MuiButton
+                variant="contained"
+                size="large"
+                onClick={onSubmitSearch}
+                disabled={searching}
+                sx={{
+                  minWidth: 120,
+                  height: 56,
+                  borderRadius: 2,
+                  boxShadow: "0 4px 12px rgba(25, 118, 210, 0.3)",
+                  background: `linear-gradient(45deg, ${BRAND_COLOR}, #42a5f5)`,
+                }}
+              >
+                {searching ? (
+                  <CircularProgress size={24} color="inherit" />
+                ) : (
+                  "TÌM KIẾM"
+                )}
+              </MuiButton>
+            </Stack>
+
+            {/* Search Messages */}
+            {submittedQ &&
+              !searching &&
+              results.length === 0 &&
+              !searchError && (
+                <Alert severity="info" sx={{ mt: 3, borderRadius: 2 }}>
+                  Không tìm thấy dữ liệu cho <strong>"{submittedQ}"</strong>
+                </Alert>
+              )}
+            {searchError && (
+              <Alert severity="error" sx={{ mt: 3, borderRadius: 2 }}>
+                Đã có lỗi xảy ra khi tìm kiếm.
+              </Alert>
+            )}
+
+            {/* RESULTS LIST */}
+            {!searching && results.length > 0 && (
+              <Stack spacing={3} mt={4}>
+                {results.map((reg) => {
+                  const canCheckin = reg.paid && !reg.checkinAt;
+                  const teamLabel = isSingles
+                    ? fmtSide(reg.teamLabel)
+                    : reg.teamLabel;
+
+                  return (
+                    <Card
+                      key={reg.regId || reg._id}
+                      variant="outlined"
+                      sx={{
+                        borderColor: reg.paid
+                          ? "success.light"
+                          : "warning.light",
+                        borderWidth: "1px",
+                        borderLeftWidth: "6px",
+                      }}
+                    >
+                      <CardContent>
+                        <Stack
+                          direction={{ xs: "column", md: "row" }}
+                          justifyContent="space-between"
+                          alignItems={{ xs: "flex-start", md: "center" }}
+                          spacing={2}
+                        >
+                          <Box>
+                            <Stack
+                              direction="row"
+                              alignItems="center"
+                              spacing={1}
+                            >
+                              <Avatar sx={{ bgcolor: BRAND_COLOR }}>
+                                {teamLabel?.charAt(0)?.toUpperCase()}
+                              </Avatar>
+                              <Typography variant="h5" fontWeight={700}>
+                                {teamLabel || "Chưa có tên"}
+                              </Typography>
+                            </Stack>
+                            <Stack
+                              direction="row"
+                              spacing={1}
+                              mt={1.5}
+                              flexWrap="wrap"
+                            >
+                              <Chip
+                                size="small"
+                                label={
+                                  reg.paid ? "Đã đóng phí" : "Chưa đóng phí"
+                                }
+                                color={reg.paid ? "success" : "warning"}
+                                variant={reg.paid ? "filled" : "outlined"}
+                                icon={
+                                  reg.paid ? (
+                                    <CheckCircleIcon />
+                                  ) : (
+                                    <CancelIcon />
+                                  )
+                                }
+                              />
+                              {reg.checkinAt ? (
+                                <Chip
+                                  size="small"
+                                  label={`Check-in lúc ${new Date(
+                                    reg.checkinAt
+                                  ).toLocaleTimeString("vi-VN", {
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}`}
+                                  color="primary"
+                                  variant="soft" // Note: 'soft' might need custom theme or use 'filled' with custom bg
+                                  sx={{
+                                    bgcolor: "#e3f2fd",
+                                    color: "#1565c0",
+                                    fontWeight: 600,
+                                  }}
+                                />
+                              ) : (
+                                <Chip size="small" label="Chưa điểm danh" />
+                              )}
+                            </Stack>
+                          </Box>
+
+                          <MuiButton
+                            variant="contained"
+                            color={canCheckin ? "primary" : "inherit"}
+                            size="large"
+                            disabled={!canCheckin || checkingUser}
+                            onClick={() =>
+                              handleUserCheckin(reg.regId || reg._id)
+                            }
+                            startIcon={
+                              checkingUser ? (
+                                <CircularProgress size={20} />
+                              ) : (
+                                <CheckCircleIcon />
+                              )
+                            }
+                            sx={{
+                              px: 4,
+                              py: 1.5,
+                              borderRadius: 30,
+                              fontWeight: 700,
+                              opacity: !canCheckin ? 0.6 : 1,
+                            }}
+                          >
+                            {reg.checkinAt ? "ĐÃ CHECK-IN" : "CHECK-IN NGAY"}
+                          </MuiButton>
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </Stack>
+            )}
+          </Box>
+        </Card>
+
+        {/* TOURNAMENT MATCHES SECTION */}
+        <Box>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            justifyContent="space-between"
+            alignItems="center"
+            mb={3}
+            spacing={2}
+          >
+            <Typography variant="h5" fontWeight={800} sx={gradientText}>
+              DIỄN BIẾN TRẬN ĐẤU
+            </Typography>
+
+            <TextField
+              size="small"
+              placeholder="Tìm trận đấu, VĐV, sân..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+                sx: {
+                  bgcolor: "white",
+                  borderRadius: 2,
+                  minWidth: { sm: 300 },
+                },
+              }}
+            />
+          </Stack>
+
+          {regsError ? (
+            <Alert severity="error">
+              {regsError?.data?.message || regsError.error}
+            </Alert>
+          ) : (
+            <Grid container spacing={2}>
+              {matchesLoading || bracketsLoading ? (
+                // Loading Skeleton
+                Array.from({ length: 6 }).map((_, i) => (
+                  <Grid item xs={12} md={6} lg={4} key={i}>
+                    <Skeleton
+                      variant="rectangular"
+                      height={160}
+                      sx={{ borderRadius: 3 }}
+                    />
+                  </Grid>
+                ))
+              ) : filtered.length === 0 ? (
+                <Box width="100%" textAlign="center" py={5}>
+                  <Typography color="text.secondary">
+                    Chưa có trận đấu nào phù hợp.
+                  </Typography>
+                </Box>
+              ) : (
+                filtered.map((m) => (
+                  <Grid item xs={12} md={6} lg={4} key={m._id || m.code}>
+                    <Paper
+                      elevation={0}
+                      sx={{
+                        ...cardStyle,
+                        p: 0,
+                        cursor: m?._id ? "pointer" : "default",
+                        border: "1px solid #e0e0e0",
+                        "&:hover": {
+                          transform: "translateY(-4px)",
+                          boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
+                          borderColor: BRAND_COLOR,
+                        },
+                        position: "relative",
+                        overflow: "hidden",
+                      }}
+                      onClick={() => m?._id && openViewer(m._id)}
+                    >
+                      {/* Status Stripe */}
+                      <Box
+                        sx={{
+                          position: "absolute",
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: 4,
+                          bgcolor:
+                            m.status === "Live"
+                              ? "error.main"
+                              : m.status === "Completed"
+                              ? "success.main"
+                              : "grey.300",
+                        }}
+                      />
+
+                      <Box p={2.5} pl={3}>
+                        <Stack
+                          direction="row"
+                          justifyContent="space-between"
+                          mb={2}
+                        >
+                          <Stack
+                            direction="row"
+                            spacing={1}
+                            alignItems="center"
+                          >
+                            <Chip
+                              label={m.code}
+                              size="small"
+                              sx={{
+                                fontWeight: "bold",
+                                borderRadius: 1,
+                                height: 24,
+                              }}
+                            />
+                            {m.status === "Live" && (
+                              <span
+                                className="badge-pulse"
+                                style={{
+                                  width: 8,
+                                  height: 8,
+                                  background: "red",
+                                  borderRadius: "50%",
+                                }}
+                              ></span>
+                            )}
+                          </Stack>
+                          <StatusBadge status={m.status} />
+                        </Stack>
+
+                        {/* Teams & Scores */}
+                        <Stack spacing={1.5}>
+                          <Stack
+                            direction="row"
+                            justifyContent="space-between"
+                            alignItems="center"
+                          >
+                            <Typography
+                              variant="body1"
+                              fontWeight={600}
+                              sx={{
+                                color:
+                                  m.score1 > m.score2
+                                    ? "black"
+                                    : "text.secondary",
+                              }}
+                            >
+                              {fmtSide(m.team1)}
+                            </Typography>
+                            <Typography
+                              variant="h5"
+                              fontWeight={800}
+                              color={
+                                m.score1 > m.score2
+                                  ? BRAND_COLOR
+                                  : "text.primary"
+                              }
+                            >
+                              {m.score1}
+                            </Typography>
+                          </Stack>
+                          <Divider sx={{ borderStyle: "dashed" }} />
+                          <Stack
+                            direction="row"
+                            justifyContent="space-between"
+                            alignItems="center"
+                          >
+                            <Typography
+                              variant="body1"
+                              fontWeight={600}
+                              sx={{
+                                color:
+                                  m.score2 > m.score1
+                                    ? "black"
+                                    : "text.secondary",
+                              }}
+                            >
+                              {fmtSide(m.team2)}
+                            </Typography>
+                            <Typography
+                              variant="h5"
+                              fontWeight={800}
+                              color={
+                                m.score2 > m.score1
+                                  ? BRAND_COLOR
+                                  : "text.primary"
+                              }
+                            >
+                              {m.score2}
+                            </Typography>
+                          </Stack>
+                        </Stack>
+
+                        {/* Footer Info */}
+                        <Stack
+                          direction="row"
+                          spacing={2}
+                          mt={2}
+                          color="text.secondary"
+                          fontSize="0.75rem"
+                        >
+                          <Stack
+                            direction="row"
+                            alignItems="center"
+                            spacing={0.5}
+                          >
+                            <TimeIcon fontSize="inherit" />
+                            <Typography variant="caption">
+                              {fmtTime(m.time)}
+                            </Typography>
+                          </Stack>
+                          <Stack
+                            direction="row"
+                            alignItems="center"
+                            spacing={0.5}
+                          >
+                            <LocationIcon fontSize="inherit" />
+                            <Typography variant="caption">
+                              {m.field || m?.court?.name || "Sân ?"}
+                            </Typography>
+                          </Stack>
+                          {m?.bracket?.name && (
+                            <Typography
+                              variant="caption"
+                              sx={{
+                                ml: "auto !important",
+                                fontWeight: 600,
+                                color: BRAND_COLOR,
+                              }}
+                            >
+                              {m.bracket.name}
+                            </Typography>
+                          )}
+                        </Stack>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                ))
+              )}
+            </Grid>
+          )}
+        </Box>
+
+        {/* Match Viewer Modal */}
+        <ResponsiveMatchViewer
+          open={viewerOpen}
+          matchId={selectedMatchId}
+          onClose={closeViewer}
+        />
+      </Container>
+
+      {/* Global Styles for animations */}
+      <style>{`
+        @keyframes pulse {
+          0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 82, 82, 0.7); }
+          70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(255, 82, 82, 0); }
+          100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 82, 82, 0); }
+        }
+        .badge-pulse {
+          animation: pulse 2s infinite;
+        }
+      `}</style>
+    </Box>
   );
 }

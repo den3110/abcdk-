@@ -26,7 +26,6 @@ import {
 import {
   ArrowBackIosNew as BackIcon,
   PersonAdd as PersonAddIcon,
-  FiberManualRecord as LiveDotIcon,
 } from "@mui/icons-material";
 
 import { useGetLiveMatchesQuery } from "../slices/liveApiSlice";
@@ -345,11 +344,14 @@ const Header = () => {
                 }}
               >
                 {liveCount > 0 && (
-                  <LiveDotIcon
+                  <Box
                     sx={{
-                      fontSize: 12,
-                      color: "#d32f2f",
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      bgcolor: "#d32f2f",
                       animation: "pulse 1.5s infinite",
+                      boxShadow: "0 0 0 0 rgba(255, 68, 68, 0.7)",
                     }}
                   />
                 )}

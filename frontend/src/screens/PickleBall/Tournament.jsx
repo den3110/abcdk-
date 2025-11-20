@@ -718,7 +718,6 @@ export default function TournamentDashboard() {
         {error && (
           <Box
             p={3}
-            bgcolor="error.light"
             color="error.dark"
             borderRadius={3}
             textAlign="center"
