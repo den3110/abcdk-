@@ -2,7 +2,26 @@
 import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import expressAsyncHandler from "express-async-handler";
+import { Sponsor } from "../models/sponsorModel.js";
+import CmsBlock from "../models/cmsBlockModel.js";
 
+const FORCE_HTTPS = process.env.NODE_ENV === "production";
+const ensureHttps = (url) => {
+  if (!url) return url;
+  const s = String(url).trim();
+  if (!s) return s;
+
+  // đã là https rồi thì giữ nguyên
+  if (/^https:\/\//i.test(s)) return s;
+
+  // http => https
+  if (/^http:\/\//i.test(s)) {
+    return s.replace(/^http:\/\//i, "https://");
+  }
+
+  // relative path (/uploads/...) thì kệ, để frontend/normalizeUrl xử lý
+  return s;
+};
 // ===== Helpers =====
 const gamesToWin = (bestOf) => Math.floor((Number(bestOf) || 3) / 2) + 1;
 const gameWon = (x, y, pts, byTwo) =>
@@ -157,7 +176,63 @@ export async function getOverlayMatch(req, res) {
 
     if (!m) return res.status(404).json({ message: "Match not found" });
 
-    // ===== helper cũ của bạn =====
+    /* ==========================
+     * Logo + Sponsor (y hệt getOverlayConfig)
+     * ========================== */
+    const FALLBACK_LOGO = "https://placehold.co/240x60/png?text=PickleTour";
+
+    let webLogoUrl = FALLBACK_LOGO;
+    let webLogoAlt = "";
+
+    try {
+      const heroBlock = await CmsBlock.findOne({ slug: "hero" }).lean();
+      if (heroBlock?.data) {
+        webLogoUrl = heroBlock.data.overlayLogoUrl || FALLBACK_LOGO;
+        webLogoAlt =
+          heroBlock.data.overlayLogoAlt || heroBlock.data.imageAlt || "";
+      }
+    } catch (e) {
+      console.error(
+        "[overlayMatch] load hero CmsBlock failed:",
+        e?.message || e
+      );
+    }
+
+    const tid = m?.tournament?._id || m?.tournament || null;
+
+    let sponsors = [];
+    if (tid) {
+      const filter = { tournaments: tid };
+
+      sponsors = await Sponsor.find(filter)
+        .select(
+          "_id name slug logoUrl websiteUrl refLink tier weight featured tournaments updatedAt"
+        )
+        .sort({ featured: -1, weight: -1, updatedAt: -1, name: 1 })
+        .limit(12)
+        .lean();
+    }
+
+    // ép https giống getOverlayConfig
+    if (typeof FORCE_HTTPS !== "undefined" && FORCE_HTTPS) {
+      webLogoUrl = ensureHttps(webLogoUrl);
+
+      sponsors = sponsors.map((s) => ({
+        ...s,
+        logoUrl: ensureHttps(s.logoUrl),
+        websiteUrl: ensureHttps(s.websiteUrl),
+        refLink: ensureHttps(s.refLink),
+      }));
+    }
+
+    const sponsorLogos = sponsors
+      .map((s) => (s.logoUrl || "").trim())
+      .filter(Boolean)
+      .slice(0, 12); // native limit 12 logo
+
+    /* ==========================
+     * Helpers
+     * ========================== */
     const pick = (v) => (v == null ? "" : String(v).trim());
     const preferNick = (p) =>
       pick(p?.nickname) ||
@@ -188,13 +263,14 @@ export async function getOverlayMatch(req, res) {
       m.pairB.player2 = fillNick(m.pairB.player2);
     }
 
-    // ===== Event type =====
+    /* ==========================
+     * Event type + Rules
+     * ========================== */
     const evType =
       (m?.tournament?.eventType || "").toLowerCase() === "single"
         ? "single"
         : "double";
 
-    // ===== Rules =====
     const rules = {
       bestOf: Number(m?.rules?.bestOf ?? 3),
       pointsToWin: Number(m?.rules?.pointsToWin ?? 11),
@@ -209,10 +285,9 @@ export async function getOverlayMatch(req, res) {
           : { mode: "none", points: null },
     };
 
-    // mấy helper cũ bạn đang dùng
-    const setWins = (gameScores = [], rules) => {
-      const pts = Number(rules.pointsToWin || 11);
-      const byTwo = !!rules.winByTwo;
+    const setWins = (gameScores = [], rulesObj) => {
+      const pts = Number(rulesObj.pointsToWin || 11);
+      const byTwo = !!rulesObj.winByTwo;
       let a = 0;
       let b = 0;
       for (const g of gameScores) {
@@ -227,6 +302,7 @@ export async function getOverlayMatch(req, res) {
       }
       return { a, b };
     };
+
     const gamesToWin = (bestOf = 1) => Math.floor(Number(bestOf) / 2) + 1;
 
     const { a: setsA, b: setsB } = setWins(m?.gameScores || [], rules);
@@ -240,6 +316,7 @@ export async function getOverlayMatch(req, res) {
         shortName: p?.shortName || undefined,
       }));
     };
+
     const regName = (reg) => {
       if (!reg) return "";
       if (evType === "single") {
@@ -249,6 +326,7 @@ export async function getOverlayMatch(req, res) {
       const b = preferNick(reg.player2);
       return [a, b].filter(Boolean).join(" & ");
     };
+
     const teamName = (reg) => {
       const ps = playersFromReg(reg);
       const nick = ps
@@ -258,6 +336,9 @@ export async function getOverlayMatch(req, res) {
       return nick || regName(reg);
     };
 
+    /* ==========================
+     * Serve
+     * ========================== */
     const serve =
       m?.serve && (m.serve.side || m.serve.server || m.serve.playerIndex)
         ? m.serve
@@ -279,7 +360,9 @@ export async function getOverlayMatch(req, res) {
           }
         : undefined;
 
-    // court
+    /* ==========================
+     * Court
+     * ========================== */
     const courtId = m?.court?._id || m?.courtId || null;
     const courtNumber = m?.court?.number ?? m?.courtNo ?? undefined;
     const courtName =
@@ -297,14 +380,67 @@ export async function getOverlayMatch(req, res) {
       group: m?.court?.group || undefined,
     };
 
+    /* ==========================
+     * Streams + Video
+     * ========================== */
     const streams =
       (Array.isArray(m?.streams) && m.streams.length && m.streams) ||
       (Array.isArray(m?.meta?.streams) && m.meta.streams) ||
       [];
     const video = pick(m?.video);
-    const rootOverlay =
-      m?.overlay || m?.tournament?.overlay || m?.bracket?.overlay || undefined;
 
+    /* ==========================
+     * Overlay (theme + logo + sponsors + clock)
+     * ========================== */
+    const baseOverlay =
+      m?.overlay || m?.tournament?.overlay || m?.bracket?.overlay || {};
+
+    const overlayEnabled =
+      typeof baseOverlay.enabled === "boolean" ? !!baseOverlay.enabled : true;
+
+    const showClock =
+      typeof baseOverlay.showClock === "boolean"
+        ? !!baseOverlay.showClock
+        : true;
+
+    const rootOverlay = {
+      // bám theo Tournament.overlay
+      theme: baseOverlay.theme || "dark",
+      accentA: baseOverlay.accentA || "#25C2A0",
+      accentB: baseOverlay.accentB || "#4F46E5",
+      corner: baseOverlay.corner || "tl",
+      rounded:
+        typeof baseOverlay.rounded === "number" ? baseOverlay.rounded : 18,
+      shadow:
+        typeof baseOverlay.shadow === "boolean" ? baseOverlay.shadow : true,
+      showSets:
+        typeof baseOverlay.showSets === "boolean" ? baseOverlay.showSets : true,
+      fontFamily: baseOverlay.fontFamily || "",
+      nameScale:
+        typeof baseOverlay.nameScale === "number" ? baseOverlay.nameScale : 1,
+      scoreScale:
+        typeof baseOverlay.scoreScale === "number" ? baseOverlay.scoreScale : 1,
+      customCss: baseOverlay.customCss || "",
+
+      // 🆕 logoUrl: ưu tiên logo overlay riêng, fallback theo getOverlayConfig
+      logoUrl: baseOverlay.logoUrl || webLogoUrl,
+
+      // 🆕 extra cho native overlay
+      size: baseOverlay.size || "md",
+      scaleScore:
+        typeof baseOverlay.scaleScore === "number" ? baseOverlay.scaleScore : 1,
+      enabled: overlayEnabled,
+      showClock,
+
+      // 🆕 thông tin logo + sponsor dùng chung với web overlay
+      webLogoUrl,
+      webLogoAlt,
+      sponsorLogos, // mảng URL logo nhà tài trợ (<=12)
+    };
+
+    /* ==========================
+     * Round / Seeds / Logs
+     * ========================== */
     const brType = (m?.bracket?.type || m?.format || "").toString();
     const drawSize =
       Number(m?.bracket?.meta?.drawSize) > 0
@@ -331,6 +467,9 @@ export async function getOverlayMatch(req, res) {
       ? m.liveLog.slice(-10)
       : undefined;
 
+    /* ==========================
+     * Referees + chain
+     * ========================== */
     const referees =
       Array.isArray(m?.referee) && m.referee.length
         ? m.referee.map((r) => ({
@@ -378,6 +517,9 @@ export async function getOverlayMatch(req, res) {
         }
       : undefined;
 
+    /* ==========================
+     * Times
+     * ========================== */
     const times = {
       scheduledAt: m?.scheduledAt || null,
       assignedAt: m?.assignedAt || null,
@@ -387,7 +529,9 @@ export async function getOverlayMatch(req, res) {
       createdAt: m?.createdAt || null,
     };
 
-    // 🆕 isBreak đưa ra ngoài cho overlay
+    /* ==========================
+     * Break (timeout) cho overlay
+     * ========================== */
     const isBreak = m?.isBreak
       ? {
           active: !!m.isBreak.active,
@@ -407,6 +551,9 @@ export async function getOverlayMatch(req, res) {
           expectedResumeAt: null,
         };
 
+    /* ==========================
+     * Response
+     * ========================== */
     res.json({
       matchId: String(m._id),
       status: (m.status || "").toUpperCase(),
@@ -418,6 +565,22 @@ export async function getOverlayMatch(req, res) {
         image: m?.tournament?.image || "",
         eventType: evType,
         overlay: m?.tournament?.overlay || undefined,
+        webLogoUrl,
+        webLogoAlt,
+        sponsors:
+          sponsors.length > 0
+            ? sponsors.map((s) => ({
+                id: String(s._id),
+                name: s.name,
+                slug: s.slug,
+                logoUrl: s.logoUrl || "",
+                websiteUrl: s.websiteUrl || "",
+                refLink: s.refLink || "",
+                tier: s.tier,
+                featured: !!s.featured,
+                weight: s.weight ?? 0,
+              }))
+            : undefined,
       },
 
       bracket: m?.bracket
@@ -548,6 +711,7 @@ export async function getOverlayMatch(req, res) {
           ? m.participants.map((x) => String(x))
           : undefined,
 
+      // overlay đầy đủ (đã merge sponsorLogos + showClock + enabled + logoUrl theo getOverlayConfig)
       overlay: rootOverlay || undefined,
       meta: m?.meta || undefined,
       note: m?.note || undefined,
@@ -557,7 +721,7 @@ export async function getOverlayMatch(req, res) {
         appliedAt: m?.ratingAppliedAt || null,
       },
 
-      // 🆕 gửi ra cho overlay
+      // gửi ra cho overlay native
       isBreak,
     });
   } catch (err) {

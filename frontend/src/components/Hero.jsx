@@ -340,7 +340,7 @@ export default function Hero() {
                     {needKyc && (
                       <Button
                         as={Link}
-                        to="/profile"
+                        to="/profile#2"
                         variant={needSelfAssess ? "outline-primary" : "primary"}
                         size="lg"
                         className="rounded-pill px-4 py-3 fw-bold shadow-sm"
