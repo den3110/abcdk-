@@ -1269,14 +1269,14 @@ export default function TournamentManagePage() {
           const st = String(live.status ?? m?.status ?? "").toLowerCase();
           const isDone = isByeMatch(m) || st === "finished";
 
-          console.log(`📋 Trận ${m.code}:`, {
-            stage,
-            rawGroupCode,
-            normalizedGroupCode: groupCode, // ← thêm log này
-            key,
-            status: m?.status,
-            isDone,
-          });
+          // console.log(`📋 Trận ${m.code}:`, {
+          //   stage,
+          //   rawGroupCode,
+          //   normalizedGroupCode: groupCode, // ← thêm log này
+          //   key,
+          //   status: m?.status,
+          //   isDone,
+          // });
 
           if (!groupStatusMap.has(key)) {
             groupStatusMap.set(key, true);
@@ -1288,7 +1288,7 @@ export default function TournamentManagePage() {
       }
     }
 
-    console.log("🎯 Group Status Map:", Array.from(groupStatusMap.entries()));
+    // console.log("🎯 Group Status Map:", Array.from(groupStatusMap.entries()));
 
     // ✅ Chuyển sang boolean: done = (total === finished && total > 0)
     const groupDoneMap = new Map();
@@ -1296,24 +1296,16 @@ export default function TournamentManagePage() {
       groupDoneMap.set(key, stats.total > 0 && stats.total === stats.finished);
     }
 
-    console.log("📊 Group Status:", Array.from(groupDoneMap.entries()));
-
     // ✅ Hàm kiểm tra trận KO có thể hiện không
     const canShowKOMatch = (m, bracket) => {
       const bracketType = String(bracket?.type || "").toLowerCase();
       if (bracketType !== "knockout" && bracketType !== "ko") return true;
-
-      console.log(`🔍 Check trận ${m?.code || m?._id}:`, {
-        bracketType,
-        hasSeeds: !!(m?.seedA || m?.seedB), // ← Sửa: check seed của TRẬN này
-      });
 
       // ✅ FIX: Lấy seed của TRẬN này, không phải của bracket!
       const seedA = m?.seedA;
       const seedB = m?.seedB;
 
       if (!seedA && !seedB) {
-        console.log(`  ↳ Không có seed → HIỆN`);
         return true;
       }
 
@@ -1326,9 +1318,6 @@ export default function TournamentManagePage() {
         if (rawGroupCode) {
           const groupCode = normalizeGroupCode(rawGroupCode);
           sourceGroups.add(`${stage}_${groupCode}`);
-          console.log(
-            `  ↳ Seed A: stage=${stage}, raw="${rawGroupCode}", normalized="${groupCode}"`
-          );
         }
       }
 
@@ -1339,36 +1328,21 @@ export default function TournamentManagePage() {
         if (rawGroupCode) {
           const groupCode = normalizeGroupCode(rawGroupCode);
           sourceGroups.add(`${stage}_${groupCode}`);
-          console.log(
-            `  ↳ Seed B: stage=${stage}, raw="${rawGroupCode}", normalized="${groupCode}"`
-          );
         }
       }
 
       if (sourceGroups.size === 0) {
-        console.log(
-          `  ↳ Không có bảng nguồn (hoặc seed không phải groupRank) → HIỆN`
-        );
         return true;
       }
 
-      console.log(`  ↳ Cần check các bảng:`, Array.from(sourceGroups));
-
       for (const groupKey of sourceGroups) {
         const isFinished = groupStatusMap.get(groupKey);
-        console.log(
-          `    - Bảng "${groupKey}": ${
-            isFinished === true ? "✅ xong" : "❌ chưa xong"
-          }`
-        );
 
         if (isFinished !== true) {
-          console.log(`  ➡️ KẾT LUẬN: ẨN trận ${m.code || m._id}`);
           return false;
         }
       }
 
-      console.log(`  ➡️ KẾT LUẬN: HIỆN trận ${m.code || m._id}`);
       return true;
     };
     // ✅ Lọc trận

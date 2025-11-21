@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, memo, useRef } from "react";
-import { Link, useParams, useLocation, useNavigate } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import {
   Avatar,
   Box,
@@ -8,17 +8,9 @@ import {
   CircularProgress,
   Paper,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
   TextField,
   Typography,
-  useMediaQuery,
-  useTheme,
   IconButton,
-  TableContainer,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -31,6 +23,7 @@ import {
   Divider,
   alpha,
   Tooltip,
+  Skeleton,
   Grid,
 } from "@mui/material";
 import { toast } from "react-toastify";
@@ -58,7 +51,6 @@ import {
 } from "@mui/icons-material";
 import DangerousSharpIcon from "@mui/icons-material/DangerousSharp";
 
-// Import API & Components (Giữ nguyên đường dẫn của bạn)
 import {
   useGetTournamentQuery,
   useGetRegistrationsQuery,
@@ -77,8 +69,8 @@ import { getFeeAmount } from "../../utils/fee";
 
 /* ---------------- 1. CONSTANTS & HELPERS ---------------- */
 const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";
-const BRAND_COLOR = "#1976d2"; // Màu chủ đạo (Xanh dương)
-const CARD_RADIUS = 3; // Độ bo góc
+const BRAND_COLOR = "#1976d2";
+const CARD_RADIUS = 3;
 
 const fmt3 = (v) => {
   const n = Number(v);
@@ -96,7 +88,7 @@ const normType = (t) => {
 
 const displayName = (pl) => {
   if (!pl) return "—";
-  const nn = pl.nickName || pl.nickname || pl?.user?.nickname || "";
+  const nn = pl?.nickName || pl?.nickname || pl?.user?.nickname || "";
   return nn || pl.fullName || pl.name || pl.displayName || "—";
 };
 
@@ -118,15 +110,14 @@ const getScoreCap = (tour, isSingles) => {
     : Number(tour?.scoreCap ?? 0);
 };
 
-const getMaxDelta = (tour) => {
-  return Number(
+const getMaxDelta = (tour) =>
+  Number(
     tour?.scoreGap ??
       tour?.maxDelta ??
       tour?.scoreTolerance ??
       tour?.tolerance ??
       0
   );
-};
 
 /* Logic HTTPS forcing */
 const shouldForceHttps = (() => {
@@ -314,15 +305,12 @@ const StatCard = memo(({ icon, label, value, subValue }) => (
   <Paper
     elevation={0}
     sx={{
-      p: 2,
+      p: { xs: 1.5, sm: 2 },
       height: "100%",
       borderRadius: 2,
       bgcolor: "background.paper",
       border: "1px solid",
       borderColor: "divider",
-      display: "flex",
-      alignItems: "center",
-      gap: 2,
       transition: "all 0.2s",
       "&:hover": {
         transform: "translateY(-2px)",
@@ -330,41 +318,70 @@ const StatCard = memo(({ icon, label, value, subValue }) => (
       },
     }}
   >
-    <Box
-      sx={{
-        p: 1.5,
-        borderRadius: "12px",
-        bgcolor: alpha(BRAND_COLOR, 0.08),
-        color: BRAND_COLOR,
-        display: "flex",
-      }}
-    >
-      {icon}
-    </Box>
-    <Box>
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        fontWeight={600}
-        textTransform="uppercase"
-        letterSpacing={0.5}
+    <Stack direction="row" spacing={1.5} alignItems="flex-start">
+      <Box
+        sx={{
+          p: 1,
+          borderRadius: "12px",
+          bgcolor: alpha(BRAND_COLOR, 0.08),
+          color: BRAND_COLOR,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+          width: { xs: 32, sm: 40 },
+          height: { xs: 32, sm: 40 },
+        }}
       >
-        {label}
-      </Typography>
-      <Typography
-        variant="h5"
-        fontWeight={700}
-        color="text.primary"
-        sx={{ lineHeight: 1.2, my: 0.2 }}
-      >
-        {value}
-      </Typography>
-      {subValue && (
-        <Typography variant="caption" color="text.secondary">
-          {subValue}
+        {/* cho icon tự co theo box */}
+        <Box sx={{ "& svg": { fontSize: { xs: 18, sm: 22 } } }}>{icon}</Box>
+      </Box>
+
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Typography
+          variant="caption"
+          sx={{
+            color: "text.secondary",
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+            fontSize: { xs: "0.65rem", sm: "0.75rem" },
+            lineHeight: 1.2,
+            wordBreak: "break-word", // tránh lòi chữ
+          }}
+        >
+          {label}
         </Typography>
-      )}
-    </Box>
+
+        <Typography
+          sx={{
+            mt: 0.3,
+            fontWeight: 700,
+            color: "text.primary",
+            fontSize: { xs: "1rem", sm: "1.25rem" },
+            lineHeight: 1.1,
+            wordBreak: "break-word",
+          }}
+        >
+          {value}
+        </Typography>
+
+        {subValue && (
+          <Typography
+            variant="caption"
+            sx={{
+              mt: 0.3,
+              color: "text.secondary",
+              fontSize: { xs: "0.65rem", sm: "0.75rem" },
+              display: "block",
+              wordBreak: "break-word",
+            }}
+          >
+            {subValue}
+          </Typography>
+        )}
+      </Box>
+    </Stack>
   </Paper>
 ));
 
@@ -600,107 +617,8 @@ const PlayerInfo = memo(
   )
 );
 
-/* Desktop Row */
-const DesktopRow = memo(
-  ({ r, index, isSingles, cap, delta, regCodeOf, ...props }) => {
-    const total = totalScoreOf(r, isSingles);
-    const isOver = cap > 0 && total > cap + (delta || 0);
-
-    return (
-      <TableRow hover sx={{ "& td": { py: 1.5, px: 2 } }}>
-        <TableCell width={50} align="center">
-          <Typography variant="body2" color="text.secondary" fontWeight={500}>
-            {index + 1}
-          </Typography>
-        </TableCell>
-        <TableCell width={100}>
-          <Chip
-            label={regCodeOf(r)}
-            size="small"
-            sx={{
-              borderRadius: 1,
-              fontFamily: "monospace",
-              fontWeight: 700,
-              bgcolor: alpha("#000", 0.05),
-            }}
-          />
-        </TableCell>
-        <TableCell>
-          <PlayerInfo
-            player={r.player1}
-            onEdit={() => props.onOpenReplace(r, "p1")}
-            canEdit={props.canManage}
-            {...props}
-          />
-        </TableCell>
-        {!isSingles && (
-          <TableCell>
-            {r.player2 ? (
-              <PlayerInfo
-                player={r.player2}
-                onEdit={() => props.onOpenReplace(r, "p2")}
-                canEdit={props.canManage}
-                {...props}
-              />
-            ) : props.canManage ? (
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<PersonAdd />}
-                onClick={() => props.onOpenReplace(r, "p2")}
-                sx={{ fontSize: "0.7rem" }}
-              >
-                Thêm VĐV 2
-              </Button>
-            ) : (
-              <Typography variant="caption" color="text.secondary">
-                Đang tìm...
-              </Typography>
-            )}
-          </TableCell>
-        )}
-        <TableCell align="center">
-          <Box
-            sx={{
-              display: "inline-flex",
-              flexDirection: "column",
-              alignItems: "center",
-            }}
-          >
-            <Typography
-              variant="body2"
-              fontWeight={700}
-              color={isOver ? "error.main" : "success.main"}
-            >
-              {fmt3(total)}
-            </Typography>
-            {cap > 0 && (
-              <Typography
-                variant="caption"
-                color="text.disabled"
-                sx={{ fontSize: "0.65rem" }}
-              >
-                / {fmt3(cap)}
-              </Typography>
-            )}
-          </Box>
-        </TableCell>
-        <TableCell>
-          <Stack spacing={0.5}>
-            <PaymentChip status={r.payment?.status} />
-            <CheckinChip checkinAt={r.checkinAt} />
-          </Stack>
-        </TableCell>
-        <TableCell align="right">
-          <ActionButtons r={r} {...props} />
-        </TableCell>
-      </TableRow>
-    );
-  }
-);
-
-/* Mobile Card */
-const MobileCard = memo(
+/* Card dùng chung cho cả mobile + desktop */
+const RegCard = memo(
   ({ r, index, isSingles, cap, delta, regCodeOf, ...props }) => {
     const total = totalScoreOf(r, isSingles);
     const isOver = cap > 0 && total > cap + (delta || 0);
@@ -708,14 +626,18 @@ const MobileCard = memo(
     return (
       <Card
         sx={{
-          mb: 2,
+          mb: 0,
           borderRadius: 3,
           border: "1px solid",
           borderColor: "divider",
           boxShadow: "none",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
         }}
       >
         <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+          {/* Header */}
           <Stack
             direction="row"
             justifyContent="space-between"
@@ -745,11 +667,14 @@ const MobileCard = memo(
               >
                 #{regCodeOf(r)}
               </Typography>
+              <CheckinChip checkinAt={r.checkinAt} />
             </Stack>
             <PaymentChip status={r.payment?.status} />
           </Stack>
 
+          {/* Body */}
           <Stack spacing={2}>
+            {/* Players */}
             <Box>
               <PlayerInfo
                 player={r.player1}
@@ -783,10 +708,12 @@ const MobileCard = memo(
 
             <Divider sx={{ borderStyle: "dashed" }} />
 
+            {/* Score + Actions */}
             <Stack
               direction="row"
               justifyContent="space-between"
               alignItems="center"
+              spacing={2}
             >
               <Box>
                 <Typography variant="caption" color="text.secondary">
@@ -805,13 +732,64 @@ const MobileCard = memo(
                   )}
                 </Stack>
               </Box>
-              <ActionButtons r={r} {...props} />
+              <Box sx={{ flexShrink: 0 }}>
+                <ActionButtons r={r} {...props} />
+              </Box>
             </Stack>
           </Stack>
         </CardContent>
       </Card>
     );
   }
+);
+
+/* Skeleton card cho list */
+const RegCardSkeleton = () => (
+  <Card
+    sx={{
+      mb: 0,
+      borderRadius: 3,
+      border: "1px solid",
+      borderColor: "divider",
+      boxShadow: "none",
+    }}
+  >
+    <CardContent sx={{ p: 2 }}>
+      <Stack
+        direction="row"
+        justifyContent="space-between"
+        alignItems="center"
+        mb={2}
+      >
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Skeleton variant="circular" width={24} height={24} />
+          <Skeleton variant="text" width={60} />
+        </Stack>
+        <Skeleton variant="rounded" width={90} height={24} />
+      </Stack>
+      <Stack spacing={1.5}>
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <Skeleton variant="circular" width={40} height={40} />
+          <Box sx={{ flex: 1 }}>
+            <Skeleton variant="text" width="60%" />
+            <Skeleton variant="text" width="40%" />
+          </Box>
+        </Stack>
+        <Divider sx={{ borderStyle: "dashed" }} />
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="center"
+        >
+          <Box>
+            <Skeleton variant="text" width={80} />
+            <Skeleton variant="text" width={60} />
+          </Box>
+          <Skeleton variant="rounded" width={120} height={28} />
+        </Stack>
+      </Stack>
+    </CardContent>
+  </Card>
 );
 
 /* Hook lazy load */
@@ -845,9 +823,6 @@ function useLazyRender(totalItems, initialBatch = 20, batchSize = 20) {
 /* ---------------- 4. MAIN PAGE COMPONENT ---------------- */
 export default function TournamentRegistration() {
   const { id } = useParams();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
-  const navigate = useNavigate();
 
   /* Data Fetching */
   const { data: me, isLoading: meLoading } = useGetMeScoreQuery();
@@ -914,17 +889,20 @@ export default function TournamentRegistration() {
 
   /* Countdown */
   const [timeLeft, setTimeLeft] = useState(null);
-  const isRegClosed = timeLeft?.total <= 0;
 
   useEffect(() => {
     const raw = tour?.registrationDeadline || tour?.regDeadline;
-    if (!raw) return;
+    if (!raw) {
+      // Không có deadline thì không hiển thị countdown / closed
+      setTimeLeft(null);
+      return;
+    }
     const deadline = new Date(raw);
-    const timer = setInterval(() => {
+
+    const tick = () => {
       const diff = deadline.getTime() - new Date().getTime();
       if (diff <= 0) {
         setTimeLeft({ total: 0, d: 0, h: 0, m: 0, s: 0 });
-        clearInterval(timer);
       } else {
         setTimeLeft({
           total: diff,
@@ -934,9 +912,16 @@ export default function TournamentRegistration() {
           s: Math.floor((diff / 1000) % 60),
         });
       }
-    }, 1000);
+    };
+
+    tick();
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
-  }, [tour]);
+  }, [tour?.registrationDeadline, tour?.regDeadline]);
+
+  const isRegClosed = timeLeft?.total === 0 || timeLeft?.total < 0;
+  // user thường thì khoá form, admin/manager vẫn mở
+  const regLockedForUser = isRegClosed && !canManage;
 
   /* Search */
   const [q, setQ] = useState("");
@@ -958,7 +943,6 @@ export default function TournamentRegistration() {
   );
 
   const { displayCount, loaderRef, hasMore } = useLazyRender(activeList.length);
-
   const displayedItems = useMemo(
     () => activeList.slice(0, displayCount),
     [activeList, displayCount]
@@ -969,6 +953,7 @@ export default function TournamentRegistration() {
   const isSingles = evType === "single";
   const isDoubles = evType === "double";
   const cap = getScoreCap(tour, isSingles);
+  const eachCap = Number(tour?.singleCap ?? 0);
   const delta = getMaxDelta(tour);
   const paidCount = activeList.filter(
     (r) => r.payment?.status === "Paid"
@@ -977,6 +962,9 @@ export default function TournamentRegistration() {
     () => ({ settingPayment, deletingId: cancelingId }),
     [settingPayment, cancelingId]
   );
+
+  const statsLoading = tourLoading || regsLoading;
+  const listInitialLoading = regsLoading || (searching && !activeList.length);
 
   /* Helper Logic */
   const regCodeOf = useCallback(
@@ -1041,11 +1029,12 @@ export default function TournamentRegistration() {
     [tour, me, id, regCodeOf, buildTourCode]
   );
 
-  /* Handlers (dùng useCallback để list không re-render lung tung) */
+  /* Handlers */
   const submit = useCallback(
     async (e) => {
       e.preventDefault();
-      if (isRegClosed) return toast.info("Đã hết hạn đăng ký");
+      if (regLockedForUser)
+        return toast.info("Đã hết hạn đăng ký cho VĐV. Vui lòng liên hệ BTC.");
       if (!isLoggedIn) return toast.info("Vui lòng đăng nhập");
       const p1Id = isAdmin ? p1?._id : String(me?._id);
 
@@ -1074,7 +1063,7 @@ export default function TournamentRegistration() {
       }
     },
     [
-      isRegClosed,
+      regLockedForUser,
       isLoggedIn,
       isAdmin,
       isDoubles,
@@ -1142,6 +1131,7 @@ export default function TournamentRegistration() {
       }).unwrap();
       toast.success("Đã thay VĐV");
       setReplaceDlg({ open: false, reg: null, slot: "p1" });
+      setNewPlayer(null);
       refetchRegs();
       if (debouncedQ) refetchSearch();
     } catch (e) {
@@ -1171,7 +1161,7 @@ export default function TournamentRegistration() {
     }
   }, [complaintDlg, createComplaint, id]);
 
-  // Các handler chỉ mở/đóng dialog: dependency rỗng để luôn là cùng 1 ref
+  /* Dialog open/close handlers */
   const handleOpenPreview = useCallback((src, name) => {
     setImgPreview({ open: true, src, name });
   }, []);
@@ -1216,7 +1206,7 @@ export default function TournamentRegistration() {
     setComplaintDlg({ open: false, reg: null, text: "" });
   }, []);
 
-  if (tourLoading)
+  if (tourLoading && !tour)
     return (
       <Box sx={{ height: "80vh", display: "grid", placeItems: "center" }}>
         <CircularProgress />
@@ -1241,7 +1231,7 @@ export default function TournamentRegistration() {
           position: "relative",
           overflow: "hidden",
           boxShadow: 3,
-          zIndex: 1, // banner ở dưới stats
+          zIndex: 1,
         }}
       >
         {/* Background decorations */}
@@ -1359,28 +1349,26 @@ export default function TournamentRegistration() {
                     <CountdownItem value={timeLeft.s} label="Giây" />
                   </Stack>
                 </Box>
-              ) : (
-                isRegClosed && (
-                  <Chip
-                    label="ĐÃ ĐÓNG CỔNG ĐĂNG KÝ"
-                    color="error"
-                    sx={{
-                      fontWeight: "bold",
-                      px: 2,
-                      py: 3,
-                      fontSize: "1rem",
-                      borderRadius: 2,
-                      border: "2px solid white",
-                    }}
-                  />
-                )
-              )}
+              ) : isRegClosed ? (
+                <Chip
+                  label="ĐÃ ĐÓNG CỔNG ĐĂNG KÝ"
+                  color="error"
+                  sx={{
+                    fontWeight: "bold",
+                    px: 2,
+                    py: 3,
+                    fontSize: "1rem",
+                    borderRadius: 2,
+                    border: "2px solid white",
+                  }}
+                />
+              ) : null}
             </Grid>
           </Grid>
         </Container>
       </Box>
 
-      {/* Container này kéo overlap banner nhưng trên banner (zIndex 2) */}
+      {/* --- 2. STATS + CONTENT (OVERLAP BANNER) --- */}
       <Container
         maxWidth="xl"
         sx={{
@@ -1389,45 +1377,83 @@ export default function TournamentRegistration() {
           zIndex: 2,
         }}
       >
-        {/* --- 2. STATS CARDS --- */}
+        {/* STATS CARDS */}
         <Grid container spacing={2} sx={{ mb: 4 }}>
-          <Grid size={{ xs: 6, sm: 6, md: 3 }}>
-            <StatCard
-              icon={<EmojiEvents />}
-              label={isSingles ? "Max Điểm/VĐV" : "Max Tổng Điểm"}
-              value={fmt3(cap)}
-              subValue={delta > 0 ? `+${fmt3(delta)} dung sai` : null}
-            />
-          </Grid>
-          <Grid size={{ xs: 6, sm: 6, md: 3 }}>
-            <StatCard
-              icon={<Groups />}
-              label="Đã đăng ký"
-              value={activeList.length}
-              subValue={isSingles ? "Vận động viên" : "Cặp đôi"}
-            />
-          </Grid>
-          <Grid size={{ xs: 6, sm: 6, md: 3 }}>
-            <StatCard
-              icon={<MonetizationOn />}
-              label="Đã thanh toán"
-              value={paidCount}
-              subValue={`${Math.round(
-                (paidCount / (activeList.length || 1)) * 100
-              )}% hoàn thành`}
-            />
-          </Grid>
-          <Grid size={{ xs: 6, sm: 6, md: 3 }}>
-            <StatCard
-              icon={<AccessTimeFilled />}
-              label="Trạng thái"
-              value={isRegClosed ? "Đã đóng" : "Đang mở"}
-              subValue={isRegClosed ? "Hẹn gặp giải sau" : "Đăng ký ngay"}
-            />
-          </Grid>
+          {statsLoading ? (
+            Array.from({ length: 4 }).map((_, idx) => (
+              <Grid key={idx} size={{ xs: 6, md: 3 }}>
+                <Paper
+                  elevation={0}
+                  sx={{
+                    p: 2,
+                    height: "100%",
+                    borderRadius: 2,
+                    border: "1px solid",
+                    borderColor: "divider",
+                  }}
+                >
+                  <Stack direction="row" spacing={2} alignItems="center">
+                    <Skeleton variant="circular" width={36} height={36} />
+                    <Box sx={{ flex: 1 }}>
+                      <Skeleton variant="text" width="60%" />
+                      <Skeleton variant="text" width="40%" />
+                    </Box>
+                  </Stack>
+                </Paper>
+              </Grid>
+            ))
+          ) : (
+            <>
+              <Grid size={{ xs: 6, md: 3 }}>
+                <StatCard
+                  icon={<EmojiEvents />}
+                  label="Tổng điểm tối đa"
+                  value={cap > 0 ? fmt3(cap) : "Không giới hạn"}
+                  subValue={[
+                    `Điểm mỗi VĐV: ${
+                      eachCap > 0 ? fmt3(eachCap) : "Không giới hạn"
+                    }`,
+                    delta > 0 ? `Dung sai: +${fmt3(delta)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" • ")}
+                />
+              </Grid>
+              <Grid size={{ xs: 6, md: 3 }}>
+                <StatCard
+                  icon={<Groups />}
+                  label="Đã đăng ký"
+                  value={activeList.length}
+                  subValue={isSingles ? "Vận động viên" : "Cặp đôi"}
+                />
+              </Grid>
+              <Grid size={{ xs: 6, md: 3 }}>
+                <StatCard
+                  icon={<MonetizationOn />}
+                  label="Đã thanh toán"
+                  value={paidCount}
+                  subValue={`${
+                    activeList.length
+                      ? Math.round((paidCount / activeList.length) * 100)
+                      : 0
+                  }% hoàn thành`}
+                />
+              </Grid>
+              <Grid size={{ xs: 6, md: 3 }}>
+                <StatCard
+                  icon={<AccessTimeFilled />}
+                  label="Trạng thái"
+                  value={isRegClosed ? "Đã đóng" : "Đang mở"}
+                  subValue={
+                    isRegClosed ? "Hẹn gặp giải sau" : "Đăng ký ngay hôm nay"
+                  }
+                />
+              </Grid>
+            </>
+          )}
         </Grid>
 
-        {/* --- 3. CONTENT PREVIEW (RULES/CONTACT) --- */}
+        {/* CONTENT PREVIEW */}
         <Grid container spacing={3} sx={{ mb: 3 }}>
           <Grid size={{ xs: 12 }}>
             {(tour.contactHtml || tour.contentHtml) && (
@@ -1453,7 +1479,7 @@ export default function TournamentRegistration() {
           </Grid>
         </Grid>
 
-        {/* --- 4. MAIN GRID --- */}
+        {/* --- 3. MAIN GRID --- */}
         <Grid container spacing={3}>
           {/* LEFT: FORM */}
           <Grid size={{ xs: 12, lg: 4 }}>
@@ -1485,7 +1511,7 @@ export default function TournamentRegistration() {
               </Stack>
 
               {meLoading ? (
-                <CircularProgress size={24} />
+                <Skeleton variant="rounded" height={120} />
               ) : !isLoggedIn ? (
                 <Alert
                   severity="info"
@@ -1498,16 +1524,18 @@ export default function TournamentRegistration() {
                   </Link>{" "}
                   để đăng ký.
                 </Alert>
-              ) : isRegClosed ? (
+              ) : regLockedForUser ? (
                 <Alert
                   severity="warning"
                   variant="filled"
                   sx={{ borderRadius: 2 }}
                 >
-                  Đã hết thời gian đăng ký.
+                  Đã hết thời gian đăng ký cho VĐV. Vui lòng liên hệ BTC nếu cần
+                  hỗ trợ thêm.
                 </Alert>
               ) : (
                 <form onSubmit={submit}>
+                  {/* VĐV 1 */}
                   <Box mb={2.5}>
                     <Typography
                       variant="subtitle2"
@@ -1521,6 +1549,8 @@ export default function TournamentRegistration() {
                         value={p1}
                         onChange={setP1}
                         eventType={tour.eventType}
+                        label="VĐV 1"
+                        placeholder="Chọn VĐV 1..."
                       />
                     ) : (
                       <Card
@@ -1560,6 +1590,7 @@ export default function TournamentRegistration() {
                     )}
                   </Box>
 
+                  {/* VĐV 2 */}
                   {isDoubles && (
                     <Box mb={2.5}>
                       <Typography
@@ -1573,6 +1604,7 @@ export default function TournamentRegistration() {
                         value={p2}
                         onChange={setP2}
                         eventType={tour.eventType}
+                        label="VĐV 2"
                         placeholder="Tìm theo tên, SĐT..."
                       />
                     </Box>
@@ -1622,35 +1654,64 @@ export default function TournamentRegistration() {
 
               <Stack spacing={1.5}>
                 {canManage && (
-                  <Button
-                    fullWidth
-                    variant="contained"
-                    color="secondary"
-                    component={Link}
-                    to={`/tournament/${id}/manage`}
-                  >
-                    Quản lý giải đấu (Admin)
-                  </Button>
+                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      color="secondary"
+                      component={Link}
+                      to={`/tournament/${id}/manage`}
+                    >
+                      Quản lý giải đấu
+                    </Button>
+
+                    {/* Nút Bốc thăm – căn giữa nội dung */}
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      component={Link}
+                      to={`/tournament/${id}/draw`} // hoặc route bốc thăm của bạn
+                      startIcon={<EmojiEvents />}
+                      sx={{
+                        borderRadius: 2,
+                        justifyContent: "center", // 👈 căn giữa icon + text
+                        textTransform: "none",
+                      }}
+                    >
+                      Bốc thăm
+                    </Button>
+                  </Stack>
                 )}
+
+                {/* Xem sơ đồ thi đấu – cũng căn giữa */}
                 <Button
-                  startIcon={<Search />}
+                  startIcon={<Equalizer />}
                   component={Link}
-                  to={`/tournament/${id}/draw`}
+                  to={`/tournament/${id}/bracket`}
                   fullWidth
                   variant="outlined"
-                  sx={{ justifyContent: "flex-start", borderRadius: 2 }}
+                  sx={{
+                    borderRadius: 2,
+                    justifyContent: "center", // 👈 đổi từ flex-start thành center
+                    textTransform: "none",
+                  }}
                 >
                   Xem Sơ đồ thi đấu
                 </Button>
+
                 <Button
                   startIcon={<CheckCircle />}
                   component={Link}
                   to={`/tournament/${id}/checkin`}
                   fullWidth
                   variant="outlined"
-                  sx={{ justifyContent: "flex-start", borderRadius: 2 }}
+                  sx={{
+                    borderRadius: 2,
+                    justifyContent: "center", // cho đẹp đồng bộ luôn
+                    textTransform: "none",
+                  }}
                 >
-                  Khu vực Check-in
+                  Check-in
                 </Button>
               </Stack>
             </Paper>
@@ -1689,7 +1750,11 @@ export default function TournamentRegistration() {
                     Danh sách tham gia
                   </Typography>
                   <Chip
-                    label={activeList.length}
+                    label={
+                      regsLoading || searching
+                        ? "Đang tải..."
+                        : String(activeList.length)
+                    }
                     color="primary"
                     size="small"
                     sx={{ fontWeight: "bold", height: 24 }}
@@ -1719,114 +1784,28 @@ export default function TournamentRegistration() {
               </Box>
 
               {/* Content */}
-              <Box sx={{ flex: 1, bgcolor: isMobile ? "#f8fafc" : "white" }}>
-                {activeList.length === 0 ? (
+              <Box sx={{ flex: 1, bgcolor: "#f8fafc" }}>
+                {listInitialLoading ? (
+                  <Box sx={{ p: 2 }}>
+                    <Grid container spacing={2}>
+                      {Array.from({ length: 4 }).map((_, idx) => (
+                        <Grid key={idx} size={{ xs: 12, md: 6 }}>
+                          <RegCardSkeleton />
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </Box>
+                ) : activeList.length === 0 ? (
                   <Box p={4} textAlign="center" color="text.secondary">
                     <Groups sx={{ fontSize: 48, opacity: 0.3, mb: 1 }} />
                     <Typography>Chưa có đăng ký nào.</Typography>
                   </Box>
-                ) : isMobile ? (
-                  <Box sx={{ p: 2 }}>
-                    {displayedItems.map((r, i) => (
-                      <MobileCard
-                        key={r._id}
-                        r={r}
-                        index={i}
-                        isSingles={isSingles}
-                        cap={cap}
-                        delta={delta}
-                        canManage={canManage}
-                        isOwner={String(r.createdBy) === String(me?._id)}
-                        onCancel={handleCancel}
-                        onTogglePayment={togglePayment}
-                        onOpenReplace={handleOpenReplace}
-                        onOpenPreview={handleOpenPreview}
-                        onOpenProfile={handleOpenProfile}
-                        onOpenPayment={handleOpenPayment}
-                        onOpenComplaint={handleOpenComplaint}
-                        regCodeOf={regCodeOf}
-                        busy={busy}
-                      />
-                    ))}
-                  </Box>
                 ) : (
-                  <TableContainer sx={{ maxHeight: "70vh" }}>
-                    <Table stickyHeader size="medium">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell
-                            sx={{
-                              fontWeight: 700,
-                              bgcolor: "#f8fafc",
-                              color: "text.secondary",
-                            }}
-                          >
-                            #
-                          </TableCell>
-                          <TableCell
-                            sx={{
-                              fontWeight: 700,
-                              bgcolor: "#f8fafc",
-                              color: "text.secondary",
-                            }}
-                          >
-                            Mã ĐK
-                          </TableCell>
-                          <TableCell
-                            sx={{
-                              fontWeight: 700,
-                              bgcolor: "#f8fafc",
-                              color: "text.secondary",
-                            }}
-                          >
-                            VĐV 1
-                          </TableCell>
-                          {!isSingles && (
-                            <TableCell
-                              sx={{
-                                fontWeight: 700,
-                                bgcolor: "#f8fafc",
-                                color: "text.secondary",
-                              }}
-                            >
-                              VĐV 2
-                            </TableCell>
-                          )}
-                          <TableCell
-                            align="center"
-                            sx={{
-                              fontWeight: 700,
-                              bgcolor: "#f8fafc",
-                              color: "text.secondary",
-                            }}
-                          >
-                            Điểm
-                          </TableCell>
-                          <TableCell
-                            sx={{
-                              fontWeight: 700,
-                              bgcolor: "#f8fafc",
-                              color: "text.secondary",
-                            }}
-                          >
-                            Trạng thái
-                          </TableCell>
-                          <TableCell
-                            align="right"
-                            sx={{
-                              fontWeight: 700,
-                              bgcolor: "#f8fafc",
-                              color: "text.secondary",
-                            }}
-                          >
-                            Hành động
-                          </TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {displayedItems.map((r, i) => (
-                          <DesktopRow
-                            key={r._id}
+                  <Box sx={{ p: 2 }}>
+                    <Grid container spacing={2}>
+                      {displayedItems.map((r, i) => (
+                        <Grid key={r._id} size={{ xs: 12, md: 6 }}>
+                          <RegCard
                             r={r}
                             index={i}
                             isSingles={isSingles}
@@ -1844,15 +1823,19 @@ export default function TournamentRegistration() {
                             regCodeOf={regCodeOf}
                             busy={busy}
                           />
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </TableContainer>
-                )}
-
-                {hasMore && (
-                  <Box ref={loaderRef} sx={{ p: 3, textAlign: "center" }}>
-                    <CircularProgress size={24} />
+                        </Grid>
+                      ))}
+                      {hasMore && (
+                        <Grid size={{ xs: 12 }}>
+                          <Box
+                            ref={loaderRef}
+                            sx={{ p: 3, textAlign: "center" }}
+                          >
+                            <CircularProgress size={24} />
+                          </Box>
+                        </Grid>
+                      )}
+                    </Grid>
                   </Box>
                 )}
               </Box>
@@ -1991,7 +1974,7 @@ export default function TournamentRegistration() {
                     alt="QR Code"
                     style={{ width: "100%", maxWidth: 250, display: "block" }}
                     onError={(e) => {
-                      e.target.style.display = "none";
+                      e.currentTarget.style.display = "none";
                     }}
                   />
                 </Box>

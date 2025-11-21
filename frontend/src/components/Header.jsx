@@ -402,7 +402,7 @@ const Header = () => {
                   <Typography
                     variant="subtitle2"
                     fontWeight={600}
-                    sx={{ lineHeight: 1.2 }}
+                    sx={{ lineHeight: 1.2, color: "text.primary" }}
                   >
                     {userInfo.nickname || userInfo.name}
                   </Typography>

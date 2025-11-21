@@ -141,7 +141,7 @@ export default function MobileBottomNav() {
         bottom: 0,
         left: 0,
         right: 0,
-        zIndex: 1300, // Đảm bảo nổi trên các nội dung khác
+        zIndex: 1199, // Đảm bảo nổi trên các nội dung khác
         display: { xs: "flex", md: "none" }, // Chỉ hiện trên mobile
         justifyContent: "center", // Căn giữa
         pointerEvents: "none", // Cho phép click xuyên qua vùng padding trong suốt
