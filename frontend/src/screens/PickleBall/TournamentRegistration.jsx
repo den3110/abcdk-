@@ -72,6 +72,36 @@ const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";
 const BRAND_COLOR = "#1976d2";
 const CARD_RADIUS = 3;
 
+const totalChipStyle = (total, cap, delta) => {
+  const hasCap = Number.isFinite(cap) && cap > 0;
+  if (!hasCap || !Number.isFinite(total)) {
+    return { color: "default", title: "Không có giới hạn" };
+  }
+
+  const d = Number.isFinite(delta) && delta > 0 ? Number(delta) : 0;
+  const threshold = cap + d;
+  const EPS = 1e-6;
+
+  if (total > threshold + EPS) {
+    return {
+      color: "error",
+      title: `> ${fmt3(cap)} + ${fmt3(d)} (Vượt quá mức cho phép)`,
+    };
+  }
+
+  if (Math.abs(total - threshold) <= EPS) {
+    return {
+      color: "warning",
+      title: `= ${fmt3(cap)} + ${fmt3(d)} (Chạm ngưỡng tối đa)`,
+    };
+  }
+
+  return {
+    color: "success",
+    title: `< ${fmt3(cap)} + ${fmt3(d)} (Hợp lệ)`,
+  };
+};
+
 const fmt3 = (v) => {
   const n = Number(v);
   if (!isFinite(n)) return "—";
@@ -621,7 +651,14 @@ const PlayerInfo = memo(
 const RegCard = memo(
   ({ r, index, isSingles, cap, delta, regCodeOf, ...props }) => {
     const total = totalScoreOf(r, isSingles);
-    const isOver = cap > 0 && total > cap + (delta || 0);
+    const chip = totalChipStyle(total, cap, delta);
+
+    const colorMap = {
+      default: "text.primary",
+      success: "success.main",
+      warning: "warning.main",
+      error: "error.main",
+    };
 
     return (
       <Card
@@ -723,7 +760,8 @@ const RegCard = memo(
                   <Typography
                     variant="h6"
                     fontWeight={700}
-                    color={isOver ? "error.main" : "success.main"}
+                    color={colorMap[chip.color] || "text.primary"}
+                    title={chip.title}
                   >
                     {fmt3(total)}
                   </Typography>
@@ -1445,7 +1483,9 @@ export default function TournamentRegistration() {
                   label="Trạng thái"
                   value={isRegClosed ? "Đã đóng" : "Đang mở"}
                   subValue={
-                    isRegClosed ? "Hẹn gặp bạn giải sau" : "Đăng ký ngay hôm nay"
+                    isRegClosed
+                      ? "Hẹn gặp bạn giải sau"
+                      : "Đăng ký ngay hôm nay"
                   }
                 />
               </Grid>
@@ -1491,7 +1531,9 @@ export default function TournamentRegistration() {
                 border: "1px solid",
                 borderColor: "divider",
                 position: { xs: "static", lg: "sticky" },
-                top: { lg: 20 },
+                // trước: top: { lg: 20 },
+                // đẩy xuống dưới header + chừa khoảng cách
+                top: { lg: 88 }, // ~64px header + 24px margin, có thể chỉnh 80–96 tuỳ mắt
               }}
             >
               <Stack direction="row" alignItems="center" spacing={1} mb={3}>
@@ -1549,8 +1591,6 @@ export default function TournamentRegistration() {
                         value={p1}
                         onChange={setP1}
                         eventType={tour.eventType}
-                        label="VĐV 1"
-                        placeholder="Chọn VĐV 1..."
                       />
                     ) : (
                       <Card
@@ -1568,13 +1608,37 @@ export default function TournamentRegistration() {
                           src={me?.avatar}
                           sx={{ width: 48, height: 48 }}
                         />
-                        <Box>
-                          <Typography fontWeight={700}>
-                            {me?.nickname ||
-                              me?.name ||
-                              me?.fullName ||
-                              "VĐV của bạn"}
-                          </Typography>
+
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          {/* Hàng tên + badge KYC */}
+                          <Box
+                            sx={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 0.5,
+                              maxWidth: "100%",
+                            }}
+                          >
+                            <Typography
+                              fontWeight={700}
+                              sx={{
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                maxWidth: "100%",
+                              }}
+                            >
+                              {me?.nickname ||
+                                me?.name ||
+                                me?.fullName ||
+                                "VĐV 1"}
+                            </Typography>
+
+                            {/* Badge KYC dính sát tên */}
+                            <VerifyBadge status={me?.cccdStatus} />
+                          </Box>
+
+                          {/* Hàng điểm + SĐT */}
                           <Typography variant="caption" color="text.secondary">
                             Điểm:{" "}
                             {fmt3(
@@ -1582,9 +1646,6 @@ export default function TournamentRegistration() {
                             )}{" "}
                             • {me?.phone || "Chưa có SĐT"}
                           </Typography>
-                          <Box>
-                            <VerifyBadge status={me?.cccdStatus} />
-                          </Box>
                         </Box>
                       </Card>
                     )}
