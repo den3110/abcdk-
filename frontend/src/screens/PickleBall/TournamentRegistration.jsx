@@ -1445,7 +1445,7 @@ export default function TournamentRegistration() {
                   label="Trạng thái"
                   value={isRegClosed ? "Đã đóng" : "Đang mở"}
                   subValue={
-                    isRegClosed ? "Hẹn gặp giải sau" : "Đăng ký ngay hôm nay"
+                    isRegClosed ? "Hẹn gặp bạn giải sau" : "Đăng ký ngay hôm nay"
                   }
                 />
               </Grid>
