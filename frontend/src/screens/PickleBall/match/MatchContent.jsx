@@ -1176,8 +1176,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
       return arr;
     });
   };
-  const addSet = () =>
-    setEditScores((old) => [...(old || []), { a: 0, b: 0 }]);
+  const addSet = () => setEditScores((old) => [...(old || []), { a: 0, b: 0 }]);
   const removeSet = (idx) =>
     setEditScores((old) => (old || []).filter((_, i) => i !== idx));
   const resetEdits = () =>
@@ -1518,7 +1517,22 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 Mở overlay
               </Button>
             </Stack>
-
+            <Stack>
+              <Button
+                size="small"
+                variant="contained"
+                color="primary"
+                startIcon={<OpenInNewIcon />}
+                component={MuiLink}
+                href={overlayUrl + "&overlay=1&isactivebreak=1"}
+                target="_blank"
+                rel="noreferrer"
+                underline="none"
+                sx={{ color: "white !important", whiteSpace: "nowrap" }}
+              >
+                Mở overlay đầy đủ
+              </Button>
+            </Stack>
             <Typography variant="caption" color="text.secondary">
               Dán link vào OBS/StreamYard (Browser Source) để hiển thị tỉ số.
             </Typography>
@@ -1583,17 +1597,9 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Sets:{" "}
-              {
-                shownGameScores.filter(
-                  (g) => (g?.a ?? 0) > (g?.b ?? 0)
-                ).length
-              }{" "}
+              {shownGameScores.filter((g) => (g?.a ?? 0) > (g?.b ?? 0)).length}{" "}
               –{" "}
-              {
-                shownGameScores.filter(
-                  (g) => (g?.b ?? 0) > (g?.a ?? 0)
-                ).length
-              }
+              {shownGameScores.filter((g) => (g?.b ?? 0) > (g?.a ?? 0)).length}
             </Typography>
           </Box>
 
@@ -1634,9 +1640,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                 <TableCell>Set</TableCell>
                 <TableCell align="center">A</TableCell>
                 <TableCell align="center">B</TableCell>
-                {canEdit && editMode && (
-                  <TableCell align="center" width={56} />
-                )}
+                {canEdit && editMode && <TableCell align="center" width={56} />}
               </TableRow>
             </TableHead>
             <TableBody>

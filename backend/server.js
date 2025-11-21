@@ -56,6 +56,7 @@ import newsRoutes from "./routes/newsPublicRoutes.js";
 import appInitRoutes from "./routes/appInitRoutes.js";
 import leaderboardRoutes from "./routes/leaderboardRoutes.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
+import liveRecordingRoutes from "./routes/liveRecordingRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
 import { initNewsCron } from "./jobs/newsCron.js";
 
@@ -144,7 +145,7 @@ app.use("/api/fb-tokens", fbTokenRoutes);
 app.use("/api/app/init", appInitRoutes);
 app.use("/api/leaderboards", leaderboardRoutes);
 app.use("/api/schedule", scheduleRoutes);
-
+app.use("/api/live/recordings", liveRecordingRoutes);
 
 app.get("/dl/file/:id", async (req, res) => {
   try {
@@ -201,7 +202,7 @@ if (process.env.TELEGRAM_BOT_TOKEN) {
   }
 }
 
-server.listen(port, async () => {
+server.listen(port, "0.0.0.0", async () => {
   try {
     console.log(`✅ Server started on port ${port}`);
     startTournamentCrons();
