@@ -1451,7 +1451,7 @@ export default function TournamentRegistration() {
                     `Điểm mỗi VĐV: ${
                       eachCap > 0 ? fmt3(eachCap) : "Không giới hạn"
                     }`,
-                    delta > 0 ? `Dung sai: +${fmt3(delta)}` : null,
+                    delta > 0 ? `Chênh lệch: ${fmt3(delta)}` : null,
                   ]
                     .filter(Boolean)
                     .join(" • ")}
