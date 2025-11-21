@@ -6,7 +6,6 @@ import {
   Button,
   Chip,
   CircularProgress,
-  Grid,
   Paper,
   Stack,
   Table,
@@ -18,7 +17,6 @@ import {
   Typography,
   useMediaQuery,
   useTheme,
-  Tooltip,
   IconButton,
   TableContainer,
   Dialog,
@@ -27,8 +25,14 @@ import {
   DialogActions,
   Alert,
   InputAdornment,
+  Container,
+  Card,
+  CardContent,
+  Divider,
+  alpha,
+  Tooltip,
+  Grid,
 } from "@mui/material";
-import { Container as RBContainer } from "react-bootstrap";
 import { toast } from "react-toastify";
 import {
   MonetizationOn,
@@ -43,31 +47,38 @@ import {
   Clear,
   Verified as VerifiedIcon,
   HourglassBottom as PendingIcon,
-  Block as RejectedIcon,
-  HelpOutline as UnverifiedIcon,
+  AccessTimeFilled,
+  SportsTennis,
+  LocationOn,
+  CalendarMonth,
+  EmojiEvents,
+  PersonAdd,
+  CheckCircle,
+  InfoOutlined,
 } from "@mui/icons-material";
 import DangerousSharpIcon from "@mui/icons-material/DangerousSharp";
 
+// Import API & Components (Giữ nguyên đường dẫn của bạn)
 import {
   useGetTournamentQuery,
   useGetRegistrationsQuery,
   useCreateRegInviteMutation,
-  useListMyRegInvitesQuery,
-  useRespondRegInviteMutation,
-  useCancelRegistrationMutation,
   useManagerSetRegPaymentStatusMutation,
   useManagerDeleteRegistrationMutation,
   useManagerReplaceRegPlayerMutation,
   useCreateComplaintMutation,
   useSearchRegistrationsQuery,
+  useCancelRegistrationMutation,
 } from "../../slices/tournamentsApiSlice";
 import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 import { getFeeAmount } from "../../utils/fee";
 
-/* ---------------- helpers ---------------- */
+/* ---------------- 1. CONSTANTS & HELPERS ---------------- */
 const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";
+const BRAND_COLOR = "#1976d2"; // Màu chủ đạo (Xanh dương)
+const CARD_RADIUS = 3; // Độ bo góc
 
 const fmt3 = (v) => {
   const n = Number(v);
@@ -117,37 +128,7 @@ const getMaxDelta = (tour) => {
   );
 };
 
-const totalChipStyle = (total, cap, delta) => {
-  const hasCap = Number.isFinite(cap) && cap > 0;
-  if (!hasCap || !Number.isFinite(total)) {
-    return { color: "default", title: "Không có giới hạn" };
-  }
-
-  const d = Number.isFinite(delta) && delta > 0 ? Number(delta) : 0;
-  const threshold = cap + d;
-  const EPS = 1e-6;
-
-  if (total > threshold + EPS) {
-    return {
-      color: "error",
-      title: `> ${fmt3(cap)} + ${fmt3(d)} (Vượt quá mức cho phép)`,
-    };
-  }
-
-  if (Math.abs(total - threshold) <= EPS) {
-    return {
-      color: "warning",
-      title: `= ${fmt3(cap)} + ${fmt3(d)} (Chạm ngưỡng tối đa)`,
-    };
-  }
-
-  return {
-    color: "success",
-    title: `< ${fmt3(cap)} + ${fmt3(d)} (Hợp lệ)`,
-  };
-};
-
-/* ====== HTTPS forcing helpers ====== */
+/* Logic HTTPS forcing */
 const shouldForceHttps = (() => {
   if (typeof window === "undefined") return false;
   const h = window.location.hostname || "";
@@ -189,14 +170,31 @@ const fixHtmlHttps = (html) => {
   }
 };
 
-/* ==================== Badge KYC ==================== */
+const maskPhone = (phone) => {
+  if (!phone) return "*******???";
+  const d = String(phone).replace(/\D/g, "");
+  const tail = d.slice(-3) || "???";
+  return "*******" + tail;
+};
+
+const normalizeNoAccent = (s) =>
+  (s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/* ---------------- 2. UI COMPONENTS ---------------- */
+
+/* Badge KYC */
 const kycMeta = (status) => {
   const s = String(status || "").toLowerCase();
   switch (s) {
     case "verified":
       return {
         icon: <VerifiedIcon fontSize="inherit" />,
-        color: "success.main",
+        color: "info.main",
         tip: "Đã KYC",
       };
     case "pending":
@@ -214,66 +212,50 @@ const kycMeta = (status) => {
   }
 };
 
-// Optimized: Remove Tooltip, use title attribute
-const VerifyBadge = memo(({ status, sx }) => {
+const VerifyBadge = memo(({ status }) => {
   const { icon, color, tip } = kycMeta(status);
   return (
-    <Box
-      component="span"
-      title={tip}
-      sx={{
-        display: "inline-flex",
-        alignItems: "center",
-        lineHeight: 0,
-        ml: 0.5,
-        color,
-        fontSize: 18,
-        verticalAlign: "middle",
-        ...sx,
-      }}
-    >
-      {icon}
-    </Box>
+    <Tooltip title={tip} arrow>
+      <Box
+        component="span"
+        sx={{
+          display: "inline-flex",
+          alignItems: "center",
+          color,
+          ml: 0.5,
+          fontSize: 18,
+          verticalAlign: "middle",
+        }}
+      >
+        {icon}
+      </Box>
+    </Tooltip>
   );
 });
 
 const kycOf = (pl) => pl?.cccdStatus || "unverified";
 
-/* ==================== Lazy Loading Avatar ==================== */
-const LazyAvatar = memo(({ src, alt, size = 36, onClick, sx }) => {
+/* Lazy Avatar */
+const LazyAvatar = memo(({ src, alt, size = 40, onClick, sx }) => {
   const [imgSrc, setImgSrc] = useState(PLACE);
-  const [isLoaded, setIsLoaded] = useState(false);
   const imgRef = useRef(null);
 
   useEffect(() => {
     const targetSrc = safeSrc(src || PLACE);
-
-    // Use IntersectionObserver for lazy loading
     const observer = new IntersectionObserver(
       (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            const img = new Image();
-            img.src = targetSrc;
-            img.onload = () => {
-              setImgSrc(targetSrc);
-              setIsLoaded(true);
-            };
-            img.onerror = () => {
-              setImgSrc(PLACE);
-              setIsLoaded(true);
-            };
-            observer.disconnect();
-          }
-        });
+        if (entries[0].isIntersecting) {
+          const img = new Image();
+          img.src = targetSrc;
+          img.onload = () => setImgSrc(targetSrc);
+          img.onerror = () => setImgSrc(PLACE);
+          observer.disconnect();
+        }
       },
       { rootMargin: "50px" }
     );
 
-    if (imgRef.current) {
-      observer.observe(imgRef.current);
-    }
-
+    if (imgRef.current) observer.observe(imgRef.current);
     return () => observer.disconnect();
   }, [src]);
 
@@ -286,8 +268,8 @@ const LazyAvatar = memo(({ src, alt, size = 36, onClick, sx }) => {
       sx={{
         width: size,
         height: size,
-        opacity: isLoaded ? 1 : 0.5,
-        transition: "opacity 0.2s",
+        border: `2px solid ${alpha("#fff", 0.8)}`,
+        boxShadow: 2,
         cursor: onClick ? "zoom-in" : "default",
         ...sx,
       }}
@@ -295,466 +277,172 @@ const LazyAvatar = memo(({ src, alt, size = 36, onClick, sx }) => {
   );
 });
 
-/* ==================== Memoized Chips - Optimized ==================== */
-const PaymentChip = memo(({ status, paidAt }) => {
+/* Chips */
+const PaymentChip = memo(({ status }) => {
   const isPaid = status === "Paid";
-  const title = isPaid
-    ? `Đã thanh toán: ${paidAt ? new Date(paidAt).toLocaleString() : ""}`
-    : "Chưa thanh toán";
-
   return (
     <Chip
       size="small"
-      color={isPaid ? "success" : "default"}
       label={isPaid ? "Đã Thanh toán" : "Chưa Thanh toán"}
-      title={title}
-      sx={{ whiteSpace: "nowrap" }}
+      sx={{
+        bgcolor: isPaid ? alpha("#2e7d32", 0.1) : alpha("#ed6c02", 0.1),
+        color: isPaid ? "#1b5e20" : "#e65100",
+        fontWeight: 600,
+        fontSize: "0.7rem",
+        height: 24,
+      }}
     />
   );
 });
 
 const CheckinChip = memo(({ checkinAt }) => {
-  const ok = !!checkinAt;
-  const title = ok
-    ? `Đã check-in: ${new Date(checkinAt).toLocaleString()}`
-    : "Chưa check-in";
-
+  if (!checkinAt) return null;
   return (
     <Chip
       size="small"
-      color={ok ? "info" : "default"}
-      label={ok ? "Đã Check-in" : "Chưa Check-in"}
-      title={title}
-      sx={{ whiteSpace: "nowrap" }}
-    />
-  );
-});
-
-const CodeBadge = memo(({ code, withLabel = true }) => {
-  const text = withLabel ? `Mã: ${code}` : String(code);
-  return (
-    <Chip
-      size="small"
+      icon={<CheckCircle sx={{ fontSize: "14px !important" }} />}
+      label="Đã Check-in"
+      color="info"
       variant="outlined"
-      label={text}
-      sx={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}
+      sx={{ fontSize: "0.7rem", height: 24 }}
     />
   );
 });
 
-const StatItem = memo(({ icon, label, value, hint }) => {
-  return (
-    <Box sx={{ p: 1, height: "100%" }}>
-      <Stack direction="row" spacing={1.5} alignItems="center">
-        <Box
-          sx={{
-            width: 36,
-            height: 36,
-            borderRadius: "50%",
-            display: "grid",
-            placeItems: "center",
-            backgroundColor: "action.hover",
-          }}
-        >
-          {icon}
-        </Box>
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="caption" color="text.secondary" noWrap>
-            {label}
-          </Typography>
-          <Typography
-            variant="h6"
-            sx={{ lineHeight: 1.2 }}
-            noWrap
-            title={String(value)}
-          >
-            {value}
-          </Typography>
-          {hint && (
-            <Typography variant="caption" color="text.secondary" noWrap>
-              {hint}
-            </Typography>
-          )}
-        </Box>
-      </Stack>
-    </Box>
-  );
-});
-
-const SelfPlayerReadonly = memo(({ me, isSingles }) => {
-  if (!me?._id) return null;
-  const display = me?.nickname || me?.name || "Tôi";
-  const scoreVal = isSingles ? me?.score?.single : me?.score?.double;
-
-  return (
+/* Thống kê Card */
+const StatCard = memo(({ icon, label, value, subValue }) => (
+  <Paper
+    elevation={0}
+    sx={{
+      p: 2,
+      height: "100%",
+      borderRadius: 2,
+      bgcolor: "background.paper",
+      border: "1px solid",
+      borderColor: "divider",
+      display: "flex",
+      alignItems: "center",
+      gap: 2,
+      transition: "all 0.2s",
+      "&:hover": {
+        transform: "translateY(-2px)",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+      },
+    }}
+  >
     <Box
       sx={{
         p: 1.5,
-        borderRadius: 1,
-        border: "1px solid",
-        borderColor: "divider",
+        borderRadius: "12px",
+        bgcolor: alpha(BRAND_COLOR, 0.08),
+        color: BRAND_COLOR,
+        display: "flex",
       }}
     >
-      <Typography variant="subtitle2" gutterBottom>
-        VĐV 1 (Bạn)
-      </Typography>
-      <Stack direction="row" spacing={1.5} alignItems="center">
-        <LazyAvatar src={me?.avatar || PLACE} alt={display} size={40} />
-        <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="body2" noWrap title={display}>
-            {display}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" noWrap>
-            {me?.phone || "—"}
-          </Typography>
-        </Box>
-        <Chip
-          size="small"
-          variant="outlined"
-          icon={<Equalizer fontSize="small" />}
-          label={fmt3(scoreVal ?? 0)}
-          title={`Điểm ${isSingles ? "đơn" : "đôi"} hiện tại`}
-          sx={{ whiteSpace: "nowrap" }}
-        />
-      </Stack>
+      {icon}
     </Box>
-  );
-});
-
-/* ==================== Optimized Action Cell - No Tooltips ==================== */
-const ActionCell = memo(
-  ({
-    r,
-    canManage,
-    isOwner,
-    onTogglePayment,
-    onCancel,
-    onOpenComplaint,
-    onOpenPayment,
-    busy,
-  }) => {
-    const paymentTitle =
-      r.payment?.status === "Paid"
-        ? "Đánh dấu CHƯA thanh toán"
-        : "Xác nhận ĐÃ thanh toán";
-
-    return (
-      <Stack
-        direction="row"
-        spacing={0.5}
-        sx={{
-          alignItems: "center",
-          flexWrap: "wrap",
-          justifyContent: "flex-end",
-        }}
+    <Box>
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        fontWeight={600}
+        textTransform="uppercase"
+        letterSpacing={0.5}
       >
-        {canManage && (
-          <IconButton
-            size="small"
-            onClick={() => onTogglePayment(r)}
-            disabled={busy?.settingPayment}
-            title={paymentTitle}
-          >
-            {r.payment?.status === "Paid" ? (
-              <MoneyOff sx={{ fontSize: 18 }} />
-            ) : (
-              <MonetizationOn sx={{ fontSize: 18 }} />
-            )}
-          </IconButton>
-        )}
+        {label}
+      </Typography>
+      <Typography
+        variant="h5"
+        fontWeight={700}
+        color="text.primary"
+        sx={{ lineHeight: 1.2, my: 0.2 }}
+      >
+        {value}
+      </Typography>
+      {subValue && (
+        <Typography variant="caption" color="text.secondary">
+          {subValue}
+        </Typography>
+      )}
+    </Box>
+  </Paper>
+));
 
-        <IconButton
-          size="small"
-          color="primary"
-          onClick={() => onOpenPayment(r)}
-          title="Thanh toán QR"
-          sx={{
-            bgcolor: "primary.main",
-            color: "white",
-            "&:hover": { bgcolor: "primary.dark" },
-          }}
-        >
-          <QrCode sx={{ fontSize: 18 }} />
-        </IconButton>
-
-        <IconButton
-          size="small"
-          color="warning"
-          onClick={() => onOpenComplaint(r)}
-          title="Gửi khiếu nại"
-          sx={{
-            bgcolor: "warning.main",
-            color: "white",
-            "&:hover": { bgcolor: "warning.dark" },
-          }}
-        >
-          <ReportProblem sx={{ fontSize: 18 }} />
-        </IconButton>
-
-        {(canManage || isOwner) && (
-          <IconButton
-            size="small"
-            color="error"
-            onClick={() => onCancel(r)}
-            disabled={busy?.deletingId === r._id}
-            title={canManage ? "Huỷ cặp đấu" : "Huỷ đăng ký"}
-          >
-            <DeleteOutline sx={{ fontSize: 18 }} />
-          </IconButton>
-        )}
-      </Stack>
-    );
-  }
+/* Countdown */
+const CountdownItem = ({ value, label }) => (
+  <Box sx={{ textAlign: "center", minWidth: 48 }}>
+    <Paper
+      elevation={0}
+      sx={{
+        bgcolor: alpha("#fff", 0.15),
+        color: "#fff",
+        py: 0.5,
+        px: 0.5,
+        borderRadius: 1,
+        backdropFilter: "blur(4px)",
+        border: "1px solid rgba(255,255,255,0.1)",
+      }}
+    >
+      <Typography variant="h6" fontWeight="bold" lineHeight={1}>
+        {String(value).padStart(2, "0")}
+      </Typography>
+    </Paper>
+    <Typography
+      variant="caption"
+      sx={{
+        color: alpha("#fff", 0.8),
+        fontSize: "0.65rem",
+        mt: 0.5,
+        display: "block",
+        textTransform: "uppercase",
+      }}
+    >
+      {label}
+    </Typography>
+  </Box>
 );
 
-/* ==================== Optimized Player Cell ==================== */
-const PlayerCell = memo(
-  ({ player, onEdit, canEdit, onOpenPreview, onOpenProfile }) => {
-    const handleAvatarClick = useCallback(() => {
-      onOpenPreview(player?.avatar || PLACE, displayName(player));
-    }, [player, onOpenPreview]);
-
-    const handleProfileClick = useCallback(() => {
-      onOpenProfile(player);
-    }, [player, onOpenProfile]);
-
-    const handleEdit = useCallback(() => {
-      onEdit();
-    }, [onEdit]);
-
-    return (
-      <Stack
-        direction="row"
-        spacing={0.75}
-        alignItems="center"
-        sx={{ minWidth: 0 }}
-      >
-        <Box
-          onClick={handleAvatarClick}
-          sx={{
-            borderRadius: "50%",
-            overflow: "hidden",
-            lineHeight: 0,
-            cursor: "zoom-in",
-            flexShrink: 0,
-          }}
-        >
-          <LazyAvatar
-            src={player?.avatar || PLACE}
-            alt={displayName(player)}
-            size={36}
-          />
-        </Box>
-
-        <Box
-          sx={{
-            minWidth: 0,
-            flex: 1,
-            cursor: getUserId(player) ? "pointer" : "default",
-          }}
-          onClick={handleProfileClick}
-          title="Xem hồ sơ"
-        >
-          <Typography
-            variant="body2"
-            noWrap
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 0.25,
-              fontSize: { xs: "0.875rem", lg: "0.875rem" },
-            }}
-          >
-            <span
-              style={{
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {displayName(player)}
-            </span>
-            <VerifyBadge status={kycOf(player)} />
-          </Typography>
-          <Stack
-            direction="row"
-            spacing={0.5}
-            alignItems="center"
-            sx={{ mt: 0.25 }}
-          >
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              noWrap
-              sx={{ fontSize: "0.7rem" }}
-            >
-              {player?.phone}
-            </Typography>
-            <Chip
-              size="small"
-              variant="outlined"
-              icon={<Equalizer sx={{ fontSize: 12 }} />}
-              label={fmt3(player?.score ?? 0)}
-              sx={{
-                height: 18,
-                fontSize: "0.65rem",
-                "& .MuiChip-icon": { ml: 0.5, mr: -0.25 },
-                "& .MuiChip-label": { px: 0.5 },
-              }}
-            />
-          </Stack>
-        </Box>
-
-        {canEdit && (
-          <IconButton
-            size="small"
-            onClick={handleEdit}
-            sx={{ flexShrink: 0 }}
-            title="Thay VĐV"
-          >
-            <EditOutlined sx={{ fontSize: 18 }} />
-          </IconButton>
-        )}
-      </Stack>
-    );
-  }
-);
-
-/* ==================== Enhanced Lazy Rendering Hook ==================== */
-function useLazyRender(totalItems, initialBatch = 30, batchSize = 20) {
-  const [displayCount, setDisplayCount] = useState(initialBatch);
-  const loaderRef = useRef(null);
-  const observerRef = useRef(null);
-  const timeoutRef = useRef(null);
-
-  useEffect(() => {
-    setDisplayCount(initialBatch);
-  }, [totalItems, initialBatch]);
-
-  useEffect(() => {
-    const loader = loaderRef.current;
-    if (!loader || displayCount >= totalItems) return;
-
-    if (observerRef.current) {
-      observerRef.current.disconnect();
-    }
-
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && displayCount < totalItems) {
-          // Debounce loading to prevent too many updates
-          if (timeoutRef.current) clearTimeout(timeoutRef.current);
-
-          timeoutRef.current = setTimeout(() => {
-            setDisplayCount((prev) => Math.min(prev + batchSize, totalItems));
-          }, 100);
-        }
-      },
-      { rootMargin: "200px" }
-    );
-
-    observerRef.current.observe(loader);
-
-    return () => {
-      if (observerRef.current) observerRef.current.disconnect();
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, [displayCount, totalItems, batchSize]);
-
-  return { displayCount, loaderRef, hasMore: displayCount < totalItems };
-}
-
-const HTML_PREVIEW_MAX_HEIGHT = 260;
-
-/** Section render HTML có thu gọn + mờ + nút "Xem thêm" (mở dialog full) */
-const HtmlPreviewSection = ({ title, html, mtOnMobile = false }) => {
+/* HTML Preview */
+const HtmlPreviewSection = ({ title, html }) => {
   const [open, setOpen] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const contentRef = useRef(null);
-
   const processedHtml = useMemo(() => fixHtmlHttps(html), [html]);
-
-  useEffect(() => {
-    const el = contentRef.current;
-    if (!el) return;
-
-    const checkOverflow = () => {
-      const scroll = el.scrollHeight || el.clientHeight || 0;
-      setHasMore(scroll > HTML_PREVIEW_MAX_HEIGHT + 8);
-    };
-
-    checkOverflow();
-
-    if (typeof ResizeObserver !== "undefined") {
-      const ro = new ResizeObserver(checkOverflow);
-      ro.observe(el);
-      return () => ro.disconnect();
-    }
-  }, [processedHtml]);
+  if (!html) return null;
 
   return (
     <>
-      <Box
-        sx={{
-          width: { xs: "100%", md: "48%" },
-          mt: mtOnMobile ? { xs: 2, md: 0 } : 0,
-        }}
-      >
-        <Typography variant="h6" gutterBottom>
-          {title}
-        </Typography>
-
-        {/* Preview thu gọn + mờ */}
+      <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="center"
+        >
+          <Typography
+            variant="subtitle1"
+            fontWeight={700}
+            display="flex"
+            alignItems="center"
+            gap={1}
+          >
+            <InfoOutlined fontSize="small" color="primary" /> {title}
+          </Typography>
+          <Button size="small" onClick={() => setOpen(true)}>
+            Xem chi tiết
+          </Button>
+        </Stack>
         <Box
           sx={{
-            position: "relative",
-            maxHeight: HTML_PREVIEW_MAX_HEIGHT,
+            mt: 1,
+            maxHeight: 100,
             overflow: "hidden",
-            overflowX: "auto",
-            "& a": { color: "primary.main" },
-            "& img": {
-              maxWidth: "100%",
-              height: "auto",
-              borderRadius: 1,
-            },
+            position: "relative",
+            typography: "body2",
+            color: "text.secondary",
+            maskImage:
+              "linear-gradient(to bottom, black 60%, transparent 100%)",
           }}
-        >
-          <Box
-            ref={contentRef}
-            component="div"
-            dangerouslySetInnerHTML={{ __html: processedHtml }}
-          />
-
-          {hasMore && (
-            <Box
-              sx={{
-                pointerEvents: "none",
-                position: "absolute",
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: 72,
-                background: (theme) =>
-                  `linear-gradient(to bottom, rgba(0,0,0,0), ${theme.palette.background.paper})`,
-              }}
-            />
-          )}
-        </Box>
-
-        {hasMore && (
-          <Box sx={{ mt: 1, textAlign: "left" }}>
-            <Button
-              size="small"
-              variant="contained"
-              onClick={() => setOpen(true)}
-            >
-              Xem thêm
-            </Button>
-          </Box>
-        )}
-      </Box>
-
-      {/* Dialog full nội dung */}
+          dangerouslySetInnerHTML={{ __html: processedHtml }}
+        />
+      </Paper>
       <Dialog
         open={open}
         onClose={() => setOpen(false)}
@@ -762,21 +450,12 @@ const HtmlPreviewSection = ({ title, html, mtOnMobile = false }) => {
         fullWidth
       >
         <DialogTitle>{title}</DialogTitle>
-        <DialogContent
-          dividers
-          sx={{
-            "& a": { color: "primary.main" },
-            "& img": {
-              maxWidth: "100%",
-              height: "auto",
-              borderRadius: 1,
-            },
-            overflowX: "auto",
-          }}
-        >
+        <DialogContent dividers>
           <Box
-            component="div"
             dangerouslySetInnerHTML={{ __html: processedHtml }}
+            sx={{
+              "& img": { maxWidth: "100%", height: "auto", borderRadius: 1 },
+            }}
           />
         </DialogContent>
         <DialogActions>
@@ -787,395 +466,433 @@ const HtmlPreviewSection = ({ title, html, mtOnMobile = false }) => {
   );
 };
 
-/* ==================== Optimized Desktop Row ==================== */
-const DesktopTableRow = memo(
+/* ---------------- 3. ROW & ITEM RENDERERS ---------------- */
+
+const ActionButtons = memo(
   ({
     r,
-    index,
-    isSingles,
-    cap,
-    delta,
     canManage,
     isOwner,
     onTogglePayment,
     onCancel,
-    onOpenComplaint,
     onOpenPayment,
-    onOpenReplace,
-    onOpenPreview,
-    onOpenProfile,
+    onOpenComplaint,
     busy,
-    regCodeOf,
-  }) => {
-    const total = useMemo(() => totalScoreOf(r, isSingles), [r, isSingles]);
-    const chipStyle = useMemo(
-      () => totalChipStyle(total, cap, delta),
-      [total, cap, delta]
-    );
+  }) => (
+    <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+      {canManage && (
+        <Tooltip title="Đổi trạng thái thanh toán">
+          <IconButton
+            size="small"
+            onClick={() => onTogglePayment(r)}
+            color={r.payment?.status === "Paid" ? "default" : "success"}
+            disabled={busy?.settingPayment}
+          >
+            {r.payment?.status === "Paid" ? (
+              <MoneyOff fontSize="small" />
+            ) : (
+              <MonetizationOn fontSize="small" />
+            )}
+          </IconButton>
+        </Tooltip>
+      )}
+      <Tooltip title="Mã QR Thanh toán">
+        <IconButton
+          size="small"
+          onClick={() => onOpenPayment(r)}
+          sx={{ color: "#1976d2", bgcolor: alpha("#1976d2", 0.05) }}
+        >
+          <QrCode fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Khiếu nại">
+        <IconButton
+          size="small"
+          onClick={() => onOpenComplaint(r)}
+          sx={{ color: "#ed6c02", bgcolor: alpha("#ed6c02", 0.05) }}
+        >
+          <ReportProblem fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      {(canManage || isOwner) && (
+        <Tooltip title="Huỷ đăng ký">
+          <IconButton
+            size="small"
+            color="error"
+            onClick={() => onCancel(r)}
+            disabled={busy?.deletingId === r._id}
+            sx={{ bgcolor: alpha("#d32f2f", 0.05) }}
+          >
+            <DeleteOutline fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
+    </Stack>
+  )
+);
 
-    const handleReplaceP1 = useCallback(
-      () => onOpenReplace(r, "p1"),
-      [r, onOpenReplace]
-    );
-    const handleReplaceP2 = useCallback(
-      () => onOpenReplace(r, "p2"),
-      [r, onOpenReplace]
-    );
+const PlayerInfo = memo(
+  ({ player, onEdit, canEdit, onOpenPreview, onOpenProfile }) => (
+    <Stack direction="row" spacing={1.5} alignItems="center">
+      <Box
+        sx={{ position: "relative", cursor: "zoom-in" }}
+        onClick={() => onOpenPreview(player?.avatar, displayName(player))}
+      >
+        <LazyAvatar src={player?.avatar} size={40} />
+        {canEdit && (
+          <Box
+            sx={{
+              position: "absolute",
+              bottom: -6,
+              right: -6,
+              bgcolor: "background.paper",
+              borderRadius: "50%",
+              boxShadow: 2,
+              cursor: "pointer",
+              width: 22,
+              height: 22,
+              display: "grid",
+              placeItems: "center",
+              zIndex: 1,
+              border: "1px solid #eee",
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+          >
+            <EditOutlined sx={{ fontSize: 12, color: "primary.main" }} />
+          </Box>
+        )}
+      </Box>
+      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Typography
+          variant="body2"
+          fontWeight={600}
+          noWrap
+          onClick={() => onOpenProfile(player)}
+          sx={{
+            cursor: "pointer",
+            "&:hover": { color: "primary.main", textDecoration: "underline" },
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
+          {displayName(player)} <VerifyBadge status={kycOf(player)} />
+        </Typography>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ fontFamily: "monospace" }}
+          >
+            {player?.phone || "—"}
+          </Typography>
+          <Chip
+            label={fmt3(player?.score)}
+            size="small"
+            variant="outlined"
+            sx={{ height: 16, fontSize: "0.65rem", borderRadius: 1 }}
+          />
+        </Stack>
+      </Box>
+    </Stack>
+  )
+);
+
+/* Desktop Row */
+const DesktopRow = memo(
+  ({ r, index, isSingles, cap, delta, regCodeOf, ...props }) => {
+    const total = totalScoreOf(r, isSingles);
+    const isOver = cap > 0 && total > cap + (delta || 0);
 
     return (
-      <TableRow hover>
-        <TableCell sx={{ whiteSpace: "nowrap", py: 1, px: { xs: 0.5, md: 1 } }}>
-          <Typography
-            variant="body2"
-            sx={{ fontSize: { xs: "0.75rem", md: "0.875rem" } }}
-          >
+      <TableRow hover sx={{ "& td": { py: 1.5, px: 2 } }}>
+        <TableCell width={50} align="center">
+          <Typography variant="body2" color="text.secondary" fontWeight={500}>
             {index + 1}
           </Typography>
         </TableCell>
-
-        <TableCell sx={{ whiteSpace: "nowrap", py: 1, px: { xs: 0.5, md: 1 } }}>
-          <CodeBadge code={regCodeOf(r)} withLabel={false} />
-        </TableCell>
-
-        <TableCell
-          sx={{
-            py: 1,
-            px: { xs: 0.5, md: 1 },
-            minWidth: { xs: 140, sm: 180, md: 200 },
-          }}
-        >
-          <PlayerCell
-            player={r.player1}
-            onEdit={handleReplaceP1}
-            canEdit={canManage}
-            onOpenPreview={onOpenPreview}
-            onOpenProfile={onOpenProfile}
+        <TableCell width={100}>
+          <Chip
+            label={regCodeOf(r)}
+            size="small"
+            sx={{
+              borderRadius: 1,
+              fontFamily: "monospace",
+              fontWeight: 700,
+              bgcolor: alpha("#000", 0.05),
+            }}
           />
         </TableCell>
-
+        <TableCell>
+          <PlayerInfo
+            player={r.player1}
+            onEdit={() => props.onOpenReplace(r, "p1")}
+            canEdit={props.canManage}
+            {...props}
+          />
+        </TableCell>
         {!isSingles && (
-          <TableCell
-            sx={{
-              py: 1,
-              px: { xs: 0.5, md: 1 },
-              minWidth: { xs: 140, sm: 180, md: 200 },
-            }}
-          >
+          <TableCell>
             {r.player2 ? (
-              <PlayerCell
+              <PlayerInfo
                 player={r.player2}
-                onEdit={handleReplaceP2}
-                canEdit={canManage}
-                onOpenPreview={onOpenPreview}
-                onOpenProfile={onOpenProfile}
+                onEdit={() => props.onOpenReplace(r, "p2")}
+                canEdit={props.canManage}
+                {...props}
               />
-            ) : canManage ? (
+            ) : props.canManage ? (
               <Button
                 size="small"
                 variant="outlined"
-                onClick={handleReplaceP2}
-                sx={{ fontSize: "0.75rem", py: 0.25, px: 0.75 }}
+                startIcon={<PersonAdd />}
+                onClick={() => props.onOpenReplace(r, "p2")}
+                sx={{ fontSize: "0.7rem" }}
               >
-                + VĐV 2
+                Thêm VĐV 2
               </Button>
             ) : (
-              <Typography color="text.secondary">—</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Đang tìm...
+              </Typography>
             )}
           </TableCell>
         )}
-
-        <TableCell sx={{ whiteSpace: "nowrap", py: 1, px: { xs: 0.5, md: 1 } }}>
-          <Chip
-            size="small"
-            icon={<Equalizer sx={{ fontSize: 14 }} />}
-            label={fmt3(total)}
-            color={chipStyle.color}
-            variant="filled"
-            title={`Tổng điểm: ${fmt3(total)} • ${chipStyle.title}`}
+        <TableCell align="center">
+          <Box
             sx={{
-              whiteSpace: "nowrap",
-              height: 24,
-              fontSize: "0.75rem",
-              "& .MuiChip-icon": { ml: 0.5, mr: -0.25 },
+              display: "inline-flex",
+              flexDirection: "column",
+              alignItems: "center",
             }}
-          />
+          >
+            <Typography
+              variant="body2"
+              fontWeight={700}
+              color={isOver ? "error.main" : "success.main"}
+            >
+              {fmt3(total)}
+            </Typography>
+            {cap > 0 && (
+              <Typography
+                variant="caption"
+                color="text.disabled"
+                sx={{ fontSize: "0.65rem" }}
+              >
+                / {fmt3(cap)}
+              </Typography>
+            )}
+          </Box>
         </TableCell>
-
-        <TableCell
-          sx={{
-            py: 1,
-            px: { xs: 0.5, md: 1 },
-            display: { xs: "none", lg: "table-cell" },
-          }}
-        >
-          <Typography variant="caption" sx={{ fontSize: "0.75rem" }}>
-            {new Date(r.createdAt).toLocaleString("vi-VN", {
-              day: "2-digit",
-              month: "2-digit",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </Typography>
-        </TableCell>
-
-        <TableCell sx={{ py: 1, px: { xs: 0.5, md: 1 } }}>
+        <TableCell>
           <Stack spacing={0.5}>
-            <PaymentChip
-              status={r.payment?.status}
-              paidAt={r.payment?.paidAt}
-            />
+            <PaymentChip status={r.payment?.status} />
             <CheckinChip checkinAt={r.checkinAt} />
           </Stack>
         </TableCell>
-
-        <TableCell sx={{ whiteSpace: "nowrap", py: 1, px: { xs: 0.5, md: 1 } }}>
-          <ActionCell
-            r={r}
-            canManage={canManage}
-            isOwner={isOwner}
-            onTogglePayment={onTogglePayment}
-            onCancel={onCancel}
-            onOpenComplaint={onOpenComplaint}
-            onOpenPayment={onOpenPayment}
-            busy={busy}
-          />
+        <TableCell align="right">
+          <ActionButtons r={r} {...props} />
         </TableCell>
       </TableRow>
     );
   }
 );
 
-/* ==================== Optimized Mobile Card ==================== */
+/* Mobile Card */
 const MobileCard = memo(
-  ({
-    r,
-    index,
-    isSingles,
-    cap,
-    delta,
-    canManage,
-    isOwner,
-    onTogglePayment,
-    onCancel,
-    onOpenComplaint,
-    onOpenPayment,
-    onOpenReplace,
-    onOpenPreview,
-    onOpenProfile,
-    busy,
-    regCodeOf,
-    playersOfReg,
-  }) => {
-    const total = useMemo(() => totalScoreOf(r, isSingles), [r, isSingles]);
-    const chipStyle = useMemo(
-      () => totalChipStyle(total, cap, delta),
-      [total, cap, delta]
-    );
-    const players = useMemo(() => playersOfReg(r), [r, playersOfReg]);
+  ({ r, index, isSingles, cap, delta, regCodeOf, ...props }) => {
+    const total = totalScoreOf(r, isSingles);
+    const isOver = cap > 0 && total > cap + (delta || 0);
 
     return (
-      <Paper sx={{ p: 2 }}>
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
-        >
-          <CodeBadge code={regCodeOf(r)} />
-          <Typography variant="caption" color="text.secondary">
-            #{index + 1}
-          </Typography>
-        </Stack>
-
-        {players.map((pl, idx) => (
+      <Card
+        sx={{
+          mb: 2,
+          borderRadius: 3,
+          border: "1px solid",
+          borderColor: "divider",
+          boxShadow: "none",
+        }}
+      >
+        <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
           <Stack
-            key={`${pl?.phone || pl?.fullName || idx}`}
             direction="row"
-            spacing={1}
+            justifyContent="space-between"
             alignItems="center"
-            mt={1}
+            mb={2}
           >
-            <Box
-              onClick={() =>
-                onOpenPreview(pl?.avatar || PLACE, displayName(pl))
-              }
-              sx={{
-                borderRadius: "50%",
-                overflow: "hidden",
-                lineHeight: 0,
-                cursor: "zoom-in",
-              }}
-            >
-              <LazyAvatar
-                src={pl?.avatar || PLACE}
-                alt={displayName(pl)}
-                size={40}
-              />
-            </Box>
-
-            <Box
-              sx={{
-                flex: 1,
-                minWidth: 0,
-                cursor: getUserId(pl) ? "pointer" : "default",
-              }}
-              onClick={() => onOpenProfile(pl)}
-              title="Xem hồ sơ"
-            >
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box
+                sx={{
+                  bgcolor: "primary.main",
+                  color: "#fff",
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  display: "grid",
+                  placeItems: "center",
+                  fontSize: 12,
+                  fontWeight: "bold",
+                }}
+              >
+                {index + 1}
+              </Box>
               <Typography
-                variant="body2"
-                noWrap
-                sx={{ display: "flex", alignItems: "center", gap: 0.25 }}
+                variant="subtitle2"
+                color="text.secondary"
+                sx={{ fontFamily: "monospace" }}
               >
-                <span
-                  style={{
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
+                #{regCodeOf(r)}
+              </Typography>
+            </Stack>
+            <PaymentChip status={r.payment?.status} />
+          </Stack>
+
+          <Stack spacing={2}>
+            <Box>
+              <PlayerInfo
+                player={r.player1}
+                onEdit={() => props.onOpenReplace(r, "p1")}
+                canEdit={props.canManage}
+                {...props}
+              />
+              {!isSingles && r.player2 && (
+                <Box mt={1.5}>
+                  <PlayerInfo
+                    player={r.player2}
+                    onEdit={() => props.onOpenReplace(r, "p2")}
+                    canEdit={props.canManage}
+                    {...props}
+                  />
+                </Box>
+              )}
+              {!isSingles && !r.player2 && props.canManage && (
+                <Button
+                  size="small"
+                  startIcon={<PersonAdd />}
+                  onClick={() => props.onOpenReplace(r, "p2")}
+                  sx={{ mt: 1, borderStyle: "dashed" }}
+                  fullWidth
+                  variant="outlined"
                 >
-                  {displayName(pl)}
-                </span>
-                <VerifyBadge status={kycOf(pl)} />
-              </Typography>
-              <Typography variant="caption" color="text.secondary" noWrap>
-                {pl?.phone || ""}
-              </Typography>
+                  Thêm VĐV 2
+                </Button>
+              )}
             </Box>
 
-            <Chip
-              size="small"
-              variant="outlined"
-              icon={<Equalizer fontSize="small" />}
-              label={fmt3(pl?.score ?? 0)}
-              title="Điểm trình"
-              sx={{ whiteSpace: "nowrap" }}
-            />
+            <Divider sx={{ borderStyle: "dashed" }} />
 
-            {canManage && (
-              <IconButton
-                size="small"
-                onClick={() => onOpenReplace(r, idx === 0 ? "p1" : "p2")}
-                title={`Thay ${idx === 0 ? "VĐV 1" : "VĐV 2"}`}
-              >
-                <EditOutlined fontSize="small" />
-              </IconButton>
-            )}
-          </Stack>
-        ))}
-
-        {!isSingles && !r.player2 && canManage && (
-          <Box mt={1}>
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => onOpenReplace(r, "p2")}
+            <Stack
+              direction="row"
+              justifyContent="space-between"
+              alignItems="center"
             >
-              Thêm VĐV 2
-            </Button>
-          </Box>
-        )}
-
-        <Typography variant="caption" color="text.secondary" mt={1}>
-          {new Date(r.createdAt).toLocaleString()}
-        </Typography>
-
-        <Stack direction="row" spacing={1} mt={1} alignItems="center">
-          <PaymentChip status={r.payment?.status} paidAt={r.payment?.paidAt} />
-          <CheckinChip checkinAt={r.checkinAt} />
-        </Stack>
-
-        <Stack direction="row" spacing={1} mt={1} alignItems="center">
-          <Typography variant="body2">Tổng:</Typography>
-          <Chip
-            size="small"
-            icon={<Equalizer fontSize="small" />}
-            label={fmt3(total)}
-            color={chipStyle.color}
-            variant="filled"
-            title={`Tổng điểm: ${fmt3(total)} • ${chipStyle.title}`}
-            sx={{ whiteSpace: "nowrap" }}
-          />
-        </Stack>
-
-        <Box mt={1}>
-          <ActionCell
-            r={r}
-            canManage={canManage}
-            isOwner={isOwner}
-            onTogglePayment={onTogglePayment}
-            onCancel={onCancel}
-            onOpenComplaint={onOpenComplaint}
-            onOpenPayment={onOpenPayment}
-            busy={busy}
-          />
-        </Box>
-      </Paper>
+              <Box>
+                <Typography variant="caption" color="text.secondary">
+                  Tổng điểm
+                </Typography>
+                <Stack direction="row" alignItems="baseline" spacing={0.5}>
+                  <Typography
+                    variant="h6"
+                    fontWeight={700}
+                    color={isOver ? "error.main" : "success.main"}
+                  >
+                    {fmt3(total)}
+                  </Typography>
+                  {cap > 0 && (
+                    <Typography variant="caption">/ {fmt3(cap)}</Typography>
+                  )}
+                </Stack>
+              </Box>
+              <ActionButtons r={r} {...props} />
+            </Stack>
+          </Stack>
+        </CardContent>
+      </Card>
     );
   }
 );
 
-/* ==================== Optimized Search Field ==================== */
-const SearchField = memo(({ value, onChange, onClear }) => (
-  <TextField
-    value={value}
-    onChange={onChange}
-    placeholder="Tìm theo VĐV, SĐT, mã đăng ký…"
-    size="small"
-    sx={{ maxWidth: 420 }}
-    InputProps={{
-      startAdornment: (
-        <InputAdornment position="start">
-          <Search fontSize="small" />
-        </InputAdornment>
-      ),
-      endAdornment: value ? (
-        <InputAdornment position="end">
-          <IconButton size="small" onClick={onClear}>
-            <Clear fontSize="small" />
-          </IconButton>
-        </InputAdornment>
-      ) : null,
-    }}
-  />
-));
+/* Hook lazy load */
+function useLazyRender(totalItems, initialBatch = 20, batchSize = 20) {
+  const [displayCount, setDisplayCount] = useState(initialBatch);
+  const loaderRef = useRef(null);
+  const observerRef = useRef(null);
 
-/* ==================== Main Component ==================== */
+  useEffect(() => {
+    setDisplayCount(initialBatch);
+  }, [totalItems, initialBatch]);
+
+  useEffect(() => {
+    const loader = loaderRef.current;
+    if (!loader || displayCount >= totalItems) return;
+    if (observerRef.current) observerRef.current.disconnect();
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting)
+          setDisplayCount((p) => Math.min(p + batchSize, totalItems));
+      },
+      { rootMargin: "200px" }
+    );
+    observerRef.current.observe(loader);
+    return () => observerRef.current?.disconnect();
+  }, [displayCount, totalItems, batchSize]);
+
+  return { displayCount, loaderRef, hasMore: displayCount < totalItems };
+}
+
+/* ---------------- 4. MAIN PAGE COMPONENT ---------------- */
 export default function TournamentRegistration() {
   const { id } = useParams();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const navigate = useNavigate();
 
-  const { data: me, isLoading: meLoading, error: meErr } = useGetMeScoreQuery();
-  const isLoggedIn = !!me?._id;
-
+  /* Data Fetching */
+  const { data: me, isLoading: meLoading } = useGetMeScoreQuery();
   const {
     data: tour,
     isLoading: tourLoading,
     error: tourErr,
   } = useGetTournamentQuery(id);
-
   const {
     data: regs = [],
     isLoading: regsLoading,
-    error: regsErr,
     refetch: refetchRegs,
   } = useGetRegistrationsQuery(id);
 
+  /* Permissions */
+  const isLoggedIn = !!me?._id;
+  const isManager = useMemo(() => {
+    if (!isLoggedIn || !tour) return false;
+    if (String(tour.createdBy) === String(me?._id)) return true;
+    if (Array.isArray(tour.managers))
+      return tour.managers.some(
+        (m) => String(m?.user ?? m) === String(me?._id)
+      );
+    return !!tour.isManager;
+  }, [isLoggedIn, me, tour]);
+  const isAdmin = !!(me?.isAdmin || me?.role === "admin");
+  const canManage = isLoggedIn && (isManager || isAdmin);
+
+  /* API Actions */
   const [createInvite, { isLoading: saving }] = useCreateRegInviteMutation();
   const [cancelReg] = useCancelRegistrationMutation();
   const [setPaymentStatus, { isLoading: settingPayment }] =
     useManagerSetRegPaymentStatusMutation();
   const [adminDeleteReg] = useManagerDeleteRegistrationMutation();
-  const [replacePlayer, { isLoading: replacing }] =
-    useManagerReplaceRegPlayerMutation();
+  const [replacePlayer] = useManagerReplaceRegPlayerMutation();
   const [createComplaint, { isLoading: sendingComplaint }] =
     useCreateComplaintMutation();
 
+  /* Form States */
   const [p1, setP1] = useState(null);
   const [p2, setP2] = useState(null);
   const [msg, setMsg] = useState("");
   const [cancelingId, setCancelingId] = useState(null);
 
+  /* Dialog States */
   const [imgPreview, setImgPreview] = useState({
     open: false,
     src: "",
@@ -1195,10 +912,35 @@ export default function TournamentRegistration() {
   const [paymentDlg, setPaymentDlg] = useState({ open: false, reg: null });
   const [profileDlg, setProfileDlg] = useState({ open: false, userId: null });
 
+  /* Countdown */
+  const [timeLeft, setTimeLeft] = useState(null);
+  const isRegClosed = timeLeft?.total <= 0;
+
+  useEffect(() => {
+    const raw = tour?.registrationDeadline || tour?.regDeadline;
+    if (!raw) return;
+    const deadline = new Date(raw);
+    const timer = setInterval(() => {
+      const diff = deadline.getTime() - new Date().getTime();
+      if (diff <= 0) {
+        setTimeLeft({ total: 0, d: 0, h: 0, m: 0, s: 0 });
+        clearInterval(timer);
+      } else {
+        setTimeLeft({
+          total: diff,
+          d: Math.floor(diff / (1000 * 60 * 60 * 24)),
+          h: Math.floor((diff / (1000 * 60 * 60)) % 24),
+          m: Math.floor((diff / 1000 / 60) % 60),
+          s: Math.floor((diff / 1000) % 60),
+        });
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [tour]);
+
+  /* Search */
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
-  const navigate = useNavigate();
-  // Increased debounce delay for better performance
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim()), 500);
     return () => clearTimeout(t);
@@ -1206,363 +948,37 @@ export default function TournamentRegistration() {
 
   const {
     data: searchedRegs = [],
-    isLoading: searching,
-    isFetching: searchingFetching,
-    error: searchErr,
-    refetch: refetchSearchRegs,
+    isFetching: searching,
+    refetch: refetchSearch,
   } = useSearchRegistrationsQuery({ id, q: debouncedQ }, { skip: !debouncedQ });
 
-  // Memoized values
-  const evType = useMemo(() => normType(tour?.eventType), [tour]);
+  const activeList = useMemo(
+    () => (debouncedQ ? searchedRegs : regs),
+    [debouncedQ, searchedRegs, regs]
+  );
+
+  const { displayCount, loaderRef, hasMore } = useLazyRender(activeList.length);
+
+  const displayedItems = useMemo(
+    () => activeList.slice(0, displayCount),
+    [activeList, displayCount]
+  );
+
+  /* Derived Data */
+  const evType = normType(tour?.eventType);
   const isSingles = evType === "single";
   const isDoubles = evType === "double";
-  const cap = useMemo(() => getScoreCap(tour, isSingles), [tour, isSingles]);
-  const delta = useMemo(() => getMaxDelta(tour), [tour]);
-  console.log(tour);
-  const isManager = useMemo(() => {
-    if (!isLoggedIn || !tour) return false;
-    if (String(tour.createdBy) === String(me._id)) return true;
-    if (Array.isArray(tour.managers)) {
-      return tour.managers.some((m) => String(m?.user ?? m) === String(me._id));
-    }
-    return !!tour.isManager;
-  }, [isLoggedIn, me, tour]);
-
-  const isAdmin = useMemo(
-    () =>
-      !!(
-        me?.isAdmin ||
-        me?.role === "admin" ||
-        (Array.isArray(me?.roles) && me.roles.includes("admin"))
-      ),
-    [me]
+  const cap = getScoreCap(tour, isSingles);
+  const delta = getMaxDelta(tour);
+  const paidCount = activeList.filter(
+    (r) => r.payment?.status === "Paid"
+  ).length;
+  const busy = useMemo(
+    () => ({ settingPayment, deletingId: cancelingId }),
+    [settingPayment, cancelingId]
   );
 
-  const canManage = isLoggedIn && (isManager || isAdmin);
-  console.log(isManager);
-
-  const location = useLocation();
-  const drawPath = useMemo(() => {
-    try {
-      const parts = (location?.pathname || "").split("/").filter(Boolean);
-      if (parts.length === 0) return `/tournament/${id}/draw`;
-      parts[parts.length - 1] = "draw";
-      return "/" + parts.join("/");
-    } catch {
-      return `/tournament/${id}/draw`;
-    }
-  }, [location?.pathname, id]);
-
-  const overallRegCount = regs?.length ?? 0;
-  const paidCount = useMemo(
-    () => (regs || []).filter((r) => r?.payment?.status === "Paid").length,
-    [regs]
-  );
-
-  const searchingActive = !!debouncedQ;
-  const listRegs = searchingActive ? searchedRegs || [] : regs || [];
-  const regCount = listRegs?.length ?? 0;
-  const listLoading = searchingActive
-    ? searching || searchingFetching
-    : regsLoading;
-  const listError = searchingActive ? searchErr : regsErr;
-
-  // Enhanced lazy rendering with smaller initial batch
-  const { displayCount, loaderRef, hasMore } = useLazyRender(regCount, 30, 20);
-
-  const playersOfReg = useCallback(
-    (r) => [r?.player1, r?.player2].filter(Boolean),
-    []
-  );
-
-  const disableSubmit =
-    saving ||
-    meLoading ||
-    !isLoggedIn ||
-    (isAdmin ? !p1 || (isDoubles && !p2) : isDoubles && !p2);
-
-  const formatDate = useCallback(
-    (d) => (d ? new Date(d).toLocaleDateString() : ""),
-    []
-  );
-
-  const formatRange = useCallback(
-    (a, b) => {
-      const A = formatDate(a);
-      const B = formatDate(b);
-      if (A && B) return `${A} – ${B}`;
-      return A || B || "—";
-    },
-    [formatDate]
-  );
-
-  // Memoized callbacks
-  const submit = useCallback(
-    async (e) => {
-      e.preventDefault();
-      if (!isLoggedIn) return toast.info("Vui lòng đăng nhập để đăng ký.");
-
-      const player1Id = isAdmin ? p1?._id : String(me?._id);
-      if (!player1Id) {
-        return toast.error(
-          isAdmin ? "Vui lòng chọn VĐV 1." : "Không xác định được VĐV 1 (bạn)."
-        );
-      }
-      if (isDoubles && !p2?._id) return toast.error("Giải đôi cần 2 VĐV");
-
-      try {
-        const res = await createInvite({
-          tourId: id,
-          message: msg,
-          player1Id,
-          ...(isDoubles ? { player2Id: p2._id } : {}),
-        }).unwrap();
-
-        if (
-          res?.registration ||
-          res?.mode === "direct_by_admin" ||
-          res?.mode === "direct_by_kyc" ||
-          res?.mode === "direct"
-        ) {
-          const mode = res?.mode || "direct";
-          const label =
-            mode === "direct_by_admin"
-              ? "Admin"
-              : mode === "direct_by_kyc"
-              ? "KYC"
-              : "Trực tiếp";
-          toast.success(`Đã tạo đăng ký (${label}).`);
-
-          if (isAdmin) setP1(null);
-          setP2(null);
-          setMsg("");
-          await refetchRegs();
-          return;
-        }
-
-        toast.error("Không thể tạo đăng ký.");
-      } catch (err) {
-        if (err?.status === 412) {
-          toast.error(
-            err?.data?.message ||
-              "VĐV cần hoàn tất KYC (đã xác minh) trước khi đăng ký.",
-            {
-              closeButton: (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    maxWidth: "100%",
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      // dùng react-router nếu sẵn có
-                      try {
-                        navigate("/profile#cccd");
-                      } catch (e) {
-                        console.log(e);
-                      }
-                      // fallback hard redirect
-                    }}
-                    style={{
-                      padding: "6px 10px",
-                      fontWeight: 700,
-                      borderRadius: "8px",
-                      border: "1px solid rgba(0,0,0,0.08)",
-                      background: "linear-gradient(180deg,#0ea5e9,#0284c7)",
-                      color: "#fff",
-                      cursor: "pointer",
-                      boxShadow: "0 1px 2px rgba(0,0,0,0.12)",
-                      whiteSpace: "nowrap",
-                      lineHeight: 1.1,
-                      transition: "filter .12s ease",
-                    }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.filter = "brightness(0.96)")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.filter = "none")
-                    }
-                  >
-                    Xác minh ngay
-                  </button>
-                </div>
-              ),
-            }
-          );
-        } else {
-          toast.error(
-            err?.data?.message || err?.error || "Không thể tạo đăng ký."
-          );
-        }
-      }
-    },
-    [
-      isLoggedIn,
-      isAdmin,
-      p1,
-      p2,
-      msg,
-      isDoubles,
-      createInvite,
-      id,
-      me,
-      refetchRegs,
-    ]
-  );
-
-  const handleCancel = useCallback(
-    async (r) => {
-      if (!isLoggedIn) return toast.info("Vui lòng đăng nhập.");
-      if (!canManage && r?.payment?.status === "Paid") {
-        toast.info(
-          "Không thể huỷ khi đã nộp lệ phí, vui lòng liên hệ BTC để hỗ trợ"
-        );
-        return;
-      }
-      if (!canManage) {
-        const isOwner = me && String(r?.createdBy) === String(me?._id);
-        if (!isOwner) return toast.error("Bạn không có quyền huỷ đăng ký này");
-      }
-
-      const extraWarn =
-        r?.payment?.status === "Paid"
-          ? "\n⚠️ Cặp này đã nộp lệ phí. Hãy đảm bảo hoàn tiền/offline theo quy trình trước khi xoá."
-          : "";
-      if (
-        !window.confirm(`Bạn chắc chắn muốn huỷ cặp đăng ký này?${extraWarn}`)
-      )
-        return;
-
-      try {
-        setCancelingId(r._id);
-        if (canManage) await adminDeleteReg(r._id).unwrap();
-        else await cancelReg(r._id).unwrap();
-        toast.success("Đã huỷ đăng ký");
-        if (searchingActive) await refetchSearchRegs();
-        await refetchRegs();
-      } catch (e) {
-        toast.error(e?.data?.message || e?.error || "Huỷ đăng ký thất bại");
-      } finally {
-        setCancelingId(null);
-      }
-    },
-    [
-      isLoggedIn,
-      canManage,
-      me,
-      adminDeleteReg,
-      cancelReg,
-      refetchRegs,
-      searchingActive,
-      refetchSearchRegs,
-    ]
-  );
-
-  const togglePayment = useCallback(
-    async (r) => {
-      if (!canManage) {
-        toast.info("Bạn không có quyền cập nhật thanh toán.");
-        return;
-      }
-      const next = r?.payment?.status === "Paid" ? "Unpaid" : "Paid";
-
-      try {
-        await setPaymentStatus({ regId: r._id, status: next }).unwrap();
-        toast.success(
-          next === "Paid"
-            ? "Đã xác nhận đã thanh toán"
-            : "Đã chuyển về chưa thanh toán"
-        );
-        if (searchingActive) await refetchSearchRegs();
-        await refetchRegs();
-      } catch (e) {
-        toast.error(
-          e?.data?.message || e?.error || "Cập nhật thanh toán thất bại"
-        );
-      }
-    },
-    [
-      canManage,
-      setPaymentStatus,
-      refetchRegs,
-      searchingActive,
-      refetchSearchRegs,
-    ]
-  );
-
-  const openPreview = useCallback(
-    (src, name) =>
-      setImgPreview({ open: true, src: safeSrc(src), name: name || "" }),
-    []
-  );
-
-  const closePreview = useCallback(
-    () => setImgPreview({ open: false, src: "", name: "" }),
-    []
-  );
-
-  const openProfileByPlayer = useCallback((pl) => {
-    const uid = getUserId(pl);
-    if (uid) setProfileDlg({ open: true, userId: uid });
-    else toast.info("Không tìm thấy userId của VĐV này.");
-  }, []);
-
-  const closeProfileDlg = useCallback(
-    () => setProfileDlg({ open: false, userId: null }),
-    []
-  );
-
-  const openReplace = useCallback(
-    (reg, slot) => {
-      if (!canManage) return;
-      setReplaceDlg({ open: true, reg, slot });
-      setNewPlayer(null);
-    },
-    [canManage]
-  );
-
-  const closeReplace = useCallback(
-    () => setReplaceDlg({ open: false, reg: null, slot: "p1" }),
-    []
-  );
-
-  const submitReplace = useCallback(async () => {
-    if (!replaceDlg?.reg?._id) return;
-    if (!newPlayer?._id) return toast.error("Chọn VĐV mới");
-    try {
-      await replacePlayer({
-        regId: replaceDlg.reg._id,
-        slot: replaceDlg.slot,
-        userId: newPlayer._id,
-      }).unwrap();
-      toast.success("Đã thay VĐV");
-      closeReplace();
-      if (searchingActive) await refetchSearchRegs();
-      await refetchRegs();
-    } catch (e) {
-      toast.error(e?.data?.message || e?.error || "Không thể thay VĐV");
-    }
-  }, [
-    replaceDlg,
-    newPlayer,
-    replacePlayer,
-    closeReplace,
-    refetchRegs,
-    searchingActive,
-    refetchSearchRegs,
-  ]);
-
-  const maskPhone = useCallback((phone) => {
-    if (!phone) return "*******???";
-    const d = String(phone).replace(/\D/g, "");
-    const tail = d.slice(-3) || "???";
-    return "*******" + tail;
-  }, []);
-
+  /* Helper Logic */
   const regCodeOf = useCallback(
     (r) =>
       r?.code ||
@@ -1573,80 +989,45 @@ export default function TournamentRegistration() {
     []
   );
 
-  const normalizeNoAccent = useCallback(
-    (s) =>
-      (s || "")
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^\w\s-]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim(),
-    []
-  );
-
-  // Sinh mã giải từ tên giải: lấy chữ cái đầu của từng từ + chữ số đầu tiên
-  const buildTourCode = useCallback(
-    (name) => {
-      const clean = normalizeNoAccent(name || "").toUpperCase();
-      if (!clean) return "";
-
-      const tokens = clean.split(" ").filter(Boolean);
-      const initials = [];
-
-      for (const token of tokens) {
-        // Nếu token bắt đầu bằng số → lấy chữ số đầu tiên
-        if (/^\d/.test(token)) {
-          const m = token.match(/\d/);
-          if (m) initials.push(m[0]);
-        } else if (/^[A-Z0-9]/.test(token[0])) {
-          // Token chữ → lấy ký tự đầu
-          initials.push(token[0]);
-        }
-      }
-
-      // Giữ mã gọn (tối đa 8 ký tự)
-      return initials.join("").slice(0, 8);
-    },
-    [normalizeNoAccent]
-  );
-
-  const getQrProviderConfig = useCallback(() => {
-    const bank =
-      tour?.bankShortName ||
-      tour?.qrBank ||
-      tour?.bankCode ||
-      tour?.bank ||
-      import.meta.env?.VITE_QR_BANK ||
-      "";
-    const acc =
-      tour?.bankAccountNumber ||
-      tour?.qrAccount ||
-      tour?.bankAccount ||
-      import.meta.env?.VITE_QR_ACC ||
-      "";
-    return { bank, acc };
-  }, [tour]);
+  const buildTourCode = useCallback((name) => {
+    const clean = normalizeNoAccent(name || "").toUpperCase();
+    if (!clean) return "";
+    return clean
+      .split(" ")
+      .filter(Boolean)
+      .map((t) => (/^\d/.test(t) ? t.match(/\d/)[0] : t[0]))
+      .join("")
+      .slice(0, 8);
+  }, []);
 
   const qrImgUrlFor = useCallback(
     (r) => {
-      const { bank, acc } = getQrProviderConfig();
+      const bank =
+        tour?.bankShortName ||
+        tour?.qrBank ||
+        tour?.bankCode ||
+        tour?.bank ||
+        import.meta.env?.VITE_QR_BANK;
+      const acc =
+        tour?.bankAccountNumber ||
+        tour?.qrAccount ||
+        tour?.bankAccount ||
+        import.meta.env?.VITE_QR_ACC;
       if (!bank || !acc) return null;
 
       const code = regCodeOf(r);
       const ph = maskPhone(
         r?.player1?.phone || r?.player2?.phone || me?.phone || ""
       );
-
-      // Mã giải: lấy chữ cái đầu từ tên giải (không dấu), fallback về đuôi id nếu thiếu
       const tourCode =
         buildTourCode(tour?.name) ||
         String(id || "")
           .slice(-4)
           .toUpperCase();
-
       const des = normalizeNoAccent(
         `Ma giai ${tourCode} Ma dang ky ${code} SDT ${ph}`
       );
+      const amount = getFeeAmount(tour, r);
 
       const params = new URLSearchParams({
         bank,
@@ -1654,760 +1035,1004 @@ export default function TournamentRegistration() {
         des,
         template: "compact",
       });
-
-      const amount = getFeeAmount(tour, r);
       if (amount > 0) params.set("amount", String(amount));
-
       return `https://qr.sepay.vn/img?${params.toString()}`;
     },
+    [tour, me, id, regCodeOf, buildTourCode]
+  );
+
+  /* Handlers (dùng useCallback để list không re-render lung tung) */
+  const submit = useCallback(
+    async (e) => {
+      e.preventDefault();
+      if (isRegClosed) return toast.info("Đã hết hạn đăng ký");
+      if (!isLoggedIn) return toast.info("Vui lòng đăng nhập");
+      const p1Id = isAdmin ? p1?._id : String(me?._id);
+
+      if (!p1Id)
+        return toast.error(isAdmin ? "Chọn VĐV 1" : "Lỗi thông tin của bạn");
+      if (isDoubles && !p2?._id) return toast.error("Giải đôi cần 2 VĐV");
+
+      try {
+        await createInvite({
+          tourId: id,
+          message: msg,
+          player1Id: p1Id,
+          player2Id: p2?._id,
+        }).unwrap();
+        toast.success("Đăng ký thành công!");
+        refetchRegs();
+        setMsg("");
+        setP2(null);
+        if (isAdmin) setP1(null);
+      } catch (err) {
+        if (err?.status === 412) {
+          toast.error("VĐV chưa xác thực KYC (CCCD). Vui lòng cập nhật hồ sơ.");
+        } else {
+          toast.error(err?.data?.message || "Lỗi đăng ký");
+        }
+      }
+    },
     [
-      getQrProviderConfig,
-      regCodeOf,
-      maskPhone,
-      normalizeNoAccent,
-      buildTourCode,
+      isRegClosed,
+      isLoggedIn,
+      isAdmin,
+      isDoubles,
+      p1,
+      p2,
+      msg,
       me,
       id,
-      tour,
+      createInvite,
+      refetchRegs,
     ]
   );
 
-  const openComplaint = useCallback(
-    (reg) => setComplaintDlg({ open: true, reg, text: "" }),
-    []
+  const handleCancel = useCallback(
+    async (r) => {
+      if (!canManage && r?.payment?.status === "Paid")
+        return toast.info("Đã đóng phí, vui lòng liên hệ BTC để huỷ");
+      if (!window.confirm("Bạn chắc chắn muốn huỷ đăng ký này?")) return;
+      setCancelingId(r._id);
+      try {
+        if (canManage) await adminDeleteReg(r._id).unwrap();
+        else await cancelReg(r._id).unwrap();
+        toast.success("Đã huỷ");
+        refetchRegs();
+        if (debouncedQ) refetchSearch();
+      } catch (e) {
+        toast.error(e?.data?.message || "Huỷ thất bại");
+      } finally {
+        setCancelingId(null);
+      }
+    },
+    [
+      canManage,
+      adminDeleteReg,
+      cancelReg,
+      refetchRegs,
+      debouncedQ,
+      refetchSearch,
+    ]
   );
 
-  const closeComplaint = useCallback(
-    () => setComplaintDlg({ open: false, reg: null, text: "" }),
-    []
+  const togglePayment = useCallback(
+    async (r) => {
+      if (!canManage) return;
+      try {
+        const next = r?.payment?.status === "Paid" ? "Unpaid" : "Paid";
+        await setPaymentStatus({ regId: r._id, status: next }).unwrap();
+        toast.success("Đã cập nhật thanh toán");
+        refetchRegs();
+        if (debouncedQ) refetchSearch();
+      } catch (e) {
+        toast.error("Lỗi cập nhật");
+      }
+    },
+    [canManage, setPaymentStatus, refetchRegs, debouncedQ, refetchSearch]
   );
+
+  const submitReplace = useCallback(async () => {
+    if (!newPlayer?._id || !replaceDlg.reg) return;
+    try {
+      await replacePlayer({
+        regId: replaceDlg.reg._id,
+        slot: replaceDlg.slot,
+        userId: newPlayer._id,
+      }).unwrap();
+      toast.success("Đã thay VĐV");
+      setReplaceDlg({ open: false, reg: null, slot: "p1" });
+      refetchRegs();
+      if (debouncedQ) refetchSearch();
+    } catch (e) {
+      toast.error(e?.data?.message || "Lỗi thay người");
+    }
+  }, [
+    newPlayer,
+    replaceDlg,
+    replacePlayer,
+    refetchRegs,
+    debouncedQ,
+    refetchSearch,
+  ]);
 
   const submitComplaint = useCallback(async () => {
-    const regId = complaintDlg?.reg?._id;
-    const content = complaintDlg.text?.trim();
-
-    if (!content) {
-      toast.info("Vui lòng nhập nội dung khiếu nại.");
-      return;
-    }
-    if (!regId) {
-      toast.error("Không tìm thấy mã đăng ký để gửi khiếu nại.");
-      return;
-    }
-    if (!isLoggedIn) {
-      toast.info("Vui lòng đăng nhập để gửi khiếu nại.");
-      return;
-    }
-
+    if (!complaintDlg.text.trim()) return;
     try {
-      await createComplaint({ tournamentId: id, regId, content }).unwrap();
-      toast.success("Đã gửi khiếu nại. BTC sẽ phản hồi sớm.");
-      closeComplaint();
+      await createComplaint({
+        tournamentId: id,
+        regId: complaintDlg.reg._id,
+        content: complaintDlg.text,
+      }).unwrap();
+      toast.success("Đã gửi khiếu nại");
+      setComplaintDlg({ open: false, reg: null, text: "" });
     } catch (e) {
-      toast.error(e?.data?.message || e?.error || "Gửi khiếu nại thất bại");
+      toast.error("Lỗi gửi khiếu nại");
     }
-  }, [complaintDlg, isLoggedIn, createComplaint, id, closeComplaint]);
+  }, [complaintDlg, createComplaint, id]);
 
-  const openPayment = useCallback(
-    (reg) => setPaymentDlg({ open: true, reg }),
-    []
-  );
+  // Các handler chỉ mở/đóng dialog: dependency rỗng để luôn là cùng 1 ref
+  const handleOpenPreview = useCallback((src, name) => {
+    setImgPreview({ open: true, src, name });
+  }, []);
 
-  const closePayment = useCallback(
-    () => setPaymentDlg({ open: false, reg: null }),
-    []
-  );
+  const handleClosePreview = useCallback(() => {
+    setImgPreview({ open: false, src: "", name: "" });
+  }, []);
 
-  const handleSearchChange = useCallback((e) => setQ(e.target.value), []);
-  const handleSearchClear = useCallback(() => setQ(""), []);
+  const handleOpenReplace = useCallback((reg, slot) => {
+    setReplaceDlg({ open: true, reg, slot });
+    setNewPlayer(null);
+  }, []);
 
-  // Memoized busy state
-  const busy = useMemo(
-    () => ({
-      settingPayment,
-      deletingId: cancelingId,
-    }),
-    [settingPayment, cancelingId]
-  );
+  const handleCloseReplace = useCallback(() => {
+    setReplaceDlg({ open: false, reg: null, slot: "p1" });
+    setNewPlayer(null);
+  }, []);
 
-  if (tourLoading) {
+  const handleOpenProfile = useCallback((pl) => {
+    const uid = getUserId(pl);
+    if (!uid) return;
+    setProfileDlg({ open: true, userId: uid });
+  }, []);
+
+  const handleCloseProfile = useCallback(() => {
+    setProfileDlg({ open: false, userId: null });
+  }, []);
+
+  const handleOpenPayment = useCallback((reg) => {
+    setPaymentDlg({ open: true, reg });
+  }, []);
+
+  const handleClosePayment = useCallback(() => {
+    setPaymentDlg({ open: false, reg: null });
+  }, []);
+
+  const handleOpenComplaint = useCallback((reg) => {
+    setComplaintDlg({ open: true, reg, text: "" });
+  }, []);
+
+  const handleCloseComplaint = useCallback(() => {
+    setComplaintDlg({ open: false, reg: null, text: "" });
+  }, []);
+
+  if (tourLoading)
     return (
-      <Box p={3} textAlign="center">
+      <Box sx={{ height: "80vh", display: "grid", placeItems: "center" }}>
         <CircularProgress />
       </Box>
     );
-  }
-  if (tourErr) {
+  if (tourErr || !tour)
     return (
       <Box p={3}>
-        <Alert severity="error">
-          {tourErr?.data?.message || tourErr?.error || "Lỗi tải giải đấu"}
-        </Alert>
+        <Alert severity="error">Không tải được thông tin giải đấu</Alert>
       </Box>
     );
-  }
-  if (!tour) return null;
 
   return (
-    <RBContainer fluid="xl" className="py-4">
-      {/* Header */}
-      <Stack
-        direction="row"
-        alignItems="center"
-        justifyContent="space-between"
-        className="mb-3"
+    <Box sx={{ bgcolor: "#f8fafc", minHeight: "100vh", pb: 6 }}>
+      {/* --- 1. HERO BANNER --- */}
+      <Box
+        sx={{
+          background: `linear-gradient(135deg, ${BRAND_COLOR} 0%, #0d47a1 100%)`,
+          color: "white",
+          pt: { xs: 4, md: 6 },
+          pb: { xs: 8, md: 10 },
+          position: "relative",
+          overflow: "hidden",
+          boxShadow: 3,
+          zIndex: 1, // banner ở dưới stats
+        }}
       >
-        <Stack direction="row" alignItems="center" spacing={2}>
-          <Typography variant="h4">Đăng ký giải đấu</Typography>
-          <Chip
-            size="small"
-            label={isSingles ? "Giải đơn" : "Giải đôi"}
-            color={isSingles ? "default" : "primary"}
-            variant="outlined"
-          />
-        </Stack>
-      </Stack>
+        {/* Background decorations */}
+        <Box
+          sx={{
+            position: "absolute",
+            top: -50,
+            right: -50,
+            width: 300,
+            height: 300,
+            borderRadius: "50%",
+            bgcolor: "white",
+            opacity: 0.03,
+          }}
+        />
+        <Box
+          sx={{
+            position: "absolute",
+            bottom: -50,
+            left: 50,
+            width: 150,
+            height: 150,
+            borderRadius: "50%",
+            bgcolor: "white",
+            opacity: 0.05,
+          }}
+        />
 
-      {/* Tournament Info */}
-      <Box sx={{ mb: 2 }}>
-        <Grid container spacing={1.5} alignItems="center">
-          <Grid item xs={12} md={5}>
-            <Stack spacing={0.5}>
-              <Typography variant="h6" noWrap title={tour.name}>
+        <Container maxWidth="xl">
+          <Grid container spacing={4} alignItems="center">
+            <Grid size={{ xs: 12, md: 7 }}>
+              <Stack direction="row" spacing={1} mb={2}>
+                <Chip
+                  label={isSingles ? "Đơn" : "Đôi"}
+                  size="small"
+                  sx={{
+                    bgcolor: "rgba(255,255,255,0.2)",
+                    color: "white",
+                    backdropFilter: "blur(4px)",
+                    fontWeight: 700,
+                  }}
+                />
+                <Chip
+                  icon={<LocationOn sx={{ color: "white !important" }} />}
+                  label={tour.location || "Đang cập nhật"}
+                  size="small"
+                  sx={{ bgcolor: "transparent", color: "white", pl: 0.5 }}
+                />
+              </Stack>
+              <Typography
+                variant="h3"
+                fontWeight={800}
+                sx={{
+                  mb: 1.5,
+                  fontSize: { xs: "1.75rem", md: "2.75rem" },
+                  lineHeight: 1.1,
+                }}
+              >
                 {tour.name}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {tour.location || "—"}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {formatRange(tour.startDate, tour.endDate)}
               </Typography>
               <Stack
                 direction="row"
-                spacing={1}
-                sx={{ mt: 0.5 }}
                 alignItems="center"
-                flexWrap="wrap"
+                spacing={1}
+                sx={{ opacity: 0.9, typography: "subtitle1" }}
               >
-                <Chip
-                  size="small"
-                  variant="outlined"
-                  label={isSingles ? "Đơn" : "Đôi"}
-                />
+                <CalendarMonth fontSize="small" />
+                <span>
+                  {new Date(tour.startDate).toLocaleDateString("vi-VN")}
+                </span>
+                <span>—</span>
+                <span>
+                  {new Date(tour.endDate).toLocaleDateString("vi-VN")}
+                </span>
               </Stack>
-            </Stack>
-          </Grid>
+            </Grid>
 
-          <Grid item xs={12} md={7}>
-            <Grid container spacing={1}>
-              <Grid item xs={12} sm={6}>
-                <StatItem
-                  icon={<Equalizer fontSize="small" />}
-                  label={
-                    isDoubles ? "Giới hạn tổng điểm (đội)" : "Giới hạn điểm/VĐV"
-                  }
-                  value={
-                    isDoubles
-                      ? fmt3(tour?.scoreCap ?? 0)
-                      : fmt3(tour?.singleCap ?? tour?.scoreCap ?? 0)
-                  }
-                  hint={
-                    isDoubles ? "Giới hạn điểm (đôi)" : "Giới hạn điểm (đơn)"
-                  }
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <StatItem
-                  icon={<Equalizer fontSize="small" />}
-                  label="Giới hạn điểm mỗi VĐV"
-                  value={fmt3(tour?.singleCap ?? 0)}
-                  hint="Giới hạn điểm (đơn)"
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <StatItem
-                  icon={<Groups fontSize="small" />}
-                  label={isSingles ? "Số VĐV đã đăng ký" : "Số đội đã đăng ký"}
-                  value={fmt3(overallRegCount)}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <StatItem
-                  icon={<MonetizationOn fontSize="small" />}
-                  label={
-                    isSingles ? "Số VĐV đã nộp lệ phí" : "Số đội đã nộp lệ phí"
-                  }
-                  value={fmt3(paidCount)}
-                />
-              </Grid>
+            <Grid
+              size={{ xs: 12, md: 5 }}
+              sx={{
+                display: "flex",
+                justifyContent: { xs: "flex-start", md: "flex-end" },
+                mt: { xs: 3, md: 0 },
+              }}
+            >
+              {timeLeft && !isRegClosed ? (
+                <Box
+                  sx={{
+                    bgcolor: "rgba(0,0,0,0.2)",
+                    p: 2.5,
+                    borderRadius: 3,
+                    backdropFilter: "blur(8px)",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    minWidth: 260,
+                  }}
+                >
+                  <Typography
+                    variant="caption"
+                    align="center"
+                    display="block"
+                    sx={{
+                      mb: 1.5,
+                      textTransform: "uppercase",
+                      letterSpacing: 1.5,
+                      opacity: 0.9,
+                      fontWeight: 600,
+                    }}
+                  >
+                    Đăng ký kết thúc sau
+                  </Typography>
+                  <Stack direction="row" spacing={2} justifyContent="center">
+                    <CountdownItem value={timeLeft.d} label="Ngày" />
+                    <CountdownItem value={timeLeft.h} label="Giờ" />
+                    <CountdownItem value={timeLeft.m} label="Phút" />
+                    <CountdownItem value={timeLeft.s} label="Giây" />
+                  </Stack>
+                </Box>
+              ) : (
+                isRegClosed && (
+                  <Chip
+                    label="ĐÃ ĐÓNG CỔNG ĐĂNG KÝ"
+                    color="error"
+                    sx={{
+                      fontWeight: "bold",
+                      px: 2,
+                      py: 3,
+                      fontSize: "1rem",
+                      borderRadius: 2,
+                      border: "2px solid white",
+                    }}
+                  />
+                )
+              )}
             </Grid>
           </Grid>
-        </Grid>
+        </Container>
       </Box>
 
-      {/* Login notice */}
-      {meLoading
-        ? null
-        : !isLoggedIn && (
-            <Paper sx={{ p: 2, mb: 3 }} variant="outlined">
-              <Alert severity="info">
-                Bạn chưa đăng nhập. Hãy đăng nhập để thực hiện đăng ký.
-              </Alert>
+      {/* Container này kéo overlap banner nhưng trên banner (zIndex 2) */}
+      <Container
+        maxWidth="xl"
+        sx={{
+          mt: { xs: -4, md: -6 },
+          position: "relative",
+          zIndex: 2,
+        }}
+      >
+        {/* --- 2. STATS CARDS --- */}
+        <Grid container spacing={2} sx={{ mb: 4 }}>
+          <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+            <StatCard
+              icon={<EmojiEvents />}
+              label={isSingles ? "Max Điểm/VĐV" : "Max Tổng Điểm"}
+              value={fmt3(cap)}
+              subValue={delta > 0 ? `+${fmt3(delta)} dung sai` : null}
+            />
+          </Grid>
+          <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+            <StatCard
+              icon={<Groups />}
+              label="Đã đăng ký"
+              value={activeList.length}
+              subValue={isSingles ? "Vận động viên" : "Cặp đôi"}
+            />
+          </Grid>
+          <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+            <StatCard
+              icon={<MonetizationOn />}
+              label="Đã thanh toán"
+              value={paidCount}
+              subValue={`${Math.round(
+                (paidCount / (activeList.length || 1)) * 100
+              )}% hoàn thành`}
+            />
+          </Grid>
+          <Grid size={{ xs: 6, sm: 6, md: 3 }}>
+            <StatCard
+              icon={<AccessTimeFilled />}
+              label="Trạng thái"
+              value={isRegClosed ? "Đã đóng" : "Đang mở"}
+              subValue={isRegClosed ? "Hẹn gặp giải sau" : "Đăng ký ngay"}
+            />
+          </Grid>
+        </Grid>
+
+        {/* --- 3. CONTENT PREVIEW (RULES/CONTACT) --- */}
+        <Grid container spacing={3} sx={{ mb: 3 }}>
+          <Grid size={{ xs: 12 }}>
+            {(tour.contactHtml || tour.contentHtml) && (
+              <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
+                {tour.contentHtml && (
+                  <Box flex={1}>
+                    <HtmlPreviewSection
+                      title="Điều lệ & Nội dung"
+                      html={tour.contentHtml}
+                    />
+                  </Box>
+                )}
+                {tour.contactHtml && (
+                  <Box flex={1}>
+                    <HtmlPreviewSection
+                      title="Liên hệ BTC"
+                      html={tour.contactHtml}
+                    />
+                  </Box>
+                )}
+              </Stack>
+            )}
+          </Grid>
+        </Grid>
+
+        {/* --- 4. MAIN GRID --- */}
+        <Grid container spacing={3}>
+          {/* LEFT: FORM */}
+          <Grid size={{ xs: 12, lg: 4 }}>
+            <Paper
+              elevation={0}
+              sx={{
+                p: 3,
+                borderRadius: CARD_RADIUS,
+                border: "1px solid",
+                borderColor: "divider",
+                position: { xs: "static", lg: "sticky" },
+                top: { lg: 20 },
+              }}
+            >
+              <Stack direction="row" alignItems="center" spacing={1} mb={3}>
+                <Box
+                  sx={{
+                    p: 1,
+                    bgcolor: "primary.main",
+                    borderRadius: 1,
+                    color: "white",
+                  }}
+                >
+                  <SportsTennis fontSize="small" />
+                </Box>
+                <Typography variant="h6" fontWeight={700}>
+                  Đăng ký thi đấu
+                </Typography>
+              </Stack>
+
+              {meLoading ? (
+                <CircularProgress size={24} />
+              ) : !isLoggedIn ? (
+                <Alert
+                  severity="info"
+                  variant="outlined"
+                  sx={{ borderRadius: 2 }}
+                >
+                  Vui lòng{" "}
+                  <Link to="/login" style={{ fontWeight: "bold" }}>
+                    đăng nhập
+                  </Link>{" "}
+                  để đăng ký.
+                </Alert>
+              ) : isRegClosed ? (
+                <Alert
+                  severity="warning"
+                  variant="filled"
+                  sx={{ borderRadius: 2 }}
+                >
+                  Đã hết thời gian đăng ký.
+                </Alert>
+              ) : (
+                <form onSubmit={submit}>
+                  <Box mb={2.5}>
+                    <Typography
+                      variant="subtitle2"
+                      gutterBottom
+                      fontWeight={600}
+                    >
+                      Vận động viên 1 (Bạn)
+                    </Typography>
+                    {isAdmin ? (
+                      <PlayerSelector
+                        value={p1}
+                        onChange={setP1}
+                        eventType={tour.eventType}
+                      />
+                    ) : (
+                      <Card
+                        variant="outlined"
+                        sx={{
+                          p: 1.5,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 2,
+                          borderRadius: 2,
+                          bgcolor: "#f8fafc",
+                        }}
+                      >
+                        <Avatar
+                          src={me?.avatar}
+                          sx={{ width: 48, height: 48 }}
+                        />
+                        <Box>
+                          <Typography fontWeight={700}>
+                            {me?.nickname ||
+                              me?.name ||
+                              me?.fullName ||
+                              "VĐV của bạn"}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Điểm:{" "}
+                            {fmt3(
+                              isSingles ? me?.score?.single : me?.score?.double
+                            )}{" "}
+                            • {me?.phone || "Chưa có SĐT"}
+                          </Typography>
+                          <Box>
+                            <VerifyBadge status={me?.cccdStatus} />
+                          </Box>
+                        </Box>
+                      </Card>
+                    )}
+                  </Box>
+
+                  {isDoubles && (
+                    <Box mb={2.5}>
+                      <Typography
+                        variant="subtitle2"
+                        gutterBottom
+                        fontWeight={600}
+                      >
+                        Vận động viên 2 (Partner)
+                      </Typography>
+                      <PlayerSelector
+                        value={p2}
+                        onChange={setP2}
+                        eventType={tour.eventType}
+                        placeholder="Tìm theo tên, SĐT..."
+                      />
+                    </Box>
+                  )}
+
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={2}
+                    label="Lời nhắn cho BTC"
+                    placeholder="Ví dụ: Xin ghép cặp, xin đánh trễ..."
+                    size="small"
+                    value={msg}
+                    onChange={(e) => setMsg(e.target.value)}
+                    sx={{ mb: 3 }}
+                  />
+
+                  <Button
+                    variant="contained"
+                    fullWidth
+                    size="large"
+                    type="submit"
+                    disabled={saving}
+                    sx={{
+                      py: 1.5,
+                      borderRadius: 2,
+                      fontWeight: 700,
+                      boxShadow: "0 4px 14px rgba(25, 118, 210, 0.4)",
+                      textTransform: "none",
+                      fontSize: "1rem",
+                    }}
+                  >
+                    {saving ? "Đang xử lý..." : "Gửi Đăng Ký Ngay"}
+                  </Button>
+                  <Typography
+                    variant="caption"
+                    align="center"
+                    display="block"
+                    sx={{ mt: 1.5, color: "text.secondary" }}
+                  >
+                    Bằng việc đăng ký, bạn đồng ý với điều lệ giải.
+                  </Typography>
+                </form>
+              )}
+
+              <Divider sx={{ my: 3 }} />
+
+              <Stack spacing={1.5}>
+                {canManage && (
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    color="secondary"
+                    component={Link}
+                    to={`/tournament/${id}/manage`}
+                  >
+                    Quản lý giải đấu (Admin)
+                  </Button>
+                )}
+                <Button
+                  startIcon={<Search />}
+                  component={Link}
+                  to={`/tournament/${id}/draw`}
+                  fullWidth
+                  variant="outlined"
+                  sx={{ justifyContent: "flex-start", borderRadius: 2 }}
+                >
+                  Xem Sơ đồ thi đấu
+                </Button>
+                <Button
+                  startIcon={<CheckCircle />}
+                  component={Link}
+                  to={`/tournament/${id}/checkin`}
+                  fullWidth
+                  variant="outlined"
+                  sx={{ justifyContent: "flex-start", borderRadius: 2 }}
+                >
+                  Khu vực Check-in
+                </Button>
+              </Stack>
             </Paper>
-          )}
+          </Grid>
 
-      {/* Registration Form */}
-      <Paper variant="outlined" sx={{ p: 2, mb: 1.5, maxWidth: 760 }}>
-        <Typography variant="h6" gutterBottom>
-          {isAdmin ? "Tạo đăng ký (admin)" : "Đăng ký thi đấu"}
-        </Typography>
-
-        <Grid item xs={12} component="form" onSubmit={submit}>
-          {meLoading ? (
-            <Box sx={{ p: 2 }}>
-              <CircularProgress size={20} />
-            </Box>
-          ) : meErr ? (
-            <Alert severity="error">Không tải được thông tin của bạn.</Alert>
-          ) : !isLoggedIn ? (
-            <Alert severity="info">
-              Bạn chưa đăng nhập. Hãy đăng nhập để đăng ký.
-            </Alert>
-          ) : isAdmin ? (
-            <>
-              <Box mt={1}>
-                <PlayerSelector
-                  label="VĐV 1"
-                  eventType={tour?.eventType}
-                  value={p1}
-                  onChange={setP1}
+          {/* RIGHT: LIST */}
+          <Grid size={{ xs: 12, lg: 8 }}>
+            <Paper
+              elevation={0}
+              sx={{
+                borderRadius: CARD_RADIUS,
+                border: "1px solid",
+                borderColor: "divider",
+                overflow: "hidden",
+                display: "flex",
+                flexDirection: "column",
+                minHeight: 600,
+              }}
+            >
+              {/* Toolbar */}
+              <Box
+                sx={{
+                  p: 2,
+                  borderBottom: "1px solid",
+                  borderColor: "divider",
+                  display: "flex",
+                  flexDirection: { xs: "column", sm: "row" },
+                  gap: 2,
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  bgcolor: "white",
+                }}
+              >
+                <Stack direction="row" alignItems="center" spacing={1.5}>
+                  <Typography variant="h6" fontWeight={700}>
+                    Danh sách tham gia
+                  </Typography>
+                  <Chip
+                    label={activeList.length}
+                    color="primary"
+                    size="small"
+                    sx={{ fontWeight: "bold", height: 24 }}
+                  />
+                </Stack>
+                <TextField
+                  placeholder="Tìm tên, SĐT, mã..."
+                  size="small"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <Search fontSize="small" color="action" />
+                      </InputAdornment>
+                    ),
+                    endAdornment: q && (
+                      <InputAdornment position="end">
+                        <IconButton size="small" onClick={() => setQ("")}>
+                          <Clear fontSize="small" />
+                        </IconButton>
+                      </InputAdornment>
+                    ),
+                  }}
+                  sx={{ width: { xs: "100%", sm: 320 } }}
                 />
               </Box>
-              {isDoubles && (
-                <Box mt={2}>
-                  <PlayerSelector
-                    label="VĐV 2"
-                    eventType={tour?.eventType}
-                    value={p2}
-                    onChange={setP2}
-                  />
-                </Box>
-              )}
-            </>
-          ) : (
-            <>
-              <SelfPlayerReadonly me={me} isSingles={isSingles} />
-              {isDoubles && (
-                <Box mt={3}>
-                  <PlayerSelector
-                    label="VĐV 2"
-                    eventType={tour?.eventType}
-                    value={p2}
-                    onChange={setP2}
-                  />
-                </Box>
-              )}
-            </>
-          )}
 
-          <TextField
-            label="Lời nhắn"
-            value={msg}
-            onChange={(e) => setMsg(e.target.value)}
-            fullWidth
-            multiline
-            rows={2}
-            margin="normal"
-          />
-
-          <Typography variant="caption" color="text.secondary">
-            {isAdmin
-              ? "Quyền admin: chọn VĐV 1 (và VĐV 2 nếu là đôi) để tạo đăng ký trực tiếp."
-              : isSingles
-              ? "Giải đơn: VĐV phải KYC (đã xác minh) thì mới đăng ký được."
-              : "Giải đôi: CẢ HAI VĐV phải KYC (đã xác minh) thì mới đăng ký được."}
-          </Typography>
-
-          <Stack direction="row" spacing={2} mt={2}>
-            <Button type="submit" variant="contained" disabled={disableSubmit}>
-              {saving ? "Đang tạo…" : isAdmin ? "Tạo đăng ký" : "Đăng ký"}
-            </Button>
-            <Button
-              component={Link}
-              to={`/tournament/${id}/checkin`}
-              variant="outlined"
-            >
-              Check-in
-            </Button>
-            <Button
-              component={Link}
-              to={`/tournament/${id}/bracket`}
-              variant="outlined"
-            >
-              Sơ đồ
-            </Button>
-          </Stack>
-        </Grid>
-      </Paper>
-
-      {/* Content/Contact */}
-      {/* Content/Contact */}
-      {(tour?.contactHtml || tour?.contentHtml) && (
-        <Box
-          sx={{
-            mb: 2,
-            display: { xs: "block", md: "flex" },
-            justifyContent: { md: "space-between" },
-            gap: { md: 2 },
-          }}
-        >
-          {tour?.contactHtml && (
-            <HtmlPreviewSection
-              title="Thông tin liên hệ"
-              html={tour.contactHtml}
-            />
-          )}
-
-          {tour?.contentHtml && (
-            <HtmlPreviewSection
-              title="Nội dung giải đấu"
-              html={tour.contentHtml}
-              mtOnMobile
-            />
-          )}
-        </Box>
-      )}
-
-      {/* Management area */}
-      {canManage && (
-        <Box sx={{ mb: 3 }}>
-          <Typography variant="h5" className="mb-1">
-            Quản lý giải đấu
-          </Typography>
-          <Stack direction="row" spacing={1}>
-            <Button
-              component={Link}
-              to={drawPath}
-              variant="contained"
-              size="small"
-            >
-              Bốc thăm
-            </Button>
-            <Button
-              component={Link}
-              to={`/tournament/${id}/manage`}
-              variant="outlined"
-              size="small"
-            >
-              Quản lý giải
-            </Button>
-          </Stack>
-        </Box>
-      )}
-
-      {/* Registration List */}
-      <Stack direction="row" alignItems="center" spacing={1} className="mb-1">
-        <Typography variant="h5">Danh sách đăng ký ({regCount})</Typography>
-        <Chip
-          size="small"
-          color="primary"
-          variant="outlined"
-          icon={<Groups fontSize="small" />}
-          label={`${regCount} ${isSingles ? "VĐV" : "đội"}`}
-          sx={{ ml: 0.5 }}
-        />
-      </Stack>
-
-      {/* Search box */}
-      <Stack
-        direction={{ xs: "column", sm: "row" }}
-        spacing={1}
-        alignItems={{ xs: "stretch", sm: "center" }}
-        sx={{ mb: 1 }}
-      >
-        <SearchField
-          value={q}
-          onChange={handleSearchChange}
-          onClear={handleSearchClear}
-        />
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ whiteSpace: "nowrap" }}
-        >
-          {debouncedQ
-            ? listLoading
-              ? "Đang tìm…"
-              : listError
-              ? "Tìm kiếm lỗi!"
-              : `Kết quả: ${regCount}`
-            : ""}
-        </Typography>
-      </Stack>
-
-      {listLoading ? (
-        <Box sx={{ textAlign: "center", py: 3 }}>
-          <CircularProgress />
-        </Box>
-      ) : listError ? (
-        <Alert severity="error">
-          {listError?.data?.message || listError?.error || "Lỗi tải danh sách"}
-        </Alert>
-      ) : regCount === 0 ? (
-        <Typography color="text.secondary">Danh sách đăng ký trống!</Typography>
-      ) : isMobile ? (
-        <Stack spacing={2}>
-          {listRegs.slice(0, displayCount).map((r, i) => {
-            const isOwner =
-              isLoggedIn && String(r?.createdBy) === String(me?._id);
-            return (
-              <MobileCard
-                key={r._id}
-                r={r}
-                index={i}
-                isSingles={isSingles}
-                cap={cap}
-                delta={delta}
-                canManage={canManage}
-                isOwner={isOwner}
-                onTogglePayment={togglePayment}
-                onCancel={handleCancel}
-                onOpenComplaint={openComplaint}
-                onOpenPayment={openPayment}
-                onOpenReplace={openReplace}
-                onOpenPreview={openPreview}
-                onOpenProfile={openProfileByPlayer}
-                busy={busy}
-                regCodeOf={regCodeOf}
-                playersOfReg={playersOfReg}
-              />
-            );
-          })}
-          {hasMore && (
-            <Box ref={loaderRef} sx={{ textAlign: "center", py: 2 }}>
-              <CircularProgress size={20} />
-              <Typography
-                variant="caption"
-                sx={{ ml: 1 }}
-                color="text.secondary"
-              >
-                Đang tải thêm... ({displayCount}/{regCount})
-              </Typography>
-            </Box>
-          )}
-        </Stack>
-      ) : (
-        // Desktop table with lazy loading
-        <Paper variant="outlined" sx={{ mt: 1 }}>
-          <TableContainer sx={{ maxHeight: 600, overflow: "auto" }}>
-            <Table size="small" stickyHeader>
-              <TableHead>
-                <TableRow>
-                  <TableCell
-                    sx={{
-                      whiteSpace: "nowrap",
-                      py: 1,
-                      px: { xs: 0.5, md: 1 },
-                      fontWeight: 600,
-                    }}
-                  >
-                    #
-                  </TableCell>
-                  <TableCell
-                    sx={{
-                      whiteSpace: "nowrap",
-                      py: 1,
-                      px: { xs: 0.5, md: 1 },
-                      fontWeight: 600,
-                    }}
-                  >
-                    Mã ĐK
-                  </TableCell>
-                  <TableCell
-                    sx={{ py: 1, px: { xs: 0.5, md: 1 }, fontWeight: 600 }}
-                  >
-                    {isSingles ? "VĐV" : "VĐV 1"}
-                  </TableCell>
-                  {!isSingles && (
-                    <TableCell
-                      sx={{ py: 1, px: { xs: 0.5, md: 1 }, fontWeight: 600 }}
-                    >
-                      VĐV 2
-                    </TableCell>
-                  )}
-                  <TableCell
-                    sx={{
-                      whiteSpace: "nowrap",
-                      py: 1,
-                      px: { xs: 0.5, md: 1 },
-                      fontWeight: 600,
-                    }}
-                  >
-                    Điểm
-                  </TableCell>
-                  <TableCell
-                    sx={{
-                      whiteSpace: "nowrap",
-                      py: 1,
-                      px: { xs: 0.5, md: 1 },
-                      fontWeight: 600,
-                      display: { xs: "none", lg: "table-cell" },
-                    }}
-                  >
-                    Thời gian
-                  </TableCell>
-                  <TableCell
-                    sx={{
-                      whiteSpace: "nowrap",
-                      py: 1,
-                      px: { xs: 0.5, md: 1 },
-                      fontWeight: 600,
-                    }}
-                  >
-                    Trạng thái
-                  </TableCell>
-                  <TableCell
-                    sx={{
-                      whiteSpace: "nowrap",
-                      py: 1,
-                      px: { xs: 0.5, md: 1 },
-                      fontWeight: 600,
-                      textAlign: "right",
-                    }}
-                  >
-                    Hành động
-                  </TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {listRegs.slice(0, displayCount).map((r, i) => {
-                  const isOwner =
-                    isLoggedIn && String(r?.createdBy) === String(me?._id);
-                  return (
-                    <DesktopTableRow
-                      key={r._id}
-                      r={r}
-                      index={i}
-                      isSingles={isSingles}
-                      cap={cap}
-                      delta={delta}
-                      canManage={canManage}
-                      isOwner={isOwner}
-                      onTogglePayment={togglePayment}
-                      onCancel={handleCancel}
-                      onOpenComplaint={openComplaint}
-                      onOpenPayment={openPayment}
-                      onOpenReplace={openReplace}
-                      onOpenPreview={openPreview}
-                      onOpenProfile={openProfileByPlayer}
-                      busy={busy}
-                      regCodeOf={regCodeOf}
-                    />
-                  );
-                })}
+              {/* Content */}
+              <Box sx={{ flex: 1, bgcolor: isMobile ? "#f8fafc" : "white" }}>
+                {activeList.length === 0 ? (
+                  <Box p={4} textAlign="center" color="text.secondary">
+                    <Groups sx={{ fontSize: 48, opacity: 0.3, mb: 1 }} />
+                    <Typography>Chưa có đăng ký nào.</Typography>
+                  </Box>
+                ) : isMobile ? (
+                  <Box sx={{ p: 2 }}>
+                    {displayedItems.map((r, i) => (
+                      <MobileCard
+                        key={r._id}
+                        r={r}
+                        index={i}
+                        isSingles={isSingles}
+                        cap={cap}
+                        delta={delta}
+                        canManage={canManage}
+                        isOwner={String(r.createdBy) === String(me?._id)}
+                        onCancel={handleCancel}
+                        onTogglePayment={togglePayment}
+                        onOpenReplace={handleOpenReplace}
+                        onOpenPreview={handleOpenPreview}
+                        onOpenProfile={handleOpenProfile}
+                        onOpenPayment={handleOpenPayment}
+                        onOpenComplaint={handleOpenComplaint}
+                        regCodeOf={regCodeOf}
+                        busy={busy}
+                      />
+                    ))}
+                  </Box>
+                ) : (
+                  <TableContainer sx={{ maxHeight: "70vh" }}>
+                    <Table stickyHeader size="medium">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell
+                            sx={{
+                              fontWeight: 700,
+                              bgcolor: "#f8fafc",
+                              color: "text.secondary",
+                            }}
+                          >
+                            #
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              fontWeight: 700,
+                              bgcolor: "#f8fafc",
+                              color: "text.secondary",
+                            }}
+                          >
+                            Mã ĐK
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              fontWeight: 700,
+                              bgcolor: "#f8fafc",
+                              color: "text.secondary",
+                            }}
+                          >
+                            VĐV 1
+                          </TableCell>
+                          {!isSingles && (
+                            <TableCell
+                              sx={{
+                                fontWeight: 700,
+                                bgcolor: "#f8fafc",
+                                color: "text.secondary",
+                              }}
+                            >
+                              VĐV 2
+                            </TableCell>
+                          )}
+                          <TableCell
+                            align="center"
+                            sx={{
+                              fontWeight: 700,
+                              bgcolor: "#f8fafc",
+                              color: "text.secondary",
+                            }}
+                          >
+                            Điểm
+                          </TableCell>
+                          <TableCell
+                            sx={{
+                              fontWeight: 700,
+                              bgcolor: "#f8fafc",
+                              color: "text.secondary",
+                            }}
+                          >
+                            Trạng thái
+                          </TableCell>
+                          <TableCell
+                            align="right"
+                            sx={{
+                              fontWeight: 700,
+                              bgcolor: "#f8fafc",
+                              color: "text.secondary",
+                            }}
+                          >
+                            Hành động
+                          </TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {displayedItems.map((r, i) => (
+                          <DesktopRow
+                            key={r._id}
+                            r={r}
+                            index={i}
+                            isSingles={isSingles}
+                            cap={cap}
+                            delta={delta}
+                            canManage={canManage}
+                            isOwner={String(r.createdBy) === String(me?._id)}
+                            onCancel={handleCancel}
+                            onTogglePayment={togglePayment}
+                            onOpenReplace={handleOpenReplace}
+                            onOpenPreview={handleOpenPreview}
+                            onOpenProfile={handleOpenProfile}
+                            onOpenPayment={handleOpenPayment}
+                            onOpenComplaint={handleOpenComplaint}
+                            regCodeOf={regCodeOf}
+                            busy={busy}
+                          />
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
 
                 {hasMore && (
-                  <TableRow ref={loaderRef}>
-                    <TableCell
-                      colSpan={isSingles ? 8 : 9}
-                      sx={{ textAlign: "center", py: 2 }}
-                    >
-                      <CircularProgress size={20} />
-                      <Typography
-                        variant="caption"
-                        sx={{ ml: 1 }}
-                        color="text.secondary"
-                      >
-                        Đang tải thêm... ({displayCount}/{regCount})
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
+                  <Box ref={loaderRef} sx={{ p: 3, textAlign: "center" }}>
+                    <CircularProgress size={24} />
+                  </Box>
                 )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Paper>
-      )}
+              </Box>
+            </Paper>
+          </Grid>
+        </Grid>
+      </Container>
 
-      {/* Dialogs */}
+      {/* --- DIALOGS --- */}
+      {/* 1. Image Preview */}
       <Dialog
         open={imgPreview.open}
-        onClose={closePreview}
-        maxWidth="sm"
+        onClose={handleClosePreview}
+        maxWidth="md"
         fullWidth
       >
-        <DialogTitle>Ảnh VĐV</DialogTitle>
+        <DialogTitle sx={{ p: 2 }}>{imgPreview.name || "Ảnh VĐV"}</DialogTitle>
         <DialogContent
-          dividers
-          sx={{ display: "flex", justifyContent: "center" }}
+          sx={{
+            p: 0,
+            bgcolor: "black",
+            display: "flex",
+            justifyContent: "center",
+          }}
         >
           <img
             src={safeSrc(imgPreview.src || PLACE)}
-            alt={imgPreview.name || "player"}
+            alt=""
             style={{
-              width: "100%",
-              maxHeight: "80vh",
+              maxWidth: "100%",
+              maxHeight: "85vh",
               objectFit: "contain",
-              borderRadius: 8,
             }}
             onError={(e) => (e.currentTarget.src = PLACE)}
           />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={closePreview}>Đóng</Button>
-        </DialogActions>
       </Dialog>
 
+      {/* 2. Replace Player */}
       <Dialog
         open={replaceDlg.open}
-        onClose={closeReplace}
+        onClose={handleCloseReplace}
         maxWidth="sm"
         fullWidth
       >
         <DialogTitle>
-          {replaceDlg.slot === "p2" ? "Thay/Thêm VĐV 2" : "Thay VĐV 1"}
+          {replaceDlg.slot === "p2"
+            ? "Thay đổi / Thêm VĐV 2"
+            : "Thay đổi VĐV 1"}
         </DialogTitle>
         <DialogContent dividers>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Chọn VĐV mới để thay thế vào vị trí này.
+          </Alert>
           <PlayerSelector
-            label="Chọn VĐV mới"
-            eventType={tour?.eventType}
             value={newPlayer}
             onChange={setNewPlayer}
+            eventType={tour.eventType}
+            label="Tìm kiếm VĐV..."
           />
-          <Typography variant="caption" color="text.secondary">
-            Lưu ý: Thao tác này cập nhật trực tiếp cặp đăng ký.
-          </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeReplace}>Huỷ</Button>
+          <Button onClick={handleCloseReplace}>Hủy</Button>
           <Button
-            onClick={submitReplace}
             variant="contained"
-            disabled={replacing || !newPlayer?._id}
+            onClick={submitReplace}
+            disabled={!newPlayer}
           >
-            {replacing ? "Đang lưu…" : "Lưu thay đổi"}
+            Lưu thay đổi
           </Button>
         </DialogActions>
       </Dialog>
 
-      <PublicProfileDialog
-        open={profileDlg.open}
-        onClose={closeProfileDlg}
-        userId={profileDlg.userId}
-      />
-
+      {/* 3. Complaint */}
       <Dialog
         open={complaintDlg.open}
-        onClose={closeComplaint}
+        onClose={handleCloseComplaint}
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Khiếu nại đăng ký</DialogTitle>
+        <DialogTitle>Gửi khiếu nại / Hỗ trợ</DialogTitle>
         <DialogContent dividers>
-          <Typography variant="body2" sx={{ mb: 1 }}>
-            Vui lòng mô tả chi tiết vấn đề của bạn với đăng ký này. BTC sẽ tiếp
-            nhận và phản hồi.
+          <Typography variant="body2" gutterBottom color="text.secondary">
+            Nội dung sẽ được gửi tới Ban Tổ Chức giải đấu.
           </Typography>
           <TextField
-            autoFocus
             fullWidth
             multiline
-            minRows={4}
-            label="Nội dung khiếu nại"
+            rows={4}
+            placeholder="Nhập nội dung..."
             value={complaintDlg.text}
             onChange={(e) =>
               setComplaintDlg((s) => ({ ...s, text: e.target.value }))
             }
-            placeholder="Ví dụ: Sai thông tin VĐV, sai điểm trình, muốn đổi khung giờ…"
+            autoFocus
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={closeComplaint}>Đóng</Button>
+          <Button onClick={handleCloseComplaint}>Đóng</Button>
           <Button
-            onClick={submitComplaint}
             variant="contained"
-            disabled={sendingComplaint || !complaintDlg.text.trim()}
+            onClick={submitComplaint}
+            disabled={sendingComplaint}
           >
-            {sendingComplaint ? "Đang gửi…" : "Gửi khiếu nại"}
+            {sendingComplaint ? "Đang gửi..." : "Gửi khiếu nại"}
           </Button>
         </DialogActions>
       </Dialog>
 
+      {/* 4. QR Payment */}
       <Dialog
         open={paymentDlg.open}
-        onClose={closePayment}
+        onClose={handleClosePayment}
         maxWidth="xs"
         fullWidth
       >
         <DialogTitle>Thanh toán lệ phí</DialogTitle>
-        <DialogContent dividers sx={{ textAlign: "center" }}>
-          {paymentDlg.reg ? (
+        <DialogContent sx={{ textAlign: "center", pb: 4 }} dividers>
+          {paymentDlg.reg && (
             <>
-              {(() => {
-                const code = regCodeOf(paymentDlg.reg);
-                const ph = maskPhone(
-                  paymentDlg.reg?.player1?.phone ||
-                    paymentDlg.reg?.player2?.phone ||
-                    me?.phone ||
-                    ""
-                );
-                return (
-                  <Typography variant="body2" sx={{ mb: 1.5 }}>
-                    {`Vui lòng quét QR để thanh toán cho mã đăng ký ${code}. SĐT xác nhận: ${ph}.`}
-                  </Typography>
-                );
-              })()}
-
-              {(() => {
-                const url = safeSrc(qrImgUrlFor(paymentDlg.reg));
-                if (!url) {
-                  return (
-                    <Alert severity="info" sx={{ textAlign: "left", mb: 1 }}>
-                      Hiện chưa có mã QR thanh toán. Bạn có thể dùng mục{" "}
-                      <b>Khiếu nại</b> để liên hệ Ban tổ chức (BTC) nhận hướng
-                      dẫn thanh toán.
-                    </Alert>
-                  );
-                }
-                return (
-                  <>
-                    <Box sx={{ display: "grid", placeItems: "center" }}>
-                      <img
-                        src={url}
-                        alt="QR thanh toán"
-                        style={{ width: 260, height: 260, borderRadius: 8 }}
-                        onError={(e) => (e.currentTarget.src = PLACE)}
-                      />
-                    </Box>
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      sx={{ mt: 1, display: "block" }}
-                    >
-                      Quét mã QR code ở trên để thanh toán phí đăng ký giải đấu.
-                    </Typography>
-                  </>
-                );
-              })()}
+              <Typography variant="body2" mb={2}>
+                Quét mã bên dưới để thanh toán cho mã ĐK:{" "}
+                <b>{regCodeOf(paymentDlg.reg)}</b>
+              </Typography>
+              {qrImgUrlFor(paymentDlg.reg) ? (
+                <Box
+                  sx={{
+                    p: 2,
+                    border: "1px solid #eee",
+                    borderRadius: 2,
+                    display: "inline-block",
+                  }}
+                >
+                  <img
+                    src={qrImgUrlFor(paymentDlg.reg)}
+                    alt="QR Code"
+                    style={{ width: "100%", maxWidth: 250, display: "block" }}
+                    onError={(e) => {
+                      e.target.style.display = "none";
+                    }}
+                  />
+                </Box>
+              ) : (
+                <Alert severity="warning">
+                  BTC chưa cấu hình tài khoản ngân hàng.
+                </Alert>
+              )}
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                display="block"
+                mt={2}
+              >
+                Nội dung chuyển khoản đã được tạo tự động. Vui lòng không sửa
+                đổi để hệ thống tự động cập nhật.
+              </Typography>
             </>
-          ) : null}
+          )}
         </DialogContent>
         <DialogActions>
-          {!paymentDlg.reg || !safeSrc(qrImgUrlFor(paymentDlg.reg)) ? (
-            <Button
-              color="warning"
-              variant="outlined"
-              onClick={() => {
-                setComplaintDlg({ open: true, reg: paymentDlg.reg, text: "" });
-              }}
-              startIcon={<ReportProblem fontSize="small" />}
-            >
-              Khiếu nại
-            </Button>
-          ) : null}
-          <Button onClick={closePayment}>Đóng</Button>
+          <Button
+            color="warning"
+            onClick={() => {
+              const r = paymentDlg.reg;
+              handleClosePayment();
+              handleOpenComplaint(r);
+            }}
+          >
+            Báo lỗi / Khiếu nại
+          </Button>
+          <Button onClick={handleClosePayment}>Đóng</Button>
         </DialogActions>
       </Dialog>
-    </RBContainer>
+
+      {/* 5. Public Profile */}
+      <PublicProfileDialog
+        open={profileDlg.open}
+        userId={profileDlg.userId}
+        onClose={handleCloseProfile}
+      />
+    </Box>
   );
 }

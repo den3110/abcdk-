@@ -34,27 +34,6 @@ import {
 } from "../services/presenceService.js";
 import { ensureAdmin, ensureReferee } from "../utils/socketAuth.js";
 
-import { Sponsor } from "../models/sponsorModel.js";
-import CmsBlock from "../models/cmsBlockModel.js";
-
-const FORCE_HTTPS = process.env.NODE_ENV === "production";
-const ensureHttps = (url) => {
-  if (!url) return url;
-  const s = String(url).trim();
-  if (!s) return s;
-
-  // đã là https rồi thì giữ nguyên
-  if (/^https:\/\//i.test(s)) return s;
-
-  // http => https
-  if (/^http:\/\//i.test(s)) {
-    return s.replace(/^http:\/\//i, "https://");
-  }
-
-  // relative path (/uploads/...) thì kệ, để frontend/normalizeUrl xử lý
-  return s;
-};
-
 /* 👇 THÊM BIẾN TOÀN CỤC LƯU IO */
 let ioInstance = null;
 let sweeperStarted = false;
@@ -600,119 +579,10 @@ export function initSocket(
 
       if (!m) return;
 
-      /* ==========================
-       * 🆕 Logo + Sponsors (giống getOverlayConfig/getOverlayMatch)
-       * ========================== */
-      const FALLBACK_LOGO = "https://placehold.co/240x60/png?text=PickleTour";
-
-      let webLogoUrl = FALLBACK_LOGO;
-      let webLogoAlt = "";
-
-      try {
-        const heroBlock = await CmsBlock.findOne({ slug: "hero" }).lean();
-        if (heroBlock?.data) {
-          webLogoUrl = heroBlock.data.overlayLogoUrl || FALLBACK_LOGO;
-          webLogoAlt =
-            heroBlock.data.overlayLogoAlt || heroBlock.data.imageAlt || "";
-        }
-      } catch (e) {
-        console.error(
-          "[socket match:join] load hero CmsBlock failed:",
-          e?.message || e
-        );
-      }
-
-      const tid = m?.tournament?._id || m?.tournament || null;
-
-      let sponsors = [];
-      if (tid) {
-        const filter = { tournaments: tid };
-
-        sponsors = await Sponsor.find(filter)
-          .select(
-            "_id name slug logoUrl websiteUrl refLink tier weight featured tournaments updatedAt"
-          )
-          .sort({ featured: -1, weight: -1, updatedAt: -1, name: 1 })
-          .limit(12)
-          .lean();
-      }
-
-      if (typeof FORCE_HTTPS !== "undefined" && FORCE_HTTPS) {
-        webLogoUrl = ensureHttps(webLogoUrl);
-        sponsors = sponsors.map((s) => ({
-          ...s,
-          logoUrl: ensureHttps(s.logoUrl),
-          websiteUrl: ensureHttps(s.websiteUrl),
-          refLink: ensureHttps(s.refLink),
-        }));
-      }
-
-      const sponsorLogos = sponsors
-        .map((s) => (s.logoUrl || "").trim())
-        .filter(Boolean)
-        .slice(0, 12); // native limit 12 logo
-
-      // === Build rootOverlay (giống getOverlayMatch) ===
-      const baseOverlay =
-        m?.overlay || m?.tournament?.overlay || m?.bracket?.overlay || {};
-
-      const overlayEnabled =
-        typeof baseOverlay.enabled === "boolean" ? !!baseOverlay.enabled : true;
-
-      const showClock =
-        typeof baseOverlay.showClock === "boolean"
-          ? !!baseOverlay.showClock
-          : true;
-
-      const rootOverlay = {
-        theme: baseOverlay.theme || "dark",
-        accentA: baseOverlay.accentA || "#25C2A0",
-        accentB: baseOverlay.accentB || "#4F46E5",
-        corner: baseOverlay.corner || "tl",
-        rounded:
-          typeof baseOverlay.rounded === "number" ? baseOverlay.rounded : 18,
-        shadow:
-          typeof baseOverlay.shadow === "boolean" ? baseOverlay.shadow : true,
-        showSets:
-          typeof baseOverlay.showSets === "boolean"
-            ? baseOverlay.showSets
-            : true,
-        fontFamily: baseOverlay.fontFamily || "",
-        nameScale:
-          typeof baseOverlay.nameScale === "number" ? baseOverlay.nameScale : 1,
-        scoreScale:
-          typeof baseOverlay.scoreScale === "number"
-            ? baseOverlay.scoreScale
-            : 1,
-        customCss: baseOverlay.customCss || "",
-
-        // ưu tiên logo overlay, fallback logo hero
-        logoUrl: baseOverlay.logoUrl || webLogoUrl,
-
-        // thêm cho native overlay
-        size: baseOverlay.size || "md",
-        scaleScore:
-          typeof baseOverlay.scaleScore === "number"
-            ? baseOverlay.scaleScore
-            : 1,
-        enabled: overlayEnabled,
-        showClock,
-
-        // info logo + sponsors
-        webLogoUrl,
-        webLogoAlt,
-        sponsorLogos,
-      };
-
-      // gắn vào match + tournament để toDTO dùng
-      m.overlay = rootOverlay;
-      if (m.tournament && typeof m.tournament === "object") {
-        m.tournament.webLogoUrl = webLogoUrl;
-        m.tournament.webLogoAlt = webLogoAlt;
-        m.tournament.sponsors = sponsors;
-      }
-
       // ====== giữ nguyên code cũ ở dưới, chỉ bổ sung nhẹ (không xoá gì) ======
+
+      // Helper: lấy nickname ưu tiên player.nickname/nickName;
+      // nếu thiếu HOẶC chuỗi rỗng => fallback sang user.nickname/user.nickName.
       const fillNick = (p) => {
         if (!p) return p;
         const pick = (v) => (v && String(v).trim()) || "";
@@ -738,7 +608,7 @@ export function initSocket(
       // bổ sung streams từ meta nếu có
       if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
-      // 🔹 fallback rules
+      // 🔹 ADDED: fallback rules để DTO/FE luôn có giá trị an toàn
       m.rules = {
         bestOf: Number(m?.rules?.bestOf ?? 3),
         pointsToWin: Number(m?.rules?.pointsToWin ?? 11),
@@ -746,7 +616,7 @@ export function initSocket(
         ...(m.rules?.cap ? { cap: m.rules.cap } : {}),
       };
 
-      // 🔹 fallback serve
+      // 🔹 ADDED: fallback serve
       if (
         !m?.serve ||
         (!m.serve.side && !m.serve.server && !m.serve.playerIndex)
@@ -760,12 +630,21 @@ export function initSocket(
           Number(m.serve.playerIndex ?? m.serve.server ?? 1) || 1;
       }
 
-      // 🔹 gameScores tối thiểu 1 phần tử
+      // 🔹 ADDED: gameScores tối thiểu 1 phần tử
       if (!Array.isArray(m.gameScores) || !m.gameScores.length) {
         m.gameScores = [{ a: 0, b: 0 }];
       }
 
-      // 🔹 roundCode fallback
+      // 🔹 ADDED: overlay root (để DTO có thể ưu tiên match.overlay)
+      if (!m.overlay) {
+        m.overlay =
+          m?.overlay ||
+          m?.tournament?.overlay ||
+          m?.bracket?.overlay ||
+          undefined;
+      }
+
+      // 🔹 ADDED: roundCode fallback (để FE hiển thị “Tứ kết/Bán kết/Chung kết”)
       if (!m.roundCode) {
         const drawSize =
           Number(m?.bracket?.meta?.drawSize) ||
@@ -781,7 +660,7 @@ export function initSocket(
         }
       }
 
-      // 🔹 court fallback field
+      // 🔹 ADDED: court fallback field (courtId/courtName/courtNo) để FE cũ/auto-next dùng được
       const courtId = m?.court?._id || m?.courtId || null;
       const courtNumber = m?.court?.number ?? m?.courtNo ?? undefined;
       const courtName =
@@ -792,12 +671,12 @@ export function initSocket(
       m.courtName = courtName || undefined;
       m.courtNo = courtNumber ?? undefined;
 
-      // 🔹 bracketType
+      // 🔹 ADDED: bracketType (giữ nguyên, chỉ bổ sung nếu thiếu)
       if (!m.bracketType) {
         m.bracketType = m?.bracket?.type || m?.format || m?.bracketType || "";
       }
 
-      // 🆕 prevBracket
+      // 🆕 prevBracket (neighbor) — lấy bracket LIỀN TRƯỚC theo order trong cùng tournament
       try {
         const toNum = (v, d = 0) => {
           const n = Number(v);
@@ -895,19 +774,19 @@ export function initSocket(
         );
       }
 
-      // ✅ ép có m.video
+      // ✅ CHỈ BỔ SUNG ĐOẠN NÀY: ép có m.video
       if (!m.video) {
         m.video =
           m.videoUrl ||
           m?.meta?.video ||
           m?.facebookLive?.permalinkUrl ||
           m?.facebookLive?.liveUrl ||
-          m?.facebookLive?.hls ||
-          m?.facebookLive?.m3u8 ||
+          m?.facebookLive?.hls || // HLS của FB
+          m?.facebookLive?.m3u8 || // 1 số page trả m3u8
           null;
       }
 
-      // ✅ emit
+      // ✅ giữ nguyên emit cũ
       socket.emit("match:snapshot", toDTO(decorateServeAndSlots(m)));
     });
 

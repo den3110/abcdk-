@@ -70,18 +70,15 @@ const FIELD_LABELS = {
   contactHtml: "Thông tin liên hệ",
   contentHtml: "Nội dung",
 
-  // Phạm vi chấm đa tỉnh
   scoringScope: "Phạm vi chấm",
   "scoringScope.type": "Loại phạm vi chấm",
   "scoringScope.provinces": "Các tỉnh áp dụng",
 
-  // Thanh toán
   bankShortName: "Tên ngân hàng",
   bankAccountNumber: "Số tài khoản",
   bankAccountName: "Tên chủ tài khoản",
   registrationFee: "Phí đăng ký (VND)",
 
-  // NEW: KYC + giới hạn tuổi
   requireKyc: "Yêu cầu KYC",
   ageRestriction: "Giới hạn tuổi",
   "ageRestriction.enabled": "Bật giới hạn tuổi",
@@ -117,7 +114,20 @@ const COMMON_MESSAGES = {
 };
 
 /* ------------------------------ Joi schemas --------------------------- */
-const dateISO = Joi.date().iso();
+const dateISO = Joi.string()
+  .pattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/)
+  .custom((value, helpers) => {
+    const dt = DateTime.fromISO(value, { zone: "Asia/Ho_Chi_Minh" });
+    if (!dt.isValid) {
+      return helpers.error("date.invalid");
+    }
+    return value;
+  })
+  .messages({
+    "string.pattern.base": "{{#label}} phải theo định dạng YYYY-MM-DDTHH:mm:ss",
+    "date.invalid": "{{#label}} không hợp lệ",
+  });
+
 const boolLoose = Joi.boolean()
   .truthy(1, "1", "true", "yes", "y", "on")
   .falsy(0, "0", "false", "no", "n", "off");
@@ -182,7 +192,7 @@ const registrationFee = Joi.number()
   .precision(0)
   .label(FIELD_LABELS.registrationFee);
 
-/* ----- NEW: ageRestriction (giới hạn tuổi) + requireKyc ----- */
+/* ----- ageRestriction (giới hạn tuổi) + requireKyc ----- */
 const ageRestrictionCreate = Joi.object({
   enabled: boolLoose
     .default(false)
@@ -225,7 +235,6 @@ const ageRestrictionUpdate = Joi.object({
 })
   .label(FIELD_LABELS.ageRestriction)
   .custom((ar, helpers) => {
-    // Chỉ kiểm tra khi có đủ cặp
     if (
       (ar.enabled === true || ar.enabled === "true" || ar.enabled === 1) &&
       Number.isFinite(ar.minAge) &&
@@ -255,10 +264,7 @@ const createSchema = Joi.object({
     .required()
     .label(FIELD_LABELS.registrationDeadline),
   startDate: dateISO.required().label(FIELD_LABELS.startDate),
-  endDate: dateISO
-    .min(Joi.ref("startDate"))
-    .required()
-    .label(FIELD_LABELS.endDate),
+  endDate: dateISO.required().label(FIELD_LABELS.endDate),
 
   scoreCap: Joi.number().min(0).default(0).label(FIELD_LABELS.scoreCap),
   scoreGap: Joi.number().min(0).default(0).label(FIELD_LABELS.scoreGap),
@@ -282,23 +288,27 @@ const createSchema = Joi.object({
     .label(FIELD_LABELS.contentHtml),
 
   noRankDelta: boolLoose.default(false).label("Không áp dụng điểm trình"),
-  requireKyc: boolLoose.default(true).label(FIELD_LABELS.requireKyc), // NEW
+  requireKyc: boolLoose.default(true).label(FIELD_LABELS.requireKyc),
 
-  scoringScope: scoringScopeCreate, // đa tỉnh
+  scoringScope: scoringScopeCreate,
   bankShortName: bankShortName.default(""),
   bankAccountNumber: bankAccountNumber.default(""),
   bankAccountName: bankAccountName.default(""),
   registrationFee: registrationFee.default(0),
 
-  ageRestriction: ageRestrictionCreate, // NEW
+  ageRestriction: ageRestrictionCreate,
 })
   .with("bankShortName", ["bankAccountNumber", "bankAccountName"])
   .with("bankAccountNumber", ["bankShortName", "bankAccountName"])
   .with("bankAccountName", ["bankShortName", "bankAccountNumber"])
   .messages(COMMON_MESSAGES)
   .custom((obj, helpers) => {
-    const toDate = (v) => (v instanceof Date ? v : new Date(v));
-    if (toDate(obj.registrationDeadline) < toDate(obj.regOpenDate)) {
+    if (obj.endDate < obj.startDate) {
+      return helpers.message(
+        `"${FIELD_LABELS.endDate}" phải ≥ "${FIELD_LABELS.startDate}"`
+      );
+    }
+    if (obj.registrationDeadline < obj.regOpenDate) {
       return helpers.message(
         `"${FIELD_LABELS.registrationDeadline}" không được trước "${FIELD_LABELS.regOpenDate}"`
       );
@@ -331,7 +341,7 @@ const updateSchema = Joi.object({
   contentHtml: Joi.string().allow("").label(FIELD_LABELS.contentHtml),
 
   noRankDelta: boolLoose.label("Không áp dụng điểm trình"),
-  requireKyc: boolLoose.label(FIELD_LABELS.requireKyc), // NEW
+  requireKyc: boolLoose.label(FIELD_LABELS.requireKyc),
 
   scoringScope: scoringScopeUpdate,
 
@@ -340,23 +350,22 @@ const updateSchema = Joi.object({
   bankAccountName,
   registrationFee,
 
-  ageRestriction: ageRestrictionUpdate, // NEW
+  ageRestriction: ageRestrictionUpdate,
 })
   .with("bankShortName", ["bankAccountNumber", "bankAccountName"])
   .with("bankAccountNumber", ["bankShortName", "bankAccountName"])
   .with("bankAccountName", ["bankShortName", "bankAccountNumber"])
   .messages(COMMON_MESSAGES)
   .custom((obj, helpers) => {
-    const toDate = (v) => (v instanceof Date ? v : new Date(v));
     if (obj.startDate && obj.endDate) {
-      if (toDate(obj.endDate) < toDate(obj.startDate)) {
+      if (obj.endDate < obj.startDate) {
         return helpers.message(
           `"${FIELD_LABELS.endDate}" phải ≥ "${FIELD_LABELS.startDate}"`
         );
       }
     }
     if (obj.regOpenDate && obj.registrationDeadline) {
-      if (toDate(obj.registrationDeadline) < toDate(obj.regOpenDate)) {
+      if (obj.registrationDeadline < obj.regOpenDate) {
         return helpers.message(
           `"${FIELD_LABELS.registrationDeadline}" không được trước "${FIELD_LABELS.regOpenDate}"`
         );
@@ -368,7 +377,7 @@ const updateSchema = Joi.object({
 /* ------------------------------- Helpers ------------------------------ */
 const validate = (schema, payload) => {
   const options = {
-    convert: true,
+    convert: false,
     stripUnknown: { objects: true },
     abortEarly: false,
     errors: { wrap: { label: "" } },
@@ -422,6 +431,27 @@ const validate = (schema, payload) => {
     throw err;
   }
 
+  // ✅ FIX: Coi string input như UTC để giữ nguyên giá trị số
+  const dateFields = [
+    'regOpenDate', 
+    'registrationDeadline', 
+    'startDate', 
+    'endDate'
+  ];
+  
+  for (const field of dateFields) {
+    if (value[field] && typeof value[field] === 'string') {
+      // "2025-11-20T11:32:42" → Coi như UTC → new Date("2025-11-20T11:32:42Z")
+      const dateStr = value[field];
+      value[field] = new Date(dateStr + 'Z'); // Thêm 'Z' để parse như UTC
+      
+      console.log(`[DEBUG] ${field}:`, {
+        input: dateStr,
+        dbValue: value[field].toISOString(), // Giá trị sẽ lưu vào DB
+      });
+    }
+  }
+
   if (strippedKeys.length) value._meta = { strippedKeys };
   return value;
 };
@@ -444,7 +474,7 @@ const isValidTZ = (tz) => {
 };
 
 /* -------------------------------------------------------------------------- */
-/*  Controllers                                                               */
+/*  Controllers  - GIỮ NGUYÊN TẤT CẢ                                         */
 /* -------------------------------------------------------------------------- */
 
 export const getTournaments = expressAsyncHandler(async (req, res) => {
@@ -562,11 +592,9 @@ export const getTournaments = expressAsyncHandler(async (req, res) => {
   res.json({ total, page, limit, list, tz: TZ });
 });
 
-// CREATE Tournament
 export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
   const incoming = { ...(req.body || {}) };
 
-  // scoringScope pre-sanitize
   if (incoming.scoringScope) {
     const type =
       String(incoming.scoringScope.type || "national").toLowerCase() ===
@@ -593,7 +621,6 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  // payment pre-sanitize
   if (Object.prototype.hasOwnProperty.call(incoming, "bankShortName")) {
     incoming.bankShortName = String(incoming.bankShortName || "").trim();
   }
@@ -614,7 +641,6 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
       Number.isFinite(fee) && fee >= 0 ? Math.floor(fee) : 0;
   }
 
-  // NEW: ageRestriction pre-sanitize (optional, Joi vẫn convert)
   if (incoming.ageRestriction) {
     const ar = incoming.ageRestriction || {};
     const enabled = !!(
@@ -635,7 +661,6 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
     };
   }
 
-  // KYC: normalize boolean
   if (Object.prototype.hasOwnProperty.call(incoming, "requireKyc")) {
     const v = incoming.requireKyc;
     incoming.requireKyc = !!(
@@ -647,10 +672,8 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
     );
   }
 
-  // Validate
   const data = validate(createSchema, incoming);
 
-  // sanitize HTML
   data.contactHtml = cleanHTML(data.contactHtml);
   data.contentHtml = cleanHTML(data.contentHtml);
   if (data._meta) delete data._meta;
@@ -664,7 +687,6 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
 
   res.status(201).json(t);
 
-  // background tasks
   setImmediate(() => {
     scheduleTournamentCountdown(t).catch((e) => {
       console.error(
@@ -745,7 +767,6 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
   });
 });
 
-// UPDATE Tournament (admin)
 export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
   if (!isObjectId(req.params.id)) {
     res.status(400);
@@ -754,7 +775,6 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
 
   const incoming = { ...(req.body || {}) };
 
-  // scoringScope pre-sanitize
   if (incoming.scoringScope) {
     const type =
       String(incoming.scoringScope.type || "national").toLowerCase() ===
@@ -781,7 +801,6 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  // payment pre-sanitize
   if (Object.prototype.hasOwnProperty.call(incoming, "bankShortName")) {
     incoming.bankShortName = String(incoming.bankShortName || "").trim();
   }
@@ -802,7 +821,6 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
       Number.isFinite(fee) && fee >= 0 ? Math.floor(fee) : 0;
   }
 
-  // ageRestriction pre-sanitize (optional)
   if (incoming.ageRestriction) {
     const ar = incoming.ageRestriction || {};
     const enabled =
@@ -826,7 +844,6 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     };
   }
 
-  // KYC normalize boolean
   if (Object.prototype.hasOwnProperty.call(incoming, "requireKyc")) {
     const v = incoming.requireKyc;
     incoming.requireKyc = !!(
@@ -838,21 +855,18 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     );
   }
 
-  // Validate
   const payload = validate(updateSchema, incoming);
   if (!Object.keys(payload).length) {
     res.status(400);
     throw new Error("Không có dữ liệu để cập nhật");
   }
 
-  // sanitize HTML
   if (typeof payload.contactHtml === "string")
     payload.contactHtml = cleanHTML(payload.contactHtml);
   if (typeof payload.contentHtml === "string")
     payload.contentHtml = cleanHTML(payload.contentHtml);
   if (payload._meta) delete payload._meta;
 
-  // Update
   let t = await Tournament.findByIdAndUpdate(
     req.params.id,
     { $set: payload },
@@ -863,7 +877,6 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     throw new Error("Tournament not found");
   }
 
-  // derive status theo thời gian (theo TZ doc)
   (function autoDeriveStatus() {
     const tz = t.timezone || "Asia/Ho_Chi_Minh";
     const now = DateTime.now().setZone(tz);
@@ -1025,7 +1038,6 @@ export const deleteTournament = expressAsyncHandler(async (req, res) => {
   res.json({ message: "Tournament removed" });
 });
 
-/** Kết thúc 1 giải (snap endDate = hôm nay theo TZ, endAt = cuối ngày TZ) */
 async function finalizeOneTournament(id) {
   const t0 = await Tournament.findById(id).select("_id status timezone").lean();
   if (!t0) return { ok: false, reason: "not_found" };
@@ -1033,18 +1045,18 @@ async function finalizeOneTournament(id) {
     return { ok: false, reason: "already_finished" };
 
   const tz = isValidTZ(t0.timezone) ? t0.timezone : "Asia/Ho_Chi_Minh";
+
   const nowLocal = DateTime.now().setZone(tz);
-  const nowUTC = nowLocal.toUTC();
-  const endOfLocalDayUTC = nowLocal.endOf("day").toUTC();
+  const endOfLocalDay = nowLocal.endOf("day");
 
   const t = await Tournament.findOneAndUpdate(
     { _id: id, status: { $ne: "finished" } },
     {
       $set: {
         status: "finished",
-        finishedAt: nowUTC.toJSDate(),
+        finishedAt: nowLocal.toJSDate(),
         endDate: nowLocal.toJSDate(),
-        endAt: endOfLocalDayUTC.toJSDate(),
+        endAt: endOfLocalDay.toJSDate(),
       },
     },
     { new: true }
@@ -1060,7 +1072,11 @@ async function finalizeOneTournament(id) {
     )
   );
 
-  await addTournamentReputationBonus({ userIds, tournamentId: id, amount: 10 });
+  await addTournamentReputationBonus({
+    userIds,
+    tournamentId: id,
+    amount: 10,
+  });
 
   return { ok: true, tournamentId: String(id), playerCount: userIds.length };
 }
@@ -1117,7 +1133,6 @@ export const planAuto = expressAsyncHandler(async (req, res) => {
   res.json(plan);
 });
 
-/* ---------- Helper: tự động cho đội gặp BYE đi tiếp ---------- */
 const isByeSeed = (s) => {
   if (!s) return false;
   const t = String(s.type || "").toLowerCase();
@@ -1235,7 +1250,6 @@ async function autoAdvanceByesForBracket(bracketId, session) {
   }
 }
 
-/* ---------- Plan helpers (for blueprint + commit) ---------- */
 const normalizePlanRule = (rules) => {
   if (!rules) return undefined;
   const bestOf = Number(rules.bestOf ?? 1);
@@ -1265,10 +1279,6 @@ const normalizePlanRoundRules = (arr, fallback, maxRounds) => {
   return out.slice(0, rounds);
 };
 
-/**
- * GET /api/admin/tournaments/:id/plan
- * Trả về blueprint (drawPlan) đã lưu cho giải.
- */
 export const planGet = expressAsyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!isObjectId(id)) {
@@ -1286,10 +1296,6 @@ export const planGet = expressAsyncHandler(async (req, res) => {
   res.json({ ok: true, plan });
 });
 
-/**
- * PUT /api/admin/tournaments/:id/plan
- * Lưu blueprint (drawPlan) để dùng lại cho /plan/commit.
- */
 export const planUpdate = expressAsyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!isObjectId(id)) {
@@ -1345,13 +1351,8 @@ export const planUpdate = expressAsyncHandler(async (req, res) => {
     const k = { ...ko };
     if (k.drawSize !== undefined) k.drawSize = Number(k.drawSize) || 0;
 
-    // Luật chung KO
     k.rules = normalizePlanRule(k.rules);
-
-    // NEW: luật riêng bán kết (nếu có)
     k.semiRules = normalizePlanRule(k.semiRules);
-
-    // Luật riêng chung kết (nếu có)
     k.finalRules = normalizePlanRule(k.finalRules);
 
     nextPlan.ko = k;
@@ -1365,10 +1366,6 @@ export const planUpdate = expressAsyncHandler(async (req, res) => {
   res.json({ ok: true, plan: t.drawPlan });
 });
 
-/**
- * POST /api/admin/tournaments/:id/plan/commit
- * Dùng blueprint hiện tại (hoặc body) để tạo các bracket & match.
- */
 export const planCommit = expressAsyncHandler(async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -1396,7 +1393,6 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
 
     const hasBodyPlan = Boolean(groups || po || ko);
 
-    // Nếu body không gửi plan thì fallback sang blueprint đã lưu
     if (!hasBodyPlan && t.drawPlan) {
       groups = t.drawPlan.groups || undefined;
       po = t.drawPlan.po || undefined;
@@ -1412,7 +1408,6 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       throw new Error("Nothing to create from plan");
     }
 
-    // Nếu force thì xoá toàn bộ bracket cũ của giải
     if (force) {
       try {
         await Bracket.deleteMany({ tournament: t._id }).session(session);
@@ -1421,7 +1416,6 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       }
     }
 
-    // Nếu plan được gửi qua body, lưu lại thành blueprint để lần sau GET /plan dùng
     if (hasBodyPlan) {
       const toSave = {};
 
@@ -1451,7 +1445,6 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         toSave.ko = {
           ...ko,
           rules: normalizePlanRule(ko.rules),
-          // NEW: lưu luôn semiRules nếu FE gửi lên (koSemiOverride = true)
           semiRules: normalizePlanRule(ko.semiRules),
           finalRules: normalizePlanRule(ko.finalRules),
         };
@@ -1461,7 +1454,6 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       t.drawPlan = toSave;
       await t.save({ session });
 
-      // đồng bộ lại biến local (để dùng khi build bracket)
       groups = toSave.groups || groups;
       po = toSave.po || po;
       ko = toSave.ko || ko;
@@ -1535,7 +1527,7 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       const firstRoundSeeds = Array.isArray(ko.seeds) ? ko.seeds : [];
 
       const koRules = normalizePlanRule(ko.rules);
-      const koSemiRules = normalizePlanRule(ko.semiRules); // NEW
+      const koSemiRules = normalizePlanRule(ko.semiRules);
       const koFinalRules = normalizePlanRule(ko.finalRules);
 
       const { bracket } = await buildKnockoutBracket({
@@ -1546,7 +1538,7 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         drawSize,
         firstRoundSeeds,
         rules: koRules,
-        semiRules: koSemiRules, // NEW: pass xuống builder
+        semiRules: koSemiRules,
         finalRules: koFinalRules,
         session,
       });
@@ -1600,9 +1592,6 @@ export const updateTournamentOverlay = expressAsyncHandler(async (req, res) => {
   res.json({ ok: true, overlay: t.overlay });
 });
 
-/**
- * GET /admin/tournaments/:id/referees?q=&limit=100
- */
 export const listTournamentRefereesInScope = expressAsyncHandler(
   async (req, res) => {
     const { id } = req.params;
@@ -1653,9 +1642,6 @@ export const listTournamentRefereesInScope = expressAsyncHandler(
   }
 );
 
-/**
- * POST /api/admin/tournaments/:tid/referees
- */
 const asObjId = (id) => new mongoose.Types.ObjectId(id);
 const isValidId = (id) => mongoose.isValidObjectId(id);
 const normIds = (arr) =>
