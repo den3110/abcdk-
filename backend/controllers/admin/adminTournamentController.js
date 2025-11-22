@@ -433,18 +433,18 @@ const validate = (schema, payload) => {
 
   // ✅ FIX: Coi string input như UTC để giữ nguyên giá trị số
   const dateFields = [
-    'regOpenDate', 
-    'registrationDeadline', 
-    'startDate', 
-    'endDate'
+    "regOpenDate",
+    "registrationDeadline",
+    "startDate",
+    "endDate",
   ];
-  
+
   for (const field of dateFields) {
-    if (value[field] && typeof value[field] === 'string') {
+    if (value[field] && typeof value[field] === "string") {
       // "2025-11-20T11:32:42" → Coi như UTC → new Date("2025-11-20T11:32:42Z")
       const dateStr = value[field];
-      value[field] = new Date(dateStr + 'Z'); // Thêm 'Z' để parse như UTC
-      
+      value[field] = new Date(dateStr + "Z"); // Thêm 'Z' để parse như UTC
+
       console.log(`[DEBUG] ${field}:`, {
         input: dateStr,
         dbValue: value[field].toISOString(), // Giá trị sẽ lưu vào DB
@@ -1250,6 +1250,14 @@ async function autoAdvanceByesForBracket(bracketId, session) {
   }
 }
 
+const toBool = (v, def = false) => {
+  if (v === undefined || v === null) return def;
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v !== 0;
+  const s = String(v).trim().toLowerCase();
+  return ["1", "true", "yes", "y", "on"].includes(s);
+};
+
 const normalizePlanRule = (rules) => {
   if (!rules) return undefined;
   const bestOf = Number(rules.bestOf ?? 1);
@@ -1317,6 +1325,7 @@ export const planUpdate = expressAsyncHandler(async (req, res) => {
 
   const nextPlan = {};
 
+  // ===== groups (giữ nguyên) =====
   if (groups) {
     const g = { ...groups };
 
@@ -1335,6 +1344,7 @@ export const planUpdate = expressAsyncHandler(async (req, res) => {
     nextPlan.groups = g;
   }
 
+  // ===== PO (giữ nguyên) =====
   if (po) {
     const p = { ...po };
     if (p.drawSize !== undefined) p.drawSize = Number(p.drawSize) || 0;
@@ -1347,13 +1357,35 @@ export const planUpdate = expressAsyncHandler(async (req, res) => {
     nextPlan.po = p;
   }
 
+  // ===== KO (sửa ở đây) =====
   if (ko) {
     const k = { ...ko };
+
     if (k.drawSize !== undefined) k.drawSize = Number(k.drawSize) || 0;
 
     k.rules = normalizePlanRule(k.rules);
     k.semiRules = normalizePlanRule(k.semiRules);
     k.finalRules = normalizePlanRule(k.finalRules);
+
+    // ✅ NEW: nhận flag trận tranh hạng 3–4
+    // FE có thể gửi: thirdPlaceEnabled hoặc thirdPlace
+    if (k.thirdPlaceEnabled !== undefined || k.thirdPlace !== undefined) {
+      k.thirdPlaceEnabled = toBool(
+        k.thirdPlaceEnabled !== undefined ? k.thirdPlaceEnabled : k.thirdPlace
+      );
+    } else if (k.thirdPlaceEnabled === undefined) {
+      // default: false
+      k.thirdPlaceEnabled = false;
+    }
+    delete k.thirdPlace; // tránh lưu alias rác nếu FE dùng key 'thirdPlace'
+
+    // ✅ NEW: rule riêng cho trận tranh 3–4 (tuỳ chọn)
+    if (k.thirdPlaceRules) {
+      k.thirdPlaceRules = normalizePlanRule(k.thirdPlaceRules);
+    } else if (k.thirdPlaceEnabled) {
+      // nếu bật mà không gửi rule riêng -> để undefined, BE/builder có thể fallback về ko.finalRules hoặc ko.rules
+      k.thirdPlaceRules = undefined;
+    }
 
     nextPlan.ko = k;
   }
@@ -1442,18 +1474,32 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       }
 
       if (ko) {
+        // ✅ NEW: normalize flag + rules tranh hạng 3–4
+        const thirdPlaceEnabled = toBool(
+          ko.thirdPlaceEnabled !== undefined
+            ? ko.thirdPlaceEnabled
+            : ko.thirdPlace,
+          false
+        );
+
         toSave.ko = {
           ...ko,
           rules: normalizePlanRule(ko.rules),
           semiRules: normalizePlanRule(ko.semiRules),
           finalRules: normalizePlanRule(ko.finalRules),
+          thirdPlaceEnabled,
+          thirdPlaceRules: normalizePlanRule(ko.thirdPlaceRules),
         };
+
+        // sạch alias cũ nếu FE gửi 'thirdPlace'
+        delete toSave.ko.thirdPlace;
       }
 
       toSave.savedAt = new Date();
       t.drawPlan = toSave;
       await t.save({ session });
 
+      // dùng bản normalized để build bracket
       groups = toSave.groups || groups;
       po = toSave.po || po;
       ko = toSave.ko || ko;
@@ -1466,6 +1512,7 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
     const poOrder = hasPO ? orderCounter++ : null;
     const koOrder = hasKO ? orderCounter++ : null;
 
+    // ===== build group (giữ nguyên) =====
     if (hasGroup) {
       const payload = {
         tournamentId: t._id,
@@ -1488,6 +1535,7 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       created.groupBracket = await buildGroupBracket(payload);
     }
 
+    // ===== build PO (giữ nguyên) =====
     if (hasPO) {
       const drawSize = Number(po.drawSize);
       const maxRounds = Math.max(
@@ -1522,6 +1570,7 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       await autoAdvanceByesForBracket(bracket._id, session);
     }
 
+    // ===== build KO (thêm thirdPlace) =====
     if (hasKO) {
       const drawSize = Number(ko.drawSize);
       const firstRoundSeeds = Array.isArray(ko.seeds) ? ko.seeds : [];
@@ -1529,6 +1578,15 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       const koRules = normalizePlanRule(ko.rules);
       const koSemiRules = normalizePlanRule(ko.semiRules);
       const koFinalRules = normalizePlanRule(ko.finalRules);
+
+      // ✅ NEW: flag + rule tranh hạng 3–4
+      const thirdPlaceEnabled = toBool(
+        ko.thirdPlaceEnabled !== undefined
+          ? ko.thirdPlaceEnabled
+          : ko.thirdPlace,
+        false
+      );
+      const thirdPlaceRules = normalizePlanRule(ko.thirdPlaceRules);
 
       const { bracket } = await buildKnockoutBracket({
         tournamentId: t._id,
@@ -1540,6 +1598,11 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         rules: koRules,
         semiRules: koSemiRules,
         finalRules: koFinalRules,
+
+        // ✅ tham số mới – cần dùng trong buildKnockoutBracket
+        thirdPlaceEnabled,
+        thirdPlaceRules,
+
         session,
       });
       created.koBracket = bracket;

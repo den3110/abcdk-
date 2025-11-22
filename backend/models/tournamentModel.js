@@ -63,6 +63,13 @@ const tournamentSchema = new mongoose.Schema(
     endAt: { type: Date, default: null },
 
     drawSettings: { type: DrawSettingsSchema, default: () => ({}) },
+    // ✅ NEW: option global cho knockout – có tạo trận tranh hạng 3/4 hay không
+    // false  = 2 đội thua bán kết sẽ đồng hạng 3 (như hiện tại)
+    // true   = tự động tạo thêm 1 match tranh hạng 3–4 cho mỗi bracket knockout
+    knockoutThirdPlace: {
+      type: Boolean,
+      default: false,
+    },
     overlay: {
       theme: { type: String, enum: ["dark", "light"], default: "dark" },
       accentA: { type: String, default: "#25C2A0" },

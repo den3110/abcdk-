@@ -1179,6 +1179,151 @@ matchSchema.statics.compileSeedsForBracket = async function (bracketId) {
 };
 
 /**
+ * Tự đảm bảo có trận tranh hạng 3/4 cho 1 bracket knockout.
+ * - Dựa vào tournament.knockoutThirdPlace (hoặc options.enabled)
+ * - Không ảnh hưởng đến bracket tree chính vì dùng branch "consol"
+ * - Seed bằng loser 2 trận bán kết (matchLoser)
+ */
+matchSchema.statics.ensureThirdPlaceMatchForBracket = async function (
+  bracketId,
+  options = {}
+) {
+  const Match = this;
+  if (!bracketId) return null;
+
+  try {
+    // Lấy thông tin bracket
+    const br = await Bracket.findById(bracketId)
+      .select("tournament type stage meta drawRounds")
+      .lean();
+
+    if (!br) return null;
+
+    // Chỉ áp dụng cho knockout
+    if (br.type !== "knockout") return null;
+
+    // Lấy tournament để đọc option global
+    const t = await Tournament.findById(br.tournament)
+      .select("knockoutThirdPlace name")
+      .lean();
+
+    const enabledFromTournament = !!(t && t.knockoutThirdPlace);
+    const enabledFromOptions = options.enabled === true;
+
+    if (!enabledFromTournament && !enabledFromOptions) {
+      // Giải này không muốn có trận tranh hạng 3/4
+      return null;
+    }
+
+    // Nếu đã có trận thirdPlace rồi thì thôi
+    const existing = await Match.findOne({
+      bracket: bracketId,
+      "meta.thirdPlace": true,
+    }).lean();
+
+    if (existing) {
+      return existing;
+    }
+
+    // Lấy toàn bộ match branch "main" để tính vòng
+    const baseMatches = await Match.find({
+      bracket: bracketId,
+      branch: "main",
+    })
+      .sort({ round: 1, order: 1 })
+      .lean();
+
+    if (!baseMatches.length) return null;
+
+    // maxRound = vòng cuối (chung kết)
+    const maxRound = baseMatches.reduce((acc, m) => {
+      const r = typeof m.round === "number" ? m.round : 1;
+      return r > acc ? r : acc;
+    }, 1);
+
+    // Nếu chỉ có 1 round (2 đội) thì cũng không có khái niệm hạng 3
+    if (maxRound <= 1) return null;
+
+    const semiRound = maxRound - 1;
+
+    // Lọc ra 2 trận bán kết
+    const semis = baseMatches
+      .filter((m) => m.round === semiRound)
+      .sort((a, b) => {
+        const oa = typeof a.order === "number" ? a.order : 0;
+        const ob = typeof b.order === "number" ? b.order : 0;
+        return oa - ob;
+      });
+
+    // Phải có ít nhất 2 trận bán kết
+    if (semis.length < 2) return null;
+
+    const semi1 = semis[0];
+    const semi2 = semis[1];
+
+    // Dùng rules của 1 trận bất kỳ làm default
+    const baseRules =
+      (baseMatches[0] && baseMatches[0].rules) || {
+        bestOf: 1,
+        pointsToWin: 11,
+        winByTwo: true,
+        cap: { mode: "none", points: null },
+      };
+
+    // Tạo match tranh hạng 3–4
+    const doc = await Match.create({
+      tournament: br.tournament,
+      bracket: bracketId,
+      format: br.type || "knockout",
+      branch: "consol", // tránh ảnh hưởng cây chính
+      round: maxRound, // cùng vòng với chung kết (để sort/UI dễ)
+      order: 1, // chung kết thường order 0, third-place đứng cạnh
+      phase: "decider",
+
+      seedA: {
+        type: "matchLoser",
+        ref: {
+          round: semiRound,
+          order:
+            typeof semi1.order === "number" && semi1.order >= 0
+              ? semi1.order
+              : 0,
+        },
+      },
+      seedB: {
+        type: "matchLoser",
+        ref: {
+          round: semiRound,
+          order:
+            typeof semi2.order === "number" && semi2.order >= 0
+              ? semi2.order
+              : 1,
+        },
+      },
+
+      rules: baseRules,
+      gameScores: [],
+
+      status: "scheduled",
+
+      meta: {
+        ...(baseMatches[0]?.meta || {}),
+        thirdPlace: true,
+        stageLabel: "Tranh hạng 3/4",
+      },
+    });
+
+    return doc;
+  } catch (e) {
+    console.error(
+      "[Match.ensureThirdPlaceMatchForBracket] error:",
+      e?.message || e
+    );
+    return null;
+  }
+};
+
+/**
  * Xoá các match mồ côi:
  *  - bracket không tồn tại (đã xoá bracket)
  *  - bracket = null / không có field bracket

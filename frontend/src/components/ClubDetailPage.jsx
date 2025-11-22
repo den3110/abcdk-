@@ -12,6 +12,7 @@ import {
   Tabs,
   Tab,
   Badge,
+  Box,
 } from "@mui/material";
 import { toast } from "react-toastify";
 import { useGetClubQuery } from "../slices/clubsApiSlice";
@@ -160,10 +161,12 @@ export default function ClubDetailPage() {
                   Thành viên CLB
                 </Typography>
                 {canSeeMembers ? (
-                  <ClubMembersCards
-                    club={club}
-                    showRoleBadges={showRoleBadges}
-                  />
+                  <Box sx={{ mt: 2 }}>
+                    <ClubMembersCards
+                      club={club}
+                      showRoleBadges={showRoleBadges}
+                    />
+                  </Box>
                 ) : (
                   <Typography color="text.secondary">
                     {memberGuardMessage(club)}

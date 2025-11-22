@@ -18,6 +18,9 @@ import {
   useTheme,
   alpha,
   Divider,
+  Card, // Đã thêm import Card bị thiếu
+  CardContent,
+  InputAdornment,
 } from "@mui/material";
 import { Link as RouterLink } from "react-router-dom";
 import Star from "@mui/icons-material/Star";
@@ -25,7 +28,8 @@ import StarBorder from "@mui/icons-material/StarBorder";
 import DeleteOutline from "@mui/icons-material/DeleteOutline";
 import PersonAddAlt from "@mui/icons-material/PersonAddAlt1";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import MoreVertIcon from "@mui/icons-material/MoreVert"; // Icon menu
+import MoreVertIcon from "@mui/icons-material/MoreVert";
+import SearchIcon from "@mui/icons-material/Search"; // Thêm icon search cho đẹp
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import {
@@ -34,38 +38,43 @@ import {
   useSetRoleMutation,
   useAddMemberMutation,
 } from "../slices/clubsApiSlice";
-import { ZoomableWrapper } from "./Zoom"; // Giả định ZoomableWrapper được export từ './Zoom'
+import { ZoomableWrapper } from "./Zoom";
 
-// chuẩn hoá message lỗi từ RTK Query
 const getApiErrMsg = (err) =>
   err?.data?.message ||
   err?.error ||
   (typeof err?.data === "string" ? err.data : "Có lỗi xảy ra.");
 
-// Helper để map Role sang màu sắc
+// Helper map Role (Tinh chỉnh lại màu sắc cho hiện đại hơn)
 const getRoleProps = (role, theme) => {
   switch (role) {
     case "owner":
       return {
         label: "Chủ CLB",
-        color: "primary",
-        icon: <Star sx={{ fontSize: 16 }} />,
+        // Dùng màu warning hoặc primary đậm cho nổi bật
+        bgcolor: alpha(theme.palette.warning.main, 0.1),
+        color: theme.palette.warning.dark,
+        icon: <Star sx={{ fontSize: 16, color: "inherit" }} />,
       };
     case "admin":
       return {
         label: "Quản trị viên",
-        color: "secondary",
-        icon: <Star sx={{ fontSize: 16 }} />,
+        bgcolor: alpha(theme.palette.info.main, 0.1),
+        color: theme.palette.info.dark,
+        icon: <StarBorder sx={{ fontSize: 16, color: "inherit" }} />,
       };
     default:
-      return { label: "Thành viên", color: "default" };
+      return {
+        label: "Thành viên",
+        bgcolor: alpha(theme.palette.grey[500], 0.08),
+        color: theme.palette.text.secondary,
+      };
   }
 };
 
 export default function ClubMembersCards({ club }) {
   const theme = useTheme();
   const clubId = club?._id;
-  const ownerId = String(club?.owner || "");
   const myRole = club?._my?.membershipRole || null;
   const isOwner = myRole === "owner";
   const canManage = !!club?._my?.canManage;
@@ -89,7 +98,7 @@ export default function ClubMembersCards({ club }) {
 
   const members = useMemo(() => data?.items || [], [data]);
 
-  // Các hàm logic quản trị (giữ nguyên)
+  // -- Logic permissions (Giữ nguyên) --
   const canToggleRole = (targetRole) => {
     if (!canManage) return false;
     if (targetRole === "owner") return false;
@@ -104,14 +113,15 @@ export default function ClubMembersCards({ club }) {
     if (isOwner) return true;
     return targetRole === "member";
   };
+  // -- End Logic permissions --
 
-  // Hàm mở menu
   const handleOpenMenu = (event, member) => {
+    event.preventDefault();
+    event.stopPropagation();
     setAnchorEl(event.currentTarget);
     setActiveMember(member);
   };
 
-  // Hàm đóng menu
   const handleCloseMenu = () => {
     setAnchorEl(null);
     setActiveMember(null);
@@ -139,14 +149,7 @@ export default function ClubMembersCards({ club }) {
     const m = activeMember;
     handleCloseMenu();
     if (!m) return;
-    if (
-      !window.confirm(
-        `Xác nhận xoá thành viên "${
-          m.user?.fullName || m.user?.nickname || m.user?.email
-        }" khỏi CLB?`
-      )
-    )
-      return;
+    if (!window.confirm(`Xác nhận xoá thành viên khỏi CLB?`)) return;
     try {
       await kickMember({ id: clubId, userId: m.user?._id }).unwrap();
       toast.success("Đã xoá thành viên");
@@ -159,7 +162,7 @@ export default function ClubMembersCards({ club }) {
   const handleAdd = async () => {
     const key = addKey.trim();
     if (!key) {
-      toast.info("Nhập nickname hoặc email để thêm thành viên.");
+      toast.info("Nhập nickname hoặc email để thêm.");
       return;
     }
     try {
@@ -174,77 +177,81 @@ export default function ClubMembersCards({ club }) {
 
   return (
     <Stack spacing={3}>
-      {" "}
-      {/* Tăng spacing lên 3 cho thoáng */}
-      {/* -------------------- PHẦN QUẢN LÝ CHUNG -------------------- */}
+      {/* --- KHU VỰC QUẢN LÝ (HEADER) --- */}
       {canManage && (
         <Card
           variant="outlined"
           sx={{
             borderRadius: 3,
-            bgcolor: alpha(theme.palette.primary.main, 0.05),
+            boxShadow: "none",
+            bgcolor: alpha(theme.palette.primary.main, 0.04),
+            border: `1px dashed ${theme.palette.primary.main}`,
           }}
         >
-          <Box sx={{ p: 2 }}>
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              spacing={1.5}
-              alignItems={{ xs: "stretch", sm: "center" }}
-            >
-              <TextField
-                size="small"
-                label="Thêm thành viên (nickname hoặc email)"
-                placeholder="vd: giangng hoặc giang@example.com"
-                value={addKey}
-                onChange={(e) => setAddKey(e.target.value)}
-                sx={{ flex: 1 }}
-              />
-              <Button
-                startIcon={<PersonAddAlt />}
-                variant="contained"
-                onClick={handleAdd}
-                disabled={adding}
-                sx={{ minWidth: { xs: "100%", sm: 120 } }} // fix chiều rộng trên mobile
-              >
-                Thêm
-              </Button>
-              <Tooltip title="Tải lại danh sách">
-                <IconButton
-                  onClick={() => refetch()}
-                  disabled={isFetching}
-                  color="primary"
+          <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
+            <Grid container spacing={2} alignItems="center">
+              <Grid item xs={12} sm={true}>
+                <TextField
+                  fullWidth
                   size="small"
-                  sx={{
-                    width: 40,
-                    height: 40,
-                    border: `1px solid ${theme.palette.divider}`,
+                  placeholder="Thêm thành viên (nickname/email)..."
+                  value={addKey}
+                  onChange={(e) => setAddKey(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PersonAddAlt color="action" fontSize="small" />
+                      </InputAdornment>
+                    ),
                   }}
+                  sx={{ bgcolor: "background.paper", borderRadius: 1 }}
+                />
+              </Grid>
+              <Grid item xs="auto" display="flex" gap={1}>
+                <Button
+                  variant="contained"
+                  onClick={handleAdd}
+                  disabled={adding || !addKey.trim()}
+                  disableElevation
                 >
-                  <RefreshIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Stack>
+                  Thêm
+                </Button>
+                <Tooltip title="Tải lại danh sách">
+                  <IconButton
+                    onClick={() => refetch()}
+                    disabled={isFetching}
+                    sx={{
+                      bgcolor: "background.paper",
+                      border: "1px solid #eee",
+                    }}
+                  >
+                    <RefreshIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Grid>
+            </Grid>
             <Typography
               variant="caption"
               color="text.secondary"
-              sx={{ mt: 1, display: "block" }}
+              sx={{ mt: 1, display: "block", fontStyle: "italic" }}
             >
-              * Owner có quyền thao tác với tất cả. Admin chỉ thao tác được với
-              thành viên thường (member).
+              * Nhập nickname hoặc email chính xác để thêm trực tiếp thành viên
+              vào CLB.
             </Typography>
-          </Box>
+          </CardContent>
         </Card>
       )}
-      {/* -------------------- DANH SÁCH THÀNH VIÊN -------------------- */}
-      <Grid container spacing={2}>
+
+      {/* --- DANH SÁCH THÀNH VIÊN --- */}
+      <Grid container spacing={2} alignItems="stretch">
+        {" "}
+        {/* alignItems="stretch" là mấu chốt để card bằng nhau */}
         {isLoading
           ? Array.from({ length: 6 }).map((_, i) => (
               <Grid key={i} item xs={12} sm={6} lg={4}>
-                {" "}
-                {/* Đổi md sang lg để đẹp hơn trên màn hình lớn */}
                 <Skeleton
                   variant="rounded"
-                  height={100} // Giảm height vì đã làm gọn Card
+                  height={110}
                   sx={{ borderRadius: 3 }}
                 />
               </Grid>
@@ -252,232 +259,212 @@ export default function ClubMembersCards({ club }) {
           : members.map((m) => {
               const targetUserId = String(m.user?._id || "");
               const targetRole = m.role;
-              const { label, color, icon } = getRoleProps(targetRole, theme);
+              const roleProps = getRoleProps(targetRole, theme);
 
               const canToggle = canToggleRole(targetRole);
               const canRemove = canKick(targetRole, targetUserId);
+              const isSelf = String(authUserId) === targetUserId;
 
               const hasFullName = !!m.user?.fullName;
               const hasNickname = !!m.user?.nickname;
-
-              // Title chính (nickname hoặc tên thật/email nếu không có nickname)
               const primaryTitle = hasNickname
                 ? m.user.nickname
                 : m.user?.fullName || m.user?.email || "Người dùng";
-              // Subtitle phụ (tên thật nếu có nickname)
               const secondarySubtitle =
-                hasNickname && hasFullName ? m.user.fullName : null;
-
-              const isSelf = String(authUserId) === targetUserId;
+                hasNickname && hasFullName ? m.user.fullName : m.user?.email;
 
               return (
-                <Grid key={m._id} item xs={12} sm={6} lg={4}>
+                <Grid
+                  key={m._id}
+                  item
+                  xs={12}
+                  sm={6}
+                  lg={4}
+                  sx={{ display: "flex" }}
+                >
                   <Card
                     variant="outlined"
                     sx={{
+                      width: "100%", // Chiếm hết chiều ngang grid item
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "center",
                       borderRadius: 3,
-                      transition: "box-shadow 0.3s",
-                      "&:hover": { boxShadow: theme.shadows[3] },
+                      transition: "all 0.2s ease-in-out",
+                      borderColor: theme.palette.divider,
+                      "&:hover": {
+                        borderColor: theme.palette.primary.main,
+                        boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                        transform: "translateY(-2px)",
+                      },
                     }}
                   >
-                    <Stack
-                      direction="row"
-                      spacing={1.5}
-                      alignItems="center"
-                      sx={{ p: 2 }}
+                    <Box
+                      sx={{
+                        p: 2,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 1.5,
+                      }}
                     >
-                      {/* 1. AVATAR */}
-                      <Box sx={{ flexShrink: 0 }}>
-                        <ZoomableWrapper src={m.user?.avatar}>
-                          <Avatar
-                            src={m.user?.avatar}
-                            alt={m.user?.fullName}
-                            sx={{ width: 48, height: 48 }}
-                          />
-                        </ZoomableWrapper>
-                      </Box>
+                      {/* AVATAR */}
+                      <ZoomableWrapper src={m.user?.avatar}>
+                        <Avatar
+                          src={m.user?.avatar}
+                          alt={primaryTitle}
+                          sx={{
+                            width: 56,
+                            height: 56,
+                            border: `1px solid ${theme.palette.divider}`,
+                          }}
+                        />
+                      </ZoomableWrapper>
 
-                      {/* 2. THÔNG TIN */}
-                      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                        {/* NICKNAME (TITLE) */}
-                        <Tooltip title={`Profile của ${primaryTitle}`}>
+                      {/* INFO WRAPPER - QUAN TRỌNG: minWidth 0 để text truncate */}
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            mb: 0.5,
+                          }}
+                        >
                           <Link
                             component={RouterLink}
                             to={`/user/${m.user?._id}`}
-                            underline="hover"
+                            underline="none"
                             sx={{
-                              fontWeight: 700,
-                              fontSize: "1rem",
-                              whiteSpace: "nowrap",
+                              fontWeight: 600,
+                              color: "text.primary",
+                              fontSize: "0.95rem",
                               overflow: "hidden",
                               textOverflow: "ellipsis",
-                              display: "block",
-                              color: theme.palette.text.primary,
+                              whiteSpace: "nowrap",
                               "&:hover": { color: theme.palette.primary.main },
                             }}
                           >
                             {primaryTitle}
                           </Link>
-                        </Tooltip>
+                        </Box>
 
-                        {/* TÊN THẬT/THỜI GIAN THAM GIA */}
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          {secondarySubtitle && (
-                            <Typography
-                              variant="body2"
-                              color="text.secondary"
-                              noWrap
-                            >
-                              {secondarySubtitle}
-                            </Typography>
-                          )}
-                          {!secondarySubtitle && (
-                            <Typography
-                              variant="caption"
-                              color="text.secondary"
-                              noWrap
-                            >
-                              {new Date(m.joinedAt).toLocaleDateString()}
-                            </Typography>
-                          )}
-                        </Stack>
+                        {/* ROLE BADGE & DATE */}
+                        <Box
+                          sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 1,
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <Chip
+                            label={roleProps.label}
+                            size="small"
+                            icon={roleProps.icon}
+                            sx={{
+                              height: 20,
+                              fontSize: "0.7rem",
+                              bgcolor: roleProps.bgcolor,
+                              color: roleProps.color,
+                              fontWeight: 600,
+                              "& .MuiChip-label": { px: 1 },
+                            }}
+                          />
+                        </Box>
+
+                        {/* SECONDARY TEXT (Fullname or Date) */}
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          noWrap
+                          display="block"
+                          sx={{ mt: 0.5 }}
+                        >
+                          {secondarySubtitle ||
+                            `Tham gia: ${new Date(
+                              m.joinedAt
+                            ).toLocaleDateString()}`}
+                        </Typography>
                       </Box>
 
-                      {/* 3. VAI TRÒ & QUẢN TRỊ */}
-                      <Stack
-                        spacing={1}
-                        alignItems="flex-end"
-                        sx={{ flexShrink: 0 }}
-                      >
-                        <Chip
-                          size="small"
-                          label={label}
-                          color={color}
-                          icon={icon}
-                          sx={{
-                            minWidth: 75,
-                            justifyContent: "flex-start",
-                            pl: 0.5,
-                            pr: 1,
-                          }}
-                        />
-
-                        {canManage && !isSelf && (
-                          <Tooltip title="Thao tác quản trị">
-                            <IconButton
-                              aria-label="menu"
-                              size="small"
-                              onClick={(e) => handleOpenMenu(e, m)}
-                              sx={{
-                                visibility:
-                                  isOwner ||
-                                  targetRole === "admin" ||
-                                  targetRole === "member"
-                                    ? "visible"
-                                    : "hidden",
-                                // Tăng tính nhìn thấy, chỉ hiện khi cần thao tác
-                              }}
-                              disabled={kicking || settingRole}
-                            >
-                              <MoreVertIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                      </Stack>
-                    </Stack>
+                      {/* ACTION MENU BUTTON */}
+                      {canManage && !isSelf ? (
+                        <Box>
+                          <IconButton
+                            size="small"
+                            onClick={(e) => handleOpenMenu(e, m)}
+                            sx={{
+                              color: theme.palette.text.disabled,
+                              "&:hover": {
+                                color: theme.palette.text.primary,
+                                bgcolor: alpha(theme.palette.primary.main, 0.1),
+                              },
+                            }}
+                          >
+                            <MoreVertIcon fontSize="small" />
+                          </IconButton>
+                        </Box>
+                      ) : (
+                        <Box sx={{ width: 28 }} /> // Placeholder để căn lề nếu ko có nút menu
+                      )}
+                    </Box>
                   </Card>
                 </Grid>
               );
             })}
       </Grid>
-      {/* -------------------- MENU THAO TÁC -------------------- */}
+
+      {/* --- MENU POPUP --- */}
       <Menu
         anchorEl={anchorEl}
         open={Boolean(anchorEl)}
         onClose={handleCloseMenu}
-        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{
+          paper: {
+            sx: { borderRadius: 2, minWidth: 180, boxShadow: theme.shadows[3] },
+          },
+        }}
       >
         {activeMember && (
           <Box>
-            {/* 1. Toggle Admin */}
-            <Tooltip
-              title={
-                canToggle
-                  ? activeMember.role === "admin"
-                    ? "Bỏ quyền quản trị"
-                    : "Cấp quyền quản trị"
-                  : "Bạn không có quyền thay đổi vai trò này."
-              }
-              placement="left"
-              arrow
+            <MenuItem
+              onClick={handleToggleAdmin}
+              disabled={!canToggle || settingRole}
             >
-              <MenuItem
-                onClick={handleToggleAdmin}
-                disabled={!canToggle || settingRole}
-                sx={{
-                  color:
-                    activeMember.role === "admin"
-                      ? theme.palette.secondary.main
-                      : theme.palette.primary.main,
-                }}
-              >
-                {activeMember.role === "admin" ? (
-                  <>
-                    <StarBorder fontSize="small" sx={{ mr: 1 }} />
-                    Bỏ Admin
-                  </>
-                ) : (
-                  <>
-                    <Star fontSize="small" sx={{ mr: 1 }} />
-                    Phong Admin
-                  </>
-                )}
-              </MenuItem>
-            </Tooltip>
-
-            <Divider />
-
-            {/* 2. Kick */}
-            <Tooltip
-              title={
-                canRemove
-                  ? "Xoá thành viên này khỏi CLB."
-                  : "Bạn không có quyền xoá Owner/Admin khác."
-              }
-              placement="left"
-              arrow
+              {activeMember.role === "admin" ? (
+                <>
+                  <StarBorder fontSize="small" sx={{ mr: 1.5 }} /> Gỡ quyền
+                  Admin
+                </>
+              ) : (
+                <>
+                  <Star fontSize="small" sx={{ mr: 1.5 }} /> Cấp quyền Admin
+                </>
+              )}
+            </MenuItem>
+            <Divider sx={{ my: 0.5 }} />
+            <MenuItem
+              onClick={handleKick}
+              disabled={!canRemove || kicking}
+              sx={{ color: "error.main" }}
             >
-              <MenuItem
-                onClick={handleKick}
-                disabled={!canRemove || kicking}
-                sx={{ color: theme.palette.error.main }}
-              >
-                <DeleteOutline fontSize="small" sx={{ mr: 1 }} />
-                Xoá (Kick)
-              </MenuItem>
-            </Tooltip>
+              <DeleteOutline fontSize="small" sx={{ mr: 1.5 }} /> Xoá khỏi CLB
+            </MenuItem>
           </Box>
         )}
       </Menu>
-      {/* -------------------- EMPTY STATE -------------------- */}
+
       {!isLoading && members.length === 0 && (
         <Box
           sx={{
-            p: 3,
+            p: 4,
             textAlign: "center",
-            border: `1px dashed ${theme.palette.divider}`,
+            bgcolor: "background.neutral",
             borderRadius: 3,
           }}
         >
-          <Typography color="text.secondary" variant="subtitle1">
-            Chưa có thành viên nào tham gia.
+          <Typography color="text.secondary">
+            Chưa có thành viên nào.
           </Typography>
-          {canManage && (
-            <Typography color="text.secondary" variant="body2" sx={{ mt: 1 }}>
-              Hãy sử dụng ô tìm kiếm phía trên để thêm thành viên mới.
-            </Typography>
-          )}
         </Box>
       )}
     </Stack>
