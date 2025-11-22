@@ -39,10 +39,14 @@ export async function buildKnockoutBracket({
   firstRoundSeeds = [],
   // Rule mặc định cho toàn bộ KO
   rules = undefined,
-  // ✅ NEW: rule riêng cho BÁN KẾT
+  // rule riêng cho BÁN KẾT
   semiRules = null,
-  // Rule riêng cho CHUNG KẾT KO
+  // rule riêng cho CHUNG KẾT
   finalRules = null,
+  // ✅ NEW: bật/tắt trận tranh hạng 3–4
+  thirdPlaceEnabled = false,
+  // ✅ NEW: rule riêng cho trận tranh 3–4 (tuỳ chọn)
+  thirdPlaceRules = null,
   session = null,
 }) {
   const size = Math.max(2, ceilPow2(drawSize || 2));
@@ -52,8 +56,9 @@ export async function buildKnockoutBracket({
   const baseRules = sanitizeRules(rules);
   const semiOnly = semiRules ? sanitizeRules(semiRules) : null;
   const finalOnly = finalRules ? sanitizeRules(finalRules) : null;
+  const thirdOnly = thirdPlaceRules ? sanitizeRules(thirdPlaceRules) : null;
 
-  // Helper chọn rule cho từng trận
+  // Helper chọn rule cho từng trận chính trong cây KO
   function pickRules(roundIndex, matchIndex) {
     // Trận CHUNG KẾT (vòng cuối, trận đầu tiên)
     if (roundIndex === rounds && matchIndex === 0 && finalOnly) {
@@ -141,7 +146,7 @@ export async function buildKnockoutBracket({
     created[r] = await Match.insertMany(ms, { session });
   }
 
-  // Link nextMatch/nextSlot (giữ logic cũ)
+  // Link nextMatch/nextSlot (giữ logic cũ cho nhánh tranh VÔ ĐỊCH)
   for (let r = 1; r < rounds; r++) {
     const cur = created[r];
     const nxt = created[r + 1];
@@ -160,6 +165,46 @@ export async function buildKnockoutBracket({
         mB.nextSlot = "B";
         await mB.save({ session });
       }
+    }
+  }
+
+  // ✅ NEW: Trận tranh hạng 3–4 (dùng LOSER của 2 trận bán kết)
+  if (thirdPlaceEnabled && rounds >= 2) {
+    const semiRound = rounds - 1; // vòng bán kết
+    const semiMatches = created[semiRound] || [];
+
+    // chỉ tạo nếu thực sự có 2 trận bán kết
+    if (semiMatches.length >= 2) {
+      const thirdRules = thirdOnly || finalOnly || baseRules;
+
+      const [thirdMatch] = await Match.insertMany(
+        [
+          {
+            tournament: tournamentId,
+            bracket: bracket._id,
+            format: "knockout",
+            // ⚠️ Cho cùng round với Final (round=rounds), khác order
+            // => Round "F" sẽ có 2 trận: Final (order=0) & tranh 3 (order=1)
+            round: rounds,
+            order: 1,
+            seedA: {
+              type: "stageMatchLoser",
+              ref: { stageIndex: stage, round: semiRound, order: 0 },
+              label: `L-SF1`,
+            },
+            seedB: {
+              type: "stageMatchLoser",
+              ref: { stageIndex: stage, round: semiRound, order: 1 },
+              label: `L-SF2`,
+            },
+            rules: thirdRules,
+          },
+        ],
+        { session }
+      );
+
+      // nhét chung vào mảng round cuối cho dễ render FE
+      created[rounds] = [...(created[rounds] || []), thirdMatch];
     }
   }
 
