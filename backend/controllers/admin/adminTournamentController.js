@@ -1579,13 +1579,14 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
       const koSemiRules = normalizePlanRule(ko.semiRules);
       const koFinalRules = normalizePlanRule(ko.finalRules);
 
-      // ✅ NEW: flag + rule tranh hạng 3–4
-      const thirdPlaceEnabled = toBool(
+      // ✅ flag + rule tranh hạng 3–4 (đã normalize ở trên)
+      const thirdPlace = toBool(
         ko.thirdPlaceEnabled !== undefined
           ? ko.thirdPlaceEnabled
           : ko.thirdPlace,
         false
       );
+
       const thirdPlaceRules = normalizePlanRule(ko.thirdPlaceRules);
 
       const { bracket } = await buildKnockoutBracket({
@@ -1600,7 +1601,7 @@ export const planCommit = expressAsyncHandler(async (req, res) => {
         finalRules: koFinalRules,
 
         // ✅ tham số mới – cần dùng trong buildKnockoutBracket
-        thirdPlaceEnabled,
+        thirdPlace,
         thirdPlaceRules,
 
         session,

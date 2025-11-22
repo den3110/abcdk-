@@ -16,7 +16,6 @@ import {
   Tab,
   Card,
   CardContent,
-  CardHeader,
   Divider,
   Skeleton,
   Alert,
@@ -29,132 +28,88 @@ import {
   Pagination,
   Snackbar,
   Paper,
+  useTheme,
+  useMediaQuery,
+  alpha,
+  LinearProgress,
 } from "@mui/material";
+
+// Icons
 import ShareIcon from "@mui/icons-material/Share";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
-import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
+import PlayCircleFilledWhiteIcon from "@mui/icons-material/PlayCircleFilledWhite";
 import ArrowDropUpIcon from "@mui/icons-material/ArrowDropUp";
 import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
-import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
-import SecurityIcon from "@mui/icons-material/Security";
-import { useTheme, useMediaQuery } from "@mui/material";
+import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
+import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
+import PlaceIcon from "@mui/icons-material/Place";
+import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
+import SportsTennisIcon from "@mui/icons-material/SportsTennis";
+import TrendingUpIcon from "@mui/icons-material/TrendingUp";
+import VideocamOffIcon from "@mui/icons-material/VideocamOff";
 
 import {
   useGetPublicProfileQuery,
   useGetRatingHistoryQuery,
   useGetMatchHistoryQuery,
-} from "../slices/usersApiSlice"; // adjust path if needed
+} from "../slices/usersApiSlice";
 import { ZoomableWrapper } from "../components/Zoom";
 
-/* ---------- placeholders ---------- */
+/* ---------- CONSTANTS & UTILS ---------- */
 const AVA_PLACE = "https://dummyimage.com/160x160/cccccc/ffffff&text=?";
-const TEXT_PLACE = "—";
-const VIDEO_PLACE = (
-  <InfoOutlinedIcon fontSize="small" sx={{ color: "text.disabled" }} />
-);
-
-/* ---------- small utils ---------- */
 const tz = { timeZone: "Asia/Bangkok" };
+
+// Formatters
 const fmtDate = (iso) =>
-  iso ? new Date(iso).toLocaleDateString("vi-VN", tz) : TEXT_PLACE;
+  iso ? new Date(iso).toLocaleDateString("vi-VN", tz) : "—";
 const fmtDT = (iso) =>
-  iso ? new Date(iso).toLocaleString("vi-VN", tz) : TEXT_PLACE;
-const safe = (v, fallback = TEXT_PLACE) =>
-  v === null || v === undefined || v === "" ? fallback : v;
+  iso
+    ? new Date(iso).toLocaleString("vi-VN", {
+        ...tz,
+        hour: "2-digit",
+        minute: "2-digit",
+        day: "2-digit",
+        month: "2-digit",
+      })
+    : "—";
+
+// ✅ Giữ lại phần thập phân như bản cũ (mặc định 3 số sau dấu phẩy)
 const num = (v, digits = 3) =>
-  Number.isFinite(v) ? Number(v).toFixed(digits) : TEXT_PLACE;
+  Number.isFinite(+v) ? Number(v).toFixed(digits) : "—";
+const numFloat = (v, digits = 3) =>
+  Number.isFinite(+v) ? Number(v).toFixed(digits) : "—";
 
-const preferNick = (p) =>
-  (p?.nickname && String(p.nickname).trim()) ||
-  (p?.nickName && String(p.nickName).trim()) ||
-  (p?.nick_name && String(p.nick_name).trim()) ||
-  (p?.name && String(p.name).trim()) ||
-  (p?.fullName && String(p.fullName).trim()) ||
-  "N/A";
-
-function genderLabel(g) {
-  if (g === null || g === undefined || g === "") return "Không xác định";
-  if (g === 0 || g === "0") return "Không xác định";
-  if (g === 1 || g === "1") return "Nam";
-  if (g === 2 || g === "2") return "Nữ";
-  if (g === 3 || g === "3") return "Khác";
+const getGenderInfo = (g) => {
   const s = String(g).toLowerCase().trim();
-  if (["unknown", "unspecified", "na", "none"].includes(s))
-    return "Không xác định";
-  if (["male", "m", "nam"].includes(s)) return "Nam";
-  if (["female", "f", "nu", "nữ"].includes(s)) return "Nữ";
-  if (["other", "khac", "khác", "nonbinary", "non-binary"].includes(s))
-    return "Khác";
-  return "Không xác định";
-}
+  if (["1", "male", "m", "nam"].includes(s))
+    return { label: "Nam", color: "info" };
+  if (["2", "female", "f", "nu", "nữ"].includes(s))
+    return { label: "Nữ", color: "error" };
+  return { label: "Khác", color: "default" };
+};
 
-function toScoreLines(m) {
-  if (Array.isArray(m?.gameScores) && m.gameScores.length) {
-    return m.gameScores.map((g, i) => {
-      const a = g?.a ?? g?.A ?? g?.left ?? g?.teamA ?? g?.scoreA ?? "–";
-      const b = g?.b ?? g?.B ?? g?.right ?? g?.teamB ?? g?.scoreB ?? "–";
-      return `G${i + 1}: ${a}–${b}`;
-    });
-  }
-  const s = (m?.scoreText || "").trim();
-  if (!s) return [];
-  return s.split(",").map((x, i) => `G${i + 1}: ${x.trim()}`);
-}
+/* ---------- SUB-COMPONENTS (STYLED) ---------- */
 
-/* ---------- tabs a11y ---------- */
-function a11yProps(index) {
-  return {
-    id: `profile-tab-${index}`,
-    "aria-controls": `profile-tabpanel-${index}`,
-  };
-}
-
-function TabPanel({ children, value, index }) {
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`profile-tabpanel-${index}`}
-      aria-labelledby={`profile-tab-${index}`}
-    >
-      {value === index && <Box sx={{ pt: 2 }}>{children}</Box>}
-    </div>
-  );
-}
-
-/* ---------- copy helper ---------- */
-async function copyToClipboard(text) {
-  try {
-    if (navigator?.clipboard?.writeText)
-      await navigator.clipboard.writeText(text);
-    else {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function CopyIconBtn({ value, title = "Nội dung", onDone }) {
+// 1. Modern Copy Button
+const CopyBtn = ({ value, label }) => {
   const [copied, setCopied] = useState(false);
-  const handle = async () => {
-    const ok = await copyToClipboard(String(value ?? ""));
-    setCopied(true);
-    onDone?.(ok);
-    setTimeout(() => setCopied(false), 1000);
+  const handleCopy = async (e) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
   };
+
   return (
-    <Tooltip title={`Sao chép ${title.toLowerCase()}`}>
-      <IconButton size="small" onClick={handle} aria-label="copy">
+    <Tooltip title={copied ? "Đã sao chép!" : `Sao chép ${label || ""}`}>
+      <IconButton
+        size="small"
+        onClick={handleCopy}
+        sx={{ color: copied ? "success.main" : "text.secondary", p: 0.5 }}
+      >
         {copied ? (
           <CheckIcon fontSize="inherit" />
         ) : (
@@ -163,278 +118,151 @@ function CopyIconBtn({ value, title = "Nội dung", onDone }) {
       </IconButton>
     </Tooltip>
   );
-}
+};
 
-/* ---------- Sparkline (inline SVG, no deps) ---------- */
-function Sparkline({ data = [], width = 160, height = 44, strokeWidth = 2 }) {
-  const points = useMemo(() => {
-    if (!Array.isArray(data) || !data.length) return "";
-    const min = Math.min(...data);
-    const max = Math.max(...data);
-    const span = Math.max(1e-6, max - min);
-    const stepX = data.length > 1 ? width / (data.length - 1) : 0;
-    return data
-      .map((v, i) => {
-        const x = i * stepX;
-        const y = height - ((v - min) / span) * height;
-        return `${x},${y}`;
-      })
-      .join(" ");
-  }, [data, width, height]);
-
-  if (!points)
-    return (
+// 2. Stat Box (Overview)
+const StatBox = ({ icon, value, label, subValue, color = "primary" }) => {
+  const theme = useTheme();
+  return (
+    <Paper
+      elevation={0}
+      variant="outlined"
+      sx={{
+        p: 2.5,
+        mt: 8,
+        height: "100%",
+        borderRadius: 4,
+        bgcolor: alpha(theme.palette[color].main, 0.04),
+        borderColor: alpha(theme.palette[color].main, 0.1),
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
       <Box
         sx={{
-          width,
-          height,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
+          position: "absolute",
+          top: -10,
+          right: -10,
+          opacity: 0.1,
+          color: theme.palette[color].main,
         }}
       >
-        <Typography variant="caption" color="text.disabled">
-          Không có dữ liệu
-        </Typography>
+        {React.cloneElement(icon, { sx: { fontSize: 80 } })}
       </Box>
-    );
-
-  return (
-    <svg
-      width={width}
-      height={height}
-      viewBox={`0 0 ${width} ${height}`}
-      role="img"
-      aria-label="rating trend"
-    >
-      <polyline
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={strokeWidth}
-        points={points}
-      />
-    </svg>
-  );
-}
-
-/* ---------- Player & Match cells ---------- */
-function PlayerCell({ players = [], highlight = false }) {
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
-  if (!players?.length)
-    return <Typography color="text.secondary">—</Typography>;
-  return (
-    <Stack spacing={0.75}>
-      {players.map((p, idx) => {
-        const up = (p?.delta ?? 0) > 0;
-        const down = (p?.delta ?? 0) < 0;
-        const hasScore =
-          Number.isFinite(p?.preScore) || Number.isFinite(p?.postScore);
-        const nick = preferNick(p);
-        return (
-          <Stack
-            key={`${p?._id || nick || idx}`}
-            direction="row"
-            spacing={1}
-            alignItems="center"
-            sx={{
-              p: 0.25,
-              borderRadius: 1,
-              ...(highlight && {
-                bgcolor: "success.light",
-                pr: 1,
-                opacity: 0.95,
-              }),
-            }}
-          >
-            <Avatar
-              src={p?.avatar || AVA_PLACE}
-              sx={{ width: 24, height: 24 }}
-              imgProps={{ onError: (e) => (e.currentTarget.src = AVA_PLACE) }}
-            />
-            <Stack sx={{ minWidth: 0, flex: 1 }}>
-              <Typography variant="body2" noWrap title={nick}>
-                {nick}
-              </Typography>
-              {hasScore ? (
-                <Stack
-                  direction="row"
-                  spacing={0.5}
-                  alignItems="center"
-                  sx={{ flexWrap: isMobile ? "wrap" : "nowrap" }}
-                >
-                  <Typography
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ lineHeight: 1.2 }}
-                  >
-                    {num(p?.preScore)}
-                  </Typography>
-                  <Typography
-                    variant="caption"
-                    sx={{
-                      fontWeight: 700,
-                      color: up
-                        ? "success.main"
-                        : down
-                        ? "error.main"
-                        : "text.primary",
-                      lineHeight: 1.2,
-                    }}
-                  >
-                    {num(p?.postScore)}
-                  </Typography>
-                  {Number.isFinite(p?.delta) && p?.delta !== 0 && (
-                    <Box
-                      component="span"
-                      sx={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        lineHeight: 1,
-                      }}
-                    >
-                      {p.delta > 0 ? (
-                        <ArrowDropUpIcon
-                          fontSize="small"
-                          sx={{ color: "success.main", ml: -0.25 }}
-                        />
-                      ) : (
-                        <ArrowDropDownIcon
-                          fontSize="small"
-                          sx={{ color: "error.main", ml: -0.25 }}
-                        />
-                      )}
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          color: p.delta > 0 ? "success.main" : "error.main",
-                        }}
-                      >
-                        {Math.abs(p.delta).toFixed(3)}
-                      </Typography>
-                    </Box>
-                  )}
-                </Stack>
-              ) : (
-                <Typography variant="caption" color="text.disabled">
-                  Chưa có điểm
-                </Typography>
-              )}
-            </Stack>
-          </Stack>
-        );
-      })}
-    </Stack>
-  );
-}
-
-function MatchCardMobile({ m, onClick }) {
-  const winnerA = m?.winner === "A";
-  const winnerB = m?.winner === "B";
-  const scoreLines = toScoreLines(m);
-  return (
-    <Card
-      variant="outlined"
-      sx={{ borderRadius: 2, cursor: onClick ? "pointer" : "default" }}
-      onClick={() => onClick?.(m)}
-    >
-      <CardContent sx={{ p: 1.25 }}>
-        <Stack
-          direction="row"
-          alignItems="center"
-          justifyContent="space-between"
+      <Stack spacing={0.5}>
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            color: theme.palette[color].main,
+          }}
         >
-          <Chip
-            size="small"
-            color="primary"
-            label={safe(m.code, String(m._id).slice(-5))}
-          />
-          <Chip size="small" color="info" label={fmtDT(m.dateTime)} />
-        </Stack>
+          {React.cloneElement(icon, { fontSize: "small" })}
+          <Typography
+            variant="subtitle2"
+            fontWeight={600}
+            textTransform="uppercase"
+          >
+            {label}
+          </Typography>
+        </Box>
+        <Typography variant="h3" fontWeight={800} color="text.primary">
+          {value}
+        </Typography>
+        {subValue && (
+          <Typography variant="body2" color="text.secondary" fontWeight={500}>
+            {subValue}
+          </Typography>
+        )}
+      </Stack>
+    </Paper>
+  );
+};
+
+// 3. Match Result Badge
+const MatchResultBadge = ({ isWinner }) => (
+  <Chip
+    label={isWinner ? "THẮNG" : "THUA"}
+    size="small"
+    color={isWinner ? "success" : "default"}
+    sx={{
+      fontWeight: 800,
+      borderRadius: 1,
+      height: 24,
+      minWidth: 60,
+      bgcolor: isWinner ? "success.main" : "action.hover",
+      color: isWinner ? "#fff" : "text.secondary",
+    }}
+  />
+);
+
+// 4. Player Mini Cell (Clean) – ✅ trả lại số thập phân 3 chữ số
+const PlayerRow = ({ p, highlight }) => {
+  const up = (p?.delta ?? 0) > 0;
+  const down = (p?.delta ?? 0) < 0;
+  const name =
+    p?.user?.nickname ||
+    p?.user?.fullName ||
+    p?.nickname ||
+    p?.fullName ||
+    "N/A";
+
+  return (
+    <Stack
+      direction="row"
+      spacing={1.5}
+      alignItems="center"
+      sx={{ py: 0.5, justifyContent: "center" }} // căn giữa nội dung trong item
+    >
+      <Avatar src={p?.avatar || AVA_PLACE} sx={{ width: 28, height: 28 }} />
+      <Box sx={{ minWidth: 0, flex: 1 }}>
         <Typography
           variant="body2"
-          sx={{ mt: 0.5, mb: 1, color: "text.secondary" }}
+          fontWeight={highlight ? 700 : 400}
           noWrap
-          title={safe(m?.tournament?.name)}
+          textAlign="center"
         >
-          {safe(m?.tournament?.name)}
+          {name}
         </Typography>
-        <Stack direction="row" alignItems="flex-start" spacing={1}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <PlayerCell players={m.team1} highlight={winnerA} />
-          </Box>
-          <Box
-            sx={{
-              minWidth: 90,
-              textAlign: "center",
-              px: 0.5,
-              alignSelf: "center",
-            }}
+        {p?.postScore !== undefined && (
+          <Stack
+            direction="row"
+            alignItems="center"
+            spacing={1}
+            justifyContent="center"
           >
-            {scoreLines.length ? (
-              <Stack spacing={0.25}>
-                {scoreLines.map((s, i) => (
-                  <Typography key={i} fontWeight={800}>
-                    {s}
-                  </Typography>
-                ))}
-              </Stack>
-            ) : (
-              <Typography variant="h6" fontWeight={800}>
-                {safe(m.scoreText)}
+            <Typography variant="caption" color="text.secondary">
+              {num(p.preScore)} ➜ <b>{num(p.postScore)}</b>
+            </Typography>
+            {Number.isFinite(+p.delta) && p.delta !== 0 && (
+              <Typography
+                variant="caption"
+                color={up ? "success.main" : "error.main"}
+                fontWeight="bold"
+              >
+                {up ? "+" : ""}
+                {numFloat(p.delta)}
               </Typography>
             )}
-          </Box>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <PlayerCell players={m.team2} highlight={winnerB} />
-          </Box>
-        </Stack>
-        <Stack direction="row" justifyContent="flex-end" mt={1}>
-          {m.video ? (
-            <Button
-              size="small"
-              startIcon={<PlayCircleOutlineIcon />}
-              component="a"
-              href={m.video}
-              onClick={(e) => e.stopPropagation()}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Xem video
-            </Button>
-          ) : (
-            <Chip
-              size="small"
-              variant="outlined"
-              icon={<InfoOutlinedIcon />}
-              label="Không có video"
-            />
-          )}
-        </Stack>
-      </CardContent>
-    </Card>
+          </Stack>
+        )}
+      </Box>
+    </Stack>
   );
-}
+};
 
-/* ---------- Main Page ---------- */
+/* ---------- MAIN COMPONENT ---------- */
 export default function PublicProfilePage() {
-  const { id } = useParams(); // route: /u/:id
+  const { id } = useParams();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const [tab, setTab] = useState(0);
 
-  // Tabs state sync with query param (read-once)
-  const defaultTab = useQueryTab();
-  const [tab, setTab] = useState(defaultTab);
-  const [snack, setSnack] = useState({
-    open: false,
-    message: "",
-    severity: "success",
-  });
-  const openSnack = (message, severity = "success") =>
-    setSnack({ open: true, message, severity });
-  const closeSnack = () => setSnack((s) => ({ ...s, open: false }));
-
-  // Queries
+  // Logic queries
   const baseQ = useGetPublicProfileQuery(id);
   const rateQ = useGetRatingHistoryQuery(id);
   const matchQ = useGetMatchHistoryQuery(id);
@@ -447,34 +275,7 @@ export default function PublicProfilePage() {
     ? matchQ.data
     : matchQ.data?.items || [];
 
-  const me = useSelector((s) => s.auth?.userInfo);
-  const viewerIsAdmin = !!(me?.isAdmin || me?.role === "admin");
-
-  // Derived: rating series & latest
-  const singleSeries = useMemo(
-    () => ratingRaw.map((h) => Number(h.single)).filter(Number.isFinite),
-    [ratingRaw]
-  );
-  const doubleSeries = useMemo(
-    () => ratingRaw.map((h) => Number(h.double)).filter(Number.isFinite),
-    [ratingRaw]
-  );
-  const latestSingle = useMemo(
-    () =>
-      ratingRaw.length
-        ? ratingRaw[0].single ?? base?.levelPoint?.single
-        : base?.levelPoint?.single ?? base?.levelPoint?.score,
-    [ratingRaw, base]
-  );
-  const latestDouble = useMemo(
-    () =>
-      ratingRaw.length
-        ? ratingRaw[0].double ?? base?.levelPoint?.double
-        : base?.levelPoint?.double,
-    [ratingRaw, base]
-  );
-
-  // Derived: matches & win rate
+  // Derived stats
   const uid = base?._id || id;
   const { totalMatches, wins, winRate } = useMemo(() => {
     let total = 0,
@@ -490,732 +291,572 @@ export default function PublicProfilePage() {
     return { totalMatches: total, wins: w, winRate: rate };
   }, [matchRaw, uid]);
 
-  useEffect(() => {
-    document.title = base?.nickname
-      ? `@${base.nickname} • PickleTour`
-      : `Hồ sơ • PickleTour`;
-  }, [base?.nickname]);
+  // Pagination state
+  const [pageMatch, setPageMatch] = useState(1);
+  const matchPerPage = 8;
+  const matchPaged = matchRaw.slice(
+    (pageMatch - 1) * matchPerPage,
+    pageMatch * matchPerPage
+  );
 
+  const [pageRate, setPageRate] = useState(1);
+  const ratePerPage = 10;
+  const ratePaged = ratingRaw.slice(
+    (pageRate - 1) * ratePerPage,
+    pageRate * ratePerPage
+  );
+
+  // Handle Share
   const handleShare = async () => {
-    const url = window.location.href;
     try {
-      if (navigator.share) {
-        await navigator.share({
-          title: base?.name || base?.nickname,
-          text: `Hồ sơ của ${base?.name || base?.nickname}`,
-          url,
-        });
-      } else {
-        const ok = await copyToClipboard(url);
-        openSnack(
-          ok ? "Đã sao chép liên kết hồ sơ" : "Không sao chép được",
-          ok ? "success" : "error"
-        );
-      }
-    } catch (e) {
-      // user cancelled or error
+      await navigator.share({ title: base?.name, url: window.location.href });
+    } catch {
+      navigator.clipboard.writeText(window.location.href);
+      alert("Đã sao chép liên kết!");
     }
   };
 
-  // Pagination local
-  const [ratingPage, setRatingPage] = useState(1);
-  const [ratingPerPage] = useState(10);
-  const [matchPage, setMatchPage] = useState(1);
-  const [matchPerPage] = useState(10);
+  // --- SECTIONS ---
 
-  const ratingPaged = useMemo(() => {
-    const start = (ratingPage - 1) * ratingPerPage;
-    return ratingRaw.slice(start, start + ratingPerPage);
-  }, [ratingRaw, ratingPage, ratingPerPage]);
-
-  const matchPaged = useMemo(() => {
-    const start = (matchPage - 1) * matchPerPage;
-    return matchRaw.slice(start, start + matchPerPage);
-  }, [matchRaw, matchPage, matchPerPage]);
-
-  /* ================= Layout blocks ================= */
-  const Hero = (
-    <Paper
-      elevation={1}
-      sx={{
-        position: "relative",
-        borderRadius: { xs: 0, md: 3 },
-        overflow: "hidden",
-        mb: 3,
-      }}
-    >
+  const HeaderSection = (
+    <Box sx={{ position: "relative", mb: { xs: 12, md: 8 } }}>
+      {/* Banner Background */}
       <Box
         sx={{
-          height: { xs: 140, sm: 180, md: 220 },
-          background: `linear-gradient(135deg, ${theme.palette.primary.light}, ${theme.palette.secondary.light})`,
-          opacity: theme.palette.mode === "dark" ? 0.9 : 1,
+          height: { xs: 180, md: 280 },
+          borderRadius: { xs: 0, md: 4 },
+          background: `linear-gradient(120deg, ${theme.palette.primary.dark}, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+          position: "relative",
+          overflow: "hidden",
+          boxShadow: theme.shadows[4],
         }}
-      />
-      <Box
-        sx={{ px: { xs: 2, sm: 3 }, pb: 2, mt: { xs: -8, sm: -10, md: -8 } }}
       >
-        <Stack
-          direction={{ xs: "column", sm: "row" }}
-          spacing={2}
-          alignItems={{ xs: "center", sm: "flex-end" }}
+        {/* Decorative circles */}
+        <Box
+          sx={{
+            position: "absolute",
+            top: -50,
+            right: -50,
+            width: 200,
+            height: 200,
+            borderRadius: "50%",
+            bgcolor: "white",
+            opacity: 0.05,
+          }}
+        />
+        <Box
+          sx={{
+            position: "absolute",
+            bottom: -20,
+            left: 100,
+            width: 100,
+            height: 100,
+            borderRadius: "50%",
+            bgcolor: "white",
+            opacity: 0.05,
+          }}
+        />
+      </Box>
+
+      {/* Profile Card (Floating) */}
+      <Container
+        maxWidth="lg"
+        sx={{
+          position: "absolute",
+          bottom: 0,
+          left: "50%",
+          transform: "translate(-50%, 50%)",
+          width: "100%",
+        }}
+      >
+        <Paper
+          elevation={3}
+          sx={{
+            p: { xs: 2, md: 3 },
+            borderRadius: 4,
+            display: "flex",
+            flexDirection: { xs: "column", sm: "row" },
+            alignItems: "center",
+            gap: 3,
+            backdropFilter: "blur(20px)",
+            bgcolor: alpha(theme.palette.background.paper, 0.9),
+          }}
         >
-          <ZoomableWrapper src={base?.avatar || AVA_PLACE}>
-            <Avatar
-              src={base?.avatar || AVA_PLACE}
-              sx={{
-                width: { xs: 96, sm: 120 },
-                height: { xs: 96, sm: 120 },
-                border: "3px solid",
-                borderColor: "background.paper",
-                boxShadow: 3,
-              }}
-              imgProps={{ onError: (e) => (e.currentTarget.src = AVA_PLACE) }}
-            />
-          </ZoomableWrapper>
-          <Stack spacing={0.75} sx={{ flex: 1, minWidth: 0, width: "100%" }}>
-            <Typography variant="h5" noWrap title={safe(base?.name)}>
-              {safe(base?.name)}
-            </Typography>
-            <Stack direction="row" alignItems="center" spacing={0.5}>
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                noWrap
-                title={safe(base?.nickname)}
-              >
-                {base?.nickname ? `@${base.nickname}` : TEXT_PLACE}
-              </Typography>
-              {base?.nickname ? (
-                <CopyIconBtn
-                  value={base.nickname}
-                  title="nickname"
-                  onDone={() => openSnack("Đã sao chép nickname")}
+          {/* Avatar with ring */}
+          <Box sx={{ position: "relative", mt: { xs: -6, sm: 0 } }}>
+            <ZoomableWrapper src={base?.avatar || AVA_PLACE}>
+              <Avatar
+                src={base?.avatar || AVA_PLACE}
+                sx={{
+                  width: { xs: 100, sm: 140 },
+                  height: { xs: 100, sm: 140 },
+                  border: `4px solid ${theme.palette.background.paper}`,
+                  boxShadow: theme.shadows[3],
+                }}
+              />
+            </ZoomableWrapper>
+            {base?.isAdmin && (
+              <Tooltip title="Quản trị viên">
+                <VerifiedUserIcon
+                  color="primary"
+                  sx={{
+                    position: "absolute",
+                    bottom: 5,
+                    right: 5,
+                    bgcolor: "background.paper",
+                    borderRadius: "50%",
+                  }}
                 />
-              ) : null}
-            </Stack>
+              </Tooltip>
+            )}
+          </Box>
+
+          {/* User Info */}
+          <Box
+            sx={{
+              flex: 1,
+              textAlign: { xs: "center", sm: "left" },
+              minWidth: 0,
+            }}
+          >
+            <Typography variant="h4" fontWeight={800} sx={{ mb: 0.5 }}>
+              {base?.name || "Người dùng"}
+            </Typography>
             <Stack
               direction="row"
               spacing={1}
-              useFlexGap
-              flexWrap="wrap"
-              sx={{ gap: 0.75 }}
+              justifyContent={{ xs: "center", sm: "flex-start" }}
+              alignItems="center"
+              sx={{ mb: 2, color: "text.secondary" }}
             >
-              <Chip
-                size="small"
-                color="secondary"
-                label={`Giới tính: ${genderLabel(base?.gender)}`}
-              />
-              <Chip
-                size="small"
-                color="info"
-                label={`Tỉnh/TP: ${safe(base?.province, "Không rõ")}`}
-              />
-              <Chip
-                size="small"
-                color="success"
-                label={`Tham gia: ${fmtDate(base?.joinedAt)}`}
-              />
-              {viewerIsAdmin && typeof base?.isAdmin === "boolean" && (
+              <Typography variant="body1" fontWeight={500}>
+                @{base?.nickname || "no_nick"}
+              </Typography>
+              <CopyBtn value={base?.nickname} label="Nickname" />
+            </Stack>
+
+            <Stack
+              direction="row"
+              spacing={1}
+              flexWrap="wrap"
+              justifyContent={{ xs: "center", sm: "flex-start" }}
+              gap={1}
+            >
+              {base?.province && (
                 <Chip
+                  icon={<PlaceIcon fontSize="small" />}
+                  label={base.province}
                   size="small"
-                  color={base.isAdmin ? "error" : "default"}
-                  icon={<SecurityIcon />}
-                  label={base.isAdmin ? "Quyền: Admin" : "Quyền: User"}
+                  variant="outlined"
                 />
               )}
+              <Chip
+                icon={<CalendarMonthIcon fontSize="small" />}
+                label={`Gia nhập: ${fmtDate(base.joinedAt)}`}
+                size="small"
+                variant="outlined"
+              />
+              <Chip
+                label={getGenderInfo(base?.gender).label}
+                color={getGenderInfo(base?.gender).color}
+                size="small"
+                variant="soft"
+              />
             </Stack>
-          </Stack>
-          <Stack
-            direction="row"
-            spacing={1}
-            sx={{ alignSelf: { xs: "center", sm: "flex-end" }, pb: 1 }}
-          >
+          </Box>
+
+          {/* Action Button */}
+          <Box>
             <Button
-              variant="outlined"
+              variant="contained"
               startIcon={<ShareIcon />}
               onClick={handleShare}
+              sx={{ borderRadius: 20, px: 3, textTransform: "none" }}
             >
               Chia sẻ
             </Button>
-          </Stack>
-        </Stack>
-      </Box>
-    </Paper>
+          </Box>
+        </Paper>
+      </Container>
+    </Box>
   );
 
-  const QuickStats = (
-    <Grid container spacing={{ xs: 1.5, md: 2 }}>
-      <Grid item xs={12} md={4} sx={{ width: isMobile ? "100%" : "auto" }}>
-        <Card variant="outlined" sx={{ height: "100%", width: "100%" }}>
-          <CardHeader title="Tổng quan" sx={{ pb: 0.5 }} />
-          <CardContent>
-            <Stack
-              direction="row"
-              spacing={2}
-              alignItems="center"
-              divider={<Divider orientation="vertical" flexItem />}
-            >
-              <Stack>
-                <Typography variant="h4" fontWeight={800}>
-                  {totalMatches}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Trận đã chơi
-                </Typography>
-              </Stack>
-              <Stack>
-                <Typography variant="h4" fontWeight={800}>
-                  {wins}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Trận thắng
-                </Typography>
-              </Stack>
-              <Stack>
-                <Typography variant="h4" fontWeight={800}>
-                  {winRate}%
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Tỷ lệ thắng
-                </Typography>
-              </Stack>
-            </Stack>
-          </CardContent>
-        </Card>
+  // ✅ Grid dùng size (v7)
+  const StatsSection = (
+    <Grid container spacing={2} sx={{ mb: 4, mt: { xs: 6, md: 0 } }}>
+      <Grid size={{ xs: 12, sm: 4 }}>
+        <StatBox
+          icon={<SportsTennisIcon />}
+          label="Tổng trận đấu"
+          value={totalMatches}
+          subValue="Trận đã tham gia"
+          color="primary"
+        />
       </Grid>
-      <Grid item xs={12} md={4} sx={{ width: isMobile ? "100%" : "auto" }}>
-        <Card variant="outlined" sx={{ height: "100%" }}>
-          <CardHeader title="Điểm đơn" sx={{ pb: 0.5 }} />
-          <CardContent>
-            <Stack
-              direction="row"
-              alignItems="center"
-              justifyContent="space-between"
-            >
-              <Typography variant="h4" fontWeight={800}>
-                {num(latestSingle)}
-              </Typography>
-              <Sparkline
-                data={singleSeries.slice().reverse()}
-                width={160}
-                height={44}
-              />
-            </Stack>
-            <Typography variant="caption" color="text.secondary">
-              Xu hướng gần đây
-            </Typography>
-          </CardContent>
-        </Card>
+      <Grid size={{ xs: 12, sm: 4 }}>
+        <StatBox
+          icon={<EmojiEventsIcon />}
+          label="Chiến thắng"
+          value={wins}
+          subValue={`${winRate}% Tỷ lệ thắng`}
+          color="warning"
+        />
       </Grid>
-      <Grid item xs={12} md={4} sx={{ width: isMobile ? "100%" : "auto" }}>
-        <Card variant="outlined" sx={{ height: "100%" }}>
-          <CardHeader title="Điểm đôi" sx={{ pb: 0.5 }} />
-          <CardContent>
-            <Stack
-              direction="row"
-              alignItems="center"
-              justifyContent="space-between"
-            >
-              <Typography variant="h4" fontWeight={800}>
-                {num(latestDouble)}
-              </Typography>
-              <Sparkline
-                data={doubleSeries.slice().reverse()}
-                width={160}
-                height={44}
-              />
-            </Stack>
-            <Typography variant="caption" color="text.secondary">
-              Xu hướng gần đây
-            </Typography>
-          </CardContent>
-        </Card>
+      <Grid size={{ xs: 12, sm: 4 }}>
+        <StatBox
+          icon={<TrendingUpIcon />}
+          label="Điểm trình (Đơn/Đôi)"
+          value={`${num(base?.levelPoint?.single || 0)} / ${num(
+            base?.levelPoint?.double || 0
+          )}`}
+          subValue="Điểm hiện tại"
+          color="success"
+        />
       </Grid>
     </Grid>
   );
 
-  const InfoSection = (
-    <Card variant="outlined">
-      <CardHeader title="Giới thiệu" />
-      <CardContent>
-        <Typography
-          variant="body2"
-          sx={{ whiteSpace: "pre-wrap", color: "text.secondary" }}
-        >
-          {safe(base?.bio, "Chưa có")}
-        </Typography>
-        {viewerIsAdmin && (
-          <>
-            <Divider sx={{ my: 2 }} />
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" color="text.secondary">
-                    Tên hiển thị
-                  </Typography>
-                  <Typography fontWeight={700}>{safe(base?.name)}</Typography>
-                </Stack>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" color="text.secondary">
-                    Nickname
-                  </Typography>
-                  <Stack direction="row" spacing={0.5} alignItems="center">
-                    <Typography fontWeight={700}>
-                      {base?.nickname ? `@${base.nickname}` : TEXT_PLACE}
-                    </Typography>
-                    {base?.nickname && (
-                      <CopyIconBtn
-                        value={base.nickname}
-                        title="nickname"
-                        onDone={() => openSnack("Đã sao chép nickname")}
-                      />
-                    )}
-                  </Stack>
-                </Stack>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" color="text.secondary">
-                    Giới tính
-                  </Typography>
-                  <Typography fontWeight={700}>
-                    {genderLabel(base?.gender)}
-                  </Typography>
-                </Stack>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" color="text.secondary">
-                    Tỉnh/TP
-                  </Typography>
-                  <Typography fontWeight={700}>
-                    {safe(base?.province, "Không rõ")}
-                  </Typography>
-                </Stack>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Stack spacing={0.5}>
-                  <Typography variant="caption" color="text.secondary">
-                    Tham gia
-                  </Typography>
-                  <Typography fontWeight={700}>
-                    {fmtDate(base?.joinedAt)}
-                  </Typography>
-                </Stack>
-              </Grid>
-              {typeof base?.isAdmin === "boolean" && (
-                <Grid item xs={12} md={6}>
-                  <Stack spacing={0.5}>
-                    <Typography variant="caption" color="text.secondary">
-                      Quyền
-                    </Typography>
-                    <Typography fontWeight={700}>
-                      {base.isAdmin ? "Admin" : "User"}
-                    </Typography>
-                  </Stack>
-                </Grid>
-              )}
-              {base?._id && (
-                <Grid item xs={12}>
-                  <Stack direction="row" spacing={0.5} alignItems="center">
-                    <Typography variant="caption" color="text.secondary">
-                      ID:
-                    </Typography>
-                    <Typography>{String(base._id)}</Typography>
-                    <CopyIconBtn
-                      value={String(base._id)}
-                      title="ID"
-                      onDone={() => openSnack("Đã sao chép ID")}
-                    />
-                  </Stack>
-                </Grid>
-              )}
-            </Grid>
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-
-  const RatingSection = (
-    <Card variant="outlined">
-      <CardHeader title="Lịch sử điểm trình" />
-      <CardContent>
-        {isMobile ? (
-          <Stack spacing={1.25}>
-            {ratingPaged.length ? (
-              ratingPaged.map((h) => {
-                const historyId = h?._id ?? h?.id;
-                const scorerName = h?.scorer?.name || h?.scorer?.email || "—";
-                return (
-                  <Card
-                    key={historyId}
-                    variant="outlined"
-                    sx={{ borderRadius: 1.5 }}
-                  >
-                    <CardContent sx={{ p: 1.5 }}>
-                      <Stack spacing={1}>
-                        <Stack
-                          direction="row"
-                          alignItems="center"
-                          justifyContent="space-between"
-                        >
-                          <Typography variant="body2" fontWeight={600}>
-                            {fmtDate(h.scoredAt)}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            Bởi: {scorerName}
-                          </Typography>
-                        </Stack>
-                        <Stack direction="row" spacing={1}>
-                          <Chip
-                            size="small"
-                            label={`Đơn: ${num(h.single)}`}
-                            variant="outlined"
-                          />
-                          <Chip
-                            size="small"
-                            label={`Đôi: ${num(h.double)}`}
-                            variant="outlined"
-                          />
-                        </Stack>
-                        {h?.note ? (
-                          <Typography
-                            variant="body2"
-                            color="text.secondary"
-                            sx={{
-                              display: "-webkit-box",
-                              WebkitLineClamp: 3,
-                              WebkitBoxOrient: "vertical",
-                              overflow: "hidden",
-                            }}
-                          >
-                            {h.note}
-                          </Typography>
-                        ) : null}
-                      </Stack>
-                    </CardContent>
-                  </Card>
-                );
-              })
-            ) : (
-              <Typography
-                align="center"
-                sx={{ fontStyle: "italic", color: "text.secondary" }}
-              >
-                Không có dữ liệu
-              </Typography>
-            )}
-            <Stack direction="row" justifyContent="center" mt={0.5}>
-              <Pagination
-                page={ratingPage}
-                onChange={(_, p) => setRatingPage(p)}
-                count={Math.max(1, Math.ceil(ratingRaw.length / ratingPerPage))}
-                shape="rounded"
-                size="small"
-              />
-            </Stack>
-          </Stack>
-        ) : (
-          <>
-            <TableContainer
-              sx={{
-                border: "1px solid",
-                borderColor: "divider",
-                borderRadius: 1.5,
-                maxHeight: { xs: 360, md: "56vh" },
-              }}
-            >
-              <Table size="small" stickyHeader>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Ngày</TableCell>
-                    <TableCell>Người chấm</TableCell>
-                    <TableCell align="right">Điểm đơn</TableCell>
-                    <TableCell align="right">Điểm đôi</TableCell>
-                    <TableCell>Ghi chú</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {ratingPaged.length ? (
-                    ratingPaged.map((h) => (
-                      <TableRow key={h?._id ?? h?.id} hover>
-                        <TableCell>{fmtDate(h.scoredAt)}</TableCell>
-                        <TableCell sx={{ color: "text.secondary" }}>
-                          {h?.scorer?.name || h?.scorer?.email || "—"}
-                        </TableCell>
-                        <TableCell align="right">{num(h.single)}</TableCell>
-                        <TableCell align="right">{num(h.double)}</TableCell>
-                        <TableCell sx={{ color: "text.secondary" }}>
-                          {h?.note || TEXT_PLACE}
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell
-                        colSpan={5}
-                        align="center"
-                        sx={{ fontStyle: "italic" }}
-                      >
-                        Không có dữ liệu
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-            <Stack direction="row" justifyContent="center" mt={1}>
-              <Pagination
-                page={ratingPage}
-                onChange={(_, p) => setRatingPage(p)}
-                count={Math.max(1, Math.ceil(ratingRaw.length / ratingPerPage))}
-                shape="rounded"
-                size="small"
-              />
-            </Stack>
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-
-  const MatchesSection = (
-    <Card variant="outlined">
-      <CardHeader title="Lịch sử thi đấu" />
-      <CardContent>
-        {isMobile ? (
-          <Stack spacing={1.25}>
-            {matchPaged.length ? (
-              matchPaged.map((m) => <MatchCardMobile key={m._id} m={m} />)
-            ) : (
-              <Typography
-                align="center"
-                sx={{ fontStyle: "italic", color: "text.secondary" }}
-              >
-                Không có dữ liệu
-              </Typography>
-            )}
-            <Stack direction="row" justifyContent="center" mt={0.5}>
-              <Pagination
-                page={matchPage}
-                onChange={(_, p) => setMatchPage(p)}
-                count={Math.max(1, Math.ceil(matchRaw.length / matchPerPage))}
-                shape="rounded"
-                size="small"
-              />
-            </Stack>
-          </Stack>
-        ) : (
-          <>
-            <TableContainer
-              sx={{
-                border: "1px solid",
-                borderColor: "divider",
-                borderRadius: 1.5,
-                maxHeight: { xs: 360, md: "62vh" },
-              }}
-            >
-              <Table size="small" stickyHeader>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>ID</TableCell>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>
-                      Ngày & giờ
-                    </TableCell>
-                    <TableCell>Tên giải</TableCell>
-                    <TableCell>Đội 1</TableCell>
-                    <TableCell sx={{ whiteSpace: "nowrap" }}>Tỷ số</TableCell>
-                    <TableCell>Đội 2</TableCell>
-                    <TableCell align="center" sx={{ whiteSpace: "nowrap" }}>
-                      Video
-                    </TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {matchPaged.length ? (
-                    matchPaged.map((m) => {
-                      const winnerA = m?.winner === "A";
-                      const winnerB = m?.winner === "B";
-                      const scoreLines = toScoreLines(m);
-                      return (
-                        <TableRow key={m._id} hover>
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>
-                            {safe(m.code, String(m._id).slice(-5))}
-                          </TableCell>
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>
-                            {fmtDT(m.dateTime)}
-                          </TableCell>
-                          <TableCell sx={{ minWidth: 220 }}>
-                            <Tooltip title={safe(m?.tournament?.name)}>
-                              <Typography noWrap>
-                                {safe(m?.tournament?.name)}
-                              </Typography>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell sx={{ minWidth: 240 }}>
-                            <PlayerCell players={m.team1} highlight={winnerA} />
-                          </TableCell>
-                          <TableCell sx={{ whiteSpace: "nowrap" }}>
-                            {scoreLines.length ? (
-                              <Stack spacing={0} alignItems="flex-start">
-                                {scoreLines.map((s, i) => (
-                                  <Typography key={i} fontWeight={700}>
-                                    {s}
-                                  </Typography>
-                                ))}
-                              </Stack>
-                            ) : (
-                              <Typography fontWeight={700}>
-                                {safe(m.scoreText)}
-                              </Typography>
-                            )}
-                          </TableCell>
-                          <TableCell sx={{ minWidth: 240 }}>
-                            <PlayerCell players={m.team2} highlight={winnerB} />
-                          </TableCell>
-                          <TableCell
-                            align="center"
-                            sx={{ whiteSpace: "nowrap" }}
-                          >
-                            {m.video ? (
-                              <a
-                                href={m.video}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title="Xem video"
-                                style={{ display: "inline-flex" }}
-                              >
-                                <PlayCircleOutlineIcon fontSize="small" />
-                              </a>
-                            ) : (
-                              VIDEO_PLACE
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })
-                  ) : (
-                    <TableRow>
-                      <TableCell
-                        colSpan={7}
-                        align="center"
-                        sx={{ fontStyle: "italic" }}
-                      >
-                        Không có dữ liệu
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </TableContainer>
-            <Stack direction="row" justifyContent="center" mt={1}>
-              <Pagination
-                page={matchPage}
-                onChange={(_, p) => setMatchPage(p)}
-                count={Math.max(1, Math.ceil(matchRaw.length / matchPerPage))}
-                shape="rounded"
-                size="small"
-              />
-            </Stack>
-          </>
-        )}
-      </CardContent>
-    </Card>
-  );
-
-  const LoadingState = (
+  const MatchHistoryTab = (
     <Stack spacing={2}>
-      <Skeleton variant="rectangular" height={220} sx={{ borderRadius: 2 }} />
-      <Skeleton variant="rectangular" height={180} sx={{ borderRadius: 2 }} />
-      <Skeleton variant="rectangular" height={420} sx={{ borderRadius: 2 }} />
+      {matchPaged.length === 0 ? (
+        <Alert severity="info" sx={{ borderRadius: 3 }}>
+          Chưa có dữ liệu trận đấu nào.
+        </Alert>
+      ) : (
+        matchPaged.map((m) => {
+          const winnerA = m.winner === "A";
+          const winnerB = m.winner === "B";
+          const myInA = m.team1?.some((p) => (p._id || p.id) === uid);
+          const myInB = m.team2?.some((p) => (p._id || p.id) === uid);
+          const isMyWin = (myInA && winnerA) || (myInB && winnerB);
+
+          return (
+            <Card
+              key={m._id}
+              variant="outlined"
+              sx={{
+                borderRadius: 3,
+                overflow: "visible",
+                transition: "transform 0.2s",
+                "&:hover": { borderColor: "primary.main" },
+              }}
+            >
+              <CardContent sx={{ p: 2 }}>
+                {/* Header: Time & Tournament */}
+                <Stack
+                  direction="row"
+                  justifyContent="space-between"
+                  alignItems="center"
+                  mb={2}
+                >
+                  <Stack direction="row" alignItems="center" spacing={1}>
+                    <MatchResultBadge isWinner={isMyWin} />
+                    <Typography
+                      variant="caption"
+                      color="text.secondary"
+                      sx={{ display: { xs: "none", sm: "block" } }}
+                    >
+                      • {fmtDT(m.dateTime)}
+                    </Typography>
+                  </Stack>
+                  <Chip
+                    label={m.tournament?.name || "Giao hữu"}
+                    size="small"
+                    variant="outlined"
+                    sx={{ maxWidth: 200 }}
+                  />
+                </Stack>
+
+                {/* Teams & Score – ✅ căn giữa nội dung trong item */}
+                <Grid
+                  container
+                  alignItems="center"
+                  justifyContent="center"
+                  spacing={2}
+                >
+                  {/* Team 1 */}
+                  <Grid
+                    size={{ xs: 12, sm: 4, md: 4 }}
+                    sx={{ display: "flex", justifyContent: "center" }}
+                  >
+                    <Box sx={{ width: "100%" }}>
+                      {m.team1?.map((p, i) => (
+                        <PlayerRow key={i} p={p} highlight={winnerA} />
+                      ))}
+                    </Box>
+                  </Grid>
+
+                  {/* Score Center */}
+                  <Grid
+                    size={{ xs: 12, sm: 4, md: 4 }}
+                    sx={{
+                      textAlign: "center",
+                      display: "flex",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Typography
+                      variant="h5"
+                      fontWeight={900}
+                      sx={{ letterSpacing: 2 }}
+                    >
+                      {m.scoreText || "VS"}
+                    </Typography>
+                  </Grid>
+
+                  {/* Team 2 */}
+                  <Grid
+                    size={{ xs: 12, sm: 4, md: 4 }}
+                    sx={{ display: "flex", justifyContent: "center" }}
+                  >
+                    <Box sx={{ width: "100%" }}>
+                      {m.team2?.map((p, i) => (
+                        <PlayerRow key={i} p={p} highlight={winnerB} />
+                      ))}
+                    </Box>
+                  </Grid>
+                </Grid>
+
+                {/* Footer: Video */}
+                {m.video && (
+                  <Box
+                    sx={{
+                      mt: 2,
+                      pt: 2,
+                      borderTop: "1px dashed #eee",
+                      display: "flex",
+                      justifyContent: "flex-end",
+                    }}
+                  >
+                    <Button
+                      size="small"
+                      startIcon={<PlayCircleFilledWhiteIcon />}
+                      href={m.video}
+                      target="_blank"
+                      color="error"
+                      sx={{ borderRadius: 10 }}
+                    >
+                      Xem Video Replay
+                    </Button>
+                  </Box>
+                )}
+              </CardContent>
+            </Card>
+          );
+        })
+      )}
+      {matchRaw.length > matchPerPage && (
+        <Stack alignItems="center">
+          <Pagination
+            count={Math.ceil(matchRaw.length / matchPerPage)}
+            page={pageMatch}
+            onChange={(_, p) => setPageMatch(p)}
+            color="primary"
+            shape="rounded"
+          />
+        </Stack>
+      )}
     </Stack>
   );
 
-  const ErrorState = (
-    <Alert severity="error">
-      {baseQ.error?.data?.message || baseQ.error?.error || "Lỗi tải dữ liệu"}
-    </Alert>
+  const RatingHistoryTab = (
+    <Stack spacing={2}>
+      <TableContainer
+        component={Paper}
+        variant="outlined"
+        sx={{ borderRadius: 3, overflow: "hidden" }}
+      >
+        <Table size={isMobile ? "small" : "medium"}>
+          <TableHead sx={{ bgcolor: "action.hover" }}>
+            <TableRow>
+              <TableCell>Thời gian</TableCell>
+              <TableCell>Người chấm</TableCell>
+              <TableCell align="center">Điểm Đơn</TableCell>
+              <TableCell align="center">Điểm Đôi</TableCell>
+              {!isMobile && <TableCell>Ghi chú</TableCell>}
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {ratePaged.length > 0 ? (
+              ratePaged.map((row) => (
+                <TableRow key={row._id || row.id} hover>
+                  <TableCell sx={{ fontWeight: 500 }}>
+                    {fmtDate(row.scoredAt)}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2">
+                      {row.scorer?.name || "Hệ thống"}
+                    </Typography>
+                  </TableCell>
+                  <TableCell align="center">
+                    <Chip
+                      label={num(row.single)}
+                      size="small"
+                      variant="outlined"
+                      color="primary"
+                    />
+                  </TableCell>
+                  <TableCell align="center">
+                    <Chip
+                      label={num(row.double)}
+                      size="small"
+                      variant="outlined"
+                      color="secondary"
+                    />
+                  </TableCell>
+                  {!isMobile && (
+                    <TableCell
+                      sx={{ color: "text.secondary", maxWidth: 200 }}
+                      noWrap
+                      title={row.note}
+                    >
+                      {row.note || "—"}
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={5} align="center">
+                  Không có lịch sử
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
+      {ratingRaw.length > ratePerPage && (
+        <Stack alignItems="center">
+          <Pagination
+            count={Math.ceil(ratingRaw.length / ratePerPage)}
+            page={pageRate}
+            onChange={(_, p) => setPageRate(p)}
+            color="primary"
+            shape="rounded"
+          />
+        </Stack>
+      )}
+    </Stack>
   );
+
+  if (baseQ.isLoading)
+    return (
+      <Container sx={{ pt: 4 }}>
+        <Skeleton
+          variant="rectangular"
+          height={200}
+          sx={{ borderRadius: 4, mb: 2 }}
+        />
+        <Stack direction="row" spacing={2}>
+          <Skeleton width="30%" height={100} />
+          <Skeleton width="30%" height={100} />
+          <Skeleton width="30%" height={100} />
+        </Stack>
+      </Container>
+    );
+
+  if (baseQ.error)
+    return (
+      <Container sx={{ pt: 10 }}>
+        <Alert severity="error">
+          Không tìm thấy người dùng hoặc có lỗi xảy ra.
+        </Alert>
+      </Container>
+    );
 
   return (
-    <Box sx={{ pb: 6 }}>
-      <Container maxWidth="lg" sx={{ pt: { xs: 1.5, sm: 2 } }}>
-        {baseQ.isLoading ? (
-          LoadingState
-        ) : baseQ.error ? (
-          ErrorState
-        ) : (
-          <>
-            {Hero}
+    <Box
+      sx={{
+        pb: 8,
+        minHeight: "100vh",
+        bgcolor:
+          theme.palette.mode === "light" ? "#f8f9fa" : "background.default",
+      }}
+    >
+      {/* 1. Header Section */}
+      {HeaderSection}
 
-            {QuickStats}
+      <Container maxWidth="lg">
+        {/* 2. Statistics Grid */}
+        {StatsSection}
 
-            {/* Sticky tabs */}
-            <Paper
-              elevation={0}
+        {/* 3. Content Tabs */}
+        <Box sx={{ mt: 10 }}>
+          <Stack direction="row" justifyContent="center" mb={3}>
+            <Tabs
+              value={tab}
+              onChange={(_, v) => setTab(v)}
+              variant="scrollable"
+              scrollButtons="auto"
               sx={{
-                position: "sticky",
-                top: 0,
-                zIndex: (t) => t.zIndex.appBar - 1,
-                bgcolor: "background.default",
-                mt: 2,
+                bgcolor: "background.paper",
+                borderRadius: 4,
+                p: 0.5,
+                boxShadow: theme.shadows[1],
+                "& .MuiTab-root": {
+                  borderRadius: 3,
+                  textTransform: "none",
+                  minHeight: 44,
+                  fontWeight: 600,
+                  px: 3,
+                },
+                "& .Mui-selected": {
+                  bgcolor: alpha(theme.palette.primary.main, 0.1),
+                  color: "primary.main",
+                },
+                "& .MuiTabs-indicator": { display: "none" },
               }}
             >
-              <Tabs
-                value={tab}
-                onChange={(_, v) => setTab(v)}
-                variant="scrollable"
-                scrollButtons
-                allowScrollButtonsMobile
-                aria-label="tabs"
-              >
-                <Tab label="Thông tin" {...a11yProps(0)} />
-                <Tab label="Điểm trình" {...a11yProps(1)} />
-                <Tab label="Thi đấu" {...a11yProps(2)} />
-              </Tabs>
-              <Divider />
-            </Paper>
+              <Tab label="Hồ sơ chi tiết" iconPosition="start" />
+              <Tab label="Lịch sử thi đấu" iconPosition="start" />
+              <Tab label="Lịch sử điểm trình" iconPosition="start" />
+            </Tabs>
+          </Stack>
 
-            <TabPanel value={tab} index={0}>
-              {InfoSection}
-            </TabPanel>
-            <TabPanel value={tab} index={1}>
-              {RatingSection}
-            </TabPanel>
-            <TabPanel value={tab} index={2}>
-              {MatchesSection}
-            </TabPanel>
-          </>
-        )}
+          <Box sx={{ minHeight: 400 }}>
+            {tab === 0 && (
+              <Card variant="outlined" sx={{ borderRadius: 3 }}>
+                <CardContent sx={{ p: 3 }}>
+                  <Typography variant="h6" gutterBottom fontWeight={700}>
+                    Giới thiệu
+                  </Typography>
+                  <Typography
+                    paragraph
+                    color="text.secondary"
+                    sx={{ whiteSpace: "pre-wrap" }}
+                  >
+                    {base?.bio || "Chưa có."}
+                  </Typography>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="h6" gutterBottom fontWeight={700}>
+                    Thông tin thêm
+                  </Typography>
+                  <Grid container spacing={2}>
+                    <Grid size={{ xs: 6, md: 3 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Tỉnh thành
+                      </Typography>
+                      <Typography fontWeight={500}>
+                        {base?.province || "—"}
+                      </Typography>
+                    </Grid>
+                    <Grid size={{ xs: 6, md: 3 }}>
+                      <Typography variant="caption" color="text.secondary">
+                        ID người dùng
+                      </Typography>
+                      <Typography fontWeight={500}>
+                        {String(base?._id).slice(-6).toUpperCase()}
+                      </Typography>
+                    </Grid>
+                  </Grid>
+                </CardContent>
+              </Card>
+            )}
+            {tab === 1 && MatchHistoryTab}
+            {tab === 2 && RatingHistoryTab}
+          </Box>
+        </Box>
       </Container>
-
-      {/* snackbar */}
-      <Snackbar
-        open={snack.open}
-        autoHideDuration={2000}
-        onClose={closeSnack}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        <Alert
-          onClose={closeSnack}
-          severity={snack.severity}
-          sx={{ width: "100%" }}
-        >
-          {snack.message}
-        </Alert>
-      </Snackbar>
     </Box>
   );
-}
-
-/* ---------- tiny helpers ---------- */
-function useQueryTab() {
-  const loc = useLocation();
-  const params = new URLSearchParams(loc.search);
-  const t = params.get("tab");
-  const map = { info: 0, rating: 1, matches: 2 };
-  return map[t] ?? 0;
 }
