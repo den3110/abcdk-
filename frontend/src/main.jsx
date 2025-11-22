@@ -55,6 +55,7 @@ import LiveMatchesPage from "./screens/live/LiveMatchesPage.jsx";
 import CourtLiveStudioPage from "./screens/live/CourtLiveStudio.jsx";
 import CourtStreamingPage from "./screens/court-live/Courtstreamingpage.jsx";
 import { useGetAppInitQuery } from "./slices/appInitApiSlice.js";
+import FacebookLiveSettings from "./components/FacebookLiveSettings";
 
 dayjs.locale("vi");
 
@@ -121,6 +122,7 @@ const router = createBrowserRouter(
         <Route path="/clubs" element={<ClubsListPage />} />
         <Route path="/clubs/:id" element={<ClubDetailPage />} />
         <Route path="/live" element={<LiveMatchesPage />} />
+        <Route path="/settings/facebook" element={<FacebookLiveSettings />} />
       </Route>
       <Route path="/overlay/score" element={<ScoreOverlay />} />
       <Route path="/503" element={<ServiceUnavailable />} />

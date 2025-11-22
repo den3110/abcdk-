@@ -21,6 +21,7 @@ import {
   markFacebookPageBusy,
   pickFreeFacebookPage,
 } from "../services/facebookPagePool.service.js";
+import FacebookPageConnection from "../models/facebookPageConnectionModel.js";
 
 /* ───────────────────────── Config helpers (dùng DB Config) ───────────────────────── */
 async function resolveOverlayBase() {
@@ -1633,5 +1634,143 @@ export const createFacebookLiveForMatch = async (req, res) => {
       message: "Create Facebook Live failed",
       error: err?.response?.data || err.message,
     });
+  }
+};
+
+export const createFacebookLiveForMatchForUserNotSystem = async (req, res, next) => {
+  try {
+    const fbEnabled =
+      (await getCfgStr("LIVE_FACEBOOK_ENABLED", "1")).trim() === "1";
+    if (!fbEnabled) {
+      return res
+        .status(400)
+        .json({ message: "LIVE_FACEBOOK_ENABLED đang tắt trong Config." });
+    }
+
+    const { matchId } = req.params;
+    const { mode, pageConnectionId } = req.body || {};
+
+    const match = await Match.findById(matchId)
+      .populate("tournament court")
+      .populate({
+        path: "pairA",
+        populate: [
+          { path: "player1.user", select: "name nickname nickName" },
+          { path: "player2.user", select: "name nickname nickName" },
+        ],
+      })
+      .populate({
+        path: "pairB",
+        populate: [
+          { path: "player1.user", select: "name nickname nickName" },
+          { path: "player2.user", select: "name nickname nickName" },
+        ],
+      });
+
+    if (!match) {
+      return res.status(404).json({ message: "Match not found" });
+    }
+
+    const tournament = match.tournament;
+
+    // ========= CHỌN PAGE & TOKEN THEO MATCH =========
+    let pageId;
+    let pageAccessToken;
+    let source = "SYSTEM_POOL";
+    let conn = null;
+
+    // 1) Nếu client yêu cầu dùng page của user cho match này
+    if (mode === "USER_PAGE" && pageConnectionId) {
+      conn = await FacebookPageConnection.findOne({
+        _id: pageConnectionId,
+        user: req.user._id, // đảm bảo page thuộc user đang login
+      });
+
+      if (!conn) {
+        return res.status(400).json({
+          message:
+            "Facebook page không tồn tại hoặc không thuộc tài khoản của bạn.",
+        });
+      }
+
+      pageId = conn.pageId;
+      pageAccessToken = conn.pageAccessToken;
+      source = "USER_PAGE";
+    }
+
+    // 2) Nếu không gửi mode / pageConnectionId → fallback về page pool hệ thống
+    if (!pageId || !pageAccessToken) {
+      const poolPage = await pickFreePoolPageOrThrow();
+      pageId = poolPage.pageId;
+      pageAccessToken = poolPage.pageAccessToken;
+      source = "SYSTEM_POOL";
+    }
+
+    // ========= Tạo title/description =========
+    const liveTitle = `Match ${match.code || match._id} - ${
+      tournament?.name || "Pickleball"
+    }`;
+    const liveDescription = `Trực tiếp trận đấu tại giải ${
+      tournament?.name || ""
+    }`;
+
+    // ========= Gọi Graph API tạo Live =========
+    const fbRes = await fetch(
+      `https://graph.facebook.com/v24.0/${pageId}/live_videos`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status: "LIVE_NOW",
+          title: liveTitle,
+          description: liveDescription,
+          access_token: pageAccessToken,
+        }),
+      }
+    );
+
+    const fbJson = await fbRes.json();
+
+    if (!fbRes.ok) {
+      console.error("FB create live error", fbJson);
+      return res.status(500).json({
+        message: "Facebook trả lỗi khi tạo live.",
+        fbError: fbJson,
+      });
+    }
+
+    const { id: liveId, secure_stream_url } = fbJson;
+
+    // ========= Lưu lại vào match (per match) =========
+    match.facebookLive = {
+      source, // "USER_PAGE" / "SYSTEM_POOL"
+      pageId,
+      liveId,
+      rtmpUrl: secure_stream_url,
+      startedAt: new Date(),
+    };
+
+    // nếu có facebookLiveConfig thì lưu luôn để sau còn show UI
+    match.facebookLiveConfig = {
+      mode: source,
+      pageConnection: conn?._id || null,
+      pageId,
+    };
+
+    await match.save();
+
+    // Nếu dùng page pool hệ thống thì mark page đang bận
+    if (source === "SYSTEM_POOL") {
+      await markFacebookPageBusy(pageId, match._id); // tuỳ bạn đang implement
+    }
+
+    return res.json({
+      message: "Tạo live Facebook cho match thành công.",
+      liveId,
+      rtmpUrl: secure_stream_url,
+      source,
+    });
+  } catch (err) {
+    next(err);
   }
 };

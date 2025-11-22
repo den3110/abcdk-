@@ -15,6 +15,9 @@ function roundTitleByPairs(pairs) {
 // Tạo seed BYE hợp lệ cho validation
 const SEED_BYE = { type: "bye", ref: null, label: "BYE" };
 
+// ✅ groupTypes: dùng cho tính labelRoundOffset giống adminGetMatchById
+const groupTypes = new Set(["group", "round_robin", "gsl"]);
+
 // ✅ NEW: rule defaults + sanitizer (không đổi schema)
 const DEFAULT_RULES = { bestOf: 3, pointsToWin: 11, winByTwo: true };
 function sanitizeRules(r) {
@@ -74,12 +77,11 @@ export async function buildKnockoutBracket({
       if (session) q = q.session(session);
       const allBrackets = await q.lean();
 
-      // y hệt idea: cộng dồn effRounds của các bracket ĐỨNG TRƯỚC
+      // cộng dồn effRounds của các bracket ĐỨNG TRƯỚC (stage, order) hiện tại
       for (const b of allBrackets) {
         const bStage = Number(b.stage) || 0;
         const bOrder = Number(b.order) || 0;
 
-        // chỉ tính những bracket đứng trước (stage, order) hiện tại
         const isBefore =
           bStage < stageNum || (bStage === stageNum && bOrder < orderNum);
         if (!isBefore) continue;
@@ -228,6 +230,9 @@ export async function buildKnockoutBracket({
             // cùng round với chung kết (round = rounds), khác order
             round: rounds,
             order: created[rounds]?.length || 1, // final đang order=0
+            // ⚠️ ĐÁNH DẤU TRẬN TRANH 3–4
+            isThirdPlace: true,
+
             seedA: {
               type: "stageMatchLoser",
               ref: { stageIndex: stage, round: rounds - 1, order: 0 },
@@ -248,7 +253,6 @@ export async function buildKnockoutBracket({
       created[rounds].push(bronzeArr[0]);
     }
   }
-
   // resolve seeds (nếu có static method)
   if (typeof Match.compileSeedsForBracket === "function") {
     await Match.compileSeedsForBracket(bracket._id);
@@ -471,7 +475,7 @@ export async function buildGroupBracket({
     regIds: [],
   }));
 
-  // Giữ nguyên logic tạo bracket, chỉ thêm config.rules (schema đã có sẵn)
+  // Giữ nguyên logic tạo bracket, chỉ thêm config.rules (schema đã tồn tại)
   const bracket = await Bracket.create(
     [
       {
@@ -481,7 +485,6 @@ export async function buildGroupBracket({
         order,
         stage,
         groups,
-        // LƯU Ý: Không thay đổi schema. Trường config.rules đã tồn tại, ta set làm mặc định cho phase này
         config: { rules: sanitizeRules(rules) },
       },
     ],

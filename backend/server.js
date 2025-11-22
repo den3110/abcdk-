@@ -57,8 +57,11 @@ import appInitRoutes from "./routes/appInitRoutes.js";
 import leaderboardRoutes from "./routes/leaderboardRoutes.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
 import liveRecordingRoutes from "./routes/liveRecordingRoutes.js";
+import facebookRoutes from "./routes/facebookRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
 import { initNewsCron } from "./jobs/newsCron.js";
+// 🔹 GraphQL layer
+import { setupGraphQL } from "./graphql/index.js";
 
 dotenv.config();
 const port = process.env.PORT;
@@ -96,13 +99,13 @@ app.set("io", io);
 // app.set("trust proxy", true);
 
 // CORS whitelist
-
 app.use(
   cors({
     origin: WHITELIST, // ✅ KHÔNG dùng '*'
     credentials: true, // ✅ Phải bật
   })
 );
+
 app.use("/uploads", express.static("uploads"));
 app.use("/api/users", userRoutes);
 app.use("/api/tournaments", tournamentRoute);
@@ -146,6 +149,7 @@ app.use("/api/app/init", appInitRoutes);
 app.use("/api/leaderboards", leaderboardRoutes);
 app.use("/api/schedule", scheduleRoutes);
 app.use("/api/live/recordings", liveRecordingRoutes);
+app.use("/api/fb", facebookRoutes);
 
 app.get("/dl/file/:id", async (req, res) => {
   try {
@@ -177,41 +181,54 @@ app.get("/dl/file/:id", async (req, res) => {
   }
 });
 
-if (process.env.NODE_ENV === "production") {
-  const __dirname = path.resolve();
-  app.use(express.static(path.join(__dirname, "/frontend/dist")));
-
-  app.get("*", (req, res) =>
-    res.sendFile(path.resolve(__dirname, "frontend", "dist", "index.html"))
-  );
-} else {
-  app.get("/", (req, res) => {
-    res.send("API is running....");
-  });
-}
-
-app.use(notFound);
-app.use(errorHandler);
-
-if (process.env.TELEGRAM_BOT_TOKEN) {
+// 🔹 gom phần start server + GraphQL vào 1 hàm async
+const startServer = async () => {
   try {
-    console.log("✅ Running KYC bot...");
-    initKycBot(app); // polling
-  } catch (error) {
-    console.log("❌ Failed to start KYC bot:", error.message);
-  }
-}
+    // 🔹 mount GraphQL trước fallback routes (*)
+    await setupGraphQL(app);
 
-server.listen(port, "0.0.0.0", async () => {
-  try {
-    console.log(`✅ Server started on port ${port}`);
-    startTournamentCrons();
-    startFbRefreshCron();
-    startFacebookBusyCron();
-    initEmail();
-    initNewsCron();
-    await startAgenda();
-  } catch (error) {
-    console.error(`❌ Error starting server: ${error.message}`);
+    if (process.env.NODE_ENV === "production") {
+      const __dirname = path.resolve();
+      app.use(express.static(path.join(__dirname, "/frontend/dist")));
+
+      app.get("*", (req, res) =>
+        res.sendFile(path.resolve(__dirname, "frontend", "dist", "index.html"))
+      );
+    } else {
+      app.get("/", (req, res) => {
+        res.send("API is running....");
+      });
+    }
+
+    app.use(notFound);
+    app.use(errorHandler);
+
+    if (process.env.TELEGRAM_BOT_TOKEN) {
+      try {
+        console.log("✅ Running KYC bot...");
+        initKycBot(app); // polling
+      } catch (error) {
+        console.log("❌ Failed to start KYC bot:", error.message);
+      }
+    }
+
+    server.listen(port, "0.0.0.0", async () => {
+      try {
+        console.log(`✅ Server started on port ${port}`);
+        startTournamentCrons();
+        startFbRefreshCron();
+        startFacebookBusyCron();
+        initEmail();
+        initNewsCron();
+        await startAgenda();
+      } catch (error) {
+        console.error(`❌ Error starting server: ${error.message}`);
+      }
+    });
+  } catch (err) {
+    console.error("❌ Failed to start server", err);
+    process.exit(1);
   }
-});
+};
+
+startServer();

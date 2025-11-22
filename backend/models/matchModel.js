@@ -8,7 +8,6 @@ import {
   markFacebookPageFreeByMatch,
   markFacebookPageFreeByPage,
 } from "../services/facebookPagePool.service.js";
-
 const { Schema } = mongoose;
 
 /* =========================================
@@ -272,6 +271,21 @@ const matchSchema = new Schema(
       status: { type: String, default: "CREATED" },
       createdAt: Date,
     },
+
+    facebookLiveConfig: {
+      mode: {
+        type: String,
+        enum: ["SYSTEM_POOL", "USER_PAGE"],
+        default: "SYSTEM_POOL",
+      },
+      pageConnection: {
+        type: Schema.Types.ObjectId,
+        ref: "FacebookPageConnection",
+      },
+      pageId: { type: String }, // PAGE_ID đã dùng để live
+    },
+
+    isThirdPlace: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

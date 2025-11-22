@@ -1,6 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useParams, useLocation } from "react-router-dom";
-import { useSelector } from "react-redux";
+import React, { useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 import {
   Box,
   Stack,
@@ -26,12 +25,10 @@ import {
   TableBody,
   TableContainer,
   Pagination,
-  Snackbar,
   Paper,
   useTheme,
   useMediaQuery,
   alpha,
-  LinearProgress,
 } from "@mui/material";
 
 // Icons
@@ -39,15 +36,12 @@ import ShareIcon from "@mui/icons-material/Share";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import CheckIcon from "@mui/icons-material/Check";
 import PlayCircleFilledWhiteIcon from "@mui/icons-material/PlayCircleFilledWhite";
-import ArrowDropUpIcon from "@mui/icons-material/ArrowDropUp";
-import ArrowDropDownIcon from "@mui/icons-material/ArrowDropDown";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
 import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
 import PlaceIcon from "@mui/icons-material/Place";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import SportsTennisIcon from "@mui/icons-material/SportsTennis";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
-import VideocamOffIcon from "@mui/icons-material/VideocamOff";
 
 import {
   useGetPublicProfileQuery,
@@ -81,6 +75,7 @@ const numFloat = (v, digits = 3) =>
   Number.isFinite(+v) ? Number(v).toFixed(digits) : "—";
 
 const getGenderInfo = (g) => {
+  if (g === null || g === undefined) return { label: "Khác", color: "default" };
   const s = String(g).toLowerCase().trim();
   if (["1", "male", "m", "nam"].includes(s))
     return { label: "Nam", color: "info" };
@@ -97,10 +92,12 @@ const CopyBtn = ({ value, label }) => {
   const handleCopy = async (e) => {
     e.stopPropagation();
     try {
-      await navigator.clipboard.writeText(value);
+      await navigator.clipboard.writeText(String(value ?? ""));
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {}
+    } catch {
+      // ignore
+    }
   };
 
   return (
@@ -200,7 +197,7 @@ const MatchResultBadge = ({ isWinner }) => (
   />
 );
 
-// 4. Player Mini Cell (Clean) – ✅ trả lại số thập phân 3 chữ số
+// 4. Player Mini Cell – giữ thập phân & căn giữa
 const PlayerRow = ({ p, highlight }) => {
   const up = (p?.delta ?? 0) > 0;
   const down = (p?.delta ?? 0) < 0;
@@ -216,7 +213,7 @@ const PlayerRow = ({ p, highlight }) => {
       direction="row"
       spacing={1.5}
       alignItems="center"
-      sx={{ py: 0.5, justifyContent: "center" }} // căn giữa nội dung trong item
+      sx={{ py: 0.5, justifyContent: "center" }}
     >
       <Avatar src={p?.avatar || AVA_PLACE} sx={{ width: 28, height: 28 }} />
       <Box sx={{ minWidth: 0, flex: 1 }}>
@@ -228,7 +225,7 @@ const PlayerRow = ({ p, highlight }) => {
         >
           {name}
         </Typography>
-        {p?.postScore !== undefined && (
+        {p?.postScore !== undefined && p?.postScore !== null && (
           <Stack
             direction="row"
             alignItems="center"
@@ -262,7 +259,7 @@ export default function PublicProfilePage() {
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [tab, setTab] = useState(0);
 
-  // Logic queries
+  // Queries
   const baseQ = useGetPublicProfileQuery(id);
   const rateQ = useGetRatingHistoryQuery(id);
   const matchQ = useGetMatchHistoryQuery(id);
@@ -275,11 +272,33 @@ export default function PublicProfilePage() {
     ? matchQ.data
     : matchQ.data?.items || [];
 
+  // ✅ latestSingle / latestDouble giống bản cũ (ưu tiên history, fallback levelPoint)
+  const latestSingle = useMemo(() => {
+    if (ratingRaw.length) {
+      const v = Number(ratingRaw[0]?.single);
+      if (Number.isFinite(v)) return v;
+    }
+    const fallback =
+      base?.levelPoint?.single ?? base?.levelPoint?.score ?? undefined;
+    const v2 = Number(fallback);
+    return Number.isFinite(v2) ? v2 : NaN;
+  }, [ratingRaw, base]);
+
+  const latestDouble = useMemo(() => {
+    if (ratingRaw.length) {
+      const v = Number(ratingRaw[0]?.double);
+      if (Number.isFinite(v)) return v;
+    }
+    const fallback = base?.levelPoint?.double ?? undefined;
+    const v2 = Number(fallback);
+    return Number.isFinite(v2) ? v2 : NaN;
+  }, [ratingRaw, base]);
+
   // Derived stats
   const uid = base?._id || id;
   const { totalMatches, wins, winRate } = useMemo(() => {
-    let total = 0,
-      w = 0;
+    let total = 0;
+    let w = 0;
     for (const m of matchRaw) {
       const inA = (m?.team1 || []).some((p) => (p?._id || p?.id) === uid);
       const inB = (m?.team2 || []).some((p) => (p?._id || p?.id) === uid);
@@ -306,17 +325,22 @@ export default function PublicProfilePage() {
     pageRate * ratePerPage
   );
 
-  // Handle Share
+  // Share
   const handleShare = async () => {
+    const url = window.location.href;
     try {
-      await navigator.share({ title: base?.name, url: window.location.href });
+      if (navigator.share) {
+        await navigator.share({ title: base?.name, url });
+      } else {
+        await navigator.clipboard.writeText(url);
+        alert("Đã sao chép liên kết!");
+      }
     } catch {
-      navigator.clipboard.writeText(window.location.href);
-      alert("Đã sao chép liên kết!");
+      // user cancel
     }
   };
 
-  // --- SECTIONS ---
+  /* ---------- SECTIONS ---------- */
 
   const HeaderSection = (
     <Box sx={{ position: "relative", mb: { xs: 12, md: 8 } }}>
@@ -432,7 +456,7 @@ export default function PublicProfilePage() {
               <Typography variant="body1" fontWeight={500}>
                 @{base?.nickname || "no_nick"}
               </Typography>
-              <CopyBtn value={base?.nickname} label="Nickname" />
+              <CopyBtn value={base?.nickname || ""} label="Nickname" />
             </Stack>
 
             <Stack
@@ -481,7 +505,7 @@ export default function PublicProfilePage() {
     </Box>
   );
 
-  // ✅ Grid dùng size (v7)
+  // ✅ Grid dùng size (MUI v7) + dùng latestSingle/latestDouble
   const StatsSection = (
     <Grid container spacing={2} sx={{ mb: 4, mt: { xs: 6, md: 0 } }}>
       <Grid size={{ xs: 12, sm: 4 }}>
@@ -506,9 +530,7 @@ export default function PublicProfilePage() {
         <StatBox
           icon={<TrendingUpIcon />}
           label="Điểm trình (Đơn/Đôi)"
-          value={`${num(base?.levelPoint?.single || 0)} / ${num(
-            base?.levelPoint?.double || 0
-          )}`}
+          value={`${num(latestSingle)} / ${num(latestDouble)}`}
           subValue="Điểm hiện tại"
           color="success"
         />
@@ -567,7 +589,7 @@ export default function PublicProfilePage() {
                   />
                 </Stack>
 
-                {/* Teams & Score – ✅ căn giữa nội dung trong item */}
+                {/* Teams & Score – căn giữa nội dung trong item */}
                 <Grid
                   container
                   alignItems="center"
@@ -586,7 +608,7 @@ export default function PublicProfilePage() {
                     </Box>
                   </Grid>
 
-                  {/* Score Center */}
+                  {/* Score */}
                   <Grid
                     size={{ xs: 12, sm: 4, md: 4 }}
                     sx={{
@@ -845,7 +867,9 @@ export default function PublicProfilePage() {
                         ID người dùng
                       </Typography>
                       <Typography fontWeight={500}>
-                        {String(base?._id).slice(-6).toUpperCase()}
+                        {String(base?._id || "")
+                          .slice(-6)
+                          .toUpperCase() || "—"}
                       </Typography>
                     </Grid>
                   </Grid>
