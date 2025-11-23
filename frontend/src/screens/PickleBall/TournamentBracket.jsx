@@ -375,97 +375,66 @@ const readBracketScale = (br) => {
   return ceilPow2(Math.max(...cands));
 };
 
-// NEW: nhận diện trận phân hạng (ví dụ tranh hạng 3–4)
-function isPlacementMatch(m) {
-  if (!m) return false;
-
-  const isLoserSeedType = (t) => t === "matchLoser" || t === "stageMatchLoser";
-
-  const tA = m?.seedA?.type;
-  const tB = m?.seedB?.type;
-
-  // Nếu cả 2 seed đều là loser → rất thường là trận tranh hạng (3–4, 5–6...)
-  if (isLoserSeedType(tA) && isLoserSeedType(tB)) return true;
-
-  // Nếu backend có gắn meta placement thì ưu tiên dùng
-  const placement = String(m?.meta?.placement || "").toLowerCase();
-  if (
-    placement.includes("3-4") ||
-    placement.includes("3rd") ||
-    placement.includes("bronze")
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
 /* ===================== Champion gate ===================== */
 function computeChampionGate(allMatches) {
   const M = (allMatches || []).slice();
   if (!M.length) return { allowed: false, matchId: null, pair: null };
 
-  const normStatus = (m) => String(m?.status || "").toLowerCase();
-  const getRound = (m) => {
-    const r = Number(m?.round ?? m?.meta?.round ?? 1);
-    return Number.isFinite(r) ? r : 1;
-  };
-  const getTime = (m) => {
-    const t =
-      m?.startedAt || m?.scheduledAt || m?.assignedAt || m?.createdAt || null;
-    return t ? new Date(t).getTime() : 0;
-  };
+  const byR = new Map();
+  for (const m of M) {
+    const r = Number(m.round || 1);
+    byR.set(r, (byR.get(r) || 0) + 1);
+  }
+  const rounds = Array.from(byR.keys()).sort((a, b) => a - b);
+  if (!rounds.length) return { allowed: false, matchId: null, pair: null };
 
-  // 1) Chỉ lấy các trận đã kết thúc và có winner rõ ràng
-  const finished = M.filter(
-    (m) =>
-      normStatus(m) === "finished" && (m?.winner === "A" || m?.winner === "B")
-  );
-  if (!finished.length) return { allowed: false, matchId: null, pair: null };
+  const rmin = rounds[0];
+  const rmax = rounds[rounds.length - 1];
 
-  // 2) Bỏ các trận phân hạng (tranh 3–4, 5–6, …) nếu nhận diện được
-  let candidates = finished.filter((m) => !isPlacementMatch(m));
+  for (let r = rmin; r <= rmax; r++)
+    if (!byR.get(r)) return { allowed: false, matchId: null, pair: null };
 
-  // Nếu lọc xong lại rỗng (backend không gắn seed loser rõ ràng)
-  // thì fallback về toàn bộ finished
-  if (!candidates.length) candidates = finished;
-
-  // 3) Chọn trận cuối cùng làm chung kết (round lớn nhất, time muộn nhất)
-  let championMatch = null;
-  for (const m of candidates) {
-    if (!championMatch) {
-      championMatch = m;
-      continue;
-    }
-    const rCur = getRound(m);
-    const rBest = getRound(championMatch);
-
-    if (rCur > rBest) {
-      championMatch = m;
-      continue;
-    }
-    if (rCur < rBest) continue;
-
-    if (getTime(m) > getTime(championMatch)) {
-      championMatch = m;
-    }
+  const c0 = byR.get(rmin) || 0;
+  if (rounds.length === 1) {
+    if (c0 !== 1) return { allowed: false, matchId: null, pair: null };
+    const finals = M.filter((m) => Number(m.round || 1) === rmax);
+    const fm = finals.length === 1 ? finals[0] : null;
+    const done =
+      fm &&
+      String(fm.status || "").toLowerCase() === "finished" &&
+      (fm.winner === "A" || fm.winner === "B");
+    const champion = done ? (fm.winner === "A" ? fm.pairA : fm.pairB) : null;
+    return {
+      allowed: !!done,
+      matchId: done ? fm._id || null : null,
+      pair: champion,
+    };
   }
 
-  if (!championMatch) return { allowed: false, matchId: null, pair: null };
+  if (c0 < 2) return { allowed: false, matchId: null, pair: null };
 
-  const winnerSide = championMatch.winner;
-  const championPair =
-    winnerSide === "A" ? championMatch.pairA : championMatch.pairB;
+  let exp = c0;
+  for (let r = rmin + 1; r <= rmax; r++) {
+    const cr = byR.get(r);
+    const maxAllowed = Math.ceil(exp / 2);
+    if (!Number.isFinite(cr) || cr < 1 || cr > maxAllowed) {
+      return { allowed: false, matchId: null, pair: null };
+    }
+    exp = cr;
+  }
+  if (byR.get(rmax) !== 1) return { allowed: false, matchId: null, pair: null };
 
-  if (!championPair) {
+  const finals = M.filter((m) => Number(m.round || 1) === rmax);
+  const fm = finals.length === 1 ? finals[0] : null;
+  if (
+    !fm ||
+    String(fm.status || "").toLowerCase() !== "finished" ||
+    !fm.winner
+  ) {
     return { allowed: false, matchId: null, pair: null };
   }
-
-  return {
-    allowed: true,
-    matchId: championMatch._id || null,
-    pair: championPair,
-  };
+  const champion = fm.winner === "A" ? fm.pairA : fm.pairB;
+  return { allowed: true, matchId: fm._id || null, pair: champion };
 }
 
 /* ===================== Height sync (bracket seeds) ===================== */
@@ -1746,8 +1715,7 @@ function roundsCountForBracket(bracket, matchesOfThis = []) {
 
   // KO: đoán theo matches / prefill / scale
   const roundsFromMatches = (() => {
-    const main = (matchesOfThis || []).filter((m) => !isPlacementMatch(m));
-    const rs = main.map((m) => Number(m.round || 1));
+    const rs = (matchesOfThis || []).map((m) => Number(m.round || 1));
     if (!rs.length) return 0;
     const rmin = Math.min(...rs);
     const rmax = Math.max(...rs);
@@ -3898,17 +3866,7 @@ export default function TournamentBracket() {
           </Typography>
 
           {(() => {
-            // 1) Tách trận phân hạng khỏi cây KO chính
-            const allMatchesKO = currentMatches || [];
-            const placementMatches = allMatchesKO.filter((m) =>
-              isPlacementMatch(m)
-            );
-            const mainMatches = allMatchesKO.filter(
-              (m) => !isPlacementMatch(m)
-            );
-
-            // 2) Champion chỉ tính trên mainMatches
-            const championGate = computeChampionGate(mainMatches);
+            const championGate = computeChampionGate(currentMatches);
             const finalMatchId = championGate.allowed
               ? championGate.matchId
               : null;
@@ -3916,7 +3874,6 @@ export default function TournamentBracket() {
               ? championGate.pair
               : null;
 
-            // 3) Số cặp vòng 1 (như cũ)
             const expectedFirstRoundPairs =
               Array.isArray(current?.prefill?.seeds) &&
               current.prefill.seeds.length
@@ -3928,14 +3885,17 @@ export default function TournamentBracket() {
                 ? Math.floor(scaleForCurrent / 2)
                 : 0;
 
-            // 4) Rounds KO chỉ build từ mainMatches
             const roundsToRender =
-              mainMatches.length > 0
-                ? buildRoundsWithPlaceholders(mainMatches, resolveSideLabel, {
-                    minRounds: minRoundsForCurrent,
-                    extendForward: true,
-                    expectedFirstRoundPairs,
-                  })
+              currentMatches.length > 0
+                ? buildRoundsWithPlaceholders(
+                    currentMatches,
+                    resolveSideLabel,
+                    {
+                      minRounds: minRoundsForCurrent,
+                      extendForward: true,
+                      expectedFirstRoundPairs,
+                    }
+                  )
                 : prefillRounds
                 ? prefillRounds
                 : current.drawRounds && current.drawRounds > 0
@@ -3945,47 +3905,6 @@ export default function TournamentBracket() {
             const roundsKeyKO = `${current._id}:${
               roundsToRender.length
             }:${roundsToRender.map((r) => r.seeds.length).join(",")}`;
-
-            // 5) Helper tính mã trận giống trong Seed header (Vx-Ty)
-            const koDisplayOrder = (mm) =>
-              Number.isFinite(Number(mm?.order)) ? Number(mm.order) + 1 : "?";
-
-            const koMatchCode = (mm) => {
-              const r = Number(mm?.round ?? 1);
-              const disp = Number.isFinite(r)
-                ? baseRoundStartForCurrent + (r - 1)
-                : r;
-              return `V${disp}-T${koDisplayOrder(mm)}`;
-            };
-
-            // 6) Chuẩn hoá list trận phân hạng (thường là tranh 3–4)
-            const placementRows = placementMatches
-              .slice()
-              .sort(
-                (a, b) =>
-                  (a.round || 1) - (b.round || 1) ||
-                  (a.order || 0) - (b.order || 0)
-              )
-              .map((m) => {
-                const code = koMatchCode(m);
-                const aName = resolveSideLabel(m, "A");
-                const bName = resolveSideLabel(m, "B");
-                const time = formatTime(pickGroupKickoffTime(m));
-                const court = getStickyCourt(m);
-                const score = scoreLabel(m);
-                const video = hasVideo(m);
-                return {
-                  id: String(m._id),
-                  code,
-                  aName,
-                  bName,
-                  time,
-                  court,
-                  score,
-                  video,
-                  match: m,
-                };
-              });
 
             return (
               <>
@@ -4033,7 +3952,6 @@ export default function TournamentBracket() {
                   </Alert>
                 )}
 
-                {/* ===== BRACKET KO CHÍNH (không có trận 3–4) ===== */}
                 <Box sx={{ position: "relative" }}>
                   <ZoomControls
                     zoom={zoom}
@@ -4073,208 +3991,7 @@ export default function TournamentBracket() {
                   </Box>
                 </Box>
 
-                {/* ===== TRẬN TRANH HẠNG 3–4 (TÁCH RIÊNG) ===== */}
-                {placementRows.length > 0 && (
-                  <Box sx={{ mt: 3 }}>
-                    <Typography
-                      variant="subtitle1"
-                      sx={{ fontWeight: 700, mb: 1 }}
-                    >
-                      Trận tranh hạng 3–4
-                    </Typography>
-
-                    {isMdUp ? (
-                      <TableContainer
-                        component={Paper}
-                        variant="outlined"
-                        sx={{ borderRadius: 2 }}
-                      >
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow>
-                              <TableCell sx={{ width: 160, fontWeight: 700 }}>
-                                Mã
-                              </TableCell>
-                              <TableCell sx={{ fontWeight: 700 }}>
-                                Trận
-                              </TableCell>
-                              <TableCell sx={{ width: 180, fontWeight: 700 }}>
-                                Giờ đấu
-                              </TableCell>
-                              <TableCell sx={{ width: 160, fontWeight: 700 }}>
-                                Sân
-                              </TableCell>
-                              <TableCell sx={{ width: 120, fontWeight: 700 }}>
-                                Tỷ số
-                              </TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {placementRows.map((r) => (
-                              <TableRow
-                                key={r.id}
-                                hover
-                                onClick={() => openMatch(r.match)}
-                                sx={{ cursor: "pointer" }}
-                              >
-                                <TableCell>
-                                  {(() => {
-                                    const badge = codeBadge(r.match);
-                                    const state = matchStateKey(r.match);
-                                    const tip =
-                                      state === "live"
-                                        ? "Đang diễn ra"
-                                        : state === "done"
-                                        ? "Đã kết thúc"
-                                        : "Dự kiến";
-                                    return (
-                                      <Box
-                                        sx={{
-                                          display: "inline-flex",
-                                          alignItems: "center",
-                                          gap: 0.5,
-                                        }}
-                                      >
-                                        <Tooltip title={tip} arrow>
-                                          <Chip
-                                            size="small"
-                                            label={r.code}
-                                            sx={{
-                                              fontWeight: 700,
-                                              bgcolor: badge.bg,
-                                              color: badge.fg,
-                                              ...(badge.border
-                                                ? {
-                                                    border: "1px solid",
-                                                    borderColor: "divider",
-                                                  }
-                                                : {}),
-                                            }}
-                                          />
-                                        </Tooltip>
-                                        {r.video && (
-                                          <Tooltip
-                                            title="Có video/stream"
-                                            arrow
-                                          >
-                                            <VideoIcon
-                                              sx={{
-                                                fontSize: 18,
-                                                color: "error.main",
-                                              }}
-                                            />
-                                          </Tooltip>
-                                        )}
-                                      </Box>
-                                    );
-                                  })()}
-                                </TableCell>
-                                <TableCell sx={{ wordBreak: "break-word" }}>
-                                  {r.aName} <b>vs</b> {r.bName}
-                                </TableCell>
-                                <TableCell>{r.time || "—"}</TableCell>
-                                <TableCell>{r.court || "—"}</TableCell>
-                                <TableCell sx={{ fontWeight: 700 }}>
-                                  {r.score || "—"}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    ) : (
-                      <Stack spacing={1.25}>
-                        {placementRows.map((r) => (
-                          <Paper
-                            key={r.id}
-                            variant="outlined"
-                            onClick={() => openMatch(r.match)}
-                            sx={{
-                              p: 1.25,
-                              borderRadius: 2,
-                              cursor: "pointer",
-                              "&:hover": {
-                                borderColor: "primary.main",
-                                boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
-                              },
-                            }}
-                          >
-                            <Stack
-                              direction="row"
-                              alignItems="center"
-                              justifyContent="space-between"
-                              sx={{ mb: 0.5 }}
-                            >
-                              <Box
-                                sx={{
-                                  display: "inline-flex",
-                                  alignItems: "center",
-                                  gap: 0.5,
-                                }}
-                              >
-                                {(() => {
-                                  const badge = codeBadge(r.match);
-                                  return (
-                                    <Chip
-                                      size="small"
-                                      label={r.code}
-                                      sx={{
-                                        fontWeight: 700,
-                                        bgcolor: badge.bg,
-                                        color: badge.fg,
-                                        ...(badge.border
-                                          ? {
-                                              border: "1px solid",
-                                              borderColor: "divider",
-                                            }
-                                          : {}),
-                                      }}
-                                    />
-                                  );
-                                })()}
-                                {r.video && (
-                                  <VideoIcon
-                                    sx={{ fontSize: 18, color: "error.main" }}
-                                  />
-                                )}
-                              </Box>
-                              <Typography
-                                variant="subtitle2"
-                                sx={{ fontWeight: 800, ml: 1 }}
-                              >
-                                {r.score || "—"}
-                              </Typography>
-                            </Stack>
-                            <Typography
-                              variant="body2"
-                              sx={{ mb: 0.25, lineHeight: 1.3 }}
-                            >
-                              {r.aName}
-                              <span style={{ opacity: 0.6 }}>
-                                {" "}
-                                &nbsp;vs&nbsp;{" "}
-                              </span>
-                              {r.bName}
-                            </Typography>
-                            {(r.time || r.court) && (
-                              <Typography
-                                variant="caption"
-                                sx={{ color: "text.secondary" }}
-                              >
-                                {r.time && <>🕒 {r.time}</>}
-                                {r.time && r.court && " • "}
-                                {r.court && <>🏟 {r.court}</>}
-                              </Typography>
-                            )}
-                          </Paper>
-                        ))}
-                      </Stack>
-                    )}
-                  </Box>
-                )}
-
-                {/* Note dưới cùng vẫn dùng mainMatches để xét */}
-                {mainMatches.length === 0 && prefillRounds && (
+                {currentMatches.length === 0 && prefillRounds && (
                   <Typography variant="caption" color="text.secondary">
                     * Đang hiển thị khung <b>prefill</b>
                     {current?.prefill?.isVirtual
@@ -4289,7 +4006,7 @@ export default function TournamentBracket() {
                     . Khi có trận thật, nhánh sẽ tự cập nhật.
                   </Typography>
                 )}
-                {mainMatches.length === 0 && !prefillRounds && (
+                {currentMatches.length === 0 && !prefillRounds && (
                   <Typography variant="caption" color="text.secondary">
                     * Chưa bốc thăm / chưa lấy đội từ vòng trước — tạm hiển thị
                     khung theo <b>quy mô</b>. Khi có trận thật, nhánh sẽ tự cập
