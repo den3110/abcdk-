@@ -84,7 +84,7 @@ export default function LiveMatchCard({ item }) {
 
   const { userInfo } = useSelector((state) => state.auth || {});
   const isAdmin = Boolean(userInfo?.isAdmin || userInfo?.role === "admin");
-
+  console.log(isAdmin)
   const [deleteLiveVideo, { isLoading: isDeleting }] =
     useDeleteLiveVideoMutation();
 

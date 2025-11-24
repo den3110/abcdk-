@@ -81,4 +81,4 @@ export const liveApiSlice = apiSlice.injectEndpoints({
   }),
 });
 
-export const { useGetLiveMatchesQuery } = liveApiSlice;
+export const { useGetLiveMatchesQuery, useDeleteLiveVideoMutation } = liveApiSlice;
