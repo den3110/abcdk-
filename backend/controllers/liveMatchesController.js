@@ -5,17 +5,45 @@ import Bracket from "../models/bracketModel.js";
 export async function listLiveMatches(req, res) {
   try {
     const q = req.query || {};
-    const windowMs = Number(q.windowMs ?? 8 * 3600 * 1000);
+
+    /* ================== parse windowMs ================== */
+    const windowMs = Number.isFinite(Number(q.windowMs))
+      ? Number(q.windowMs)
+      : 8 * 3600 * 1000; // default 8h
     const since = new Date(Date.now() - windowMs);
 
-    const rows = await Match.find({
-      status: "live",
+    /* ================== parse statuses ================== */
+    let statuses = [];
+
+    // ?statuses=scheduled,queued,assigned,live
+    if (typeof q.statuses === "string" && q.statuses.trim()) {
+      statuses = q.statuses
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+
+    // fallback: ?status=live
+    if (!statuses.length && typeof q.status === "string" && q.status.trim()) {
+      statuses = [q.status.trim()];
+    }
+
+    // nếu không truyền gì thì mặc định là chỉ lấy match đang live
+    const statusFilter =
+      statuses.length > 0 ? { status: { $in: statuses } } : { status: "live" };
+
+    /* ================== build query Match ================== */
+    const matchQuery = {
+      ...statusFilter,
       updatedAt: { $gte: since },
+      // vẫn giữ điều kiện phải có facebook live
       $or: [
         { "facebookLive.permalink_url": { $exists: true, $ne: "" } },
         { "facebookLive.id": { $exists: true, $ne: "" } },
       ],
-    })
+    };
+
+    const rows = await Match.find(matchQuery)
       .populate({
         path: "pairA",
         populate: [
@@ -39,13 +67,17 @@ export async function listLiveMatches(req, res) {
         items: [],
         meta: {
           source: "match-only",
-          filter: "status=live + hasFacebook",
-          windowMs,
+          filter: {
+            statuses: statuses.length ? statuses : ["live"],
+            hasFacebook: true,
+            windowMs,
+          },
           at: new Date().toISOString(),
         },
       });
     }
 
+    /* ================== brackets ================== */
     const tourIds = [
       ...new Set(
         rows
@@ -173,6 +205,7 @@ export async function listLiveMatches(req, res) {
       return { displayCode, vIndex, bIndex, tIndex, bKeyAlpha: bAlpha };
     };
 
+    /* ================== build items ================== */
     const items = rows.map((m) => {
       const { displayCode, vIndex, bIndex, tIndex, bKeyAlpha } =
         buildDisplayForMatch(m);
@@ -186,7 +219,6 @@ export async function listLiveMatches(req, res) {
         status: m.status,
         currentGame: m.currentGame ?? 0,
         labelKey: m.labelKey,
-        // ✅ code = displayCode luôn
         code: displayCode,
         displayCode,
         vIndex,
@@ -217,8 +249,11 @@ export async function listLiveMatches(req, res) {
       items,
       meta: {
         source: "match-only",
-        filter: "status=live + hasFacebook",
-        windowMs,
+        filter: {
+          statuses: statuses.length ? statuses : ["live"],
+          hasFacebook: true,
+          windowMs,
+        },
         at: new Date().toISOString(),
       },
     });

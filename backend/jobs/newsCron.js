@@ -2,7 +2,8 @@
 import cron from "node-cron";
 import { runCrawlEngine } from "../services/crawlEngine.js";
 import NewsSettings from "../models/newsSettingsModel.js";
-import { discoverFeaturedArticlesV2 } from "../services/articleDiscoveryServiceV2.js";
+// import { discoverFeaturedArticlesV2 } from "../services/articleDiscoveryServiceV2.js";
+import { discoverFeaturedArticles } from "../services/articleDiscoveryService.js";
 
 export function initNewsCron() {
   // Chạy mỗi ngày lúc 00:00 theo giờ Asia/Bangkok (GMT+7)
@@ -32,7 +33,7 @@ export function initNewsCron() {
             `[NewsCron] Discovery attempt ${attempt}/${MAX_ATTEMPTS}...`
           );
 
-          const res = await discoverFeaturedArticlesV2();
+          const res = await discoverFeaturedArticles();
           lastResult = res;
 
           const isTransient = res && (res.transientError || res.ok === false);

@@ -62,6 +62,9 @@ import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
 import { initNewsCron } from "./jobs/newsCron.js";
 // 🔹 GraphQL layer
 import { setupGraphQL } from "./graphql/index.js";
+import { timezoneMiddleware } from "./middleware/timezoneMiddleware.js";
+import { normalizeRequestDates } from "./middleware/normalizeRequestDates.js";
+import { convertResponseDates } from "./middleware/convertResponseDates.js";
 
 dotenv.config();
 const port = process.env.PORT;
@@ -79,6 +82,10 @@ const app = express();
 
 // body limit rộng hơn cho HTML/JSON dài
 app.use(express.json({ limit: "50mb" }));
+app.use(timezoneMiddleware);
+app.use(normalizeRequestDates);
+app.use(convertResponseDates);
+
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cookieParser());
 app.set("trust proxy", 1);
@@ -220,7 +227,7 @@ const startServer = async () => {
         startFacebookBusyCron();
         initEmail();
         initNewsCron();
-        await startAgenda();
+        startAgenda();
       } catch (error) {
         console.error(`❌ Error starting server: ${error.message}`);
       }

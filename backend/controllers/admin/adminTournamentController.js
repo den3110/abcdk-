@@ -383,8 +383,29 @@ const validate = (schema, payload) => {
     errors: { wrap: { label: "" } },
   };
 
-  const { error, value } = schema.validate(payload, options);
-  const strippedKeys = Object.keys(payload || {}).filter(
+  const src = payload || {};
+  const normalizedPayload = { ...src };
+
+  // 🔹 Các field datetime cần xử lý
+  const dateFields = [
+    "regOpenDate",
+    "registrationDeadline",
+    "startDate",
+    "endDate",
+  ];
+
+  // 🔹 Trước khi validate: nếu là Date thì đổi về string "YYYY-MM-DDTHH:mm:ss"
+  for (const field of dateFields) {
+    const v = normalizedPayload[field];
+    if (v instanceof Date) {
+      // coi như UTC rồi format về chuẩn schema yêu cầu
+      const dt = DateTime.fromJSDate(v, { zone: "UTC" });
+      normalizedPayload[field] = dt.toFormat("yyyy-LL-dd'T'HH:mm:ss");
+    }
+  }
+
+  const { error, value } = schema.validate(normalizedPayload, options);
+  const strippedKeys = Object.keys(src || {}).filter(
     (k) => !(k in (value || {}))
   );
 
@@ -431,23 +452,15 @@ const validate = (schema, payload) => {
     throw err;
   }
 
-  // ✅ FIX: Coi string input như UTC để giữ nguyên giá trị số
-  const dateFields = [
-    "regOpenDate",
-    "registrationDeadline",
-    "startDate",
-    "endDate",
-  ];
-
+  // 🔹 Sau khi validate ok: convert string → Date UTC để lưu DB
   for (const field of dateFields) {
     if (value[field] && typeof value[field] === "string") {
-      // "2025-11-20T11:32:42" → Coi như UTC → new Date("2025-11-20T11:32:42Z")
       const dateStr = value[field];
-      value[field] = new Date(dateStr + "Z"); // Thêm 'Z' để parse như UTC
+      value[field] = new Date(dateStr + "Z"); // thêm 'Z' để parse như UTC
 
       console.log(`[DEBUG] ${field}:`, {
         input: dateStr,
-        dbValue: value[field].toISOString(), // Giá trị sẽ lưu vào DB
+        dbValue: value[field].toISOString(),
       });
     }
   }

@@ -7,8 +7,36 @@ import { createListenerMiddleware } from "@reduxjs/toolkit";
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: import.meta.env.VITE_API_URL,
   credentials: "include",
-});
+  prepareHeaders: (headers, { getState }) => {
+    try {
+      // Timezone dạng "Asia/Ho_Chi_Minh"
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (tz) {
+        headers.set("X-Timezone", tz);
+      }
 
+      // Offset phút so với UTC (VN: -420)
+      const offsetMinutes = new Date().getTimezoneOffset();
+      headers.set("X-Timezone-Offset", String(offsetMinutes));
+
+      // Format GMT±HH:MM từ offset
+      const offsetHoursFloat = -offsetMinutes / 60; // lưu ý dấu: getTimezoneOffset là lệch SO VỚI UTC
+      const sign = offsetHoursFloat >= 0 ? "+" : "-";
+      const absTotalMinutes = Math.abs(offsetMinutes); // vd 420
+      const absHours = Math.floor(absTotalMinutes / 60); // 7
+      const absMinutes = absTotalMinutes % 60; // 0
+
+      const pad = (n) => String(n).padStart(2, "0");
+      const gmt = `GMT${sign}${pad(absHours)}:${pad(absMinutes)}`; // ví dụ: GMT+07:00
+
+      headers.set("X-Timezone-Gmt", gmt);
+    } catch (e) {
+      console.log("Cannot resolve timezone", e);
+    }
+
+    return headers;
+  },
+});
 /* Helper: chuyển qua trang /404 an toàn (SPA), lưu origin để hiển thị */
 function redirectTo404() {
   if (typeof window === "undefined") return;

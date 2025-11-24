@@ -1591,6 +1591,8 @@ export default function TournamentRegistration() {
                         value={p1}
                         onChange={setP1}
                         eventType={tour.eventType}
+                        label="VĐV 1"
+                        placeholder="Tìm theo tên, SĐT..."
                       />
                     ) : (
                       <Card

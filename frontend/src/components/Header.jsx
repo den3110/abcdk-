@@ -177,7 +177,7 @@ const Header = () => {
         borderBottom: "1px solid",
         borderColor: "divider",
         top: 0,
-        zIndex: 1300,
+        zIndex: 1199,
         ...pulseKeyframes,
       }}
     >

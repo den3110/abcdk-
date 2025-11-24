@@ -753,7 +753,7 @@ export default function TournamentDashboard() {
                 <Typography variant="h6" color="text.disabled">
                   Không tìm thấy giải đấu nào phù hợp.
                 </Typography>
-                <Button
+                {/* <Button
                   variant="text"
                   onClick={() => {
                     setKeyword("");
@@ -761,7 +761,7 @@ export default function TournamentDashboard() {
                   }}
                 >
                   Xoá bộ lọc
-                </Button>
+                </Button> */}
               </Stack>
             ) : (
               <Grid container spacing={3}>
