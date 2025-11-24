@@ -25,6 +25,9 @@ import FacebookIcon from "@mui/icons-material/Facebook";
 import VideocamIcon from "@mui/icons-material/Videocam";
 import InfoOutlinedIcon from "@mui/icons-material/InfoOutlined";
 import ReplayIcon from "@mui/icons-material/Replay";
+import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import { useSelector } from "react-redux";
+import { useDeleteLiveVideoMutation } from "../../slices/liveApiSlice";
 
 function timeAgo(date) {
   if (!date) return "";
@@ -73,15 +76,17 @@ const providerMeta = (p) =>
 
 const byPriority = (a, b) =>
   (({ youtube: 1, facebook: 2 }[a.provider] || 99) -
-  ({ youtube: 1, facebook: 2 }[b.provider] || 99));
+    ({ youtube: 1, facebook: 2 }[b.provider] || 99));
 
-export default function LiveMatchCard({
-  item,
-  // ⏱ cho phép truyền từ ngoài vào, ví dụ 20000 = 20s
-  autoEmbedRefreshMs = 3000000,
-}) {
+export default function LiveMatchCard({ item }) {
   const theme = useTheme();
   const smDown = useMediaQuery(theme.breakpoints.down("sm"));
+
+  const { userInfo } = useSelector((state) => state.auth || {});
+  const isAdmin = Boolean(userInfo?.isAdmin || userInfo?.role === "admin");
+
+  const [deleteLiveVideo, { isLoading: isDeleting }] =
+    useDeleteLiveVideoMutation();
 
   const m = item || {};
   const fb = m.facebookLive || {};
@@ -111,6 +116,17 @@ export default function LiveMatchCard({
     : [];
   const primary = sessions[0] || null;
   const hasEmbed = Boolean(primary?.embedHtml || primary?.embedUrl);
+
+  const hasVideoInfo =
+    Boolean(
+      fb.id ||
+        fb.videoId ||
+        fb.permalink_url ||
+        fb.video_permalink_url ||
+        fb.watch_url ||
+        fb.embed_url ||
+        fb.embed_html
+    ) || Boolean(primary);
 
   const isLive = String(m.status || "").toLowerCase() === "live";
 
@@ -142,20 +158,10 @@ export default function LiveMatchCard({
   const openInfo = (e) => setInfoAnchor(e.currentTarget);
   const closeInfo = () => setInfoAnchor(null);
 
-  // 👇👇👇 phần QUAN TRỌNG: mỗi lần embedTick đổi, khối embed được re-mount
+  // mỗi lần embedTick đổi, khối embed được re-mount
   const [embedTick, setEmbedTick] = React.useState(0);
 
-  // auto refresh định kỳ — chỉ chạy nếu có embed
-  React.useEffect(() => {
-    if (!hasEmbed) return;
-    if (!autoEmbedRefreshMs || autoEmbedRefreshMs < 5000) return;
-    const id = setInterval(() => {
-      setEmbedTick((t) => t + 1);
-    }, autoEmbedRefreshMs);
-    return () => clearInterval(id);
-  }, [hasEmbed, autoEmbedRefreshMs]);
-
-  // nếu facebookLive đổi (BE bắn về embed html mới) thì mình cũng reset để lấy cái mới
+  // ✅ chỉ reload khi BE đổi embed html/url
   React.useEffect(() => {
     setEmbedTick((t) => t + 1);
   }, [fb.embed_html, fb.embed_url, fbWatch]);
@@ -165,6 +171,31 @@ export default function LiveMatchCard({
       •
     </Box>
   );
+
+  const handleDeleteVideo = async () => {
+    if (!m?._id) return;
+    const ok = window.confirm(
+      "Bạn chắc chắn muốn xoá thông tin video khỏi trận này?\nTrận sẽ không bị xoá, chỉ xoá link video / embed."
+    );
+    if (!ok) return;
+
+    try {
+      await deleteLiveVideo(m._id).unwrap();
+      setSnack({
+        open: true,
+        message: "Đã xoá video khỏi trận.",
+        severity: "success",
+      });
+      // để RTK Query refetch list, card sẽ nhận item mới không còn video
+    } catch (err) {
+      console.error("deleteLiveVideo error:", err);
+      setSnack({
+        open: true,
+        message: "Xoá video thất bại, thử lại sau.",
+        severity: "error",
+      });
+    }
+  };
 
   return (
     <>
@@ -189,7 +220,7 @@ export default function LiveMatchCard({
             "&:hover": { boxShadow: 3, borderColor: "divider" },
           }}
         >
-          {/* 👇 NEW: ưu tiên hiển thị embed nếu có + có nút reload nhỏ */}
+          {/* ưu tiên hiển thị embed nếu có + nút reload tay */}
           {hasEmbed ? (
             <Box
               key={`embed-${m._id || "x"}-${embedTick}`}
@@ -353,69 +384,89 @@ export default function LiveMatchCard({
           >
             <Box sx={{ minWidth: 0 }}>
               {primary ? (
-                <Stack
-                  direction="row"
-                  alignItems="center"
-                  spacing={1}
-                  sx={{ minWidth: 0 }}
-                >
-                  <Button
-                    fullWidth
-                    variant="contained"
-                    color="primary"
-                    startIcon={<FacebookIcon />}
-                    endIcon={<OpenInNewIcon />}
-                    href={primary.watchUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    sx={{
-                      textTransform: "none",
-                      fontWeight: 700,
-                      minWidth: 0,
-                      maxWidth: "100%",
-                    }}
-                    title={`Xem trên Facebook${
-                      primary.watchUrl ? ` (${hostOf(primary.watchUrl)})` : ""
-                    }`}
+                <>
+                  <Stack
+                    direction="row"
+                    alignItems="center"
+                    spacing={1}
+                    sx={{ minWidth: 0 }}
                   >
-                    <Box
+                    <Button
+                      fullWidth
+                      variant="contained"
+                      color="primary"
+                      startIcon={<FacebookIcon />}
+                      endIcon={<OpenInNewIcon />}
+                      href={primary.watchUrl}
+                      target="_blank"
+                      rel="noreferrer"
                       sx={{
-                        display: "inline-block",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        textTransform: "none",
+                        fontWeight: 700,
+                        minWidth: 0,
                         maxWidth: "100%",
                       }}
+                      title={`Xem trên Facebook${
+                        primary.watchUrl
+                          ? ` (${hostOf(primary.watchUrl)})`
+                          : ""
+                      }`}
                     >
-                      Xem trên Facebook
+                      <Box
+                        sx={{
+                          display: "inline-block",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          maxWidth: "100%",
+                        }}
+                      >
+                        Xem trên Facebook
+                      </Box>
+                    </Button>
+                    {primary.watchUrl && (
+                      <Tooltip title="Copy link">
+                        <IconButton
+                          color="default"
+                          onClick={() => copy(primary.watchUrl)}
+                        >
+                          <ContentCopyIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {(primary.embedHtml || primary.embedUrl) && (
+                      <Tooltip title="Copy embed">
+                        <IconButton
+                          color="default"
+                          onClick={() =>
+                            copy(
+                              primary.embedHtml || primary.embedUrl,
+                              "Đã copy embed!"
+                            )
+                          }
+                        >
+                          <VideocamIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Stack>
+
+                  {/* ✅ nút xoá video cho admin */}
+                  {isAdmin && hasVideoInfo && (
+                    <Box sx={{ mt: 1 }}>
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        size="small"
+                        startIcon={<DeleteOutlineIcon />}
+                        onClick={handleDeleteVideo}
+                        disabled={isDeleting}
+                      >
+                        {isDeleting ? "Đang xoá video..." : "Xoá video khỏi trận"}
+                      </Button>
                     </Box>
-                  </Button>
-                  {primary.watchUrl && (
-                    <Tooltip title="Copy link">
-                      <IconButton
-                        color="default"
-                        onClick={() => copy(primary.watchUrl)}
-                      >
-                        <ContentCopyIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
                   )}
-                  {(primary.embedHtml || primary.embedUrl) && (
-                    <Tooltip title="Copy embed">
-                      <IconButton
-                        color="default"
-                        onClick={() =>
-                          copy(
-                            primary.embedHtml || primary.embedUrl,
-                            "Đã copy embed!"
-                          )
-                        }
-                      >
-                        <VideocamIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                </Stack>
+                </>
               ) : (
                 <Typography variant="body2" color="text.secondary">
                   Chưa có URL phát hợp lệ.
@@ -453,209 +504,106 @@ export default function LiveMatchCard({
         </Card>
       </Box>
 
-      {/* Info dialog/popover giữ nguyên */}
-      {smDown ? (
-        <Dialog
-          open={Boolean(infoAnchor)}
-          onClose={closeInfo}
-          fullWidth
-          maxWidth="sm"
-        >
-          <DialogTitle>Thông tin trận</DialogTitle>
-          <DialogContent dividers>
-            <Stack spacing={1}>
+      {/* Info dialog (mình giữ logic hiện tại) */}
+      <Dialog
+        open={Boolean(infoAnchor)}
+        onClose={closeInfo}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>Thông tin trận</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1}>
+            <Row
+              label="Mã VT/VBT"
+              value={m.code || "-"}
+              onCopy={() => copy(m.code || "", "Đã copy mã trận!")}
+            />
+            {m.labelKey && <Row label="labelKey" value={m.labelKey} />}
+            <Row label="Trạng thái" value={viStatus(m.status)} />
+            <Row label="Sân" value={m.courtLabel || "-"} />
+            {m.startedAt && (
               <Row
-                label="Mã VT/VBT"
-                value={m.code || "-"}
-                onCopy={() => copy(m.code || "", "Đã copy mã trận!")}
+                label="Bắt đầu"
+                value={new Date(m.startedAt).toLocaleString()}
               />
-              {m.labelKey && <Row label="labelKey" value={m.labelKey} />}
-              <Row label="Trạng thái" value={viStatus(m.status)} />
-              <Row label="Sân" value={m.courtLabel || "-"} />
-              {m.startedAt && (
-                <Row
-                  label="Bắt đầu"
-                  value={new Date(m.startedAt).toLocaleString()}
-                />
-              )}
-              {m.scheduledAt && (
-                <Row
-                  label="Lịch"
-                  value={new Date(m.scheduledAt).toLocaleString()}
-                />
-              )}
-              {m.updatedAt && (
-                <Row label="Cập nhật" value={timeAgo(m.updatedAt)} />
-              )}
-
-              {/* thêm 2 dòng embed để bạn nhìn */}
-              <Row label="FB embed url" value={fb.embed_url || "-"} />
+            )}
+            {m.scheduledAt && (
               <Row
-                label="FB embed html"
-                value={fb.embed_html ? "<html...>" : "-"}
-                onCopy={
-                  fb.embed_html
-                    ? () => copy(fb.embed_html, "Đã copy embed html!")
-                    : undefined
-                }
+                label="Lịch"
+                value={new Date(m.scheduledAt).toLocaleString()}
               />
+            )}
+            {m.updatedAt && (
+              <Row label="Cập nhật" value={timeAgo(m.updatedAt)} />
+            )}
 
-              <Typography variant="subtitle2" sx={{ mt: 1 }}>
-                Nền tảng
-              </Typography>
-              <Stack spacing={0.5}>
-                {sessions.map((s, i) => {
-                  const meta = providerMeta(s.provider);
-                  return (
-                    <Stack
-                      key={i}
-                      direction="row"
-                      spacing={1}
-                      alignItems="center"
-                      justifyContent="space-between"
-                    >
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        {meta.icon}
-                        <Typography variant="body2">{meta.label}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {hostOf(s.watchUrl)}
-                        </Typography>
-                      </Stack>
-                      <Stack direction="row" spacing={0.5}>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          href={s.watchUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          startIcon={<OpenInNewIcon />}
-                        >
-                          Mở
-                        </Button>
-                        <IconButton
-                          size="small"
-                          onClick={() => copy(s.watchUrl)}
-                        >
-                          <ContentCopyIcon fontSize="small" />
-                        </IconButton>
-                      </Stack>
+            {/* thêm 2 dòng embed để bạn nhìn */}
+            <Row label="FB embed url" value={fb.embed_url || "-"} />
+            <Row
+              label="FB embed html"
+              value={fb.embed_html ? "<html...>" : "-"}
+              onCopy={
+                fb.embed_html
+                  ? () => copy(fb.embed_html, "Đã copy embed html!")
+                  : undefined
+              }
+            />
+
+            <Typography variant="subtitle2" sx={{ mt: 1 }}>
+              Nền tảng
+            </Typography>
+            <Stack spacing={0.5}>
+              {sessions.map((s, i) => {
+                const meta = providerMeta(s.provider);
+                return (
+                  <Stack
+                    key={i}
+                    direction="row"
+                    spacing={1}
+                    alignItems="center"
+                    justifyContent="space-between"
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      {meta.icon}
+                      <Typography variant="body2">{meta.label}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {hostOf(s.watchUrl)}
+                      </Typography>
                     </Stack>
-                  );
-                })}
-                {sessions.length === 0 && (
-                  <Typography variant="body2" color="text.secondary">
-                    Không có URL phát hợp lệ.
-                  </Typography>
-                )}
-              </Stack>
-            </Stack>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={closeInfo}>Đóng</Button>
-          </DialogActions>
-        </Dialog>
-      ) : (
-        // ... phần Popover cũ giữ nguyên ...
-        <Dialog
-          open={Boolean(infoAnchor)}
-          onClose={closeInfo}
-          fullWidth
-          maxWidth="sm"
-        >
-          <DialogTitle>Thông tin trận</DialogTitle>
-          <DialogContent dividers>
-            <Stack spacing={1}>
-              <Row
-                label="Mã VT/VBT"
-                value={m.code || "-"}
-                onCopy={() => copy(m.code || "", "Đã copy mã trận!")}
-              />
-              {m.labelKey && <Row label="labelKey" value={m.labelKey} />}
-              <Row label="Trạng thái" value={viStatus(m.status)} />
-              <Row label="Sân" value={m.courtLabel || "-"} />
-              {m.startedAt && (
-                <Row
-                  label="Bắt đầu"
-                  value={new Date(m.startedAt).toLocaleString()}
-                />
-              )}
-              {m.scheduledAt && (
-                <Row
-                  label="Lịch"
-                  value={new Date(m.scheduledAt).toLocaleString()}
-                />
-              )}
-              {m.updatedAt && (
-                <Row label="Cập nhật" value={timeAgo(m.updatedAt)} />
-              )}
-
-              {/* thêm 2 dòng embed để bạn nhìn */}
-              <Row label="FB embed url" value={fb.embed_url || "-"} />
-              <Row
-                label="FB embed html"
-                value={fb.embed_html ? "<html...>" : "-"}
-                onCopy={
-                  fb.embed_html
-                    ? () => copy(fb.embed_html, "Đã copy embed html!")
-                    : undefined
-                }
-              />
-
-              <Typography variant="subtitle2" sx={{ mt: 1 }}>
-                Nền tảng
-              </Typography>
-              <Stack spacing={0.5}>
-                {sessions.map((s, i) => {
-                  const meta = providerMeta(s.provider);
-                  return (
-                    <Stack
-                      key={i}
-                      direction="row"
-                      spacing={1}
-                      alignItems="center"
-                      justifyContent="space-between"
-                    >
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        {meta.icon}
-                        <Typography variant="body2">{meta.label}</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {hostOf(s.watchUrl)}
-                        </Typography>
-                      </Stack>
-                      <Stack direction="row" spacing={0.5}>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          href={s.watchUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          startIcon={<OpenInNewIcon />}
-                        >
-                          Mở
-                        </Button>
-                        <IconButton
-                          size="small"
-                          onClick={() => copy(s.watchUrl)}
-                        >
-                          <ContentCopyIcon fontSize="small" />
-                        </IconButton>
-                      </Stack>
+                    <Stack direction="row" spacing={0.5}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        href={s.watchUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        startIcon={<OpenInNewIcon />}
+                      >
+                        Mở
+                      </Button>
+                      <IconButton
+                        size="small"
+                        onClick={() => copy(s.watchUrl)}
+                      >
+                        <ContentCopyIcon fontSize="small" />
+                      </IconButton>
                     </Stack>
-                  );
-                })}
-                {sessions.length === 0 && (
-                  <Typography variant="body2" color="text.secondary">
-                    Không có URL phát hợp lệ.
-                  </Typography>
-                )}
-              </Stack>
+                  </Stack>
+                );
+              })}
+              {sessions.length === 0 && (
+                <Typography variant="body2" color="text.secondary">
+                  Không có URL phát hợp lệ.
+                </Typography>
+              )}
             </Stack>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={closeInfo}>Đóng</Button>
-          </DialogActions>
-        </Dialog>
-      )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeInfo}>Đóng</Button>
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={snack.open}

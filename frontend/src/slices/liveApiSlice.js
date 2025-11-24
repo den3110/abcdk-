@@ -67,6 +67,17 @@ export const liveApiSlice = apiSlice.injectEndpoints({
         };
       },
     }),
+     // ✅ Xoá video khỏi match (không xoá match)
+    deleteLiveVideo: builder.mutation({
+      query: (matchId) => ({
+        url: `/api/live/matches/${matchId}/video`, // BE làm route này
+        method: "DELETE",
+      }),
+      invalidatesTags: (result, error, matchId) => [
+        { type: "LiveMatches", id: "LIST" },
+        { type: "LiveMatch", id: matchId },
+      ],
+    }),
   }),
 });
 

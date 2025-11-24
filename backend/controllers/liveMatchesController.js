@@ -262,3 +262,40 @@ export async function listLiveMatches(req, res) {
     res.status(500).json({ error: e.message });
   }
 }
+
+
+export async function deleteLiveVideoForMatch(req, res) {
+  try {
+    const { matchId } = req.params;
+
+    if (!matchId) {
+      return res.status(400).json({ message: "matchId is required" });
+    }
+
+    // Xoá toàn bộ facebookLive khỏi match
+    const updated = await Match.findByIdAndUpdate(
+      matchId,
+      {
+        $unset: {
+          facebookLive: 1,
+        },
+      },
+      {
+        new: true, // trả về bản mới
+      }
+    ).lean();
+
+    if (!updated) {
+      return res.status(404).json({ message: "Match không tồn tại" });
+    }
+
+    return res.json({
+      message: "Đã xoá thông tin video khỏi match",
+      matchId: updated._id,
+      facebookLive: updated.facebookLive || null,
+    });
+  } catch (e) {
+    console.error("deleteLiveVideoForMatch error:", e);
+    return res.status(500).json({ message: e.message || "Server error" });
+  }
+}
