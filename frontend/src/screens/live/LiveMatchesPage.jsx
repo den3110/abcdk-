@@ -37,7 +37,7 @@ const LIMIT = 12;
 // CARD_HEIGHT chỉ dùng cho skeleton lúc loading để UI đỡ nhảy
 const SKELETON_HEIGHT = 232;
 const STATUS_OPTIONS = ["scheduled", "queued", "assigned", "live", "finished"];
-const HOUR_PRESETS = [2, 4, 8, 24];
+const HOUR_PRESETS = [2, 4, 8, 24, 48, 72];
 
 function useTickingAgo() {
   const [ts, setTs] = useState(Date.now());
@@ -58,6 +58,13 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
   const [windowHours, setWindowHours] = useState(initial.windowHours);
   const [autoRefresh, setAutoRefresh] = useState(initial.autoRefresh);
   const [refreshSec, setRefreshSec] = useState(initial.refreshSec);
+
+  // ⚙️ format label cho option thời gian
+  const formatWindowOptionLabel = (h) => {
+    if (h < 24) return `${h} giờ gần nhất`;
+    const days = h / 24;
+    return `${days} ngày gần nhất`;
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -134,7 +141,9 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
               MenuProps={{ disablePortal: true }}
             >
               {HOUR_PRESETS.map((h) => (
-                <MenuItem key={h} value={h}>{`${h} giờ gần nhất`}</MenuItem>
+                <MenuItem key={h} value={h}>
+                  {formatWindowOptionLabel(h)}
+                </MenuItem>
               ))}
             </Select>
             <FormControlLabel
@@ -253,10 +262,41 @@ export default function LiveMatchesPage() {
   useEffect(() => {
     if (!isFetching) lastFetchRef.current = Date.now();
   }, [isFetching]);
+
   const updatedAgoSec = Math.max(
     0,
     Math.floor((tick - lastFetchRef.current) / 1000)
   );
+
+  // ✅ label khoảng thời gian tương đương windowMs (now - windowMs → now)
+  const windowRangeLabel = useMemo(() => {
+    if (!windowHours || windowHours <= 0) return "";
+    const now = new Date(tick);
+    const from = new Date(now.getTime() - windowHours * 3600 * 1000);
+
+    const fmtTime = (d) =>
+      d.toLocaleTimeString("vi-VN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    const fmtDate = (d) =>
+      d.toLocaleDateString("vi-VN", {
+        day: "2-digit",
+        month: "2-digit",
+      });
+
+    const sameDay = from.toDateString() === now.toDateString();
+
+    if (sameDay) {
+      // Ví dụ: 13:00–21:00 hôm nay (24/11)
+      return `${fmtTime(from)}–${fmtTime(now)} hôm nay (${fmtDate(now)})`;
+    }
+
+    // Ví dụ: 22:00 23/11 – 06:00 24/11
+    return `${fmtTime(from)} ${fmtDate(from)} – ${fmtTime(now)} ${fmtDate(
+      now
+    )}`;
+  }, [tick, windowHours]);
 
   const activeFilters =
     (statuses.length !== STATUS_OPTIONS.length ? 1 : 0) +
@@ -273,6 +313,7 @@ export default function LiveMatchesPage() {
     setFilterOpen(false);
     setPage(1);
   };
+
   const clearChip = (t) => {
     if (t === "statuses") setStatuses([...STATUS_OPTIONS]);
     else if (t === "window") setWindowHours(8);
@@ -283,6 +324,7 @@ export default function LiveMatchesPage() {
     }
     setPage(1);
   };
+
   const initialFilters = useMemo(
     () => ({ statuses, excludeFinished, windowHours, autoRefresh, refreshSec }),
     [statuses, excludeFinished, windowHours, autoRefresh, refreshSec]
@@ -353,7 +395,7 @@ export default function LiveMatchesPage() {
         </Tooltip>
       </Paper>
 
-      <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 2 }}>
+      <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1 }}>
         {statuses.length !== STATUS_OPTIONS.length && (
           <Chip
             label={`Trạng thái: ${statuses.join(", ")}`}
@@ -393,6 +435,17 @@ export default function LiveMatchesPage() {
         </Typography>
       </Stack>
 
+      {/* ✅ dòng mô tả khoảng thời gian tương đương windowMs */}
+      {windowRangeLabel && (
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          sx={{ mb: 2, width: "100%", textAlign: "right" }}
+        >
+          Khoảng thời gian: {windowRangeLabel}
+        </Typography>
+      )}
+
       {isLoading ? (
         <Box sx={gridSx}>
           {Array.from({ length: LIMIT }).map((_, i) => (
@@ -415,7 +468,7 @@ export default function LiveMatchesPage() {
           <Box sx={gridSx}>
             {items.map((it) => (
               <Box
-                key={it._id}  
+                key={it._id}
                 sx={{
                   // ❗ Không đặt height cố định ở đây
                   display: "flex",
