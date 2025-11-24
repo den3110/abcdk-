@@ -73,7 +73,7 @@ const providerMeta = (p) =>
 
 const byPriority = (a, b) =>
   (({ youtube: 1, facebook: 2 }[a.provider] || 99) -
-    ({ youtube: 1, facebook: 2 }[b.provider] || 99));
+  ({ youtube: 1, facebook: 2 }[b.provider] || 99));
 
 export default function LiveMatchCard({
   item,
@@ -453,7 +453,7 @@ export default function LiveMatchCard({
         </Card>
       </Box>
 
-      {/* Info dialog/popover giữ nguyên */} 
+      {/* Info dialog/popover giữ nguyên */}
       {smDown ? (
         <Dialog
           open={Boolean(infoAnchor)}
@@ -556,7 +556,105 @@ export default function LiveMatchCard({
         </Dialog>
       ) : (
         // ... phần Popover cũ giữ nguyên ...
-        <></>
+        <Dialog
+          open={Boolean(infoAnchor)}
+          onClose={closeInfo}
+          fullWidth
+          maxWidth="sm"
+        >
+          <DialogTitle>Thông tin trận</DialogTitle>
+          <DialogContent dividers>
+            <Stack spacing={1}>
+              <Row
+                label="Mã VT/VBT"
+                value={m.code || "-"}
+                onCopy={() => copy(m.code || "", "Đã copy mã trận!")}
+              />
+              {m.labelKey && <Row label="labelKey" value={m.labelKey} />}
+              <Row label="Trạng thái" value={viStatus(m.status)} />
+              <Row label="Sân" value={m.courtLabel || "-"} />
+              {m.startedAt && (
+                <Row
+                  label="Bắt đầu"
+                  value={new Date(m.startedAt).toLocaleString()}
+                />
+              )}
+              {m.scheduledAt && (
+                <Row
+                  label="Lịch"
+                  value={new Date(m.scheduledAt).toLocaleString()}
+                />
+              )}
+              {m.updatedAt && (
+                <Row label="Cập nhật" value={timeAgo(m.updatedAt)} />
+              )}
+
+              {/* thêm 2 dòng embed để bạn nhìn */}
+              <Row label="FB embed url" value={fb.embed_url || "-"} />
+              <Row
+                label="FB embed html"
+                value={fb.embed_html ? "<html...>" : "-"}
+                onCopy={
+                  fb.embed_html
+                    ? () => copy(fb.embed_html, "Đã copy embed html!")
+                    : undefined
+                }
+              />
+
+              <Typography variant="subtitle2" sx={{ mt: 1 }}>
+                Nền tảng
+              </Typography>
+              <Stack spacing={0.5}>
+                {sessions.map((s, i) => {
+                  const meta = providerMeta(s.provider);
+                  return (
+                    <Stack
+                      key={i}
+                      direction="row"
+                      spacing={1}
+                      alignItems="center"
+                      justifyContent="space-between"
+                    >
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        {meta.icon}
+                        <Typography variant="body2">{meta.label}</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {hostOf(s.watchUrl)}
+                        </Typography>
+                      </Stack>
+                      <Stack direction="row" spacing={0.5}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          href={s.watchUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          startIcon={<OpenInNewIcon />}
+                        >
+                          Mở
+                        </Button>
+                        <IconButton
+                          size="small"
+                          onClick={() => copy(s.watchUrl)}
+                        >
+                          <ContentCopyIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                    </Stack>
+                  );
+                })}
+                {sessions.length === 0 && (
+                  <Typography variant="body2" color="text.secondary">
+                    Không có URL phát hợp lệ.
+                  </Typography>
+                )}
+              </Stack>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={closeInfo}>Đóng</Button>
+          </DialogActions>
+        </Dialog>
       )}
 
       <Snackbar
