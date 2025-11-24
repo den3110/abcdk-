@@ -1,4 +1,10 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, {
+  useMemo,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+} from "react";
 import {
   Box,
   Stack,
@@ -235,6 +241,9 @@ export default function LiveMatchesPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [filtersReady, setFiltersReady] = useState(false); // ✅ để tránh save đè lên data cũ khi chưa load xong
 
+  // ✅ NEW: list id match đã xoá video (ẩn card trên FE)
+  const [removedIds, setRemovedIds] = useState([]);
+
   // ✅ load filters từ localStorage lần đầu
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -384,6 +393,8 @@ export default function LiveMatchesPage() {
     setRefreshSec(p.refreshSec);
     setFilterOpen(false);
     setPage(1);
+    // đổi filter thì clear list match đã xoá, cho sync lại với server
+    setRemovedIds([]);
   };
 
   const clearChip = (t) => {
@@ -395,12 +406,26 @@ export default function LiveMatchesPage() {
       setRefreshSec(DEFAULT_REFRESH_SEC);
     }
     setPage(1);
+    setRemovedIds([]);
   };
 
   const initialFilters = useMemo(
     () => ({ statuses, excludeFinished, windowHours, autoRefresh, refreshSec }),
     [statuses, excludeFinished, windowHours, autoRefresh, refreshSec]
   );
+
+  // ✅ handler khi 1 card báo "đã xoá video"
+  const handleCardDeleted = useCallback((matchId) => {
+    if (!matchId) return;
+    const idStr = String(matchId);
+    setRemovedIds((prev) => (prev.includes(idStr) ? prev : [...prev, idStr]));
+  }, []);
+
+  // ✅ items hiển thị thực tế = items từ API trừ đi những cái đã xoá video
+  const visibleItems = useMemo(() => {
+    if (!removedIds.length) return items;
+    return items.filter((it) => !removedIds.includes(String(it._id)));
+  }, [items, removedIds]);
 
   // CSS Grid: mỗi hàng tự cao theo item cao nhất; item bên trong phải stretch
   const gridSx = {
@@ -538,7 +563,7 @@ export default function LiveMatchesPage() {
       ) : (
         <>
           <Box sx={gridSx}>
-            {items.map((it) => (
+            {visibleItems.map((it) => (
               <Box
                 key={it._id}
                 sx={{
@@ -548,7 +573,7 @@ export default function LiveMatchesPage() {
                   alignItems: "stretch", // để con stretch full chiều cao grid item
                 }}
               >
-                <LiveMatchCard item={it} />
+                <LiveMatchCard item={it} onDeleted={handleCardDeleted} />
               </Box>
             ))}
           </Box>
@@ -584,7 +609,7 @@ export default function LiveMatchesPage() {
             </Stack>
           )}
 
-          {items.length === 0 && (
+          {visibleItems.length === 0 && (
             <Box sx={{ textAlign: "center", py: 6 }}>
               <Typography variant="h6">Không có trận phù hợp bộ lọc</Typography>
               <Typography variant="body2" color="text.secondary">

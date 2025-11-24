@@ -76,15 +76,15 @@ const providerMeta = (p) =>
 
 const byPriority = (a, b) =>
   (({ youtube: 1, facebook: 2 }[a.provider] || 99) -
-    ({ youtube: 1, facebook: 2 }[b.provider] || 99));
+  ({ youtube: 1, facebook: 2 }[b.provider] || 99));
 
-export default function LiveMatchCard({ item }) {
+export default function LiveMatchCard({ item, onDeleted }) {
   const theme = useTheme();
   const smDown = useMediaQuery(theme.breakpoints.down("sm"));
 
   const { userInfo } = useSelector((state) => state.auth || {});
   const isAdmin = Boolean(userInfo?.isAdmin || userInfo?.role === "admin");
-  console.log(isAdmin)
+
   const [deleteLiveVideo, { isLoading: isDeleting }] =
     useDeleteLiveVideoMutation();
 
@@ -161,7 +161,7 @@ export default function LiveMatchCard({ item }) {
   // mỗi lần embedTick đổi, khối embed được re-mount
   const [embedTick, setEmbedTick] = React.useState(0);
 
-  // ✅ chỉ reload khi BE đổi embed html/url
+  // chỉ reload khi BE đổi embed html/url
   React.useEffect(() => {
     setEmbedTick((t) => t + 1);
   }, [fb.embed_html, fb.embed_url, fbWatch]);
@@ -186,7 +186,11 @@ export default function LiveMatchCard({ item }) {
         message: "Đã xoá video khỏi trận.",
         severity: "success",
       });
-      // để RTK Query refetch list, card sẽ nhận item mới không còn video
+
+      // ✅ báo cho parent để xoá card khỏi list
+      if (typeof onDeleted === "function") {
+        onDeleted(m._id);
+      }
     } catch (err) {
       console.error("deleteLiveVideo error:", err);
       setSnack({
@@ -407,9 +411,7 @@ export default function LiveMatchCard({ item }) {
                         maxWidth: "100%",
                       }}
                       title={`Xem trên Facebook${
-                        primary.watchUrl
-                          ? ` (${hostOf(primary.watchUrl)})`
-                          : ""
+                        primary.watchUrl ? ` (${hostOf(primary.watchUrl)})` : ""
                       }`}
                     >
                       <Box
@@ -451,7 +453,7 @@ export default function LiveMatchCard({ item }) {
                     )}
                   </Stack>
 
-                  {/* ✅ nút xoá video cho admin */}
+                  {/* nút xoá video cho admin */}
                   {isAdmin && hasVideoInfo && (
                     <Box sx={{ mt: 1 }}>
                       <Button
@@ -462,7 +464,9 @@ export default function LiveMatchCard({ item }) {
                         onClick={handleDeleteVideo}
                         disabled={isDeleting}
                       >
-                        {isDeleting ? "Đang xoá video..." : "Xoá video khỏi trận"}
+                        {isDeleting
+                          ? "Đang xoá video..."
+                          : "Xoá video khỏi trận"}
                       </Button>
                     </Box>
                   )}
@@ -504,7 +508,7 @@ export default function LiveMatchCard({ item }) {
         </Card>
       </Box>
 
-      {/* Info dialog (mình giữ logic hiện tại) */}
+      {/* Info dialog */}
       <Dialog
         open={Boolean(infoAnchor)}
         onClose={closeInfo}
@@ -538,7 +542,7 @@ export default function LiveMatchCard({ item }) {
               <Row label="Cập nhật" value={timeAgo(m.updatedAt)} />
             )}
 
-            {/* thêm 2 dòng embed để bạn nhìn */}
+            {/* embed info */}
             <Row label="FB embed url" value={fb.embed_url || "-"} />
             <Row
               label="FB embed html"
@@ -582,10 +586,7 @@ export default function LiveMatchCard({ item }) {
                       >
                         Mở
                       </Button>
-                      <IconButton
-                        size="small"
-                        onClick={() => copy(s.watchUrl)}
-                      >
+                      <IconButton size="small" onClick={() => copy(s.watchUrl)}>
                         <ContentCopyIcon fontSize="small" />
                       </IconButton>
                     </Stack>
