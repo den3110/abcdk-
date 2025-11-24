@@ -39,6 +39,12 @@ const SKELETON_HEIGHT = 232;
 const STATUS_OPTIONS = ["scheduled", "queued", "assigned", "live", "finished"];
 const HOUR_PRESETS = [2, 4, 8, 24, 48, 72];
 
+const DEFAULT_WINDOW_HOURS = 72; // ✅ mặc định 72h
+const DEFAULT_EXCLUDE_FINISHED = false; // ✅ mặc định gồm luôn finished
+const DEFAULT_AUTO_REFRESH = true;
+const DEFAULT_REFRESH_SEC = 15;
+const FILTER_STORAGE_KEY = "liveMatchesFilters:v1";
+
 function useTickingAgo() {
   const [ts, setTs] = useState(Date.now());
   useEffect(() => {
@@ -83,12 +89,14 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
       setStatuses([...STATUS_OPTIONS]);
     else setStatuses(val);
   };
+
   const handleReset = () => {
+    // ✅ reset về mặc định mới
     setStatuses([...STATUS_OPTIONS]);
-    setExcludeFinished(true);
-    setWindowHours(8);
-    setAutoRefresh(true);
-    setRefreshSec(15);
+    setExcludeFinished(DEFAULT_EXCLUDE_FINISHED);
+    setWindowHours(DEFAULT_WINDOW_HOURS);
+    setAutoRefresh(DEFAULT_AUTO_REFRESH);
+    setRefreshSec(DEFAULT_REFRESH_SEC);
   };
 
   return (
@@ -217,12 +225,76 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
 export default function LiveMatchesPage() {
   const [keyword, setKeyword] = useState("");
   const [statuses, setStatuses] = useState([...STATUS_OPTIONS]);
-  const [excludeFinished, setExcludeFinished] = useState(true);
-  const [windowHours, setWindowHours] = useState(8);
+  const [excludeFinished, setExcludeFinished] = useState(
+    DEFAULT_EXCLUDE_FINISHED
+  );
+  const [windowHours, setWindowHours] = useState(DEFAULT_WINDOW_HOURS);
   const [page, setPage] = useState(1);
-  const [autoRefresh, setAutoRefresh] = useState(true);
-  const [refreshSec, setRefreshSec] = useState(15);
+  const [autoRefresh, setAutoRefresh] = useState(DEFAULT_AUTO_REFRESH);
+  const [refreshSec, setRefreshSec] = useState(DEFAULT_REFRESH_SEC);
   const [filterOpen, setFilterOpen] = useState(false);
+  const [filtersReady, setFiltersReady] = useState(false); // ✅ để tránh save đè lên data cũ khi chưa load xong
+
+  // ✅ load filters từ localStorage lần đầu
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setFiltersReady(true);
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(FILTER_STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (Array.isArray(saved.statuses) && saved.statuses.length) {
+          const validStatuses = saved.statuses.filter((s) =>
+            STATUS_OPTIONS.includes(s)
+          );
+          if (validStatuses.length) setStatuses(validStatuses);
+        }
+        if (typeof saved.excludeFinished === "boolean") {
+          setExcludeFinished(saved.excludeFinished);
+        }
+        if (typeof saved.windowHours === "number" && saved.windowHours > 0) {
+          setWindowHours(saved.windowHours);
+        }
+        if (typeof saved.autoRefresh === "boolean") {
+          setAutoRefresh(saved.autoRefresh);
+        }
+        if (typeof saved.refreshSec === "number" && saved.refreshSec > 0) {
+          setRefreshSec(saved.refreshSec);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load live matches filters from storage", e);
+    } finally {
+      setFiltersReady(true);
+    }
+  }, []);
+
+  // ✅ mỗi khi filter đổi thì lưu xuống localStorage
+  useEffect(() => {
+    if (!filtersReady) return;
+    if (typeof window === "undefined") return;
+    try {
+      const payload = {
+        statuses,
+        excludeFinished,
+        windowHours,
+        autoRefresh,
+        refreshSec,
+      };
+      window.localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(payload));
+    } catch (e) {
+      console.error("Failed to save live matches filters to storage", e);
+    }
+  }, [
+    filtersReady,
+    statuses,
+    excludeFinished,
+    windowHours,
+    autoRefresh,
+    refreshSec,
+  ]);
 
   const qArgs = useMemo(() => {
     const filteredStatuses = excludeFinished
@@ -300,9 +372,9 @@ export default function LiveMatchesPage() {
 
   const activeFilters =
     (statuses.length !== STATUS_OPTIONS.length ? 1 : 0) +
-    (excludeFinished ? 0 : 1) +
-    (windowHours !== 8 ? 1 : 0) +
-    (!autoRefresh || refreshSec !== 15 ? 1 : 0);
+    (excludeFinished ? 1 : 0) + // ✅ bật loại finished thì mới tính là filter
+    (windowHours !== DEFAULT_WINDOW_HOURS ? 1 : 0) +
+    (!autoRefresh || refreshSec !== DEFAULT_REFRESH_SEC ? 1 : 0);
 
   const applyFilters = (p) => {
     setStatuses(p.statuses);
@@ -316,11 +388,11 @@ export default function LiveMatchesPage() {
 
   const clearChip = (t) => {
     if (t === "statuses") setStatuses([...STATUS_OPTIONS]);
-    else if (t === "window") setWindowHours(8);
-    else if (t === "finished") setExcludeFinished(true);
+    else if (t === "window") setWindowHours(DEFAULT_WINDOW_HOURS);
+    else if (t === "finished") setExcludeFinished(DEFAULT_EXCLUDE_FINISHED);
     else if (t === "auto") {
-      setAutoRefresh(true);
-      setRefreshSec(15);
+      setAutoRefresh(DEFAULT_AUTO_REFRESH);
+      setRefreshSec(DEFAULT_REFRESH_SEC);
     }
     setPage(1);
   };
@@ -404,7 +476,7 @@ export default function LiveMatchesPage() {
             variant="outlined"
           />
         )}
-        {windowHours !== 8 && (
+        {windowHours !== DEFAULT_WINDOW_HOURS && (
           <Chip
             label={`Cửa sổ: ${windowHours}h`}
             onDelete={() => clearChip("window")}
@@ -412,15 +484,15 @@ export default function LiveMatchesPage() {
             variant="outlined"
           />
         )}
-        {!excludeFinished && (
+        {excludeFinished && (
           <Chip
-            label="Gồm finished"
+            label="Đang loại finished"
             onDelete={() => clearChip("finished")}
             size="small"
             variant="outlined"
           />
         )}
-        {(!autoRefresh || refreshSec !== 15) && (
+        {(!autoRefresh || refreshSec !== DEFAULT_REFRESH_SEC) && (
           <Chip
             label={`Auto: ${autoRefresh ? `${refreshSec}s` : "Tắt"}`}
             onDelete={() => clearChip("auto")}
