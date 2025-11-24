@@ -78,7 +78,7 @@ const byPriority = (a, b) =>
 export default function LiveMatchCard({
   item,
   // ⏱ cho phép truyền từ ngoài vào, ví dụ 20000 = 20s
-  autoEmbedRefreshMs = 30000,
+  autoEmbedRefreshMs = 3000000,
 }) {
   const theme = useTheme();
   const smDown = useMediaQuery(theme.breakpoints.down("sm"));
