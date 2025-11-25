@@ -183,6 +183,7 @@ func main() {
 
 	r.GET("/health", healthCheck)
 	r.POST("/save-chunk", saveChunk)
+	r.POST("/chunk", saveChunk)
 
 	log.Printf("🚀 Upload service starting on :%s", port)
 	if err := r.Run("127.0.0.1:" + port); err != nil {
