@@ -26,32 +26,32 @@ func getUploadsBaseDir() string {
 	if err != nil {
 		log.Fatal("Cannot get executable path:", err)
 	}
-	
+
 	// /abcdk-/micro-services/uploadservice/uploadservice
 	// → /abcdk-/micro-services/uploadservice
 	exDir := filepath.Dir(ex)
-	
+
 	// → /abcdk-/micro-services
 	microServicesDir := filepath.Dir(exDir)
-	
+
 	// → /abcdk-
 	projectRoot := filepath.Dir(microServicesDir)
-	
+
 	// → /abcdk-/uploads
 	uploadsDir := filepath.Join(projectRoot, "uploads")
-	
+
 	log.Printf("📁 Uploads base dir: %s", uploadsDir)
 	return uploadsDir
 }
 
 func saveChunk(c *gin.Context) {
 	start := time.Now()
-	
+
 	// Parse form
 	matchId := c.PostForm("matchId")
 	chunkIndex := c.PostForm("chunkIndex")
 	isFinal := c.PostForm("isFinal")
-	
+
 	if matchId == "" {
 		c.JSON(400, gin.H{"error": "matchId required"})
 		return
@@ -67,7 +67,7 @@ func saveChunk(c *gin.Context) {
 	// ✅ Create directory: /abcdk-/uploads/recordings/{matchId}/
 	baseDir := getUploadsBaseDir()
 	matchDir := filepath.Join(baseDir, "recordings", matchId)
-	
+
 	if err := os.MkdirAll(matchDir, 0755); err != nil {
 		log.Printf("❌ mkdir failed: %v", err)
 		c.JSON(500, gin.H{"error": "mkdir failed", "detail": err.Error()})
@@ -105,7 +105,7 @@ func saveChunk(c *gin.Context) {
 	duration := time.Since(start)
 	speedMBps := float64(written) / (1024 * 1024) / duration.Seconds()
 
-	log.Printf("✅ Saved: match=%s, chunk=%s, size=%.2fMB, speed=%.2fMB/s, path=%s", 
+	log.Printf("✅ Saved: match=%s, chunk=%s, size=%.2fMB, speed=%.2fMB/s, path=%s",
 		matchId, chunkIndex, float64(written)/(1024*1024), speedMBps, savePath)
 
 	// Return info cho Node.js
@@ -122,7 +122,7 @@ func saveChunk(c *gin.Context) {
 
 func healthCheck(c *gin.Context) {
 	uploadsDir := getUploadsBaseDir()
-	
+
 	// Check if uploads dir exists and writable
 	testFile := filepath.Join(uploadsDir, ".health_check")
 	canWrite := true
@@ -136,13 +136,13 @@ func healthCheck(c *gin.Context) {
 			os.Remove(testFile)
 		}
 	}
-	
+
 	c.JSON(200, gin.H{
-		"status":       "ok",
-		"service":      "upload",
-		"uptime":       time.Since(startTime).String(),
-		"uploadsDir":   uploadsDir,
-		"canWrite":     canWrite,
+		"status":     "ok",
+		"service":    "upload",
+		"uptime":     time.Since(startTime).String(),
+		"uploadsDir": uploadsDir,
+		"canWrite":   canWrite,
 	})
 }
 
@@ -152,12 +152,18 @@ func main() {
 	// ✅ Kiểm tra uploads dir ngay khi start
 	uploadsDir := getUploadsBaseDir()
 	recordingsDir := filepath.Join(uploadsDir, "recordings")
-	
+
 	if err := os.MkdirAll(recordingsDir, 0755); err != nil {
 		log.Fatalf("❌ Cannot create uploads directory: %v", err)
 	}
-	
+
 	log.Printf("✅ Uploads directory ready: %s", recordingsDir)
+
+	// ✅ Lấy port trước để dùng trong route index
+	port := os.Getenv("UPLOAD_SERVICE_PORT")
+	if port == "" {
+		port = "8004"
+	}
 
 	r := gin.Default()
 
@@ -170,13 +176,13 @@ func main() {
 		c.Next()
 	})
 
+	// ✅ Route index
+	r.GET("/", func(c *gin.Context) {
+		c.String(200, fmt.Sprintf("server run on port %s", port))
+	})
+
 	r.GET("/health", healthCheck)
 	r.POST("/save-chunk", saveChunk)
-
-	port := os.Getenv("UPLOAD_SERVICE_PORT")
-	if port == "" {
-		port = "8004"
-	}
 
 	log.Printf("🚀 Upload service starting on :%s", port)
 	if err := r.Run("127.0.0.1:" + port); err != nil {
