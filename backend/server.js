@@ -33,7 +33,11 @@ import { initEmail } from "./services/emailService.js";
 import Agendash from "agendash";
 import { versionGate } from "./middleware/versionGate.js";
 import appVersionRouter from "./routes/appVersion.route.js";
-import { attachJwtIfPresent } from "./middleware/authMiddleware.js";
+import {
+  attachJwtIfPresent,
+  authorize,
+  protect,
+} from "./middleware/authMiddleware.js";
 import { maintainanceTrigger } from "./middleware/maintainance.js";
 import sportconnectRoutes from "./routes/sportconnect.routes.js";
 import telegramRoutes from "./routes/telegramRoutes.js";
@@ -80,6 +84,39 @@ const WHITELIST = [
 connectDB();
 
 const app = express();
+app.use(
+  cors({
+    origin: WHITELIST, // ✅ KHÔNG dùng '*'
+    credentials: true, // ✅ Phải bật
+  })
+);
+
+app.use(
+  "/api/admin/system",
+  protect,
+  authorize("admin"),
+  createProxyMiddleware({
+    target: "http://127.0.0.1:8003//api/admin/system", // ❌ Bỏ phần /api/admin/system ở target
+    changeOrigin: true,
+
+    pathRewrite: {
+      "^/api/admin/system": "/api/admin/system", // ✅ Giữ nguyên hoặc map sang path Go service expect
+    },
+    onProxyReq: (proxyReq, req, res) => {
+      if (req.body && Object.keys(req.body).length > 0) {
+        const bodyData = JSON.stringify(req.body);
+        proxyReq.setHeader('Content-Type', 'application/json');
+        proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+        proxyReq.write(bodyData);
+        proxyReq.end();
+      }
+    },
+    onError: (err, req, res) => {
+      console.error("❌ Proxy error:", err);
+      res.status(500).json({ error: "Go service unavailable" });
+    },
+  })
+);
 
 // body limit rộng hơn cho HTML/JSON dài
 app.use(express.json({ limit: "50mb" }));
@@ -159,23 +196,7 @@ app.use("/api/schedule", scheduleRoutes);
 app.use("/api/live/recordings", liveRecordingRoutes);
 app.use("/api/fb", facebookRoutes);
 
-app.use(
-  "/api/admin/system",
-  createProxyMiddleware({
-    target: "http://127.0.0.1:8003//api/admin/system",  // ❌ Bỏ phần /api/admin/system ở target
-    changeOrigin: true,
-    pathRewrite: {
-      "^/api/admin/system": "/api/admin/system",  // ✅ Giữ nguyên hoặc map sang path Go service expect
-    },
-    onProxyReq: (proxyReq, req, res) => {
-      console.log('📤 Proxying to Go:', req.method, req.path);
-    },
-    onError: (err, req, res) => {
-      console.error('❌ Proxy error:', err);
-      res.status(500).json({ error: 'Go service unavailable' });
-    }
-  })
-);
+
 
 app.get("/dl/file/:id", async (req, res) => {
   try {

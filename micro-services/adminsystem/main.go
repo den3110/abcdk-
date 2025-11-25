@@ -490,24 +490,32 @@ type execRequest struct {
 }
 
 func execSafeCommandHandler(c *gin.Context) {
+	log.Println("📥 execSafeCommandHandler called") // ← Thêm log
+
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
 	var body execRequest
 	if err := c.ShouldBindJSON(&body); err != nil {
+		log.Println("❌ JSON parse error:", err) // ← Thêm log
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json", "detail": err.Error()})
 		return
 	}
 
+	log.Println("📝 cmdKey:", body.CmdKey) // ← Thêm log
+
 	sc := findSafeCommand(body.CmdKey)
 	if sc == nil {
+		log.Println("❌ Command not allowed:", body.CmdKey) // ← Thêm log
 		c.JSON(http.StatusBadRequest, gin.H{"error": "command not allowed"})
 		return
 	}
 
-	// Chạy bằng /bin/sh -c cho phép lệnh có pipe/head
+	log.Println("🚀 Executing:", sc.Cmd) // ← Thêm log
 	cmd := exec.CommandContext(ctx, "bash", "-c", sc.Cmd)
 	out, err := cmd.CombinedOutput()
+
+	log.Println("✅ Command done, output length:", len(out)) // ← Thêm log
 
 	c.JSON(http.StatusOK, gin.H{
 		"cmdKey": sc.Key,
