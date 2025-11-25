@@ -162,11 +162,18 @@ app.use("/api/fb", facebookRoutes);
 app.use(
   "/api/admin/system",
   createProxyMiddleware({
-    target: "http://127.0.0.1:8002/api/admin/system", // Go service
+    target: "http://127.0.0.1:8002",  // ❌ Bỏ phần /api/admin/system ở target
     changeOrigin: true,
     pathRewrite: {
-      "^/api/admin/system": "/api/admin/system", // thực ra không đổi gì, chỉ cho rõ
+      "^/api/admin/system": "/api/admin/system",  // ✅ Giữ nguyên hoặc map sang path Go service expect
     },
+    onProxyReq: (proxyReq, req, res) => {
+      console.log('📤 Proxying to Go:', req.method, req.path);
+    },
+    onError: (err, req, res) => {
+      console.error('❌ Proxy error:', err);
+      res.status(500).json({ error: 'Go service unavailable' });
+    }
   })
 );
 
