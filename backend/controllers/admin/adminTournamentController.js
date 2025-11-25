@@ -55,6 +55,7 @@ const cleanHTML = (html = "") => sanitizeHtml(html, SAFE_HTML);
 const FIELD_LABELS = {
   name: "Tên giải đấu",
   image: "Ảnh",
+  code: "Mã giải",
   sportType: "Loại môn",
   groupId: "Nhóm",
   eventType: "Hình thức",
@@ -251,6 +252,8 @@ const ageRestrictionUpdate = Joi.object({
 /* --------------------------------- CREATE --------------------------------- */
 const createSchema = Joi.object({
   name: Joi.string().trim().min(2).max(120).required().label(FIELD_LABELS.name),
+  code: Joi.string().trim().min(3).max(32).label(FIELD_LABELS.code),
+
   image: Joi.string().uri().allow("").label(FIELD_LABELS.image),
   sportType: Joi.number().valid(1, 2).required().label(FIELD_LABELS.sportType),
   groupId: Joi.number().integer().min(0).default(0).label(FIELD_LABELS.groupId),
@@ -319,6 +322,7 @@ const createSchema = Joi.object({
 /* --------------------------------- UPDATE --------------------------------- */
 const updateSchema = Joi.object({
   name: Joi.string().trim().min(2).max(120).label(FIELD_LABELS.name),
+  code: Joi.string().trim().min(3).max(32).label(FIELD_LABELS.code),
   image: Joi.string().uri().allow("").label(FIELD_LABELS.image),
   sportType: Joi.number().valid(1, 2).label(FIELD_LABELS.sportType),
   groupId: Joi.number().integer().min(0).label(FIELD_LABELS.groupId),
@@ -605,6 +609,30 @@ export const getTournaments = expressAsyncHandler(async (req, res) => {
   res.json({ total, page, limit, list, tz: TZ });
 });
 
+// Ví dụ: "THÀNH NAM CUP Lần 1 - Đôi hỗn hợp 6.0" => "TNCL1"
+const autoGenerateTournamentCode = (name) => {
+  if (!name) return "";
+  // Chỉ lấy phần trước dấu '-'
+  const base = String(name).split("-")[0] || "";
+  const tokens = base
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+  if (!tokens.length) return "";
+
+  const code = tokens
+    .map((token) => {
+      // Lấy ký tự chữ / số đầu tiên trong từ
+      const match = token.match(/[A-Za-z0-9]/);
+      return match ? match[0].toUpperCase() : "";
+    })
+    .join("");
+
+  // Nếu < 3 ký tự thì coi như không hợp lệ, trả về rỗng để BE xử lý tiếp
+  return code.length >= 3 ? code : "";
+};
+
 export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
   const incoming = { ...(req.body || {}) };
 
@@ -683,6 +711,32 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
       v === "1" ||
       v === "on"
     );
+  }
+
+  if (Object.prototype.hasOwnProperty.call(incoming, "code")) {
+    // chuẩn hoá mã người dùng nhập
+    const raw = String(incoming.code || "")
+      .trim()
+      .toUpperCase();
+    if (!raw) {
+      delete incoming.code; // coi như không gửi
+    } else {
+      incoming.code = raw;
+    }
+  }
+
+  // Nếu chưa có code (user không nhập) thì auto từ tên giải
+  if (!incoming.code && incoming.name) {
+    const auto = autoGenerateTournamentCode(incoming.name);
+    if (auto) {
+      incoming.code = auto;
+    }
+  }
+
+  // Nếu có code (tự sinh hoặc user nhập) thì phải >= 3 ký tự
+  if (incoming.code && incoming.code.length < 3) {
+    res.status(400);
+    throw new Error("Mã giải tối thiểu 3 ký tự.");
   }
 
   const data = validate(createSchema, incoming);
@@ -866,6 +920,24 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
       v === "1" ||
       v === "on"
     );
+  }
+
+  if (Object.prototype.hasOwnProperty.call(incoming, "code")) {
+    const raw = String(incoming.code || "")
+      .trim()
+      .toUpperCase();
+
+    if (raw && raw.length < 3) {
+      res.status(400);
+      throw new Error("Mã giải tối thiểu 3 ký tự.");
+    }
+
+    // Nếu user gửi rỗng, cho phép xoá field => delete để không set ""
+    if (!raw) {
+      delete incoming.code;
+    } else {
+      incoming.code = raw;
+    }
   }
 
   const payload = validate(updateSchema, incoming);

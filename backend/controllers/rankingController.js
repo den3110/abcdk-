@@ -9,7 +9,7 @@ import Assessment from "../models/assessmentModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import Bracket from "../models/bracketModel.js";
 import { decodeCursor, encodeCursor } from "../utils/cursor.js";
-
+import RankingSearchQuota from "../models/rankingSearchQuotaModel.js";
 /* GET điểm kèm user (dùng trong danh sách) */ // Admin
 /* GET điểm kèm user (dùng trong danh sách) */ // Admin
 export const getUsersWithRank = asyncHandler(async (req, res) => {
@@ -538,14 +538,149 @@ async function buildRecentPodiumsByUser({ days = 30 } = {}) {
  *   podiums30d: { [userId]: [{tournamentId, tournamentName, medal, finishedAt}] }
  * }
  */
+
+const getClientIp = (req) => {
+  const xff = req.headers["x-forwarded-for"];
+  if (typeof xff === "string" && xff.length > 0) {
+    const first = xff.split(",")[0].trim();
+    if (first) return normalizeIp(first);
+  }
+
+  const realIp = req.headers["x-real-ip"];
+  if (typeof realIp === "string" && realIp.length > 0) {
+    return normalizeIp(realIp);
+  }
+
+  return normalizeIp(
+    req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || ""
+  );
+};
+
+const normalizeIp = (ip) => {
+  if (!ip) return "unknown";
+  if (ip.startsWith("::ffff:")) return ip.substring(7);
+  if (ip === "::1") return "127.0.0.1";
+  return ip;
+};
+
+const getTodayYMD = () => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+};
+
+const getRemainingResetTimeSeconds = () => {
+  const now = new Date();
+  // 0h ngày hôm sau (giờ local của server)
+  const reset = new Date(now);
+  reset.setHours(24, 0, 0, 0); // = 00:00 ngày tiếp theo
+
+  const diffMs = reset.getTime() - now.getTime();
+  return Math.max(0, Math.floor(diffMs / 1000)); // tính ra giây
+};
+
+/**
+ * Rule:
+ * - Guest, IP chưa từng login hôm nay: max 3 lượt (total < 3)
+ * - Sau khi IP đã từng login (hasLoggedIn = true):
+ *    + Guest: chỉ dùng được đến khi total < 7
+ *      (tức <7 thì vẫn search được cho đến khi =7)
+ *    + Login: được search đến khi total < 10
+ * - Nếu total >= 10: hết sạch, cả guest lẫn login đều không search được nữa
+ * - Admin / Trọng tài: bỏ qua quota, không đụng đến model này.
+ *
+ * Hàm này chỉ được gọi khi user KHÔNG phải admin/referee.
+ * @throws tạo lỗi 429 nếu vượt quota.
+ */
+const enforceRankingSearchLimit = async (req, { isLoggedIn }) => {
+  const ip = getClientIp(req);
+  const ymd = getTodayYMD();
+
+  const TOTAL_LIMIT = 10;
+  const GUEST_LIMIT_NO_LOGIN = 3;
+  const GUEST_LIMIT_AFTER_LOGIN = 7;
+
+  // tính luôn 1 lần cho request này
+  const remainingResetTime = getRemainingResetTimeSeconds();
+
+  // upsert doc quota
+  let quota = await RankingSearchQuota.findOne({ ip, ymd });
+  if (!quota) {
+    quota = await RankingSearchQuota.create({
+      ip,
+      ymd,
+      total: 0,
+      hasLoggedIn: false,
+    });
+  }
+
+  // Nếu đã vượt 10 -> khóa hẳn
+  if (quota.total >= TOTAL_LIMIT) {
+    const err = new Error(
+      "Bạn đã sử dụng hết lượt tìm kiếm hôm nay, vui lòng quay lại vào ngày mai."
+    );
+    err.statusCode = 429;
+    err.remainingResetTime = remainingResetTime;
+    throw err;
+  }
+
+  if (isLoggedIn) {
+    // Login: được đi đến 10
+    if (quota.total < TOTAL_LIMIT) {
+      quota.total += 1;
+      quota.hasLoggedIn = true;
+      await quota.save();
+      return;
+    }
+
+    // (đề phòng) nếu lỡ tới đây mà total >= TOTAL_LIMIT
+    const err = new Error(
+      "Bạn đã sử dụng khá nhiều lượt tìm kiếm hôm nay, vui lòng thử lại vào ngày mai."
+    );
+    err.statusCode = 429;
+    err.remainingResetTime = remainingResetTime;
+    throw err;
+  } else {
+    // Guest (chưa đăng nhập)
+    if (!quota.hasLoggedIn) {
+      // IP chưa từng login: chỉ cho 3 lượt / ngày
+      if (quota.total < GUEST_LIMIT_NO_LOGIN) {
+        quota.total += 1;
+        await quota.save();
+        return;
+      }
+
+      const err = new Error(
+        "Bạn đã dùng hết lượt tìm kiếm ở chế độ khách cho hôm nay. Vui lòng đăng nhập tài khoản để tiếp tục tra cứu xếp hạng."
+      );
+      err.statusCode = 429;
+      err.remainingResetTime = remainingResetTime;
+      throw err;
+    } else {
+      // IP đã từng login: guest chỉ được dùng đến khi total < 7
+      if (quota.total < GUEST_LIMIT_AFTER_LOGIN) {
+        quota.total += 1;
+        await quota.save();
+        return;
+      }
+
+      const err = new Error(
+        "Bạn đã dùng hết lượt tìm kiếm ở chế độ khách. Đăng nhập tài khoản để tiếp tục tra cứu xếp hạng nhé."
+      );
+      err.statusCode = 429;
+      err.remainingResetTime = remainingResetTime;
+      throw err;
+    }
+  }
+};
+
 export const getRankings = asyncHandler(async (req, res) => {
   // ===== Cursor-based pagination =====
   const rawCursor =
     typeof req.query.cursor === "string" ? req.query.cursor.trim() : "";
-  const limit = Math.min(
-    100,
-    Math.max(1, parseInt(req.query.limit ?? 10, 10))
-  );
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 10, 10)));
 
   let page = 0;
 
@@ -564,11 +699,27 @@ export const getRankings = asyncHandler(async (req, res) => {
     page = Math.max(0, parseInt(req.query.page ?? 0, 10));
   }
 
+  // ===== keyword =====
   const keywordRaw = String(req.query.keyword ?? "").trim();
 
-  const isAdmin =
-    String(req.user?.role || "").toLowerCase() === "admin" ||
-    !!req.user?.isAdmin;
+  // ===== role =====
+  const role = String(req.user?.role || "").toLowerCase();
+  const isAdmin = role === "admin" || !!req.user?.isAdmin;
+  // tạm coi một số role là trọng tài, bạn chỉnh lại nếu hệ thống đang dùng tên khác
+  const isReferee =
+    role === "referee" ||
+    role === "ref" ||
+    role === "umpire" ||
+    role === "official";
+
+  // ===== Limit search theo IP & login =====
+  // chỉ giới hạn khi có keyword (tức là hành vi "search"),
+  // và user KHÔNG phải admin / trọng tài
+  if (keywordRaw && !isAdmin && !isReferee) {
+    await enforceRankingSearchLimit(req, { isLoggedIn: !!req.user });
+  }
+
+  const isAdminForProjection = isAdmin;
 
   /* ======= keyword filter -> userIds ======= */
   let userIdsFilter = null;
@@ -633,7 +784,7 @@ export const getRankings = asyncHandler(async (req, res) => {
     cccdImages: 1,
     note: 1,
   };
-  const userProject = isAdmin
+  const userProject = isAdminForProjection
     ? { ...baseUserProject, ...adminExtraProject }
     : baseUserProject;
 
@@ -926,9 +1077,7 @@ export const getRankings = asyncHandler(async (req, res) => {
 
   const totalPages = first.totalPages || 0;
   const hasMore = page + 1 < totalPages;
-  const nextCursor = hasMore
-    ? encodeCursor({ page: page + 1, limit })
-    : null;
+  const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
 
   return res.json({
     docs: first.docs || [],

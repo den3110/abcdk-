@@ -60,6 +60,7 @@ func saveChunk(c *gin.Context) {
 	// Get file
 	file, err := c.FormFile("file")
 	if err != nil {
+		log.Print(err)
 		c.JSON(400, gin.H{"error": "no file"})
 		return
 	}
@@ -108,9 +109,10 @@ func saveChunk(c *gin.Context) {
 	log.Printf("✅ Saved: match=%s, chunk=%s, size=%.2fMB, speed=%.2fMB/s, path=%s",
 		matchId, chunkIndex, float64(written)/(1024*1024), speedMBps, savePath)
 
-	// Return info cho Node.js
+	// ✅ Return info cho Node.js (THÊM matchId)
 	c.JSON(200, gin.H{
 		"ok":            true,
+		"matchId":       matchId, // ← THÊM DÒN NÀY
 		"filePath":      savePath,
 		"fileSizeBytes": written,
 		"fileSizeMB":    float64(written) / (1024 * 1024),

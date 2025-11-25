@@ -29,6 +29,13 @@ const AgeRestrictionSchema = new mongoose.Schema(
 const tournamentSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
+    code: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      minlength: 3,
+      maxlength: 32,
+    },
     image: { type: String, default: null, required: true },
     sportType: { type: Number, required: true },
     groupId: { type: Number, default: 0 },
@@ -241,7 +248,7 @@ tournamentSchema.set("toJSON", {
       if (Number.isNaN(d.getTime())) return;
 
       // ✅ Parse Date như UTC, không convert timezone
-      const dt = DateTime.fromJSDate(d, { zone: 'UTC' });
+      const dt = DateTime.fromJSDate(d, { zone: "UTC" });
       ret[field] = dt.toFormat("yyyy-LL-dd'T'HH:mm:ss");
     };
 

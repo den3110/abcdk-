@@ -1,13 +1,17 @@
 // routes/liveRecordingRoutes.js
 import express from "express";
-import { createProxyMiddleware } from "http-proxy-middleware";
+import {
+  createProxyMiddleware,
+  responseInterceptor,
+} from "http-proxy-middleware";
 import { getRecordingByMatch } from "../controllers/liveRecordingController.js";
 import LiveRecording from "../models/liveRecordingModel.js";
 import LiveRecordingChunk from "../models/liveRecordingChunkModel.js";
 
 const router = express.Router();
 
-const UPLOAD_SERVICE_URL = process.env.UPLOAD_SERVICE_URL || "http://127.0.0.1:8004";
+const UPLOAD_SERVICE_URL =
+  process.env.UPLOAD_SERVICE_URL || "http://127.0.0.1:8004";
 
 // ✅ Helper: Parse bool từ string
 const toBool = (v, def = false) => {
@@ -23,7 +27,7 @@ async function updateMongoDBAsync(reqBody, goData) {
     const { matchId, chunkIndex, isFinal } = reqBody;
     const idx = Number(chunkIndex ?? 0);
     const isFinalBool = toBool(isFinal, false);
-    
+
     console.log(`💾 [MongoDB] Updating: match=${matchId}, chunk=${idx}`);
 
     // Validate matchId
@@ -91,7 +95,9 @@ async function updateMongoDBAsync(reqBody, goData) {
     await recording.save();
 
     console.log(
-      `✅ [MongoDB] Updated: match=${matchId}, total=${recording.totalChunks} chunks, ${recording.totalSizeMB.toFixed(2)}MB`
+      `✅ [MongoDB] Updated: match=${matchId}, total=${
+        recording.totalChunks
+      } chunks, ${recording.totalSizeMB.toFixed(2)}MB`
     );
   } catch (err) {
     console.error("❌ [MongoDB] Update failed:", err.message);
@@ -103,74 +109,64 @@ async function updateMongoDBAsync(reqBody, goData) {
 router.post(
   "/chunk",
   createProxyMiddleware({
-    target: UPLOAD_SERVICE_URL,
+    target: "http://127.0.0.1:8004",
     changeOrigin: true,
-    
-    // Rewrite path: /api/live/recordings/chunk → /save-chunk
+
     pathRewrite: {
       "^/api/live/recordings/chunk": "/save-chunk",
     },
 
-    // Timeout config
-    proxyTimeout: 90000, // 90s
+    proxyTimeout: 90000,
     timeout: 90000,
 
-    // Request logging
-    onProxyReq: (proxyReq, req, res) => {
-      const matchId = req.body?.matchId || "unknown";
-      const chunkIndex = req.body?.chunkIndex || "0";
-      console.log(`📤 [Proxy] Uploading: match=${matchId}, chunk=${chunkIndex}`);
-    },
+    selfHandleResponse: true,
 
-    // Intercept response để update MongoDB
-    onProxyRes: (proxyRes, req, res) => {
-      let body = "";
+    on: {
+      proxyRes: responseInterceptor(
+        async (responseBuffer, proxyRes, req, res) => {
+          console.log("📦 [Proxy] Response intercepted");
 
-      // Collect response data
-      proxyRes.on("data", (chunk) => {
-        body += chunk.toString();
-      });
+          const responseText = responseBuffer.toString("utf-8");
+          console.log("📦 [Proxy] Response:", responseText);
 
-      proxyRes.on("end", () => {
-        try {
-          const goData = JSON.parse(body);
+          try {
+            const goData = JSON.parse(responseText);
 
-          if (goData.ok) {
-            console.log(
-              `✅ [Proxy] Go saved: ${goData.filePath} (${goData.fileSizeMB?.toFixed(2)}MB)`
-            );
+            if (goData.ok && goData.matchId) {
+              console.log(
+                `✅ [Proxy] Saved: ${
+                  goData.filePath
+                } (${goData.fileSizeMB?.toFixed(2)}MB)`
+              );
 
-            // ✅ Update MongoDB ASYNC - không block response
-            updateMongoDBAsync(req.body, goData).catch((err) => {
-              console.error("❌ [Proxy] MongoDB update error (non-blocking):", err.message);
-            });
-          } else {
-            console.warn("⚠️ [Proxy] Go response not OK:", goData);
+              // ✅ Tất cả info đã có trong goData
+              const reqBody = {
+                matchId: goData.matchId,
+                chunkIndex: goData.chunkIndex,
+                isFinal: goData.isFinal,
+              };
+
+              updateMongoDBAsync(reqBody, goData).catch((err) => {
+                console.error("❌ [Proxy] MongoDB error:", err.message);
+              });
+            }
+          } catch (err) {
+            console.error("❌ [Proxy] Parse error:", err.message);
           }
-        } catch (parseErr) {
-          console.error("❌ [Proxy] Parse Go response failed:", parseErr.message);
+
+          return responseBuffer;
         }
-      });
+      ),
     },
 
-    // Error handling
     onError: (err, req, res) => {
       console.error("❌ [Proxy] Error:", err.message);
-      
-      // Check if response already sent
-      if (res.headersSent) {
-        return;
+      if (!res.headersSent) {
+        res.status(503).json({ error: err.message });
       }
-
-      res.status(503).json({
-        message: "Upload service unavailable",
-        error: err.message,
-        service: UPLOAD_SERVICE_URL,
-      });
     },
   })
 );
-
 // ✅ GET recording by matchId (giữ nguyên)
 router.get("/by-match/:matchId", getRecordingByMatch);
 
