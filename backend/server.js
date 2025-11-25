@@ -64,7 +64,6 @@ import liveRecordingRoutes from "./routes/liveRecordingRoutes.js";
 import facebookRoutes from "./routes/facebookRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
 import { initNewsCron } from "./jobs/newsCron.js";
-// 🔹 GraphQL layer
 import { setupGraphQL } from "./graphql/index.js";
 import { timezoneMiddleware } from "./middleware/timezoneMiddleware.js";
 import { normalizeRequestDates } from "./middleware/normalizeRequestDates.js";
@@ -84,29 +83,43 @@ const WHITELIST = [
 connectDB();
 
 const app = express();
+
+// ✅ CORS - CHỈ 1 LẦN DUY NHẤT Ở ĐẦU
 app.use(
   cors({
-    origin: WHITELIST, // ✅ KHÔNG dùng '*'
-    credentials: true, // ✅ Phải bật
+    origin: WHITELIST,
+    credentials: true,
   })
 );
 
+// ✅ 1. UPLOAD ROUTE - TRƯỚC express.json() (cần raw body stream)
+app.use("/api/live/recordings", liveRecordingRoutes);
+
+// ✅ 2. BODY PARSERS - SAU upload route
+app.use(express.json({ limit: "50mb" }));
+app.use(timezoneMiddleware);
+app.use(normalizeRequestDates);
+app.use(convertResponseDates);
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(cookieParser());
+
+// ✅ 3. ADMIN SYSTEM PROXY - SAU body parsers (vì cần auth middleware)
 app.use(
   "/api/admin/system",
   protect,
   authorize("admin"),
   createProxyMiddleware({
-    target: "http://127.0.0.1:8003//api/admin/system", // ❌ Bỏ phần /api/admin/system ở target
+    target: "http://127.0.0.1:8003/api/admin/system", // ✅ Bỏ path, chỉ giữ host:port
     changeOrigin: true,
-
     pathRewrite: {
-      "^/api/admin/system": "/api/admin/system", // ✅ Giữ nguyên hoặc map sang path Go service expect
+      "^/api/admin/system": "/api/admin/system",
     },
+    // ✅ Restream body (vì express.json() đã consume)
     onProxyReq: (proxyReq, req, res) => {
       if (req.body && Object.keys(req.body).length > 0) {
         const bodyData = JSON.stringify(req.body);
-        proxyReq.setHeader('Content-Type', 'application/json');
-        proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+        proxyReq.setHeader("Content-Type", "application/json");
+        proxyReq.setHeader("Content-Length", Buffer.byteLength(bodyData));
         proxyReq.write(bodyData);
         proxyReq.end();
       }
@@ -118,39 +131,20 @@ app.use(
   })
 );
 
-// body limit rộng hơn cho HTML/JSON dài
-app.use(express.json({ limit: "50mb" }));
-app.use(timezoneMiddleware);
-app.use(normalizeRequestDates);
-app.use(convertResponseDates);
-
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-app.use(cookieParser());
+// ✅ 4. OTHER MIDDLEWARE
 app.set("trust proxy", 1);
 app.use("/admin/agendash", Agendash(agenda, { middleware: "express" }));
-
 app.use(loadSettings);
 app.use(attachJwtIfPresent);
 app.use(maintainanceTrigger);
 app.use(versionGate);
 
-// HTTP + Socket.IO
+// ✅ 5. HTTP + Socket.IO
 const server = http.createServer(app);
-// 👇 Khởi tạo socket tách riêng
 const io = initSocket(server, { whitelist: WHITELIST, path: "/socket.io" });
-
-// Cho controllers dùng io: req.app.get('io')
 app.set("io", io);
-// app.set("trust proxy", true);
 
-// CORS whitelist
-app.use(
-  cors({
-    origin: WHITELIST, // ✅ KHÔNG dùng '*'
-    credentials: true, // ✅ Phải bật
-  })
-);
-
+// ✅ 6. STATIC FILES & OTHER ROUTES
 app.use("/uploads", express.static("uploads"));
 app.use("/api/users", userRoutes);
 app.use("/api/tournaments", tournamentRoute);
@@ -181,7 +175,6 @@ app.use("/api/files", fileRoutes);
 app.use("/api/clubs", clubRoutes);
 app.use("/api/capture", captureRoutes);
 app.use("/api/news", newsRoutes);
-
 app.use("/api/admin/sponsors", adminSponsorRoutes);
 app.use("/api/sponsors", publicSponsorRoutes);
 app.use("/api/oauth", oauthRoutes);
@@ -193,34 +186,24 @@ app.use("/api/fb-tokens", fbTokenRoutes);
 app.use("/api/app/init", appInitRoutes);
 app.use("/api/leaderboards", leaderboardRoutes);
 app.use("/api/schedule", scheduleRoutes);
-app.use("/api/live/recordings", liveRecordingRoutes);
 app.use("/api/fb", facebookRoutes);
 
-
-
+// ✅ 7. FILE DOWNLOAD
 app.get("/dl/file/:id", async (req, res) => {
   try {
     const doc = await FileAsset.findById(req.params.id);
     if (!doc) return res.status(404).send("File không tồn tại");
 
-    // Tên file hiển thị khi tải về
     const downloadName = doc.originalName || doc.fileName || "download.bin";
-
-    // Header nội dung + ép tải
     res.setHeader("Content-Type", doc.mime || "application/octet-stream");
     res.setHeader(
       "Content-Disposition",
       `attachment; filename="${encodeURIComponent(downloadName)}"`
     );
 
-    // Chuyển nội bộ cho Nginx đọc file từ đĩa (KHÔNG qua Node)
-    // "fileName" là tên đã lưu trong uploads/public
     const accelPath = `/_protected_uploads/${encodeURIComponent(doc.fileName)}`;
     res.setHeader("X-Accel-Redirect", accelPath);
-
-    // (tuỳ chọn) cho resume/caching
     res.setHeader("Accept-Ranges", "bytes");
-
     res.end();
   } catch (e) {
     console.error("/dl/file error", e);
@@ -228,16 +211,14 @@ app.get("/dl/file/:id", async (req, res) => {
   }
 });
 
-// 🔹 gom phần start server + GraphQL vào 1 hàm async
+// ✅ 8. START SERVER
 const startServer = async () => {
   try {
-    // 🔹 mount GraphQL trước fallback routes (*)
     await setupGraphQL(app);
 
     if (process.env.NODE_ENV === "production") {
       const __dirname = path.resolve();
       app.use(express.static(path.join(__dirname, "/frontend/dist")));
-
       app.get("*", (req, res) =>
         res.sendFile(path.resolve(__dirname, "frontend", "dist", "index.html"))
       );
@@ -253,7 +234,7 @@ const startServer = async () => {
     if (process.env.TELEGRAM_BOT_TOKEN) {
       try {
         console.log("✅ Running KYC bot...");
-        initKycBot(app); // polling
+        initKycBot(app);
       } catch (error) {
         console.log("❌ Failed to start KYC bot:", error.message);
       }
