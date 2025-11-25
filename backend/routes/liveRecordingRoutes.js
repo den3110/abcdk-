@@ -1,66 +1,53 @@
 // routes/liveRecordingRoutes.js
 import express from "express";
 import multer from "multer";
-import path from "path";
-import fs from "fs";
+import os from "os";
 import {
   uploadChunk,
   getRecordingByMatch,
 } from "../controllers/liveRecordingController.js";
+import rateLimit from "express-rate-limit";
+
 
 const router = express.Router();
 
-// ==== Multer config cho recording ====
-
-// thư mục lưu chunk: /uploads/recordings
-const uploadRoot = path.join(process.cwd(), "uploads", "recordings");
-if (!fs.existsSync(uploadRoot)) {
-  fs.mkdirSync(uploadRoot, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination(req, file, cb) {
-    // có thể group theo matchId nếu muốn
-    const matchId = req.body.matchId || "unknown";
-    const safeMatch =
-      typeof matchId === "string"
-        ? matchId.replace(/[^0-9a-zA-Z_-]/g, "")
-        : "unknown";
-    const dir = path.join(uploadRoot, safeMatch);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    cb(null, dir);
-  },
-  filename(req, file, cb) {
-    const chunkIndex = req.body.chunkIndex ?? "0";
-    const ext = path.extname(file.originalname || ".mp4") || ".mp4";
-    cb(null, `chunk_${chunkIndex}${ext}`);
-  },
-});
-
-const fileFilter = (req, file, cb) => {
-  // tuỳ bạn: chỉ cho phép video/mp4
-  if (file.mimetype.startsWith("video/")) {
-    cb(null, true);
-  } else {
-    cb(new Error("Only video files are allowed"), false);
-  }
-};
-
+// ✅ Multer config ĐƠN GIẢN - chỉ lưu tạm vào /tmp
+// Go service sẽ lo việc lưu thật vào uploads/recordings/
 const upload = multer({
-  storage,
-  fileFilter,
+  // ✅ Lưu vào system temp (Node.js sẽ xóa sau khi gửi cho Go)
+  dest: os.tmpdir(),
+  
+  // ✅ Chỉ cho video
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith("video/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only video files allowed"), false);
+    }
+  },
+  
   limits: {
-    // giới hạn 5GB / chunk (tuỳ bạn)
-    fileSize: 1024 * 1024 * 1024 * 5,
+    // ✅ 100MB/chunk (đủ cho 60s video chất lượng cao)
+    fileSize: 100 * 1024 * 1024,
+    files: 1,
   },
 });
 
-// POST /api/live/recordings/chunk
-router.post("/chunk", upload.single("file"), uploadChunk);
+// ✅ Rate limit cho upload (tránh spam)
 
-// GET /api/live/recordings/:matchId
+const uploadLimiter = rateLimit({
+  windowMs: 1000, // 1 giây
+  max: 20, // Max 10 requests/giây (vì có thể nhiều matches cùng upload)
+  message: "Too many upload requests, please slow down",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// ✅ POST /api/live/recordings/chunk
+// Middleware order: rate limit → multer → controller
+router.post("/chunk", uploadLimiter, upload.single("file"), uploadChunk);
+
+// ✅ GET /api/live/recordings/by-match/:matchId
 router.get("/by-match/:matchId", getRecordingByMatch);
 
 export default router;

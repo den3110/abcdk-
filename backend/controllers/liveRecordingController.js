@@ -1,11 +1,16 @@
 // controllers/liveRecordingController.js
 import fs from "fs";
 import path from "path";
+import axios from "axios";
+import FormData from "form-data";
 import LiveRecording from "../models/liveRecordingModel.js";
 import LiveRecordingChunk from "../models/liveRecordingChunkModel.js";
 import Match from "../models/matchModel.js";
 
 const __dirname = path.resolve();
+
+// ✅ Go upload service URL
+const UPLOAD_SERVICE_URL = process.env.UPLOAD_SERVICE_URL || "http://127.0.0.1:8004";
 
 // helper: parse bool từ string
 const toBool = (v, def = false) => {
@@ -16,8 +21,10 @@ const toBool = (v, def = false) => {
 };
 
 export const uploadChunk = async (req, res, next) => {
+  let tempFilePath = null; // Track temp file để cleanup
+  
   try {
-    // file do multer gắn vào
+    // file do multer gắn vào (temp file in /tmp)
     const file = req.file;
     const {
       matchId,
@@ -33,10 +40,61 @@ export const uploadChunk = async (req, res, next) => {
       return res.status(400).json({ message: "file is required" });
     }
 
+    tempFilePath = file.path; // Save for cleanup
     const idx = Number(chunkIndex ?? 0);
     const isFinalBool = toBool(isFinal, false);
 
-    // ensure matchId là ObjectId hợp lệ (nếu sai vẫn cho qua nhưng không populate được)
+    console.log(`📤 [Upload] match=${matchId}, chunk=${idx}, size=${(file.size / 1024 / 1024).toFixed(2)}MB`);
+
+    // ✅ GỬI FILE SANG GO SERVICE
+    const formData = new FormData();
+    formData.append("file", fs.createReadStream(file.path));
+    formData.append("matchId", matchId);
+    formData.append("chunkIndex", String(idx));
+    formData.append("isFinal", isFinalBool ? "1" : "0");
+
+    let goResponse;
+    try {
+      goResponse = await axios.post(
+        `${UPLOAD_SERVICE_URL}/save-chunk`,
+        formData,
+        {
+          headers: {
+            ...formData.getHeaders(),
+          },
+          maxBodyLength: Infinity,
+          maxContentLength: Infinity,
+          timeout: 60000, // 60s timeout
+        }
+      );
+    } catch (goErr) {
+      console.error("❌ [Upload] Go service error:", goErr.message);
+      
+      // ✅ Cleanup temp file
+      try {
+        fs.unlinkSync(tempFilePath);
+      } catch (_) {}
+      
+      return res.status(500).json({
+        message: "Upload to Go service failed",
+        error: goErr.response?.data || goErr.message,
+      });
+    }
+
+    const goData = goResponse.data;
+    console.log(`✅ [Upload] Go saved: ${goData.filePath} (${goData.fileSizeMB.toFixed(2)}MB in ${goData.durationMs}ms)`);
+
+    // ✅ XÓA FILE TẠM (multer đã lưu vào /tmp)
+    try {
+      fs.unlinkSync(tempFilePath);
+      console.log(`🗑️ [Upload] Temp file deleted: ${tempFilePath}`);
+    } catch (delErr) {
+      console.warn(`⚠️ [Upload] Cannot delete temp file: ${tempFilePath}`, delErr.message);
+    }
+
+    // ✅ NODE.JS TIẾP TỤC XỬ LÝ MONGODB (LOGIC CŨ)
+    
+    // ensure matchId là ObjectId hợp lệ
     let matchObjectId = matchId;
     try {
       matchObjectId = matchId.match(/^[0-9a-fA-F]{24}$/)
@@ -56,11 +114,13 @@ export const uploadChunk = async (req, res, next) => {
         match: matchObjectId ?? matchId,
         status: "recording",
       });
+      console.log(`📝 [Upload] Created recording doc: ${recording._id}`);
     }
 
-    const filePath = file.path.replace(/\\/g, "/");
-    const fileSizeBytes = file.size || 0;
-    const fileSizeMB = fileSizeBytes / (1024 * 1024);
+    // ✅ DÙNG DATA TỪ GO SERVICE
+    const filePath = goData.filePath;
+    const fileSizeBytes = goData.fileSizeBytes;
+    const fileSizeMB = goData.fileSizeMB;
 
     // upsert chunk (nếu chunkIndex trùng thì cập nhật path)
     const chunkDoc = await LiveRecordingChunk.findOneAndUpdate(
@@ -77,6 +137,8 @@ export const uploadChunk = async (req, res, next) => {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
+    console.log(`💾 [Upload] Chunk saved to DB: ${chunkDoc._id}`);
+
     // cập nhật tổng số chunk + size trên LiveRecording
     const agg = await LiveRecordingChunk.aggregate([
       { $match: { recording: recording._id } },
@@ -92,17 +154,18 @@ export const uploadChunk = async (req, res, next) => {
 
     if (agg[0]) {
       recording.totalChunks = agg[0].countChunks;
-      recording.totalSizeMB =
-        agg[0].totalSizeBytes / (1024 * 1024);
+      recording.totalSizeMB = agg[0].totalSizeBytes / (1024 * 1024);
     }
 
     if (isFinalBool) {
       recording.hasFinalChunk = true;
-      // tuỳ bạn: có thể chuyển trạng thái sang "merging" để worker xử lý
       recording.status = "merging";
+      console.log(`🏁 [Upload] Final chunk received for match ${matchId}`);
     }
 
     await recording.save();
+
+    console.log(`✅ [Upload] Complete: match=${matchId}, chunk=${idx}, total=${recording.totalChunks} chunks, ${recording.totalSizeMB.toFixed(2)}MB`);
 
     return res.status(200).json({
       ok: true,
@@ -123,7 +186,15 @@ export const uploadChunk = async (req, res, next) => {
       },
     });
   } catch (err) {
-    console.error("uploadChunk error", err);
+    console.error("❌ [Upload] Controller error:", err);
+    
+    // ✅ Cleanup temp file nếu còn
+    if (tempFilePath) {
+      try {
+        fs.unlinkSync(tempFilePath);
+      } catch (_) {}
+    }
+    
     return res.status(500).json({
       message: "Upload chunk failed",
       error: err.message || String(err),
