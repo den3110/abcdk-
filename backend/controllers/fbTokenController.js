@@ -61,20 +61,20 @@ function buildStatus({ dbgUser, dbgPage, canRead, canLive, doc }) {
   }
   if (doc.needsReauth) code = "NEEDS_REAUTH";
   if (doc.isBusy) hints.push(`Đang bận (live:${doc.busyLiveVideoId || "-"})`);
+  if (doc.disabled) hints.push("Page đang bị disable (không dùng tự động)");
 
   return { code, problems, hints, missingScopes };
 }
 
 /**
  * GET /api/fb-tokens
- * Query: q, status, busy
- * Trả về rows với computed:
- *  - code: ưu tiên cảnh báo tức thời; nếu không có thì lấy kết quả check gần nhất (lastStatusCode) nếu đã có.
- *  - hasNever: dựa vào pageTokenIsNever
+ * Query: q, status, busy, enabled
+ * enabled: "1" = chỉ page đang bật, "0" = chỉ page bị disable
  */
 export const listFbTokens = asyncHandler(async (req, res) => {
-  const { q = "", status = "", busy = "" } = req.query || {};
+  const { q = "", status = "", busy = "", enabled = "" } = req.query || {};
   const cond = {};
+
   if (q) {
     cond.$or = [
       { pageId: new RegExp(q.trim(), "i") },
@@ -84,6 +84,9 @@ export const listFbTokens = asyncHandler(async (req, res) => {
   }
   if (busy === "1") cond.isBusy = true;
   if (busy === "0") cond.isBusy = false;
+
+  if (enabled === "1") cond.disabled = { $ne: true }; // chỉ page đang bật
+  if (enabled === "0") cond.disabled = true; // chỉ page bị tắt
 
   const docs = await FbToken.find(cond).sort({ updatedAt: -1 }).lean();
 
@@ -97,7 +100,8 @@ export const listFbTokens = asyncHandler(async (req, res) => {
 
       // mức độ cảnh báo tức thời (không gọi remote)
       let dynamic = "UNKNOWN";
-      if (d.needsReauth) dynamic = "NEEDS_REAUTH";
+      if (d.disabled) dynamic = "DISABLED";
+      else if (d.needsReauth) dynamic = "NEEDS_REAUTH";
       else if (!d.pageToken) dynamic = "MISSING_PAGE_TOKEN";
       else if (pageExpired) dynamic = "EXPIRED";
       else if (userExpired) dynamic = "USER_EXPIRED";
@@ -170,7 +174,6 @@ export const checkOneFbToken = asyncHandler(async (req, res) => {
   ].includes(status.code);
 
   // ✅ lưu kết quả health check gần nhất để list ưu tiên hiển thị
-  // (đảm bảo schema có các field này để không bị strict bỏ qua)
   doc.lastStatusCode = status.code;
   doc.lastStatusProblems = status.problems;
   doc.lastStatusHints = status.hints;
@@ -203,6 +206,7 @@ export const checkOneFbToken = asyncHandler(async (req, res) => {
       longUserExpiresAt: doc.longUserExpiresAt,
       pageTokenExpiresAt: doc.pageTokenExpiresAt,
       pageTokenIsNever: doc.pageTokenIsNever,
+      disabled: doc.disabled,
     },
   });
 });
@@ -210,9 +214,10 @@ export const checkOneFbToken = asyncHandler(async (req, res) => {
 /**
  * POST /api/fb-tokens/~batch/check-all
  * Chạy lần lượt theo cụm nhỏ để tránh rate limit
+ * (mặc định bỏ qua các page đã disable)
  */
 export const checkAllFbTokens = asyncHandler(async (req, res) => {
-  const docs = await FbToken.find({}).lean();
+  const docs = await FbToken.find({ disabled: { $ne: true } }).lean();
   const ids = docs.map((d) => d._id);
   const limit = 3; // gentle concurrency
 
@@ -280,4 +285,32 @@ export const clearBusyFlag = asyncHandler(async (req, res) => {
   doc.busySince = null;
   await doc.save();
   res.json({ ok: true });
+});
+
+/**
+ * ➕ NEW: POST /api/fb-tokens/:id/disable
+ */
+export const disableFbToken = asyncHandler(async (req, res) => {
+  const doc = await FbToken.findById(req.params.id);
+  if (!doc) {
+    res.status(404);
+    throw new Error("Not found");
+  }
+  doc.disabled = true;
+  await doc.save();
+  res.json({ ok: true, disabled: true });
+});
+
+/**
+ * ➕ NEW: POST /api/fb-tokens/:id/enable
+ */
+export const enableFbToken = asyncHandler(async (req, res) => {
+  const doc = await FbToken.findById(req.params.id);
+  if (!doc) {
+    res.status(404);
+    throw new Error("Not found");
+  }
+  doc.disabled = false;
+  await doc.save();
+  res.json({ ok: true, disabled: false });
 });

@@ -6,6 +6,8 @@ import {
   checkAllFbTokens,
   markNeedsReauth,
   clearBusyFlag,
+  disableFbToken,
+  enableFbToken,
 } from "../controllers/fbTokenController.js";
 import { protect, authorize } from "../middleware/authMiddleware.js";
 
@@ -23,5 +25,8 @@ router.post("/~batch/check-all", protect, authorize("admin"), checkAllFbTokens);
 // Manual flags
 router.post("/:id/mark-reauth", protect, authorize("admin"), markNeedsReauth);
 router.post("/:id/clear-busy", protect, authorize("admin"), clearBusyFlag);
+
+router.post("/:id/disable", protect, authorize("admin"), disableFbToken);
+router.post("/:id/enable", protect, authorize("admin"), enableFbToken);
 
 export default router;

@@ -1313,10 +1313,11 @@ export const createFacebookLiveForMatch = async (req, res) => {
     const existingPageId = match.facebookLive?.pageId;
     let candidatePages = [];
 
-    // Ưu tiên page đang dùng (nếu có)
+    // ✅ Ưu tiên page đang dùng (nếu có) nhưng KHÔNG disabled
     if (existingPageId) {
       const existingPage = await FacebookPage.findOne({
         pageId: existingPageId,
+        disabled: { $ne: true }, // ⬅ NEW: skip disabled
       });
       if (existingPage && !existingPage.needsReauth) {
         if (
@@ -1329,10 +1330,11 @@ export const createFacebookLiveForMatch = async (req, res) => {
       }
     }
 
-    // Lấy tất cả pages rảnh khác
+    // ✅ Lấy tất cả pages rảnh khác, không disabled
     const freePages = await FacebookPage.find({
       needsReauth: false,
       isBusy: false,
+      disabled: { $ne: true }, // ⬅ NEW: skip disabled
     }).sort({ lastCheckedAt: 1 });
 
     for (const page of freePages) {
@@ -1343,7 +1345,8 @@ export const createFacebookLiveForMatch = async (req, res) => {
 
     if (candidatePages.length === 0) {
       return res.status(409).json({
-        message: "Không có Facebook Page nào khả dụng để tạo live.",
+        message:
+          "Không có Facebook Page nào khả dụng để tạo live (tất cả đều bận / cần reauth / disabled).",
       });
     }
 
@@ -1406,7 +1409,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
     ];
     const fbDescription = fbDescriptionLines.join("\n");
 
-    // 5) 🔄 THỬ TẠO LIVE VỚI TỪNG PAGE
+    // 5) 🔄 THỬ TẠO LIVE VỚI TỪNG PAGE (logic giữ nguyên)
     let pageDoc = null;
     let pageId = null;
     let pageAccessToken = null;
@@ -1510,7 +1513,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
       });
     }
 
-    // 6) XỬ LÝ KẾT QUẢ THÀNH CÔNG (giữ nguyên phần còn lại)
+    // 6) XỬ LÝ KẾT QUẢ THÀNH CÔNG (giữ nguyên)
     const videoId = liveInfo?.video?.id || null;
     const videoPermalink = liveInfo?.video?.permalink_url || null;
     const livePermalink =
@@ -1637,7 +1640,11 @@ export const createFacebookLiveForMatch = async (req, res) => {
   }
 };
 
-export const createFacebookLiveForMatchForUserNotSystem = async (req, res, next) => {
+export const createFacebookLiveForMatchForUserNotSystem = async (
+  req,
+  res,
+  next
+) => {
   try {
     const fbEnabled =
       (await getCfgStr("LIVE_FACEBOOK_ENABLED", "1")).trim() === "1";

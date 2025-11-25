@@ -8,7 +8,10 @@ const FbTokenSchema = new mongoose.Schema(
     category: String,
     tasks: [String],
 
-    // token gốc
+     // ➕ NEW: bật/tắt page để không dùng tự động
+    disabled: { type: Boolean, default: false },
+
+    // token gốc  
     longUserToken: String,
     longUserExpiresAt: Date,
     longUserScopes: [String],
