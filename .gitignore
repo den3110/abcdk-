@@ -25,4 +25,4 @@ dist-ssr
 *.sw?
 uploads
 node_modules
-micro-services
+micro-services/downloader-video

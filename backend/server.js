@@ -65,6 +65,7 @@ import { setupGraphQL } from "./graphql/index.js";
 import { timezoneMiddleware } from "./middleware/timezoneMiddleware.js";
 import { normalizeRequestDates } from "./middleware/normalizeRequestDates.js";
 import { convertResponseDates } from "./middleware/convertResponseDates.js";
+import { createProxyMiddleware } from "http-proxy-middleware";
 
 dotenv.config();
 const port = process.env.PORT;
@@ -157,6 +158,17 @@ app.use("/api/leaderboards", leaderboardRoutes);
 app.use("/api/schedule", scheduleRoutes);
 app.use("/api/live/recordings", liveRecordingRoutes);
 app.use("/api/fb", facebookRoutes);
+
+app.use(
+  "/api/admin/system",
+  createProxyMiddleware({
+    target: "http://127.0.0.1:8002/api/admin/system", // Go service
+    changeOrigin: true,
+    pathRewrite: {
+      "^/api/admin/system": "/api/admin/system", // thực ra không đổi gì, chỉ cho rõ
+    },
+  })
+);
 
 app.get("/dl/file/:id", async (req, res) => {
   try {
