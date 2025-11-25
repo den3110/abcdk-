@@ -118,9 +118,9 @@ func getSystemSummary(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"hostname": hostInfo.Hostname,
-		"os":       hostInfo.OS,
-		"platform": hostInfo.Platform,
+		"hostname":        hostInfo.Hostname,
+		"os":              hostInfo.OS,
+		"platform":        hostInfo.Platform,
 		"platformVersion": hostInfo.PlatformVersion,
 		"kernelVersion":   hostInfo.KernelVersion,
 		"uptimeSeconds":   uptime,
@@ -230,8 +230,13 @@ func getTopProcesses(c *gin.Context) {
 			User:       user,
 			CPUPercent: cpuPct,
 			MemPercent: memPct,
-			MemRSS:     func() uint64 { if memInfo != nil { return memInfo.RSS }; return 0 }(),
-			Cmdline:    cmdline,
+			MemRSS: func() uint64 {
+				if memInfo != nil {
+					return memInfo.RSS
+				}
+				return 0
+			}(),
+			Cmdline: cmdline,
 		})
 	}
 
@@ -328,14 +333,14 @@ func getNetworkSummary(c *gin.Context) {
 	}
 
 	type ifaceInfo struct {
-		Name       string `json:"name"`
-		MTU        int    `json:"mtu"`
-		Hardware   string `json:"hardwareAddr"`
-		Flags      string `json:"flags"`
-		IPv4       string `json:"ipv4"`
-		IPv6       string `json:"ipv6"`
-		BytesSent  uint64 `json:"bytesSent"`
-		BytesRecv  uint64 `json:"bytesRecv"`
+		Name        string `json:"name"`
+		MTU         int    `json:"mtu"`
+		Hardware    string `json:"hardwareAddr"`
+		Flags       string `json:"flags"`
+		IPv4        string `json:"ipv4"`
+		IPv6        string `json:"ipv6"`
+		BytesSent   uint64 `json:"bytesSent"`
+		BytesRecv   uint64 `json:"bytesRecv"`
 		PacketsSent uint64 `json:"packetsSent"`
 		PacketsRecv uint64 `json:"packetsRecv"`
 	}
@@ -357,14 +362,14 @@ func getNetworkSummary(c *gin.Context) {
 		}
 
 		result = append(result, ifaceInfo{
-			Name:       iface.Name,
-			MTU:        iface.MTU,
-			Hardware:   iface.HardwareAddr,
-			Flags:      strings.Join(iface.Flags, ","),
-			IPv4:       ip4,
-			IPv6:       ip6,
-			BytesSent:  s.BytesSent,
-			BytesRecv:  s.BytesRecv,
+			Name:        iface.Name,
+			MTU:         iface.MTU,
+			Hardware:    iface.HardwareAddr,
+			Flags:       strings.Join(iface.Flags, ","),
+			IPv4:        ip4,
+			IPv6:        ip6,
+			BytesSent:   s.BytesSent,
+			BytesRecv:   s.BytesRecv,
 			PacketsSent: s.PacketsSent,
 			PacketsRecv: s.PacketsRecv,
 		})
@@ -388,10 +393,10 @@ func getOpenPorts(c *gin.Context) {
 		out2, err2 := cmd2.CombinedOutput()
 		if err2 != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":      "ss/netstat failed",
-				"detail":     err.Error(),
-				"detail2":    err2.Error(),
-				"combined":   string(out) + "\n" + string(out2),
+				"error":    "ss/netstat failed",
+				"detail":   err.Error(),
+				"detail2":  err2.Error(),
+				"combined": string(out) + "\n" + string(out2),
 			})
 			return
 		}
@@ -455,7 +460,6 @@ func getLogTail(c *gin.Context) {
 		})
 		return
 	}
-	
 
 	c.JSON(http.StatusOK, gin.H{
 		"type":  lf.Key,
@@ -555,7 +559,7 @@ func main() {
 
 	port := os.Getenv("ADMIN_SYSTEM_PORT")
 	if port == "" {
-		port = "8002"
+		port = "8003"
 	}
 	addr := ":" + port
 

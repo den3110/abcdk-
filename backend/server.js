@@ -162,7 +162,7 @@ app.use("/api/fb", facebookRoutes);
 app.use(
   "/api/admin/system",
   createProxyMiddleware({
-    target: "http://127.0.0.1:8002//api/admin/system",  // ❌ Bỏ phần /api/admin/system ở target
+    target: "http://127.0.0.1:8003//api/admin/system",  // ❌ Bỏ phần /api/admin/system ở target
     changeOrigin: true,
     pathRewrite: {
       "^/api/admin/system": "/api/admin/system",  // ✅ Giữ nguyên hoặc map sang path Go service expect
