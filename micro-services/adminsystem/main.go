@@ -557,7 +557,7 @@ func main() {
 	if port == "" {
 		port = "8002"
 	}
-	addr := "127.0.0.1:" + port
+	addr := ":" + port
 
 	log.Printf("Admin system monitor listening at %s\n", addr)
 	if err := r.Run(addr); err != nil {
