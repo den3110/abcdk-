@@ -1046,10 +1046,7 @@ export default function TournamentRegistration() {
         r?.player1?.phone || r?.player2?.phone || me?.phone || ""
       );
       const tourCode =
-        buildTourCode(tour?.name) ||
-        String(id || "")
-          .slice(-4)
-          .toUpperCase();
+       tour?.code;
       const des = normalizeNoAccent(
         `Ma giai ${tourCode} Ma dang ky ${code} SDT ${ph}`
       );
