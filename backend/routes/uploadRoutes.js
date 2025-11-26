@@ -9,6 +9,7 @@ import { cccdUpload } from "../middleware/cccdUpload.js";
 import { uploadCccd } from "../controllers/uploadController.js";
 import { processAvatarWithLogoAlways } from "../services/avatarProcessor.js"; // ✅ dùng service
 import SystemSettings from "../models/systemSettingsModel.js";
+import { optimizeImage } from "../middleware/optimizeImage.js";
 
 const router = express.Router();
 
@@ -139,11 +140,51 @@ const cccdUploadSingle = multer({
   },
 });
 
+/* ✅ Upload theo thư mục uploads/:id */
+const perIdStorage = multer.diskStorage({
+  destination(req, file, cb) {
+    try {
+      const rawId = req.params.id || "misc";
+      const safeId = slugify(rawId) || "misc";
+      const dir = path.join(ROOT_UPLOAD_DIR, safeId);
+
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      cb(null, dir);
+    } catch (err) {
+      cb(err);
+    }
+  },
+  filename(req, file, cb) {
+    const base =
+      slugify(
+        path.basename(
+          file.originalname || "image",
+          path.extname(file.originalname || "")
+        )
+      ) || "image";
+    cb(null, `${Date.now()}-${base}.${getExt(file)}`);
+  },
+});
+
+const perIdUpload = multer({
+  storage: perIdStorage,
+  limits: { fileSize: MAX_IMG_SIZE },
+  fileFilter(req, file, cb) {
+    if (!ALLOWED_IMAGE_MIME.has(file.mimetype)) {
+      return cb(new Error("Chỉ cho phép ảnh (jpeg, png, webp, heic/heif)"));
+    }
+    cb(null, true);
+  },
+});
+
 /* ===== Routes ===== */
 
 // /api/upload/avatar  → { url }
 // /api/upload/avatar  → { url }
 // /api/upload/avatar  → { url }
+
 router.post("/avatar", (req, res) => {
   avatarUpload.single("avatar")(req, res, async (err) => {
     const baseUrl = getBaseUrl(req);
@@ -231,5 +272,69 @@ router.post("/register-cccd", (req, res) => {
 });
 
 router.post("/cccd", protect, cccdUpload, uploadCccd);
+
+router.post("/:id", (req, res) => {
+  perIdUpload.single("image")(req, res, (err) => {
+    if (err) {
+      const msg =
+        err?.message ||
+        (err?.code === "LIMIT_FILE_SIZE"
+          ? "Ảnh vượt quá dung lượng tối đa"
+          : "Upload thất bại");
+      return res.status(400).json({ message: msg });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: "Không nhận được file 'image'" });
+    }
+
+    const rawId = req.params.id || "misc";
+    const safeId = slugify(rawId) || "misc";
+
+    // ✅ Thư mục hiện tại (uploads/:id) – optimizeImage sẽ ghi đè trong chính thư mục này
+    const outputDir = path.dirname(req.file.path);
+
+    // ✅ middleware optimizeImage: default webp 800x800, nhưng sẽ override bởi
+    // form-data: format / width / height / quality nếu bạn gửi lên
+    const optimizeMw = optimizeImage({
+      maxWidth: 800,
+      maxHeight: 800,
+      defaultFormat: "webp",
+      quality: 80,
+      outputDir, // giữ trong uploads/:id
+      keepOriginal: false, // xoá file gốc, chỉ giữ file đã nén
+    });
+
+    optimizeMw(req, res, (optErr) => {
+      if (optErr) {
+        console.error("[upload/:id] optimizeImage error:", optErr);
+        const msg =
+          optErr?.message ||
+          (optErr?.code === "LIMIT_FILE_SIZE"
+            ? "Ảnh vượt quá dung lượng tối đa"
+            : "Tối ưu ảnh thất bại");
+        return res.status(400).json({ message: msg });
+      }
+
+      // 🔁 Sau optimizeImage, req.file đã update sang file mới (đã nén)
+      const baseUrl = getBaseUrl(req);
+
+      // Lấy relative path từ ROOT_UPLOAD_DIR để build URL chuẩn cross-platform
+      const relativePath = path
+        .relative(ROOT_UPLOAD_DIR, req.file.path)
+        .split(path.sep)
+        .join("/"); // đổi \ -> / nếu chạy Windows
+
+      const rawPath = `/uploads/${relativePath}`;
+      const fullUrl = buildAbsoluteUrl(baseUrl, rawPath);
+
+      return res.status(200).json({
+        url: fullUrl,
+        id: safeId,
+        filename: req.file.filename,
+      });
+    });
+  });
+});
 
 export default router;

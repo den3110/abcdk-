@@ -162,6 +162,14 @@ const userSchema = new mongoose.Schema(
     // reset password
     resetPasswordToken: { type: String, index: true },
     resetPasswordExpires: { type: Date },
+    rankingSearchLimit: {
+      type: Number,
+      default: null, // null = dùng default 5
+    },
+    rankingSearchUnlimited: {
+      type: Boolean,
+      default: false, // true = không giới hạn khi đăng nhập
+    },
 
     /* ------- (ĐÃ BỎ) Login tracking ra model riêng ------- */
     // lastLoginAt: { type: Date }

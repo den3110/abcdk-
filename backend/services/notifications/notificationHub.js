@@ -26,6 +26,7 @@ export const EVENTS = {
   SYSTEM_BROADCAST: "SYSTEM_BROADCAST",
   RANK_MILESTONE: "RANK_MILESTONE", // lọt TOP xx
   RANK_MOVED: "RANK_MOVED", // tăng/giảm x bậc
+  USER_DIRECT_BROADCAST: "USER_DIRECT_BROADCAST",
 };
 
 // xác định category để áp vào Subscription.categories (nếu bạn dùng)
@@ -200,6 +201,13 @@ const implicitAudienceResolvers = {
     return subs.map((s) => String(s.user));
   },
 
+  // 🆕 gửi thẳng cho 1 user: audience chỉ gồm 1 user đó
+  async [EVENTS.USER_DIRECT_BROADCAST]({ userId, topicId }) {
+    // ưu tiên ctx.userId, fallback ctx.topicId (phòng trường hợp controller gửi topicId=userId)
+    const id = extractIdString(userId || topicId);
+    return id ? [id] : [];
+  },
+
   // kyc
 
   async [EVENTS.KYC_APPROVED]({ userId }) {
@@ -356,6 +364,15 @@ const payloadBuilders = {
     };
   },
 
+  // 🆕 payload cho notif gửi riêng 1 user
+  async [EVENTS.USER_DIRECT_BROADCAST]({ title, body, url }) {
+    return {
+      title: title || "Thông báo",
+      body: body || "Xem chi tiết trong app.",
+      data: { url: url || "/", kind: EVENTS.USER_DIRECT_BROADCAST },
+    };
+  },
+
   // kyc
 
   async [EVENTS.KYC_APPROVED]({ userId }) {
@@ -434,6 +451,11 @@ function makeEventKey(eventName, ctx) {
     return `invite.accepted:tour#${ctx.tournamentId}:from#${ctx.inviterUserId}`;
   if (eventName === EVENTS.SYSTEM_BROADCAST)
     return `system.broadcast:${ctx.title || "general"}`;
+  if (eventName === EVENTS.USER_DIRECT_BROADCAST)
+    return `system.userBroadcast:user#${ctx.userId || ctx.topicId}:${
+      ctx.title ? String(ctx.title).slice(0, 64) : "general"
+    }`;
+
   // kyc
   if (eventName === EVENTS.KYC_APPROVED)
     return `kyc.approved:user#${ctx.userId}`;

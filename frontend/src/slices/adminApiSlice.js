@@ -111,6 +111,13 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         body, // { newPassword: string }
       }),
     }),
+    updateRankingSearchConfig: builder.mutation({
+      query: ({ id, body }) => ({
+        url: `/api/admin/users/${id}/ranking-search-config`,
+        method: "PATCH",
+        body,
+      }),
+    }),
   }),
 });
 
@@ -129,4 +136,5 @@ export const {
   usePromoteToEvaluatorMutation,
   useDemoteEvaluatorMutation,
   useChangeUserPasswordMutation,
+  useUpdateRankingSearchConfigMutation
 } = adminApiSlice;

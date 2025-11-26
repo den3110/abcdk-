@@ -3665,3 +3665,86 @@ export const aiFillCccdForUser = asyncHandler(async (req, res) => {
     missingFields: missingFieldsAfter,
   });
 });
+
+
+
+export const adminSetRankingSearchConfig = asyncHandler(
+  async (req, res) => {
+    const { userId } = req.params;
+
+    // check quyền admin
+    const role = String(req.user?.role || "").toLowerCase();
+    const isAdmin = role === "admin" || !!req.user?.isAdmin;
+
+    if (!isAdmin) {
+      res.status(403);
+      throw new Error("Bạn không có quyền thực hiện thao tác này.");
+    }
+
+    let { limit, unlimited } = req.body;
+
+    // chuẩn hoá unlimited -> boolean
+    const rankingSearchUnlimited =
+      typeof unlimited !== "undefined" ? Boolean(unlimited) : undefined;
+
+    // chuẩn hoá limit
+    let rankingSearchLimit;
+    if (typeof limit !== "undefined") {
+      if (limit === null || limit === "") {
+        // null / "" => xoá custom, quay về default 5
+        rankingSearchLimit = null;
+      } else {
+        const parsed = Number(limit);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          res.status(400);
+          throw new Error("Giá trị 'limit' không hợp lệ.");
+        }
+        if (parsed === 0) {
+          // 0 cũng coi như không set -> dùng default
+          rankingSearchLimit = null;
+        } else {
+          rankingSearchLimit = parsed; // vd: 10, 20, 50...
+        }
+      }
+    }
+
+    const update = {};
+
+    if (typeof rankingSearchUnlimited !== "undefined") {
+      update.rankingSearchUnlimited = rankingSearchUnlimited;
+      // nếu muốn, khi unlimited = true thì clear luôn limit:
+      // if (rankingSearchUnlimited) update.rankingSearchLimit = null;
+    }
+
+    if (typeof rankingSearchLimit !== "undefined") {
+      update.rankingSearchLimit = rankingSearchLimit;
+    }
+
+    if (Object.keys(update).length === 0) {
+      res.status(400);
+      throw new Error("Không có trường nào để cập nhật.");
+    }
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { $set: update },
+      {
+        new: true,
+        runValidators: true,
+        // chỉ trả về vài field cần thiết
+        select:
+          "_id name nickname phone email rankingSearchLimit rankingSearchUnlimited role",
+      }
+    ).lean();
+
+    if (!user) {
+      res.status(404);
+      throw new Error("Không tìm thấy user.");
+    }
+
+    return res.json({
+      message: "Cập nhật cấu hình tìm kiếm xếp hạng thành công.",
+      user,
+    });
+  }
+);

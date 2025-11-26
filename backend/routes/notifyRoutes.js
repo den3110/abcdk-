@@ -5,6 +5,7 @@ import {
   notifyMatchStartSoon,
   notifyTournamentCreated,
   notifyTournamentScheduleUpdated,
+  notifyUserBroadcast,
 } from "../controllers/notifyController.js";
 import {
   protect,
@@ -49,5 +50,11 @@ router.post(
 );
 
 router.post("/global/broadcast", protect, authorize("admin"), notifyGlobalBroadcast);
+router.post(
+  "/user/broadcast",
+  protect,
+  authorize("admin"),
+  notifyUserBroadcast
+);
 
 export default router;

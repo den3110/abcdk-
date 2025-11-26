@@ -31,6 +31,10 @@ const errorHandler = (err, req, res, next) => {
     payload.remainingResetTime = err.remainingResetTime;
   }
 
+  if (typeof err.remainingTime === "number") {
+    payload.remainingTime = err.remainingTime;
+  }
+
   res.status(statusCode).json(payload);
 };
 

@@ -1,6 +1,6 @@
 // src/pages/admin/UsersPage.jsx
 /* eslint-disable react/prop-types */
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import {
   Box,
   Stack,
@@ -24,21 +24,31 @@ import {
   Pagination,
   CircularProgress,
   InputAdornment,
-  Grid,
   Typography,
   useMediaQuery,
   Paper,
   Divider,
+  Avatar,
+  Card,
+  Collapse,
+  Grid,
 } from "@mui/material";
-import { useTheme } from "@mui/material/styles";
+import { useTheme, alpha } from "@mui/material/styles";
+
+// Icons
 import SearchIcon from "@mui/icons-material/Search";
-import ZoomInIcon from "@mui/icons-material/ZoomIn";
 import EditIcon from "@mui/icons-material/Edit";
-import DeleteIcon from "@mui/icons-material/Delete";
-import VerifiedIcon from "@mui/icons-material/HowToReg";
+import DeleteIcon from "@mui/icons-material/DeleteOutlined";
+import VerifiedIcon from "@mui/icons-material/Verified";
 import CancelIcon from "@mui/icons-material/Cancel";
 import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
+import SaveIcon from "@mui/icons-material/Save";
+import FilterListIcon from "@mui/icons-material/FilterList";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import BadgeIcon from "@mui/icons-material/Badge";
+import SportsTennisIcon from "@mui/icons-material/SportsTennis";
+
 import { useDispatch, useSelector } from "react-redux";
 
 import {
@@ -51,10 +61,11 @@ import {
   usePromoteToEvaluatorMutation,
   useDemoteEvaluatorMutation,
   useDeleteUserMutation,
+  useUpdateRankingSearchConfigMutation,
 } from "../../slices/adminApiSlice";
 import { setPage, setKeyword, setRole } from "../../slices/adminUiSlice";
 
-/* ================== Consts ================== */
+/* ================== Utils & Consts ================== */
 const GENDER_OPTIONS = [
   { value: "unspecified", label: "--" },
   { value: "male", label: "Nam" },
@@ -131,10 +142,11 @@ const PROVINCES_SET = new Set(PROVINCES);
 
 const KYC_LABEL = {
   unverified: "Chưa KYC",
-  pending: "Chờ KYC",
-  verified: "Đã KYC",
+  pending: "Chờ duyệt",
+  verified: "Đã xác thực",
   rejected: "Từ chối",
 };
+
 const KYC_COLOR = {
   unverified: "default",
   pending: "warning",
@@ -145,6 +157,7 @@ const KYC_COLOR = {
 const prettyDate = (d) => (d ? new Date(d).toLocaleDateString("vi-VN") : "—");
 const roleText = (r) =>
   r === "admin" ? "Admin" : r === "referee" ? "Trọng tài" : "User";
+
 const getEvalProvinces = (u) =>
   Array.isArray(u?.evaluator?.gradingScopes?.provinces)
     ? u.evaluator.gradingScopes.provinces.filter(Boolean)
@@ -158,11 +171,41 @@ const getIsFullEvaluator = (u) => {
   return normalized.length === PROVINCES.length;
 };
 
-/* ================== Page ================== */
+// Hàm tạo màu avatar từ tên
+function stringToColor(string) {
+  let hash = 0;
+  let i;
+  /* eslint-disable no-bitwise */
+  for (i = 0; i < string.length; i += 1) {
+    hash = string.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  let color = "#";
+  for (i = 0; i < 3; i += 1) {
+    const value = (hash >> (i * 8)) & 0xff;
+    color += `00${value.toString(16)}`.slice(-2);
+  }
+  /* eslint-enable no-bitwise */
+  return color;
+}
+function stringAvatar(name) {
+  const n = name || "?";
+  return {
+    sx: {
+      bgcolor: stringToColor(n),
+      fontSize: 16,
+      fontWeight: "bold",
+    },
+    children: n.includes(" ")
+      ? `${n.split(" ")[0][0]}${n.split(" ")[1][0]}`.toUpperCase()
+      : n.substr(0, 2).toUpperCase(),
+  };
+}
+
+/* ================== Page Component ================== */
 export default function UsersPage() {
   const theme = useTheme();
-  const isXs = useMediaQuery(theme.breakpoints.down("sm")); // <600
-  const isMdUp = useMediaQuery(theme.breakpoints.up("md")); // >=900
+  const isXs = useMediaQuery(theme.breakpoints.down("sm"));
+  const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
 
   const dispatch = useDispatch();
   const { page, keyword, role = "" } = useSelector((s) => s.adminUi);
@@ -184,6 +227,7 @@ export default function UsersPage() {
   const [promoteEvaluatorMut] = usePromoteToEvaluatorMutation();
   const [demoteEvaluatorMut] = useDemoteEvaluatorMutation();
   const [deleteUserMut] = useDeleteUserMutation();
+  const [updateRankingSearchConfigMut] = useUpdateRankingSearchConfigMutation();
 
   // UI state
   const [search, setSearch] = useState(keyword);
@@ -252,176 +296,347 @@ export default function UsersPage() {
     ? Math.ceil((data.total || 0) / (data.pageSize || 1))
     : 0;
 
-  // ========= Row component (list) =========
-  const UserRow = ({ u }) => {
+  // ========= COMPONENT: USER CARD =========
+  const UserCard = ({ u }) => {
     const isFull = !!fullMap[u._id];
+    const [expanded, setExpanded] = useState(false);
+
+    // Limit logic
+    const [limitInput, setLimitInput] = useState(
+      typeof u.rankingSearchLimit === "number" && u.rankingSearchLimit > 0
+        ? String(u.rankingSearchLimit)
+        : ""
+    );
+    const [unlimited, setUnlimited] = useState(!!u.rankingSearchUnlimited);
+    const [savingLimit, setSavingLimit] = useState(false);
+
+    useEffect(() => {
+      setLimitInput(
+        typeof u.rankingSearchLimit === "number" && u.rankingSearchLimit > 0
+          ? String(u.rankingSearchLimit)
+          : ""
+      );
+      setUnlimited(!!u.rankingSearchUnlimited);
+    }, [u.rankingSearchLimit, u.rankingSearchUnlimited, u._id]);
+
+    const handleSaveLimit = async () => {
+      const body = { unlimited };
+      if (limitInput === "") {
+        body.limit = null;
+      } else {
+        const parsed = Number(limitInput);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          showSnack("error", "Limit không hợp lệ");
+          return;
+        }
+        body.limit = parsed;
+      }
+      setSavingLimit(true);
+      try {
+        await handle(
+          updateRankingSearchConfigMut({ id: u._id, body }).unwrap(),
+          "Cập nhật cấu hình tìm kiếm xếp hạng thành công."
+        );
+      } catch (e) {
+        // handled
+      } finally {
+        setSavingLimit(false);
+      }
+    };
 
     return (
-      <Paper
-        variant="outlined"
+      <Card
         sx={{
-          p: { xs: 1, sm: 1.25 },
-          borderRadius: 2,
-          mb: 1,
+          mb: 2,
+          border: "1px solid",
+          borderColor: "divider",
+          boxShadow: theme.shadows[1],
+          transition: "all 0.3s",
+          "&:hover": {
+            boxShadow: theme.shadows[4],
+            borderColor: theme.palette.primary.main,
+          },
         }}
       >
-        <Grid container spacing={1.5} alignItems="center">
-          {/* Left: Info */}
-          <Grid item xs={12} md={7} lg={8}>
-            <Stack spacing={0.5}>
-              <Stack
-                direction="row"
-                alignItems="center"
-                justifyContent="space-between"
-                spacing={1}
-              >
-                <Typography
-                  variant="subtitle1"
-                  fontWeight={700}
-                  noWrap
-                  title={u.name}
-                >
-                  {u.name}
-                </Typography>
-                <Stack
-                  direction="row"
-                  spacing={0.5}
-                  alignItems="center"
-                  sx={{ flexShrink: 0 }}
-                >
-                  <Chip
-                    size="small"
-                    label={KYC_LABEL[u.cccdStatus || "unverified"]}
-                    color={KYC_COLOR[u.cccdStatus || "unverified"]}
-                  />
-                  {u.cccdImages?.front && (
-                    <Tooltip title="Xem ảnh CCCD">
-                      <IconButton size="small" onClick={() => setKyc(u)}>
-                        <ZoomInIcon fontSize="inherit" />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                </Stack>
-              </Stack>
+        {/* === Header: Basic Info & Main Actions === */}
+        <Box sx={{ p: 2, display: "flex", alignItems: "flex-start", gap: 2 }}>
+          <Avatar
+            {...stringAvatar(u.name)}
+            sx={{ width: 48, height: 48, ...stringAvatar(u.name).sx }}
+          />
 
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                noWrap
-                title={u.email}
-              >
-                {u.email}
-              </Typography>
-
-              <Stack
-                direction="row"
-                spacing={1}
-                flexWrap="wrap"
-                useFlexGap
-                sx={{ mt: 0.25 }}
-              >
-                <Chip size="small" label={`Phone: ${u.phone || "-"}`} />
-                <Chip size="small" label={`Đơn: ${u.single ?? "-"}`} />
-                <Chip size="small" label={`Đôi: ${u.double ?? "-"}`} />
-                {u.cccd && (
-                  <Chip
-                    size="small"
-                    variant="outlined"
-                    label={`CCCD: ${u.cccd}`}
-                    sx={{ fontFamily: "monospace" }}
-                  />
-                )}
-              </Stack>
-            </Stack>
-          </Grid>
-
-          {/* Middle: Role & toggle */}
-          <Grid item xs={12} md={3} lg={3}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
             <Stack
               direction="row"
-              spacing={1}
               alignItems="center"
+              spacing={1}
               flexWrap="wrap"
-              useFlexGap
             >
-              <FormControl size="small" sx={{ minWidth: 140, flexShrink: 0 }}>
-                <InputLabel id={`role-${u._id}`}>Role</InputLabel>
-                <Select
-                  labelId={`role-${u._id}`}
-                  label="Role"
-                  value={u.role}
-                  onChange={(e) =>
-                    handle(
-                      updateRoleMut({
-                        id: u._id,
-                        role: e.target.value,
-                      }).unwrap(),
-                      "Đã cập nhật role"
-                    )
-                  }
-                >
-                  <MenuItem value="user">User</MenuItem>
-                  <MenuItem value="referee">Trọng tài</MenuItem>
-                  <MenuItem value="admin">Admin</MenuItem>
-                </Select>
-              </FormControl>
-              <FormControlLabel
-                sx={{
-                  m: 0,
-                  "& .MuiFormControlLabel-label": {
-                    fontSize: 12,
-                    whiteSpace: "nowrap",
-                  },
-                }}
-                control={
-                  <Checkbox
-                    size="small"
-                    checked={isFull}
-                    onChange={(e) =>
-                      toggleAdminEvaluator(u._id, e.target.checked)
-                    }
-                  />
-                }
-                label={isMdUp ? "Admin chấm trình (FULL tỉnh)" : "Full tỉnh"}
+              <Typography
+                variant="h6"
+                sx={{ fontSize: "1rem", fontWeight: 700 }}
+                noWrap
+              >
+                {u.name}
+              </Typography>
+              {u.role !== "user" && (
+                <Chip
+                  label={roleText(u.role)}
+                  size="small"
+                  color={u.role === "admin" ? "error" : "info"}
+                  variant="outlined"
+                  sx={{ height: 20, fontSize: "0.7rem" }}
+                />
+              )}
+              <Chip
+                size="small"
+                icon={u.cccdStatus === "verified" ? <VerifiedIcon /> : null}
+                label={KYC_LABEL[u.cccdStatus || "unverified"]}
+                color={KYC_COLOR[u.cccdStatus || "unverified"]}
+                sx={{ height: 20, fontSize: "0.7rem" }}
               />
             </Stack>
-          </Grid>
-
-          {/* Right: Actions */}
-          <Grid item xs={12} md={2} lg={1}>
-            <Stack
-              direction="row"
-              spacing={0.5}
-              alignItems="center"
-              justifyContent={{ xs: "flex-start", md: "flex-end" }}
+            <Typography variant="body2" color="text.secondary" noWrap>
+              {u.email}
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: "block", mt: 0.5 }}
             >
-              <Tooltip title="Cập nhật điểm">
-                <IconButton
+              Phone: {u.phone || "--"} • {u.province || "Chưa cập nhật tỉnh"}
+            </Typography>
+
+            {/* Stats Chips */}
+            {/* Stats & CCCD / KYC action */}
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1}
+              mt={1}
+              alignItems={{ xs: "flex-start", sm: "center" }}
+            >
+              <Stack direction="row" spacing={1}>
+                <Chip
+                  icon={<SportsTennisIcon sx={{ fontSize: 14 }} />}
+                  label={`Đơn: ${u.single ?? "-"}`}
                   size="small"
-                  color="info"
-                  onClick={() => setScore({ ...u })}
-                >
-                  <VerifiedIcon fontSize="inherit" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Sửa">
-                <IconButton size="small" onClick={() => setEdit({ ...u })}>
-                  <EditIcon fontSize="inherit" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Xoá">
-                <IconButton
+                  sx={{
+                    bgcolor: alpha(theme.palette.primary.main, 0.1),
+                    color: "primary.main",
+                    fontWeight: 600,
+                  }}
+                />
+                <Chip
+                  icon={<SportsTennisIcon sx={{ fontSize: 14 }} />}
+                  label={`Đôi: ${u.double ?? "-"}`}
                   size="small"
-                  color="error"
-                  onClick={() => setDel(u)}
+                  sx={{
+                    bgcolor: alpha(theme.palette.secondary.main, 0.1),
+                    color: "secondary.main",
+                    fontWeight: 600,
+                  }}
+                />
+              </Stack>
+
+              {u.cccdImages?.front && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  color="secondary"
+                  startIcon={<BadgeIcon sx={{ fontSize: 16 }} />}
+                  onClick={() => setKyc(u)}
+                  sx={{
+                    textTransform: "none",
+                    fontWeight: 600,
+                  }}
                 >
-                  <DeleteIcon fontSize="inherit" />
-                </IconButton>
-              </Tooltip>
+                  Xem CCCD / KYC
+                </Button>
+              )}
             </Stack>
-          </Grid>
-        </Grid>
-      </Paper>
+          </Box>
+
+          {/* Quick Actions (Desktop) */}
+          <Stack direction="row" spacing={0.5}>
+            <Tooltip title="Cập nhật điểm">
+              <IconButton
+                size="small"
+                onClick={() => setScore({ ...u })}
+                sx={{ color: "primary.main" }}
+              >
+                <VerifiedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Sửa thông tin">
+              <IconButton size="small" onClick={() => setEdit({ ...u })}>
+                <EditIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Xoá người dùng">
+              <IconButton
+                size="small"
+                onClick={() => setDel(u)}
+                sx={{ color: "error.main" }}
+              >
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        </Box>
+
+        {/* === Divider & Expand Button === */}
+        <Divider />
+        <Box
+          sx={{
+            px: 2,
+            py: 0.5,
+            bgcolor: expanded ? "grey.50" : "transparent",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            cursor: "pointer",
+            "&:hover": { bgcolor: "grey.50" },
+          }}
+          onClick={() => setExpanded(!expanded)}
+        >
+          <Typography
+            variant="caption"
+            sx={{ fontWeight: 600, color: "text.secondary" }}
+          >
+            {expanded
+              ? "Ẩn cấu hình nâng cao"
+              : "Cấu hình nâng cao (Role, Limit Search...)"}
+          </Typography>
+          <IconButton
+            size="small"
+            sx={{
+              transform: expanded ? "rotate(180deg)" : "rotate(0deg)",
+              transition: "0.3s",
+            }}
+          >
+            <ExpandMoreIcon fontSize="small" />
+          </IconButton>
+        </Box>
+
+        {/* === Expanded Configuration === */}
+        <Collapse in={expanded} timeout="auto" unmountOnExit>
+          <Box sx={{ p: 2, bgcolor: "grey.50" }}>
+            <Grid container spacing={2}>
+              {/* Col 1: Role & Evaluator */}
+              <Grid size={{ xs: 12, md: 5 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  fontWeight={600}
+                  display="block"
+                  mb={1}
+                >
+                  PHÂN QUYỀN &amp; CHẤM TRÌNH
+                </Typography>
+                <Stack spacing={2}>
+                  <FormControl size="small" fullWidth sx={{ bgcolor: "white" }}>
+                    <InputLabel>Role</InputLabel>
+                    <Select
+                      label="Role"
+                      value={u.role}
+                      onChange={(e) =>
+                        handle(
+                          updateRoleMut({
+                            id: u._id,
+                            role: e.target.value,
+                          }).unwrap(),
+                          "Đã cập nhật role"
+                        )
+                      }
+                    >
+                      <MenuItem value="user">User</MenuItem>
+                      <MenuItem value="referee">Trọng tài</MenuItem>
+                      <MenuItem value="admin">Admin</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      p: 1,
+                      bgcolor: "white",
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Checkbox
+                      size="small"
+                      checked={isFull}
+                      onChange={(e) =>
+                        toggleAdminEvaluator(u._id, e.target.checked)
+                      }
+                    />
+                    <Box>
+                      <Typography variant="body2" fontWeight={600}>
+                        Admin chấm trình (Full tỉnh)
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Quyền chấm điểm mọi khu vực
+                      </Typography>
+                    </Box>
+                  </Paper>
+                </Stack>
+              </Grid>
+
+              {/* Col 2: Search Quota */}
+              <Grid size={{ xs: 12, md: 7 }}>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  fontWeight={600}
+                  display="block"
+                  mb={1}
+                >
+                  QUOTA TÌM KIẾM
+                </Typography>
+                <Paper variant="outlined" sx={{ p: 1.5, bgcolor: "white" }}>
+                  <Stack
+                    direction={{ xs: "column", sm: "row" }}
+                    spacing={1.5}
+                    alignItems="center"
+                  >
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Limit/ngày"
+                      value={limitInput}
+                      onChange={(e) => setLimitInput(e.target.value)}
+                      placeholder="Mặc định (5)"
+                      sx={{ flex: 1 }}
+                      InputLabelProps={{ shrink: true }}
+                    />
+                    <FormControlLabel
+                      sx={{ "& .MuiTypography-root": { fontSize: 13 } }}
+                      control={
+                        <Checkbox
+                          size="small"
+                          checked={unlimited}
+                          onChange={(e) => setUnlimited(e.target.checked)}
+                        />
+                      }
+                      label="Không giới hạn"
+                    />
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={<SaveIcon />}
+                      onClick={handleSaveLimit}
+                      disabled={savingLimit}
+                      sx={{ minWidth: 80 }}
+                    >
+                      Lưu
+                    </Button>
+                  </Stack>
+                </Paper>
+              </Grid>
+            </Grid>
+          </Box>
+        </Collapse>
+      </Card>
     );
   };
 
@@ -451,135 +666,172 @@ export default function UsersPage() {
     confirmPass === newPass &&
     !changingPass;
 
-  /* ================== Render ================== */
+  /* ================== Main Render ================== */
   return (
-    <Box>
-      {/* Toolbar filters */}
+    <Box sx={{ maxWidth: 1200, mx: "auto", p: { xs: 1, md: 3 } }}>
+      {/* Header Title */}
       <Stack
-        direction={{ xs: "column", sm: "row" }}
-        spacing={1.5}
-        alignItems={{ xs: "stretch", sm: "center" }}
-        sx={{ flexWrap: "wrap", mb: 2 }}
+        direction="row"
+        alignItems="center"
+        justifyContent="space-between"
+        mb={3}
       >
-        <TextField
-          size="small"
-          placeholder="Tìm tên / email"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          InputProps={{
-            startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1 }} />,
-          }}
-          sx={{ width: { xs: "100%", sm: 280 } }}
-        />
-        {/* Role filter */}
-        <FormControl size="small" sx={{ minWidth: { xs: "100%", sm: 160 } }}>
-          <InputLabel id="role-filter" shrink>
-            Role
-          </InputLabel>
-          <Select
-            labelId="role-filter"
-            label="Role"
-            value={role}
-            onChange={(e) => {
-              dispatch(setRole(e.target.value));
-              dispatch(setPage(0));
-            }}
-            displayEmpty
-            renderValue={(selected) =>
-              selected === "" ? "Tất cả" : roleText(selected)
-            }
-          >
-            <MenuItem value="">
-              <em>Tất cả</em>
-            </MenuItem>
-            <MenuItem value="user">User</MenuItem>
-            <MenuItem value="referee">Trọng tài</MenuItem>
-            <MenuItem value="admin">Admin</MenuItem>
-          </Select>
-        </FormControl>
-        {/* KYC filter */}
-        <FormControl size="small" sx={{ minWidth: { xs: "100%", sm: 180 } }}>
-          <InputLabel id="cccd-filter" shrink>
-            Trạng thái CCCD
-          </InputLabel>
-          <Select
-            labelId="cccd-filter"
-            label="Trạng thái CCCD"
-            value={kycFilter}
-            onChange={(e) => {
-              setKycFilter(String(e.target.value));
-              dispatch(setPage(0));
-            }}
-            displayEmpty
-            renderValue={(selected) =>
-              selected === "" ? "Tất cả" : KYC_LABEL[selected] || "Tất cả"
-            }
-          >
-            <MenuItem value="">
-              <em>Tất cả</em>
-            </MenuItem>
-            <MenuItem value="unverified">{KYC_LABEL.unverified}</MenuItem>
-            <MenuItem value="pending">{KYC_LABEL.pending}</MenuItem>
-            <MenuItem value="verified">{KYC_LABEL.verified}</MenuItem>
-            <MenuItem value="rejected">{KYC_LABEL.rejected}</MenuItem>
-          </Select>
-        </FormControl>
+        <Typography
+          variant="h5"
+          fontWeight={800}
+          sx={{ color: "text.primary" }}
+        >
+          Quản lý người dùng
+        </Typography>
       </Stack>
 
-      {/* LIST */}
-      <Box
+      {/* FILTER BAR */}
+      <Paper
+        elevation={0}
         sx={{
-          bgcolor: "background.paper",
+          p: 2,
+          mb: 3,
+          border: "1px solid",
+          borderColor: "divider",
           borderRadius: 2,
-          p: { xs: 1, sm: 1.25 },
+          bgcolor: "background.paper",
         }}
       >
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={2}
+          alignItems="center"
+        >
+          <TextField
+            name="search-query"
+            size="small"
+            placeholder="Tìm kiếm theo Tên, Email..."
+            value={search}
+            autoComplete="off"
+            onChange={(e) => setSearch(e.target.value)}
+            fullWidth
+            InputProps={{
+              startAdornment: <SearchIcon color="action" sx={{ mr: 1 }} />,
+            }}
+            sx={{ flex: 2 }}
+          />
+
+          <Stack
+            direction="row"
+            spacing={2}
+            sx={{ width: { xs: "100%", md: "auto" }, flex: 1 }}
+          >
+            <FormControl size="small" fullWidth>
+              <InputLabel id="role-filter">Role</InputLabel>
+              <Select
+                labelId="role-filter"
+                label="Role"
+                value={role}
+                onChange={(e) => {
+                  dispatch(setRole(e.target.value));
+                  dispatch(setPage(0));
+                }}
+              >
+                <MenuItem value="">Tất cả Role</MenuItem>
+                <MenuItem value="user">User</MenuItem>
+                <MenuItem value="referee">Trọng tài</MenuItem>
+                <MenuItem value="admin">Admin</MenuItem>
+              </Select>
+            </FormControl>
+
+            <FormControl size="small" fullWidth>
+              <InputLabel id="cccd-filter">Trạng thái KYC</InputLabel>
+              <Select
+                labelId="cccd-filter"
+                label="Trạng thái KYC"
+                value={kycFilter}
+                onChange={(e) => {
+                  setKycFilter(String(e.target.value));
+                  dispatch(setPage(0));
+                }}
+              >
+                <MenuItem value="">Tất cả</MenuItem>
+                <MenuItem value="unverified">{KYC_LABEL.unverified}</MenuItem>
+                <MenuItem value="pending">{KYC_LABEL.pending}</MenuItem>
+                <MenuItem value="verified">{KYC_LABEL.verified}</MenuItem>
+                <MenuItem value="rejected">{KYC_LABEL.rejected}</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+        </Stack>
+      </Paper>
+
+      {/* LIST USERS */}
+      <Box>
         {isFetching ? (
-          <Box py={6} textAlign="center">
+          <Stack alignItems="center" py={8}>
             <CircularProgress />
-          </Box>
+            <Typography variant="body2" color="text.secondary" mt={2}>
+              Đang tải dữ liệu...
+            </Typography>
+          </Stack>
         ) : users.length === 0 ? (
-          <Box py={6} textAlign="center">
-            <Typography>Không có người dùng</Typography>
-          </Box>
+          <Paper
+            sx={{ py: 8, textAlign: "center", borderStyle: "dashed" }}
+            variant="outlined"
+          >
+            <FilterListIcon
+              sx={{ fontSize: 48, color: "text.disabled", mb: 1 }}
+            />
+            <Typography variant="h6" color="text.secondary">
+              Không tìm thấy người dùng nào
+            </Typography>
+            <Typography variant="body2" color="text.disabled">
+              Thử thay đổi bộ lọc tìm kiếm
+            </Typography>
+          </Paper>
         ) : (
           <Box>
             {users.map((u) => (
-              <UserRow key={u._id} u={u} />
+              <UserCard key={u._id} u={u} />
             ))}
           </Box>
         )}
       </Box>
 
-      {/* Server pagination */}
-      <Box py={2} display="flex" justifyContent="center">
-        <Pagination
-          page={page + 1}
-          count={serverTotalPages}
-          color="primary"
-          onChange={(_, v) => dispatch(setPage(v - 1))}
-        />
-      </Box>
+      {/* Pagination */}
+      {serverTotalPages > 1 && (
+        <Box py={3} display="flex" justifyContent="center">
+          <Pagination
+            page={page + 1}
+            count={serverTotalPages}
+            color="primary"
+            onChange={(_, v) => dispatch(setPage(v - 1))}
+            size="large"
+            shape="rounded"
+          />
+        </Box>
+      )}
 
       {/* Snackbar */}
       <Snackbar
         open={snack.open}
         autoHideDuration={3000}
         onClose={() => setSnack((s) => ({ ...s, open: false }))}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
       >
-        <Alert severity={snack.type} variant="filled">
+        <Alert severity={snack.type} variant="filled" sx={{ width: "100%" }}>
           {snack.msg}
         </Alert>
       </Snackbar>
 
       {/* Zoom ảnh */}
-      <Dialog open={!!zoom} onClose={() => setZoom(null)} maxWidth="md">
+      <Dialog open={!!zoom} onClose={() => setZoom(null)} maxWidth="lg">
         {zoom && (
           <img
             src={zoom}
             alt="zoom"
-            style={{ maxWidth: "100%", height: "auto" }}
+            style={{
+              maxWidth: "100%",
+              maxHeight: "90vh",
+              objectFit: "contain",
+            }}
+            onClick={() => setZoom(null)}
           />
         )}
       </Dialog>
@@ -591,119 +843,155 @@ export default function UsersPage() {
         maxWidth="md"
         fullWidth
         fullScreen={isXs}
+        PaperProps={{ sx: { borderRadius: 2 } }}
       >
         {kyc && (
           <>
-            <DialogTitle>Kiểm tra CCCD</DialogTitle>
-            <DialogContent dividers sx={{ pt: 2 }}>
-              <Grid container spacing={2}>
-                {/* LEFT: Ảnh CCCD */}
-                <Grid item xs={12} md={12} sx={{width: "100%"}}>
+            <DialogTitle sx={{ borderBottom: "1px solid #eee" }}>
+              Kiểm tra CCCD - {kyc.name}
+            </DialogTitle>
+            <DialogContent sx={{ pt: 3, bgcolor: "grey.50" }}>
+              <Grid container spacing={3}>
+                <Grid size={{ xs: 12 }}>
                   <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
                     {["front", "back"].map((side) => (
-                      <Box key={side} flex={1} textAlign="center">
-                        <img
+                      <Paper
+                        key={side}
+                        elevation={0}
+                        variant="outlined"
+                        sx={{
+                          flex: 1,
+                          p: 1,
+                          bgcolor: "white",
+                          textAlign: "center",
+                        }}
+                      >
+                        <Box
+                          component="img"
                           src={kyc.cccdImages?.[side]}
                           alt={side}
-                          style={{
+                          sx={{
                             width: "100%",
-                            maxHeight: isXs ? 220 : 280,
+                            height: 200,
                             objectFit: "contain",
                             cursor: "zoom-in",
-                            border: "1px solid #e0e0e0",
-                            borderRadius: 8,
-                            boxShadow: "0 1px 4px rgba(0,0,0,0.06)",
+                            display: "block",
                           }}
                           onClick={() => setZoom(kyc.cccdImages?.[side])}
                         />
                         <Typography
                           variant="caption"
-                          display="block"
-                          sx={{ mt: 0.5 }}
+                          sx={{
+                            mt: 1,
+                            display: "block",
+                            fontWeight: 600,
+                            color: "text.secondary",
+                            textTransform: "uppercase",
+                          }}
                         >
                           {side === "front" ? "Mặt trước" : "Mặt sau"}
                         </Typography>
-                      </Box>
+                      </Paper>
                     ))}
                   </Stack>
                 </Grid>
 
-                {/* RIGHT: Thông tin */}
-                <Grid item xs={12} md={12} sx={{width: "100%"}}>
-                  <Box
-                    sx={{
-                      p: 2,
-                      border: "1px solid #e0e0e0",
-                      borderRadius: 2,
-                      height: "100%",
-                    }}
-                  >
+                <Grid size={{ xs: 12 }}>
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: "white" }}>
                     <Stack
                       direction="row"
                       alignItems="center"
-                      spacing={1}
-                      sx={{ mb: 1 }}
+                      justifyContent="space-between"
+                      mb={2}
                     >
+                      <Typography variant="subtitle2" fontWeight={700}>
+                        THÔNG TIN NGƯỜI DÙNG
+                      </Typography>
                       <Chip
                         size="small"
                         label={KYC_LABEL[kyc.cccdStatus || "unverified"]}
                         color={KYC_COLOR[kyc.cccdStatus || "unverified"]}
                       />
                     </Stack>
-                    <Box
-                      sx={{
-                        display: "grid",
-                        gridTemplateColumns: "140px 1fr",
-                        rowGap: 1,
-                        columnGap: 1.5,
-                        "& .label": { color: "text.secondary", fontSize: 14 },
-                        "& .value": { fontWeight: 600, fontSize: 15 },
-                      }}
-                    >
-                      <Box className="label">Họ & tên</Box>
-                      <Box className="value">{kyc.name || "—"}</Box>
 
-                      <Box className="label">Ngày sinh</Box>
-                      <Box className="value">{prettyDate(kyc.dob)}</Box>
+                    <Grid container spacing={2}>
+                      <Grid size={{ xs: 6, md: 3 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Họ tên:
+                        </Typography>
+                      </Grid>
+                      <Grid size={{ xs: 6, md: 3 }}>
+                        <Typography variant="body2" fontWeight={600}>
+                          {kyc.name}
+                        </Typography>
+                      </Grid>
 
-                      <Box className="label">Số CCCD</Box>
-                      <Box
-                        className="value"
-                        style={{ fontFamily: "monospace" }}
-                      >
-                        {kyc.cccd || "—"}
-                      </Box>
+                      <Grid size={{ xs: 6, md: 3 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Ngày sinh:
+                        </Typography>
+                      </Grid>
+                      <Grid size={{ xs: 6, md: 3 }}>
+                        <Typography variant="body2" fontWeight={600}>
+                          {prettyDate(kyc.dob)}
+                        </Typography>
+                      </Grid>
 
-                      <Box className="label">Tỉnh / Thành</Box>
-                      <Box className="value">{kyc.province || "—"}</Box>
-                    </Box>
+                      <Grid size={{ xs: 6, md: 3 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Số CCCD:
+                        </Typography>
+                      </Grid>
+                      <Grid size={{ xs: 6, md: 3 }}>
+                        <Typography
+                          variant="body2"
+                          fontWeight={600}
+                          fontFamily="monospace"
+                        >
+                          {kyc.cccd}
+                        </Typography>
+                      </Grid>
+
+                      <Grid size={{ xs: 6, md: 3 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Khu vực:
+                        </Typography>
+                      </Grid>
+                      <Grid size={{ xs: 6, md: 3 }}>
+                        <Typography variant="body2" fontWeight={600}>
+                          {kyc.province}
+                        </Typography>
+                      </Grid>
+                    </Grid>
 
                     {kyc.note && (
-                      <Box
-                        sx={{
-                          mt: 1.5,
-                          p: 1.25,
-                          bgcolor: "grey.50",
-                          borderRadius: 1,
-                        }}
-                      >
-                        <Typography variant="caption" color="text.secondary">
-                          Ghi chú
+                      <Alert severity="info" sx={{ mt: 2 }} icon={false}>
+                        <Typography
+                          variant="caption"
+                          display="block"
+                          fontWeight={700}
+                        >
+                          Ghi chú:
                         </Typography>
-                        <Typography variant="body2" display="block">
-                          {kyc.note}
-                        </Typography>
-                      </Box>
+                        {kyc.note}
+                      </Alert>
                     )}
-                  </Box>
+                  </Paper>
                 </Grid>
               </Grid>
             </DialogContent>
-            <DialogActions sx={{ px: 2.5, py: 1.5 }}>
-              <Button onClick={() => setKyc(null)}>Đóng</Button>
+            <DialogActions sx={{ px: 3, py: 2, borderTop: "1px solid #eee" }}>
               <Button
+                onClick={() => setKyc(null)}
+                variant="outlined"
+                color="inherit"
+              >
+                Đóng
+              </Button>
+              <Button
+                variant="contained"
                 color="error"
-                startIcon={<CancelIcon fontSize="small" />}
+                startIcon={<CancelIcon />}
                 onClick={() =>
                   handle(
                     reviewKycMut({ id: kyc._id, action: "reject" }).unwrap(),
@@ -714,8 +1002,9 @@ export default function UsersPage() {
                 Từ chối
               </Button>
               <Button
+                variant="contained"
                 color="success"
-                startIcon={<VerifiedIcon fontSize="small" />}
+                startIcon={<VerifiedIcon />}
                 onClick={() =>
                   handle(
                     reviewKycMut({ id: kyc._id, action: "approve" }).unwrap(),
@@ -740,189 +1029,164 @@ export default function UsersPage() {
       >
         {edit && (
           <>
-            <DialogTitle>Sửa thông tin</DialogTitle>
-            <DialogContent
-              sx={{ display: "flex", flexDirection: "column", gap: 2 }}
-            >
-              <Box mt={2} />
-              <TextField
-                label="Tên"
-                value={edit.name}
-                onChange={(e) => setEdit({ ...edit, name: e.target.value })}
-              />
-              <TextField
-                label="Nickname"
-                value={edit.nickname || ""}
-                onChange={(e) => setEdit({ ...edit, nickname: e.target.value })}
-              />
-              <TextField
-                label="Phone"
-                value={edit.phone || ""}
-                onChange={(e) => setEdit({ ...edit, phone: e.target.value })}
-              />
-              <TextField
-                label="Email"
-                value={edit.email}
-                onChange={(e) => setEdit({ ...edit, email: e.target.value })}
-              />
-
-              <TextField
-                label="CCCD"
-                value={edit.cccd || ""}
-                onChange={(e) =>
-                  setEdit({
-                    ...edit,
-                    cccd: e.target.value.replace(/\D/g, "").slice(0, 12),
-                  })
-                }
-                inputProps={{
-                  inputMode: "numeric",
-                  maxLength: 12,
-                  pattern: "\\d{12}",
-                }}
-                helperText="Nhập đúng 12 chữ số"
-              />
-
-              <TextField
-                label="DOB"
-                type="date"
-                InputLabelProps={{ shrink: true }}
-                value={edit.dob ? String(edit.dob).slice(0, 10) : ""}
-                onChange={(e) => setEdit({ ...edit, dob: e.target.value })}
-              />
-
-              <FormControl
-                fullWidth
-                size="small"
-                sx={{ ".MuiInputBase-root": { height: 40 } }}
-              >
-                <InputLabel id="gender-lbl">Giới tính</InputLabel>
-                <Select
-                  labelId="gender-lbl"
-                  label="Giới tính"
-                  value={
-                    ["male", "female", "unspecified", "other"].includes(
-                      edit.gender
-                    )
-                      ? edit.gender
-                      : "unspecified"
-                  }
-                  onChange={(e) => setEdit({ ...edit, gender: e.target.value })}
-                >
-                  {GENDER_OPTIONS.map((opt) => (
-                    <MenuItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <FormControl
-                fullWidth
-                size="small"
-                sx={{ ".MuiInputBase-root": { height: 40 } }}
-              >
-                <InputLabel id="prov-lbl">Tỉnh / Thành</InputLabel>
-                <Select
-                  labelId="prov-lbl"
-                  label="Tỉnh / Thành"
-                  value={edit.province || ""}
-                  onChange={(e) =>
-                    setEdit({ ...edit, province: e.target.value })
-                  }
-                >
-                  <MenuItem value="">
-                    <em>-- Chọn --</em>
-                  </MenuItem>
-                  {PROVINCES.map((p) => (
-                    <MenuItem key={p} value={p}>
-                      {p}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              {/* Đổi mật khẩu */}
-              <Box sx={{ mt: 1, pt: 1.5, borderTop: "1px dashed #e0e0e0" }}>
-                <FormControlLabel
-                  control={
-                    <Checkbox
-                      checked={changePass}
-                      onChange={(e) => setChangePass(e.target.checked)}
-                    />
-                  }
-                  label="Đổi mật khẩu"
+            <DialogTitle>Sửa thông tin: {edit.name}</DialogTitle>
+            <DialogContent dividers>
+              <Stack spacing={2} sx={{ mt: 1 }}>
+                <TextField
+                  label="Họ tên"
+                  value={edit.name}
+                  onChange={(e) => setEdit({ ...edit, name: e.target.value })}
+                  fullWidth
                 />
-                {changePass && (
-                  <Box
-                    sx={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 2,
-                      mt: 1,
-                    }}
-                  >
-                    <TextField
-                      label="Mật khẩu mới"
-                      type={showNew ? "text" : "password"}
-                      value={newPass}
-                      onChange={(e) => setNewPass(e.target.value)}
-                      error={Boolean(passTooShort)}
-                      helperText={passTooShort ? "Tối thiểu 6 ký tự" : " "}
-                      InputProps={{
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <IconButton
-                              edge="end"
-                              onClick={() => setShowNew((s) => !s)}
-                              aria-label="toggle password visibility"
-                            >
-                              {showNew ? <VisibilityOff /> : <Visibility />}
-                            </IconButton>
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                    <TextField
-                      label="Xác nhận mật khẩu mới"
-                      type={showConfirm ? "text" : "password"}
-                      value={confirmPass}
-                      onChange={(e) => setConfirmPass(e.target.value)}
-                      error={Boolean(passNotMatch)}
-                      helperText={passNotMatch ? "Không khớp" : " "}
-                      InputProps={{
-                        endAdornment: (
-                          <InputAdornment position="end">
-                            <IconButton
-                              edge="end"
-                              onClick={() => setShowConfirm((s) => !s)}
-                              aria-label="toggle password visibility"
-                            >
-                              {showConfirm ? <VisibilityOff /> : <Visibility />}
-                            </IconButton>
-                          </InputAdornment>
-                        ),
-                      }}
-                    />
-                    <Box
-                      sx={{
-                        display: "flex",
-                        gap: 1,
-                        justifyContent: "flex-end",
-                      }}
+                <Stack direction="row" spacing={2}>
+                  <TextField
+                    label="Email"
+                    value={edit.email}
+                    onChange={(e) =>
+                      setEdit({ ...edit, email: e.target.value })
+                    }
+                    fullWidth
+                  />
+                  <TextField
+                    label="Phone"
+                    value={edit.phone || ""}
+                    onChange={(e) =>
+                      setEdit({ ...edit, phone: e.target.value })
+                    }
+                    fullWidth
+                  />
+                </Stack>
+                <Stack direction="row" spacing={2}>
+                  <TextField
+                    label="Nickname"
+                    value={edit.nickname || ""}
+                    onChange={(e) =>
+                      setEdit({ ...edit, nickname: e.target.value })
+                    }
+                    fullWidth
+                  />
+                  <FormControl fullWidth>
+                    <InputLabel>Giới tính</InputLabel>
+                    <Select
+                      label="Giới tính"
+                      value={
+                        ["male", "female", "unspecified", "other"].includes(
+                          edit.gender
+                        )
+                          ? edit.gender
+                          : "unspecified"
+                      }
+                      onChange={(e) =>
+                        setEdit({ ...edit, gender: e.target.value })
+                      }
                     >
-                      <Button
-                        variant="outlined"
-                        onClick={() => {
-                          setChangePass(false);
-                          setNewPass("");
-                          setConfirmPass("");
-                          setShowNew(false);
-                          setShowConfirm(false);
+                      {GENDER_OPTIONS.map((opt) => (
+                        <MenuItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Stack>
+
+                <Stack direction="row" spacing={2}>
+                  <TextField
+                    label="CCCD"
+                    value={edit.cccd || ""}
+                    onChange={(e) =>
+                      setEdit({
+                        ...edit,
+                        cccd: e.target.value.replace(/\D/g, "").slice(0, 12),
+                      })
+                    }
+                    fullWidth
+                    helperText="12 chữ số"
+                  />
+                  <TextField
+                    label="Ngày sinh"
+                    type="date"
+                    InputLabelProps={{ shrink: true }}
+                    value={edit.dob ? String(edit.dob).slice(0, 10) : ""}
+                    onChange={(e) => setEdit({ ...edit, dob: e.target.value })}
+                    fullWidth
+                  />
+                </Stack>
+
+                <FormControl fullWidth>
+                  <InputLabel>Khu vực (Tỉnh/Thành)</InputLabel>
+                  <Select
+                    label="Khu vực (Tỉnh/Thành)"
+                    value={edit.province || ""}
+                    onChange={(e) =>
+                      setEdit({ ...edit, province: e.target.value })
+                    }
+                  >
+                    <MenuItem value="">
+                      <em>-- Chọn --</em>
+                    </MenuItem>
+                    {PROVINCES.map((p) => (
+                      <MenuItem key={p} value={p}>
+                        {p}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+
+                {/* Change Password Section */}
+                <Paper variant="outlined" sx={{ p: 2, bgcolor: "grey.50" }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={changePass}
+                        onChange={(e) => setChangePass(e.target.checked)}
+                      />
+                    }
+                    label={
+                      <Typography fontWeight={600}>Đổi mật khẩu</Typography>
+                    }
+                  />
+                  <Collapse in={changePass}>
+                    <Stack spacing={2} mt={1}>
+                      <TextField
+                        label="Mật khẩu mới"
+                        type={showNew ? "text" : "password"}
+                        value={newPass}
+                        onChange={(e) => setNewPass(e.target.value)}
+                        error={Boolean(passTooShort)}
+                        helperText={passTooShort ? "Tối thiểu 6 ký tự" : ""}
+                        InputProps={{
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton onClick={() => setShowNew(!showNew)}>
+                                {showNew ? <VisibilityOff /> : <Visibility />}
+                              </IconButton>
+                            </InputAdornment>
+                          ),
                         }}
-                      >
-                        Huỷ đổi mật khẩu
-                      </Button>
+                      />
+                      <TextField
+                        label="Xác nhận mật khẩu"
+                        type={showConfirm ? "text" : "password"}
+                        value={confirmPass}
+                        onChange={(e) => setConfirmPass(e.target.value)}
+                        error={Boolean(passNotMatch)}
+                        helperText={passNotMatch ? "Mật khẩu không khớp" : ""}
+                        InputProps={{
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton
+                                onClick={() => setShowConfirm(!showConfirm)}
+                              >
+                                {showConfirm ? (
+                                  <VisibilityOff />
+                                ) : (
+                                  <Visibility />
+                                )}
+                              </IconButton>
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
                       <Button
                         variant="contained"
                         color="secondary"
@@ -933,26 +1197,27 @@ export default function UsersPage() {
                               id: edit._id,
                               body: { newPassword: newPass },
                             }).unwrap(),
-                            "Đã đổi mật khẩu"
+                            "Đã đổi mật khẩu thành công"
                           ).then(() => {
                             setChangePass(false);
                             setNewPass("");
                             setConfirmPass("");
-                            setShowNew(false);
-                            setShowConfirm(false);
                           })
                         }
                       >
-                        Cập nhật mật khẩu
+                        Lưu mật khẩu mới
                       </Button>
-                    </Box>
-                  </Box>
-                )}
-              </Box>
+                    </Stack>
+                  </Collapse>
+                </Paper>
+              </Stack>
             </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setEdit(null)}>Đóng</Button>
+            <DialogActions sx={{ p: 2 }}>
+              <Button onClick={() => setEdit(null)} color="inherit">
+                Huỷ bỏ
+              </Button>
               <Button
+                variant="contained"
                 onClick={() =>
                   handle(
                     updateInfoMut({
@@ -975,7 +1240,7 @@ export default function UsersPage() {
                         province: edit.province,
                       },
                     }).unwrap(),
-                    "Đã cập nhật người dùng"
+                    "Đã cập nhật thông tin"
                   ).then(() => setEdit(null))
                 }
               >
@@ -988,14 +1253,30 @@ export default function UsersPage() {
 
       {/* Delete dialog */}
       <Dialog open={!!del} onClose={() => setDel(null)}>
-        <DialogTitle>Xoá người dùng?</DialogTitle>
+        <DialogTitle
+          sx={{
+            color: "error.main",
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+          }}
+        >
+          <DeleteIcon /> Xoá người dùng?
+        </DialogTitle>
         <DialogContent>
-          {" "}
-          Bạn chắc chắn xoá <b>{del?.name}</b> ({del?.email})?{" "}
+          <Typography>
+            Bạn có chắc chắn muốn xoá người dùng <b>{del?.name}</b>?
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Hành động này không thể hoàn tác.
+          </Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDel(null)}>Huỷ</Button>
+          <Button onClick={() => setDel(null)} color="inherit">
+            Huỷ
+          </Button>
           <Button
+            variant="contained"
             color="error"
             onClick={() =>
               handle(deleteUserMut(del._id).unwrap(), "Đã xoá người dùng").then(
@@ -1003,7 +1284,7 @@ export default function UsersPage() {
               )
             }
           >
-            Xoá
+            Xoá vĩnh viễn
           </Button>
         </DialogActions>
       </Dialog>
@@ -1014,33 +1295,48 @@ export default function UsersPage() {
         onClose={() => setScore(null)}
         maxWidth="xs"
         fullWidth
-        fullScreen={isXs}
       >
         {score && (
           <>
-            <DialogTitle>Cập nhật điểm</DialogTitle>
-            <DialogContent
-              sx={{ display: "flex", flexDirection: "column", gap: 2, mt: 1 }}
-            >
-              <Box mt={2} />
-              <TextField
-                label="Điểm đơn"
-                type="number"
-                fullWidth
-                value={score.single}
-                onChange={(e) => setScore({ ...score, single: e.target.value })}
-              />
-              <TextField
-                label="Điểm đôi"
-                type="number"
-                fullWidth
-                value={score.double}
-                onChange={(e) => setScore({ ...score, double: e.target.value })}
-              />
+            <DialogTitle>Cập nhật điểm trình</DialogTitle>
+            <DialogContent>
+              <Stack spacing={3} mt={1}>
+                <TextField
+                  label="Điểm Đơn"
+                  type="number"
+                  value={score.single}
+                  onChange={(e) =>
+                    setScore({ ...score, single: e.target.value })
+                  }
+                  fullWidth
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">điểm</InputAdornment>
+                    ),
+                  }}
+                />
+                <TextField
+                  label="Điểm Đôi"
+                  type="number"
+                  value={score.double}
+                  onChange={(e) =>
+                    setScore({ ...score, double: e.target.value })
+                  }
+                  fullWidth
+                  InputProps={{
+                    endAdornment: (
+                      <InputAdornment position="end">điểm</InputAdornment>
+                    ),
+                  }}
+                />
+              </Stack>
             </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setScore(null)}>Huỷ</Button>
+            <DialogActions sx={{ p: 2 }}>
+              <Button onClick={() => setScore(null)} color="inherit">
+                Huỷ
+              </Button>
               <Button
+                variant="contained"
                 onClick={() =>
                   handle(
                     updateRanking({
@@ -1052,7 +1348,7 @@ export default function UsersPage() {
                   ).then(() => setScore(null))
                 }
               >
-                Lưu
+                Lưu điểm
               </Button>
             </DialogActions>
           </>

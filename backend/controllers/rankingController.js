@@ -581,6 +581,9 @@ const getRemainingResetTimeSeconds = () => {
   return Math.max(0, Math.floor(diffMs / 1000)); // tính ra giây
 };
 
+// ❗ Khi đã hết lượt search trong ngày thì chỉ cho xem tối đa 5 trang
+const MAX_PAGES_WHEN_QUOTA_EXHAUSTED = 5;
+
 /**
  * Rule:
  * - Guest, IP chưa từng login hôm nay: max 3 lượt (total < 3)
@@ -594,18 +597,29 @@ const getRemainingResetTimeSeconds = () => {
  * Hàm này chỉ được gọi khi user KHÔNG phải admin/referee.
  * @throws tạo lỗi 429 nếu vượt quota.
  */
-const enforceRankingSearchLimit = async (req, { isLoggedIn }) => {
+const enforceRankingSearchLimit = async (
+  req,
+  { isLoggedIn, loginLimit, isUnlimited } = {}
+) => {
+  // User không giới hạn & đang đăng nhập => bỏ qua quota luôn
+  if (isLoggedIn && isUnlimited) {
+    return { remainingTime: null }; // null = không giới hạn
+  }
+
   const ip = getClientIp(req);
   const ymd = getTodayYMD();
-
-  const TOTAL_LIMIT = 10;
-  const GUEST_LIMIT_NO_LOGIN = 3;
-  const GUEST_LIMIT_AFTER_LOGIN = 7;
-
-  // tính luôn 1 lần cho request này
   const remainingResetTime = getRemainingResetTimeSeconds();
 
-  // upsert doc quota
+  const DEFAULT_TOTAL_LIMIT = 5; // mặc định 5 lượt / ngày
+  const GUEST_LIMIT_NO_LOGIN = 3; // guest, IP chưa login: 3 lượt
+  const totalLimitForGuest = DEFAULT_TOTAL_LIMIT;
+
+  // Limit khi ĐÃ đăng nhập: nếu user có custom thì dùng, không thì default 5
+  const totalLimitForLogin =
+    typeof loginLimit === "number" && loginLimit > 0
+      ? loginLimit
+      : DEFAULT_TOTAL_LIMIT;
+
   let quota = await RankingSearchQuota.findOne({ ip, ymd });
   if (!quota) {
     quota = await RankingSearchQuota.create({
@@ -616,64 +630,61 @@ const enforceRankingSearchLimit = async (req, { isLoggedIn }) => {
     });
   }
 
-  // Nếu đã vượt 10 -> khóa hẳn
-  if (quota.total >= TOTAL_LIMIT) {
-    const err = new Error(
-      "Bạn đã sử dụng hết lượt tìm kiếm hôm nay, vui lòng quay lại vào ngày mai."
-    );
+  const buildError = (msg) => {
+    const err = new Error(msg);
     err.statusCode = 429;
     err.remainingResetTime = remainingResetTime;
-    throw err;
-  }
+    err.remainingTime = 0; // ở mode hiện tại thì hết lượt
+    return err;
+  };
 
-  if (isLoggedIn) {
-    // Login: được đi đến 10
-    if (quota.total < TOTAL_LIMIT) {
+  // ===== CASE: GUEST (chưa đăng nhập) =====
+  if (!isLoggedIn) {
+    // IP chưa từng login: 3 lượt guest / ngày
+    if (!quota.hasLoggedIn) {
+      if (quota.total >= GUEST_LIMIT_NO_LOGIN) {
+        throw buildError(
+          "Bạn đã dùng hết lượt tìm kiếm ở chế độ khách cho hôm nay. Vui lòng đăng nhập tài khoản để tiếp tục tra cứu xếp hạng."
+        );
+      }
+
       quota.total += 1;
-      quota.hasLoggedIn = true;
       await quota.save();
-      return;
+
+      const remainingTime = Math.max(0, GUEST_LIMIT_NO_LOGIN - quota.total); // còn bao nhiêu lượt guest hôm nay
+
+      return { remainingTime };
     }
 
-    // (đề phòng) nếu lỡ tới đây mà total >= TOTAL_LIMIT
-    const err = new Error(
-      "Bạn đã sử dụng khá nhiều lượt tìm kiếm hôm nay, vui lòng thử lại vào ngày mai."
-    );
-    err.statusCode = 429;
-    err.remainingResetTime = remainingResetTime;
-    throw err;
-  } else {
-    // Guest (chưa đăng nhập)
-    if (!quota.hasLoggedIn) {
-      // IP chưa từng login: chỉ cho 3 lượt / ngày
-      if (quota.total < GUEST_LIMIT_NO_LOGIN) {
-        quota.total += 1;
-        await quota.save();
-        return;
-      }
-
-      const err = new Error(
-        "Bạn đã dùng hết lượt tìm kiếm ở chế độ khách cho hôm nay. Vui lòng đăng nhập tài khoản để tiếp tục tra cứu xếp hạng."
-      );
-      err.statusCode = 429;
-      err.remainingResetTime = remainingResetTime;
-      throw err;
-    } else {
-      // IP đã từng login: guest chỉ được dùng đến khi total < 7
-      if (quota.total < GUEST_LIMIT_AFTER_LOGIN) {
-        quota.total += 1;
-        await quota.save();
-        return;
-      }
-
-      const err = new Error(
+    // IP đã từng login: guest dùng đến khi chạm base 5 lượt / ngày / IP
+    if (quota.total >= totalLimitForGuest) {
+      throw buildError(
         "Bạn đã dùng hết lượt tìm kiếm ở chế độ khách. Đăng nhập tài khoản để tiếp tục tra cứu xếp hạng nhé."
       );
-      err.statusCode = 429;
-      err.remainingResetTime = remainingResetTime;
-      throw err;
     }
+
+    quota.total += 1;
+    await quota.save();
+
+    const remainingTime = Math.max(0, totalLimitForGuest - quota.total); // còn bao nhiêu lượt guest hôm nay (sau khi đã từng login)
+
+    return { remainingTime };
   }
+
+  // ===== CASE: ĐÃ ĐĂNG NHẬP =====
+  if (quota.total >= totalLimitForLogin) {
+    throw buildError(
+      "Bạn đã sử dụng hết lượt tìm kiếm hôm nay, vui lòng quay lại vào ngày mai."
+    );
+  }
+
+  quota.total += 1;
+  quota.hasLoggedIn = true;
+  await quota.save();
+
+  const remainingTime = Math.max(0, totalLimitForLogin - quota.total); // còn bao nhiêu lượt khi đang đăng nhập
+
+  return { remainingTime };
 };
 
 export const getRankings = asyncHandler(async (req, res) => {
@@ -695,28 +706,111 @@ export const getRankings = asyncHandler(async (req, res) => {
       page = Math.max(0, payload.page);
     }
   } else {
-    // fallback: vẫn hỗ trợ ?page= nếu cần
+    // fallback: vẫn hỗ trợ ?page= nếu cần (0-based)
     page = Math.max(0, parseInt(req.query.page ?? 0, 10));
   }
 
   // ===== keyword =====
   const keywordRaw = String(req.query.keyword ?? "").trim();
 
-  // ===== role =====
   const role = String(req.user?.role || "").toLowerCase();
   const isAdmin = role === "admin" || !!req.user?.isAdmin;
-  // tạm coi một số role là trọng tài, bạn chỉnh lại nếu hệ thống đang dùng tên khác
   const isReferee =
     role === "referee" ||
     role === "ref" ||
     role === "umpire" ||
     role === "official";
 
-  // ===== Limit search theo IP & login =====
-  // chỉ giới hạn khi có keyword (tức là hành vi "search"),
-  // và user KHÔNG phải admin / trọng tài
-  if (keywordRaw && !isAdmin && !isReferee) {
-    await enforceRankingSearchLimit(req, { isLoggedIn: !!req.user });
+  // Lấy config limit theo user (nếu có)
+  let userSearchLimit = null;
+  let isUnlimitedSearch = false;
+
+  if (req.user) {
+    if (req.user.rankingSearchUnlimited) {
+      isUnlimitedSearch = true;
+    }
+    if (
+      typeof req.user.rankingSearchLimit === "number" &&
+      req.user.rankingSearchLimit > 0
+    ) {
+      userSearchLimit = req.user.rankingSearchLimit; // ví dụ 10, 20, ...
+    }
+  }
+
+  // ✅ Biến trả ra FE + trạng thái quota
+  let remainingTime = null;
+  let quotaExhausted = false;
+  const isLimitedUser = !isAdmin && !isReferee && !isUnlimitedSearch;
+
+  // Helper nội bộ: check quota đã hết hay chưa (KHÔNG trừ lượt)
+  const checkQuotaExhaustedForToday = async () => {
+    if (!isLimitedUser) return false;
+
+    const ip = getClientIp(req);
+    const ymd = getTodayYMD();
+    const quotaDoc = await RankingSearchQuota.findOne({ ip, ymd }).lean();
+    if (!quotaDoc) return false;
+
+    const DEFAULT_TOTAL_LIMIT = 5;
+    const GUEST_LIMIT_NO_LOGIN = 3;
+    const totalLimitForGuest = DEFAULT_TOTAL_LIMIT;
+    const totalLimitForLogin =
+      typeof userSearchLimit === "number" && userSearchLimit > 0
+        ? userSearchLimit
+        : DEFAULT_TOTAL_LIMIT;
+
+    if (!req.user) {
+      // Guest
+      if (!quotaDoc.hasLoggedIn) {
+        // IP chưa từng login -> limit guest = 3
+        return quotaDoc.total >= GUEST_LIMIT_NO_LOGIN;
+      }
+      // IP đã từng login -> guest giới hạn theo totalLimitForGuest (mặc định 5)
+      return quotaDoc.total >= totalLimitForGuest;
+    }
+
+    // Đã đăng nhập
+    return quotaDoc.total >= totalLimitForLogin;
+  };
+
+  // ====== Quota: chỉ trừ lượt khi CÓ keyword (search) và user bị giới hạn ======
+  if (keywordRaw && isLimitedUser) {
+    const quotaInfo = await enforceRankingSearchLimit(req, {
+      isLoggedIn: !!req.user,
+      loginLimit: userSearchLimit,
+      isUnlimited: isUnlimitedSearch,
+    });
+    // Nếu enforce không ném lỗi thì search này được phép
+    if (quotaInfo && typeof quotaInfo.remainingTime === "number") {
+      remainingTime = quotaInfo.remainingTime;
+
+      // Nếu sau search này remainingTime <= 0 thì coi như đã xài hết quota search trong ngày
+      if (remainingTime <= 0) {
+        quotaExhausted = true;
+      }
+    }
+  } else if (!keywordRaw) {
+    // Không có keyword: chỉ đọc trạng thái quota để biết đã "hết lượt search" hay chưa
+    quotaExhausted = await checkQuotaExhaustedForToday();
+  }
+
+  // ===== Gate phân trang khi đã hết lượt search =====
+  //  - Không ảnh hưởng admin / referee / user unlimited
+  //  - Khi quotaExhausted === true:
+  //      + cho xem page 0..4 (tức 5 trang đầu)
+  //      + từ page >= 5 (trang thứ 6 trở đi) ném lỗi 429 giống hết lượt search
+  if (
+    isLimitedUser &&
+    quotaExhausted &&
+    page >= MAX_PAGES_WHEN_QUOTA_EXHAUSTED // 0-based -> 5 = trang thứ 6
+  ) {
+    const err = new Error(
+      "Bạn đã sử dụng hết lượt tìm kiếm hôm nay, và chỉ được xem tối đa 5 trang kết quả. Vui lòng quay lại vào ngày mai."
+    );
+    err.statusCode = 429;
+    err.remainingTime = 0;
+    err.remainingResetTime = getRemainingResetTimeSeconds();
+    throw err;
   }
 
   const isAdminForProjection = isAdmin;
@@ -758,6 +852,7 @@ export const getRankings = asyncHandler(async (req, res) => {
           podiums30d: {},
           nextCursor: null,
           hasMore: false,
+          remainingTime,
         });
       }
       userIdsFilter = ids;
@@ -1075,7 +1170,8 @@ export const getRankings = asyncHandler(async (req, res) => {
   /* ======= podium 30 ngày (theo user) ======= */
   const { podiumMapByUserId } = await buildRecentPodiumsByUser({ days: 30 });
 
-  const totalPages = first.totalPages || 0;
+  const totalPages = first.totalPages || 0; // GIỮ NGUYÊN số trang thật, không cắt
+
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
 
@@ -1086,6 +1182,7 @@ export const getRankings = asyncHandler(async (req, res) => {
     podiums30d: podiumMapByUserId,
     nextCursor,
     hasMore,
+    remainingTime,
   });
 });
 

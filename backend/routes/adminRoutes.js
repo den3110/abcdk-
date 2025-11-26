@@ -176,7 +176,7 @@ import {
   runNewsSyncNowV2,
   updateNewsSettings,
 } from "../controllers/newsAdminController.js";
-import { aiFillCccdForUser, backfillUsersFromCccd } from "../controllers/userController.js";
+import { adminSetRankingSearchConfig, aiFillCccdForUser, backfillUsersFromCccd } from "../controllers/userController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -758,6 +758,13 @@ router.post(
   protect,
   authorize("admin"),
   aiFillCccdForUser
+);
+
+router.patch(
+  "/users/:userId/ranking-search-config",
+  protect,
+  authorize("admin"),
+  adminSetRankingSearchConfig
 );
 
 
