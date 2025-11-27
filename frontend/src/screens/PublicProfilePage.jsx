@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 import React, { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -30,6 +31,7 @@ import {
   useMediaQuery,
   alpha,
 } from "@mui/material";
+import { useSelector } from "react-redux";
 
 // Icons
 import ShareIcon from "@mui/icons-material/Share";
@@ -57,6 +59,7 @@ const tz = { timeZone: "Asia/Bangkok" };
 // Formatters
 const fmtDate = (iso) =>
   iso ? new Date(iso).toLocaleDateString("vi-VN", tz) : "—";
+
 const fmtDT = (iso) =>
   iso
     ? new Date(iso).toLocaleString("vi-VN", {
@@ -82,6 +85,37 @@ const getGenderInfo = (g) => {
   if (["2", "female", "f", "nu", "nữ"].includes(s))
     return { label: "Nữ", color: "error" };
   return { label: "Khác", color: "default" };
+};
+
+const calcAge = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const now = new Date();
+  let age = now.getFullYear() - d.getFullYear();
+  const m = now.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < d.getDate())) age--;
+  if (age < 0 || age > 120) return "—";
+  return age;
+};
+
+const getHandLabel = (h) => {
+  if (!h) return null;
+  const s = String(h).toLowerCase();
+  if (["left", "trai", "l"].includes(s)) return "Tay trái";
+  if (["right", "phai", "r"].includes(s)) return "Tay phải";
+  if (["both", "ambi", "2", "hai tay"].includes(s)) return "Hai tay";
+  return h;
+};
+
+// chỉ coi là có data khi: không null/undefined/empty/"—", số 0 vẫn là data
+const hasData = (v) => {
+  if (v === null || v === undefined) return false;
+  if (typeof v === "number") return true;
+  const s = String(v).trim();
+  if (!s) return false;
+  if (s === "—") return false;
+  return true;
 };
 
 /* ---------- SUB-COMPONENTS (STYLED) ---------- */
@@ -252,6 +286,32 @@ const PlayerRow = ({ p, highlight }) => {
   );
 };
 
+// 5. Info item cho tab Hồ sơ chi tiết
+const InfoItem = ({ label, value, copyable }) => {
+  const display =
+    value === null || value === undefined || value === "" ? "—" : value;
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Typography variant="caption" color="text.secondary">
+        {label}
+      </Typography>
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={0.5}
+        sx={{ mt: 0.25, minWidth: 0 }}
+      >
+        <Typography variant="body2" fontWeight={500} noWrap>
+          {display}
+        </Typography>
+        {copyable && display !== "—" && (
+          <CopyBtn value={display} label={label} />
+        )}
+      </Stack>
+    </Box>
+  );
+};
+
 /* ---------- MAIN COMPONENT ---------- */
 export default function PublicProfilePage() {
   const { id } = useParams();
@@ -271,6 +331,18 @@ export default function PublicProfilePage() {
   const matchRaw = Array.isArray(matchQ.data)
     ? matchQ.data
     : matchQ.data?.items || [];
+
+  // Auth viewer (để biết có phải admin / chính chủ không)
+  const { userInfo } = useSelector((state) => state.auth || {});
+  const baseId = base?._id || "";
+  const viewerId = userInfo?._id || userInfo?.id;
+  const isSelf = viewerId && baseId && String(viewerId) === String(baseId);
+  const isAdminViewer =
+    userInfo?.isAdmin ||
+    userInfo?.role === "admin" ||
+    (Array.isArray(userInfo?.roles) && userInfo.roles.includes("admin"));
+  const canSeeSensitive = isSelf || isAdminViewer;
+  const profileCode = baseId ? String(baseId).slice(-6).toUpperCase() : "—";
 
   // ✅ latestSingle / latestDouble giống bản cũ (ưu tiên history, fallback levelPoint)
   const latestSingle = useMemo(() => {
@@ -444,7 +516,7 @@ export default function PublicProfilePage() {
             }}
           >
             <Typography variant="h4" fontWeight={800} sx={{ mb: 0.5 }}>
-              {base?.name || "Người dùng"}
+              {base?.name || base?.fullName || "Người dùng"}
             </Typography>
             <Stack
               direction="row"
@@ -456,7 +528,9 @@ export default function PublicProfilePage() {
               <Typography variant="body1" fontWeight={500}>
                 @{base?.nickname || "no_nick"}
               </Typography>
-              <CopyBtn value={base?.nickname || ""} label="Nickname" />
+              {hasData(base?.nickname) && (
+                <CopyBtn value={base?.nickname || ""} label="Nickname" />
+              )}
             </Stack>
 
             <Stack
@@ -466,7 +540,7 @@ export default function PublicProfilePage() {
               justifyContent={{ xs: "center", sm: "flex-start" }}
               gap={1}
             >
-              {base?.province && (
+              {hasData(base?.province) && (
                 <Chip
                   icon={<PlaceIcon fontSize="small" />}
                   label={base.province}
@@ -476,7 +550,7 @@ export default function PublicProfilePage() {
               )}
               <Chip
                 icon={<CalendarMonthIcon fontSize="small" />}
-                label={`Gia nhập: ${fmtDate(base.joinedAt)}`}
+                label={`Gia nhập: ${fmtDate(base.joinedAt || base.createdAt)}`}
                 size="small"
                 variant="outlined"
               />
@@ -786,6 +860,44 @@ export default function PublicProfilePage() {
       </Container>
     );
 
+  // Một số label từ dữ liệu mở rộng
+  const handLabel =
+    getHandLabel(
+      base?.playHand || base?.hand || base?.handedness || base?.dominantHand
+    ) || "—";
+  const dob = base?.dob || base?.birthday || base?.dateOfBirth;
+  const clubName =
+    base?.clubName ||
+    base?.mainClub?.name ||
+    base?.primaryClub?.name ||
+    base?.club?.name;
+
+  const rolesLabel = Array.isArray(base?.roles)
+    ? base.roles.join(", ")
+    : base?.role || (base?.isAdmin ? "admin" : "user");
+
+  const accountStatus = (() => {
+    if (base?.isDeleted) return "Đã xoá";
+    if (base?.isBanned) return "Bị khoá";
+    if (base?.isSuspended) return "Tạm khoá";
+    return "Hoạt động";
+  })();
+
+  // booleans để ẩn cả block nếu không có field nào có data
+  const hasContactBlock =
+    hasData(base?.phone) ||
+    hasData(base?.email) ||
+    hasData(base?.address || base?.street);
+
+  const hasSystemBlock =
+    hasData(baseId) ||
+    hasData(base.joinedAt || base.createdAt) ||
+    hasData(base.lastLoginAt || base.lastActiveAt) ||
+    hasData(rolesLabel) ||
+    hasData(accountStatus) ||
+    hasData(base?.kycStatus) ||
+    hasData(base?.kycNote);
+
   return (
     <Box
       sx={{
@@ -839,6 +951,7 @@ export default function PublicProfilePage() {
             {tab === 0 && (
               <Card variant="outlined" sx={{ borderRadius: 3 }}>
                 <CardContent sx={{ p: 3 }}>
+                  {/* Giới thiệu */}
                   <Typography variant="h6" gutterBottom fontWeight={700}>
                     Giới thiệu
                   </Typography>
@@ -849,33 +962,208 @@ export default function PublicProfilePage() {
                   >
                     {base?.bio || "Chưa có."}
                   </Typography>
+
                   <Divider sx={{ my: 2 }} />
+
+                  {/* Thông tin cơ bản (public) */}
                   <Typography variant="h6" gutterBottom fontWeight={700}>
-                    Thông tin thêm
+                    Thông tin cơ bản
                   </Typography>
-                  <Grid container spacing={2}>
-                    <Grid size={{ xs: 6, md: 3 }}>
-                      <Typography variant="caption" color="text.secondary">
-                        Tỉnh thành
-                      </Typography>
-                      <Typography fontWeight={500}>
-                        {base?.province || "—"}
-                      </Typography>
+                  <Grid container spacing={2} sx={{ mb: 2 }}>
+                    {hasData(base?.name || base?.fullName) && (
+                      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                        <InfoItem
+                          label="Họ và tên"
+                          value={base?.name || base?.fullName}
+                        />
+                      </Grid>
+                    )}
+                    {hasData(base?.nickname) && (
+                      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                        <InfoItem
+                          label="Nickname"
+                          value={base?.nickname}
+                          copyable
+                        />
+                      </Grid>
+                    )}
+                    <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                      <InfoItem
+                        label="Giới tính"
+                        value={getGenderInfo(base?.gender).label}
+                      />
                     </Grid>
-                    <Grid size={{ xs: 6, md: 3 }}>
-                      <Typography variant="caption" color="text.secondary">
-                        ID người dùng
-                      </Typography>
-                      <Typography fontWeight={500}>
-                        {String(base?._id || "")
-                          .slice(-6)
-                          .toUpperCase() || "—"}
-                      </Typography>
+                    {hasData(base?.province) && (
+                      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                        <InfoItem label="Tỉnh thành" value={base?.province} />
+                      </Grid>
+                    )}
+                    {hasData(dob) && (
+                      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                        <InfoItem label="Ngày sinh" value={fmtDate(dob)} />
+                      </Grid>
+                    )}
+                    {hasData(calcAge(dob)) && (
+                      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                        <InfoItem label="Tuổi" value={calcAge(dob)} />
+                      </Grid>
+                    )}
+                    {hasData(handLabel) && (
+                      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                        <InfoItem label="Tay thuận" value={handLabel} />
+                      </Grid>
+                    )}
+                    {hasData(profileCode) && (
+                      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                        <InfoItem label="Mã hồ sơ" value={profileCode} />
+                      </Grid>
+                    )}
+                  </Grid>
+
+                  {/* Thông tin thi đấu (public) */}
+                  <Typography variant="h6" gutterBottom fontWeight={700}>
+                    Thông tin thi đấu
+                  </Typography>
+                  <Grid container spacing={2} sx={{ mb: 2 }}>
+                    {hasData(clubName) && (
+                      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                        <InfoItem label="CLB chính" value={clubName} />
+                      </Grid>
+                    )}
+                    <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                      <InfoItem
+                        label="Điểm đơn hiện tại"
+                        value={num(latestSingle)}
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                      <InfoItem
+                        label="Điểm đôi hiện tại"
+                        value={num(latestDouble)}
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                      <InfoItem
+                        label="Tổng trận / Thắng"
+                        value={`${totalMatches || 0} / ${wins || 0}`}
+                      />
+                    </Grid>
+                    <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                      <InfoItem
+                        label="Tỷ lệ thắng"
+                        value={`${winRate || 0}%`}
+                      />
                     </Grid>
                   </Grid>
+
+                  {/* Thông tin liên hệ + hệ thống: chỉ admin / chính chủ thấy và chỉ khi có data */}
+                  {canSeeSensitive && hasContactBlock && (
+                    <>
+                      <Divider sx={{ my: 2 }} />
+
+                      <Typography variant="h6" gutterBottom fontWeight={700}>
+                        Thông tin liên hệ
+                      </Typography>
+                      <Grid container spacing={2} sx={{ mb: 2 }}>
+                        {hasData(base?.phone) && (
+                          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                            <InfoItem
+                              label="Số điện thoại"
+                              value={base?.phone}
+                              copyable
+                            />
+                          </Grid>
+                        )}
+                        {hasData(base?.email) && (
+                          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                            <InfoItem
+                              label="Email"
+                              value={base?.email}
+                              copyable
+                            />
+                          </Grid>
+                        )}
+                        {hasData(base?.address || base?.street) && (
+                          <Grid size={{ xs: 12, sm: 6, md: 6 }}>
+                            <InfoItem
+                              label="Địa chỉ"
+                              value={base?.address || base?.street}
+                            />
+                          </Grid>
+                        )}
+                      </Grid>
+                    </>
+                  )}
+
+                  {canSeeSensitive && hasSystemBlock && (
+                    <>
+                      <Typography variant="h6" gutterBottom fontWeight={700}>
+                        Thông tin hệ thống
+                      </Typography>
+                      <Grid container spacing={2}>
+                        {hasData(baseId) && (
+                          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                            <InfoItem
+                              label="ID người dùng (Mongo)"
+                              value={baseId}
+                              copyable
+                            />
+                          </Grid>
+                        )}
+                        {hasData(base.joinedAt || base.createdAt) && (
+                          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                            <InfoItem
+                              label="Ngày tham gia"
+                              value={fmtDT(base.joinedAt || base.createdAt)}
+                            />
+                          </Grid>
+                        )}
+                        {hasData(base.lastLoginAt || base.lastActiveAt) && (
+                          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                            <InfoItem
+                              label="Lần đăng nhập gần nhất"
+                              value={fmtDT(
+                                base.lastLoginAt || base.lastActiveAt
+                              )}
+                            />
+                          </Grid>
+                        )}
+                        {hasData(rolesLabel) && (
+                          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                            <InfoItem label="Vai trò" value={rolesLabel} />
+                          </Grid>
+                        )}
+                        {hasData(accountStatus) && (
+                          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                            <InfoItem
+                              label="Trạng thái tài khoản"
+                              value={accountStatus}
+                            />
+                          </Grid>
+                        )}
+                        {hasData(base?.kycStatus) && (
+                          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                            <InfoItem
+                              label="Trạng thái KYC"
+                              value={base?.kycStatus}
+                            />
+                          </Grid>
+                        )}
+                        {hasData(base?.kycNote) && (
+                          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                            <InfoItem
+                              label="Ghi chú KYC"
+                              value={base?.kycNote}
+                            />
+                          </Grid>
+                        )}
+                      </Grid>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             )}
+
             {tab === 1 && MatchHistoryTab}
             {tab === 2 && RatingHistoryTab}
           </Box>

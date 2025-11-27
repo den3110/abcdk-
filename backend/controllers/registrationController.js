@@ -9,6 +9,11 @@ import { canManageTournament } from "../utils/tournamentAuth.js";
 import expressAsyncHandler from "express-async-handler";
 import TournamentManager from "../models/tournamentManagerModel.js";
 import Ranking from "../models/rankingModel.js";
+import {
+  CATEGORY,
+  EVENTS,
+  publishNotification,
+} from "../services/notifications/notificationHub.js";
 /* Tạo đăng ký */
 // POST /api/tournaments/:id/registrations
 export const createRegistration = asyncHandler(async (req, res) => {
@@ -475,6 +480,43 @@ export const updateRegistrationPayment = asyncHandler(async (req, res) => {
   };
 
   await Registration.updateOne({ _id: id }, { $set: update });
+
+  // 🆕 Nếu đổi sang Paid thì bắn notification
+  if (status === "Paid") {
+    try {
+      const p1Id = reg.player1?.user && String(reg.player1.user);
+      const p2Id = reg.player2?.user && String(reg.player2.user);
+      const createdId = reg.createdBy && String(reg.createdBy);
+
+      // 1) VĐV (player1 + player2): "Bạn đã thanh toán thành công phí đăng ký..."
+      publishNotification(EVENTS.REGISTRATION_PAYMENT_PAID, {
+        registrationId: id,
+        tournamentId: reg.tournament,
+        category: CATEGORY.STATUS,
+        isCreator: false, // để payloadBuilder biết là case VĐV
+        // không truyền overrideAudience -> resolver sẽ tự lấy player1/player2
+      });
+
+      // 2) Nếu createdBy tồn tại và KHÁC VĐV -> gửi riêng cho người tạo
+      if (createdId && createdId !== p1Id && createdId !== p2Id) {
+        publishNotification(EVENTS.REGISTRATION_PAYMENT_PAID, {
+          registrationId: id,
+          tournamentId: reg.tournament,
+          category: CATEGORY.STATUS,
+          isCreator: true, // để payloadBuilder render câu cho người tạo
+          overrideAudience: [createdId], // resolver dùng danh sách này thay vì VĐV
+        });
+      }
+    } catch (e) {
+      console.error(
+        "[notify] REGISTRATION_PAYMENT_PAID failed for registration",
+        String(id),
+        e
+      );
+      // không throw: tránh làm fail API trả về, chỉ log lỗi gửi notif
+    }
+  }
+
   res.json({
     message: "Payment updated",
     status,

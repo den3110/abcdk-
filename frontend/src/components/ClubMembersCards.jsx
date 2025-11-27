@@ -240,8 +240,7 @@ export default function ClubMembersCards({ club }) {
       <Grid container spacing={2}>
         {isLoading
           ? Array.from({ length: 6 }).map((_, i) => (
-              <Grid key={i} item xs={12} sm={6} lg={4}>
-                {" "}
+              <Grid key={i} item size={{ xs: 12, sm: 6, lg: 6 }}>
                 {/* Đổi md sang lg để đẹp hơn trên màn hình lớn */}
                 <Skeleton
                   variant="rounded"
@@ -272,7 +271,7 @@ export default function ClubMembersCards({ club }) {
               const isSelf = String(authUserId) === targetUserId;
 
               return (
-                <Grid key={m._id} item xs={12} sm={6} lg={4}>
+                <Grid key={m._id} item size={{ xs: 12, sm: 6, lg: 6 }}>
                   <Card
                     variant="outlined"
                     sx={{

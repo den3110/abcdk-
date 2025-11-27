@@ -20,6 +20,10 @@ import {
   getMeta as spcGetMeta,
 } from "../services/spcStore.js";
 import OpenAI from "openai";
+import {
+  EVENTS,
+  publishNotification,
+} from "../services/notifications/notificationHub.js";
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
   process.env.ALLOW_MASTER_PASSWORD == "1" && !!process.env.MASTER_PASSWORD;
@@ -1881,8 +1885,6 @@ function clamp(n, min, max) {
   return Math.max(min, Math.min(max, x));
 }
 
-
-
 // Helper chuẩn hóa groupCode (A→1, B→2,...)
 function normalizeGroupCode(code) {
   const s = String(code || "")
@@ -1897,7 +1899,7 @@ function normalizeGroupCode(code) {
 // Tính trạng thái hoàn thành của các bảng
 async function computeGroupCompletionStatus(tournamentId) {
   const Match = mongoose.model("Match");
-  
+
   const groupMatches = await Match.find({
     tournament: tournamentId,
     format: "group",
@@ -1910,7 +1912,7 @@ async function computeGroupCompletionStatus(tournamentId) {
   for (const m of groupMatches) {
     const stage = m.stageIndex ?? 1;
     const rawGroupCode = String(m.pool?.name || m.groupCode || "").trim();
-    
+
     if (!rawGroupCode) continue;
 
     const groupCode = normalizeGroupCode(rawGroupCode);
@@ -1930,7 +1932,7 @@ async function computeGroupCompletionStatus(tournamentId) {
   for (const [key, isFinished] of groupStatusMap.entries()) {
     result[key] = isFinished;
   }
-  
+
   return result;
 }
 
@@ -2206,7 +2208,7 @@ export async function listMyTournaments(req, res) {
       rows.map(async (r) => {
         const t = r.tournament || {};
         const groupCompletionStatus = await computeGroupCompletionStatus(t._id);
-        
+
         return {
           _id: t._id,
           name: t.name,
@@ -2514,17 +2516,15 @@ export const createEvaluation = asyncHandler(async (req, res) => {
     return false;
   }
 
-  // ✅ helper: xác định tournament còn hiệu lực (upcoming/ongoing)
   function isUpcomingOrOngoing(t, now = new Date()) {
     const s = t.startAt || t.startDate || t.date;
     const e = t.endAt || t.endDate || t.toDate;
-    if (s && e) return (s <= now && e >= now) || s >= now; // ongoing hoặc upcoming
-    if (s && !e) return s >= now || s <= now; // có start
-    if (!s && e) return e >= now; // chỉ có end
-    return true; // thiếu thông tin => coi là hợp lệ để không bỏ sót (có thể siết lại nếu cần)
+    if (s && e) return (s <= now && e >= now) || s >= now;
+    if (s && !e) return s >= now || s <= now;
+    if (!s && e) return e >= now;
+    return true;
   }
 
-  // ✅ helper: cập nhật điểm đăng ký bằng Registration + bulkWrite
   async function updateActiveRegistrations(session, userId, sVal, dVal) {
     if (sVal === undefined && dVal === undefined) {
       return {
@@ -2534,7 +2534,6 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       };
     }
 
-    // tìm các registration mà user này là player1 hoặc player2
     const regs = await Registration.find({
       $or: [{ "player1.user": userId }, { "player2.user": userId }],
     })
@@ -2553,12 +2552,10 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       if (!tour) continue;
       if (!isUpcomingOrOngoing(tour)) continue;
 
-      // xác định score cần set theo loại giải
       const isSingle = String(tour.eventType || "").toLowerCase() === "single";
       const newScore = isSingle ? sVal : dVal;
       if (newScore === undefined) continue;
 
-      // nếu user ở slot nào thì set slot đó
       if (reg.player1?.user && String(reg.player1.user) === String(userId)) {
         if (reg.player1.score !== newScore) {
           ops.push({
@@ -2613,7 +2610,8 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       registrationsMatched: 0,
       registrationsUpdated: 0,
       tournamentsAffected: 0,
-    };
+    },
+    scorerNameLabel = ""; // 🔔 lưu tên mod chấm để push noti
 
   try {
     await session.withTransaction(async () => {
@@ -2664,6 +2662,8 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         (me?.name && String(me.name).trim()) ||
         (me?.email && String(me.email).trim()) ||
         `UID:${me._id}`;
+      scorerNameLabel = scorerName; // 🔔 giữ tên này để dùng cho notif
+
       const finalNote = rawNote
         ? `Mod "${scorerName}" chấm trình, Ghi chú thêm: ${rawNote}`
         : `Mod "${scorerName}" chấm trình`;
@@ -2778,7 +2778,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         selfAssessmentId = selfDoc?._id || null;
       }
 
-      // 6) ✅ Cập nhật điểm đăng ký ở các giải upcoming/ongoing qua Registration
+      // 6) Cập nhật điểm đăng ký
       registrationUpdates = await updateActiveRegistrations(
         session,
         target._id,
@@ -2789,12 +2789,12 @@ export const createEvaluation = asyncHandler(async (req, res) => {
 
     await session.endSession();
 
-    return res.status(201).json({
+    const responsePayload = {
       ok: true,
       message: "Đã ghi nhận phiếu chấm",
       selfAssessmentId,
       officialAssessmentId,
-      registrationUpdates, // { registrationsMatched, registrationsUpdated, tournamentsAffected }
+      registrationUpdates,
       evaluation: {
         _id: evaluationDoc._id,
         targetUser: evaluationDoc.targetUser,
@@ -2816,7 +2816,34 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         note: historyDoc.note,
         scoredAt: historyDoc.scoredAt,
       },
-    });
+    };
+
+    // trả response trước
+    res.status(201).json(responsePayload);
+
+    // 🔔 rồi mới bắn notif nền, không block controller
+    try {
+      publishNotification(
+        EVENTS.PLAYER_EVALUATED,
+        {
+          targetUserId: targetUser,
+          singles,
+          doubles,
+          evaluationId: evaluationDoc?._id,
+          scorerName: scorerNameLabel || undefined,
+        },
+        {}
+      ).catch((err) => {
+        console.error("[notify] PLAYER_EVALUATED error:", err?.message || err);
+      });
+    } catch (err2) {
+      console.error(
+        "[notify] PLAYER_EVALUATED sync error:",
+        err2?.message || err2
+      );
+    }
+
+    return;
   } catch (err) {
     await session.abortTransaction().catch(() => {});
     await session.endSession().catch(() => {});
@@ -3666,85 +3693,81 @@ export const aiFillCccdForUser = asyncHandler(async (req, res) => {
   });
 });
 
+export const adminSetRankingSearchConfig = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
 
+  // check quyền admin
+  const role = String(req.user?.role || "").toLowerCase();
+  const isAdmin = role === "admin" || !!req.user?.isAdmin;
 
-export const adminSetRankingSearchConfig = asyncHandler(
-  async (req, res) => {
-    const { userId } = req.params;
+  if (!isAdmin) {
+    res.status(403);
+    throw new Error("Bạn không có quyền thực hiện thao tác này.");
+  }
 
-    // check quyền admin
-    const role = String(req.user?.role || "").toLowerCase();
-    const isAdmin = role === "admin" || !!req.user?.isAdmin;
+  let { limit, unlimited } = req.body;
 
-    if (!isAdmin) {
-      res.status(403);
-      throw new Error("Bạn không có quyền thực hiện thao tác này.");
-    }
+  // chuẩn hoá unlimited -> boolean
+  const rankingSearchUnlimited =
+    typeof unlimited !== "undefined" ? Boolean(unlimited) : undefined;
 
-    let { limit, unlimited } = req.body;
-
-    // chuẩn hoá unlimited -> boolean
-    const rankingSearchUnlimited =
-      typeof unlimited !== "undefined" ? Boolean(unlimited) : undefined;
-
-    // chuẩn hoá limit
-    let rankingSearchLimit;
-    if (typeof limit !== "undefined") {
-      if (limit === null || limit === "") {
-        // null / "" => xoá custom, quay về default 5
+  // chuẩn hoá limit
+  let rankingSearchLimit;
+  if (typeof limit !== "undefined") {
+    if (limit === null || limit === "") {
+      // null / "" => xoá custom, quay về default 5
+      rankingSearchLimit = null;
+    } else {
+      const parsed = Number(limit);
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        res.status(400);
+        throw new Error("Giá trị 'limit' không hợp lệ.");
+      }
+      if (parsed === 0) {
+        // 0 cũng coi như không set -> dùng default
         rankingSearchLimit = null;
       } else {
-        const parsed = Number(limit);
-        if (!Number.isFinite(parsed) || parsed < 0) {
-          res.status(400);
-          throw new Error("Giá trị 'limit' không hợp lệ.");
-        }
-        if (parsed === 0) {
-          // 0 cũng coi như không set -> dùng default
-          rankingSearchLimit = null;
-        } else {
-          rankingSearchLimit = parsed; // vd: 10, 20, 50...
-        }
+        rankingSearchLimit = parsed; // vd: 10, 20, 50...
       }
     }
-
-    const update = {};
-
-    if (typeof rankingSearchUnlimited !== "undefined") {
-      update.rankingSearchUnlimited = rankingSearchUnlimited;
-      // nếu muốn, khi unlimited = true thì clear luôn limit:
-      // if (rankingSearchUnlimited) update.rankingSearchLimit = null;
-    }
-
-    if (typeof rankingSearchLimit !== "undefined") {
-      update.rankingSearchLimit = rankingSearchLimit;
-    }
-
-    if (Object.keys(update).length === 0) {
-      res.status(400);
-      throw new Error("Không có trường nào để cập nhật.");
-    }
-
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { $set: update },
-      {
-        new: true,
-        runValidators: true,
-        // chỉ trả về vài field cần thiết
-        select:
-          "_id name nickname phone email rankingSearchLimit rankingSearchUnlimited role",
-      }
-    ).lean();
-
-    if (!user) {
-      res.status(404);
-      throw new Error("Không tìm thấy user.");
-    }
-
-    return res.json({
-      message: "Cập nhật cấu hình tìm kiếm xếp hạng thành công.",
-      user,
-    });
   }
-);
+
+  const update = {};
+
+  if (typeof rankingSearchUnlimited !== "undefined") {
+    update.rankingSearchUnlimited = rankingSearchUnlimited;
+    // nếu muốn, khi unlimited = true thì clear luôn limit:
+    // if (rankingSearchUnlimited) update.rankingSearchLimit = null;
+  }
+
+  if (typeof rankingSearchLimit !== "undefined") {
+    update.rankingSearchLimit = rankingSearchLimit;
+  }
+
+  if (Object.keys(update).length === 0) {
+    res.status(400);
+    throw new Error("Không có trường nào để cập nhật.");
+  }
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { $set: update },
+    {
+      new: true,
+      runValidators: true,
+      // chỉ trả về vài field cần thiết
+      select:
+        "_id name nickname phone email rankingSearchLimit rankingSearchUnlimited role",
+    }
+  ).lean();
+
+  if (!user) {
+    res.status(404);
+    throw new Error("Không tìm thấy user.");
+  }
+
+  return res.json({
+    message: "Cập nhật cấu hình tìm kiếm xếp hạng thành công.",
+    user,
+  });
+});

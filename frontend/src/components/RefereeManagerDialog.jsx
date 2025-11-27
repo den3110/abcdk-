@@ -89,7 +89,7 @@ export default function ManageRefereesDialog({ open, tournamentId, onClose, onCh
       actions={<Button onClick={onClose}>Đóng</Button>}
     >
       <Grid container spacing={2}>
-        <Grid item xs={12} md={5} sx={{ width: isMobile ? "100%" : "auto" }}>
+        <Grid item size={{ xs: 12, md: 6 }}>
           <Card variant="outlined">
             <CardHeader title="Đang là trọng tài" />
             <Divider />
@@ -146,7 +146,7 @@ export default function ManageRefereesDialog({ open, tournamentId, onClose, onCh
           </Card>
         </Grid>
 
-        <Grid item xs={12} md={7} sx={{ width: isMobile ? "100%" : "auto", flex: 1 }}>
+        <Grid item size={{ xs: 12, md: 6 }}>
           <Card variant="outlined">
             <CardHeader title="Tìm người để thêm trọng tài" />
             <Divider />

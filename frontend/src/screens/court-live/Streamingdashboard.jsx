@@ -168,9 +168,8 @@ export default function StreamingDashboard() {
                     Danh sách sân ({courts.length})
                   </Typography>
                   <Chip
-                    label={`${
-                      courts.filter((c) => c.status === "live").length
-                    } đang live`}
+                    label={`${courts.filter((c) => c.status === "live").length
+                      } đang live`}
                     color="error"
                     size="small"
                   />
@@ -178,7 +177,7 @@ export default function StreamingDashboard() {
 
                 <Grid container spacing={2}>
                   {courts.map((court) => (
-                    <Grid item xs={12} sm={6} md={4} lg={3} key={court._id}>
+                    <Grid item size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={court._id}>
                       <Card
                         elevation={2}
                         sx={{

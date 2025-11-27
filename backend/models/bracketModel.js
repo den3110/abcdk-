@@ -57,6 +57,8 @@ const bracketMetaSchema = new Schema(
     drawSize: { type: Number, default: 0 },
     maxRounds: { type: Number, default: 0 },
     expectedFirstRoundMatches: { type: Number, default: 0 },
+    // ✅ NEW: đánh dấu đã gửi thông báo kết quả knockout cho bracket này
+    knockoutFinalNotified: { type: Boolean, default: false },
   },
   { _id: false }
 );

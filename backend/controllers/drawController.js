@@ -14,6 +14,11 @@ import {
   selectNextCandidate,
   advanceCursor,
 } from "../utils/draw/selectNext.js";
+import {
+  CATEGORY,
+  EVENTS,
+  publishNotification,
+} from "../services/notifications/notificationHub.js";
 
 const asId = (x) => new mongoose.Types.ObjectId(String(x));
 
@@ -992,7 +997,8 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
   dto.taken = Array.isArray(dto.taken) ? dto.taken : [];
   dto.board = dto.board ?? {};
   dto.cursor = dto.cursor ?? null;
-  dto.mode = dto.mode ?? (Array.isArray(dto.board?.groups) ? "group" : "knockout");
+  dto.mode =
+    dto.mode ?? (Array.isArray(dto.board?.groups) ? "group" : "knockout");
 
   // ========== chuẩn hoá board ========== //
   if (dto.mode === "group") {
@@ -1042,7 +1048,12 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     }
 
     // ưu tiên slotPlan đã cơ cấu sẵn
-    let chosen = await findPreassignedRegForSlot(sess.bracket, dto.board, gi, si);
+    let chosen = await findPreassignedRegForSlot(
+      sess.bracket,
+      dto.board,
+      gi,
+      si
+    );
 
     // nếu slot đó chưa được cơ cấu → rơi về pool chung
     if (!chosen) {
@@ -1095,7 +1106,8 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
       .populate("player2", "nickName fullName name displayName")
       .lean();
     const nextName =
-      displayNameFromReg(reg, dto.__eventType) || `#${String(chosen).slice(-6)}`;
+      displayNameFromReg(reg, dto.__eventType) ||
+      `#${String(chosen).slice(-6)}`;
 
     const out = sess.toObject();
     out.next = {
@@ -1264,7 +1276,9 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     );
 
     // 4b. nếu không còn gì → cho phép đội đã được dành cho slot sau, nhưng chưa dùng
-    const secondary = basePool.filter((id) => !isRegUsed(dto.board, dto.taken, id));
+    const secondary = basePool.filter(
+      (id) => !isRegUsed(dto.board, dto.taken, id)
+    );
 
     // helper chạy lại selectNextCandidate nhưng trên tập filter
     const runSelectWith = async (ids) => {
@@ -1356,7 +1370,8 @@ export const drawNext = expressAsyncHandler(async (req, res) => {
     .populate("player2", "nickName fullName name displayName")
     .lean();
   const nextName =
-    displayNameFromReg(reg, dto.__eventType) || `#${String(chosenStr).slice(-6)}`;
+    displayNameFromReg(reg, dto.__eventType) ||
+    `#${String(chosenStr).slice(-6)}`;
 
   const out = sess.toObject();
   out.next = {
@@ -1596,6 +1611,92 @@ export const getDrawStatusByBracket = expressAsyncHandler(async (req, res) => {
 /**
  * POST /api/brackets/:bracketId/groups/generate-matches
  */
+
+async function sendGroupSlotAssignedNotifications(br) {
+  try {
+    if (!br || !Array.isArray(br.groups) || !br.groups.length) return;
+
+    // Gom map regId -> { groupId, groupName, slotIndex }
+    const regSlotMap = new Map(); // key: regId(String), value: { groupId, groupName, slotIndex }
+
+    for (const g of br.groups) {
+      const regIds = Array.isArray(g.regIds) ? g.regIds : [];
+      regIds.forEach((regId, idx) => {
+        const key = String(regId || "");
+        if (!key) return;
+        // nếu có duplicate thì ưu tiên lần đầu để tránh rối
+        if (!regSlotMap.has(key)) {
+          regSlotMap.set(key, {
+            groupId: g._id,
+            groupName: g.name || "",
+            slotIndex: idx + 1, // 1-based
+          });
+        }
+      });
+    }
+
+    if (!regSlotMap.size) return;
+
+    const regIds = [...regSlotMap.keys()];
+
+    // Lấy 1 lượt tất cả registration để biết userIds
+    const regs = await Registration.find({ _id: { $in: regIds } })
+      .select("player1.user player2.user")
+      .lean();
+
+    const regAudienceMap = new Map(); // regId -> [userId...]
+    for (const r of regs) {
+      const key = String(r._id);
+      const users = [];
+      if (r.player1?.user) users.push(String(r.player1.user));
+      if (r.player2?.user) users.push(String(r.player2.user));
+      if (users.length) {
+        regAudienceMap.set(key, Array.from(new Set(users)));
+      }
+    }
+
+    const tasks = [];
+    for (const [regId, info] of regSlotMap.entries()) {
+      const directUserIds = regAudienceMap.get(regId);
+      if (!directUserIds || !directUserIds.length) continue;
+
+      tasks.push(
+        publishNotification(
+          EVENTS.GROUP_SLOT_ASSIGNED,
+          {
+            tournamentId: br.tournament,
+            registrationId: regId,
+            groupId: info.groupId,
+            groupName: info.groupName,
+            slotIndex: info.slotIndex,
+            // cho resolver dùng luôn, khỏi query DB nữa
+            directUserIds,
+            overrideAudience: directUserIds,
+            topicType: "tournament",
+            topicId: br.tournament,
+            category: CATEGORY.STATUS,
+          },
+          {}
+        ).catch((err) => {
+          console.error(
+            "[notify] GROUP_SLOT_ASSIGNED failed:",
+            err?.message || err
+          );
+        })
+      );
+    }
+
+    if (tasks.length) {
+      await Promise.allSettled(tasks);
+    }
+  } catch (e) {
+    console.error(
+      "[notify] sendGroupSlotAssignedNotifications error:",
+      e?.message || e
+    );
+  }
+}
+
 export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
   const { bracketId } = req.params;
   const {
@@ -1614,6 +1715,7 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Bracket không phải vòng bảng.");
   }
+
   const defaultRules = br?.config?.rules || {
     bestOf: 1,
     pointsToWin: 11,
@@ -1624,6 +1726,8 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
 
   let created = 0;
   const createdIds = [];
+
+  // ========= MANUAL =========
   if (mode === "manual") {
     for (const m of matches) {
       const g = groupMap.get(String(m.groupId));
@@ -1631,14 +1735,18 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
         res.status(400);
         throw new Error("Thiếu hoặc sai groupId.");
       }
+
       const a = String(m.pairA || "");
       const b = String(m.pairB || "");
+
       const validA = g.regIds.some((id) => String(id) === a);
       const validB = g.regIds.some((id) => String(id) === b);
+
       if (!validA || !validB || a === b) {
         res.status(400);
         throw new Error("Cặp không hợp lệ trong group.");
       }
+
       const doc = await Match.create({
         tournament: br.tournament,
         bracket: br._id,
@@ -1653,19 +1761,38 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
         gameScores: [],
         status: "scheduled",
       });
+
       created++;
       createdIds.push(String(doc._id));
     }
-    return res.json({ ok: true, mode, created, matchIds: createdIds });
+
+    res.json({ ok: true, mode, created, matchIds: createdIds });
+    try {
+      // 🔔 Gửi notif slot/bảng cho VĐV (fire-and-forget, không block response)
+      setImmediate(() => {
+        sendGroupSlotAssignedNotifications(br).catch((err) => {
+          console.error(
+            "[notify] groupSlotAssigned (manual) error:",
+            err?.message || err
+          );
+        });
+      });
+    } catch (e) {
+      console.error(
+        "[notify] groupSlotAssigned setImmediate error:",
+        e?.message || e
+      );
+    }
+
+    return;
   }
 
-  // AUTO: round-robin cho từng group
+  // ========= AUTO ROUND-ROBIN =========
   for (const g of br.groups || []) {
     const ids = (g.regIds || []).map(String);
     if (ids.length < 2) continue;
 
     const rounds1 = buildRoundRobin(ids);
-
     const rounds = doubleRound
       ? rounds1.concat(
           rounds1.map((roundPairs) => roundPairs.map(([A, B]) => [B, A]))
@@ -1689,6 +1816,7 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
           gameScores: [],
           status: "scheduled",
         });
+
         created++;
         createdIds.push(String(doc._id));
       }
@@ -1702,6 +1830,22 @@ export const generateGroupMatches = expressAsyncHandler(async (req, res) => {
     matchIds: createdIds,
     doubleRound,
   });
+  try {
+    // 🔔 Gửi notif slot/bảng cho VĐV sau khi auto generate xong
+    setImmediate(() => {
+      sendGroupSlotAssignedNotifications(br).catch((err) => {
+        console.error(
+          "[notify] groupSlotAssigned (auto) error:",
+          err?.message || err
+        );
+      });
+    });
+  } catch (e) {
+    console.error(
+      "[notify] groupSlotAssigned setImmediate error:",
+      e?.message || e
+    );
+  }
 });
 
 function groupBy(list, keyFn) {

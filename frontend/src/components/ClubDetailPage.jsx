@@ -99,11 +99,19 @@ export default function ClubDetailPage() {
       <Container maxWidth="lg" sx={{ py: 3 }}>
         <Skeleton variant="rounded" height={260} sx={{ borderRadius: 3 }} />
         <Grid container spacing={2} sx={{ mt: 2 }}>
-          <Grid item xs={12} md={8}>
-            <Skeleton variant="rounded" height={400} sx={{ borderRadius: 3 }} />
+          <Grid item size={{ xs: 12, md: 8 }}>
+            <Skeleton
+              variant="rounded"
+              height={400}
+              sx={{ borderRadius: 3 }}
+            />
           </Grid>
-          <Grid item xs={12} md={4}>
-            <Skeleton variant="rounded" height={200} sx={{ borderRadius: 3 }} />
+          <Grid item size={{ xs: 12, md: 4 }}>
+            <Skeleton
+              variant="rounded"
+              height={200}
+              sx={{ borderRadius: 3 }}
+            />
           </Grid>
         </Grid>
       </Container>
@@ -148,7 +156,7 @@ export default function ClubDetailPage() {
       </Paper>
 
       <Grid container spacing={2}>
-        <Grid item xs={12} md={8}>
+        <Grid item size={{ xs: 12, md: 8 }}>
           <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
             {tab === "news" && (
               <>
@@ -195,7 +203,7 @@ export default function ClubDetailPage() {
           </Paper>
         </Grid>
 
-        <Grid item xs={12} md={4}>
+        <Grid item size={{ xs: 12, md: 4 }}>
           {rightSide}
         </Grid>
       </Grid>

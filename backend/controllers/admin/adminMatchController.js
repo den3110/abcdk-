@@ -7,6 +7,10 @@ import mongoose from "mongoose";
 import Court from "../../models/courtModel.js";
 import User from "../../models/userModel.js";
 import { canManageTournament } from "../../utils/tournamentAuth.js";
+import {
+  EVENTS,
+  publishNotification,
+} from "../../services/notifications/notificationHub.js";
 
 /** Chuẩn hoá DTO match (đủ dữ liệu để render) */
 const toDTO = (m) => ({
@@ -580,6 +584,84 @@ export async function assignMatchToCourt(req, res) {
       m.roundCode = code;
 
       io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
+
+      // 🔔 Gửi thông báo push cho tất cả VĐV của 2 đội
+      try {
+        const courtName =
+          m.court?.name ||
+          m.court?.label ||
+          m.court?.code ||
+          (m.court?.number != null ? `Sân ${m.court.number}` : "sân thi đấu");
+
+        const tourName = m.tournament?.name || "giải đấu";
+
+        const teamLabel = (pair) => {
+          if (!pair) return "";
+          if (pair.teamName) return pair.teamName;
+          if (pair.label) return pair.label;
+          const names = [];
+          const nn = (p) =>
+            p?.nickname ||
+            p?.nickName ||
+            p?.shortName ||
+            p?.fullName ||
+            p?.name ||
+            "";
+          if (nn(pair.player1)) names.push(nn(pair.player1));
+          if (nn(pair.player2)) names.push(nn(pair.player2));
+          return names.join(" / ") || "Đội";
+        };
+
+        const teamAName = teamLabel(m.pairA);
+        const teamBName = teamLabel(m.pairB);
+
+        const userIds = new Set();
+        const collectUser = (p) => {
+          if (!p || !p.user) return;
+          const u = p.user;
+          const uid =
+            typeof u === "object" ? u._id || u.id || u.toString?.() : u;
+          if (uid) userIds.add(String(uid));
+        };
+
+        if (m.pairA) {
+          collectUser(m.pairA.player1);
+          collectUser(m.pairA.player2);
+        }
+        if (m.pairB) {
+          collectUser(m.pairB.player1);
+          collectUser(m.pairB.player2);
+        }
+
+        if (userIds.size) {
+          const ctx = {
+            matchId: String(m._id),
+            tournamentId: String(m.tournament?._id || tid),
+            courtLabel: courtName,
+            tournamentName: tourName,
+            teamAName,
+            teamBName,
+            displayCode: m.displayCode,
+            // ép audience = các user thuộc hai đội
+            overrideAudience: [...userIds],
+          };
+
+          // không block response
+          setImmediate(() => {
+            publishNotification(EVENTS.MATCH_COURT_ASSIGNED, ctx).catch((e) =>
+              console.error(
+                "[notify] MATCH_COURT_ASSIGNED error:",
+                e?.message || e
+              )
+            );
+          });
+        }
+      } catch (e) {
+        console.error(
+          "[assignMatchToCourt] build notification error:",
+          e?.message || e
+        );
+      }
     }
 
     // (tuỳ chọn) báo phòng scheduler của cluster này refresh state
@@ -599,7 +681,6 @@ export async function assignMatchToCourt(req, res) {
     return res.status(500).json({ message: "Server error" });
   }
 }
-
 /**
  * DELETE /api/admin/tournaments/:tid/matches/:mid/court
  * - Bỏ gán court của match

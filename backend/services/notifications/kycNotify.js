@@ -53,14 +53,14 @@ export async function updateCccdStatusAndNotify({
 
   // Gửi notify theo kết quả
   if (mapped === "verified") {
-    await publishNotification(EVENTS.KYC_APPROVED, {
+    publishNotification(EVENTS.KYC_APPROVED, {
       userId: String(user._id),
       topicType: "user",
       topicId: String(user._id),
       category: CATEGORY.KYC,
     });
   } else if (mapped === "rejected") {
-    await publishNotification(EVENTS.KYC_REJECTED, {
+    publishNotification(EVENTS.KYC_REJECTED, {
       userId: String(user._id),
       topicType: "user",
       topicId: String(user._id),

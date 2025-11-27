@@ -104,7 +104,7 @@ const safeAtobUtf8 = (b64) => {
   } catch (e) {
     try {
       return atob(b64);
-    } catch {}
+    } catch { }
   }
   return "";
 };
@@ -232,8 +232,8 @@ export default function FacebookLiveStreamerMUI({
           .replace(/^ws:/, "http:");
         const u = new URL(wsHttp);
         list.push(`${u.origin}/speed-5mb.bin`);
-      } catch {}
-    } catch {}
+      } catch { }
+    } catch { }
     list.push(
       "https://upload.wikimedia.org/wikipedia/commons/3/3f/Fronalpstock_big.jpg",
       "https://upload.wikimedia.org/wikipedia/commons/a/a9/Example.jpg"
@@ -281,7 +281,7 @@ export default function FacebookLiveStreamerMUI({
               setAutoFillFlags((f) => ({ ...f, tt: true }));
             }
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       const fbKey = params.get("key");
@@ -441,7 +441,7 @@ export default function FacebookLiveStreamerMUI({
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       setVideoDevices(devices.filter((d) => d.kind === "videoinput"));
-    } catch {}
+    } catch { }
   };
 
   const findDeviceIdForFacing = (want = "user") => {
@@ -461,7 +461,7 @@ export default function FacebookLiveStreamerMUI({
   const stopCurrentStream = () => {
     try {
       camStreamRef.current?.getTracks().forEach((t) => t.stop());
-    } catch {}
+    } catch { }
   };
 
   const initCamera = async (preferFacing = "user") => {
@@ -561,17 +561,17 @@ export default function FacebookLiveStreamerMUI({
         )
           audioRecorderRef.current.stop();
         audioRecorderRef.current = null;
-      } catch {}
+      } catch { }
       try {
         if (
           videoEncoderRef.current &&
           videoEncoderRef.current.state !== "closed"
         )
           videoEncoderRef.current.close();
-      } catch {}
+      } catch { }
       try {
         wsRef.current?.close();
-      } catch {}
+      } catch { }
     };
   }, [qualityMode]);
 
@@ -852,8 +852,8 @@ export default function FacebookLiveStreamerMUI({
                   )
                     ? "audio/webm;codecs=opus"
                     : MediaRecorder.isTypeSupported("audio/webm")
-                    ? "audio/webm"
-                    : "";
+                      ? "audio/webm"
+                      : "";
                   const mr = new MediaRecorder(aStream, {
                     mimeType: mime || undefined,
                     audioBitsPerSecond: 128000,
@@ -868,7 +868,7 @@ export default function FacebookLiveStreamerMUI({
                       out[0] = 0x01;
                       out.set(u8, 1);
                       wsRef.current.send(out.buffer);
-                    } catch {}
+                    } catch { }
                   };
                   mr.start(100);
                   audioRecorderRef.current = mr;
@@ -883,7 +883,7 @@ export default function FacebookLiveStreamerMUI({
               ws.removeEventListener("message", handler);
               reject(new Error(msg.message));
             }
-          } catch {}
+          } catch { }
         };
         ws.addEventListener("message", handler);
       });
@@ -982,10 +982,10 @@ export default function FacebookLiveStreamerMUI({
           await videoEncoderRef.current.flush();
           videoEncoderRef.current.close();
         }
-      } catch {}
+      } catch { }
       try {
         wsRef.current?.close();
-      } catch {}
+      } catch { }
     } finally {
       setLoading(false);
     }
@@ -1059,9 +1059,8 @@ export default function FacebookLiveStreamerMUI({
               Overlay Controls
             </Typography>
             <Chip
-              label={`${activeOverlayCount}/${
-                Object.keys(overlayConfig).length
-              }`}
+              label={`${activeOverlayCount}/${Object.keys(overlayConfig).length
+                }`}
               color="success"
               size="small"
             />
@@ -1319,7 +1318,7 @@ export default function FacebookLiveStreamerMUI({
           {/* Main Content - phần UI giữ nguyên */}
           <Box sx={{ p: { xs: 2, md: 3 } }}>
             <Grid container spacing={{ xs: 2, md: 3 }}>
-              <Grid item xs={12} lg={8}>
+              <Grid item size={{ xs: 12, lg: 8 }}>
                 {/* Camera Preview */}
                 <Card elevation={2} sx={{ mb: { xs: 2, md: 3 } }}>
                   <CardContent sx={{ p: { xs: 2, md: 3 } }}>
@@ -1455,7 +1454,7 @@ export default function FacebookLiveStreamerMUI({
                           Stream Health
                         </Typography>
                         <Grid container spacing={1}>
-                          <Grid item xs={4}>
+                          <Grid item size={{ xs: 4 }}>
                             <Chip
                               label={`${streamHealth.fps} FPS`}
                               color="success"
@@ -1463,7 +1462,7 @@ export default function FacebookLiveStreamerMUI({
                               sx={{ width: "100%" }}
                             />
                           </Grid>
-                          <Grid item xs={4}>
+                          <Grid item size={{ xs: 4 }}>
                             <Chip
                               label={`${streamHealth.bitrate}k`}
                               color="info"
@@ -1471,7 +1470,7 @@ export default function FacebookLiveStreamerMUI({
                               sx={{ width: "100%" }}
                             />
                           </Grid>
-                          <Grid item xs={4}>
+                          <Grid item size={{ xs: 4 }}>
                             <Chip
                               label={`Drop: ${streamHealth.dropped}`}
                               color={
@@ -1493,7 +1492,7 @@ export default function FacebookLiveStreamerMUI({
                 </Card>
               </Grid>
 
-              <Grid item xs={12} lg={4}>
+              <Grid item size={{ xs: 12, lg: 4 }}>
                 {/* Quality Settings - giữ nguyên */}
                 <Card elevation={2} sx={{ mb: { xs: 2, md: 3 } }}>
                   <CardContent sx={{ p: { xs: 2, md: 3 } }}>
@@ -1565,8 +1564,8 @@ export default function FacebookLiveStreamerMUI({
                               networkSpeed >= 5
                                 ? "success"
                                 : networkSpeed >= 2
-                                ? "warning"
-                                : "error"
+                                  ? "warning"
+                                  : "error"
                             }
                           />
                         </Box>
@@ -1672,20 +1671,20 @@ export default function FacebookLiveStreamerMUI({
                           Current Settings:
                         </Typography>
                         <Grid container spacing={1}>
-                          <Grid item xs={6}>
+                          <Grid item size={{ xs: 6 }}>
                             <Typography variant="caption">
                               <strong>Resolution:</strong>{" "}
                               {QUALITY_PRESETS[qualityMode].width}x
                               {QUALITY_PRESETS[qualityMode].height}
                             </Typography>
                           </Grid>
-                          <Grid item xs={6}>
+                          <Grid item size={{ xs: 6 }}>
                             <Typography variant="caption">
                               <strong>FPS:</strong>{" "}
                               {QUALITY_PRESETS[qualityMode].fps}
                             </Typography>
                           </Grid>
-                          <Grid item xs={12}>
+                          <Grid item size={{ xs: 12 }}>
                             <Typography variant="caption">
                               <strong>Bitrate:</strong>{" "}
                               {QUALITY_PRESETS[qualityMode].videoBitsPerSecond}
@@ -1900,8 +1899,8 @@ export default function FacebookLiveStreamerMUI({
                       {loading
                         ? "Đang xử lý..."
                         : isStreaming
-                        ? "Dừng Stream"
-                        : "Start Streaming"}
+                          ? "Dừng Stream"
+                          : "Start Streaming"}
                     </Button>
 
                     <Alert

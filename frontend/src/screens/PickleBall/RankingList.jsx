@@ -164,7 +164,7 @@ function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
         .then(() => {
           if (!cancelled) setLoaded(true);
         })
-        .catch(() => {});
+        .catch(() => { });
     }
     return () => {
       cancelled = true;
@@ -409,8 +409,8 @@ const flameRingSx = (type = "gold") => ({
       type === "gold"
         ? "0 0 18px rgba(255, 179, 0, .35)"
         : type === "silver"
-        ? "0 0 18px rgba(120, 144, 156, .35)"
-        : "0 0 18px rgba(255, 112, 67, .35)",
+          ? "0 0 18px rgba(120, 144, 156, .35)"
+          : "0 0 18px rgba(255, 112, 67, .35)",
     pointerEvents: "none",
     animation: "glowFlicker 1.8s ease-in-out infinite alternate",
   },
@@ -448,8 +448,8 @@ const flameCardSx = (type = "gold") => ({
       type === "gold"
         ? "0 0 12px rgba(255,179,0,.18)"
         : type === "silver"
-        ? "0 0 12px rgba(120,144,156,.18)"
-        : "0 0 12px rgba(255,112,67,.18)",
+          ? "0 0 12px rgba(120,144,156,.18)"
+          : "0 0 12px rgba(255,112,67,.18)",
     zIndex: 0,
     pointerEvents: "none",
     animation: "glowFlicker 1.8s ease-in-out infinite alternate",
@@ -464,10 +464,10 @@ const medalLabel = (m) =>
   m === "gold"
     ? "Nhà vô địch"
     : m === "silver"
-    ? "Á quân"
-    : m === "bronze"
-    ? "Đồng hạng 3"
-    : "";
+      ? "Á quân"
+      : m === "bronze"
+        ? "Đồng hạng 3"
+        : "";
 
 const medalChipStyle = (medal, maxWidth = 280) => ({
   maxWidth,
@@ -1068,9 +1068,8 @@ export default function RankingList() {
         const plusN = Math.max(0, arr.length - 1);
         const medalText = medalLabel(picked.medal);
         const tourName = picked.tournamentName || picked.name || "Giải đấu";
-        const fullTitle = `${medalText} – ${tourName}${
-          plusN > 0 ? ` (+${plusN} giải khác)` : ""
-        }`;
+        const fullTitle = `${medalText} – ${tourName}${plusN > 0 ? ` (+${plusN} giải khác)` : ""
+          }`;
 
         topMap.set(String(uid), picked.medal);
         shortMap.set(String(uid), medalText);
@@ -1568,8 +1567,8 @@ export default function RankingList() {
                         Cập nhật:{" "}
                         {patchedScores?.updatedAt
                           ? new Date(
-                              patchedScores.updatedAt
-                            ).toLocaleDateString()
+                            patchedScores.updatedAt
+                          ).toLocaleDateString()
                           : "--"}
                       </Typography>
                       <Typography
@@ -1722,8 +1721,8 @@ export default function RankingList() {
                       <TableCell>
                         {patchedScores?.updatedAt
                           ? new Date(
-                              patchedScores.updatedAt
-                            ).toLocaleDateString()
+                            patchedScores.updatedAt
+                          ).toLocaleDateString()
                           : "--"}
                       </TableCell>
                       <TableCell>
@@ -1871,10 +1870,10 @@ export default function RankingList() {
           >
             {kycView ? (
               <Grid container spacing={2} sx={{ m: 0 }}>
-                <Grid item xs={12} md={12} sx={{ width: "100%" }}>
+                <Grid item size={{ xs: 12, md: 12 }} sx={{ width: "100%" }}>
                   <Grid container spacing={2} sx={{ width: "100%" }}>
                     {["front", "back"].map((side) => (
-                      <Grid item xs={6} key={side} sx={{ width: "100%" }}>
+                      <Grid item size={{ xs: 6 }} key={side} sx={{ width: "100%" }}>
                         <Paper
                           variant="outlined"
                           sx={{ borderRadius: 2, overflow: "hidden" }}
@@ -1894,7 +1893,7 @@ export default function RankingList() {
                   </Grid>
                 </Grid>
 
-                <Grid item xs={12} md={12} sx={{ width: "100%" }}>
+                <Grid item size={{ xs: 12, md: 12 }} sx={{ width: "100%" }}>
                   <Box
                     sx={{
                       p: 2,

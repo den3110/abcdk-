@@ -210,7 +210,7 @@ async function fireConfettiBurst() {
         }),
       180
     );
-  } catch {}
+  } catch { }
 }
 
 /********************** utils **********************/
@@ -423,7 +423,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
           const code = g?.key || g?.code || String.fromCharCode(65 + gi);
           const slots = Array.isArray(g?.slots) ? g.slots : [];
           return (
-            <Grid item xs={12} sm={6} md={4} lg={3} key={code}>
+            <Grid item size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={code}>
               <Card variant="outlined" sx={{ p: 1.5 }}>
                 <Typography fontWeight={700} sx={{ mb: 1 }}>
                   Bảng {code}
@@ -545,7 +545,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
   return (
     <Grid container spacing={2}>
       {seats.map((g) => (
-        <Grid item xs={12} sm={6} md={4} lg={3} key={g.code}>
+        <Grid item size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={g.code}>
           <Card variant="outlined" sx={{ p: 1.5 }}>
             <Typography fontWeight={700} sx={{ mb: 1 }}>
               Bảng {g.code}
@@ -636,32 +636,42 @@ const RoundRobinPreview = memo(function RoundRobinPreview({
     <Stack spacing={2}>
       {groupsMeta.map((g) => {
         const teamNames = (g.regIds || []).map((rid) => {
-          const reg = regIndex?.get(String(rid));
-          return reg
-            ? reg.player2
-              ? `${
-                  reg.player1?.nickName ||
-                  reg.player1?.fullName ||
-                  reg.player1?.name
-                } & ${
-                  reg.player2?.nickName ||
-                  reg.player2?.fullName ||
-                  reg.player2?.name
-                }`
-              : reg.player1?.nickName ||
+          const regId = asId(rid) || rid; // NEW: chuẩn hóa ID
+          const key = String(regId);
+          const reg = regIndex?.get(key);
+
+          if (reg) {
+            if (reg.player2) {
+              const p1 =
+                reg.player1?.nickName ||
                 reg.player1?.fullName ||
-                reg.player1?.name
-            : typeof rid === "string"
-            ? `#${String(rid).slice(-6)}`
-            : "—";
+                reg.player1?.name;
+              const p2 =
+                reg.player2?.nickName ||
+                reg.player2?.fullName ||
+                reg.player2?.name;
+              return `${p1} & ${p2}`;
+            }
+            return (
+              reg.player1?.nickName ||
+              reg.player1?.fullName ||
+              reg.player1?.name
+            );
+          }
+
+          if (typeof regId === "string") {
+            return `#${regId.slice(-6)}`;
+          }
+          return "—";
         });
+
         const schedule1 = buildRR(teamNames);
         const schedule = doubleRound
           ? schedule1.concat(
-              schedule1.map((roundPairs) =>
-                roundPairs.map((p) => ({ A: p.B, B: p.A }))
-              )
+            schedule1.map((roundPairs) =>
+              roundPairs.map((p) => ({ A: p.B, B: p.A }))
             )
+          )
           : schedule1;
         const totalMatches =
           ((teamNames.length * (teamNames.length - 1)) / 2) *
@@ -1586,9 +1596,8 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                 textOverflow: "ellipsis",
               },
             }}
-            label={`ĐANG BỐC: Bảng ${targetInfo.groupCode} · Slot ${
-              Number(targetInfo.slotIndex) + 1
-            }`}
+            label={`ĐANG BỐC: Bảng ${targetInfo.groupCode} · Slot ${Number(targetInfo.slotIndex) + 1
+              }`}
           />
         )}
 
@@ -1668,19 +1677,18 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
               ? isHovered
                 ? 3
                 : mateHighlighted
-                ? 3
-                : c.pairColor
-                ? 2
-                : 1
+                  ? 3
+                  : c.pairColor
+                    ? 2
+                    : 1
               : isHovered
-              ? 2
-              : 1;
+                ? 2
+                : 1;
 
           const glow =
             !isGhost && (isHovered || mateHighlighted)
-              ? `0 0 0 3px rgba(255,255,255,0.18), 0 0 22px 2px ${
-                  c.pairColor || "rgba(255,255,255,.45)"
-                }`
+              ? `0 0 0 3px rgba(255,255,255,0.18), 0 0 22px 2px ${c.pairColor || "rgba(255,255,255,.45)"
+              }`
               : "none";
 
           const pairTitle =
@@ -1688,8 +1696,8 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
               ? typeof c.meta?.pairIndex === "number"
                 ? `Cặp #${Number(c.meta.pairIndex) + 1}`
                 : c.pairId != null
-                ? `Cặp #${c.pairId + 1}`
-                : null
+                  ? `Cặp #${c.pairId + 1}`
+                  : null
               : null;
 
           let mateName = null;
@@ -1719,8 +1727,8 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                 cursor: isGhost
                   ? "default"
                   : busy || c.flipped
-                  ? "default"
-                  : "pointer",
+                    ? "default"
+                    : "pointer",
                 transition: "transform .18s ease",
                 transform: !isGhost && isHovered ? "translateY(-2px)" : "none",
                 opacity: isGhost ? 0.35 : 1,
@@ -2554,16 +2562,17 @@ export default function DrawPage() {
     }
   );
 
-  const { data: drawStatus, isLoading: ls } = useGetDrawStatusQuery(
-    selBracketId,
-    {
-      skip: !selBracketId,
-      refetchOnMountOrArgChange: true,
-      refetchOnFocus: true,
-      refetchOnReconnect: true,
-      forceRefetch: () => true,
-    }
-  );
+  const {
+    data: drawStatus,
+    isLoading: ls,
+    refetch: refetchDrawStatus,
+  } = useGetDrawStatusQuery(selBracketId, {
+    skip: !selBracketId,
+    refetchOnMountOrArgChange: true,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+    forceRefetch: () => true,
+  });
 
   const socket = useSocket();
   useEffect(() => {
@@ -2812,7 +2821,7 @@ export default function DrawPage() {
       setState("committed");
       try {
         await Promise.all([refetchMatches?.(), refetchBracket?.()]);
-      } catch {}
+      } catch { }
       if (fxEnabled) fireConfettiBurst();
     };
     const onCanceled = () => {
@@ -2868,16 +2877,35 @@ export default function DrawPage() {
           { numeric: true, sensitivity: "base" }
         )
       )
-      .map((g, idx) => ({
-        code: g.name || g.code || String.fromCharCode(65 + idx),
-        size: Array.isArray(g.regIds) ? g.regIds.length : Number(g.size) || 0,
-        regIds: Array.isArray(g.regIds) ? g.regIds : [],
-      }));
+      .map((g, idx) => {
+        const code = g.name || g.code || String.fromCharCode(65 + idx);
+
+        // NEW: lấy regIds từ regIds, nếu không có thì fallback sang slots
+        const slots = Array.isArray(g.slots) ? g.slots : [];
+        const rawRegIds =
+          Array.isArray(g.regIds) && g.regIds.length ? g.regIds : slots;
+
+        const size =
+          (Array.isArray(rawRegIds) ? rawRegIds.length : 0) ||
+          Number(g.size) ||
+          (Array.isArray(slots) ? slots.length : 0) ||
+          0;
+
+        return {
+          code,
+          size,
+          regIds: rawRegIds,
+        };
+      });
+
     const persistedFilled = persisted.some(
       (g) => g.size > 0 || (g.regIds && g.regIds.length)
     );
+
+    // Đang bốc thì vẫn ưu tiên planned meta (groupSizes) để preview layout
     if (state === "running" && plannedGroupsMeta.length)
       return plannedGroupsMeta;
+
     if (persistedFilled) return persisted;
     if (plannedGroupsMeta.length) return plannedGroupsMeta;
     return persisted;
@@ -2911,17 +2939,15 @@ export default function DrawPage() {
       AName: m.pairA
         ? safePairName(m.pairA, tournament?.eventType)
         : (m.previousA &&
-            `Winner of R${m.previousA.round ?? "?"} #${
-              (m.previousA.order ?? 0) + 1
-            }`) ||
-          "—",
+          `Winner of R${m.previousA.round ?? "?"} #${(m.previousA.order ?? 0) + 1
+          }`) ||
+        "—",
       BName: m.pairB
         ? safePairName(m.pairB, tournament?.eventType)
         : (m.previousB &&
-            `Winner of R${m.previousB.round ?? "?"} #${
-              (m.previousB.order ?? 0) + 1
-            }`) ||
-          "—",
+          `Winner of R${m.previousB.round ?? "?"} #${(m.previousB.order ?? 0) + 1
+          }`) ||
+        "—",
     }));
   }, [koMatchesThisBracket, selectedRoundNumber, tournament?.eventType]);
 
@@ -2947,6 +2973,52 @@ export default function DrawPage() {
     });
     return out;
   }, [state, reveals, groupsMeta]);
+
+  const groupsMetaForMatches = useMemo(() => {
+    if (drawType !== "group") return groupsMeta;
+
+    // Đang bốc (running) thì vẫn dùng groupsMeta (planned layout) để preview
+    if (state === "running") return groupsMeta;
+
+    // Sau commit: ưu tiên dùng data thực tế từ board.groups (nếu còn)
+    const boardGroups = Array.isArray(drawDoc?.board?.groups)
+      ? drawDoc.board.groups
+      : null;
+
+    if (boardGroups && boardGroups.length) {
+      const persistedMap = new Map(
+        (groupsMeta || []).map((g) => [norm(g.code), g])
+      );
+
+      return boardGroups.map((g, gi) => {
+        const code = g.key || g.code || String.fromCharCode(65 + gi);
+        const k = norm(code);
+        const persisted = persistedMap.get(k);
+        const slots = Array.isArray(g.slots) ? g.slots : [];
+
+        const regIds =
+          (persisted &&
+            Array.isArray(persisted.regIds) &&
+            persisted.regIds.length &&
+            persisted.regIds) ||
+          slots ||
+          [];
+
+        return {
+          code,
+          size:
+            (Array.isArray(regIds) ? regIds.length : 0) ||
+            Number(g.size) ||
+            slots.length ||
+            0,
+          regIds,
+        };
+      });
+    }
+
+    // Không có board (vd: reload lại trang sau này) → dùng groupsMeta (đã lấy từ bracketDetail)
+    return groupsMeta;
+  }, [drawType, state, drawDoc, groupsMeta]);
 
   const buildRoundsForKO = useCallback(
     ({
@@ -3122,10 +3194,10 @@ export default function DrawPage() {
         drawType === "group"
           ? { mode: "group" }
           : {
-              mode: drawType === "po" ? "po" : "knockout",
-              round: selectRoundValue,
-              ...(drawType === "knockout" ? { usePrevWinners } : {}),
-            };
+            mode: drawType === "po" ? "po" : "knockout",
+            round: selectRoundValue,
+            ...(drawType === "knockout" ? { usePrevWinners } : {}),
+          };
 
       const resp = await startDraw({ bracketId: selBracketId, body }).unwrap();
 
@@ -3168,7 +3240,7 @@ export default function DrawPage() {
       // (không bắt buộc) ép refetch matches để sidebar/bye-info cập nhật sớm
       try {
         await refetchMatches?.();
-      } catch {}
+      } catch { }
 
       // Auto open Card overlay nếu đang ở card mode
       if (uiMode === "cards") {
@@ -3324,10 +3396,10 @@ export default function DrawPage() {
             (rid && regIndex.has(String(rid))
               ? safePairName(regIndex.get(String(rid)), eventType)
               : last?.nickName ||
-                last?.teamName ||
-                last?.name ||
-                last?.team ||
-                last?.displayName) || "—";
+              last?.teamName ||
+              last?.name ||
+              last?.team ||
+              last?.displayName) || "—";
           out.push({ name, meta: null });
         } else {
           const prev = Array.isArray(reveals) ? [...reveals] : [];
@@ -3432,11 +3504,11 @@ export default function DrawPage() {
           const teamName = reg
             ? safePairName(reg, eventType)
             : c.nickName ||
-              c.teamName ||
-              c.name ||
-              c.team ||
-              c.displayName ||
-              "—";
+            c.teamName ||
+            c.name ||
+            c.team ||
+            c.displayName ||
+            "—";
           setOverlayMode("group");
           setOverlayData({ groupCode: key, slotIndex, teamName });
           setOverlayOpen(true);
@@ -3585,7 +3657,6 @@ export default function DrawPage() {
     );
   }
 
-
   if (et || eb) {
     return (
       <Box p={3}>
@@ -3610,7 +3681,6 @@ export default function DrawPage() {
     );
   }
 
-
   return (
     <RBContainer fluid="xl" className="py-4">
       <Stack
@@ -3633,8 +3703,8 @@ export default function DrawPage() {
               state === "running"
                 ? "warning"
                 : state === "committed"
-                ? "success"
-                : "default"
+                  ? "success"
+                  : "default"
             }
             label={state}
           />
@@ -3702,11 +3772,10 @@ export default function DrawPage() {
       )}
 
       <Paper
-        key={`${selBracketId || "none"}-${
-          drawType === "knockout" || drawType === "po"
+        key={`${selBracketId || "none"}-${drawType === "knockout" || drawType === "po"
             ? selectRoundValue || "R?"
             : "group"
-        }`}
+          }`}
         variant="outlined"
         sx={{ p: 2, flex: 1 }}
       >
@@ -3795,21 +3864,50 @@ export default function DrawPage() {
               startIcon={<CheckCircleIcon />}
               disabled={!canOperate || committing}
               onClick={async () => {
-                await drawCommit({ drawId }).unwrap();
+                let committed = false;
                 try {
-                  await Promise.all([refetchMatches?.(), refetchBracket?.()]);
-                } catch {}
+                  await drawCommit({ drawId }).unwrap();
 
-                // ===== CLEAR LOCALSTORAGE =====
-                clearCardDeckFromStorage(
-                  selBracketId,
-                  drawType,
-                  selectRoundValue
-                );
+                  // ===== CLEAR LOCALSTORAGE =====
+                  clearCardDeckFromStorage(
+                    selBracketId,
+                    drawType,
+                    selectRoundValue
+                  );
 
-                setShowDoneBanner(false);
-                setCardOpen(false); // Đóng overlay nếu đang mở
-                toast.success("Đã lưu kết quả");
+                  setShowDoneBanner(false);
+                  setCardOpen(false); // Đóng overlay nếu đang mở
+
+                  committed = true;
+                  toast.success(
+                    drawType === "group"
+                      ? "Đã ghi kết quả bốc thăm vòng bảng."
+                      : "Đã ghi kết quả bốc thăm vòng này."
+                  );
+                } catch (e) {
+                  toast.error(
+                    e?.data?.message ||
+                    e?.error ||
+                    "Ghi kết quả bốc thăm thất bại."
+                  );
+                }
+
+                // Chỉ refetch khi commit thành công
+                if (committed) {
+                  try {
+                    await Promise.all([
+                      refetchMatches?.(),
+                      refetchBracket?.(),
+                      refetchDrawStatus?.(),
+                    ]);
+                  } catch (e) {
+                    toast.error(
+                      e?.data?.message ||
+                      e?.error ||
+                      "Đã ghi kết quả nhưng tải lại dữ liệu bị lỗi, thử reload trang nếu vẫn không thấy cập nhật."
+                    );
+                  }
+                }
               }}
               sx={{ color: "white !important" }}
             >
@@ -3821,8 +3919,10 @@ export default function DrawPage() {
               startIcon={<CancelIcon />}
               disabled={!drawId || canceling}
               onClick={async () => {
+                let canceled = false;
                 try {
                   await drawCancel({ drawId }).unwrap();
+                  canceled = true;
                 } catch (e) {
                   toast.error(
                     e?.data?.message || e?.error || "Có lỗi khi huỷ phiên bốc."
@@ -3836,6 +3936,7 @@ export default function DrawPage() {
                   selectRoundValue
                 );
 
+                // Local state reset
                 setDrawId(null);
                 setState("idle");
                 setReveals([]);
@@ -3844,9 +3945,18 @@ export default function DrawPage() {
                 setCardOpen(false);
                 setCardQueue([]);
                 setCardSnapshot([]);
-                toast.success(
-                  "Đã huỷ phiên bốc và xóa dữ liệu thẻ tạm. Bạn có thể bắt đầu phiên mới."
-                );
+
+                if (canceled) {
+                  // sync lại drawStatus từ server
+                  try {
+                    await refetchDrawStatus?.();
+                  } catch (e) {
+                    // lỗi refetch thì thôi, đã reset local rồi
+                  }
+                  toast.success(
+                    "Đã huỷ phiên bốc và xóa dữ liệu thẻ tạm. Bạn có thể bắt đầu phiên mới."
+                  );
+                }
               }}
             >
               Huỷ phiên
@@ -4010,7 +4120,7 @@ export default function DrawPage() {
       <GroupMatchesDialog
         open={openGroupDlg}
         onClose={() => setOpenGroupDlg(false)}
-        groupsMeta={groupsMeta}
+        groupsMeta={groupsMetaForMatches} // ← đổi từ groupsMeta sang groupsMetaForMatches
         regIndex={regIndex}
         selBracketId={selBracketId}
       />

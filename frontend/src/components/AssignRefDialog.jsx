@@ -34,11 +34,6 @@ import {
 } from "@mui/icons-material";
 import { toast } from "react-toastify";
 
-// ⬇️ điều chỉnh path này cho đúng dự án của bạn
-// import ResponsiveModal from "@/components/ResponsiveModal";
-// import ResponsiveModal from "../../../components/ResponsiveModal";
-
-// Hooks: đổi path nếu khác dự án của bạn
 import {
   useListTournamentRefereesQuery,
   useBatchAssignRefereeMutation,
@@ -71,8 +66,9 @@ function AssignRefDialog({
   onChanged,
   limit = 100,
 }) {
-  const theme= useTheme()
-  const isMobile= useMediaQuery(theme.breakpoints.down("md"))
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+
   // Các trận được áp dụng
   const effectiveMatchIds = useMemo(() => {
     if (Array.isArray(matchIds) && matchIds.length) return matchIds.map(String);
@@ -196,7 +192,7 @@ function AssignRefDialog({
 
       onChanged?.();
       // Không auto-close để bạn có thể chỉnh tiếp
-      // onClose?.();
+      onClose?.();
     } catch (e) {
       toast.error(
         e?.data?.message || e?.error || "Cập nhật trọng tài (batch) thất bại"
@@ -215,7 +211,6 @@ function AssignRefDialog({
       open={open}
       onClose={onClose}
       maxWidth="md"
-      // Drawer (mobile) sẽ mặc định anchor="bottom"
       icon={<RefereeIcon fontSize="small" />}
       title={
         <Stack
@@ -271,15 +266,13 @@ function AssignRefDialog({
           </Button>
         </>
       }
-      // Giữ DOM để tốc độ hiển thị tốt hơn khi mở lại
-      // (nếu muốn unmount khi đóng thì set keepMounted={false} trong ResponsiveModal)
       dialogProps={{}}
       drawerProps={{}}
     >
       {!open ? null : (
         <Grid container spacing={2}>
           {/* Tìm kiếm + hành động nhanh */}
-          <Grid item xs={12}>
+          <Grid item size={12}>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={1}>
               <TextField
                 fullWidth
@@ -339,7 +332,7 @@ function AssignRefDialog({
           </Grid>
 
           {/* Danh sách trọng tài */}
-          <Grid item xs={12} sx={{width: isMobile ? "100%" : "auto"}}>
+          <Grid item size={12}>
             <Card variant="outlined">
               <CardHeader
                 title={
@@ -409,7 +402,7 @@ function AssignRefDialog({
             </Card>
           </Grid>
 
-          <Grid item xs={12}>
+          <Grid item size={12}>
             <Alert severity="info">
               Thao tác này sẽ <b>cập nhật (thay thế)</b> danh sách trọng tài cho{" "}
               <b>{effectiveMatchIds.length}</b> trận được chọn.

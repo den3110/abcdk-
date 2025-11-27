@@ -85,6 +85,15 @@ func findSafeCommand(key string) *SafeCommand {
 	return nil
 }
 
+func isImportantService(name string) bool {
+	for _, svc := range importantServices {
+		if strings.EqualFold(svc, name) {
+			return true
+		}
+	}
+	return false
+}
+
 // ===== Handlers =====
 
 // GET /api/admin/system/summary
@@ -144,7 +153,7 @@ func getSystemSummary(c *gin.Context) {
 			"total":       vm.Total,
 			"available":   vm.Available,
 			"used":        vm.Used,
-			"usedPercent": vm.UsedPercent, // VirtualMemoryStat.UsedPercent đã tính sẵn :contentReference[oaicite:2]{index=2}
+			"usedPercent": vm.UsedPercent, // VirtualMemoryStat.UsedPercent đã tính sẵn
 		},
 	})
 }
@@ -384,7 +393,7 @@ func getOpenPorts(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	// ưu tiên ss, fallback sang netstat nếu cần :contentReference[oaicite:3]{index=3}
+	// ưu tiên ss, fallback sang netstat nếu cần
 	cmd := exec.CommandContext(ctx, "ss", "-tulnp")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -447,7 +456,7 @@ func getLogTail(c *gin.Context) {
 		return
 	}
 
-	// Gọi tail cho nhanh thay vì tự implement seek+scan :contentReference[oaicite:4]{index=4}
+	// Gọi tail cho nhanh thay vì tự implement seek+scan
 	cmd := exec.CommandContext(ctx, "tail", "-n", fmt.Sprintf("%d", lines), lf.Path)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -531,6 +540,148 @@ func execSafeCommandHandler(c *gin.Context) {
 	})
 }
 
+/* ======================= NEW: kill process API ======================= */
+
+// POST /api/admin/system/processes/:pid/kill
+// body: { "signal": "SIGTERM" } (optional, default = SIGTERM)
+type killProcessRequest struct {
+	Signal string `json:"signal"`
+}
+
+func killProcessHandler(c *gin.Context) {
+	// dùng context để kill không bị treo lệnh kill
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	pidStr := c.Param("pid")
+	pid, err := strconv.Atoi(pidStr)
+	if err != nil || pid <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid pid"})
+		return
+	}
+
+	var body killProcessRequest
+	// body có thể rỗng, nên không bắt buộc lỗi
+	_ = c.ShouldBindJSON(&body)
+
+	sigName := strings.TrimSpace(body.Signal)
+	if sigName == "" {
+		sigName = "SIGTERM"
+	}
+	sigName = strings.ToUpper(sigName)
+
+	// normalize vài alias hay dùng
+	switch sigName {
+	case "KILL":
+		sigName = "SIGKILL"
+	case "TERM":
+		sigName = "SIGTERM"
+	case "INT":
+		sigName = "SIGINT"
+	}
+
+	// dùng lệnh kill của Linux: kill -s SIGTERM <pid>
+	cmd := exec.CommandContext(ctx, "kill", "-s", sigName, pidStr)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":  "kill failed",
+			"detail": err.Error(),
+			"output": string(out),
+			"pid":    pid,
+			"signal": sigName,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"pid":    pid,
+		"signal": sigName,
+		"status": "ok",
+		"output": string(out),
+	})
+}
+
+/* ======================= NEW: service action API ======================= */
+
+// POST /api/admin/system/services/:name/action
+// body: { "action": "restart" }  (support: restart/start/stop)
+type serviceActionRequest struct {
+	Action string `json:"action"`
+}
+
+func serviceActionHandler(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	name := c.Param("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "service name required"})
+		return
+	}
+
+	if !isImportantService(name) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "service not allowed"})
+		return
+	}
+
+	var body serviceActionRequest
+	if err := c.ShouldBindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json", "detail": err.Error()})
+		return
+	}
+
+	action := strings.ToLower(strings.TrimSpace(body.Action))
+	if action == "" {
+		action = "restart"
+	}
+
+	var cmd *exec.Cmd
+
+	switch action {
+	case "restart":
+		if strings.EqualFold(name, "pm2") {
+			// pm2 thường không chạy dưới systemd, dùng pm2 reload all
+			cmd = exec.CommandContext(ctx, "pm2", "reload", "all")
+		} else {
+			cmd = exec.CommandContext(ctx, "systemctl", "restart", name)
+		}
+	case "start":
+		if strings.EqualFold(name, "pm2") {
+			cmd = exec.CommandContext(ctx, "pm2", "start", "all")
+		} else {
+			cmd = exec.CommandContext(ctx, "systemctl", "start", name)
+		}
+	case "stop":
+		if strings.EqualFold(name, "pm2") {
+			cmd = exec.CommandContext(ctx, "pm2", "stop", "all")
+		} else {
+			cmd = exec.CommandContext(ctx, "systemctl", "stop", name)
+		}
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported action"})
+		return
+	}
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":  "service action failed",
+			"detail": err.Error(),
+			"output": string(out),
+			"name":   name,
+			"action": action,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"name":   name,
+		"action": action,
+		"output": string(out),
+	})
+}
+
 // ===== Auth middleware (placeholder) =====
 
 // Ở đây mình chỉ demo; bạn ghép vào hệ thống auth của bạn:
@@ -555,7 +706,9 @@ func main() {
 	api.GET("/summary", getSystemSummary)
 	api.GET("/disk", getDiskUsage)
 	api.GET("/processes", getTopProcesses)
+	api.POST("/processes/:pid/kill", killProcessHandler) // NEW
 	api.GET("/services", getServicesStatus)
+	api.POST("/services/:name/action", serviceActionHandler) // NEW
 	api.GET("/network", getNetworkSummary)
 	api.GET("/ports", getOpenPorts)
 

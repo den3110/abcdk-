@@ -525,7 +525,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
 
           {/* Cấu hình hiển thị & quyền */}
           <Grid container spacing={2}>
-            <Grid item xs={12} md={6}>
+            <Grid item size={{ xs: 12, md: 6 }}>
               <TextField
                 select
                 label="Hiển thị"
@@ -543,7 +543,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
                 ))}
               </TextField>
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid item size={{ xs: 12, md: 6 }}>
               <TextField
                 select
                 label="Chính sách gia nhập"
@@ -566,7 +566,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
               </TextField>
             </Grid>
 
-            <Grid item xs={12} md={7}>
+            <Grid item size={{ xs: 12, md: 7 }}>
               <TextField
                 select
                 label="Ai được xem danh sách thành viên"
@@ -591,8 +591,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
 
             <Grid
               item
-              xs={12}
-              md={5}
+              size={{ xs: 12, md: 5 }}
               sx={{ display: "flex", alignItems: "center" }}
             >
               <FormControlLabel
@@ -647,7 +646,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
 
           {/* Địa chỉ */}
           <Grid container spacing={2}>
-            <Grid item xs={12} md={6}>
+            <Grid item size={{ xs: 12, md: 6 }}>
               <TextField
                 select
                 label="Tỉnh/Thành"
@@ -665,7 +664,7 @@ export default function ClubCreateDialog({ open, onClose, initial }) {
                 ))}
               </TextField>
             </Grid>
-            <Grid item xs={12} md={6}>
+            <Grid item size={{ xs: 12, md: 6 }}>
               <TextField
                 label="Quận/Huyện"
                 value={form.city}

@@ -87,7 +87,7 @@ function GroupBoard({ session, eventType }) {
   return (
     <Grid container spacing={2}>
       {labels.map((lb) => (
-        <Grid item xs={12} sm={6} md={4} lg={3} key={lb}>
+        <Grid item size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={lb}>
           <Paper variant="outlined" sx={{ p: 1.5 }}>
             <Stack
               direction="row"
@@ -98,9 +98,8 @@ function GroupBoard({ session, eventType }) {
               <Typography fontWeight={700}>Bảng {lb}</Typography>
               <Chip
                 size="small"
-                label={`${
-                  (byLabel.get(lb) || []).filter(Boolean).length
-                }/${groupSize}`}
+                label={`${(byLabel.get(lb) || []).filter(Boolean).length
+                  }/${groupSize}`}
               />
             </Stack>
             <Stack spacing={1}>
@@ -275,20 +274,20 @@ export default function AdminDrawPage() {
     const body =
       mode === "group"
         ? {
-            mode,
-            config: {
-              groups: Number(groups),
-              groupSize: Number(groupSize),
-              jitter: Number(jitter),
-            },
-          }
+          mode,
+          config: {
+            groups: Number(groups),
+            groupSize: Number(groupSize),
+            jitter: Number(jitter),
+          },
+        }
         : {
-            mode,
-            config: {
-              knockoutSlots: Number(knockoutSlots),
-              jitter: Number(jitter),
-            },
-          };
+          mode,
+          config: {
+            knockoutSlots: Number(knockoutSlots),
+            jitter: Number(jitter),
+          },
+        };
     await initDraw({ bracketId, ...body }).unwrap();
     await refetchStatus();
   };
@@ -350,7 +349,7 @@ export default function AdminDrawPage() {
               Khởi tạo phiên bốc thăm
             </Typography>
             <Grid container spacing={2}>
-              <Grid item xs={12} sm="auto">
+              <Grid item size={{ xs: 12, sm: "auto" }}>
                 <TextField
                   select
                   label="Chế độ"
@@ -365,7 +364,7 @@ export default function AdminDrawPage() {
 
               {mode === "group" ? (
                 <>
-                  <Grid item xs={6} sm="auto">
+                  <Grid item size={{ xs: 6, sm: "auto" }}>
                     <TextField
                       type="number"
                       label="Số bảng"
@@ -376,7 +375,7 @@ export default function AdminDrawPage() {
                       sx={{ minWidth: 160 }}
                     />
                   </Grid>
-                  <Grid item xs={6} sm="auto">
+                  <Grid item size={{ xs: 6, sm: "auto" }}>
                     <TextField
                       type="number"
                       label="Đội/bảng"
@@ -389,7 +388,7 @@ export default function AdminDrawPage() {
                   </Grid>
                 </>
               ) : (
-                <Grid item xs={12} sm="auto">
+                <Grid item size={{ xs: 12, sm: "auto" }}>
                   <TextField
                     select
                     label="Số đội KO"
@@ -406,7 +405,7 @@ export default function AdminDrawPage() {
                 </Grid>
               )}
 
-              <Grid item xs={12} sm="auto">
+              <Grid item size={{ xs: 12, sm: "auto" }}>
                 <TextField
                   type="number"
                   label="Jitter (0~0.1)"
@@ -422,7 +421,7 @@ export default function AdminDrawPage() {
                 />
               </Grid>
 
-              <Grid item xs={12}>
+              <Grid item size={{ xs: 12 }}>
                 <Stack direction="row" spacing={1}>
                   <Button
                     variant="contained"
@@ -455,10 +454,10 @@ export default function AdminDrawPage() {
                     {session.status === "running"
                       ? "Đang chạy"
                       : session.status === "ready"
-                      ? "Sẵn sàng"
-                      : session.status === "done"
-                      ? "Hoàn tất"
-                      : "Đã huỷ"}
+                        ? "Sẵn sàng"
+                        : session.status === "done"
+                          ? "Hoàn tất"
+                          : "Đã huỷ"}
                   </b>{" "}
                   • Tiến độ: {progress.cur}/{progress.total}
                 </Typography>

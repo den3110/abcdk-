@@ -65,7 +65,7 @@ const safeAtobUtf8 = (b64) => {
   } catch (e) {
     try {
       return atob(b64);
-    } catch {}
+    } catch { }
   }
   return "";
 };
@@ -305,7 +305,7 @@ export default function LiveStudioCourts({
               setAutoFillFlags((f) => ({ ...f, tt: true }));
             }
           }
-        } catch {}
+        } catch { }
       }
       const fbKey = params.get("key");
       if (fbKey) {
@@ -824,7 +824,7 @@ export default function LiveStudioCourts({
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       setVideoDevices(devices.filter((d) => d.kind === "videoinput"));
-    } catch {}
+    } catch { }
   };
   const findDeviceIdForFacing = (want = "user") => {
     const isBack = want === "environment";
@@ -842,7 +842,7 @@ export default function LiveStudioCourts({
   const stopCurrentStream = () => {
     try {
       camStreamRef.current?.getTracks().forEach((t) => t.stop());
-    } catch {}
+    } catch { }
   };
   const initCamera = async (preferFacing = "user") => {
     try {
@@ -939,17 +939,17 @@ export default function LiveStudioCourts({
         )
           audioRecorderRef.current.stop();
         audioRecorderRef.current = null;
-      } catch {}
+      } catch { }
       try {
         if (
           videoEncoderRef.current &&
           videoEncoderRef.current.state !== "closed"
         )
           videoEncoderRef.current.close();
-      } catch {}
+      } catch { }
       try {
         wsRef.current?.close();
-      } catch {}
+      } catch { }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // ✅ Chỉ init camera 1 lần, không restart khi quality change
@@ -1418,8 +1418,8 @@ export default function LiveStudioCourts({
                   )
                     ? "audio/webm;codecs=opus"
                     : MediaRecorder.isTypeSupported("audio/webm")
-                    ? "audio/webm"
-                    : "";
+                      ? "audio/webm"
+                      : "";
                   const mr = new MediaRecorder(aStream, {
                     mimeType: mime || undefined,
                     audioBitsPerSecond: 128000,
@@ -1434,7 +1434,7 @@ export default function LiveStudioCourts({
                       out[0] = 0x01; // audio packet
                       out.set(u8, 1);
                       wsRef.current.send(out.buffer);
-                    } catch {}
+                    } catch { }
                   };
                   mr.start(100);
                   audioRecorderRef.current = mr;
@@ -1449,7 +1449,7 @@ export default function LiveStudioCourts({
               ws.removeEventListener("message", handler);
               reject(new Error(msg.message));
             }
-          } catch {}
+          } catch { }
         };
         ws.addEventListener("message", handler);
       });
@@ -1540,10 +1540,10 @@ export default function LiveStudioCourts({
           await videoEncoderRef.current.flush();
           videoEncoderRef.current.close();
         }
-      } catch {}
+      } catch { }
       try {
         wsRef.current?.close();
-      } catch {}
+      } catch { }
     } finally {
       setLoading(false);
     }
@@ -1618,9 +1618,8 @@ export default function LiveStudioCourts({
               Overlay Controls
             </Typography>
             <Chip
-              label={`${activeOverlayCount}/${
-                Object.keys(overlayConfig).length
-              }`}
+              label={`${activeOverlayCount}/${Object.keys(overlayConfig).length
+                }`}
               color="success"
               size="small"
             />
@@ -1876,7 +1875,7 @@ export default function LiveStudioCourts({
 
           <Box sx={{ p: { xs: 2, md: 3 } }}>
             <Grid container spacing={{ xs: 2, md: 3 }}>
-              <Grid item xs={12} lg={8}>
+              <Grid item size={{ xs: 12, lg: 8 }}>
                 <Card elevation={2} sx={{ mb: { xs: 2, md: 3 } }}>
                   <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                     <Box
@@ -2011,7 +2010,7 @@ export default function LiveStudioCourts({
                           Stream Health
                         </Typography>
                         <Grid container spacing={1}>
-                          <Grid item xs={4}>
+                          <Grid item size={{ xs: 4 }}>
                             <Chip
                               label={`${streamHealth.fps} FPS`}
                               color="success"
@@ -2019,7 +2018,7 @@ export default function LiveStudioCourts({
                               sx={{ width: "100%" }}
                             />
                           </Grid>
-                          <Grid item xs={4}>
+                          <Grid item size={{ xs: 4 }}>
                             <Chip
                               label={`${streamHealth.bitrate}k`}
                               color="info"
@@ -2027,7 +2026,7 @@ export default function LiveStudioCourts({
                               sx={{ width: "100%" }}
                             />
                           </Grid>
-                          <Grid item xs={4}>
+                          <Grid item size={{ xs: 4 }}>
                             <Chip
                               label={`Drop: ${streamHealth.dropped}`}
                               color={
@@ -2049,7 +2048,7 @@ export default function LiveStudioCourts({
                 </Card>
               </Grid>
 
-              <Grid item xs={12} lg={4}>
+              <Grid item size={{ xs: 12, lg: 4 }}>
                 <Card elevation={2} sx={{ mb: { xs: 2, md: 3 } }}>
                   <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                     <Box
@@ -2120,8 +2119,8 @@ export default function LiveStudioCourts({
                               networkSpeed >= 5
                                 ? "success"
                                 : networkSpeed >= 2
-                                ? "warning"
-                                : "error"
+                                  ? "warning"
+                                  : "error"
                             }
                           />
                         </Box>
@@ -2227,20 +2226,20 @@ export default function LiveStudioCourts({
                           Current Settings:
                         </Typography>
                         <Grid container spacing={1}>
-                          <Grid item xs={6}>
+                          <Grid item size={{ xs: 6 }}>
                             <Typography variant="caption">
                               <strong>Resolution:</strong>{" "}
                               {QUALITY_PRESETS[qualityMode].width}x
                               {QUALITY_PRESETS[qualityMode].height}
                             </Typography>
                           </Grid>
-                          <Grid item xs={6}>
+                          <Grid item size={{ xs: 6 }}>
                             <Typography variant="caption">
                               <strong>FPS:</strong>{" "}
                               {QUALITY_PRESETS[qualityMode].fps}
                             </Typography>
                           </Grid>
-                          <Grid item xs={12}>
+                          <Grid item size={{ xs: 12 }}>
                             <Typography variant="caption">
                               <strong>Bitrate:</strong>{" "}
                               {QUALITY_PRESETS[qualityMode].videoBitsPerSecond}
@@ -2484,8 +2483,8 @@ export default function LiveStudioCourts({
                       {loading
                         ? "Đang xử lý..."
                         : isStreaming
-                        ? "Dừng Stream"
-                        : "Start Streaming"}
+                          ? "Dừng Stream"
+                          : "Start Streaming"}
                     </Button>
 
                     <Alert

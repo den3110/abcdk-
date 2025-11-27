@@ -61,10 +61,7 @@ const getSideKey = (side) => {
   if (regId) return `reg:${regId}`;
 
   // Team id
-  const teamId =
-    side.teamId ||
-    side.team?._id ||
-    side.team?.id;
+  const teamId = side.teamId || side.team?._id || side.team?.id;
   if (teamId) return `team:${teamId}`;
 
   // Fallback: 2 player tạo thành key
@@ -82,22 +79,8 @@ const getMatchTeamKeys = (m) => {
   if (!m) return [];
   const keys = [];
 
-  const a =
-    m.pairA ||
-    m.teamA ||
-    m.sideA ||
-    m.regA ||
-    m.a ||
-    m.home ||
-    m.team1;
-  const b =
-    m.pairB ||
-    m.teamB ||
-    m.sideB ||
-    m.regB ||
-    m.b ||
-    m.away ||
-    m.team2;
+  const a = m.pairA || m.teamA || m.sideA || m.regA || m.a || m.home || m.team1;
+  const b = m.pairB || m.teamB || m.sideB || m.regB || m.b || m.away || m.team2;
 
   const ka = getSideKey(a);
   const kb = getSideKey(b);
@@ -111,21 +94,12 @@ const getMatchTeamKeys = (m) => {
 const buildSideName = (side) => {
   if (!side) return "Đội này";
 
-  const label =
-    side.label ||
-    side.teamName ||
-    side.name ||
-    side.code;
+  const label = side.label || side.teamName || side.name || side.code;
   if (label) return label;
 
   const pickName = (p) =>
     p &&
-    (p.shortName ||
-      p.nickname ||
-      p.nickName ||
-      p.fullName ||
-      p.name ||
-      null);
+    (p.shortName || p.nickname || p.nickName || p.fullName || p.name || null);
 
   const p1 = pickName(side.player1);
   const p2 = pickName(side.player2);
@@ -196,9 +170,7 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
       const cmTeamKeys = getMatchTeamKeys(cm);
       if (!cmTeamKeys.length) return;
 
-      const overlapped = cmTeamKeys.some((k) =>
-        currentMatchTeamKeys.has(k)
-      );
+      const overlapped = cmTeamKeys.some((k) => currentMatchTeamKeys.has(k));
       if (!overlapped) return;
 
       const teamNames = [];
@@ -289,6 +261,7 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
       }).unwrap();
       toast.success("Đã bỏ gán sân");
       onAssigned?.();
+      onClose?.()
     } catch (e) {
       toast.error(e?.data?.message || e?.error || "Gỡ sân thất bại");
     }
@@ -308,13 +281,7 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
 
   return (
     <>
-      <Dialog
-        open={open}
-        onClose={onClose}
-        fullWidth
-        maxWidth="md"
-        keepMounted
-      >
+      <Dialog open={open} onClose={onClose} fullWidth maxWidth="md" keepMounted>
         <DialogTitle>
           <Stack direction="row" alignItems="center" spacing={1}>
             <StadiumIcon fontSize="small" />
@@ -347,9 +314,7 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
                       color="secondary"
                       variant="outlined"
                       label={`Đang gán: ${
-                        match?.court?.name ||
-                        match?.court?.label ||
-                        ""
+                        match?.court?.name || match?.court?.label || ""
                       }`}
                     />
                     <Chip
@@ -391,14 +356,10 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
                       Cảnh báo: Có đội trong trận này đang được gán ở sân khác
                     </Typography>
                     {conflictItems.map((c, idx) => (
-                      <Typography
-                        key={idx}
-                        variant="body2"
-                        color="error"
-                      >
+                      <Typography key={idx} variant="body2" color="error">
                         {c.teamNames.join(", ")} đang được gán ở sân{" "}
-                        <b>{c.courtName}</b> (trận {c.matchCode}). Nếu bạn
-                        tiếp tục gán sân khác, hệ thống sẽ hỏi xác nhận.
+                        <b>{c.courtName}</b> (trận {c.matchCode}). Nếu bạn tiếp
+                        tục gán sân khác, hệ thống sẽ hỏi xác nhận.
                       </Typography>
                     ))}
                   </Stack>
@@ -415,21 +376,19 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
               </Typography>
               <Grid container spacing={1}>
                 {courtsByStatus.idle.map((c) => (
-                  <Grid key={c._id} item xs={12} md={6} lg={4}>
+                  <Grid
+                    key={c._id}
+                    item
+                    size={{ xs: 12, md: 6, lg: 4 }} // ⬅️ đổi từ xs/md/lg
+                  >
                     <Paper variant="outlined" sx={{ p: 1.25 }}>
                       <Stack
                         direction="row"
                         justifyContent="space-between"
                         alignItems="center"
                       >
-                        <Typography fontWeight={600}>
-                          {c.name}
-                        </Typography>
-                        <Chip
-                          size="small"
-                          variant="outlined"
-                          label="Trống"
-                        />
+                        <Typography fontWeight={600}>{c.name}</Typography>
+                        <Chip size="small" variant="outlined" label="Trống" />
                       </Stack>
                       <Stack
                         direction="row"
@@ -444,9 +403,7 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
                           icon={<AssignIcon />}
                           label={assigning ? "Đang gán…" : "Gán sân này"}
                           onClick={
-                            assigning
-                              ? undefined
-                              : () => handleAssignClick(c)
+                            assigning ? undefined : () => handleAssignClick(c)
                           }
                           disabled={assigning}
                         />
@@ -469,16 +426,18 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
                   </Typography>
                   <Grid container spacing={1}>
                     {courtsByStatus.busy.map((c) => (
-                      <Grid key={c._id} item xs={12} md={6} lg={4}>
+                      <Grid
+                        key={c._id}
+                        item
+                        size={{ xs: 12, md: 6, lg: 4 }} // ⬅️ đổi từ xs/md/lg
+                      >
                         <Paper variant="outlined" sx={{ p: 1.25 }}>
                           <Stack
                             direction="row"
                             justifyContent="space-between"
                             alignItems="center"
                           >
-                            <Typography fontWeight={600}>
-                              {c.name}
-                            </Typography>
+                            <Typography fontWeight={600}>{c.name}</Typography>
                             <Chip
                               size="small"
                               variant="outlined"
@@ -488,8 +447,7 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
                           {c.currentMatch && (
                             <Typography variant="body2" mt={0.5}>
                               Trận:{" "}
-                              {c.currentMatch.code ||
-                                matchCode(c.currentMatch)}
+                              {c.currentMatch.code || matchCode(c.currentMatch)}
                             </Typography>
                           )}
                         </Paper>
@@ -518,8 +476,8 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
         <DialogContent dividers>
           <Stack spacing={1}>
             <Typography variant="body2">
-              Một hoặc nhiều đội trong trận{" "}
-              <b>{matchCode(match)}</b> đang được gán ở sân khác:
+              Một hoặc nhiều đội trong trận <b>{matchCode(match)}</b> đang được
+              gán ở sân khác:
             </Typography>
             {conflictItems.map((c, idx) => (
               <Paper
@@ -528,8 +486,8 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
                 sx={{ p: 1, borderColor: "error.main" }}
               >
                 <Typography variant="body2" color="error">
-                  {c.teamNames.join(", ")} — sân <b>{c.courtName}</b>{" "}
-                  (trận {c.matchCode})
+                  {c.teamNames.join(", ")} — sân <b>{c.courtName}</b> (trận{" "}
+                  {c.matchCode})
                 </Typography>
               </Paper>
             ))}
@@ -564,4 +522,3 @@ function AssignCourtDialog({ open, tournamentId, match, onClose, onAssigned }) {
 }
 
 export default React.memo(AssignCourtDialog);
-  

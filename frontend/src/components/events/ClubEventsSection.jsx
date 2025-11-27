@@ -73,12 +73,12 @@ export default function ClubEventsSection({ club, canManage }) {
       <Grid container spacing={2}>
         {loading
           ? Array.from({ length: 4 }).map((_, i) => (
-              <Grid key={i} item xs={12} sm={6}>
+              <Grid key={i} item size={{ xs: 12, sm: 6 }}>
                 <SkeletonEventCard />
               </Grid>
             ))
           : items.map((ev) => (
-              <Grid key={ev._id} item xs={12} sm={6}>
+              <Grid key={ev._id} item size={{ xs: 12, sm: 6 }}>
                 <EventCard
                   clubId={clubId}
                   event={ev}

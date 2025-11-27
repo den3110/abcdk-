@@ -453,7 +453,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         document.execCommand("copy");
         document.body.removeChild(ta);
       }
-    } catch {}
+    } catch { }
   }
 
   function CopyIconBtn({ text, label = "Nội dung" }) {
@@ -806,11 +806,11 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                   Array.isArray(base?.roles) && base.roles.length
                     ? base.roles.join(", ")
                     : base?.role ||
-                      (typeof base?.isAdmin === "boolean"
-                        ? base.isAdmin
-                          ? "admin"
-                          : "user"
-                        : "")
+                    (typeof base?.isAdmin === "boolean"
+                      ? base.isAdmin
+                        ? "admin"
+                        : "user"
+                      : "")
                 }
               />
               <InfoRow
@@ -973,92 +973,92 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           </Typography>
           {ratingPaged.length
             ? ratingPaged.map((h) => {
-                const historyId = h?._id ?? h?.id;
-                const noteText = isAdmin ? safe(h?.note, TEXT_PLACE) : h?.note;
-                const scorerName = h?.scorer?.name || h?.scorer?.email || "—";
-                return (
-                  <Card
-                    key={historyId}
-                    variant="outlined"
-                    sx={{ borderRadius: 1.5 }}
-                  >
-                    <CardContent sx={{ p: 1.5 }}>
-                      <Stack spacing={1}>
-                        <Stack
-                          direction="row"
-                          alignItems="center"
-                          justifyContent="space-between"
-                        >
-                          <Typography variant="body2" fontWeight={600}>
-                            {fmtDate(h.scoredAt)}
-                          </Typography>
-                          {isAdmin ? (
-                            <Tooltip title="Xoá mục này">
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  onClick={() => handleDeleteRow(h)}
-                                  disabled={
-                                    deleting && deletingId === historyId
-                                  }
-                                  aria-label="delete-score-history"
-                                >
-                                  <DeleteOutlineOutlinedIcon fontSize="small" />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                          ) : null}
-                        </Stack>
-
-                        <Typography
-                          variant="caption"
-                          sx={{ color: "text.secondary" }}
-                        >
-                          Bởi: {scorerName}
+              const historyId = h?._id ?? h?.id;
+              const noteText = isAdmin ? safe(h?.note, TEXT_PLACE) : h?.note;
+              const scorerName = h?.scorer?.name || h?.scorer?.email || "—";
+              return (
+                <Card
+                  key={historyId}
+                  variant="outlined"
+                  sx={{ borderRadius: 1.5 }}
+                >
+                  <CardContent sx={{ p: 1.5 }}>
+                    <Stack spacing={1}>
+                      <Stack
+                        direction="row"
+                        alignItems="center"
+                        justifyContent="space-between"
+                      >
+                        <Typography variant="body2" fontWeight={600}>
+                          {fmtDate(h.scoredAt)}
                         </Typography>
-
-                        <Stack direction="row" spacing={1}>
-                          <Chip
-                            size="small"
-                            label={`Đơn: ${num(h.single)}`}
-                            variant="outlined"
-                          />
-                          <Chip
-                            size="small"
-                            label={`Đôi: ${num(h.double)}`}
-                            variant="outlined"
-                          />
-                        </Stack>
-
-                        {noteText ? (
-                          <>
-                            <Divider flexItem />
-                            <Typography
-                              variant="body2"
-                              color="text.secondary"
-                              sx={{
-                                display: "-webkit-box",
-                                WebkitLineClamp: 3,
-                                WebkitBoxOrient: "vertical",
-                                overflow: "hidden",
-                              }}
-                            >
-                              {noteText}
-                            </Typography>
-                          </>
+                        {isAdmin ? (
+                          <Tooltip title="Xoá mục này">
+                            <span>
+                              <IconButton
+                                size="small"
+                                onClick={() => handleDeleteRow(h)}
+                                disabled={
+                                  deleting && deletingId === historyId
+                                }
+                                aria-label="delete-score-history"
+                              >
+                                <DeleteOutlineOutlinedIcon fontSize="small" />
+                              </IconButton>
+                            </span>
+                          </Tooltip>
                         ) : null}
                       </Stack>
-                    </CardContent>
-                  </Card>
-                );
-              })
+
+                      <Typography
+                        variant="caption"
+                        sx={{ color: "text.secondary" }}
+                      >
+                        Bởi: {scorerName}
+                      </Typography>
+
+                      <Stack direction="row" spacing={1}>
+                        <Chip
+                          size="small"
+                          label={`Đơn: ${num(h.single)}`}
+                          variant="outlined"
+                        />
+                        <Chip
+                          size="small"
+                          label={`Đôi: ${num(h.double)}`}
+                          variant="outlined"
+                        />
+                      </Stack>
+
+                      {noteText ? (
+                        <>
+                          <Divider flexItem />
+                          <Typography
+                            variant="body2"
+                            color="text.secondary"
+                            sx={{
+                              display: "-webkit-box",
+                              WebkitLineClamp: 3,
+                              WebkitBoxOrient: "vertical",
+                              overflow: "hidden",
+                            }}
+                          >
+                            {noteText}
+                          </Typography>
+                        </>
+                      ) : null}
+                    </Stack>
+                  </CardContent>
+                </Card>
+              );
+            })
             : EmptyState}
           <Stack direction="row" justifyContent="center" mt={0.5}>
             <Pagination
               page={
                 window.__dummy || 1 /* placeholder, thực tế dùng state ngoài */
               }
-              onChange={() => {}}
+              onChange={() => { }}
               count={Math.max(1, Math.ceil(ratingTotal / 10))}
               shape="rounded"
               size="small"
@@ -1156,7 +1156,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         <Stack direction="row" justifyContent="center">
           <Pagination
             page={window.__dummy || 1 /* placeholder */}
-            onChange={() => {}}
+            onChange={() => { }}
             count={Math.max(1, Math.ceil(ratingTotal / 10))}
             shape="rounded"
             size="small"
@@ -1244,8 +1244,8 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                         color: up
                           ? "success.main"
                           : down
-                          ? "error.main"
-                          : "text.primary",
+                            ? "error.main"
+                            : "text.primary",
                         lineHeight: 1.2,
                       }}
                     >
@@ -1838,9 +1838,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
         <Grid container spacing={2}>
           <Grid
             item
-            xs={12}
-            sm={6}
-            md={3}
+            size={{ xs: 12, sm: 6, md: 3 }}
             sx={{ width: isMobile ? "100%" : "auto" }}
           >
             <KpiCard
@@ -1857,9 +1855,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           </Grid>
           <Grid
             item
-            xs={12}
-            sm={6}
-            md={3}
+            size={{ xs: 12, sm: 6, md: 3 }}
             sx={{ width: isMobile ? "100%" : "auto" }}
           >
             <KpiCard
@@ -1875,9 +1871,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           </Grid>
           <Grid
             item
-            xs={12}
-            sm={6}
-            md={3}
+            size={{ xs: 12, sm: 6, md: 3 }}
             sx={{ width: isMobile ? "100%" : "auto" }}
           >
             <KpiCard
@@ -1889,9 +1883,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
           </Grid>
           <Grid
             item
-            xs={12}
-            sm={6}
-            md={3}
+            size={{ xs: 12, sm: 6, md: 3 }}
             sx={{ width: isMobile ? "100%" : "auto" }}
           >
             <KpiCard
@@ -1997,7 +1989,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                         rowSpacing={0.5}
                         sx={{ mt: 0.25 }}
                       >
-                        <Grid item xs={6}>
+                        <Grid item size={{ xs: 6 }}>
                           <Typography variant="caption" color="text.secondary">
                             Giai đoạn
                           </Typography>
@@ -2005,7 +1997,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                             {r.season ?? "—"}
                           </Typography>
                         </Grid>
-                        <Grid item xs={6}>
+                        <Grid item size={{ xs: 6 }}>
                           <Typography variant="caption" color="text.secondary">
                             Cuối cùng
                           </Typography>
@@ -2140,7 +2132,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                         rowSpacing={0.5}
                         sx={{ mt: 0.25 }}
                       >
-                        <Grid item xs={4}>
+                        <Grid item size={{ xs: 4 }}>
                           <Typography variant="caption" color="text.secondary">
                             W
                           </Typography>
@@ -2148,7 +2140,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                             {r.stats?.wins ?? 0}
                           </Typography>
                         </Grid>
-                        <Grid item xs={4}>
+                        <Grid item size={{ xs: 4 }}>
                           <Typography variant="caption" color="text.secondary">
                             L
                           </Typography>
@@ -2156,7 +2148,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                             {r.stats?.losses ?? 0}
                           </Typography>
                         </Grid>
-                        <Grid item xs={4}>
+                        <Grid item size={{ xs: 4 }}>
                           <Typography variant="caption" color="text.secondary">
                             WR
                           </Typography>
@@ -2166,7 +2158,7 @@ export default function PublicProfileDialog({ open, onClose, userId }) {
                               : "—"}
                           </Typography>
                         </Grid>
-                        <Grid item xs={12}>
+                        <Grid item size={{ xs: 12 }}>
                           <Typography variant="caption" color="text.secondary">
                             Hoàn tất
                           </Typography>

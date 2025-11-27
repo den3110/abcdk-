@@ -881,7 +881,7 @@ export const patchStatus = asyncHandler(async (req, res) => {
   // ★★★ Gửi thông báo cho người chơi khi TRẬN BẮT ĐẦU (chỉ lần đầu vào live) ★★★
   if (justWentLive) {
     try {
-      await publishNotification(EVENTS.MATCH_WENT_LIVE, {
+      publishNotification(EVENTS.MATCH_WENT_LIVE, {
         matchId: String(match._id),
         topicType: "match", // để filter theo Subscription nếu bạn dùng
         topicId: String(match._id),

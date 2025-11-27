@@ -201,12 +201,11 @@ const buildRefReportHTML = ({
     <tr>
       <td style="border:1px solid black"></td>
       ${Array.from(
-        { length: 22 },
-        (_, i) =>
-          `<td style="border:1px solid black">${
-            i < 10 ? `&nbsp;${i}&nbsp;` : i
-          }</td>`
-      ).join("")}
+    { length: 22 },
+    (_, i) =>
+      `<td style="border:1px solid black">${i < 10 ? `&nbsp;${i}&nbsp;` : i
+      }</td>`
+  ).join("")}
       <td style="border:1px solid black"></td>
       <td style="border:1px solid black"></td>
       <td style="border:1px solid black"></td>
@@ -219,33 +218,28 @@ const buildRefReportHTML = ({
   <body>
     <table class="no-border" style="width:100%">
       <tr class="no-border">
-        <td class="no-border" style="width:80px"><img style="width:96px" src="${
-          logoUrl || "/logo.png"
-        }" alt="logo" /></td>
-        <td class="no-border" colspan="3"><div class="title" id="printTourname">${
-          tourName || ""
-        }</div></td>
+        <td class="no-border" style="width:80px"><img style="width:96px" src="${logoUrl || "/logo.png"
+    }" alt="logo" /></td>
+        <td class="no-border" colspan="3"><div class="title" id="printTourname">${tourName || ""
+    }</div></td>
       </tr>
       <tr>
         <td rowspan="2">TRẬN ĐẤU:</td>
         <td rowspan="2"><div style="font-weight:700;font-size:22px" id="printMatchCode">${code}</div></td>
         <td style="width:100px">SÂN:</td>
-        <td style="min-width:150px"><b id="printMatchCourt">${
-          court || ""
-        }</b></td>
+        <td style="min-width:150px"><b id="printMatchCourt">${court || ""
+    }</b></td>
       </tr>
       <tr>
         <td style="width:100px">TRỌNG TÀI:</td>
-        <td style="min-width:150px"><b id="printMatchReferee">${
-          referee || ""
-        }</b></td>
+        <td style="min-width:150px"><b id="printMatchReferee">${referee || ""
+    }</b></td>
       </tr>
     </table>
     <br/>
     <table>
-      <tr><td>ĐỘI 1</td><td colspan="26"><b id="printTeam1">${
-        team1 || ""
-      }</b></td></tr>
+      <tr><td>ĐỘI 1</td><td colspan="26"><b id="printTeam1">${team1 || ""
+    }</b></td></tr>
       <tr><td>SERVER</td><td colspan="22">ĐIỂM</td><td colspan="2">TIMEOUT</td><td>TW/TF</td></tr>
       ${pointRow()}${pointRow()}${pointRow()}
     </table>
@@ -260,9 +254,8 @@ const buildRefReportHTML = ({
       </table>
     </div>
     <table>
-      <tr><td>ĐỘI 2</td><td colspan="26"><b id="printTeam21">${
-        team2 || ""
-      }</b></td></tr>
+      <tr><td>ĐỘI 2</td><td colspan="26"><b id="printTeam21">${team2 || ""
+    }</b></td></tr>
       <tr><td>SERVER</td><td colspan="22">ĐIỂM</td><td colspan="2">TIMEOUT</td><td>TW/TF</td></tr>
       ${pointRow()}${pointRow()}${pointRow()}
     </table>
@@ -295,8 +288,8 @@ const matchCode = (m) => {
   const r = Number.isFinite(m?.globalRound)
     ? m.globalRound
     : Number.isFinite(m?.round)
-    ? m.round
-    : "?";
+      ? m.round
+      : "?";
   const t = Number.isFinite(m?.order) ? m.order + 1 : undefined;
   return `V${r}${t ? `-T${t}` : ""}`;
 };
@@ -1119,8 +1112,8 @@ export default function TournamentManagePage() {
     const list = Array.isArray(refData?.items)
       ? refData.items
       : Array.isArray(refData)
-      ? refData
-      : [];
+        ? refData
+        : [];
     return list;
   }, [refData]);
 
@@ -1205,7 +1198,7 @@ export default function TournamentManagePage() {
               w.focus?.();
               w.print?.();
             } else setTimeout(tryPrint, 100);
-          } catch {}
+          } catch { }
         };
         tryPrint();
       } catch (e) {
@@ -1514,7 +1507,7 @@ export default function TournamentManagePage() {
             joinedRef.current.add(mid);
           }
         });
-      } catch {}
+      } catch { }
     };
 
     const onConnected = () => subscribeRooms();
@@ -1552,7 +1545,7 @@ export default function TournamentManagePage() {
         bracketIds.forEach((bid) =>
           socket.emit("draw:unsubscribe", { bracketId: bid })
         );
-      } catch {}
+      } catch { }
       if (matchRefetchTimer.current) clearTimeout(matchRefetchTimer.current);
       if (bracketRefetchTimer.current)
         clearTimeout(bracketRefetchTimer.current);
@@ -1665,9 +1658,9 @@ export default function TournamentManagePage() {
         .replace(/[^\p{L}\p{N}]+/gu, "_")
         .replace(/^_+|_+$/g, "")
         .toLowerCase()}_${tab}_${new Date()
-        .toISOString()
-        .slice(0, 19)
-        .replace(/[:T]/g, "-")}.pdf`;
+          .toISOString()
+          .slice(0, 19)
+          .replace(/[:T]/g, "-")}.pdf`;
 
       pdfMake.createPdf({ ...docDefinition, content }).download(fname);
     } catch (e) {
@@ -1762,9 +1755,9 @@ export default function TournamentManagePage() {
         .replace(/[^\p{L}\p{N}]+/gu, "_")
         .replace(/^_+|_+$/g, "")
         .toLowerCase()}_${tab}_${new Date()
-        .toISOString()
-        .slice(0, 19)
-        .replace(/[:T]/g, "-")}.docx`;
+          .toISOString()
+          .slice(0, 19)
+          .replace(/[:T]/g, "-")}.docx`;
 
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -2398,7 +2391,7 @@ export default function TournamentManagePage() {
                   {mLoading ? (
                     <Grid container spacing={1.2}>
                       {Array.from({ length: 6 }).map((_, k) => (
-                        <Grid key={k} item xs={12}>
+                        <Grid key={k} item size={{ xs: 12 }}>
                           <MatchCardSkeleton />
                         </Grid>
                       ))}
@@ -2438,17 +2431,16 @@ export default function TournamentManagePage() {
                         <Chip
                           size="small"
                           variant="outlined"
-                          label={`${
-                            list.filter((m) =>
-                              selectedMatchIds.has(String(m._id))
-                            ).length
-                          } đã chọn`}
+                          label={`${list.filter((m) =>
+                            selectedMatchIds.has(String(m._id))
+                          ).length
+                            } đã chọn`}
                         />
                       </Stack>
 
                       <Grid container spacing={1.2}>
                         {list.map((m) => (
-                          <Grid key={m._id} item xs={12} sm={6}>
+                          <Grid key={m._id} item size={{ xs: 12, sm: 6 }}>
                             <MatchCard
                               match={m}
                               liveStore={liveStore}

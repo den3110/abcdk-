@@ -97,16 +97,16 @@ const safeDate = (d) => (d ? new Date(d) : null);
 const formatTime = (d) =>
   d
     ? new Date(d).toLocaleTimeString("vi-VN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      })
+      hour: "2-digit",
+      minute: "2-digit",
+    })
     : "—";
 const formatDate = (d) =>
   d
     ? new Date(d).toLocaleDateString("vi-VN", {
-        day: "2-digit",
-        month: "2-digit",
-      })
+      day: "2-digit",
+      month: "2-digit",
+    })
     : "";
 
 const hasCourt = (m) =>
@@ -238,7 +238,7 @@ const MatchListItem = ({ m, onOpen }) => {
           sx={{ width: "100%", m: 0 }}
         >
           {/* Cột 1: Mã & Giờ (xs: 12, sm: 2) */}
-          <Grid item xs={12} sm={2} sx={{ pl: "0 !important" }}>
+          <Grid item size={{ xs: 12, sm: 2 }} sx={{ pl: "0 !important" }}>
             <Stack
               direction={{ xs: "row", sm: "column" }}
               alignItems={{ xs: "center", sm: "flex-start" }}
@@ -274,8 +274,7 @@ const MatchListItem = ({ m, onOpen }) => {
           {/* Cột 2: Tên Cặp đấu (xs: 12, sm: 7) */}
           <Grid
             item
-            xs={12}
-            sm={7}
+            size={{ xs: 12, sm: 7 }}
             sx={{ pl: { xs: "0 !important", sm: "16px !important" } }}
           >
             <Stack spacing={1} sx={{ width: "100%" }}>
@@ -311,8 +310,7 @@ const MatchListItem = ({ m, onOpen }) => {
           {/* Cột 3: Trạng thái (xs: 12, sm: 3) */}
           <Grid
             item
-            xs={12}
-            sm={3}
+            size={{ xs: 12, sm: 3 }}
             sx={{
               pl: { xs: "0 !important", sm: "16px !important" },
               display: "flex",
@@ -471,7 +469,7 @@ export default function TournamentOverviewPage() {
           (a, b) =>
             priorityRank(a) - priorityRank(b) ||
             (safeDate(a?.scheduledAt)?.getTime() ?? 9e15) -
-              (safeDate(b?.scheduledAt)?.getTime() ?? 9e15)
+            (safeDate(b?.scheduledAt)?.getTime() ?? 9e15)
         ),
     [allMatches, now]
   );
@@ -707,7 +705,7 @@ export default function TournamentOverviewPage() {
                     <Typography variant="caption">
                       {Math.round(
                         (matchStatusCount.finished / (allMatches.length || 1)) *
-                          100
+                        100
                       )}
                       %
                     </Typography>

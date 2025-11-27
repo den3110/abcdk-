@@ -1,7 +1,11 @@
 // controllers/adminController.js
 import asyncHandler from "express-async-handler";
 import User from "../../models/userModel.js";
-import { CATEGORY, EVENTS, publishNotification } from "../../services/notifications/notificationHub.js";
+import {
+  CATEGORY,
+  EVENTS,
+  publishNotification,
+} from "../../services/notifications/notificationHub.js";
 import mongoose from "mongoose";
 
 /**
@@ -155,14 +159,14 @@ export const reviewUserKyc = asyncHandler(async (req, res) => {
   // Gửi thông báo – không để lỗi notify phá hỏng response
   try {
     if (action === "approve") {
-      await publishNotification(EVENTS.KYC_APPROVED, {
+      publishNotification(EVENTS.KYC_APPROVED, {
         userId: String(user._id),
         topicType: "user",
         topicId: String(user._id),
         category: CATEGORY.KYC,
       });
     } else {
-      await publishNotification(EVENTS.KYC_REJECTED, {
+      publishNotification(EVENTS.KYC_REJECTED, {
         userId: String(user._id),
         topicType: "user",
         topicId: String(user._id),

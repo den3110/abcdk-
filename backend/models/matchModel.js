@@ -772,6 +772,34 @@ async function releaseCourtFromFinishedMatch(doc) {
   }
 }
 
+// ============= NOTIFY: knockout final standings =============
+async function scheduleKnockoutFinalNotifications(matchDoc) {
+  try {
+    const brId = matchDoc.bracket || matchDoc.bracketId;
+    if (!brId) return;
+
+    const br = await Bracket.findById(brId).select("type tournament").lean();
+    if (!br || br.type !== "knockout") return;
+
+    // Chỉ quan tâm trận đã finished
+    if (matchDoc.status !== "finished") return;
+
+    const { notifyKnockoutFinalStandings } = await import(
+      "../services/notifications/knockoutFinalNotification.js"
+    );
+
+    await notifyKnockoutFinalStandings({
+      tournamentId: br.tournament,
+      bracketId: brId,
+    });
+  } catch (err) {
+    console.error(
+      "[notifyKO][scheduleKnockoutFinalNotifications] error:",
+      err?.message || err
+    );
+  }
+}
+
 // Lấy danh sách userIds của 2 đôi để tránh trùng trận
 matchSchema.methods.computeParticipants = async function () {
   if (!this.pairA && !this.pairB) return;
@@ -1003,12 +1031,41 @@ matchSchema.post("save", async function (doc, next) {
                 finalizeOnComplete: true,
                 log: false,
               });
+
+              // 🆕 Sau khi feed seed xong, thử gửi notif kết quả vòng bảng
+              try {
+                const { notifyGroupStageResults, notifyGroupNextOpponents } =
+                  await import(
+                    "../services/notifications/groupStageNotification.js"
+                  );
+                await notifyGroupStageResults({
+                  tournamentId: doc.tournament,
+                  bracketId: doc.bracket,
+                  groupId: doc.pool?.id,
+                });
+
+                await notifyGroupNextOpponents({
+                  tournamentId: doc.tournament,
+                  bracketId: doc.bracket,
+                });
+              } catch (e2) {
+                console.error(
+                  "[notifyGroupStageResults] error:",
+                  e2?.message || e2
+                );
+              }
             } catch (e) {
               console.error(
                 "[autoFeedGroupRank] post-save failed:",
                 e?.message
               );
             }
+          });
+        }
+        // ✅ Knockout: khi tất cả match trong bracket xong → gửi kết quả chung cuộc
+        if (br?.type === "knockout") {
+          setImmediate(() => {
+            scheduleKnockoutFinalNotifications(doc);
           });
         }
       }
@@ -1038,6 +1095,33 @@ matchSchema.post("save", async function (doc, next) {
       } catch (e) {
         console.error("[fb] auto-free page (post-save) failed:", e?.message);
       }
+    }
+
+    // 🏁 Thử gửi notif tổng kết KO (nếu đây là trận cuối cùng của bracket)
+    try {
+      if (doc.status === "finished") {
+        setImmediate(async () => {
+          try {
+            const { notifyKnockoutFinalStandings } = await import(
+              "../services/notifications/knockoutFinalNotification.js"
+            );
+            await notifyKnockoutFinalStandings({
+              tournamentId: doc.tournament,
+              bracketId: doc.bracket,
+            });
+          } catch (err) {
+            console.error(
+              "[notifyKnockoutFinalStandings][post-save] error:",
+              err?.message || err
+            );
+          }
+        });
+      }
+    } catch (e) {
+      console.error(
+        "[notifyKnockoutFinalStandings] schedule(post-save) error:",
+        e?.message || e
+      );
     }
 
     next();
@@ -1116,12 +1200,41 @@ matchSchema.post("findOneAndUpdate", async function (res) {
                 finalizeOnComplete: true,
                 log: false,
               });
+
+              // 🆕 Sau khi feed seed xong, thử gửi notif kết quả vòng bảng
+              try {
+                const { notifyGroupStageResults, notifyGroupNextOpponents } =
+                  await import(
+                    "../services/notifications/groupStageNotification.js"
+                  );
+                await notifyGroupStageResults({
+                  tournamentId: fresh.tournament,
+                  bracketId: fresh.bracket,
+                  groupId: fresh.pool?.id,
+                });
+
+                await notifyGroupNextOpponents({
+                  tournamentId: fresh.tournament,
+                  bracketId: fresh.bracket,
+                });
+              } catch (e2) {
+                console.error(
+                  "[notifyGroupStageResults] error:",
+                  e2?.message || e2
+                );
+              }
             } catch (e) {
               console.error(
-                "[autoFeedGroupRank] post-update failed:",
+                "[autoFeedGroupRank] post-save failed:",
                 e?.message
               );
             }
+          });
+        }
+        // ✅ Knockout: notify kết quả chung cuộc
+        if (br?.type === "knockout") {
+          setImmediate(() => {
+            scheduleKnockoutFinalNotifications(fresh);
           });
         }
       }
@@ -1276,13 +1389,12 @@ matchSchema.statics.ensureThirdPlaceMatchForBracket = async function (
     const semi2 = semis[1];
 
     // Dùng rules của 1 trận bất kỳ làm default
-    const baseRules =
-      (baseMatches[0] && baseMatches[0].rules) || {
-        bestOf: 1,
-        pointsToWin: 11,
-        winByTwo: true,
-        cap: { mode: "none", points: null },
-      };
+    const baseRules = (baseMatches[0] && baseMatches[0].rules) || {
+      bestOf: 1,
+      pointsToWin: 11,
+      winByTwo: true,
+      cap: { mode: "none", points: null },
+    };
 
     // Tạo match tranh hạng 3–4
     const doc = await Match.create({

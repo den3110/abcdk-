@@ -27,6 +27,18 @@ export const EVENTS = {
   RANK_MILESTONE: "RANK_MILESTONE", // lọt TOP xx
   RANK_MOVED: "RANK_MOVED", // tăng/giảm x bậc
   USER_DIRECT_BROADCAST: "USER_DIRECT_BROADCAST",
+  REGISTRATION_PAYMENT_PAID: "REGISTRATION_PAYMENT_PAID",
+  GROUP_SLOT_ASSIGNED: "group_slot_assigned",
+  // 🆕 chấm trình
+  PLAYER_EVALUATED: "PLAYER_EVALUATED",
+  MATCH_COURT_ASSIGNED: "MATCH_COURT_ASSIGNED",
+  // 🆕 kết quả vòng bảng + qualify
+  GROUP_STAGE_RESULT: "GROUP_STAGE_RESULT",
+  GROUP_STAGE_NEXT_OPPONENT: "GROUP_STAGE_NEXT_OPPONENT",
+
+  // 🆕 Trọng tài giải
+  TOURNAMENT_REFEREE_ADDED: "TOURNAMENT_REFEREE_ADDED",
+  TOURNAMENT_REFEREE_REMOVED: "TOURNAMENT_REFEREE_REMOVED",
 };
 
 // xác định category để áp vào Subscription.categories (nếu bạn dùng)
@@ -44,7 +56,7 @@ export const CATEGORY = {
 // ── helper chung ─────────────────────────────────────────────────────────
 
 function pickNameFromUser(u) {
-  return u?.fullName || u?.name || u?.nickname || u?.displayName || null;
+  return u?.nickname || u?.name || u?.fullName || u?.displayName || null;
 }
 function pickNameFromRegPlayer(p) {
   // nếu Registration có sẵn displayName ở player1/player2 thì ưu tiên
@@ -94,6 +106,13 @@ async function getMatchParticipants(matchId) {
     });
   }
   return users;
+}
+
+function formatRegistrationPair(reg) {
+  if (!reg) return "";
+  const n1 = reg.player1?.nickName || reg.player1?.fullName || "VĐV 1";
+  const n2 = reg.player2?.nickName || reg.player2?.fullName || null;
+  return n2 ? `${n1} & ${n2}` : n1;
 }
 
 const isValidObjIdString = (v) =>
@@ -224,6 +243,108 @@ const implicitAudienceResolvers = {
   async [EVENTS.RANK_MOVED]({ userId }) {
     return [String(userId)];
   },
+
+  async [EVENTS.REGISTRATION_PAYMENT_PAID]({
+    registrationId,
+    overrideAudience,
+  }) {
+    if (!registrationId) return [];
+
+    // Nếu controller truyền overrideAudience (ví dụ: chỉ gửi cho createdBy)
+    if (Array.isArray(overrideAudience) && overrideAudience.length) {
+      return overrideAudience.map((id) => String(id));
+    }
+
+    // Mặc định: chỉ gửi cho VĐV (player1 + player2)
+    const reg = await Registration.findById(registrationId)
+      .select("player1.user player2.user")
+      .lean();
+    if (!reg) return [];
+
+    const ids = [];
+    if (reg.player1?.user) ids.push(String(reg.player1.user));
+    if (reg.player2?.user) ids.push(String(reg.player2.user));
+
+    return Array.from(new Set(ids));
+  },
+
+  async [EVENTS.GROUP_SLOT_ASSIGNED]({ registrationId, overrideAudience }) {
+    // Nếu controller đã truyền sẵn userIds thì dùng luôn, khỏi query DB nữa
+    if (Array.isArray(overrideAudience) && overrideAudience.length) {
+      return overrideAudience.map((id) => String(id));
+    }
+
+    if (!registrationId) return [];
+
+    const reg = await Registration.findById(registrationId)
+      .select("player1.user player2.user")
+      .lean();
+    if (!reg) return [];
+
+    const ids = [];
+    if (reg.player1?.user) ids.push(String(reg.player1.user));
+    if (reg.player2?.user) ids.push(String(reg.player2.user));
+
+    return Array.from(new Set(ids));
+  },
+
+  async [EVENTS.PLAYER_EVALUATED]({ targetUserId, userId, overrideAudience }) {
+    // Nếu controller truyền sẵn audience thì ưu tiên dùng
+    if (Array.isArray(overrideAudience) && overrideAudience.length) {
+      return overrideAudience.map((id) => String(id));
+    }
+
+    const id = extractIdString(targetUserId || userId);
+    return id ? [id] : [];
+  },
+
+  async [EVENTS.MATCH_COURT_ASSIGNED]({ matchId, overrideAudience }) {
+    // Nếu controller truyền sẵn danh sách userIds thì dùng luôn
+    if (Array.isArray(overrideAudience) && overrideAudience.length) {
+      return overrideAudience.map((id) => String(id));
+    }
+
+    // Còn không thì fallback: lấy participants từ match (pairA/pairB/referee...)
+    if (!matchId) return [];
+    return getMatchParticipants(matchId);
+  },
+  // 🆕 GROUP_STAGE_RESULT: luôn dùng overrideAudience (danh sách userId)
+  async [EVENTS.GROUP_STAGE_RESULT]({ overrideAudience }) {
+    if (Array.isArray(overrideAudience) && overrideAudience.length) {
+      return overrideAudience.map((id) => String(id));
+    }
+    return [];
+  },
+  async [EVENTS.GROUP_STAGE_NEXT_OPPONENT]({
+    registrationId,
+    overrideAudience,
+  }) {
+    if (Array.isArray(overrideAudience) && overrideAudience.length) {
+      return overrideAudience.map((id) => String(id));
+    }
+
+    if (!registrationId) return [];
+
+    const reg = await Registration.findById(registrationId)
+      .select("player1.user player2.user")
+      .lean();
+    if (!reg) return [];
+
+    const ids = [];
+    if (reg.player1?.user) ids.push(String(reg.player1.user));
+    if (reg.player2?.user) ids.push(String(reg.player2.user));
+
+    return [...new Set(ids)];
+  },
+
+  async [EVENTS.TOURNAMENT_REFEREE_ADDED]() {
+    // Audience sẽ lấy từ ctx.directUserIds, nên trả [] là được
+    return [];
+  },
+
+  async [EVENTS.TOURNAMENT_REFEREE_REMOVED]() {
+    return [];
+  },
 };
 
 // 2) Render payload push theo event
@@ -336,13 +457,45 @@ const payloadBuilders = {
     };
   },
 
-  async [EVENTS.INVITE_SENT]({ tournamentId }) {
+  async [EVENTS.INVITE_SENT]({
+    tournamentId,
+    inviterNickname,
+    registrationCode,
+  }) {
+    let tourName = "giải đấu";
+
+    if (tournamentId) {
+      try {
+        const t = await Tournament.findById(tournamentId).select("name").lean();
+        if (t?.name) tourName = t.name;
+      } catch (_) {
+        // ignore, fallback tourName = "giải đấu"
+      }
+    }
+
+    let body;
+
+    if (inviterNickname && registrationCode != null) {
+      body = `Bạn được ${inviterNickname} mời tham gia cùng với họ tại giải ${tourName}. Mã đăng ký: #${registrationCode}.`;
+    } else if (inviterNickname) {
+      body = `Bạn được ${inviterNickname} mời tham gia giải ${tourName}.`;
+    } else if (registrationCode != null) {
+      body = `Bạn vừa nhận một lời mời tham gia giải ${tourName}. Mã đăng ký: #${registrationCode}.`;
+    } else if (tournamentId) {
+      body = `Bạn vừa nhận một lời mời tham gia giải ${tourName}.`;
+    } else {
+      body = "Bạn vừa nhận một lời mời tham gia giải.";
+    }
+
     return {
       title: "Lời mời tham gia",
-      body: "Bạn vừa nhận một lời mời tham gia giải.",
+      body,
       data: {
-        url: `/tournament/${tournamentId}/invites`,
+        url: tournamentId
+          ? `/tournament/${tournamentId}/register`
+          : "/(tabs)/tournaments",
         kind: EVENTS.INVITE_SENT,
+        registrationCode,
       },
     };
   },
@@ -427,6 +580,337 @@ const payloadBuilders = {
       },
     };
   },
+  // 🆕 Thanh toán đăng ký thành công
+  async [EVENTS.REGISTRATION_PAYMENT_PAID]({
+    registrationId,
+    tournamentId,
+    isCreator,
+  }) {
+    const reg = await Registration.findById(registrationId)
+      .select("code tournament player1 player2")
+      .lean();
+
+    const tourId = tournamentId || reg?.tournament;
+    let tourName = "";
+    if (tourId) {
+      const t = await Tournament.findById(tourId).select("name").lean();
+      tourName = t?.name || "";
+    }
+
+    const pairLabel = reg ? formatRegistrationPair(reg) : "";
+
+    let title;
+    let body;
+
+    if (isCreator) {
+      // 👤 Người tạo (organizer / admin tạo hộ) – đã có chữ "thanh toán"
+      title = "Đã xác nhận thanh toán đăng ký ✅";
+
+      if (tourName && reg?.code != null) {
+        body = `Đã xác nhận thanh toán cho mã đăng ký #${reg.code}${
+          pairLabel ? ` (${pairLabel})` : ""
+        } tại giải ${tourName}.`;
+      } else if (tourName && pairLabel) {
+        body = `Đã xác nhận thanh toán cho cặp ${pairLabel} tại giải ${tourName}.`;
+      } else if (tourName) {
+        body = `Đã xác nhận thanh toán đăng ký tại giải ${tourName}.`;
+      } else if (pairLabel) {
+        body = `Đã xác nhận thanh toán cho cặp ${pairLabel}.`;
+      } else {
+        body = "Đơn đăng ký đã được xác nhận thanh toán.";
+      }
+    } else {
+      // 🎾 VĐV: câu chữ phải rõ là "thanh toán phí đăng ký"
+      title = "Thanh toán phí đăng ký thành công ✅";
+
+      if (tourName && reg?.code != null) {
+        body = `Bạn đã được xác nhận thanh toán thành công phí đăng ký giải ${tourName} với mã #${
+          reg.code
+        }${pairLabel ? ` cho cặp ${pairLabel}` : ""}.`;
+      } else if (tourName) {
+        body = `Bạn đã được xác nhận thanh toán thành công phí đăng ký giải ${tourName}${
+          pairLabel ? ` cho cặp ${pairLabel}` : ""
+        }.`;
+      } else if (pairLabel) {
+        body = `Bạn đã được xác nhận thanh toán thành công phí đăng ký cho cặp ${pairLabel}.`;
+      } else {
+        body = "Thanh toán phí đăng ký của bạn đã được xác nhận.";
+      }
+    }
+
+    return {
+      title,
+      body,
+      data: {
+        kind: EVENTS.REGISTRATION_PAYMENT_PAID,
+        registrationId: String(registrationId),
+        tournamentId: tourId ? String(tourId) : undefined,
+        url: tourId ? `/tournament/${tourId}/register` : "/(tabs)/tournaments",
+        pairLabel,
+        isCreator: !!isCreator,
+      },
+    };
+  },
+  async [EVENTS.GROUP_SLOT_ASSIGNED]({
+    tournamentId,
+    registrationId,
+    groupId,
+    groupName,
+    slotIndex,
+  }) {
+    const [reg, tour] = await Promise.all([
+      registrationId
+        ? Registration.findById(registrationId)
+            .select("code player1 player2")
+            .lean()
+        : null,
+      tournamentId
+        ? Tournament.findById(tournamentId).select("name").lean()
+        : null,
+    ]);
+
+    const tourName = tour?.name || "Giải đấu";
+    const pairLabel = reg ? formatRegistrationPair(reg) : "";
+
+    const groupLabel = groupName || "bảng đấu";
+    const slotNum =
+      typeof slotIndex === "number" && slotIndex > 0 ? slotIndex : null;
+
+    let body = `Bạn đã được xếp vào ${groupLabel}`;
+    if (slotNum) body += ` ở vị trí số ${slotNum}`;
+    body += ".";
+    if (tourName) body += ` • ${tourName}`;
+    if (pairLabel) body += ` • ${pairLabel}`;
+
+    return {
+      title: "Bạn đã được xếp vào bảng đấu",
+      body,
+      data: {
+        kind: EVENTS.GROUP_SLOT_ASSIGNED,
+        tournamentId: tournamentId ? String(tournamentId) : undefined,
+        registrationId: registrationId ? String(registrationId) : undefined,
+        groupId: groupId ? String(groupId) : undefined,
+        groupName: groupName || undefined,
+        slotIndex: slotNum || undefined,
+        // App có thể đọc groupId/slotIndex để deeplink chi tiết
+        url: tournamentId
+          ? `/tournament/${tournamentId}/bracket`
+          : "/(tabs)/tournaments",
+      },
+    };
+  },
+
+  async [EVENTS.PLAYER_EVALUATED]({
+    targetUserId,
+    singles,
+    doubles,
+    scorerName,
+  }) {
+    const stats = [];
+    if (typeof singles === "number") stats.push(`Đơn: ${singles}`);
+    if (typeof doubles === "number") stats.push(`Đôi: ${doubles}`);
+
+    let body;
+    if (stats.length && scorerName) {
+      body = `${stats.join(" • ")} • Do Mod Pickletour chấm.`;
+    } else if (stats.length) {
+      body = `${stats.join(" • ")} • Trình độ của bạn vừa được cập nhật.`;
+    } else if (scorerName) {
+      body = `Trình độ của bạn vừa được Mod Pickletour chấm lại.`;
+    } else {
+      body = "Trình độ của bạn vừa được cập nhật.";
+    }
+
+    return {
+      title: "Trình độ của bạn vừa được chấm",
+      body,
+      data: {
+        kind: EVENTS.PLAYER_EVALUATED,
+        targetUserId: targetUserId ? String(targetUserId) : undefined,
+        singles,
+        doubles,
+        // tuỳ app, mình cho về tab ranking
+        url: "/(tabs)/rankings",
+      },
+    };
+  },
+  async [EVENTS.MATCH_COURT_ASSIGNED]({
+    matchId,
+    tournamentId,
+    courtLabel,
+    tournamentName,
+    teamAName,
+    teamBName,
+    displayCode,
+  }) {
+    const tourName = tournamentName || "giải đấu";
+    const courtName = courtLabel || "sân thi đấu";
+    const a = teamAName || "Đội A";
+    const b = teamBName || "Đội B";
+    const codePart = displayCode ? ` (Mã trận ${displayCode})` : "";
+
+    const body = `Trận của bạn chuẩn bị bắt đầu tại ${courtName}, giải ${tourName}.${codePart} Trận giữa ${a} vs ${b}.`;
+
+    return {
+      title: "Trận đấu sắp bắt đầu",
+      body,
+      data: {
+        kind: EVENTS.MATCH_COURT_ASSIGNED,
+        matchId,
+        tournamentId,
+        courtLabel: courtName,
+        displayCode,
+        url: matchId
+          ? `/tournament/${tournamentId}/matches/${matchId}`
+          : `/tournament/${tournamentId}`,
+      },
+    };
+  },
+  async [EVENTS.GROUP_STAGE_RESULT](ctx) {
+    const { bracketId, groupId, groupName, rank, totalTeams, qualified } = ctx;
+
+    const tournamentId = extractIdString(ctx.tournamentId);
+    let tourName = "Giải đấu";
+
+    if (tournamentId) {
+      try {
+        const t = await Tournament.findById(tournamentId).select("name").lean();
+        if (t?.name) tourName = t.name;
+      } catch (e) {
+        console.error(
+          "[payload][GROUP_STAGE_RESULT] invalid tournamentId:",
+          ctx.tournamentId,
+          e?.message || e
+        );
+      }
+    }
+
+    const gLabel = groupName || "bảng đấu";
+
+    let placeText = `hạng ${rank}`;
+    if (rank === 1) placeText = "nhất";
+    else if (rank === 2) placeText = "nhì";
+    else if (rank === 3) placeText = "ba";
+
+    const qualifyText = qualified
+      ? "ĐỦ ĐIỀU KIỆN đi tiếp ✅"
+      : "KHÔNG đủ điều kiện đi tiếp";
+
+    const bodyParts = [];
+    bodyParts.push(`Bạn đứng ${placeText} tại ${gLabel}`);
+    if (Number.isFinite(totalTeams) && totalTeams > 0) {
+      // bodyParts.push(`(trong ${totalTeams} đội)`);
+    }
+    bodyParts.push(`• ${qualifyText}`);
+    bodyParts.push(`• ${tourName}`);
+
+    return {
+      title: `Kết quả bảng ${gLabel}`,
+      body: bodyParts.join(" "),
+      data: {
+        kind: EVENTS.GROUP_STAGE_RESULT,
+        tournamentId: tournamentId || undefined,
+        bracketId: bracketId ? String(bracketId) : undefined,
+        groupId: groupId ? String(groupId) : undefined,
+        rank,
+        totalTeams,
+        qualified,
+        url: tournamentId
+          ? `/tournament/${tournamentId}/bracket`
+          : "/(tabs)/tournaments",
+      },
+    };
+  },
+
+  async [EVENTS.GROUP_STAGE_NEXT_OPPONENT](ctx) {
+    const {
+      bracketId,
+      groupName,
+      nextBracketName,
+      opponentName,
+      hasBye,
+      nextMatchId,
+    } = ctx;
+
+    const tournamentId = extractIdString(ctx.tournamentId);
+
+    let tourName = "Giải đấu";
+    if (tournamentId) {
+      try {
+        const t = await Tournament.findById(tournamentId).select("name").lean();
+        if (t?.name) tourName = t.name;
+      } catch (e) {
+        console.error(
+          "[payload][GROUP_STAGE_NEXT_OPPONENT] invalid tournamentId:",
+          ctx.tournamentId,
+          e?.message || e
+        );
+      }
+    }
+
+    const groupLabel = groupName || "bảng đấu";
+    const stageLabel = nextBracketName || "vòng tiếp theo";
+
+    let body;
+    if (hasBye) {
+      body = `Bạn đã vượt qua ${groupLabel} tại ${tourName} và được miễn trận đầu ở ${stageLabel}.`;
+    } else if (opponentName) {
+      body = `Bạn đã vượt qua ${groupLabel} tại ${tourName}. Đối thủ kế tiếp của bạn ở ${stageLabel} là ${opponentName}.`;
+    } else {
+      body = `Bạn đã vượt qua ${groupLabel} tại ${tourName}. Đối thủ vòng sau sẽ được cập nhật khi sơ đồ hoàn tất.`;
+    }
+
+    return {
+      title: "Đối thủ vòng tiếp theo của bạn",
+      body,
+      data: {
+        kind: EVENTS.GROUP_STAGE_NEXT_OPPONENT,
+        tournamentId: tournamentId || undefined,
+        bracketId: bracketId ? String(bracketId) : undefined,
+        opponentName: opponentName || undefined,
+        hasBye: !!hasBye,
+        url: nextMatchId
+          ? `/match/${nextMatchId}/home`
+          : tournamentId
+          ? `/tournament/${tournamentId}/bracket`
+          : "/(tabs)/tournaments",
+      },
+    };
+  },
+
+  async [EVENTS.TOURNAMENT_REFEREE_ADDED]({ tournamentId }) {
+    const tid = extractIdString(tournamentId);
+    const t = tid ? await Tournament.findById(tid).select("name").lean() : null;
+
+    const name = t?.name || "giải đấu";
+
+    return {
+      title: "Bạn vừa được thêm làm trọng tài",
+      body: `Bạn vừa được thêm làm trọng tài cho giải ${name}.`,
+      data: {
+        kind: EVENTS.TOURNAMENT_REFEREE_ADDED,
+        tournamentId: tid || undefined,
+        url: tid ? `/tournament/${tid}/schedule` : "/(tabs)/tournaments",
+      },
+    };
+  },
+
+  async [EVENTS.TOURNAMENT_REFEREE_REMOVED]({ tournamentId }) {
+    const tid = extractIdString(tournamentId);
+    const t = tid ? await Tournament.findById(tid).select("name").lean() : null;
+
+    const name = t?.name || "giải đấu";
+
+    return {
+      title: "Bạn vừa bị gỡ khỏi danh sách trọng tài",
+      body: `Bạn vừa bị gỡ khỏi danh sách trọng tài của giải ${name}.`,
+      data: {
+        kind: EVENTS.TOURNAMENT_REFEREE_REMOVED,
+        tournamentId: tid || undefined,
+        url: tid ? `/tournament/${tid}/schedule` : "/(tabs)/tournaments",
+      },
+    };
+  },
 };
 
 // 3) Tạo eventKey thống nhất (để log idempotent)
@@ -473,6 +957,42 @@ function makeEventKey(eventName, ctx) {
     const day = ctx.day || new Date().toISOString().slice(0, 10); // YYYY-MM-DD
     return `rank.moved:ladder#${ctx.ladderKey}:day#${day}:user#${ctx.userId}`;
   }
+
+  // 🆕 không spam cùng 1 registration: 1 lần Paid = 1 log
+  if (eventName === EVENTS.REGISTRATION_PAYMENT_PAID)
+    return `registration.paymentPaid:reg#${ctx.registrationId}`;
+
+  if (eventName === EVENTS.GROUP_SLOT_ASSIGNED)
+    return `group.slotAssigned:tour#${ctx.tournamentId}:reg#${ctx.registrationId}:group#${ctx.groupId}`;
+
+  if (eventName === EVENTS.PLAYER_EVALUATED)
+    return `evaluation.submitted:eval#${ctx.evaluationId}:target#${ctx.targetUserId}`;
+
+  if (eventName === EVENTS.MATCH_COURT_ASSIGNED) {
+    return `match.courtAssigned:match#${ctx.matchId}:court#${
+      ctx.courtLabel || ""
+    }:${Date.now()}`;
+  }
+
+  if (eventName === EVENTS.GROUP_STAGE_RESULT)
+    return `group.stageResult:tour#${ctx.tournamentId}:br#${ctx.bracketId}:group#${ctx.groupId}:reg#${ctx.registrationId}`;
+
+  if (eventName === EVENTS.GROUP_STAGE_NEXT_OPPONENT)
+    return `group.nextOpponent:match#${ctx.nextMatchId || ctx.matchId}:reg#${
+      ctx.registrationId
+    }`;
+
+  if (eventName === EVENTS.TOURNAMENT_REFEREE_ADDED) {
+    const day = ctx.day || new Date().toISOString(); // YYYY-MM-DD
+    return `tournament.refereeAdded:tour#${ctx.tournamentId || ""}:day#${day}`;
+  }
+
+  if (eventName === EVENTS.TOURNAMENT_REFEREE_REMOVED) {
+    const day = ctx.day || new Date().toISOString(); // YYYY-MM-DD
+
+    return `tournament.refereeRemoved:tour#${ctx.tournamentId || ""}:day#${day}`;
+  }
+
   return `${eventName}`;
 }
 

@@ -453,8 +453,8 @@ function AssignRefereeDialog({
         />
 
         <Typography variant="caption" color="text.secondary">
-          Có thể chọn nhiều trọng tài. Khi sân này nhận trận mới, hệ thống sẽ
-          ưu tiên set theo danh sách này (tuỳ logic backend/socket của bạn).
+          Có thể chọn nhiều trọng tài. Khi sân này nhận trận mới, hệ thống sẽ ưu
+          tiên set theo danh sách này (tuỳ logic backend/socket của bạn).
         </Typography>
       </Stack>
     </ResponsiveModal>
@@ -494,13 +494,11 @@ export default function CourtManagerDialog({
   const [queue, setQueue] = useState([]);
 
   // Trọng tài của giải
-  const {
-    data: refsData,
-    isLoading: loadingRefs,
-  } = useListTournamentRefereesQuery(
-    { tid: tournamentId, q: "" },
-    { skip: !open || !tournamentId }
-  );
+  const { data: refsData, isLoading: loadingRefs } =
+    useListTournamentRefereesQuery(
+      { tid: tournamentId, q: "" },
+      { skip: !open || !tournamentId }
+    );
 
   const referees = useMemo(() => {
     if (!refsData) return [];
@@ -931,7 +929,7 @@ export default function CourtManagerDialog({
           Cấu hình sân cho toàn giải
         </Typography>
         <Grid container spacing={2}>
-          <Grid item xs={12} md={7}>
+          <Grid item size={{ xs: 12, md: 12 }}>
             <PaperLike>
               <RadioGroup
                 value={mode}

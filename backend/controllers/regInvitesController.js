@@ -9,6 +9,7 @@ import User from "../models/userModel.js";
 import ScoreHistory from "../models/scoreHistoryModel.js";
 import Ranking from "../models/rankingModel.js";
 import { notifyNewPair } from "../services/telegram/telegramNotifyRegistration.js";
+import { EVENTS, publishNotification } from "../services/notifications/notificationHub.js";
 
 /* ----------------- Utils ----------------- */
 const oid = (x) => new mongoose.Types.ObjectId(String(x));
@@ -495,24 +496,20 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
           ? "VĐV 1 cần cập nhật năm sinh/ngày sinh để kiểm tra độ tuổi."
           : "VĐV 2 cần cập nhật năm sinh/ngày sinh để kiểm tra độ tuổi.";
       if (needAgeP1 && !needAgeP2) {
-        return res
-          .status(412)
-          .json({
-            message: baseMsg,
-            userId: u1._id,
-            slot: "p1",
-            code: "NEED_DOB",
-          });
+        return res.status(412).json({
+          message: baseMsg,
+          userId: u1._id,
+          slot: "p1",
+          code: "NEED_DOB",
+        });
       }
       if (!needAgeP1 && needAgeP2) {
-        return res
-          .status(412)
-          .json({
-            message: baseMsg,
-            userId: u2._id,
-            slot: "p2",
-            code: "NEED_DOB",
-          });
+        return res.status(412).json({
+          message: baseMsg,
+          userId: u2._id,
+          slot: "p2",
+          code: "NEED_DOB",
+        });
       }
       return res.status(412).json({
         message: baseMsg,
@@ -530,24 +527,20 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     if (outP1 || outP2) {
       const rangeMsg = `Tuổi yêu cầu từ ${minAge}–${maxAge}.`;
       if (outP1 && !outP2) {
-        return res
-          .status(412)
-          .json({
-            message: `VĐV 1 không nằm trong giới hạn độ tuổi. ${rangeMsg}`,
-            userId: u1._id,
-            slot: "p1",
-            code: "AGE_OUT_OF_RANGE",
-          });
+        return res.status(412).json({
+          message: `VĐV 1 không nằm trong giới hạn độ tuổi. ${rangeMsg}`,
+          userId: u1._id,
+          slot: "p1",
+          code: "AGE_OUT_OF_RANGE",
+        });
       }
       if (!outP1 && outP2) {
-        return res
-          .status(412)
-          .json({
-            message: `VĐV 2 không nằm trong giới hạn độ tuổi. ${rangeMsg}`,
-            userId: u2._id,
-            slot: "p2",
-            code: "AGE_OUT_OF_RANGE",
-          });
+        return res.status(412).json({
+          message: `VĐV 2 không nằm trong giới hạn độ tuổi. ${rangeMsg}`,
+          userId: u2._id,
+          slot: "p2",
+          code: "AGE_OUT_OF_RANGE",
+        });
       }
       return res.status(412).json({
         message: `VĐV 1 và VĐV 2 không nằm trong giới hạn độ tuổi. ${rangeMsg}`,
@@ -578,24 +571,20 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
           : "VĐV 2 cần hoàn tất KYC (đã xác minh) trước khi đăng ký.";
 
       if (needKycP1 && !needKycP2) {
-        return res
-          .status(412)
-          .json({
-            message: baseMsg,
-            userId: u1._id,
-            slot: "p1",
-            code: "KYC_REQUIRED",
-          });
+        return res.status(412).json({
+          message: baseMsg,
+          userId: u1._id,
+          slot: "p1",
+          code: "KYC_REQUIRED",
+        });
       }
       if (!needKycP1 && needKycP2) {
-        return res
-          .status(412)
-          .json({
-            message: baseMsg,
-            userId: u2._id,
-            slot: "p2",
-            code: "KYC_REQUIRED",
-          });
+        return res.status(412).json({
+          message: baseMsg,
+          userId: u2._id,
+          slot: "p2",
+          code: "KYC_REQUIRED",
+        });
       }
       return res.status(412).json({
         message: baseMsg,
@@ -650,10 +639,42 @@ export const createRegistrationInvite = asyncHandler(async (req, res) => {
     meta: { autoByKyc: requireKyc === true, ageChecked: !!ar.enabled },
   });
 
+  const regObj = typeof reg.toObject === "function" ? reg.toObject() : reg;
+
   notifyNewPair({
     tournamentId: tour._id,
-    reg: typeof reg.toObject === "function" ? reg.toObject() : reg,
+    reg: regObj,
   }).catch((e) => console.error("[tele] notify new pair (user) failed:", e));
+
+  // 🔔 Gửi thông báo cho partner (VĐV 2) là được mời tham gia cùng người tạo
+  if (isDouble && u2?._id) {
+    const inviterNickname =
+      (u1?.nickname && String(u1.nickname).trim()) ||
+      (u1?.name && String(u1.name).trim()) ||
+      "";
+
+    try {
+      publishNotification(
+        EVENTS.INVITE_SENT,
+        {
+          inviteeUserId: u2._id,
+          inviterUserId: u1._id,
+          tournamentId: tour._id,
+          inviterNickname,
+          registrationCode:
+            regObj && regObj.code != null ? regObj.code : undefined,
+        },
+        {}
+      ).catch((e) => {
+        console.error("[notify] INVITE_SENT (partner) error:", e?.message || e);
+      });
+    } catch (err) {
+      console.error(
+        "[notify] INVITE_SENT (partner) sync error:",
+        err?.message || err
+      );
+    }
+  }
 
   return res.status(201).json({
     mode: requireKyc ? "direct_by_kyc" : "direct",

@@ -103,7 +103,7 @@ const mask = (s, head = 6, tail = 4) =>
     : s || "***";
 
 const copyToClipboard = (text) => {
-  navigator.clipboard.writeText(text).catch(() => {});
+  navigator.clipboard.writeText(text).catch(() => { });
 };
 
 const joinRtmp = (server, key) => {
@@ -353,7 +353,7 @@ export default function FacebookLiveStreamerAutoRTK({
       if (!activeVideoDeviceId && vids[0]) {
         setActiveVideoDeviceId(vids[0].deviceId);
       }
-    } catch {}
+    } catch { }
   }, [activeVideoDeviceId]);
 
   useEffect(() => {
@@ -914,7 +914,7 @@ export default function FacebookLiveStreamerAutoRTK({
       camStreamRef.current = combined;
       if (videoRef.current) {
         videoRef.current.srcObject = combined;
-        await videoRef.current.play().catch(() => {});
+        await videoRef.current.play().catch(() => { });
       }
 
       // Nếu chưa có preview loop thì bật
@@ -1011,12 +1011,12 @@ export default function FacebookLiveStreamerAutoRTK({
   const cleanup = useCallback(async () => {
     try {
       camStreamRef.current?.getTracks?.().forEach((t) => t.stop());
-    } catch {}
+    } catch { }
     camStreamRef.current = null;
 
     try {
       audioRecorderRef.current?.stop?.();
-    } catch {}
+    } catch { }
     audioRecorderRef.current = null;
 
     try {
@@ -1027,13 +1027,13 @@ export default function FacebookLiveStreamerAutoRTK({
         await videoEncoderRef.current.flush();
         videoEncoderRef.current.close();
       }
-    } catch {}
+    } catch { }
     videoEncoderRef.current = null;
 
     if (wsRef.current) {
       try {
         wsRef.current.close();
-      } catch {}
+      } catch { }
       wsRef.current = null;
     }
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -1061,7 +1061,7 @@ export default function FacebookLiveStreamerAutoRTK({
     isEncodingRef.current = false;
     try {
       audioRecorderRef.current?.stop?.();
-    } catch {}
+    } catch { }
     audioRecorderRef.current = null;
     try {
       if (
@@ -1071,22 +1071,22 @@ export default function FacebookLiveStreamerAutoRTK({
         await videoEncoderRef.current.flush();
         videoEncoderRef.current.close();
       }
-    } catch {}
+    } catch { }
     videoEncoderRef.current = null;
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       try {
         wsRef.current.send(JSON.stringify({ type: "stop" }));
-      } catch {}
+      } catch { }
       try {
         wsRef.current.close();
-      } catch {}
+      } catch { }
     }
 
     if (currentMatch) {
       try {
         await notifyStreamEnded({ matchId: currentMatch._id, platform: "all" });
-      } catch {}
+      } catch { }
     }
 
     await cleanup();
@@ -1297,7 +1297,7 @@ export default function FacebookLiveStreamerAutoRTK({
           await new Promise((r) => setTimeout(r, 80));
           try {
             await video.play();
-          } catch {}
+          } catch { }
         }
         startPreviewLoop();
         // cập nhật danh sách device sau khi có quyền
@@ -1336,7 +1336,7 @@ export default function FacebookLiveStreamerAutoRTK({
               }
             }
             wsRef.current.send(payload.buffer);
-          } catch {}
+          } catch { }
         },
         error: (e) => {
           console.error("Encoder error:", e);
@@ -1399,8 +1399,8 @@ export default function FacebookLiveStreamerAutoRTK({
                   )
                     ? "audio/webm;codecs=opus"
                     : MediaRecorder.isTypeSupported("audio/webm")
-                    ? "audio/webm"
-                    : "";
+                      ? "audio/webm"
+                      : "";
                   const mr = new MediaRecorder(aStream, {
                     mimeType: mime || undefined,
                     audioBitsPerSecond: 128000,
@@ -1415,7 +1415,7 @@ export default function FacebookLiveStreamerAutoRTK({
                       out[0] = 0x01; // audio packet marker
                       out.set(u8, 1);
                       wsRef.current.send(out.buffer);
-                    } catch {}
+                    } catch { }
                   };
                   mr.start(100);
                   audioRecorderRef.current = mr;
@@ -1434,7 +1434,7 @@ export default function FacebookLiveStreamerAutoRTK({
             } else if (data.type === "error") {
               reject(new Error(data.message || "server error"));
             }
-          } catch {}
+          } catch { }
         };
       });
 
@@ -1462,7 +1462,7 @@ export default function FacebookLiveStreamerAutoRTK({
           ctx.drawImage(video, 0, 0, encW, encH);
           drawOverlay(overlayCtx, encW, encH);
           ctx.drawImage(overlayCanvas, 0, 0, encW, encH);
-        } catch {}
+        } catch { }
 
         const vf = new VideoFrame(canvas, {
           timestamp: nextTsUs,
@@ -1472,7 +1472,7 @@ export default function FacebookLiveStreamerAutoRTK({
           frameCountRef.current % (QUALITY_PRESETS.high.fps * 2) === 0;
         try {
           videoEncoderRef.current.encode(vf, { keyFrame: forceKey });
-        } catch {}
+        } catch { }
         vf.close();
 
         frameCountRef.current += 1;
@@ -1491,7 +1491,7 @@ export default function FacebookLiveStreamerAutoRTK({
             matchId: currentMatch._id,
             platform: "all",
           });
-        } catch {}
+        } catch { }
       }
     } catch (error) {
       console.error("❌ Start streaming error:", error);
@@ -1509,10 +1509,10 @@ export default function FacebookLiveStreamerAutoRTK({
           await videoEncoderRef.current.flush();
           videoEncoderRef.current.close();
         }
-      } catch {}
+      } catch { }
       try {
         audioRecorderRef.current?.stop?.();
-      } catch {}
+      } catch { }
       await cleanup();
     } finally {
       setLoading(false);
@@ -1603,7 +1603,7 @@ export default function FacebookLiveStreamerAutoRTK({
           >
             <CardContent>
               <Grid container spacing={2} alignItems="center">
-                <Grid item xs={12} md={8}>
+                <Grid item size={{ xs: 12, md: 8 }}>
                   <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                     <AutoMode
                       fontSize="large"
@@ -1619,7 +1619,7 @@ export default function FacebookLiveStreamerAutoRTK({
                     </Box>
                   </Box>
                 </Grid>
-                <Grid item xs={12} md={4} sx={{ textAlign: { md: "right" } }}>
+                <Grid item size={{ xs: 12, md: 4 }} sx={{ textAlign: { md: "right" } }}>
                   <FormControlLabel
                     control={
                       <Switch
@@ -1665,65 +1665,65 @@ export default function FacebookLiveStreamerAutoRTK({
                   {(facebookPermalinkUrl ||
                     youtubeWatchUrl ||
                     tiktokRoomUrl) && (
-                    <Box sx={{ mt: 2 }}>
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        gutterBottom
-                      >
-                        Live URLs:
-                      </Typography>
-                      <Stack
-                        direction="row"
-                        spacing={1}
-                        flexWrap="wrap"
-                        sx={{ mt: 1 }}
-                      >
-                        {facebookPermalinkUrl && (
-                          <Chip
-                            icon={<Facebook fontSize="small" />}
-                            label="Facebook Live"
-                            size="small"
-                            color="primary"
-                            onClick={() =>
-                              window.open(facebookPermalinkUrl, "_blank")
-                            }
-                            onDelete={() =>
-                              window.open(facebookPermalinkUrl, "_blank")
-                            }
-                            deleteIcon={<OpenInNew fontSize="small" />}
-                          />
-                        )}
-                        {youtubeWatchUrl && (
-                          <Chip
-                            icon={<YouTube fontSize="small" />}
-                            label="YouTube Live"
-                            size="small"
-                            color="error"
-                            onClick={() =>
-                              window.open(youtubeWatchUrl, "_blank")
-                            }
-                            onDelete={() =>
-                              window.open(youtubeWatchUrl, "_blank")
-                            }
-                            deleteIcon={<OpenInNew fontSize="small" />}
-                          />
-                        )}
-                        {tiktokRoomUrl && (
-                          <Chip
-                            icon={<LiveTv fontSize="small" />}
-                            label="TikTok Live"
-                            size="small"
-                            onClick={() => window.open(tiktokRoomUrl, "_blank")}
-                            onDelete={() =>
-                              window.open(tiktokRoomUrl, "_blank")
-                            }
-                            deleteIcon={<OpenInNew fontSize="small" />}
-                          />
-                        )}
-                      </Stack>
-                    </Box>
-                  )}
+                      <Box sx={{ mt: 2 }}>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          gutterBottom
+                        >
+                          Live URLs:
+                        </Typography>
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          flexWrap="wrap"
+                          sx={{ mt: 1 }}
+                        >
+                          {facebookPermalinkUrl && (
+                            <Chip
+                              icon={<Facebook fontSize="small" />}
+                              label="Facebook Live"
+                              size="small"
+                              color="primary"
+                              onClick={() =>
+                                window.open(facebookPermalinkUrl, "_blank")
+                              }
+                              onDelete={() =>
+                                window.open(facebookPermalinkUrl, "_blank")
+                              }
+                              deleteIcon={<OpenInNew fontSize="small" />}
+                            />
+                          )}
+                          {youtubeWatchUrl && (
+                            <Chip
+                              icon={<YouTube fontSize="small" />}
+                              label="YouTube Live"
+                              size="small"
+                              color="error"
+                              onClick={() =>
+                                window.open(youtubeWatchUrl, "_blank")
+                              }
+                              onDelete={() =>
+                                window.open(youtubeWatchUrl, "_blank")
+                              }
+                              deleteIcon={<OpenInNew fontSize="small" />}
+                            />
+                          )}
+                          {tiktokRoomUrl && (
+                            <Chip
+                              icon={<LiveTv fontSize="small" />}
+                              label="TikTok Live"
+                              size="small"
+                              onClick={() => window.open(tiktokRoomUrl, "_blank")}
+                              onDelete={() =>
+                                window.open(tiktokRoomUrl, "_blank")
+                              }
+                              deleteIcon={<OpenInNew fontSize="small" />}
+                            />
+                          )}
+                        </Stack>
+                      </Box>
+                    )}
 
                   {(overlayUrl || studioUrl) && (
                     <Box sx={{ mt: 2 }}>
@@ -1797,7 +1797,7 @@ export default function FacebookLiveStreamerAutoRTK({
           </Card>
 
           <Grid container spacing={3}>
-            <Grid item xs={12} md={8}>
+            <Grid item size={{ xs: 12, md: 8 }}>
               <Card elevation={2}>
                 <CardContent sx={{ position: "relative", p: 0 }}>
                   <Box
@@ -1884,7 +1884,7 @@ export default function FacebookLiveStreamerAutoRTK({
                   {isStreaming && (
                     <Box sx={{ p: 2, bgcolor: "action.hover" }}>
                       <Grid container spacing={2}>
-                        <Grid item xs={4}>
+                        <Grid item size={{ xs: 4 }}>
                           <Typography variant="caption" color="text.secondary">
                             FPS
                           </Typography>
@@ -1892,7 +1892,7 @@ export default function FacebookLiveStreamerAutoRTK({
                             {Number(streamHealth.fps || 0).toFixed(1)}
                           </Typography>
                         </Grid>
-                        <Grid item xs={4}>
+                        <Grid item size={{ xs: 4 }}>
                           <Typography variant="caption" color="text.secondary">
                             Bitrate
                           </Typography>
@@ -1900,7 +1900,7 @@ export default function FacebookLiveStreamerAutoRTK({
                             {((streamHealth.bitrate || 0) / 1000).toFixed(1)}K
                           </Typography>
                         </Grid>
-                        <Grid item xs={4}>
+                        <Grid item size={{ xs: 4 }}>
                           <Typography variant="caption" color="text.secondary">
                             Dropped
                           </Typography>
@@ -1932,9 +1932,8 @@ export default function FacebookLiveStreamerAutoRTK({
                         Overlay Controls
                       </Typography>
                       <Chip
-                        label={`${activeOverlayCount}/${
-                          Object.keys(overlayConfig).length
-                        }`}
+                        label={`${activeOverlayCount}/${Object.keys(overlayConfig).length
+                          }`}
                         color="success"
                         size="small"
                         sx={{ ml: 1 }}
@@ -2154,7 +2153,7 @@ export default function FacebookLiveStreamerAutoRTK({
             </Grid>
 
             {/* Controls */}
-            <Grid item xs={12} md={4}>
+            <Grid item size={{ xs: 12, md: 4 }}>
               <Card elevation={2}>
                 <CardContent sx={{ p: { xs: 2, md: 3 } }}>
                   <Typography
@@ -2290,8 +2289,8 @@ export default function FacebookLiveStreamerAutoRTK({
                         {loading
                           ? "Đang kết nối..."
                           : autoStartCountdown !== null
-                          ? `🔴 Bắt đầu phát trực tiếp sau ${autoStartCountdown}s`
-                          : "🔴 Start Stream"}
+                            ? `🔴 Bắt đầu phát trực tiếp sau ${autoStartCountdown}s`
+                            : "🔴 Start Stream"}
                       </Button>
                     ) : (
                       <Button
@@ -2324,8 +2323,8 @@ export default function FacebookLiveStreamerAutoRTK({
                         {isStreaming
                           ? "🔴 LIVE - Đang phát"
                           : isConnected
-                          ? "🟢 Kết nối WebSocket"
-                          : "⚪ Không hoạt động"}
+                            ? "🟢 Kết nối WebSocket"
+                            : "⚪ Không hoạt động"}
                       </Typography>
                     </Box>
 

@@ -21,6 +21,7 @@ import Match from "../../models/matchModel.js";
 import dotenv from "dotenv";
 import User from "../../models/userModel.js";
 import { canManageTournament } from "../../utils/tournamentAuth.js";
+import { EVENTS, publishNotification } from "../../services/notifications/notificationHub.js";
 
 dotenv.config();
 
@@ -1815,13 +1816,18 @@ export const upsertTournamentReferees = async (req, res, next) => {
     if (!isAdmin && !ownerOrMgr) {
       return res.status(403).json({ message: "Forbidden" });
     }
+
     const TID = asObjId(tid);
 
     const { set, add = [], remove = [] } = req.body || {};
     const addIds = Array.isArray(set) ? normIds(set) : normIds(add);
     const removeIds = Array.isArray(set) ? [] : normIds(remove);
 
+    let addedUserIds = [];
+    let removedUserIds = [];
+
     if (Array.isArray(set)) {
+      // MODE: set = all referees
       const current = await User.find({
         isDeleted: { $ne: true },
         "referee.tournaments": TID,
@@ -1844,30 +1850,82 @@ export const upsertTournamentReferees = async (req, res, next) => {
           { _id: { $in: toAdd }, role: { $nin: ["admin", "referee"] } },
           { $set: { role: "referee" } }
         );
+        addedUserIds = toAdd;
       }
+
       if (toRemove.length) {
         await User.updateMany(
           { _id: { $in: toRemove } },
           { $pull: { "referee.tournaments": TID } }
         );
+        removedUserIds = toRemove;
       }
     } else {
+      // MODE: add/remove incremental
+      let toAdd = [];
+      let toRemove = [];
+
       if (addIds.length) {
-        await User.updateMany(
-          { _id: { $in: addIds } },
-          { $addToSet: { "referee.tournaments": TID } }
-        );
-        await User.updateMany(
-          { _id: { $in: addIds }, role: { $nin: ["admin", "referee"] } },
-          { $set: { role: "referee" } }
-        );
+        // chỉ thêm những đứa chưa là referee của giải
+        const already = await User.find({
+          _id: { $in: addIds },
+          "referee.tournaments": TID,
+        })
+          .select("_id")
+          .lean();
+
+        const alreadySet = new Set(already.map((u) => String(u._id)));
+        toAdd = addIds.filter((id) => !alreadySet.has(String(id)));
+
+        if (toAdd.length) {
+          await User.updateMany(
+            { _id: { $in: toAdd } },
+            { $addToSet: { "referee.tournaments": TID } }
+          );
+          await User.updateMany(
+            { _id: { $in: toAdd }, role: { $nin: ["admin", "referee"] } },
+            { $set: { role: "referee" } }
+          );
+          addedUserIds = toAdd;
+        }
       }
+
       if (removeIds.length) {
-        await User.updateMany(
-          { _id: { $in: removeIds } },
-          { $pull: { "referee.tournaments": TID } }
-        );
+        // chỉ gỡ những đứa đang là referee của giải
+        const present = await User.find({
+          _id: { $in: removeIds },
+          "referee.tournaments": TID,
+        })
+          .select("_id")
+          .lean();
+
+        const presentSet = new Set(present.map((u) => String(u._id)));
+        toRemove = removeIds.filter((id) => presentSet.has(String(id)));
+
+        if (toRemove.length) {
+          await User.updateMany(
+            { _id: { $in: toRemove } },
+            { $pull: { "referee.tournaments": TID } }
+          );
+          removedUserIds = toRemove;
+        }
       }
+    }
+
+    // 🔔 Gửi notify cho những user vừa được thêm làm trọng tài
+    if (addedUserIds.length) {
+      publishNotification(EVENTS.TOURNAMENT_REFEREE_ADDED, {
+        tournamentId: tid,
+        directUserIds: addedUserIds,
+      });
+    }
+
+    // 🔔 Gửi notify cho những user vừa bị gỡ khỏi danh sách trọng tài
+    if (removedUserIds.length) {
+      publishNotification(EVENTS.TOURNAMENT_REFEREE_REMOVED, {
+        tournamentId: tid,
+        directUserIds: removedUserIds,
+      });
     }
 
     const list = await User.find({

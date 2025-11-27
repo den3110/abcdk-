@@ -249,7 +249,7 @@ export default function LoginScreen() {
                   fontWeight: 600,
                 }}
               >
-                Đăng ký mới
+                Đăng ký 
               </Link>
             </Box>
           </Box>
