@@ -37,7 +37,6 @@ const LocationGeoSchema = new mongoose.Schema(
     displayName: { type: String, default: "" }, // ví dụ: tên sân + quận/huyện + tỉnh/thành
     confidence: {
       type: String,
-      enum: ["high", "medium", "low", ""],
       default: "",
     }, // map từ AI: "high" | "medium" | "low"
     source: {
