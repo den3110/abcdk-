@@ -21,9 +21,46 @@ import Match from "../../models/matchModel.js";
 import dotenv from "dotenv";
 import User from "../../models/userModel.js";
 import { canManageTournament } from "../../utils/tournamentAuth.js";
-import { EVENTS, publishNotification } from "../../services/notifications/notificationHub.js";
+import {
+  EVENTS,
+  publishNotification,
+} from "../../services/notifications/notificationHub.js";
+import { geocodeTournamentLocation } from "../../services/openaiGeocode.js";
 
 dotenv.config();
+
+// 🔹 Map kết quả geocode (AI) -> schema locationGeo
+const buildLocationGeoFromAI = (geo, fallbackLocation) => {
+  if (!geo) return null;
+
+  const hasLatLon =
+    typeof geo.lat === "number" &&
+    Number.isFinite(geo.lat) &&
+    typeof geo.lon === "number" &&
+    Number.isFinite(geo.lon);
+
+  // Nếu không có toạ độ thì thôi không lưu, tránh rác
+  if (!hasLatLon) return null;
+
+  const acc = String(geo.accuracy || "").toLowerCase();
+  const confidence =
+    acc === "high" || acc === "medium" || acc === "low" ? acc : "";
+
+  const displayName =
+    geo.formatted ||
+    [geo.locality, geo.admin1, geo.countryName].filter(Boolean).join(", ") ||
+    fallbackLocation ||
+    "";
+
+  return {
+    lat: geo.lat,
+    lon: geo.lon,
+    displayName,
+    confidence,
+    source: "ai",
+    resolvedAt: new Date(),
+  };
+};
 
 /* -------------------------- Sanitize cấu hình -------------------------- */
 const SAFE_HTML = {
@@ -463,10 +500,10 @@ const validate = (schema, payload) => {
       const dateStr = value[field];
       value[field] = new Date(dateStr + "Z"); // thêm 'Z' để parse như UTC
 
-      console.log(`[DEBUG] ${field}:`, {
-        input: dateStr,
-        dbValue: value[field].toISOString(),
-      });
+      // console.log(`[DEBUG] ${field}:`, {
+      //   input: dateStr,
+      //   dbValue: value[field].toISOString(),
+      // });
     }
   }
 
@@ -734,7 +771,7 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
     }
   }
 
-  // Nếu có code (tự sinh hoặc user nhập) thì phải >= 3 ký tự
+  // Nếu có code (tự sinh hoặc user nhập) thì phải ≥ 3 ký tự
   if (incoming.code && incoming.code.length < 3) {
     res.status(400);
     throw new Error("Mã giải tối thiểu 3 ký tự.");
@@ -751,10 +788,16 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
     throw new Error("Unauthenticated");
   }
 
-  const t = await Tournament.create({ ...data, createdBy: req.user._id });
+  // ✅ Tạo doc trước, không chờ geocode
+  const t = await Tournament.create({
+    ...data,
+    createdBy: req.user._id,
+  });
 
+  // Trả về ngay cho client
   res.status(201).json(t);
 
+  // ⏱ Countdown – giữ nguyên
   setImmediate(() => {
     scheduleTournamentCountdown(t).catch((e) => {
       console.error(
@@ -767,6 +810,44 @@ export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
     });
   });
 
+  // 🗺️ Geocode async, update locationGeo sau
+  if (t.location) {
+    setImmediate(async () => {
+      try {
+        const geo = await geocodeTournamentLocation({
+          location: t.location,
+          countryHint: "VN",
+        });
+
+        const locGeo = buildLocationGeoFromAI(geo, t.location);
+        if (!locGeo) return;
+
+        await Tournament.updateOne(
+          { _id: t._id },
+          { $set: { locationGeo: locGeo } }
+        );
+
+        console.log("[adminCreateTournament] locationGeo updated via AI", {
+          tournamentId: String(t._id),
+          lat: locGeo.lat,
+          lon: locGeo.lon,
+          displayName: locGeo.displayName,
+          confidence: locGeo.confidence,
+        });
+      } catch (e) {
+        console.error(
+          "[adminCreateTournament] async geocode failed:",
+          e?.message || e,
+          {
+            tournamentId: String(t._id),
+            location: t.location,
+          }
+        );
+      }
+    });
+  }
+
+  // 📢 Telegram topic – giữ nguyên
   setImmediate(async () => {
     try {
       const tele = t.tele || {};
@@ -953,9 +1034,14 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
     payload.contentHtml = cleanHTML(payload.contentHtml);
   if (payload._meta) delete payload._meta;
 
+  // ✅ chỉ geocode nếu client gửi location mới
+  const shouldGeocode = !!payload.location;
+
+  const updateDoc = { ...payload };
+
   let t = await Tournament.findByIdAndUpdate(
     req.params.id,
-    { $set: payload },
+    { $set: updateDoc },
     { new: true, runValidators: true, context: "query" }
   );
   if (!t) {
@@ -1009,8 +1095,10 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
       );
     })
     .finally(async () => {
+      // Trả kết quả update cho client trước
       res.json(t);
 
+      // ⏱ Countdown – giữ nguyên
       setImmediate(() => {
         scheduleTournamentCountdown(t).catch((e) => {
           console.error(
@@ -1023,6 +1111,44 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
         });
       });
 
+      // 🗺️ Geocode async nếu có location mới
+      if (shouldGeocode && payload.location) {
+        setImmediate(async () => {
+          try {
+            const geo = await geocodeTournamentLocation({
+              location: payload.location,
+              countryHint: "VN",
+            });
+
+            const locGeo = buildLocationGeoFromAI(geo, payload.location);
+            if (!locGeo) return;
+
+            await Tournament.updateOne(
+              { _id: t._id },
+              { $set: { locationGeo: locGeo } }
+            );
+
+            console.log("[adminUpdateTournament] locationGeo updated via AI", {
+              tournamentId: String(t._id),
+              lat: locGeo.lat,
+              lon: locGeo.lon,
+              displayName: locGeo.displayName,
+              confidence: locGeo.confidence,
+            });
+          } catch (e) {
+            console.error(
+              "[adminUpdateTournament] async geocode failed:",
+              e?.message || e,
+              {
+                tournamentId: String(t._id),
+                location: payload.location,
+              }
+            );
+          }
+        });
+      }
+
+      // 📢 Telegram – giữ nguyên
       const tele = t.tele || {};
       const teleEnabled = tele.enabled !== false;
       const hasTopic = !!tele.topicId;
@@ -1052,7 +1178,10 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
               try {
                 inviteLink =
                   inviteLink ||
-                  (await createInviteLink({ chatId: hubChatId, name: t.name }));
+                  (await createInviteLink({
+                    chatId: hubChatId,
+                    name: t.name,
+                  }));
               } catch (ie) {
                 console.error(
                   "[adminUpdateTournament] createInviteLink failed (non-fatal):",

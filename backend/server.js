@@ -33,6 +33,7 @@ import { initEmail } from "./services/emailService.js";
 import Agendash from "agendash";
 import { versionGate } from "./middleware/versionGate.js";
 import appVersionRouter from "./routes/appVersion.route.js";
+import chatBotRoutes from "./routes/chatBotRoutes.js"
 import {
   attachJwtIfPresent,
   authorize,
@@ -70,6 +71,11 @@ import { timezoneMiddleware } from "./middleware/timezoneMiddleware.js";
 import { normalizeRequestDates } from "./middleware/normalizeRequestDates.js";
 import { convertResponseDates } from "./middleware/convertResponseDates.js";
 import { createProxyMiddleware } from "http-proxy-middleware";
+import { registerAutoHealJobs } from "./utils/scheduleNotifications.js";
+import weatherRoutes from "./routes/weatherRoutes.js";
+import Tournament from "./models/tournamentModel.js";
+import Match from "./models/matchModel.js";
+import { httpLogger } from "./middleware/httpLogger.js";
 
 dotenv.config();
 const port = process.env.PORT;
@@ -131,10 +137,12 @@ app.use(cookieParser());
 app.set("trust proxy", 1);
 app.use("/admin/agendash", Agendash(agenda, { middleware: "express" }));
 
+
 app.use(loadSettings);
 app.use(attachJwtIfPresent);
 app.use(maintainanceTrigger);
 app.use(versionGate);
+app.use(httpLogger);
 
 // HTTP + Socket.IO
 const server = http.createServer(app);
@@ -176,7 +184,7 @@ app.use("/api/files", fileRoutes);
 app.use("/api/clubs", clubRoutes);
 app.use("/api/capture", captureRoutes);
 app.use("/api/news", newsRoutes);
-
+app.use("/api/weather", weatherRoutes);
 app.use("/api/admin/sponsors", adminSponsorRoutes);
 app.use("/api/sponsors", publicSponsorRoutes);
 app.use("/api/oauth", oauthRoutes);
@@ -189,6 +197,7 @@ app.use("/api/app/init", appInitRoutes);
 app.use("/api/leaderboards", leaderboardRoutes);
 app.use("/api/schedule", scheduleRoutes);
 app.use("/api/fb", facebookRoutes);
+app.use("/api/chat", chatBotRoutes);
 
 
 
@@ -262,6 +271,8 @@ const startServer = async () => {
         initEmail();
         initNewsCron();
         startAgenda();
+        registerAutoHealJobs({ Tournament, Match });
+
       } catch (error) {
         console.error(`❌ Error starting server: ${error.message}`);
       }

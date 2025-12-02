@@ -4,6 +4,7 @@ import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import { Sponsor, SPONSOR_TIERS } from "../models/sponsorModel.js";
 import CmsBlock from "../models/cmsBlockModel.js";
+import Tournament from "../models/tournamentModel.js"; // ✅ NEW
 
 /* ---------- helpers ---------- */
 const parseBoolQP = (v) => {
@@ -65,6 +66,7 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
   const FALLBACK_LOGO = "https://placehold.co/240x60/png?text=PickleTour";
   let webLogoUrl = FALLBACK_LOGO,
     webLogoAlt = "";
+
   try {
     const heroBlock = await CmsBlock.findOne({ slug: "hero" }).lean();
     if (heroBlock?.data) {
@@ -74,16 +76,20 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
     }
   } catch {}
 
-  // ❗ Không có tid -> trả mảng rỗng
+  // ✅ default: chưa có tid -> không có sponsors, không có ảnh giải
   if (!tid) {
-    // ép https cho logo nếu đang chạy prod
     if (FORCE_HTTPS) {
       webLogoUrl = ensureHttps(webLogoUrl);
     }
-    return res.json({ webLogoUrl, webLogoAlt, sponsors: [] });
+    return res.json({
+      webLogoUrl,
+      webLogoAlt,
+      sponsors: [],
+      tournamentImageUrl: null, // ✅ NEW
+    });
   }
 
-  // Có tid -> chỉ lấy sponsor gắn đúng giải
+  // Có tid -> chỉ lấy sponsor gắn đúng giải + ảnh giải
   const filter = {};
   // if (featured !== undefined) filter.featured = featured;
 
@@ -95,19 +101,27 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
   // ✅ lọc đúng field theo schema
   filter.tournaments = tid; // chỉ những sponsor có chứa tid
 
-  const q = Sponsor.find(filter)
+  const sponsorsQuery = Sponsor.find(filter)
     .select(
       "_id name slug logoUrl websiteUrl refLink tier weight featured tournaments updatedAt"
     )
     .sort({ featured: -1, weight: -1, updatedAt: -1, name: 1 });
 
-  if (limit > 0) q.limit(limit);
+  if (limit > 0) sponsorsQuery.limit(limit);
 
-  let sponsors = await q.lean();
+  // 🔁 chạy song song: lấy sponsors + thông tin giải
+  const [sponsorsRaw, tournament] = await Promise.all([
+    sponsorsQuery.lean(),
+    Tournament.findById(tid).select("_id name image").lean(),
+  ]);
+
+  let sponsors = sponsorsRaw;
+  let tournamentImageUrl = tournament?.image || null; // ✅ lấy ảnh giải
 
   // ✅ ép https cho sponsor khi chạy production
   if (FORCE_HTTPS) {
     webLogoUrl = ensureHttps(webLogoUrl);
+    tournamentImageUrl = ensureHttps(tournamentImageUrl);
 
     sponsors = sponsors.map((s) => ({
       ...s,
@@ -117,5 +131,10 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
     }));
   }
 
-  return res.json({ webLogoUrl, webLogoAlt, sponsors });
+  return res.json({
+    webLogoUrl,
+    webLogoAlt,
+    tournamentImageUrl, // ✅ trả thêm về FE
+    sponsors,
+  });
 });

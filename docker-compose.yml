@@ -1,0 +1,51 @@
+version: "3.8"
+
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    container_name: es01
+    environment:
+      - discovery.type=single-node          # chạy 1 node cho dev
+      - xpack.security.enabled=false        # tắt security cho dễ test local
+      - xpack.security.http.ssl.enabled=false
+      - ES_JAVA_OPTS=-Xms1g -Xmx1g          # ES dùng ~1GB RAM (chỉnh theo máy)
+    ports:
+      - "9200:9200"                         # Elasticsearch API
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.0
+    container_name: kb01
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    ports:
+      - "5601:5601"                         # Kibana UI
+    depends_on:
+      - elasticsearch
+
+  # Redis server
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"           # Redis mặc định
+    volumes:
+      - redis-data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+
+  # Redis Commander - giao diện web cho Redis
+  redis-commander:
+    image: ghcr.io/joeferner/redis-commander:latest
+    container_name: redis-commander
+    depends_on:
+      - redis
+    environment:
+      # format: NAME:HOST:PORT:DB
+      - REDIS_HOSTS=local:redis:6379:0
+    ports:
+      - "8081:8081"           # Web UI: http://localhost:8081
+
+volumes:
+  es-data:
+  redis-data:

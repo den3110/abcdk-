@@ -56,6 +56,7 @@ import CourtLiveStudioPage from "./screens/live/CourtLiveStudio.jsx";
 import CourtStreamingPage from "./screens/court-live/Courtstreamingpage.jsx";
 import { useGetAppInitQuery } from "./slices/appInitApiSlice.js";
 import FacebookLiveSettings from "./components/FacebookLiveSettings";
+import TournamentDetailPage from "./screens/PickleBall/TournamentDetailPage.jsx";
 
 dayjs.locale("vi");
 
@@ -98,7 +99,7 @@ const router = createBrowserRouter(
           path="/tournament/:id/overview"
           element={<TournamentOverviewPage />}
         />
-        <Route path="/tournament/:id" element={<TournamentOverviewPage />} />
+        <Route path="/tournament/:id" element={<TournamentDetailPage />} />
 
         <Route path="/404" element={<NotFound />} />
         <Route path="/403" element={<Forbidden403 />} />

@@ -7,6 +7,7 @@ import TournamentManager from "../models/tournamentManagerModel.js";
 import Registration from "../models/registrationModel.js";
 import Court from "../models/courtModel.js";
 import { sleep } from "../utils/sleep.js";
+import { es, ES_TOURNAMENT_INDEX } from "../services/esClient.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 // @desc    Lấy danh sách giải đấu (lọc theo sportType & groupId)
@@ -1020,3 +1021,48 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
     next(err);
   }
 });
+
+
+  export async function searchTournaments(req, res, next) {
+  try {
+    const q = (req.query.q || "").trim();
+    const status = req.query.status; // optional: upcoming/ongoing/finished
+    const sportType = req.query.sportType; // optional
+
+    const must = [];
+    if (q) {
+      must.push({
+        multi_match: {
+          query: q,
+          fields: ["name^3", "code^2", "location", "searchText"],
+        },
+      });
+    }
+
+    if (status) {
+      must.push({ term: { status } });
+    }
+    if (sportType) {
+      must.push({ term: { sportType: Number(sportType) } });
+    }
+
+    const result = await es.search({
+      index: ES_TOURNAMENT_INDEX,
+      size: 20,
+      query: must.length
+        ? { bool: { must } }
+        : { match_all: {} },
+      sort: [{ startAt: "asc" }],
+    });
+
+    const items = result.hits.hits.map((hit) => ({
+      id: hit._id,
+      score: hit._score,
+      ...hit._source,
+    }));
+
+    res.json({ items });
+  } catch (err) {
+    next(err);
+  }
+}

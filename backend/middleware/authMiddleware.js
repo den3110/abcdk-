@@ -310,10 +310,26 @@ export const isManagerTournament = asyncHandler(async (req, res, next) => {
 });
 
 export const attachJwtIfPresent = asyncHandler(async (req, res, next) => {
-  const auth = req.headers.authorization || "";
-  if (!auth.startsWith("Bearer ")) return next();
+  let token = null;
 
-  const token = auth.split(" ")[1];
+  // 1️⃣ Ưu tiên lấy từ Authorization header
+  const auth = req.headers.authorization || "";
+  if (auth.startsWith("Bearer ")) {
+    const parts = auth.split(" ");
+    if (parts.length === 2 && parts[1]) {
+      token = parts[1];
+    }
+  }
+  // 2️⃣ Nếu chưa có thì lấy từ cookies
+  //    Đổi tên accessToken / jwt cho khớp với cookie của bạn
+  if (!token && req.cookies) {
+    if (req.cookies.accessToken) {
+      token = req.cookies.accessToken;
+    } else if (req.cookies.jwt) {
+      token = req.cookies.jwt;
+    }
+  }
+
   if (!token) return next();
 
   try {

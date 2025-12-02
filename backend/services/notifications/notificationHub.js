@@ -39,6 +39,7 @@ export const EVENTS = {
   // 🆕 Trọng tài giải
   TOURNAMENT_REFEREE_ADDED: "TOURNAMENT_REFEREE_ADDED",
   TOURNAMENT_REFEREE_REMOVED: "TOURNAMENT_REFEREE_REMOVED",
+  TOURNAMENT_OPEN_REG: "TOURNAMENT_OPEN_REG",
 };
 
 // xác định category để áp vào Subscription.categories (nếu bạn dùng)
@@ -486,7 +487,6 @@ const payloadBuilders = {
     } else {
       body = "Bạn vừa nhận một lời mời tham gia giải.";
     }
-
     return {
       title: "Lời mời tham gia",
       body,

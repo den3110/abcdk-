@@ -1,7 +1,7 @@
 // models/bracketModel.js
 import mongoose from "mongoose";
 import DrawSettingsSchema from "./drawSettingsSchema.js";
-import seedSourceSchema from "./seedSourceSchema.js";
+import seedSourceSchema from "./seedSourceSchemaModel.js";
 import Tournament from "./tournamentModel.js"; // 👈 dùng để auto-clear drawPlan
 
 const { Schema } = mongoose;

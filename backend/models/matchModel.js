@@ -1,6 +1,6 @@
 // models/matchModel.js
 import mongoose from "mongoose";
-import seedSourceSchema from "./seedSourceSchema.js";
+import seedSourceSchema from "./seedSourceSchemaModel.js";
 import Bracket from "./bracketModel.js";
 import Court from "./courtModel.js";
 import Tournament from "./tournamentModel.js";

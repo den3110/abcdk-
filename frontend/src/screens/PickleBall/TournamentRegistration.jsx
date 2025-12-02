@@ -66,6 +66,7 @@ import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 import { getFeeAmount } from "../../utils/fee";
+import { useBotContext } from "../../hook/useBotContext";
 
 /* ---------------- 1. CONSTANTS & HELPERS ---------------- */
 const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";
@@ -526,7 +527,12 @@ const ActionButtons = memo(
     onOpenComplaint,
     busy,
   }) => (
-    <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+    <Stack
+      direction="row"
+      spacing={0.5}
+      justifyContent="flex-end"
+      alignItems="center"
+    >
       {canManage && (
         <Tooltip title="Đổi trạng thái thanh toán">
           <IconButton
@@ -543,24 +549,45 @@ const ActionButtons = memo(
           </IconButton>
         </Tooltip>
       )}
+
+      {/* --- Nút Thanh toán (Đã chuyển sang Button) --- */}
       <Tooltip title="Mã QR Thanh toán">
-        <IconButton
+        <Button
           size="small"
+          variant="text"
+          startIcon={<QrCode fontSize="small" />}
           onClick={() => onOpenPayment(r)}
-          sx={{ color: "#1976d2", bgcolor: alpha("#1976d2", 0.05) }}
+          sx={{
+            color: "#1976d2",
+            bgcolor: alpha("#1976d2", 0.05),
+            textTransform: "none", // Giữ chữ thường, không viết hoa toàn bộ
+            minWidth: "auto", // Để nút gọn gàng
+            px: 1, // Padding ngang
+          }}
         >
-          <QrCode fontSize="small" />
-        </IconButton>
+          Thanh toán
+        </Button>
       </Tooltip>
+
+      {/* --- Nút Khiếu nại (Đã chuyển sang Button) --- */}
       <Tooltip title="Khiếu nại">
-        <IconButton
+        <Button
           size="small"
+          variant="text"
+          startIcon={<ReportProblem fontSize="small" />}
           onClick={() => onOpenComplaint(r)}
-          sx={{ color: "#ed6c02", bgcolor: alpha("#ed6c02", 0.05) }}
+          sx={{
+            color: "#ed6c02",
+            bgcolor: alpha("#ed6c02", 0.05),
+            textTransform: "none",
+            minWidth: "auto",
+            px: 1,
+          }}
         >
-          <ReportProblem fontSize="small" />
-        </IconButton>
+          Khiếu nại
+        </Button>
       </Tooltip>
+
       {(canManage || isOwner) && (
         <Tooltip title="Huỷ đăng ký">
           <IconButton
@@ -747,9 +774,9 @@ const RegCard = memo(
 
             {/* Score + Actions */}
             <Stack
-              direction="row"
+              direction={{ xs: "column", sm: "row" }}
               justifyContent="space-between"
-              alignItems="center"
+              alignItems={{ xs: "stretch", sm: "center" }}
               spacing={2}
             >
               <Box>
@@ -861,6 +888,7 @@ function useLazyRender(totalItems, initialBatch = 20, batchSize = 20) {
 /* ---------------- 4. MAIN PAGE COMPONENT ---------------- */
 export default function TournamentRegistration() {
   const { id } = useParams();
+  useBotContext({ tournamentId: id });
 
   /* Data Fetching */
   const { data: me, isLoading: meLoading } = useGetMeScoreQuery();
@@ -1045,8 +1073,7 @@ export default function TournamentRegistration() {
       const ph = maskPhone(
         r?.player1?.phone || r?.player2?.phone || me?.phone || ""
       );
-      const tourCode =
-       tour?.code;
+      const tourCode = tour?.code;
       const des = normalizeNoAccent(
         `Ma giai ${tourCode} Ma dang ky ${code} SDT ${ph}`
       );

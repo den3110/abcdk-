@@ -1,7 +1,7 @@
-// models/tournamentModel.js
 import mongoose from "mongoose";
 import { DateTime } from "luxon";
 import DrawSettingsSchema from "./drawSettingsSchema.js";
+import { es, ES_TOURNAMENT_INDEX } from "../services/esClient.js";
 
 /* ------------ Sub-schemas ------------ */
 const TeleSchema = new mongoose.Schema(
@@ -21,6 +21,31 @@ const AgeRestrictionSchema = new mongoose.Schema(
     maxAge: { type: Number, default: 100, min: 0, max: 100 },
     minBirthYear: { type: Number, default: null },
     maxBirthYear: { type: Number, default: null },
+  },
+  { _id: false }
+);
+
+/**
+ * ✅ NEW: toạ độ địa lý cho giải (dùng cho WeatherKit, map…)
+ * - location: string địa chỉ hiển thị (đã có sẵn)
+ * - locationGeo: thông tin toạ độ, lấy từ AI / geocoder
+ */
+const LocationGeoSchema = new mongoose.Schema(
+  {
+    lat: { type: Number, default: null }, // vĩ độ
+    lon: { type: Number, default: null }, // kinh độ
+    displayName: { type: String, default: "" }, // ví dụ: tên sân + quận/huyện + tỉnh/thành
+    confidence: {
+      type: String,
+      enum: ["high", "medium", "low", ""],
+      default: "",
+    }, // map từ AI: "high" | "medium" | "low"
+    source: {
+      type: String,
+      enum: ["ai", "manual", "geocoder", ""],
+      default: "",
+    }, // ai: từ OpenAI, manual: admin nhập tay, geocoder: service khác
+    resolvedAt: { type: Date, default: null }, // thời điểm resolve toạ độ
   },
   { _id: false }
 );
@@ -56,7 +81,16 @@ const tournamentSchema = new mongoose.Schema(
       default: "upcoming",
     },
     finishedAt: { type: Date, default: null },
+
+    // 🏠 Địa chỉ text hiển thị (giữ nguyên)
     location: { type: String, required: true },
+
+    // 🗺️ Toạ độ thực tế (NEW) – điền từ AI / geocoder
+    locationGeo: {
+      type: LocationGeoSchema,
+      default: () => ({}),
+    },
+
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
@@ -70,13 +104,13 @@ const tournamentSchema = new mongoose.Schema(
     endAt: { type: Date, default: null },
 
     drawSettings: { type: DrawSettingsSchema, default: () => ({}) },
+
     // ✅ NEW: option global cho knockout – có tạo trận tranh hạng 3/4 hay không
-    // false  = 2 đội thua bán kết sẽ đồng hạng 3 (như hiện tại)
-    // true   = tự động tạo thêm 1 match tranh hạng 3–4 cho mỗi bracket knockout
     knockoutThirdPlace: {
       type: Boolean,
       default: false,
     },
+
     overlay: {
       theme: { type: String, enum: ["dark", "light"], default: "dark" },
       accentA: { type: String, default: "#25C2A0" },
@@ -163,6 +197,99 @@ function recomputeBirthYears(doc) {
   };
 }
 
+/* ------------- Elasticsearch helpers ------------- */
+
+function buildTournamentSearchDoc(doc) {
+  const obj = doc.toObject
+    ? doc.toObject({ depopulate: true })
+    : doc;
+
+  const {
+    _id,
+    name,
+    code,
+    location,
+    status,
+    sportType,
+    groupId,
+    image,
+    eventType,
+    timezone,
+    regOpenDate,
+    registrationDeadline,
+    startDate,
+    endDate,
+    startAt,
+    endAt,
+    scoringScope,
+    locationGeo,
+    createdAt,
+    updatedAt,
+  } = obj;
+
+  return {
+    // field dùng để search / filter
+    name,
+    code,
+    location,
+    status,
+    sportType,
+    groupId,
+    image,
+    eventType,
+    timezone,
+
+    regOpenDate,
+    registrationDeadline,
+    startDate,
+    endDate,
+    startAt,
+    endAt,
+
+    scoringScopeType: scoringScope?.type || null,
+    scoringScopeProvinces: scoringScope?.provinces || [],
+
+    locationGeo: locationGeo || {},
+
+    // text tổng hợp cho tìm kiếm free-text
+    searchText: [name, code, location].filter(Boolean).join(" - "),
+
+    createdAt,
+    updatedAt,
+  };
+}
+
+async function indexTournamentToES(doc) {
+  if (!doc?._id) return;
+  const body = buildTournamentSearchDoc(doc);
+
+  try {
+    await es.index({
+      index: ES_TOURNAMENT_INDEX,
+      id: String(doc._id),
+      document: body,
+    });
+  } catch (err) {
+    console.error("[ES] index tournament error:", err?.message || err);
+  }
+}
+
+async function deleteTournamentFromES(id) {
+  if (!id) return;
+  try {
+    await es.delete({
+      index: ES_TOURNAMENT_INDEX,
+      id: String(id),
+    });
+  } catch (err) {
+    // nếu không tồn tại thì bỏ qua
+    if (err.meta?.statusCode !== 404) {
+      console.error("[ES] delete tournament error:", err?.message || err);
+    }
+  }
+}
+
+
 /* ------------- Hooks ------------- */
 tournamentSchema.pre("save", function (next) {
   if (this.ageRestriction) {
@@ -203,6 +330,18 @@ tournamentSchema.post("findOneAndUpdate", async function (doc, next) {
   }
 });
 
+/* 🔁 NEW: đồng bộ sang Elasticsearch sau mỗi lần save (create / update) */
+tournamentSchema.post("save", async function (doc) {
+  // doc ở đây đã là document sau khi save xong
+  await indexTournamentToES(doc);
+});
+
+/* 🔁 NEW: xoá khỏi Elasticsearch khi dùng findOneAndDelete */
+tournamentSchema.post("findOneAndDelete", async function (doc) {
+  if (!doc) return;
+  await deleteTournamentFromES(doc._id);
+});
+
 /* ------------- Statics ------------- */
 tournamentSchema.statics.clearDrawPlanIfNoBrackets = async function (
   tournamentId
@@ -234,9 +373,37 @@ tournamentSchema.statics.clearDrawPlanIfNoBrackets = async function (
   }
 };
 
+tournamentSchema.statics.syncToSearch = async function (tournamentId) {
+  if (!tournamentId) return;
+  const doc = await this.findById(tournamentId);
+  if (doc) {
+    await indexTournamentToES(doc);
+  }
+};
+
+tournamentSchema.statics.reindexAllToSearch = async function () {
+  console.log("[Tournament] reindexAllToSearch START");
+
+  const cursor = this.find().cursor();
+  let count = 0;
+
+  for await (const doc of cursor) {
+    await indexTournamentToES(doc); // dùng helper đã  ở trên
+    count++;
+    if (count % 50 === 0) {
+      console.log(`[Tournament] indexed ${count} tournaments...`);
+    }
+  }
+
+  await es.indices.refresh({ index: ES_TOURNAMENT_INDEX });
+  console.log(`[Tournament] reindexAllToSearch DONE, total = ${count}`);
+};
+
 /* ------------- Indexes ------------- */
 tournamentSchema.index({ status: 1, endAt: 1 });
 tournamentSchema.index({ status: 1, startAt: 1 });
+// (optional) nếu sau này search theo toạ độ nhiều, bạn có thể thêm index:
+// tournamentSchema.index({ "locationGeo.lat": 1, "locationGeo.lon": 1 });
 
 tournamentSchema.set("toJSON", {
   transform(doc, ret) {

@@ -1380,22 +1380,44 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
     );
   }
 
-  // ✅ GIAO DIỆN DEFAULT=1 (theo hình) — luôn sau break, không ảnh hưởng logic khác
+  // ✅ GIAO DIỆN DEFAULT=1 (theo hình PBTv)
   if (isDefaultDesign) {
-    const topTitle = (tourName && tourName.toUpperCase()) || "GIẢI PICKLEBALL";
+    // Title trên cùng (white bar)
+    const qpTitle = q.get("title");
+    const topTitleBase =
+      qpTitle || tourName || "Pickleball World Championships";
+    const topTitle = String(topTitleBase).toUpperCase();
 
-    const rowBase = {
-      display: "grid",
-      gridTemplateColumns: "1fr auto",
-      alignItems: "center",
-      padding: "6px 14px",
-      background: "#000",
-      color: "#fff",
-      fontWeight: 700,
-      fontSize: 18,
-      gap: 8,
-      whiteSpace: "nowrap",
-    };
+    // Label dưới cùng (MEN'S DOUBLES - SEMIFINALS)
+    const evType = (
+      data?.tournament?.eventType ||
+      data?.eventType ||
+      ""
+    ).toLowerCase();
+    let evCore = "";
+    if (evType === "single") evCore = "SINGLES";
+    else if (evType === "double") evCore = "DOUBLES";
+    else evCore = "MATCH";
+
+    const roundOrPhase = String(roundLabel || phaseText || "").toUpperCase();
+
+    const bottomOverride = q.get("bottom") || q.get("bottomText");
+    const bottomText = bottomOverride
+      ? String(bottomOverride).toUpperCase()
+      : [evCore && `PICKLEBALL ${evCore}`, roundOrPhase]
+          .filter(Boolean)
+          .join(" - ")
+          .toUpperCase();
+
+    // Optional: seed nếu BE có (không có thì ẩn, không crash)
+    const seedA =
+      data?.teams?.A?.seed ??
+      data?.teams?.A?.seedNo ??
+      data?.teams?.A?.seedNumber;
+    const seedB =
+      data?.teams?.B?.seed ??
+      data?.teams?.B?.seedNo ??
+      data?.teams?.B?.seedNumber;
 
     return (
       <>
@@ -1408,100 +1430,272 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
           data-size={effective.size}
           data-default="1"
         >
-          <div
-            className="ovl-default"
-            style={{
-              minWidth: 360,
-              maxWidth: 480,
-              boxShadow: "0 8px 22px rgba(0,0,0,.55)",
-              overflow: "hidden",
-              fontFamily: effective.fontFamily,
-              borderRadius: effective.rounded || 16,
-              background: "#000",
-              pointerEvents: "none",
-            }}
-          >
-            {/* Title gradient xanh - đen, căn giữa, bo góc */}
+          {/* scale theo ?scale-score=... */}
+          <div style={scaleWrapStyle}>
             <div
-              className="ovl-default-title"
+              className="ovl-default"
               style={{
-                background: "linear-gradient(90deg, #17873b 0%, #0b0f14 100%)",
-                padding: "6px 14px",
-                color: "#fff",
-                fontSize: 16,
-                fontWeight: 800,
-                textTransform: "uppercase",
-                textAlign: "center",
-                letterSpacing: 0.4,
-                borderTopLeftRadius: effective.rounded || 16,
-                borderTopRightRadius: effective.rounded || 16,
-              }}
-              title={topTitle}
-            >
-              {topTitle}
-            </div>
-
-            {/* Row A */}
-            <div className="ovl-default-row ovl-default-row--a" style={rowBase}>
-              <div
-                style={{
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  textTransform: "uppercase",
-                }}
-                title={nameA}
-              >
-                {nameA}
-              </div>
-              <div
-                style={{
-                  fontSize: 20,
-                  minWidth: 28,
-                  textAlign: "right",
-                }}
-              >
-                {scoreA}
-              </div>
-            </div>
-
-            {/* Row B */}
-            <div
-              className="ovl-default-row ovl-default-row--b"
-              style={{
-                ...rowBase,
-                borderTop: "1px solid #262626",
-                borderBottomLeftRadius: effective.rounded || 16,
-                borderBottomRightRadius: effective.rounded || 16,
+                minWidth: 380,
+                maxWidth: 520,
+                overflow: "hidden",
+                fontFamily: effective.fontFamily,
+                pointerEvents: "none",
               }}
             >
+              {/* Thanh trắng trên: tên giải */}
               <div
+                className="ovl-default-top"
                 style={{
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
+                  background: "#ffffff",
+                  color: "#000000",
+                  padding: "4px 14px",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  letterSpacing: 0.4,
                   textTransform: "uppercase",
+                  textAlign: "center",
+                  whiteSpace: "nowrap",
+                  textOverflow: "ellipsis",
+                  overflow: "hidden",
+                  width: "max-content"
                 }}
-                title={nameB}
+                title={topTitle}
               >
-                {nameB}
+                {topTitle}
               </div>
+
+              {/* Khối giữa: logo giải (pbtv) + tên đội + cột điểm xanh */}
               <div
+                className="ovl-default-middle"
                 style={{
-                  fontSize: 20,
-                  minWidth: 28,
-                  textAlign: "right",
+                  display: "flex",
+                  alignItems: "stretch",
+                  background: "#000000",
                 }}
               >
-                {scoreB}
+                {/* Logo giải bên trái (pbtv) */}
+                {tourLogoUrl ? (
+                  <div
+                    style={{
+                      paddingRight: 10,
+                      display: "flex",
+                      alignItems: "center",
+                    }}
+                  >
+                    <img
+                      src={tourLogoUrl}
+                      alt="tournament-logo"
+                      style={{
+                        height: "100%",
+                        width: 56,
+                        objectFit: "cover",
+                        borderRadius: 4,
+                        display: "block",
+                      }}
+                    />
+                  </div>
+                ) : null}
+
+                {/* Tên đội (khối đen ở giữa) */}
+                <div
+                  className="ovl-default-names"
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "center",
+                    paddingRight: 10,
+                  }}
+                >
+                  {/* Row A */}
+                  <div
+                    className="ovl-default-row ovl-default-row--a"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "4px 0",
+                      gap: 6,
+                      color: "#ffffff",
+                    }}
+                  >
+                    {seedA != null && seedA !== "" && (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          opacity: 0.9,
+                          minWidth: 12,
+                          textAlign: "right",
+                        }}
+                      >
+                        {seedA}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        flex: 1,
+                        fontSize: 16,
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={nameA}
+                    >
+                      {nameA}
+                    </span>
+                    {/* chấm xanh chỉ đội đang giao bóng (giống chấm xanh trong hình) */}
+                    {serveSide === "A" && (
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 999,
+                          background: "#22c55e",
+                          marginLeft: 4,
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  {/* Row B */}
+                  <div
+                    className="ovl-default-row ovl-default-row--b"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "4px 0",
+                      gap: 6,
+                      color: "#ffffff",
+                    }}
+                  >
+                    {seedB != null && seedB !== "" && (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          opacity: 0.9,
+                          minWidth: 12,
+                          textAlign: "right",
+                        }}
+                      >
+                        {seedB}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        flex: 1,
+                        fontSize: 16,
+                        fontWeight: 700,
+                        textTransform: "uppercase",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={nameB}
+                    >
+                      {nameB}
+                    </span>
+                    {serveSide === "B" && (
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 999,
+                          background: "#22c55e",
+                          marginLeft: 4,
+                        }}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* Cột điểm màu xanh bên phải */}
+                <div
+                  className="ovl-default-scores"
+                  style={{
+                    minWidth: 50,
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "stretch",
+                    background:
+                      "rgb(65 147 93)",
+                  }}
+                >
+                  <div
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#ffffff",
+                      fontSize: 22,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {scoreA}
+                  </div>
+                  <div
+                    style={{
+                      height: 1,
+                      width: "100%",
+                      background: "rgba(255,255,255,.3)",
+                    }}
+                  />
+                  <div
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#ffffff",
+                      fontSize: 22,
+                      fontWeight: 600,
+                    }}
+                  >
+                    {scoreB}
+                  </div>
+                </div>
               </div>
+
+              {/* Thanh trắng dưới: info event + round */}
+              {bottomText ? (
+                <div
+                  className="ovl-default-bottom"
+                  style={{
+                    background: "#ffffff",
+                    color: "#000000",
+                    padding: "4px 14px",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    letterSpacing: 0.4,
+                    textTransform: "uppercase",
+                    whiteSpace: "nowrap",
+                    textOverflow: "ellipsis",
+                    overflow: "hidden",
+                    maxWidth: "max-content"
+                  }}
+                  title={bottomText}
+                >
+                  {bottomText}
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
 
+        {/* custom css từ BE nếu có */}
         {effective.customCss ? <style>{effective.customCss}</style> : null}
+
+        {/* Clock nếu ?clock=1 */}
+        <ClockBox
+          show={showClock}
+          cssVarStyle={cssVarStyle}
+          corner={effective.corner}
+        />
       </>
     );
   }
-
+  
   // ✅ BÌNH THƯỜNG: render scoreboard như cũ
   return (
     <>

@@ -28,7 +28,7 @@ const App = () => {
       <Container className="" style={{ marginBottom: "80px" }}>
         <Outlet />
         <MobileBottomNav />
-        <RegInvitesModal />
+        {/* <RegInvitesModal /> */}
       </Container>
     </>
   );

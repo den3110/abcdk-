@@ -27,12 +27,12 @@ function log(level, msg, extra) {
   if (extra !== undefined) {
     // In gọn gàng, tránh dump payload quá dài
     try {
-      console.log(prefix, msg, JSON.stringify(extra));
+      // console.log(prefix, msg, JSON.stringify(extra));
     } catch {
-      console.log(prefix, msg, extra);
+      // console.log(prefix, msg, extra);
     }
   } else {
-    console.log(prefix, msg);
+    // console.log(prefix, msg);
   }
 }
 

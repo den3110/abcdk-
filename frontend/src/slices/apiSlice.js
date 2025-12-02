@@ -3,11 +3,36 @@ import { fetchBaseQuery, createApi } from "@reduxjs/toolkit/query/react";
 import { logout, setCredentials } from "./authSlice"; // chỉnh path nếu khác
 import { createListenerMiddleware } from "@reduxjs/toolkit";
 
+const generateRequestId = () => {
+  try {
+    // Browser hỗ trợ chuẩn
+    if (
+      typeof crypto !== "undefined" &&
+      typeof crypto.randomUUID === "function"
+    ) {
+      return crypto.randomUUID();
+    }
+  } catch (e) {
+    console.log("Cannot use crypto.randomUUID", e);
+  }
+
+  // Fallback đơn giản nhưng đủ unique cho log
+  return "req_" + Math.random().toString(16).slice(2) + Date.now().toString(16);
+};
+
 /* baseQuery gốc (gửi cookie) */
 const rawBaseQuery = fetchBaseQuery({
   baseUrl: import.meta.env.VITE_API_URL,
   credentials: "include",
   prepareHeaders: (headers, { getState }) => {
+    try {
+      const requestId = generateRequestId();
+      if (requestId) {
+        headers.set("X-Request-Id", requestId);
+      }
+    } catch (e) {
+      console.log("Cannot set X-Request-Id", e);
+    }
     try {
       // Timezone dạng "Asia/Ho_Chi_Minh"
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -32,6 +57,24 @@ const rawBaseQuery = fetchBaseQuery({
       headers.set("X-Timezone-Gmt", gmt);
     } catch (e) {
       console.log("Cannot resolve timezone", e);
+    }
+
+    try {
+      // ✅ mới: gắn bot context
+      const state = getState();
+      const botCtx = state.botContext;
+
+      if (botCtx?.matchId) {
+        headers.set("x-pkt-match-id", botCtx.matchId);
+      }
+      if (botCtx?.tournamentId) {
+        headers.set("x-pkt-tournament-id", botCtx.tournamentId);
+      }
+      if (botCtx?.courtCode) {
+        headers.set("x-pkt-court-code", botCtx.courtCode);
+      }
+    } catch (error) {
+      console.log(error);
     }
 
     return headers;

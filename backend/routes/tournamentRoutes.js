@@ -4,6 +4,7 @@ import {
   getTournaments,
   listTournamentBrackets,
   listTournamentMatches,
+  searchTournaments,
 } from "../controllers/tournamentController.js";
 import {
   createRegistration,
@@ -31,12 +32,15 @@ import {
   listMyInvites,
   respondInvite,
 } from "../controllers/regInvitesController.js";
-import { createComplaint, listComplaints } from "../controllers/complaintsController.js";
+import {
+  createComplaint,
+  listComplaints,
+} from "../controllers/complaintsController.js";
 
 const router = express.Router();
 
 router.route("/").get(getTournaments);
-router.route("/:id").get(getTournamentById); // 💡  chi tiết
+router.route("/:id([0-9a-fA-F]{24})").get(getTournamentById); // 💡  chi tiết
 // sau này thêm POST / PUT / DELETE nếu cần
 router
   .route("/:id/registrations")
@@ -77,5 +81,6 @@ router.post(
 
 router.get("/:tournamentId/complaints", protect, listComplaints);
 router.get("/:tid/is-manager", protect, verifyTournamentManager);
+router.get("/search", searchTournaments);
 
 export default router;

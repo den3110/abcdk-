@@ -240,12 +240,25 @@ export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
   };
   if (hasVideoField) createPayload.video = videoSanitized;
 
+  // ✅ fix: khai báo match ngoài try để dùng được bên dưới
+  let match;
   try {
-    const match = await Match.create(createPayload);
+    match = await Match.create(createPayload);
   } catch (e) {
-    console.log(e);
+    console.error("[adminCreateMatch] Match.create error:", e);
+    res.status(500);
+    throw new Error("Không tạo được match");
   }
-  await scheduleMatchStartSoon(match);
+
+  try {
+    await scheduleMatchStartSoon(match);
+  } catch (e) {
+    console.error(
+      "[adminCreateMatch] scheduleMatchStartSoon failed:",
+      e?.message || e
+    );
+    // Không throw - để match vẫn được tạo thành công
+  }
 
   // Link ngược từ trận nguồn (giữ nguyên)
   if (prevMatchA) {
