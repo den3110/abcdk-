@@ -51,7 +51,7 @@ export const getFacebookLoginUrl = async (req, res, next) => {
     ].join(",");
 
     // state có thể bỏ vào userId hoặc random string chống CSRF
-    const state = encodeURIComponent(`user=${getUserIdFromReq(req)}`);
+    const state = encodeURIComponent(`${getUserIdFromReq(req)}`);
 
     const url = `https://www.facebook.com/v24.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(
       redirectUri
@@ -91,12 +91,12 @@ const exchangeCodeForAccessToken = async (code) => {
  */
 export const facebookCallback = async (req, res, next) => {
   try {
-    const { code } = req.query;
+    const { code, state } = req.query;
     if (!code) {
       return res.status(400).json({ message: "code is required" });
     }
 
-    const userId = getUserIdFromReq(req);
+    const userId = state
 
     // 1) code -> user access token
     const tokenData = await exchangeCodeForAccessToken(code);
