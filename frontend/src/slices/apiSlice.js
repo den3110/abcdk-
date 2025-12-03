@@ -70,6 +70,9 @@ const rawBaseQuery = fetchBaseQuery({
       if (botCtx?.tournamentId) {
         headers.set("x-pkt-tournament-id", botCtx.tournamentId);
       }
+       if (botCtx?.bracketId) {
+        headers.set("x-pkt-bracket-id", botCtx.bracketId);
+      }
       if (botCtx?.courtCode) {
         headers.set("x-pkt-court-code", botCtx.courtCode);
       }

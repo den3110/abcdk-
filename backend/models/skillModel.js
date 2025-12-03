@@ -1,32 +1,67 @@
 // models/skillModel.js
 import mongoose from "mongoose";
 
-const { Schema } = mongoose;
-
-const SkillSchema = new Schema(
+const skillSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true },
-    description: { type: String, default: "" },
-    examples: [{ type: String }],
-
-    // Lưu schema input mà GPT sinh ra (JSON tùy ý)
-    input_schema: { type: Schema.Types.Mixed },
-
-    // Action DSL (mongo/http/internal...)
-    action: { type: Schema.Types.Mixed, required: true },
-
-    response_template: { type: String, default: "" },
-
-    // Embedding để search (mảng số)
-    embedding: [{ type: Number }],
-
-    // Bạn có thể lưu thêm metadata nếu muốn
-    meta: { type: Schema.Types.Mixed }
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+      unique: true,
+    },
+    description: {
+      type: String,
+      default: "",
+    },
+    examples: {
+      type: [String],
+      default: [],
+    },
+    input_schema: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    action: {
+      type: {
+        type: String,
+        enum: ["mongo", "aggregate", "internal", "http"], // ✅ THÊM "aggregate"
+        required: true,
+      },
+      config: {
+        type: mongoose.Schema.Types.Mixed,
+        required: true,
+      },
+    },
+    response_template: {
+      type: String,
+      default: "",
+    },
+    embedding: {
+      type: [Number],
+      default: null,
+    },
+    enabled: {
+      type: Boolean,
+      default: true,
+    },
+    usageCount: {
+      type: Number,
+      default: 0,
+    },
+    lastUsedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
-    timestamps: true
+    timestamps: true,
   }
 );
 
-const Skill = mongoose.model("Skill", SkillSchema);
+skillSchema.index({ name: 1 });
+skillSchema.index({ enabled: 1 });
+skillSchema.index({ usageCount: -1 });
+
+const Skill = mongoose.model("Skill", skillSchema);
+
 export default Skill;

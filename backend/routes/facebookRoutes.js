@@ -12,7 +12,7 @@ const router = express.Router();
 
 // user phải login mới connect được
 router.get("/me/facebook/login-url", protect, getFacebookLoginUrl);
-router.get("/me/facebook/callback", protect, facebookCallback);
+router.get("/me/facebook/callback", facebookCallback);
 router.get("/me/facebook/pages", protect, getMyFacebookPages);
 router.delete("/me/facebook/pages/:id", protect, deleteFacebookPage);
 
