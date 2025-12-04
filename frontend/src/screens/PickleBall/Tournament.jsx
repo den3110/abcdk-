@@ -48,6 +48,7 @@ import { DateRangePicker } from "@mui/x-date-pickers-pro/DateRangePicker";
 
 // ====== Zoom components ======
 import { ZoomProvider, ZoomItem } from "../../components/Zoom";
+import SponsorMarquee from "../../components/SponsorMarquee";
 
 // --- STYLED COMPONENTS ---
 
@@ -561,199 +562,200 @@ export default function TournamentDashboard() {
   };
 
   return (
-    <Container maxWidth="xl" sx={{ py: 2, minHeight: "100vh" }}>
-      {/* HEADER STATS */}
-      <Stack
-        direction={{ xs: "column", md: "row" }}
-        spacing={4}
-        alignItems="center"
-        sx={{ mb: 5 }}
-      >
-        <Box flex={1}>
-          <Typography variant="h4" fontWeight={600} sx={{ mb: 1 }}>
-            Giải Đấu
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            Quản lý và tham gia các giải đấu thể thao chuyên nghiệp.
-          </Typography>
-        </Box>
-
+    <>
+      <SponsorMarquee variant="glass" height={80} gap={24} />
+      <Container maxWidth="xl" sx={{ py: 2, minHeight: "100vh" }}>
+        {/* HEADER STATS */}
         <Stack
-          direction="row"
-          spacing={2}
-          sx={{ width: { xs: "100%", md: "auto" }, overflowX: "auto", pb: 1 }}
+          direction={{ xs: "column", md: "row" }}
+          spacing={4}
+          alignItems="center"
+          sx={{ mb: 5 }}
         >
-          <StatBox>
-            <Typography
-              variant="caption"
-              fontWeight={700}
-              color="text.secondary"
+          <Box flex={1}>
+            <Typography variant="h4" fontWeight={600} sx={{ mb: 1 }}>
+              Giải Đấu
+            </Typography>
+            <Typography variant="body1" color="text.secondary">
+              Quản lý và tham gia các giải đấu thể thao chuyên nghiệp.
+            </Typography>
+          </Box>
+
+          <Stack
+            direction="row"
+            spacing={2}
+            sx={{ width: { xs: "100%", md: "auto" }, overflowX: "auto", pb: 1 }}
+          >
+            <StatBox>
+              <Typography
+                variant="caption"
+                fontWeight={700}
+                color="text.secondary"
+              >
+                TỔNG GIẢI
+              </Typography>
+              <Typography variant="h4" fontWeight={800}>
+                {counts.total}
+              </Typography>
+            </StatBox>
+            <StatBox
+              sx={{
+                borderColor: "success.main",
+                bgcolor: alpha(theme.palette.success.main, 0.05),
+              }}
             >
-              TỔNG GIẢI
-            </Typography>
-            <Typography variant="h4" fontWeight={800}>
-              {counts.total}
-            </Typography>
-          </StatBox>
-          <StatBox
-            sx={{
-              borderColor: "success.main",
-              bgcolor: alpha(theme.palette.success.main, 0.05),
-            }}
-          >
-            <Typography variant="caption" fontWeight={700} color="success.main">
-              ĐANG DIỄN RA
-            </Typography>
-            <Typography variant="h4" fontWeight={800} color="success.main">
-              {counts.ongoing}
-            </Typography>
-          </StatBox>
-          <StatBox
-            sx={{
-              borderColor: "info.main",
-              bgcolor: alpha(theme.palette.info.main, 0.05),
-            }}
-          >
-            <Typography variant="caption" fontWeight={700} color="info.main">
-              SẮP TỚI
-            </Typography>
-            <Typography variant="h4" fontWeight={800} color="info.main">
-              {counts.upcoming}
-            </Typography>
-          </StatBox>
+              <Typography
+                variant="caption"
+                fontWeight={700}
+                color="success.main"
+              >
+                ĐANG DIỄN RA
+              </Typography>
+              <Typography variant="h4" fontWeight={800} color="success.main">
+                {counts.ongoing}
+              </Typography>
+            </StatBox>
+            <StatBox
+              sx={{
+                borderColor: "info.main",
+                bgcolor: alpha(theme.palette.info.main, 0.05),
+              }}
+            >
+              <Typography variant="caption" fontWeight={700} color="info.main">
+                SẮP TỚI
+              </Typography>
+              <Typography variant="h4" fontWeight={800} color="info.main">
+                {counts.upcoming}
+              </Typography>
+            </StatBox>
+          </Stack>
         </Stack>
-      </Stack>
 
-      {/* CONTROLS */}
-      <Stack
-        direction={{ xs: "column", lg: "row" }}
-        spacing={2}
-        alignItems={{ xs: "stretch", lg: "center" }}
-        justifyContent="space-between"
-        sx={{ mb: 4 }}
-      >
-        <Tabs
-          value={tab}
-          onChange={handleChangeTab}
-          variant="scrollable"
-          sx={{
-            minHeight: 48,
-            "& .MuiTab-root": {
-              borderRadius: 3,
-              mr: 1,
-              px: 3,
-              fontWeight: 700,
-              textTransform: "none",
-              minHeight: 44,
-              transition: "all 0.2s",
-              "&.Mui-selected": { bgcolor: "primary.main", color: "#fff" },
-            },
-            "& .MuiTabs-indicator": { display: "none" },
-          }}
+        {/* CONTROLS */}
+        <Stack
+          direction={{ xs: "column", lg: "row" }}
+          spacing={2}
+          alignItems={{ xs: "stretch", lg: "center" }}
+          justifyContent="space-between"
+          sx={{ mb: 4 }}
         >
-          {TABS.map((v) => (
-            <Tab key={v} value={v} label={STATUS_META[v].label} />
-          ))}
-        </Tabs>
-
-        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
-          <TextField
-            placeholder="Tìm tên giải đấu..."
-            size="small"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
+          <Tabs
+            value={tab}
+            onChange={handleChangeTab}
+            variant="scrollable"
             sx={{
-              width: { xs: "100%", sm: 240 },
-              "& .MuiOutlinedInput-root": {
+              minHeight: 48,
+              "& .MuiTab-root": {
                 borderRadius: 3,
-                bgcolor: "background.paper",
+                mr: 1,
+                px: 3,
+                fontWeight: 700,
+                textTransform: "none",
+                minHeight: 44,
+                transition: "all 0.2s",
+                "&.Mui-selected": { bgcolor: "primary.main", color: "#fff" },
               },
+              "& .MuiTabs-indicator": { display: "none" },
             }}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-              endAdornment: keyword && (
-                <IconButton size="small" onClick={() => setKeyword("")}>
-                  <ClearIcon fontSize="small" />
-                </IconButton>
-              ),
-            }}
-          />
-          <Box sx={{ width: { xs: "100%", sm: 300 } }}>
-            {/* FIX: Khôi phục calendars={2} */}
-            <DateRangePicker
-              calendars={2}
-              value={dateRange}
-              onChange={(v) => setDateRange(v)}
-              slotProps={{
-                textField: {
-                  size: "small",
-                  fullWidth: true,
-                  placeholder: "Lọc theo ngày",
-                  InputProps: {
-                    sx: { borderRadius: 3, bgcolor: "background.paper" },
-                  },
+          >
+            {TABS.map((v) => (
+              <Tab key={v} value={v} label={STATUS_META[v].label} />
+            ))}
+          </Tabs>
+
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
+            <TextField
+              placeholder="Tìm tên giải đấu..."
+              size="small"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              sx={{
+                width: { xs: "100%", sm: 240 },
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: 3,
+                  bgcolor: "background.paper",
                 },
               }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                ),
+                endAdornment: keyword && (
+                  <IconButton size="small" onClick={() => setKeyword("")}>
+                    <ClearIcon fontSize="small" />
+                  </IconButton>
+                ),
+              }}
             />
-          </Box>
-          {(dateRange[0] || dateRange[1]) && (
-            <Button
-              color="error"
-              variant="outlined"
-              sx={{ borderRadius: 3, minWidth: 40 }}
-              onClick={() => setDateRange([null, null])}
-            >
-              <FilterListIcon />
-            </Button>
-          )}
-        </Stack>
-      </Stack>
-
-      {/* LIST CONTENT (Grid v7) */}
-      <Box sx={{ minHeight: 400 }}>
-        {error && (
-          <Box
-            p={3}
-            color="error.dark"
-            borderRadius={3}
-            textAlign="center"
-          >
-            Lỗi tải dữ liệu: {error?.data?.message}
-          </Box>
-        )}
-
-        {isLoading ? (
-          <Grid container spacing={3}>
-            {[...Array(8)].map((_, i) => (
-              <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={i}>
-                <Skeleton
-                  variant="rounded"
-                  height={400}
-                  sx={{ borderRadius: 4 }}
-                />
-              </Grid>
-            ))}
-          </Grid>
-        ) : (
-          <ZoomProvider maskOpacity={0.8}>
-            {filtered.length === 0 ? (
-              <Stack
-                alignItems="center"
-                justifyContent="center"
-                spacing={2}
-                sx={{ py: 10, opacity: 0.6 }}
+            <Box sx={{ width: { xs: "100%", sm: 300 } }}>
+              {/* FIX: Khôi phục calendars={2} */}
+              <DateRangePicker
+                calendars={2}
+                value={dateRange}
+                onChange={(v) => setDateRange(v)}
+                slotProps={{
+                  textField: {
+                    size: "small",
+                    fullWidth: true,
+                    placeholder: "Lọc theo ngày",
+                    InputProps: {
+                      sx: { borderRadius: 3, bgcolor: "background.paper" },
+                    },
+                  },
+                }}
+              />
+            </Box>
+            {(dateRange[0] || dateRange[1]) && (
+              <Button
+                color="error"
+                variant="outlined"
+                sx={{ borderRadius: 3, minWidth: 40 }}
+                onClick={() => setDateRange([null, null])}
               >
-                <EmojiEventsIcon
-                  sx={{ fontSize: 80, color: "text.disabled" }}
-                />
-                <Typography variant="h6" color="text.disabled">
-                  Không tìm thấy giải đấu nào phù hợp.
-                </Typography>
-                {/* <Button
+                <FilterListIcon />
+              </Button>
+            )}
+          </Stack>
+        </Stack>
+
+        {/* LIST CONTENT (Grid v7) */}
+        <Box sx={{ minHeight: 400 }}>
+          {error && (
+            <Box p={3} color="error.dark" borderRadius={3} textAlign="center">
+              Lỗi tải dữ liệu: {error?.data?.message}
+            </Box>
+          )}
+
+          {isLoading ? (
+            <Grid container spacing={3}>
+              {[...Array(8)].map((_, i) => (
+                <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={i}>
+                  <Skeleton
+                    variant="rounded"
+                    height={400}
+                    sx={{ borderRadius: 4 }}
+                  />
+                </Grid>
+              ))}
+            </Grid>
+          ) : (
+            <ZoomProvider maskOpacity={0.8}>
+              {filtered.length === 0 ? (
+                <Stack
+                  alignItems="center"
+                  justifyContent="center"
+                  spacing={2}
+                  sx={{ py: 10, opacity: 0.6 }}
+                >
+                  <EmojiEventsIcon
+                    sx={{ fontSize: 80, color: "text.disabled" }}
+                  />
+                  <Typography variant="h6" color="text.disabled">
+                    Không tìm thấy giải đấu nào phù hợp.
+                  </Typography>
+                  {/* <Button
                   variant="text"
                   onClick={() => {
                     setKeyword("");
@@ -762,23 +764,24 @@ export default function TournamentDashboard() {
                 >
                   Xoá bộ lọc
                 </Button> */}
-              </Stack>
-            ) : (
-              <Grid container spacing={3}>
-                {filtered.map((t) => (
-                  <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={t._id}>
-                    <Fade in timeout={500}>
-                      <Box height="100%">
-                        <TournamentCard t={t} />
-                      </Box>
-                    </Fade>
-                  </Grid>
-                ))}
-              </Grid>
-            )}
-          </ZoomProvider>
-        )}
-      </Box>
-    </Container>
+                </Stack>
+              ) : (
+                <Grid container spacing={3}>
+                  {filtered.map((t) => (
+                    <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={t._id}>
+                      <Fade in timeout={500}>
+                        <Box height="100%">
+                          <TournamentCard t={t} />
+                        </Box>
+                      </Fade>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+            </ZoomProvider>
+          )}
+        </Box>
+      </Container>
+    </>
   );
 }

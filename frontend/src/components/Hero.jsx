@@ -9,6 +9,7 @@ import {
   useGetContactContentQuery,
 } from "../slices/cmsApiSlice";
 import AppInstallBanner from "./AppInstallBanner";
+import SponsorMarquee from "./SponsorMarquee";
 
 // ===== Assets & Fallbacks =====
 const fallbackImg = `${import.meta.env.BASE_URL}hero.jpg`;
@@ -226,6 +227,7 @@ export default function Hero() {
           }}
         />
       )}
+      <SponsorMarquee variant="glass" height={80} gap={24} />
 
       {/* ======= HERO SECTION ======= */}
       <section
