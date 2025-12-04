@@ -1,5 +1,6 @@
 // controllers/facebookConnectController.js
 import FacebookPageConnection from "../models/facebookPageConnectionModel.js";
+import { getCfgStr } from "../services/config.service.js";
 
 const FB_API = "https://graph.facebook.com/v24.0";
 
@@ -39,6 +40,7 @@ const getUserIdFromReq = (req) => {
  */
 export const getFacebookLoginUrl = async (req, res, next) => {
   try {
+     const graphVer = await getCfgStr("GRAPH_VER", "v24.0");
     const redirectUri = getRedirectUri();
     const appId = process.env.FB_APP_ID;
 
@@ -53,7 +55,7 @@ export const getFacebookLoginUrl = async (req, res, next) => {
     // state có thể bỏ vào userId hoặc random string chống CSRF
     const state = encodeURIComponent(`${getUserIdFromReq(req)}`);
 
-    const url = `https://www.facebook.com/v24.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(
+    const url = `https://www.facebook.com/${graphVer}/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(
       redirectUri
     )}&scope=${scopes}&response_type=code&state=${state}`;
 
@@ -86,9 +88,29 @@ const exchangeCodeForAccessToken = async (code) => {
 };
 
 /**
- * GET /api/me/facebook/callback
- * Callback URL Facebook gọi về sau khi user chấp nhận OAuth
+ * Đổi user short-lived token -> long-lived user token (60 ngày)
  */
+async function exchangeUserTokenForLongLived(shortUserToken) {
+  const params = new URLSearchParams({
+    grant_type: "fb_exchange_token",
+    client_id: FB_APP_ID,
+    client_secret: FB_APP_SECRET,
+    fb_exchange_token: shortUserToken,
+  });
+
+  const res = await fetch(`${FB_API}/oauth/access_token?${params.toString()}`);
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `Failed to exchange long-lived user token: ${res.status} ${text}`
+    );
+  }
+
+  // { access_token, token_type, expires_in }
+  return res.json();
+}
+
 export const facebookCallback = async (req, res, next) => {
   try {
     const { code, state } = req.query;
@@ -96,13 +118,38 @@ export const facebookCallback = async (req, res, next) => {
       return res.status(400).json({ message: "code is required" });
     }
 
-    const userId = state
+    const userId = state;
 
-    // 1) code -> user access token
+    // 1) code -> short-lived user access token
     const tokenData = await exchangeCodeForAccessToken(code);
-    const userAccessToken = tokenData.access_token;
+    const shortUserAccessToken = tokenData.access_token;
 
-    // 2) lấy list page user quản lý
+    // 2) đổi sang long-lived user token (nếu lỗi thì fallback short)
+    let userAccessToken = shortUserAccessToken;
+    let expireAt = null;
+
+    try {
+      const longLived = await exchangeUserTokenForLongLived(
+        shortUserAccessToken
+      );
+      userAccessToken = longLived.access_token || shortUserAccessToken;
+
+      if (longLived.expires_in) {
+        // expires_in là giây
+        expireAt = new Date(Date.now() + longLived.expires_in * 1000);
+      }
+    } catch (err) {
+      console.error(
+        "[facebookCallback] exchange long-lived token failed:",
+        err?.message || err
+      );
+      // vẫn tiếp tục dùng short token cho userAccessToken
+      if (tokenData.expires_in) {
+        expireAt = new Date(Date.now() + tokenData.expires_in * 1000);
+      }
+    }
+
+    // 3) lấy list page user quản lý bằng long-lived userAccessToken
     const pagesRes = await fetch(
       `${FB_API}/me/accounts?fields=id,name,picture,category,access_token`,
       {
@@ -120,7 +167,8 @@ export const facebookCallback = async (req, res, next) => {
     const pagesJson = await pagesRes.json();
     const pages = pagesJson.data || [];
 
-    // 3) lưu / upsert vào DB
+    // 4) lưu / upsert vào DB
+    // pageAccessToken ở đây đã là token tạo từ long-lived user token
     const ops = pages.map((p) => ({
       updateOne: {
         filter: { user: userId, pageId: p.id },
@@ -131,6 +179,7 @@ export const facebookCallback = async (req, res, next) => {
           pagePicture: p.picture?.data?.url,
           pageCategory: p.category,
           pageAccessToken: p.access_token,
+          expireAt, // NEW: cùng hạn với user long-lived token
           raw: p,
         },
         upsert: true,
@@ -141,7 +190,7 @@ export const facebookCallback = async (req, res, next) => {
       await FacebookPageConnection.bulkWrite(ops);
     }
 
-    // 4) redirect về frontend cho đẹp
+    // 5) redirect về frontend
     const frontendUrl = getFrontendUrl();
     res.redirect(`${frontendUrl}/settings/facebook?connected=1`);
   } catch (err) {

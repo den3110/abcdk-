@@ -63,6 +63,7 @@ import leaderboardRoutes from "./routes/leaderboardRoutes.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
 import liveRecordingRoutes from "./routes/liveRecordingRoutes.js";
 import facebookRoutes from "./routes/facebookRoutes.js";
+import userMatchRoutes from "./routes/userMatchRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
 import { initNewsCron } from "./jobs/newsCron.js";
 // 🔹 GraphQL layer
@@ -198,7 +199,7 @@ app.use("/api/leaderboards", leaderboardRoutes);
 app.use("/api/schedule", scheduleRoutes);
 app.use("/api/fb", facebookRoutes);
 app.use("/api/chat", chatBotRoutes);
-
+app.use("/api/user-matches", userMatchRoutes);
 
 
 app.get("/dl/file/:id", async (req, res) => {

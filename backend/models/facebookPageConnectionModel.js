@@ -18,11 +18,14 @@ const facebookPageConnectionSchema = new Schema(
     pagePicture: { type: String },
     pageCategory: { type: String },
 
-    // Token để live lên page này
+    // Token để live lên page này (long-lived nếu có thể)
     pageAccessToken: { type: String, required: true },
 
+    // Thời điểm hết hạn token (nếu Facebook trả expires_in)
+    expireAt: { type: Date }, // NEW
+
     // Có thể thêm flags
-    isDefault: { type: Boolean, default: false }, // default cho user (tuỳ bạn có xài hay không)
+    isDefault: { type: Boolean, default: false },
 
     // Để sau này mình debug / revoke
     raw: { type: Object },

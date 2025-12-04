@@ -198,6 +198,14 @@ const matchSchema = new Schema(
       { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
     ],
 
+    // 🆕 Người tạo trận (trận user tự tạo)
+    createdBy: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
+      index: true,
+      default: null,
+    },
+
     // Live state
     currentGame: { type: Number, default: 0 },
     serve: {
@@ -1550,5 +1558,7 @@ matchSchema.index(
     },
   }
 );
+
+matchSchema.index({ createdBy: 1, createdAt: -1 });
 
 export default mongoose.model("Match", matchSchema);

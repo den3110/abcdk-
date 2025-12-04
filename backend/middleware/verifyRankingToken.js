@@ -46,7 +46,7 @@ export function verifyRankingToken(req, res, next) {
     }
 
     const now = Math.floor(Date.now() / 1000);
-    if (Math.abs(now - ts) > 10) {
+    if (Math.abs(now - ts) > 60) {
       return res.status(403).json({ message: "Token expired" });
     }
 
