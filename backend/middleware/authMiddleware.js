@@ -108,6 +108,12 @@ export const authorize =
 /* Chỉ referee hoặc admin */
 // ✅ Referee/Admin only — luôn fetch user từ DB
 export const refereeOnly = asyncHandler(async (req, res, next) => {
+  // ✅ Bypass nếu là request cho userMatch (hoặc bất kỳ kind nào) 
+  const matchKind = req.header("x-pkt-match-kind") || req.headers["x-pkt-match-kind"];
+  if (matchKind) {
+    return next();
+  }
+
   const uid = req.user?._id || req.user?.id;
   if (!uid || !isValidId(String(uid))) {
     res.status(401);
@@ -129,9 +135,9 @@ export const refereeOnly = asyncHandler(async (req, res, next) => {
 
   if (actor.role === "admin" || actor.role === "referee") return next();
 
+  // ❌ Không phải admin/referee và cũng không có header x-pkt-match-kind
   res.status(403);
-  // throw new Error("Referee-only endpoint");
-   return next(); // tạm thời để vậy 
+  throw new Error("Referee-only endpoint");
 });
 
 // ✅ Admin/Referee chấm bất kỳ; user chỉ chấm chính mình — luôn fetch user từ DB

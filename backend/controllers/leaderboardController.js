@@ -5,6 +5,7 @@ import Match from "../models/matchModel.js";
 import Registration from "../models/registrationModel.js";
 import User from "../models/userModel.js";
 import Bracket from "../models/bracketModel.js";
+import Tournament from "../models/tournamentModel.js";
 
 /**
  * GET /api/leaderboards/featured
@@ -217,6 +218,19 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         },
       },
 
+      // ✅ ADD: Flatten tournament IDs để lookup
+      {
+        $addFields: {
+          uniqueTournamentIds: {
+            $reduce: {
+              input: "$tournamentsPlayedArrays",
+              initialValue: [],
+              in: { $setUnion: ["$$value", "$$this"] },
+            },
+          },
+        },
+      },
+
       // Project
       {
         $project: {
@@ -225,7 +239,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
           totalWins: 1,
           lastWinDate: 1,
           pairsCount: 1,
-          tournamentsPlayedArrays: 1,
+          uniqueTournamentIds: 1, // ✅ Để lookup tournaments
           allMatches: 1, // ✅ Giữ lại để process ở JS
           name: {
             $ifNull: [
@@ -235,6 +249,9 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
               "$userInfo.displayName",
               "Vận động viên",
             ],
+          },
+          nickname: {
+            $ifNull: ["$userInfo.nickname", "$userInfo.nickName", ""],
           },
           avatar: {
             $ifNull: [
@@ -319,27 +336,93 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
       }`
     );
 
+    // ✅ BƯỚC 4: Lookup tournament details cho top athletes
+    const allTournamentIds = [
+      ...new Set(
+        topRows
+          .map((r) => r.uniqueTournamentIds || [])
+          .flat()
+          .filter(Boolean)
+          .map(String)
+      ),
+    ];
+
+    console.log(`📊 Looking up ${allTournamentIds.length} unique tournaments`);
+
+    const tournaments = await Tournament.find({
+      _id: { $in: allTournamentIds },
+    })
+      .select("_id name image location startDate endDate status")
+      .lean();
+
+    const tournamentMap = new Map(tournaments.map((t) => [String(t._id), t]));
+
     // Format kết quả cuối
     const result = topRows.map((r, idx) => {
-      const tourIds = (r.tournamentsPlayedArrays || []).flat().filter(Boolean);
-      const uniqueTournaments = [...new Set(tourIds.map(String))];
+      const tourIds = (r.uniqueTournamentIds || []).filter(Boolean).map(String);
+      const uniqueTournamentIds = [...new Set(tourIds)];
+
+      // ✅ Lấy thông tin chi tiết tournaments
+      const tournamentsDetails = uniqueTournamentIds
+        .map((tid) => tournamentMap.get(tid))
+        .filter(Boolean)
+        .map((t) => ({
+          id: t._id,
+          name: t.name,
+          image: t.image,
+          location: t.location,
+          startDate: t.startDate,
+          endDate: t.endDate,
+          status: t.status,
+        }));
 
       const sinceLabel = sinceDays === 1 ? "24h" : `${sinceDays} ngày`;
-      const achievementParts = [];
+
+      // ✅ Trả về achievements dạng array với các metrics
+      const achievements = [];
 
       if (r.finalWins > 0) {
-        achievementParts.push(`🏆 ${r.finalWins} chức vô địch`);
+        achievements.push({
+          type: "champion",
+          icon: "🏆",
+          label: "Chức vô địch",
+          value: r.finalWins,
+        });
       }
+
       if (r.finalAppearances > 0) {
-        achievementParts.push(`🎯 ${r.finalAppearances} chung kết`);
+        achievements.push({
+          type: "finalist",
+          icon: "🎯",
+          label: "Chung kết",
+          value: r.finalAppearances,
+        });
       }
-      achievementParts.push(
-        `✅ ${r.totalWins}/${r.totalMatches} thắng (${r.winRate}%)`
-      );
-      if (uniqueTournaments.length > 0) {
-        achievementParts.push(`🏆 ${uniqueTournaments.length} giải`);
+
+      achievements.push({
+        type: "wins",
+        icon: "✅",
+        label: "Trận thắng",
+        value: r.totalWins,
+        total: r.totalMatches,
+        winRate: r.winRate,
+      });
+
+      if (tournamentsDetails.length > 0) {
+        achievements.push({
+          type: "tournaments",
+          icon: "🏆",
+          label: "Giải đấu",
+          value: tournamentsDetails.length,
+        });
       }
-      achievementParts.push(`📅 ${sinceLabel}`);
+
+      achievements.push({
+        type: "period",
+        icon: "📅",
+        label: "Thời gian",
+        value: sinceLabel,
+      });
 
       return {
         userId: r.userId,
@@ -350,11 +433,12 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         winRate: r.winRate,
         finalApps: r.finalAppearances,
         finalWins: r.finalWins,
-        tournaments: uniqueTournaments.length,
+        tournaments: tournamentsDetails, // ✅ Array of tournament objects
         lastWinAt: r.lastWinDate,
         name: r.name,
+        nickname: r.nickname, // ✅ ADD nickname
         avatar: r.avatar,
-        achievement: achievementParts.join(" • "),
+        achievements, // ✅ Array thay vì string
       };
     });
 

@@ -17,7 +17,7 @@ import {
 import Court from "../models/courtModel.js";
 import { decorateServeAndSlots } from "../utils/liveServeUtils.js";
 import { broadcastState } from "../services/broadcastState.js";
-
+import UserMatch from "../models/userMatchModel.js";
 /* ───────── helpers ───────── */
 function isGameWin(a = 0, b = 0, rules) {
   const { pointsToWin = 11, winByTwo = true } = rules || {};
@@ -449,16 +449,329 @@ export const patchScore = asyncHandler(async (req, res) => {
     return m.gameScores[m.gameScores.length - 1] || null;
   };
 
-  // ============== Controller main ==============
+  // ============== Common vars ==============
   const io = req.app.get("io");
   const { id } = req.params;
   const { op } = req.body || {};
-  const autoNext = req.body?.autoNext === true; // ✅ chuẩn hoá: chỉ true mới tính là bật
+  const autoNext = req.body?.autoNext === true; // chỉ true mới tính là bật
 
+  const matchKind =
+    req.header("x-pkt-match-kind") || req.headers["x-pkt-match-kind"];
+
+  /* =========================================================
+   * NHÁNH USER MATCH (có header x-pkt-match-kind)
+   * ========================================================= */
+  if (matchKind) {
+    const match = await UserMatch.findById(id);
+    if (!match) {
+      return res.status(404).json({ message: "UserMatch not found" });
+    }
+
+    const rules0 = {
+      bestOf: Number(match.rules?.bestOf ?? 3),
+      pointsToWin: Number(match.rules?.pointsToWin ?? 11),
+      winByTwo:
+        match.rules?.winByTwo === undefined
+          ? true
+          : Boolean(match.rules?.winByTwo),
+      cap: {
+        mode: String(match.rules?.cap?.mode ?? "none"),
+        points:
+          match.rules?.cap?.points === undefined
+            ? null
+            : Number(match.rules.cap.points),
+      },
+    };
+
+    // =============== 1) INC/DEC điểm (UserMatch) ===============
+    if (op === "inc") {
+      const side = req.body?.side;
+      const d = Number(req.body?.delta);
+
+      if (!["A", "B"].includes(side)) {
+        return res.status(400).json({ message: "Invalid side" });
+      }
+      if (!Number.isFinite(d) || d === 0) {
+        return res.status(400).json({ message: "Invalid delta" });
+      }
+
+      if (!Array.isArray(match.gameScores)) match.gameScores = [];
+      if (match.gameScores.length === 0) {
+        match.gameScores.push({ a: 0, b: 0 });
+        match.currentGame = 0;
+      }
+
+      const len = match.gameScores.length;
+      let idx = Number.isInteger(match.currentGame)
+        ? match.currentGame
+        : len - 1;
+      if (idx < 0 || idx >= len) idx = len - 1;
+
+      const g = match.gameScores[idx] || { a: 0, b: 0 };
+      if (side === "A") {
+        g.a = Math.max(0, (Number(g.a) || 0) + d);
+      } else {
+        g.b = Math.max(0, (Number(g.b) || 0) + d);
+      }
+      match.gameScores[idx] = g;
+
+      await match.save();
+
+      const freshDoc = await UserMatch.findById(id);
+      if (!freshDoc) {
+        return res.status(404).json({ message: "UserMatch not found" });
+      }
+
+      const rulesNow = getRulesFromDoc(freshDoc, rules0);
+
+      if (freshDoc.status === "finished") {
+        if (!freshDoc.finishedAt) {
+          freshDoc.finishedAt = new Date();
+          await freshDoc.save();
+        }
+      } else if (autoNext) {
+        await finalizeMatchIfDone(freshDoc, rulesNow);
+      }
+
+      if (autoNext && freshDoc.status !== "finished") {
+        const lg = lastGame(freshDoc);
+        if (lg) {
+          const ev = evaluateGameFinish(lg.a ?? 0, lg.b ?? 0, rulesNow);
+          if (ev.finished) {
+            const { aWins, bWins } = countWins(
+              freshDoc.gameScores || [],
+              rulesNow
+            );
+            const need = Math.floor(Number(rulesNow.bestOf) / 2) + 1;
+            const matchDone = aWins >= need || bWins >= need;
+            if (!matchDone) {
+              freshDoc.gameScores.push({ a: 0, b: 0 });
+              freshDoc.currentGame = freshDoc.gameScores.length - 1;
+
+              // reset giao bóng đầu ván
+              freshDoc.serve = freshDoc.serve || { side: "A", server: 2 };
+              freshDoc.serve.side = freshDoc.serve.side || "A";
+              freshDoc.serve.server = 2;
+
+              freshDoc.liveLog = freshDoc.liveLog || [];
+              freshDoc.liveLog.push({
+                type: "serve",
+                by: req.user?._id || null,
+                payload: { side: freshDoc.serve.side, server: 2 },
+                at: new Date(),
+              });
+
+              await freshDoc.save();
+            }
+          }
+        }
+      }
+
+      const fresh = await UserMatch.findById(id).lean();
+      io?.to(`match:${id}`).emit("score:updated", {
+        matchId: id,
+        type: "userMatch",
+      });
+
+      return res.json({
+        message: "Score updated",
+        gameScores: fresh?.gameScores ?? [],
+        status: fresh?.status,
+        winner: fresh?.winner,
+      });
+    }
+
+    // =============== 2) SET GAME tại index cụ thể (UserMatch) ===============
+    if (op === "setGame") {
+      let { gameIndex, a = 0, b = 0 } = req.body;
+
+      if (!Number.isInteger(gameIndex) || gameIndex < 0) {
+        return res.status(400).json({ message: "Invalid gameIndex" });
+      }
+      if (!Array.isArray(match.gameScores)) match.gameScores = [];
+      if (gameIndex > match.gameScores.length) {
+        return res.status(400).json({ message: "gameIndex out of range" });
+      }
+
+      a = Number(a) || 0;
+      b = Number(b) || 0;
+
+      const rulesNow = getRulesFromDoc(match, rules0);
+
+      // evaluate để tham khảo (giống nhánh Match), không auto gì nếu không tick
+      evaluateGameFinish(a, b, rulesNow);
+
+      const nextScore = { a, b };
+      if (gameIndex === match.gameScores.length) {
+        match.gameScores.push(nextScore);
+      } else {
+        match.gameScores[gameIndex] = nextScore;
+      }
+
+      match.currentGame = gameIndex;
+
+      if (autoNext) {
+        await finalizeMatchIfDone(match, rulesNow);
+      }
+
+      await match.save();
+      io?.to(`match:${id}`).emit("score:updated", {
+        matchId: id,
+        type: "userMatch",
+      });
+
+      return res.json({
+        message: "Game set",
+        gameScores: match.gameScores,
+        currentGame: match.currentGame,
+        status: match.status,
+        winner: match.winner,
+      });
+    }
+
+    // =============== 3) MỞ VÁN MỚI (UserMatch) ===============
+    if (op === "nextGame") {
+      const rulesNow = getRulesFromDoc(match, rules0);
+
+      if (!Array.isArray(match.gameScores) || match.gameScores.length === 0) {
+        return res
+          .status(400)
+          .json({ message: "Chưa có ván hiện tại để kiểm tra" });
+      }
+
+      const eva = (g) =>
+        evaluateGameFinish(Number(g?.a || 0), Number(g?.b || 0), rulesNow);
+
+      const len = match.gameScores.length;
+      const cg = Number.isInteger(match.currentGame)
+        ? match.currentGame
+        : len - 1;
+      const idx = Math.min(Math.max(cg, 0), len - 1);
+
+      const cur = match.gameScores[idx];
+      const curEv = eva(cur);
+
+      const hasTrailingZero =
+        len >= 2 &&
+        Number(match.gameScores[len - 1]?.a || 0) === 0 &&
+        Number(match.gameScores[len - 1]?.b || 0) === 0 &&
+        !eva(match.gameScores[len - 1]).finished;
+
+      if (!curEv.finished) {
+        if (
+          hasTrailingZero &&
+          idx > 0 &&
+          eva(match.gameScores[idx - 1]).finished
+        ) {
+          match.currentGame = len - 1;
+          await match.save();
+          io?.to(`match:${id}`).emit("score:updated", {
+            matchId: id,
+            type: "userMatch",
+          });
+          return res.json({
+            message: "Đã ở ván mới rồi",
+            gameScores: match.gameScores,
+            currentGame: match.currentGame,
+            status: match.status,
+            winner: match.winner,
+          });
+        }
+
+        return res
+          .status(400)
+          .json({ message: "Ván hiện tại chưa đủ điều kiện kết thúc" });
+      }
+
+      const { aWins, bWins } = countWins(match.gameScores || [], rulesNow);
+      const need = Math.floor(Number(rulesNow.bestOf) / 2) + 1;
+      const matchDone = aWins >= need || bWins >= need;
+
+      if (matchDone) {
+        if (autoNext === true) {
+          await finalizeMatchIfDone(match, rulesNow);
+          io?.to(`match:${id}`).emit("score:updated", {
+            matchId: id,
+            type: "userMatch",
+          });
+          return res.json({
+            message: "Trận đã đủ số ván thắng, đã kết thúc",
+            gameScores: match.gameScores,
+            currentGame: match.currentGame,
+            status: match.status,
+            winner: match.winner,
+          });
+        } else {
+          io?.to(`match:${id}`).emit("score:updated", {
+            matchId: id,
+            type: "userMatch",
+          });
+          return res.status(409).json({
+            message:
+              "Trận đã đủ số ván thắng. Hãy bấm 'Kết thúc trận' để kết thúc.",
+            gameScores: match.gameScores,
+            currentGame: match.currentGame,
+            status: match.status,
+            winner: match.winner || null,
+          });
+        }
+      }
+
+      if (hasTrailingZero) {
+        match.currentGame = len - 1;
+        await match.save();
+        io?.to(`match:${id}`).emit("score:updated", {
+          matchId: id,
+          type: "userMatch",
+        });
+        return res.json({
+          message: "Đã có ván tiếp theo sẵn",
+          gameScores: match.gameScores,
+          currentGame: match.currentGame,
+          status: match.status,
+          winner: match.winner,
+        });
+      }
+
+      // Mở ván mới chuẩn
+      match.gameScores.push({ a: 0, b: 0 });
+      match.currentGame = match.gameScores.length - 1;
+
+      match.serve = match.serve || { side: "A", server: 2 };
+      match.serve.side = match.serve.side || "A";
+      match.serve.server = 2;
+
+      match.liveLog = match.liveLog || [];
+      match.liveLog.push({
+        type: "serve",
+        by: req.user?._id || null,
+        payload: { side: match.serve.side, server: 2 },
+        at: new Date(),
+      });
+
+      await match.save();
+      io?.to(`match:${id}`).emit("score:updated", {
+        matchId: id,
+        type: "userMatch",
+      });
+      return res.json({
+        message: "Đã tạo ván tiếp theo",
+        gameScores: match.gameScores,
+        currentGame: match.currentGame,
+        status: match.status,
+        winner: match.winner,
+      });
+    }
+
+    return res.status(400).json({ message: "Unsupported op" });
+  }
+
+  /* =========================================================
+   * NHÁNH MATCH BÌNH THƯỜNG (KHÔNG CÓ HEADER) – LOGIC CŨ
+   * ========================================================= */
   const match = await Match.findById(id);
   if (!match) return res.status(404).json({ message: "Match not found" });
 
-  // snapshot rule ban đầu (phòng rule đổi trong lúc live)
   const rules0 = {
     bestOf: Number(match.rules?.bestOf ?? 3),
     pointsToWin: Number(match.rules?.pointsToWin ?? 11),
@@ -734,6 +1047,57 @@ export const patchStatus = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Invalid status" });
   }
 
+  // 🔹 Nếu có header => xử lý trên UserMatch
+  const matchKind =
+    req.header("x-pkt-match-kind") || req.headers["x-pkt-match-kind"];
+
+  if (matchKind) {
+    // ===== USER MATCH BRANCH =====
+    const match = await UserMatch.findById(id)
+      .populate("createdBy", "name fullName avatar nickname nickName")
+      .populate(
+        "participants.user",
+        "name fullName avatar nickname nickName phone"
+      )
+      .populate("referee", "name fullName nickname nickName")
+      .populate("liveBy", "name fullName nickname nickName");
+
+    if (!match) {
+      return res.status(404).json({ message: "UserMatch not found" });
+    }
+
+    const prevStatus = match.status;
+    match.status = status;
+
+    const justWentLive = status === "live" && prevStatus !== "live";
+    if (justWentLive) {
+      if (!match.startedAt) match.startedAt = new Date();
+      if (req.user?._id) match.liveBy = req.user._id;
+    }
+
+    await match.save();
+
+    const io = req.app.get("io");
+
+    // Emit status tối giản (giống post-save trong model nhưng thêm type)
+    io?.to(String(match._id)).emit("status:updated", {
+      matchId: match._id,
+      status: match.status,
+      type: "userMatch",
+    });
+
+    // Emit snapshot cho scoreboard (dùng chung channel match:...)
+    const snap = match.toObject ? match.toObject() : match;
+    io?.to(`match:${String(match._id)}`).emit("match:snapshot", snap);
+
+    return res.json({
+      message: "Status updated",
+      status: match.status,
+      type: "userMatch",
+    });
+  }
+
+  // ===== MATCH BÌNH THƯỜNG (LOGIC CŨ) =====
   // Tìm trận
   const match = await Match.findById(id);
   if (!match) return res.status(404).json({ message: "Match not found" });
@@ -895,7 +1259,6 @@ export const patchStatus = asyncHandler(async (req, res) => {
 
   return res.json({ message: "Status updated", status: match.status });
 });
-
 /*
   PATCH /api/referee/matches/:id/winner
   body: { winner: "" | "A" | "B" }
@@ -907,10 +1270,50 @@ export const patchWinner = asyncHandler(async (req, res) => {
     return res.status(400).json({ message: "Invalid winner" });
   }
 
+  const io = req.app.get("io");
+
+  // 🔹 Nếu có header x-pkt-match-kind => xử lý cho UserMatch
+  const kindHeader = (req.header("x-pkt-match-kind") || "")
+    .toString()
+    .toLowerCase();
+  const isUserMatchKind = !!kindHeader; // chỉ cần có header là coi là userMatch
+
+  if (isUserMatchKind) {
+    const match = await UserMatch.findById(id);
+    if (!match) {
+      return res.status(404).json({ message: "UserMatch not found" });
+    }
+
+    const clearing = winner === "";
+    if (clearing) {
+      match.winner = "";
+      match.status = "live";
+      match.finishedAt = null;
+    } else {
+      match.winner = winner;
+      match.status = "finished";
+      if (!match.finishedAt) match.finishedAt = new Date();
+    }
+
+    await match.save();
+
+    // 🔔 Bắn event giống match thường để FE không cần tách
+    io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+    io?.to(`match:${id}`).emit("winner:updated", { matchId: id, winner });
+    io?.to(`match:${id}`).emit("match:patched", { matchId: id });
+
+
+    return res.json({
+      message: "Winner updated",
+      winner: match.winner,
+      status: match.status,
+      finishedAt: match.finishedAt,
+    });
+  }
+
+  // 🔹 Logic cũ cho Match tournament
   const match = await Match.findById(id);
   if (!match) return res.status(404).json({ message: "Match not found" });
-
-  const io = req.app.get("io");
 
   // cập nhật trạng thái
   const clearing = winner === "";
@@ -928,6 +1331,7 @@ export const patchWinner = asyncHandler(async (req, res) => {
   const mFull = await populateMatchForEmit(id);
   if (!mFull) return;
   const dto = toDTO(decorateServeAndSlots(mFull));
+
   // === EMIT ra room trận (client xem live) ===
   io?.to(`match:${id}`).emit("score:updated", { matchId: id });
   io?.to(`match:${id}`).emit("winner:updated", { matchId: id, winner });
@@ -935,12 +1339,10 @@ export const patchWinner = asyncHandler(async (req, res) => {
   // io?.to(`match:${id}`).emit("match:update", dto);
 
   // === EMIT ra room scheduler (trang điều phối sân đang join) ===
-  // BE của bạn khi nhận "scheduler:join" nhiều khả năng join vào room dạng này:
   const schedRoom = `scheduler:${String(match.tournament)}:${String(
     match.bracket
   )}`;
 
-  // luôn bắn match:update để panel gọi lại requestState()
   io?.to(schedRoom).emit("match:update", {
     matchId: String(match._id),
     tournamentId: String(match.tournament),
@@ -948,7 +1350,6 @@ export const patchWinner = asyncHandler(async (req, res) => {
     status: match.status,
   });
 
-  // nếu đã kết thúc, bonus thêm match:finish (trang này cũng đang lắng nghe)
   if (!clearing && match.status === "finished") {
     io?.to(schedRoom).emit("match:finish", {
       matchId: String(match._id),
@@ -959,7 +1360,7 @@ export const patchWinner = asyncHandler(async (req, res) => {
     });
   }
 
-  // (tuỳ có helper) phát broadcast tổng hợp nếu app đang dùng
+  // broadcast tổng hợp (nếu app đang dùng)
   try {
     if (typeof broadcastScoreUpdated === "function") {
       await broadcastScoreUpdated(io, id);
@@ -984,6 +1385,7 @@ export const patchWinner = asyncHandler(async (req, res) => {
     finishedAt: match.finishedAt,
   });
 });
+
 
 // ===== helpers =====
 const toObjectId = (id) => {
@@ -2569,6 +2971,35 @@ export const refereeSetBreak = async (req, res) => {
           expectedResumeAt: null,
         };
 
+    // 🔹 check header để quyết định dùng UserMatch hay Match
+    const matchKind =
+      req.header("x-pkt-match-kind") || req.headers["x-pkt-match-kind"];
+
+    if (matchKind) {
+      // ========== NHÁNH USER MATCH ==========
+      const m = await UserMatch.findByIdAndUpdate(
+        id,
+        {
+          $set: {
+            // luôn overwrite nguyên object
+            isBreak: nextBreak,
+          },
+        },
+        { new: true }
+      ).lean();
+
+      if (!m) {
+        return res.status(404).json({ message: "UserMatch not found" });
+      }
+
+      return res.json({
+        ok: true,
+        isBreak: nextBreak,
+        type: "userMatch",
+      });
+    }
+
+    // ========== NHÁNH MATCH BÌNH THƯỜNG (LOGIC CŨ) ==========
     const m = await Match.findByIdAndUpdate(
       id,
       {

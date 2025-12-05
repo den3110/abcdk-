@@ -85,6 +85,106 @@ export async function handleChat(req, res) {
 
     const userId = currentUser?._id || null;
 
+    // ================= SESSION LIMIT 15 MESSAGE / LƯỢT =================
+    if (userId) {
+      const now = new Date();
+
+      // Tìm lần session-limit gần nhất
+      const lastLimit = await ChatBotMessage.findOne({
+        userId,
+        role: "system",
+        "meta.kind": "session-limit",
+      }).sort({ createdAt: -1 });
+
+      let sessionStart = null;
+
+      if (lastLimit?.meta?.resetAt) {
+        const resetAt = new Date(lastLimit.meta.resetAt);
+
+        // Nếu vẫn đang trong thời gian khoá → trả 429 luôn
+        if (now < resetAt) {
+          const msLeft = resetAt.getTime() - now.getTime();
+          const totalMinutesLeft = Math.ceil(msLeft / 60000);
+          const hoursLeft = Math.floor(totalMinutesLeft / 60);
+          const minutesLeft = totalMinutesLeft % 60;
+
+          return res.status(429).json({
+            error: "session_limit_reached",
+            message: "Bạn đã đạt giới hạn 15 tin nhắn cho lượt này.",
+            limit: 15,
+            resetAt: resetAt.toISOString(),
+            remaining: {
+              hours: hoursLeft,
+              minutes: minutesLeft,
+            },
+          });
+        }
+
+        // Hết khoá rồi → tính phiên mới từ resetAt trở đi
+        sessionStart = new Date(lastLimit.meta.resetAt);
+      }
+
+      // Đếm số tin nhắn USER đã gửi trong phiên hiện tại
+      const countQuery = {
+        userId,
+        role: "user",
+      };
+
+      if (sessionStart) {
+        countQuery.createdAt = { $gte: sessionStart };
+      }
+
+      const userMsgCount = await ChatBotMessage.countDocuments(countQuery);
+
+      // Đủ 15 tin rồi → khoá phiên, trả 429
+      if (userMsgCount >= 15) {
+        const limitTime = now;
+        const resetAt = computeSessionResetAt(limitTime);
+
+        const msLeft = resetAt.getTime() - now.getTime();
+        const totalMinutesLeft = Math.ceil(msLeft / 60000);
+        const hoursLeft = Math.floor(totalMinutesLeft / 60);
+        const minutesLeft = totalMinutesLeft % 60;
+
+        // Log 1 message system để lưu lại info session-limit (hiện luôn trong history)
+        try {
+          await ChatBotMessage.create({
+            userId,
+            role: "system",
+            message:
+              "Session limit reached. Bạn đã dùng hết 15 tin nhắn cho lượt này.",
+            meta: {
+              kind: "session-limit",
+              limit: 15,
+              limitReachedAt: limitTime,
+              resetAt,
+            },
+            navigation: null,
+            context: {
+              tournamentId,
+              matchId,
+              bracketId,
+              courtCode,
+            },
+          });
+        } catch (e) {
+          console.error("[handleChat] log session-limit error:", e.message);
+        }
+
+        return res.status(429).json({
+          error: "session_limit_reached",
+          message: "Bạn đã đạt giới hạn 15 tin nhắn cho lượt này.",
+          limit: 15,
+          resetAt: resetAt.toISOString(),
+          remaining: {
+            hours: hoursLeft,
+            minutes: minutesLeft,
+          },
+        });
+      }
+    }
+    // ================= END SESSION LIMIT =================
+
     /* ---------- LƯU USER MESSAGE ---------- */
     let userMessageDoc = null;
     try {
@@ -573,4 +673,44 @@ function buildDefaultParamsForSkill(skill, context = {}) {
   }
 
   return params;
+}
+
+/* ========== CLEAR CHAT HISTORY ========== */
+export async function handleClearChatHistory(req, res) {
+  try {
+    const currentUser = req.user;
+    if (!currentUser) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    // ❗ Không xoá message "system" (session-limit) để không bypass limit
+    const result = await ChatBotMessage.deleteMany({
+      userId: currentUser._id,
+      role: { $ne: "system" }, // user + bot
+    });
+
+    return res.json({
+      success: true,
+      deleted: result.deletedCount,
+    });
+  } catch (err) {
+    console.error("[handleClearChatHistory] error:", err);
+    return res.status(500).json({ error: "Lỗi server" });
+  }
+}
+
+function computeSessionResetAt(limitTime) {
+  const t = new Date(limitTime);
+  const minutes = t.getMinutes();
+
+  // phút còn thiếu để ra phút 00
+  const extraMinutes = minutes === 0 ? 0 : 60 - minutes;
+
+  // 4 giờ + phút còn thiếu để ra 00 phút (tính từ thời điểm bị limit)
+  const totalMinutes = 4 * 60 + extraMinutes;
+
+  const reset = new Date(t.getTime() + totalMinutes * 60 * 1000);
+  reset.setSeconds(0, 0); // cho đẹp: xx:xx:00.000
+
+  return reset;
 }

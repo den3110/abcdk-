@@ -10,6 +10,7 @@ import { applyRatingForFinishedMatch } from "../../utils/applyRatingForFinishedM
 import { onMatchFinished } from "../../services/courtQueueService.js";
 import { scheduleMatchStartSoon } from "../../utils/scheduleNotifications.js";
 import { decorateServeAndSlots } from "../../utils/liveServeUtils.js";
+import UserMatch from "../../models/userMatchModel.js";
 
 /* Tạo 1 trận trong 1 bảng */
 export const adminCreateMatch = expressAsyncHandler(async (req, res) => {
@@ -1025,6 +1026,183 @@ export const adminListMatchGroups = expressAsyncHandler(async (req, res) => {
 });
 
 export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
+  const hasUserMatchHeader = !!req.header("x-pkt-match-kind");
+
+  /* =========================================================
+   * NHÁNH 1: Trận tự do (UserMatch) – có header x-pkt-match-kind
+   * =======================================================*/
+  if (hasUserMatchHeader) {
+    const match = await UserMatch.findById(req.params.id)
+      .populate("participants.user", "name fullName avatar nickname nickName")
+      .populate("createdBy", "name fullName avatar nickname nickName")
+      .populate("referee", "name fullName nickname nickName")
+      .lean();
+
+    if (!match) {
+      res.status(404);
+      throw new Error("Match không tồn tại");
+    }
+
+    // ===== logic build displayCode đơn giản cho userMatch =====
+    const groupTypes = new Set(["group", "round_robin", "gsl"]);
+    const isGroup = groupTypes.has(match?.format);
+
+    const vIndex =
+      (Number.isFinite(Number(match?.stageIndex)) &&
+        Number(match.stageIndex)) ||
+      (Number.isFinite(Number(match?.round)) && Number(match.round)) ||
+      1;
+
+    const tIndex = (Number(match?.order) || 0) + 1;
+    const bIndex = isGroup ? 1 : null;
+    const bAlpha = null; // userMatch không có bảng, cho null
+
+    const displayCode = isGroup
+      ? `V${vIndex}-B${bIndex}-T${tIndex}`
+      : `V${vIndex}-T${tIndex}`;
+
+    const toIntOrNull = (v) =>
+      v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null;
+
+    // ===== map participants → pairA / pairB theo side / order =====
+    const mapParticipantToPlayer = (p) => {
+      if (!p) return null;
+      const u = p.user || {};
+      return {
+        // giữ user id cho FE nếu cần
+        user: u._id || p.user || null,
+        name: p.displayName || u.fullName || u.name || null,
+        nickname: u.nickname || u.nickName || null,
+        avatar: p.avatar || u.avatar || "",
+        isGuest: !!p.isGuest,
+        contact: p.contact || {},
+      };
+    };
+
+    const participants = Array.isArray(match.participants)
+      ? match.participants
+      : [];
+
+    const sideA = participants
+      .filter((p) => p.side === "A")
+      .sort((a, b) => (a.order || 1) - (b.order || 1));
+    const sideB = participants
+      .filter((p) => p.side === "B")
+      .sort((a, b) => (a.order || 1) - (b.order || 1));
+
+    const pairA =
+      sideA.length > 0
+        ? {
+            player1: mapParticipantToPlayer(sideA[0]),
+            player2: mapParticipantToPlayer(sideA[1]),
+          }
+        : null;
+
+    const pairB =
+      sideB.length > 0
+        ? {
+            player1: mapParticipantToPlayer(sideB[0]),
+            player2: mapParticipantToPlayer(sideB[1]),
+          }
+        : null;
+
+    // ===== rules giống cấu trúc cũ =====
+    const mergedRules = {
+      bestOf: match?.rules?.bestOf ?? 1,
+      pointsToWin: match?.rules?.pointsToWin ?? 11,
+      winByTwo: (match?.rules?.winByTwo ?? true) === true,
+      cap: {
+        mode: match?.rules?.cap?.mode ?? "none",
+        points: toIntOrNull(match?.rules?.cap?.points ?? null),
+      },
+    };
+    if (!["none", "hard", "soft"].includes(mergedRules.cap.mode)) {
+      mergedRules.cap.mode = "none";
+    }
+    if (mergedRules.cap.mode === "none") mergedRules.cap.points = null;
+
+    // ===== serve & slots đơn giản cho userMatch =====
+    const serve = { ...(match.serve || {}) };
+
+    // cố gắng map serverId từ participants nếu thiếu
+    if (!serve.serverId && serve.side && serve.server) {
+      const list = serve.side === "B" ? sideB : sideA;
+      const p = list.find((x) => (x.order || 1) === serve.server);
+      if (p && p.user) {
+        serve.serverId = p.user._id || p.user;
+      }
+    }
+
+    // receiverId: pick player đầu tiên bên còn lại nếu chưa có
+    if (!serve.receiverId && serve.side) {
+      const otherList = serve.side === "A" ? sideB : sideA;
+      const p = otherList[0];
+      if (p && p.user) {
+        serve.receiverId = p.user._id || p.user;
+      }
+    }
+
+    // build base slots từ participants, merge với meta.slots nếu có
+    const baseSlotsA = {};
+    sideA.forEach((p) => {
+      const key = p.user
+        ? String(p.user._id || p.user)
+        : `guestA_${p.order || 1}`;
+      baseSlotsA[key] = p.order || 1;
+    });
+
+    const baseSlotsB = {};
+    sideB.forEach((p) => {
+      const key = p.user
+        ? String(p.user._id || p.user)
+        : `guestB_${p.order || 1}`;
+      baseSlotsB[key] = p.order || 1;
+    });
+
+    const rawSlots =
+      match.slots && typeof match.slots === "object"
+        ? match.slots
+        : match.meta?.slots || {};
+
+    const slotsOut = {
+      ...rawSlots,
+      base: {
+        A: { ...(rawSlots?.base?.A || {}), ...baseSlotsA },
+        B: { ...(rawSlots?.base?.B || {}), ...baseSlotsB },
+      },
+    };
+
+    const enriched =
+      typeof decorateServeAndSlots === "function"
+        ? decorateServeAndSlots({
+            ...match,
+            pairA,
+            pairB,
+            serve,
+            slots: slotsOut,
+          })
+        : match;
+
+    return res.json({
+      ...enriched,
+      pairA,
+      pairB,
+      rules: mergedRules,
+      serve,
+      slots: slotsOut,
+      // ===== new fields cho FE (giữ cú pháp như match thường) =====
+      displayCode,
+      vIndex,
+      bIndex,
+      bKeyAlpha: bAlpha,
+      tIndex,
+      // tournament, bracket: userMatch không có → để undefined/null cũng được
+    });
+  }
+
+  /* =========================================================
+   * NHÁNH 2: Match thường – logic cũ giữ nguyên
+   * =======================================================*/
   const match = await Match.findById(req.params.id)
     .populate({ path: "tournament", select: "name eventType" })
     .populate({

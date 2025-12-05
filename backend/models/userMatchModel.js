@@ -112,6 +112,95 @@ const reactionSchema = new Schema(
 );
 
 /* =========================================
+ * PAIR SCHEMAS (field thật, build từ participants)
+ * ========================================= */
+
+const pairPlayerSchema = new Schema(
+  {
+    user: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    phone: { type: String, trim: true, default: "" },
+    fullName: { type: String, trim: true, default: "" },
+    nickName: { type: String, trim: true, default: "" },
+    avatar: { type: String, trim: true, default: "" },
+    score: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
+const pairPaymentSchema = new Schema(
+  {
+    status: { type: String, default: "Paid" },
+    paidAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
+
+const pairSchema = new Schema(
+  {
+    tournament: {
+      type: Schema.Types.ObjectId,
+      ref: "Tournament",
+      default: null,
+    },
+    player1: { type: pairPlayerSchema, default: null },
+    player2: { type: pairPlayerSchema, default: null },
+    seed: { type: Number, default: null },
+    label: { type: String, default: "" },
+    teamName: { type: String, default: "" },
+    payment: {
+      type: pairPaymentSchema,
+      default: () => ({ status: "Paid", paidAt: null }),
+    },
+    createdBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    code: { type: String, default: null },
+  },
+  { _id: false }
+);
+
+function buildPlayerFromParticipant(p) {
+  if (!p) return null;
+
+  return {
+    user: p.user || null,
+    phone: (p.contact && p.contact.phone) || "",
+    fullName: p.displayName || "",
+    nickName: "",
+    avatar: p.avatar || "",
+    score: 0,
+  };
+}
+
+function buildPairForSide(doc, side) {
+  const list = Array.isArray(doc.participants)
+    ? doc.participants.filter((p) => p.side === side)
+    : [];
+
+  if (!list.length) return null;
+
+  const sorted = [...list].sort((a, b) => (a.order || 0) - (b.order || 0));
+
+  const p1 = sorted[0];
+  const p2 = sorted[1] || null;
+
+  return {
+    tournament: null,
+    player1: buildPlayerFromParticipant(p1),
+    player2: p2 ? buildPlayerFromParticipant(p2) : null,
+    seed: null,
+    label: "",
+    teamName: "",
+    payment: { status: "Paid", paidAt: null },
+    createdBy: doc.createdBy || null,
+    code: null,
+  };
+}
+
+function rebuildPairs(doc) {
+  doc.pairA = buildPairForSide(doc, "A");
+  doc.pairB = buildPairForSide(doc, "B");
+}
+
+/* =========================================
  * USER MATCH SCHEMA
  * ========================================= */
 const userMatchSchema = new Schema(
@@ -252,6 +341,10 @@ const userMatchSchema = new Schema(
       default: [],
     },
 
+    /* ========= PAIRS (field thật) ========= */
+    pairA: { type: pairSchema, default: null },
+    pairB: { type: pairSchema, default: null },
+
     /* ========= OFFICIALS ========= */
     referee: {
       type: [{ type: Schema.Types.ObjectId, ref: "User" }],
@@ -283,6 +376,17 @@ const userMatchSchema = new Schema(
     finishedAt: { type: Date, default: null },
     liveBy: { type: Schema.Types.ObjectId, ref: "User", default: null },
     liveVersion: { type: Number, default: 0 },
+
+    // 🔹 NEW: slots cho userMatch (giống Match)
+    slots: {
+      type: Schema.Types.Mixed,
+      default: () => ({
+        base: { A: {}, B: {} },
+        serverId: null,
+        version: 0,
+        updatedAt: null,
+      }),
+    },
 
     video: {
       type: String,
@@ -376,6 +480,9 @@ userMatchSchema.pre("validate", function (next) {
     this.referee = [this.referee];
   }
 
+  // build pairA / pairB từ participants trước khi validate/save
+  rebuildPairs(this);
+
   next();
 });
 
@@ -383,6 +490,31 @@ userMatchSchema.pre("validate", function (next) {
 userMatchSchema.pre("save", function (next) {
   try {
     this.isBreak = normalizeBreak(this.isBreak);
+
+    // 🔹 đảm bảo slots luôn có base A/B
+    if (!this.slots || typeof this.slots !== "object") {
+      this.slots = {
+        base: { A: {}, B: {} },
+        serverId: null,
+        version: 0,
+        updatedAt: null,
+      };
+    } else {
+      const s = this.slots;
+      this.slots = {
+        ...s,
+        base: {
+          A: (s.base && s.base.A) || {},
+          B: (s.base && s.base.B) || {},
+        },
+        serverId: s.serverId || null,
+        version: typeof s.version === "number" ? s.version : 0,
+        updatedAt: s.updatedAt || null,
+      };
+    }
+
+    // bảo hiểm: rebuild pair trước khi save
+    rebuildPairs(this);
 
     // Auto-generate code
     if (!this.code) {
@@ -440,16 +572,8 @@ userMatchSchema.pre("updateMany", function (next) {
  * Thêm participant vào match
  */
 userMatchSchema.methods.addParticipant = async function (data) {
-  const {
-    user,
-    displayName,
-    side,
-    order,
-    isGuest,
-    avatar,
-    contact,
-    role,
-  } = data;
+  const { user, displayName, side, order, isGuest, avatar, contact, role } =
+    data;
 
   // Validate side
   if (!["A", "B"].includes(side)) {
@@ -477,12 +601,15 @@ userMatchSchema.methods.addParticipant = async function (data) {
     user: user || null,
     displayName: displayName || "",
     side,
-    order: order || (sameSize + 1),
+    order: order || sameSize + 1,
     isGuest: isGuest || false,
     avatar: avatar || "",
     contact: contact || {},
     role: role || "player",
   });
+
+  // rebuild pair fields từ participants mới
+  rebuildPairs(this);
 
   await this.save();
   return this;
@@ -501,6 +628,9 @@ userMatchSchema.methods.removeParticipant = async function (userId, side) {
       (p) => String(p.user) !== String(userId)
     );
   }
+
+  // rebuild pair fields sau khi xoá
+  rebuildPairs(this);
 
   await this.save();
   return this;
@@ -574,10 +704,7 @@ userMatchSchema.statics.getUserMatchHistory = async function (
     includeAsReferee = true,
   } = options;
 
-  const orConditions = [
-    { createdBy: userId },
-    { "participants.user": userId },
-  ];
+  const orConditions = [{ createdBy: userId }, { "participants.user": userId }];
 
   if (includeAsReferee) {
     orConditions.push({ referee: userId });
@@ -594,10 +721,13 @@ userMatchSchema.statics.getUserMatchHistory = async function (
     .limit(limit)
     .skip(skip)
     .populate("createdBy", "name fullName avatar nickname nickName")
-    .populate("participants.user", "name fullName avatar nickname nickName")
+    .populate(
+      "participants.user",
+      "name fullName avatar nickname nickName phone"
+    )
     .populate("referee", "name fullName nickname nickName")
     .populate("liveBy", "name fullName nickname nickName")
-    .lean();
+    .lean(); // pairA / pairB là field thật nên lean vẫn ok
 };
 
 /**
@@ -706,14 +836,14 @@ userMatchSchema.post("save", async function (doc, next) {
           },
           {
             path: "participants.user",
-            select: "name fullName avatar nickname nickName",
+            select: "name fullName avatar nickname nickName phone",
           },
           { path: "referee", select: "name fullName nickname nickName" },
           { path: "liveBy", select: "name fullName nickname nickName" },
         ]);
 
         // Emit to match room
-        io.to(`userMatch:${String(doc._id)}`).emit("userMatch:snapshot", doc);
+        io.to(`match:${String(doc._id)}`).emit("match:snapshot", doc);
 
         // Emit status
         io.to(String(doc._id)).emit("status:updated", {
@@ -730,7 +860,7 @@ userMatchSchema.post("save", async function (doc, next) {
             .map((id) => String(id));
 
           for (const uid of userIds) {
-            io.to(`user:${uid}`).emit("userMatch:finished", {
+            io.to(`user:${uid}`).emit("match:finished", {
               matchId: doc._id,
               winner: doc.winner,
               title: doc.title,
@@ -752,10 +882,7 @@ userMatchSchema.post("save", async function (doc, next) {
           await markFacebookPageFreeByMatch(doc._id);
         }
       } catch (e) {
-        console.error(
-          "[userMatch] auto-free FB page failed:",
-          e?.message || e
-        );
+        console.error("[userMatch] auto-free FB page failed:", e?.message || e);
       }
     }
 
@@ -778,10 +905,11 @@ userMatchSchema.post("findOneAndUpdate", async function (res) {
 
     // Auto free FB page
     if (fresh.status === "finished") {
+      // tuỳ bạn có muốn auto-free ở đây nữa không
       // try {
       //   const fbPageId = fresh.facebookLive?.pageId;
       //   if (fbPageId) {
-      //     await markFacebookPageFreeByPage(fbPageId);
+      //     await markFacebookPageFreeByPage(fresh.facebookLive.pageId);
       //   } else {
       //     await markFacebookPageFreeByMatch(fresh._id);
       //   }

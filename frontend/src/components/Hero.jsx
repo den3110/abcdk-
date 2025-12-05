@@ -377,6 +377,7 @@ export default function Hero() {
                     }}
                   >
                     <img
+                      draggable={false}
                       src={heroData.imageUrl || fallbackImg}
                       alt={heroData.imageAlt || "Hero image"}
                       className="w-100 h-100 object-fit-cover"

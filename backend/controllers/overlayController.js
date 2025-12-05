@@ -4,6 +4,7 @@ import Match from "../models/matchModel.js";
 import expressAsyncHandler from "express-async-handler";
 import { Sponsor } from "../models/sponsorModel.js";
 import CmsBlock from "../models/cmsBlockModel.js";
+import UserMatch from "../models/userMatchModel.js";
 
 const FORCE_HTTPS = process.env.NODE_ENV === "production";
 const ensureHttps = (url) => {
@@ -107,72 +108,109 @@ export async function getOverlayMatch(req, res) {
       return res.status(400).json({ message: "Invalid match id" });
     }
 
-    const m = await Match.findById(id)
-      // tournament + overlay
+    // 🟢 1) ƯU TIÊN USER MATCH
+    let m = await UserMatch.findById(id)
+      .populate(
+        "participants.user",
+        "name fullName avatar nickname nickName phone"
+      )
       .populate({
-        path: "tournament",
-        select: "name eventType image overlay",
-      })
-      // bracket mở rộng (để FE có đủ meta)
-      .populate({
-        path: "bracket",
-        select:
-          "type name order stage overlay config meta drawRounds drawStatus slotPlan groups noRankDelta",
-      })
-      // pairs + players
-      .populate({
-        path: "pairA",
-        select: "player1 player2 seed label teamName",
-        populate: [
-          {
-            path: "player1",
-            select: "fullName name shortName nickname nickName user",
-            populate: { path: "user", select: "nickname nickName" },
-          },
-          {
-            path: "player2",
-            select: "fullName name shortName nickname nickName user",
-            populate: { path: "user", select: "nickname nickName" },
-          },
-        ],
+        path: "referee",
+        select: "name fullName nickname nickName",
       })
       .populate({
-        path: "pairB",
-        select: "player1 player2 seed label teamName",
-        populate: [
-          {
-            path: "player1",
-            select: "fullName name shortName nickname nickName user",
-            populate: { path: "user", select: "nickname nickName" },
-          },
-          {
-            path: "player2",
-            select: "fullName name shortName nickname nickName user",
-            populate: { path: "user", select: "nickname nickName" },
-          },
-        ],
+        path: "liveBy",
+        select: "name fullName nickname nickName",
       })
-      // referee là mảng
-      .populate({ path: "referee", select: "name fullName nickname nickName" })
-      // người đang live
-      .populate({ path: "liveBy", select: "name fullName nickname nickName" })
-      // previous/next (để trace)
-      .populate({ path: "previousA", select: "round order code" })
-      .populate({ path: "previousB", select: "round order code" })
-      .populate({ path: "nextMatch", select: "_id round order code" })
-      // court đầy đủ
-      .populate({
-        path: "court",
-        select:
-          "name number code label zone area venue building floor cluster group",
-      })
-      // serve.serverId (người đang giao)
       .populate({
         path: "serve.serverId",
         model: "User",
         select: "name fullName nickname nickName",
       })
+      .populate({
+        path: "court",
+        select:
+          "name number code label zone area venue building floor cluster group",
+      })
       .lean();
+
+    const isUserMatch = !!m;
+
+    // 🔵 2) NẾU KHÔNG PHẢI USER MATCH → FALLBACK MATCH CŨ
+    if (!m) {
+      m = await Match.findById(id)
+        // tournament + overlay
+        .populate({
+          path: "tournament",
+          select: "name eventType image overlay",
+        })
+        // bracket mở rộng (để FE có đủ meta)
+        .populate({
+          path: "bracket",
+          select:
+            "type name order stage overlay config meta drawRounds drawStatus slotPlan groups noRankDelta",
+        })
+        // pairs + players
+        .populate({
+          path: "pairA",
+          select: "player1 player2 seed label teamName",
+          populate: [
+            {
+              path: "player1",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+          ],
+        })
+        .populate({
+          path: "pairB",
+          select: "player1 player2 seed label teamName",
+          populate: [
+            {
+              path: "player1",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+          ],
+        })
+        // referee là mảng
+        .populate({
+          path: "referee",
+          select: "name fullName nickname nickName",
+        })
+        // người đang live
+        .populate({
+          path: "liveBy",
+          select: "name fullName nickname nickName",
+        })
+        // previous/next (để trace)
+        .populate({ path: "previousA", select: "round order code" })
+        .populate({ path: "previousB", select: "round order code" })
+        .populate({ path: "nextMatch", select: "_id round order code" })
+        // court đầy đủ
+        .populate({
+          path: "court",
+          select:
+            "name number code label zone area venue building floor cluster group",
+        })
+        // serve.serverId (người đang giao)
+        .populate({
+          path: "serve.serverId",
+          model: "User",
+          select: "name fullName nickname nickName",
+        })
+        .lean();
+    }
 
     if (!m) return res.status(404).json({ message: "Match not found" });
 
@@ -201,7 +239,8 @@ export async function getOverlayMatch(req, res) {
     const tid = m?.tournament?._id || m?.tournament || null;
 
     let sponsors = [];
-    if (tid) {
+    if (tid && !isUserMatch) {
+      // với userMatch: không có tournament → bỏ qua sponsor theo giải
       const filter = { tournaments: tid };
 
       sponsors = await Sponsor.find(filter)
@@ -310,7 +349,9 @@ export async function getOverlayMatch(req, res) {
     const playersFromReg = (reg) => {
       if (!reg) return [];
       return [reg.player1, reg.player2].filter(Boolean).map((p) => ({
-        id: String(p?._id || ""),
+        // ✅ Match: dùng _id (PlayerReg)
+        // ✅ UserMatch: không có _id → fallback sang user (ObjectId User)
+        id: String(p?._id || p?.user || ""),
         nickname: preferNick(p),
         name: p?.fullName || p?.name || "",
         shortName: p?.shortName || undefined,
@@ -559,29 +600,41 @@ export async function getOverlayMatch(req, res) {
       status: (m.status || "").toUpperCase(),
       winner: m.winner || "",
 
-      tournament: {
-        id: m?.tournament?._id || null,
-        name: m?.tournament?.name || "",
-        image: m?.tournament?.image || "",
-        eventType: evType,
-        overlay: m?.tournament?.overlay || undefined,
-        webLogoUrl,
-        webLogoAlt,
-        sponsors:
-          sponsors.length > 0
-            ? sponsors.map((s) => ({
-                id: String(s._id),
-                name: s.name,
-                slug: s.slug,
-                logoUrl: s.logoUrl || "",
-                websiteUrl: s.websiteUrl || "",
-                refLink: s.refLink || "",
-                tier: s.tier,
-                featured: !!s.featured,
-                weight: s.weight ?? 0,
-              }))
-            : undefined,
-      },
+      // 🟡 Với userMatch: dùng title làm "tên giải" để overlay vẫn có header
+      tournament: isUserMatch
+        ? {
+            id: null,
+            name: m?.title || "",
+            image: "",
+            eventType: evType,
+            overlay: undefined,
+            webLogoUrl,
+            webLogoAlt,
+            sponsors: undefined,
+          }
+        : {
+            id: m?.tournament?._id || null,
+            name: m?.tournament?.name || "",
+            image: m?.tournament?.image || "",
+            eventType: evType,
+            overlay: m?.tournament?.overlay || undefined,
+            webLogoUrl,
+            webLogoAlt,
+            sponsors:
+              sponsors.length > 0
+                ? sponsors.map((s) => ({
+                    id: String(s._id),
+                    name: s.name,
+                    slug: s.slug,
+                    logoUrl: s.logoUrl || "",
+                    websiteUrl: s.websiteUrl || "",
+                    refLink: s.refLink || "",
+                    tier: s.tier,
+                    featured: !!s.featured,
+                    weight: s.weight ?? 0,
+                  }))
+                : undefined,
+          },
 
       bracket: m?.bracket
         ? {
@@ -649,7 +702,7 @@ export async function getOverlayMatch(req, res) {
 
       pairA: m?.pairA
         ? {
-            id: String(m.pairA._id),
+            id: String(m.pairA._id || ""),
             seed: m.pairA.seed ?? undefined,
             label: m.pairA.label ?? undefined,
             teamName: m.pairA.teamName ?? undefined,
@@ -657,7 +710,7 @@ export async function getOverlayMatch(req, res) {
         : null,
       pairB: m?.pairB
         ? {
-            id: String(m.pairB._id),
+            id: String(m.pairB._id || ""),
             seed: m.pairB.seed ?? undefined,
             label: m.pairB.label ?? undefined,
             teamName: m.pairB.teamName ?? undefined,
@@ -706,8 +759,9 @@ export async function getOverlayMatch(req, res) {
       liveLogTail,
       liveLog: undefined,
 
+      // 🔴 Với userMatch: participants là object → đừng stringify "[object Object]"
       participants:
-        Array.isArray(m?.participants) && m.participants.length
+        Array.isArray(m?.participants) && m.participants.length && !isUserMatch
           ? m.participants.map((x) => String(x))
           : undefined,
 

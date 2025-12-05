@@ -33,6 +33,7 @@ import {
   sweepStaleSockets,
 } from "../services/presenceService.js";
 import { ensureAdmin, ensureReferee } from "../utils/socketAuth.js";
+import UserMatch from "../models/userMatchModel.js";
 
 /* 👇 THÊM BIẾN TOÀN CỤC LƯU IO */
 let ioInstance = null;
@@ -487,307 +488,359 @@ export function initSocket(
 
     // ========= MATCH ROOMS =========
     socket.on("match:join", async ({ matchId }) => {
-      if (!matchId) return;
-      socket.join(`match:${matchId}`);
-
-      const m = await Match.findById(matchId)
-        .populate({
-          path: "pairA",
-          select: "player1 player2 seed label teamName",
-          populate: [
-            {
-              path: "player1",
-              // có đủ các tên + user.nickname để FE fallback
-              select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
-            },
-            {
-              path: "player2",
-              select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
-            },
-          ],
-        })
-        .populate({
-          path: "pairB",
-          select: "player1 player2 seed label teamName",
-          populate: [
-            {
-              path: "player1",
-              select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
-            },
-            {
-              path: "player2",
-              select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "nickname nickName" },
-            },
-          ],
-        })
-        // referee là mảng
-        .populate({
-          path: "referee",
-          select: "name fullName nickname nickName",
-        })
-        // người đang điều khiển live
-        .populate({ path: "liveBy", select: "name fullName nickname nickName" })
-        .populate({ path: "previousA", select: "round order" })
-        .populate({ path: "previousB", select: "round order" })
-        .populate({ path: "nextMatch", select: "_id" })
-        .populate({
-          path: "tournament",
-          select: "name image eventType overlay",
-        })
-        // 🆕 BRACKET: gửi đủ groups + meta + config như mẫu JSON bạn đưa
-        .populate({
-          path: "bracket",
-          select: [
-            "noRankDelta",
-            "name",
-            "type",
-            "stage",
-            "order",
-            "drawRounds",
-            "drawStatus",
-            "scheduler",
-            "drawSettings",
-            // meta.*
-            "meta.drawSize",
-            "meta.maxRounds",
-            "meta.expectedFirstRoundMatches",
-            // groups[]
-            "groups._id",
-            "groups.name",
-            "groups.expectedSize",
-            // rules + các config khác để FE tham chiếu
-            "config.rules",
-            "config.doubleElim",
-            "config.roundRobin",
-            "config.swiss",
-            "config.gsl",
-            "config.roundElim",
-            // nếu bạn có overlay ở bracket thì giữ lại
-            "overlay",
-          ].join(" "),
-        })
-        // 🆕 court để FE auto-next theo sân
-        .populate({
-          path: "court",
-          select: "name number code label zone area venue building floor",
-        })
-        .lean();
-
-      if (!m) return;
-
-      // ====== giữ nguyên code cũ ở dưới, chỉ bổ sung nhẹ (không xoá gì) ======
-
-      // Helper: lấy nickname ưu tiên player.nickname/nickName;
-      // nếu thiếu HOẶC chuỗi rỗng => fallback sang user.nickname/user.nickName.
-      const fillNick = (p) => {
-        if (!p) return p;
-        const pick = (v) => (v && String(v).trim()) || "";
-        const primary = pick(p.nickname) || pick(p.nickName);
-        const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
-        const n = primary || fromUser || "";
-        if (n) {
-          p.nickname = n;
-          p.nickName = n;
-        }
-        return p;
-      };
-
-      if (m.pairA) {
-        m.pairA.player1 = fillNick(m.pairA.player1);
-        m.pairA.player2 = fillNick(m.pairA.player2);
-      }
-      if (m.pairB) {
-        m.pairB.player1 = fillNick(m.pairB.player1);
-        m.pairB.player2 = fillNick(m.pairB.player2);
-      }
-
-      // bổ sung streams từ meta nếu có
-      if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
-
-      // 🔹 ADDED: fallback rules để DTO/FE luôn có giá trị an toàn
-      m.rules = {
-        bestOf: Number(m?.rules?.bestOf ?? 3),
-        pointsToWin: Number(m?.rules?.pointsToWin ?? 11),
-        winByTwo: Boolean(m?.rules?.winByTwo ?? true),
-        ...(m.rules?.cap ? { cap: m.rules.cap } : {}),
-      };
-
-      // 🔹 ADDED: fallback serve
-      if (
-        !m?.serve ||
-        (!m.serve.side && !m.serve.server && !m.serve.playerIndex)
-      ) {
-        m.serve = { side: "A", server: 1, playerIndex: 1 };
-      } else {
-        m.serve.side = (m.serve.side || "A").toUpperCase() === "B" ? "B" : "A";
-        m.serve.server =
-          Number(m.serve.server ?? m.serve.playerIndex ?? 1) || 1;
-        m.serve.playerIndex =
-          Number(m.serve.playerIndex ?? m.serve.server ?? 1) || 1;
-      }
-
-      // 🔹 ADDED: gameScores tối thiểu 1 phần tử
-      if (!Array.isArray(m.gameScores) || !m.gameScores.length) {
-        m.gameScores = [{ a: 0, b: 0 }];
-      }
-
-      // 🔹 ADDED: overlay root (để DTO có thể ưu tiên match.overlay)
-      if (!m.overlay) {
-        m.overlay =
-          m?.overlay ||
-          m?.tournament?.overlay ||
-          m?.bracket?.overlay ||
-          undefined;
-      }
-
-      // 🔹 ADDED: roundCode fallback (để FE hiển thị “Tứ kết/Bán kết/Chung kết”)
-      if (!m.roundCode) {
-        const drawSize =
-          Number(m?.bracket?.meta?.drawSize) ||
-          (Number.isInteger(m?.bracket?.drawRounds)
-            ? 1 << m.bracket.drawRounds
-            : 0);
-        if (drawSize && Number.isInteger(m?.round) && m.round >= 1) {
-          const roundSize = Math.max(
-            2,
-            Math.floor(drawSize / Math.pow(2, m.round - 1))
-          );
-          m.roundCode = `R${roundSize}`;
-        }
-      }
-
-      // 🔹 ADDED: court fallback field (courtId/courtName/courtNo) để FE cũ/auto-next dùng được
-      const courtId = m?.court?._id || m?.courtId || null;
-      const courtNumber = m?.court?.number ?? m?.courtNo ?? undefined;
-      const courtName =
-        m?.court?.name ??
-        m?.courtName ??
-        (courtNumber != null ? `Sân ${courtNumber}` : "");
-      m.courtId = courtId || undefined;
-      m.courtName = courtName || undefined;
-      m.courtNo = courtNumber ?? undefined;
-
-      // 🔹 ADDED: bracketType (giữ nguyên, chỉ bổ sung nếu thiếu)
-      if (!m.bracketType) {
-        m.bracketType = m?.bracket?.type || m?.format || m?.bracketType || "";
-      }
-
-      // 🆕 prevBracket (neighbor) — lấy bracket LIỀN TRƯỚC theo order trong cùng tournament
       try {
-        const toNum = (v, d = 0) => {
-          const n = Number(v);
-          return Number.isFinite(n) ? n : d;
-        };
-        const toTime = (x) =>
-          (x?.createdAt && new Date(x.createdAt).getTime()) ||
-          (x?._id?.getTimestamp?.() && x._id.getTimestamp().getTime()) ||
-          0;
+        if (!matchId) return;
 
-        const normalizeBracketShape = (b) => {
-          if (!b) return b;
-          const bb = { ...b };
-          if (!Array.isArray(bb.groups)) bb.groups = [];
-          bb.meta = bb.meta || {};
-          if (typeof bb.meta.drawSize !== "number") bb.meta.drawSize = 0;
-          if (typeof bb.meta.maxRounds !== "number") bb.meta.maxRounds = 0;
-          if (typeof bb.meta.expectedFirstRoundMatches !== "number")
-            bb.meta.expectedFirstRoundMatches = 0;
-          bb.config = bb.config || {};
-          bb.config.rules = bb.config.rules || {};
-          bb.config.roundRobin = bb.config.roundRobin || {};
-          bb.config.doubleElim = bb.config.doubleElim || {};
-          bb.config.swiss = bb.config.swiss || {};
-          bb.config.gsl = bb.config.gsl || {};
-          bb.config.roundElim = bb.config.roundElim || {};
-          if (typeof bb.noRankDelta !== "boolean") bb.noRankDelta = false;
-          bb.scheduler = bb.scheduler || {};
-          bb.drawSettings = bb.drawSettings || {};
-          return bb;
-        };
+        // vẫn join room match:... cho cả 2 loại
+        socket.join(`match:${matchId}`);
 
-        const curBracketId = m?.bracket?._id;
-        const tourId = m?.tournament?._id || m?.tournament;
-        m.prevBracket = null;
-        m.prevBrackets = [];
+        let m = null;
+        let isUserMatch = false;
 
-        if (curBracketId && tourId) {
-          const prevSelect = [
-            "name",
-            "type",
-            "stage",
-            "order",
-            "drawRounds",
-            "drawStatus",
-            "scheduler",
-            "drawSettings",
-            "meta.drawSize",
-            "meta.maxRounds",
-            "meta.expectedFirstRoundMatches",
-            "groups._id",
-            "groups.name",
-            "groups.expectedSize",
-            "config.rules",
-            "config.doubleElim",
-            "config.roundRobin",
-            "config.swiss",
-            "config.gsl",
-            "config.roundElim",
-            "overlay",
-            "createdAt",
-          ].join(" ");
-
-          const allBr = await Bracket.find({ tournament: tourId })
-            .select(prevSelect)
+        // ===== 1) THỬ LOAD USERMATCH TRƯỚC =====
+        try {
+          m = await UserMatch.findById(matchId)
+            .populate(
+              "participants.user",
+              "name fullName avatar nickname nickName phone"
+            )
+            .populate({
+              path: "referee",
+              select: "name fullName nickname nickName",
+            })
+            .populate({
+              path: "liveBy",
+              select: "name fullName nickname nickName",
+            })
+            .populate({
+              path: "serve.serverId",
+              model: "User",
+              select: "name fullName nickname nickName",
+            })
+            .populate({
+              path: "court",
+              select: "name number code label zone area venue building floor",
+            })
             .lean();
 
-          const list = (allBr || [])
-            .map((b) => ({
-              ...b,
-              __k: [toNum(b.order, 0), toTime(b), String(b._id)],
-            }))
-            .sort((a, b) => {
-              for (let i = 0; i < a.__k.length; i++) {
-                if (a.__k[i] < b.__k[i]) return -1;
-                if (a.__k[i] > b.__k[i]) return 1;
-              }
-              return 0;
-            });
-
-          const curIdx = list.findIndex(
-            (x) => String(x._id) === String(curBracketId)
+          if (m) {
+            isUserMatch = true;
+          }
+        } catch (e) {
+          console.error(
+            "[socket match:join] load UserMatch error:",
+            e?.message || e
           );
-          if (curIdx > 0) {
-            const { __k, ...prevRaw } = list[curIdx - 1];
-            const prev = normalizeBracketShape(prevRaw);
-            m.prevBracket = prev;
-            m.prevBrackets = [prev];
+        }
+
+        // ===== 2) KHÔNG CÓ USERMATCH → FALLBACK MATCH CŨ =====
+        if (!m) {
+          m = await Match.findById(matchId)
+            .populate({
+              path: "pairA",
+              select: "player1 player2 seed label teamName",
+              populate: [
+                {
+                  path: "player1",
+                  // có đủ các tên + user.nickname để FE fallback
+                  select: "fullName name shortName nickname nickName user",
+                  populate: { path: "user", select: "nickname nickName" },
+                },
+                {
+                  path: "player2",
+                  select: "fullName name shortName nickname nickName user",
+                  populate: { path: "user", select: "nickname nickName" },
+                },
+              ],
+            })
+            .populate({
+              path: "pairB",
+              select: "player1 player2 seed label teamName",
+              populate: [
+                {
+                  path: "player1",
+                  select: "fullName name shortName nickname nickName user",
+                  populate: { path: "user", select: "nickname nickName" },
+                },
+                {
+                  path: "player2",
+                  select: "fullName name shortName nickname nickName user",
+                  populate: { path: "user", select: "nickname nickName" },
+                },
+              ],
+            })
+            // referee là mảng
+            .populate({
+              path: "referee",
+              select: "name fullName nickname nickName",
+            })
+            // người đang điều khiển live
+            .populate({
+              path: "liveBy",
+              select: "name fullName nickname nickName",
+            })
+            .populate({ path: "previousA", select: "round order" })
+            .populate({ path: "previousB", select: "round order" })
+            .populate({ path: "nextMatch", select: "_id" })
+            .populate({
+              path: "tournament",
+              select: "name image eventType overlay",
+            })
+            // BRACKET: gửi đủ groups + meta + config như mẫu JSON bạn đưa
+            .populate({
+              path: "bracket",
+              select: [
+                "noRankDelta",
+                "name",
+                "type",
+                "stage",
+                "order",
+                "drawRounds",
+                "drawStatus",
+                "scheduler",
+                "drawSettings",
+                // meta.*
+                "meta.drawSize",
+                "meta.maxRounds",
+                "meta.expectedFirstRoundMatches",
+                // groups[]
+                "groups._id",
+                "groups.name",
+                "groups.expectedSize",
+                // rules + các config khác để FE tham chiếu
+                "config.rules",
+                "config.doubleElim",
+                "config.roundRobin",
+                "config.swiss",
+                "config.gsl",
+                "config.roundElim",
+                // nếu bạn có overlay ở bracket thì giữ lại
+                "overlay",
+              ].join(" "),
+            })
+            // court để FE auto-next theo sân
+            .populate({
+              path: "court",
+              select: "name number code label zone area venue building floor",
+            })
+            .lean();
+        }
+
+        if (!m) return;
+
+        // ====== GIỮ NGUYÊN CODE DECORATE Ở DƯỚI (ÁP DỤNG CHUNG CHO CẢ HAI) ======
+
+        // Helper: lấy nickname ưu tiên player.nickname/nickName;
+        // nếu thiếu HOẶC chuỗi rỗng => fallback sang user.nickname/user.nickName.
+        const fillNick = (p) => {
+          if (!p) return p;
+          const pick = (v) => (v && String(v).trim()) || "";
+          const primary = pick(p.nickname) || pick(p.nickName);
+          const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+          const n = primary || fromUser || "";
+          if (n) {
+            p.nickname = n;
+            p.nickName = n;
+          }
+          return p;
+        };
+
+        if (m.pairA) {
+          m.pairA.player1 = fillNick(m.pairA.player1);
+          m.pairA.player2 = fillNick(m.pairA.player2);
+        }
+        if (m.pairB) {
+          m.pairB.player1 = fillNick(m.pairB.player1);
+          m.pairB.player2 = fillNick(m.pairB.player2);
+        }
+
+        // bổ sung streams từ meta nếu có
+        if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
+        // fallback rules để DTO/FE luôn có giá trị an toàn
+        m.rules = {
+          bestOf: Number(m?.rules?.bestOf ?? 3),
+          pointsToWin: Number(m?.rules?.pointsToWin ?? 11),
+          winByTwo: Boolean(m?.rules?.winByTwo ?? true),
+          ...(m.rules?.cap ? { cap: m.rules.cap } : {}),
+        };
+
+        // fallback serve
+        if (
+          !m?.serve ||
+          (!m.serve.side && !m.serve.server && !m.serve.playerIndex)
+        ) {
+          m.serve = { side: "A", server: 1, playerIndex: 1 };
+        } else {
+          m.serve.side =
+            (m.serve.side || "A").toUpperCase() === "B" ? "B" : "A";
+          m.serve.server =
+            Number(m.serve.server ?? m.serve.playerIndex ?? 1) || 1;
+          m.serve.playerIndex =
+            Number(m.serve.playerIndex ?? m.serve.server ?? 1) || 1;
+        }
+
+        // gameScores tối thiểu 1 phần tử
+        if (!Array.isArray(m.gameScores) || !m.gameScores.length) {
+          m.gameScores = [{ a: 0, b: 0 }];
+        }
+
+        // overlay root (ưu tiên match.overlay)
+        if (!m.overlay) {
+          m.overlay =
+            m?.overlay ||
+            m?.tournament?.overlay ||
+            m?.bracket?.overlay ||
+            undefined;
+        }
+
+        // roundCode fallback (không ảnh hưởng userMatch vì không có bracket)
+        if (!m.roundCode && m.bracket) {
+          const drawSize =
+            Number(m?.bracket?.meta?.drawSize) ||
+            (Number.isInteger(m?.bracket?.drawRounds)
+              ? 1 << m.bracket.drawRounds
+              : 0);
+          if (drawSize && Number.isInteger(m?.round) && m.round >= 1) {
+            const roundSize = Math.max(
+              2,
+              Math.floor(drawSize / Math.pow(2, m.round - 1))
+            );
+            m.roundCode = `R${roundSize}`;
           }
         }
+
+        // court fallback field (courtId/courtName/courtNo) để FE cũ/auto-next dùng được
+        const courtId = m?.court?._id || m?.courtId || null;
+        const courtNumber = m?.court?.number ?? m?.courtNo ?? undefined;
+        const courtName =
+          m?.court?.name ??
+          m?.courtName ??
+          (courtNumber != null ? `Sân ${courtNumber}` : "");
+        m.courtId = courtId || undefined;
+        m.courtName = courtName || undefined;
+        m.courtNo = courtNumber ?? undefined;
+
+        // bracketType (userMatch không có bracket → chuỗi rỗng)
+        if (!m.bracketType) {
+          m.bracketType = m?.bracket?.type || m?.format || m?.bracketType || "";
+        }
+
+        // prevBracket chỉ chạy khi có tournament + bracket (userMatch sẽ tự skip)
+        try {
+          const toNum = (v, d = 0) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : d;
+          };
+          const toTime = (x) =>
+            (x?.createdAt && new Date(x.createdAt).getTime()) ||
+            (x?._id?.getTimestamp?.() && x._id.getTimestamp().getTime()) ||
+            0;
+
+          const normalizeBracketShape = (b) => {
+            if (!b) return b;
+            const bb = { ...b };
+            if (!Array.isArray(bb.groups)) bb.groups = [];
+            bb.meta = bb.meta || {};
+            if (typeof bb.meta.drawSize !== "number") bb.meta.drawSize = 0;
+            if (typeof bb.meta.maxRounds !== "number") bb.meta.maxRounds = 0;
+            if (typeof bb.meta.expectedFirstRoundMatches !== "number")
+              bb.meta.expectedFirstRoundMatches = 0;
+            bb.config = bb.config || {};
+            bb.config.rules = bb.config.rules || {};
+            bb.config.roundRobin = bb.config.roundRobin || {};
+            bb.config.doubleElim = bb.config.doubleElim || {};
+            bb.config.swiss = bb.config.swiss || {};
+            bb.config.gsl = bb.config.gsl || {};
+            bb.config.roundElim = bb.config.roundElim || {};
+            if (typeof bb.noRankDelta !== "boolean") bb.noRankDelta = false;
+            bb.scheduler = bb.scheduler || {};
+            bb.drawSettings = bb.drawSettings || {};
+            return bb;
+          };
+
+          const curBracketId = m?.bracket?._id;
+          const tourId = m?.tournament?._id || m?.tournament;
+          m.prevBracket = null;
+          m.prevBrackets = [];
+
+          if (curBracketId && tourId) {
+            const prevSelect = [
+              "name",
+              "type",
+              "stage",
+              "order",
+              "drawRounds",
+              "drawStatus",
+              "scheduler",
+              "drawSettings",
+              "meta.drawSize",
+              "meta.maxRounds",
+              "meta.expectedFirstRoundMatches",
+              "groups._id",
+              "groups.name",
+              "groups.expectedSize",
+              "config.rules",
+              "config.doubleElim",
+              "config.roundRobin",
+              "config.swiss",
+              "config.gsl",
+              "config.roundElim",
+              "overlay",
+              "createdAt",
+            ].join(" ");
+
+            const allBr = await Bracket.find({ tournament: tourId })
+              .select(prevSelect)
+              .lean();
+
+            const list = (allBr || [])
+              .map((b) => ({
+                ...b,
+                __k: [toNum(b.order, 0), toTime(b), String(b._id)],
+              }))
+              .sort((a, b) => {
+                for (let i = 0; i < a.__k.length; i++) {
+                  if (a.__k[i] < b.__k[i]) return -1;
+                  if (a.__k[i] > b.__k[i]) return 1;
+                }
+                return 0;
+              });
+
+            const curIdx = list.findIndex(
+              (x) => String(x._id) === String(curBracketId)
+            );
+            if (curIdx > 0) {
+              const { __k, ...prevRaw } = list[curIdx - 1];
+              const prev = normalizeBracketShape(prevRaw);
+              m.prevBracket = prev;
+              m.prevBrackets = [prev];
+            }
+          }
+        } catch (e) {
+          console.error(
+            "[socket match:join] prevBracket error:",
+            e?.message || e
+          );
+        }
+
+        // ép có m.video (dùng chung cho cả Match & UserMatch nếu có facebookLive)
+        if (!m.video) {
+          m.video =
+            m.videoUrl ||
+            m?.meta?.video ||
+            m?.facebookLive?.permalinkUrl ||
+            m?.facebookLive?.liveUrl ||
+            m?.facebookLive?.hls ||
+            m?.facebookLive?.m3u8 ||
+            null;
+        }
+
+        // giữ nguyên emit cũ
+        socket.emit("match:snapshot", toDTO(decorateServeAndSlots(m)));
       } catch (e) {
-        console.error(
-          "[socket match:join] prevBracket error:",
-          e?.message || e
-        );
+        console.error("[socket match:join] fatal error:", e?.message || e);
       }
-
-      // ✅ CHỈ BỔ SUNG ĐOẠN NÀY: ép có m.video
-      if (!m.video) {
-        m.video =
-          m.videoUrl ||
-          m?.meta?.video ||
-          m?.facebookLive?.permalinkUrl ||
-          m?.facebookLive?.liveUrl ||
-          m?.facebookLive?.hls || // HLS của FB
-          m?.facebookLive?.m3u8 || // 1 số page trả m3u8
-          null;
-      }
-
-      // ✅ giữ nguyên emit cũ
-      socket.emit("match:snapshot", toDTO(decorateServeAndSlots(m)));
     });
 
     socket.on("overlay:join", ({ matchId }) => {
@@ -851,148 +904,374 @@ export function initSocket(
     );
 
     // Payload: { matchId, side?: "A"|"B", server?: 1|2, serverId?: "<userId>" }
-    socket.on("serve:set", async ({ matchId, side, server, serverId }, ack) => {
-      try {
-        // if (!ensureReferee(socket)) {
-        //   return ack?.({ ok: false, message: "Forbidden" });
-        // }
-        if (!isObjectIdString(matchId)) {
-          return ack?.({ ok: false, message: "Invalid matchId" });
-        }
-        const hasAny =
-          side !== undefined || server !== undefined || serverId !== undefined;
-        if (!hasAny) {
-          return ack?.({ ok: false, message: "Empty payload" });
-        }
+    socket.on(
+      "serve:set",
+      async ({ matchId, side, server, serverId, userMatch }, ack) => {
+        try {
+          if (!isObjectIdString(matchId)) {
+            return ack?.({ ok: false, message: "Invalid matchId" });
+          }
 
-        // load match để validate serverId theo side
-        const m = await Match.findById(matchId)
-          .populate({
-            path: "pairA",
-            select: "player1 player2",
-            populate: [
-              { path: "player1", select: "user" },
-              { path: "player2", select: "user" },
-            ],
-          })
-          .populate({
-            path: "pairB",
-            select: "player1 player2",
-            populate: [
-              { path: "player1", select: "user" },
-              { path: "player2", select: "user" },
-            ],
+          const hasAny =
+            side !== undefined ||
+            server !== undefined ||
+            serverId !== undefined;
+          if (!hasAny) {
+            return ack?.({ ok: false, message: "Empty payload" });
+          }
+
+          const toId = (u) =>
+            String(u?.user?._id || u?.user || u?._id || u?.id || "");
+          // ================== USER MATCH BRANCH ==================
+          if (userMatch) {
+            if (!socket.user?._id) {
+              return ack?.({ ok: false, message: "Forbidden" });
+            }
+
+            const m = await UserMatch.findById(matchId);
+            if (!m) {
+              return ack?.({ ok: false, message: "Match not found 1" });
+            }
+
+            // chỉ cho creator trận tự do đổi serve
+            if (String(m.createdBy) !== String(socket.user._id)) {
+              return ack?.({ ok: false, message: "Forbidden" });
+            }
+
+            // chuẩn hoá input
+            const sideU =
+              typeof side === "string" ? String(side).toUpperCase() : undefined;
+            const wantSide =
+              sideU === "A" || sideU === "B" ? sideU : m.serve?.side || "A";
+            const wantServer =
+              Number(server) === 1 || Number(server) === 2
+                ? Number(server)
+                : Number(m.serve?.server) === 1
+                ? 1
+                : 2;
+
+            // validate serverId thuộc team tương ứng theo participants.side
+            let validServerId = null;
+            if (serverId) {
+              const parts = Array.isArray(m.participants) ? m.participants : [];
+
+              const aSet = new Set(
+                parts
+                  .filter((p) => String(p.side || "").toUpperCase() === "A")
+                  .map(toId)
+                  .filter(Boolean)
+              );
+              const bSet = new Set(
+                parts
+                  .filter((p) => String(p.side || "").toUpperCase() === "B")
+                  .map(toId)
+                  .filter(Boolean)
+              );
+
+              const sid = String(serverId);
+              const okOnSide =
+                (wantSide === "A" && aSet.has(sid)) ||
+                (wantSide === "B" && bSet.has(sid));
+              validServerId = okOnSide ? sid : null;
+            }
+
+            const prevServe = m.serve || { side: "A", server: 2 };
+            m.serve = { side: wantSide, server: wantServer };
+
+            if (validServerId) {
+              m.set("slots.serverId", validServerId, { strict: false });
+              m.set("slots.updatedAt", new Date(), { strict: false });
+              const ver = Number(m?.slots?.version || 0);
+              m.set("slots.version", ver + 1, { strict: false });
+              m.markModified("slots");
+            }
+
+            // log nhẹ cho userMatch (reuse liveLog nếu schema có)
+            m.liveLog = m.liveLog || [];
+            m.liveLog.push({
+              type: "serve",
+              by: socket.user?._id || null,
+              payload: {
+                prevServe,
+                next: m.serve,
+                serverId: validServerId || null,
+              },
+              at: new Date(),
+            });
+            m.liveVersion = (m.liveVersion || 0) + 1;
+
+            await m.save();
+
+            // broadcast y như các chỗ khác đang nghe match:patched (FE refetch)
+            io.to(`match:${matchId}`).emit("match:patched", {
+              matchId: String(matchId),
+              payload: {
+                serve: m.serve,
+                slots: validServerId ? { serverId: validServerId } : undefined,
+              },
+            });
+
+            return ack?.({ ok: true });
+          }
+
+          // ================== TOURNAMENT MATCH BRANCH ==================
+          // if (!ensureReferee(socket)) {
+          //   return ack?.({ ok: false, message: "Forbidden" });
+          // }
+
+          // load match để validate serverId theo side
+          const m = await Match.findById(matchId)
+            .populate({
+              path: "pairA",
+              select: "player1 player2",
+              populate: [
+                { path: "player1", select: "user" },
+                { path: "player2", select: "user" },
+              ],
+            })
+            .populate({
+              path: "pairB",
+              select: "player1 player2",
+              populate: [
+                { path: "player1", select: "user" },
+                { path: "player2", select: "user" },
+              ],
+            });
+
+          if (!m) return ack?.({ ok: false, message: "Match not found 6" });
+
+          // chuẩn hoá input
+          const sideU =
+            typeof side === "string" ? String(side).toUpperCase() : undefined;
+          const wantSide =
+            sideU === "A" || sideU === "B" ? sideU : m.serve?.side || "A";
+          const wantServer =
+            Number(server) === 1 || Number(server) === 2
+              ? Number(server)
+              : Number(m.serve?.server) === 1
+              ? 1
+              : 2;
+
+          // validate serverId thuộc side tương ứng
+          const toIdMatch = (u) =>
+            String(u?.user?._id || u?.user || u?._id || u?.id || "");
+          let validServerId = null;
+          if (serverId) {
+            const aSet = new Set(
+              [m?.pairA?.player1, m?.pairA?.player2]
+                .filter(Boolean)
+                .map(toIdMatch)
+                .filter(Boolean)
+            );
+            const bSet = new Set(
+              [m?.pairB?.player1, m?.pairB?.player2]
+                .filter(Boolean)
+                .map(toIdMatch)
+                .filter(Boolean)
+            );
+            const sid = String(serverId);
+            const okOnSide =
+              (wantSide === "A" && aSet.has(sid)) ||
+              (wantSide === "B" && bSet.has(sid));
+            validServerId = okOnSide ? sid : null;
+          }
+
+          const prevServe = m.serve || { side: "A", server: 2 };
+          m.serve = { side: wantSide, server: wantServer };
+
+          // lưu serverId động vào slots (không đụng schema)
+          if (validServerId) {
+            m.set("slots.serverId", validServerId, { strict: false });
+            m.set("slots.updatedAt", new Date(), { strict: false });
+            const ver = Number(m?.slots?.version || 0);
+            m.set("slots.version", ver + 1, { strict: false });
+            m.markModified("slots");
+          }
+
+          // live log + version
+          m.liveLog = m.liveLog || [];
+          m.liveLog.push({
+            type: "serve",
+            by: socket.user?._id || null,
+            payload: {
+              prevServe,
+              next: m.serve,
+              serverId: validServerId || null,
+            },
+            at: new Date(),
           });
+          m.liveVersion = (m.liveVersion || 0) + 1;
 
-        if (!m) return ack?.({ ok: false, message: "Match not found" });
+          await m.save();
 
-        // chuẩn hoá input
-        const sideU =
-          typeof side === "string" ? String(side).toUpperCase() : undefined;
-        const wantSide =
-          sideU === "A" || sideU === "B" ? sideU : m.serve?.side || "A";
-        const wantServer =
-          Number(server) === 1 || Number(server) === 2
-            ? Number(server)
-            : Number(m.serve?.server) === 1
-            ? 1
-            : 2;
+          // ==== tải lại theo chuỗi populate của match:join ====
+          let snap = await loadMatchForSnapshot(m._id);
+          if (!snap) {
+            // vẫn ok vì đã lưu; chỉ không có snapshot trả về
+            return ack?.({ ok: true });
+          }
 
-        // validate serverId thuộc side tương ứng
-        const toId = (u) =>
-          String(u?.user?._id || u?.user || u?._id || u?.id || "");
-        let validServerId = null;
-        if (serverId) {
-          const aSet = new Set(
-            [m?.pairA?.player1, m?.pairA?.player2]
-              .filter(Boolean)
-              .map(toId)
-              .filter(Boolean)
-          );
-          const bSet = new Set(
-            [m?.pairB?.player1, m?.pairB?.player2]
-              .filter(Boolean)
-              .map(toId)
-              .filter(Boolean)
-          );
-          const sid = String(serverId);
-          const okOnSide =
-            (wantSide === "A" && aSet.has(sid)) ||
-            (wantSide === "B" && bSet.has(sid));
-          validServerId = okOnSide ? sid : null;
+          // chuẩn hoá snapshot y như match:join
+          snap = await postprocessSnapshotLikeJoin(snap);
+
+          // decorate + DTO giống hệt điểm phát trong match:join
+          const dto = toDTO(decorateServeAndSlots(snap));
+
+          // 📣 broadcast tới các room liên quan (bắn hết)
+          io.to(`match:${matchId}`).emit("match:snapshot", dto);
+          if (dto?.bracket?._id) {
+            io.to(`bracket:${dto.bracket._id}`).emit("match:snapshot", dto);
+          }
+          if (dto?.tournament?._id) {
+            io.to(`tournament:${dto.tournament._id}`).emit(
+              "match:snapshot",
+              dto
+            );
+          }
+
+          // 👉 trả snapshot trong ack cho caller
+          ack?.({ ok: true, data: dto });
+        } catch (e) {
+          console.error("[serve:set] error:", e?.message || e);
+          ack?.({ ok: false, message: e?.message || "Internal error" });
         }
-
-        const prevServe = m.serve || { side: "A", server: 2 };
-        m.serve = { side: wantSide, server: wantServer };
-
-        // lưu serverId động vào slots (không đụng schema)
-        if (validServerId) {
-          m.set("slots.serverId", validServerId, { strict: false });
-          m.set("slots.updatedAt", new Date(), { strict: false });
-          const ver = Number(m?.slots?.version || 0);
-          m.set("slots.version", ver + 1, { strict: false });
-          m.markModified("slots");
-        }
-
-        // live log + version
-        m.liveLog = m.liveLog || [];
-        m.liveLog.push({
-          type: "serve",
-          by: socket.user?._id || null,
-          payload: {
-            prevServe,
-            next: m.serve,
-            serverId: validServerId || null,
-          },
-          at: new Date(),
-        });
-        m.liveVersion = (m.liveVersion || 0) + 1;
-
-        await m.save();
-
-        // ==== tải lại theo chuỗi populate của match:join ====
-        let snap = await loadMatchForSnapshot(m._id);
-        if (!snap) {
-          // vẫn ok vì đã lưu; chỉ không có snapshot trả về
-          // io.to(`match:${matchId}`).emit("match:update", { type: "serve" });
-          return ack?.({ ok: true });
-        }
-
-        // chuẩn hoá snapshot y như match:join
-        snap = await postprocessSnapshotLikeJoin(snap);
-
-        // decorate + DTO giống hệt điểm phát trong match:join
-        const dto = toDTO(decorateServeAndSlots(snap));
-
-        // 📣 broadcast tới các room liên quan (bắn hết)
-        io.to(`match:${matchId}`).emit("match:snapshot", dto);
-        if (dto?.bracket?._id) {
-          io.to(`bracket:${dto.bracket._id}`).emit("match:snapshot", dto);
-        }
-        if (dto?.tournament?._id) {
-          io.to(`tournament:${dto.tournament._id}`).emit("match:snapshot", dto);
-        }
-
-        // 👉 trả snapshot trong ack cho caller
-        ack?.({ ok: true, data: dto });
-      } catch (e) {
-        console.error("[serve:set] error:", e?.message || e);
-        ack?.({ ok: false, message: e?.message || "Internal error" });
       }
-    });
+    );
 
     // ======== SLOTS: setBase (referee/admin) ========
     // Payload: { matchId, base: { A: { [userId]: 1|2 }, B: { [userId]: 1|2 } } }
-    socket.on("slots:setBase", async ({ matchId, base }, ack) => {
+    socket.on("slots:setBase", async ({ matchId, base, userMatch }, ack) => {
       try {
-        if (!ensureReferee(socket)) {
-          return ack?.({ ok: false, message: "Forbidden" });
-        }
         if (!isObjectIdString(matchId) || !base || typeof base !== "object") {
           return ack?.({ ok: false, message: "Invalid payload" });
         }
 
-        // Load match (doc, cần save)
+        // ========== HELPER CHUNG ==========
+        const in01 = (v) => v === 1 || v === 2;
+
+        // ========== NHÁNH USER MATCH ==========
+        if (userMatch) {
+          const m = await UserMatch.findById(matchId).populate(
+            "participants.user",
+            "name fullName avatar nickname nickName"
+          );
+
+          if (!m) return ack?.({ ok: false, message: "UserMatch not found" });
+
+          // quyền: chủ trận hoặc referee của userMatch
+          const socketUserId = socket.user?._id && String(socket.user._id);
+          const isOwner =
+            socketUserId &&
+            m.createdBy &&
+            String(m.createdBy) === String(socketUserId);
+
+          const isReferee =
+            socketUserId &&
+            Array.isArray(m.referee) &&
+            m.referee.some((r) => String(r) === String(socketUserId));
+
+          if (!isOwner && !isReferee) {
+            return ack?.({ ok: false, message: "Forbidden" });
+          }
+
+          // helper lấy userId từ participant
+          const uidP = (p) =>
+            String(
+              p?.user?._id ||
+                p?.user || // ObjectId
+                ""
+            );
+
+          const listA = Array.isArray(m.participants)
+            ? m.participants.filter((p) => p.side === "A")
+            : [];
+          const listB = Array.isArray(m.participants)
+            ? m.participants.filter((p) => p.side === "B")
+            : [];
+
+          const validA = new Set(listA.map(uidP).filter(Boolean));
+          const validB = new Set(listB.map(uidP).filter(Boolean));
+
+          const inputA = base?.A && typeof base.A === "object" ? base.A : {};
+          const inputB = base?.B && typeof base.B === "object" ? base.B : {};
+
+          const filteredA = {};
+          for (const [k, v] of Object.entries(inputA)) {
+            const kid = String(k);
+            if (validA.has(kid) && in01(Number(v))) filteredA[kid] = Number(v);
+          }
+
+          const filteredB = {};
+          for (const [k, v] of Object.entries(inputB)) {
+            const kid = String(k);
+            if (validB.has(kid) && in01(Number(v))) filteredB[kid] = Number(v);
+          }
+
+          const needDoubleCheck = (setValid, filtered) => {
+            if (setValid.size < 2) return true; // chưa đủ người → nới lỏng
+            const vals = Object.values(filtered);
+            const c1 = vals.filter((x) => x === 1).length;
+            const c2 = vals.filter((x) => x === 2).length;
+            return c1 === 1 && c2 === 1;
+          };
+          if (!needDoubleCheck(validA, filteredA)) {
+            return ack?.({
+              ok: false,
+              message: "Team A must have one #1 and one #2",
+            });
+          }
+          if (!needDoubleCheck(validB, filteredB)) {
+            return ack?.({
+              ok: false,
+              message: "Team B must have one #1 and one #2",
+            });
+          }
+
+          const nowBase = { A: filteredA, B: filteredB };
+
+          // 🔹 CẬP NHẬT slots
+          m.set("slots.base", nowBase, { strict: false });
+          m.set("slots.updatedAt", new Date(), { strict: false });
+          const prevVer = Number(m?.slots?.version || 0);
+          m.set("slots.version", prevVer + 1, { strict: false });
+          m.markModified("slots");
+
+          // 🔹 CẬP NHẬT LUÔN participants.order THEO base (dùng userId chuẩn)
+          const applyOrderByBase = (list, filtered) => {
+            if (!list.length) return;
+            const map = new Map(
+              Object.entries(filtered).map(([id, slot]) => [String(id), slot])
+            );
+
+            for (const p of list) {
+              const sid = uidP(p); // ⬅️ dùng userId chứ không phải String(p.user)
+              const slot = map.get(sid);
+              if (slot === 1 || slot === 2) {
+                p.order = slot;
+              }
+            }
+          };
+
+          applyOrderByBase(listA, filteredA);
+          applyOrderByBase(listB, filteredB);
+          m.markModified("participants");
+
+          await m.save();
+
+          // 🔔 vẫn bắn event y như match thường để FE không cần đổi
+          io.to(`match:${matchId}`).emit("match:patched", {
+            matchId: String(matchId),
+            payload: { slots: { base: nowBase } },
+          });
+
+          return ack?.({ ok: true });
+        }
+
+        // ========== NHÁNH MATCH BÌNH THƯỜNG ==========
+        if (!ensureReferee(socket)) {
+          return ack?.({ ok: false, message: "Forbidden" });
+        }
+
         const m = await Match.findById(matchId)
           .populate({
             path: "pairA",
@@ -1030,7 +1309,6 @@ export function initSocket(
             .filter(Boolean)
         );
 
-        const in01 = (v) => v === 1 || v === 2;
         const inputA = base?.A && typeof base.A === "object" ? base.A : {};
         const inputB = base?.B && typeof base.B === "object" ? base.B : {};
 
@@ -1045,9 +1323,8 @@ export function initSocket(
           if (validB.has(kid) && in01(Number(v))) filteredB[kid] = Number(v);
         }
 
-        // Yêu cầu đôi: đúng 1 người ô1 và 1 người ô2 mỗi đội (nếu đủ người)
         const needDoubleCheck = (setValid, filtered) => {
-          if (setValid.size < 2) return true; // đội chưa đủ người → nới lỏng
+          if (setValid.size < 2) return true;
           const vals = Object.values(filtered);
           const c1 = vals.filter((x) => x === 1).length;
           const c2 = vals.filter((x) => x === 2).length;
@@ -1072,7 +1349,6 @@ export function initSocket(
         m.markModified("slots");
         await m.save();
 
-        // Thông báo room
         io.to(`match:${matchId}`).emit("match:patched", {
           matchId: String(matchId),
           payload: { slots: { base: nowBase } },
@@ -1084,7 +1360,6 @@ export function initSocket(
         ack?.({ ok: false, message: e?.message || "Internal error" });
       }
     });
-
     // ======== RULES: setPointsToWin (referee/admin) ========
     // Payload: { matchId, pointsToWin }
     socket.on("rules:setPointsToWin", async (payload, ack) => {
@@ -1095,7 +1370,7 @@ export function initSocket(
         }
 
         const m = await Match.findById(matchId);
-        if (!m) return ack?.({ ok: false, message: "Match not found" });
+        if (!m) return ack?.({ ok: false, message: "Match not found 4" });
         if (String(m.status) === "finished") {
           return ack?.({ ok: false, message: "Match already finished" });
         }
@@ -1654,6 +1929,23 @@ export function initSocket(
       }
     );
 
+    socket.on("match:leave", ({ matchId, userMatch }) => {
+      try {
+        if (!matchId) return;
+
+        // rời room match cho cả match thường & userMatch
+        socket.leave(`match:${matchId}`);
+
+        console.log(
+          "[socket] match:leave",
+          matchId,
+          userMatch ? "(userMatch)" : ""
+        );
+      } catch (e) {
+        console.error("[socket match:leave] error:", e?.message || e);
+      }
+    });
+
     async function populateMatchForEmit(matchId) {
       const m = await Match.findById(matchId)
         .populate({
@@ -1806,7 +2098,7 @@ export function initSocket(
           ]);
 
           if (!court) return ack?.({ ok: false, message: "Court not found" });
-          if (!match) return ack?.({ ok: false, message: "Match not found" });
+          if (!match) return ack?.({ ok: false, message: "Match not found 5" });
 
           if (
             String(court.tournament) !== String(tournamentId) ||
