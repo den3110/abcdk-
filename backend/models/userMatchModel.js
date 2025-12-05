@@ -1,10 +1,14 @@
 // models/userMatchModel.js
 import mongoose from "mongoose";
+import {
+  markFacebookPageFreeByMatch,
+  markFacebookPageFreeByPage,
+} from "../services/facebookPagePool.service.js";
 
 const { Schema } = mongoose;
 
 /* =========================================
- * BREAK helpers (giữ nguyên như Match)
+ * BREAK helpers (giống Match model)
  * ========================================= */
 const BREAK_DEFAULT = {
   active: false,
@@ -34,19 +38,16 @@ function normalizeBreak(val) {
   };
 }
 
-// dùng cho các update kiểu $set: { isBreak } hoặc $set: { "isBreak.active": ... }
 function normalizeBreakInUpdate(ctx, next) {
   const update = ctx.getUpdate() || {};
   const $set = update.$set || {};
   let changed = false;
 
-  // 1) set thẳng isBreak
   if (Object.prototype.hasOwnProperty.call($set, "isBreak")) {
     $set.isBreak = normalizeBreak($set.isBreak);
     changed = true;
   }
 
-  // 2) set từng field: "isBreak.active", "isBreak.note", ...
   const dotKeys = Object.keys($set).filter((k) => k.startsWith("isBreak."));
   if (dotKeys.length) {
     const nextBreak = { ...BREAK_DEFAULT };
@@ -67,22 +68,55 @@ function normalizeBreakInUpdate(ctx, next) {
 }
 
 /* =========================================
- * USER MATCH (tự do, không thuộc tournament/bracket)
+ * PARTICIPANT SCHEMA (hỗ trợ cả user + guest)
  * ========================================= */
-
 const participantSchema = new Schema(
   {
     user: { type: Schema.Types.ObjectId, ref: "User", default: null },
-    displayName: { type: String, trim: true, default: "" }, // tên hiển thị
+    displayName: { type: String, trim: true, default: "" },
     side: { type: String, enum: ["A", "B", null], default: null },
-    order: { type: Number, default: 1 },
+    order: { type: Number, default: 1 }, // 1 = player1, 2 = player2 (doubles)
+
+    // Guest player support
+    isGuest: { type: Boolean, default: false },
+    avatar: { type: String, trim: true, default: "" },
+    contact: {
+      phone: { type: String, trim: true, default: "" },
+      email: { type: String, trim: true, default: "" },
+    },
+
+    // Role (để mở rộng sau)
+    role: {
+      type: String,
+      enum: ["player", "substitute", "observer"],
+      default: "player",
+    },
   },
   { _id: false }
 );
 
+/* =========================================
+ * REACTION SCHEMA (cho social features)
+ * ========================================= */
+const reactionSchema = new Schema(
+  {
+    user: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    type: {
+      type: String,
+      enum: ["like", "love", "fire", "clap"],
+      default: "like",
+    },
+    at: { type: Date, default: Date.now },
+  },
+  { _id: false }
+);
+
+/* =========================================
+ * USER MATCH SCHEMA
+ * ========================================= */
 const userMatchSchema = new Schema(
   {
-    // 🧑‍💻 Người tạo match tự do
+    /* ========= OWNERSHIP & BASIC INFO ========= */
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: "User",
@@ -90,28 +124,52 @@ const userMatchSchema = new Schema(
       index: true,
     },
 
-    // Tên / tiêu đề match tự do (để show ngoài list)
     title: { type: String, trim: true, default: "" },
-
-    // Mô tả thêm
     note: { type: String, trim: true, default: "" },
 
-    // Loại môn (mặc định pickleball, để sau mở rộng)
     sportType: {
       type: String,
       default: "pickleball",
       index: true,
     },
 
-    // Địa điểm đơn giản
+    /* ========= PRIVACY & SHARING ========= */
+    visibility: {
+      type: String,
+      enum: ["public", "private", "friends", "invited"],
+      default: "private",
+      index: true,
+    },
+    invitedUsers: [{ type: Schema.Types.ObjectId, ref: "User" }],
+    allowComments: { type: Boolean, default: true },
+    allowShare: { type: Boolean, default: false },
+
+    /* ========= LOCATION ========= */
     location: {
-      name: { type: String, trim: true, default: "" }, // vd: "CLB A"
+      name: { type: String, trim: true, default: "" },
       address: { type: String, trim: true, default: "" },
+      coordinates: {
+        lat: { type: Number, default: null },
+        lng: { type: Number, default: null },
+      },
     },
 
-    /* ========= Các field giống Match (trừ tournament/bracket/seed/propagate) ========= */
+    /* ========= CATEGORIZATION ========= */
+    category: {
+      type: String,
+      enum: ["casual", "practice", "club", "league", "tournament", "other"],
+      default: "casual",
+      index: true,
+    },
+    tags: [{ type: String, trim: true }],
 
-    // format / branch / round info (để tái dùng UI/overlay nếu cần)
+    // Custom league/season (nếu user tự tổ chức giải riêng)
+    customLeague: {
+      name: { type: String, trim: true, default: "" },
+      season: { type: String, trim: true, default: "" },
+    },
+
+    /* ========= MATCH STRUCTURE (giống Match) ========= */
     format: {
       type: String,
       enum: [
@@ -130,7 +188,6 @@ const userMatchSchema = new Schema(
       type: String,
       enum: ["main", "wb", "lb", "gf", "consol"],
       default: "main",
-      index: true,
     },
 
     pool: {
@@ -141,16 +198,15 @@ const userMatchSchema = new Schema(
       type: String,
       enum: ["group", "winners", "losers", "decider", "grand_final", null],
       default: null,
-      index: true,
     },
-    swissRound: { type: Number, default: null, index: true },
-    rrRound: { type: Number, default: null, index: true },
+    swissRound: { type: Number, default: null },
+    rrRound: { type: Number, default: null },
 
-    round: { type: Number, default: 1, index: true }, // 1-based
-    order: { type: Number, default: 0 }, // 0-based
-    code: { type: String, default: "" }, // ví dụ: R1#0
+    round: { type: Number, default: 1, index: true },
+    order: { type: Number, default: 0 },
+    code: { type: String, default: "" },
 
-    // Luật tính điểm
+    /* ========= RULES & SCORING ========= */
     rules: {
       bestOf: { type: Number, enum: [1, 3, 5], default: 1 },
       pointsToWin: { type: Number, enum: [11, 15, 21], default: 11 },
@@ -176,6 +232,7 @@ const userMatchSchema = new Schema(
       },
     ],
 
+    /* ========= STATUS & RESULT ========= */
     status: {
       type: String,
       enum: ["scheduled", "queued", "assigned", "live", "finished"],
@@ -189,25 +246,27 @@ const userMatchSchema = new Schema(
       set: (v) => (v == null ? "" : v),
     },
 
-    referee: {
-      type: [{ type: Schema.Types.ObjectId, ref: "User" }],
-      default: [],
-    },
-
-    scheduledAt: { type: Date, default: null, index: true },
-    court: { type: Schema.Types.ObjectId, ref: "Court", default: null },
-    courtLabel: { type: String, default: "" },
-    courtCluster: { type: String, default: "Main", index: true },
-    queueOrder: { type: Number, default: null, index: true },
-    assignedAt: { type: Date, default: null },
-
-    // Lưu user tham gia (dv: User + displayName) – riêng cho match tự do
+    /* ========= PARTICIPANTS ========= */
     participants: {
       type: [participantSchema],
       default: [],
     },
 
-    // Live state
+    /* ========= OFFICIALS ========= */
+    referee: {
+      type: [{ type: Schema.Types.ObjectId, ref: "User" }],
+      default: [],
+    },
+
+    /* ========= SCHEDULING ========= */
+    scheduledAt: { type: Date, default: null, index: true },
+    court: { type: Schema.Types.ObjectId, ref: "Court", default: null },
+    courtLabel: { type: String, default: "" },
+    courtCluster: { type: String, default: "Main" },
+    queueOrder: { type: Number, default: null },
+    assignedAt: { type: Date, default: null },
+
+    /* ========= LIVE STATE ========= */
     currentGame: { type: Number, default: 0 },
     serve: {
       side: { type: String, enum: ["A", "B"], default: "A" },
@@ -255,18 +314,17 @@ const userMatchSchema = new Schema(
       },
     ],
 
-    // Rating meta (giữ nguyên field để sau tái dùng, không gắn tournament)
+    /* ========= RATING (để sau mở rộng) ========= */
     ratingDelta: { type: Number, default: 0 },
     ratingApplied: { type: Boolean, default: false },
     ratingAppliedAt: { type: Date, default: null },
 
-    // Stage & label (vẫn giữ để tái dùng UI/overlay nếu muốn)
-    stageIndex: { type: Number, default: 1, index: true },
+    /* ========= METADATA ========= */
+    stageIndex: { type: Number, default: 1 },
     labelKey: { type: String, default: "" },
-
     meta: { type: Schema.Types.Mixed, default: {} },
 
-    // Facebook Live (giữ nguyên để tái dùng)
+    /* ========= FACEBOOK LIVE ========= */
     facebookLive: {
       id: { type: String, trim: true },
       videoId: { type: String, trim: true },
@@ -297,6 +355,12 @@ const userMatchSchema = new Schema(
       pageId: { type: String },
     },
 
+    /* ========= SOCIAL FEATURES ========= */
+    reactions: [reactionSchema],
+    views: { type: Number, default: 0 },
+    viewedBy: [{ type: Schema.Types.ObjectId, ref: "User" }],
+
+    /* ========= MISC ========= */
     isThirdPlace: { type: Boolean, default: false },
   },
   { timestamps: true }
@@ -304,7 +368,6 @@ const userMatchSchema = new Schema(
 
 /* ======================= PRE-VALIDATE ======================= */
 userMatchSchema.pre("validate", function (next) {
-  // ép isBreak về object chuẩn
   this.isBreak = normalizeBreak(this.isBreak);
 
   if (this.winner == null) this.winner = "";
@@ -316,24 +379,42 @@ userMatchSchema.pre("validate", function (next) {
   next();
 });
 
-/* ======================= PRE-SAVE (đơn giản) ======================= */
+/* ======================= PRE-SAVE ======================= */
 userMatchSchema.pre("save", function (next) {
   try {
     this.isBreak = normalizeBreak(this.isBreak);
 
-    // code: R{round}#{order}
+    // Auto-generate code
     if (!this.code) {
       const r = this.round ?? "";
       const o = this.order ?? "";
       this.code = `R${r}#${o}`;
     }
 
-    // labelKey: V{stage}#R{round}#{order+1}
+    // Auto-generate labelKey
     if (!this.labelKey) {
       const r = this.round ?? 1;
       const o = (this.order ?? 0) + 1;
       const v = this.stageIndex || 1;
       this.labelKey = `V${v}#R${r}#${o}`;
+    }
+
+    // Auto-generate title if empty
+    if (!this.title) {
+      const sideA = this.participants.filter((p) => p.side === "A");
+      const sideB = this.participants.filter((p) => p.side === "B");
+
+      const getNames = (side) =>
+        side
+          .map((p) => p.displayName || "Player")
+          .join("/")
+          .substring(0, 30);
+
+      if (sideA.length && sideB.length) {
+        this.title = `${getNames(sideA)} vs ${getNames(sideB)}`;
+      } else {
+        this.title = "Trận đấu tự do";
+      }
     }
 
     next();
@@ -342,7 +423,7 @@ userMatchSchema.pre("save", function (next) {
   }
 });
 
-/* ======================= PRE-UPDATE (fix isBreak) ======================= */
+/* ======================= PRE-UPDATE ======================= */
 userMatchSchema.pre("updateOne", function (next) {
   normalizeBreakInUpdate(this, next);
 });
@@ -353,22 +434,404 @@ userMatchSchema.pre("updateMany", function (next) {
   normalizeBreakInUpdate(this, next);
 });
 
-/* ======================= Indexes ======================= */
+/* ======================= INSTANCE METHODS ======================= */
 
+/**
+ * Thêm participant vào match
+ */
+userMatchSchema.methods.addParticipant = async function (data) {
+  const {
+    user,
+    displayName,
+    side,
+    order,
+    isGuest,
+    avatar,
+    contact,
+    role,
+  } = data;
+
+  // Validate side
+  if (!["A", "B"].includes(side)) {
+    throw new Error('Side must be "A" or "B"');
+  }
+
+  // Check duplicate
+  const exists = this.participants.some(
+    (p) =>
+      (p.user && user && String(p.user) === String(user) && p.side === side) ||
+      (p.displayName === displayName && p.side === side)
+  );
+
+  if (exists) {
+    throw new Error("Participant already exists on this side");
+  }
+
+  // Check số lượng (doubles: max 2 per side)
+  const sameSize = this.participants.filter((p) => p.side === side).length;
+  if (sameSize >= 2) {
+    throw new Error(`Side ${side} already has 2 players (doubles)`);
+  }
+
+  this.participants.push({
+    user: user || null,
+    displayName: displayName || "",
+    side,
+    order: order || (sameSize + 1),
+    isGuest: isGuest || false,
+    avatar: avatar || "",
+    contact: contact || {},
+    role: role || "player",
+  });
+
+  await this.save();
+  return this;
+};
+
+/**
+ * Xoá participant
+ */
+userMatchSchema.methods.removeParticipant = async function (userId, side) {
+  if (side) {
+    this.participants = this.participants.filter(
+      (p) => !(String(p.user) === String(userId) && p.side === side)
+    );
+  } else {
+    this.participants = this.participants.filter(
+      (p) => String(p.user) !== String(userId)
+    );
+  }
+
+  await this.save();
+  return this;
+};
+
+/**
+ * Thêm reaction
+ */
+userMatchSchema.methods.addReaction = async function (userId, type = "like") {
+  // Remove old reaction from same user
+  this.reactions = this.reactions.filter(
+    (r) => String(r.user) !== String(userId)
+  );
+
+  this.reactions.push({
+    user: userId,
+    type,
+    at: new Date(),
+  });
+
+  await this.save();
+  return this;
+};
+
+/**
+ * Remove reaction
+ */
+userMatchSchema.methods.removeReaction = async function (userId) {
+  this.reactions = this.reactions.filter(
+    (r) => String(r.user) !== String(userId)
+  );
+
+  await this.save();
+  return this;
+};
+
+/**
+ * Track view
+ */
+userMatchSchema.methods.trackView = async function (userId) {
+  if (!userId) return this;
+
+  const alreadyViewed = this.viewedBy.some(
+    (id) => String(id) === String(userId)
+  );
+
+  if (!alreadyViewed) {
+    this.viewedBy.push(userId);
+    this.views = (this.views || 0) + 1;
+    await this.save();
+  }
+
+  return this;
+};
+
+/* ======================= STATIC METHODS ======================= */
+
+/**
+ * Lấy match history của user
+ */
+userMatchSchema.statics.getUserMatchHistory = async function (
+  userId,
+  options = {}
+) {
+  const {
+    limit = 20,
+    skip = 0,
+    status,
+    category,
+    visibility,
+    includeAsReferee = true,
+  } = options;
+
+  const orConditions = [
+    { createdBy: userId },
+    { "participants.user": userId },
+  ];
+
+  if (includeAsReferee) {
+    orConditions.push({ referee: userId });
+  }
+
+  const query = { $or: orConditions };
+
+  if (status) query.status = status;
+  if (category) query.category = category;
+  if (visibility) query.visibility = visibility;
+
+  return this.find(query)
+    .sort({ scheduledAt: -1, createdAt: -1 })
+    .limit(limit)
+    .skip(skip)
+    .populate("createdBy", "name fullName avatar nickname nickName")
+    .populate("participants.user", "name fullName avatar nickname nickName")
+    .populate("referee", "name fullName nickname nickName")
+    .populate("liveBy", "name fullName nickname nickName")
+    .lean();
+};
+
+/**
+ * Lấy stats của user từ matches tự do
+ */
+userMatchSchema.statics.getUserStats = async function (userId) {
+  const matches = await this.find({
+    "participants.user": userId,
+    status: "finished",
+  }).lean();
+
+  let wins = 0;
+  let losses = 0;
+  let totalGames = 0;
+  let totalPoints = 0;
+  let totalOpponentPoints = 0;
+
+  for (const m of matches) {
+    if (!m.winner) continue;
+
+    const userSide = m.participants.find(
+      (p) => p.user && String(p.user) === String(userId)
+    )?.side;
+
+    if (!userSide) continue;
+
+    const games = m.gameScores || [];
+    totalGames += games.length;
+
+    // Count points
+    for (const g of games) {
+      if (userSide === "A") {
+        totalPoints += g.a || 0;
+        totalOpponentPoints += g.b || 0;
+      } else {
+        totalPoints += g.b || 0;
+        totalOpponentPoints += g.a || 0;
+      }
+    }
+
+    if (m.winner === userSide) wins++;
+    else losses++;
+  }
+
+  return {
+    totalMatches: matches.length,
+    wins,
+    losses,
+    winRate:
+      matches.length > 0 ? ((wins / matches.length) * 100).toFixed(1) : 0,
+    totalGames,
+    totalPoints,
+    totalOpponentPoints,
+    avgPointsPerGame:
+      totalGames > 0 ? (totalPoints / totalGames).toFixed(1) : 0,
+  };
+};
+
+/**
+ * Tìm matches public gần user (theo location)
+ */
+userMatchSchema.statics.findNearbyPublicMatches = async function (
+  coordinates,
+  options = {}
+) {
+  const { maxDistance = 50000, limit = 20, status = "scheduled" } = options; // 50km default
+
+  if (!coordinates || !coordinates.lat || !coordinates.lng) {
+    // Fallback: return recent public matches
+    return this.find({
+      visibility: "public",
+      status,
+    })
+      .sort({ scheduledAt: 1 })
+      .limit(limit)
+      .populate("createdBy", "name fullName avatar")
+      .lean();
+  }
+
+  // TODO: Implement geo queries nếu cần (cần index 2dsphere)
+  // Hiện tại return public matches
+  return this.find({
+    visibility: "public",
+    status,
+  })
+    .sort({ scheduledAt: 1 })
+    .limit(limit)
+    .populate("createdBy", "name fullName avatar")
+    .lean();
+};
+
+/* ======================= POST-SAVE (Socket + Cleanup) ======================= */
+userMatchSchema.post("save", async function (doc, next) {
+  try {
+    // 1) Socket real-time updates
+    try {
+      const [{ getIO }] = await Promise.all([import("../socket/index.js")]);
+
+      const io = getIO?.();
+      if (io) {
+        // Populate before emit
+        await doc.populate([
+          {
+            path: "createdBy",
+            select: "name fullName avatar nickname nickName",
+          },
+          {
+            path: "participants.user",
+            select: "name fullName avatar nickname nickName",
+          },
+          { path: "referee", select: "name fullName nickname nickName" },
+          { path: "liveBy", select: "name fullName nickname nickName" },
+        ]);
+
+        // Emit to match room
+        io.to(`userMatch:${String(doc._id)}`).emit("userMatch:snapshot", doc);
+
+        // Emit status
+        io.to(String(doc._id)).emit("status:updated", {
+          matchId: doc._id,
+          status: doc.status,
+          type: "userMatch",
+        });
+
+        // Notify participants khi finished
+        if (doc.status === "finished") {
+          const userIds = doc.participants
+            .map((p) => p.user)
+            .filter(Boolean)
+            .map((id) => String(id));
+
+          for (const uid of userIds) {
+            io.to(`user:${uid}`).emit("userMatch:finished", {
+              matchId: doc._id,
+              winner: doc.winner,
+              title: doc.title,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[userMatch] socket emit error:", e?.message || e);
+    }
+
+    // 2) Auto free FB page khi finished
+    if (doc.status === "finished") {
+      try {
+        const fbPageId = doc.facebookLive?.pageId;
+        if (fbPageId) {
+          await markFacebookPageFreeByPage(fbPageId);
+        } else {
+          await markFacebookPageFreeByMatch(doc._id);
+        }
+      } catch (e) {
+        console.error(
+          "[userMatch] auto-free FB page failed:",
+          e?.message || e
+        );
+      }
+    }
+
+    next();
+  } catch (e) {
+    console.error("[userMatch] post-save error:", e?.message || e);
+    next();
+  }
+});
+
+/* ======================= POST findOneAndUpdate ======================= */
+userMatchSchema.post("findOneAndUpdate", async function (res) {
+  try {
+    const q = this.getQuery?.() || {};
+    const id = res?._id || q._id || q.id;
+    if (!id) return;
+
+    const fresh = await this.model.findById(id);
+    if (!fresh) return;
+
+    // Auto free FB page
+    if (fresh.status === "finished") {
+      // try {
+      //   const fbPageId = fresh.facebookLive?.pageId;
+      //   if (fbPageId) {
+      //     await markFacebookPageFreeByPage(fbPageId);
+      //   } else {
+      //     await markFacebookPageFreeByMatch(fresh._id);
+      //   }
+      // } catch (e) {
+      //   console.error(
+      //     "[userMatch] auto-free FB page (update) failed:",
+      //     e?.message || e
+      //   );
+      // }
+    }
+  } catch (err) {
+    console.error("[UserMatch post(findOneAndUpdate)] error:", err);
+  }
+});
+
+/* ======================= INDEXES ======================= */
+
+// Basic queries
 userMatchSchema.index({ createdBy: 1, scheduledAt: -1 });
 userMatchSchema.index({ createdBy: 1, createdAt: -1 });
 userMatchSchema.index({ status: 1, scheduledAt: -1 });
+userMatchSchema.index({ status: 1, createdAt: -1 });
+
+// Participants
 userMatchSchema.index({ participants: 1 });
 userMatchSchema.index({ "participants.user": 1 });
+userMatchSchema.index({ "participants.user": 1, status: 1 });
+
+// Privacy & sharing
+userMatchSchema.index({ visibility: 1, scheduledAt: -1 });
+userMatchSchema.index({ visibility: 1, createdAt: -1 });
+userMatchSchema.index({ invitedUsers: 1 });
+
+// Categorization
+userMatchSchema.index({ category: 1, createdAt: -1 });
+userMatchSchema.index({ tags: 1 });
+userMatchSchema.index({ "customLeague.name": 1, scheduledAt: -1 });
+
+// Officials
 userMatchSchema.index({ referee: 1 });
 
-// dấu hiệu stream
+// Social
+userMatchSchema.index({ "reactions.user": 1 });
+userMatchSchema.index({ viewedBy: 1 });
+
+// Facebook Live
 userMatchSchema.index(
   { "facebookLive.id": 1 },
   { partialFilterExpression: { "facebookLive.id": { $type: "string" } } }
 );
-
-// index cho videoId
 userMatchSchema.index(
   { "facebookLive.videoId": 1 },
   {
@@ -385,5 +848,25 @@ userMatchSchema.index(
     },
   }
 );
+
+// Composite indexes for common queries
+userMatchSchema.index({
+  visibility: 1,
+  status: 1,
+  scheduledAt: -1,
+});
+userMatchSchema.index({
+  "participants.user": 1,
+  status: 1,
+  scheduledAt: -1,
+});
+userMatchSchema.index({
+  createdBy: 1,
+  status: 1,
+  category: 1,
+});
+
+// Geo index (nếu implement location-based search)
+// userMatchSchema.index({ "location.coordinates": "2dsphere" });
 
 export default mongoose.model("UserMatch", userMatchSchema);

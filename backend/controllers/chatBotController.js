@@ -9,12 +9,47 @@ import {
 } from "../services/bot/skillStore.js";
 import { executeSkill } from "../services/bot/executionEngine.js";
 import { chatWithPlanner } from "../services/bot/openaiService.js";
-import { 
-  processQuickResponse, 
+import {
+  processQuickResponse,
   checkQuickResponseHealth,
-  BOT_IDENTITY 
+  BOT_IDENTITY,
 } from "../services/bot/quickResponseService.js";
 
+import ChatBotMessage from "../models/chatBotMessageModel.js";
+
+/* ========== HELPER: LOG MESSAGE ========== */
+async function logChatMessage({
+  userId,
+  role,
+  message,
+  meta,
+  navigation,
+  context,
+  replyTo = null,
+}) {
+  try {
+    await ChatBotMessage.create({
+      userId: userId || null,
+      role,
+      message,
+      meta: meta || null,
+      navigation: navigation || null,
+      context: context
+        ? {
+            tournamentId: context.tournamentId,
+            matchId: context.matchId,
+            bracketId: context.bracketId,
+            courtCode: context.courtCode,
+          }
+        : {},
+      replyTo,
+    });
+  } catch (e) {
+    console.error("[logChatMessage] error:", e.message);
+  }
+}
+
+/* ========== MAIN CHAT HANDLER ========== */
 export async function handleChat(req, res) {
   try {
     const { message } = req.body;
@@ -48,33 +83,75 @@ export async function handleChat(req, res) {
       courtCode,
     };
 
+    const userId = currentUser?._id || null;
+
+    /* ---------- LƯU USER MESSAGE ---------- */
+    let userMessageDoc = null;
+    try {
+      userMessageDoc = await ChatBotMessage.create({
+        userId,
+        role: "user",
+        message,
+        meta: null,
+        navigation: null,
+        context: {
+          tournamentId,
+          matchId,
+          bracketId,
+          courtCode,
+        },
+      });
+    } catch (e) {
+      console.error("[handleChat] log user message error:", e.message);
+    }
+
     /* ========== LAYER 0: QUICK RESPONSE (Qwen 0.5b) ========== */
     // Handles: Greeting, Small Talk, FAQ, Navigation
     // Cost: FREE (local Ollama)
     try {
       const quickResult = await processQuickResponse(message, context);
-      
+
       if (quickResult) {
-        console.log(`[QUICK RESPONSE] Type: ${quickResult.type}, Intent: ${quickResult.intent}`);
-        
+        console.log(
+          `[QUICK RESPONSE] Type: ${quickResult.type}, Intent: ${quickResult.intent}`
+        );
+
         const response = {
           reply: quickResult.reply,
           type: quickResult.type,
           source: quickResult.source,
           confidence: quickResult.confidence,
           processingTime: quickResult.processingTime,
-          botName: BOT_IDENTITY.nameVi
+          botName: BOT_IDENTITY.nameVi,
         };
 
-        // Add navigation info if applicable
         if (quickResult.navigation) {
           response.navigation = quickResult.navigation;
         }
 
+        // 🔹 LOG BOT MESSAGE
+        await logChatMessage({
+          userId,
+          role: "bot",
+          message: response.reply,
+          meta: {
+            type: response.type,
+            source: response.source,
+            confidence: response.confidence,
+            processingTime: response.processingTime,
+          },
+          navigation: response.navigation,
+          context,
+          replyTo: userMessageDoc?._id || null,
+        });
+
         return res.json(response);
       }
     } catch (quickError) {
-      console.error("[handleChat] Quick response layer error:", quickError.message);
+      console.error(
+        "[handleChat] Quick response layer error:",
+        quickError.message
+      );
       // Continue to next layer
     }
 
@@ -94,13 +171,31 @@ export async function handleChat(req, res) {
         const extractedParams = buildDefaultParamsForSkill(best.skill, context);
         const reply = await executeSkill(best.skill, extractedParams, context);
 
-        return res.json({
+        const response = {
           reply,
           usedSkill: best.skill.name,
           score: best.score,
           source: "warm",
-          botName: BOT_IDENTITY.nameVi
+          botName: BOT_IDENTITY.nameVi,
+        };
+
+        // 🔹 LOG BOT MESSAGE
+        await logChatMessage({
+          userId,
+          role: "bot",
+          message: response.reply,
+          meta: {
+            type: "skill",
+            source: response.source,
+            usedSkill: response.usedSkill,
+            score: response.score,
+          },
+          navigation: null,
+          context,
+          replyTo: userMessageDoc?._id || null,
         });
+
+        return res.json(response);
       }
     } catch (e) {
       console.error("[handleChat] warm-path error", e);
@@ -120,10 +215,26 @@ export async function handleChat(req, res) {
       parsed = JSON.parse(content);
     } catch (e) {
       console.error("[handleChat] Parse JSON fail:", e, content);
-      return res.json({
+
+      const response = {
         reply: "Xin lỗi, mình gặp lỗi khi xử lý. Bạn thử lại nhé.",
-        botName: BOT_IDENTITY.nameVi
+        botName: BOT_IDENTITY.nameVi,
+      };
+
+      await logChatMessage({
+        userId,
+        role: "bot",
+        message: response.reply,
+        meta: {
+          type: "cold-error-parse",
+          source: "cold",
+        },
+        navigation: null,
+        context,
+        replyTo: userMessageDoc?._id || null,
       });
+
+      return res.json(response);
     }
 
     const answer =
@@ -131,12 +242,28 @@ export async function handleChat(req, res) {
       "Xin lỗi, hiện tại mình chưa trả lời được câu này. Bạn thử hỏi cách khác hoặc liên hệ hỗ trợ nhé!";
 
     if (!parsed.should_create_skill || !parsed.skill_spec) {
-      return res.json({
+      const response = {
         reply: answer,
         createdSkill: false,
         source: "cold-no-skill",
-        botName: BOT_IDENTITY.nameVi
+        botName: BOT_IDENTITY.nameVi,
+      };
+
+      await logChatMessage({
+        userId,
+        role: "bot",
+        message: response.reply,
+        meta: {
+          type: "cold",
+          source: response.source,
+          createdSkill: response.createdSkill,
+        },
+        navigation: null,
+        context,
+        replyTo: userMessageDoc?._id || null,
       });
+
+      return res.json(response);
     }
 
     try {
@@ -145,34 +272,88 @@ export async function handleChat(req, res) {
       // ✅ VALIDATION - Check required fields
       if (!skillSpec.name) {
         console.error("[handleChat] Missing skill name:", skillSpec);
-        return res.json({
+
+        const response = {
           reply: answer,
           createdSkill: false,
           source: "cold-missing-name",
-          botName: BOT_IDENTITY.nameVi
+          botName: BOT_IDENTITY.nameVi,
+        };
+
+        await logChatMessage({
+          userId,
+          role: "bot",
+          message: response.reply,
+          meta: {
+            type: "cold",
+            source: response.source,
+            createdSkill: response.createdSkill,
+          },
+          navigation: null,
+          context,
+          replyTo: userMessageDoc?._id || null,
         });
+
+        return res.json(response);
       }
 
       if (!skillSpec.action || !skillSpec.action.type) {
         console.error("[handleChat] Missing action or action.type:", skillSpec);
-        return res.json({
+
+        const response = {
           reply: answer,
           createdSkill: false,
           source: "cold-missing-action",
-          botName: BOT_IDENTITY.nameVi
+          botName: BOT_IDENTITY.nameVi,
+        };
+
+        await logChatMessage({
+          userId,
+          role: "bot",
+          message: response.reply,
+          meta: {
+            type: "cold",
+            source: response.source,
+            createdSkill: response.createdSkill,
+          },
+          navigation: null,
+          context,
+          replyTo: userMessageDoc?._id || null,
         });
+
+        return res.json(response);
       }
 
       // ✅ VALIDATION - Check valid action.type
       const validTypes = ["mongo", "aggregate", "internal", "http"];
       if (!validTypes.includes(skillSpec.action.type)) {
-        console.error("[handleChat] Invalid action.type:", skillSpec.action.type);
-        return res.json({
+        console.error(
+          "[handleChat] Invalid action.type:",
+          skillSpec.action.type
+        );
+
+        const response = {
           reply: answer,
           createdSkill: false,
           source: "cold-invalid-action-type",
-          botName: BOT_IDENTITY.nameVi
+          botName: BOT_IDENTITY.nameVi,
+        };
+
+        await logChatMessage({
+          userId,
+          role: "bot",
+          message: response.reply,
+          meta: {
+            type: "cold",
+            source: response.source,
+            createdSkill: response.createdSkill,
+          },
+          navigation: null,
+          context,
+          replyTo: userMessageDoc?._id || null,
         });
+
+        return res.json(response);
       }
 
       console.log("[COLD PATH] Valid skill spec:", {
@@ -213,28 +394,65 @@ export async function handleChat(req, res) {
         console.error("[handleChat] executeSkill error:", e);
       }
 
-      return res.json({
+      const response = {
         reply: replyFromSkill || answer,
         createdSkill: !!replyFromSkill,
         skillName: replyFromSkill ? savedSkill.name : null,
         source: "cold-with-skill",
-        botName: BOT_IDENTITY.nameVi
+        botName: BOT_IDENTITY.nameVi,
+      };
+
+      await logChatMessage({
+        userId,
+        role: "bot",
+        message: response.reply,
+        meta: {
+          type: "cold",
+          source: response.source,
+          createdSkill: response.createdSkill,
+          skillName: response.skillName,
+        },
+        navigation: null,
+        context,
+        replyTo: userMessageDoc?._id || null,
       });
+
+      return res.json(response);
     } catch (e) {
       console.error("[handleChat] save/execute skill error:", e);
-      return res.json({
+
+      const response = {
         reply: answer,
         createdSkill: false,
         source: "cold-error",
-        botName: BOT_IDENTITY.nameVi
+        botName: BOT_IDENTITY.nameVi,
+      };
+
+      await logChatMessage({
+        userId,
+        role: "bot",
+        message: response.reply,
+        meta: {
+          type: "cold",
+          source: response.source,
+          createdSkill: response.createdSkill,
+        },
+        navigation: null,
+        context,
+        replyTo: userMessageDoc?._id || null,
       });
+
+      return res.json(response);
     }
   } catch (err) {
     console.error("handleChat error:", err);
-    return res.status(500).json({ 
+
+    const response = {
       error: "Lỗi server",
-      botName: BOT_IDENTITY.nameVi
-    });
+      botName: BOT_IDENTITY.nameVi,
+    };
+
+    return res.status(500).json(response);
   }
 }
 
@@ -242,7 +460,7 @@ export async function handleChat(req, res) {
 export async function handleHealthCheck(req, res) {
   try {
     const quickHealth = await checkQuickResponseHealth();
-    
+
     return res.json({
       status: "ok",
       bot: BOT_IDENTITY,
@@ -250,23 +468,23 @@ export async function handleHealthCheck(req, res) {
         quickResponse: {
           status: quickHealth.status,
           details: quickHealth,
-          handles: ["greeting", "small_talk", "faq", "navigation"]
+          handles: ["greeting", "small_talk", "faq", "navigation"],
         },
         skillMatching: {
           status: "ready",
-          description: "OpenAI embedding similarity search"
+          description: "OpenAI embedding similarity search",
         },
         gptPlanner: {
           status: process.env.OPENAI_API_KEY ? "ready" : "missing API key",
-          description: "GPT-4o-mini for skill creation"
-        }
+          description: "GPT-4o-mini for skill creation",
+        },
       },
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   } catch (err) {
-    return res.status(500).json({ 
-      status: "error", 
-      error: err.message 
+    return res.status(500).json({
+      status: "error",
+      error: err.message,
     });
   }
 }
@@ -282,9 +500,46 @@ export async function handleBotInfo(req, res) {
       "Navigation commands",
       "Tra cứu thông tin giải đấu",
       "Tra cứu thông tin cá nhân",
-      "Tìm kiếm VĐV"
-    ]
+      "Tìm kiếm VĐV",
+    ],
   });
+}
+
+/* ========== GET CHAT HISTORY ========== */
+export async function handleGetChatHistory(req, res) {
+  try {
+    const currentUser = req.user;
+    if (!currentUser) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    const limit = Math.min(Number(req.query.limit) || 100, 500);
+    const since = req.query.since ? new Date(req.query.since) : null;
+
+    const query = { userId: currentUser._id };
+    if (since) {
+      query.createdAt = { $gte: since };
+    }
+
+    const messages = await ChatBotMessage.find(query)
+      .sort({ createdAt: 1 })
+      .limit(limit);
+
+    return res.json({
+      messages: messages.map((m) => ({
+        id: m._id,
+        role: m.role,
+        message: m.message,
+        meta: m.meta,
+        navigation: m.navigation,
+        context: m.context,
+        createdAt: m.createdAt,
+      })),
+    });
+  } catch (err) {
+    console.error("[handleGetChatHistory] error:", err);
+    return res.status(500).json({ error: "Lỗi server" });
+  }
 }
 
 /* ========== HELPER FUNCTIONS ========== */

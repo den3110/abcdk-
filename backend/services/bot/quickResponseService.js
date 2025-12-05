@@ -215,6 +215,7 @@ Bạn muốn mình hỗ trợ gì?`,
       /pickleball là (gì|môn gì)/i,
       /giới thiệu (về )?pickleball/i,
       /luật (chơi )?pickleball/i,
+      /luật (chơi )/i,
     ],
     responses: [
       "Pickleball là môn thể thao kết hợp giữa tennis, cầu lông và bóng bàn 🏓 Chơi trên sân nhỏ hơn tennis, dùng vợt gỗ/composite và bóng nhựa có lỗ. Môn này dễ học, phù hợp mọi lứa tuổi và đang rất hot tại Việt Nam! Bạn muốn tìm giải để thi đấu không?",
@@ -596,7 +597,7 @@ export const NAVIGATION_INTENTS = {
   home: {
     screen: "Home",
     keywords: ["trang chủ", "home", "về đầu", "màn hình chính"],
-    deepLink: "pickletour://home",
+    deepLink: "pickletour://(tabs)/index",
     description: "Trang chủ",
   },
 };

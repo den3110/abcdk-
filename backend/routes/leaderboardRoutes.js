@@ -6,6 +6,6 @@ import { passProtect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-router.get("/", /*protectOptional,*/ passProtect, getFeaturedLeaderboard);
+router.get("/", passProtect, getFeaturedLeaderboard);
 
 export default router;
