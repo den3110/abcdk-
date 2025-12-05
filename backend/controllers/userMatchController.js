@@ -377,3 +377,5 @@ export const searchPlayersForUserMatch = asyncHandler(async (req, res) => {
 function escapeRegex(str = "") {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+

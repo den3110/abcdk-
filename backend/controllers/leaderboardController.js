@@ -1,15 +1,16 @@
 // controllers/leaderboardController.js
+// Version SIMPLE - Detect final từ bracket knockout (tính max round)
 import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import Registration from "../models/registrationModel.js";
 import User from "../models/userModel.js";
+import Bracket from "../models/bracketModel.js";
 
 /**
- * GET /api/leaderboards
- * Query:
- *  - sinceDays: số ngày gần đây (default 90)
- *  - limit: lấy bao nhiêu VĐV (default 10)
- *  - minMatches: tối thiểu số trận tham gia (default 3)
+ * GET /api/leaderboards/featured
+ * Tự động detect final match từ bracket knockout:
+ * - Final = round cao nhất trong bracket knockout
+ * - Không phải trận tranh hạng 3
  */
 export const getFeaturedLeaderboard = async (req, res, next) => {
   try {
@@ -29,12 +30,45 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
       sinceDate: since,
     });
 
-    // 📊 PIPELINE CẢI TIẾN
+    // 📊 BƯỚC 1: Tìm tất cả brackets knockout và max round của chúng
+    const knockoutBrackets = await Bracket.find({ type: "knockout" })
+      .select("_id")
+      .lean();
+
+    const knockoutBracketIds = knockoutBrackets.map((b) => b._id);
+
+    console.log(`📊 Found ${knockoutBracketIds.length} knockout brackets`);
+
+    // Tìm max round cho mỗi bracket knockout
+    const maxRoundsAgg = await Match.aggregate([
+      {
+        $match: {
+          bracket: { $in: knockoutBracketIds },
+          status: "finished",
+        },
+      },
+      {
+        $group: {
+          _id: "$bracket",
+          maxRound: { $max: "$round" },
+        },
+      },
+    ]);
+
+    const maxRoundMap = new Map();
+    for (const item of maxRoundsAgg) {
+      maxRoundMap.set(String(item._id), item.maxRound);
+    }
+
+    console.log(`📊 Max rounds map size: ${maxRoundMap.size}`);
+
+    // 📊 BƯỚC 2: Pipeline chính - đơn giản
     const pipeline = [
-      // BƯỚC 1: Lọc matches đã kết thúc gần đây
+      // Lọc matches đã kết thúc gần đây
       {
         $match: {
           status: "finished",
+          winner: { $in: ["A", "B"] },
           $or: [
             { finishedAt: { $gte: since } },
             { finishedAt: { $exists: false }, updatedAt: { $gte: since } },
@@ -42,42 +76,20 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         },
       },
 
-      // BƯỚC 2: Thêm các trường tính toán
-      {
-        $addFields: {
-          matchTimestamp: { $ifNull: ["$finishedAt", "$updatedAt"] },
-          isFinalMatch: {
-            $or: [
-              { $eq: ["$isFinal", true] },
-              {
-                $regexMatch: {
-                  input: { $toString: { $ifNull: ["$roundLabel", ""] } },
-                  regex: /(grand\s*)?final/i,
-                },
-              },
-              {
-                $regexMatch: {
-                  input: { $toString: { $ifNull: ["$round", ""] } },
-                  regex: /(final|chung kết|championship)/i,
-                },
-              },
-            ],
-          },
-        },
-      },
-
-      // BƯỚC 3: Tạo 2 documents cho mỗi pair trong match
-      // ✅ FIX: So sánh winner với "A"/"B" string, không phải ObjectId
+      // Tạo 2 documents cho mỗi pair
       {
         $facet: {
           pairAStats: [
             {
               $project: {
                 pairId: "$pairA",
-                isWinner: { $eq: ["$winner", "A"] }, // ✅ FIX: So sánh với "A" string
-                isFinal: "$isFinalMatch",
-                timestamp: "$matchTimestamp",
+                isWinner: { $eq: ["$winner", "A"] },
+                timestamp: { $ifNull: ["$finishedAt", "$updatedAt"] },
                 tournament: "$tournament",
+                bracket: "$bracket",
+                round: "$round",
+                isThirdPlace: { $ifNull: ["$isThirdPlace", false] },
+                metaThirdPlace: { $ifNull: ["$meta.thirdPlace", false] },
               },
             },
           ],
@@ -85,59 +97,60 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
             {
               $project: {
                 pairId: "$pairB",
-                isWinner: { $eq: ["$winner", "B"] }, // ✅ FIX: So sánh với "B" string
-                isFinal: "$isFinalMatch",
-                timestamp: "$matchTimestamp",
+                isWinner: { $eq: ["$winner", "B"] },
+                timestamp: { $ifNull: ["$finishedAt", "$updatedAt"] },
                 tournament: "$tournament",
+                bracket: "$bracket",
+                round: "$round",
+                isThirdPlace: { $ifNull: ["$isThirdPlace", false] },
+                metaThirdPlace: { $ifNull: ["$meta.thirdPlace", false] },
               },
             },
           ],
         },
       },
 
-      // BƯỚC 4: Merge 2 arrays lại
+      // Merge arrays
       {
         $project: {
           allPairs: { $concatArrays: ["$pairAStats", "$pairBStats"] },
         },
       },
-
       { $unwind: "$allPairs" },
-
-      // BƯỚC 5: Thay thế root document
       { $replaceRoot: { newRoot: "$allPairs" } },
-
-      // Lọc bỏ pairs null/undefined
       { $match: { pairId: { $ne: null, $exists: true } } },
 
-      // BƯỚC 6: Group theo pairId để tính stats
+      // Group theo pairId
       {
         $group: {
           _id: "$pairId",
           totalMatches: { $sum: 1 },
           totalWins: { $sum: { $cond: ["$isWinner", 1, 0] } },
-          finalAppearances: { $sum: { $cond: ["$isFinal", 1, 0] } },
-          finalWins: {
-            $sum: {
-              $cond: [{ $and: ["$isFinal", "$isWinner"] }, 1, 0],
-            },
-          },
           lastWinDate: {
             $max: {
               $cond: ["$isWinner", "$timestamp", new Date(0)],
             },
           },
           tournamentsPlayed: { $addToSet: "$tournament" },
+          // ✅ Thu thập thông tin để detect final ở JavaScript
+          matches: {
+            $push: {
+              bracket: "$bracket",
+              round: "$round",
+              isWinner: "$isWinner",
+              isThirdPlace: "$isThirdPlace",
+              metaThirdPlace: "$metaThirdPlace",
+            },
+          },
         },
       },
 
-      // BƯỚC 7: Lọc theo minMatches
+      // Lọc theo minMatches
       ...(minMatches > 0
         ? [{ $match: { totalMatches: { $gte: minMatches } } }]
         : []),
 
-      // BƯỚC 8: Lookup Registration để lấy player1 và player2
-      // ✅ FIX: Registration có player1.user và player2.user, không phải players array
+      // Lookup Registration
       {
         $lookup: {
           from: "registrations",
@@ -146,7 +159,6 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
           as: "registration",
         },
       },
-
       {
         $unwind: {
           path: "$registration",
@@ -154,8 +166,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         },
       },
 
-      // BƯỚC 9: Tạo array chứa cả player1.user và player2.user
-      // ✅ FIX: Extract user IDs từ player1.user và player2.user
+      // Extract user IDs
       {
         $addFields: {
           playerUsers: {
@@ -170,8 +181,6 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
           },
         },
       },
-
-      // BƯỚC 10: Unwind để có 1 dòng cho mỗi user
       {
         $unwind: {
           path: "$playerUsers",
@@ -179,21 +188,20 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         },
       },
 
-      // BƯỚC 11: Group theo từng player
+      // Group theo player
       {
         $group: {
-          _id: "$playerUsers", // userId
+          _id: "$playerUsers",
           totalMatches: { $sum: "$totalMatches" },
           totalWins: { $sum: "$totalWins" },
-          finalAppearances: { $sum: "$finalAppearances" },
-          finalWins: { $sum: "$finalWins" },
           lastWinDate: { $max: "$lastWinDate" },
           tournamentsPlayedArrays: { $push: "$tournamentsPlayed" },
           pairsCount: { $sum: 1 },
+          allMatches: { $push: "$matches" }, // ✅ Thu thập matches info
         },
       },
 
-      // BƯỚC 12: Lookup User info
+      // Lookup User
       {
         $lookup: {
           from: "users",
@@ -202,7 +210,6 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
           as: "userInfo",
         },
       },
-
       {
         $unwind: {
           path: "$userInfo",
@@ -210,61 +217,16 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         },
       },
 
-      // BƯỚC 13: Tính điểm và format
-      {
-        $addFields: {
-          // Hệ thống tính điểm:
-          // - Vô địch chung kết: 100 điểm
-          // - Vào chung kết: 60 điểm
-          // - Thắng trận thường: 3 điểm
-          // - Tham gia trận: 0.5 điểm
-          score: {
-            $add: [
-              { $multiply: ["$finalWins", 100] },
-              { $multiply: ["$finalAppearances", 60] },
-              { $multiply: ["$totalWins", 3] },
-              { $multiply: ["$totalMatches", 0.5] },
-            ],
-          },
-          winRate: {
-            $cond: [
-              { $gt: ["$totalMatches", 0] },
-              {
-                $multiply: [{ $divide: ["$totalWins", "$totalMatches"] }, 100],
-              },
-              0,
-            ],
-          },
-        },
-      },
-
-      // BƯỚC 14: Sort theo điểm số
-      {
-        $sort: {
-          score: -1,
-          finalWins: -1,
-          finalAppearances: -1,
-          totalWins: -1,
-          winRate: -1,
-        },
-      },
-
-      // BƯỚC 15: Limit kết quả
-      { $limit: limit },
-
-      // BƯỚC 16: Project kết quả cuối
+      // Project
       {
         $project: {
           userId: "$_id",
-          score: { $round: ["$score", 2] },
           totalMatches: 1,
           totalWins: 1,
-          finalAppearances: 1,
-          finalWins: 1,
-          winRate: { $round: ["$winRate", 1] },
           lastWinDate: 1,
           pairsCount: 1,
           tournamentsPlayedArrays: 1,
+          allMatches: 1, // ✅ Giữ lại để process ở JS
           name: {
             $ifNull: [
               "$userInfo.name",
@@ -288,25 +250,85 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
 
     const rows = await Match.aggregate(pipeline);
 
-    console.log(`✅ Found ${rows.length} athletes`);
+    console.log(`✅ Found ${rows.length} athletes (before processing)`);
 
-    // 🔍 DEBUG: Show sample result
-    if (rows.length > 0) {
-      console.log("📊 First athlete:", JSON.stringify(rows[0], null, 2));
-    }
+    // 📊 BƯỚC 3: Process final wins ở JavaScript
+    const processedRows = rows.map((r) => {
+      let finalAppearances = 0;
+      let finalWins = 0;
 
-    // 🎨 Xử lý kết quả cuối
-    const result = rows.map((r, idx) => {
-      // Flatten tournament arrays
+      // Flatten allMatches (vì mỗi pair có array matches)
+      const allMatches = (r.allMatches || []).flat();
+
+      for (const match of allMatches) {
+        const bracketId = String(match.bracket);
+        const maxRound = maxRoundMap.get(bracketId);
+
+        // ✅ Check if this is a final match
+        const isFinal =
+          maxRound &&
+          match.round === maxRound &&
+          !match.isThirdPlace &&
+          !match.metaThirdPlace;
+
+        if (isFinal) {
+          finalAppearances++;
+          if (match.isWinner) {
+            finalWins++;
+          }
+        }
+      }
+
+      // Tính điểm
+      const score =
+        finalWins * 100 +
+        finalAppearances * 60 +
+        r.totalWins * 3 +
+        r.totalMatches * 0.5;
+
+      const winRate =
+        r.totalMatches > 0
+          ? Math.round((r.totalWins / r.totalMatches) * 1000) / 10
+          : 0;
+
+      return {
+        ...r,
+        finalAppearances,
+        finalWins,
+        score: Math.round(score * 100) / 100,
+        winRate,
+      };
+    });
+
+    // Sort
+    processedRows.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.finalWins !== a.finalWins) return b.finalWins - a.finalWins;
+      if (b.finalAppearances !== a.finalAppearances)
+        return b.finalAppearances - a.finalAppearances;
+      if (b.totalWins !== a.totalWins) return b.totalWins - a.totalWins;
+      return b.winRate - a.winRate;
+    });
+
+    // Take top N
+    const topRows = processedRows.slice(0, limit);
+
+    console.log(
+      `📊 Athletes with final wins: ${
+        topRows.filter((r) => r.finalWins > 0).length
+      }`
+    );
+
+    // Format kết quả cuối
+    const result = topRows.map((r, idx) => {
       const tourIds = (r.tournamentsPlayedArrays || []).flat().filter(Boolean);
       const uniqueTournaments = [...new Set(tourIds.map(String))];
 
-      // Tạo achievement text
       const sinceLabel = sinceDays === 1 ? "24h" : `${sinceDays} ngày`;
       const achievementParts = [];
 
       if (r.finalWins > 0) {
-        achievementParts.push(`🏆 ${r.finalWins} danh hiệu`);
+        achievementParts.push(`🏆 ${r.finalWins} chức vô địch`);
       }
       if (r.finalAppearances > 0) {
         achievementParts.push(`🎯 ${r.finalAppearances} chung kết`);
@@ -314,6 +336,9 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
       achievementParts.push(
         `✅ ${r.totalWins}/${r.totalMatches} thắng (${r.winRate}%)`
       );
+      if (uniqueTournaments.length > 0) {
+        achievementParts.push(`🏆 ${uniqueTournaments.length} giải`);
+      }
       achievementParts.push(`📅 ${sinceLabel}`);
 
       return {
@@ -346,23 +371,52 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
   }
 };
 
-// 🆕 DEBUG ENDPOINT - Xóa khi production
+// DEBUG ENDPOINT
 export const debugLeaderboard = async (req, res, next) => {
   try {
     const matchCount = await Match.countDocuments({ status: "finished" });
+    const withWinner = await Match.countDocuments({
+      status: "finished",
+      winner: { $in: ["A", "B"] },
+    });
+
+    // Knockout brackets info
+    const knockoutBrackets = await Bracket.find({ type: "knockout" })
+      .select("_id name")
+      .lean();
+
+    const knockoutBracketIds = knockoutBrackets.map((b) => b._id);
+
+    // Max rounds per bracket
+    const maxRoundsAgg = await Match.aggregate([
+      {
+        $match: {
+          bracket: { $in: knockoutBracketIds },
+          status: "finished",
+        },
+      },
+      {
+        $group: {
+          _id: "$bracket",
+          maxRound: { $max: "$round" },
+          matchCount: { $sum: 1 },
+        },
+      },
+    ]);
+
     const regCount = await Registration.countDocuments();
     const userCount = await User.countDocuments();
 
-    // Sample data
     const sampleMatch = await Match.findOne({ status: "finished" })
-      .select("pairA pairB winner status finishedAt tournament")
+      .select(
+        "pairA pairB winner status finishedAt tournament bracket round isThirdPlace"
+      )
       .lean();
 
     const sampleReg = await Registration.findOne()
       .select("players player1 player2")
       .lean();
 
-    // ✅ Check Registration structure
     const regStructure = sampleReg
       ? {
           hasPlayersArray: Array.isArray(sampleReg.players),
@@ -370,24 +424,46 @@ export const debugLeaderboard = async (req, res, next) => {
           hasPlayer2: !!sampleReg.player2,
           player1HasUser: !!sampleReg.player1?.user,
           player2HasUser: !!sampleReg.player2?.user,
-          fields: Object.keys(sampleReg),
         }
       : null;
 
     res.json({
       counts: {
-        finishedMatches: matchCount,
+        totalMatches: matchCount,
+        matchesWithWinner: withWinner,
         registrations: regCount,
         users: userCount,
+        knockoutBrackets: knockoutBrackets.length,
+      },
+      knockoutInfo: {
+        brackets: knockoutBrackets.map((b) => ({
+          id: b._id,
+          name: b.name,
+        })),
+        maxRounds: maxRoundsAgg.map((r) => ({
+          bracket: r._id,
+          maxRound: r.maxRound,
+          matches: r.matchCount,
+        })),
       },
       samples: {
         match: sampleMatch,
         registration: sampleReg,
       },
       registrationStructure: regStructure,
-      modelStructure: {
-        Match: Object.keys(Match.schema.paths),
-        Registration: Object.keys(Registration.schema.paths),
+      finalDetectionLogic: {
+        method: "Max round per knockout bracket",
+        rules: [
+          "1. Find all knockout brackets",
+          "2. Calculate max round for each bracket",
+          "3. Match with (round = maxRound) AND (isThirdPlace != true) = Final",
+        ],
+        scoringFormula: {
+          finalWin: "100 points",
+          finalApp: "60 points",
+          win: "3 points",
+          match: "0.5 points",
+        },
       },
     });
   } catch (err) {

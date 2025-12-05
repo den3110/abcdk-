@@ -774,9 +774,9 @@ const RegCard = memo(
 
             {/* Score + Actions */}
             <Stack
-              direction={{ xs: "column", sm: "row" }}
+              direction={{ xs: "column", sm: "column" }}
               justifyContent="space-between"
-              alignItems={{ xs: "stretch", sm: "center" }}
+              alignItems={{ xs: "stretch", sm: "left" }}
               spacing={2}
             >
               <Box>
