@@ -182,6 +182,7 @@ import { adminSetRankingSearchConfig, aiFillCccdForUser, backfillUsersFromCccd }
 
 const router = express.Router();
 
+
 router.post("/login", adminLogin);
 
 router.get("/matches/:id([0-9a-fA-F]{24})", protect, adminGetMatchById);
@@ -233,6 +234,7 @@ router.put(
   protect,
   setCourtReferee
 );
+
 
 router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
 

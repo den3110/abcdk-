@@ -12,6 +12,8 @@ const SystemSettingsSchema = new mongoose.Schema(
 
     registration: {
       open: { type: Boolean, default: true }, // có cho đăng ký tài khoản mới không
+      // 👇 NEW: bắt buộc các field hồ sơ mở rộng (SĐT / gender / province / dob)
+      requireOptionalProfileFields: { type: Boolean, default: true },
     },
 
     kyc: {

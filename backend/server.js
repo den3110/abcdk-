@@ -165,6 +165,8 @@ app.use("/api/v1/rankings", rankingRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/upload", uploadRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/setting", adminRoutes);
+
 app.use("/api/auth", authRoutes);
 app.use("/api/referee", refereeRoutes);
 app.use("/api/assessments", assessmentRoutes);

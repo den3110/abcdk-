@@ -5,6 +5,7 @@ import {
   protect,
   protectJwt,
 } from "../middleware/authMiddleware.js";
+import { getRegistrationSettings } from "../controllers/systemSettings.controller.js";
 
 const router = express.Router();
 
@@ -23,5 +24,7 @@ router.post("/logout", protectJwt, authorize("admin"), (req, res) => {
   res.clearCookie("jwt", { path: "/" });
   res.status(200).json({ message: "Logged out successfully" });
 });
+
+router.get("/system/registration", getRegistrationSettings);
 
 export default router;

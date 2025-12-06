@@ -5,7 +5,11 @@ import SystemSettings from "../models/systemSettingsModel.js";
 const DEFAULTS = {
   _id: "system",
   maintenance: { enabled: false, message: "" },
-  registration: { open: true },
+  registration: {
+    open: true,
+    // 👇 NEW: flag cho state requireOptional ở client register
+    requireOptionalProfileFields: true,
+  },
   kyc: { enabled: true, autoApprove: false, faceMatchThreshold: 0.78 },
   security: { enforce2FAForAdmins: false, sessionTTLHours: 72 },
   uploads: {
@@ -79,6 +83,31 @@ export const getGuideLink = async (req, res, next) => {
 
     res.json({
       guideUrl,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// 👇 NEW: controller cho phần đăng ký (dùng cho mobile / public API)
+// => đọc được state requireOptional để map vào RegisterScreen
+export const getRegistrationSettings = async (req, res, next) => {
+  try {
+    const doc =
+      (await SystemSettings.findById("system")) ||
+      (await SystemSettings.create(DEFAULTS));
+
+    const registration = doc.registration || DEFAULTS.registration
+
+    res.json({
+      open:
+        typeof registration.open === "boolean"
+          ? registration.open
+          : DEFAULTS.registration.open,
+      requireOptionalProfileFields:
+        typeof registration.requireOptionalProfileFields === "boolean"
+          ? registration.requireOptionalProfileFields
+          : DEFAULTS.registration.requireOptionalProfileFields,
     });
   } catch (err) {
     next(err);
