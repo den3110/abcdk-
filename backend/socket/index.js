@@ -982,9 +982,9 @@ export function initSocket(
             }
 
             // chỉ cho creator trận tự do đổi serve
-            if (String(m.createdBy) !== String(socket.user._id)) {
-              return ack?.({ ok: false, message: "Forbidden 2" });
-            }
+            // if (String(m.createdBy) !== String(socket.user._id)) {
+            //   return ack?.({ ok: false, message: "Forbidden 2" });
+            // }
 
             // chuẩn hoá input
             const sideU =
