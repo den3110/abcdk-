@@ -973,7 +973,7 @@ export function initSocket(
           // ================== USER MATCH BRANCH ==================
           if (userMatch) {
             if (!socket.user?._id) {
-              return ack?.({ ok: false, message: "Forbidden" });
+              return ack?.({ ok: false, message: "Forbidden 1" });
             }
 
             const m = await UserMatch.findById(matchId);
@@ -983,7 +983,7 @@ export function initSocket(
 
             // chỉ cho creator trận tự do đổi serve
             if (String(m.createdBy) !== String(socket.user._id)) {
-              return ack?.({ ok: false, message: "Forbidden" });
+              return ack?.({ ok: false, message: "Forbidden 2" });
             }
 
             // chuẩn hoá input
