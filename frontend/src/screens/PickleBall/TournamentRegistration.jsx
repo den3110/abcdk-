@@ -450,6 +450,80 @@ const CountdownItem = ({ value, label }) => (
   </Box>
 );
 
+/** 🔹 Countdown tách riêng, tự quản state + interval, memo để không ảnh hưởng component khác */
+const RegistrationCountdown = memo(({ deadline }) => {
+  const [timeLeft, setTimeLeft] = useState(null);
+
+  useEffect(() => {
+    if (!deadline) {
+      setTimeLeft(null);
+      return;
+    }
+
+    const d = typeof deadline === "string" ? new Date(deadline) : deadline;
+    const target = d.getTime();
+    if (!Number.isFinite(target)) {
+      setTimeLeft(null);
+      return;
+    }
+
+    const tick = () => {
+      const diff = target - Date.now();
+      if (diff <= 0) {
+        setTimeLeft({ total: 0, d: 0, h: 0, m: 0, s: 0 });
+      } else {
+        setTimeLeft({
+          total: diff,
+          d: Math.floor(diff / (1000 * 60 * 60 * 24)),
+          h: Math.floor((diff / (1000 * 60 * 60)) % 24),
+          m: Math.floor((diff / 1000 / 60) % 60),
+          s: Math.floor((diff / 1000) % 60),
+        });
+      }
+    };
+
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [deadline]);
+
+  if (!timeLeft || timeLeft.total <= 0) return null;
+
+  return (
+    <Box
+      sx={{
+        bgcolor: "rgba(0,0,0,0.2)",
+        p: 2.5,
+        borderRadius: 3,
+        backdropFilter: "blur(8px)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        minWidth: 260,
+      }}
+    >
+      <Typography
+        variant="caption"
+        align="center"
+        display="block"
+        sx={{
+          mb: 1.5,
+          textTransform: "uppercase",
+          letterSpacing: 1.5,
+          opacity: 0.9,
+          fontWeight: 600,
+        }}
+      >
+        Đăng ký kết thúc sau
+      </Typography>
+      <Stack direction="row" spacing={2} justifyContent="center">
+        <CountdownItem value={timeLeft.d} label="Ngày" />
+        <CountdownItem value={timeLeft.h} label="Giờ" />
+        <CountdownItem value={timeLeft.m} label="Phút" />
+        <CountdownItem value={timeLeft.s} label="Giây" />
+      </Stack>
+    </Box>
+  );
+});
+
 /* HTML Preview */
 const HtmlPreviewSection = ({ title, html }) => {
   const [open, setOpen] = useState(false);
@@ -954,38 +1028,41 @@ export default function TournamentRegistration() {
   const [profileDlg, setProfileDlg] = useState({ open: false, userId: null });
 
   /* Countdown */
-  const [timeLeft, setTimeLeft] = useState(null);
+  /* Countdown / Registration deadline */
+  const rawDeadline = tour?.registrationDeadline || tour?.regDeadline;
+
+  // chỉ toggle 1 lần tại thời điểm hết hạn, không re-render mỗi giây
+  const [isRegClosed, setIsRegClosed] = useState(() => {
+    if (!rawDeadline) return false;
+    const d = new Date(rawDeadline);
+    const ts = d.getTime();
+    if (!Number.isFinite(ts)) return false;
+    return ts <= Date.now();
+  });
 
   useEffect(() => {
-    const raw = tour?.registrationDeadline || tour?.regDeadline;
-    if (!raw) {
-      // Không có deadline thì không hiển thị countdown / closed
-      setTimeLeft(null);
+    if (!rawDeadline) {
+      setIsRegClosed(false);
       return;
     }
-    const deadline = new Date(raw);
+    const d = new Date(rawDeadline);
+    const ts = d.getTime();
+    if (!Number.isFinite(ts)) {
+      setIsRegClosed(false);
+      return;
+    }
 
-    const tick = () => {
-      const diff = deadline.getTime() - new Date().getTime();
-      if (diff <= 0) {
-        setTimeLeft({ total: 0, d: 0, h: 0, m: 0, s: 0 });
-      } else {
-        setTimeLeft({
-          total: diff,
-          d: Math.floor(diff / (1000 * 60 * 60 * 24)),
-          h: Math.floor((diff / (1000 * 60 * 60)) % 24),
-          m: Math.floor((diff / 1000 / 60) % 60),
-          s: Math.floor((diff / 1000) % 60),
-        });
-      }
-    };
+    const now = Date.now();
+    if (ts <= now) {
+      setIsRegClosed(true);
+      return;
+    }
 
-    tick();
-    const timer = setInterval(tick, 1000);
-    return () => clearInterval(timer);
-  }, [tour?.registrationDeadline, tour?.regDeadline]);
+    setIsRegClosed(false);
+    const timer = setTimeout(() => setIsRegClosed(true), ts - now);
+    return () => clearTimeout(timer);
+  }, [rawDeadline]);
 
-  const isRegClosed = timeLeft?.total === 0 || timeLeft?.total < 0;
   // user thường thì khoá form, admin/manager vẫn mở
   const regLockedForUser = isRegClosed && !canManage;
 
@@ -1379,38 +1456,8 @@ export default function TournamentRegistration() {
                 mt: { xs: 3, md: 0 },
               }}
             >
-              {timeLeft && !isRegClosed ? (
-                <Box
-                  sx={{
-                    bgcolor: "rgba(0,0,0,0.2)",
-                    p: 2.5,
-                    borderRadius: 3,
-                    backdropFilter: "blur(8px)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    minWidth: 260,
-                  }}
-                >
-                  <Typography
-                    variant="caption"
-                    align="center"
-                    display="block"
-                    sx={{
-                      mb: 1.5,
-                      textTransform: "uppercase",
-                      letterSpacing: 1.5,
-                      opacity: 0.9,
-                      fontWeight: 600,
-                    }}
-                  >
-                    Đăng ký kết thúc sau
-                  </Typography>
-                  <Stack direction="row" spacing={2} justifyContent="center">
-                    <CountdownItem value={timeLeft.d} label="Ngày" />
-                    <CountdownItem value={timeLeft.h} label="Giờ" />
-                    <CountdownItem value={timeLeft.m} label="Phút" />
-                    <CountdownItem value={timeLeft.s} label="Giây" />
-                  </Stack>
-                </Box>
+              {rawDeadline && !isRegClosed ? (
+                <RegistrationCountdown deadline={rawDeadline} />
               ) : isRegClosed ? (
                 <Chip
                   label="ĐÃ ĐÓNG CỔNG ĐĂNG KÝ"

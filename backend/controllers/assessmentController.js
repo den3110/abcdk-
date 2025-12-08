@@ -39,23 +39,43 @@ export async function createAssessment(req, res) {
 
   const metaInput = sanitizeMeta(body.meta);
 
-  // Xác định selfScored (người chấm === chính chủ)
+  // Người chấm có phải chính chủ không
   const selfScored = String(req.user?._id || "") === String(userId);
 
-  // Xác định quyền admin (linh hoạt theo các cách lưu role)
-  const isAdmin =
-    !!req.user &&
-    (req.user.role === "admin" ||
-      req.user.isAdmin === true ||
-      (Array.isArray(req.user.roles) && req.user.roles.includes("admin")));
+  // Gom các role lại (role, roles[], isAdmin)
+  const rawRoles = [
+    req.user?.role,
+    ...(Array.isArray(req.user?.roles) ? req.user.roles : []),
+  ]
+    .filter(Boolean)
+    .map((r) => String(r).toLowerCase());
 
-  // Theo yêu cầu:
-  // - Admin => scoreBy = "admin", note = "admin chấm điểm trình"
-  // - Không phải admin => scoreBy = "self", note giữ nguyên
-  const scoreBy = isAdmin ? "admin" : "self";
-  const finalNote = isAdmin ? "admin chấm điểm trình" : noteInput;
+  const isAdmin = req.user?.isAdmin === true || rawRoles.includes("admin");
 
-  // (Giữ nguyên) Không cho TỰ CHẤM nếu user đã từng tham gia giải
+  const isMod = rawRoles.includes("mod") || rawRoles.includes("moderator");
+
+  // scoreBy khớp với enum: ["admin", "mod", "moderator", "self"]
+  let scoreBy = "self";
+  if (isAdmin) {
+    scoreBy = "admin";
+  } else if (rawRoles.includes("moderator")) {
+    scoreBy = "moderator";
+  } else if (rawRoles.includes("mod")) {
+    scoreBy = "mod";
+  }
+
+  const isStaff =
+    scoreBy === "admin" || scoreBy === "mod" || scoreBy === "moderator";
+
+  // Note hiển thị
+  let finalNote = noteInput;
+  if (scoreBy === "admin") {
+    finalNote = "admin chấm điểm trình";
+  } else if (scoreBy === "mod" || scoreBy === "moderator") {
+    finalNote = "mod chấm điểm trình";
+  }
+
+  // === RULE CŨ: không cho tự chấm nếu user đã từng tham gia giải ===
   if (selfScored) {
     try {
       const participated = await Registration.hasParticipated(userId);
@@ -70,6 +90,51 @@ export async function createAssessment(req, res) {
     }
   }
 
+  // === RULE MỚI:
+  // Nếu user được chấm là role user
+  // và đã từng có assessment meta.scoreBy ∈ ["admin", "mod", "moderator"]
+  // thì user thường (scoreBy = "self") không được chấm nữa
+  try {
+    let isTargetNormalUser = true;
+
+    const targetUser = await User.findById(userId).select("role roles isAdmin");
+
+    if (targetUser) {
+      const targetRoles = [
+        targetUser.role,
+        ...(Array.isArray(targetUser.roles) ? targetUser.roles : []),
+      ]
+        .filter(Boolean)
+        .map((r) => String(r).toLowerCase());
+
+      const targetIsAdmin =
+        targetUser.isAdmin === true || targetRoles.includes("admin");
+      const targetIsMod =
+        targetRoles.includes("mod") || targetRoles.includes("moderator");
+
+      // Nếu không phải admin/mod => coi là user thường
+      isTargetNormalUser = !targetIsAdmin && !targetIsMod;
+    }
+
+    if (isTargetNormalUser && !isStaff) {
+      const hasStaffAssessment = await Assessment.exists({
+        user: userId,
+        "meta.scoreBy": { $in: ["admin", "mod", "moderator"] },
+      });
+
+      if (hasStaffAssessment) {
+        return res.status(403).json({
+          message:
+            "Người chơi này đã được mod/admin chấm điểm trước đó, bạn không thể chấm thêm nữa.",
+        });
+      }
+    }
+  } catch (e) {
+    console.error("Check staff assessment failed:", e);
+    // Có lỗi thì bỏ qua rule mới, tránh chặn nhầm
+  }
+
+  // === PHẦN TẠO ASSESSMENT GIỮ NGUYÊN ===
   const session = await mongoose.startSession();
   session.startTransaction();
   try {
@@ -83,8 +148,8 @@ export async function createAssessment(req, res) {
           doubleScore,
           singleLevel: sLv,
           doubleLevel: dLv,
-          meta: { ...metaInput, selfScored, scoreBy }, // <= cập nhật theo role
-          note: finalNote, // <= ghi đè nếu admin
+          meta: { ...metaInput, selfScored, scoreBy },
+          note: finalNote,
           scoredAt: new Date(),
         },
       ],
@@ -112,7 +177,7 @@ export async function createAssessment(req, res) {
           scorer: req.user?._id || null,
           single: sLv,
           double: dLv,
-          note: finalNote, // <= ghi đè nếu admin
+          note: finalNote,
           scoredAt: new Date(),
         },
       ],
