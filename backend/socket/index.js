@@ -55,7 +55,43 @@ function guessClientType(socket) {
 }
 
 // ===== helpers tái dùng từ match:join =====
-const loadMatchForSnapshot = async (matchId) => {
+const loadMatchForSnapshot = async (matchId, userMatch = false) => {
+  // Convert userMatch sang boolean nếu truyền vào string "true"
+  const isUserMatch = String(userMatch) === "true";
+
+  if (isUserMatch) {
+    // ==========================================
+    // 🏠 LOGIC CHO USER MATCH (TRẬN TỰ TẠO)
+    // ==========================================
+    const m = await UserMatch.findById(matchId)
+      .populate({
+        path: "court",
+        select: "name number code label zone area venue building floor",
+      })
+      .populate({ path: "referee", select: "name fullName nickname nickName" })
+      .populate({ path: "liveBy", select: "name fullName nickname nickName" })
+      .populate({ path: "createdBy", select: "name fullName nickname nickName avatar" })
+      // Populate thông tin user trong participants để hiển thị danh sách
+      .populate({
+        path: "participants.user",
+        select: "name fullName nickname nickName avatar phone",
+      })
+      // Populate user trong pairA/pairB (nếu schema đã build sẵn pair)
+      .populate({ path: "pairA.player1.user", select: "name fullName nickname nickName avatar" })
+      .populate({ path: "pairA.player2.user", select: "name fullName nickname nickName avatar" })
+      .populate({ path: "pairB.player1.user", select: "name fullName nickname nickName avatar" })
+      .populate({ path: "pairB.player2.user", select: "name fullName nickname nickName avatar" })
+      .lean();
+
+    if (m) {
+      m.isUserMatch = true; // Đánh dấu flag để các hàm xử lý sau biết
+    }
+    return m;
+  }
+
+  // ==========================================
+  // 🏆 LOGIC CHO MATCH (GIẢI ĐẤU) - CŨ
+  // ==========================================
   return (
     Match.findById(matchId)
       .populate({
@@ -920,8 +956,20 @@ export function initSocket(
             return ack?.({ ok: false, message: "Empty payload" });
           }
 
+          // Helper lấy ID (User ID hoặc Name cho Guest)
+          // Ưu tiên User ID thực, fallback về Name nếu là Guest UserMatch
           const toId = (u) =>
-            String(u?.user?._id || u?.user || u?._id || u?.id || "");
+            String(
+              u?.user?._id ||
+                u?.user ||
+                u?._id ||
+                u?.id ||
+                u?.fullName ||
+                u?.displayName ||
+                u?.name ||
+                ""
+            );
+
           // ================== USER MATCH BRANCH ==================
           if (userMatch) {
             if (!socket.user?._id) {
@@ -950,7 +998,7 @@ export function initSocket(
                 ? 1
                 : 2;
 
-            // validate serverId thuộc team tương ứng theo participants.side
+            // validate serverId thuộc team tương ứng
             let validServerId = null;
             if (serverId) {
               const parts = Array.isArray(m.participants) ? m.participants : [];
@@ -976,8 +1024,15 @@ export function initSocket(
             }
 
             const prevServe = m.serve || { side: "A", server: 2 };
-            m.serve = { side: wantSide, server: wantServer };
 
+            // 🔥 FIX: Set đầy đủ vào serve object (QUAN TRỌNG: lưu serverId vào root)
+            m.serve = {
+              side: wantSide,
+              server: wantServer,
+              serverId: validServerId, // <-- Fix lỗi ở đây
+            };
+
+            // Sync vào slots (để tương thích ngược nếu cần)
             if (validServerId) {
               m.set("slots.serverId", validServerId, { strict: false });
               m.set("slots.updatedAt", new Date(), { strict: false });
@@ -986,7 +1041,7 @@ export function initSocket(
               m.markModified("slots");
             }
 
-            // log nhẹ cho userMatch (reuse liveLog nếu schema có)
+            // log
             m.liveLog = m.liveLog || [];
             m.liveLog.push({
               type: "serve",
@@ -1000,14 +1055,14 @@ export function initSocket(
             });
             m.liveVersion = (m.liveVersion || 0) + 1;
 
-            await m.save();
+            await m.save(); // pre('save') sẽ chạy và sync mọi thứ chuẩn chỉ
 
-            // broadcast y như các chỗ khác đang nghe match:patched (FE refetch)
+            // broadcast
             io.to(`match:${matchId}`).emit("match:patched", {
               matchId: String(matchId),
               payload: {
-                serve: m.serve,
-                slots: validServerId ? { serverId: validServerId } : undefined,
+                serve: m.serve, // Gửi về FE object serve đã có serverId
+                slots: m.slots,
               },
             });
 
@@ -1019,7 +1074,6 @@ export function initSocket(
           //   return ack?.({ ok: false, message: "Forbidden" });
           // }
 
-          // load match để validate serverId theo side
           const m = await Match.findById(matchId)
             .populate({
               path: "pairA",
@@ -1052,9 +1106,11 @@ export function initSocket(
               ? 1
               : 2;
 
-          // validate serverId thuộc side tương ứng
+          // validate serverId
+          // Với Match giải đấu, toId chỉ lấy _id thật
           const toIdMatch = (u) =>
             String(u?.user?._id || u?.user || u?._id || u?.id || "");
+
           let validServerId = null;
           if (serverId) {
             const aSet = new Set(
@@ -1077,9 +1133,15 @@ export function initSocket(
           }
 
           const prevServe = m.serve || { side: "A", server: 2 };
-          m.serve = { side: wantSide, server: wantServer };
 
-          // lưu serverId động vào slots (không đụng schema)
+          // 🔥 FIX: Set đầy đủ vào serve object (QUAN TRỌNG: lưu serverId vào root)
+          m.serve = {
+            side: wantSide,
+            server: wantServer,
+            serverId: validServerId, // <-- Fix lỗi ở đây
+          };
+
+          // lưu serverId động vào slots
           if (validServerId) {
             m.set("slots.serverId", validServerId, { strict: false });
             m.set("slots.updatedAt", new Date(), { strict: false });
@@ -1088,7 +1150,7 @@ export function initSocket(
             m.markModified("slots");
           }
 
-          // live log + version
+          // live log
           m.liveLog = m.liveLog || [];
           m.liveLog.push({
             type: "serve",
@@ -1104,20 +1166,16 @@ export function initSocket(
 
           await m.save();
 
-          // ==== tải lại theo chuỗi populate của match:join ====
-          let snap = await loadMatchForSnapshot(m._id);
+          // ==== tải lại snapshot ====
+          let snap = await loadMatchForSnapshot(m._id, userMatch);
           if (!snap) {
-            // vẫn ok vì đã lưu; chỉ không có snapshot trả về
             return ack?.({ ok: true });
           }
 
-          // chuẩn hoá snapshot y như match:join
           snap = await postprocessSnapshotLikeJoin(snap);
-
-          // decorate + DTO giống hệt điểm phát trong match:join
           const dto = toDTO(decorateServeAndSlots(snap));
 
-          // 📣 broadcast tới các room liên quan (bắn hết)
+          // broadcast
           io.to(`match:${matchId}`).emit("match:snapshot", dto);
           if (dto?.bracket?._id) {
             io.to(`bracket:${dto.bracket._id}`).emit("match:snapshot", dto);
@@ -1129,7 +1187,6 @@ export function initSocket(
             );
           }
 
-          // 👉 trả snapshot trong ack cho caller
           ack?.({ ok: true, data: dto });
         } catch (e) {
           console.error("[serve:set] error:", e?.message || e);

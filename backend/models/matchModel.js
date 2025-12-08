@@ -164,6 +164,11 @@ const matchSchema = new Schema(
         capped: { type: Boolean, default: false },
       },
     ],
+    
+    // 👉 BỔ SUNG: Timeout & Medical (Root level)
+    timeoutPerGame: { type: Number, default: 2 },      // Số lần timeout mỗi đội/game
+    timeoutMinutes: { type: Number, default: 1 },      // Số phút mỗi lần timeout
+    medicalTimeouts: { type: Number, default: 1 },     // Số lần nghỉ y tế toàn trận
 
     status: {
       type: String,

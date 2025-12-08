@@ -26,7 +26,7 @@ import StarBorder from "@mui/icons-material/StarBorder";
 import DeleteOutline from "@mui/icons-material/DeleteOutline";
 import PersonAddAlt from "@mui/icons-material/PersonAddAlt1";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import MoreVertIcon from "@mui/icons-material/MoreVert"; // Icon menu
+import MoreVertIcon from "@mui/icons-material/MoreVert";
 import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import {
@@ -35,7 +35,7 @@ import {
   useSetRoleMutation,
   useAddMemberMutation,
 } from "../slices/clubsApiSlice";
-import { ZoomableWrapper } from "./Zoom"; // Giả định ZoomableWrapper được export từ './Zoom'
+import { ZoomableWrapper } from "./Zoom";
 
 // chuẩn hoá message lỗi từ RTK Query
 const getApiErrMsg = (err) =>
@@ -44,7 +44,7 @@ const getApiErrMsg = (err) =>
   (typeof err?.data === "string" ? err.data : "Có lỗi xảy ra.");
 
 // Helper để map Role sang màu sắc
-const getRoleProps = (role, theme) => {
+const getRoleProps = (role) => {
   switch (role) {
     case "owner":
       return {
@@ -90,7 +90,7 @@ export default function ClubMembersCards({ club }) {
 
   const members = useMemo(() => data?.items || [], [data]);
 
-  // Các hàm logic quản trị (giữ nguyên)
+  // ====== Logic quyền ======
   const canToggleRole = (targetRole) => {
     if (!canManage) return false;
     if (targetRole === "owner") return false;
@@ -106,13 +106,21 @@ export default function ClubMembersCards({ club }) {
     return targetRole === "member";
   };
 
-  // Hàm mở menu
+  // Quyền thao tác cho member đang mở menu
+  const canToggleActive = activeMember
+    ? canToggleRole(activeMember.role)
+    : false;
+
+  const canKickActive = activeMember
+    ? canKick(activeMember.role, activeMember.user?._id)
+    : false;
+
+  // ====== Menu handlers ======
   const handleOpenMenu = (event, member) => {
     setAnchorEl(event.currentTarget);
     setActiveMember(member);
   };
 
-  // Hàm đóng menu
   const handleCloseMenu = () => {
     setAnchorEl(null);
     setActiveMember(null);
@@ -175,8 +183,6 @@ export default function ClubMembersCards({ club }) {
 
   return (
     <Stack spacing={3}>
-      {" "}
-      {/* Tăng spacing lên 3 cho thoáng */}
       {/* -------------------- PHẦN QUẢN LÝ CHUNG -------------------- */}
       {canManage && (
         <Card
@@ -205,7 +211,7 @@ export default function ClubMembersCards({ club }) {
                 variant="contained"
                 onClick={handleAdd}
                 disabled={adding}
-                sx={{ minWidth: { xs: "100%", sm: 120 } }} // fix chiều rộng trên mobile
+                sx={{ minWidth: { xs: "100%", sm: 120 } }}
               >
                 Thêm
               </Button>
@@ -236,15 +242,15 @@ export default function ClubMembersCards({ club }) {
           </Box>
         </Card>
       )}
+
       {/* -------------------- DANH SÁCH THÀNH VIÊN -------------------- */}
       <Grid container spacing={2}>
         {isLoading
           ? Array.from({ length: 6 }).map((_, i) => (
               <Grid key={i} item size={{ xs: 12, sm: 6, lg: 6 }}>
-                {/* Đổi md sang lg để đẹp hơn trên màn hình lớn */}
                 <Skeleton
                   variant="rounded"
-                  height={100} // Giảm height vì đã làm gọn Card
+                  height={100}
                   sx={{ borderRadius: 3 }}
                 />
               </Grid>
@@ -252,19 +258,15 @@ export default function ClubMembersCards({ club }) {
           : members.map((m) => {
               const targetUserId = String(m.user?._id || "");
               const targetRole = m.role;
-              const { label, color, icon } = getRoleProps(targetRole, theme);
-
-              const canToggle = canToggleRole(targetRole);
-              const canRemove = canKick(targetRole, targetUserId);
+              const { label, color, icon } = getRoleProps(targetRole);
 
               const hasFullName = !!m.user?.fullName;
               const hasNickname = !!m.user?.nickname;
 
-              // Title chính (nickname hoặc tên thật/email nếu không có nickname)
               const primaryTitle = hasNickname
                 ? m.user.nickname
                 : m.user?.fullName || m.user?.email || "Người dùng";
-              // Subtitle phụ (tên thật nếu có nickname)
+
               const secondarySubtitle =
                 hasNickname && hasFullName ? m.user.fullName : null;
 
@@ -299,7 +301,6 @@ export default function ClubMembersCards({ club }) {
 
                       {/* 2. THÔNG TIN */}
                       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-                        {/* NICKNAME (TITLE) */}
                         <Tooltip title={`Profile của ${primaryTitle}`}>
                           <Link
                             component={RouterLink}
@@ -313,16 +314,17 @@ export default function ClubMembersCards({ club }) {
                               textOverflow: "ellipsis",
                               display: "block",
                               color: theme.palette.text.primary,
-                              "&:hover": { color: theme.palette.primary.main },
+                              "&:hover": {
+                                color: theme.palette.primary.main,
+                              },
                             }}
                           >
                             {primaryTitle}
                           </Link>
                         </Tooltip>
 
-                        {/* TÊN THẬT/THỜI GIAN THAM GIA */}
                         <Stack direction="row" spacing={1} alignItems="center">
-                          {secondarySubtitle && (
+                          {secondarySubtitle ? (
                             <Typography
                               variant="body2"
                               color="text.secondary"
@@ -330,8 +332,7 @@ export default function ClubMembersCards({ club }) {
                             >
                               {secondarySubtitle}
                             </Typography>
-                          )}
-                          {!secondarySubtitle && (
+                          ) : (
                             <Typography
                               variant="caption"
                               color="text.secondary"
@@ -375,7 +376,6 @@ export default function ClubMembersCards({ club }) {
                                   targetRole === "member"
                                     ? "visible"
                                     : "hidden",
-                                // Tăng tính nhìn thấy, chỉ hiện khi cần thao tác
                               }}
                               disabled={kicking || settingRole}
                             >
@@ -390,6 +390,7 @@ export default function ClubMembersCards({ club }) {
               );
             })}
       </Grid>
+
       {/* -------------------- MENU THAO TÁC -------------------- */}
       <Menu
         anchorEl={anchorEl}
@@ -403,7 +404,7 @@ export default function ClubMembersCards({ club }) {
             {/* 1. Toggle Admin */}
             <Tooltip
               title={
-                canToggle
+                canToggleActive
                   ? activeMember.role === "admin"
                     ? "Bỏ quyền quản trị"
                     : "Cấp quyền quản trị"
@@ -414,7 +415,7 @@ export default function ClubMembersCards({ club }) {
             >
               <MenuItem
                 onClick={handleToggleAdmin}
-                disabled={!canToggle || settingRole}
+                disabled={!canToggleActive || settingRole}
                 sx={{
                   color:
                     activeMember.role === "admin"
@@ -441,7 +442,7 @@ export default function ClubMembersCards({ club }) {
             {/* 2. Kick */}
             <Tooltip
               title={
-                canRemove
+                canKickActive
                   ? "Xoá thành viên này khỏi CLB."
                   : "Bạn không có quyền xoá Owner/Admin khác."
               }
@@ -450,7 +451,7 @@ export default function ClubMembersCards({ club }) {
             >
               <MenuItem
                 onClick={handleKick}
-                disabled={!canRemove || kicking}
+                disabled={!canKickActive || kicking}
                 sx={{ color: theme.palette.error.main }}
               >
                 <DeleteOutline fontSize="small" sx={{ mr: 1 }} />
@@ -460,6 +461,7 @@ export default function ClubMembersCards({ club }) {
           </Box>
         )}
       </Menu>
+
       {/* -------------------- EMPTY STATE -------------------- */}
       {!isLoading && members.length === 0 && (
         <Box

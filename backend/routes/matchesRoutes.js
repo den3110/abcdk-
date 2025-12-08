@@ -4,6 +4,7 @@ import {
   notifyStreamEnded,
   notifyStreamStarted,
   setMatchLive,
+  updateMatchSettings,
 } from "../controllers/matchController.js";
 import {
   authorize,
@@ -23,5 +24,7 @@ router.post("/:matchId/live/create", createFacebookLiveForMatch);
 
 router.post("/:id/live/start", protect, notifyStreamStarted);
 router.post("/:id/live/end", protect, notifyStreamEnded);
+
+router.patch('/:matchId/update', updateMatchSettings);
 
 export default router;

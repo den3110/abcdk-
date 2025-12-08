@@ -8,6 +8,7 @@ import {
   updateUserMatch,
   deleteUserMatch,
   searchPlayersForUserMatch,
+  getUserMatchDetail,
 } from "../controllers/userMatchController.js";
 
 const router = express.Router();
@@ -24,5 +25,7 @@ router
   .delete(protect, deleteUserMatch);
 
 router.route("/players").get(protect, searchPlayersForUserMatch);
+
+router.route("/:id/detail").get(protect, getUserMatchById);
 
 export default router;

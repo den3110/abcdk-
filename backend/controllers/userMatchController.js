@@ -379,3 +379,32 @@ function escapeRegex(str = "") {
 }
 
 
+/**
+ * GET /api/user-matches/:id
+ * Phục vụ cho: useGetUserMatchDetailsQuery
+ */
+export const getUserMatchDetail = asyncHandler(async (req, res) => {
+  const userId = req.user?._id;
+  
+  // Validate User
+  if (!userId) {
+    res.status(401);
+    throw new Error("Không xác thực được user");
+  }
+
+  // Query DB
+  const match = await UserMatch.findById(req.params.id)
+    .populate("participants.user", "name fullName nickname avatar") // Lấy thông tin user để hiển thị tên/avatar
+    .populate("createdBy", "name fullName avatar")
+    .lean();
+
+  if (!match) {
+     res.status(404);
+     throw new Error("Không tìm thấy trận đấu");
+  }
+
+  // (Optional) Nếu muốn chặn người lạ xem chi tiết thì check ở đây
+  // if (match.visibility === 'private' && String(match.createdBy) !== String(userId)) ...
+
+  res.json(match);
+});

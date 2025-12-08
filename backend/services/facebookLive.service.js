@@ -51,7 +51,7 @@ export async function fbCreateLiveOnPage({
     method: "POST",
     body: params,
   });
-  console.log("res", res)
+  // console.log("res", res)
   return res; // { id, secure_stream_url, permalink_url, ... }
 }
 

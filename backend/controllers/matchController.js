@@ -4,6 +4,7 @@ import mongoose from "mongoose";
 import Registration from "../models/registrationModel.js";
 import Bracket from "../models/bracketModel.js";
 import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
+import UserMatch from "../models/userMatchModel.js";
 // controllers/matchController.js
 const getMatchesByTournament = asyncHandler(async (req, res) => {
   const raw = await Match.find({ tournament: req.params.id })
@@ -2100,6 +2101,69 @@ export const notifyStreamStarted = asyncHandler(async (req, res) => {
   const platform = normPlatform(req.body?.platform);
   const startedAt = parseTs(req.body?.timestamp);
 
+  const matchKindHeader =
+    req.get("x-pkt-match-kind") || req.headers["x-pkt-match-kind"];
+
+  // ====================== USER MATCH BRANCH ======================
+  if (matchKindHeader) {
+    const userMatch = await UserMatch.findById(id).select("live").lean();
+    if (!userMatch) {
+      res.status(404);
+      throw new Error("UserMatch không tồn tại");
+    }
+
+    const live = ensureLiveShape(userMatch.live);
+
+    // Idempotent: nếu đã có session đang mở cho platform thì không push thêm
+    const hasOpen = live.sessions.some(
+      (s) => s.platform === platform && !s.endedAt
+    );
+
+    if (!hasOpen) {
+      live.sessions.push({ platform, startedAt, endedAt: null });
+    }
+
+    // Bật cờ platform và trạng thái tổng
+    live.platforms[platform] = {
+      ...(live.platforms[platform] || {}),
+      active: true,
+      lastStartAt: startedAt,
+    };
+    live.status = "live";
+    live.lastChangedAt = new Date();
+
+    const updated = await UserMatch.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          "live.status": live.status,
+          "live.lastChangedAt": live.lastChangedAt,
+          [`live.platforms.${platform}`]: live.platforms[platform],
+          "live.sessions": live.sessions,
+        },
+      },
+      { new: true }
+    )
+      .select("live")
+      .lean();
+
+    emitSocket(req, id, {
+      matchId: id,
+      platform,
+      status: "live",
+      live: updated.live,
+    });
+
+    return res.json({
+      ok: true,
+      matchId: id,
+      platform,
+      status: "live",
+      live: updated.live,
+    });
+  }
+
+  // ====================== MATCH BRANCH (LOGIC CŨ) ======================
   const match = await Match.findById(id).select("live").lean();
   if (!match) {
     res.status(404);
@@ -2162,6 +2226,10 @@ export const notifyStreamStarted = asyncHandler(async (req, res) => {
  * POST /api/matches/:id/live/end
  * body: { platform, timestamp? }
  */
+/**
+ * POST /api/matches/:id/live/end
+ * body: { platform, timestamp? }
+ */
 export const notifyStreamEnded = asyncHandler(async (req, res) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
@@ -2172,6 +2240,74 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
   const platform = normPlatform(req.body?.platform);
   const endedAt = parseTs(req.body?.timestamp);
 
+  const matchKindHeader =
+    req.get("x-pkt-match-kind") || req.headers["x-pkt-match-kind"];
+
+  // ====================== USER MATCH BRANCH ======================
+  if (matchKindHeader) {
+    const userMatch = await UserMatch.findById(id).select("live").lean();
+    if (!userMatch) {
+      res.status(404);
+      throw new Error("UserMatch không tồn tại");
+    }
+
+    const live = ensureLiveShape(userMatch.live);
+
+    // Tìm session mở gần nhất cho platform và đóng lại
+    for (let i = live.sessions.length - 1; i >= 0; i--) {
+      const s = live.sessions[i];
+      if (s.platform === platform && !s.endedAt) {
+        s.endedAt = endedAt;
+        break;
+      }
+    }
+
+    // Tắt cờ cho platform này
+    live.platforms[platform] = {
+      ...(live.platforms[platform] || {}),
+      active: false,
+      lastEndAt: endedAt,
+    };
+
+    // Nếu không còn platform nào active => idle
+    const anyActive = Object.values(live.platforms).some(
+      (p) => p?.active === true
+    );
+    live.status = anyActive ? "live" : "idle";
+    live.lastChangedAt = new Date();
+
+    const updated = await UserMatch.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          "live.status": live.status,
+          "live.lastChangedAt": live.lastChangedAt,
+          [`live.platforms.${platform}`]: live.platforms[platform],
+          "live.sessions": live.sessions,
+        },
+      },
+      { new: true }
+    )
+      .select("live")
+      .lean();
+
+    emitSocket(req, id, {
+      matchId: id,
+      platform,
+      status: live.status,
+      live: updated.live,
+    });
+
+    return res.json({
+      ok: true,
+      matchId: id,
+      platform,
+      status: live.status,
+      live: updated.live,
+    });
+  }
+
+  // ====================== MATCH BRANCH (LOGIC CŨ) ======================
   const match = await Match.findById(id).select("live").lean();
   if (!match) {
     res.status(404);
@@ -2232,4 +2368,76 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
     status: live.status,
     live: updated.live,
   });
+});
+
+export const updateMatchSettings = asyncHandler(async (req, res) => {
+  try {
+    const { matchId } = req.params;
+
+    // ✅ 1. Logic chọn Model dựa trên Header
+    // Lấy header (lưu ý: header trong nodejs thường tự chuyển về chữ thường)
+    const matchKindHeader = req.headers["x-pkt-match-kind"];
+
+    let TargetModel;
+
+    // Nếu có header này (bất kể giá trị là gì, miễn là có gửi lên) -> dùng UserMatch
+    // Hoặc bạn có thể check kỹ hơn: if (matchKindHeader === 'user') ...
+    if (matchKindHeader) {
+      console.log(`[API] Updating UserMatch (Kind: ${matchKindHeader})`);
+      TargetModel = UserMatch;
+    } else {
+      console.log("[API] Updating Standard Match");
+      TargetModel = Match;
+    }
+
+    // ✅ 2. Chuẩn bị dữ liệu update
+    // Frontend gửi lên: { bestOf, pointsToWin, winByTwo, cap, timeoutPerGame... }
+    // Database thường lưu: { rules: { bestOf... }, timeoutPerGame... }
+    const {
+      bestOf,
+      pointsToWin,
+      winByTwo,
+      cap,
+      timeoutPerGame,
+      timeoutMinutes,
+      medicalTimeouts,
+    } = req.body;
+
+    // Sử dụng dot notation để update field lồng nhau (nested fields) mà không ghi đè cả object rules
+    const updateData = {
+      "rules.bestOf": bestOf,
+      "rules.pointsToWin": pointsToWin,
+      "rules.winByTwo": winByTwo,
+      "rules.cap": cap, // object { mode, points }
+
+      // Các field nằm ngoài rules (tùy schema của bạn)
+      timeoutPerGame,
+      timeoutMinutes,
+      medicalTimeouts,
+    };
+
+    // Loại bỏ các key undefined (tránh lỗi nếu frontend không gửi field đó)
+    Object.keys(updateData).forEach(
+      (key) => updateData[key] === undefined && delete updateData[key]
+    );
+
+    // ✅ 3. Thực hiện Update
+    const updatedMatch = await TargetModel.findByIdAndUpdate(
+      matchId,
+      { $set: updateData },
+      { new: true, runValidators: true } // new: true để trả về data sau khi update
+    );
+
+    if (!updatedMatch) {
+      return res.status(404).json({ message: "Không tìm thấy trận đấu này." });
+    }
+
+    res.status(200).json(updatedMatch);
+  } catch (error) {
+    console.error("Update Match Error:", error);
+    res.status(500).json({
+      message: "Lỗi server khi cập nhật trận đấu.",
+      error: error.message,
+    });
+  }
 });

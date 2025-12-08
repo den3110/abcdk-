@@ -82,12 +82,14 @@ export default function ClubDetailPage() {
                 <Button variant="outlined" onClick={() => setOpenEdit(true)}>
                   Chỉnh sửa CLB
                 </Button>
+              </Stack>
+              <Stack direction="row" spacing={1} flexWrap="wrap">
                 <Button variant="outlined" onClick={() => setOpenJR(true)}>
                   Duyệt yêu cầu gia nhập
                 </Button>
               </Stack>
             </>
-          )}
+          )}  
         </Stack>
       </Paper>
     ),
@@ -100,18 +102,10 @@ export default function ClubDetailPage() {
         <Skeleton variant="rounded" height={260} sx={{ borderRadius: 3 }} />
         <Grid container spacing={2} sx={{ mt: 2 }}>
           <Grid item size={{ xs: 12, md: 8 }}>
-            <Skeleton
-              variant="rounded"
-              height={400}
-              sx={{ borderRadius: 3 }}
-            />
+            <Skeleton variant="rounded" height={400} sx={{ borderRadius: 3 }} />
           </Grid>
           <Grid item size={{ xs: 12, md: 4 }}>
-            <Skeleton
-              variant="rounded"
-              height={200}
-              sx={{ borderRadius: 3 }}
-            />
+            <Skeleton variant="rounded" height={200} sx={{ borderRadius: 3 }} />
           </Grid>
         </Grid>
       </Container>

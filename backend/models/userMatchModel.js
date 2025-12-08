@@ -321,6 +321,11 @@ const userMatchSchema = new Schema(
       },
     ],
 
+    // 👉 BỔ SUNG: Timeout & Medical (Root level)
+    timeoutPerGame: { type: Number, default: 2 },
+    timeoutMinutes: { type: Number, default: 1 },
+    medicalTimeouts: { type: Number, default: 1 },
+
     /* ========= STATUS & RESULT ========= */
     status: {
       type: String,
@@ -489,9 +494,10 @@ userMatchSchema.pre("validate", function (next) {
 /* ======================= PRE-SAVE ======================= */
 userMatchSchema.pre("save", function (next) {
   try {
+    // 1. Chuẩn hóa isBreak
     this.isBreak = normalizeBreak(this.isBreak);
 
-    // 🔹 đảm bảo slots luôn có base A/B
+    // 2. Đảm bảo cấu trúc slots luôn tồn tại (không null)
     if (!this.slots || typeof this.slots !== "object") {
       this.slots = {
         base: { A: {}, B: {} },
@@ -500,6 +506,7 @@ userMatchSchema.pre("save", function (next) {
         updatedAt: null,
       };
     } else {
+      // Giữ nguyên dữ liệu cũ, chỉ đảm bảo base A/B không undefined
       const s = this.slots;
       this.slots = {
         ...s,
@@ -513,17 +520,69 @@ userMatchSchema.pre("save", function (next) {
       };
     }
 
-    // bảo hiểm: rebuild pair trước khi save
+    // 3. Bảo hiểm: rebuild pair A/B từ participants trước khi xử lý slots
     rebuildPairs(this);
 
-    // Auto-generate code
+    // 🔥 4. AUTO SETUP SLOTS (Logic: Referee View / Chéo Sân)
+    // - Đội B (Phải): P1 đứng trên (Slot 1)
+    // - Đội A (Trái): P1 đứng dưới (Slot 2) -> Để khớp với góc nhìn trọng tài
+    const setupBaseSlots = (side, pair) => {
+      // Nếu đã có dữ liệu slots (do user swap tay trước đó) thì KHÔNG ghi đè
+      if (
+        this.slots.base &&
+        this.slots.base[side] &&
+        Object.keys(this.slots.base[side]).length > 0
+      ) {
+        return;
+      }
+
+      if (!pair || !pair.player1) return;
+
+      // Helper: Lấy định danh (Fix lỗi Guest UserMatch không có _id)
+      const getId = (p) => {
+        if (!p) return "";
+        // Ưu tiên: User ID -> FullName -> DisplayName -> ... -> "Player"
+        return String(
+          p.user ||
+            p.fullName ||
+            p.displayName ||
+            p.name ||
+            p.nickName ||
+            p.nickname ||
+            "Player"
+        );
+      };
+
+      const uid1 = getId(pair.player1);
+      const uid2 = pair.player2 ? getId(pair.player2) : null;
+
+      // Đảm bảo object base tồn tại (double check)
+      if (!this.slots.base[side]) this.slots.base[side] = {};
+
+      if (side === "B") {
+        // Đội B (Phải - Thuận): P1=1, P2=2
+        if (uid1) this.slots.base.B[uid1] = 1;
+        if (uid2) this.slots.base.B[uid2] = 2;
+      } else {
+        // Đội A (Trái - Chéo): P1=2, P2=1
+        // Đây là mấu chốt để logic đổi giao ở Frontend hoạt động đúng
+        if (uid1) this.slots.base.A[uid1] = 2;
+        if (uid2) this.slots.base.A[uid2] = 1;
+      }
+    };
+
+    // Thực thi setup cho 2 đội
+    setupBaseSlots("A", this.pairA);
+    setupBaseSlots("B", this.pairB);
+
+    // 5. Auto-generate code
     if (!this.code) {
       const r = this.round ?? "";
       const o = this.order ?? "";
       this.code = `R${r}#${o}`;
     }
 
-    // Auto-generate labelKey
+    // 6. Auto-generate labelKey
     if (!this.labelKey) {
       const r = this.round ?? 1;
       const o = (this.order ?? 0) + 1;
@@ -531,7 +590,7 @@ userMatchSchema.pre("save", function (next) {
       this.labelKey = `V${v}#R${r}#${o}`;
     }
 
-    // Auto-generate title if empty
+    // 7. Auto-generate title if empty
     if (!this.title) {
       const sideA = this.participants.filter((p) => p.side === "A");
       const sideB = this.participants.filter((p) => p.side === "B");
