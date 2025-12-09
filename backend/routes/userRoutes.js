@@ -15,6 +15,8 @@ import {
   getMeWithScore,
   issueOsAuthToken,
   reauthUser,
+  getKycCheckData,
+  updateKycStatus,
 } from "../controllers/userController.js";
 import {
   authorize,
@@ -85,6 +87,6 @@ router.get("/stats/:uid/stats/breakdown", protect, breakdown);
 router.get("/stats/:uid/stats/heatmap", protect, heatmap);
 router.get("/stats/:uid/stats/top", protect, top);
 router.get("/stats/:uid/stats/profile", protect, profile);
-
-
+router.get("/kyc/status/:id", protect, getKycCheckData)
+router.put("/kyc/status/:id", protect, authorize("admin"), updateKycStatus);
 export default router;

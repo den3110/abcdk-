@@ -34,6 +34,7 @@ import Agendash from "agendash";
 import { versionGate } from "./middleware/versionGate.js";
 import appVersionRouter from "./routes/appVersion.route.js";
 import chatBotRoutes from "./routes/chatBotRoutes.js"
+
 import {
   attachJwtIfPresent,
   authorize,
@@ -75,6 +76,7 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 import { registerAutoHealJobs } from "./utils/scheduleNotifications.js";
 import weatherRoutes from "./routes/weatherRoutes.js";
 import Tournament from "./models/tournamentModel.js";
+import radarRoutes from "./routes/radarRoutes.js";
 import Match from "./models/matchModel.js";
 import { httpLogger } from "./middleware/httpLogger.js";
 
@@ -202,7 +204,7 @@ app.use("/api/schedule", scheduleRoutes);
 app.use("/api/fb", facebookRoutes);
 app.use("/api/chat", chatBotRoutes);
 app.use("/api/user-matches", userMatchRoutes);
-
+app.use("/api/radar", radarRoutes);
 
 app.get("/dl/file/:id", async (req, res) => {
   try {

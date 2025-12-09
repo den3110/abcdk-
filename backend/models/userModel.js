@@ -374,5 +374,6 @@ userSchema.index(
   { "signupMeta.ip.client": 1, createdAt: -1 },
   { name: "idx_signup_ip" }
 );
+userSchema.index({ lastKnownLocation: "2dsphere" });
 
 export default mongoose.model("User", userSchema);

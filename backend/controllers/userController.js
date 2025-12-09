@@ -3771,3 +3771,48 @@ export const adminSetRankingSearchConfig = asyncHandler(async (req, res) => {
     user,
   });
 });
+
+export const getKycCheckData = asyncHandler(async (req, res) => {
+  const targetUserId = req.params.id;     // ID người cần xem
+  const requester = req.user;             // Người đang gọi API (lấy từ JWT)
+
+  // --- CHECK QUYỀN ---
+  const isAdmin = requester.role === 'admin' || requester.isAdmin;
+  const isSelf = String(requester._id) === String(targetUserId);
+
+  // Nếu không phải Admin và cũng không phải đang xem của chính mình -> Cút
+  if (!isAdmin && !isSelf) {
+    res.status(403);
+    throw new Error("Bạn không có quyền xem hồ sơ định danh này.");
+  }
+
+  const user = await User.findById(targetUserId).select(
+    "name cccd cccdImages cccdStatus verified"
+  );
+
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found");
+  }
+  
+  res.json(user);
+});
+
+export // @desc    Cập nhật trạng thái KYC (Chỉ Admin mới được gọi)
+// @route   PUT /api/kyc-check/:id
+const updateKycStatus = asyncHandler(async (req, res) => {
+  // Logic giữ nguyên, nhưng route sẽ chặn user thường
+  const { status } = req.body;
+  const user = await User.findById(req.params.id);
+
+  if (!user) {
+    res.status(404);
+    throw new Error("User not found");
+  }
+
+  user.cccdStatus = status;
+  user.verified = status === "verified" ? "verified" : "pending";
+  
+  await user.save();
+  res.json({ message: "Success", cccdStatus: user.cccdStatus });
+});
