@@ -22,7 +22,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useDispatch } from "react-redux";
 import { useRegisterMutation } from "../slices/usersApiSlice";
 import {
-  useUploadAvatarMutation,
+  useUploadRealAvatarMutation,
   useUploadRegisterCccdMutation,
 } from "../slices/uploadApiSlice";
 import { setCredentials } from "../slices/authSlice";
@@ -134,7 +134,7 @@ export default function RegisterScreen() {
 
   const [register, { isLoading }] = useRegisterMutation();
   const [uploadAvatar, { isLoading: uploadingAvatar }] =
-    useUploadAvatarMutation();
+    useUploadRealAvatarMutation();
   const [uploadRegisterCccd, { isLoading: uploadingCccd }] =
     useUploadRegisterCccdMutation();
 

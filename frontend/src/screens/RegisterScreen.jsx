@@ -21,7 +21,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { useDispatch } from "react-redux";
 import { useRegisterMutation } from "../slices/usersApiSlice";
-import { useUploadAvatarMutation } from "../slices/uploadApiSlice"; // 👈 chỉ còn avatar thôi
+import { useUploadRealAvatarMutation } from "../slices/uploadApiSlice"; // 👈 chỉ còn avatar thôi
 import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
 
@@ -128,7 +128,7 @@ export default function RegisterScreen() {
 
   const [register, { isLoading }] = useRegisterMutation();
   const [uploadAvatar, { isLoading: uploadingAvatar }] =
-    useUploadAvatarMutation();
+    useUploadRealAvatarMutation();
 
   const [form, setForm] = useState(EMPTY);
   const [touched, setTouched] = useState({});

@@ -44,4 +44,4 @@ export const uploadApiSlice = apiSlice.injectEndpoints({
   }),
 });
 
-export const { useUploadAvatarMutation, useUploadCccdMutation, useUploadRegisterCccdMutation  } = uploadApiSlice;
+export const { useUploadAvatarMutation, useUploadCccdMutation, useUploadRegisterCccdMutation, useUploadRealAvatarMutation  } = uploadApiSlice;

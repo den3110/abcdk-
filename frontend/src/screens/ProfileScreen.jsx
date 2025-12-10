@@ -45,7 +45,7 @@ import {
 } from "../slices/usersApiSlice";
 import {
   useUploadCccdMutation,
-  useUploadAvatarMutation,
+  useUploadRealAvatarMutation,
 } from "../slices/uploadApiSlice";
 import { logout } from "../slices/authSlice";
 import CccdDropzone from "../components/CccdDropzone";
@@ -175,7 +175,7 @@ export default function ProfileScreen() {
 
   const [uploadCccd, { isLoading: upLoad }] = useUploadCccdMutation();
   const [uploadAvatar, { isLoading: uploadingAvatar }] =
-    useUploadAvatarMutation();
+    useUploadRealAvatarMutation();
 
   const [form, setForm] = useState(EMPTY);
   const [touched, setTouched] = useState({});
