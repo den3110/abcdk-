@@ -214,6 +214,75 @@ router.post("/avatar", (req, res) => {
       }
 
       // 2) Có file hợp lệ → check config xem có chèn logo không
+      const avatarLogoEnabled = false;
+
+      if (!avatarLogoEnabled) {
+        // Không chèn logo: trả luôn URL file mà Multer đã lưu
+        const rawPath = `/uploads/avatars/${req.file.filename}`;
+        const fullUrl = buildAbsoluteUrl(baseUrl, rawPath);
+        return res.status(200).json({ url: fullUrl });
+      }
+
+      // 3) Có file & được phép chèn logo → giao cho service xử lý full (logo + fallback)
+      const safeBaseName = path.basename(
+        req.file.filename,
+        path.extname(req.file.filename)
+      );
+
+      const { avatarUrl } = await processAvatarWithLogoAlways(
+        req.file,
+        AVATAR_DIR,
+        safeBaseName
+      );
+
+      const fullUrl = buildAbsoluteUrl(baseUrl, avatarUrl);
+      return res.status(200).json({ url: fullUrl });
+    } catch (e) {
+      console.error(
+        "[upload/avatar] Fatal error, hard fallback:",
+        e?.message || e
+      );
+
+      // 4) Last resort: vẫn trả URL hợp lệ trỏ về default (hoặc file gốc nếu còn)
+      const fallbackPath =
+        (req.file && `/uploads/avatars/${req.file.filename}`) ||
+        "/uploads/avatars/default-avatar.jpg";
+
+      const fullUrl = buildAbsoluteUrl(baseUrl, fallbackPath);
+      return res.status(200).json({ url: fullUrl });
+    }
+  });
+});
+
+router.post("/user/avatar", (req, res) => {
+  avatarUpload.single("avatar")(req, res, async (err) => {
+    const baseUrl = getBaseUrl(req);
+
+    try {
+      // 1) Multer lỗi hoặc không có file -> dùng service fallback (default avatar, không quan tâm flag)
+      if (err || !req.file) {
+        if (err) {
+          console.warn(
+            "[upload/avatar] Multer error, fallback:",
+            err.code || err.message
+          );
+        } else {
+          console.warn(
+            "[upload/avatar] No file received, fallback to default avatar"
+          );
+        }
+
+        const { avatarUrl } = await processAvatarWithLogoAlways(
+          null,
+          AVATAR_DIR,
+          `fallback_${Date.now()}`
+        );
+
+        const fullUrl = buildAbsoluteUrl(baseUrl, avatarUrl);
+        return res.status(200).json({ url: fullUrl });
+      }
+
+      // 2) Có file hợp lệ → check config xem có chèn logo không
       const avatarLogoEnabled = await isAvatarLogoEnabled();
 
       if (!avatarLogoEnabled) {
@@ -253,6 +322,7 @@ router.post("/avatar", (req, res) => {
     }
   });
 });
+
 // /api/upload/register-cccd  → { url } (field 'image')
 router.post("/register-cccd", (req, res) => {
   cccdUploadSingle.single("image")(req, res, (err) => {

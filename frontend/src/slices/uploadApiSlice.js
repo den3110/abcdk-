@@ -15,6 +15,18 @@ export const uploadApiSlice = apiSlice.injectEndpoints({
         };
       },
     }),
+    uploadRealAvatar: builder.mutation({
+      query: (file) => {
+        const formData = new FormData();
+        formData.append("avatar", file);
+
+        return {
+          url: "/api/upload/user/avatar",
+          method: "POST",
+          body: formData,
+        };
+      },
+    }),
     uploadCccd: builder.mutation({
       query: (formData) => ({
         url   : "/api/upload/cccd",
