@@ -1,27 +1,41 @@
 import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import User from "../models/userModel.js";
+import UserRadar from "../models/userRadarModel.js";
 import RadarPresence from "../models/radarPresenceModel.js";
 import RadarIntent from "../models/radarIntentModel.js";
 
-// Helper function (giữ nguyên, không cần export trừ khi muốn test riêng)
+// Helper clamp
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v || 0));
+
+// Helper: tính rating base từ localRatings
+const getBaseRating = (localRatings) => {
+  if (!localRatings) return null;
+  const vals = [
+    typeof localRatings.singles === "number" ? localRatings.singles : null,
+    typeof localRatings.doubles === "number" ? localRatings.doubles : null,
+  ].filter((v) => Number.isFinite(v));
+  if (!vals.length) return null;
+  return vals.reduce((a, b) => a + b, 0) / vals.length;
+};
 
 /**
  * GET /api/radar/settings
  * Lấy radarSettings + radarProfile hiện tại
  */
 export const getRadarSettings = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id).select(
+  let radar = await UserRadar.findOne({ user: req.user._id }).select(
     "radarSettings radarProfile"
   );
-  if (!user) {
-    res.status(404);
-    throw new Error("User not found");
+
+  if (!radar) {
+    // tạo doc mặc định nếu chưa có
+    radar = await UserRadar.create({ user: req.user._id });
   }
+
   res.json({
-    radarSettings: user.radarSettings,
-    radarProfile: user.radarProfile,
+    radarSettings: radar.radarSettings,
+    radarProfile: radar.radarProfile,
   });
 });
 
@@ -67,6 +81,9 @@ export const updateRadarSettings = asyncHandler(async (req, res) => {
     if (Array.isArray(radarProfile.typicalTimeSlots)) {
       rp.typicalTimeSlots = radarProfile.typicalTimeSlots;
     }
+    if (Array.isArray(radarProfile.preferredVenues)) {
+      rp.preferredVenues = radarProfile.preferredVenues;
+    }
     if (radarProfile.playStyle) {
       rp.playStyle = radarProfile.playStyle;
     }
@@ -76,9 +93,11 @@ export const updateRadarSettings = asyncHandler(async (req, res) => {
     update.radarProfile = rp;
   }
 
-  const user = await User.findByIdAndUpdate(req.user._id, update, {
-    new: true,
-  }).select("radarSettings radarProfile");
+  const radar = await UserRadar.findOneAndUpdate(
+    { user: req.user._id },
+    { $set: update },
+    { new: true, upsert: true, setDefaultsOnInsert: true }
+  ).select("radarSettings radarProfile");
 
   // Nếu tắt radar thì xoá luôn presence + intent
   if (enabled === false) {
@@ -87,8 +106,8 @@ export const updateRadarSettings = asyncHandler(async (req, res) => {
   }
 
   res.json({
-    radarSettings: user.radarSettings,
-    radarProfile: user.radarProfile,
+    radarSettings: radar.radarSettings,
+    radarProfile: radar.radarProfile,
   });
 });
 
@@ -98,16 +117,16 @@ export const updateRadarSettings = asyncHandler(async (req, res) => {
  * Yêu cầu radarSettings.enabled = true
  */
 export const updateRadarPresence = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id).select(
-    "radarSettings lastKnownLocation rating mainClubName"
+  const radar = await UserRadar.findOne({ user: req.user._id }).select(
+    "radarSettings lastKnownLocation"
   );
 
-  if (!user) {
-    res.status(404);
-    throw new Error("User not found");
+  if (!radar) {
+    res.status(409);
+    throw new Error("Radar settings not initialized for this user");
   }
 
-  if (!user.radarSettings?.enabled) {
+  if (!radar.radarSettings?.enabled) {
     res.status(409);
     throw new Error("Radar is disabled for this user");
   }
@@ -139,7 +158,7 @@ export const updateRadarPresence = asyncHandler(async (req, res) => {
     status: status || "looking_partner",
     visibility: visibility || "venue_only",
     source: source || "gps",
-    preferredRadiusKm: user.radarSettings?.radiusKm || 5,
+    preferredRadiusKm: radar.radarSettings?.radiusKm || 5,
     expiresAt,
   };
 
@@ -149,12 +168,13 @@ export const updateRadarPresence = asyncHandler(async (req, res) => {
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
-  user.lastKnownLocation = {
+  // Cập nhật lastKnownLocation trong UserRadar (không còn trên User)
+  radar.lastKnownLocation = {
     type: "Point",
     coordinates: [longitude, latitude],
     updatedAt: now,
   };
-  await user.save();
+  await radar.save();
 
   res.json({
     ok: true,
@@ -171,29 +191,34 @@ export const updateRadarPresence = asyncHandler(async (req, res) => {
 
 /**
  * Helper tính score gợi ý (0–100)
+ * player: doc đã aggregate từ RadarPresence + User + RadarIntent
+ * currentUserRatings: currentUser.localRatings
  */
-const computeScore = (player, currentUser, currentIntent) => {
+const computeScore = (player, currentUserRatings, currentIntent) => {
   let score = 0;
 
+  // 1) Khoảng cách
   const distKm = (player.distance || 0) / 1000;
   if (distKm <= 2) score += 40;
   else if (distKm <= 5) score += 30;
   else if (distKm <= 10) score += 20;
   else score += 10;
 
-  if (player.rating && currentUser.rating) {
-    const diff = Math.abs(player.rating - currentUser.rating);
-    if (diff <= 50) score += 30;
-    else if (diff <= 100) score += 20;
-    else if (diff <= 200) score += 10;
+  // 2) Rating chênh lệch ít thì cộng điểm
+  const userBaseRating = getBaseRating(currentUserRatings);
+  const playerBaseRating = getBaseRating({
+    singles: player.ratingSingles,
+    doubles: player.ratingDoubles,
+  });
+
+  if (userBaseRating != null && playerBaseRating != null) {
+    const diff = Math.abs(playerBaseRating - userBaseRating);
+    if (diff <= 0.25) score += 30;
+    else if (diff <= 0.5) score += 20;
+    else if (diff <= 1) score += 10;
   }
 
-  if (player.mainClubName && currentUser.mainClubName) {
-    if (player.mainClubName === currentUser.mainClubName) {
-      score += 10;
-    }
-  }
-
+  // 3) Intent khớp nhau
   if (player.intentKind && currentIntent?.kind) {
     if (player.intentKind === currentIntent.kind) {
       score += 20;
@@ -216,12 +241,16 @@ export const getNearbyPlayers = asyncHandler(async (req, res) => {
   let centerLng = Number(lng);
 
   const currentUser = await User.findById(userId).select(
-    "radarSettings lastKnownLocation rating mainClubName"
+    "name nickname avatar gender province localRatings"
   );
   if (!currentUser) {
     res.status(404);
     throw new Error("User not found");
   }
+
+  const currentRadar = await UserRadar.findOne({ user: userId }).select(
+    "lastKnownLocation"
+  );
 
   if (
     !Number.isFinite(centerLat) ||
@@ -230,11 +259,11 @@ export const getNearbyPlayers = asyncHandler(async (req, res) => {
     Math.abs(centerLng) > 180
   ) {
     if (
-      currentUser.lastKnownLocation?.coordinates &&
-      Array.isArray(currentUser.lastKnownLocation.coordinates)
+      currentRadar?.lastKnownLocation?.coordinates &&
+      Array.isArray(currentRadar.lastKnownLocation.coordinates)
     ) {
-      centerLng = currentUser.lastKnownLocation.coordinates[0];
-      centerLat = currentUser.lastKnownLocation.coordinates[1];
+      centerLng = currentRadar.lastKnownLocation.coordinates[0];
+      centerLat = currentRadar.lastKnownLocation.coordinates[1];
     } else {
       res.status(400);
       throw new Error("Missing or invalid center coordinates");
@@ -292,16 +321,23 @@ export const getNearbyPlayers = asyncHandler(async (req, res) => {
         location: 1,
         preferredRadiusKm: 1,
 
+        // tên hiển thị: nickname > name
         displayName: {
-          $ifNull: ["$user.displayName", "$user.fullName"],
+          $ifNull: ["$user.nickname", "$user.name"],
         },
         avatarUrl: "$user.avatar",
-        rating: "$user.rating",
-        ratingSingles: "$user.ratingSingles",
-        ratingDoubles: "$user.ratingDoubles",
-        mainClubName: "$user.mainClubName",
+
+        // rating mới
+        ratingSingles: "$user.localRatings.singles",
+        ratingDoubles: "$user.localRatings.doubles",
+        // dùng doubles làm rating chung (app đang đọc item.rating)
+        rating: "$user.localRatings.doubles",
+
         gender: "$user.gender",
-        birthYear: "$user.birthYear",
+        province: "$user.province",
+
+        // để app không phải sửa, map province vào mainClubName tạm
+        mainClubName: "$user.province",
 
         intentKind: "$intent.kind",
         intentNote: "$intent.note",
@@ -318,7 +354,7 @@ export const getNearbyPlayers = asyncHandler(async (req, res) => {
 
   const enriched = docs.map((p) => ({
     ...p,
-    score: computeScore(p, currentUser, currentIntent),
+    score: computeScore(p, currentUser.localRatings, currentIntent),
   }));
 
   enriched.sort((a, b) => b.score - a.score || a.distance - b.distance);
@@ -370,7 +406,7 @@ export const deleteRadarIntent = asyncHandler(async (req, res) => {
 /**
  * POST /api/radar/ping
  * body: { targetUserId }
- * -> tuỳ bạn hook vào NotificationHub / push
+ * -> hook vào NotificationHub / push tuỳ bạn
  */
 export const pingUser = asyncHandler(async (req, res) => {
   const { targetUserId } = req.body || {};
@@ -384,8 +420,7 @@ export const pingUser = asyncHandler(async (req, res) => {
     throw new Error("Cannot ping yourself");
   }
 
-  // ở đây bạn thay bằng logic notification hiện tại (Mongo + RabbitMQ + Expo push…)
-  // ví dụ:
+  // TODO: hook notification thực tế (Mongo + RabbitMQ + Expo push, v.v.)
   // await Notification.create({
   //   user: targetUserId,
   //   type: "radar_ping",

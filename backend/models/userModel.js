@@ -265,6 +265,41 @@ userSchema.pre("validate", function (next) {
   next();
 });
 
+userSchema.post("save", async function (doc, next) {
+  try {
+    // Chỉ xử lý khi user mới tạo
+    if (!doc.isNew) return next();
+
+    // Dùng upsert cho idempotent (tránh trùng)
+    await UserRadar.updateOne(
+      { user: doc._id },
+      {
+        $setOnInsert: {
+          user: doc._id,
+          // có thể set một số default khác nếu muốn
+          radarSettings: {
+            enabled: false,
+            radiusKm: 5,
+            preferredPlayType: "any",
+            preferredGender: "any",
+          },
+        },
+      },
+      { upsert: true }
+    );
+
+    return next();
+  } catch (err) {
+    console.error(
+      "[User.post(save)] Failed to create UserRadar for user",
+      doc._id,
+      err.message
+    );
+    // tuỳ bạn: nếu không muốn chặn signup thì vẫn cho next()
+    return next(); // hoặc next(err) nếu muốn fail cứng
+  }
+});
+
 /* ---------- Helper methods ---------- */
 userSchema.methods.isEvaluator = function () {
   return this.role === "admin" || !!this.evaluator?.enabled;
