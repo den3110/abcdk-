@@ -147,7 +147,12 @@ const userSchema = new mongoose.Schema(
 
     /* ------- Quyền chính ------- */
     role: { type: String, enum: ["user", "referee", "admin"], default: "user" },
-
+    // ✅ Super user – quyền cao nhất, thường dùng cho owner hệ thống
+    isSuperUser: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
     /* ------- Năng lực chấm trình ------- */
     evaluator: { type: EvaluatorSchema, default: () => ({}) },
     referee: { type: RefereeScopeSchema, default: () => ({ tournaments: [] }) },
@@ -226,6 +231,11 @@ userSchema.pre("validate", function (next) {
       .filter(Boolean);
     const uniq = Array.from(new Set(ids));
     this.referee.tournaments = uniq.map((s) => new mongoose.Types.ObjectId(s));
+  }
+
+  // ✅ Nếu là super user mà role khác admin thì auto set admin
+  if (this.isSuperUser && this.role !== "admin") {
+    this.role = "admin";
   }
 
   // Signup meta normalization

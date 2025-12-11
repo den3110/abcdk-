@@ -235,6 +235,127 @@ export const getAssignedMatches = asyncHandler(async (req, res) => {
 const gameWon = (x, y, pts, byTwo) =>
   x >= pts && (byTwo ? x - y >= 2 : x - y >= 1);
 
+// ===== Stage helpers (group / playoff / round label) =====
+export function computeStageInfoForMatchDoc(m) {
+  if (!m) return { stageType: null, stageName: "" };
+
+  const bracketType = (
+    (m.bracket && m.bracket.type) ||
+    m.format ||
+    ""
+  ).toString();
+
+  const phase = m.phase || null;
+  const branch = m.branch || "main";
+
+  const meta = (m.bracket && m.bracket.meta) || {};
+
+  const isThirdPlace =
+    m.isThirdPlace === true ||
+    (m.meta && m.meta.thirdPlace === true) ||
+    (m.meta &&
+      typeof m.meta.stageLabel === "string" &&
+      /3/.test(m.meta.stageLabel) &&
+      /4/.test(m.meta.stageLabel));
+
+  // ===== Group-like (vòng bảng) =====
+  if (
+    ["group", "round_robin", "gsl", "swiss"].includes(bracketType) ||
+    phase === "group"
+  ) {
+    // swiss
+    if (bracketType === "swiss") {
+      const r = Number.isFinite(Number(m.swissRound))
+        ? Number(m.swissRound)
+        : null;
+      return {
+        stageType: "group",
+        stageName: r ? `Vòng Swiss ${r}` : "Vòng bảng",
+      };
+    }
+
+    // GSL
+    if (bracketType === "gsl") {
+      let name = "Vòng bảng (GSL)";
+      if (phase === "winners") name = "GSL – Nhánh thắng";
+      else if (phase === "losers") name = "GSL – Nhánh thua";
+      else if (phase === "decider") name = "GSL – Trận quyết định";
+      else if (phase === "grand_final") name = "GSL – Chung kết";
+
+      return {
+        stageType: "group",
+        stageName: name,
+      };
+    }
+
+    // group / round_robin mặc định
+    return {
+      stageType: "group",
+      stageName: "Vòng bảng",
+    };
+  }
+
+  // ===== KO / playoff =====
+  const drawSize =
+    Number.isFinite(Number(meta.drawSize)) && Number(meta.drawSize) > 0
+      ? Number(meta.drawSize)
+      : m.bracket && Number.isInteger(Number(m.bracket.drawRounds))
+      ? 1 << Number(m.bracket.drawRounds)
+      : 0;
+
+  const roundNo = Number.isFinite(Number(m.round)) ? Number(m.round) : 1;
+
+  let roundSize = null;
+  if (drawSize) {
+    roundSize = Math.max(2, drawSize >> (roundNo - 1));
+  }
+
+  const koLabel = () => {
+    if (isThirdPlace) return "Tranh hạng 3/4";
+
+    // Không rõ drawSize → fallback
+    if (!roundSize || roundSize <= 2) {
+      const maxRounds =
+        Number.isFinite(Number(meta.maxRounds)) && Number(meta.maxRounds) > 0
+          ? Number(meta.maxRounds)
+          : null;
+      if (maxRounds && roundNo === maxRounds) return "Chung kết";
+      return "Playoff";
+    }
+
+    if (roundSize >= 64) return "Vòng 64 đội";
+    if (roundSize === 32) return "Vòng 32 đội";
+    if (roundSize === 16) return "Vòng 16 đội";
+    if (roundSize === 8) return "Tứ kết";
+    if (roundSize === 4) return "Bán kết";
+    if (roundSize === 2) return "Chung kết";
+
+    // các case như 128 đội, 256 đội...
+    return `Vòng ${roundSize} đội`;
+  };
+
+  // stageType high-level: group / playoff
+  let stageType = "playoff";
+  let stageName = koLabel();
+
+  if (bracketType === "double_elim") {
+    const base = koLabel();
+    if (branch === "wb") {
+      stageName = `Nhánh thắng – ${base}`;
+    } else if (branch === "lb") {
+      stageName = `Nhánh thua – ${base}`;
+    } else if (branch === "gf") {
+      stageName = "Chung kết tổng";
+    } else if (branch === "consol") {
+      stageName = isThirdPlace ? "Tranh hạng 3/4" : base;
+    } else {
+      stageName = base;
+    }
+  }
+
+  return { stageType, stageName };
+}
+
 // ===== Helpers for broadcast with nickname fallback =====
 async function loadMatchWithNickForEmit(matchId) {
   const m = await Match.findById(matchId)
@@ -347,13 +468,31 @@ async function loadMatchWithNickForEmit(matchId) {
 
   // fallback streams từ meta nếu chưa có
   if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+  // 🆕 TÍNH STAGE
+  const { stageType, stageName } = computeStageInfoForMatchDoc(m);
+  if (stageType) m.stageType = stageType;
+  if (stageName) m.stageName = stageName;
 
   return m;
 }
 
 async function broadcastScoreUpdated(io, matchId) {
   const snap = await loadMatchWithNickForEmit(matchId);
-  if (snap) io?.to(`match:${matchId}`)?.emit("score:updated", toDTO(snap));
+  if (!snap) return;
+
+  const baseDto = toDTO(snap);
+  const { stageType, stageName } = computeStageInfoForMatchDoc(snap);
+
+  const payload =
+    stageType || stageName
+      ? {
+          ...baseDto,
+          ...(stageType ? { stageType } : {}),
+          ...(stageName ? { stageName } : {}),
+        }
+      : baseDto;
+
+  io?.to(`match:${matchId}`)?.emit("score:updated", payload);
 }
 
 export const patchScore = asyncHandler(async (req, res) => {
@@ -1088,6 +1227,10 @@ export const patchStatus = asyncHandler(async (req, res) => {
 
     // Emit snapshot cho scoreboard (dùng chung channel match:...)
     const snap = match.toObject ? match.toObject() : match;
+    // 🆕 thêm 2 field stage cho userMatch
+    snap.stageType = "userMatch";
+    snap.stageName = "Trận đấu PickleTour";
+
     io?.to(`match:${String(match._id)}`).emit("match:snapshot", snap);
 
     return res.json({
@@ -1239,7 +1382,19 @@ export const patchStatus = asyncHandler(async (req, res) => {
     // 🧩 Fallback streams từ meta nếu chưa có
     if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
-    io?.to(`match:${String(match._id)}`).emit("match:snapshot", toDTO(m));
+    const baseDto = toDTO(m);
+    const { stageType, stageName } = computeStageInfoForMatchDoc(m);
+
+    const payload =
+      stageType || stageName
+        ? {
+            ...baseDto,
+            ...(stageType ? { stageType } : {}),
+            ...(stageName ? { stageName } : {}),
+          }
+        : baseDto;
+
+    io?.to(`match:${String(match._id)}`).emit("match:snapshot", payload);
   }
 
   // ★★★ Gửi thông báo cho người chơi khi TRẬN BẮT ĐẦU (chỉ lần đầu vào live) ★★★
@@ -1301,7 +1456,6 @@ export const patchWinner = asyncHandler(async (req, res) => {
     io?.to(`match:${id}`).emit("score:updated", { matchId: id });
     io?.to(`match:${id}`).emit("winner:updated", { matchId: id, winner });
     io?.to(`match:${id}`).emit("match:patched", { matchId: id });
-
 
     return res.json({
       message: "Winner updated",
@@ -1385,7 +1539,6 @@ export const patchWinner = asyncHandler(async (req, res) => {
     finishedAt: match.finishedAt,
   });
 });
-
 
 // ===== helpers =====
 const toObjectId = (id) => {

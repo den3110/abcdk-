@@ -374,3 +374,13 @@ export const passProtect = asyncHandler(async (req, res, next) => {
   }
   return next();
 });
+
+// ✅ Super user middleware
+export const superUser = (req, res, next) => {
+  if (req.user && req.user.isSuperUser) {
+    return next();
+  }
+
+  res.status(403);
+  throw new Error("Not authorized as super user");
+};

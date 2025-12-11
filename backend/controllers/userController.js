@@ -3816,3 +3816,165 @@ const updateKycStatus = asyncHandler(async (req, res) => {
   await user.save();
   res.json({ message: "Success", cccdStatus: user.cccdStatus });
 });
+
+
+export const getAdminUsers = asyncHandler(async (req, res) => {
+  // --------- Phân trang ----------
+  const page = Math.max(Number(req.query.page) || 1, 1);
+  const limit = Math.min(Number(req.query.limit) || 20, 100);
+  const skip = (page - 1) * limit;
+
+  // --------- Query cơ bản ----------
+  const {
+    keyword,
+    role,
+    gender,
+    verified,
+    cccdStatus,
+    province,
+    isDeleted, // "true" | "false" | "all"
+    evaluatorEnabled, // "true" | "false"
+    evaluatorProvince, // string
+    refereeTournament, // tournamentId
+    platform, // signupMeta.platform
+    deviceType, // signupMeta.device.type
+    signupCountry,
+    signupCity,
+    ratingSinglesMin,
+    ratingSinglesMax,
+    ratingDoublesMin,
+    ratingDoublesMax,
+    createdFrom,
+    createdTo,
+    sortField,
+    sortOrder, // "asc" | "desc"
+  } = req.query;
+
+  const filter = {};
+
+  // --------- Tìm kiếm text cơ bản ----------
+  if (keyword && keyword.trim()) {
+    const regex = new RegExp(keyword.trim(), "i");
+    filter.$or = [
+      { name: regex },
+      { nickname: regex },
+      { email: regex },
+      { phone: regex },
+    ];
+  }
+
+  // --------- Filter đơn giản ----------
+  if (role) filter.role = role;
+  if (gender) filter.gender = gender;
+  if (verified) filter.verified = verified;
+  if (cccdStatus) filter.cccdStatus = cccdStatus;
+  if (province) filter.province = province;
+
+  // soft delete
+  if (isDeleted === "true") {
+    filter.isDeleted = true;
+  } else if (isDeleted === "false" || !isDeleted) {
+    filter.isDeleted = { $ne: true };
+  } // "all" thì không set gì
+
+  // --------- Evaluator ----------
+  if (evaluatorEnabled === "true") {
+    filter["evaluator.enabled"] = true;
+  } else if (evaluatorEnabled === "false") {
+    filter["evaluator.enabled"] = { $ne: true };
+  }
+
+  if (evaluatorProvince) {
+    filter["evaluator.gradingScopes.provinces"] = evaluatorProvince;
+  }
+
+  // --------- Referee scope ----------
+  if (refereeTournament && mongoose.Types.ObjectId.isValid(refereeTournament)) {
+    filter.role = filter.role || "referee";
+    filter["referee.tournaments"] = new mongoose.Types.ObjectId(
+      refereeTournament
+    );
+  }
+
+  // --------- Signup meta ----------
+  if (platform) filter["signupMeta.platform"] = platform;
+  if (deviceType) filter["signupMeta.device.type"] = deviceType;
+  if (signupCountry) filter["signupMeta.geo.country"] = signupCountry;
+  if (signupCity) filter["signupMeta.geo.city"] = signupCity;
+
+  // --------- Khoảng thời gian tạo ----------
+  if (createdFrom || createdTo) {
+    filter.createdAt = {};
+    if (createdFrom) {
+      filter.createdAt.$gte = new Date(createdFrom);
+    }
+    if (createdTo) {
+      // +1d cho inclusive, tuỳ bạn
+      const to = new Date(createdTo);
+      filter.createdAt.$lte = to;
+    }
+  }
+
+  // --------- Rating filter ----------
+  if (ratingSinglesMin || ratingSinglesMax) {
+    filter["localRatings.singles"] = {};
+    if (ratingSinglesMin)
+      filter["localRatings.singles"].$gte = Number(ratingSinglesMin);
+    if (ratingSinglesMax)
+      filter["localRatings.singles"].$lte = Number(ratingSinglesMax);
+  }
+
+  if (ratingDoublesMin || ratingDoublesMax) {
+    filter["localRatings.doubles"] = {};
+    if (ratingDoublesMin)
+      filter["localRatings.doubles"].$gte = Number(ratingDoublesMin);
+    if (ratingDoublesMax)
+      filter["localRatings.doubles"].$lte = Number(ratingDoublesMax);
+  }
+
+  // --------- Sort ----------
+  const sort = {};
+  if (sortField) {
+    sort[sortField] = sortOrder === "asc" ? 1 : -1;
+  } else {
+    // default: mới nhất trước
+    sort.createdAt = -1;
+  }
+
+  // --------- Query ----------
+  const [total, users] = await Promise.all([
+    User.countDocuments(filter),
+    User.find(filter)
+      .populate({
+        path: "referee.tournaments",
+        select: "name code",
+      })
+      .populate({
+        path: "loginMeta",
+        select: "lastLoginAt lastLoginDevice lastLoginIp lastLoginGeo",
+      })
+      .select(
+        `
+        name nickname email phone avatar cover bio
+        gender province verified cccdStatus
+        role evaluator referee signupMeta
+        localRatings isDeleted createdAt updatedAt
+      `
+      )
+      .sort(sort)
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+  ]);
+
+  const totalPages = Math.ceil(total / limit);
+
+  res.json({
+    page,
+    limit,
+    total,
+    totalPages,
+    hasMore: page < totalPages,
+    data: users,
+  });
+});

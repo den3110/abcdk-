@@ -17,11 +17,13 @@ import {
   reauthUser,
   getKycCheckData,
   updateKycStatus,
+  getAdminUsers,
 } from "../controllers/userController.js";
 import {
   authorize,
   passProtect,
   protect,
+  superUser,
 } from "../middleware/authMiddleware.js";
 import {
   getMatchHistory,
@@ -89,4 +91,7 @@ router.get("/stats/:uid/stats/top", protect, top);
 router.get("/stats/:uid/stats/profile", protect, profile);
 router.get("/kyc/status/:id", protect, getKycCheckData)
 router.put("/kyc/status/:id", protect, authorize("admin"), updateKycStatus);
+
+router.get("/get/all", protect, authorize("admin"), superUser, getAdminUsers);
+
 export default router;

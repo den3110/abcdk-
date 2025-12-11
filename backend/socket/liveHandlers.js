@@ -162,6 +162,18 @@ export const toDTO = (m) => {
       ? m.prevBrackets.map(mapBracket)
       : [];
 
+  // 🆕 Stage (type + name) – KHÔNG đụng logic cũ, chỉ add field mới
+  let stageType;
+  let stageName;
+  if (typeof computeStageInfoForMatchDoc === "function") {
+    const s = computeStageInfoForMatchDoc(m) || {};
+    stageType = s.stageType || m.stageType || undefined;
+    stageName = s.stageName || m.stageName || undefined;
+  } else {
+    stageType = m.stageType || undefined;
+    stageName = m.stageName || undefined;
+  }
+
   // ================= Overlay fallback =================
   const overlayFromMatch =
     m.overlay && typeof m.overlay === "object" && Object.keys(m.overlay).length
@@ -282,6 +294,10 @@ export const toDTO = (m) => {
 
     roundCode,
     roundName,
+
+    // 🆕 stage info cho FE
+    stageType,
+    stageName,
 
     format,
     pool,

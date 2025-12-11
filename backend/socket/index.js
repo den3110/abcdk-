@@ -34,6 +34,7 @@ import {
 } from "../services/presenceService.js";
 import { ensureAdmin, ensureReferee } from "../utils/socketAuth.js";
 import UserMatch from "../models/userMatchModel.js";
+import { computeStageInfoForMatchDoc } from "../controllers/refereeController.js";
 
 /* 👇 THÊM BIẾN TOÀN CỤC LƯU IO */
 let ioInstance = null;
@@ -523,361 +524,375 @@ export function initSocket(
     });
 
     // ========= MATCH ROOMS =========
-    socket.on("match:join", async ({ matchId }) => {
-      try {
-        if (!matchId) return;
+socket.on("match:join", async ({ matchId }) => {
+  try {
+    if (!matchId) return;
 
-        // vẫn join room match:... cho cả 2 loại
-        socket.join(`match:${matchId}`);
+    // vẫn join room match:... cho cả 2 loại
+    socket.join(`match:${matchId}`);
 
-        let m = null;
-        let isUserMatch = false;
+    let m = null;
+    let isUserMatch = false;
 
-        // ===== 1) THỬ LOAD USERMATCH TRƯỚC =====
-        try {
-          m = await UserMatch.findById(matchId)
-            .populate(
-              "participants.user",
-              "name fullName avatar nickname nickName phone"
-            )
-            .populate({
-              path: "referee",
-              select: "name fullName nickname nickName",
-            })
-            .populate({
-              path: "liveBy",
-              select: "name fullName nickname nickName",
-            })
-            .populate({
-              path: "serve.serverId",
-              model: "User",
-              select: "name fullName nickname nickName",
-            })
-            .populate({
-              path: "court",
-              select: "name number code label zone area venue building floor",
-            })
-            .lean();
+    // ===== 1) THỬ LOAD USERMATCH TRƯỚC =====
+    try {
+      m = await UserMatch.findById(matchId)
+        .populate(
+          "participants.user",
+          "name fullName avatar nickname nickName phone"
+        )
+        .populate({
+          path: "referee",
+          select: "name fullName nickname nickName",
+        })
+        .populate({
+          path: "liveBy",
+          select: "name fullName nickname nickName",
+        })
+        .populate({
+          path: "serve.serverId",
+          model: "User",
+          select: "name fullName nickname nickName",
+        })
+        .populate({
+          path: "court",
+          select: "name number code label zone area venue building floor",
+        })
+        .lean();
 
-          if (m) {
-            isUserMatch = true;
-          }
-        } catch (e) {
-          console.error(
-            "[socket match:join] load UserMatch error:",
-            e?.message || e
-          );
-        }
-
-        // ===== 2) KHÔNG CÓ USERMATCH → FALLBACK MATCH CŨ =====
-        if (!m) {
-          m = await Match.findById(matchId)
-            .populate({
-              path: "pairA",
-              select: "player1 player2 seed label teamName",
-              populate: [
-                {
-                  path: "player1",
-                  // có đủ các tên + user.nickname để FE fallback
-                  select: "fullName name shortName nickname nickName user",
-                  populate: { path: "user", select: "nickname nickName" },
-                },
-                {
-                  path: "player2",
-                  select: "fullName name shortName nickname nickName user",
-                  populate: { path: "user", select: "nickname nickName" },
-                },
-              ],
-            })
-            .populate({
-              path: "pairB",
-              select: "player1 player2 seed label teamName",
-              populate: [
-                {
-                  path: "player1",
-                  select: "fullName name shortName nickname nickName user",
-                  populate: { path: "user", select: "nickname nickName" },
-                },
-                {
-                  path: "player2",
-                  select: "fullName name shortName nickname nickName user",
-                  populate: { path: "user", select: "nickname nickName" },
-                },
-              ],
-            })
-            // referee là mảng
-            .populate({
-              path: "referee",
-              select: "name fullName nickname nickName",
-            })
-            // người đang điều khiển live
-            .populate({
-              path: "liveBy",
-              select: "name fullName nickname nickName",
-            })
-            .populate({ path: "previousA", select: "round order" })
-            .populate({ path: "previousB", select: "round order" })
-            .populate({ path: "nextMatch", select: "_id" })
-            .populate({
-              path: "tournament",
-              select: "name image eventType overlay",
-            })
-            // BRACKET: gửi đủ groups + meta + config như mẫu JSON bạn đưa
-            .populate({
-              path: "bracket",
-              select: [
-                "noRankDelta",
-                "name",
-                "type",
-                "stage",
-                "order",
-                "drawRounds",
-                "drawStatus",
-                "scheduler",
-                "drawSettings",
-                // meta.*
-                "meta.drawSize",
-                "meta.maxRounds",
-                "meta.expectedFirstRoundMatches",
-                // groups[]
-                "groups._id",
-                "groups.name",
-                "groups.expectedSize",
-                // rules + các config khác để FE tham chiếu
-                "config.rules",
-                "config.doubleElim",
-                "config.roundRobin",
-                "config.swiss",
-                "config.gsl",
-                "config.roundElim",
-                // nếu bạn có overlay ở bracket thì giữ lại
-                "overlay",
-              ].join(" "),
-            })
-            // court để FE auto-next theo sân
-            .populate({
-              path: "court",
-              select: "name number code label zone area venue building floor",
-            })
-            .lean();
-        }
-
-        if (!m) return;
-
-        // ====== GIỮ NGUYÊN CODE DECORATE Ở DƯỚI (ÁP DỤNG CHUNG CHO CẢ HAI) ======
-
-        // Helper: lấy nickname ưu tiên player.nickname/nickName;
-        // nếu thiếu HOẶC chuỗi rỗng => fallback sang user.nickname/user.nickName.
-        const fillNick = (p) => {
-          if (!p) return p;
-          const pick = (v) => (v && String(v).trim()) || "";
-          const primary = pick(p.nickname) || pick(p.nickName);
-          const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
-          const n = primary || fromUser || "";
-          if (n) {
-            p.nickname = n;
-            p.nickName = n;
-          }
-          return p;
-        };
-
-        if (m.pairA) {
-          m.pairA.player1 = fillNick(m.pairA.player1);
-          m.pairA.player2 = fillNick(m.pairA.player2);
-        }
-        if (m.pairB) {
-          m.pairB.player1 = fillNick(m.pairB.player1);
-          m.pairB.player2 = fillNick(m.pairB.player2);
-        }
-
-        // bổ sung streams từ meta nếu có
-        if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
-
-        // fallback rules để DTO/FE luôn có giá trị an toàn
-        m.rules = {
-          bestOf: Number(m?.rules?.bestOf ?? 3),
-          pointsToWin: Number(m?.rules?.pointsToWin ?? 11),
-          winByTwo: Boolean(m?.rules?.winByTwo ?? true),
-          ...(m.rules?.cap ? { cap: m.rules.cap } : {}),
-        };
-
-        // fallback serve
-        if (
-          !m?.serve ||
-          (!m.serve.side && !m.serve.server && !m.serve.playerIndex)
-        ) {
-          m.serve = { side: "A", server: 1, playerIndex: 1 };
-        } else {
-          m.serve.side =
-            (m.serve.side || "A").toUpperCase() === "B" ? "B" : "A";
-          m.serve.server =
-            Number(m.serve.server ?? m.serve.playerIndex ?? 1) || 1;
-          m.serve.playerIndex =
-            Number(m.serve.playerIndex ?? m.serve.server ?? 1) || 1;
-        }
-
-        // gameScores tối thiểu 1 phần tử
-        if (!Array.isArray(m.gameScores) || !m.gameScores.length) {
-          m.gameScores = [{ a: 0, b: 0 }];
-        }
-
-        // overlay root (ưu tiên match.overlay)
-        if (!m.overlay) {
-          m.overlay =
-            m?.overlay ||
-            m?.tournament?.overlay ||
-            m?.bracket?.overlay ||
-            undefined;
-        }
-
-        // roundCode fallback (không ảnh hưởng userMatch vì không có bracket)
-        if (!m.roundCode && m.bracket) {
-          const drawSize =
-            Number(m?.bracket?.meta?.drawSize) ||
-            (Number.isInteger(m?.bracket?.drawRounds)
-              ? 1 << m.bracket.drawRounds
-              : 0);
-          if (drawSize && Number.isInteger(m?.round) && m.round >= 1) {
-            const roundSize = Math.max(
-              2,
-              Math.floor(drawSize / Math.pow(2, m.round - 1))
-            );
-            m.roundCode = `R${roundSize}`;
-          }
-        }
-
-        // court fallback field (courtId/courtName/courtNo) để FE cũ/auto-next dùng được
-        const courtId = m?.court?._id || m?.courtId || null;
-        const courtNumber = m?.court?.number ?? m?.courtNo ?? undefined;
-        const courtName =
-          m?.court?.name ??
-          m?.courtName ??
-          (courtNumber != null ? `Sân ${courtNumber}` : "");
-        m.courtId = courtId || undefined;
-        m.courtName = courtName || undefined;
-        m.courtNo = courtNumber ?? undefined;
-
-        // bracketType (userMatch không có bracket → chuỗi rỗng)
-        if (!m.bracketType) {
-          m.bracketType = m?.bracket?.type || m?.format || m?.bracketType || "";
-        }
-
-        // prevBracket chỉ chạy khi có tournament + bracket (userMatch sẽ tự skip)
-        try {
-          const toNum = (v, d = 0) => {
-            const n = Number(v);
-            return Number.isFinite(n) ? n : d;
-          };
-          const toTime = (x) =>
-            (x?.createdAt && new Date(x.createdAt).getTime()) ||
-            (x?._id?.getTimestamp?.() && x._id.getTimestamp().getTime()) ||
-            0;
-
-          const normalizeBracketShape = (b) => {
-            if (!b) return b;
-            const bb = { ...b };
-            if (!Array.isArray(bb.groups)) bb.groups = [];
-            bb.meta = bb.meta || {};
-            if (typeof bb.meta.drawSize !== "number") bb.meta.drawSize = 0;
-            if (typeof bb.meta.maxRounds !== "number") bb.meta.maxRounds = 0;
-            if (typeof bb.meta.expectedFirstRoundMatches !== "number")
-              bb.meta.expectedFirstRoundMatches = 0;
-            bb.config = bb.config || {};
-            bb.config.rules = bb.config.rules || {};
-            bb.config.roundRobin = bb.config.roundRobin || {};
-            bb.config.doubleElim = bb.config.doubleElim || {};
-            bb.config.swiss = bb.config.swiss || {};
-            bb.config.gsl = bb.config.gsl || {};
-            bb.config.roundElim = bb.config.roundElim || {};
-            if (typeof bb.noRankDelta !== "boolean") bb.noRankDelta = false;
-            bb.scheduler = bb.scheduler || {};
-            bb.drawSettings = bb.drawSettings || {};
-            return bb;
-          };
-
-          const curBracketId = m?.bracket?._id;
-          const tourId = m?.tournament?._id || m?.tournament;
-          m.prevBracket = null;
-          m.prevBrackets = [];
-
-          if (curBracketId && tourId) {
-            const prevSelect = [
-              "name",
-              "type",
-              "stage",
-              "order",
-              "drawRounds",
-              "drawStatus",
-              "scheduler",
-              "drawSettings",
-              "meta.drawSize",
-              "meta.maxRounds",
-              "meta.expectedFirstRoundMatches",
-              "groups._id",
-              "groups.name",
-              "groups.expectedSize",
-              "config.rules",
-              "config.doubleElim",
-              "config.roundRobin",
-              "config.swiss",
-              "config.gsl",
-              "config.roundElim",
-              "overlay",
-              "createdAt",
-            ].join(" ");
-
-            const allBr = await Bracket.find({ tournament: tourId })
-              .select(prevSelect)
-              .lean();
-
-            const list = (allBr || [])
-              .map((b) => ({
-                ...b,
-                __k: [toNum(b.order, 0), toTime(b), String(b._id)],
-              }))
-              .sort((a, b) => {
-                for (let i = 0; i < a.__k.length; i++) {
-                  if (a.__k[i] < b.__k[i]) return -1;
-                  if (a.__k[i] > b.__k[i]) return 1;
-                }
-                return 0;
-              });
-
-            const curIdx = list.findIndex(
-              (x) => String(x._id) === String(curBracketId)
-            );
-            if (curIdx > 0) {
-              const { __k, ...prevRaw } = list[curIdx - 1];
-              const prev = normalizeBracketShape(prevRaw);
-              m.prevBracket = prev;
-              m.prevBrackets = [prev];
-            }
-          }
-        } catch (e) {
-          console.error(
-            "[socket match:join] prevBracket error:",
-            e?.message || e
-          );
-        }
-
-        // ép có m.video (dùng chung cho cả Match & UserMatch nếu có facebookLive)
-        if (!m.video) {
-          m.video =
-            m.videoUrl ||
-            m?.meta?.video ||
-            m?.facebookLive?.permalinkUrl ||
-            m?.facebookLive?.liveUrl ||
-            m?.facebookLive?.hls ||
-            m?.facebookLive?.m3u8 ||
-            null;
-        }
-
-        // giữ nguyên emit cũ
-        socket.emit("match:snapshot", toDTO(decorateServeAndSlots(m)));
-      } catch (e) {
-        console.error("[socket match:join] fatal error:", e?.message || e);
+      if (m) {
+        isUserMatch = true;
       }
-    });
+    } catch (e) {
+      console.error(
+        "[socket match:join] load UserMatch error:",
+        e?.message || e
+      );
+    }
+
+    // ===== 2) KHÔNG CÓ USERMATCH → FALLBACK MATCH CŨ =====
+    if (!m) {
+      m = await Match.findById(matchId)
+        .populate({
+          path: "pairA",
+          select: "player1 player2 seed label teamName",
+          populate: [
+            {
+              path: "player1",
+              // có đủ các tên + user.nickname để FE fallback
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+          ],
+        })
+        .populate({
+          path: "pairB",
+          select: "player1 player2 seed label teamName",
+          populate: [
+            {
+              path: "player1",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "nickname nickName" },
+            },
+          ],
+        })
+        // referee là mảng
+        .populate({
+          path: "referee",
+          select: "name fullName nickname nickName",
+        })
+        // người đang điều khiển live
+        .populate({
+          path: "liveBy",
+          select: "name fullName nickname nickName",
+        })
+        .populate({ path: "previousA", select: "round order" })
+        .populate({ path: "previousB", select: "round order" })
+        .populate({ path: "nextMatch", select: "_id" })
+        .populate({
+          path: "tournament",
+          select: "name image eventType overlay",
+        })
+        // BRACKET: gửi đủ groups + meta + config như mẫu JSON bạn đưa
+        .populate({
+          path: "bracket",
+          select: [
+            "noRankDelta",
+            "name",
+            "type",
+            "stage",
+            "order",
+            "drawRounds",
+            "drawStatus",
+            "scheduler",
+            "drawSettings",
+            // meta.*
+            "meta.drawSize",
+            "meta.maxRounds",
+            "meta.expectedFirstRoundMatches",
+            // groups[]
+            "groups._id",
+            "groups.name",
+            "groups.expectedSize",
+            // rules + các config khác để FE tham chiếu
+            "config.rules",
+            "config.doubleElim",
+            "config.roundRobin",
+            "config.swiss",
+            "config.gsl",
+            "config.roundElim",
+            // nếu bạn có overlay ở bracket thì giữ lại
+            "overlay",
+          ].join(" "),
+        })
+        // court để FE auto-next theo sân
+        .populate({
+          path: "court",
+          select: "name number code label zone area venue building floor",
+        })
+        .lean();
+    }
+
+    if (!m) return;
+
+    // ====== GIỮ NGUYÊN CODE DECORATE Ở DƯỚI (ÁP DỤNG CHUNG CHO CẢ HAI) ======
+
+    // Helper: lấy nickname ưu tiên player.nickname/nickName;
+    // nếu thiếu HOẶC chuỗi rỗng => fallback sang user.nickname/user.nickName.
+    const fillNick = (p) => {
+      if (!p) return p;
+      const pick = (v) => (v && String(v).trim()) || "";
+      const primary = pick(p.nickname) || pick(p.nickName);
+      const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
+      const n = primary || fromUser || "";
+      if (n) {
+        p.nickname = n;
+        p.nickName = n;
+      }
+      return p;
+    };
+
+    if (m.pairA) {
+      m.pairA.player1 = fillNick(m.pairA.player1);
+      m.pairA.player2 = fillNick(m.pairA.player2);
+    }
+    if (m.pairB) {
+      m.pairB.player1 = fillNick(m.pairB.player1);
+      m.pairB.player2 = fillNick(m.pairB.player2);
+    }
+
+    // bổ sung streams từ meta nếu có
+    if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
+
+    // fallback rules để DTO/FE luôn có giá trị an toàn
+    m.rules = {
+      bestOf: Number(m?.rules?.bestOf ?? 3),
+      pointsToWin: Number(m?.rules?.pointsToWin ?? 11),
+      winByTwo: Boolean(m?.rules?.winByTwo ?? true),
+      ...(m.rules?.cap ? { cap: m.rules.cap } : {}),
+    };
+
+    // fallback serve
+    if (
+      !m?.serve ||
+      (!m.serve.side && !m.serve.server && !m.serve.playerIndex)
+    ) {
+      m.serve = { side: "A", server: 1, playerIndex: 1 };
+    } else {
+      m.serve.side =
+        (m.serve.side || "A").toUpperCase() === "B" ? "B" : "A";
+      m.serve.server =
+        Number(m.serve.server ?? m.serve.playerIndex ?? 1) || 1;
+      m.serve.playerIndex =
+        Number(m.serve.playerIndex ?? m.serve.server ?? 1) || 1;
+    }
+
+    // gameScores tối thiểu 1 phần tử
+    if (!Array.isArray(m.gameScores) || !m.gameScores.length) {
+      m.gameScores = [{ a: 0, b: 0 }];
+    }
+
+    // overlay root (ưu tiên match.overlay)
+    if (!m.overlay) {
+      m.overlay =
+        m?.overlay ||
+        m?.tournament?.overlay ||
+        m?.bracket?.overlay ||
+        undefined;
+    }
+
+    // roundCode fallback (không ảnh hưởng userMatch vì không có bracket)
+    if (!m.roundCode && m.bracket) {
+      const drawSize =
+        Number(m?.bracket?.meta?.drawSize) ||
+        (Number.isInteger(m?.bracket?.drawRounds)
+          ? 1 << m.bracket.drawRounds
+          : 0);
+      if (drawSize && Number.isInteger(m?.round) && m.round >= 1) {
+        const roundSize = Math.max(
+          2,
+          Math.floor(drawSize / Math.pow(2, m.round - 1))
+        );
+        m.roundCode = `R${roundSize}`;
+      }
+    }
+
+    // court fallback field (courtId/courtName/courtNo) để FE cũ/auto-next dùng được
+    const courtId = m?.court?._id || m?.courtId || null;
+    const courtNumber = m?.court?.number ?? m?.courtNo ?? undefined;
+    const courtName =
+      m?.court?.name ??
+      m?.courtName ??
+      (courtNumber != null ? `Sân ${courtNumber}` : "");
+    m.courtId = courtId || undefined;
+    m.courtName = courtName || undefined;
+    m.courtNo = courtNumber ?? undefined;
+
+    // bracketType (userMatch không có bracket → chuỗi rỗng)
+    if (!m.bracketType) {
+      m.bracketType = m?.bracket?.type || m?.format || m?.bracketType || "";
+    }
+
+    // prevBracket chỉ chạy khi có tournament + bracket (userMatch sẽ tự skip)
+    try {
+      const toNum = (v, d = 0) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : d;
+      };
+      const toTime = (x) =>
+        (x?.createdAt && new Date(x.createdAt).getTime()) ||
+        (x?._id?.getTimestamp?.() && x._id.getTimestamp().getTime()) ||
+        0;
+
+      const normalizeBracketShape = (b) => {
+        if (!b) return b;
+        const bb = { ...b };
+        if (!Array.isArray(bb.groups)) bb.groups = [];
+        bb.meta = bb.meta || {};
+        if (typeof bb.meta.drawSize !== "number") bb.meta.drawSize = 0;
+        if (typeof bb.meta.maxRounds !== "number") bb.meta.maxRounds = 0;
+        if (typeof bb.meta.expectedFirstRoundMatches !== "number")
+          bb.meta.expectedFirstRoundMatches = 0;
+        bb.config = bb.config || {};
+        bb.config.rules = bb.config.rules || {};
+        bb.config.roundRobin = bb.config.roundRobin || {};
+        bb.config.doubleElim = bb.config.doubleElim || {};
+        bb.config.swiss = bb.config.swiss || {};
+        bb.config.gsl = bb.config.gsl || {};
+        bb.config.roundElim = bb.config.roundElim || {};
+        if (typeof bb.noRankDelta !== "boolean") bb.noRankDelta = false;
+        bb.scheduler = bb.scheduler || {};
+        bb.drawSettings = bb.drawSettings || {};
+        return bb;
+      };
+
+      const curBracketId = m?.bracket?._id;
+      const tourId = m?.tournament?._id || m?.tournament;
+      m.prevBracket = null;
+      m.prevBrackets = [];
+
+      if (curBracketId && tourId) {
+        const prevSelect = [
+          "name",
+          "type",
+          "stage",
+          "order",
+          "drawRounds",
+          "drawStatus",
+          "scheduler",
+          "drawSettings",
+          "meta.drawSize",
+          "meta.maxRounds",
+          "meta.expectedFirstRoundMatches",
+          "groups._id",
+          "groups.name",
+          "groups.expectedSize",
+          "config.rules",
+          "config.doubleElim",
+          "config.roundRobin",
+          "config.swiss",
+          "config.gsl",
+          "config.roundElim",
+          "overlay",
+          "createdAt",
+        ].join(" ");
+
+        const allBr = await Bracket.find({ tournament: tourId })
+          .select(prevSelect)
+          .lean();
+
+        const list = (allBr || [])
+          .map((b) => ({
+            ...b,
+            __k: [toNum(b.order, 0), toTime(b), String(b._id)],
+          }))
+          .sort((a, b) => {
+            for (let i = 0; i < a.__k.length; i++) {
+              if (a.__k[i] < b.__k[i]) return -1;
+              if (a.__k[i] > b.__k[i]) return 1;
+            }
+            return 0;
+          });
+
+        const curIdx = list.findIndex(
+          (x) => String(x._id) === String(curBracketId)
+        );
+        if (curIdx > 0) {
+          const { __k, ...prevRaw } = list[curIdx - 1];
+          const prev = normalizeBracketShape(prevRaw);
+          m.prevBracket = prev;
+          m.prevBrackets = [prev];
+        }
+      }
+    } catch (e) {
+      console.error(
+        "[socket match:join] prevBracket error:",
+        e?.message || e
+      );
+    }
+
+    // ép có m.video (dùng chung cho cả Match & UserMatch nếu có facebookLive)
+    if (!m.video) {
+      m.video =
+        m.videoUrl ||
+        m?.meta?.video ||
+        m?.facebookLive?.permalinkUrl ||
+        m?.facebookLive?.liveUrl ||
+        m?.facebookLive?.hls ||
+        m?.facebookLive?.m3u8 ||
+        null;
+    }
+
+    // 🆕 Stage: tính stageType / stageName cho MATCH tournament (UserMatch bỏ qua)
+    if (!isUserMatch && typeof computeStageInfoForMatchDoc === "function") {
+      try {
+        const s = computeStageInfoForMatchDoc(m) || {};
+        if (s.stageType != null) m.stageType = s.stageType;
+        if (s.stageName != null) m.stageName = s.stageName;
+      } catch (e) {
+        console.error(
+          "[socket match:join] computeStageInfo error:",
+          e?.message || e
+        );
+      }
+    }
+
+    // giữ nguyên emit cũ
+    socket.emit("match:snapshot", toDTO(decorateServeAndSlots(m)));
+  } catch (e) {
+    console.error("[socket match:join] fatal error:", e?.message || e);
+  }
+});
 
     socket.on("overlay:join", ({ matchId }) => {
       if (!matchId) return;

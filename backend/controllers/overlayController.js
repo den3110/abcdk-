@@ -508,6 +508,85 @@ export async function getOverlayMatch(req, res) {
       ? m.liveLog.slice(-10)
       : undefined;
 
+    // 🆕 ==========================
+    // Stage (group / playoff / knockout round / third place / user match)
+    // ==========================
+    const format = (m?.format || m?.bracket?.type || "").toString() || brType;
+
+    let stageType = null; // "user_match" | "group" | "playoff" | "third_place"
+    let stageName = "";
+
+    if (isUserMatch) {
+      // Trận user tự tạo
+      stageType = "user_match";
+      stageName = "Trận đấu PickleTour";
+    } else {
+      const isGroupLike =
+        ["group", "round_robin", "gsl", "swiss"].includes(format) ||
+        m?.phase === "group";
+
+      const isKnockoutLike =
+        ["knockout", "roundElim"].includes(format) ||
+        ["knockout", "roundElim"].includes(brType);
+
+      const isDoubleElim = format === "double_elim" || brType === "double_elim";
+
+      const isThirdPlaceMatch =
+        !!m?.isThirdPlace ||
+        !!m?.meta?.thirdPlace ||
+        (m?.branch === "consol" &&
+          (roundSize === 2 ||
+            (m?.roundName || "").toLowerCase().includes("3/4")));
+
+      if (isGroupLike) {
+        // Vòng bảng / vòng loại
+        stageType = "group";
+        stageName = "Vòng bảng";
+      } else if (isThirdPlaceMatch && (isKnockoutLike || isDoubleElim)) {
+        stageType = "third_place";
+        stageName = "Tranh hạng 3/4";
+      } else if (isKnockoutLike) {
+        // Bracket knockout: chia theo size
+        stageType = "playoff";
+        if (roundSize >= 64) stageName = "Vòng 64 đội";
+        else if (roundSize >= 32) stageName = "Vòng 32 đội";
+        else if (roundSize >= 16) stageName = "Vòng 16 đội";
+        else if (roundSize === 8) stageName = "Tứ kết";
+        else if (roundSize === 4) stageName = "Bán kết";
+        else if (roundSize === 2) {
+          stageName =
+            m?.branch === "gf" || m?.phase === "grand_final"
+              ? "Chung kết tổng"
+              : "Chung kết";
+        } else if (roundSize) {
+          stageName = "Playoff";
+        } else {
+          stageName = "Playoff";
+        }
+      } else if (isDoubleElim) {
+        // Double elimination → vẫn xem như playoff
+        stageType = "playoff";
+        const branch = m?.branch || "main";
+        if (branch === "wb" || branch === "main") {
+          stageName = "Playoff – Nhánh thắng";
+        } else if (branch === "lb") {
+          stageName = "Playoff – Nhánh thua";
+        } else if (branch === "gf") {
+          stageName = "Chung kết tổng";
+        } else {
+          stageName = "Playoff";
+        }
+      } else if (
+        ["winners", "losers", "decider", "grand_final"].includes(m?.phase)
+      ) {
+        // Một số format khác vẫn xài phase
+        stageType = "playoff";
+        if (m.phase === "grand_final") stageName = "Chung kết";
+        else if (m.phase === "decider") stageName = "Trận quyết định";
+        else stageName = "Playoff";
+      }
+    }
+
     /* ==========================
      * Referees + chain
      * ========================== */
@@ -676,6 +755,10 @@ export async function getOverlayMatch(req, res) {
       roundName: m?.roundName || "",
       round: roundNo,
       roundSize: roundSize || undefined,
+
+      // 🆕 Stage info để overlay biết đang ở vòng gì
+      stageType: stageType || undefined, // "user_match" | "group" | "playoff" | "third_place"
+      stageName: stageName || undefined, // "Vòng bảng", "Vòng 16 đội", "Tứ kết", "Bán kết", "Chung kết", "Tranh hạng 3/4", "Trận đấu PickleTour", ...
 
       seeds,
 
