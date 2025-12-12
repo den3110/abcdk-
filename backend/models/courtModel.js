@@ -37,16 +37,26 @@ const courtSchema = new Schema(
       enabled: { type: Boolean, default: false },
       videoUrl: { type: String, default: "" },
       overrideExisting: { type: Boolean, default: false },
+
+      // 🚀 mới: advanced setting
+      advancedSettingEnabled: { type: Boolean, default: false },
+      pageMode: {
+        type: String,
+        enum: ["default", "custom"],
+        default: "default",
+      },
+      pageConnectionId: { type: String, default: null },
+      pageConnectionName: { type: String, default: "" },
+      advancedSetting: { type: Schema.Types.Mixed, default: null },
     },
+
     // ✅ Nhiều trọng tài mặc định cho sân
-    // Lưu TournamentReferee (hoặc model referee mà bạn đang dùng cho giải)
     defaultReferees: [
       { type: Types.ObjectId, ref: "User", default: undefined },
     ],
   },
   { timestamps: true }
 );
-
 // // ➜ Mỗi GIẢI (tournament) không được trùng tên sân
 // courtSchema.index(
 //   { tournament: 1, name: 1 },
