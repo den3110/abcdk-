@@ -2069,3 +2069,66 @@ export const upsertTournamentReferees = async (req, res, next) => {
     next(err);
   }
 };
+
+
+/**
+ * PUT /api/tournaments/:id/matches/timeout-per-game
+ * body: { timeoutPerGame: number }
+ * query(optional): ?dryRun=1
+ */
+export const updateTournamentTimeoutPerGame = async (req, res) => {
+  try {
+    const tournamentId = req.params.id;
+    const { timeoutPerGame } = req.body || {};
+
+    if (!mongoose.isValidObjectId(tournamentId)) {
+      return res.status(400).json({ message: "TournamentId không hợp lệ." });
+    }
+
+    // validate value
+    const v = Number(timeoutPerGame);
+    if (!Number.isFinite(v) || v < 0 || v > 20) {
+      return res.status(400).json({
+        message: "timeoutPerGame phải là số hợp lệ (0..20).",
+      });
+    }
+
+    // check tournament exists
+    const t = await Tournament.findById(tournamentId).select("_id name").lean();
+    if (!t) {
+      return res.status(404).json({ message: "Không tìm thấy giải đấu." });
+    }
+
+    // optional dry run
+    const dryRun = String(req.query?.dryRun || "") === "1";
+    if (dryRun) {
+      const count = await Match.countDocuments({ tournament: tournamentId });
+      return res.json({
+        ok: true,
+        dryRun: true,
+        tournamentId,
+        tournamentName: t.name,
+        willUpdateMatches: count,
+        timeoutPerGame: v,
+      });
+    }
+
+    const result = await Match.updateMany(
+      { tournament: tournamentId },
+      { $set: { timeoutPerGame: v } },
+      { runValidators: true }
+    );
+
+    return res.json({
+      ok: true,
+      tournamentId,
+      tournamentName: t.name,
+      timeoutPerGame: v,
+      matchedCount: result?.matchedCount ?? result?.n ?? 0,
+      modifiedCount: result?.modifiedCount ?? result?.nModified ?? 0,
+    });
+  } catch (e) {
+    console.error("[updateTournamentTimeoutPerGame] error:", e?.message || e);
+    return res.status(500).json({ message: "Server error" });
+  }
+};

@@ -36,6 +36,7 @@ import {
   planGet,
   planUpdate,
   updateTournamentOverlay,
+  updateTournamentTimeoutPerGame,
   upsertTournamentReferees,
 } from "../controllers/admin/adminTournamentController.js";
 import {
@@ -233,6 +234,11 @@ router.put(
   "/tournaments/:tournamentId/courts/:courtId/referee",
   protect,
   setCourtReferee
+);
+
+router.put(
+  "/tournaments/:id/matches/timeout-per-game",
+  updateTournamentTimeoutPerGame
 );
 
 
