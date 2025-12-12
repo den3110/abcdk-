@@ -41,27 +41,17 @@ export function decorateServeAndSlots(match) {
     String(serve?.receiverId || slotsRaw?.receiverId || "") || "";
 
   // nếu chưa có serverId nhưng có số người giao (#1/#2) → suy luận theo base + điểm
-  // ✅ FIX: khi thiếu serverId, suy theo "NGƯỜI (base)" chứ không suy theo "Ô (slotNow)"
   if (!serverId && (serve.server === 1 || serve.server === 2)) {
     const side = serve.side === "B" ? "B" : "A";
     const ids = side === "B" ? idsB : idsA;
     const base = side === "B" ? baseB : baseA;
-
-    if (ids.length === 1) {
-      serverId = ids[0] || "";
-    } else if (ids.length >= 2) {
-      // Referee view của bạn:
-      // - Side A: ô phải là slot 2
-      // - Side B: ô phải là slot 1
-      const rightSlot = side === "A" ? 2 : 1;
-
-      const rightUid =
-        ids.find((uid) => Number(base[uid] || 0) === rightSlot) || ids[0] || "";
-      const leftUid =
-        ids.find((uid) => uid && uid !== rightUid) || ids[1] || rightUid;
-
-      // serve.server = 2 => người ở "ô phải" (theo referee view) là server #2 ở đầu game
-      serverId = Number(serve.server) === 2 ? rightUid : leftUid;
+    const score = side === "B" ? curB : curA;
+    for (const uid of ids) {
+      const b = Number(base[uid] || 1);
+      if (slotNow(b, score) === Number(serve.server)) {
+        serverId = uid;
+        break;
+      }
     }
   }
 
