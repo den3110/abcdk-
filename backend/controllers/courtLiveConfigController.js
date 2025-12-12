@@ -1,9 +1,15 @@
 import mongoose from "mongoose";
 import Court from "../models/courtModel.js";
-
 import FacebookPageConnection from "../models/facebookPageConnectionModel.js";
 
-const { Schema, Types } = mongoose;
+/* ---------- helpers ---------- */
+
+const normalizePageMode = (mode) => {
+  const m = String(mode || "")
+    .trim()
+    .toLowerCase();
+  return m === "custom" ? "custom" : "default";
+};
 
 /** Chuẩn hoá liveConfig trả ra client */
 const okLiveConfig = (cfg = {}) => {
@@ -16,15 +22,38 @@ const okLiveConfig = (cfg = {}) => {
       ? cfg.advancedSettingEnabled
       : !!cfg.advancedRandomEnabled;
 
-  const pageMode = cfg.pageMode || cfg.randomPageMode || "default" || "default";
+  let pageMode = normalizePageMode(
+    cfg.pageMode || cfg.randomPageMode || "default"
+  );
 
-  const pageConnectionId =
+  let pageConnectionId =
     cfg.pageConnectionId || cfg.randomPageConnectionId || null;
 
-  const pageConnectionName =
+  let pageConnectionName =
     cfg.pageConnectionName || cfg.randomPageConnectionName || "";
 
-  const advancedSetting = cfg.advancedSetting || null;
+  let advancedSetting = cfg.advancedSetting || null;
+
+  // ❌ Nếu tắt cấu hình nâng cao → coi như reset sạch
+  if (!advancedSettingEnabled) {
+    pageMode = "default";
+    pageConnectionId = null;
+    pageConnectionName = "";
+    advancedSetting = null;
+  } else {
+    // Nếu advanced đang bật nhưng mode != custom thì cũng không giữ page user
+    if (pageMode !== "custom") {
+      pageMode = "default";
+      pageConnectionId = null;
+      pageConnectionName = "";
+      // advancedSetting chỉ cần mode default
+      if (!advancedSetting || typeof advancedSetting !== "object") {
+        advancedSetting = { mode: "default" };
+      } else {
+        advancedSetting = { mode: "default", ...advancedSetting };
+      }
+    }
+  }
 
   return {
     enabled,
@@ -39,26 +68,154 @@ const okLiveConfig = (cfg = {}) => {
 };
 
 /** Tìm tên Page từ pageConnectionId (ưu tiên _id, fallback pageId) */
-async function resolvePageConnectionName(pageConnectionId) {
+async function resolvePageConnectionName(pageConnectionId, userId) {
   if (!pageConnectionId) return "";
 
   const idStr = String(pageConnectionId);
 
-  // 1) thử coi như _id của FacebookPageConnection
   let conn = null;
+
+  // 1) Thử như _id
   if (mongoose.isValidObjectId(idStr)) {
-    conn = await FacebookPageConnection.findById(idStr).lean();
+    const q = { _id: idStr };
+    if (userId) q.user = userId;
+    conn = await FacebookPageConnection.findOne(q).lean();
   }
 
-  // 2) nếu không thấy thì thử theo pageId
+  // 2) Nếu không thấy thì thử theo pageId
   if (!conn) {
-    conn = await FacebookPageConnection.findOne({ pageId: idStr }).lean();
+    const q = { pageId: idStr };
+    if (userId) q.user = userId;
+    conn = await FacebookPageConnection.findOne(q).lean();
   }
 
   if (!conn) return "";
-
   return conn.pageName || "";
 }
+
+/* ---------- core apply logic dùng chung cho single + bulk ---------- */
+
+async function applyLiveConfigPatch(
+  court,
+  patch,
+  { skipVideoLengthCheck } = {}
+) {
+  const liveConfig = court.liveConfig || {};
+
+  // enabled / overrideExisting
+  const enabled = patch.enabled === true || patch.enabled === "true";
+  const overrideExisting =
+    patch.overrideExisting === true || patch.overrideExisting === "true";
+
+  let videoUrl = (patch.videoUrl ?? "").toString().trim();
+  if (!skipVideoLengthCheck && videoUrl.length > 2048) {
+    const err = new Error("videoUrl quá dài");
+    err.code = "VIDEO_URL_TOO_LONG";
+    throw err;
+  }
+
+  // ----- advancedSettingEnabled -----
+  let advancedSettingEnabled =
+    typeof liveConfig.advancedSettingEnabled === "boolean"
+      ? liveConfig.advancedSettingEnabled
+      : !!liveConfig.advancedRandomEnabled;
+
+  if ("advancedSettingEnabled" in patch) {
+    const raw = patch.advancedSettingEnabled;
+    advancedSettingEnabled =
+      raw === true || raw === "true" || raw === 1 || raw === "1";
+  }
+
+  // ----- pageMode -----
+  let pageMode = normalizePageMode(
+    liveConfig.pageMode || liveConfig.randomPageMode || "default"
+  );
+
+  if ("pageMode" in patch) {
+    pageMode = normalizePageMode(patch.pageMode);
+  }
+
+  // ----- pageConnectionId + pageConnectionName -----
+  let pageConnectionId =
+    liveConfig.pageConnectionId || liveConfig.randomPageConnectionId || null;
+
+  let pageConnectionName =
+    liveConfig.pageConnectionName || liveConfig.randomPageConnectionName || "";
+
+  // Nếu advanced tắt → reset sạch
+  if (!advancedSettingEnabled) {
+    pageMode = "default";
+    pageConnectionId = null;
+    pageConnectionName = "";
+  } else {
+    // advanced đang bật
+    if ("pageConnectionId" in patch) {
+      const incoming = patch.pageConnectionId;
+      if (incoming == null || incoming === "") {
+        pageConnectionId = null;
+        pageConnectionName = "";
+      } else {
+        const pid = String(incoming);
+        if (pid.length > 256) {
+          const err = new Error("pageConnectionId quá dài");
+          err.code = "PAGE_ID_TOO_LONG";
+          throw err;
+        }
+        pageConnectionId = pid;
+      }
+    }
+
+    if (pageMode === "default") {
+      // mode default: không dùng page user
+      pageConnectionId = null;
+      pageConnectionName = "";
+    } else {
+      // mode custom: nếu có pageConnectionId thì lookup tên
+      if (pageConnectionId) {
+        pageConnectionName = await resolvePageConnectionName(
+          pageConnectionId,
+          court.owner || patch.userId || (patch.user && patch.user._id) // phòng xa
+        );
+      } else {
+        pageConnectionName = "";
+      }
+    }
+  }
+
+  // ----- advancedSetting (server build) -----
+  let advancedSetting = null;
+  if (advancedSettingEnabled) {
+    advancedSetting = { mode: pageMode };
+    if (pageMode === "custom" && pageConnectionId) {
+      advancedSetting.pageConnectionId = pageConnectionId;
+    }
+  }
+
+  // ----- set lại liveConfig + legacy fields -----
+  const finalConfig = {
+    ...(liveConfig || {}),
+    enabled,
+    videoUrl,
+    overrideExisting,
+
+    advancedSettingEnabled,
+    pageMode,
+    pageConnectionId,
+    pageConnectionName,
+    advancedSetting,
+
+    // legacy fields
+    advancedRandomEnabled: advancedSettingEnabled,
+    randomPageMode: pageMode,
+    randomPageConnectionId: pageConnectionId,
+    randomPageConnectionName: pageConnectionName,
+  };
+
+  court.liveConfig = finalConfig;
+  return finalConfig;
+}
+
+/* ---------- CONTROLLERS ---------- */
 
 /** GET /api/admin/courts/:courtId/live-config */
 export async function getCourtLiveConfig(req, res) {
@@ -69,7 +226,8 @@ export async function getCourtLiveConfig(req, res) {
     }
     const court = await Court.findById(courtId).lean();
     if (!court) return res.status(404).json({ message: "Court not found" });
-    return res.json({ liveConfig: okLiveConfig(court.liveConfig) });
+
+    return res.json({ liveConfig: okLiveConfig(court.liveConfig || {}) });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ message: "Get live config failed" });
@@ -93,122 +251,47 @@ export async function setCourtLiveConfig(req, res) {
       return res.status(400).json({ message: "Invalid courtId" });
     }
 
-    const enabled = req.body?.enabled === true || req.body?.enabled === "true";
-
-    const overrideExisting =
-      req.body?.overrideExisting === true ||
-      req.body?.overrideExisting === "true";
-
-    let videoUrl = (req.body?.videoUrl || "").toString().trim();
-
-    // chặn URL quá dài / rác cơ bản
-    if (videoUrl.length > 2048) {
-      return res.status(400).json({ message: "videoUrl quá dài" });
-    }
-
     const court = await Court.findById(courtId);
     if (!court) return res.status(404).json({ message: "Court not found" });
 
-    const liveConfig = court.liveConfig || {};
-
-    // ----- advancedSettingEnabled -----
-    let advancedSettingEnabled =
-      typeof liveConfig.advancedSettingEnabled === "boolean"
-        ? liveConfig.advancedSettingEnabled
-        : !!liveConfig.advancedRandomEnabled;
-
-    if ("advancedSettingEnabled" in req.body) {
-      const raw = req.body.advancedSettingEnabled;
-      advancedSettingEnabled =
-        raw === true || raw === "true" || raw === 1 || raw === "1";
+    // Trim + validate videoUrl trước
+    const rawVideoUrl = (req.body?.videoUrl || "").toString().trim();
+    if (rawVideoUrl.length > 2048) {
+      return res.status(400).json({ message: "videoUrl quá dài" });
     }
 
-    // ----- pageMode -----
-    let pageMode = (
-      liveConfig.pageMode ||
-      liveConfig.randomPageMode ||
-      "default"
-    )
-      .toString()
-      .trim()
-      .toLowerCase();
+    const patch = {
+      ...req.body,
+      enabled:
+        req.body?.enabled === true || req.body?.enabled === "true"
+          ? true
+          : false,
+      overrideExisting:
+        req.body?.overrideExisting === true ||
+        req.body?.overrideExisting === "true",
+      videoUrl: rawVideoUrl,
+    };
 
-    if ("pageMode" in req.body) {
-      const rawMode = (req.body.pageMode || "").toString().trim().toLowerCase();
-      pageMode = rawMode === "custom" ? "custom" : "default";
-    }
-
-    // ----- pageConnectionId + pageConnectionName -----
-    let pageConnectionId =
-      liveConfig.pageConnectionId || liveConfig.randomPageConnectionId || null;
-
-    let pageConnectionName =
-      liveConfig.pageConnectionName ||
-      liveConfig.randomPageConnectionName ||
-      "";
-
-    if (pageMode === "default") {
-      // dùng Page hệ thống → không dùng pageConnectionId
-      pageConnectionId = null;
-      pageConnectionName = "";
-    } else {
-      // mode "custom"
-      if ("pageConnectionId" in req.body) {
-        const incoming = req.body.pageConnectionId;
-        if (incoming == null || incoming === "") {
-          pageConnectionId = null;
-          pageConnectionName = "";
-        } else {
-          const pid = String(incoming);
-          if (pid.length > 256) {
-            return res
-              .status(400)
-              .json({ message: "pageConnectionId quá dài" });
-          }
-          pageConnectionId = pid;
-        }
+    let finalCfg;
+    try {
+      finalCfg = await applyLiveConfigPatch(court, patch, {
+        skipVideoLengthCheck: true,
+      });
+    } catch (err) {
+      if (err.code === "PAGE_ID_TOO_LONG") {
+        return res.status(400).json({ message: "pageConnectionId quá dài" });
       }
-
-      // Nếu đang có pageConnectionId thì tự đi lookup tên
-      if (pageConnectionId) {
-        pageConnectionName = await resolvePageConnectionName(pageConnectionId);
-      } else {
-        pageConnectionName = "";
+      if (err.code === "VIDEO_URL_TOO_LONG") {
+        return res.status(400).json({ message: "videoUrl quá dài" });
       }
+      throw err;
     }
 
-    // ----- advancedSetting (server build, không phụ thuộc client) -----
-    let advancedSetting = null;
-    if (advancedSettingEnabled) {
-      advancedSetting = { mode: pageMode };
-      if (pageMode === "custom" && pageConnectionId) {
-        advancedSetting.pageConnectionId = pageConnectionId;
-      }
-    }
-
-    // ----- ghi lại liveConfig với field mới -----
-    liveConfig.enabled = enabled;
-    liveConfig.videoUrl = videoUrl;
-    liveConfig.overrideExisting = overrideExisting;
-
-    liveConfig.advancedSettingEnabled = advancedSettingEnabled;
-    liveConfig.pageMode = pageMode;
-    liveConfig.pageConnectionId = pageConnectionId;
-    liveConfig.pageConnectionName = pageConnectionName;
-    liveConfig.advancedSetting = advancedSetting;
-
-    // 🧯 sync với field cũ cho chỗ code legacy
-    liveConfig.advancedRandomEnabled = advancedSettingEnabled;
-    liveConfig.randomPageMode = pageMode;
-    liveConfig.randomPageConnectionId = pageConnectionId;
-    liveConfig.randomPageConnectionName = pageConnectionName;
-
-    court.liveConfig = liveConfig;
     await court.save();
 
     return res.json({
       success: true,
-      liveConfig: okLiveConfig(court.liveConfig),
+      liveConfig: okLiveConfig(finalCfg),
     });
   } catch (e) {
     console.error(e);
@@ -217,7 +300,17 @@ export async function setCourtLiveConfig(req, res) {
 }
 
 /** PATCH /api/admin/tournaments/:tid/courts/live-config/bulk
- * body: { items: [{ courtId, enabled, videoUrl, overrideExisting }, ...] }
+ * body: {
+ *   items: [{
+ *     courtId,
+ *     enabled,
+ *     videoUrl,
+ *     overrideExisting,
+ *     advancedSettingEnabled?,
+ *     pageMode?,            // "default" | "custom"
+ *     pageConnectionId?,    // nếu custom
+ *   }, ...]
+ * }
  */
 export async function bulkSetCourtLiveConfig(req, res) {
   try {
@@ -231,34 +324,51 @@ export async function bulkSetCourtLiveConfig(req, res) {
       return res.status(400).json({ message: "No items provided" });
     }
 
-    const ops = [];
+    let updated = 0;
     for (const it of items) {
       if (!mongoose.isValidObjectId(it.courtId)) continue;
-      const enabled = it.enabled === true || it.enabled === "true";
-      const overrideExisting =
-        it.overrideExisting === true || it.overrideExisting === "true";
-      const videoUrl = (it.videoUrl || "").toString().trim();
 
-      ops.push({
-        updateOne: {
-          filter: { _id: it.courtId, tournament: tid },
-          update: {
-            $set: {
-              "liveConfig.enabled": enabled,
-              "liveConfig.videoUrl": videoUrl,
-              "liveConfig.overrideExisting": overrideExisting,
-            },
-          },
-        },
+      const court = await Court.findOne({
+        _id: it.courtId,
+        tournament: tid,
       });
+      if (!court) continue;
+
+      const rawVideoUrl = (it.videoUrl || "").toString().trim();
+      if (rawVideoUrl.length > 2048) {
+        // skip court này nếu URL rác
+        continue;
+      }
+
+      const patch = {
+        ...it,
+        enabled: it.enabled === true || it.enabled === "true",
+        overrideExisting:
+          it.overrideExisting === true || it.overrideExisting === "true",
+        videoUrl: rawVideoUrl,
+      };
+
+      try {
+        await applyLiveConfigPatch(court, patch, {
+          skipVideoLengthCheck: true,
+        });
+      } catch (err) {
+        // nếu lỗi do pageId quá dài thì bỏ qua court này, không phá cả batch
+        if (err.code === "PAGE_ID_TOO_LONG") {
+          continue;
+        }
+        throw err;
+      }
+
+      await court.save();
+      updated += 1;
     }
 
-    if (!ops.length) {
+    if (!updated) {
       return res.status(400).json({ message: "No valid items" });
     }
 
-    const result = await Court.bulkWrite(ops, { ordered: false });
-    return res.json({ success: true, result });
+    return res.json({ success: true, updated });
   } catch (e) {
     console.error(e);
     return res.status(500).json({ message: "Bulk set live config failed" });

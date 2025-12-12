@@ -1,3 +1,4 @@
+// models/courtModel.js
 import mongoose from "mongoose";
 const { Schema, Types } = mongoose;
 
@@ -11,10 +12,7 @@ const courtSchema = new Schema(
     },
     name: { type: String, required: true },
 
-    // Giữ cluster để scheduler dùng nội bộ, mặc định “Main”
     cluster: { type: String, default: "Main", index: true },
-
-    // KHÔNG BẮT BUỘC nữa (để tương thích chỗ code cũ có populate vẫn ổn)
     bracket: {
       type: Types.ObjectId,
       ref: "Bracket",
@@ -38,29 +36,32 @@ const courtSchema = new Schema(
       videoUrl: { type: String, default: "" },
       overrideExisting: { type: Boolean, default: false },
 
-      // 🚀 mới: advanced setting
+      // ⚙️ Cấu hình nâng cao
       advancedSettingEnabled: { type: Boolean, default: false },
+
+      // "default" = live theo page hệ thống, "custom" = page tự chọn
       pageMode: {
         type: String,
         enum: ["default", "custom"],
         default: "default",
       },
+
+      // Id Page trong FacebookPageConnection (pageId)
       pageConnectionId: { type: String, default: null },
+
+      // Tên Page để hiển thị (cache, auto-fill từ FacebookPageConnection)
       pageConnectionName: { type: String, default: "" },
+
+      // Payload gọn cho mấy service khác xài
+      // ví dụ: { mode: "default" } hoặc { mode: "custom", pageConnectionId: "xxx" }
       advancedSetting: { type: Schema.Types.Mixed, default: null },
     },
 
-    // ✅ Nhiều trọng tài mặc định cho sân
     defaultReferees: [
       { type: Types.ObjectId, ref: "User", default: undefined },
     ],
   },
   { timestamps: true }
 );
-// // ➜ Mỗi GIẢI (tournament) không được trùng tên sân
-// courtSchema.index(
-//   { tournament: 1, name: 1 },
-//   { unique: true, partialFilterExpression: { name: { $type: "string" } } }
-// );
 
 export default mongoose.model("Court", courtSchema);
