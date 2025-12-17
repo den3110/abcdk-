@@ -1346,6 +1346,7 @@ async function fbGetLiveVideoStable({
   pageAccessToken,
   fields = FB_LIVE_FIELDS,
 }) {
+  console.log(124)
   const delays = [1500, 2500, 4000];
   let last = null;
 
@@ -1356,17 +1357,18 @@ async function fbGetLiveVideoStable({
       const info = await fbGetLiveVideo({
         liveVideoId,
         pageAccessToken,
-        fields,
+        // fields,
       });
 
       last = info;
-
+      console.log(info)
       const livePermalink = info?.permalink_url || null;
       const videoPermalink = info?.video?.permalink_url || null;
 
       // Chỉ cần 1 trong 2 có là đủ “ổn”
       if (livePermalink || videoPermalink) break;
     } catch (e) {
+      console.log(e)
       // ignore -> thử lại
     }
   }
