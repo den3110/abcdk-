@@ -62,8 +62,12 @@ import {
   useDemoteEvaluatorMutation,
   useDeleteUserMutation,
   useUpdateRankingSearchConfigMutation,
+  useGetUserAuditQuery,
 } from "../../slices/adminApiSlice";
 import { setPage, setKeyword, setRole } from "../../slices/adminUiSlice";
+
+import HistoryIcon from "@mui/icons-material/History";
+import RefreshIcon from "@mui/icons-material/Refresh";
 
 /* ================== Utils & Consts ================== */
 const GENDER_OPTIONS = [
@@ -241,6 +245,45 @@ export default function UsersPage() {
   const [zoom, setZoom] = useState(null);
   const [del, setDel] = useState(null);
   const [score, setScore] = useState(null);
+
+  // ✅ ADD: Audit history dialog
+  const [auditUser, setAuditUser] = useState(null);
+  const [auditPage, setAuditPage] = useState(1);
+  const AUDIT_LIMIT = 20;
+
+  const {
+    data: auditData,
+    isFetching: auditFetching,
+    refetch: refetchAudit,
+    error: auditError,
+  } = useGetUserAuditQuery(
+    auditUser
+      ? { userId: auditUser._id, page: auditPage, limit: AUDIT_LIMIT }
+      : { userId: "" },
+    { skip: !auditUser }
+  );
+
+  useEffect(() => {
+    if (!auditUser) setAuditPage(1);
+  }, [auditUser]);
+
+  const fmtDateTime = (d) => (d ? new Date(d).toLocaleString("vi-VN") : "—");
+
+  const fmtVal = (v) => {
+    if (v === null || v === undefined) return "—";
+    if (typeof v === "string") {
+      const s = v.trim();
+      if (!s) return "—";
+      return s.length > 140 ? `${s.slice(0, 140)}…` : s;
+    }
+    if (typeof v === "number" || typeof v === "boolean") return String(v);
+    try {
+      const s = JSON.stringify(v);
+      return s.length > 140 ? `${s.slice(0, 140)}…` : s;
+    } catch {
+      return String(v);
+    }
+  };
 
   const [snack, setSnack] = useState({ open: false, type: "success", msg: "" });
   const showSnack = (type, msg) => setSnack({ open: true, type, msg });
@@ -458,6 +501,15 @@ export default function UsersPage() {
 
           {/* Quick Actions (Desktop) */}
           <Stack direction="row" spacing={0.5}>
+            <Tooltip title="Lịch sử chỉnh sửa">
+              <IconButton
+                size="small"
+                onClick={() => setAuditUser(u)} // ✅ OPEN DIALOG
+                sx={{ color: "text.secondary" }}
+              >
+                <HistoryIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
             <Tooltip title="Cập nhật điểm">
               <IconButton
                 size="small"
@@ -1349,6 +1401,208 @@ export default function UsersPage() {
                 }
               >
                 Lưu điểm
+              </Button>
+            </DialogActions>
+          </>
+        )}
+      </Dialog>
+      {/* ✅ Audit History Dialog */}
+      <Dialog
+        open={!!auditUser}
+        onClose={() => setAuditUser(null)}
+        maxWidth="lg"
+        fullWidth
+        fullScreen={isXs}
+        PaperProps={{ sx: { borderRadius: 2 } }}
+      >
+        {auditUser && (
+          <>
+            <DialogTitle sx={{ borderBottom: "1px solid #eee" }}>
+              <Stack
+                direction="row"
+                alignItems="center"
+                justifyContent="space-between"
+              >
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="h6" fontWeight={800} noWrap>
+                    Lịch sử chỉnh sửa • {auditUser.name}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" noWrap>
+                    {auditUser.email} • ID: {auditUser._id}
+                  </Typography>
+                </Box>
+
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Tooltip title="Tải lại">
+                    <IconButton
+                      onClick={() => refetchAudit?.()}
+                      disabled={auditFetching}
+                    >
+                      <RefreshIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Button
+                    onClick={() => setAuditUser(null)}
+                    variant="outlined"
+                    color="inherit"
+                  >
+                    Đóng
+                  </Button>
+                </Stack>
+              </Stack>
+            </DialogTitle>
+
+            <DialogContent dividers sx={{ bgcolor: "grey.50" }}>
+              {auditFetching ? (
+                <Stack alignItems="center" py={6}>
+                  <CircularProgress />
+                  <Typography variant="body2" color="text.secondary" mt={2}>
+                    Đang tải lịch sử...
+                  </Typography>
+                </Stack>
+              ) : auditError ? (
+                <Alert severity="error">
+                  {auditError?.data?.message ||
+                    "Không tải được lịch sử chỉnh sửa"}
+                </Alert>
+              ) : (auditData?.items?.length || 0) === 0 ? (
+                <Paper variant="outlined" sx={{ p: 3, textAlign: "center" }}>
+                  <Typography fontWeight={700}>
+                    Chưa có lịch sử chỉnh sửa
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Người dùng này chưa có bản ghi update nào.
+                  </Typography>
+                </Paper>
+              ) : (
+                <Stack spacing={2}>
+                  {auditData.items.map((log) => (
+                    <Paper
+                      key={log._id}
+                      variant="outlined"
+                      sx={{ p: 2, bgcolor: "white", borderRadius: 2 }}
+                    >
+                      <Stack
+                        direction={{ xs: "column", sm: "row" }}
+                        spacing={1}
+                        justifyContent="space-between"
+                        alignItems={{ xs: "flex-start", sm: "center" }}
+                      >
+                        <Stack spacing={0.2}>
+                          <Typography fontWeight={800}>
+                            {fmtDateTime(log.createdAt)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Actor: {log?.actor?.kind || "user"} •{" "}
+                            {log?.actor?.id || "—"}
+                            {log?.note ? ` • ${log.note}` : ""}
+                          </Typography>
+                        </Stack>
+
+                        <Chip
+                          size="small"
+                          label={log.action || "UPDATE"}
+                          color="primary"
+                          variant="outlined"
+                          sx={{ fontWeight: 700 }}
+                        />
+                      </Stack>
+
+                      <Divider sx={{ my: 1.5 }} />
+
+                      <Stack spacing={1.2}>
+                        {(log.changes || []).map((c, idx) => (
+                          <Paper
+                            key={`${log._id}-${idx}`}
+                            variant="outlined"
+                            sx={{
+                              p: 1.25,
+                              borderRadius: 2,
+                              bgcolor: "grey.50",
+                            }}
+                          >
+                            <Stack spacing={0.75}>
+                              <Chip
+                                size="small"
+                                label={c.field}
+                                sx={{
+                                  alignSelf: "flex-start",
+                                  fontWeight: 700,
+                                }}
+                              />
+
+                              <Grid container spacing={1.5}>
+                                <Grid size={{ xs: 12, md: 6 }}>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    fontWeight={700}
+                                  >
+                                    Trước
+                                  </Typography>
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      fontFamily: "monospace",
+                                      wordBreak: "break-word",
+                                    }}
+                                  >
+                                    {fmtVal(c.from)}
+                                  </Typography>
+                                </Grid>
+
+                                <Grid size={{ xs: 12, md: 6 }}>
+                                  <Typography
+                                    variant="caption"
+                                    color="text.secondary"
+                                    fontWeight={700}
+                                  >
+                                    Sau
+                                  </Typography>
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      fontFamily: "monospace",
+                                      wordBreak: "break-word",
+                                    }}
+                                  >
+                                    {fmtVal(c.to)}
+                                  </Typography>
+                                </Grid>
+                              </Grid>
+                            </Stack>
+                          </Paper>
+                        ))}
+                      </Stack>
+                    </Paper>
+                  ))}
+
+                  {/* Pagination inside dialog */}
+                  {(auditData?.pages || 0) > 1 && (
+                    <Box display="flex" justifyContent="center" pt={1}>
+                      <Pagination
+                        page={auditPage}
+                        count={auditData.pages}
+                        onChange={(_, v) => setAuditPage(v)}
+                        color="primary"
+                        shape="rounded"
+                      />
+                    </Box>
+                  )}
+                </Stack>
+              )}
+            </DialogContent>
+
+            <DialogActions sx={{ px: 3, py: 2, borderTop: "1px solid #eee" }}>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ flex: 1 }}
+              >
+                Tổng: {auditData?.total ?? "—"} bản ghi
+              </Typography>
+              <Button onClick={() => setAuditUser(null)} color="inherit">
+                Đóng
               </Button>
             </DialogActions>
           </>

@@ -2029,7 +2029,7 @@ export function initSocket(
         if (!matchId) return;
 
         // rời room match cho cả match thường & userMatch
-        socket.leave(`match:${matchId}`);
+        // socket.leave(`match:${matchId}`);
 
         console.log(
           "[socket] match:leave",

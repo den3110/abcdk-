@@ -29,6 +29,19 @@ const SignupWebSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const registerOtpSchema = new mongoose.Schema(
+  {
+    hash: { type: String, default: "" },
+    expiresAt: { type: Date, default: null },
+    attempts: { type: Number, default: 0 },
+    lastSentAt: { type: Date, default: null },
+    // trong registerOtpSchema
+    tranId: { type: String, default: "" },
+    cost: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
 const SignupIpSchema = new mongoose.Schema(
   {
     client: { type: String, default: "", trim: true },
@@ -99,6 +112,10 @@ const userSchema = new mongoose.Schema(
       },
     },
     phone: { type: String, unique: true, sparse: true, trim: true },
+    phoneVerified: { type: Boolean, default: false },
+    phoneVerifiedAt: { type: Date, default: null },
+
+    registerOtp: { type: registerOtpSchema, default: () => ({}) },
     email: {
       type: String,
       unique: true,

@@ -118,6 +118,21 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         body,
       }),
     }),
+    // ✅ ADD trong adminApiSlice.js
+    getUserAudit: builder.query({
+      query: ({ userId, page = 1, limit = 20, actorId, field }) => {
+        const params = new URLSearchParams();
+        params.set("page", String(page));
+        params.set("limit", String(limit));
+        if (actorId) params.set("actorId", actorId);
+        if (field) params.set("field", field);
+
+        return {
+          url: `/api/audit/users/${userId}?${params.toString()}`,
+          method: "GET",
+        };
+      },
+    }),
   }),
 });
 
@@ -129,12 +144,12 @@ export const {
   useReviewKycMutation,
   useUpdateUserInfoMutation,
   useUpdateRankingMutation,
-
+  useGetUserAuditQuery,
   // evaluators
   useGetEvaluatorsQuery,
   useUpdateEvaluatorScopesMutation,
   usePromoteToEvaluatorMutation,
   useDemoteEvaluatorMutation,
   useChangeUserPasswordMutation,
-  useUpdateRankingSearchConfigMutation
+  useUpdateRankingSearchConfigMutation,
 } = adminApiSlice;

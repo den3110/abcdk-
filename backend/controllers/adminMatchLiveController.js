@@ -1189,968 +1189,6 @@ export const createFacebookLiveForCourt = async (req, res) => {
   }
 };
 
-// controllers/liveController.js (ví dụ)
-// controllers/liveController.js
-export const createFacebookLiveForMatch = async (req, res) => {
-  try {
-    // 1) Check FB enabled
-    const fbEnabled =
-      (await getCfgStr("LIVE_FACEBOOK_ENABLED", "1")).trim() === "1";
-    if (!fbEnabled) {
-      return res
-        .status(400)
-        .json({ message: "LIVE_FACEBOOK_ENABLED đang tắt trong Config." });
-    }
-
-    // 👉 Nếu có header x-pkt-match-kind thì dùng UserMatch + FacebookPageConnection, KHÔNG dùng Match/FbToken
-    const matchKindHeader =
-      req.get("x-pkt-match-kind") || req.headers["x-pkt-match-kind"];
-
-    if (matchKindHeader) {
-      const { matchId } = req.params;
-
-      // 2A) Load UserMatch
-      const userMatch = await UserMatch.findById(matchId)
-        .populate("createdBy", "name fullName avatar nickname nickName")
-        .populate(
-          "participants.user",
-          "name fullName avatar nickname nickName avatar"
-        );
-
-      if (!userMatch) {
-        return res.status(404).json({ message: "UserMatch not found" });
-      }
-
-      // 3A) Build tên 2 bên & code đơn giản cho UserMatch
-      const sideA = (userMatch.participants || []).filter(
-        (p) => p.side === "A"
-      );
-      const sideB = (userMatch.participants || []).filter(
-        (p) => p.side === "B"
-      );
-
-      const getParticipantName = (p) => {
-        if (!p) return "Player";
-        return (
-          p.displayName ||
-          p.user?.nickname ||
-          p.user?.nickName ||
-          p.user?.fullName ||
-          p.user?.name ||
-          "Player"
-        );
-      };
-
-      const pairAName = sideA.length
-        ? sideA.map(getParticipantName).join(" / ")
-        : "VĐV A";
-
-      const pairBName = sideB.length
-        ? sideB.map(getParticipantName).join(" / ")
-        : "VĐV B";
-
-      const displayCode =
-        userMatch.labelKey ||
-        userMatch.code ||
-        `R${userMatch.round ?? 1}#${(userMatch.order ?? 0) + 1}`;
-
-      // 4A) Overlay / Studio base
-      const OVERLAY_BASE = await resolveOverlayBase();
-      const STUDIO_BASE = await resolveStudioBase();
-      const OBS_AUTO_START = await isObsAutoStart();
-
-      const overlayUrl = `${OVERLAY_BASE}/overlay/score?matchId=${userMatch._id}&theme=fb&ratio=16:9&safe=1&kind=userMatch`;
-
-      const courtName = userMatch?.courtLabel || ""; // userMatch có court nhưng không cần populate ở đây cũng được
-      const tournamentName =
-        userMatch?.customLeague?.name || userMatch?.title || "Trận đấu tự do";
-
-      let fbTitle = `${tournamentName} - ${displayCode} - ${pairAName} vs ${pairBName}`;
-      if (fbTitle.length > 250) {
-        fbTitle = fbTitle.slice(0, 247) + "...";
-      }
-
-      const fbDescriptionLines = [
-        `Trực tiếp ${tournamentName} - ${displayCode}`,
-        `${pairAName} vs ${pairBName}`,
-      ];
-      const fbDescription = fbDescriptionLines.join("\n");
-
-      // 5A) Lấy FacebookPageConnection của owner (createdBy)
-      const ownerUserId = userMatch.createdBy;
-      const allConns = await FacebookPageConnection.find({
-        user: ownerUserId,
-      }).sort({ isDefault: -1, createdAt: 1 });
-
-      if (!allConns.length) {
-        return res.status(409).json({
-          message:
-            "Bạn chưa kết nối Facebook Page nào để phát live (UserMatch).",
-        });
-      }
-
-      const fbCfg = userMatch.facebookLiveConfig || {};
-
-      const candidateConnections = [];
-      // Ưu tiên page đã chọn sẵn trong config nếu có
-      if (fbCfg.pageConnection) {
-        const cfgConn = allConns.find(
-          (c) => String(c._id) === String(fbCfg.pageConnection)
-        );
-        if (cfgConn) {
-          candidateConnections.push(cfgConn);
-        }
-      }
-
-      // Sau đó ưu tiên page isDefault
-      const defaultConns = allConns.filter(
-        (c) =>
-          c.isDefault &&
-          !candidateConnections.find((x) => String(x._id) === String(c._id))
-      );
-      const otherConns = allConns.filter(
-        (c) =>
-          !c.isDefault &&
-          !candidateConnections.find((x) => String(x._id) === String(c._id))
-      );
-
-      candidateConnections.push(...defaultConns, ...otherConns);
-
-      let pageDoc = null;
-      let pageId = null;
-      let pageAccessToken = null;
-      let live = null;
-      let liveId = null;
-      let liveInfo = null;
-      const failedPages = [];
-
-      console.log(
-        `[FB Live - UserMatch] Có ${candidateConnections.length} page connection để thử cho userMatch ${matchId}`
-      );
-
-      // 6A) Thử tạo live với từng FacebookPageConnection
-      for (const conn of candidateConnections) {
-        try {
-          console.log(
-            `[FB Live - UserMatch] Đang thử page: ${
-              conn.pageName || conn.pageId
-            }`
-          );
-
-          const currentPageId = conn.pageId;
-          const currentPageAccessToken = conn.pageAccessToken;
-          if (!currentPageAccessToken) {
-            throw new Error("FacebookPageConnection thiếu pageAccessToken");
-          }
-
-          // Tạo live bằng pageAccessToken trong FacebookPageConnection
-          const currentLive = await fbCreateLiveOnPage({
-            pageId: currentPageId,
-            pageAccessToken: currentPageAccessToken,
-            title: fbTitle,
-            description: fbDescription,
-            status: "LIVE_NOW",
-          });
-
-          const currentLiveId = currentLive.liveVideoId || currentLive.id;
-
-          const currentLiveInfo = await fbGetLiveVideo({
-            liveVideoId: currentLiveId,
-            pageAccessToken: currentPageAccessToken,
-            fields:
-              "id,status,permalink_url,secure_stream_url,video{id,permalink_url,embed_html}",
-          });
-
-          // Thành công
-          pageDoc = conn;
-          pageId = currentPageId;
-          pageAccessToken = currentPageAccessToken;
-          live = currentLive;
-          liveId = currentLiveId;
-          liveInfo = currentLiveInfo;
-
-          console.log(
-            `[FB Live - UserMatch] ✅ Tạo live thành công trên page: ${
-              conn.pageName || conn.pageId
-            }`
-          );
-
-          console.log(liveInfo);
-          break;
-        } catch (error) {
-          console.error(
-            `[FB Live - UserMatch] ❌ Page ${
-              conn.pageName || conn.pageId
-            } bị lỗi:`,
-            error.message
-          );
-
-          failedPages.push({
-            pageId: conn.pageId,
-            pageName: conn.pageName,
-            error: error.message,
-          });
-
-          continue;
-        }
-      }
-
-      if (!pageDoc || !live) {
-        return res.status(409).json({
-          message:
-            "Không thể tạo live trên bất kỳ Facebook Page nào (UserMatch).",
-          failedPages,
-          hint: "Kiểm tra quyền và token trên FacebookPageConnection.",
-        });
-      }
-
-      // 7A) Xử lý kết quả thành công cho UserMatch
-      const videoId = liveInfo?.video?.id || null;
-      const videoPermalink = liveInfo?.video?.permalink_url || null;
-      const livePermalink =
-        liveInfo?.permalink_url || live?.permalink_url || null;
-
-      const shareUrl =
-        (videoPermalink && toFullUrl(videoPermalink)) ||
-        (livePermalink && toFullUrl(livePermalink)) ||
-        `https://www.facebook.com/watch/?v=${videoId || liveId}`;
-
-      const { server, streamKey } = splitServerAndKey(
-        liveInfo?.secure_stream_url || live?.secure_stream_url
-      );
-
-      const pageName = pageDoc?.pageName || (await getPageLabel(pageId));
-
-      const canonicalVideoUrl =
-        (videoPermalink && toFullUrl(videoPermalink)) ||
-        (livePermalink && toFullUrl(livePermalink)) ||
-        shareUrl;
-
-      userMatch.video = canonicalVideoUrl;
-
-      userMatch.facebookLive = {
-        id: liveId,
-        videoId,
-        pageId,
-        permalink_url: shareUrl,
-        raw_permalink_url: livePermalink ? toFullUrl(livePermalink) : null,
-        video_permalink_url: videoPermalink ? toFullUrl(videoPermalink) : null,
-        watch_url: `https://www.facebook.com/watch/?v=${videoId || liveId}`,
-        embed_html: liveInfo?.video?.embed_html || null,
-        secure_stream_url:
-          liveInfo?.secure_stream_url || live?.secure_stream_url || null,
-        server_url: server || null,
-        stream_key: streamKey || null,
-        status: "CREATED",
-        createdAt: new Date(),
-      };
-
-      userMatch.facebookLiveConfig = userMatch.facebookLiveConfig || {};
-      userMatch.facebookLiveConfig.mode = "USER_PAGE";
-      userMatch.facebookLiveConfig.pageConnection = pageDoc._id;
-      userMatch.facebookLiveConfig.pageId = pageId;
-
-      await userMatch.save();
-
-      // UserMatch không dùng FbToken pool nên không mark busy
-      const OVERLAY_URL = overlayUrl;
-      if (OBS_AUTO_START && server && streamKey) {
-        try {
-          await startObsStreamingWithOverlay({
-            server_url: server,
-            stream_key: streamKey,
-            overlay_url: OVERLAY_URL,
-          });
-        } catch (e) {
-          console.error("[OBS] start failed (UserMatch):", e?.message || e);
-        }
-      }
-
-      const studioUrl =
-        `${STUDIO_BASE}/studio/live` +
-        `?matchId=${userMatch._id}&server=${encodeURIComponent(
-          server || ""
-        )}&key=${encodeURIComponent(streamKey || "")}`;
-
-      return res.json({
-        ok: true,
-        kind: "userMatch",
-        match: {
-          id: String(userMatch._id),
-          code: displayCode,
-          displayCode,
-          status: userMatch.status,
-          courtName,
-          tournamentName,
-          video: userMatch.video,
-        },
-        facebook: {
-          pageId,
-          pageName,
-          liveId,
-          videoId,
-          permalink_url: shareUrl,
-          raw_permalink_url: livePermalink ? toFullUrl(livePermalink) : null,
-          video_permalink_url: videoPermalink
-            ? toFullUrl(videoPermalink)
-            : null,
-          watch_url: `https://www.facebook.com/watch/?v=${videoId || liveId}`,
-          embed_html: liveInfo?.video?.embed_html || null,
-          server_url: server,
-          stream_key: streamKey,
-          stream_key_masked: mask(streamKey),
-          title: fbTitle,
-          description: fbDescription,
-        },
-        overlay_url: overlayUrl,
-        studio_url: studioUrl,
-        note:
-          failedPages.length > 0
-            ? `Đã tạo live thành công sau ${failedPages.length} lần thử với các page khác.`
-            : "Đã tạo live UserMatch trên Facebook thành công.",
-        failedPages: failedPages.length > 0 ? failedPages : undefined,
-      });
-    }
-
-    // ==========================
-    // ❗ KHÔNG có x-pkt-match-kind
-    // → LOGIC CHO Match + FbToken
-    // ==========================
-
-    // 2) Load match
-    const { matchId } = req.params;
-    const match = await Match.findById(matchId)
-      .populate("tournament court")
-      .populate({
-        path: "pairA",
-        populate: [
-          { path: "player1.user", select: "name nickname nickName" },
-          { path: "player2.user", select: "name nickname nickName" },
-        ],
-      })
-      .populate({
-        path: "pairB",
-        populate: [
-          { path: "player1.user", select: "name nickname nickName" },
-          { path: "player2.user", select: "name nickname nickName" },
-        ],
-      });
-
-    if (!match) {
-      return res.status(404).json({ message: "Match not found" });
-    }
-
-    /* ================== 🔢 build displayCode (giữ nguyên) ================== */
-    const allBrackets = await Bracket.find({ tournament: match.tournament })
-      .select("_id tournament type stage order meta")
-      .lean();
-
-    allBrackets.sort((a, b) => {
-      if (a.stage !== b.stage) return a.stage - b.stage;
-      if (a.order !== b.order) return a.order - b.order;
-      return String(a._id).localeCompare(String(b._id));
-    });
-
-    const groupTypes = new Set(["group", "round_robin", "gsl"]);
-    const effRounds = (br) => {
-      if (groupTypes.has(br.type)) return 1;
-      const mr = br?.meta?.maxRounds;
-      if (Number.isFinite(mr) && mr > 0) return mr;
-      return 1;
-    };
-
-    const letterToIndex = (s) => {
-      if (!s) return null;
-      const str = String(s).trim();
-      const num = str.match(/(\d+)/);
-      if (num) return Number(num[1]);
-      const m = str.match(/([A-Za-z])$/);
-      if (m) return m[1].toUpperCase().charCodeAt(0) - 64;
-      return null;
-    };
-
-    const curBracketId = String(match.bracket || "");
-    const curBracket = allBrackets.find((b) => String(b._id) === curBracketId);
-    const isGroup = curBracket ? groupTypes.has(curBracket.type) : false;
-
-    let vOffset = 0;
-    for (const b of allBrackets) {
-      if (String(b._id) === curBracketId) break;
-      vOffset += effRounds(b);
-    }
-    const roundInBracket =
-      Number(match.round) && Number(match.round) > 0 ? Number(match.round) : 1;
-    const vIndex = isGroup ? vOffset + 1 : vOffset + roundInBracket;
-
-    let bAlpha =
-      match?.pool?.name ||
-      match?.pool?.key ||
-      (match?.pool?.id ? String(match.pool.id) : "");
-    if (typeof bAlpha !== "string") bAlpha = String(bAlpha || "");
-    let bIndex = Number.isFinite(Number(match?.pool?.order))
-      ? Number(match.pool.order) + 1
-      : Number.isFinite(Number(match?.pool?.index))
-      ? Number(match.pool.index) + 1
-      : null;
-    if (!bIndex) {
-      const fromName = letterToIndex(match?.pool?.name || match?.pool?.key);
-      if (fromName) bIndex = fromName;
-    }
-    if (isGroup && !bIndex) bIndex = 1;
-    if (!isGroup) bIndex = null;
-
-    let tIndex = (Number(match.order) || 0) + 1;
-    if (isGroup) {
-      const samePoolMatches = await Match.find({
-        bracket: match.bracket,
-        ...(match?.pool?.id
-          ? { "pool.id": match.pool.id }
-          : match?.pool?.name
-          ? { "pool.name": match.pool.name }
-          : {}),
-      })
-        .select("_id rrRound order createdAt")
-        .sort({ rrRound: 1, order: 1, createdAt: 1 })
-        .lean();
-
-      const idx = samePoolMatches.findIndex(
-        (m) => String(m._id) === String(match._id)
-      );
-      if (idx >= 0) tIndex = idx + 1;
-    }
-
-    const displayCode = isGroup
-      ? `V${vIndex}-B${bIndex}-T${tIndex}`
-      : `V${vIndex}-T${tIndex}`;
-    match.displayCode = displayCode;
-
-    // 3) 🔄 Build metadata chung cho Match
-    const OVERLAY_BASE = await resolveOverlayBase();
-    const STUDIO_BASE = await resolveStudioBase();
-    const OBS_AUTO_START = await isObsAutoStart();
-    const t = match.tournament;
-
-    const getPlayerDisplayName = (p) => {
-      if (!p) return null;
-      return (
-        p.user?.nickname ||
-        p.user?.nickName ||
-        p.user?.name ||
-        p.nickname ||
-        p.nickName ||
-        p.name ||
-        null
-      );
-    };
-
-    const buildPairName = (
-      pair,
-      fallbackSingle = "VĐV",
-      fallbackDouble = "Đội"
-    ) => {
-      if (!pair) return fallbackSingle;
-      const p1 = pair.player1 || {};
-      const p2 = pair.player2 || {};
-      const n1 = getPlayerDisplayName(p1) || pair.player1Name || null;
-      const n2 = getPlayerDisplayName(p2) || pair.player2Name || null;
-      const isSingles = !p2 || (!n2 && !p2.user && !pair.player2Name);
-      if (isSingles) {
-        if (n1) return n1;
-        return fallbackSingle;
-      }
-      if (n1 && n2) return `${n1} / ${n2}`;
-      if (n1) return n1;
-      if (n2) return n2;
-      return fallbackDouble;
-    };
-
-    const pairAName = buildPairName(match.pairA, "VĐV A", "Đội A");
-    const pairBName = buildPairName(match.pairB, "VĐV B", "Đội B");
-    const matchCode = displayCode;
-    const overlayUrl = `${OVERLAY_BASE}/overlay/score?matchId=${match._id}&theme=fb&ratio=16:9&safe=1`;
-    const courtName = match?.court?.name || match?.courtLabel || "";
-
-    let fbTitle = `${
-      t?.name || "PickleTour"
-    } - ${matchCode} - ${pairAName} vs ${pairBName}`;
-    if (fbTitle.length > 250) {
-      fbTitle = fbTitle.slice(0, 247) + "...";
-    }
-
-    const fbDescriptionLines = [
-      `Trực tiếp ${t?.name || "giải đấu"} - ${matchCode}`,
-      `${pairAName} vs ${pairBName}`,
-    ];
-    const fbDescription = fbDescriptionLines.join("\n");
-
-    // 4) 🔍 Thử dùng cấu hình Page theo SÂN (Court.liveConfig) nếu có mode = custom
-    const court = match.court;
-    const courtLiveCfg = (court && court.liveConfig) || {};
-    const courtAdvEnabled =
-      typeof courtLiveCfg.advancedSettingEnabled === "boolean"
-        ? courtLiveCfg.advancedSettingEnabled
-        : !!courtLiveCfg.advancedRandomEnabled;
-    const courtPageMode = (
-      courtLiveCfg.pageMode ||
-      courtLiveCfg.randomPageMode ||
-      "default"
-    )
-      .toString()
-      .trim()
-      .toLowerCase();
-    const courtPageConnectionId =
-      courtLiveCfg.pageConnectionId ||
-      courtLiveCfg.randomPageConnectionId ||
-      null;
-
-    if (courtAdvEnabled && courtPageMode === "custom" && courtPageConnectionId) {
-      try {
-        const idStr = String(courtPageConnectionId);
-        let pageConn =
-          (await FacebookPageConnection.findById(idStr)) ||
-          (await FacebookPageConnection.findOne({ pageId: idStr }));
-
-        if (!pageConn || !pageConn.pageAccessToken || !pageConn.pageId) {
-          console.warn(
-            "[FB Live] Court custom page config invalid, fallback to token pool"
-          );
-        } else {
-          const currentPageId = pageConn.pageId;
-          const currentPageAccessToken = pageConn.pageAccessToken;
-
-          const live = await fbCreateLiveOnPage({
-            pageId: currentPageId,
-            pageAccessToken: currentPageAccessToken,
-            title: fbTitle,
-            description: fbDescription,
-            status: "LIVE_NOW",
-          });
-
-          const liveId = live.liveVideoId || live.id;
-
-          const liveInfo = await fbGetLiveVideo({
-            liveVideoId: liveId,
-            pageAccessToken: currentPageAccessToken,
-            fields:
-              "id,status,permalink_url,secure_stream_url,video{id,permalink_url,embed_html}",
-          });
-
-          const videoId = liveInfo?.video?.id || null;
-          const videoPermalink = liveInfo?.video?.permalink_url || null;
-          const livePermalink =
-            liveInfo?.permalink_url || live?.permalink_url || null;
-
-          const shareUrl =
-            (videoPermalink && toFullUrl(videoPermalink)) ||
-            (livePermalink && toFullUrl(livePermalink)) ||
-            `https://www.facebook.com/watch/?v=${videoId || liveId}`;
-
-          const { server, streamKey } = splitServerAndKey(
-            liveInfo?.secure_stream_url || live?.secure_stream_url
-          );
-
-          const pageName =
-            pageConn.pageName || (await getPageLabel(currentPageId));
-
-          const canonicalVideoUrl =
-            (videoPermalink && toFullUrl(videoPermalink)) ||
-            (livePermalink && toFullUrl(livePermalink)) ||
-            shareUrl;
-
-          match.video = canonicalVideoUrl;
-
-          match.facebookLive = {
-            id: liveId,
-            videoId,
-            pageId: currentPageId,
-            permalink_url: shareUrl,
-            raw_permalink_url: livePermalink
-              ? toFullUrl(livePermalink)
-              : null,
-            video_permalink_url: videoPermalink
-              ? toFullUrl(videoPermalink)
-              : null,
-            embed_html: liveInfo?.video?.embed_html || null,
-            secure_stream_url:
-              liveInfo?.secure_stream_url || live?.secure_stream_url || null,
-            server_url: server || null,
-            stream_key: streamKey || null,
-            status: "CREATED",
-            createdAt: new Date(),
-            watch_url: `https://www.facebook.com/watch/?v=${
-              videoId || liveId
-            }`,
-            title: fbTitle,
-            description: fbDescription,
-          };
-
-          match.meta = match.meta || {};
-          match.meta.facebook = {
-            ...(match.meta.facebook || {}),
-            pageId: currentPageId,
-            pageName,
-            liveId,
-            videoId,
-            permalinkUrl: shareUrl,
-            rawPermalink: livePermalink ? toFullUrl(livePermalink) : null,
-            title: fbTitle,
-            description: fbDescription,
-          };
-
-          await match.save();
-
-          const OVERLAY_URL = overlayUrl;
-          if (OBS_AUTO_START && server && streamKey) {
-            try {
-              await startObsStreamingWithOverlay({
-                server_url: server,
-                stream_key: streamKey,
-                overlay_url: OVERLAY_URL,
-              });
-            } catch (e) {
-              console.error(
-                "[OBS] start failed (Court custom):",
-                e?.message || e
-              );
-            }
-          }
-
-          const studioUrl =
-            `${STUDIO_BASE}/studio/live` +
-            `?matchId=${match._id}&server=${encodeURIComponent(
-              server || ""
-            )}&key=${encodeURIComponent(streamKey || "")}`;
-
-          return res.json({
-            ok: true,
-            match: {
-              id: String(match._id),
-              code: displayCode,
-              displayCode,
-              status: match.status,
-              courtName,
-              tournamentName: t?.name || null,
-              video: match.video,
-            },
-            facebook: {
-              pageId: currentPageId,
-              pageName,
-              liveId,
-              videoId,
-              permalink_url: shareUrl,
-              raw_permalink_url: livePermalink
-                ? toFullUrl(livePermalink)
-                : null,
-              video_permalink_url: videoPermalink
-                ? toFullUrl(videoPermalink)
-                : null,
-              watch_url: `https://www.facebook.com/watch/?v=${
-                videoId || liveId
-              }`,
-              embed_html: liveInfo?.video?.embed_html || null,
-              server_url: server,
-              stream_key: streamKey,
-              stream_key_masked: mask(streamKey),
-              title: fbTitle,
-              description: fbDescription,
-            },
-            overlay_url: overlayUrl,
-            studio_url: studioUrl,
-            note:
-              "Đã tạo live trên Facebook theo cấu hình Page của sân (custom).",
-          });
-        }
-      } catch (errCourt) {
-        console.error(
-          "[FB Live] Court custom live failed, fallback to token pool:",
-          errCourt?.message || errCourt
-        );
-        // → TIẾP TỤC XUỐNG DƯỚI DÙNG LOGIC CŨ
-      }
-    }
-
-    // 5) 🔄 LẤY TẤT CẢ PAGES RẢNH (logic cũ với FbTokenModel)
-    const FacebookPage = (await import("../models/fbTokenModel.js")).default;
-    const existingPageId = match.facebookLive?.pageId;
-    let candidatePages = [];
-
-    // ✅ Ưu tiên page đang dùng (nếu có) nhưng KHÔNG disabled
-    if (existingPageId) {
-      const existingPage = await FacebookPage.findOne({
-        pageId: existingPageId,
-        disabled: { $ne: true }, // ⬅ skip disabled
-      });
-      if (existingPage && !existingPage.needsReauth) {
-        if (
-          !existingPage.isBusy ||
-          (existingPage.busyMatch &&
-            String(existingPage.busyMatch) === String(match._id))
-        ) {
-          candidatePages.push(existingPage);
-        }
-      }
-    }
-
-    // ✅ Lấy tất cả pages rảnh khác, không disabled
-    const freePages = await FacebookPage.find({
-      needsReauth: false,
-      isBusy: false,
-      disabled: { $ne: true }, // ⬅ skip disabled
-    }).sort({ lastCheckedAt: 1 });
-
-    for (const page of freePages) {
-      if (!candidatePages.find((p) => p.pageId === page.pageId)) {
-        candidatePages.push(page);
-      }
-    }
-
-    if (candidatePages.length === 0) {
-      return res.status(409).json({
-        message:
-          "Không có Facebook Page nào khả dụng để tạo live (tất cả đều bận / cần reauth / disabled).",
-      });
-    }
-
-    // 6) 🔄 THỬ TẠO LIVE VỚI TỪNG PAGE (logic giữ nguyên)
-    let pageDoc = null;
-    let pageId = null;
-    let pageAccessToken = null;
-    let live = null;
-    let liveId = null;
-    let liveInfo = null;
-    const failedPages = [];
-
-    console.log(
-      `[FB Live] Có ${candidatePages.length} pages để thử cho match ${matchId}`
-    );
-
-    for (const candidatePage of candidatePages) {
-      try {
-        console.log(
-          `[FB Live] Đang thử page: ${
-            candidatePage.pageName || candidatePage.pageId
-          }`
-        );
-
-        // Lấy token
-        const currentPageId = candidatePage.pageId;
-        let currentPageAccessToken;
-        try {
-          currentPageAccessToken = await getValidPageToken(currentPageId);
-        } catch (tokenError) {
-          console.error(
-            `[FB Live] Token error cho page ${candidatePage.pageName}:`,
-            tokenError.message
-          );
-          candidatePage.needsReauth = true;
-          candidatePage.lastError = tokenError?.message || String(tokenError);
-          await candidatePage.save();
-          throw tokenError;
-        }
-
-        // Tạo live
-        const currentLive = await fbCreateLiveOnPage({
-          pageId: currentPageId,
-          pageAccessToken: currentPageAccessToken,
-          title: fbTitle,
-          description: fbDescription,
-          status: "LIVE_NOW",
-        });
-
-        const currentLiveId = currentLive.liveVideoId || currentLive.id;
-
-        // Lấy thông tin live
-        const currentLiveInfo = await fbGetLiveVideo({
-          liveVideoId: currentLiveId,
-          pageAccessToken: currentPageAccessToken,
-          fields:
-            "id,status,permalink_url,secure_stream_url,video{id,permalink_url,embed_html}",
-        });
-
-        // ✅ THÀNH CÔNG - Lưu lại kết quả
-        pageDoc = candidatePage;
-        pageId = currentPageId;
-        pageAccessToken = currentPageAccessToken;
-        live = currentLive;
-        liveId = currentLiveId;
-        liveInfo = currentLiveInfo;
-
-        console.log(
-          `[FB Live] ✅ Tạo live thành công trên page: ${
-            candidatePage.pageName || candidatePage.pageId
-          }`
-        );
-        break; // Thoát loop khi thành công
-      } catch (error) {
-        console.error(
-          `[FB Live] ❌ Page ${
-            candidatePage.pageName || candidatePage.pageId
-          } bị lỗi:`,
-          error.message
-        );
-
-        // Lưu lỗi vào DB
-        candidatePage.lastError = error?.message || String(error);
-        candidatePage.lastCheckedAt = new Date();
-        await candidatePage.save();
-
-        // Track failed page
-        failedPages.push({
-          pageId: candidatePage.pageId,
-          pageName: candidatePage.pageName,
-          error: error.message,
-        });
-
-        // Tiếp tục thử page tiếp theo
-        continue;
-      }
-    }
-
-    // Nếu tất cả pages đều fail
-    if (!pageDoc || !live) {
-      return res.status(409).json({
-        message: "Không thể tạo live trên bất kỳ Facebook Page nào.",
-        failedPages: failedPages,
-        hint: "Kiểm tra permissions hoặc re-auth các pages.",
-      });
-    }
-
-    // 7) XỬ LÝ KẾT QUẢ THÀNH CÔNG (giữ nguyên)
-    const videoId2 = liveInfo?.video?.id || null;
-    const videoPermalink2 = liveInfo?.video?.permalink_url || null;
-    const livePermalink2 =
-      liveInfo?.permalink_url || live?.permalink_url || null;
-
-    const shareUrl2 =
-      (videoPermalink2 && toFullUrl(videoPermalink2)) ||
-      (livePermalink2 && toFullUrl(livePermalink2)) ||
-      `https://www.facebook.com/watch/?v=${videoId2 || liveId}`;
-
-    const { server: server2, streamKey: streamKey2 } = splitServerAndKey(
-      liveInfo?.secure_stream_url || live?.secure_stream_url
-    );
-
-    const pageName2 = await getPageLabel(pageId);
-
-    const canonicalVideoUrl2 =
-      (videoPermalink2 && toFullUrl(videoPermalink2)) ||
-      (livePermalink2 && toFullUrl(livePermalink2)) ||
-      shareUrl2;
-
-    match.video = canonicalVideoUrl2;
-
-    match.facebookLive = {
-      id: liveId,
-      videoId: videoId2,
-      pageId,
-      permalink_url: shareUrl2,
-      raw_permalink_url: livePermalink2 ? toFullUrl(livePermalink2) : null,
-      video_permalink_url: videoPermalink2
-        ? toFullUrl(videoPermalink2)
-        : null,
-      embed_html: liveInfo?.video?.embed_html || null,
-      secure_stream_url:
-        liveInfo?.secure_stream_url || live?.secure_stream_url || null,
-      server_url: server2 || null,
-      stream_key: streamKey2 || null,
-      status: "CREATED",
-      createdAt: new Date(),
-      watch_url: `https://www.facebook.com/watch/?v=${videoId2 || liveId}`,
-      title: fbTitle,
-      description: fbDescription,
-    };
-
-    match.meta = match.meta || {};
-    match.meta.facebook = {
-      ...(match.meta.facebook || {}),
-      pageId,
-      pageName: pageName2,
-      liveId,
-      videoId: videoId2,
-      permalinkUrl: shareUrl2,
-      rawPermalink: livePermalink2 ? toFullUrl(livePermalink2) : null,
-      title: fbTitle,
-      description: fbDescription,
-    };
-
-    await match.save();
-
-    await markFacebookPageBusy({
-      pageId,
-      matchId: match._id,
-      liveVideoId: liveId,
-    });
-
-    const OVERLAY_URL2 = overlayUrl;
-    if (OBS_AUTO_START && server2 && streamKey2) {
-      try {
-        await startObsStreamingWithOverlay({
-          server_url: server2,
-          stream_key: streamKey2,
-          overlay_url: OVERLAY_URL2,
-        });
-      } catch (e) {
-        console.error("[OBS] start failed:", e?.message || e);
-      }
-    }
-
-    const studioUrl2 =
-      `${STUDIO_BASE}/studio/live` +
-      `?matchId=${match._id}&server=${encodeURIComponent(
-        server2 || ""
-      )}&key=${encodeURIComponent(streamKey2 || "")}`;
-
-    return res.json({
-      ok: true,
-      match: {
-        id: String(match._id),
-        code: displayCode,
-        displayCode,
-        status: match.status,
-        courtName,
-        tournamentName: t?.name || null,
-        video: match.video,
-      },
-      facebook: {
-        pageId,
-        pageName: pageName2,
-        liveId,
-        videoId: videoId2,
-        permalink_url: shareUrl2,
-        raw_permalink_url: livePermalink2
-          ? toFullUrl(livePermalink2)
-          : null,
-        video_permalink_url: videoPermalink2
-          ? toFullUrl(videoPermalink2)
-          : null,
-        watch_url: `https://www.facebook.com/watch/?v=${
-          videoId2 || liveId
-        }`,
-        embed_html: liveInfo?.video?.embed_html || null,
-        server_url: server2,
-        stream_key: streamKey2,
-        stream_key_masked: mask(streamKey2),
-        title: fbTitle,
-        description: fbDescription,
-      },
-      overlay_url: overlayUrl,
-      studio_url: studioUrl2,
-      note:
-        failedPages.length > 0
-          ? `Đã tạo live thành công sau ${failedPages.length} lần thử với pages khác.`
-          : "Đã tạo live trên Facebook thành công.",
-      failedPages: failedPages.length > 0 ? failedPages : undefined,
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({
-      message: "Create Facebook Live failed",
-      error: err?.response?.data || err.message,
-    });
-  }
-};
-
-
 export const createFacebookLiveForMatchForUserNotSystem = async (
   req,
   res,
@@ -2290,5 +1328,998 @@ export const createFacebookLiveForMatchForUserNotSystem = async (
     });
   } catch (err) {
     next(err);
+  }
+};
+
+// ===== helpers =====
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const FB_LIVE_FIELDS =
+  "id,status,broadcast_status,permalink_url,secure_stream_url,embed_html,video{id,permalink_url,embed_html}";
+
+/**
+ * Facebook đôi khi vừa create xong thì permalink_url/video chưa “ấm”
+ * => poll vài lần để giảm xác suất trả về null.
+ */
+async function fbGetLiveVideoStable({
+  liveVideoId,
+  pageAccessToken,
+  fields = FB_LIVE_FIELDS,
+}) {
+  const delays = [0, 800, 1500, 2500, 4000];
+  let last = null;
+
+  for (const d of delays) {
+    if (d) await sleep(d);
+
+    try {
+      const info = await fbGetLiveVideo({
+        liveVideoId,
+        pageAccessToken,
+        fields,
+      });
+
+      last = info;
+
+      const livePermalink = info?.permalink_url || null;
+      const videoPermalink = info?.video?.permalink_url || null;
+
+      // Chỉ cần 1 trong 2 có là đủ “ổn”
+      if (livePermalink || videoPermalink) break;
+    } catch (e) {
+      // ignore -> thử lại
+    }
+  }
+
+  return last;
+}
+
+/**
+ * ✅ Quy tắc URL (FIX triệt để):
+ * - share/canonical ưu tiên LIVE permalink (info.permalink_url)
+ * - fallback watch bằng liveId (ổn định ngay sau create)
+ * - videoPermalink chỉ để lưu thêm/đổi sau (không ưu tiên ở thời điểm vừa create)
+ */
+function buildFacebookUrls({ liveId, livePermalink, videoPermalink }) {
+  const livePermalinkFull = livePermalink ? toFullUrl(livePermalink) : null;
+  const videoPermalinkFull = videoPermalink ? toFullUrl(videoPermalink) : null;
+
+  const watchUrl = `https://www.facebook.com/watch/?v=${liveId}`;
+
+  const shareUrl = livePermalinkFull || watchUrl;
+  const canonicalVideoUrl = livePermalinkFull || videoPermalinkFull || watchUrl;
+
+  return {
+    watchUrl,
+    shareUrl,
+    canonicalVideoUrl,
+    livePermalinkFull,
+    videoPermalinkFull,
+  };
+}
+
+// ==========================
+// MAIN CONTROLLER
+// ==========================
+export const createFacebookLiveForMatch = async (req, res) => {
+  try {
+    // 1) Check FB enabled
+    const fbEnabled =
+      (await getCfgStr("LIVE_FACEBOOK_ENABLED", "1")).trim() === "1";
+    if (!fbEnabled) {
+      return res
+        .status(400)
+        .json({ message: "LIVE_FACEBOOK_ENABLED đang tắt trong Config." });
+    }
+
+    // 👉 Nếu có header x-pkt-match-kind thì dùng UserMatch + FacebookPageConnection, KHÔNG dùng Match/FbToken
+    const matchKindHeader =
+      req.get("x-pkt-match-kind") || req.headers["x-pkt-match-kind"];
+
+    // ============================================================
+    // ✅ BRANCH A: UserMatch
+    // ============================================================
+    if (matchKindHeader) {
+      const { matchId } = req.params;
+
+      // 2A) Load UserMatch
+      const userMatch = await UserMatch.findById(matchId)
+        .populate("createdBy", "name fullName avatar nickname nickName")
+        .populate(
+          "participants.user",
+          "name fullName avatar nickname nickName avatar"
+        );
+
+      if (!userMatch) {
+        return res.status(404).json({ message: "UserMatch not found" });
+      }
+
+      // 3A) Build tên 2 bên & code đơn giản cho UserMatch
+      const sideA = (userMatch.participants || []).filter(
+        (p) => p.side === "A"
+      );
+      const sideB = (userMatch.participants || []).filter(
+        (p) => p.side === "B"
+      );
+
+      const getParticipantName = (p) => {
+        if (!p) return "Player";
+        return (
+          p.displayName ||
+          p.user?.nickname ||
+          p.user?.nickName ||
+          p.user?.fullName ||
+          p.user?.name ||
+          "Player"
+        );
+      };
+
+      const pairAName = sideA.length
+        ? sideA.map(getParticipantName).join(" / ")
+        : "VĐV A";
+
+      const pairBName = sideB.length
+        ? sideB.map(getParticipantName).join(" / ")
+        : "VĐV B";
+
+      const displayCode =
+        userMatch.labelKey ||
+        userMatch.code ||
+        `R${userMatch.round ?? 1}#${(userMatch.order ?? 0) + 1}`;
+
+      // 4A) Overlay / Studio base
+      const OVERLAY_BASE = await resolveOverlayBase();
+      const STUDIO_BASE = await resolveStudioBase();
+      const OBS_AUTO_START = await isObsAutoStart();
+
+      const overlayUrl = `${OVERLAY_BASE}/overlay/score?matchId=${userMatch._id}&theme=fb&ratio=16:9&safe=1&kind=userMatch`;
+
+      const courtName = userMatch?.courtLabel || "";
+      const tournamentName =
+        userMatch?.customLeague?.name || userMatch?.title || "Trận đấu tự do";
+
+      let fbTitle = `${tournamentName} - ${displayCode} - ${pairAName} vs ${pairBName}`;
+      if (fbTitle.length > 250) fbTitle = fbTitle.slice(0, 247) + "...";
+
+      const fbDescriptionLines = [
+        `Trực tiếp ${tournamentName} - ${displayCode}`,
+        `${pairAName} vs ${pairBName}`,
+      ];
+      const fbDescription = fbDescriptionLines.join("\n");
+
+      // 5A) Lấy FacebookPageConnection của owner (createdBy)
+      const ownerUserId = userMatch.createdBy;
+      const allConns = await FacebookPageConnection.find({
+        user: ownerUserId,
+      }).sort({ isDefault: -1, createdAt: 1 });
+
+      if (!allConns.length) {
+        return res.status(409).json({
+          message:
+            "Bạn chưa kết nối Facebook Page nào để phát live (UserMatch).",
+        });
+      }
+
+      const fbCfg = userMatch.facebookLiveConfig || {};
+
+      const candidateConnections = [];
+      if (fbCfg.pageConnection) {
+        const cfgConn = allConns.find(
+          (c) => String(c._id) === String(fbCfg.pageConnection)
+        );
+        if (cfgConn) candidateConnections.push(cfgConn);
+      }
+
+      const defaultConns = allConns.filter(
+        (c) =>
+          c.isDefault &&
+          !candidateConnections.find((x) => String(x._id) === String(c._id))
+      );
+      const otherConns = allConns.filter(
+        (c) =>
+          !c.isDefault &&
+          !candidateConnections.find((x) => String(x._id) === String(c._id))
+      );
+
+      candidateConnections.push(...defaultConns, ...otherConns);
+
+      let pageDoc = null;
+      let pageId = null;
+      let pageAccessToken = null;
+      let live = null;
+      let liveId = null;
+      let liveInfo = null;
+      const failedPages = [];
+
+      console.log(
+        `[FB Live - UserMatch] Có ${candidateConnections.length} page connection để thử cho userMatch ${matchId}`
+      );
+
+      // 6A) Thử tạo live với từng FacebookPageConnection
+      for (const conn of candidateConnections) {
+        try {
+          console.log(
+            `[FB Live - UserMatch] Đang thử page: ${
+              conn.pageName || conn.pageId
+            }`
+          );
+
+          const currentPageId = conn.pageId;
+          const currentPageAccessToken = conn.pageAccessToken;
+          if (!currentPageAccessToken) {
+            throw new Error("FacebookPageConnection thiếu pageAccessToken");
+          }
+
+          const currentLive = await fbCreateLiveOnPage({
+            pageId: currentPageId,
+            pageAccessToken: currentPageAccessToken,
+            title: fbTitle,
+            description: fbDescription,
+            status: "LIVE_NOW",
+          });
+
+          const currentLiveId = currentLive.liveVideoId || currentLive.id;
+
+          // ✅ FIX: lấy liveInfo ổn định (poll) + fields có embed_html top-level
+          const currentLiveInfo = await fbGetLiveVideoStable({
+            liveVideoId: currentLiveId,
+            pageAccessToken: currentPageAccessToken,
+            fields: FB_LIVE_FIELDS,
+          });
+
+          // Thành công
+          pageDoc = conn;
+          pageId = currentPageId;
+          pageAccessToken = currentPageAccessToken;
+          live = currentLive;
+          liveId = currentLiveId;
+          liveInfo = currentLiveInfo;
+
+          console.log(
+            `[FB Live - UserMatch] ✅ Tạo live thành công trên page: ${
+              conn.pageName || conn.pageId
+            }`
+          );
+
+          break;
+        } catch (error) {
+          console.error(
+            `[FB Live - UserMatch] ❌ Page ${
+              conn.pageName || conn.pageId
+            } bị lỗi:`,
+            error.message
+          );
+
+          failedPages.push({
+            pageId: conn.pageId,
+            pageName: conn.pageName,
+            error: error.message,
+          });
+
+          continue;
+        }
+      }
+
+      if (!pageDoc || !live || !liveId) {
+        return res.status(409).json({
+          message:
+            "Không thể tạo live trên bất kỳ Facebook Page nào (UserMatch).",
+          failedPages,
+          hint: "Kiểm tra quyền và token trên FacebookPageConnection.",
+        });
+      }
+
+      // 7A) Xử lý kết quả thành công cho UserMatch
+      const videoId = liveInfo?.video?.id || null;
+      const livePermalink = liveInfo?.permalink_url || live?.permalink_url || null;
+      const videoPermalink = liveInfo?.video?.permalink_url || null;
+
+      // ✅ FIX: build url theo rule mới
+      const {
+        watchUrl,
+        shareUrl,
+        canonicalVideoUrl,
+        livePermalinkFull,
+        videoPermalinkFull,
+      } = buildFacebookUrls({
+        liveId,
+        livePermalink,
+        videoPermalink,
+      });
+
+      const { server, streamKey } = splitServerAndKey(
+        liveInfo?.secure_stream_url || live?.secure_stream_url
+      );
+
+      const pageName = pageDoc?.pageName || (await getPageLabel(pageId));
+
+      // ✅ Lưu canonicalVideoUrl (ưu tiên LIVE permalink)
+      userMatch.video = canonicalVideoUrl;
+
+      userMatch.facebookLive = {
+        id: liveId,
+        videoId,
+        pageId,
+        permalink_url: shareUrl,
+        raw_permalink_url: livePermalinkFull,
+        video_permalink_url: videoPermalinkFull,
+        watch_url: watchUrl,
+        // ✅ ưu tiên embed_html từ live object
+        embed_html: liveInfo?.embed_html || liveInfo?.video?.embed_html || null,
+        secure_stream_url:
+          liveInfo?.secure_stream_url || live?.secure_stream_url || null,
+        server_url: server || null,
+        stream_key: streamKey || null,
+        status: "CREATED",
+        createdAt: new Date(),
+      };
+
+      userMatch.facebookLiveConfig = userMatch.facebookLiveConfig || {};
+      userMatch.facebookLiveConfig.mode = "USER_PAGE";
+      userMatch.facebookLiveConfig.pageConnection = pageDoc._id;
+      userMatch.facebookLiveConfig.pageId = pageId;
+
+      await userMatch.save();
+
+      // UserMatch không dùng FbToken pool nên không mark busy
+      const OVERLAY_URL = overlayUrl;
+      if (OBS_AUTO_START && server && streamKey) {
+        try {
+          await startObsStreamingWithOverlay({
+            server_url: server,
+            stream_key: streamKey,
+            overlay_url: OVERLAY_URL,
+          });
+        } catch (e) {
+          console.error("[OBS] start failed (UserMatch):", e?.message || e);
+        }
+      }
+
+      const studioUrl =
+        `${STUDIO_BASE}/studio/live` +
+        `?matchId=${userMatch._id}&server=${encodeURIComponent(
+          server || ""
+        )}&key=${encodeURIComponent(streamKey || "")}`;
+
+      return res.json({
+        ok: true,
+        kind: "userMatch",
+        match: {
+          id: String(userMatch._id),
+          code: displayCode,
+          displayCode,
+          status: userMatch.status,
+          courtName,
+          tournamentName,
+          video: userMatch.video,
+        },
+        facebook: {
+          pageId,
+          pageName,
+          liveId,
+          videoId,
+          permalink_url: shareUrl,
+          raw_permalink_url: livePermalinkFull,
+          video_permalink_url: videoPermalinkFull,
+          watch_url: watchUrl,
+          embed_html: liveInfo?.embed_html || liveInfo?.video?.embed_html || null,
+          server_url: server,
+          stream_key: streamKey,
+          stream_key_masked: mask(streamKey),
+          title: fbTitle,
+          description: fbDescription,
+        },
+        overlay_url: overlayUrl,
+        studio_url: studioUrl,
+        note:
+          failedPages.length > 0
+            ? `Đã tạo live thành công sau ${failedPages.length} lần thử với các page khác.`
+            : "Đã tạo live UserMatch trên Facebook thành công.",
+        failedPages: failedPages.length > 0 ? failedPages : undefined,
+      });
+    }
+
+    // ============================================================
+    // ❗ BRANCH B: Match + (Court custom OR Token pool)
+    // ============================================================
+
+    // 2) Load match
+    const { matchId } = req.params;
+    const match = await Match.findById(matchId)
+      .populate("tournament court")
+      .populate({
+        path: "pairA",
+        populate: [
+          { path: "player1.user", select: "name nickname nickName" },
+          { path: "player2.user", select: "name nickname nickName" },
+        ],
+      })
+      .populate({
+        path: "pairB",
+        populate: [
+          { path: "player1.user", select: "name nickname nickName" },
+          { path: "player2.user", select: "name nickname nickName" },
+        ],
+      });
+
+    if (!match) {
+      return res.status(404).json({ message: "Match not found" });
+    }
+
+    /* ================== 🔢 build displayCode (giữ nguyên logic) ================== */
+    const allBrackets = await Bracket.find({ tournament: match.tournament })
+      .select("_id tournament type stage order meta")
+      .lean();
+
+    allBrackets.sort((a, b) => {
+      if (a.stage !== b.stage) return a.stage - b.stage;
+      if (a.order !== b.order) return a.order - b.order;
+      return String(a._id).localeCompare(String(b._id));
+    });
+
+    const groupTypes = new Set(["group", "round_robin", "gsl"]);
+    const effRounds = (br) => {
+      if (groupTypes.has(br.type)) return 1;
+      const mr = br?.meta?.maxRounds;
+      if (Number.isFinite(mr) && mr > 0) return mr;
+      return 1;
+    };
+
+    const letterToIndex = (s) => {
+      if (!s) return null;
+      const str = String(s).trim();
+      const num = str.match(/(\d+)/);
+      if (num) return Number(num[1]);
+      const m = str.match(/([A-Za-z])$/);
+      if (m) return m[1].toUpperCase().charCodeAt(0) - 64;
+      return null;
+    };
+
+    const curBracketId = String(match.bracket || "");
+    const curBracket = allBrackets.find((b) => String(b._id) === curBracketId);
+    const isGroup = curBracket ? groupTypes.has(curBracket.type) : false;
+
+    let vOffset = 0;
+    for (const b of allBrackets) {
+      if (String(b._id) === curBracketId) break;
+      vOffset += effRounds(b);
+    }
+    const roundInBracket =
+      Number(match.round) && Number(match.round) > 0 ? Number(match.round) : 1;
+    const vIndex = isGroup ? vOffset + 1 : vOffset + roundInBracket;
+
+    let bAlpha =
+      match?.pool?.name ||
+      match?.pool?.key ||
+      (match?.pool?.id ? String(match.pool.id) : "");
+    if (typeof bAlpha !== "string") bAlpha = String(bAlpha || "");
+    let bIndex = Number.isFinite(Number(match?.pool?.order))
+      ? Number(match.pool.order) + 1
+      : Number.isFinite(Number(match?.pool?.index))
+      ? Number(match.pool.index) + 1
+      : null;
+    if (!bIndex) {
+      const fromName = letterToIndex(match?.pool?.name || match?.pool?.key);
+      if (fromName) bIndex = fromName;
+    }
+    if (isGroup && !bIndex) bIndex = 1;
+    if (!isGroup) bIndex = null;
+
+    let tIndex = (Number(match.order) || 0) + 1;
+    if (isGroup) {
+      const samePoolMatches = await Match.find({
+        bracket: match.bracket,
+        ...(match?.pool?.id
+          ? { "pool.id": match.pool.id }
+          : match?.pool?.name
+          ? { "pool.name": match.pool.name }
+          : {}),
+      })
+        .select("_id rrRound order createdAt")
+        .sort({ rrRound: 1, order: 1, createdAt: 1 })
+        .lean();
+
+      const idx = samePoolMatches.findIndex(
+        (m) => String(m._id) === String(match._id)
+      );
+      if (idx >= 0) tIndex = idx + 1;
+    }
+
+    const displayCode = isGroup ? `V${vIndex}-B${bIndex}-T${tIndex}` : `V${vIndex}-T${tIndex}`;
+    match.displayCode = displayCode;
+
+    // 3) 🔄 Build metadata chung cho Match
+    const OVERLAY_BASE = await resolveOverlayBase();
+    const STUDIO_BASE = await resolveStudioBase();
+    const OBS_AUTO_START = await isObsAutoStart();
+    const t = match.tournament;
+
+    const getPlayerDisplayName = (p) => {
+      if (!p) return null;
+      return (
+        p.user?.nickname ||
+        p.user?.nickName ||
+        p.user?.name ||
+        p.nickname ||
+        p.nickName ||
+        p.name ||
+        null
+      );
+    };
+
+    const buildPairName = (
+      pair,
+      fallbackSingle = "VĐV",
+      fallbackDouble = "Đội"
+    ) => {
+      if (!pair) return fallbackSingle;
+      const p1 = pair.player1 || {};
+      const p2 = pair.player2 || {};
+      const n1 = getPlayerDisplayName(p1) || pair.player1Name || null;
+      const n2 = getPlayerDisplayName(p2) || pair.player2Name || null;
+      const isSingles = !p2 || (!n2 && !p2.user && !pair.player2Name);
+      if (isSingles) return n1 || fallbackSingle;
+      if (n1 && n2) return `${n1} / ${n2}`;
+      return n1 || n2 || fallbackDouble;
+    };
+
+    const pairAName = buildPairName(match.pairA, "VĐV A", "Đội A");
+    const pairBName = buildPairName(match.pairB, "VĐV B", "Đội B");
+    const matchCode = displayCode;
+    const overlayUrl = `${OVERLAY_BASE}/overlay/score?matchId=${match._id}&theme=fb&ratio=16:9&safe=1`;
+    const courtName = match?.court?.name || match?.courtLabel || "";
+
+    let fbTitle = `${t?.name || "PickleTour"} - ${matchCode} - ${pairAName} vs ${pairBName}`;
+    if (fbTitle.length > 250) fbTitle = fbTitle.slice(0, 247) + "...";
+
+    const fbDescriptionLines = [
+      `Trực tiếp ${t?.name || "giải đấu"} - ${matchCode}`,
+      `${pairAName} vs ${pairBName}`,
+    ];
+    const fbDescription = fbDescriptionLines.join("\n");
+
+    // 4) 🔍 Thử dùng cấu hình Page theo SÂN (Court.liveConfig) nếu có mode = custom
+    const court = match.court;
+    const courtLiveCfg = (court && court.liveConfig) || {};
+    const courtAdvEnabled =
+      typeof courtLiveCfg.advancedSettingEnabled === "boolean"
+        ? courtLiveCfg.advancedSettingEnabled
+        : !!courtLiveCfg.advancedRandomEnabled;
+    const courtPageMode = (
+      courtLiveCfg.pageMode ||
+      courtLiveCfg.randomPageMode ||
+      "default"
+    )
+      .toString()
+      .trim()
+      .toLowerCase();
+    const courtPageConnectionId =
+      courtLiveCfg.pageConnectionId ||
+      courtLiveCfg.randomPageConnectionId ||
+      null;
+
+    // ============================================================
+    // ✅ BRANCH B1: Court custom page
+    // ============================================================
+    if (courtAdvEnabled && courtPageMode === "custom" && courtPageConnectionId) {
+      try {
+        const idStr = String(courtPageConnectionId);
+        let pageConn =
+          (await FacebookPageConnection.findById(idStr)) ||
+          (await FacebookPageConnection.findOne({ pageId: idStr }));
+
+        if (!pageConn || !pageConn.pageAccessToken || !pageConn.pageId) {
+          console.warn(
+            "[FB Live] Court custom page config invalid, fallback to token pool"
+          );
+        } else {
+          const currentPageId = pageConn.pageId;
+          const currentPageAccessToken = pageConn.pageAccessToken;
+
+          const live = await fbCreateLiveOnPage({
+            pageId: currentPageId,
+            pageAccessToken: currentPageAccessToken,
+            title: fbTitle,
+            description: fbDescription,
+            status: "LIVE_NOW",
+          });
+
+          const liveId = live.liveVideoId || live.id;
+
+          // ✅ FIX: stable fetch
+          const liveInfo = await fbGetLiveVideoStable({
+            liveVideoId: liveId,
+            pageAccessToken: currentPageAccessToken,
+            fields: FB_LIVE_FIELDS,
+          });
+
+          const videoId = liveInfo?.video?.id || null;
+          const livePermalink = liveInfo?.permalink_url || live?.permalink_url || null;
+          const videoPermalink = liveInfo?.video?.permalink_url || null;
+
+          const {
+            watchUrl,
+            shareUrl,
+            canonicalVideoUrl,
+            livePermalinkFull,
+            videoPermalinkFull,
+          } = buildFacebookUrls({
+            liveId,
+            livePermalink,
+            videoPermalink,
+          });
+
+          const { server, streamKey } = splitServerAndKey(
+            liveInfo?.secure_stream_url || live?.secure_stream_url
+          );
+
+          const pageName =
+            pageConn.pageName || (await getPageLabel(currentPageId));
+
+          match.video = canonicalVideoUrl;
+
+          match.facebookLive = {
+            id: liveId,
+            videoId,
+            pageId: currentPageId,
+            permalink_url: shareUrl,
+            raw_permalink_url: livePermalinkFull,
+            video_permalink_url: videoPermalinkFull,
+            embed_html: liveInfo?.embed_html || liveInfo?.video?.embed_html || null,
+            secure_stream_url:
+              liveInfo?.secure_stream_url || live?.secure_stream_url || null,
+            server_url: server || null,
+            stream_key: streamKey || null,
+            status: "CREATED",
+            createdAt: new Date(),
+            watch_url: watchUrl,
+            title: fbTitle,
+            description: fbDescription,
+          };
+
+          match.meta = match.meta || {};
+          match.meta.facebook = {
+            ...(match.meta.facebook || {}),
+            pageId: currentPageId,
+            pageName,
+            liveId,
+            videoId,
+            permalinkUrl: shareUrl,
+            rawPermalink: livePermalinkFull,
+            title: fbTitle,
+            description: fbDescription,
+          };
+
+          await match.save();
+
+          const OVERLAY_URL = overlayUrl;
+          if (OBS_AUTO_START && server && streamKey) {
+            try {
+              await startObsStreamingWithOverlay({
+                server_url: server,
+                stream_key: streamKey,
+                overlay_url: OVERLAY_URL,
+              });
+            } catch (e) {
+              console.error(
+                "[OBS] start failed (Court custom):",
+                e?.message || e
+              );
+            }
+          }
+
+          const studioUrl =
+            `${STUDIO_BASE}/studio/live` +
+            `?matchId=${match._id}&server=${encodeURIComponent(
+              server || ""
+            )}&key=${encodeURIComponent(streamKey || "")}`;
+
+          return res.json({
+            ok: true,
+            match: {
+              id: String(match._id),
+              code: displayCode,
+              displayCode,
+              status: match.status,
+              courtName,
+              tournamentName: t?.name || null,
+              video: match.video,
+            },
+            facebook: {
+              pageId: currentPageId,
+              pageName,
+              liveId,
+              videoId,
+              permalink_url: shareUrl,
+              raw_permalink_url: livePermalinkFull,
+              video_permalink_url: videoPermalinkFull,
+              watch_url: watchUrl,
+              embed_html: liveInfo?.embed_html || liveInfo?.video?.embed_html || null,
+              server_url: server,
+              stream_key: streamKey,
+              stream_key_masked: mask(streamKey),
+              title: fbTitle,
+              description: fbDescription,
+            },
+            overlay_url: overlayUrl,
+            studio_url: studioUrl,
+            note:
+              "Đã tạo live trên Facebook theo cấu hình Page của sân (custom).",
+          });
+        }
+      } catch (errCourt) {
+        console.error(
+          "[FB Live] Court custom live failed, fallback to token pool:",
+          errCourt?.message || errCourt
+        );
+        // → fallback xuống token pool
+      }
+    }
+
+    // ============================================================
+    // ✅ BRANCH B2: Token pool (logic cũ)
+    // ============================================================
+    const FacebookPage = (await import("../models/fbTokenModel.js")).default;
+    const existingPageId = match.facebookLive?.pageId;
+    let candidatePages = [];
+
+    // ✅ Ưu tiên page đang dùng (nếu có) nhưng KHÔNG disabled
+    if (existingPageId) {
+      const existingPage = await FacebookPage.findOne({
+        pageId: existingPageId,
+        disabled: { $ne: true },
+      });
+      if (existingPage && !existingPage.needsReauth) {
+        if (
+          !existingPage.isBusy ||
+          (existingPage.busyMatch &&
+            String(existingPage.busyMatch) === String(match._id))
+        ) {
+          candidatePages.push(existingPage);
+        }
+      }
+    }
+
+    // ✅ Lấy tất cả pages rảnh khác, không disabled
+    const freePages = await FacebookPage.find({
+      needsReauth: false,
+      isBusy: false,
+      disabled: { $ne: true },
+    }).sort({ lastCheckedAt: 1 });
+
+    for (const page of freePages) {
+      if (!candidatePages.find((p) => p.pageId === page.pageId)) {
+        candidatePages.push(page);
+      }
+    }
+
+    if (candidatePages.length === 0) {
+      return res.status(409).json({
+        message:
+          "Không có Facebook Page nào khả dụng để tạo live (tất cả đều bận / cần reauth / disabled).",
+      });
+    }
+
+    let pageDoc = null;
+    let pageId = null;
+    let pageAccessToken = null;
+    let live = null;
+    let liveId = null;
+    let liveInfo = null;
+    const failedPages = [];
+
+    console.log(
+      `[FB Live] Có ${candidatePages.length} pages để thử cho match ${matchId}`
+    );
+
+    for (const candidatePage of candidatePages) {
+      try {
+        console.log(
+          `[FB Live] Đang thử page: ${
+            candidatePage.pageName || candidatePage.pageId
+          }`
+        );
+
+        const currentPageId = candidatePage.pageId;
+
+        let currentPageAccessToken;
+        try {
+          currentPageAccessToken = await getValidPageToken(currentPageId);
+        } catch (tokenError) {
+          console.error(
+            `[FB Live] Token error cho page ${candidatePage.pageName}:`,
+            tokenError.message
+          );
+          candidatePage.needsReauth = true;
+          candidatePage.lastError = tokenError?.message || String(tokenError);
+          await candidatePage.save();
+          throw tokenError;
+        }
+
+        const currentLive = await fbCreateLiveOnPage({
+          pageId: currentPageId,
+          pageAccessToken: currentPageAccessToken,
+          title: fbTitle,
+          description: fbDescription,
+          status: "LIVE_NOW",
+        });
+
+        const currentLiveId = currentLive.liveVideoId || currentLive.id;
+
+        // ✅ FIX: stable fetch
+        const currentLiveInfo = await fbGetLiveVideoStable({
+          liveVideoId: currentLiveId,
+          pageAccessToken: currentPageAccessToken,
+          fields: FB_LIVE_FIELDS,
+        });
+
+        pageDoc = candidatePage;
+        pageId = currentPageId;
+        pageAccessToken = currentPageAccessToken;
+        live = currentLive;
+        liveId = currentLiveId;
+        liveInfo = currentLiveInfo;
+
+        console.log(
+          `[FB Live] ✅ Tạo live thành công trên page: ${
+            candidatePage.pageName || candidatePage.pageId
+          }`
+        );
+        break;
+      } catch (error) {
+        console.error(
+          `[FB Live] ❌ Page ${
+            candidatePage.pageName || candidatePage.pageId
+          } bị lỗi:`,
+          error.message
+        );
+
+        candidatePage.lastError = error?.message || String(error);
+        candidatePage.lastCheckedAt = new Date();
+        await candidatePage.save();
+
+        failedPages.push({
+          pageId: candidatePage.pageId,
+          pageName: candidatePage.pageName,
+          error: error.message,
+        });
+
+        continue;
+      }
+    }
+
+    if (!pageDoc || !live || !liveId) {
+      return res.status(409).json({
+        message: "Không thể tạo live trên bất kỳ Facebook Page nào.",
+        failedPages,
+        hint: "Kiểm tra permissions hoặc re-auth các pages.",
+      });
+    }
+
+    // 7) XỬ LÝ KẾT QUẢ THÀNH CÔNG (FIX URL)
+    const videoId2 = liveInfo?.video?.id || null;
+    const livePermalink2 = liveInfo?.permalink_url || live?.permalink_url || null;
+    const videoPermalink2 = liveInfo?.video?.permalink_url || null;
+
+    const {
+      watchUrl: watchUrl2,
+      shareUrl: shareUrl2,
+      canonicalVideoUrl: canonicalVideoUrl2,
+      livePermalinkFull: livePermalinkFull2,
+      videoPermalinkFull: videoPermalinkFull2,
+    } = buildFacebookUrls({
+      liveId,
+      livePermalink: livePermalink2,
+      videoPermalink: videoPermalink2,
+    });
+
+    const { server: server2, streamKey: streamKey2 } = splitServerAndKey(
+      liveInfo?.secure_stream_url || live?.secure_stream_url
+    );
+
+    const pageName2 = await getPageLabel(pageId);
+
+    match.video = canonicalVideoUrl2;
+
+    match.facebookLive = {
+      id: liveId,
+      videoId: videoId2,
+      pageId,
+      permalink_url: shareUrl2,
+      raw_permalink_url: livePermalinkFull2,
+      video_permalink_url: videoPermalinkFull2,
+      embed_html: liveInfo?.embed_html || liveInfo?.video?.embed_html || null,
+      secure_stream_url:
+        liveInfo?.secure_stream_url || live?.secure_stream_url || null,
+      server_url: server2 || null,
+      stream_key: streamKey2 || null,
+      status: "CREATED",
+      createdAt: new Date(),
+      watch_url: watchUrl2,
+      title: fbTitle,
+      description: fbDescription,
+    };
+
+    match.meta = match.meta || {};
+    match.meta.facebook = {
+      ...(match.meta.facebook || {}),
+      pageId,
+      pageName: pageName2,
+      liveId,
+      videoId: videoId2,
+      permalinkUrl: shareUrl2,
+      rawPermalink: livePermalinkFull2,
+      title: fbTitle,
+      description: fbDescription,
+    };
+
+    await match.save();
+
+    await markFacebookPageBusy({
+      pageId,
+      matchId: match._id,
+      liveVideoId: liveId,
+    });
+
+    const OVERLAY_URL2 = overlayUrl;
+    if (OBS_AUTO_START && server2 && streamKey2) {
+      try {
+        await startObsStreamingWithOverlay({
+          server_url: server2,
+          stream_key: streamKey2,
+          overlay_url: OVERLAY_URL2,
+        });
+      } catch (e) {
+        console.error("[OBS] start failed:", e?.message || e);
+      }
+    }
+
+    const studioUrl2 =
+      `${STUDIO_BASE}/studio/live` +
+      `?matchId=${match._id}&server=${encodeURIComponent(
+        server2 || ""
+      )}&key=${encodeURIComponent(streamKey2 || "")}`;
+
+    return res.json({
+      ok: true,
+      match: {
+        id: String(match._id),
+        code: displayCode,
+        displayCode,
+        status: match.status,
+        courtName,
+        tournamentName: t?.name || null,
+        video: match.video,
+      },
+      facebook: {
+        pageId,
+        pageName: pageName2,
+        liveId,
+        videoId: videoId2,
+        permalink_url: shareUrl2,
+        raw_permalink_url: livePermalinkFull2,
+        video_permalink_url: videoPermalinkFull2,
+        watch_url: watchUrl2,
+        embed_html: liveInfo?.embed_html || liveInfo?.video?.embed_html || null,
+        server_url: server2,
+        stream_key: streamKey2,
+        stream_key_masked: mask(streamKey2),
+        title: fbTitle,
+        description: fbDescription,
+      },
+      overlay_url: overlayUrl,
+      studio_url: studioUrl2,
+      note:
+        failedPages.length > 0
+          ? `Đã tạo live thành công sau ${failedPages.length} lần thử với pages khác.`
+          : "Đã tạo live trên Facebook thành công.",
+      failedPages: failedPages.length > 0 ? failedPages : undefined,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      message: "Create Facebook Live failed",
+      error: err?.response?.data || err.message,
+    });
   }
 };

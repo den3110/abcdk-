@@ -77,6 +77,8 @@ import { registerAutoHealJobs } from "./utils/scheduleNotifications.js";
 import weatherRoutes from "./routes/weatherRoutes.js";
 import Tournament from "./models/tournamentModel.js";
 import radarRoutes from "./routes/radarRoutes.js";
+import supportRoutes from "./routes/supportRoutes.js";
+import auditRoutes from "./routes/auditRoutes.js";
 import Match from "./models/matchModel.js";
 import { httpLogger } from "./middleware/httpLogger.js";
 
@@ -205,7 +207,8 @@ app.use("/api/fb", facebookRoutes);
 app.use("/api/chat", chatBotRoutes);
 app.use("/api/user-matches", userMatchRoutes);
 app.use("/api/radar", radarRoutes);
-
+app.use("/api/support", supportRoutes);
+app.use("/api/audit", auditRoutes);
 app.get("/dl/file/:id", async (req, res) => {
   try {
     const doc = await FileAsset.findById(req.params.id);
