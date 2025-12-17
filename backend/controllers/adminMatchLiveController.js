@@ -1346,7 +1346,7 @@ async function fbGetLiveVideoStable({
   pageAccessToken,
   fields = FB_LIVE_FIELDS,
 }) {
-  const delays = [0, 800, 1500, 2500, 4000];
+  const delays = [1500, 2500, 4000];
   let last = null;
 
   for (const d of delays) {

@@ -748,7 +748,6 @@ function extractClientContext(req) {
 // Helpers có sẵn: isRegistrationOpen(), extractClientContext(req)
 
 
-
 const registerUser = asyncHandler(async (req, res) => {
   // ===== Nhận & chuẩn hoá đầu vào =====
   let {
