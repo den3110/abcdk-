@@ -18,8 +18,6 @@ import {
   getKycCheckData,
   updateKycStatus,
   getAdminUsers,
-  verifyRegisterOtp,
-  resendRegisterOtp,
 } from "../controllers/userController.js";
 import {
   authorize,
@@ -51,8 +49,6 @@ import {
 const router = express.Router();
 
 router.post("/", registerUser);
-router.post("/register/verify-otp", verifyRegisterOtp);
-router.post("/register/resend-otp", resendRegisterOtp);
 router.get("/reauth", protect, reauthUser);
 router.post("/auth", authUser); // mobile
 router.post("/auth/web", authUserWeb); // web
