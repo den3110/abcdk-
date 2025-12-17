@@ -1335,7 +1335,7 @@ export const createFacebookLiveForMatchForUserNotSystem = async (
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const FB_LIVE_FIELDS =
-  "id,status,broadcast_status,permalink_url,secure_stream_url,embed_html,video{id,permalink_url,embed_html}";
+  "id,status,permalink_url,secure_stream_url,video{id,permalink_url,embed_html}";
 
 /**
  * Facebook đôi khi vừa create xong thì permalink_url/video chưa “ấm”
@@ -1357,7 +1357,7 @@ async function fbGetLiveVideoStable({
       const info = await fbGetLiveVideo({
         liveVideoId,
         pageAccessToken,
-        // fields,
+        fields,
       });
 
       last = info;
@@ -2230,7 +2230,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
       permalink_url: shareUrl2,
       raw_permalink_url: livePermalinkFull2,
       video_permalink_url: videoPermalinkFull2,
-      embed_html: liveInfo?.embed_html || liveInfo?.video?.embed_html || null,
+      embed_html: liveInfo?.embed_html || liveInfo?.video?.embed_html || videoPermalinkFull2 || null,
       secure_stream_url:
         liveInfo?.secure_stream_url || live?.secure_stream_url || null,
       server_url: server2 || null,
