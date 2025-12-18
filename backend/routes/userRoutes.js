@@ -18,8 +18,9 @@ import {
   getKycCheckData,
   updateKycStatus,
   getAdminUsers,
-  // verifyRegisterOtp,
-  // resendRegisterOtp,
+  verifyRegisterOtp,
+  resendRegisterOtp,
+  registerUserNotOTP,
 } from "../controllers/userController.js";
 import {
   authorize,
@@ -47,12 +48,28 @@ import {
   series,
   top,
 } from "../controllers/userStatsController.js";
+import { loadConfig } from "../middleware/versionGate.js";
+import { isWebRequest } from "../utils/isWebRequest.js";
 
 const router = express.Router();
 
-router.post("/", registerUser);
-// router.post("/register/verify-otp", verifyRegisterOtp);
-// router.post("/register/resend-otp", resendRegisterOtp);
+// router.post("/", registerUser);
+router.post("/", async (req, res, next) => {
+  try {
+    const ctrl = isWebRequest(req);
+    const appVersion = await loadConfig(); // <-- điều kiện của bạn
+    if (appVersion.ios.minSupportedBuild < 22 && ctrl !== true) {
+      return await registerUserNotOTP(req, res, next); // controller 2
+    } else {
+      return await registerUser(req, res, next); // controller 1
+    }
+  } catch (e) {
+    next(e);
+  }
+});
+
+router.post("/register/verify-otp", verifyRegisterOtp);
+router.post("/register/resend-otp", resendRegisterOtp);
 router.get("/reauth", protect, reauthUser);
 router.post("/auth", authUser); // mobile
 router.post("/auth/web", authUserWeb); // web
@@ -93,7 +110,7 @@ router.get("/stats/:uid/stats/breakdown", protect, breakdown);
 router.get("/stats/:uid/stats/heatmap", protect, heatmap);
 router.get("/stats/:uid/stats/top", protect, top);
 router.get("/stats/:uid/stats/profile", protect, profile);
-router.get("/kyc/status/:id", protect, getKycCheckData)
+router.get("/kyc/status/:id", protect, getKycCheckData);
 router.put("/kyc/status/:id", protect, authorize("admin"), updateKycStatus);
 
 router.get("/get/all", protect, authorize("admin"), superUser, getAdminUsers);

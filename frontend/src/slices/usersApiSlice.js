@@ -108,6 +108,21 @@ export const userApiSlice = apiSlice.injectEndpoints({
         { type: "Achievements", id },
       ],
     }),
+    verifyRegisterOtp: builder.mutation({
+      query: (body) => ({
+        url: "/api/users/register/verify-otp",
+        method: "POST",
+        body,
+      }),
+    }),
+
+    resendRegisterOtp: builder.mutation({
+      query: (body) => ({
+        url: "/api/users/register/resend-otp",
+        method: "POST",
+        body,
+      }),
+    }),
   }),
 });
 
@@ -128,4 +143,6 @@ export const {
   useGetMeScoreQuery,
   useDeleteRatingHistoryMutation,
   useGetUserAchievementsQuery,
+  useVerifyRegisterOtpMutation,
+  useResendRegisterOtpMutation,
 } = userApiSlice;

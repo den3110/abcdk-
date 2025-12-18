@@ -15,6 +15,7 @@
     "@fontsource-variable/google-sans-code": "^5.2.3",
     "@fontsource-variable/montserrat": "^5.2.8",
     "@g-loot/react-tournament-brackets": "^1.0.31-rc",
+    "@microsoft/clarity": "^1.0.2",
     "@mui/icons-material": "^7.2.0",
     "@mui/material": "^7.2.0",
     "@mui/x-data-grid": "^8.11.3",

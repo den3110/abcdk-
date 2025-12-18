@@ -6,6 +6,7 @@ import Tournament from "../../models/tournamentModel.js";
 import NotificationLog from "../../models/notificationLogsModel.js";
 import { asId } from "../../utils/ids.js";
 import { sendToUserIds } from "./expoPush.js";
+import SupportTicket from "../../models/supportTicketModel.js"; // ✅ THÊM
 import mongoose from "mongoose";
 
 /** ───────── Registry định nghĩa từng event ───────── */
@@ -40,6 +41,11 @@ export const EVENTS = {
   TOURNAMENT_REFEREE_ADDED: "TOURNAMENT_REFEREE_ADDED",
   TOURNAMENT_REFEREE_REMOVED: "TOURNAMENT_REFEREE_REMOVED",
   TOURNAMENT_OPEN_REG: "TOURNAMENT_OPEN_REG",
+
+  // ✅ THÊM SUPPORT EVENTS
+  SUPPORT_NEW_TICKET: "SUPPORT_NEW_TICKET", // User tạo ticket mới
+  SUPPORT_STAFF_REPLIED: "SUPPORT_STAFF_REPLIED", // Staff reply vào ticket
+  SUPPORT_TICKET_CLOSED: "SUPPORT_TICKET_CLOSED", // Ticket đã đóng
 };
 
 // xác định category để áp vào Subscription.categories (nếu bạn dùng)
@@ -52,6 +58,7 @@ export const CATEGORY = {
   STATUS: "status",
   KYC: "kyc",
   RANKING: "ranking",
+  SUPPORT: "support", // ✅ THÊM
 };
 
 // ── helper chung ─────────────────────────────────────────────────────────
@@ -345,6 +352,60 @@ const implicitAudienceResolvers = {
 
   async [EVENTS.TOURNAMENT_REFEREE_REMOVED]() {
     return [];
+  },
+
+  // ✅ THÊM SUPPORT AUDIENCE RESOLVERS
+  async [EVENTS.SUPPORT_NEW_TICKET]({ ticketId, overrideAudience }) {
+    // Nếu controller truyền sẵn danh sách admin IDs
+    if (Array.isArray(overrideAudience) && overrideAudience.length) {
+      return overrideAudience.map((id) => String(id));
+    }
+
+    // Fallback: lấy từ ticket.user (owner)
+    if (!ticketId) return [];
+
+    try {
+      const ticket = await SupportTicket.findById(ticketId)
+        .select("user")
+        .lean();
+
+      return ticket?.user ? [String(ticket.user)] : [];
+    } catch (e) {
+      console.error("[audience] SUPPORT_NEW_TICKET error:", e?.message);
+      return [];
+    }
+  },
+
+  async [EVENTS.SUPPORT_STAFF_REPLIED]({ ticketId }) {
+    // Gửi cho user owner của ticket
+    if (!ticketId) return [];
+
+    try {
+      const ticket = await SupportTicket.findById(ticketId)
+        .select("user")
+        .lean();
+
+      return ticket?.user ? [String(ticket.user)] : [];
+    } catch (e) {
+      console.error("[audience] SUPPORT_STAFF_REPLIED error:", e?.message);
+      return [];
+    }
+  },
+
+  async [EVENTS.SUPPORT_TICKET_CLOSED]({ ticketId }) {
+    // Gửi cho user owner của ticket
+    if (!ticketId) return [];
+
+    try {
+      const ticket = await SupportTicket.findById(ticketId)
+        .select("user")
+        .lean();
+
+      return ticket?.user ? [String(ticket.user)] : [];
+    } catch (e) {
+      console.error("[audience] SUPPORT_TICKET_CLOSED error:", e?.message);
+      return [];
+    }
   },
 };
 
@@ -911,6 +972,71 @@ const payloadBuilders = {
       },
     };
   },
+
+  async [EVENTS.TOURNAMENT_REFEREE_REMOVED]({ tournamentId }) {
+    const tid = extractIdString(tournamentId);
+    const t = tid ? await Tournament.findById(tid).select("name").lean() : null;
+
+    const name = t?.name || "giải đấu";
+
+    return {
+      title: "Bạn vừa bị gỡ khỏi danh sách trọng tài",
+      body: `Bạn vừa bị gỡ khỏi danh sách trọng tài của giải ${name}.`,
+      data: {
+        kind: EVENTS.TOURNAMENT_REFEREE_REMOVED,
+        tournamentId: tid || undefined,
+        url: tid ? `/tournament/${tid}/schedule` : "/(tabs)/tournaments",
+      },
+    };
+  },
+
+  // ✅ THÊM SUPPORT PAYLOAD BUILDERS
+  async [EVENTS.SUPPORT_NEW_TICKET]({ ticketId, title, preview }) {
+    const tid = extractIdString(ticketId);
+    const ticketTitle = title || "Hỗ trợ / Góp ý";
+    const previewText = preview || "Bạn có yêu cầu hỗ trợ mới";
+
+    return {
+      title: "📩 Yêu cầu hỗ trợ mới",
+      body: `${ticketTitle} • ${previewText}`,
+      data: {
+        kind: EVENTS.SUPPORT_NEW_TICKET,
+        ticketId: tid || undefined,
+        url: tid ? `/support/${tid}` : "/support",
+      },
+    };
+  },
+
+  async [EVENTS.SUPPORT_STAFF_REPLIED]({ ticketId, title, preview }) {
+    const tid = extractIdString(ticketId);
+    const ticketTitle = title || "Hỗ trợ";
+    const previewText = preview || "Bạn có phản hồi mới";
+
+    return {
+      title: "💬 Phản hồi từ Support", // ✅ Cố định
+      body: `${ticketTitle} • ${previewText}`,
+      data: {
+        kind: EVENTS.SUPPORT_STAFF_REPLIED,
+        ticketId: tid || undefined,
+        url: tid ? `/support/${tid}` : "/support",
+      },
+    };
+  },
+
+  async [EVENTS.SUPPORT_TICKET_CLOSED]({ ticketId, title }) {
+    const tid = extractIdString(ticketId);
+    const ticketTitle = title || "Hỗ trợ";
+
+    return {
+      title: "✅ Yêu cầu hỗ trợ đã đóng",
+      body: `${ticketTitle} • Yêu cầu của bạn đã được xử lý xong.`,
+      data: {
+        kind: EVENTS.SUPPORT_TICKET_CLOSED,
+        ticketId: tid || undefined,
+        url: tid ? `/support/${tid}` : "/support",
+      },
+    };
+  },
 };
 
 // 3) Tạo eventKey thống nhất (để log idempotent)
@@ -990,7 +1116,27 @@ function makeEventKey(eventName, ctx) {
   if (eventName === EVENTS.TOURNAMENT_REFEREE_REMOVED) {
     const day = ctx.day || new Date().toISOString(); // YYYY-MM-DD
 
-    return `tournament.refereeRemoved:tour#${ctx.tournamentId || ""}:day#${day}`;
+    return `tournament.refereeRemoved:tour#${
+      ctx.tournamentId || ""
+    }:day#${day}`;
+  }
+
+  // ✅ THÊM SUPPORT EVENT KEYS
+  if (eventName === EVENTS.SUPPORT_NEW_TICKET) {
+    // Mỗi ticket chỉ notify 1 lần khi tạo
+    return `support.newTicket:ticket#${ctx.ticketId}`;
+  }
+
+  if (eventName === EVENTS.SUPPORT_STAFF_REPLIED) {
+    // Mỗi message chỉ notify 1 lần
+    return `support.staffReplied:ticket#${ctx.ticketId}:msg#${
+      ctx.messageId || Date.now()
+    }`;
+  }
+
+  if (eventName === EVENTS.SUPPORT_TICKET_CLOSED) {
+    // Mỗi ticket chỉ notify 1 lần khi đóng
+    return `support.ticketClosed:ticket#${ctx.ticketId}`;
   }
 
   return `${eventName}`;

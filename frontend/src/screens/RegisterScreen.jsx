@@ -17,13 +17,19 @@ import {
   Paper,
   Stack,
   Alert,
+  IconButton,
+  InputAdornment,
 } from "@mui/material";
 import { Link, useNavigate } from "react-router-dom";
 import { useDispatch } from "react-redux";
 import { useRegisterMutation } from "../slices/usersApiSlice";
-import { useUploadRealAvatarMutation } from "../slices/uploadApiSlice"; // 👈 chỉ còn avatar thôi
+import { useUploadRealAvatarMutation } from "../slices/uploadApiSlice";
 import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
+
+/* Icons */
+import Visibility from "@mui/icons-material/Visibility";
+import VisibilityOff from "@mui/icons-material/VisibilityOff";
 
 /* MUI X Date Pickers */
 import dayjs from "dayjs";
@@ -32,7 +38,7 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 
 /* ---------- Config ---------- */
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const MIN_DOB = dayjs("1940-01-01");
+const MIN_DOB = dayjs("1970-01-01");
 
 const GENDER_OPTIONS = [
   { value: "unspecified", label: "--" },
@@ -134,6 +140,10 @@ export default function RegisterScreen() {
   const [touched, setTouched] = useState({});
   const [errors, setErrors] = useState({});
 
+  // ✅ Show/Hide password
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   // Avatar
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState("");
@@ -149,11 +159,6 @@ export default function RegisterScreen() {
     return d.isValid() ? d : null;
   }, [form.dob]);
 
-  const isCccdValid = useMemo(
-    () => /^\d{12}$/.test((form.cccd || "").trim()),
-    [form.cccd]
-  );
-
   const showErr = (f) => touched[f] && !!errors[f];
 
   const onChange = (e) => {
@@ -163,15 +168,11 @@ export default function RegisterScreen() {
   const onBlur = (e) => {
     const { name } = e.target;
     setTouched((t) => ({ ...t, [name]: true }));
-    setErrors((prev) => {
-      const next = validate({ ...form });
-      return next;
-    });
+    setErrors(() => validate({ ...form }));
   };
 
   const validate = (d) => {
     const e = {};
-    // Basic
     if (!d.name.trim()) e.name = "Không được bỏ trống";
     else if (d.name.trim().length < 2) e.name = "Tối thiểu 2 ký tự";
 
@@ -205,21 +206,17 @@ export default function RegisterScreen() {
     if (!d.cccd.trim()) e.cccd = "Bắt buộc";
     else if (!/^\d{12}$/.test(d.cccd.trim())) e.cccd = "CCCD phải đủ 12 số";
 
-    // Avatar vẫn bắt
     if (!avatarFile) e.avatar = "Vui lòng tải ảnh đại diện.";
     if (avatarFile && avatarFile.size > MAX_FILE_SIZE)
       e.avatar = "Ảnh không vượt quá 10MB";
 
-    // ❗️KHÔNG còn validate ảnh CCCD nữa
     return e;
   };
 
-  // luôn tính lại lỗi khi form/ảnh thay đổi
   useEffect(() => {
     setErrors(validate(form));
   }, [form, avatarFile]);
 
-  // nếu avatar ok thì tắt highlight
   useEffect(() => {
     if (!errors.avatar) setHighlightAvatar(false);
   }, [errors.avatar]);
@@ -244,7 +241,6 @@ export default function RegisterScreen() {
       province: true,
       gender: true,
       avatar: true,
-      // ❌ không còn cccdFront / cccdBack
     });
 
     const errs = validate(form);
@@ -263,12 +259,12 @@ export default function RegisterScreen() {
       // 1) Upload avatar
       let avatarUrl = "";
       if (avatarFile) {
-        const res = await uploadAvatar(avatarFile).unwrap();
-        avatarUrl = res?.url || "";
+        const up = await uploadAvatar(avatarFile).unwrap();
+        avatarUrl = up?.url || "";
         if (!avatarUrl) throw new Error("Upload avatar thất bại");
       }
 
-      // 2) Register — chỉ gửi số CCCD, KHÔNG gửi ảnh
+      // 2) Register
       const payload = {
         name: form.name.trim(),
         nickname: form.nickname.trim(),
@@ -280,10 +276,38 @@ export default function RegisterScreen() {
         province: form.province,
         gender: form.gender,
         avatar: avatarUrl,
-        // cccdImages: { ... } // ❌ tạm ẩn
       };
 
       const res = await register(payload).unwrap();
+
+      // ✅ NEW: nếu cần OTP -> nhảy sang màn OTP
+      if (res?.otpRequired) {
+        const registerToken = res?.registerToken || "";
+        if (!registerToken) {
+          toast.error("Thiếu registerToken từ server.");
+          return;
+        }
+
+        // lưu để refresh page không mất
+        sessionStorage.setItem(
+          "register_otp",
+          JSON.stringify({
+            registerToken,
+            phoneMasked: res?.phoneMasked || payload.phone,
+          })
+        );
+
+        toast.info("Vui lòng nhập OTP để hoàn tất đăng ký.");
+        navigate("/register/otp", {
+          state: {
+            registerToken,
+            phoneMasked: res?.phoneMasked || payload.phone,
+          },
+        });
+        return;
+      }
+
+      // ✅ flow cũ: đăng ký xong login luôn
       dispatch(setCredentials(res));
       toast.success("Đăng ký thành công!");
       navigate("/");
@@ -366,7 +390,6 @@ export default function RegisterScreen() {
               )}
             </Box>
 
-            {/* Basic fields */}
             <TextField
               label="Họ và tên"
               name="name"
@@ -525,14 +548,10 @@ export default function RegisterScreen() {
               helperText={showErr("cccd") ? errors.cccd : " "}
             />
 
-            {/* ❌ Tạm ẩn block upload ảnh CCCD
-            <Box>...</Box>
-            */}
-
-            {/* Password */}
+            {/* Password (✅ hide/show) */}
             <TextField
               label="Mật khẩu"
-              type="password"
+              type={showPassword ? "text" : "password"}
               name="password"
               value={form.password}
               onChange={onChange}
@@ -541,10 +560,24 @@ export default function RegisterScreen() {
               fullWidth
               error={showErr("password")}
               helperText={showErr("password") ? errors.password : " "}
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowPassword((v) => !v)}
+                      edge="end"
+                      aria-label="toggle password visibility"
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
             />
+
             <TextField
               label="Xác nhận mật khẩu"
-              type="password"
+              type={showConfirmPassword ? "text" : "password"}
               name="confirmPassword"
               value={form.confirmPassword}
               onChange={onChange}
@@ -555,9 +588,21 @@ export default function RegisterScreen() {
               helperText={
                 showErr("confirmPassword") ? errors.confirmPassword : " "
               }
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowConfirmPassword((v) => !v)}
+                      edge="end"
+                      aria-label="toggle confirm password visibility"
+                    >
+                      {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
             />
 
-            {/* Submit */}
             <Button
               type="submit"
               fullWidth

@@ -1,7 +1,19 @@
 import SupportTicket from "../models/supportTicketModel.js";
 import SupportMessage from "../models/supportMessageModel.js";
+import { notifySupportToTelegram } from "../bot/supportBridge.js";
+// import { notifySupportToTelegram } from "../bot/kycBot.js";
 
 const safePreview = (s = "") => String(s || "").trim().slice(0, 140);
+
+const buildFromUserLabel = (u) => {
+  try {
+    const name = u?.name || "User";
+    const nick = u?.nickname ? ` (@${u.nickname})` : "";
+    return `${name}${nick}`;
+  } catch {
+    return "User";
+  }
+};
 
 export const createTicket = async (req, res) => {
   try {
@@ -10,7 +22,9 @@ export const createTicket = async (req, res) => {
     const cleanAttachments = Array.isArray(attachments) ? attachments : [];
 
     if (!cleanText && cleanAttachments.length === 0) {
-      return res.status(400).json({ message: "Vui lòng nhập nội dung hoặc đính kèm ảnh." });
+      return res
+        .status(400)
+        .json({ message: "Vui lòng nhập nội dung hoặc đính kèm ảnh." });
     }
 
     const ticket = await SupportTicket.create({
@@ -18,18 +32,34 @@ export const createTicket = async (req, res) => {
       title: String(title || "Hỗ trợ").trim() || "Hỗ trợ",
       status: "open",
       lastMessageAt: new Date(),
-      lastMessagePreview: safePreview(cleanText) || (cleanAttachments.length ? "[Ảnh đính kèm]" : ""),
+      lastMessagePreview:
+        safePreview(cleanText) || (cleanAttachments.length ? "[Ảnh đính kèm]" : ""),
       userLastReadAt: new Date(),
       staffLastReadAt: null,
     });
 
-    await SupportMessage.create({
+    const msg = await SupportMessage.create({
       ticket: ticket._id,
       senderRole: "user",
       senderUser: req.user._id,
       text: cleanText,
       attachments: cleanAttachments,
     });
+
+    // ✅ Notify Telegram (fail không ảnh hưởng API)
+    try {
+      await notifySupportToTelegram({
+        ticketId: ticket._id,
+        title: ticket.title,
+        fromUserLabel: buildFromUserLabel(req.user),
+        text: msg?.text || cleanText,
+        attachmentsCount: Array.isArray(msg?.attachments)
+          ? msg.attachments.length
+          : cleanAttachments.length,
+      });
+    } catch (e) {
+      console.warn("[support:createTicket] notify telegram failed:", e?.message);
+    }
 
     res.status(201).json(ticket);
   } catch (e) {
@@ -53,7 +83,8 @@ export const getMyTicketDetail = async (req, res) => {
     const { id } = req.params;
 
     const ticket = await SupportTicket.findOne({ _id: id, user: req.user._id }).lean();
-    if (!ticket) return res.status(404).json({ message: "Không tìm thấy yêu cầu hỗ trợ." });
+    if (!ticket)
+      return res.status(404).json({ message: "Không tìm thấy yêu cầu hỗ trợ." });
 
     const messages = await SupportMessage.find({ ticket: id })
       .sort({ createdAt: 1 })
@@ -73,11 +104,14 @@ export const addMyMessage = async (req, res) => {
     const cleanAttachments = Array.isArray(attachments) ? attachments : [];
 
     if (!cleanText && cleanAttachments.length === 0) {
-      return res.status(400).json({ message: "Vui lòng nhập nội dung hoặc đính kèm ảnh." });
+      return res
+        .status(400)
+        .json({ message: "Vui lòng nhập nội dung hoặc đính kèm ảnh." });
     }
 
     const ticket = await SupportTicket.findOne({ _id: id, user: req.user._id });
-    if (!ticket) return res.status(404).json({ message: "Không tìm thấy yêu cầu hỗ trợ." });
+    if (!ticket)
+      return res.status(404).json({ message: "Không tìm thấy yêu cầu hỗ trợ." });
 
     const msg = await SupportMessage.create({
       ticket: id,
@@ -88,10 +122,26 @@ export const addMyMessage = async (req, res) => {
     });
 
     ticket.lastMessageAt = new Date();
-    ticket.lastMessagePreview = safePreview(cleanText) || (cleanAttachments.length ? "[Ảnh đính kèm]" : "");
+    ticket.lastMessagePreview =
+      safePreview(cleanText) || (cleanAttachments.length ? "[Ảnh đính kèm]" : "");
     ticket.userLastReadAt = new Date(); // user vừa gửi -> coi như đã đọc
     ticket.staffLastReadAt = null; // staff chưa đọc
     await ticket.save();
+
+    // ✅ Notify Telegram (fail không ảnh hưởng API)
+    try {
+      notifySupportToTelegram({
+        ticketId: ticket._id,
+        title: ticket.title,
+        fromUserLabel: buildFromUserLabel(req.user),
+        text: msg?.text || cleanText,
+        attachmentsCount: Array.isArray(msg?.attachments)
+          ? msg.attachments.length
+          : cleanAttachments.length,
+      });
+    } catch (e) {
+      console.warn("[support:addMyMessage] notify telegram failed:", e?.message);
+    }
 
     res.status(201).json(msg);
   } catch (e) {
@@ -99,9 +149,7 @@ export const addMyMessage = async (req, res) => {
   }
 };
 
-/* ===== ADMIN (staff trả lời) =====
-   Bạn gắn middleware admin/isSuperUser tuỳ hệ thống bạn đang dùng.
-*/
+/* ===== ADMIN (staff trả lời) ===== */
 export const adminListTickets = async (req, res) => {
   try {
     const items = await SupportTicket.find({})
@@ -122,7 +170,9 @@ export const adminReply = async (req, res) => {
     const cleanAttachments = Array.isArray(attachments) ? attachments : [];
 
     if (!cleanText && cleanAttachments.length === 0) {
-      return res.status(400).json({ message: "Vui lòng nhập nội dung hoặc đính kèm ảnh." });
+      return res
+        .status(400)
+        .json({ message: "Vui lòng nhập nội dung hoặc đính kèm ảnh." });
     }
 
     const ticket = await SupportTicket.findById(id);
@@ -137,9 +187,9 @@ export const adminReply = async (req, res) => {
     });
 
     ticket.lastMessageAt = new Date();
-    ticket.lastMessagePreview = safePreview(cleanText) || (cleanAttachments.length ? "[Ảnh đính kèm]" : "");
+    ticket.lastMessagePreview =
+      safePreview(cleanText) || (cleanAttachments.length ? "[Ảnh đính kèm]" : "");
     ticket.staffLastReadAt = new Date();
-    // user chưa đọc
     await ticket.save();
 
     res.status(201).json(msg);

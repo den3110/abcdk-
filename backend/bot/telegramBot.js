@@ -1,4 +1,4 @@
-// server/bot/kycBot.js
+// server/bot/telegramBot.js
 // --------------------------------------------------------------
 // Bot KYC + Chấm điểm nhanh (/rank)
 // ĐÃ BỌC TRY/CATCH TOÀN DIỆN + GLOBAL GUARDS (không crash app)
@@ -24,6 +24,11 @@ import {
   getMeta as spcGetMeta,
   loadAll as spcLoadAll,
 } from "../services/spcStore.js";
+
+import { installSupportBridge, bindSupportBotRef } from "./supportBridge.js";
+
+// để controller import từ kycBot vẫn được (re-export)
+export { notifySupportToTelegram } from "./supportBridge.js";
 
 dotenv.config();
 
@@ -315,6 +320,7 @@ function fuzzyIncludes(hay = "", needle = "") {
 
 /* ========================= Khởi tạo BOT ========================= */
 export async function initKycBot(app) {
+  console.log("[telegramBot.js] LOADED", import.meta.url);
   try {
     if (!BOT_TOKEN) {
       console.warn("[kycBot] No TELEGRAM_BOT_TOKEN provided, bot disabled.");
@@ -326,6 +332,7 @@ export async function initKycBot(app) {
         ? 0
         : Number(process.env.TELEGRAM_HANDLER_TIMEOUT_MS || 0); // 0 = disable
     const bot = new Telegraf(BOT_TOKEN, { handlerTimeout });
+    installSupportBridge({ bot, safe, replySafe, esc, actorLabel });
 
     // Middleware global: nuốt lỗi ở mọi handler
     bot.use(
@@ -590,6 +597,24 @@ export async function initKycBot(app) {
           command: "spc",
           description: "SportConnect LevelPoint: /spc <tên/sđt>[;tỉnh]",
         },
+        // ✅ THÊM CÁC LỆNH SUPPORT
+        {
+          command: "chatid",
+          description: "Lấy Chat ID (dùng để config TELEGRAM_SUPPORT_CHAT_IDS)",
+        },
+        {
+          command: "supopen",
+          description: "Mở context ticket để reply: /supopen <ticketId>",
+        },
+        {
+          command: "supreply",
+          description:
+            "Reply ticket trực tiếp: /supreply <ticketId> <nội dung>",
+        },
+        {
+          command: "supdone",
+          description: "Thoát khỏi context ticket hiện tại",
+        },
       ]);
     } catch (e) {
       console.warn("setMyCommands failed:", e?.message);
@@ -618,12 +643,13 @@ export async function initKycBot(app) {
         const msg = [
           "<b>Hướng dẫn KYC Bot</b>",
           "",
-          "Các lệnh khả dụng:",
+          "<b>📋 Các lệnh KYC:</b>",
           "• <code>/start</code> — Giới thiệu nhanh & hiện Telegram ID",
           "• <code>/startkyc</code> — Danh sách toàn bộ lệnh & cách dùng",
           "• <code>/findkyc &lt;email|phone|nickname&gt;</code> — Tra cứu chi tiết 1 người dùng (kèm ảnh CCCD & nút duyệt/từ chối).",
           "• <code>/pendkyc [limit]</code> — Liệt kê người dùng đang chờ duyệt (mặc định 20, tối đa 50).",
           "",
+          "<b>🏅 Các lệnh chấm điểm:</b>",
           "• <code>/rank &lt;email|phone|nickname&gt; &lt;single&gt; &lt;double&gt; [--guard] [--note &quot;ghi chú...&quot;]</code>",
           "   - Chấm nhanh điểm trình theo logic adminUpdateRanking (bỏ auth).",
           "   - <code>--guard</code>: chỉ ghi lịch sử, KHÔNG cập nhật Ranking.",
@@ -631,15 +657,44 @@ export async function initKycBot(app) {
           "• <code>/rankget &lt;email|phone|nickname&gt;</code> — Xem điểm hiện tại.",
           "   Alias: <code>/point</code>, <code>/rating</code>",
           "",
-          "Ví dụ:",
-          "• <code>/rank v1b2 3.5 3.0 --note &quot;đánh ổn định&quot;</code>",
-          "• <code>/point v1b2</code>",
+          "<b>🎫 Các lệnh đăng ký giải:</b>",
+          "• <code>/reg &lt;mã đăng ký|_id&gt;</code> — Tra cứu đăng ký & toggle thanh toán",
           "",
+          "<b>🏸 Tra cứu SportConnect:</b>",
           "• <code>/spc &lt;tên/sđt&gt;[;&lt;tỉnh/thành&gt;] [--debug]</code> — Tra SPC (lọc tỉnh mờ, bỏ dấu).",
           "",
-          "Lưu ý:",
+          // ✅ THÊM PHẦN SUPPORT
+          "<b>💬 Hệ thống Support (Reply Ticket):</b>",
+          "• <code>/chatid</code> — Lấy Chat ID của group/chat hiện tại",
+          "   (Dùng để config <code>TELEGRAM_SUPPORT_CHAT_IDS</code> trong .env)",
+          "",
+          "• <code>/supopen &lt;ticketId&gt;</code> — Mở context ticket để reply",
+          "   Sau khi mở, mọi tin nhắn/ảnh thường sẽ tự động gửi vào ticket.",
+          "   Ví dụ: <code>/supopen 694409f707b5a9c441cf6909</code>",
+          "",
+          "• <code>/supreply &lt;ticketId&gt; &lt;nội dung&gt;</code> — Reply trực tiếp (không cần mở context)",
+          "   Ví dụ: <code>/supreply 694409f707b5a9c441cf6909 Cảm ơn bạn đã góp ý!</code>",
+          "",
+          "• <code>/supdone</code> — Thoát khỏi context ticket hiện tại",
+          "",
+          "<b>📌 Cách dùng Support:</b>",
+          "1️⃣ Khi user gửi ticket từ app → Bot notify tới group support",
+          '2️⃣ Admin click nút <b>"Mở ticket để reply"</b> hoặc gõ <code>/supopen &lt;ticketId&gt;</code>',
+          "3️⃣ Nhắn/gửi ảnh bình thường → Tự động lưu vào ticket & gửi về app user",
+          "4️⃣ Gõ <code>/supdone</code> khi xong",
+          "",
+          "<b>📝 Ví dụ:</b>",
+          "• <code>/rank v1b2 3.5 3.0 --note &quot;đánh ổn định&quot;</code>",
+          "• <code>/point v1b2</code>",
+          "• <code>/reg 10025</code>",
+          "• <code>/spc Nguyen Van A;Ha Noi</code>",
+          "• <code>/supopen 694409f707b5a9c441cf6909</code>",
+          "",
+          "<b>⚙️ Lưu ý:</b>",
           "• Ảnh CCCD được gửi sau và bám (reply) vào tin nhắn KYC.",
           "• Bot tự fallback gửi file nếu gửi ảnh lỗi.",
+          "• Để bot nhận messages thường trong group, phải <b>Disable Privacy Mode</b> qua @BotFather.",
+          "• Quyền admin support: config <code>TELEGRAM_SUPPORT_ADMIN_IDS</code> trong .env (bỏ trống = tất cả đều admin).",
         ].join("\n");
         await ctx.reply(msg, {
           parse_mode: "HTML",
@@ -1244,10 +1299,36 @@ export async function initKycBot(app) {
     }
 
     try {
-      await bot.launch();
-      console.log("[kycBot] Bot started (polling).");
+      console.log("🔄 Step 1: Getting bot info...");
+      const me = await bot.telegram.getMe();
+      console.log("✅ Bot info:", me.username);
+
+      console.log("🔄 Step 2: Deleting webhook (FORCE)...");
+      await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+      console.log("✅ Webhook deleted");
+
+      console.log("🔄 Step 3: Starting polling (NO AWAIT)...");
+
+      // ✅ KHÔNG dùng await bot.launch() vì nó sẽ treo
+      // Dùng startPolling() và KHÔNG await
+      bot.startPolling(
+        30, // timeout (seconds)
+        100, // limit (messages per request)
+        ["message", "callback_query", "inline_query"] // allowed updates
+      );
+
+      // ✅ Hoặc dùng launch() KHÔNG AWAIT
+      // bot.launch({ dropPendingUpdates: true });
+
+      console.log("✅ Step 4: Polling started (non-blocking)");
+
+      bindSupportBotRef(bot);
+      console.log("✅ Step 5: Bot ref bound");
+
+      console.log("✅ [kycBot] Bot started successfully!");
     } catch (e) {
-      console.error("[kycBot] bot.launch error:", e);
+      console.error("❌ Error:", e);
+      throw e;
     }
 
     process.once("SIGINT", () => bot.stop("SIGINT"));

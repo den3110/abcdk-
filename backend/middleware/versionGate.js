@@ -12,7 +12,7 @@ function hashToPercent(s) {
   return Math.floor((h[0] / 255) * 100);
 }
 
-async function loadConfig() {
+export async function loadConfig() {
   const now = Date.now();
   if (_memo.cfg && now - _memo.ts < MEMO_TTL) return _memo.cfg;
 

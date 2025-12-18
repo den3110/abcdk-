@@ -33,7 +33,7 @@ import { initEmail } from "./services/emailService.js";
 import Agendash from "agendash";
 import { versionGate } from "./middleware/versionGate.js";
 import appVersionRouter from "./routes/appVersion.route.js";
-import chatBotRoutes from "./routes/chatBotRoutes.js"
+import chatBotRoutes from "./routes/chatBotRoutes.js";
 
 import {
   attachJwtIfPresent,
@@ -116,8 +116,8 @@ app.use(
     onProxyReq: (proxyReq, req, res) => {
       if (req.body && Object.keys(req.body).length > 0) {
         const bodyData = JSON.stringify(req.body);
-        proxyReq.setHeader('Content-Type', 'application/json');
-        proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+        proxyReq.setHeader("Content-Type", "application/json");
+        proxyReq.setHeader("Content-Length", Buffer.byteLength(bodyData));
         proxyReq.write(bodyData);
         proxyReq.end();
       }
@@ -130,7 +130,6 @@ app.use(
 );
 app.use("/api/live/recordings", liveRecordingRoutes);
 
-
 // body limit rộng hơn cho HTML/JSON dài
 app.use(express.json({ limit: "50mb" }));
 app.use(timezoneMiddleware);
@@ -141,7 +140,6 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 app.use(cookieParser());
 app.set("trust proxy", 1);
 app.use("/admin/agendash", Agendash(agenda, { middleware: "express" }));
-
 
 app.use(loadSettings);
 app.use(attachJwtIfPresent);
@@ -157,7 +155,6 @@ const io = initSocket(server, { whitelist: WHITELIST, path: "/socket.io" });
 // Cho controllers dùng io: req.app.get('io')
 app.set("io", io);
 // app.set("trust proxy", true);
-
 
 app.use("/uploads", express.static("uploads"));
 app.use("/api/users", userRoutes);
@@ -264,7 +261,20 @@ const startServer = async () => {
     if (process.env.TELEGRAM_BOT_TOKEN) {
       try {
         console.log("✅ Running KYC bot...");
-        initKycBot(app); // polling
+        initKycBot(app)
+          .then((bot) => {
+            if (bot) {
+              console.log("✅ KYC bot initialized successfully");
+            } else {
+              console.warn("⚠️ KYC bot returned null");
+            }
+          })
+          .catch((e) => {
+            console.error("❌ KYC bot initialization failed:");
+            console.error("Error name:", e?.name);
+            console.error("Error message:", e?.message);
+            console.error("Error stack:", e?.stack);
+          });
       } catch (error) {
         console.log("❌ Failed to start KYC bot:", error.message);
       }
@@ -280,7 +290,6 @@ const startServer = async () => {
         initNewsCron();
         startAgenda();
         registerAutoHealJobs({ Tournament, Match });
-
       } catch (error) {
         console.error(`❌ Error starting server: ${error.message}`);
       }

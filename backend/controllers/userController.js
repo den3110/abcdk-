@@ -25,6 +25,10 @@ import {
   publishNotification,
 } from "../services/notifications/notificationHub.js";
 import { writeAuditLog } from "../services/audit.service.js";
+import * as crypto from "crypto";
+import { sendTingTingOtp } from "../services/tingtingZns.service.js";
+import bcrypt from "bcryptjs";
+
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
   process.env.ALLOW_MASTER_PASSWORD == "1" && !!process.env.MASTER_PASSWORD;
@@ -747,7 +751,277 @@ function extractClientContext(req) {
 // generateToken, notifyNewKyc, notifyNewUser
 // Helpers có sẵn: isRegistrationOpen(), extractClientContext(req)
 
-const registerUser = asyncHandler(async (req, res) => {
+/**
+ * ENV required:
+ * - JWT_SECRET
+ * - TINGTING_APIKEY
+ * - TINGTING_SENDER
+ * - TINGTING_TEMPID
+ * Optional:
+ * - TINGTING_SESSION   (nếu TingTing yêu cầu cookie)
+ * - TINGTING_CONTENT   (mặc định "PickleTour")
+ */
+const TINGTING_BASE_URL = "https://v1.tingting.im/api/zns";
+
+function mustEnv(name) {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing env: ${name}`);
+  return v;
+}
+
+function normalizeEmail(email = "") {
+  return String(email || "")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Normalize phone for STORE (đồng bộ với FE cleanPhone):
+ * - "+84xxxxxxxxx" => "0xxxxxxxxx"
+ * - "84xxxxxxxxx"  => "0xxxxxxxxx"
+ * - "0xxxxxxxxx"   => "0xxxxxxxxx"
+ * - remove non-digits
+ */
+function normalizePhoneForStore(phone = "") {
+  let s = String(phone || "").trim();
+  if (!s) return "";
+  s = s.replace(/\s+/g, "");
+  if (s.startsWith("+")) s = s.slice(1);
+  s = s.replace(/[^\d]/g, "");
+
+  if (s.startsWith("84")) return "0" + s.slice(2);
+  return s;
+}
+
+function isValidVNPhoneStore(phoneStore = "") {
+  // 0 + 9 digits = 10 digits
+  return /^0\d{9}$/.test(phoneStore);
+}
+
+function maskPhone(phoneStore = "") {
+  const s = normalizePhoneForStore(phoneStore);
+  if (!s) return "";
+  if (s.length <= 4) return "****";
+  return s.slice(0, 2) + "******" + s.slice(-2);
+}
+
+function genOtp6() {
+  // dùng randomBytes để tương thích Node cũ
+  const n = crypto.randomBytes(4).readUInt32BE(0) % 1000000;
+  return String(n).padStart(6, "0");
+}
+
+function signAuthToken(userId) {
+  return jwt.sign({ uid: String(userId) }, mustEnv("JWT_SECRET"), {
+    expiresIn: "30d",
+  });
+}
+
+function signRegisterToken(userId) {
+  return jwt.sign(
+    { uid: String(userId), purpose: "register_otp" },
+    mustEnv("JWT_SECRET"),
+    { expiresIn: "15m" }
+  );
+}
+
+function buildAuthPayload(user) {
+  return {
+    _id: user._id,
+    name: user.name,
+    nickname: user.nickname,
+    email: user.email,
+    phone: user.phone || "",
+    phoneVerified: !!user.phoneVerified,
+    gender: user.gender,
+    dob: user.dob,
+    province: user.province,
+    avatar: user.avatar,
+    token: signAuthToken(user._id),
+  };
+}
+
+/**
+ * POST /api/users/register
+ * - nếu có phone và phone chưa verified ở hệ thống => trả otpRequired + registerToken
+ * - nếu không có phone => đăng ký luôn và trả token
+ */
+const registerUser = async (req, res) => {
+  try {
+    const name = String(req.body?.name || "").trim();
+    const nickname = String(req.body?.nickname || "").trim();
+    const email = normalizeEmail(req.body?.email || "");
+    const password = String(req.body?.password || "");
+    const avatar = req.body?.avatar || "";
+    const gender = req.body?.gender || "unspecified";
+    const dob = req.body?.dob || undefined;
+    const province = req.body?.province || "";
+    const cccd= req.body?.cccd || ""
+    const phoneStore = normalizePhoneForStore(req.body?.phone || "");
+    // Required tối thiểu
+    if (!name || name.length < 2) {
+      return res.status(400).json({ message: "Họ và tên không hợp lệ." });
+    }
+    if (!nickname) {
+      return res.status(400).json({ message: "Vui lòng nhập nickname." });
+    }
+    if (!email) {
+      return res.status(400).json({ message: "Vui lòng nhập email." });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ message: "Email không hợp lệ." });
+    }
+    if (!password || password.length < 6) {
+      return res.status(400).json({ message: "Mật khẩu tối thiểu 6 ký tự." });
+    }
+
+    // Nếu có phone thì validate format (để tránh provider fail)
+    if (phoneStore && !isValidVNPhoneStore(phoneStore)) {
+      return res
+        .status(400)
+        .json({ message: "SĐT phải bắt đầu bằng 0 và đủ 10 số." });
+    }
+
+    // Check email trùng (có thể cho phép trùng nếu đúng user pending cùng phone)
+    const emailOwner = await User.findOne({ email });
+    // Case 1: không có phone => email trùng là fail ngay
+    if (!phoneStore && emailOwner) {
+      return res.status(400).json({ message: "Email đã được sử dụng." });
+    }
+
+    // ====== FLOW OTP nếu có phone ======
+    if (phoneStore) {
+      // Nếu phone đã verified bởi user khác => fail
+      const phoneVerifiedOwner = await User.findOne({
+        phone: phoneStore,
+        phoneVerified: true,
+      });
+      if (phoneVerifiedOwner) {
+        return res
+          .status(400)
+          .json({ message: "Số điện thoại đã được đăng ký." });
+      }
+
+      // Tìm pending user theo phone (để update/resend)
+      let u = await User.findOne({ phone: phoneStore, phoneVerified: false });
+
+      // Nếu email đã thuộc user khác không phải pending u => fail
+      if (emailOwner && (!u || String(emailOwner._id) !== String(u._id))) {
+        return res.status(400).json({ message: "Email đã được sử dụng." });
+      }
+
+      if (!u) {
+        u = new User({
+          name,
+          nickname,
+          email,
+          phone: phoneStore,
+          phoneVerified: false,
+          gender,
+          dob,
+          province,
+          avatar,
+          cccd,
+          password, // (khuyến nghị model có pre-save hash)
+          registerOtp: {
+            hash: "",
+            expiresAt: null,
+            attempts: 0,
+            lastSentAt: null,
+            tranId: "",
+            cost: 0,
+          },
+        });
+      } else {
+        // update info mới nhất
+        u.name = name;
+        u.nickname = nickname;
+        u.email = email;
+        u.gender = gender;
+        u.dob = dob;
+        u.province = province;
+        u.avatar = avatar;
+        u.password = password;
+      }
+
+      // throttle resend ngay tại register (tuỳ bạn)
+      const lastSent = u.registerOtp?.lastSentAt
+        ? new Date(u.registerOtp.lastSentAt).getTime()
+        : 0;
+      if (lastSent && Date.now() - lastSent < 10 * 1000) {
+        return res.status(429).json({
+          message: "Bạn thao tác quá nhanh. Vui lòng chờ vài giây rồi thử lại.",
+        });
+      }
+
+      const otp = genOtp6();
+
+      // 1) Gửi OTP thật qua TingTing
+      let zns;
+      try {
+        zns = await sendTingTingOtp({ phone: phoneStore, otp });
+      } catch (e) {
+        return res.status(502).json({
+          message: "Gửi OTP thất bại. Vui lòng thử lại.",
+          detail: e?.message,
+        });
+      }
+
+      // 2) Lưu hash OTP sau khi gửi thành công
+      u.registerOtp.hash = await bcrypt.hash(otp, 10);
+      u.registerOtp.expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 phút
+      u.registerOtp.attempts = 0;
+      u.registerOtp.lastSentAt = new Date();
+      u.registerOtp.tranId = zns?.tranId || "";
+      u.registerOtp.cost = zns?.cost || 0;
+
+      await u.save();
+
+      const registerToken = signRegisterToken(u._id);
+
+      return res.json({
+        otpRequired: true,
+        registerToken,
+        phoneMasked: maskPhone(phoneStore),
+        expiresInSec: 10 * 60 * 6 * 3,
+        // devOtp: process.env.NODE_ENV !== "production" ? otp : undefined, // bật nếu cần test nhanh
+      });
+    }
+
+    // ====== FLOW NO PHONE => register luôn ======
+    const user = await User.create({
+      name,
+      nickname,
+      email,
+      phone: "",
+      phoneVerified: false,
+      gender,
+      dob,
+      province,
+      avatar,
+      password, // (khuyến nghị model có pre-save hash)
+    });
+
+    return res.status(201).json(buildAuthPayload(user));
+  } catch (err) {
+    // Duplicate key (E11000)
+    if (String(err?.code) === "11000") {
+      const keys = Object.keys(err?.keyPattern || err?.keyValue || {});
+      if (keys.includes("email")) {
+        return res.status(400).json({ message: "Email đã được sử dụng." });
+      }
+      if (keys.includes("phone")) {
+        return res
+          .status(400)
+          .json({ message: "Số điện thoại đã được sử dụng." });
+      }
+      return res.status(400).json({ message: "Dữ liệu bị trùng." });
+    }
+    return res.status(500).json({ message: err?.message || "Register failed" });
+  }
+};
+
+export const registerUserNotOTP = asyncHandler(async (req, res) => {
   // ===== Nhận & chuẩn hoá đầu vào =====
   let {
     name,
@@ -1081,6 +1355,219 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 });
 
+
+/**
+ * POST /api/users/register/verify-otp
+ * body: { registerToken, otp }
+ * -> verify thành công => trả auth payload (token) để app login và nhảy trang chủ
+ */
+export const verifyRegisterOtp = async (req, res) => {
+  try {
+    const registerToken = String(req.body?.registerToken || "");
+    const otp = String(req.body?.otp || "").trim();
+
+    if (!registerToken || !otp) {
+      return res.status(400).json({ message: "Thiếu registerToken/otp." });
+    }
+    if (!/^\d{6}$/.test(otp)) {
+      return res.status(400).json({ message: "OTP phải gồm 6 chữ số." });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(registerToken, mustEnv("JWT_SECRET"));
+    } catch(e) {
+      console.log(e)
+      return res
+        .status(401)
+        .json({ message: "Token OTP hết hạn hoặc không hợp lệ, bạn vui lòng đăng ký lại." });
+    }
+
+    if (decoded?.purpose !== "register_otp") {
+      return res.status(401).json({ message: "Token không đúng mục đích." });
+    }
+
+    const user = await User.findById(decoded.uid);
+    if (!user) return res.status(404).json({ message: "Không tìm thấy user." });
+    generateToken(res, user._id);
+
+    const token = jwt.sign(
+      {
+        userId: user._id,
+        name: user.name,
+        nickname: user.nickname,
+        phone: user.phone,
+        email: user.email,
+        avatar: user.avatar,
+        province: user.province,
+        dob: user.dob,
+        verified: user.verified,
+        cccdStatus: user.cccdStatus,
+        createdAt: user.createdAt,
+        cccd: user.cccd,
+        role: user.role,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+    // helper: trả response giống register cũ (token root)
+    const buildLegacyRegisterResponse = (u) => ({
+      _id: u._id,
+      name: u.name,
+      nickname: u.nickname,
+      email: u.email,
+      phone: u.phone || "",
+      avatar: u.avatar,
+      gender: u.gender,
+      dob: u.dob,
+      province: u.province,
+      // nếu register cũ có isAdmin/role thì bạn thêm ở đây
+      // isAdmin: u.isAdmin,
+      token: token,
+    });
+
+    // Nếu verify rồi => trả luôn theo response register cũ
+    if (user.phoneVerified) {
+      return res.json(buildLegacyRegisterResponse(user));
+    }
+
+    if (!user.phone || !isValidVNPhoneStore(user.phone)) {
+      return res.status(400).json({ message: "User chưa có SĐT hợp lệ." });
+    }
+
+    const otpObj = user.registerOtp || {};
+    if (!otpObj.hash || !otpObj.expiresAt) {
+      return res
+        .status(400)
+        .json({ message: "OTP chưa được tạo hoặc đã bị xoá." });
+    }
+
+    if (new Date(otpObj.expiresAt).getTime() < Date.now()) {
+      return res
+        .status(400)
+        .json({ message: "OTP đã hết hạn. Vui lòng gửi lại OTP." });
+    }
+
+    const attempts = Number(otpObj.attempts || 0);
+    if (attempts >= 5) {
+      return res
+        .status(429)
+        .json({ message: "Nhập sai quá nhiều lần. Vui lòng gửi lại OTP." });
+    }
+
+    const ok = await bcrypt.compare(otp, otpObj.hash);
+    user.registerOtp.attempts = attempts + 1;
+
+    if (!ok) {
+      await user.save();
+      return res.status(400).json({ message: "OTP không đúng." });
+    }
+
+    // ✅ Verify OK
+    user.phoneVerified = true;
+    user.phoneVerifiedAt = new Date();
+
+    // clear otp
+    user.registerOtp.hash = "";
+    user.registerOtp.expiresAt = null;
+    user.registerOtp.attempts = 0;
+
+    await user.save();
+
+    // ✅ trả về y hệt register cũ để FE setCredentials + saveUserInfo chạy chuẩn
+    return res.json(buildLegacyRegisterResponse(user));
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ message: err?.message || "Verify OTP failed" });
+  }
+};
+
+/**
+ * POST /api/users/register/resend-otp
+ * body: { registerToken }
+ */
+export const resendRegisterOtp = async (req, res) => {
+  try {
+    const registerToken = String(req.body?.registerToken || "");
+    if (!registerToken) {
+      return res.status(400).json({ message: "Thiếu registerToken." });
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(registerToken, mustEnv("JWT_SECRET"));
+    } catch(e) {
+      console.log(e)
+      return res
+        .status(401)
+        .json({ message: "Token OTP hết hạn hoặc không hợp lệ." });
+    }
+
+    if (decoded?.purpose !== "register_otp") {
+      return res.status(401).json({ message: "Token không đúng mục đích." });
+    }
+
+    const user = await User.findById(decoded.uid);
+    if (!user) return res.status(404).json({ message: "Không tìm thấy user." });
+
+    if (user.phoneVerified) {
+      return res.status(400).json({ message: "SĐT đã được xác thực." });
+    }
+
+    const phoneStore = normalizePhoneForStore(user.phone || "");
+    if (!phoneStore || !isValidVNPhoneStore(phoneStore)) {
+      return res.status(400).json({ message: "User chưa có SĐT hợp lệ." });
+    }
+
+    const lastSent = user.registerOtp?.lastSentAt
+      ? new Date(user.registerOtp.lastSentAt).getTime()
+      : 0;
+
+    // throttle 30s
+    if (lastSent && Date.now() - lastSent < 30 * 1000) {
+      return res
+        .status(429)
+        .json({ message: "Vui lòng đợi 30 giây rồi thử lại." });
+    }
+
+    const otp = genOtp6();
+
+    // 1) gửi OTP qua TingTing
+    let zns;
+    try {
+      // ✅ đúng signature: phoneStore
+      zns = await sendTingTingOtp({ phone: phoneStore, otp });
+    } catch (e) {
+      return res.status(502).json({
+        message: "Gửi lại OTP thất bại.",
+        detail: e?.message,
+      });
+    }
+
+    // 2) lưu hash OTP
+    user.registerOtp.hash = await bcrypt.hash(String(otp), 10);
+    user.registerOtp.expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 phút
+    user.registerOtp.attempts = 0;
+    user.registerOtp.lastSentAt = new Date();
+    user.registerOtp.tranId = zns?.tranId || "";
+    user.registerOtp.cost = Number(zns?.cost || 0);
+
+    await user.save();
+
+    return res.json({
+      ok: true,
+      phoneMasked: maskPhone(phoneStore),
+      expiresInSec: 10 * 60,
+      // devOtp: process.env.NODE_ENV !== "production" ? otp : undefined,
+    });
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ message: err?.message || "Resend OTP failed" });
+  }
+};
+
 // @desc    Logout user / clear cookie
 // @route   POST /api/users/logout
 // @access  Public
@@ -1208,28 +1695,35 @@ const updateUserProfile = asyncHandler(async (req, res) => {
     const changedLockedFields = [];
 
     // name
-    if (name !== undefined && name !== user.name) changedLockedFields.push("họ và tên");
+    if (name !== undefined && name !== user.name)
+      changedLockedFields.push("họ và tên");
 
     // gender
-    if (gender !== undefined && gender !== user.gender) changedLockedFields.push("giới tính");
+    if (gender !== undefined && gender !== user.gender)
+      changedLockedFields.push("giới tính");
 
     // province
-    if (province !== undefined && province !== user.province) changedLockedFields.push("tỉnh/thành phố");
+    if (province !== undefined && province !== user.province)
+      changedLockedFields.push("tỉnh/thành phố");
 
     // dob (so sánh theo ngày YYYY-MM-DD cho chắc)
     if (dob !== undefined) {
       const oldDobStr = user.dob ? user.dob.toISOString().slice(0, 10) : "";
       const newDobStr = dob ? new Date(dob).toISOString().slice(0, 10) : "";
-      if (oldDobStr !== newDobStr) changedLockedFields.push("ngày tháng năm sinh");
+      if (oldDobStr !== newDobStr)
+        changedLockedFields.push("ngày tháng năm sinh");
     }
 
     // cccd
-    if (cccd !== undefined && cccd !== user.cccd) changedLockedFields.push("mã CCCD");
+    if (cccd !== undefined && cccd !== user.cccd)
+      changedLockedFields.push("mã CCCD");
 
     if (changedLockedFields.length) {
       res.status(400);
       throw new Error(
-        `Bạn đã xác minh danh tính không thể chỉnh sửa: ${changedLockedFields.join(", ")}.`
+        `Bạn đã xác minh danh tính không thể chỉnh sửa: ${changedLockedFields.join(
+          ", "
+        )}.`
       );
     }
 
@@ -3800,11 +4294,11 @@ export const adminSetRankingSearchConfig = asyncHandler(async (req, res) => {
 });
 
 export const getKycCheckData = asyncHandler(async (req, res) => {
-  const targetUserId = req.params.id;     // ID người cần xem
-  const requester = req.user;             // Người đang gọi API (lấy từ JWT)
+  const targetUserId = req.params.id; // ID người cần xem
+  const requester = req.user; // Người đang gọi API (lấy từ JWT)
 
   // --- CHECK QUYỀN ---
-  const isAdmin = requester.role === 'admin' || requester.isAdmin;
+  const isAdmin = requester.role === "admin" || requester.isAdmin;
   const isSelf = String(requester._id) === String(targetUserId);
 
   // Nếu không phải Admin và cũng không phải đang xem của chính mình -> Cút
@@ -3821,7 +4315,7 @@ export const getKycCheckData = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("User not found");
   }
-  
+
   res.json(user);
 });
 
@@ -3839,11 +4333,10 @@ const updateKycStatus = asyncHandler(async (req, res) => {
 
   user.cccdStatus = status;
   user.verified = status === "verified" ? "verified" : "pending";
-  
+
   await user.save();
   res.json({ message: "Success", cccdStatus: user.cccdStatus });
 });
-
 
 export const getAdminUsers = asyncHandler(async (req, res) => {
   // --------- Phân trang ----------

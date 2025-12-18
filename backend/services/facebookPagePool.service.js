@@ -3,7 +3,7 @@ import cron from "node-cron";
 import FbToken from "../models/fbTokenModel.js";
 import Match from "../models/matchModel.js";
 
-// các trạng thái coi như match đã xong → page sẽ được free (nhưng DELAY 60s)
+// các trạng thái coi như match đã xong → page sẽ được free (nhưng DELAY 180s)
 const DONE_STATUSES = [
   "finished",
   "ended",
@@ -13,7 +13,7 @@ const DONE_STATUSES = [
   "aborted",
 ];
 
-const FREE_DELAY_MS = 60 * 1000;
+const FREE_DELAY_MS = 60 * 3 * 1000;
 
 // ========== DELAY FREE (in-memory) ==========
 const _freeTimersByPageId = new Map(); // pageId -> Timeout
@@ -53,7 +53,7 @@ function scheduleDelayedFreeByPage(pageId, reason = "free_requested") {
   const t = setTimeout(async () => {
     try {
       await freeNowByPage(key);
-      console.log("[FB] free page after 60s:", key, "reason=", reason);
+      console.log("[FB] free page after 180s:", key, "reason=", reason);
     } catch (err) {
       console.error("[FB] delayed free error:", err?.message || err);
     } finally {
@@ -113,7 +113,7 @@ export async function markFacebookPageBusy({
 
 /**
  * Giải phóng tất cả page đang bận bởi match này
- * ✅ AUTO DELAY 60s
+ * ✅ AUTO DELAY 180s
  */
 export async function markFacebookPageFreeByMatch(matchId) {
   if (!matchId) return;
@@ -129,7 +129,7 @@ export async function markFacebookPageFreeByMatch(matchId) {
 
 /**
  * Giải phóng 1 page theo pageId
- * ✅ AUTO DELAY 60s
+ * ✅ AUTO DELAY 180s
  */
 export async function markFacebookPageFreeByPage(pageId) {
   if (!pageId) return;
@@ -138,7 +138,7 @@ export async function markFacebookPageFreeByPage(pageId) {
 
 /**
  * Giải phóng page theo liveVideoId (trường hợp stop theo live)
- * ✅ AUTO DELAY 60s
+ * ✅ AUTO DELAY 180s
  */
 export async function markFacebookPageFreeByLive(liveVideoId) {
   if (!liveVideoId) return;
@@ -154,7 +154,7 @@ export async function markFacebookPageFreeByLive(liveVideoId) {
 
 /* ============================================================
  * CRON: mỗi 5s quét page đang bận → nếu match DONE thì gọi free
- * (nhưng free sẽ tự DELAY 60s ở các hàm phía trên)
+ * (nhưng free sẽ tự DELAY 180s ở các hàm phía trên)
  * ========================================================== */
 let _fbBusyCronStarted = false;
 
@@ -190,14 +190,14 @@ export function startFacebookBusyCron() {
         const matchIdStr = page.busyMatch?.toString();
         const m = matchIdStr ? matchMap.get(matchIdStr) : null;
 
-        // match bị xoá / không còn → cũng DELAY 60s rồi free
+        // match bị xoá / không còn → cũng DELAY 180s rồi free
         if (!m) {
           await markFacebookPageFreeByPage(page.pageId);
           console.log("[FB-CRON] schedule free (match không còn):", label);
           continue;
         }
 
-        // match đã xong → DELAY 60s rồi free
+        // match đã xong → DELAY 180s rồi free
         if (DONE_STATUSES.includes(m.status)) {
           await markFacebookPageFreeByPage(page.pageId);
           console.log(
@@ -209,7 +209,7 @@ export function startFacebookBusyCron() {
           continue;
         }
 
-        // match vẫn chạy nhưng match đang ghi page khác → DELAY 60s rồi free page cũ
+        // match vẫn chạy nhưng match đang ghi page khác → DELAY 180s rồi free page cũ
         const matchPageId = m.facebookLive?.pageId;
         if (matchPageId && matchPageId !== page.pageId) {
           await markFacebookPageFreeByPage(page.pageId);
