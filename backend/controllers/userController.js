@@ -961,7 +961,7 @@ const registerUser = async (req, res) => {
       try {
         zns = await sendTingTingOtp({ phone: phoneStore, otp });
       } catch (e) {
-        return res.status(502).json({
+        return res.status(400).json({
           message: "Gửi OTP thất bại. Vui lòng thử lại.",
           detail: e?.message,
         });
@@ -1539,7 +1539,7 @@ export const resendRegisterOtp = async (req, res) => {
       // ✅ đúng signature: phoneStore
       zns = await sendTingTingOtp({ phone: phoneStore, otp });
     } catch (e) {
-      return res.status(502).json({
+      return res.status(400).json({
         message: "Gửi lại OTP thất bại.",
         detail: e?.message,
       });

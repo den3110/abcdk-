@@ -59,8 +59,11 @@ router.post("/", async (req, res, next) => {
     const ctrl = isWebRequest(req);
     const appVersion = await loadConfig(); // <-- điều kiện của bạn
     if (appVersion.ios.minSupportedBuild < 22 && ctrl !== true) {
+      console.log(1)
       return await registerUserNotOTP(req, res, next); // controller 2
     } else {
+      console.log(2)
+
       return await registerUser(req, res, next); // controller 1
     }
   } catch (e) {
