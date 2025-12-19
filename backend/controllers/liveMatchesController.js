@@ -9,43 +9,69 @@ export async function listLiveMatches(req, res) {
     /* ================== IGNORE ALL FE FILTERS ================== */
     // bỏ qua q.status, q.statuses, q.windowMs...
 
-    const matchQuery = {
-      // vẫn giữ điều kiện phải có facebook live
+    const hasFacebookQuery = {
       $or: [
         { "facebookLive.permalink_url": { $exists: true, $ne: "" } },
         { "facebookLive.id": { $exists: true, $ne: "" } },
       ],
     };
 
-    const rows = await Match.find(matchQuery)
-      .populate({
-        path: "pairA",
-        populate: [
-          { path: "player1.user", select: "name" },
-          { path: "player2.user", select: "name" },
-        ],
-      })
-      .populate({
-        path: "pairB",
-        populate: [
-          { path: "player1.user", select: "name" },
-          { path: "player2.user", select: "name" },
-        ],
-      })
+    const populatePairs = (q) =>
+      q
+        .populate({
+          path: "pairA",
+          populate: [
+            { path: "player1.user", select: "name" },
+            { path: "player2.user", select: "name" },
+          ],
+        })
+        .populate({
+          path: "pairB",
+          populate: [
+            { path: "player1.user", select: "name" },
+            { path: "player2.user", select: "name" },
+          ],
+        });
+
+    /* ================== countLive (ALL live matches) ================== */
+    const countLive = await Match.countDocuments({
+      ...hasFacebookQuery,
+      status: "live",
+    });
+
+    /* ================== pin: get 1 latest live match ================== */
+    const liveRows = await populatePairs(
+      Match.find({ ...hasFacebookQuery, status: "live" })
+    )
+      .sort({ updatedAt: -1 })
+      .limit(1)
+      .lean();
+
+    /* ================== latest 20 matches ================== */
+    const latestRows = await populatePairs(Match.find(hasFacebookQuery))
       .sort({ updatedAt: -1 })
       .limit(LIMIT)
       .lean();
 
+    /* ================== merge + dedupe (live first) ================== */
+    const pinnedLiveIds = new Set(liveRows.map((m) => String(m._id)));
+    const rows = [
+      ...liveRows,
+      ...latestRows.filter((m) => !pinnedLiveIds.has(String(m._id))),
+    ];
+
     if (!rows.length) {
       return res.json({
         count: 0,
+        countLive,
         items: [],
         meta: {
           source: "match-only",
           filter: {
             hasFacebook: true,
             limit: LIMIT,
-            note: "ignore FE filters; latest 20",
+            pinnedLive: true,
+            note: "ignore FE filters; pinned live first; latest 20 after",
           },
           at: new Date().toISOString(),
         },
@@ -216,18 +242,22 @@ export async function listLiveMatches(req, res) {
         gameScores: m.gameScores || [],
         updatedAt: m.updatedAt,
         createdAt: m.createdAt,
+        __pinnedLive: pinnedLiveIds.has(String(m._id)),
       };
     });
 
     res.json({
       count: items.length,
+      countLive,
       items,
       meta: {
         source: "match-only",
         filter: {
           hasFacebook: true,
           limit: LIMIT,
-          note: "ignore FE filters; latest 20",
+          pinnedLive: true,
+          pinnedLiveCount: liveRows.length,
+          note: "ignore FE filters; pinned live first; latest 20 after",
         },
         at: new Date().toISOString(),
       },

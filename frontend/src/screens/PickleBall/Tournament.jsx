@@ -18,8 +18,6 @@ import {
   IconButton,
   LinearProgress,
   Fade,
-  Avatar,
-  Tooltip,
   styled,
   alpha,
   Grid, // MUI v7 Grid
@@ -32,7 +30,6 @@ import ClearIcon from "@mui/icons-material/Clear";
 import PlaceIcon from "@mui/icons-material/Place";
 import CalendarMonthIcon from "@mui/icons-material/CalendarMonth";
 import HowToRegIcon from "@mui/icons-material/HowToReg";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import EventNoteIcon from "@mui/icons-material/EventNote";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
@@ -51,7 +48,6 @@ import { ZoomProvider, ZoomItem } from "../../components/Zoom";
 import SponsorMarquee from "../../components/SponsorMarquee";
 
 // --- STYLED COMPONENTS ---
-
 const GlassCard = styled(Card)(({ theme }) => ({
   background:
     theme.palette.mode === "dark"
@@ -59,7 +55,7 @@ const GlassCard = styled(Card)(({ theme }) => ({
       : "#ffffff",
   border: `1px solid ${theme.palette.divider}`,
   borderRadius: 16,
-  overflow: "hidden", // FIX: Ngăn scroll ngang khi zoom ảnh
+  overflow: "hidden",
   display: "flex",
   flexDirection: "column",
   height: "100%",
@@ -68,9 +64,7 @@ const GlassCard = styled(Card)(({ theme }) => ({
     transform: "translateY(-4px)",
     boxShadow: theme.shadows[8],
     borderColor: theme.palette.primary.main,
-    "& .zoom-image": {
-      transform: "scale(1.08)", // Hiệu ứng zoom mượt bên trong khung
-    },
+    "& .zoom-image": { transform: "scale(1.08)" },
   },
 }));
 
@@ -86,7 +80,6 @@ const StatusBadge = styled(Box)(({ theme, status }) => {
     finished: alpha(theme.palette.grey[700], 0.9),
   };
 
-  const color = colors[status] || theme.palette.primary.main;
   const bg = bgColors[status] || theme.palette.primary.main;
 
   return {
@@ -163,7 +156,6 @@ export default function TournamentDashboard() {
 
   const [tab, setTab] = useState(initialTab);
   const [keyword, setKeyword] = useState(params.get("q") || "");
-  // FIX: Debounce search state tách biệt để tránh nháy khi gõ
   const [debouncedKeyword, setDebouncedKeyword] = useState(
     params.get("q")?.toLowerCase() || ""
   );
@@ -173,13 +165,13 @@ export default function TournamentDashboard() {
     params.get("to") ? dayjs(params.get("to")) : null,
   ]);
 
-  // --- Sync Logic (Optimized) ---
+  // --- Sync Logic ---
   useEffect(() => {
     const urlTab = params.get("status");
     if (urlTab && TABS.includes(urlTab) && urlTab !== tab) setTab(urlTab);
-  }, [params, tab]); // dependencies refined
+  }, [params, tab]);
 
-  // FIX: Debounce Search Logic - Chỉ update URL sau khi ngừng gõ, không trigger reload toàn bộ
+  // Debounce search -> update URL
   useEffect(() => {
     const handle = setTimeout(() => {
       const val = keyword.trim().toLowerCase();
@@ -190,16 +182,16 @@ export default function TournamentDashboard() {
           const p = new URLSearchParams(prev);
           if (val) p.set("q", val);
           else p.delete("q");
-          // Giữ nguyên các param khác
           return p;
         },
         { replace: true }
       );
-    }, 400); // Tăng delay lên chút để mượt hơn
+    }, 400);
 
     return () => clearTimeout(handle);
   }, [keyword, setParams]);
 
+  // Sync dateRange -> URL
   useEffect(() => {
     const [start, end] = dateRange;
     setParams(
@@ -219,9 +211,12 @@ export default function TournamentDashboard() {
     data: tournaments,
     isLoading,
     error,
-  } = useGetTournamentsQuery({ sportType, groupId });
+  } = useGetTournamentsQuery({
+    sportType,
+    groupId,
+  });
 
-  // --- Filtering ---
+  // --- Counts ---
   const counts = useMemo(() => {
     const c = { upcoming: 0, ongoing: 0, finished: 0, total: 0 };
     (tournaments || []).forEach((t) => {
@@ -231,10 +226,11 @@ export default function TournamentDashboard() {
     return c;
   }, [tournaments]);
 
+  // --- Filtering ---
   const filtered = useMemo(() => {
     if (!tournaments) return [];
     const [from, to] = dateRange;
-    // Dùng debouncedKeyword để filter thay vì search trực tiếp
+
     return tournaments
       .filter((t) => t.status === tab)
       .filter((t) =>
@@ -266,26 +262,51 @@ export default function TournamentDashboard() {
 
   const formatDate = (d) => (d ? dayjs(d).format("DD/MM/YYYY") : "--");
 
-  // --- COMPONENT: Action Buttons (Logic chuẩn 100% từ bản gốc) ---
+  // --- COMPONENT: Action Buttons (Đăng ký TO NHẤT + bỏ Check-in) ---
   const Actions = ({ t }) => {
     const btnSx = {
       borderRadius: 2,
       textTransform: "none",
       fontWeight: 600,
       fontSize: "0.8125rem",
+      py: 1,
+      minHeight: 40,
     };
+
+    const registerBigSx = {
+      ...btnSx,
+      py: 1.25,
+      minHeight: 46,
+      fontWeight: 800,
+      fontSize: "0.9rem",
+    };
+
     const adminOrMgr = canManage(t);
 
-    // Case 1: Admin/Manager - Full quyền
+    // Case 1: Admin/Manager
     if (adminOrMgr) {
       return (
         <Grid container spacing={1}>
-          <Grid size={6}>
+          <Grid size={{ xs: 12 }}>
+            <Button
+              component={RouterLink}
+              to={`/tournament/${t._id}/register`}
+              fullWidth
+              variant="contained"
+              color="primary"
+              startIcon={<HowToRegIcon />}
+              sx={registerBigSx}
+            >
+              Đăng ký
+            </Button>
+          </Grid>
+
+          <Grid size={{ xs: 12, sm: 6 }}>
             <Button
               component={RouterLink}
               to={`/tournament/${t._id}/schedule`}
               fullWidth
-              variant="contained"
+              variant="outlined"
               color="primary"
               startIcon={<EventNoteIcon />}
               sx={btnSx}
@@ -293,33 +314,8 @@ export default function TournamentDashboard() {
               Lịch đấu
             </Button>
           </Grid>
-          <Grid size={6}>
-            <Button
-              component={RouterLink}
-              to={`/tournament/${t._id}/checkin`}
-              fullWidth
-              variant="contained"
-              color="success"
-              startIcon={<CheckCircleIcon />}
-              sx={{ ...btnSx, color: "#fff" }}
-            >
-              Check-in
-            </Button>
-          </Grid>
-          <Grid size={6}>
-            <Button
-              component={RouterLink}
-              to={`/tournament/${t._id}/register`}
-              fullWidth
-              variant="outlined"
-              color="primary"
-              startIcon={<HowToRegIcon />}
-              sx={btnSx}
-            >
-              Đăng ký
-            </Button>
-          </Grid>
-          <Grid size={6}>
+
+          <Grid size={{ xs: 12, sm: 6 }}>
             <Button
               component={RouterLink}
               to={`/tournament/${t._id}/bracket`}
@@ -336,11 +332,11 @@ export default function TournamentDashboard() {
       );
     }
 
-    // Case 2: User - Sắp diễn ra (Register + Bracket)
+    // Case 2: User - Upcoming
     if (t.status === "upcoming") {
       return (
         <Grid container spacing={1}>
-          <Grid size={6}>
+          <Grid size={{ xs: 12 }}>
             <Button
               component={RouterLink}
               to={`/tournament/${t._id}/register`}
@@ -348,12 +344,13 @@ export default function TournamentDashboard() {
               variant="contained"
               color="primary"
               startIcon={<HowToRegIcon />}
-              sx={btnSx}
+              sx={registerBigSx}
             >
               Đăng ký
             </Button>
           </Grid>
-          <Grid size={6}>
+
+          <Grid size={{ xs: 12 }}>
             <Button
               component={RouterLink}
               to={`/tournament/${t._id}/bracket`}
@@ -370,11 +367,11 @@ export default function TournamentDashboard() {
       );
     }
 
-    // Case 3: User - Đang diễn ra (Schedule + Checkin + Bracket)
+    // Case 3: User - Ongoing (Schedule + Bracket)
     if (t.status === "ongoing") {
       return (
-        <Stack spacing={1} width="100%">
-          <Stack direction="row" spacing={1}>
+        <Grid container spacing={1}>
+          <Grid size={{ xs: 12, sm: 6 }}>
             <Button
               component={RouterLink}
               to={`/tournament/${t._id}/schedule`}
@@ -386,34 +383,26 @@ export default function TournamentDashboard() {
             >
               Lịch đấu
             </Button>
+          </Grid>
+
+          <Grid size={{ xs: 12, sm: 6 }}>
             <Button
               component={RouterLink}
-              to={`/tournament/${t._id}/checkin`}
+              to={`/tournament/${t._id}/bracket`}
               fullWidth
-              variant="contained"
-              color="success"
-              startIcon={<CheckCircleIcon />}
-              sx={{ ...btnSx, color: "#fff" }}
+              variant="outlined"
+              color="info"
+              startIcon={<AccountTreeIcon />}
+              sx={btnSx}
             >
-              Check-in
+              Sơ đồ
             </Button>
-          </Stack>
-          <Button
-            component={RouterLink}
-            to={`/tournament/${t._id}/bracket`}
-            fullWidth
-            variant="outlined"
-            color="info"
-            startIcon={<AccountTreeIcon />}
-            sx={btnSx}
-          >
-            Xem sơ đồ thi đấu
-          </Button>
-        </Stack>
+          </Grid>
+        </Grid>
       );
     }
 
-    // Case 4: User - Đã kết thúc (Bracket only)
+    // Case 4: User - Finished
     return (
       <Button
         component={RouterLink}
@@ -453,7 +442,6 @@ export default function TournamentDashboard() {
             </StatusBadge>
           </Box>
 
-          {/* FIX: Khôi phục ZoomItem để preview ảnh */}
           <ZoomItem src={t.image}>
             <Box sx={{ width: "100%", height: "100%", cursor: "zoom-in" }}>
               <img
@@ -461,7 +449,7 @@ export default function TournamentDashboard() {
                   t.image || "https://via.placeholder.com/400x200?text=No+Image"
                 }
                 alt={t.name}
-                className="zoom-image" // Class for hover effect
+                className="zoom-image"
                 style={{
                   width: "100%",
                   height: "100%",
@@ -532,6 +520,7 @@ export default function TournamentDashboard() {
                   {t.registered} / {t.maxPairs}
                 </Typography>
               </Stack>
+
               <LinearProgress
                 variant="determinate"
                 value={percent}
@@ -598,6 +587,7 @@ export default function TournamentDashboard() {
                 {counts.total}
               </Typography>
             </StatBox>
+
             <StatBox
               sx={{
                 borderColor: "success.main",
@@ -615,6 +605,7 @@ export default function TournamentDashboard() {
                 {counts.ongoing}
               </Typography>
             </StatBox>
+
             <StatBox
               sx={{
                 borderColor: "info.main",
@@ -689,8 +680,8 @@ export default function TournamentDashboard() {
                 ),
               }}
             />
+
             <Box sx={{ width: { xs: "100%", sm: 300 } }}>
-              {/* FIX: Khôi phục calendars={2} */}
               <DateRangePicker
                 calendars={2}
                 value={dateRange}
@@ -707,6 +698,7 @@ export default function TournamentDashboard() {
                 }}
               />
             </Box>
+
             {(dateRange[0] || dateRange[1]) && (
               <Button
                 color="error"
@@ -720,7 +712,7 @@ export default function TournamentDashboard() {
           </Stack>
         </Stack>
 
-        {/* LIST CONTENT (Grid v7) */}
+        {/* LIST CONTENT */}
         <Box sx={{ minHeight: 400 }}>
           {error && (
             <Box p={3} color="error.dark" borderRadius={3} textAlign="center">
@@ -755,15 +747,6 @@ export default function TournamentDashboard() {
                   <Typography variant="h6" color="text.disabled">
                     Không tìm thấy giải đấu nào phù hợp.
                   </Typography>
-                  {/* <Button
-                  variant="text"
-                  onClick={() => {
-                    setKeyword("");
-                    setDateRange([null, null]);
-                  }}
-                >
-                  Xoá bộ lọc
-                </Button> */}
                 </Stack>
               ) : (
                 <Grid container spacing={3}>
