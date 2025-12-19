@@ -160,7 +160,7 @@ export async function getVersionStats(req, res) {
 export async function getUsersVersion(req, res) {
   const platform = String(req.query.platform || "").toLowerCase(); // ""|"ios"|"android"
   const type = String(req.query.type || "all"); // all | soft | force
-  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+  const limit = Math.min(parseInt(req.query.limit, 10) || 50, 5000);
   const q = String(req.query.q || "").trim();
   const includeDevices =
     String(req.query.includeDevices ?? "true").toLowerCase() !== "false";

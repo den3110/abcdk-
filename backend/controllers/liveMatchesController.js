@@ -4,39 +4,16 @@ import Bracket from "../models/bracketModel.js";
 
 export async function listLiveMatches(req, res) {
   try {
-    const q = req.query || {};
-
-    /* ================== parse windowMs ================== */
-    const windowMs = Number.isFinite(Number(q.windowMs))
-      ? Number(q.windowMs)
-      : 8 * 3600 * 1000; // default 8h
+    /* ================== FIXED WINDOW: 7 days ================== */
+    const windowMs = 7 * 24 * 3600 * 1000; // 7 days
     const since = new Date(Date.now() - windowMs);
 
-    /* ================== parse statuses ================== */
-    let statuses = [];
+    /* ================== IGNORE ALL FE FILTERS ================== */
+    // - bỏ qua q.status, q.statuses, q.windowMs ... (tạm thời)
+    // - chỉ lọc theo updatedAt trong 7 ngày + có facebook live
 
-    // ?statuses=scheduled,queued,assigned,live
-    if (typeof q.statuses === "string" && q.statuses.trim()) {
-      statuses = q.statuses
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-    }
-
-    // fallback: ?status=live
-    if (!statuses.length && typeof q.status === "string" && q.status.trim()) {
-      statuses = [q.status.trim()];
-    }
-
-    // nếu không truyền gì thì mặc định là chỉ lấy match đang live
-    const statusFilter =
-      statuses.length > 0 ? { status: { $in: statuses } } : { status: "live" };
-
-    /* ================== build query Match ================== */
     const matchQuery = {
-      ...statusFilter,
       updatedAt: { $gte: since },
-      // vẫn giữ điều kiện phải có facebook live
       $or: [
         { "facebookLive.permalink_url": { $exists: true, $ne: "" } },
         { "facebookLive.id": { $exists: true, $ne: "" } },
@@ -68,9 +45,9 @@ export async function listLiveMatches(req, res) {
         meta: {
           source: "match-only",
           filter: {
-            statuses: statuses.length ? statuses : ["live"],
             hasFacebook: true,
             windowMs,
+            note: "ignore FE filters; fixed last 7 days",
           },
           at: new Date().toISOString(),
         },
@@ -250,9 +227,9 @@ export async function listLiveMatches(req, res) {
       meta: {
         source: "match-only",
         filter: {
-          statuses: statuses.length ? statuses : ["live"],
           hasFacebook: true,
           windowMs,
+          note: "ignore FE filters; fixed last 7 days",
         },
         at: new Date().toISOString(),
       },
@@ -262,7 +239,6 @@ export async function listLiveMatches(req, res) {
     res.status(500).json({ error: e.message });
   }
 }
-
 
 export async function deleteLiveVideoForMatch(req, res) {
   try {
