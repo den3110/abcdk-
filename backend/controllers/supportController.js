@@ -48,7 +48,8 @@ export const createTicket = async (req, res) => {
 
     // ✅ Notify Telegram (fail không ảnh hưởng API)
     try {
-      await notifySupportToTelegram({
+      console.log(392281)
+      notifySupportToTelegram({
         ticketId: ticket._id,
         title: ticket.title,
         fromUserLabel: buildFromUserLabel(req.user),
@@ -130,6 +131,7 @@ export const addMyMessage = async (req, res) => {
 
     // ✅ Notify Telegram (fail không ảnh hưởng API)
     try {
+      console.log(1234555)
       notifySupportToTelegram({
         ticketId: ticket._id,
         title: ticket.title,
