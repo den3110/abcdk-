@@ -931,34 +931,6 @@ const RegCardSkeleton = () => (
   </Card>
 );
 
-/* Hook lazy load */
-function useLazyRender(totalItems, initialBatch = 20, batchSize = 20) {
-  const [displayCount, setDisplayCount] = useState(initialBatch);
-  const loaderRef = useRef(null);
-  const observerRef = useRef(null);
-
-  useEffect(() => {
-    setDisplayCount(initialBatch);
-  }, [totalItems, initialBatch]);
-
-  useEffect(() => {
-    const loader = loaderRef.current;
-    if (!loader || displayCount >= totalItems) return;
-    if (observerRef.current) observerRef.current.disconnect();
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting)
-          setDisplayCount((p) => Math.min(p + batchSize, totalItems));
-      },
-      { rootMargin: "200px" }
-    );
-    observerRef.current.observe(loader);
-    return () => observerRef.current?.disconnect();
-  }, [displayCount, totalItems, batchSize]);
-
-  return { displayCount, loaderRef, hasMore: displayCount < totalItems };
-}
-
 /* ---------------- 4. MAIN PAGE COMPONENT ---------------- */
 export default function TournamentRegistration() {
   const { id } = useParams();
@@ -1085,11 +1057,7 @@ export default function TournamentRegistration() {
     [debouncedQ, searchedRegs, regs]
   );
 
-  const { displayCount, loaderRef, hasMore } = useLazyRender(activeList.length);
-  const displayedItems = useMemo(
-    () => activeList.slice(0, displayCount),
-    [activeList, displayCount]
-  );
+  const displayedItems = useMemo(() => activeList, [activeList]);
 
   /* Derived Data */
   const evType = normType(tour?.eventType);
@@ -1959,16 +1927,6 @@ export default function TournamentRegistration() {
                           />
                         </Grid>
                       ))}
-                      {hasMore && (
-                        <Grid size={{ xs: 12 }}>
-                          <Box
-                            ref={loaderRef}
-                            sx={{ p: 3, textAlign: "center" }}
-                          >
-                            <CircularProgress size={24} />
-                          </Box>
-                        </Grid>
-                      )}
                     </Grid>
                   </Box>
                 )}

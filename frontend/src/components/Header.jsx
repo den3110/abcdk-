@@ -139,7 +139,8 @@ const Header = () => {
     refetchOnFocus: true,
     refetchOnReconnect: true,
   });
-  const liveCount = liveData?.countLive ?? 0;
+  // const liveCount = liveData?.rawCount ?? 0;
+  const liveCount= 0
   console.log(liveData)
 
   // --- Helper: Kiểm tra Active Tab ---
