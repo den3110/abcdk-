@@ -4,16 +4,13 @@ import Bracket from "../models/bracketModel.js";
 
 export async function listLiveMatches(req, res) {
   try {
-    /* ================== FIXED WINDOW: 7 days ================== */
-    const windowMs = 7 * 24 * 3600 * 1000; // 7 days
-    const since = new Date(Date.now() - windowMs);
+    const LIMIT = 20;
 
     /* ================== IGNORE ALL FE FILTERS ================== */
-    // - bỏ qua q.status, q.statuses, q.windowMs ... (tạm thời)
-    // - chỉ lọc theo updatedAt trong 7 ngày + có facebook live
+    // bỏ qua q.status, q.statuses, q.windowMs...
 
     const matchQuery = {
-      updatedAt: { $gte: since },
+      // vẫn giữ điều kiện phải có facebook live
       $or: [
         { "facebookLive.permalink_url": { $exists: true, $ne: "" } },
         { "facebookLive.id": { $exists: true, $ne: "" } },
@@ -36,6 +33,7 @@ export async function listLiveMatches(req, res) {
         ],
       })
       .sort({ updatedAt: -1 })
+      .limit(LIMIT)
       .lean();
 
     if (!rows.length) {
@@ -46,8 +44,8 @@ export async function listLiveMatches(req, res) {
           source: "match-only",
           filter: {
             hasFacebook: true,
-            windowMs,
-            note: "ignore FE filters; fixed last 7 days",
+            limit: LIMIT,
+            note: "ignore FE filters; latest 20",
           },
           at: new Date().toISOString(),
         },
@@ -228,8 +226,8 @@ export async function listLiveMatches(req, res) {
         source: "match-only",
         filter: {
           hasFacebook: true,
-          windowMs,
-          note: "ignore FE filters; fixed last 7 days",
+          limit: LIMIT,
+          note: "ignore FE filters; latest 20",
         },
         at: new Date().toISOString(),
       },
