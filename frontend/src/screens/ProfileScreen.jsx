@@ -1,3 +1,4 @@
+// src/screens/ProfileScreen.jsx
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import {
   Alert,
@@ -23,6 +24,7 @@ import {
   FormControlLabel,
   Grid, // ✅ MUI v7 Grid
   Badge,
+  Skeleton,
 } from "@mui/material";
 
 // Icons
@@ -59,8 +61,8 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 /* ---------- Config ---------- */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const MIN_DOB = dayjs("1940-01-01");
-const PLACEHOLDER_AVATAR = "https://via.placeholder.com/150?text=No+Image"; // Ảnh thế mạng Avatar
-const PLACEHOLDER_CCCD = "https://via.placeholder.com/400x250?text=Image+Error"; // Ảnh thế mạng CCCD
+const PLACEHOLDER_AVATAR = "https://via.placeholder.com/150?text=No+Image";
+const PLACEHOLDER_CCCD = "https://via.placeholder.com/400x250?text=Image+Error";
 
 /* ---------- Danh sách tỉnh ---------- */
 const PROVINCES = [
@@ -149,6 +151,105 @@ const EMPTY = {
   gender: "unspecified",
   avatar: "",
 };
+
+function ProfileSkeleton({ onLogout }) {
+  return (
+    <Container maxWidth="md" sx={{ py: 5 }}>
+      <Box mb={4} textAlign="center">
+        <Skeleton variant="text" width={220} height={48} sx={{ mx: "auto" }} />
+        <Skeleton variant="text" width={380} height={24} sx={{ mx: "auto" }} />
+      </Box>
+
+      <Grid container spacing={3}>
+        {/* Cột trái */}
+        <Grid size={{ xs: 12, md: 4 }}>
+          <Paper
+            elevation={4}
+            sx={{ p: 4, textAlign: "center", borderRadius: 4, height: "100%" }}
+          >
+            <Skeleton
+              variant="circular"
+              width={140}
+              height={140}
+              sx={{ mx: "auto", mb: 2 }}
+            />
+            <Skeleton
+              variant="text"
+              width="60%"
+              height={28}
+              sx={{ mx: "auto" }}
+            />
+            <Skeleton
+              variant="text"
+              width="80%"
+              height={20}
+              sx={{ mx: "auto", mb: 2 }}
+            />
+            <Skeleton
+              variant="rounded"
+              width="55%"
+              height={32}
+              sx={{ mx: "auto" }}
+            />
+
+            {/* Desktop skeleton logout ở sidebar */}
+            <Box sx={{ display: { xs: "none", md: "block" } }}>
+              <Divider sx={{ my: 3 }} />
+              <Skeleton variant="rounded" height={40} />
+            </Box>
+          </Paper>
+        </Grid>
+
+        {/* Cột phải */}
+        <Grid size={{ xs: 12, md: 8 }}>
+          <Paper elevation={3} sx={{ p: 4, borderRadius: 4 }}>
+            <Skeleton variant="text" width={180} height={28} sx={{ mb: 3 }} />
+
+            <Grid container spacing={2}>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Grid key={i} size={{ xs: 12, sm: 6 }}>
+                  <Skeleton variant="rounded" height={56} />
+                </Grid>
+              ))}
+              <Grid size={{ xs: 12 }}>
+                <Skeleton variant="rounded" height={56} />
+              </Grid>
+            </Grid>
+
+            <Box mt={4}>
+              <Skeleton variant="rounded" height={120} />
+            </Box>
+
+            <Box mt={4}>
+              <Skeleton variant="rounded" height={240} />
+            </Box>
+
+            <Box mt={5}>
+              <Skeleton variant="rounded" height={52} />
+            </Box>
+
+            {/* ✅ NÚT ĐĂNG XUẤT DƯỚI SKELETON */}
+            <Box sx={{ mt: 3 }}>
+              <Divider sx={{ mb: 3 }}>
+                <Chip label="Tài khoản" size="small" />
+              </Divider>
+              <Button
+                variant="outlined"
+                color="error"
+                fullWidth
+                startIcon={<LogoutIcon />}
+                onClick={onLogout}
+                sx={{ borderRadius: 2, py: 1.5 }}
+              >
+                Đăng xuất
+              </Button>
+            </Box>
+          </Paper>
+        </Grid>
+      </Grid>
+    </Container>
+  );
+}
 
 export default function ProfileScreen() {
   const dispatch = useDispatch();
@@ -436,19 +537,8 @@ export default function ProfileScreen() {
     e.target.src = PLACEHOLDER_CCCD;
   };
 
-  if (fetching || !user)
-    return (
-      <Box
-        sx={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          height: "80vh",
-        }}
-      >
-        <CircularProgress size={60} thickness={4} />
-      </Box>
-    );
+  // ✅ Loading -> render skeleton + logout button ở dưới
+  if (fetching || !user) return <ProfileSkeleton onLogout={onLogout} />;
 
   return (
     <Container maxWidth="md" sx={{ py: 5 }}>
@@ -533,7 +623,6 @@ export default function ProfileScreen() {
                 >
                   <Avatar
                     src={avatarSrc}
-                    // ✅ Fallback khi ảnh avatar lỗi
                     imgProps={{ onError: handleImgError }}
                     sx={{
                       width: 140,
@@ -681,6 +770,7 @@ export default function ProfileScreen() {
                     </Select>
                   </FormControl>
                 </Grid>
+
                 <Grid size={{ xs: 12, sm: 6 }}>
                   <DatePicker
                     label="Ngày sinh"
@@ -838,6 +928,7 @@ export default function ProfileScreen() {
                   >
                     Xác minh danh tính (KYC)
                   </Typography>
+
                   <Chip
                     icon={
                       status === "verified" ? (
@@ -906,6 +997,7 @@ export default function ProfileScreen() {
                         lên.
                       </Alert>
                     )}
+
                     <Grid container spacing={2}>
                       <Grid size={{ xs: 12, sm: 6 }}>
                         <CccdDropzone
@@ -922,6 +1014,7 @@ export default function ProfileScreen() {
                         />
                       </Grid>
                     </Grid>
+
                     <Button
                       variant="outlined"
                       fullWidth
@@ -951,7 +1044,6 @@ export default function ProfileScreen() {
                         }}
                         onClick={() => openCccdZoom(frontUrl)}
                       >
-                        {/* ✅ Fallback cho ảnh CCCD */}
                         <img
                           src={frontUrl}
                           alt="Mặt trước"
@@ -971,6 +1063,7 @@ export default function ProfileScreen() {
                         </Typography>
                       </Paper>
                     </Grid>
+
                     <Grid size={{ xs: 6 }}>
                       <Paper
                         variant="outlined"
@@ -982,7 +1075,6 @@ export default function ProfileScreen() {
                         }}
                         onClick={() => openCccdZoom(backUrl)}
                       >
-                        {/* ✅ Fallback cho ảnh CCCD */}
                         <img
                           src={backUrl}
                           alt="Mặt sau"
