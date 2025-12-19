@@ -178,38 +178,63 @@ const getIsFullEvaluator = (u) => {
 // Hàm tạo màu avatar từ tên
 function stringToColor(string) {
   let hash = 0;
-  let i;
   /* eslint-disable no-bitwise */
-  for (i = 0; i < string.length; i += 1) {
+  for (let i = 0; i < string.length; i += 1) {
     hash = string.charCodeAt(i) + ((hash << 5) - hash);
   }
   let color = "#";
-  for (i = 0; i < 3; i += 1) {
+  for (let i = 0; i < 3; i += 1) {
     const value = (hash >> (i * 8)) & 0xff;
     color += `00${value.toString(16)}`.slice(-2);
   }
   /* eslint-enable no-bitwise */
   return color;
 }
-function stringAvatar(name) {
-  const n = name || "?";
-  return {
-    sx: {
-      bgcolor: stringToColor(n),
-      fontSize: 16,
-      fontWeight: "bold",
-    },
-    children: n.includes(" ")
-      ? `${n.split(" ")[0][0]}${n.split(" ")[1][0]}`.toUpperCase()
-      : n.substr(0, 2).toUpperCase(),
-  };
+
+function getInitials(name) {
+  const n = String(name || "").trim();
+  if (!n) return "?";
+  const parts = n.split(" ").filter(Boolean);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  return n.slice(0, 2).toUpperCase();
+}
+
+function normalizeMaybeUrl(v) {
+  if (!v) return "";
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "object") {
+    return String(
+      v.url || v.secure_url || v.path || v.location || v.src || ""
+    ).trim();
+  }
+  return "";
+}
+
+// ✅ Avatar thật: cố gắng lấy từ nhiều field khác nhau
+function pickUserAvatarSrc(u) {
+  const candidates = [
+    u?.avatarUrl,
+    u?.avatar,
+    u?.photoUrl,
+    u?.photo,
+    u?.image,
+    u?.profileImage,
+    u?.profile?.avatarUrl,
+    u?.profile?.avatar,
+    u?.avatar?.url,
+    u?.avatar?.data?.url,
+  ];
+  for (const c of candidates) {
+    const s = normalizeMaybeUrl(c);
+    if (s) return s;
+  }
+  return "";
 }
 
 /* ================== Page Component ================== */
 export default function UsersPage() {
   const theme = useTheme();
   const isXs = useMediaQuery(theme.breakpoints.down("sm"));
-  const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
 
   const dispatch = useDispatch();
   const { page, keyword, role = "" } = useSelector((s) => s.adminUi);
@@ -344,6 +369,8 @@ export default function UsersPage() {
     const isFull = !!fullMap[u._id];
     const [expanded, setExpanded] = useState(false);
 
+    const avatarSrc = pickUserAvatarSrc(u);
+
     // Limit logic
     const [limitInput, setLimitInput] = useState(
       typeof u.rankingSearchLimit === "number" && u.rankingSearchLimit > 0
@@ -401,138 +428,186 @@ export default function UsersPage() {
           },
         }}
       >
-        {/* === Header: Basic Info & Main Actions === */}
-        <Box sx={{ p: 2, display: "flex", alignItems: "flex-start", gap: 2 }}>
-          <Avatar
-            {...stringAvatar(u.name)}
-            sx={{ width: 48, height: 48, ...stringAvatar(u.name).sx }}
-          />
-
-          <Box sx={{ flex: 1, minWidth: 0 }}>
+        {/* === Header: Responsive layout === */}
+        <Box sx={{ p: 2 }}>
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={2}
+            alignItems={{ xs: "stretch", sm: "flex-start" }}
+          >
+            {/* Left: Avatar + Info */}
             <Stack
               direction="row"
-              alignItems="center"
-              spacing={1}
-              flexWrap="wrap"
+              spacing={2}
+              alignItems="flex-start"
+              sx={{ flex: 1, minWidth: 0 }}
             >
-              <Typography
-                variant="h6"
-                sx={{ fontSize: "1rem", fontWeight: 700 }}
-                noWrap
+              {/* ✅ Avatar = ảnh thật + fallback initials */}
+              <Avatar
+                src={avatarSrc || undefined}
+                alt={u.name || "User"}
+                sx={{
+                  width: { xs: 44, sm: 48 },
+                  height: { xs: 44, sm: 48 },
+                  bgcolor: stringToColor(String(u.name || "?")),
+                  fontSize: { xs: 14, sm: 16 },
+                  fontWeight: 800,
+                  border: "1px solid",
+                  borderColor: "divider",
+                  flexShrink: 0,
+                }}
+                imgProps={{
+                  loading: "lazy",
+                  referrerPolicy: "no-referrer",
+                }}
               >
-                {u.name}
-              </Typography>
-              {u.role !== "user" && (
-                <Chip
-                  label={roleText(u.role)}
-                  size="small"
-                  color={u.role === "admin" ? "error" : "info"}
-                  variant="outlined"
-                  sx={{ height: 20, fontSize: "0.7rem" }}
-                />
-              )}
-              <Chip
-                size="small"
-                icon={u.cccdStatus === "verified" ? <VerifiedIcon /> : null}
-                label={KYC_LABEL[u.cccdStatus || "unverified"]}
-                color={KYC_COLOR[u.cccdStatus || "unverified"]}
-                sx={{ height: 20, fontSize: "0.7rem" }}
-              />
-            </Stack>
-            <Typography variant="body2" color="text.secondary" noWrap>
-              {u.email}
-            </Typography>
-            <Typography
-              variant="caption"
-              color="text.secondary"
-              sx={{ display: "block", mt: 0.5 }}
-            >
-              Phone: {u.phone || "--"} • {u.province || "Chưa cập nhật tỉnh"}
-            </Typography>
+                {getInitials(u.name)}
+              </Avatar>
 
-            {/* Stats Chips */}
-            {/* Stats & CCCD / KYC action */}
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              spacing={1}
-              mt={1}
-              alignItems={{ xs: "flex-start", sm: "center" }}
-            >
-              <Stack direction="row" spacing={1}>
-                <Chip
-                  icon={<SportsTennisIcon sx={{ fontSize: 14 }} />}
-                  label={`Đơn: ${u.single ?? "-"}`}
-                  size="small"
-                  sx={{
-                    bgcolor: alpha(theme.palette.primary.main, 0.1),
-                    color: "primary.main",
-                    fontWeight: 600,
-                  }}
-                />
-                <Chip
-                  icon={<SportsTennisIcon sx={{ fontSize: 14 }} />}
-                  label={`Đôi: ${u.double ?? "-"}`}
-                  size="small"
-                  sx={{
-                    bgcolor: alpha(theme.palette.secondary.main, 0.1),
-                    color: "secondary.main",
-                    fontWeight: 600,
-                  }}
-                />
-              </Stack>
-
-              {u.cccdImages?.front && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  color="secondary"
-                  startIcon={<BadgeIcon sx={{ fontSize: 16 }} />}
-                  onClick={() => setKyc(u)}
-                  sx={{
-                    textTransform: "none",
-                    fontWeight: 600,
-                  }}
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  spacing={1}
+                  flexWrap="wrap"
                 >
-                  Xem CCCD / KYC
-                </Button>
-              )}
-            </Stack>
-          </Box>
+                  <Typography
+                    variant="h6"
+                    sx={{ fontSize: "1rem", fontWeight: 700, minWidth: 0 }}
+                    noWrap={!isXs}
+                  >
+                    {u.name}
+                  </Typography>
 
-          {/* Quick Actions (Desktop) */}
-          <Stack direction="row" spacing={0.5}>
-            <Tooltip title="Lịch sử chỉnh sửa">
-              <IconButton
-                size="small"
-                onClick={() => setAuditUser(u)} // ✅ OPEN DIALOG
-                sx={{ color: "text.secondary" }}
-              >
-                <HistoryIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Cập nhật điểm">
-              <IconButton
-                size="small"
-                onClick={() => setScore({ ...u })}
-                sx={{ color: "primary.main" }}
-              >
-                <VerifiedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Sửa thông tin">
-              <IconButton size="small" onClick={() => setEdit({ ...u })}>
-                <EditIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Xoá người dùng">
-              <IconButton
-                size="small"
-                onClick={() => setDel(u)}
-                sx={{ color: "error.main" }}
-              >
-                <DeleteIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+                  {u.role !== "user" && (
+                    <Chip
+                      label={roleText(u.role)}
+                      size="small"
+                      color={u.role === "admin" ? "error" : "info"}
+                      variant="outlined"
+                      sx={{ height: 20, fontSize: "0.7rem" }}
+                    />
+                  )}
+
+                  <Chip
+                    size="small"
+                    icon={u.cccdStatus === "verified" ? <VerifiedIcon /> : null}
+                    label={KYC_LABEL[u.cccdStatus || "unverified"]}
+                    color={KYC_COLOR[u.cccdStatus || "unverified"]}
+                    sx={{ height: 20, fontSize: "0.7rem" }}
+                  />
+                </Stack>
+
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  noWrap={!isXs}
+                  sx={{ minWidth: 0 }}
+                >
+                  {u.email}
+                </Typography>
+
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: "block", mt: 0.5, wordBreak: "break-word" }}
+                >
+                  Phone: {u.phone || "--"} •{" "}
+                  {u.province || "Chưa cập nhật tỉnh"}
+                </Typography>
+
+                {/* Stats & CCCD / KYC action */}
+                <Stack
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={1}
+                  mt={1}
+                  alignItems={{ xs: "stretch", sm: "center" }}
+                >
+                  <Stack direction="row" spacing={1} flexWrap="wrap">
+                    <Chip
+                      icon={<SportsTennisIcon sx={{ fontSize: 14 }} />}
+                      label={`Đơn: ${u.single ?? "-"}`}
+                      size="small"
+                      sx={{
+                        bgcolor: alpha(theme.palette.primary.main, 0.1),
+                        color: "primary.main",
+                        fontWeight: 600,
+                      }}
+                    />
+                    <Chip
+                      icon={<SportsTennisIcon sx={{ fontSize: 14 }} />}
+                      label={`Đôi: ${u.double ?? "-"}`}
+                      size="small"
+                      sx={{
+                        bgcolor: alpha(theme.palette.secondary.main, 0.1),
+                        color: "secondary.main",
+                        fontWeight: 600,
+                      }}
+                    />
+                  </Stack>
+
+                  {u.cccdImages?.front && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="secondary"
+                      startIcon={<BadgeIcon sx={{ fontSize: 16 }} />}
+                      onClick={() => setKyc(u)}
+                      sx={{ textTransform: "none", fontWeight: 600 }}
+                      fullWidth={isXs}
+                    >
+                      Xem CCCD / KYC
+                    </Button>
+                  )}
+                </Stack>
+              </Box>
+            </Stack>
+
+            {/* Right: Quick actions */}
+            <Stack
+              direction="row"
+              spacing={0.5}
+              justifyContent="flex-end"
+              alignItems="center"
+              flexWrap="wrap"
+              sx={{ alignSelf: { xs: "flex-end", sm: "flex-start" } }}
+            >
+              <Tooltip title="Lịch sử chỉnh sửa">
+                <IconButton
+                  size="small"
+                  onClick={() => setAuditUser(u)}
+                  sx={{ color: "text.secondary" }}
+                >
+                  <HistoryIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+
+              <Tooltip title="Cập nhật điểm">
+                <IconButton
+                  size="small"
+                  onClick={() => setScore({ ...u })}
+                  sx={{ color: "primary.main" }}
+                >
+                  <VerifiedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+
+              <Tooltip title="Sửa thông tin">
+                <IconButton size="small" onClick={() => setEdit({ ...u })}>
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+
+              <Tooltip title="Xoá người dùng">
+                <IconButton
+                  size="small"
+                  onClick={() => setDel(u)}
+                  sx={{ color: "error.main" }}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            </Stack>
           </Stack>
         </Box>
 
@@ -606,6 +681,7 @@ export default function UsersPage() {
                       <MenuItem value="admin">Admin</MenuItem>
                     </Select>
                   </FormControl>
+
                   <Paper
                     variant="outlined"
                     sx={{
@@ -645,11 +721,12 @@ export default function UsersPage() {
                 >
                   QUOTA TÌM KIẾM
                 </Typography>
+
                 <Paper variant="outlined" sx={{ p: 1.5, bgcolor: "white" }}>
                   <Stack
                     direction={{ xs: "column", sm: "row" }}
                     spacing={1.5}
-                    alignItems="center"
+                    alignItems={{ xs: "stretch", sm: "center" }}
                   >
                     <TextField
                       size="small"
@@ -660,7 +737,9 @@ export default function UsersPage() {
                       placeholder="Mặc định (5)"
                       sx={{ flex: 1 }}
                       InputLabelProps={{ shrink: true }}
+                      fullWidth
                     />
+
                     <FormControlLabel
                       sx={{ "& .MuiTypography-root": { fontSize: 13 } }}
                       control={
@@ -672,13 +751,15 @@ export default function UsersPage() {
                       }
                       label="Không giới hạn"
                     />
+
                     <Button
                       size="small"
                       variant="contained"
                       startIcon={<SaveIcon />}
                       onClick={handleSaveLimit}
                       disabled={savingLimit}
-                      sx={{ minWidth: 80 }}
+                      sx={{ minWidth: 90 }}
+                      fullWidth={isXs}
                     >
                       Lưu
                     </Button>
@@ -763,13 +844,18 @@ export default function UsersPage() {
             onChange={(e) => setSearch(e.target.value)}
             fullWidth
             InputProps={{
-              startAdornment: <SearchIcon color="action" sx={{ mr: 1 }} />,
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon color="action" />
+                </InputAdornment>
+              ),
             }}
             sx={{ flex: 2 }}
           />
 
+          {/* ✅ Responsive: stack xuống cột khi màn nhỏ */}
           <Stack
-            direction="row"
+            direction={{ xs: "column", sm: "row" }}
             spacing={2}
             sx={{ width: { xs: "100%", md: "auto" }, flex: 1 }}
           >
@@ -854,7 +940,7 @@ export default function UsersPage() {
             count={serverTotalPages}
             color="primary"
             onChange={(_, v) => dispatch(setPage(v - 1))}
-            size="large"
+            size={isXs ? "small" : "large"}
             shape="rounded"
           />
         </Box>
@@ -873,7 +959,13 @@ export default function UsersPage() {
       </Snackbar>
 
       {/* Zoom ảnh */}
-      <Dialog open={!!zoom} onClose={() => setZoom(null)} maxWidth="lg">
+      <Dialog
+        open={!!zoom}
+        onClose={() => setZoom(null)}
+        maxWidth="lg"
+        fullWidth
+        fullScreen={isXs}
+      >
         {zoom && (
           <img
             src={zoom}
@@ -882,6 +974,7 @@ export default function UsersPage() {
               maxWidth: "100%",
               maxHeight: "90vh",
               objectFit: "contain",
+              cursor: "zoom-out",
             }}
             onClick={() => setZoom(null)}
           />
@@ -1090,7 +1183,7 @@ export default function UsersPage() {
                   onChange={(e) => setEdit({ ...edit, name: e.target.value })}
                   fullWidth
                 />
-                <Stack direction="row" spacing={2}>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
                   <TextField
                     label="Email"
                     value={edit.email}
@@ -1108,7 +1201,7 @@ export default function UsersPage() {
                     fullWidth
                   />
                 </Stack>
-                <Stack direction="row" spacing={2}>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
                   <TextField
                     label="Nickname"
                     value={edit.nickname || ""}
@@ -1141,7 +1234,7 @@ export default function UsersPage() {
                   </FormControl>
                 </Stack>
 
-                <Stack direction="row" spacing={2}>
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
                   <TextField
                     label="CCCD"
                     value={edit.cccd || ""}
@@ -1406,6 +1499,7 @@ export default function UsersPage() {
           </>
         )}
       </Dialog>
+
       {/* ✅ Audit History Dialog */}
       <Dialog
         open={!!auditUser}
@@ -1586,6 +1680,7 @@ export default function UsersPage() {
                         onChange={(_, v) => setAuditPage(v)}
                         color="primary"
                         shape="rounded"
+                        size={isXs ? "small" : "medium"}
                       />
                     </Box>
                   )}
