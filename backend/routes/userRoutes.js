@@ -50,6 +50,7 @@ import {
 } from "../controllers/userStatsController.js";
 import { loadConfig } from "../middleware/versionGate.js";
 import { isWebRequest } from "../utils/isWebRequest.js";
+import { resendLoginOtp, verifyLoginOtp } from "../controllers/userLoginController.js";
 
 const router = express.Router();
 
@@ -73,6 +74,10 @@ router.post("/", async (req, res, next) => {
 
 router.post("/register/verify-otp", verifyRegisterOtp);
 router.post("/register/resend-otp", resendRegisterOtp);
+
+router.post("/login-otp/resend", resendLoginOtp);
+router.post("/login-otp/verify", verifyLoginOtp);
+
 router.get("/reauth", protect, reauthUser);
 router.post("/auth", authUser); // mobile
 router.post("/auth/web", authUserWeb); // web

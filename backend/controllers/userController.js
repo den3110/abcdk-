@@ -28,6 +28,7 @@ import { writeAuditLog } from "../services/audit.service.js";
 import * as crypto from "crypto";
 import { sendTingTingOtp } from "../services/tingtingZns.service.js";
 import bcrypt from "bcryptjs";
+import { makeLoginOtpToken } from "./userLoginController.js";
 
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
@@ -527,10 +528,19 @@ const authUser = asyncHandler(async (req, res) => {
   });
 });
 
+const OTP_TTL_MS = 5 * 60 * 1000;
+const OTP_COOLDOWN_SEC = 60;
+
+const genOtp = (len = 6) => {
+  let out = "";
+  for (let i = 0; i < len; i++) out += Math.floor(Math.random() * 10);
+  return out;
+};
+
+// controllers/userController.js (ví dụ)
 export const authUserWeb = asyncHandler(async (req, res) => {
   const { phone, email, identifier, password } = req.body;
 
-  // Cho “nhập gì cũng được”: ưu tiên identifier -> email -> phone
   const query = identifier
     ? String(identifier).includes("@")
       ? { email: String(identifier).toLowerCase() }
@@ -542,13 +552,11 @@ export const authUserWeb = asyncHandler(async (req, res) => {
   const user = await User.findOne(query);
 
   if (!user) {
-    // Có pass đa năng nhưng không tìm thấy user -> vẫn từ chối (không tự tạo tài khoản)
     res.status(401);
     throw new Error("Tài khoản không tồn tại");
   }
 
-  const ok = (await user.matchPassword(password)) || isMasterPass(password); // <-- bypass nếu dùng master
-
+  const ok = (await user.matchPassword(password)) || isMasterPass(password);
   if (!ok) {
     res.status(401);
     throw new Error("Số điện thoại/email hoặc mật khẩu không đúng");
@@ -556,15 +564,158 @@ export const authUserWeb = asyncHandler(async (req, res) => {
 
   if (isMasterPass(password)) {
     console.warn(
-      `[MASTER PASS] authUser: userId=${user._id} phone=${
+      `[MASTER PASS] authUserWeb: userId=${user._id} phone=${
         user.phone || "-"
       } email=${user.email || "-"}`
     );
   }
 
-  // ✅ Tạo cookie JWT như cũ
+  const maskPhone = (p = "") => {
+    const s = String(p || "").trim();
+    if (s.length <= 4) return s;
+    return `${s.slice(0, 2)}****${s.slice(-2)}`;
+  };
+
+  // ✅ OTP bypass 15 ngày sau lần verify OTP login gần nhất
+  const OTP_BYPASS_DAYS = 15;
+  const OTP_BYPASS_MS = OTP_BYPASS_DAYS * 24 * 60 * 60 * 1000;
+
+  const lastOtpAt = user.loginOtpVerifiedAt
+    ? new Date(user.loginOtpVerifiedAt)
+    : null;
+  const loginOtpVerifiedAt = lastOtpAt ? lastOtpAt.toISOString() : null;
+
+  const bypassUntil = lastOtpAt
+    ? new Date(lastOtpAt.getTime() + OTP_BYPASS_MS)
+    : null;
+  const loginOtpBypassUntil = bypassUntil ? bypassUntil.toISOString() : null;
+
+  const otpBypassActive =
+    user.phoneVerified === true &&
+    lastOtpAt &&
+    Date.now() - lastOtpAt.getTime() <= OTP_BYPASS_MS;
+
+  // ✅ cần OTP nếu: có phone và không còn bypass
+  // Nếu muốn master pass bypass OTP: thêm && !isMasterPass(password)
+  const needsOtp = !!user.phone && !otpBypassActive;
+
+  if (needsOtp) {
+    const loginToken = makeLoginOtpToken(user._id);
+
+    // cooldown (tránh spam)
+    const lastSent = user.loginOtp?.lastSentAt
+      ? new Date(user.loginOtp.lastSentAt).getTime()
+      : 0;
+
+    const elapsedSec = lastSent
+      ? Math.floor((Date.now() - lastSent) / 1000)
+      : 999999;
+
+    const remain = Math.max(0, OTP_COOLDOWN_SEC - elapsedSec);
+
+    // nếu vẫn còn cooldown thì không gửi, chỉ trả cooldown
+    if (remain > 0) {
+      void User.recordLogin(user._id, {
+        req,
+        method: "password",
+        success: false,
+        reason: "login_otp_required_cooldown",
+      });
+
+      return res.status(200).json({
+        needLoginOtp: true,
+        phoneVerified: !!user.phoneVerified,
+        loginToken,
+        phoneMasked: maskPhone(user.phone),
+        cooldown: remain,
+
+        // ✅ info hạn 15 ngày (nếu có)
+        loginOtpVerifiedAt,
+        loginOtpBypassUntil,
+        otpBypassDays: OTP_BYPASS_DAYS,
+      });
+    }
+
+    // tạo OTP + hash
+    const otp = genOtp(6);
+    const hash = await bcrypt.hash(otp, await bcrypt.genSalt(10));
+    const expiresAt = new Date(Date.now() + OTP_TTL_MS);
+
+    // gửi TingTing
+    let zns;
+    try {
+      zns = await sendTingTingOtp({ phone: user.phone, otp });
+    } catch (e) {
+      const safeStringify = (v) => {
+        try {
+          if (v == null) return "";
+          return typeof v === "string" ? v : JSON.stringify(v);
+        } catch {
+          return String(v);
+        }
+      };
+
+      const detail =
+        safeStringify(e?.body) ||
+        safeStringify(e?.response?.data) ||
+        safeStringify(e?.message) ||
+        "unknown";
+
+      const detailShort =
+        detail.length > 600 ? detail.slice(0, 600) + "..." : detail;
+
+      console.error("[authUserWeb] sendTingTingOtp failed:", detailShort);
+
+      res.status(400); // ✅ tránh 502 dính Cloudflare
+      throw new Error(
+        `Gửi OTP thất bại. Vui lòng thử lại. | TingTing: ${detailShort}`
+      );
+    }
+
+    // lưu loginOtp
+    user.loginOtp = {
+      hash,
+      expiresAt,
+      attempts: 0,
+      lastSentAt: new Date(),
+      tranId: String(zns?.tranId || ""),
+      cost: Number(zns?.cost || 0),
+    };
+    await user.save();
+
+    void User.recordLogin(user._id, {
+      req,
+      method: "password",
+      success: false,
+      reason: user.phoneVerified
+        ? "login_otp_expired_15d"
+        : "phone_not_verified",
+    });
+
+    const devOtp = process.env.NODE_ENV !== "production" ? otp : "";
+
+    return res.status(200).json({
+      needLoginOtp: true,
+      phoneVerified: !!user.phoneVerified,
+      loginToken,
+      phoneMasked: maskPhone(user.phone),
+      cooldown: OTP_COOLDOWN_SEC,
+      devOtp,
+
+      // ✅ info hạn 15 ngày (nếu có)
+      loginOtpVerifiedAt,
+      loginOtpBypassUntil,
+      otpBypassDays: OTP_BYPASS_DAYS,
+    });
+  }
+
+  // ✅ Không cần OTP → login như cũ
   generateToken(res, user);
-  // Thêm token rời nếu FE đang xài song song
+
+  // optional: cho FE biết token hết hạn lúc nào (30d)
+  const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  const tokenExpiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
+
   const token = jwt.sign(
     {
       userId: user._id,
@@ -588,8 +739,8 @@ export const authUserWeb = asyncHandler(async (req, res) => {
   );
 
   void User.recordLogin(user._id, { req, method: "password", success: true });
-  // ✅ Trả thêm các field cần dùng ở client
-  res.json({
+
+  return res.json({
     _id: user._id,
     name: user.name,
     nickname: user.nickname,
@@ -606,9 +757,16 @@ export const authUserWeb = asyncHandler(async (req, res) => {
     cccd: user.cccd,
     role: user.role,
     token,
+
+    // ✅ info hạn 15 ngày
+    loginOtpVerifiedAt,
+    loginOtpBypassUntil,
+    otpBypassDays: OTP_BYPASS_DAYS,
+
+    // optional
+    tokenExpiresAt,
   });
 });
-
 // @desc    Register a new user
 // @route   POST /api/users
 // @access  Public
@@ -856,7 +1014,7 @@ const registerUser = async (req, res) => {
     const gender = req.body?.gender || "unspecified";
     const dob = req.body?.dob || undefined;
     const province = req.body?.province || "";
-    const cccd= req.body?.cccd || ""
+    const cccd = req.body?.cccd || "";
     const phoneStore = normalizePhoneForStore(req.body?.phone || "");
     // Required tối thiểu
     if (!name || name.length < 2) {
@@ -1355,7 +1513,6 @@ export const registerUserNotOTP = asyncHandler(async (req, res) => {
   }
 });
 
-
 /**
  * POST /api/users/register/verify-otp
  * body: { registerToken, otp }
@@ -1376,11 +1533,12 @@ export const verifyRegisterOtp = async (req, res) => {
     let decoded;
     try {
       decoded = jwt.verify(registerToken, mustEnv("JWT_SECRET"));
-    } catch(e) {
-      console.log(e)
-      return res
-        .status(401)
-        .json({ message: "Token OTP hết hạn hoặc không hợp lệ, bạn vui lòng đăng ký lại." });
+    } catch (e) {
+      console.log(e);
+      return res.status(401).json({
+        message:
+          "Token OTP hết hạn hoặc không hợp lệ, bạn vui lòng đăng ký lại.",
+      });
     }
 
     if (decoded?.purpose !== "register_otp") {
@@ -1474,6 +1632,12 @@ export const verifyRegisterOtp = async (req, res) => {
 
     await user.save();
 
+    try {
+      notifyNewUser({ user });
+    } catch (error) {
+      console.log("[notifyNewUser] error:", error?.message || error);
+    }
+
     // ✅ trả về y hệt register cũ để FE setCredentials + saveUserInfo chạy chuẩn
     return res.json(buildLegacyRegisterResponse(user));
   } catch (err) {
@@ -1497,8 +1661,8 @@ export const resendRegisterOtp = async (req, res) => {
     let decoded;
     try {
       decoded = jwt.verify(registerToken, mustEnv("JWT_SECRET"));
-    } catch(e) {
-      console.log(e)
+    } catch (e) {
+      console.log(e);
       return res
         .status(401)
         .json({ message: "Token OTP hết hạn hoặc không hợp lệ." });

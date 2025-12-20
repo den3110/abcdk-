@@ -27,7 +27,6 @@ import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
 import apiSlice from "../slices/apiSlice";
 
-// Path đến logo
 const WEB_LOGO_PATH = "/icon.png";
 
 export default function LoginScreen() {
@@ -51,6 +50,18 @@ export default function LoginScreen() {
     e.preventDefault();
     try {
       const res = await login({ phone, password }).unwrap();
+
+      // ✅ nếu backend báo cần verify OTP
+      // ✅ nếu backend báo cần OTP đăng nhập
+      if (res?.needLoginOtp) {
+        const qs = new URLSearchParams({
+          loginToken: res?.loginToken || "",
+          phoneMasked: res?.phoneMasked || "",
+        }).toString();
+        navigate(`/verify-otp?${qs}`);
+        return;
+      }
+
       dispatch(setCredentials({ ...res }));
       dispatch(apiSlice.util.resetApiState());
       navigate("/");
@@ -81,7 +92,6 @@ export default function LoginScreen() {
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
-            // Hiệu ứng Glassmorphism
             background: "rgba(255, 255, 255, 0.85)",
             backdropFilter: "blur(20px)",
             borderRadius: "24px",
@@ -89,23 +99,19 @@ export default function LoginScreen() {
             boxShadow: "0 8px 32px 0 rgba(31, 38, 135, 0.37)",
           }}
         >
-          {/* --- LOGO ĐÃ SỬA --- */}
           <Box sx={{ mb: 3, display: "flex", justifyContent: "center" }}>
             <img
               src={WEB_LOGO_PATH}
               alt="Logo"
               style={{
-                // Kích thước logo (Mobile to hơn chút cho rõ, Desktop vừa phải)
                 width: isMobile ? "100px" : "120px",
                 height: isMobile ? "100px" : "120px",
-                objectFit: "contain", // Giữ nguyên tỉ lệ ảnh
-                borderRadius: "20px", // Bo góc logo (tùy chỉnh độ bo ở đây)
-                // Thêm bóng đổ nhẹ cho logo nổi lên 1 chút (tùy chọn)
+                objectFit: "contain",
+                borderRadius: "20px",
                 filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.15))",
               }}
             />
           </Box>
-          {/* ------------------- */}
 
           <Typography
             component="h1"
@@ -249,7 +255,7 @@ export default function LoginScreen() {
                   fontWeight: 600,
                 }}
               >
-                Đăng ký 
+                Đăng ký
               </Link>
             </Box>
           </Box>

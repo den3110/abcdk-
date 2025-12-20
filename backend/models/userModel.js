@@ -29,7 +29,7 @@ const SignupWebSchema = new mongoose.Schema(
   { _id: false }
 );
 
-const registerOtpSchema = new mongoose.Schema(
+const otpStateSchema = new mongoose.Schema(
   {
     hash: { type: String, default: "" },
     expiresAt: { type: Date, default: null },
@@ -115,7 +115,12 @@ const userSchema = new mongoose.Schema(
     phoneVerified: { type: Boolean, default: false },
     phoneVerifiedAt: { type: Date, default: null },
 
-    registerOtp: { type: registerOtpSchema, default: () => ({}) },
+    registerOtp: { type: otpStateSchema, default: () => ({}) },
+    loginOtp: { type: otpStateSchema, default: () => ({}) }, // ✅ NEW: riêng cho đăng nhập
+    // trong userSchema fields
+    loginOtpVerifiedAt: { type: Date, default: null }, // ✅ lần gần nhất login thành công qua OTP
+    // ✅ ADD: thời hạn bypass OTP (lưu DB để xem log)
+    loginOtpBypassUntil: { type: Date, default: null },
     email: {
       type: String,
       unique: true,
@@ -437,5 +442,10 @@ userSchema.index(
   { name: "idx_signup_ip" }
 );
 userSchema.index({ lastKnownLocation: "2dsphere" });
+
+userSchema.index(
+  { loginOtpBypassUntil: -1 },
+  { name: "idx_login_otp_bypass_until" }
+);
 
 export default mongoose.model("User", userSchema);

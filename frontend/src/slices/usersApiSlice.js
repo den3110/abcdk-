@@ -123,6 +123,24 @@ export const userApiSlice = apiSlice.injectEndpoints({
         body,
       }),
     }),
+
+    // ✅ OTP ĐĂNG NHẬP: gửi lại OTP
+    resendLoginOtp: builder.mutation({
+      query: ({ loginToken }) => ({
+        url: `${USERS_URL}/login-otp/resend`,
+        method: "POST",
+        body: { loginToken },
+      }),
+    }),
+
+    // ✅ OTP ĐĂNG NHẬP: verify OTP
+    verifyLoginOtp: builder.mutation({
+      query: ({ loginToken, otp }) => ({
+        url: `${USERS_URL}/login-otp/verify`,
+        method: "POST",
+        body: { loginToken, otp },
+      }),
+    }),
   }),
 });
 
@@ -145,4 +163,6 @@ export const {
   useGetUserAchievementsQuery,
   useVerifyRegisterOtpMutation,
   useResendRegisterOtpMutation,
+  useResendLoginOtpMutation,
+  useVerifyLoginOtpMutation
 } = userApiSlice;

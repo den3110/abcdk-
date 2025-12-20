@@ -1,4 +1,12 @@
-import React, { useEffect, useState, useCallback, useMemo, memo } from "react";
+// RankingList.jsx
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  memo,
+  useRef,
+} from "react";
 import {
   Container,
   Typography,
@@ -52,14 +60,23 @@ import GridViewIcon from "@mui/icons-material/GridView";
 import { Link, useSearchParams } from "react-router-dom";
 import { useDispatch, useSelector } from "react-redux";
 import { setKeyword, setPage } from "../../slices/rankingUiSlice";
-import { useGetRankingsQuery } from "../../slices/rankingsApiSlice";
+
+/**
+ * ✅ THAY API CŨ (useGetRankingsQuery) BẰNG 2 API MỚI
+ * - useGetRankingsListQuery({ keyword, page }) -> { docs, totalPages }
+ * - useGetRankingsPodiums30dQuery() -> { podiums30d } (hoặc object podiums)
+ */
+import {
+  useGetRankingsListQuery,
+  useGetRankingsPodiums30dQuery,
+} from "../../slices/rankingsApiSlice";
+
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 
 import { useGetMeQuery } from "../../slices/usersApiSlice";
 import { useCreateEvaluationMutation } from "../../slices/evaluationsApiSlice";
 import { useReviewKycMutation } from "../../slices/adminApiSlice";
 import { skipToken } from "@reduxjs/toolkit/query";
-import { useRef } from "react";
 import SponsorMarquee from "../../components/SponsorMarquee";
 
 /* ================= LAZY LOADING AVATAR COMPONENT ================= */
@@ -348,23 +365,6 @@ const canViewKycAdmin = (me, status) =>
   me?.role === "admin" && (status === "verified" || status === "pending");
 
 const numOrUndef = (v) => (Number.isFinite(Number(v)) ? Number(v) : undefined);
-
-const getBaselineScores = (u, r) => {
-  const singleFromR = numOrUndef(r?.single);
-  const doubleFromR = numOrUndef(r?.double);
-  const singleFromU =
-    numOrUndef(u?.localRatings?.singles) ??
-    numOrUndef(u?.ratingSingle) ??
-    undefined;
-  const doubleFromU =
-    numOrUndef(u?.localRatings?.doubles) ??
-    numOrUndef(u?.ratingDouble) ??
-    undefined;
-  return {
-    single: singleFromR ?? singleFromU,
-    double: doubleFromR ?? doubleFromU,
-  };
-};
 
 const parsePageFromParams = (sp) => {
   const raw = sp.get("page");
@@ -712,6 +712,7 @@ export default function RankingList() {
   const [searchParams, setSearchParams] = useSearchParams();
   const containerRef = useRef(null);
   const searchInputRef = useRef(null);
+
   const [desktopView, setDesktopView] = useState(() => {
     try {
       const cached = localStorage.getItem(VIEW_KEY);
@@ -724,22 +725,30 @@ export default function RankingList() {
 
   const [searchInput, setSearchInput] = useState(keyword || "");
 
+  /**
+   * ✅ 2 API mới:
+   * - list API: docs + totalPages
+   * - podium API: podiums30d
+   */
   const {
-    data = { docs: [], totalPages: 0, podiums30d: {} },
-    isLoading,
-    isFetching,
-    error,
-  } = useGetRankingsQuery({ keyword, page });
+    data: listData,
+    isLoading: isLoadingList,
+    isFetching: isFetchingList,
+    error: errorList,
+  } = useGetRankingsListQuery({ keyword, page });
 
   const {
-    docs: list,
-    totalPages,
-    podiums30d,
-  } = {
-    docs: data?.docs || [],
-    totalPages: data?.totalPages || 0,
-    podiums30d: data?.podiums30d || {},
-  };
+    data: podiumData,
+    isLoading: isLoadingPod,
+    isFetching: isFetchingPod,
+    error: errorPod,
+  } = useGetRankingsPodiums30dQuery();
+
+  const list = listData?.docs || [];
+  const totalPages = listData?.totalPages || 0;
+
+  // podiumData có thể là { podiums30d: {...} } hoặc trực tiếp {...}
+  const podiums30d = podiumData?.podiums30d || podiumData || {};
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme?.breakpoints?.down("sm"));
@@ -747,6 +756,12 @@ export default function RankingList() {
   const DRAWER_WIDTH_DESKTOP = 380;
 
   const desktopCards = !isMobile && desktopView === "cards";
+
+  // gộp loading/fetching/error phù hợp
+  const isLoading = isLoadingList; // list là chính
+  const isFetching = isFetchingList || isFetchingPod; // podium fetch cũng hiện progress
+  const error = errorList || null; // ưu tiên lỗi list; podium lỗi thì bỏ qua UI podium thôi
+  const showSkeleton = isLoadingList || isFetchingList; // skeleton theo list
 
   const token = useSelector(
     (s) =>
@@ -783,12 +798,10 @@ export default function RankingList() {
 
   useEffect(() => {
     if (urlPage !== page) dispatch(setPage(urlPage));
-    if ((urlKeyword || "") !== (keyword || "")) {
+    if ((urlKeyword || "") !== (keyword || ""))
       dispatch(setKeyword(urlKeyword));
-    }
-    if ((urlKeyword || "") !== (searchInput || "")) {
+    if ((urlKeyword || "") !== (searchInput || ""))
       setSearchInput(urlKeyword || "");
-    }
 
     const v = searchParams.get("view");
     if (v === "cards" || v === "list") {
@@ -799,6 +812,7 @@ export default function RankingList() {
         console.log(e);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [urlPage, urlKeyword, searchParams]);
 
   useEffect(() => {
@@ -810,6 +824,7 @@ export default function RankingList() {
       else next.delete("page");
       setSearchParams(next, { replace: true });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page]);
 
   useEffect(() => {
@@ -825,6 +840,7 @@ export default function RankingList() {
       }
     }, 400);
     return () => clearTimeout(handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchInput]);
 
   const doImmediateSearch = useCallback(() => {
@@ -959,6 +975,7 @@ export default function RankingList() {
         showSnack("error", "Thiếu thông tin người được chấm hoặc tỉnh.");
         return;
       }
+
       const resp = await createEvaluation({
         targetUser: gradeDlg.userId,
         province: gradeDlg.province,
@@ -973,6 +990,7 @@ export default function RankingList() {
         resp?.ranking?.double ?? (doubles !== undefined ? doubles : undefined);
       const newUpdatedAt =
         resp?.ranking?.lastUpdated ?? new Date().toISOString();
+
       setPatchMap((m) => ({
         ...m,
         [gradeDlg.userId]: {
@@ -1103,8 +1121,6 @@ export default function RankingList() {
     [searchParams, setSearchParams]
   );
 
-  const showSkeleton = isLoading || isFetching;
-
   return (
     <>
       <SponsorMarquee variant="glass" height={80} gap={24} />
@@ -1175,6 +1191,7 @@ export default function RankingList() {
                 </ToggleButton>
               </ToggleButtonGroup>
             )}
+
             {loading === false && canSelfAssess && (
               <Button
                 component={Link}
@@ -1217,9 +1234,6 @@ export default function RankingList() {
           onKeyDown={handleInputKeyDown}
           sx={{ mb: 2, width: 320 }}
           inputProps={{ maxLength: 120 }}
-          // ❌ bỏ disabled={isFetching}
-          // Nếu muốn chặn lúc load lần đầu thì dùng isLoading:
-          // disabled={isLoading}
           inputRef={searchInputRef}
           InputProps={{
             startAdornment: (
@@ -2082,6 +2096,9 @@ export default function RankingList() {
             {snack.msg}
           </Alert>
         </Snackbar>
+
+        {/* nếu podium API lỗi, mình không chặn UI chính; bạn muốn show warning thì mở dòng dưới */}
+        {/* {errorPod && <Alert severity="warning">Không tải được podium 30 ngày.</Alert>} */}
       </Container>
     </>
   );

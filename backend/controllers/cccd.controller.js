@@ -210,7 +210,7 @@ export async function extractCCCDOpenAI(req, res) {
 
     if (!jsonText)
       return res
-        .status(502)
+        .status(400)
         .json({ message: "Không nhận được dữ liệu từ model", debug: resp });
 
     let data;

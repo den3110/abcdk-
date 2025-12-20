@@ -40,7 +40,39 @@ export const rankingsApiSlice = apiSlice.injectEndpoints({
       },
       keepUnusedDataFor: 30,
     }),
+    // ✅ List rankings (không kèm podiums30d)
+    getRankingsList: builder.query({
+      query: ({ cursor, page, limit = 10, keyword } = {}) => {
+        const params = new URLSearchParams();
+        if (cursor) params.set("cursor", String(cursor));
+        if (page !== undefined && page !== null)
+          params.set("page", String(page));
+        if (limit) params.set("limit", String(limit));
+        if (keyword) params.set("keyword", String(keyword).trim());
+        const qs = params.toString();
+        return {
+          url: `/api/rankings/rankings${qs ? `?${qs}` : ""}`,
+          method: "GET",
+        };
+      },
+      // nếu bạn có tags cho rankings thì thêm vào đây
+      // providesTags: (result) => [{ type: "Rankings", id: "LIST" }],
+      keepUnusedDataFor: 10,
+    }),
+
+    // ✅ Podiums 30d only
+    getRankingsPodiums30d: builder.query({
+      query: () => ({
+        url: `/api/rankings/podium30d`,
+        method: "GET",
+      }),
+      keepUnusedDataFor: 30,
+    }),
   }),
 });
 
-export const { useGetRankingsQuery } = rankingsApiSlice;
+export const {
+  useGetRankingsQuery,
+  useGetRankingsListQuery,
+  useGetRankingsPodiums30dQuery,
+} = rankingsApiSlice;

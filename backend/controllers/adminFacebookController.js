@@ -45,7 +45,7 @@ export const exchangeLongUserToken = expressAsyncHandler(async (req, res) => {
 
     if (!longToken) {
       return res
-        .status(502)
+        .status(400)
         .json({ message: "Facebook không trả về access_token hợp lệ" });
     }
 

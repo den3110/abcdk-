@@ -1186,6 +1186,478 @@ export const getRankings = asyncHandler(async (req, res) => {
   });
 });
 
+/* ============================ ✅ NEW: ranking-only (giữ nguyên getRankings, thêm controller mới) ============================ */
+export const getRankingOnly = asyncHandler(async (req, res) => {
+  // Copy y nguyên getRankings, chỉ bỏ phần buildRecentPodiumsByUser + field podiums30d trong response
+
+  // ===== Cursor-based pagination =====
+  const rawCursor =
+    typeof req.query.cursor === "string" ? req.query.cursor.trim() : "";
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 12, 12)));
+
+  let page = 0;
+
+  if (rawCursor) {
+    const payload = decodeCursor(rawCursor);
+    if (
+      payload &&
+      typeof payload.page === "number" &&
+      (payload.limit === undefined || payload.limit === limit)
+    ) {
+      page = Math.max(0, payload.page);
+    }
+  } else {
+    page = Math.max(0, parseInt(req.query.page ?? 0, 12));
+  }
+
+  const keywordRaw = String(req.query.keyword ?? "").trim();
+
+  const role = String(req.user?.role || "").toLowerCase();
+  const isAdmin = role === "admin" || !!req.user?.isAdmin;
+  const isReferee =
+    role === "referee" ||
+    role === "ref" ||
+    role === "umpire" ||
+    role === "official";
+
+  let userSearchLimit = null;
+  let isUnlimitedSearch = false;
+
+  if (req.user) {
+    if (req.user.rankingSearchUnlimited) {
+      isUnlimitedSearch = true;
+    }
+    if (
+      typeof req.user.rankingSearchLimit === "number" &&
+      req.user.rankingSearchLimit > 0
+    ) {
+      userSearchLimit = req.user.rankingSearchLimit;
+    }
+  }
+
+  let remainingTime = null;
+  let quotaExhausted = false;
+  const isLimitedUser = !isAdmin && !isReferee && !isUnlimitedSearch;
+
+  const checkQuotaExhaustedForToday = async () => {
+    if (!isLimitedUser) return false;
+
+    const ip = getClientIp(req);
+    const ymd = getTodayYMD();
+    const quotaDoc = await RankingSearchQuota.findOne({ ip, ymd }).lean();
+    if (!quotaDoc) return false;
+
+    const DEFAULT_TOTAL_LIMIT = 5;
+    const GUEST_LIMIT_NO_LOGIN = 3;
+    const totalLimitForGuest = DEFAULT_TOTAL_LIMIT;
+    const totalLimitForLogin =
+      typeof userSearchLimit === "number" && userSearchLimit > 0
+        ? userSearchLimit
+        : DEFAULT_TOTAL_LIMIT;
+
+    if (!req.user) {
+      if (!quotaDoc.hasLoggedIn) {
+        return quotaDoc.total >= GUEST_LIMIT_NO_LOGIN;
+      }
+      return quotaDoc.total >= totalLimitForGuest;
+    }
+
+    return quotaDoc.total >= totalLimitForLogin;
+  };
+
+  if (keywordRaw && isLimitedUser) {
+    const quotaInfo = await enforceRankingSearchLimit(req, {
+      isLoggedIn: !!req.user,
+      loginLimit: userSearchLimit,
+      isUnlimited: isUnlimitedSearch,
+    });
+    if (quotaInfo && typeof quotaInfo.remainingTime === "number") {
+      remainingTime = quotaInfo.remainingTime;
+      if (remainingTime <= 0) quotaExhausted = true;
+    }
+  } else if (!keywordRaw) {
+    quotaExhausted = await checkQuotaExhaustedForToday();
+  }
+
+  if (
+    isLimitedUser &&
+    quotaExhausted &&
+    page >= MAX_PAGES_WHEN_QUOTA_EXHAUSTED
+  ) {
+    const err = new Error(
+      "Bạn đã sử dụng hết lượt tìm kiếm hôm nay, và chỉ được xem tối đa 5 trang kết quả. Vui lòng quay lại vào ngày mai."
+    );
+    err.statusCode = 429;
+    err.remainingTime = 0;
+    err.remainingResetTime = getRemainingResetTimeSeconds();
+    throw err;
+  }
+
+  const isAdminForProjection = isAdmin;
+
+  let userIdsFilter = null;
+  if (keywordRaw) {
+    const orConds = [];
+    const namePattern = keywordRaw
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(escapeRegExp)
+      .join(".*");
+    if (namePattern) {
+      orConds.push({ name: { $regex: namePattern, $options: "i" } });
+      orConds.push({ nickname: { $regex: namePattern, $options: "i" } });
+    }
+    const emailCandidate = stripSpaces(keywordRaw);
+    if (emailCandidate.includes("@")) {
+      orConds.push({
+        email: { $regex: `^${escapeRegExp(emailCandidate)}$`, $options: "i" },
+      });
+    }
+    const phoneDigits = digitsOnly(keywordRaw);
+    if (phoneDigits.length >= 9) {
+      const phonePattern = `^${phoneDigits.split("").join("\\s*")}$`;
+      orConds.push({ phone: { $regex: phonePattern } });
+      orConds.push({ cccd: { $regex: phonePattern } });
+    }
+
+    if (orConds.length > 0) {
+      const rawIds = await User.find({ $or: orConds }, { _id: 1 }).lean();
+      const ids = rawIds.map((d) => d?._id).filter((id) => isOID(id));
+      if (!ids.length) {
+        return res.json({
+          docs: [],
+          totalPages: 0,
+          page,
+          nextCursor: null,
+          hasMore: false,
+          remainingTime,
+        });
+      }
+      userIdsFilter = ids;
+    }
+  }
+
+  const baseUserProject = {
+    _id: 1,
+    nickname: 1,
+    gender: 1,
+    province: 1,
+    avatar: 1,
+    verified: 1,
+    createdAt: 1,
+    cccdStatus: 1,
+    dob: 1,
+  };
+  const adminExtraProject = {
+    name: 1,
+    email: 1,
+    phone: 1,
+    cccd: 1,
+    cccdImages: 1,
+    note: 1,
+  };
+  const userProject = isAdminForProjection
+    ? { ...baseUserProject, ...adminExtraProject }
+    : baseUserProject;
+
+  const matchStage = {
+    ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
+  };
+
+  const agg = await Ranking.aggregate([
+    { $match: matchStage },
+    { $match: { user: { $type: "objectId" } } },
+    {
+      $facet: {
+        total: [
+          {
+            $lookup: {
+              from: "users",
+              localField: "user",
+              foreignField: "_id",
+              as: "u",
+              pipeline: [{ $project: { _id: 1 } }],
+            },
+          },
+          { $match: { "u.0": { $exists: true } } },
+          { $group: { _id: "$user" } },
+          { $count: "n" },
+        ],
+        docs: [
+          {
+            $addFields: {
+              points: { $ifNull: ["$points", 0] },
+              single: { $ifNull: ["$single", 0] },
+              double: { $ifNull: ["$double", 0] },
+              mix: { $ifNull: ["$mix", 0] },
+              reputation: { $ifNull: ["$reputation", 0] },
+            },
+          },
+          { $sort: { user: 1, updatedAt: -1, _id: 1 } },
+          { $group: { _id: "$user", doc: { $first: "$$ROOT" } } },
+          { $replaceRoot: { newRoot: "$doc" } },
+          {
+            $lookup: {
+              from: "users",
+              localField: "user",
+              foreignField: "_id",
+              as: "user",
+              pipeline: [{ $project: userProject }],
+            },
+          },
+          { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
+
+          {
+            $lookup: {
+              from: "registrations",
+              let: { uid: "$user._id" },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $or: [
+                        { $eq: ["$player1.user", "$$uid"] },
+                        { $eq: ["$player2.user", "$$uid"] },
+                      ],
+                    },
+                  },
+                },
+                {
+                  $lookup: {
+                    from: "tournaments",
+                    localField: "tournament",
+                    foreignField: "_id",
+                    as: "tour",
+                    pipeline: [
+                      {
+                        $project: {
+                          _id: 1,
+                          status: 1,
+                          finishedAt: 1,
+                          endAt: 1,
+                        },
+                      },
+                    ],
+                  },
+                },
+                {
+                  $addFields: {
+                    status: {
+                      $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, ""],
+                    },
+                    finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
+                    rawEndAt: { $arrayElemAt: ["$tour.endAt", 0] },
+                  },
+                },
+                {
+                  $addFields: {
+                    endAtDate: {
+                      $convert: {
+                        input: "$rawEndAt",
+                        to: "date",
+                        onError: null,
+                        onNull: null,
+                      },
+                    },
+                    tourFinished: {
+                      $or: [
+                        { $eq: ["$status", "finished"] },
+                        { $ne: ["$finishedAt", null] },
+                        {
+                          $and: [
+                            { $ne: ["$endAtDate", null] },
+                            { $lt: ["$endAtDate", new Date()] },
+                          ],
+                        },
+                      ],
+                    },
+                  },
+                },
+                { $match: { tourFinished: true } },
+                { $group: { _id: "$tournament" } },
+                { $count: "n" },
+              ],
+              as: "finishedToursCount",
+            },
+          },
+          {
+            $addFields: {
+              totalTours: {
+                $ifNull: [{ $arrayElemAt: ["$finishedToursCount.n", 0] }, 0],
+              },
+            },
+          },
+
+          {
+            $lookup: {
+              from: "assessments",
+              let: { uid: "$user._id" },
+              pipeline: [
+                { $match: { $expr: { $eq: ["$user", "$$uid"] } } },
+                {
+                  $match: {
+                    $expr: {
+                      $in: [
+                        { $toLower: "$meta.scoreBy" },
+                        ["admin", "mod", "moderator"],
+                      ],
+                    },
+                  },
+                },
+                { $sort: { scoredAt: -1, createdAt: -1, _id: -1 } },
+                { $limit: 1 },
+                { $project: { _id: 1 } },
+              ],
+              as: "assess_staff",
+            },
+          },
+          {
+            $addFields: {
+              hasStaffAssessment: { $gt: [{ $size: "$assess_staff" }, 0] },
+            },
+          },
+
+          {
+            $addFields: {
+              zeroPoints: {
+                $and: [
+                  { $eq: ["$points", 0] },
+                  { $eq: ["$single", 0] },
+                  { $eq: ["$double", 0] },
+                  { $eq: ["$mix", 0] },
+                ],
+              },
+            },
+          },
+          {
+            $addFields: {
+              isGrey: { $and: ["$zeroPoints", { $eq: ["$totalTours", 0] }] },
+            },
+          },
+
+          {
+            $addFields: {
+              isGold: {
+                $and: [
+                  { $not: ["$isGrey"] },
+                  { $or: [{ $gt: ["$totalTours", 0] }, "$hasStaffAssessment"] },
+                ],
+              },
+            },
+          },
+          {
+            $addFields: {
+              isRed: {
+                $and: [
+                  { $eq: ["$totalTours", 0] },
+                  { $not: ["$isGold"] },
+                  { $not: ["$isGrey"] },
+                ],
+              },
+            },
+          },
+          {
+            $addFields: {
+              colorRank: {
+                $cond: [
+                  "$isGold",
+                  0,
+                  {
+                    $cond: [
+                      "$isRed",
+                      1,
+                      {
+                        $cond: ["$isGrey", 2, 3],
+                      },
+                    ],
+                  },
+                ],
+              },
+              tierLabel: {
+                $switch: {
+                  branches: [
+                    { case: "$isGold", then: "Official/Đã duyệt" },
+                    { case: "$isRed", then: "Tự chấm" },
+                    { case: "$isGrey", then: "0 điểm / Chưa đấu" },
+                  ],
+                  default: "Chưa có điểm",
+                },
+              },
+              tierColor: {
+                $switch: {
+                  branches: [
+                    { case: "$isGold", then: "yellow" },
+                    { case: "$isRed", then: "red" },
+                    { case: "$isGrey", then: "grey" },
+                  ],
+                  default: "grey",
+                },
+              },
+              reputation: { $min: [100, { $multiply: ["$totalTours", 10] }] },
+            },
+          },
+
+          {
+            $sort: {
+              colorRank: 1,
+              double: -1,
+              single: -1,
+              points: -1,
+              updatedAt: -1,
+              _id: 1,
+            },
+          },
+          { $skip: page * limit },
+          { $limit: limit },
+          {
+            $project: {
+              user: 1,
+              single: 1,
+              double: 1,
+              mix: 1,
+              points: 1,
+              updatedAt: 1,
+              tierLabel: 1,
+              tierColor: 1,
+              colorRank: 1,
+              totalTours: 1,
+              reputation: 1,
+            },
+          },
+        ],
+      },
+    },
+    {
+      $project: {
+        docs: "$docs",
+        total: { $ifNull: [{ $arrayElemAt: ["$total.n", 0] }, 0] },
+      },
+    },
+    { $addFields: { totalPages: { $ceil: { $divide: ["$total", limit] } } } },
+  ]);
+
+  const first = agg[0] || { docs: [], totalPages: 0 };
+  const totalPages = first.totalPages || 0;
+
+  const hasMore = page + 1 < totalPages;
+  const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
+
+  return res.json({
+    docs: first.docs || [],
+    totalPages,
+    page,
+    nextCursor,
+    hasMore,
+    remainingTime,
+  });
+});
+
+/* ============================ ✅ NEW: podium30d-only ============================ */
+export const getPodium30d = asyncHandler(async (req, res) => {
+  const { podiumMapByUserId } = await buildRecentPodiumsByUser({ days: 30 });
+  return res.json({ podiums30d: podiumMapByUserId });
+});
+
 /** Tạo mật khẩu ngẫu nhiên mạnh */
 function generatePassword(len = 12) {
   const U = "ABCDEFGHJKLMNPQRSTUVWXYZ";
