@@ -34,7 +34,8 @@ export async function slackEventsHandler(req, res) {
     payload = JSON.parse(rawBody);
   } catch {
     return res.status(400).send("bad json");
-  }
+  } 
+  console.log(payload)
 
   // ✅ Slack verify URL: trả plaintext challenge
   if (payload.type === "url_verification") {
