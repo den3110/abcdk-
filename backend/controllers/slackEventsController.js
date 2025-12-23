@@ -31,7 +31,7 @@ export async function slackEventsHandler(req, res) {
       .type("text/plain")
       .send(String(rawBody.challenge || ""));
   }
-  console.log(rawBody)
+  console.log(rawBody);
 
   // ✅ ACK ngay cho Slack trước (tránh timeout)
   res.status(200).send("ok");
@@ -43,20 +43,26 @@ export async function slackEventsHandler(req, res) {
       if (isDup(rawBody.event_id)) return;
 
       const ev = rawBody.event;
+      console.log(0);
+
       if (!ev || ev.type !== "message") return;
 
       // lọc đúng channel (khuyên set env cho chắc)
       const targetChannel = process.env.TELEGRAM_CHAT_CRASH_ID;
+      console.log(1);
       if (targetChannel && ev.channel !== targetChannel) return;
-
+      console.log(2);
       // bỏ edit/delete
       if (ev.subtype && ev.subtype !== "bot_message") return;
 
       const text = String(ev.text || "").trim();
       if (!text) return;
+      console.log(3);
       if (!shouldForward(text)) return;
+      console.log(4);
 
       await sendTelegramMessage(`🧯 Crashlytics Alert\n\n${safeClip(text)}`);
+      console.log(5);
     } catch (e) {
       console.error("[slack->tele] forward error:", e?.message || e);
     }
