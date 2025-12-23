@@ -1,33 +1,28 @@
-import { verifySlackRequest } from "../middleware/verifySlack.js";
 import { sendTelegramMessage } from "../services/telegram.service.js";
 
 // dedup event_id tránh Slack retry spam
-const seen = new Map(); // eventId -> expireAtMs
+const seen = new Map();
 function isDup(eventId) {
   const now = Date.now();
   for (const [k, exp] of seen) if (exp <= now) seen.delete(k);
-
   if (!eventId) return false;
   if (seen.has(eventId)) return true;
-  seen.set(eventId, now + 10 * 60 * 1000); // 10 phút
+  seen.set(eventId, now + 10 * 60 * 1000);
   return false;
 }
 
 function safeClip(s, max = 3500) {
   const t = String(s || "").trim();
-  if (t.length <= max) return t;
-  return t.slice(0, max) + "…";
+  return t.length <= max ? t : t.slice(0, max) + "…";
 }
 
 function shouldForward(text) {
-  // tuỳ bạn, mình lọc nhẹ để khỏi forward mấy tin chat thường
   const t = String(text || "");
   return /crashlytics|fatal|anr|regression|velocity|crash/i.test(t);
 }
 
-// controllers/slackEventsController.js
 export async function slackEventsHandler(req, res) {
-  const rawBody = req.body
+  const rawBody = req.body || {};
 
   // ✅ Slack verify URL: trả plaintext challenge
   if (rawBody.type === "url_verification") {
@@ -37,6 +32,32 @@ export async function slackEventsHandler(req, res) {
       .send(String(rawBody.challenge || ""));
   }
 
-  // các event khác thì ack 200
-  return res.status(200).send("ok");
+  // ✅ ACK ngay cho Slack trước (tránh timeout)
+  res.status(200).send("ok");
+
+  // ===== xử lý async để bắn Telegram =====
+  setImmediate(async () => {
+    try {
+      if (rawBody.type !== "event_callback") return;
+      if (isDup(rawBody.event_id)) return;
+
+      const ev = rawBody.event;
+      if (!ev || ev.type !== "message") return;
+
+      // lọc đúng channel (khuyên set env cho chắc)
+      const targetChannel = process.env.TELEGRAM_CHAT_CRASH_ID;
+      if (targetChannel && ev.channel !== targetChannel) return;
+
+      // bỏ edit/delete
+      if (ev.subtype && ev.subtype !== "bot_message") return;
+
+      const text = String(ev.text || "").trim();
+      if (!text) return;
+      if (!shouldForward(text)) return;
+
+      await sendTelegramMessage(`🧯 Crashlytics Alert\n\n${safeClip(text)}`);
+    } catch (e) {
+      console.error("[slack->tele] forward error:", e?.message || e);
+    }
+  });
 }
