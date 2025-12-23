@@ -58,7 +58,7 @@ export async function slackEventsHandler(req, res) {
       const text = String(ev.text || "").trim();
       if (!text) return;
       console.log(3);
-      if (!shouldForward(text)) return;
+      // if (!shouldForward(text)) return;
       console.log(4);
 
       await sendTelegramMessage(`🧯 Crashlytics Alert\n\n${safeClip(text)}`);
