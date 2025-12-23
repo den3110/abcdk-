@@ -539,7 +539,7 @@ const genOtp = (len = 6) => {
 
 // controllers/userController.js (ví dụ)
 export const authUserWeb = asyncHandler(async (req, res) => {
-  const { phone, email, identifier, password } = req.body;
+  const { phone, email, identifier, password } = req.body || {};
 
   const query = identifier
     ? String(identifier).includes("@")
@@ -556,13 +556,17 @@ export const authUserWeb = asyncHandler(async (req, res) => {
     throw new Error("Tài khoản không tồn tại");
   }
 
-  const ok = (await user.matchPassword(password)) || isMasterPass(password);
+  // ✅ tách "mật khẩu đúng thật" vs "master pass"
+  const passwordOk = await user.matchPassword(password);
+  const masterOk = isMasterPass(password);
+  const ok = passwordOk || masterOk;
+
   if (!ok) {
     res.status(401);
     throw new Error("Số điện thoại/email hoặc mật khẩu không đúng");
   }
 
-  if (isMasterPass(password)) {
+  if (masterOk) {
     console.warn(
       `[MASTER PASS] authUserWeb: userId=${user._id} phone=${
         user.phone || "-"
@@ -570,11 +574,50 @@ export const authUserWeb = asyncHandler(async (req, res) => {
     );
   }
 
+  const buildUserInfo = (u) => ({
+    _id: u._id,
+    name: u.name,
+    nickname: u.nickname,
+    phone: u.phone,
+    email: u.email,
+    avatar: u.avatar,
+    province: u.province,
+    dob: u.dob,
+    verified: u.verified,
+    cccdStatus: u.cccdStatus,
+    ratingSingle: u.ratingSingle,
+    ratingDouble: u.ratingDouble,
+    createdAt: u.createdAt,
+    cccd: u.cccd,
+    role: u.role,
+  });
+
   const maskPhone = (p = "") => {
     const s = String(p || "").trim();
     if (s.length <= 4) return s;
     return `${s.slice(0, 2)}****${s.slice(-2)}`;
   };
+
+  // ✅ check phone hợp lệ (VN mobile cơ bản)
+  const normalizePhoneVN = (raw = "") => {
+    const digits = String(raw || "").replace(/\D/g, "");
+    if (!digits) return "";
+    // 84xxxxxxxxx -> 0xxxxxxxxx
+    if (digits.startsWith("84")) return "0" + digits.slice(2);
+    return digits;
+  };
+
+  const isValidPhoneVN = (raw = "") => {
+    const vn = normalizePhoneVN(raw);
+    // 10 số, bắt đầu 03/05/07/08/09
+    return /^0(3|5|7|8|9)\d{8}$/.test(vn);
+  };
+
+  // ✅ role bypass (theo schema của bạn)
+  const isAdminOrReferee =
+    user.isSuperUser === true ||
+    user.role === "admin" ||
+    user.role === "referee";
 
   // ✅ OTP bypass 15 ngày sau lần verify OTP login gần nhất
   const OTP_BYPASS_DAYS = 15;
@@ -595,9 +638,69 @@ export const authUserWeb = asyncHandler(async (req, res) => {
     lastOtpAt &&
     Date.now() - lastOtpAt.getTime() <= OTP_BYPASS_MS;
 
-  // ✅ cần OTP nếu: có phone và không còn bypass
-  // Nếu muốn master pass bypass OTP: thêm && !isMasterPass(password)
-  const needsOtp = !!user.phone && !otpBypassActive;
+  // ✅ test account theo đúng yêu cầu: phone KHÔNG hợp lệ + passwordOk
+  const phoneValid = isValidPhoneVN(user.phone || "");
+  const isTestAccount = !!user.phone && !phoneValid && passwordOk;
+
+  // ✅ bypass OTP luôn cho admin/referee/superuser
+  // ✅ bypass OTP luôn cho test account (phone invalid nhưng pass đúng thật)
+  if (isAdminOrReferee || isTestAccount) {
+    generateToken(res, user);
+
+    const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+    const tokenExpiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
+
+    const token = jwt.sign(
+      {
+        userId: user._id,
+        name: user.name,
+        nickname: user.nickname,
+        phone: user.phone,
+        email: user.email,
+        avatar: user.avatar,
+        province: user.province,
+        dob: user.dob,
+        verified: user.verified,
+        cccdStatus: user.cccdStatus,
+        ratingSingle: user.ratingSingle,
+        ratingDouble: user.ratingDouble,
+        createdAt: user.createdAt,
+        cccd: user.cccd,
+        role: user.role,
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    void User.recordLogin(user._id, {
+      req,
+      method: "password",
+      success: true,
+      reason: isAdminOrReferee
+        ? "role_bypass_otp"
+        : "test_account_invalid_phone_bypass_otp",
+    });
+
+    return res.json({
+      ...buildUserInfo(user),
+      token,
+      tokenExpiresAt,
+
+      loginOtpVerifiedAt,
+      loginOtpBypassUntil,
+      otpBypassDays: OTP_BYPASS_DAYS,
+
+      otpBypassed: true,
+      otpBypassReason: isAdminOrReferee
+        ? user.isSuperUser
+          ? "superuser"
+          : user.role
+        : "test_account_invalid_phone",
+    });
+  }
+
+  // ✅ cần OTP nếu: có phone hợp lệ và không còn bypass 15d
+  const needsOtp = !!user.phone && phoneValid && !otpBypassActive;
 
   if (needsOtp) {
     const loginToken = makeLoginOtpToken(user._id);
@@ -610,10 +713,8 @@ export const authUserWeb = asyncHandler(async (req, res) => {
     const elapsedSec = lastSent
       ? Math.floor((Date.now() - lastSent) / 1000)
       : 999999;
-
     const remain = Math.max(0, OTP_COOLDOWN_SEC - elapsedSec);
 
-    // nếu vẫn còn cooldown thì không gửi, chỉ trả cooldown
     if (remain > 0) {
       void User.recordLogin(user._id, {
         req,
@@ -629,7 +730,9 @@ export const authUserWeb = asyncHandler(async (req, res) => {
         phoneMasked: maskPhone(user.phone),
         cooldown: remain,
 
-        // ✅ info hạn 15 ngày (nếu có)
+        // ✅ trả info user như cũ
+        ...buildUserInfo(user),
+
         loginOtpVerifiedAt,
         loginOtpBypassUntil,
         otpBypassDays: OTP_BYPASS_DAYS,
@@ -666,7 +769,64 @@ export const authUserWeb = asyncHandler(async (req, res) => {
 
       console.error("[authUserWeb] sendTingTingOtp failed:", detailShort);
 
-      res.status(400); // ✅ tránh 502 dính Cloudflare
+      // ✅ “test account” theo định nghĩa mới: phone invalid + pass đúng
+      // (phòng khi có case phoneValid sai/hoặc data bẩn)
+      const testAccFallback =
+        !!user.phone && !isValidPhoneVN(user.phone) && passwordOk;
+
+      if (testAccFallback) {
+        generateToken(res, user);
+
+        const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+        const tokenExpiresAt = new Date(
+          Date.now() + TOKEN_TTL_MS
+        ).toISOString();
+
+        const token = jwt.sign(
+          {
+            userId: user._id,
+            name: user.name,
+            nickname: user.nickname,
+            phone: user.phone,
+            email: user.email,
+            avatar: user.avatar,
+            province: user.province,
+            dob: user.dob,
+            verified: user.verified,
+            cccdStatus: user.cccdStatus,
+            ratingSingle: user.ratingSingle,
+            ratingDouble: user.ratingDouble,
+            createdAt: user.createdAt,
+            cccd: user.cccd,
+            role: user.role,
+          },
+          process.env.JWT_SECRET,
+          { expiresIn: "30d" }
+        );
+
+        void User.recordLogin(user._id, {
+          req,
+          method: "password",
+          success: true,
+          reason: "tingting_failed_bypass_test_account_invalid_phone",
+        });
+
+        return res.status(200).json({
+          ...buildUserInfo(user),
+          token,
+          tokenExpiresAt,
+
+          loginOtpVerifiedAt,
+          loginOtpBypassUntil,
+          otpBypassDays: OTP_BYPASS_DAYS,
+
+          otpBypassed: true,
+          otpBypassReason: "tingting_failed_test_account_invalid_phone",
+        });
+      }
+
+      // ❌ user thường => báo lỗi
+      res.status(400);
       throw new Error(
         `Gửi OTP thất bại. Vui lòng thử lại. | TingTing: ${detailShort}`
       );
@@ -702,7 +862,9 @@ export const authUserWeb = asyncHandler(async (req, res) => {
       cooldown: OTP_COOLDOWN_SEC,
       devOtp,
 
-      // ✅ info hạn 15 ngày (nếu có)
+      // ✅ trả info user như cũ
+      ...buildUserInfo(user),
+
       loginOtpVerifiedAt,
       loginOtpBypassUntil,
       otpBypassDays: OTP_BYPASS_DAYS,
@@ -712,7 +874,6 @@ export const authUserWeb = asyncHandler(async (req, res) => {
   // ✅ Không cần OTP → login như cũ
   generateToken(res, user);
 
-  // optional: cho FE biết token hết hạn lúc nào (30d)
   const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
   const tokenExpiresAt = new Date(Date.now() + TOKEN_TTL_MS).toISOString();
 
@@ -741,32 +902,17 @@ export const authUserWeb = asyncHandler(async (req, res) => {
   void User.recordLogin(user._id, { req, method: "password", success: true });
 
   return res.json({
-    _id: user._id,
-    name: user.name,
-    nickname: user.nickname,
-    phone: user.phone,
-    email: user.email,
-    avatar: user.avatar,
-    province: user.province,
-    dob: user.dob,
-    verified: user.verified,
-    cccdStatus: user.cccdStatus,
-    ratingSingle: user.ratingSingle,
-    ratingDouble: user.ratingDouble,
-    createdAt: user.createdAt,
-    cccd: user.cccd,
-    role: user.role,
+    ...buildUserInfo(user),
     token,
 
-    // ✅ info hạn 15 ngày
     loginOtpVerifiedAt,
     loginOtpBypassUntil,
     otpBypassDays: OTP_BYPASS_DAYS,
 
-    // optional
     tokenExpiresAt,
   });
 });
+
 // @desc    Register a new user
 // @route   POST /api/users
 // @access  Public

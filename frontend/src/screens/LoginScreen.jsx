@@ -30,7 +30,7 @@ import apiSlice from "../slices/apiSlice";
 const WEB_LOGO_PATH = "/icon.png";
 
 export default function LoginScreen() {
-  const [phone, setPhone] = useState("");
+  const [identifier, setIdentifier] = useState(""); // ✅ SĐT hoặc Email
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
@@ -48,25 +48,68 @@ export default function LoginScreen() {
 
   const submitHandler = async (e) => {
     e.preventDefault();
-    try {
-      const res = await login({ phone, password }).unwrap();
 
-      // ✅ nếu backend báo cần verify OTP
+    const cleanIdentifier = String(identifier || "").trim();
+    const cleanPassword = String(password || "");
+
+    try {
+      // ✅ gửi identifier để backend tự phân biệt email/phone
+      const res = await login({ identifier: cleanIdentifier, password: cleanPassword }).unwrap();
+
       // ✅ nếu backend báo cần OTP đăng nhập
       if (res?.needLoginOtp) {
+        // lưu lại context (đỡ phải nhét vào URL quá nhiều)
+        try {
+          sessionStorage.setItem(
+            "LOGIN_OTP_CONTEXT",
+            JSON.stringify({
+              loginToken: res?.loginToken || "",
+              phoneMasked: res?.phoneMasked || "",
+              cooldown: Number(res?.cooldown || 0),
+              devOtp: res?.devOtp || "",
+              // user info trả về từ backend (không có token ở nhánh này)
+              user: {
+                _id: res?._id,
+                name: res?.name,
+                nickname: res?.nickname,
+                phone: res?.phone,
+                email: res?.email,
+                avatar: res?.avatar,
+                province: res?.province,
+                dob: res?.dob,
+                verified: res?.verified,
+                cccdStatus: res?.cccdStatus,
+                ratingSingle: res?.ratingSingle,
+                ratingDouble: res?.ratingDouble,
+                createdAt: res?.createdAt,
+                cccd: res?.cccd,
+                role: res?.role,
+              },
+              loginOtpVerifiedAt: res?.loginOtpVerifiedAt || null,
+              loginOtpBypassUntil: res?.loginOtpBypassUntil || null,
+              otpBypassDays: res?.otpBypassDays || null,
+            })
+          );
+        } catch {}
+
         const qs = new URLSearchParams({
           loginToken: res?.loginToken || "",
           phoneMasked: res?.phoneMasked || "",
+          // optional: verify-otp có thể dùng thêm
+          cooldown: String(res?.cooldown ?? ""),
+          devOtp: res?.devOtp || "",
         }).toString();
+
         navigate(`/verify-otp?${qs}`);
         return;
       }
 
+      // ✅ login bình thường (bao gồm admin/referee bypass hoặc test-account bypass)
       dispatch(setCredentials({ ...res }));
       dispatch(apiSlice.util.resetApiState());
       navigate("/");
     } catch (err) {
-      toast.error(err?.data?.message || err.error);
+      toast.error(err?.data?.message || err?.error || "Đăng nhập thất bại");
     }
   };
 
@@ -81,10 +124,7 @@ export default function LoginScreen() {
         p: 2,
       }}
     >
-      <Container
-        maxWidth={isMobile ? "sm" : "xs"}
-        sx={{ px: isMobile ? 1 : 3 }}
-      >
+      <Container maxWidth={isMobile ? "sm" : "xs"} sx={{ px: isMobile ? 1 : 3 }}>
         <Paper
           elevation={24}
           sx={{
@@ -136,13 +176,13 @@ export default function LoginScreen() {
               margin="normal"
               required
               fullWidth
-              id="phone"
-              label="Số điện thoại"
-              name="phone"
-              autoComplete="tel"
+              id="identifier"
+              label="Số điện thoại hoặc Email"
+              name="identifier"
+              autoComplete="username"
               autoFocus
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
               sx={{
                 "& .MuiOutlinedInput-root": {
                   borderRadius: "12px",
@@ -211,18 +251,13 @@ export default function LoginScreen() {
                 boxShadow: "0 3px 5px 2px rgba(100, 105, 255, .3)",
                 transition: "transform 0.2s",
                 "&:hover": {
-                  background:
-                    "linear-gradient(45deg, #5a6fd6 30%, #6b4295 90%)",
+                  background: "linear-gradient(45deg, #5a6fd6 30%, #6b4295 90%)",
                   transform: "scale(1.02)",
                 },
               }}
               disabled={isLoading}
             >
-              {isLoading ? (
-                <CircularProgress size={24} color="inherit" />
-              ) : (
-                "Đăng nhập"
-              )}
+              {isLoading ? <CircularProgress size={24} color="inherit" /> : "Đăng nhập"}
             </Button>
 
             <Box
