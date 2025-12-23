@@ -28,6 +28,7 @@ function shouldForward(text) {
 // controllers/slackEventsController.js
 export async function slackEventsHandler(req, res) {
   const rawBody = req.body?.toString("utf8") || "";
+  console.log(req.body)
   let payload = {};
   try {
     payload = JSON.parse(rawBody);
