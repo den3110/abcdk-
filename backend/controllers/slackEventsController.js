@@ -31,8 +31,6 @@ export async function slackEventsHandler(req, res) {
       .type("text/plain")
       .send(String(rawBody.challenge || ""));
   }
-  console.log(rawBody);
-
   // ✅ ACK ngay cho Slack trước (tránh timeout)
   res.status(200).send("ok");
 
@@ -43,6 +41,7 @@ export async function slackEventsHandler(req, res) {
       if (isDup(rawBody.event_id)) return;
 
       const ev = rawBody.event;
+      console.log(ev)
       console.log(0);
 
       if (!ev || ev.type !== "message") return;
