@@ -65,7 +65,7 @@ export function verifySlackRequest(req, res, next) {
     return res.status(401).send("stale request");
   }
 
-  const rawBody = String(req.rawBody || "");
+  const rawBody = String(req.body || "");
   console.log("[slack][verify] rawBody", {
     hasRawBody: !!rawBody,
     rawLen: rawBody.length,
