@@ -27,22 +27,14 @@ function shouldForward(text) {
 
 // controllers/slackEventsController.js
 export async function slackEventsHandler(req, res) {
-  const rawBody = req.body?.toString("utf8") || "";
-  console.log(req.body)
-  let payload = {};
-  try {
-    payload = JSON.parse(rawBody);
-  } catch {
-    return res.status(400).send("bad json");
-  } 
-  console.log(payload)
+  const rawBody = req.body
 
   // ✅ Slack verify URL: trả plaintext challenge
-  if (payload.type === "url_verification") {
+  if (rawBody.type === "url_verification") {
     return res
       .status(200)
       .type("text/plain")
-      .send(String(payload.challenge || ""));
+      .send(String(rawBody.challenge || ""));
   }
 
   // các event khác thì ack 200
