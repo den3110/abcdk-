@@ -47,7 +47,7 @@ export async function slackEventsHandler(req, res) {
       if (!ev || ev.type !== "message") return;
 
       // lọc đúng channel (khuyên set env cho chắc)
-      const targetChannel = process.env.TELEGRAM_CHAT_CRASH_ID;
+      const targetChannel = process.env.SLACK_CRASH_CHANNEL_ID;
       console.log(targetChannel, ev.channel)
       console.log(1);
       if (targetChannel && ev.channel !== targetChannel) return;
