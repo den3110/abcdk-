@@ -2093,6 +2093,7 @@ const emitSocket = (req, matchId, payload) => {
  */
 export const notifyStreamStarted = asyncHandler(async (req, res) => {
   const { id } = req.params;
+  console.log(req.body)
   if (!mongoose.isValidObjectId(id)) {
     res.status(400);
     throw new Error("matchId không hợp lệ");
