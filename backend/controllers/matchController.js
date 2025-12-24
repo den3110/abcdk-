@@ -2457,7 +2457,7 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
     .lean();
 
   // ======= END LIVE FACEBOOK (Match): token lấy từ match.facebookLive.pageAccessToken =======
-  if (platform === "facebook") {
+  if (platform === "all") {
     const { pageId, liveVideoId, pageAccessToken } = pickFacebookMeta(match);
 
     try {
