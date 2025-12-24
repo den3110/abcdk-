@@ -2353,7 +2353,7 @@ async function resolveFbTokenForUserMatch({ userId, pageId }) {
  */
 export const notifyStreamEnded = asyncHandler(async (req, res) => {
   console.log(1234567890);
-
+  console.log(req.body)
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
     res.status(400);
