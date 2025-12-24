@@ -2230,8 +2230,130 @@ export const notifyStreamStarted = asyncHandler(async (req, res) => {
  * POST /api/matches/:id/live/end
  * body: { platform, timestamp? }
  */
+
+// ===== helpers nhỏ để lấy meta facebook từ doc =====
+function pickFacebookMeta(doc) {
+  const liveVideoId =
+    doc?.facebookLive?.videoId ||
+    doc?.facebookLive?.liveVideoId ||
+    doc?.live?.platforms?.facebook?.liveVideoId ||
+    doc?.live?.platforms?.facebook?.id ||
+    null;
+
+  const pageId =
+    doc?.facebookLive?.pageId ||
+    doc?.facebookLive?.page_id ||
+    doc?.facebookLive?.page?.id ||
+    doc?.live?.platforms?.facebook?.pageId ||
+    doc?.live?.platforms?.facebook?.page_id ||
+    null;
+
+  return {
+    liveVideoId: liveVideoId ? String(liveVideoId) : null,
+    pageId: pageId ? String(pageId) : null,
+  };
+}
+
+// ===== gọi Facebook Graph end live =====
+async function endFacebookLiveVideo({
+  liveVideoId,
+  pageAccessToken,
+  graphVersion = process.env.FB_GRAPH_VERSION || "v21.0",
+}) {
+  if (!liveVideoId || !pageAccessToken) {
+    return { skipped: true, reason: "missing_liveVideoId_or_pageAccessToken" };
+  }
+
+  const url = `https://graph.facebook.com/${graphVersion}/${encodeURIComponent(
+    String(liveVideoId)
+  )}`;
+
+  try {
+    const resp = await axios.post(
+      url,
+      null,
+      {
+        params: { end_live_video: true },
+        headers: {
+          Authorization: `Bearer ${pageAccessToken}`,
+          Accept: "application/json",
+        },
+        timeout: 12_000,
+      }
+    );
+
+    return { status: resp.status, data: resp.data };
+  } catch (err) {
+    return {
+      error: true,
+      status: err?.response?.status || 0,
+      data: err?.response?.data || { message: err?.message },
+    };
+  }
+}
+
+// ===== resolve token cho MATCH từ FbToken =====
+async function resolveFbTokenForMatch({ pageId, matchId, liveVideoId }) {
+  // 1) ưu tiên theo pageId
+  if (pageId) {
+    const row = await FbToken.findOne({ pageId })
+      .select("pageId disabled needsReauth pageToken")
+      .lean();
+
+    if (row?.disabled) return { ok: false, reason: "fb_page_disabled" };
+    if (row?.needsReauth) return { ok: false, reason: "fb_needs_reauth" };
+    if (row?.pageToken) return { ok: true, token: row.pageToken, pageId: row.pageId, from: "FbToken.pageToken" };
+  }
+
+  // 2) fallback theo pool bận/rảnh
+  const or = [];
+  if (matchId) or.push({ busyMatch: matchId });
+  if (liveVideoId) or.push({ busyLiveVideoId: liveVideoId });
+
+  if (or.length) {
+    const row = await FbToken.findOne({ $or: or })
+      .select("pageId disabled needsReauth pageToken")
+      .lean();
+
+    if (row?.disabled) return { ok: false, reason: "fb_page_disabled" };
+    if (row?.needsReauth) return { ok: false, reason: "fb_needs_reauth" };
+    if (row?.pageToken) return { ok: true, token: row.pageToken, pageId: row.pageId, from: "FbToken.pageToken(fallback)" };
+  }
+
+  return { ok: false, reason: "fb_token_not_found" };
+}
+
+async function releaseFbTokenBusyByPageId(pageId) {
+  if (!pageId) return;
+  await FbToken.updateOne(
+    { pageId },
+    {
+      $set: { isBusy: false },
+      $unset: { busyMatch: 1, busyLiveVideoId: 1, busySince: 1 },
+    }
+  );
+}
+
+// ===== resolve token cho USER MATCH từ FacebookPageConnection =====
+async function resolveFbTokenForUserMatch({ userId, pageId }) {
+  if (!userId || !pageId) return { ok: false, reason: "missing_userId_or_pageId" };
+
+  const row = await FacebookPageConnection.findOne({ user: userId, pageId })
+    .select("pageAccessToken expireAt")
+    .lean();
+
+  if (!row?.pageAccessToken) return { ok: false, reason: "fb_page_connection_not_found" };
+
+  return { ok: true, token: row.pageAccessToken, from: "FacebookPageConnection.pageAccessToken" };
+}
+
+/**
+ * NOTE:
+ * - normPlatform, parseTs, ensureLiveShape, emitSocket: giữ nguyên như project bạn đang có
+ */
 export const notifyStreamEnded = asyncHandler(async (req, res) => {
-  console.log(1234567890)
+  console.log(1234567890);
+
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
     res.status(400);
@@ -2246,7 +2368,11 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
 
   // ====================== USER MATCH BRANCH ======================
   if (matchKindHeader) {
-    const userMatch = await UserMatch.findById(id).select("live").lean();
+    // ✅ lấy thêm facebookLive + createdBy để resolve page token
+    const userMatch = await UserMatch.findById(id)
+      .select("live facebookLive createdBy")
+      .lean();
+
     if (!userMatch) {
       res.status(404);
       throw new Error("UserMatch không tồn tại");
@@ -2254,7 +2380,7 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
 
     const live = ensureLiveShape(userMatch.live);
 
-    // Tìm session mở gần nhất cho platform và đóng lại
+    // đóng session gần nhất
     for (let i = live.sessions.length - 1; i >= 0; i--) {
       const s = live.sessions[i];
       if (s.platform === platform && !s.endedAt) {
@@ -2263,17 +2389,15 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
       }
     }
 
-    // Tắt cờ cho platform này
+    // tắt cờ platform
     live.platforms[platform] = {
       ...(live.platforms[platform] || {}),
       active: false,
       lastEndAt: endedAt,
     };
 
-    // Nếu không còn platform nào active => idle
-    const anyActive = Object.values(live.platforms).some(
-      (p) => p?.active === true
-    );
+    // status
+    const anyActive = Object.values(live.platforms).some((p) => p?.active === true);
     live.status = anyActive ? "live" : "idle";
     live.lastChangedAt = new Date();
 
@@ -2292,6 +2416,39 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
       .select("live")
       .lean();
 
+    // ======= END LIVE FACEBOOK (UserMatch): token từ FacebookPageConnection =======
+    if (platform === "facebook") {
+      const { pageId, liveVideoId } = pickFacebookMeta(userMatch);
+
+      try {
+        const tk = await resolveFbTokenForUserMatch({
+          userId: userMatch.createdBy,
+          pageId,
+        });
+
+        const fbRes = await endFacebookLiveVideo({
+          liveVideoId,
+          pageAccessToken: tk?.ok ? tk.token : null,
+        });
+
+        // không throw để không làm hỏng API
+        if (tk?.ok !== true || fbRes?.error || fbRes?.skipped) {
+          console.warn("[FB][UserMatch] end_live failed/skipped:", {
+            userMatchId: id,
+            pageId,
+            liveVideoId,
+            tokenSource: tk?.from,
+            tokenReason: tk?.reason,
+            status: fbRes?.status,
+            data: fbRes?.data,
+            skippedReason: fbRes?.reason,
+          });
+        }
+      } catch (e) {
+        console.warn("[FB][UserMatch] end_live exception:", e?.message || e);
+      }
+    }
+
     emitSocket(req, id, {
       matchId: id,
       platform,
@@ -2309,7 +2466,8 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
   }
 
   // ====================== MATCH BRANCH (LOGIC CŨ) ======================
-  const match = await Match.findById(id).select("live").lean();
+  // ✅ lấy thêm facebookLive để resolve token
+  const match = await Match.findById(id).select("live facebookLive").lean();
   if (!match) {
     res.status(404);
     throw new Error("Match không tồn tại");
@@ -2317,7 +2475,7 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
 
   const live = ensureLiveShape(match.live);
 
-  // Tìm session mở gần nhất cho platform và đóng lại
+  // đóng session gần nhất
   for (let i = live.sessions.length - 1; i >= 0; i--) {
     const s = live.sessions[i];
     if (s.platform === platform && !s.endedAt) {
@@ -2326,17 +2484,15 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
     }
   }
 
-  // Tắt cờ cho platform này
+  // tắt cờ platform
   live.platforms[platform] = {
     ...(live.platforms[platform] || {}),
     active: false,
     lastEndAt: endedAt,
   };
 
-  // Nếu không còn platform nào active => idle
-  const anyActive = Object.values(live.platforms).some(
-    (p) => p?.active === true
-  );
+  // status
+  const anyActive = Object.values(live.platforms).some((p) => p?.active === true);
   live.status = anyActive ? "live" : "idle";
   live.lastChangedAt = new Date();
 
@@ -2355,6 +2511,44 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
     .select("live")
     .lean();
 
+  // ======= END LIVE FACEBOOK (Match): token từ FbToken.pageToken =======
+  if (platform === "facebook") {
+    const { pageId, liveVideoId } = pickFacebookMeta(match);
+
+    try {
+      const tk = await resolveFbTokenForMatch({
+        pageId,
+        matchId: id,
+        liveVideoId,
+      });
+
+      const fbRes = await endFacebookLiveVideo({
+        liveVideoId,
+        pageAccessToken: tk?.ok ? tk.token : null,
+      });
+
+      if (tk?.ok !== true || fbRes?.error || fbRes?.skipped) {
+        console.warn("[FB][Match] end_live failed/skipped:", {
+          matchId: id,
+          pageId,
+          liveVideoId,
+          tokenSource: tk?.from,
+          tokenReason: tk?.reason,
+          status: fbRes?.status,
+          data: fbRes?.data,
+          skippedReason: fbRes?.reason,
+        });
+      }
+
+      // optional: thả page về rảnh (nếu có pageId resolve được)
+      if (tk?.ok && tk?.pageId) {
+        await releaseFbTokenBusyByPageId(tk.pageId);
+      }
+    } catch (e) {
+      console.warn("[FB][Match] end_live exception:", e?.message || e);
+    }
+  }
+
   emitSocket(req, id, {
     matchId: id,
     platform,
@@ -2362,7 +2556,7 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
     live: updated.live,
   });
 
-  res.json({
+  return res.json({
     ok: true,
     matchId: id,
     platform,
