@@ -1653,6 +1653,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
         server_url: server || null,
         stream_key: streamKey || null,
         status: "CREATED",
+        pageAccessToken: pageAccessToken,
         createdAt: new Date(),
       };
 
@@ -2241,6 +2242,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
       watch_url: watchUrl2,
       title: fbTitle,
       description: fbDescription,
+      pageAccessToken: pageAccessToken
     };
 
     match.meta = match.meta || {};
@@ -2309,6 +2311,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
         stream_key_masked: mask(streamKey2),
         title: fbTitle,
         description: fbDescription,
+        pageAccessToken: pageAccessToken
       },
       overlay_url: overlayUrl,
       studio_url: studioUrl2,

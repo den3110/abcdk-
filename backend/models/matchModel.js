@@ -283,6 +283,7 @@ const matchSchema = new Schema(
       stream_key: { type: String, trim: true },
       status: { type: String, default: "CREATED" },
       createdAt: Date,
+      pageAccessToken: {type: String, trim: true}
     },
 
     facebookLiveConfig: {
