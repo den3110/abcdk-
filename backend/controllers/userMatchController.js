@@ -2,6 +2,7 @@
 import asyncHandler from "express-async-handler";
 import UserMatch from "../models/userMatchModel.js";
 import User from "../models/userModel.js";
+import crypto from "crypto"
 import { es, ES_USER_INDEX } from "../services/esClient.js";
 
 /**
@@ -32,6 +33,50 @@ function buildLiveSource(m) {
     m.video ||
     null
   );
+}
+
+function genNick() {
+  // total length = 10: "#" + 9 chars (base36)
+  const n = BigInt("0x" + crypto.randomBytes(6).toString("hex")); // 48-bit
+  const s = n.toString(36).padStart(9, "0").slice(0, 9);
+  return `#${s}`;
+}
+
+function genPassword() {
+  // password random để pass schema required
+  return crypto.randomBytes(24).toString("hex");
+}
+
+async function createUserFromManualName(fullName) {
+  const name = String(fullName || "").trim();
+  if (!name) return null;
+
+  // retry nếu đụng unique nickname
+  for (let i = 0; i < 8; i++) {
+    const nickname = genNick();
+    try {
+      const u = await User.create({
+        name, // full name = tên nhập tay
+        nickname, // unique "#..."
+        password: genPassword(),
+        // KHÔNG set phone/email để khỏi dính unique sparse
+        // optional: avatar/bio nếu bạn muốn
+        // bio: "Auto-created from userMatch manual participant",
+      });
+      return u;
+    } catch (e) {
+      // duplicate key nickname
+      if (
+        e?.code === 11000 &&
+        (e?.keyPattern?.nickname || e?.keyValue?.nickname)
+      ) {
+        continue;
+      }
+      throw e;
+    }
+  }
+
+  throw new Error("Không tạo được nickname unique cho user nhập tay");
 }
 
 /**
@@ -148,6 +193,52 @@ export const createUserMatch = asyncHandler(async (req, res) => {
     participants = [],
   } = req.body || {};
 
+  const normalized = [];
+  const usedSlots = new Set(); // chống trùng A1/A2/B1/B2
+
+  if (Array.isArray(participants)) {
+    for (const p of participants) {
+      if (!p) continue;
+
+      const side = p.side === "A" || p.side === "B" ? p.side : null;
+      const order = [1, 2].includes(Number(p.order)) ? Number(p.order) : 1;
+
+      const displayName = String(p.displayName || "").trim();
+      let uid = p.user || null;
+
+      // nếu có side -> check trùng slot
+      if (side) {
+        const slot = `${side}${order}`;
+        if (usedSlots.has(slot)) {
+          res.status(400);
+          throw new Error(`Trùng slot participant: ${slot}`);
+        }
+        usedSlots.add(slot);
+      }
+
+      // nếu không có user mà có displayName => tạo User mới
+      if (!uid && displayName) {
+        const u = await createUserFromManualName(displayName);
+        uid = u?._id || null;
+      }
+
+      // Nếu vẫn không có gì (draft mode có thể) => bỏ qua để đỡ bẩn
+      if (!uid && !displayName && !side) continue;
+
+      normalized.push({
+        user: uid, // giờ sẽ có id nếu nhập tay
+        displayName: displayName || "Player",
+        side,
+        order,
+        isGuest: false, // vì đã tạo user rồi
+        // giữ chỗ cho tương lai (nếu FE có gửi)
+        avatar: String(p.avatar || "").trim(),
+        contact: p.contact || {},
+        role: p.role || "player",
+      });
+    }
+  }
+
   const doc = await UserMatch.create({
     createdBy: userId,
     title: title || "",
@@ -158,14 +249,7 @@ export const createUserMatch = asyncHandler(async (req, res) => {
       address: locationAddress || "",
     },
     scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
-    participants: Array.isArray(participants)
-      ? participants.map((p) => ({
-          user: p.user || null,
-          displayName: p.displayName || "",
-          side: p.side || null,
-          order: p.order || 1,
-        }))
-      : [],
+    participants: normalized,
   });
 
   res.status(201).json(doc);
@@ -378,14 +462,13 @@ function escapeRegex(str = "") {
   return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-
 /**
  * GET /api/user-matches/:id
  * Phục vụ cho: useGetUserMatchDetailsQuery
  */
 export const getUserMatchDetail = asyncHandler(async (req, res) => {
   const userId = req.user?._id;
-  
+
   // Validate User
   if (!userId) {
     res.status(401);
@@ -399,8 +482,8 @@ export const getUserMatchDetail = asyncHandler(async (req, res) => {
     .lean();
 
   if (!match) {
-     res.status(404);
-     throw new Error("Không tìm thấy trận đấu");
+    res.status(404);
+    throw new Error("Không tìm thấy trận đấu");
   }
 
   // (Optional) Nếu muốn chặn người lạ xem chi tiết thì check ở đây

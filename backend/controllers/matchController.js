@@ -2231,6 +2231,7 @@ export const notifyStreamStarted = asyncHandler(async (req, res) => {
  * body: { platform, timestamp? }
  */
 export const notifyStreamEnded = asyncHandler(async (req, res) => {
+  console.log(1234567890)
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
     res.status(400);
