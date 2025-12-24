@@ -2341,7 +2341,7 @@ async function resolveFbTokenForUserMatch({ userId, pageId }) {
   const row = await FacebookPageConnection.findOne({ user: userId, pageId })
     .select("pageAccessToken expireAt")
     .lean();
-
+  console.log(1)
   if (!row?.pageAccessToken) return { ok: false, reason: "fb_page_connection_not_found" };
 
   return { ok: true, token: row.pageAccessToken, from: "FacebookPageConnection.pageAccessToken" };
@@ -2425,11 +2425,13 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
           userId: userMatch.createdBy,
           pageId,
         });
+        console.log(tk)
 
         const fbRes = await endFacebookLiveVideo({
           liveVideoId,
           pageAccessToken: tk?.ok ? tk.token : null,
         });
+        console.log(fbRes)
 
         // không throw để không làm hỏng API
         if (tk?.ok !== true || fbRes?.error || fbRes?.skipped) {
