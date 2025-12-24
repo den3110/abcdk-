@@ -1977,6 +1977,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
             watch_url: watchUrl,
             title: fbTitle,
             description: fbDescription,
+            pageAccessToken: currentPageAccessToken
           };
 
           match.meta = match.meta || {};
