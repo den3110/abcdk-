@@ -40,6 +40,7 @@ import {
   Checkbox, // NEW
   Button,
   DialogActions,
+  Skeleton,
 } from "@mui/material";
 import { useSelector } from "react-redux"; // NEW
 import {
@@ -798,12 +799,12 @@ CustomSeed.propTypes = {
 
 /* ===================== (PHẦN CÒN LẠI GIỮ NGUYÊN) ===================== */
 /* ……………………………………………………………………………………………………………………………
-   Toàn bộ phần bên dưới của bạn (BXH, Group UI, RoundElim/KO builders,
-   socket live layer, render main component, v.v.) giữ nguyên như bản bạn gửi,
-   không thay đổi logic nào khác ngoài việc Seed có thanh tiêu đề mới.
-   Mình lược bớt ở đây để gọn câu trả lời.
-   Dán phần còn lại từ file hiện tại của bạn ngay sau CustomSeed như cũ.
-…………………………………………………………………………………………………………………………… */
+    Toàn bộ phần bên dưới của bạn (BXH, Group UI, RoundElim/KO builders,
+    socket live layer, render main component, v.v.) giữ nguyên như bản bạn gửi,
+    không thay đổi logic nào khác ngoài việc Seed có thanh tiêu đề mới.
+    Mình lược bớt ở đây để gọn câu trả lời.
+    Dán phần còn lại từ file hiện tại của bạn ngay sau CustomSeed như cũ.
+  …………………………………………………………………………………………………………………………… */
 
 /* ===================== BXH core (như cũ) ===================== */
 const TIEBREAK_LABELS = {
@@ -2748,8 +2749,56 @@ export default function TournamentBracket() {
 
   if (loading) {
     return (
-      <Box p={3} textAlign="center">
-        <CircularProgress />
+      <Box p={3}>
+        <Stack spacing={2}>
+          {/* Title */}
+          <Skeleton variant="text" width={320} height={40} />
+
+          {/* Meta bar skeleton */}
+          <Paper
+            variant="outlined"
+            sx={{
+              p: { xs: 1.25, sm: 1.5 },
+              borderRadius: 2,
+              bgcolor: "background.default",
+            }}
+          >
+            <Stack
+              direction={{ xs: "column", sm: "row" }}
+              spacing={1}
+              alignItems={{ xs: "flex-start", sm: "center" }}
+              justifyContent="space-between"
+              useFlexGap
+              flexWrap="wrap"
+            >
+              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                <Skeleton variant="rounded" width={120} height={28} />
+                <Skeleton variant="rounded" width={120} height={28} />
+                <Skeleton variant="rounded" width={220} height={28} />
+              </Stack>
+              <Skeleton
+                variant="rounded"
+                width={isMdUp ? 520 : "100%"}
+                height={40}
+              />
+            </Stack>
+          </Paper>
+
+          {/* Tabs skeleton */}
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <Skeleton variant="rounded" width={140} height={40} />
+            <Skeleton variant="rounded" width={140} height={40} />
+            <Skeleton variant="rounded" width={140} height={40} />
+          </Stack>
+
+          {/* Main content skeleton */}
+          <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+            <Stack spacing={1.25}>
+              <Skeleton variant="text" width={200} height={28} />
+              <Skeleton variant="rounded" height={isMdUp ? 520 : 420} />
+            </Stack>
+          </Paper>
+        </Stack>
       </Box>
     );
   }
@@ -3693,16 +3742,16 @@ export default function TournamentBracket() {
                 <FormGroup row sx={{ gap: 1 }}>
                   {/* Chỉ hiển thị nếu user có trong ít nhất một bảng */}
                   {/* {myGroupKeys.size > 0 && (
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={onlyMine}
-                          onChange={(e) => setOnlyMine(e.target.checked)}
-                        />
-                      }
-                      label="Bảng của tôi"
-                    />
-                  )} */}
+                      <FormControlLabel
+                        control={
+                          <Checkbox
+                            checked={onlyMine}
+                            onChange={(e) => setOnlyMine(e.target.checked)}
+                          />
+                        }
+                        label="Bảng của tôi"
+                      />
+                    )} */}
 
                   <FormControlLabel
                     control={
@@ -3794,9 +3843,9 @@ export default function TournamentBracket() {
                 <GlobalStyles
                   styles={{
                     ".re-bracket .sc-gEvEer:last-of-type .sc-dcJsrY::after, \
-           .re-bracket .sc-gEvEer:last-of-type .sc-dcJsrY::before, \
-           .re-bracket .sc-gEvEer:last-of-type .sc-imWYAI::after, \
-           ": {
+            .re-bracket .sc-gEvEer:last-of-type .sc-dcJsrY::before, \
+            .re-bracket .sc-gEvEer:last-of-type .sc-imWYAI::after, \
+            ": {
                       content: '""',
                       display: "none !important",
                       border: "0 !important",
