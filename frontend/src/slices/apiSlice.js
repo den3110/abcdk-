@@ -142,7 +142,7 @@ const baseQuery = async (args, api, extraOptions) => {
       console.log(e);
     }
     // (tuỳ chọn) chuyển về login:
-    // if (typeof window !== "undefined") window.location.href = "/login";
+    if (typeof window !== "undefined") window.location.href = "/login";
     return result;
   }
 

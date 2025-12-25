@@ -490,7 +490,7 @@ export async function getOverlayMatch(req, res) {
       customCss: baseOverlay.customCss || "",
 
       // ✅ đúng yêu cầu
-      logoUrl: resolvedLogoUrl || webLogoUrl,
+      // logoUrl: resolvedLogoUrl || webLogoUrl,
 
       size: baseOverlay.size || "md",
       scaleScore:
