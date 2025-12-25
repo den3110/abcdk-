@@ -479,8 +479,7 @@ export async function getOverlayMatch(req, res) {
       customCss: baseOverlay.customCss || "",
 
       // 🆕 logoUrl: ưu tiên overlay.logoUrl -> tournament.logoUrl -> webLogoUrl
-      logoUrl:
-        (baseOverlay.logoUrl || "").trim() || tournamentLogoUrl || webLogoUrl,
+      logoUrl: tournamentLogoUrl || webLogoUrl,
 
       // 🆕 extra cho native overlay
       size: baseOverlay.size || "md",
