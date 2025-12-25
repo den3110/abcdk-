@@ -1835,6 +1835,193 @@ function collectMyRegistrationIds(me, tour, matchesAll) {
 const groupKeyOf = (g, gi) =>
   String(g?.name || g?.code || g?._id || String(gi + 1));
 
+function TournamentBracketLoadingSkeleton({ isMdUp }) {
+  const chipW = (w) => (
+    <Skeleton
+      variant="rounded"
+      width={w}
+      height={28}
+      sx={{ borderRadius: 999 }}
+    />
+  );
+
+  const tableRow = (key) => (
+    <Box
+      key={key}
+      sx={{
+        display: "grid",
+        gridTemplateColumns: isMdUp ? "140px 1fr 180px 160px 120px" : "1fr",
+        gap: 1,
+        alignItems: "center",
+        py: 1,
+      }}
+    >
+      {isMdUp ? (
+        <>
+          <Skeleton variant="rounded" height={22} />
+          <Skeleton variant="text" height={22} />
+          <Skeleton variant="rounded" height={22} />
+          <Skeleton variant="rounded" height={22} />
+          <Skeleton variant="rounded" height={22} />
+        </>
+      ) : (
+        <Skeleton variant="rounded" height={72} />
+      )}
+    </Box>
+  );
+
+  return (
+    <Box sx={{ width: "100%" }}>
+      {/* Title */}
+      <Skeleton variant="text" height={44} sx={{ maxWidth: 520, mb: 2 }} />
+
+      {/* Meta bar (chips) */}
+      <Paper
+        variant="outlined"
+        sx={{
+          p: { xs: 1.25, sm: 1.5 },
+          mb: 1.5,
+          borderRadius: 2,
+          bgcolor: "background.default",
+        }}
+      >
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          alignItems={{ xs: "flex-start", sm: "center" }}
+          justifyContent="space-between"
+          useFlexGap
+          flexWrap="wrap"
+        >
+          <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+            {chipW(120)}
+            {chipW(140)}
+            {chipW(220)}
+          </Stack>
+
+          <Stack spacing={0.75} sx={{ width: { xs: "100%", sm: "auto" } }}>
+            <Skeleton
+              variant="rounded"
+              height={32}
+              sx={{ borderRadius: 2, width: isMdUp ? 420 : "100%" }}
+            />
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(4, auto)" },
+                columnGap: { xs: 1, sm: 1.5 },
+                rowGap: { xs: 0.75, sm: 1 },
+                alignItems: "center",
+                width: "100%",
+              }}
+            >
+              <Skeleton variant="rounded" height={18} width={140} />
+              <Skeleton variant="rounded" height={18} width={160} />
+              <Skeleton variant="rounded" height={18} width={170} />
+              <Skeleton variant="rounded" height={18} width={160} />
+            </Box>
+          </Stack>
+        </Stack>
+      </Paper>
+
+      {/* Tabs */}
+      <Stack direction="row" spacing={1} sx={{ mb: 2, overflow: "hidden" }}>
+        <Skeleton
+          variant="rounded"
+          height={44}
+          width={120}
+          sx={{ borderRadius: 2 }}
+        />
+        <Skeleton
+          variant="rounded"
+          height={44}
+          width={140}
+          sx={{ borderRadius: 2 }}
+        />
+        <Skeleton
+          variant="rounded"
+          height={44}
+          width={140}
+          sx={{ borderRadius: 2 }}
+        />
+      </Stack>
+
+      {/* Content block */}
+      <Paper variant="outlined" sx={{ p: { xs: 1.5, md: 2 }, borderRadius: 2 }}>
+        {/* Section header */}
+        <Stack
+          direction="row"
+          spacing={1}
+          useFlexGap
+          flexWrap="wrap"
+          sx={{ mb: 1 }}
+        >
+          {chipW(110)}
+          {chipW(140)}
+          {chipW(120)}
+          {chipW(130)}
+        </Stack>
+
+        <Skeleton variant="text" height={28} sx={{ width: 220, mb: 1 }} />
+
+        {/* “Table” area */}
+        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2, mb: 2 }}>
+          {isMdUp && (
+            <Box
+              sx={{
+                display: "grid",
+                gridTemplateColumns: "140px 1fr 180px 160px 120px",
+                gap: 1,
+                pb: 1,
+                borderBottom: "1px solid",
+                borderColor: "divider",
+              }}
+            >
+              <Skeleton variant="text" height={22} />
+              <Skeleton variant="text" height={22} />
+              <Skeleton variant="text" height={22} />
+              <Skeleton variant="text" height={22} />
+              <Skeleton variant="text" height={22} />
+            </Box>
+          )}
+
+          {Array.from({ length: isMdUp ? 6 : 4 }).map((_, i) => tableRow(i))}
+        </Paper>
+
+        <Skeleton variant="text" height={28} sx={{ width: 200, mb: 1 }} />
+        <Paper variant="outlined" sx={{ p: 1.25, borderRadius: 2 }}>
+          {Array.from({ length: isMdUp ? 5 : 4 }).map((_, i) => (
+            <Box
+              key={i}
+              sx={{
+                display: "grid",
+                gridTemplateColumns: isMdUp
+                  ? "56px 1fr 100px 120px 120px"
+                  : "1fr",
+                gap: 1,
+                alignItems: "center",
+                py: 1,
+              }}
+            >
+              {isMdUp ? (
+                <>
+                  <Skeleton variant="rounded" height={20} />
+                  <Skeleton variant="text" height={22} />
+                  <Skeleton variant="rounded" height={20} />
+                  <Skeleton variant="rounded" height={20} />
+                  <Skeleton variant="rounded" height={20} />
+                </>
+              ) : (
+                <Skeleton variant="rounded" height={64} />
+              )}
+            </Box>
+          ))}
+        </Paper>
+      </Paper>
+    </Box>
+  );
+}
+
 /* ===================== Component chính ===================== */
 export default function TournamentBracket() {
   const socket = useSocket();
@@ -2749,56 +2936,8 @@ export default function TournamentBracket() {
 
   if (loading) {
     return (
-      <Box p={3}>
-        <Stack spacing={2}>
-          {/* Title */}
-          <Skeleton variant="text" width={320} height={40} />
-
-          {/* Meta bar skeleton */}
-          <Paper
-            variant="outlined"
-            sx={{
-              p: { xs: 1.25, sm: 1.5 },
-              borderRadius: 2,
-              bgcolor: "background.default",
-            }}
-          >
-            <Stack
-              direction={{ xs: "column", sm: "row" }}
-              spacing={1}
-              alignItems={{ xs: "flex-start", sm: "center" }}
-              justifyContent="space-between"
-              useFlexGap
-              flexWrap="wrap"
-            >
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                <Skeleton variant="rounded" width={120} height={28} />
-                <Skeleton variant="rounded" width={120} height={28} />
-                <Skeleton variant="rounded" width={220} height={28} />
-              </Stack>
-              <Skeleton
-                variant="rounded"
-                width={isMdUp ? 520 : "100%"}
-                height={40}
-              />
-            </Stack>
-          </Paper>
-
-          {/* Tabs skeleton */}
-          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Skeleton variant="rounded" width={140} height={40} />
-            <Skeleton variant="rounded" width={140} height={40} />
-            <Skeleton variant="rounded" width={140} height={40} />
-          </Stack>
-
-          {/* Main content skeleton */}
-          <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-            <Stack spacing={1.25}>
-              <Skeleton variant="text" width={200} height={28} />
-              <Skeleton variant="rounded" height={isMdUp ? 520 : 420} />
-            </Stack>
-          </Paper>
-        </Stack>
+      <Box sx={{ p: { xs: 2, md: 3 } }}>
+        <TournamentBracketLoadingSkeleton isMdUp={isMdUp} />
       </Box>
     );
   }
