@@ -5,6 +5,7 @@ import expressAsyncHandler from "express-async-handler";
 import { Sponsor } from "../models/sponsorModel.js";
 import CmsBlock from "../models/cmsBlockModel.js";
 import UserMatch from "../models/userMatchModel.js";
+import Tournament from "../models/tournamentModel.js";
 
 const FORCE_HTTPS = process.env.NODE_ENV === "production";
 const ensureHttps = (url) => {
@@ -104,6 +105,7 @@ function gameWinner(g, rules) {
 export async function getOverlayMatch(req, res) {
   try {
     const { id } = req.params;
+
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid match id" });
     }
@@ -139,18 +141,16 @@ export async function getOverlayMatch(req, res) {
     // 🔵 2) NẾU KHÔNG PHẢI USER MATCH → FALLBACK MATCH CŨ
     if (!m) {
       m = await Match.findById(id)
-        // tournament + overlay
         .populate({
           path: "tournament",
+          // ✅ tournament có overlay.logoUrl (theo schema bạn gửi)
           select: "name eventType image overlay",
         })
-        // bracket mở rộng (để FE có đủ meta)
         .populate({
           path: "bracket",
           select:
             "type name order stage overlay config meta drawRounds drawStatus slotPlan groups noRankDelta",
         })
-        // pairs + players
         .populate({
           path: "pairA",
           select: "player1 player2 seed label teamName",
@@ -183,27 +183,22 @@ export async function getOverlayMatch(req, res) {
             },
           ],
         })
-        // referee là mảng
         .populate({
           path: "referee",
           select: "name fullName nickname nickName",
         })
-        // người đang live
         .populate({
           path: "liveBy",
           select: "name fullName nickname nickName",
         })
-        // previous/next (để trace)
         .populate({ path: "previousA", select: "round order code" })
         .populate({ path: "previousB", select: "round order code" })
         .populate({ path: "nextMatch", select: "_id round order code" })
-        // court đầy đủ
         .populate({
           path: "court",
           select:
             "name number code label zone area venue building floor cluster group",
         })
-        // serve.serverId (người đang giao)
         .populate({
           path: "serve.serverId",
           model: "User",
@@ -236,13 +231,27 @@ export async function getOverlayMatch(req, res) {
       );
     }
 
-    const tid = m?.tournament?._id || m?.tournament || null;
+    // ✅ tid chỉ có với Match cũ
+    const tid = !isUserMatch
+      ? m?.tournament?._id || m?.tournament || null
+      : null;
+
+    // ✅ luôn query Tournament để chắc chắn có overlay.logoUrl (đúng schema bạn gửi)
+    let tournamentDoc = null;
+    if (!isUserMatch && tid) {
+      tournamentDoc = await Tournament.findById(tid)
+        .select("name eventType image overlay")
+        .lean();
+
+      // fallback nếu query fail mà populate có sẵn object
+      if (!tournamentDoc && m?.tournament && typeof m.tournament === "object") {
+        tournamentDoc = m.tournament;
+      }
+    }
 
     let sponsors = [];
     if (tid && !isUserMatch) {
-      // với userMatch: không có tournament → bỏ qua sponsor theo giải
       const filter = { tournaments: tid };
-
       sponsors = await Sponsor.find(filter)
         .select(
           "_id name slug logoUrl websiteUrl refLink tier weight featured tournaments updatedAt"
@@ -264,25 +273,16 @@ export async function getOverlayMatch(req, res) {
       }));
     }
 
-    // ✅ ensure https cho logo lấy từ tournament/overlay
-    // (vì rootOverlay.logoUrl có thể lấy từ baseOverlay.logoUrl hoặc tournament.logoUrl)
-    if (m?.tournament?.logoUrl)
-      m.tournament.logoUrl = ensureHttps(m.tournament.logoUrl);
-    if (m?.tournament?.overlay?.logoUrl)
-      m.tournament.overlay.logoUrl = ensureHttps(m.tournament.overlay.logoUrl);
-    if (m?.overlay?.logoUrl) m.overlay.logoUrl = ensureHttps(m.overlay.logoUrl);
-    if (m?.bracket?.overlay?.logoUrl)
-      m.bracket.overlay.logoUrl = ensureHttps(m.bracket.overlay.logoUrl);
-
     const sponsorLogos = sponsors
       .map((s) => (s.logoUrl || "").trim())
       .filter(Boolean)
-      .slice(0, 12); // native limit 12 logo
+      .slice(0, 12);
 
     /* ==========================
      * Helpers
      * ========================== */
     const pick = (v) => (v == null ? "" : String(v).trim());
+
     const preferNick = (p) =>
       pick(p?.nickname) ||
       pick(p?.nickName) ||
@@ -303,11 +303,11 @@ export async function getOverlayMatch(req, res) {
       return p;
     };
 
-    if (m.pairA) {
+    if (m?.pairA) {
       m.pairA.player1 = fillNick(m.pairA.player1);
       m.pairA.player2 = fillNick(m.pairA.player2);
     }
-    if (m.pairB) {
+    if (m?.pairB) {
       m.pairB.player1 = fillNick(m.pairB.player1);
       m.pairB.player2 = fillNick(m.pairB.player2);
     }
@@ -316,7 +316,11 @@ export async function getOverlayMatch(req, res) {
      * Event type + Rules
      * ========================== */
     const evType =
-      (m?.tournament?.eventType || "").toLowerCase() === "single"
+      (
+        tournamentDoc?.eventType ||
+        m?.tournament?.eventType ||
+        ""
+      ).toLowerCase() === "single"
         ? "single"
         : "double";
 
@@ -353,14 +357,11 @@ export async function getOverlayMatch(req, res) {
     };
 
     const gamesToWin = (bestOf = 1) => Math.floor(Number(bestOf) / 2) + 1;
-
     const { a: setsA, b: setsB } = setWins(m?.gameScores || [], rules);
 
     const playersFromReg = (reg) => {
       if (!reg) return [];
       return [reg.player1, reg.player2].filter(Boolean).map((p) => ({
-        // ✅ Match: dùng _id (PlayerReg)
-        // ✅ UserMatch: không có _id → fallback sang user (ObjectId User)
         id: String(p?._id || p?.user || ""),
         nickname: preferNick(p),
         name: p?.fullName || p?.name || "",
@@ -420,6 +421,7 @@ export async function getOverlayMatch(req, res) {
       m?.court?.name ??
       m?.courtName ??
       (courtNumber != null ? `Sân ${courtNumber}` : "");
+
     const courtExtra = {
       code: m?.court?.code || undefined,
       label: m?.court?.label || m?.courtLabel || undefined,
@@ -443,13 +445,12 @@ export async function getOverlayMatch(req, res) {
     /* ==========================
      * Overlay (theme + logo + sponsors + clock)
      * ========================== */
-    const tournamentLogoUrl =
-      !isUserMatch && m?.tournament
-        ? String(m.tournament.logoUrl || "").trim()
-        : "";
-
     const baseOverlay =
-      m?.overlay || m?.tournament?.overlay || m?.bracket?.overlay || {};
+      m?.overlay ||
+      tournamentDoc?.overlay ||
+      m?.tournament?.overlay ||
+      m?.bracket?.overlay ||
+      {};
 
     const overlayEnabled =
       typeof baseOverlay.enabled === "boolean" ? !!baseOverlay.enabled : true;
@@ -459,8 +460,18 @@ export async function getOverlayMatch(req, res) {
         ? !!baseOverlay.showClock
         : true;
 
+    // ✅ RULE LOGO:
+    // - UserMatch: baseOverlay.logoUrl
+    // - Match: Tournament.overlay.logoUrl (query Tournament)
+    let resolvedLogoUrl = isUserMatch
+      ? String(baseOverlay?.logoUrl || "").trim()
+      : String(tournamentDoc?.overlay?.logoUrl || "").trim();
+
+    if (typeof FORCE_HTTPS !== "undefined" && FORCE_HTTPS) {
+      resolvedLogoUrl = ensureHttps(resolvedLogoUrl);
+    }
+
     const rootOverlay = {
-      // bám theo Tournament.overlay
       theme: baseOverlay.theme || "dark",
       accentA: baseOverlay.accentA || "#25C2A0",
       accentB: baseOverlay.accentB || "#4F46E5",
@@ -478,20 +489,18 @@ export async function getOverlayMatch(req, res) {
         typeof baseOverlay.scoreScale === "number" ? baseOverlay.scoreScale : 1,
       customCss: baseOverlay.customCss || "",
 
-      // 🆕 logoUrl: ưu tiên overlay.logoUrl -> tournament.logoUrl -> webLogoUrl
-      logoUrl: tournamentLogoUrl || webLogoUrl,
+      // ✅ đúng yêu cầu
+      logoUrl: resolvedLogoUrl || webLogoUrl,
 
-      // 🆕 extra cho native overlay
       size: baseOverlay.size || "md",
       scaleScore:
         typeof baseOverlay.scaleScore === "number" ? baseOverlay.scaleScore : 1,
       enabled: overlayEnabled,
       showClock,
 
-      // 🆕 thông tin logo + sponsor dùng chung với web overlay
       webLogoUrl,
       webLogoAlt,
-      sponsorLogos, // mảng URL logo nhà tài trợ (<=12)
+      sponsorLogos,
     };
 
     /* ==========================
@@ -523,16 +532,15 @@ export async function getOverlayMatch(req, res) {
       ? m.liveLog.slice(-10)
       : undefined;
 
-    // 🆕 ==========================
-    // Stage (group / playoff / knockout round / third place / user match)
-    // ==========================
+    /* ==========================
+     * Stage
+     * ========================== */
     const format = (m?.format || m?.bracket?.type || "").toString() || brType;
 
-    let stageType = null; // "user_match" | "group" | "playoff" | "third_place"
+    let stageType = null;
     let stageName = "";
 
     if (isUserMatch) {
-      // Trận user tự tạo
       stageType = "user_match";
       stageName = "Trận đấu PickleTour";
     } else {
@@ -554,14 +562,12 @@ export async function getOverlayMatch(req, res) {
             (m?.roundName || "").toLowerCase().includes("3/4")));
 
       if (isGroupLike) {
-        // Vòng bảng / vòng loại
         stageType = "group";
         stageName = "Vòng bảng";
       } else if (isThirdPlaceMatch && (isKnockoutLike || isDoubleElim)) {
         stageType = "third_place";
         stageName = "Tranh hạng 3/4";
       } else if (isKnockoutLike) {
-        // Bracket knockout: chia theo size
         stageType = "playoff";
         if (roundSize >= 64) stageName = "Vòng 64 đội";
         else if (roundSize >= 32) stageName = "Vòng 32 đội";
@@ -573,28 +579,18 @@ export async function getOverlayMatch(req, res) {
             m?.branch === "gf" || m?.phase === "grand_final"
               ? "Chung kết tổng"
               : "Chung kết";
-        } else if (roundSize) {
-          stageName = "Playoff";
-        } else {
-          stageName = "Playoff";
-        }
+        } else stageName = "Playoff";
       } else if (isDoubleElim) {
-        // Double elimination → vẫn xem như playoff
         stageType = "playoff";
         const branch = m?.branch || "main";
-        if (branch === "wb" || branch === "main") {
+        if (branch === "wb" || branch === "main")
           stageName = "Playoff – Nhánh thắng";
-        } else if (branch === "lb") {
-          stageName = "Playoff – Nhánh thua";
-        } else if (branch === "gf") {
-          stageName = "Chung kết tổng";
-        } else {
-          stageName = "Playoff";
-        }
+        else if (branch === "lb") stageName = "Playoff – Nhánh thua";
+        else if (branch === "gf") stageName = "Chung kết tổng";
+        else stageName = "Playoff";
       } else if (
         ["winners", "losers", "decider", "grand_final"].includes(m?.phase)
       ) {
-        // Một số format khác vẫn xài phase
         stageType = "playoff";
         if (m.phase === "grand_final") stageName = "Chung kết";
         else if (m.phase === "decider") stageName = "Trận quyết định";
@@ -613,6 +609,7 @@ export async function getOverlayMatch(req, res) {
             nickname: pick(r?.nickname) || pick(r?.nickName) || undefined,
           }))
         : [];
+
     const referee =
       referees[0] ||
       (m?.referee
@@ -634,6 +631,7 @@ export async function getOverlayMatch(req, res) {
           code: m.previousA.code || undefined,
         }
       : undefined;
+
     const previousB = m?.previousB
       ? {
           id: String(m.previousB._id),
@@ -642,6 +640,7 @@ export async function getOverlayMatch(req, res) {
           code: m.previousB.code || undefined,
         }
       : undefined;
+
     const nextMatch = m?.nextMatch
       ? {
           id: String(m.nextMatch._id),
@@ -665,7 +664,7 @@ export async function getOverlayMatch(req, res) {
     };
 
     /* ==========================
-     * Break (timeout) cho overlay
+     * Break
      * ========================== */
     const isBreak = m?.isBreak
       ? {
@@ -694,7 +693,6 @@ export async function getOverlayMatch(req, res) {
       status: (m.status || "").toUpperCase(),
       winner: m.winner || "",
 
-      // 🟡 Với userMatch: dùng title làm "tên giải" để overlay vẫn có header
       tournament: isUserMatch
         ? {
             id: null,
@@ -707,11 +705,12 @@ export async function getOverlayMatch(req, res) {
             sponsors: undefined,
           }
         : {
-            id: m?.tournament?._id || null,
-            name: m?.tournament?.name || "",
-            image: m?.tournament?.image || "",
+            id: tournamentDoc?._id || m?.tournament?._id || tid || null,
+            name: tournamentDoc?.name || m?.tournament?.name || "",
+            image: tournamentDoc?.image || m?.tournament?.image || "",
             eventType: evType,
-            overlay: m?.tournament?.overlay || undefined,
+            overlay:
+              tournamentDoc?.overlay || m?.tournament?.overlay || undefined,
             webLogoUrl,
             webLogoAlt,
             sponsors:
@@ -771,9 +770,8 @@ export async function getOverlayMatch(req, res) {
       round: roundNo,
       roundSize: roundSize || undefined,
 
-      // 🆕 Stage info để overlay biết đang ở vòng gì
-      stageType: stageType || undefined, // "user_match" | "group" | "playoff" | "third_place"
-      stageName: stageName || undefined, // "Vòng bảng", "Vòng 16 đội", "Tứ kết", "Bán kết", "Chung kết", "Tranh hạng 3/4", "Trận đấu PickleTour", ...
+      stageType: stageType || undefined,
+      stageName: stageName || undefined,
 
       seeds,
 
@@ -806,6 +804,7 @@ export async function getOverlayMatch(req, res) {
             teamName: m.pairA.teamName ?? undefined,
           }
         : null,
+
       pairB: m?.pairB
         ? {
             id: String(m.pairB._id || ""),
@@ -817,12 +816,14 @@ export async function getOverlayMatch(req, res) {
 
       rules,
       currentGame: Number.isInteger(m?.currentGame) ? m.currentGame : 0,
+
       serve: {
         side: (serve?.side || "A").toUpperCase() === "B" ? "B" : "A",
         server: Number(serve?.server ?? serve?.playerIndex ?? 1) || 1,
         serverId:
           serveUser || (m?.serve?.serverId ? String(m.serve.serverId) : null),
       },
+
       gameScores: Array.isArray(m?.gameScores) ? m.gameScores : [],
       sets: { A: setsA, B: setsB },
       needSetsToWin: gamesToWin(rules.bestOf),
@@ -837,6 +838,7 @@ export async function getOverlayMatch(req, res) {
 
       referees,
       referee,
+
       liveBy: m?.liveBy
         ? {
             id: String(m.liveBy._id),
@@ -845,6 +847,7 @@ export async function getOverlayMatch(req, res) {
               pick(m.liveBy.nickname) || pick(m.liveBy.nickName) || undefined,
           }
         : undefined,
+
       previousA,
       previousB,
       nextMatch,
@@ -857,23 +860,21 @@ export async function getOverlayMatch(req, res) {
       liveLogTail,
       liveLog: undefined,
 
-      // 🔴 Với userMatch: participants là object → đừng stringify "[object Object]"
       participants:
         Array.isArray(m?.participants) && m.participants.length && !isUserMatch
           ? m.participants.map((x) => String(x))
           : undefined,
 
-      // overlay đầy đủ (đã merge sponsorLogos + showClock + enabled + logoUrl theo getOverlayConfig)
       overlay: rootOverlay || undefined,
       meta: m?.meta || undefined,
       note: m?.note || undefined,
+
       rating: {
         delta: m?.ratingDelta ?? 0,
         applied: !!m?.ratingApplied,
         appliedAt: m?.ratingAppliedAt || null,
       },
 
-      // gửi ra cho overlay native
       isBreak,
     });
   } catch (err) {
