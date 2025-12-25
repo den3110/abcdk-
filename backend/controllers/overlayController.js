@@ -264,6 +264,16 @@ export async function getOverlayMatch(req, res) {
       }));
     }
 
+    // ✅ ensure https cho logo lấy từ tournament/overlay
+    // (vì rootOverlay.logoUrl có thể lấy từ baseOverlay.logoUrl hoặc tournament.logoUrl)
+    if (m?.tournament?.logoUrl)
+      m.tournament.logoUrl = ensureHttps(m.tournament.logoUrl);
+    if (m?.tournament?.overlay?.logoUrl)
+      m.tournament.overlay.logoUrl = ensureHttps(m.tournament.overlay.logoUrl);
+    if (m?.overlay?.logoUrl) m.overlay.logoUrl = ensureHttps(m.overlay.logoUrl);
+    if (m?.bracket?.overlay?.logoUrl)
+      m.bracket.overlay.logoUrl = ensureHttps(m.bracket.overlay.logoUrl);
+
     const sponsorLogos = sponsors
       .map((s) => (s.logoUrl || "").trim())
       .filter(Boolean)
@@ -463,8 +473,9 @@ export async function getOverlayMatch(req, res) {
         typeof baseOverlay.scoreScale === "number" ? baseOverlay.scoreScale : 1,
       customCss: baseOverlay.customCss || "",
 
-      // 🆕 logoUrl: ưu tiên logo overlay riêng, fallback theo getOverlayConfig
-      logoUrl: baseOverlay.logoUrl || webLogoUrl,
+      // 🆕 logoUrl: ưu tiên overlay.logoUrl -> tournament.logoUrl -> webLogoUrl
+      logoUrl:
+        (baseOverlay.logoUrl || "").trim() || tournamentLogoUrl || webLogoUrl,
 
       // 🆕 extra cho native overlay
       size: baseOverlay.size || "md",
