@@ -2,7 +2,7 @@
 import asyncHandler from "express-async-handler";
 import UserMatch from "../models/userMatchModel.js";
 import User from "../models/userModel.js";
-import crypto from "crypto"
+import crypto from "crypto";
 import { es, ES_USER_INDEX } from "../services/esClient.js";
 
 /**
@@ -187,10 +187,12 @@ export const createUserMatch = asyncHandler(async (req, res) => {
     title,
     note,
     sportType,
-    locationName,
-    locationAddress,
     scheduledAt,
     participants = [],
+
+    // vẫn đọc để tương thích FE cũ, nhưng KHÔNG bắt buộc
+    locationName,
+    locationAddress,
   } = req.body || {};
 
   const normalized = [];
@@ -226,12 +228,11 @@ export const createUserMatch = asyncHandler(async (req, res) => {
       if (!uid && !displayName && !side) continue;
 
       normalized.push({
-        user: uid, // giờ sẽ có id nếu nhập tay
+        user: uid,
         displayName: displayName || "Player",
         side,
         order,
-        isGuest: false, // vì đã tạo user rồi
-        // giữ chỗ cho tương lai (nếu FE có gửi)
+        isGuest: false,
         avatar: String(p.avatar || "").trim(),
         contact: p.contact || {},
         role: p.role || "player",
@@ -239,19 +240,23 @@ export const createUserMatch = asyncHandler(async (req, res) => {
     }
   }
 
-  const doc = await UserMatch.create({
+  const payload = {
     createdBy: userId,
     title: title || "",
     note: note || "",
     sportType: sportType || "pickleball",
-    location: {
-      name: locationName || "",
-      address: locationAddress || "",
-    },
     scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
     participants: normalized,
-  });
+  };
 
+  // ✅ location OPTIONAL: chỉ lưu khi có dữ liệu thật
+  const locName = String(locationName || "").trim();
+  const locAddr = String(locationAddress || "").trim();
+  if (locName || locAddr) {
+    payload.location = { name: locName, address: locAddr };
+  }
+
+  const doc = await UserMatch.create(payload);
   res.status(201).json(doc);
 });
 

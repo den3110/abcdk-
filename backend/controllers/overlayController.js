@@ -443,6 +443,11 @@ export async function getOverlayMatch(req, res) {
     /* ==========================
      * Overlay (theme + logo + sponsors + clock)
      * ========================== */
+    const tournamentLogoUrl =
+      !isUserMatch && m?.tournament
+        ? String(m.tournament.logoUrl || "").trim()
+        : "";
+
     const baseOverlay =
       m?.overlay || m?.tournament?.overlay || m?.bracket?.overlay || {};
 
