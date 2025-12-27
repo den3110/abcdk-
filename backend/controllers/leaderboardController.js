@@ -41,20 +41,23 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
     console.log(`📊 Found ${knockoutBracketIds.length} knockout brackets`);
 
     // Tìm max round cho mỗi bracket knockout
-    const maxRoundsAgg = await Match.aggregate([
-      {
-        $match: {
-          bracket: { $in: knockoutBracketIds },
-          status: "finished",
-        },
-      },
-      {
-        $group: {
-          _id: "$bracket",
-          maxRound: { $max: "$round" },
-        },
-      },
-    ]);
+    const maxRoundsAgg =
+      knockoutBracketIds.length > 0
+        ? await Match.aggregate([
+            {
+              $match: {
+                bracket: { $in: knockoutBracketIds },
+                status: "finished",
+              },
+            },
+            {
+              $group: {
+                _id: "$bracket",
+                maxRound: { $max: "$round" },
+              },
+            },
+          ])
+        : [];
 
     const maxRoundMap = new Map();
     for (const item of maxRoundsAgg) {
@@ -63,26 +66,33 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
 
     console.log(`📊 Max rounds map size: ${maxRoundMap.size}`);
 
-    // 📊 BƯỚC 2: Pipeline chính - đơn giản
+    // 📊 BƯỚC 2: Pipeline chính
     const pipeline = [
-      // Lọc matches đã kết thúc gần đây
+      // ✅ FIX: lọc thời gian bằng (finishedAt ?? updatedAt) để không bị lọt case finishedAt=null
       {
         $match: {
           status: "finished",
           winner: { $in: ["A", "B"] },
-          $or: [
-            { finishedAt: { $gte: since } },
-            { finishedAt: { $exists: false }, updatedAt: { $gte: since } },
-          ],
+          $expr: {
+            $gte: [{ $ifNull: ["$finishedAt", "$updatedAt"] }, since],
+          },
         },
       },
 
-      // Tạo 2 documents cho mỗi pair
+      // (optional) tránh data lỗi pairA == pairB gây đếm x2
+      {
+        $match: {
+          $expr: { $ne: ["$pairA", "$pairB"] },
+        },
+      },
+
+      // Tạo 2 documents cho mỗi match (pairA & pairB)
       {
         $facet: {
           pairAStats: [
             {
               $project: {
+                matchId: "$_id", // ✅ ADD để dedupe
                 pairId: "$pairA",
                 isWinner: { $eq: ["$winner", "A"] },
                 timestamp: { $ifNull: ["$finishedAt", "$updatedAt"] },
@@ -97,6 +107,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
           pairBStats: [
             {
               $project: {
+                matchId: "$_id", // ✅ ADD để dedupe
                 pairId: "$pairB",
                 isWinner: { $eq: ["$winner", "B"] },
                 timestamp: { $ifNull: ["$finishedAt", "$updatedAt"] },
@@ -121,6 +132,22 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
       { $replaceRoot: { newRoot: "$allPairs" } },
       { $match: { pairId: { $ne: null, $exists: true } } },
 
+      // ✅ FIX: DEDUPE theo (pairId, matchId) để không bị đếm trùng
+      {
+        $group: {
+          _id: { pairId: "$pairId", matchId: "$matchId" },
+          pairId: { $first: "$pairId" },
+          matchId: { $first: "$matchId" },
+          isWinner: { $max: "$isWinner" },
+          timestamp: { $max: "$timestamp" },
+          tournament: { $first: "$tournament" },
+          bracket: { $first: "$bracket" },
+          round: { $first: "$round" },
+          isThirdPlace: { $max: "$isThirdPlace" },
+          metaThirdPlace: { $max: "$metaThirdPlace" },
+        },
+      },
+
       // Group theo pairId
       {
         $group: {
@@ -133,9 +160,9 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
             },
           },
           tournamentsPlayed: { $addToSet: "$tournament" },
-          // ✅ Thu thập thông tin để detect final ở JavaScript
           matches: {
             $push: {
+              matchId: "$matchId",
               bracket: "$bracket",
               round: "$round",
               isWinner: "$isWinner",
@@ -151,7 +178,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         ? [{ $match: { totalMatches: { $gte: minMatches } } }]
         : []),
 
-      // Lookup Registration
+      // Lookup Registration (pair)
       {
         $lookup: {
           from: "registrations",
@@ -167,7 +194,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         },
       },
 
-      // Extract user IDs
+      // Extract user IDs của 2 người trong pair
       {
         $addFields: {
           playerUsers: {
@@ -189,7 +216,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         },
       },
 
-      // Group theo player
+      // Group theo player (cộng stats của các pairs mà player đã chơi)
       {
         $group: {
           _id: "$playerUsers",
@@ -198,7 +225,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
           lastWinDate: { $max: "$lastWinDate" },
           tournamentsPlayedArrays: { $push: "$tournamentsPlayed" },
           pairsCount: { $sum: 1 },
-          allMatches: { $push: "$matches" }, // ✅ Thu thập matches info
+          allMatches: { $push: "$matches" },
         },
       },
 
@@ -218,7 +245,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         },
       },
 
-      // ✅ ADD: Flatten tournament IDs để lookup
+      // Flatten tournament IDs để lookup
       {
         $addFields: {
           uniqueTournamentIds: {
@@ -239,8 +266,8 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
           totalWins: 1,
           lastWinDate: 1,
           pairsCount: 1,
-          uniqueTournamentIds: 1, // ✅ Để lookup tournaments
-          allMatches: 1, // ✅ Giữ lại để process ở JS
+          uniqueTournamentIds: 1,
+          allMatches: 1,
           name: {
             $ifNull: [
               "$userInfo.name",
@@ -278,21 +305,30 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
       const allMatches = (r.allMatches || []).flat();
 
       for (const match of allMatches) {
-        const bracketId = String(match.bracket);
+        const bracketId = match?.bracket ? String(match.bracket) : null;
+        if (!bracketId) continue;
+
         const maxRound = maxRoundMap.get(bracketId);
+
+        const roundNum =
+          typeof match.round === "number" ? match.round : Number(match.round);
+        const maxRoundNum =
+          typeof maxRound === "number" ? maxRound : Number(maxRound);
+
+        const isThirdPlace = !!match.isThirdPlace;
+        const metaThirdPlace = !!match.metaThirdPlace;
 
         // ✅ Check if this is a final match
         const isFinal =
-          maxRound &&
-          match.round === maxRound &&
-          !match.isThirdPlace &&
-          !match.metaThirdPlace;
+          Number.isFinite(roundNum) &&
+          Number.isFinite(maxRoundNum) &&
+          roundNum === maxRoundNum &&
+          !isThirdPlace &&
+          !metaThirdPlace;
 
         if (isFinal) {
           finalAppearances++;
-          if (match.isWinner) {
-            finalWins++;
-          }
+          if (match.isWinner) finalWins++;
         }
       }
 
@@ -362,7 +398,6 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
       const tourIds = (r.uniqueTournamentIds || []).filter(Boolean).map(String);
       const uniqueTournamentIds = [...new Set(tourIds)];
 
-      // ✅ Lấy thông tin chi tiết tournaments
       const tournamentsDetails = uniqueTournamentIds
         .map((tid) => tournamentMap.get(tid))
         .filter(Boolean)
@@ -378,7 +413,6 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
 
       const sinceLabel = sinceDays === 1 ? "24h" : `${sinceDays} ngày`;
 
-      // ✅ Trả về achievements dạng array với các metrics
       const achievements = [];
 
       if (r.finalWins > 0) {
@@ -433,16 +467,16 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         winRate: r.winRate,
         finalApps: r.finalAppearances,
         finalWins: r.finalWins,
-        tournaments: tournamentsDetails, // ✅ Array of tournament objects
+        tournaments: tournamentsDetails,
         lastWinAt: r.lastWinDate,
         name: r.name,
-        nickname: r.nickname, // ✅ ADD nickname
+        nickname: r.nickname,
         avatar: r.avatar,
-        achievements, // ✅ Array thay vì string
+        achievements,
       };
     });
 
-    res.json({
+    return res.json({
       success: true,
       sinceDays,
       generatedAt: new Date(),
