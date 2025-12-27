@@ -5,6 +5,10 @@ import UserRadar from "../models/userRadarModel.js";
 import RadarPresence from "../models/radarPresenceModel.js";
 import RadarIntent from "../models/radarIntentModel.js";
 
+// ✅ NEW: thêm các model đa dạng entity
+import Tournament from "../models/tournamentModel.js";
+import Club from "../models/clubModel.js";
+
 // Helper clamp
 const clamp = (v, min, max) => Math.max(min, Math.min(max, v || 0));
 
@@ -17,6 +21,58 @@ const getBaseRating = (localRatings) => {
   ].filter((v) => Number.isFinite(v));
   if (!vals.length) return null;
   return vals.reduce((a, b) => a + b, 0) / vals.length;
+};
+
+// ✅ NEW: helpers cho explore đa dạng
+const toNum = (v, fallback = null) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const parseTypes = (raw) => {
+  const s = String(raw || "user,tournament,club");
+  const arr = s
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  return new Set(arr.length ? arr : ["user", "tournament", "club"]);
+};
+
+const haversineMeters = (lat1, lon1, lat2, lon2) => {
+  const R = 6371000;
+  const toRad = (x) => (x * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+};
+
+const bboxFromRadius = (lat, lon, radiusKm) => {
+  const latDelta = radiusKm / 111.0;
+  const lonDelta = radiusKm / (111.0 * Math.cos((lat * Math.PI) / 180));
+  return {
+    minLat: lat - latDelta,
+    maxLat: lat + latDelta,
+    minLon: lon - lonDelta,
+    maxLon: lon + lonDelta,
+  };
+};
+
+const kindToEmoji = (kind) => {
+  switch (kind) {
+    case "practice":
+      return "🔥";
+    case "tournament":
+      return "🏆";
+    case "friendly":
+      return "🤝";
+    case "coffee_chat":
+      return "☕️";
+    default:
+      return "📍";
+  }
 };
 
 /**
@@ -367,6 +423,242 @@ export const getNearbyPlayers = asyncHandler(async (req, res) => {
 });
 
 /**
+ * ✅ NEW
+ * GET /api/radar/explore?lat=&lng=&radiusKm=&types=user,tournament,club
+ * Trả về items đa dạng: user / tournament / club (court bạn thêm sau)
+ *
+ * items[] format (gợi ý):
+ * - type: "user" | "tournament" | "club" | "court"
+ * - id
+ * - title, subtitle
+ * - distanceMeters
+ * - location: GeoJSON Point { type:"Point", coordinates:[lng,lat] } hoặc null
+ * - payload tùy type (rating, imageUrl, status...)
+ */
+export const getRadarExplore = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+
+  let { lat, lng, radiusKm, types } = req.query || {};
+  const typeSet = parseTypes(types);
+
+  // radius rộng hơn nearby, cho “explore”
+  radiusKm = clamp(Number(radiusKm) || 5, 1, 50);
+
+  let centerLat = Number(lat);
+  let centerLng = Number(lng);
+
+  // current user + fallback lastKnownLocation
+  const currentUser = await User.findById(userId).select(
+    "name nickname avatar gender province localRatings"
+  );
+  if (!currentUser) {
+    res.status(404);
+    throw new Error("User not found");
+  }
+
+  const currentRadar = await UserRadar.findOne({ user: userId }).select(
+    "lastKnownLocation"
+  );
+
+  if (
+    !Number.isFinite(centerLat) ||
+    !Number.isFinite(centerLng) ||
+    Math.abs(centerLat) > 90 ||
+    Math.abs(centerLng) > 180
+  ) {
+    if (
+      currentRadar?.lastKnownLocation?.coordinates &&
+      Array.isArray(currentRadar.lastKnownLocation.coordinates)
+    ) {
+      centerLng = currentRadar.lastKnownLocation.coordinates[0];
+      centerLat = currentRadar.lastKnownLocation.coordinates[1];
+    } else {
+      res.status(400);
+      throw new Error("Missing or invalid center coordinates");
+    }
+  }
+
+  const radiusMeters = radiusKm * 1000;
+  const now = new Date();
+  const currentIntent = await RadarIntent.findOne({ user: userId });
+
+  const items = [];
+
+  // ---------------- USERS ----------------
+  if (typeSet.has("user")) {
+    const pipeline = [
+      {
+        $geoNear: {
+          near: { type: "Point", coordinates: [centerLng, centerLat] },
+          distanceField: "distance",
+          maxDistance: radiusMeters,
+          spherical: true,
+          key: "location",
+          query: {
+            user: { $ne: userId },
+            // presence TTL chưa chắc xoá kịp -> filter luôn
+            expiresAt: { $gt: now },
+          },
+        },
+      },
+      { $limit: 120 },
+      {
+        $lookup: {
+          from: "users",
+          localField: "user",
+          foreignField: "_id",
+          as: "user",
+        },
+      },
+      { $unwind: "$user" },
+      {
+        $lookup: {
+          from: "radarintents",
+          localField: "user._id",
+          foreignField: "user",
+          as: "intent",
+        },
+      },
+      {
+        $unwind: {
+          path: "$intent",
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          userId: "$user._id",
+          distance: 1,
+          location: 1,
+
+          displayName: { $ifNull: ["$user.nickname", "$user.name"] },
+          avatarUrl: "$user.avatar",
+          province: "$user.province",
+
+          ratingSingles: "$user.localRatings.singles",
+          ratingDoubles: "$user.localRatings.doubles",
+          rating: "$user.localRatings.doubles",
+
+          intentKind: "$intent.kind",
+          intentNote: "$intent.note",
+        },
+      },
+    ];
+
+    const docs = await RadarPresence.aggregate(pipeline);
+
+    const enriched = docs
+      .map((p) => {
+        const score = computeScore(p, currentUser.localRatings, currentIntent);
+        const statusEmoji = kindToEmoji(p.intentKind);
+        const statusMessage = p.intentNote || "";
+
+        const userItem = {
+          // unified
+          type: "user",
+          id: String(p.userId),
+          title: p.displayName || "Người chơi",
+          subtitle: p.province || "",
+          distanceMeters: Math.round(p.distance || 0),
+          location: p.location || null,
+          avatarUrl: p.avatarUrl || "",
+          rating: Number.isFinite(p.rating) ? p.rating : null,
+          intentKind: p.intentKind || "practice",
+          statusEmoji,
+          statusMessage,
+          score,
+
+          // backward-compat fields (nếu app còn dùng format cũ)
+          mainClubName: p.province || "",
+        };
+
+        return userItem;
+      })
+      .sort((a, b) => b.score - a.score || a.distanceMeters - b.distanceMeters);
+
+    items.push(...enriched);
+  }
+
+  // ---------------- TOURNAMENTS ----------------
+  if (typeSet.has("tournament")) {
+    // Tournament đang dùng locationGeo.lat/lon => query bbox + haversine lọc
+    const bbox = bboxFromRadius(centerLat, centerLng, radiusKm);
+
+    const tdocs = await Tournament.find({
+      "locationGeo.lat": { $ne: null, $gte: bbox.minLat, $lte: bbox.maxLat },
+      "locationGeo.lon": { $ne: null, $gte: bbox.minLon, $lte: bbox.maxLon },
+    })
+      .select(
+        "name image status eventType location locationGeo startDate endDate"
+      )
+      .lean();
+
+    const tournaments = [];
+    for (const t of tdocs) {
+      const tLat = toNum(t?.locationGeo?.lat);
+      const tLng = toNum(t?.locationGeo?.lon);
+      if (!Number.isFinite(tLat) || !Number.isFinite(tLng)) continue;
+
+      const d = haversineMeters(centerLat, centerLng, tLat, tLng);
+      if (d > radiusMeters) continue;
+
+      tournaments.push({
+        type: "tournament",
+        id: String(t._id),
+        title: t.name || "Giải đấu",
+        subtitle: t.locationGeo?.displayName || t.location || "",
+        distanceMeters: Math.round(d),
+        location: { type: "Point", coordinates: [tLng, tLat] },
+        imageUrl: t.image || "",
+        status: t.status || "upcoming",
+        eventType: t.eventType || "",
+        startDate: t.startDate || null,
+        endDate: t.endDate || null,
+      });
+    }
+
+    tournaments.sort((a, b) => a.distanceMeters - b.distanceMeters);
+    items.push(...tournaments.slice(0, 60));
+  }
+
+  // ---------------- CLUBS ----------------
+  if (typeSet.has("club")) {
+    // Club model hiện chưa có geo => vẫn trả card (location=null) để UI đa dạng
+    // ưu tiên club cùng tỉnh user nếu có
+    const clubQuery = {};
+    if (currentUser?.province) {
+      clubQuery.province = currentUser.province;
+    }
+
+    const clubs = await Club.find(clubQuery)
+      .sort({ isVerified: -1, createdAt: -1 })
+      .limit(12)
+      .select("name logoUrl city province country")
+      .lean();
+
+    for (const c of clubs) {
+      items.push({
+        type: "club",
+        id: String(c._id),
+        title: c.name || "CLB",
+        subtitle: [c.city, c.province, c.country].filter(Boolean).join(", "),
+        distanceMeters: null,
+        location: null, // chưa có geo
+        imageUrl: c.logoUrl || "",
+        isVerified: !!c.isVerified,
+      });
+    }
+  }
+
+  res.json({
+    center: { lat: centerLat, lng: centerLng },
+    radiusKm,
+    items,
+  });
+});
+
+/**
  * PUT /api/radar/intent
  * body: { kind, note?, minRating?, maxRating?, maxDistanceKm? }
  */
@@ -419,13 +711,6 @@ export const pingUser = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Cannot ping yourself");
   }
-
-  // TODO: hook notification thực tế (Mongo + RabbitMQ + Expo push, v.v.)
-  // await Notification.create({
-  //   user: targetUserId,
-  //   type: "radar_ping",
-  //   payload: { fromUserId: req.user._id },
-  // });
 
   res.json({ ok: true });
 });

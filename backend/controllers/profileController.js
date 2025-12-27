@@ -200,7 +200,7 @@ export const getMatchHistory = asyncHandler(async (req, res) => {
   const page = Math.max(1, parseInt(req.query.page ?? "1", 10));
   const limit = Math.min(
     100,
-    Math.max(1, parseInt(req.query.limit ?? "20", 10))
+    Math.max(1, parseInt(req.query.limit ?? "1000", 10))
   );
   const sliceRange = (arr) => {
     const start = (page - 1) * limit;

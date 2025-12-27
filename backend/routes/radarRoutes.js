@@ -8,6 +8,7 @@ import {
   upsertRadarIntent,
   deleteRadarIntent,
   pingUser,
+  getRadarExplore,
 } from "../controllers/radarController.js"; // Lưu ý: thêm .js
 
 const router = express.Router();
@@ -23,5 +24,8 @@ router.put("/intent", protect, upsertRadarIntent);
 router.delete("/intent", protect, deleteRadarIntent);
 
 router.post("/ping", protect, pingUser);
+
+router.get("/explore", protect, getRadarExplore);
+// router.post("/presence", protect, upsertMyPresence);
 
 export default router;
