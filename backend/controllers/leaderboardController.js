@@ -15,24 +15,16 @@ import Tournament from "../models/tournamentModel.js";
  */
 export const getFeaturedLeaderboard = async (req, res, next) => {
   try {
-    const sinceDays = Math.max(parseInt(req.query.sinceDays ?? "90", 10), 1);
     const limit = Math.min(
       Math.max(parseInt(req.query.limit ?? "10", 10), 1),
       50
     );
     const minMatches = Math.max(parseInt(req.query.minMatches ?? "3", 10), 0);
 
-    const since = new Date(Date.now() - sinceDays * 864e5);
-
-    console.log("🔍 Leaderboard Query:", {
-      sinceDays,
-      limit,
-      minMatches,
-      sinceDate: since,
-    });
+    console.log("🔍 Leaderboard Query (FINISHED ONLY):", { limit, minMatches });
 
     /* -----------------------------
-     * BƯỚC 1: Knockout brackets -> max round map
+     * 1) Knockout brackets -> max round map (để tính finalWins/finalApps)
      * ----------------------------- */
     const knockoutBrackets = await Bracket.find({ type: "knockout" })
       .select("_id")
@@ -62,16 +54,15 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
       maxRoundMap.set(String(item._id), item.maxRound);
 
     /* -----------------------------
-     * BƯỚC 2: Pipeline chuẩn theo logic achievements
-     * - Match -> lookup registrations(pairA/pairB) -> map users theo side A/B
-     * - DEDUPE userId+matchId (chống nhân đôi)
+     * 2) Pipeline: chỉ FINISHED, đếm theo user giống achievements
+     * - map user theo registration của pairA/pairB
+     * - DEDUPE theo (userId, matchId) để không bao giờ nhân đôi
      * ----------------------------- */
     const convOID = (expr) => ({
       $convert: { input: expr, to: "objectId", onError: null, onNull: null },
     });
 
     const pipeline = [
-      // lọc thô trước để giảm data
       {
         $match: {
           status: "finished",
@@ -80,55 +71,31 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         },
       },
 
-      // dt giống matchDT: finishedAt -> startedAt -> scheduledAt -> createdAt -> updatedAt
+      // nhẹ data
       {
-        $addFields: {
-          dt: {
-            $ifNull: [
-              "$finishedAt",
-              {
-                $ifNull: [
-                  "$startedAt",
-                  {
-                    $ifNull: [
-                      "$scheduledAt",
-                      { $ifNull: ["$createdAt", "$updatedAt"] },
-                    ],
-                  },
-                ],
-              },
-            ],
-          },
-          isThirdPlaceSafe: { $ifNull: ["$isThirdPlace", false] },
-          metaThirdPlaceSafe: { $ifNull: ["$meta.thirdPlace", false] },
+        $project: {
+          _id: 1,
+          tournament: 1,
+          bracket: 1,
+          round: 1,
+          winner: 1,
+          pairA: 1,
+          pairB: 1,
+          isThirdPlace: 1,
+          "meta.thirdPlace": 1,
+          finishedAt: 1,
+          updatedAt: 1,
         },
       },
 
-      // lọc theo sinceDays
-      {
-        $match: {
-          $expr: { $gte: ["$dt", since] },
-        },
-      },
-
-      // lookup registrations của pairA/pairB (giống achievements map reg)
+      // lookup registrations của 2 pair
       {
         $lookup: {
           from: "registrations",
           let: { a: "$pairA", b: "$pairB" },
           pipeline: [
-            {
-              $match: {
-                $expr: { $in: ["$_id", ["$$a", "$$b"]] },
-              },
-            },
-            {
-              $project: {
-                _id: 1,
-                "player1.user": 1,
-                "player2.user": 1,
-              },
-            },
+            { $match: { $expr: { $in: ["$_id", ["$$a", "$$b"]] } } },
+            { $project: { _id: 1, "player1.user": 1, "player2.user": 1 } },
           ],
           as: "regs",
         },
@@ -155,18 +122,18 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
               },
             },
           },
+          isThirdPlaceSafe: { $ifNull: ["$isThirdPlace", false] },
+          metaThirdPlaceSafe: { $ifNull: ["$meta.thirdPlace", false] },
+          ts: { $ifNull: ["$finishedAt", "$updatedAt"] },
         },
       },
 
-      // build usersA/usersB (dedupe + convert ObjectId, xử lý user lưu string/oid lẫn lộn)
+      // build usersA/usersB (dedupe + convert)
       {
         $addFields: {
           usersA: {
             $let: {
-              vars: {
-                u1: "$regA.player1.user",
-                u2: "$regA.player2.user",
-              },
+              vars: { u1: "$regA.player1.user", u2: "$regA.player2.user" },
               in: {
                 $setUnion: [
                   {
@@ -183,10 +150,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
           },
           usersB: {
             $let: {
-              vars: {
-                u1: "$regB.player1.user",
-                u2: "$regB.player2.user",
-              },
+              vars: { u1: "$regB.player1.user", u2: "$regB.player2.user" },
               in: {
                 $setUnion: [
                   {
@@ -204,7 +168,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         },
       },
 
-      // tạo docs theo user (side A/B) giống achievements: onA/onB
+      // tạo docs theo user ở side A/B
       {
         $project: {
           allUsers: {
@@ -217,7 +181,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
                     userId: "$$u",
                     matchId: "$_id",
                     isWinner: { $eq: ["$winner", "A"] },
-                    dt: "$dt",
+                    ts: "$ts",
                     tournament: "$tournament",
                     bracket: "$bracket",
                     round: "$round",
@@ -234,7 +198,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
                     userId: "$$u",
                     matchId: "$_id",
                     isWinner: { $eq: ["$winner", "B"] },
-                    dt: "$dt",
+                    ts: "$ts",
                     tournament: "$tournament",
                     bracket: "$bracket",
                     round: "$round",
@@ -251,14 +215,14 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
       { $unwind: "$allUsers" },
       { $replaceRoot: { newRoot: "$allUsers" } },
 
-      // ✅ DEDUPE userId + matchId (cực quan trọng, chống nhân đôi do data bẩn)
+      // ✅ DEDUPE userId+matchId
       {
         $group: {
           _id: { userId: "$userId", matchId: "$matchId" },
           userId: { $first: "$userId" },
           matchId: { $first: "$matchId" },
           isWinner: { $max: "$isWinner" },
-          dt: { $max: "$dt" },
+          ts: { $max: "$ts" },
           tournament: { $first: "$tournament" },
           bracket: { $first: "$bracket" },
           round: { $first: "$round" },
@@ -267,15 +231,13 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         },
       },
 
-      // group theo user để tính matches/wins chuẩn
+      // group theo user để tính wins/matches
       {
         $group: {
           _id: "$userId",
           totalMatches: { $sum: 1 },
           totalWins: { $sum: { $cond: ["$isWinner", 1, 0] } },
-          lastWinDate: {
-            $max: { $cond: ["$isWinner", "$dt", new Date(0)] },
-          },
+          lastWinDate: { $max: { $cond: ["$isWinner", "$ts", new Date(0)] } },
           tournamentsPlayed: { $addToSet: "$tournament" },
           allMatches: {
             $push: {
@@ -293,7 +255,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         ? [{ $match: { totalMatches: { $gte: minMatches } } }]
         : []),
 
-      // lookup user info
+      // user info
       {
         $lookup: {
           from: "users",
@@ -304,7 +266,6 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
       },
       { $unwind: { path: "$userInfo", preserveNullAndEmptyArrays: true } },
 
-      // project giống output cũ của bạn
       {
         $project: {
           userId: "$_id",
@@ -341,7 +302,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
     console.log(`✅ Found ${rows.length} athletes (before processing)`);
 
     /* -----------------------------
-     * BƯỚC 3: JS detect finals + score
+     * 3) JS: finals + score + sort
      * ----------------------------- */
     const processedRows = rows.map((r) => {
       let finalAppearances = 0;
@@ -374,23 +335,23 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         }
       }
 
+      const winRate =
+        r.totalMatches > 0
+          ? Math.round((r.totalWins / r.totalMatches) * 1000) / 10
+          : 0;
+
       const score =
         finalWins * 100 +
         finalAppearances * 60 +
         r.totalWins * 3 +
         r.totalMatches * 0.5;
 
-      const winRate =
-        r.totalMatches > 0
-          ? Math.round((r.totalWins / r.totalMatches) * 1000) / 10
-          : 0;
-
       return {
         ...r,
         finalAppearances,
         finalWins,
-        score: Math.round(score * 100) / 100,
         winRate,
+        score: Math.round(score * 100) / 100,
       };
     });
 
@@ -406,7 +367,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
     const topRows = processedRows.slice(0, limit);
 
     /* -----------------------------
-     * BƯỚC 4: lookup tournament details
+     * 4) Lookup tournaments cho top
      * ----------------------------- */
     const allTournamentIds = [
       ...new Set(
@@ -427,8 +388,6 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
 
     const tournamentMap = new Map(tournaments.map((t) => [String(t._id), t]));
 
-    const sinceLabel = sinceDays === 1 ? "24h" : `${sinceDays} ngày`;
-
     const result = topRows.map((r, idx) => {
       const tourIds = (r.uniqueTournamentIds || []).filter(Boolean).map(String);
       const uniqueTournamentIds = [...new Set(tourIds)];
@@ -448,22 +407,20 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
 
       const achievements = [];
 
-      if (r.finalWins > 0) {
+      if (r.finalWins > 0)
         achievements.push({
           type: "champion",
           icon: "🏆",
           label: "Chức vô địch",
           value: r.finalWins,
         });
-      }
-      if (r.finalAppearances > 0) {
+      if (r.finalAppearances > 0)
         achievements.push({
           type: "finalist",
           icon: "🎯",
           label: "Chung kết",
           value: r.finalAppearances,
         });
-      }
 
       achievements.push({
         type: "wins",
@@ -474,21 +431,13 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
         winRate: r.winRate,
       });
 
-      if (tournamentsDetails.length > 0) {
+      if (tournamentsDetails.length > 0)
         achievements.push({
           type: "tournaments",
           icon: "🏆",
           label: "Giải đấu",
           value: tournamentsDetails.length,
         });
-      }
-
-      achievements.push({
-        type: "period",
-        icon: "📅",
-        label: "Thời gian",
-        value: sinceLabel,
-      });
 
       return {
         userId: r.userId,
@@ -510,7 +459,7 @@ export const getFeaturedLeaderboard = async (req, res, next) => {
 
     return res.json({
       success: true,
-      sinceDays,
+      scope: "finished_only",
       generatedAt: new Date(),
       count: result.length,
       items: result,
