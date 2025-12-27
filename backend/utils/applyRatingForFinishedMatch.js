@@ -203,44 +203,75 @@ function distributeTeamDeltaEvenly(deltaTeam, playerCount) {
 }
 
 /* ===================== Ratings & reliability ===================== */
+/**
+ * ⭐ FIX: Query single và double RIÊNG BIỆT
+ *
+ * Vấn đề cũ: Dùng $first chung cho cả single và double từ doc mới nhất
+ * -> Nếu doc mới nhất chỉ có double (từ trận đôi), single sẽ = undefined -> bị set = 0
+ *
+ * Fix: Query riêng từng field, lấy doc mới nhất CÓ field đó (không null)
+ *
+ * Ví dụ với data:
+ * - Doc 20/12/2025: { double: 3.884 } (không có single)
+ * - Doc 24/09/2025: { single: 3.5, double: 3.9 }
+ *
+ * Kết quả:
+ * - single = 3.5 (từ doc 24/09)
+ * - double = 3.884 (từ doc 20/12)
+ */
 async function getLatestRatingsMap(userIds) {
   const ids = [...new Set(userIds.map(String))].map(
     (id) => new mongoose.Types.ObjectId(id)
   );
-  const lastHist = await ScoreHistory.aggregate([
-    { $match: { user: { $in: ids } } },
+
+  // Lấy điểm SINGLE mới nhất (chỉ từ docs có field single tồn tại và không null)
+  const lastSingle = await ScoreHistory.aggregate([
+    { $match: { user: { $in: ids }, single: { $exists: true, $ne: null } } },
     { $sort: { scoredAt: -1, _id: -1 } },
-    {
-      $group: {
-        _id: "$user",
-        single: { $first: "$single" },
-        double: { $first: "$double" },
-      },
-    },
+    { $group: { _id: "$user", single: { $first: "$single" } } },
   ]);
-  const map = new Map(
-    lastHist.map((r) => [
-      String(r._id),
-      {
-        single: Number.isFinite(r.single) ? r.single : 0,
-        double: Number.isFinite(r.double) ? r.double : 0,
-      },
-    ])
-  );
+
+  // Lấy điểm DOUBLE mới nhất (chỉ từ docs có field double tồn tại và không null)
+  const lastDouble = await ScoreHistory.aggregate([
+    { $match: { user: { $in: ids }, double: { $exists: true, $ne: null } } },
+    { $sort: { scoredAt: -1, _id: -1 } },
+    { $group: { _id: "$user", double: { $first: "$double" } } },
+  ]);
+
+  // Tạo map từ kết quả
+  const singleMap = new Map(lastSingle.map((r) => [String(r._id), r.single]));
+  const doubleMap = new Map(lastDouble.map((r) => [String(r._id), r.double]));
+
+  // Merge vào map chính
+  const map = new Map();
+  for (const uid of ids.map(String)) {
+    const s = singleMap.get(uid);
+    const d = doubleMap.get(uid);
+    map.set(uid, {
+      single: Number.isFinite(s) ? s : 0,
+      double: Number.isFinite(d) ? d : 0,
+    });
+  }
+
+  // Fallback từ Ranking nếu ScoreHistory không có
   const ranks = await Ranking.find({ user: { $in: ids } }).select(
     "user single double"
   );
   ranks.forEach((r) => {
     const k = String(r.user);
-    if (!map.has(k))
-      map.set(k, {
-        single: Number.isFinite(r.single) ? r.single : 0,
-        double: Number.isFinite(r.double) ? r.double : 0,
-      });
+    const existing = map.get(k) || { single: 0, double: 0 };
+    // Chỉ lấy từ Ranking nếu ScoreHistory không có giá trị
+    map.set(k, {
+      single: existing.single || (Number.isFinite(r.single) ? r.single : 0),
+      double: existing.double || (Number.isFinite(r.double) ? r.double : 0),
+    });
   });
+
+  // Đảm bảo tất cả userIds đều có entry
   userIds.forEach((uid) => {
     if (!map.has(String(uid))) map.set(String(uid), { single: 0, double: 0 });
   });
+
   return map;
 }
 
@@ -671,13 +702,15 @@ export async function applyRatingForFinishedMatch(matchId) {
       });
 
       const prevRep = repMap.get(String(uid)) ?? 0;
+
+      // ⭐ FIX: Chỉ update field đang thay đổi (single hoặc double)
+      // KHÔNG đụng đến field còn lại để tránh ghi đè bằng 0
       rankingOps.push({
         updateOne: {
           filter: { user: uid },
           update: {
             $set: {
-              single: key === "single" ? round3(next) : current.single ?? 0,
-              double: key === "double" ? round3(next) : current.double ?? 0,
+              [key]: round3(next),
               reputation: nextRep(prevRep),
             },
           },
