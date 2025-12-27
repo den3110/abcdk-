@@ -42,7 +42,7 @@ export const rankingsApiSlice = apiSlice.injectEndpoints({
     }),
     // ✅ List rankings (không kèm podiums30d)
     getRankingsList: builder.query({
-      query: ({ cursor, page, limit = 10, keyword } = {}) => {
+      query: ({ cursor, page, limit = 12, keyword } = {}) => {
         const params = new URLSearchParams();
         if (cursor) params.set("cursor", String(cursor));
         if (page !== undefined && page !== null)

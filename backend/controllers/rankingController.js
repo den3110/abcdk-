@@ -691,7 +691,7 @@ export const getRankings = asyncHandler(async (req, res) => {
   // ===== Cursor-based pagination =====
   const rawCursor =
     typeof req.query.cursor === "string" ? req.query.cursor.trim() : "";
-  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 10, 10)));
+  const limit = Math.min(100, Math.max(1, parseInt(req.query.limit ?? 12, 12)));
 
   let page = 0;
 
@@ -707,7 +707,7 @@ export const getRankings = asyncHandler(async (req, res) => {
     }
   } else {
     // fallback: vẫn hỗ trợ ?page= nếu cần (0-based)
-    page = Math.max(0, parseInt(req.query.page ?? 0, 10));
+    page = Math.max(0, parseInt(req.query.page ?? 0, 12));
   }
 
   // ===== keyword =====
