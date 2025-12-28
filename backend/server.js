@@ -80,6 +80,7 @@ import radarRoutes from "./routes/radarRoutes.js";
 import supportRoutes from "./routes/supportRoutes.js";
 import auditRoutes from "./routes/auditRoutes.js";
 import slackEventsRoutes from "./routes/slackEventsRoutes.js";
+import head2headRoutes from "./routes/head2headRoutes.js"
 import Match from "./models/matchModel.js";
 import { httpLogger } from "./middleware/httpLogger.js";
 
@@ -208,6 +209,7 @@ app.use("/api/radar", radarRoutes);
 app.use("/api/support", supportRoutes);
 app.use("/api/audit", auditRoutes);
 app.use("/api/slack", slackEventsRoutes);
+app.use("/api/head2head", head2headRoutes);
 
 app.get("/dl/file/:id", async (req, res) => {
   try {

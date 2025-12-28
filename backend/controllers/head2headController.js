@@ -2,7 +2,7 @@
 import asyncHandler from "express-async-handler";
 import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
-import User from "../models/User.js";
+import User from "../models/userModel.js";
 import Registration from "../models/registrationModel.js";
 import Tournament from "../models/tournamentModel.js";
 
