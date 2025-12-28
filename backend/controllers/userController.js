@@ -1895,20 +1895,152 @@ const logoutUser = (req, res) => {
 // @route   GET /api/users/profile
 // @access  Private
 const getUserProfile = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id).select("-password -__v");
+  const uid = new mongoose.Types.ObjectId(String(req.user._id));
 
+  const user = await User.findById(uid).select("-password -__v");
   if (!user) {
     res.status(404);
     throw new Error("User not found");
   }
 
-  // Ghép URL tuyệt đối cho ảnh nếu là path tương đối
-  const toUrl = (p) =>
-    p && !p.startsWith("http") ? `${req.protocol}://${req.get("host")}${p}` : p;
+  const baseUrl = `${req.protocol}://${req.get("host")}`;
+  const toUrl = (p) => {
+    if (!p) return p;
+    const s = String(p);
+    if (
+      /^https?:\/\//i.test(s) ||
+      /^data:/i.test(s) ||
+      /^file:/i.test(s) ||
+      s.startsWith("//")
+    )
+      return s;
+    const path = s.startsWith("/") ? s : `/${s}`;
+    return `${baseUrl}${path}`;
+  };
 
+  // =========================
+  // 1) TOURNAMENTS COUNT (finished)
+  // =========================
+  const toursAgg = await Registration.aggregate([
+    {
+      $match: {
+        $expr: {
+          $or: [
+            { $eq: ["$player1.user", uid] },
+            { $eq: ["$player2.user", uid] },
+          ],
+        },
+      },
+    },
+    {
+      $lookup: {
+        from: "tournaments",
+        localField: "tournament",
+        foreignField: "_id",
+        as: "tour",
+        pipeline: [{ $project: { _id: 1, status: 1, finishedAt: 1, endAt: 1 } }],
+      },
+    },
+    {
+      $addFields: {
+        status: { $ifNull: [{ $arrayElemAt: ["$tour.status", 0] }, ""] },
+        finishedAt: { $arrayElemAt: ["$tour.finishedAt", 0] },
+        rawEndAt: { $arrayElemAt: ["$tour.endAt", 0] },
+      },
+    },
+    {
+      $addFields: {
+        endAtDate: {
+          $convert: { input: "$rawEndAt", to: "date", onError: null, onNull: null },
+        },
+        tourFinished: {
+          $or: [
+            { $eq: ["$status", "finished"] },
+            { $ne: ["$finishedAt", null] },
+            {
+              $and: [
+                { $ne: ["$endAtDate", null] },
+                { $lt: ["$endAtDate", new Date()] },
+              ],
+            },
+          ],
+        },
+      },
+    },
+    { $match: { tourFinished: true } },
+    { $group: { _id: "$tournament" } },
+    { $count: "n" },
+  ]);
+
+  const tournamentsCount = toursAgg?.[0]?.n || 0;
+
+  // =========================
+  // 2) LIVES COUNT (best-effort)
+  //    - mình không biết chính xác model/field bạn lưu “lần phát live”
+  //    - nên mình làm cơ chế thử 1 loạt model phổ biến, nếu không có thì 0
+  //    - bạn chỉ cần chỉnh đúng model + field là chuẩn 100%
+  // =========================
+  const countLivesBestEffort = async () => {
+    const candidates = [
+      { model: "Live", fields: ["user", "owner", "createdBy", "host"] },
+      { model: "LiveSession", fields: ["user", "owner", "createdBy", "host"] },
+      { model: "LiveStream", fields: ["user", "owner", "createdBy", "host"] },
+      { model: "StreamSession", fields: ["user", "owner", "createdBy", "host"] },
+      { model: "FacebookLive", fields: ["user", "owner", "createdBy", "host"] },
+      { model: "LiveVideo", fields: ["user", "owner", "createdBy", "host"] },
+    ];
+
+    for (const c of candidates) {
+      const M = mongoose.models?.[c.model];
+      if (!M) continue;
+
+      const or = c.fields.map((f) => ({ [f]: uid }));
+      try {
+        return await M.countDocuments({ $or: or });
+      } catch {
+        // thử model khác
+      }
+    }
+    return 0;
+  };
+
+  const livesCount = await countLivesBestEffort();
+
+  // =========================
+  // 3) RATING (ưu tiên Ranking.points / fallback average single+double)
+  // =========================
+  let rating = user.rating ?? null;
+
+  try {
+    const rankDoc = await Ranking.findOne({ user: uid })
+      .select("points single double")
+      .lean();
+
+    if (rankDoc) {
+      const pts = Number(rankDoc.points ?? 0);
+      if (Number.isFinite(pts) && pts > 0) rating = pts;
+
+      if (rating == null) {
+        const s = Number(rankDoc.single ?? 0);
+        const d = Number(rankDoc.double ?? 0);
+        rating = Math.round((s + d) / 2);
+      }
+    }
+  } catch {
+    // nếu project bạn không có Ranking model hoặc query fail thì bỏ qua
+  }
+
+  if (rating == null) {
+    const s = Number(user.ratingSingle ?? user?.localRatings?.singles ?? 0);
+    const d = Number(user.ratingDouble ?? user?.localRatings?.doubles ?? 0);
+    rating = Math.round((s + d) / 2) || 0;
+  }
+
+  // =========================
+  // 4) Build response object + normalize URLs
+  // =========================
   const userObj = user.toObject();
 
-  // 👇 chuẩn hoá URL ảnh
   userObj.avatar = toUrl(userObj.avatar);
   userObj.cover = toUrl(userObj.cover);
 
@@ -1917,7 +2049,14 @@ const getUserProfile = asyncHandler(async (req, res) => {
     userObj.cccdImages.back = toUrl(userObj.cccdImages.back);
   }
 
-  res.json(userObj);
+  // ✅ cái bạn cần
+  userObj.stats = {
+    tournaments: tournamentsCount,
+    lives: livesCount,
+  };
+  userObj.rating = rating;
+
+  return res.json(userObj);
 });
 
 // @desc    Update user profile
