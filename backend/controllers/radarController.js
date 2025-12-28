@@ -484,6 +484,15 @@ export const getRadarExplore = asyncHandler(async (req, res) => {
 
   const items = [];
 
+  // ✅ helper: location phải là Point + đủ coords hợp lệ
+  const isValidPoint = (loc) => {
+    if (!loc || loc.type !== "Point") return false;
+    const c = loc.coordinates;
+    if (!Array.isArray(c) || c.length !== 2) return false;
+    const [x, y] = c;
+    return Number.isFinite(Number(x)) && Number.isFinite(Number(y));
+  };
+
   // ---------------- USERS ----------------
   if (typeSet.has("user")) {
     const pipeline = [
@@ -550,18 +559,20 @@ export const getRadarExplore = asyncHandler(async (req, res) => {
 
     const enriched = docs
       .map((p) => {
+        // ✅ nếu location null/invalid -> bỏ luôn
+        if (!isValidPoint(p.location)) return null;
+
         const score = computeScore(p, currentUser.localRatings, currentIntent);
         const statusEmoji = kindToEmoji(p.intentKind);
         const statusMessage = p.intentNote || "";
 
-        const userItem = {
-          // unified
+        return {
           type: "user",
           id: String(p.userId),
           title: p.displayName || "Người chơi",
           subtitle: p.province || "",
           distanceMeters: Math.round(p.distance || 0),
-          location: p.location || null,
+          location: p.location,
           avatarUrl: p.avatarUrl || "",
           rating: Number.isFinite(p.rating) ? p.rating : null,
           intentKind: p.intentKind || "practice",
@@ -572,9 +583,8 @@ export const getRadarExplore = asyncHandler(async (req, res) => {
           // backward-compat fields (nếu app còn dùng format cũ)
           mainClubName: p.province || "",
         };
-
-        return userItem;
       })
+      .filter(Boolean)
       .sort((a, b) => b.score - a.score || a.distanceMeters - b.distanceMeters);
 
     items.push(...enriched);
@@ -603,13 +613,16 @@ export const getRadarExplore = asyncHandler(async (req, res) => {
       const d = haversineMeters(centerLat, centerLng, tLat, tLng);
       if (d > radiusMeters) continue;
 
+      const loc = { type: "Point", coordinates: [tLng, tLat] };
+      if (!isValidPoint(loc)) continue; // ✅ phòng hờ
+
       tournaments.push({
         type: "tournament",
         id: String(t._id),
         title: t.name || "Giải đấu",
         subtitle: t.locationGeo?.displayName || t.location || "",
         distanceMeters: Math.round(d),
-        location: { type: "Point", coordinates: [tLng, tLat] },
+        location: loc,
         imageUrl: t.image || "",
         status: t.status || "upcoming",
         eventType: t.eventType || "",
@@ -624,8 +637,7 @@ export const getRadarExplore = asyncHandler(async (req, res) => {
 
   // ---------------- CLUBS ----------------
   if (typeSet.has("club")) {
-    // Club model hiện chưa có geo => vẫn trả card (location=null) để UI đa dạng
-    // ưu tiên club cùng tỉnh user nếu có
+    // ✅ chỉ trả club có location hợp lệ (không còn location=null)
     const clubQuery = {};
     if (currentUser?.province) {
       clubQuery.province = currentUser.province;
@@ -633,28 +645,51 @@ export const getRadarExplore = asyncHandler(async (req, res) => {
 
     const clubs = await Club.find(clubQuery)
       .sort({ isVerified: -1, createdAt: -1 })
-      .limit(12)
-      .select("name logoUrl city province country")
+      .limit(60)
+      .select("name logoUrl city province country location locationGeo")
       .lean();
 
+    const clubItems = [];
     for (const c of clubs) {
-      items.push({
+      // ưu tiên location (Point), fallback qua locationGeo
+      let cLng = c?.location?.coordinates?.[0];
+      let cLat = c?.location?.coordinates?.[1];
+
+      if (!Number.isFinite(Number(cLat)) || !Number.isFinite(Number(cLng))) {
+        cLat = toNum(c?.locationGeo?.lat);
+        cLng = toNum(c?.locationGeo?.lon);
+      }
+      if (!Number.isFinite(cLat) || !Number.isFinite(cLng)) continue;
+
+      const loc = { type: "Point", coordinates: [cLng, cLat] };
+      if (!isValidPoint(loc)) continue;
+
+      const d = haversineMeters(centerLat, centerLng, cLat, cLng);
+      if (d > radiusMeters) continue;
+
+      clubItems.push({
         type: "club",
         id: String(c._id),
         title: c.name || "CLB",
         subtitle: [c.city, c.province, c.country].filter(Boolean).join(", "),
-        distanceMeters: null,
-        location: null, // chưa có geo
+        distanceMeters: Math.round(d),
+        location: loc,
         imageUrl: c.logoUrl || "",
         isVerified: !!c.isVerified,
       });
     }
+
+    clubItems.sort((a, b) => a.distanceMeters - b.distanceMeters);
+    items.push(...clubItems.slice(0, 12));
   }
+
+  // ✅ chốt hạ: item nào location null/invalid thì loại
+  const safeItems = items.filter((it) => isValidPoint(it?.location));
 
   res.json({
     center: { lat: centerLat, lng: centerLng },
     radiusKm,
-    items,
+    items: safeItems,
   });
 });
 
