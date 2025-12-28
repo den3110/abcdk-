@@ -1308,6 +1308,7 @@ const registerUser = async (req, res) => {
 
     return res.status(201).json(buildAuthPayload(user));
   } catch (err) {
+    console.log(err)
     // Duplicate key (E11000)
     if (String(err?.code) === "11000") {
       const keys = Object.keys(err?.keyPattern || err?.keyValue || {});
