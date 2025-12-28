@@ -3124,11 +3124,11 @@ export const softDeleteMe = asyncHandler(async (req, res) => {
   if (!allowed) {
     if (typeof password !== "string" || !password.trim()) {
       res.status(400);
-      throw new Error("Password is required");
+      throw new Error("Vui lòng nhập mật khẩu");
     }
     const ok = await user.matchPassword(password.trim());
     if (!ok) {
-      res.status(401);
+      res.status(400);
       throw new Error("Sai mật khẩu");
     }
     allowed = true;
