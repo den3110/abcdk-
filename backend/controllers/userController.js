@@ -2290,7 +2290,7 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
 
   // Non-admin: giữ API cũ, không đính SPC
   const user = await User.findById(req.params.id).select(
-    "nickname gender name province createdAt bio avatar"
+    "nickname gender name province createdAt bio avatar cccdStatus"
   );
 
   if (!user) {
@@ -2306,6 +2306,7 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
     joinedAt: user.createdAt,
     bio: user.bio || "",
     avatar: user.avatar || "",
+    cccdStatus: user.cccdStatus || "unverified",
   });
 });
 
