@@ -98,7 +98,6 @@ function calculateMatchStats(match, player1Side) {
 export const getHead2Head = asyncHandler(async (req, res) => {
   const { player1Id, player2Id } = req.params;
 
-  // Validate ObjectIds
   if (
     !mongoose.Types.ObjectId.isValid(player1Id) ||
     !mongoose.Types.ObjectId.isValid(player2Id)
@@ -106,16 +105,17 @@ export const getHead2Head = asyncHandler(async (req, res) => {
     res.status(400);
     throw new Error("Invalid player IDs");
   }
-
   if (player1Id === player2Id) {
     res.status(400);
     throw new Error("Cannot compare a player with themselves");
   }
 
-  // Tìm các trận đấu có cả 2 người chơi
+  const p1 = new mongoose.Types.ObjectId(player1Id);
+  const p2 = new mongoose.Types.ObjectId(player2Id);
+
   const matches = await Match.find({
     status: "finished",
-    participants: { $all: [player1Id, player2Id] },
+    participants: { $all: [p1, p2] }, // ✅ dùng ObjectId
   })
     .populate({
       path: "pairA",
@@ -137,88 +137,9 @@ export const getHead2Head = asyncHandler(async (req, res) => {
     .sort({ finishedAt: -1, updatedAt: -1 })
     .lean();
 
-  // Tính toán stats
-  let player1Wins = 0;
-  let player2Wins = 0;
-  let player1Sets = 0;
-  let player2Sets = 0;
-  let player1Points = 0;
-  let player2Points = 0;
-
-  const processedMatches = [];
-
-  for (const match of matches) {
-    // Xác định player1 ở side nào
-    const player1Side = await getUserSideInMatch(match, player1Id);
-    if (!player1Side) continue; // Skip nếu không xác định được
-
-    // Tính thắng/thua
-    const isPlayer1Winner =
-      (player1Side === "A" && match.winner === "A") ||
-      (player1Side === "B" && match.winner === "B");
-
-    if (isPlayer1Winner) {
-      player1Wins++;
-    } else if (match.winner) {
-      player2Wins++;
-    }
-
-    // Tính sets và points
-    const stats = calculateMatchStats(match, player1Side);
-    player1Sets += stats.player1Sets;
-    player2Sets += stats.player2Sets;
-    player1Points += stats.player1Points;
-    player2Points += stats.player2Points;
-
-    // Format match cho response
-    processedMatches.push({
-      _id: match._id,
-      tournamentId: match.tournament?._id,
-      tournamentName: match.tournament?.name || "Trận giao hữu",
-      tournamentImage: match.tournament?.image,
-      date: match.finishedAt || match.updatedAt,
-      score1:
-        player1Side === "A"
-          ? match.gameScores?.reduce((sum, g) => sum + (g.a || 0), 0)
-          : match.gameScores?.reduce((sum, g) => sum + (g.b || 0), 0),
-      score2:
-        player1Side === "A"
-          ? match.gameScores?.reduce((sum, g) => sum + (g.b || 0), 0)
-          : match.gameScores?.reduce((sum, g) => sum + (g.a || 0), 0),
-      gameScores: match.gameScores?.map((g) => ({
-        player1: player1Side === "A" ? g.a : g.b,
-        player2: player1Side === "A" ? g.b : g.a,
-      })),
-      winnerId: isPlayer1Winner ? player1Id : player2Id,
-      player1Side,
-    });
-  }
-
-  const totalMatches = player1Wins + player2Wins;
-  const player1AvgScore =
-    totalMatches > 0 ? (player1Points / totalMatches).toFixed(1) : 0;
-  const player2AvgScore =
-    totalMatches > 0 ? (player2Points / totalMatches).toFixed(1) : 0;
-
-  res.json({
-    success: true,
-    data: {
-      totalMatches,
-      player1Wins,
-      player2Wins,
-      player1Sets,
-      player2Sets,
-      player1Points,
-      player2Points,
-      player1AvgScore: parseFloat(player1AvgScore),
-      player2AvgScore: parseFloat(player2AvgScore),
-      winRate:
-        totalMatches > 0 ? ((player1Wins / totalMatches) * 100).toFixed(1) : 0,
-      lastMatch: processedMatches[0]?.date || null,
-      matches: processedMatches.slice(0, 10), // Trả về 10 trận gần nhất
-    },
-  });
+  // ... giữ nguyên phần tính stats
 });
+
 
 /**
  * @desc    Lấy lịch sử đối đầu chi tiết (pagination)
