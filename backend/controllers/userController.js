@@ -3082,7 +3082,8 @@ export const softDeleteMe = asyncHandler(async (req, res) => {
   const { password, osAuthToken } = req.body || {};
 
   // Lấy user + password để verify khi cần
-  const user = await User.findById(req.user._id).select("+password isDeleted");
+  const user = await User.findById(req.user._id).select("password isDeleted");
+  console.log(user)
   if (!user) {
     res.status(404);
     throw new Error("User not found");
