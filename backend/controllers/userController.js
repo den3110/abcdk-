@@ -1897,30 +1897,32 @@ const logoutUser = (req, res) => {
 const getUserProfile = asyncHandler(async (req, res) => {
   const uid = new mongoose.Types.ObjectId(String(req.user._id));
 
-  const user = await User.findById(uid).select("-password -__v");
+  const user = await User.findById(uid).select("-password -__v").lean();
   if (!user) {
     res.status(404);
     throw new Error("User not found");
   }
 
-  const baseUrl = `${req.protocol}://${req.get("host")}`;
-  const toUrl = (p) => {
-    if (!p) return p;
-    const s = String(p);
-    if (
-      /^https?:\/\//i.test(s) ||
-      /^data:/i.test(s) ||
-      /^file:/i.test(s) ||
-      s.startsWith("//")
-    )
-      return s;
-    const path = s.startsWith("/") ? s : `/${s}`;
-    return `${baseUrl}${path}`;
-  };
+  // Ghép URL tuyệt đối cho ảnh nếu là path tương đối
+  const toUrl = (p) =>
+    p && !String(p).startsWith("http")
+      ? `${req.protocol}://${req.get("host")}${p}`
+      : p;
 
-  // =========================
-  // 1) TOURNAMENTS COUNT (finished)
-  // =========================
+  // ===== 1) ratingSingle / ratingDouble (ưu tiên Ranking) =====
+  const rankDoc = await Ranking.findOne({ user: uid })
+    .select("single double points updatedAt")
+    .lean();
+
+  const ratingSingle = Number.isFinite(rankDoc?.single)
+    ? rankDoc.single
+    : Number(user.ratingSingle ?? user.localRatings?.singles ?? 0);
+
+  const ratingDouble = Number.isFinite(rankDoc?.double)
+    ? rankDoc.double
+    : Number(user.ratingDouble ?? user.localRatings?.doubles ?? 0);
+
+  // ===== 2) stats.tournaments (đếm số giải đã kết thúc user từng tham gia) =====
   const toursAgg = await Registration.aggregate([
     {
       $match: {
@@ -1951,7 +1953,12 @@ const getUserProfile = asyncHandler(async (req, res) => {
     {
       $addFields: {
         endAtDate: {
-          $convert: { input: "$rawEndAt", to: "date", onError: null, onNull: null },
+          $convert: {
+            input: "$rawEndAt",
+            to: "date",
+            onError: null,
+            onNull: null,
+          },
         },
         tourFinished: {
           $or: [
@@ -1972,75 +1979,15 @@ const getUserProfile = asyncHandler(async (req, res) => {
     { $count: "n" },
   ]);
 
-  const tournamentsCount = toursAgg?.[0]?.n || 0;
+  const tournaments = toursAgg?.[0]?.n ?? 0;
 
-  // =========================
-  // 2) LIVES COUNT (best-effort)
-  //    - mình không biết chính xác model/field bạn lưu “lần phát live”
-  //    - nên mình làm cơ chế thử 1 loạt model phổ biến, nếu không có thì 0
-  //    - bạn chỉ cần chỉnh đúng model + field là chuẩn 100%
-  // =========================
-  const countLivesBestEffort = async () => {
-    const candidates = [
-      { model: "Live", fields: ["user", "owner", "createdBy", "host"] },
-      { model: "LiveSession", fields: ["user", "owner", "createdBy", "host"] },
-      { model: "LiveStream", fields: ["user", "owner", "createdBy", "host"] },
-      { model: "StreamSession", fields: ["user", "owner", "createdBy", "host"] },
-      { model: "FacebookLive", fields: ["user", "owner", "createdBy", "host"] },
-      { model: "LiveVideo", fields: ["user", "owner", "createdBy", "host"] },
-    ];
+  // ===== 3) thay “live” bằng cái khác: reputation (giống pipeline bạn đang dùng) =====
+  const reputation = Math.min(100, tournaments * 10);
 
-    for (const c of candidates) {
-      const M = mongoose.models?.[c.model];
-      if (!M) continue;
+  // ===== Build response object =====
+  const userObj = { ...user };
 
-      const or = c.fields.map((f) => ({ [f]: uid }));
-      try {
-        return await M.countDocuments({ $or: or });
-      } catch {
-        // thử model khác
-      }
-    }
-    return 0;
-  };
-
-  const livesCount = await countLivesBestEffort();
-
-  // =========================
-  // 3) RATING (ưu tiên Ranking.points / fallback average single+double)
-  // =========================
-  let rating = user.rating ?? null;
-
-  try {
-    const rankDoc = await Ranking.findOne({ user: uid })
-      .select("points single double")
-      .lean();
-
-    if (rankDoc) {
-      const pts = Number(rankDoc.points ?? 0);
-      if (Number.isFinite(pts) && pts > 0) rating = pts;
-
-      if (rating == null) {
-        const s = Number(rankDoc.single ?? 0);
-        const d = Number(rankDoc.double ?? 0);
-        rating = Math.round((s + d) / 2);
-      }
-    }
-  } catch {
-    // nếu project bạn không có Ranking model hoặc query fail thì bỏ qua
-  }
-
-  if (rating == null) {
-    const s = Number(user.ratingSingle ?? user?.localRatings?.singles ?? 0);
-    const d = Number(user.ratingDouble ?? user?.localRatings?.doubles ?? 0);
-    rating = Math.round((s + d) / 2) || 0;
-  }
-
-  // =========================
-  // 4) Build response object + normalize URLs
-  // =========================
-  const userObj = user.toObject();
-
+  // chuẩn hoá URL ảnh
   userObj.avatar = toUrl(userObj.avatar);
   userObj.cover = toUrl(userObj.cover);
 
@@ -2049,14 +1996,15 @@ const getUserProfile = asyncHandler(async (req, res) => {
     userObj.cccdImages.back = toUrl(userObj.cccdImages.back);
   }
 
-  // ✅ cái bạn cần
+  // ✅ gán cho UI dùng
+  userObj.ratingSingle = ratingSingle;
+  userObj.ratingDouble = ratingDouble;
   userObj.stats = {
-    tournaments: tournamentsCount,
-    lives: livesCount,
+    tournaments,
+    reputation,
   };
-  userObj.rating = rating;
 
-  return res.json(userObj);
+  res.json(userObj);
 });
 
 // @desc    Update user profile
