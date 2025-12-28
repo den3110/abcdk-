@@ -154,8 +154,19 @@ const userSchema = new mongoose.Schema(
       type: String,
       unique: true,
       sparse: true,
-      match: /^\d{12}$/,
       trim: true,
+
+      // ✅ cho phép: undefined/null hoặc đúng 12 số
+      validate: {
+        validator: function (v) {
+          if (v === undefined || v === null) return true;
+          if (typeof v !== "string") return false;
+          const s = v.trim();
+          if (s === "") return true; // ✅ tạm thời cho "" hợp lệ (nhưng bên dưới mình sẽ normalize thành undefined)
+          return /^\d{12}$/.test(s);
+        },
+        message: "CCCD phải gồm đúng 12 chữ số",
+      },
     },
     cccdImages: {
       front: { type: String, default: "" },
@@ -217,6 +228,12 @@ userSchema.pre("save", async function (next) {
 
 /* ---------- Validate logic cho evaluator & signupMeta ---------- */
 userSchema.pre("validate", function (next) {
+  // ✅ Normalize CCCD: "" -> undefined để không dính unique index và không bị match
+  if (typeof this.cccd === "string") {
+    const v = this.cccd.trim();
+    if (!v) this.cccd = undefined;
+    else this.cccd = v;
+  }
   // Evaluator validation (giữ nguyên)
   if (this.role !== "admin" && this.evaluator?.enabled) {
     const provinces = Array.from(
