@@ -1,8 +1,30 @@
-// models/Club.js
+// models/clubModel.js
 import mongoose from "mongoose";
 
 export const CLUB_VISIBILITY = ["public", "private", "hidden"];
-export const CLUB_JOIN_POLICY = ["open", "approval", "invite_only"]; // mở / duyệt / chỉ mời
+export const CLUB_JOIN_POLICY = ["open", "approval", "invite_only"];
+
+const LocationGeoSchema = new mongoose.Schema(
+  {
+    lat: { type: Number, default: null },
+    lon: { type: Number, default: null },
+
+    countryCode: { type: String, default: null },
+    countryName: { type: String, default: null },
+    locality: { type: String, default: null },
+    admin1: { type: String, default: null },
+    admin2: { type: String, default: null },
+
+    displayName: { type: String, default: null }, // formatted
+    accuracy: { type: String, enum: ["low", "medium", "high"], default: "low" },
+    confidence: { type: Number, default: 0 },
+    provider: { type: String, default: "openai-geocode" },
+    raw: { type: String, default: null },
+
+    updatedAt: { type: Date, default: null },
+  },
+  { _id: false }
+);
 
 const ClubSchema = new mongoose.Schema(
   {
@@ -34,9 +56,7 @@ const ClubSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    admins: [
-      { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
-    ],
+    admins: [{ type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }],
 
     logoUrl: { type: String, default: "" },
     coverUrl: { type: String, default: "" },
@@ -48,8 +68,29 @@ const ClubSchema = new mongoose.Schema(
     province: { type: String, default: "" },
     city: { type: String, default: "" },
 
+    // ✅ NEW: địa chỉ / text để geocode
+    address: { type: String, default: "", maxLength: 300 },
+    locationText: { type: String, default: "", maxLength: 400 }, // chuỗi dùng geocode (ưu tiên address)
+
+    // ✅ NEW: geo point để $geoNear
+    location: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+      // [lon, lat]
+      coordinates: {
+        type: [Number],
+        default: undefined, // để field "missing" nếu chưa có
+      },
+    },
+
+    // ✅ NEW: metadata geocode
+    locationGeo: { type: LocationGeoSchema, default: undefined },
+
     stats: {
-      memberCount: { type: Number, default: 1 }, // bắt đầu = 1 (owner)
+      memberCount: { type: Number, default: 1 },
       tournamentWins: { type: Number, default: 0 },
     },
 
@@ -65,6 +106,9 @@ const ClubSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+// ✅ index geo
+ClubSchema.index({ location: "2dsphere" });
+
 // 👉 Text index cho search với $text
 ClubSchema.index(
   {
@@ -74,6 +118,8 @@ ClubSchema.index(
     shortCode: "text",
     province: "text",
     city: "text",
+    address: "text",
+    locationText: "text",
   },
   {
     name: "ClubTextIndex",
@@ -84,8 +130,10 @@ ClubSchema.index(
       description: 2,
       province: 1,
       city: 1,
+      address: 2,
+      locationText: 2,
     },
-    default_language: "none", // tránh stemming, hợp tiếng Việt
+    default_language: "none",
   }
 );
 

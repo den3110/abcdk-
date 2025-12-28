@@ -7,6 +7,9 @@ import Club, {
 import ClubMember from "../models/clubMemberModel.js";
 import ClubJoinRequest from "../models/clubJoinRequestModel.js";
 import User from "../models/userModel.js";
+import { geocodeTournamentLocation } from "../services/openaiGeocode.js";
+
+// ✅ import thẳng
 
 const ensureSlugUnique = async (name) => {
   const base = Club.slugify(name);
@@ -66,8 +69,11 @@ export const createClub = async (req, res) => {
       visibility = "public",
       joinPolicy = "approval",
       sportTypes,
+      country = "VN", // ⬅️ NEW
       province,
       city,
+      address = "", // ⬅️ NEW
+      locationText = "", // ⬅️ NEW
       logoUrl,
       coverUrl,
       shortCode,
@@ -99,6 +105,58 @@ export const createClub = async (req, res) => {
     const errMV = validateMemberVisibility(visibility, memberVisibility);
     if (errMV) return res.status(400).json({ message: errMV });
 
+    // --- NEW: build locationText + geocode best-effort ---
+    const buildLocationText = () => {
+      const lt = String(locationText || "").trim();
+      if (lt) return lt;
+
+      const addr = String(address || "").trim();
+      if (addr) return addr;
+
+      const c = String(city || "").trim();
+      const p = String(province || "").trim();
+      const co = String(country || "VN").trim();
+
+      const combined = [c, p, co].filter(Boolean).join(", ").trim();
+      return combined || "";
+    };
+
+    const finalLocationText = buildLocationText();
+    const geoPatch = {};
+
+    if (finalLocationText) {
+      try {
+        const geo = await geocodeTournamentLocation({
+          location: finalLocationText,
+          countryHint: country || "VN",
+        });
+
+        if (Number.isFinite(geo?.lat) && Number.isFinite(geo?.lon)) {
+          geoPatch.location = {
+            type: "Point",
+            coordinates: [geo.lon, geo.lat],
+          };
+          geoPatch.locationGeo = {
+            lat: geo.lat,
+            lon: geo.lon,
+            countryCode: geo.countryCode || null,
+            countryName: geo.countryName || null,
+            locality: geo.locality || null,
+            admin1: geo.admin1 || null,
+            admin2: geo.admin2 || null,
+            displayName: geo.formatted || finalLocationText,
+            accuracy: geo.accuracy || "low",
+            confidence: geo.confidence || 0,
+            provider: geo.provider || "openai-geocode",
+            raw: geo.raw || finalLocationText,
+            updatedAt: new Date(),
+          };
+        }
+      } catch (e) {
+        console.warn("[createClub] geocode failed:", e?.message || e);
+      }
+    }
+
     const slug = await ensureSlugUnique(name);
     const club = await Club.create({
       name: name.trim(),
@@ -110,8 +168,13 @@ export const createClub = async (req, res) => {
         Array.isArray(sportTypes) && sportTypes.length
           ? sportTypes
           : ["pickleball"],
+
+      country: country || "VN", // ⬅️ NEW
       province: province || "",
       city: city || "",
+      address: address || "", // ⬅️ NEW
+      locationText: finalLocationText || "", // ⬅️ NEW
+
       logoUrl: logoUrl || "",
       coverUrl: coverUrl || "",
       shortCode: shortCode || "",
@@ -124,6 +187,8 @@ export const createClub = async (req, res) => {
       stats: { memberCount: 1 },
       memberVisibility, // ⬅️ mới
       showRolesToMembers, // ⬅️ mới
+
+      ...geoPatch, // ⬅️ NEW
     });
 
     await ClubMember.create({
@@ -142,42 +207,140 @@ export const createClub = async (req, res) => {
 
 /** UPDATE (owner/admin) + enforce visibility/join constraints */
 export const updateClub = async (req, res) => {
-  const allowed = [
-    "name",
-    "description",
-    "visibility",
-    "joinPolicy",
-    "sportTypes",
-    "province",
-    "city",
-    "logoUrl",
-    "coverUrl",
-    "shortCode",
-    "website",
-    "facebook",
-    "zalo",
-    "tags",
-    "isVerified",
-    "memberVisibility",
-    "showRolesToMembers", // ⬅️ thêm
-  ];
+  try {
+    const allowed = [
+      "name",
+      "description",
+      "visibility",
+      "joinPolicy",
+      "sportTypes",
+      "country", // ⬅️ NEW
+      "province",
+      "city",
+      "address", // ⬅️ NEW
+      "locationText", // ⬅️ NEW
+      "logoUrl",
+      "coverUrl",
+      "shortCode",
+      "website",
+      "facebook",
+      "zalo",
+      "tags",
+      "isVerified",
+      "memberVisibility",
+      "showRolesToMembers", // ⬅️ thêm
+    ];
 
-  const patch = {};
-  for (const k of allowed) if (k in req.body) patch[k] = req.body[k];
+    const patch = {};
+    for (const k of allowed) if (k in req.body) patch[k] = req.body[k];
 
-  // nếu có chỉnh visibility/memberVisibility thì validate combo
-  const nextVisibility = patch.visibility ?? req.club.visibility;
-  const nextMV = patch.memberVisibility ?? req.club.memberVisibility;
-  const errMV = validateMemberVisibility(nextVisibility, nextMV);
-  if (errMV) return res.status(400).json({ message: errMV });
+    // validate visibility/joinPolicy nếu có thay đổi
+    const nextVisibility = patch.visibility ?? req.club.visibility;
+    const nextJoin = patch.joinPolicy ?? req.club.joinPolicy;
+    const errJoin = validateVisibilityJoin?.(nextVisibility, nextJoin);
+    if (errJoin) return res.status(400).json({ message: errJoin });
 
-  const club = await Club.findByIdAndUpdate(
-    req.club._id,
-    { $set: patch },
-    { new: true }
-  );
-  res.json(club);
+    // nếu có chỉnh visibility/memberVisibility thì validate combo
+    const nextMV = patch.memberVisibility ?? req.club.memberVisibility;
+    const errMV = validateMemberVisibility(nextVisibility, nextMV);
+    if (errMV) return res.status(400).json({ message: errMV });
+
+    // --- NEW: geocode best-effort nếu thay đổi dữ liệu địa chỉ hoặc CLB chưa có location ---
+    const hasGeo =
+      Array.isArray(req.club?.location?.coordinates) &&
+      req.club.location.coordinates.length === 2;
+
+    const touchedLocationFields =
+      "locationText" in patch ||
+      "address" in patch ||
+      "city" in patch ||
+      "province" in patch ||
+      "country" in patch;
+
+    const shouldGeocode =
+      touchedLocationFields || (!hasGeo && !("location" in patch));
+
+    const buildLocationText = (src) => {
+      const lt = String(src.locationText || "").trim();
+      if (lt) return lt;
+
+      const addr = String(src.address || "").trim();
+      if (addr) return addr;
+
+      const c = String(src.city || "").trim();
+      const p = String(src.province || "").trim();
+      const co = String(src.country || "VN").trim();
+
+      const combined = [c, p, co].filter(Boolean).join(", ").trim();
+      return combined || "";
+    };
+
+    if (shouldGeocode) {
+      const merged = {
+        country: patch.country ?? req.club.country ?? "VN",
+        province: patch.province ?? req.club.province ?? "",
+        city: patch.city ?? req.club.city ?? "",
+        address: patch.address ?? req.club.address ?? "",
+        locationText: patch.locationText ?? req.club.locationText ?? "",
+      };
+
+      const finalLocationText = buildLocationText(merged);
+
+      // nếu user chủ động clear locationText và không còn gì để geocode -> clear geo
+      if ("locationText" in patch && !String(finalLocationText || "").trim()) {
+        patch.locationText = "";
+        patch.location = null;
+        patch.locationGeo = null;
+      } else if (finalLocationText) {
+        patch.locationText = finalLocationText;
+
+        try {
+          const geo = await geocodeTournamentLocation({
+            location: finalLocationText,
+            countryHint: merged.country || "VN",
+          });
+
+          if (Number.isFinite(geo?.lat) && Number.isFinite(geo?.lon)) {
+            patch.location = {
+              type: "Point",
+              coordinates: [geo.lon, geo.lat],
+            };
+            patch.locationGeo = {
+              lat: geo.lat,
+              lon: geo.lon,
+              countryCode: geo.countryCode || null,
+              countryName: geo.countryName || null,
+              locality: geo.locality || null,
+              admin1: geo.admin1 || null,
+              admin2: geo.admin2 || null,
+              displayName: geo.formatted || finalLocationText,
+              accuracy: geo.accuracy || "low",
+              confidence: geo.confidence || 0,
+              provider: geo.provider || "openai-geocode",
+              raw: geo.raw || finalLocationText,
+              updatedAt: new Date(),
+            };
+          }
+        } catch (e) {
+          console.warn("[updateClub] geocode failed:", e?.message || e);
+        }
+      }
+    }
+
+    const club = await Club.findByIdAndUpdate(
+      req.club._id,
+      { $set: patch },
+      { new: true }
+    );
+    res.json(club);
+  } catch (err) {
+    console.error("updateClub error:", err);
+    return res.status(500).json({ message: err.message || "Lỗi máy chủ." });
+  }
 };
+
+// ======= phần dưới giữ nguyên y như bạn gửi =======
+
 /** LIST (explore) — by default only PUBLIC unless mine=true or explicit visibility */
 export const listClubs = async (req, res) => {
   try {
@@ -472,11 +635,9 @@ export const requestJoin = async (req, res) => {
 
   // Hidden: chỉ mời
   if (club.visibility === "hidden") {
-    return res
-      .status(403)
-      .json({
-        message: "CLB này ở chế độ ẩn và chỉ nhận thành viên qua lời mời.",
-      });
+    return res.status(403).json({
+      message: "CLB này ở chế độ ẩn và chỉ nhận thành viên qua lời mời.",
+    });
   }
 
   const exists = await ClubMember.findOne({
@@ -717,11 +878,9 @@ export const setRole = async (req, res) => {
     }
     if (target.role !== "member" || role === "admin") {
       // admin không được phong admin, cũng không được đụng admin khác
-      return res
-        .status(403)
-        .json({
-          message: "Chỉ chủ sở hữu mới có thể chỉnh sửa vai trò quản trị viên.",
-        });
+      return res.status(403).json({
+        message: "Chỉ chủ sở hữu mới có thể chỉnh sửa vai trò quản trị viên.",
+      });
     }
   }
 
@@ -818,11 +977,9 @@ export const transferOwnership = async (req, res) => {
     status: "active",
   });
   if (!target)
-    return res
-      .status(500)
-      .json({
-        message: "Người được chuyển quyền phải là thành viên đang hoạt động.",
-      });
+    return res.status(500).json({
+      message: "Người được chuyển quyền phải là thành viên đang hoạt động.",
+    });
 
   await ClubMember.updateOne(
     { club: req.club._id, user: req.club.owner },
