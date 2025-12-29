@@ -66,26 +66,22 @@ const pick = (obj, shape) => {
 
 export const updateSystemSettings = async (req, res, next) => {
   try {
+    // ✅ đảm bảo đã có doc "system" với defaults
+    const existed = await SystemSettings.findById("system");
+    if (!existed) {
+      await SystemSettings.create(DEFAULTS);
+    }
+
     const patch = pick(req.body || {}, DEFAULTS);
 
-    const meta = {
-      updatedAt: new Date(),
-    };
-    if (req.user?._id) meta.updatedBy = req.user._id;
+    // meta
+    patch.updatedAt = new Date();
+    if (req.user?._id) patch.updatedBy = req.user._id;
 
-    const updated = await SystemSettings.findOneAndUpdate(
-      { _id: "system" },
-      {
-        // ✅ nếu chưa có doc thì insert đầy đủ defaults
-        $setOnInsert: DEFAULTS,
-        // ✅ chỉ update các field được phép + meta
-        $set: { ...patch, ...meta },
-      },
-      {
-        upsert: true,
-        new: true,
-        setDefaultsOnInsert: true,
-      }
+    const updated = await SystemSettings.findByIdAndUpdate(
+      "system",
+      { $set: patch },
+      { new: true }
     );
 
     invalidateSettingsCache();
