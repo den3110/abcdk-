@@ -5,7 +5,7 @@ import {
   protect,
   protectJwt,
 } from "../middleware/authMiddleware.js";
-import { getRegistrationSettings } from "../controllers/systemSettings.controller.js";
+import { getOtaAllowed, getRegistrationSettings } from "../controllers/systemSettings.controller.js";
 
 const router = express.Router();
 
@@ -26,5 +26,6 @@ router.post("/logout", protectJwt, authorize("admin"), (req, res) => {
 });
 
 router.get("/system/registration", getRegistrationSettings);
+router.get("/system/ota/allowed", getOtaAllowed);
 
 export default router;

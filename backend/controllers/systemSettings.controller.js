@@ -22,6 +22,16 @@ const DEFAULTS = {
   links: {
     guideUrl: "",
   },
+  // 👇 NEW: OTA force update policy
+  ota: {
+    forceUpdateEnabled: false,
+    minAppVersion: "0.0.0", // semver, ví dụ "1.2.3"
+    iosMinBundleVersion: "0", // build/bundle number, ví dụ "34"
+    androidMinBundleVersion: "0",
+    message: "Vui lòng cập nhật phiên bản mới để tiếp tục sử dụng.",
+    iosStoreUrl: "",
+    androidStoreUrl: "",
+  },
 };
 
 export const getSystemSettings = async (req, res, next) => {
@@ -57,16 +67,29 @@ const pick = (obj, shape) => {
 export const updateSystemSettings = async (req, res, next) => {
   try {
     const patch = pick(req.body || {}, DEFAULTS);
-    patch.updatedBy = req.user?._id;
-    patch.updatedAt = new Date();
+
+    const meta = {
+      updatedAt: new Date(),
+    };
+    if (req.user?._id) meta.updatedBy = req.user._id;
 
     const updated = await SystemSettings.findOneAndUpdate(
       { _id: "system" },
-      { $set: patch },
-      { upsert: true, new: true }
+      {
+        // ✅ nếu chưa có doc thì insert đầy đủ defaults
+        $setOnInsert: DEFAULTS,
+        // ✅ chỉ update các field được phép + meta
+        $set: { ...patch, ...meta },
+      },
+      {
+        upsert: true,
+        new: true,
+        setDefaultsOnInsert: true,
+      }
     );
+
     invalidateSettingsCache();
-    res.json(updated);
+    return res.json(updated);
   } catch (err) {
     next(err);
   }
@@ -97,7 +120,7 @@ export const getRegistrationSettings = async (req, res, next) => {
       (await SystemSettings.findById("system")) ||
       (await SystemSettings.create(DEFAULTS));
 
-    const registration = doc.registration || DEFAULTS.registration
+    const registration = doc.registration || DEFAULTS.registration;
 
     res.json({
       open:
@@ -109,6 +132,23 @@ export const getRegistrationSettings = async (req, res, next) => {
           ? registration.requireOptionalProfileFields
           : DEFAULTS.registration.requireOptionalProfileFields,
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getOtaAllowed = async (req, res, next) => {
+  try {
+    const doc =
+      (await SystemSettings.findById("system")) ||
+      (await SystemSettings.create(DEFAULTS));
+
+    const ota = doc.ota || DEFAULTS.ota;
+
+    // bật force update => chặn vào app
+    const allowed = !Boolean(ota.forceUpdateEnabled);
+
+    return res.json({ allowed });
   } catch (err) {
     next(err);
   }

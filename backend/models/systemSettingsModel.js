@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 
 const SystemSettingsSchema = new mongoose.Schema(
   {
-    _id: { type: String, default: "system" }, // single-doc pattern
+    _id: { type: String, default: "system" },
 
     maintenance: {
       enabled: { type: Boolean, default: false },
@@ -11,14 +11,13 @@ const SystemSettingsSchema = new mongoose.Schema(
     },
 
     registration: {
-      open: { type: Boolean, default: true }, // có cho đăng ký tài khoản mới không
-      // 👇 NEW: bắt buộc các field hồ sơ mở rộng (SĐT / gender / province / dob)
+      open: { type: Boolean, default: true },
       requireOptionalProfileFields: { type: Boolean, default: true },
     },
 
     kyc: {
-      enabled: { type: Boolean, default: true }, // có dùng KYC trong hệ thống
-      autoApprove: { type: Boolean, default: false }, // tự động duyệt KYC
+      enabled: { type: Boolean, default: true },
+      autoApprove: { type: Boolean, default: false },
       faceMatchThreshold: { type: Number, default: 0.78, min: 0, max: 1 },
     },
 
@@ -29,18 +28,27 @@ const SystemSettingsSchema = new mongoose.Schema(
 
     uploads: {
       maxAvatarSizeMB: { type: Number, default: 5, min: 1, max: 50 },
-      // 👇 bật/tắt chèn logo vào avatar
       avatarLogoEnabled: { type: Boolean, default: true },
     },
 
     notifications: {
       telegramEnabled: { type: Boolean, default: false },
-      telegramComplaintChatId: { type: String, default: "" }, // token để ở ENV
+      telegramComplaintChatId: { type: String, default: "" },
     },
 
-    // 👇 NEW: Link hướng dẫn
     links: {
       guideUrl: { type: String, default: "", trim: true },
+    },
+
+    // 👇 NEW: OTA force update policy
+    ota: {
+      forceUpdateEnabled: { type: Boolean, default: false },
+      minAppVersion: { type: String, default: "0.0.0", trim: true },
+      iosMinBundleVersion: { type: String, default: "0", trim: true },
+      androidMinBundleVersion: { type: String, default: "0", trim: true },
+      message: { type: String, default: "", trim: true },
+      iosStoreUrl: { type: String, default: "", trim: true },
+      androidStoreUrl: { type: String, default: "", trim: true },
     },
 
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },

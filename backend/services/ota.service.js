@@ -1,6 +1,7 @@
 /**
  * OTA Update Service for PickleTour
  * Cloudflare R2 Storage + MongoDB Integration
+ * Supports ZIP bundles with assets
  */
 
 import {
@@ -29,14 +30,20 @@ class OTAService {
   }
 
   /**
-   * Upload new bundle to R2 + save to MongoDB
+   * Upload new bundle (ZIP) to R2 + save to MongoDB
    */
   async uploadBundle({ platform, version, bundleBuffer, metadata = {}, uploadedBy = null }) {
     const bundleHash = crypto
       .createHash("sha256")
       .update(bundleBuffer)
       .digest("hex");
-    const r2Key = `bundles/${platform}/${version}/bundle.js`;
+    
+    // Detect if it's a ZIP file (magic bytes: PK)
+    const isZip = bundleBuffer[0] === 0x50 && bundleBuffer[1] === 0x4B;
+    const fileExtension = isZip ? "zip" : "js";
+    const contentType = isZip ? "application/zip" : "application/javascript";
+    
+    const r2Key = `bundles/${platform}/${version}/bundle.${fileExtension}`;
 
     // Upload to R2
     await this.r2.send(
@@ -44,12 +51,13 @@ class OTAService {
         Bucket: this.bucket,
         Key: r2Key,
         Body: bundleBuffer,
-        ContentType: "application/javascript",
+        ContentType: contentType,
         Metadata: {
           version,
           platform,
           hash: bundleHash,
           uploadedAt: new Date().toISOString(),
+          isZip: String(isZip),
         },
       })
     );
@@ -65,6 +73,8 @@ class OTAService {
       mandatory: metadata.mandatory || false,
       description: metadata.description || "",
       minAppVersion: metadata.minAppVersion || "1.0.0",
+      isZip,
+      fileExtension,
     };
 
     await this.r2.send(
@@ -88,6 +98,7 @@ class OTAService {
           description: metadata.description || "",
           minAppVersion: metadata.minAppVersion || "1.0.0",
           isActive: true,
+          isZip,
           uploadedBy,
         },
       },
@@ -132,6 +143,7 @@ class OTAService {
       return {
         version: mongoLatest.version,
         updatedAt: mongoLatest.updatedAt,
+        isZip: mongoLatest.isZip,
       };
     }
 
@@ -171,6 +183,7 @@ class OTAService {
         description: bundle.description,
         minAppVersion: bundle.minAppVersion,
         uploadedAt: bundle.createdAt,
+        isZip: bundle.isZip || false,
         stats: bundle.stats,
       };
     }
@@ -228,7 +241,7 @@ class OTAService {
       });
 
       // Generate signed download URL
-      const downloadUrl = await this.getSignedDownloadUrl(platform, latest.version);
+      const downloadUrl = await this.getSignedDownloadUrl(platform, latest.version, latestMetadata.isZip);
 
       return {
         updateAvailable: true,
@@ -238,6 +251,7 @@ class OTAService {
         size: latestMetadata.size,
         mandatory: latestMetadata.mandatory,
         description: latestMetadata.description,
+        isZip: latestMetadata.isZip || false,
         logId: log._id, // Client can use this to report status
       };
     }
@@ -272,8 +286,9 @@ class OTAService {
   /**
    * Generate signed download URL + track download
    */
-  async getSignedDownloadUrl(platform, version, expiresIn = 3600) {
-    const key = `bundles/${platform}/${version}/bundle.js`;
+  async getSignedDownloadUrl(platform, version, isZip = false, expiresIn = 3600) {
+    const fileExtension = isZip ? "zip" : "js";
+    const key = `bundles/${platform}/${version}/bundle.${fileExtension}`;
 
     const command = new GetObjectCommand({
       Bucket: this.bucket,
