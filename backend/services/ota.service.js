@@ -1,6 +1,6 @@
 /**
  * OTA Update Service for PickleTour
- * Cloudflare R2 Storage Integration
+ * Cloudflare R2 Storage + MongoDB Integration
  */
 
 import {
@@ -11,13 +11,14 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import crypto from "crypto";
+import { OTABundle, OTAUpdateLog, OTARollback } from "../models/otaBundleModel.js";
 
 class OTAService {
   constructor() {
     // R2 uses S3-compatible API
     this.r2 = new S3Client({
       region: "auto",
-      endpoint: process.env.R2_ENDPOINT, // https://<account_id>.r2.cloudflarestorage.com
+      endpoint: process.env.R2_ENDPOINT,
       credentials: {
         accessKeyId: process.env.R2_ACCESS_KEY_ID,
         secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
@@ -28,19 +29,20 @@ class OTAService {
   }
 
   /**
-   * Upload new bundle to R2
+   * Upload new bundle to R2 + save to MongoDB
    */
-  async uploadBundle({ platform, version, bundleBuffer, metadata = {} }) {
+  async uploadBundle({ platform, version, bundleBuffer, metadata = {}, uploadedBy = null }) {
     const bundleHash = crypto
       .createHash("sha256")
       .update(bundleBuffer)
       .digest("hex");
-    const key = `bundles/${platform}/${version}/bundle.js`;
+    const r2Key = `bundles/${platform}/${version}/bundle.js`;
 
+    // Upload to R2
     await this.r2.send(
       new PutObjectCommand({
         Bucket: this.bucket,
-        Key: key,
+        Key: r2Key,
         Body: bundleBuffer,
         ContentType: "application/javascript",
         Metadata: {
@@ -48,12 +50,11 @@ class OTAService {
           platform,
           hash: bundleHash,
           uploadedAt: new Date().toISOString(),
-          ...metadata,
         },
       })
     );
 
-    // Save metadata separately for quick lookup
+    // Save metadata to R2 (for backup/redundancy)
     const metadataKey = `metadata/${platform}/${version}.json`;
     const bundleMetadata = {
       version,
@@ -75,18 +76,39 @@ class OTAService {
       })
     );
 
-    // Update latest pointer
-    await this.updateLatestPointer(platform, version);
+    // Save to MongoDB
+    const bundle = await OTABundle.findOneAndUpdate(
+      { platform, version },
+      {
+        $set: {
+          hash: bundleHash,
+          size: bundleBuffer.length,
+          r2Key,
+          mandatory: metadata.mandatory || false,
+          description: metadata.description || "",
+          minAppVersion: metadata.minAppVersion || "1.0.0",
+          isActive: true,
+          uploadedBy,
+        },
+      },
+      { upsert: true, new: true }
+    );
 
-    return bundleMetadata;
+    // Set as latest
+    await this.setAsLatest(platform, version);
+
+    return {
+      ...bundleMetadata,
+      _id: bundle._id,
+    };
   }
 
   /**
-   * Update latest version pointer
+   * Set version as latest (both R2 pointer and MongoDB)
    */
-  async updateLatestPointer(platform, version) {
+  async setAsLatest(platform, version) {
+    // Update R2 pointer
     const key = `latest/${platform}.json`;
-
     await this.r2.send(
       new PutObjectCommand({
         Bucket: this.bucket,
@@ -95,12 +117,25 @@ class OTAService {
         ContentType: "application/json",
       })
     );
+
+    // Update MongoDB
+    await OTABundle.setAsLatest(platform, version);
   }
 
   /**
    * Get latest version info for platform
    */
   async getLatestVersion(platform) {
+    // Try MongoDB first (faster)
+    const mongoLatest = await OTABundle.getLatest(platform);
+    if (mongoLatest) {
+      return {
+        version: mongoLatest.version,
+        updatedAt: mongoLatest.updatedAt,
+      };
+    }
+
+    // Fallback to R2
     try {
       const key = `latest/${platform}.json`;
       const response = await this.r2.send(
@@ -124,6 +159,23 @@ class OTAService {
    * Get bundle metadata
    */
   async getBundleMetadata(platform, version) {
+    // Try MongoDB first
+    const bundle = await OTABundle.findOne({ platform, version, isActive: true }).lean();
+    if (bundle) {
+      return {
+        version: bundle.version,
+        platform: bundle.platform,
+        hash: bundle.hash,
+        size: bundle.size,
+        mandatory: bundle.mandatory,
+        description: bundle.description,
+        minAppVersion: bundle.minAppVersion,
+        uploadedAt: bundle.createdAt,
+        stats: bundle.stats,
+      };
+    }
+
+    // Fallback to R2
     try {
       const key = `metadata/${platform}/${version}.json`;
       const response = await this.r2.send(
@@ -144,36 +196,39 @@ class OTAService {
   }
 
   /**
-   * Check for updates
+   * Check for updates + log the check
    */
-  async checkUpdate({ platform, currentBundleVersion, appVersion }) {
+  async checkUpdate({ platform, currentBundleVersion, appVersion, deviceInfo, ip, userAgent }) {
     const latest = await this.getLatestVersion(platform);
 
     if (!latest) {
       return { updateAvailable: false };
     }
 
-    const latestMetadata = await this.getBundleMetadata(
-      platform,
-      latest.version
-    );
+    const latestMetadata = await this.getBundleMetadata(platform, latest.version);
 
     if (!latestMetadata) {
       return { updateAvailable: false };
     }
 
     // Compare versions
-    const hasUpdate =
-      this.compareVersions(latest.version, currentBundleVersion) > 0;
-    const isCompatible =
-      this.compareVersions(appVersion, latestMetadata.minAppVersion) >= 0;
+    const hasUpdate = this.compareVersions(latest.version, currentBundleVersion) > 0;
+    const isCompatible = this.compareVersions(appVersion, latestMetadata.minAppVersion) >= 0;
 
     if (hasUpdate && isCompatible) {
-      // Generate signed download URL (valid for 1 hour)
-      const downloadUrl = await this.getSignedDownloadUrl(
+      // Log the update check
+      const log = await OTAUpdateLog.logCheck({
         platform,
-        latest.version
-      );
+        fromVersion: currentBundleVersion,
+        toVersion: latest.version,
+        appVersion,
+        deviceInfo,
+        ip,
+        userAgent,
+      });
+
+      // Generate signed download URL
+      const downloadUrl = await this.getSignedDownloadUrl(platform, latest.version);
 
       return {
         updateAvailable: true,
@@ -183,6 +238,7 @@ class OTAService {
         size: latestMetadata.size,
         mandatory: latestMetadata.mandatory,
         description: latestMetadata.description,
+        logId: log._id, // Client can use this to report status
       };
     }
 
@@ -190,7 +246,31 @@ class OTAService {
   }
 
   /**
-   * Generate signed download URL
+   * Report update status (called by client after update attempt)
+   */
+  async reportUpdateStatus({ logId, status, errorMessage, errorCode, duration }) {
+    if (!logId) return null;
+
+    const log = await OTAUpdateLog.updateStatus(logId, status, {
+      errorMessage,
+      errorCode,
+      duration,
+    });
+
+    // Update bundle stats
+    if (log && log.toVersion) {
+      await OTABundle.updateStats(
+        log.platform,
+        log.toVersion,
+        status === "success"
+      );
+    }
+
+    return log;
+  }
+
+  /**
+   * Generate signed download URL + track download
    */
   async getSignedDownloadUrl(platform, version, expiresIn = 3600) {
     const key = `bundles/${platform}/${version}/bundle.js`;
@@ -200,60 +280,104 @@ class OTAService {
       Key: key,
     });
 
+    // Increment download count
+    await OTABundle.incrementDownload(platform, version);
+
     return getSignedUrl(this.r2, command, { expiresIn });
   }
 
   /**
-   * List all versions for a platform
+   * List all versions for a platform (from MongoDB)
    */
-  async listVersions(platform) {
-    const prefix = `metadata/${platform}/`;
-
-    const response = await this.r2.send(
-      new ListObjectsV2Command({
-        Bucket: this.bucket,
-        Prefix: prefix,
-      })
-    );
-
-    const versions = [];
-
-    for (const obj of response.Contents || []) {
-      const version = obj.Key.replace(prefix, "").replace(".json", "");
-      const metadata = await this.getBundleMetadata(platform, version);
-      if (metadata) {
-        versions.push(metadata);
-      }
-    }
-
-    // Sort by version descending
-    versions.sort((a, b) => this.compareVersions(b.version, a.version));
-
-    return versions;
+  async listVersions(platform, limit = 50) {
+    return OTABundle.getVersionHistory(platform, limit);
   }
 
   /**
-   * Rollback to specific version
+   * Rollback to specific version + log it
    */
-  async rollback(platform, version) {
-    const metadata = await this.getBundleMetadata(platform, version);
+  async rollback(platform, version, { reason, performedBy } = {}) {
+    const bundle = await OTABundle.findOne({ platform, version, isActive: true });
 
-    if (!metadata) {
+    if (!bundle) {
       throw new Error(`Version ${version} not found for ${platform}`);
     }
 
-    await this.updateLatestPointer(platform, version);
+    // Get current latest for logging
+    const currentLatest = await OTABundle.getLatest(platform);
 
-    return metadata;
+    // Set as latest
+    await this.setAsLatest(platform, version);
+
+    // Log rollback
+    await OTARollback.create({
+      platform,
+      fromVersion: currentLatest?.version || "unknown",
+      toVersion: version,
+      reason,
+      performedBy,
+    });
+
+    return {
+      version: bundle.version,
+      hash: bundle.hash,
+      rolledBackFrom: currentLatest?.version,
+    };
+  }
+
+  /**
+   * Deactivate a version (soft delete)
+   */
+  async deactivateVersion(platform, version) {
+    const bundle = await OTABundle.findOneAndUpdate(
+      { platform, version },
+      { $set: { isActive: false, isLatest: false } },
+      { new: true }
+    );
+
+    if (!bundle) {
+      throw new Error(`Version ${version} not found for ${platform}`);
+    }
+
+    return bundle;
+  }
+
+  /**
+   * Get analytics/stats for dashboard
+   */
+  async getAnalytics(platform, days = 7) {
+    const [updateStats, bundles, failedUpdates] = await Promise.all([
+      OTAUpdateLog.getStats(platform, days),
+      OTABundle.find({ platform, isActive: true })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean(),
+      OTAUpdateLog.getFailedUpdates(platform, 20),
+    ]);
+
+    // Calculate totals
+    const totals = updateStats.reduce(
+      (acc, item) => {
+        acc[item._id.status] = (acc[item._id.status] || 0) + item.count;
+        return acc;
+      },
+      {}
+    );
+
+    return {
+      totals,
+      dailyStats: updateStats,
+      recentBundles: bundles,
+      failedUpdates,
+    };
   }
 
   /**
    * Compare semantic versions
-   * Returns: 1 if a > b, -1 if a < b, 0 if equal
    */
   compareVersions(a, b) {
-    const partsA = a.split(".").map(Number);
-    const partsB = b.split(".").map(Number);
+    const partsA = String(a).split(".").map(Number);
+    const partsB = String(b).split(".").map(Number);
 
     for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
       const numA = partsA[i] || 0;
