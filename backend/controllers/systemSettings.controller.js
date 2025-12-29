@@ -141,8 +141,8 @@ export const getOtaAllowed = async (req, res, next) => {
 
     const ota = doc.ota || DEFAULTS.ota;
 
-    // bật force update => chặn vào app
-    const allowed = !Boolean(ota.forceUpdateEnabled);
+    // ✅ đúng chiều theo bạn: bật force update => allowed = true
+    const allowed = Boolean(ota.forceUpdateEnabled);
 
     return res.json({ allowed });
   } catch (err) {
