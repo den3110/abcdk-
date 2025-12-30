@@ -4,8 +4,10 @@
  *
  * Fixes:
  * - send Expo Updates v1 required headers
- * - do NOT use expo-manifest-signature (v1 uses expo-signature only when code signing)
+ * - expo-manifest-filters / expo-server-defined-headers must be Expo SFV dict (use "()" for empty)
  * - content-type negotiation (prefer application/expo+json)
+ * - add Vary to avoid cache mixing by platform/runtime
+ * - asset fallback: try without extension if not found
  */
 
 import { v4 as uuidv4 } from "uuid";
@@ -17,14 +19,26 @@ const pickContentType = (accept) => {
   return "application/json";
 };
 
+// Empty SFV dictionary
+const EMPTY_SFV_DICT = "()";
+
 const setCommonHeaders = (res, contentType) => {
+  // Common response headers (Expo Updates v1)
   res.setHeader("expo-protocol-version", "1");
   res.setHeader("expo-sfv-version", "0");
-  // Expo spec says these should exist; empty dictionary is fine.
-  res.setHeader("expo-manifest-filters", "");
-  res.setHeader("expo-server-defined-headers", "");
+  res.setHeader("expo-manifest-filters", EMPTY_SFV_DICT);
+  res.setHeader("expo-server-defined-headers", EMPTY_SFV_DICT);
+
+  // Recommended to prevent stale manifests
   res.setHeader("cache-control", "private, max-age=0");
-  res.setHeader("content-type", contentType);
+
+  // Helpful for CDNs / caches to not mix platforms/runtime
+  res.setHeader(
+    "vary",
+    "accept, expo-platform, expo-runtime-version, expo-current-update-id"
+  );
+
+  if (contentType) res.setHeader("content-type", contentType);
 };
 
 export const getManifest = async (req, res) => {
@@ -53,24 +67,24 @@ export const getManifest = async (req, res) => {
 
     const currentUpdateId = req.get("expo-current-update-id") || null;
 
-    const manifest = await expoUpdatesService.generateClientManifest(
-      String(platform).toLowerCase(),
-      String(runtimeVersion),
-      currentUpdateId
-    );
+    // ✅ IMPORTANT: match service method name
+    const result = await expoUpdatesService.generateManifestResponse({
+      platform: String(platform).toLowerCase(),
+      runtimeVersion: String(runtimeVersion),
+      currentUpdateId,
+    });
 
-    if (!manifest) {
-      // no update
-      res.setHeader("expo-protocol-version", "1");
-      res.setHeader("expo-sfv-version", "0");
-      res.setHeader("cache-control", "private, max-age=0");
+    if (!result || result.noUpdateAvailable) {
+      // For "no update", 204 is OK. We still return protocol headers.
+      setCommonHeaders(res, null); // no content-type on 204 is fine
       return res.status(204).send();
     }
 
     const contentType = pickContentType(req.get("accept"));
     setCommonHeaders(res, contentType);
 
-    return res.status(200).send(JSON.stringify(manifest));
+    // send raw json string so content-type stays exactly as set
+    return res.status(200).send(JSON.stringify(result));
   } catch (error) {
     console.error("[Expo Updates] Manifest error:", error);
     return res.status(500).json({
@@ -80,22 +94,64 @@ export const getManifest = async (req, res) => {
   }
 };
 
+const safeAssetPath = (raw) => {
+  let p = String(raw || "");
+  // Express usually decodes, but be defensive
+  try {
+    p = decodeURIComponent(p);
+  } catch {
+    // ignore
+  }
+
+  // Normalize slashes
+  p = p.replace(/\\/g, "/").replace(/^\/+/, "");
+
+  // basic traversal guard
+  if (p.includes("..")) return null;
+
+  return p;
+};
+
 export const getAsset = async (req, res) => {
   try {
     const { platform, runtimeVersion, updateId } = req.params;
-    const assetPath = req.params[0]; // wildcard
+    const wildcardPath = req.params[0]; // wildcard from route
+    const assetPath = safeAssetPath(wildcardPath);
 
     if (!platform || !runtimeVersion || !updateId || !assetPath) {
       return res.status(400).json({ error: "Missing asset params" });
     }
 
-    const { stream, contentType, contentLength } =
-      await expoUpdatesService.getAssetStream(
-        String(platform).toLowerCase(),
-        String(runtimeVersion),
-        String(updateId),
+    const lowerPlatform = String(platform).toLowerCase();
+    const rv = String(runtimeVersion);
+    const uid = String(updateId);
+
+    // 1) try exact
+    let asset;
+    try {
+      asset = await expoUpdatesService.getAssetStream(
+        lowerPlatform,
+        rv,
+        uid,
         assetPath
       );
+    } catch (e) {
+      // 2) fallback: strip extension if present (common self-host mismatch)
+      const lastDot = assetPath.lastIndexOf(".");
+      if (lastDot > -1) {
+        const noExt = assetPath.slice(0, lastDot);
+        asset = await expoUpdatesService.getAssetStream(
+          lowerPlatform,
+          rv,
+          uid,
+          noExt
+        );
+      } else {
+        throw e;
+      }
+    }
+
+    const { stream, contentType, contentLength } = asset;
 
     res.setHeader("content-type", contentType || "application/octet-stream");
     if (contentLength) res.setHeader("content-length", String(contentLength));
@@ -103,7 +159,12 @@ export const getAsset = async (req, res) => {
     // assets can be cached long-term
     res.setHeader("cache-control", "public, max-age=31536000, immutable");
 
-    // Pipe stream
+    stream.on("error", (err) => {
+      console.error("[Expo Updates] Asset stream error:", err);
+      if (!res.headersSent) res.status(404).end();
+      else res.end();
+    });
+
     stream.pipe(res);
   } catch (error) {
     console.error("[Expo Updates] Asset error:", error);

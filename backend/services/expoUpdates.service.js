@@ -1,406 +1,375 @@
-// services/expoUpdates.service.js
 /**
- * Expo Updates Service (Self-hosted)
- * - Stores update files in Cloudflare R2 (S3-compatible)
- * - Serves manifests/assets via your API endpoints
- *
- * Fixes:
- * - asset.hash must be Base64URL-encoded SHA-256 (Expo Updates v1 spec)
- * - asset.fileExtension must be prefixed with "."
- * - avoid double /api/api by using PUBLIC_ORIGIN + API_PREFIX + ROUTE_PREFIX
+ * Expo Updates Service - Self-hosted
+ * Implements Expo Updates Protocol
  */
 
-import crypto from "crypto";
 import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import crypto from "crypto";
+import path from "path";
 
-const normalizeRelPath = (p) => {
+const normalizePath = (p) => {
   const s = String(p || "").replace(/\\/g, "/").trim();
-  // remove leading ./ or /
-  let out = s.replace(/^(\.\/)+/, "").replace(/^\/+/, "");
-  // basic path traversal protection (keep it simple)
-  out = out.split("/").filter((seg) => seg && seg !== "." && seg !== "..").join("/");
-  return out;
-};
-
-const ensureLeadingDot = (ext) => {
-  if (!ext) return undefined;
-  const e = String(ext).trim();
-  if (!e) return undefined;
-  return e.startsWith(".") ? e : `.${e}`;
-};
-
-const toBase64Url = (buf) =>
-  Buffer.from(buf)
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-
-const sha256Base64Url = (buffer) =>
-  toBase64Url(crypto.createHash("sha256").update(buffer).digest());
-
-const joinUrl = (...parts) => {
-  // joins like: joinUrl("https://x.com/", "/api", "expo-updates/manifest")
-  const cleaned = parts
-    .filter((p) => p !== undefined && p !== null)
-    .map((p) => String(p))
-    .filter((p) => p.length > 0);
-
-  if (cleaned.length === 0) return "";
-  const first = cleaned[0].replace(/\/+$/g, "");
-  const rest = cleaned
-    .slice(1)
-    .map((p) => p.replace(/^\/+/g, "").replace(/\/+$/g, ""));
-  return [first, ...rest].filter(Boolean).join("/");
+  const cleaned = s.replace(/^(\.\/)+/, "").replace(/^\/+/, "");
+  return cleaned
+    .split("/")
+    .filter((seg) => seg && seg !== "." && seg !== "..")
+    .join("/");
 };
 
 const encodePathForUrl = (relPath) => {
-  // encode each segment, keep "/" separators
-  const p = normalizeRelPath(relPath);
+  const p = normalizePath(relPath);
   return p
     .split("/")
     .map((seg) => encodeURIComponent(seg))
     .join("/");
 };
 
-const guessExtFromContentType = (ct) => {
-  const c = String(ct || "").toLowerCase();
-  if (c.includes("image/png")) return ".png";
-  if (c.includes("image/jpeg")) return ".jpg";
-  if (c.includes("image/webp")) return ".webp";
-  if (c.includes("image/svg")) return ".svg";
-  if (c.includes("font/ttf")) return ".ttf";
-  if (c.includes("font/otf")) return ".otf";
-  if (c.includes("font/woff2")) return ".woff2";
-  if (c.includes("font/woff")) return ".woff";
-  if (c.includes("application/json")) return ".json";
-  if (c.includes("application/javascript") || c.includes("text/javascript")) return ".js";
-  return undefined;
+const basenamePosix = (p) => {
+  const s = String(p || "").replace(/\\/g, "/");
+  const parts = s.split("/");
+  return parts[parts.length - 1] || s;
+};
+
+// SHA-256 -> base64url (no padding)
+const sha256Base64Url = (buf) => {
+  const b64 = crypto.createHash("sha256").update(buf).digest("base64");
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+};
+
+const ensureDotExt = (ext) => {
+  if (!ext) return null;
+  const e = String(ext).trim();
+  if (!e) return null;
+  return e.startsWith(".") ? e : `.${e}`;
 };
 
 class ExpoUpdatesService {
   constructor() {
-    // R2 (S3-compatible)
-    this.bucket = process.env.R2_BUCKET || "pickletour";
     this.r2 = new S3Client({
       region: "auto",
-      endpoint: process.env.R2_ENDPOINT, // e.g. https://<accountid>.r2.cloudflarestorage.com
+      endpoint: process.env.R2_ENDPOINT,
       credentials: {
-        accessKeyId: process.env.R2_ACCESS_KEY_ID || "",
-        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "",
+        accessKeyId: process.env.R2_ACCESS_KEY_ID,
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
       },
     });
 
-    // Public URL building (avoid double /api/api)
-    this.publicOrigin = process.env.EXPO_UPDATES_PUBLIC_ORIGIN || "https://pickletour.vn";
-    this.apiPrefix = process.env.EXPO_UPDATES_API_PREFIX || "/api";
-    this.routePrefix = process.env.EXPO_UPDATES_ROUTE_PREFIX || "/expo-updates";
+    this.bucket = process.env.R2_BUCKET_NAME;
 
-    // Storage prefix
-    this.storageRoot = "expo-updates";
-  }
-
-  getUpdatesBaseUrl() {
-    // https://pickletour.vn/api/expo-updates
-    return joinUrl(this.publicOrigin, this.apiPrefix, this.routePrefix);
-  }
-
-  getAssetPublicUrl(platform, runtimeVersion, updateId, assetPath) {
-    const base = this.getUpdatesBaseUrl();
-    const encoded = encodePathForUrl(assetPath);
-    return joinUrl(base, "assets", platform, runtimeVersion, updateId, encoded);
-  }
-
-  getManifestPublicUrl() {
-    return joinUrl(this.getUpdatesBaseUrl(), "manifest");
-  }
-
-  getUpdatePrefix(platform, runtimeVersion, updateId) {
-    return `${this.storageRoot}/${platform}/${runtimeVersion}/${updateId}`;
-  }
-
-  async putJson(key, obj, contentType = "application/json") {
-    await this.r2.send(
-      new PutObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-        Body: Buffer.from(JSON.stringify(obj, null, 2)),
-        ContentType: contentType,
-      })
-    );
-  }
-
-  async getJson(key) {
-    const res = await this.r2.send(
-      new GetObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-      })
-    );
-    const body = await this.streamToBuffer(res.Body);
-    return JSON.parse(body.toString("utf-8"));
-  }
-
-  async streamToBuffer(streamOrBody) {
-    if (!streamOrBody) return Buffer.from("");
-    // Node stream
-    if (typeof streamOrBody.pipe === "function") {
-      const chunks = [];
-      for await (const chunk of streamOrBody) chunks.push(Buffer.from(chunk));
-      return Buffer.concat(chunks);
-    }
-    // Uint8Array / Buffer
-    return Buffer.from(streamOrBody);
+    // ✅ GIỮ NGUYÊN theo yêu cầu của bạn
+    this.baseUrl = process.env.API_URL || "https://pickletour.vn/api";
   }
 
   /**
-   * Upload an update build output (dist folder files)
-   * files: [{ path, buffer, contentType }]
+   * Upload update bundle (from expo export)
    */
-  async uploadUpdate({ platform, runtimeVersion, updateId, files, metadata = {} }) {
-    platform = String(platform || "").toLowerCase();
-    runtimeVersion = String(runtimeVersion || "");
-    updateId = String(updateId || "");
+  async uploadUpdate({ platform, runtimeVersion, updateId, files, metadata }) {
+    const safePlatform = String(platform || "").toLowerCase();
+    const safeRuntime = String(runtimeVersion || "");
+    const safeUpdateId = String(updateId || "");
+    const prefix = `expo-updates/${safePlatform}/${safeRuntime}/${safeUpdateId}`;
 
-    if (!platform || !runtimeVersion || !updateId) {
-      throw new Error("Missing platform/runtimeVersion/updateId");
-    }
-    if (!Array.isArray(files) || files.length === 0) {
-      throw new Error("No files to upload");
-    }
-
-    // Parse Expo metadata.json if present
+    // Find and parse metadata.json first to get extensions
+    const metadataFile = files.find((f) => normalizePath(f.path) === "metadata.json");
     let expoMetadata = null;
-    const metadataFile = files.find((f) => normalizeRelPath(f.path) === "metadata.json");
-    if (metadataFile?.buffer) {
+    const assetExtensions = {};
+
+    if (metadataFile) {
       try {
         expoMetadata = JSON.parse(Buffer.from(metadataFile.buffer).toString("utf-8"));
+        // Build extension map from metadata
+        const platformMeta = expoMetadata?.fileMetadata?.[safePlatform];
+        if (platformMeta?.assets) {
+          for (const asset of platformMeta.assets) {
+            if (asset?.path && asset?.ext) {
+              assetExtensions[String(asset.path)] = String(asset.ext);
+            }
+          }
+        }
+        console.log(
+          "[Expo Updates] Parsed metadata, found",
+          Object.keys(assetExtensions).length,
+          "asset extensions"
+        );
       } catch (e) {
-        console.warn("[Expo Updates] Failed to parse metadata.json:", e?.message);
+        console.error("[Expo Updates] Failed to parse metadata.json:", e);
       }
     }
 
-    // Map: asset.path -> ext (from metadata.json)
-    const assetExtensions = {};
-    const platformMeta = expoMetadata?.fileMetadata?.[platform];
-    if (platformMeta?.assets) {
-      for (const a of platformMeta.assets) {
-        if (a?.path && a?.ext) assetExtensions[String(a.path)] = String(a.ext);
-      }
-    }
-
-    const prefix = this.getUpdatePrefix(platform, runtimeVersion, updateId);
-
+    // Upload each file
     const uploadedAssets = [];
-    for (const f of files) {
-      const relPath = normalizeRelPath(f.path);
+    for (const file of files) {
+      const relPath = normalizePath(file.path);
       if (!relPath) continue;
 
-      const buf = Buffer.from(f.buffer || []);
-      const declaredCt = String(f.contentType || "").trim();
-      let contentType = declaredCt || "application/octet-stream";
+      const key = `${prefix}/${relPath}`;
 
-      // make JS bundle content type more consistent
+      // normalize contentType for bundles
+      let contentType = file.contentType || "application/octet-stream";
       if (
         relPath.endsWith(".bundle") ||
         relPath.endsWith(".hbc") ||
-        relPath.endsWith(".js") ||
         relPath.endsWith(".jsbundle")
       ) {
         contentType = "application/javascript";
       }
 
-      // Determine fileExtension (for manifest assets, not required for storing)
-      // Prefer real ext in path, else metadata.json ext, else guess from contentType
-      let ext = "";
-      const dotExtFromPath = (() => {
-        const last = relPath.split("/").pop() || "";
-        const idx = last.lastIndexOf(".");
-        return idx >= 0 ? last.slice(idx) : "";
-      })();
-
-      if (dotExtFromPath) {
-        ext = dotExtFromPath; // includes "."
-      } else if (assetExtensions[relPath]) {
-        ext = ensureLeadingDot(assetExtensions[relPath]) || "";
-      } else {
-        ext = guessExtFromContentType(contentType) || "";
-      }
-
-      // Expo Updates v1: hash = Base64URL sha256
-      const hash = sha256Base64Url(buf);
-
-      const key = `${prefix}/${relPath}`;
-
       await this.r2.send(
         new PutObjectCommand({
           Bucket: this.bucket,
           Key: key,
-          Body: buf,
+          Body: file.buffer,
           ContentType: contentType,
-          // Cache could be long, but safe to keep default; assets endpoint will set cache headers anyway
         })
       );
+
+      // ✅ FIX: hash chuẩn base64url sha256 (no padding)
+      const hash = sha256Base64Url(file.buffer);
+
+      // Get extension from metadata or from filename
+      let ext = assetExtensions[relPath] || null;
+      if (!ext) {
+        const parts = relPath.split(".");
+        if (parts.length > 1 && parts[parts.length - 1].length <= 5) {
+          ext = parts[parts.length - 1];
+        }
+      }
 
       uploadedAssets.push({
         path: relPath,
-        contentType,
-        size: buf.length,
+        key, // storage key (debug/admin)
         hash,
-        // store normalized ext with leading dot (or empty)
-        ext: ext || "",
+        contentType,
+        size: file.buffer.length,
+        ext: ext, // store without dot; we'll add dot when generating manifest
       });
     }
 
-    const createdAt = new Date().toISOString();
-
-    // Store "server manifest" (internal)
-    const serverManifest = {
-      id: updateId,
-      createdAt,
-      platform,
-      runtimeVersion,
-      metadata,
+    // Save manifest
+    const manifest = {
+      id: safeUpdateId,
+      createdAt: new Date().toISOString(),
+      runtimeVersion: safeRuntime,
+      platform: safePlatform,
+      metadata: metadata || {},
       assets: uploadedAssets,
-      expoMetadata,
+      expoMetadata: expoMetadata,
     };
 
-    await this.putJson(`${prefix}/manifest.json`, serverManifest);
+    await this.r2.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: `${prefix}/manifest.json`,
+        Body: JSON.stringify(manifest, null, 2),
+        ContentType: "application/json",
+      })
+    );
 
-    // Update pointer to latest
-    await this.putJson(`${this.storageRoot}/${platform}/${runtimeVersion}/current.json`, {
-      updateId,
-      updatedAt: createdAt,
-    });
+    // Update latest pointer
+    await this.setLatest(safePlatform, safeRuntime, safeUpdateId);
 
-    return serverManifest;
+    return manifest;
   }
 
-  async getLatestUpdate(platform, runtimeVersion) {
-    platform = String(platform || "").toLowerCase();
-    runtimeVersion = String(runtimeVersion || "");
+  /**
+   * Set latest update for platform/runtime
+   */
+  async setLatest(platform, runtimeVersion, updateId) {
+    const key = `expo-updates/${platform}/${runtimeVersion}/latest.json`;
 
-    const pointerKey = `${this.storageRoot}/${platform}/${runtimeVersion}/current.json`;
-    let updateId = null;
+    await this.r2.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: JSON.stringify(
+          {
+            updateId,
+            updatedAt: new Date().toISOString(),
+          },
+          null,
+          2
+        ),
+        ContentType: "application/json",
+      })
+    );
+  }
 
+  /**
+   * Get latest update ID
+   */
+  async getLatestUpdateId(platform, runtimeVersion) {
     try {
-      const ptr = await this.getJson(pointerKey);
-      updateId = ptr?.updateId || null;
-    } catch (e) {
-      // no pointer, fallback to listing
-    }
-
-    if (!updateId) {
-      // fallback: list update folders
-      const prefix = `${this.storageRoot}/${platform}/${runtimeVersion}/`;
-      const list = await this.r2.send(
-        new ListObjectsV2Command({
+      const key = `expo-updates/${platform}/${runtimeVersion}/latest.json`;
+      const response = await this.r2.send(
+        new GetObjectCommand({
           Bucket: this.bucket,
-          Prefix: prefix,
+          Key: key,
         })
       );
-
-      const keys = (list.Contents || []).map((x) => x.Key).filter(Boolean);
-
-      // find ".../<updateId>/manifest.json"
-      const manifestKeys = keys.filter((k) => k.endsWith("/manifest.json"));
-      if (manifestKeys.length === 0) return null;
-
-      // pick latest by LastModified if available
-      const latest = (list.Contents || [])
-        .filter((x) => x.Key && x.Key.endsWith("/manifest.json"))
-        .sort((a, b) => new Date(b.LastModified || 0) - new Date(a.LastModified || 0))[0];
-
-      if (!latest?.Key) return null;
-      const parts = latest.Key.split("/");
-      updateId = parts[parts.length - 2]; // .../<updateId>/manifest.json
+      const body = await response.Body.transformToString();
+      const data = JSON.parse(body);
+      return data.updateId;
+    } catch (error) {
+      if (error.name === "NoSuchKey") return null;
+      throw error;
     }
-
-    if (!updateId) return null;
-
-    const manifestKey = `${this.getUpdatePrefix(platform, runtimeVersion, updateId)}/manifest.json`;
-    return await this.getJson(manifestKey);
   }
 
   /**
-   * Build client manifest (Expo Updates v1)
+   * Get manifest for specific update
    */
-  async generateClientManifest(platform, runtimeVersion, currentUpdateId) {
-    const latest = await this.getLatestUpdate(platform, runtimeVersion);
-    if (!latest) return null;
+  async getManifest(platform, runtimeVersion, updateId) {
+    try {
+      const key = `expo-updates/${platform}/${runtimeVersion}/${updateId}/manifest.json`;
+      const response = await this.r2.send(
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: key,
+        })
+      );
+      const body = await response.Body.transformToString();
+      return JSON.parse(body);
+    } catch (error) {
+      if (error.name === "NoSuchKey") return null;
+      throw error;
+    }
+  }
 
-    if (currentUpdateId && String(currentUpdateId) === String(latest.id)) {
-      return null; // no update
+  /**
+   * Generate Expo Updates manifest response
+   */
+  async generateManifestResponse({ platform, runtimeVersion, currentUpdateId }) {
+    const safePlatform = String(platform || "").toLowerCase();
+    const safeRuntime = String(runtimeVersion || "");
+
+    const latestUpdateId = await this.getLatestUpdateId(safePlatform, safeRuntime);
+
+    if (!latestUpdateId) return { noUpdateAvailable: true };
+
+    // Same version, no update
+    if (latestUpdateId === currentUpdateId) return { noUpdateAvailable: true };
+
+    const manifest = await this.getManifest(safePlatform, safeRuntime, latestUpdateId);
+    if (!manifest) return { noUpdateAvailable: true };
+
+    // Build extension map from expoMetadata if available
+    const assetExtensions = {};
+    const platformMeta = manifest.expoMetadata?.fileMetadata?.[safePlatform];
+    if (platformMeta?.assets) {
+      for (const asset of platformMeta.assets) {
+        if (asset?.path && asset?.ext) assetExtensions[String(asset.path)] = String(asset.ext);
+      }
     }
 
-    // Find launch asset (bundle)
-    const launchAsset =
-      latest.assets.find((a) => a.path.endsWith(".bundle")) ||
-      latest.assets.find((a) => a.path.endsWith(".hbc")) ||
-      latest.assets.find((a) => a.path.endsWith(".jsbundle")) ||
-      latest.assets.find((a) => a.path.includes("entry-") && a.path.endsWith(".js")) ||
-      latest.assets.find((a) => a.path.endsWith(".js"));
+    // Find launch asset (JS bundle)
+    const bundlePathFromMetadata = platformMeta?.bundle;
+    let launchAsset =
+      (bundlePathFromMetadata &&
+        manifest.assets.find((a) => a.path === bundlePathFromMetadata)) ||
+      manifest.assets.find((a) => a.path.endsWith(".bundle")) ||
+      manifest.assets.find((a) => a.path.endsWith(".hbc")) ||
+      manifest.assets.find(
+        (a) =>
+          a.contentType === "application/javascript" &&
+          (a.path.includes("bundles/") || a.path.includes("static/js/"))
+      );
 
     if (!launchAsset) {
-      throw new Error("Launch asset not found (expected .bundle/.hbc/.jsbundle/.js)");
+      launchAsset = manifest.assets.find((a) => a.path.endsWith(".js"));
     }
 
-    const toClientAsset = (a) => {
-      const fileExtension = ensureLeadingDot(a.ext) || undefined;
+    const getFileExtension = (asset) => {
+      if (asset.ext) return ensureDotExt(asset.ext);
 
-      return {
-        hash: a.hash, // Base64URL sha256
-        key: a.path, // keep original key/path from export
-        contentType: a.contentType || "application/octet-stream",
-        fileExtension,
-        url: this.getAssetPublicUrl(platform, runtimeVersion, latest.id, a.path),
+      if (assetExtensions[asset.path]) return ensureDotExt(assetExtensions[asset.path]);
+
+      const parts = asset.path.split(".");
+      if (parts.length > 1 && parts[parts.length - 1].length <= 5) {
+        return ensureDotExt(parts[parts.length - 1]);
+      }
+
+      const ctMap = {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/gif": ".gif",
+        "font/ttf": ".ttf",
+        "font/otf": ".otf",
+        "audio/mpeg": ".mp3",
+        "application/json": ".json",
       };
+      if (asset.contentType && ctMap[asset.contentType]) return ctMap[asset.contentType];
+
+      return ".bin";
     };
 
-    // Assets list: exclude launchAsset + metadata.json + source maps by default
-    const assets = latest.assets
-      .filter((a) => a.path !== launchAsset.path)
+    const buildAssetUrl = (assetPath) =>
+      `${this.baseUrl}/api/expo-updates/assets/${safePlatform}/${safeRuntime}/${latestUpdateId}/${encodePathForUrl(
+        assetPath
+      )}`;
+
+    // Build assets array (exclude launch asset and metadata.json)
+    const assets = manifest.assets
       .filter((a) => a.path !== "metadata.json")
       .filter((a) => !a.path.endsWith(".map"))
-      .map(toClientAsset);
-
-    // launchAsset: fileExtension should be omitted (ignored by client)
-    const launchAssetClient = {
-      hash: launchAsset.hash,
-      key: launchAsset.path,
-      contentType: "application/javascript",
-      url: this.getAssetPublicUrl(platform, runtimeVersion, latest.id, launchAsset.path),
-    };
-
-    // metadata must be string dictionary (best-effort)
-    const md = latest.metadata || {};
-    const metadata = {};
-    for (const [k, v] of Object.entries(md)) {
-      metadata[String(k)] = v == null ? "" : String(v);
-    }
+      .filter((a) => !launchAsset || a.path !== launchAsset.path)
+      .map((a) => ({
+        hash: a.hash,
+        // ✅ FIX: key dùng basename để tránh iOS phải tạo folder lồng nhau
+        key: basenamePosix(a.path),
+        contentType: a.contentType || "application/octet-stream",
+        // ✅ FIX: fileExtension phải có dấu chấm
+        fileExtension: getFileExtension(a),
+        url: buildAssetUrl(a.path),
+      }));
 
     return {
-      id: latest.id,
-      createdAt: latest.createdAt,
-      runtimeVersion: latest.runtimeVersion,
-      launchAsset: launchAssetClient,
+      id: latestUpdateId,
+      createdAt: manifest.createdAt,
+      runtimeVersion: safeRuntime,
+      launchAsset: launchAsset
+        ? {
+            hash: launchAsset.hash,
+            // ✅ FIX: key basename
+            key: basenamePosix(launchAsset.path),
+            contentType: "application/javascript",
+            // (khuyến nghị: không cần fileExtension cho launchAsset)
+            url: buildAssetUrl(launchAsset.path),
+          }
+        : undefined,
       assets,
-      metadata,
-      extra: {}, // optional
+      metadata: manifest.metadata || {},
     };
   }
 
   /**
-   * Get an asset stream by relative assetPath
+   * Get signed URL for asset download
+   */
+  async getAssetUrl(platform, runtimeVersion, updateId, assetPath) {
+    const rel = normalizePath(assetPath);
+    const key = `expo-updates/${platform}/${runtimeVersion}/${updateId}/${rel}`;
+
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+    });
+
+    return getSignedUrl(this.r2, command, { expiresIn: 3600 });
+  }
+
+  /**
+   * Get asset stream for proxying
    */
   async getAssetStream(platform, runtimeVersion, updateId, assetPath) {
-    const rel = normalizeRelPath(assetPath);
-    const key = `${this.getUpdatePrefix(platform, runtimeVersion, updateId)}/${rel}`;
+    const rel = normalizePath(assetPath);
+    const key = `expo-updates/${platform}/${runtimeVersion}/${updateId}/${rel}`;
+
+    console.log("[Expo Updates] Getting asset:", key);
 
     const response = await this.r2.send(
       new GetObjectCommand({
@@ -411,61 +380,56 @@ class ExpoUpdatesService {
 
     return {
       stream: response.Body,
-      contentType: response.ContentType || "application/octet-stream",
+      contentType: response.ContentType,
       contentLength: response.ContentLength,
     };
   }
 
-  async listUpdates(platform, runtimeVersion) {
-    platform = String(platform || "").toLowerCase();
-    runtimeVersion = String(runtimeVersion || "");
+  /**
+   * List all updates for platform/runtime
+   */
+  async listUpdates(platform, runtimeVersion, limit = 20) {
+    const prefix = `expo-updates/${platform}/${runtimeVersion}/`;
 
-    const prefix = `${this.storageRoot}/${platform}/${runtimeVersion}/`;
-
-    const list = await this.r2.send(
+    const response = await this.r2.send(
       new ListObjectsV2Command({
         Bucket: this.bucket,
         Prefix: prefix,
+        Delimiter: "/",
       })
     );
 
-    const manifestKeys = (list.Contents || [])
-      .map((x) => x.Key)
-      .filter((k) => k && k.endsWith("/manifest.json"));
-
     const updates = [];
-    for (const k of manifestKeys) {
-      try {
-        const mf = await this.getJson(k);
-        updates.push(mf);
-      } catch (e) {
-        // ignore broken
+    for (const obj of response.CommonPrefixes || []) {
+      const updateId = obj.Prefix.replace(prefix, "").replace("/", "");
+      if (updateId === "latest.json") continue;
+
+      const manifest = await this.getManifest(platform, runtimeVersion, updateId);
+      if (manifest) {
+        updates.push({
+          id: updateId,
+          createdAt: manifest.createdAt,
+          metadata: manifest.metadata,
+        });
       }
     }
 
-    // newest first
-    updates.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
-    return updates;
+    return updates
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+      .slice(0, limit);
   }
 
+  /**
+   * Rollback to specific update
+   */
   async rollback(platform, runtimeVersion, updateId) {
-    platform = String(platform || "").toLowerCase();
-    runtimeVersion = String(runtimeVersion || "");
-    updateId = String(updateId || "");
+    const manifest = await this.getManifest(platform, runtimeVersion, updateId);
+    if (!manifest) {
+      throw new Error(`Update ${updateId} not found`);
+    }
 
-    if (!updateId) throw new Error("Missing updateId");
-
-    // validate manifest exists
-    const mfKey = `${this.getUpdatePrefix(platform, runtimeVersion, updateId)}/manifest.json`;
-    await this.getJson(mfKey);
-
-    await this.putJson(`${this.storageRoot}/${platform}/${runtimeVersion}/current.json`, {
-      updateId,
-      updatedAt: new Date().toISOString(),
-      rolledBack: true,
-    });
-
-    return { success: true, updateId };
+    await this.setLatest(platform, runtimeVersion, updateId);
+    return manifest;
   }
 }
 
