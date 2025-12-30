@@ -34,7 +34,7 @@ class ExpoUpdatesService {
     const prefix = `expo-updates/${platform}/${runtimeVersion}/${updateId}`;
 
     // Find and parse metadata.json first to get extensions
-    const metadataFile = files.find(f => f.path === "metadata.json");
+    const metadataFile = files.find((f) => f.path === "metadata.json");
     let expoMetadata = null;
     let assetExtensions = {};
 
@@ -49,7 +49,11 @@ class ExpoUpdatesService {
             assetExtensions[asset.path] = asset.ext;
           }
         }
-        console.log("[Expo Updates] Parsed metadata, found", Object.keys(assetExtensions).length, "asset extensions");
+        console.log(
+          "[Expo Updates] Parsed metadata, found",
+          Object.keys(assetExtensions).length,
+          "asset extensions"
+        );
       } catch (e) {
         console.error("[Expo Updates] Failed to parse metadata.json:", e);
       }
@@ -59,7 +63,7 @@ class ExpoUpdatesService {
     const uploadedAssets = [];
     for (const file of files) {
       const key = `${prefix}/${file.path}`;
-      
+
       await this.r2.send(
         new PutObjectCommand({
           Bucket: this.bucket,
@@ -70,8 +74,11 @@ class ExpoUpdatesService {
       );
 
       // Expo uses base64 (not base64url)
-      const hash = crypto.createHash("sha256").update(file.buffer).digest("base64");
-      
+      const hash = crypto
+        .createHash("sha256")
+        .update(file.buffer)
+        .digest("base64url");
+
       // Get extension from metadata or from filename
       let ext = assetExtensions[file.path] || null;
       if (!ext) {
@@ -80,7 +87,7 @@ class ExpoUpdatesService {
           ext = parts[parts.length - 1];
         }
       }
-      
+
       uploadedAssets.push({
         path: file.path,
         key,
@@ -122,14 +129,14 @@ class ExpoUpdatesService {
    */
   async setLatest(platform, runtimeVersion, updateId) {
     const key = `expo-updates/${platform}/${runtimeVersion}/latest.json`;
-    
+
     await this.r2.send(
       new PutObjectCommand({
         Bucket: this.bucket,
         Key: key,
-        Body: JSON.stringify({ 
-          updateId, 
-          updatedAt: new Date().toISOString() 
+        Body: JSON.stringify({
+          updateId,
+          updatedAt: new Date().toISOString(),
         }),
         ContentType: "application/json",
       })
@@ -181,8 +188,15 @@ class ExpoUpdatesService {
    * Generate Expo Updates manifest response
    * Following: https://docs.expo.dev/technical-specs/expo-updates-1/
    */
-  async generateManifestResponse({ platform, runtimeVersion, currentUpdateId }) {
-    const latestUpdateId = await this.getLatestUpdateId(platform, runtimeVersion);
+  async generateManifestResponse({
+    platform,
+    runtimeVersion,
+    currentUpdateId,
+  }) {
+    const latestUpdateId = await this.getLatestUpdateId(
+      platform,
+      runtimeVersion
+    );
 
     if (!latestUpdateId) {
       return { noUpdateAvailable: true };
@@ -193,7 +207,11 @@ class ExpoUpdatesService {
       return { noUpdateAvailable: true };
     }
 
-    const manifest = await this.getManifest(platform, runtimeVersion, latestUpdateId);
+    const manifest = await this.getManifest(
+      platform,
+      runtimeVersion,
+      latestUpdateId
+    );
     if (!manifest) {
       return { noUpdateAvailable: true };
     }
@@ -208,24 +226,36 @@ class ExpoUpdatesService {
     }
 
     // Find launch asset (JS bundle)
-    const launchAsset = manifest.assets.find(a => 
-      a.path.endsWith(".bundle") || a.path.endsWith(".hbc")
+    let launchAsset = manifest.assets.find(
+      (a) =>
+        manifest.expoMetadata?.fileMetadata?.[platform]?.bundle === a.path ||
+        (a.contentType === "application/javascript" &&
+          a.path.includes("bundles/")) ||
+        a.path.endsWith(".bundle") ||
+        a.path.endsWith(".hbc")
     );
+
+    // Nếu vẫn không tìm thấy, thử fallback lấy file .js đầu tiên (trường hợp hiếm)
+    if (!launchAsset) {
+      launchAsset = manifest.assets.find(
+        (a) => a.path.endsWith(".js") && !a.path.includes("node_modules")
+      );
+    }
 
     // Helper to get file extension
     const getFileExtension = (asset) => {
       // First check stored ext
       if (asset.ext) return asset.ext;
-      
+
       // Then check expoMetadata
       if (assetExtensions[asset.path]) return assetExtensions[asset.path];
-      
+
       // Then check filename
       const parts = asset.path.split(".");
       if (parts.length > 1 && parts[parts.length - 1].length <= 5) {
         return parts[parts.length - 1];
       }
-      
+
       // Guess from contentType
       const ctMap = {
         "image/png": "png",
@@ -239,14 +269,19 @@ class ExpoUpdatesService {
       if (asset.contentType && ctMap[asset.contentType]) {
         return ctMap[asset.contentType];
       }
-      
+
       return "bundle";
     };
 
     // Build assets array (exclude launch asset and metadata.json)
     const assets = manifest.assets
-      .filter(a => !a.path.endsWith(".bundle") && !a.path.endsWith(".hbc") && a.path !== "metadata.json")
-      .map(a => ({
+      .filter(
+        (a) =>
+          !a.path.endsWith(".bundle") &&
+          !a.path.endsWith(".hbc") &&
+          a.path !== "metadata.json"
+      )
+      .map((a) => ({
         hash: a.hash,
         key: a.path,
         contentType: a.contentType || "application/octet-stream",
@@ -258,13 +293,15 @@ class ExpoUpdatesService {
       id: latestUpdateId,
       createdAt: manifest.createdAt,
       runtimeVersion,
-      launchAsset: launchAsset ? {
-        hash: launchAsset.hash,
-        key: launchAsset.path,
-        contentType: "application/javascript",
-        fileExtension: launchAsset.path.endsWith(".hbc") ? "hbc" : "bundle",
-        url: `${this.baseUrl}/api/expo-updates/assets/${platform}/${runtimeVersion}/${latestUpdateId}/${launchAsset.path}`,
-      } : undefined,
+      launchAsset: launchAsset
+        ? {
+            hash: launchAsset.hash,
+            key: launchAsset.path,
+            contentType: "application/javascript",
+            fileExtension: launchAsset.path.endsWith(".hbc") ? "hbc" : "bundle",
+            url: `${this.baseUrl}/api/expo-updates/assets/${platform}/${runtimeVersion}/${latestUpdateId}/${launchAsset.path}`,
+          }
+        : undefined,
       assets,
       metadata: manifest.metadata || {},
     };
@@ -275,7 +312,7 @@ class ExpoUpdatesService {
    */
   async getAssetUrl(platform, runtimeVersion, updateId, assetPath) {
     const key = `expo-updates/${platform}/${runtimeVersion}/${updateId}/${assetPath}`;
-    
+
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,
@@ -289,9 +326,9 @@ class ExpoUpdatesService {
    */
   async getAssetStream(platform, runtimeVersion, updateId, assetPath) {
     const key = `expo-updates/${platform}/${runtimeVersion}/${updateId}/${assetPath}`;
-    
+
     console.log("[Expo Updates] Getting asset:", key);
-    
+
     const response = await this.r2.send(
       new GetObjectCommand({
         Bucket: this.bucket,
@@ -311,7 +348,7 @@ class ExpoUpdatesService {
    */
   async listUpdates(platform, runtimeVersion, limit = 20) {
     const prefix = `expo-updates/${platform}/${runtimeVersion}/`;
-    
+
     const response = await this.r2.send(
       new ListObjectsV2Command({
         Bucket: this.bucket,
@@ -324,8 +361,12 @@ class ExpoUpdatesService {
     for (const obj of response.CommonPrefixes || []) {
       const updateId = obj.Prefix.replace(prefix, "").replace("/", "");
       if (updateId === "latest.json") continue;
-      
-      const manifest = await this.getManifest(platform, runtimeVersion, updateId);
+
+      const manifest = await this.getManifest(
+        platform,
+        runtimeVersion,
+        updateId
+      );
       if (manifest) {
         updates.push({
           id: updateId,
