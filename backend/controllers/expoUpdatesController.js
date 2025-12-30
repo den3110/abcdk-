@@ -13,6 +13,7 @@ import crypto from "crypto";
  * Main endpoint that expo-updates client calls
  */
 export const getManifest = async (req, res) => {
+    console.log(req.headers)
   try {
     // Extract headers from expo-updates client
     const platform = req.headers["expo-platform"] || req.query.platform;
