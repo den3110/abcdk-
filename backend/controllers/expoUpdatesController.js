@@ -1,123 +1,116 @@
 // controllers/expoUpdatesController.js
-
 /**
- * Expo Updates Controller
- * Handles manifest requests and asset serving
+ * Expo Updates Controller (Expo Updates v1)
+ *
+ * Fixes:
+ * - send Expo Updates v1 required headers
+ * - do NOT use expo-manifest-signature (v1 uses expo-signature only when code signing)
+ * - content-type negotiation (prefer application/expo+json)
  */
 
+import { v4 as uuidv4 } from "uuid";
 import expoUpdatesService from "../services/expoUpdates.service.js";
-import crypto from "crypto";
 
-/**
- * GET /api/expo-updates/manifest
- * Main endpoint that expo-updates client calls
- */
+const pickContentType = (accept) => {
+  const a = String(accept || "").toLowerCase();
+  if (a.includes("application/expo+json")) return "application/expo+json";
+  return "application/json";
+};
+
+const setCommonHeaders = (res, contentType) => {
+  res.setHeader("expo-protocol-version", "1");
+  res.setHeader("expo-sfv-version", "0");
+  // Expo spec says these should exist; empty dictionary is fine.
+  res.setHeader("expo-manifest-filters", "");
+  res.setHeader("expo-server-defined-headers", "");
+  res.setHeader("cache-control", "private, max-age=0");
+  res.setHeader("content-type", contentType);
+};
+
 export const getManifest = async (req, res) => {
   try {
-    // Extract headers from expo-updates client
-    const platform = req.headers["expo-platform"] || req.query.platform;
-    const runtimeVersion =
-      req.headers["expo-runtime-version"] || req.query.runtimeVersion;
-    const currentUpdateId =
-      req.headers["expo-current-update-id"] || req.query.currentUpdateId;
+    const platform =
+      req.get("expo-platform") || req.query.platform || req.query.expoPlatform;
 
-    console.log("[Expo Updates] Manifest request:", {
-      platform,
-      runtimeVersion,
-      currentUpdateId,
-    });
+    const runtimeVersion =
+      req.get("expo-runtime-version") ||
+      req.query.runtimeVersion ||
+      req.query.expoRuntimeVersion;
 
     if (!platform || !runtimeVersion) {
       return res.status(400).json({
         error:
-          "Missing required: expo-platform and expo-runtime-version headers",
+          "Missing required headers: expo-platform and expo-runtime-version",
       });
     }
 
-    const manifest = await expoUpdatesService.generateManifestResponse({
-      platform,
-      runtimeVersion,
-      currentUpdateId,
-    });
-
-    if (manifest.noUpdateAvailable) {
-      // Return 204 No Content when no update
-      return res.status(204).end();
+    const protocol = req.get("expo-protocol-version");
+    if (protocol && String(protocol) !== "1") {
+      return res.status(400).json({
+        error: `Unsupported expo-protocol-version: ${protocol}`,
+      });
     }
 
-    // Sign the manifest (required by expo-updates)
-    const manifestString = JSON.stringify(manifest);
-    const signature = crypto
-      .createHash("sha256")
-      .update(manifestString)
-      .digest("hex");
+    const currentUpdateId = req.get("expo-current-update-id") || null;
 
-    res.setHeader("expo-protocol-version", "1");
-    res.setHeader("expo-sfv-version", "0");
-    res.setHeader("expo-manifest-signature", signature);
-    res.setHeader("cache-control", "private, max-age=0");
-    res.setHeader("content-type", "application/json");
+    const manifest = await expoUpdatesService.generateClientManifest(
+      String(platform).toLowerCase(),
+      String(runtimeVersion),
+      currentUpdateId
+    );
 
-    return res.json(manifest);
+    if (!manifest) {
+      // no update
+      res.setHeader("expo-protocol-version", "1");
+      res.setHeader("expo-sfv-version", "0");
+      res.setHeader("cache-control", "private, max-age=0");
+      return res.status(204).send();
+    }
+
+    const contentType = pickContentType(req.get("accept"));
+    setCommonHeaders(res, contentType);
+
+    return res.status(200).send(JSON.stringify(manifest));
   } catch (error) {
     console.error("[Expo Updates] Manifest error:", error);
-    return res.status(500).json({ error: "Failed to get manifest" });
+    return res.status(500).json({
+      error: "Failed to generate manifest",
+      message: error?.message,
+    });
   }
 };
 
-/**
- * GET /api/expo-updates/assets/:platform/:runtimeVersion/:updateId/*
- * Serve assets (JS bundle, images, fonts, etc.)
- */
 export const getAsset = async (req, res) => {
   try {
     const { platform, runtimeVersion, updateId } = req.params;
-    const assetPath = req.params[0]; // Wildcard path
-
-    console.log("[Expo Updates] Asset request:", {
-      platform,
-      runtimeVersion,
-      updateId,
-      assetPath,
-    });
+    const assetPath = req.params[0]; // wildcard
 
     if (!platform || !runtimeVersion || !updateId || !assetPath) {
-      return res.status(400).json({ error: "Invalid asset path" });
+      return res.status(400).json({ error: "Missing asset params" });
     }
 
-    // Option 1: Redirect to signed URL (recommended for large files)
-    // const signedUrl = await expoUpdatesService.getAssetUrl(platform, runtimeVersion, updateId, assetPath);
-    // return res.redirect(signedUrl);
+    const { stream, contentType, contentLength } =
+      await expoUpdatesService.getAssetStream(
+        String(platform).toLowerCase(),
+        String(runtimeVersion),
+        String(updateId),
+        assetPath
+      );
 
-    // Option 2: Proxy the asset (better for caching/CDN)
-    const asset = await expoUpdatesService.getAssetStream(
-      platform,
-      runtimeVersion,
-      updateId,
-      assetPath
-    );
+    res.setHeader("content-type", contentType || "application/octet-stream");
+    if (contentLength) res.setHeader("content-length", String(contentLength));
 
-    res.setHeader(
-      "content-type",
-      asset.contentType || "application/octet-stream"
-    );
-    res.setHeader("content-length", asset.contentLength);
+    // assets can be cached long-term
     res.setHeader("cache-control", "public, max-age=31536000, immutable");
 
-    asset.stream.pipe(res);
+    // Pipe stream
+    stream.pipe(res);
   } catch (error) {
     console.error("[Expo Updates] Asset error:", error);
-    if (error.name === "NoSuchKey") {
-      return res.status(404).json({ error: "Asset not found" });
-    }
-    return res.status(500).json({ error: "Failed to get asset" });
+    return res.status(404).json({ error: "Asset not found" });
   }
 };
 
-/**
- * POST /api/expo-updates/upload
- * Upload new update (called by CLI)
- */
 export const uploadUpdate = async (req, res) => {
   try {
     const { platform, runtimeVersion, message, paths } = req.body;
@@ -132,27 +125,37 @@ export const uploadUpdate = async (req, res) => {
         .json({ error: "Missing platform or runtimeVersion" });
     }
 
-    // ✅ Parse paths array sent from CLI
+    const updateId = uuidv4();
+
+    // Optional: CLI may send paths JSON to preserve folder structure
     let filePaths = [];
     if (paths) {
       try {
         filePaths = JSON.parse(paths);
-      } catch (e) {
-        console.error("[Expo Updates] Failed to parse paths:", e);
+        if (!Array.isArray(filePaths)) filePaths = [];
+      } catch {
+        filePaths = [];
       }
     }
 
-    // Generate unique update ID
-    const updateId = crypto.randomUUID();
+    const files = req.files.map((file, index) => {
+      // prefer: originalname contains relativePath (new CLI)
+      // fallback: paths[index] (old CLI)
+      const chosenPath = file.originalname?.includes("/")
+        ? file.originalname
+        : filePaths[index] || file.originalname;
 
-    // Process uploaded files with correct paths from paths array
-    const files = req.files.map((file, index) => ({
-      path: filePaths[index] || file.originalname,
-      buffer: file.buffer,
-      contentType: file.mimetype,
-    }));
+      return {
+        path: chosenPath,
+        buffer: file.buffer,
+        contentType: file.mimetype,
+      };
+    });
 
-    console.log("[Expo Updates] Processing files:", files.map(f => f.path));
+    console.log(
+      "[Expo Updates] Upload files:",
+      files.map((f) => f.path)
+    );
 
     const manifest = await expoUpdatesService.uploadUpdate({
       platform,
@@ -165,73 +168,60 @@ export const uploadUpdate = async (req, res) => {
       },
     });
 
-    console.log("[Expo Updates] Uploaded:", {
-      platform,
-      runtimeVersion,
-      updateId,
-      fileCount: files.length,
-    });
-
-    return res.json({
-      success: true,
-      updateId,
-      manifest,
-    });
+    return res.json({ success: true, updateId, manifest });
   } catch (error) {
     console.error("[Expo Updates] Upload error:", error);
-    return res.status(500).json({ error: "Failed to upload update" });
+    return res.status(500).json({
+      error: "Failed to upload update",
+      message: error?.message,
+    });
   }
 };
 
-/**
- * GET /api/expo-updates/updates/:platform/:runtimeVersion
- * List all updates
- */
 export const listUpdates = async (req, res) => {
   try {
     const { platform, runtimeVersion } = req.params;
-    const { limit = 20 } = req.query;
+
+    if (!platform || !runtimeVersion) {
+      return res
+        .status(400)
+        .json({ error: "Missing platform or runtimeVersion" });
+    }
 
     const updates = await expoUpdatesService.listUpdates(
-      platform,
-      runtimeVersion,
-      parseInt(limit)
+      String(platform).toLowerCase(),
+      String(runtimeVersion)
     );
 
-    return res.json({ updates });
+    return res.json({ success: true, updates });
   } catch (error) {
     console.error("[Expo Updates] List error:", error);
     return res.status(500).json({ error: "Failed to list updates" });
   }
 };
 
-/**
- * POST /api/expo-updates/rollback
- * Rollback to specific update
- */
 export const rollback = async (req, res) => {
   try {
     const { platform, runtimeVersion, updateId } = req.body;
 
     if (!platform || !runtimeVersion || !updateId) {
-      return res.status(400).json({ error: "Missing required fields" });
+      return res.status(400).json({
+        error: "Missing platform, runtimeVersion, or updateId",
+      });
     }
 
-    const manifest = await expoUpdatesService.rollback(
-      platform,
-      runtimeVersion,
-      updateId
+    const result = await expoUpdatesService.rollback(
+      String(platform).toLowerCase(),
+      String(runtimeVersion),
+      String(updateId)
     );
 
-    return res.json({
-      success: true,
-      message: `Rolled back to ${updateId}`,
-      manifest,
-    });
+    return res.json(result);
   } catch (error) {
     console.error("[Expo Updates] Rollback error:", error);
-    return res
-      .status(500)
-      .json({ error: error.message || "Failed to rollback" });
+    return res.status(500).json({
+      error: "Failed to rollback update",
+      message: error?.message,
+    });
   }
 };
