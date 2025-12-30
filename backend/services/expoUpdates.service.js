@@ -25,7 +25,7 @@ class ExpoUpdatesService {
     });
 
     this.bucket = process.env.R2_BUCKET_NAME;
-    this.baseUrl = process.env.R2_PUBLIC_URL || process.env.API_URL;
+    this.baseUrl =process.env.API_URL || "https://pickletour.vn/api";
   }
 
   /**
