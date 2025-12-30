@@ -13,7 +13,6 @@ import crypto from "crypto";
  * Main endpoint that expo-updates client calls
  */
 export const getManifest = async (req, res) => {
-    console.log(req.headers)
   try {
     // Extract headers from expo-updates client
     const platform = req.headers["expo-platform"] || req.query.platform;
@@ -121,7 +120,7 @@ export const getAsset = async (req, res) => {
  */
 export const uploadUpdate = async (req, res) => {
   try {
-    const { platform, runtimeVersion, message } = req.body;
+    const { platform, runtimeVersion, message, paths } = req.body;
 
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ error: "No files uploaded" });
@@ -133,15 +132,30 @@ export const uploadUpdate = async (req, res) => {
         .json({ error: "Missing platform or runtimeVersion" });
     }
 
+    // ✅ Parse paths array sent from CLI
+    let filePaths = [];
+    if (paths) {
+      try {
+        filePaths = JSON.parse(paths);
+      } catch (e) {
+        console.error("[Expo Updates] Failed to parse paths:", e);
+      }
+    }
+
     // Generate unique update ID
     const updateId = crypto.randomUUID();
 
-    // Process uploaded files
-    const files = req.files.map((file) => ({
-      path: file.originalname,
+    // Process uploaded files with correct paths from paths array
+    const files = req.files.map((file, index) => ({
+      path: filePaths[index] || file.originalname,
       buffer: file.buffer,
       contentType: file.mimetype,
     }));
+
+    console.log(
+      "[Expo Updates] Processing files:",
+      files.map((f) => f.path)
+    );
 
     const manifest = await expoUpdatesService.uploadUpdate({
       platform,
@@ -158,6 +172,7 @@ export const uploadUpdate = async (req, res) => {
       platform,
       runtimeVersion,
       updateId,
+      fileCount: files.length,
     });
 
     return res.json({
