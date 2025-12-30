@@ -69,7 +69,8 @@ class ExpoUpdatesService {
         })
       );
 
-      const hash = crypto.createHash("sha256").update(file.buffer).digest("base64url");
+      // Expo uses base64 (not base64url)
+      const hash = crypto.createHash("sha256").update(file.buffer).digest("base64");
       
       // Get extension from metadata or from filename
       let ext = assetExtensions[file.path] || null;
