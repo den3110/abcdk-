@@ -33,6 +33,28 @@ class ExpoUpdatesService {
   async uploadUpdate({ platform, runtimeVersion, updateId, files, metadata }) {
     const prefix = `expo-updates/${platform}/${runtimeVersion}/${updateId}`;
 
+    // Find and parse metadata.json first to get extensions
+    const metadataFile = files.find(f => f.path === "metadata.json");
+    let expoMetadata = null;
+    let assetExtensions = {};
+
+    if (metadataFile) {
+      try {
+        expoMetadata = JSON.parse(metadataFile.buffer.toString());
+        // Build extension map from metadata
+        const platformMeta = expoMetadata?.fileMetadata?.[platform];
+        if (platformMeta?.assets) {
+          for (const asset of platformMeta.assets) {
+            // asset.path = "assets/xxxxx", asset.ext = "png"
+            assetExtensions[asset.path] = asset.ext;
+          }
+        }
+        console.log("[Expo Updates] Parsed metadata, found", Object.keys(assetExtensions).length, "asset extensions");
+      } catch (e) {
+        console.error("[Expo Updates] Failed to parse metadata.json:", e);
+      }
+    }
+
     // Upload each file
     const uploadedAssets = [];
     for (const file of files) {
@@ -49,12 +71,22 @@ class ExpoUpdatesService {
 
       const hash = crypto.createHash("sha256").update(file.buffer).digest("base64url");
       
+      // Get extension from metadata or from filename
+      let ext = assetExtensions[file.path] || null;
+      if (!ext) {
+        const parts = file.path.split(".");
+        if (parts.length > 1 && parts[parts.length - 1].length <= 5) {
+          ext = parts[parts.length - 1];
+        }
+      }
+      
       uploadedAssets.push({
         path: file.path,
         key,
         hash,
         contentType: file.contentType,
         size: file.buffer.length,
+        ext: ext, // Store extension
       });
     }
 
@@ -66,6 +98,7 @@ class ExpoUpdatesService {
       platform,
       metadata: metadata || {},
       assets: uploadedAssets,
+      expoMetadata: expoMetadata, // Store original expo metadata
     };
 
     await this.r2.send(
@@ -164,27 +197,59 @@ class ExpoUpdatesService {
       return { noUpdateAvailable: true };
     }
 
-    // Build Expo Updates format manifest
+    // Build extension map from expoMetadata if available
+    const assetExtensions = {};
+    const platformMeta = manifest.expoMetadata?.fileMetadata?.[platform];
+    if (platformMeta?.assets) {
+      for (const asset of platformMeta.assets) {
+        assetExtensions[asset.path] = asset.ext;
+      }
+    }
+
+    // Find launch asset (JS bundle)
     const launchAsset = manifest.assets.find(a => 
       a.path.endsWith(".bundle") || a.path.endsWith(".hbc")
     );
 
-    const getFileExtension = (filePath) => {
-      const ext = filePath.split('.').pop();
-      if (ext && ext !== filePath && ext.length <= 5) {
-        return ext;
+    // Helper to get file extension
+    const getFileExtension = (asset) => {
+      // First check stored ext
+      if (asset.ext) return asset.ext;
+      
+      // Then check expoMetadata
+      if (assetExtensions[asset.path]) return assetExtensions[asset.path];
+      
+      // Then check filename
+      const parts = asset.path.split(".");
+      if (parts.length > 1 && parts[parts.length - 1].length <= 5) {
+        return parts[parts.length - 1];
       }
-      // No extension - return based on content type or default
+      
+      // Guess from contentType
+      const ctMap = {
+        "image/png": "png",
+        "image/jpeg": "jpg",
+        "image/gif": "gif",
+        "font/ttf": "ttf",
+        "font/otf": "otf",
+        "audio/mpeg": "mp3",
+        "application/json": "json",
+      };
+      if (asset.contentType && ctMap[asset.contentType]) {
+        return ctMap[asset.contentType];
+      }
+      
       return "bundle";
     };
 
+    // Build assets array (exclude launch asset and metadata.json)
     const assets = manifest.assets
-      .filter(a => !a.path.endsWith(".bundle") && !a.path.endsWith(".hbc"))
+      .filter(a => !a.path.endsWith(".bundle") && !a.path.endsWith(".hbc") && a.path !== "metadata.json")
       .map(a => ({
         hash: a.hash,
         key: a.path,
         contentType: a.contentType || "application/octet-stream",
-        fileExtension: getFileExtension(a.path),
+        fileExtension: getFileExtension(a),
         url: `${this.baseUrl}/api/expo-updates/assets/${platform}/${runtimeVersion}/${latestUpdateId}/${a.path}`,
       }));
 
@@ -223,6 +288,8 @@ class ExpoUpdatesService {
    */
   async getAssetStream(platform, runtimeVersion, updateId, assetPath) {
     const key = `expo-updates/${platform}/${runtimeVersion}/${updateId}/${assetPath}`;
+    
+    console.log("[Expo Updates] Getting asset:", key);
     
     const response = await this.r2.send(
       new GetObjectCommand({

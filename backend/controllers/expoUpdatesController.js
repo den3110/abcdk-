@@ -152,10 +152,7 @@ export const uploadUpdate = async (req, res) => {
       contentType: file.mimetype,
     }));
 
-    console.log(
-      "[Expo Updates] Processing files:",
-      files.map((f) => f.path)
-    );
+    console.log("[Expo Updates] Processing files:", files.map(f => f.path));
 
     const manifest = await expoUpdatesService.uploadUpdate({
       platform,
