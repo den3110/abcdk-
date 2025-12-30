@@ -2,7 +2,6 @@
  * Expo Updates Service - Self-hosted
  * Implements Expo Updates Protocol
  */
-// services/expoUpdates.service.js
 
 import {
   S3Client,
@@ -25,7 +24,7 @@ class ExpoUpdatesService {
     });
 
     this.bucket = process.env.R2_BUCKET_NAME;
-    this.baseUrl =process.env.API_URL || "https://pickletour.vn/api";
+    this.baseUrl = process.env.API_URL || "https://pickletour.vn/api";
   }
 
   /**
@@ -38,7 +37,7 @@ class ExpoUpdatesService {
     const uploadedAssets = [];
     for (const file of files) {
       const key = `${prefix}/${file.path}`;
-
+      
       await this.r2.send(
         new PutObjectCommand({
           Bucket: this.bucket,
@@ -48,11 +47,8 @@ class ExpoUpdatesService {
         })
       );
 
-      const hash = crypto
-        .createHash("sha256")
-        .update(file.buffer)
-        .digest("base64url");
-
+      const hash = crypto.createHash("sha256").update(file.buffer).digest("base64url");
+      
       uploadedAssets.push({
         path: file.path,
         key,
@@ -92,14 +88,14 @@ class ExpoUpdatesService {
    */
   async setLatest(platform, runtimeVersion, updateId) {
     const key = `expo-updates/${platform}/${runtimeVersion}/latest.json`;
-
+    
     await this.r2.send(
       new PutObjectCommand({
         Bucket: this.bucket,
         Key: key,
-        Body: JSON.stringify({
-          updateId,
-          updatedAt: new Date().toISOString(),
+        Body: JSON.stringify({ 
+          updateId, 
+          updatedAt: new Date().toISOString() 
         }),
         ContentType: "application/json",
       })
@@ -151,15 +147,8 @@ class ExpoUpdatesService {
    * Generate Expo Updates manifest response
    * Following: https://docs.expo.dev/technical-specs/expo-updates-1/
    */
-  async generateManifestResponse({
-    platform,
-    runtimeVersion,
-    currentUpdateId,
-  }) {
-    const latestUpdateId = await this.getLatestUpdateId(
-      platform,
-      runtimeVersion
-    );
+  async generateManifestResponse({ platform, runtimeVersion, currentUpdateId }) {
+    const latestUpdateId = await this.getLatestUpdateId(platform, runtimeVersion);
 
     if (!latestUpdateId) {
       return { noUpdateAvailable: true };
@@ -170,26 +159,32 @@ class ExpoUpdatesService {
       return { noUpdateAvailable: true };
     }
 
-    const manifest = await this.getManifest(
-      platform,
-      runtimeVersion,
-      latestUpdateId
-    );
+    const manifest = await this.getManifest(platform, runtimeVersion, latestUpdateId);
     if (!manifest) {
       return { noUpdateAvailable: true };
     }
 
     // Build Expo Updates format manifest
-    const launchAsset = manifest.assets.find(
-      (a) => a.path.endsWith(".bundle") || a.path.endsWith(".hbc")
+    const launchAsset = manifest.assets.find(a => 
+      a.path.endsWith(".bundle") || a.path.endsWith(".hbc")
     );
 
+    const getFileExtension = (filePath) => {
+      const ext = filePath.split('.').pop();
+      if (ext && ext !== filePath && ext.length <= 5) {
+        return ext;
+      }
+      // No extension - return based on content type or default
+      return "bundle";
+    };
+
     const assets = manifest.assets
-      .filter((a) => !a.path.endsWith(".bundle") && !a.path.endsWith(".hbc"))
-      .map((a) => ({
+      .filter(a => !a.path.endsWith(".bundle") && !a.path.endsWith(".hbc"))
+      .map(a => ({
         hash: a.hash,
         key: a.path,
         contentType: a.contentType || "application/octet-stream",
+        fileExtension: getFileExtension(a.path),
         url: `${this.baseUrl}/api/expo-updates/assets/${platform}/${runtimeVersion}/${latestUpdateId}/${a.path}`,
       }));
 
@@ -197,14 +192,13 @@ class ExpoUpdatesService {
       id: latestUpdateId,
       createdAt: manifest.createdAt,
       runtimeVersion,
-      launchAsset: launchAsset
-        ? {
-            hash: launchAsset.hash,
-            key: launchAsset.path,
-            contentType: "application/javascript",
-            url: `${this.baseUrl}/api/expo-updates/assets/${platform}/${runtimeVersion}/${latestUpdateId}/${launchAsset.path}`,
-          }
-        : undefined,
+      launchAsset: launchAsset ? {
+        hash: launchAsset.hash,
+        key: launchAsset.path,
+        contentType: "application/javascript",
+        fileExtension: launchAsset.path.endsWith(".hbc") ? "hbc" : "bundle",
+        url: `${this.baseUrl}/api/expo-updates/assets/${platform}/${runtimeVersion}/${latestUpdateId}/${launchAsset.path}`,
+      } : undefined,
       assets,
       metadata: manifest.metadata || {},
     };
@@ -215,7 +209,7 @@ class ExpoUpdatesService {
    */
   async getAssetUrl(platform, runtimeVersion, updateId, assetPath) {
     const key = `expo-updates/${platform}/${runtimeVersion}/${updateId}/${assetPath}`;
-
+    
     const command = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,
@@ -229,7 +223,7 @@ class ExpoUpdatesService {
    */
   async getAssetStream(platform, runtimeVersion, updateId, assetPath) {
     const key = `expo-updates/${platform}/${runtimeVersion}/${updateId}/${assetPath}`;
-
+    
     const response = await this.r2.send(
       new GetObjectCommand({
         Bucket: this.bucket,
@@ -249,7 +243,7 @@ class ExpoUpdatesService {
    */
   async listUpdates(platform, runtimeVersion, limit = 20) {
     const prefix = `expo-updates/${platform}/${runtimeVersion}/`;
-
+    
     const response = await this.r2.send(
       new ListObjectsV2Command({
         Bucket: this.bucket,
@@ -262,12 +256,8 @@ class ExpoUpdatesService {
     for (const obj of response.CommonPrefixes || []) {
       const updateId = obj.Prefix.replace(prefix, "").replace("/", "");
       if (updateId === "latest.json") continue;
-
-      const manifest = await this.getManifest(
-        platform,
-        runtimeVersion,
-        updateId
-      );
+      
+      const manifest = await this.getManifest(platform, runtimeVersion, updateId);
       if (manifest) {
         updates.push({
           id: updateId,
