@@ -130,11 +130,23 @@ function redirectTo503() {
 const baseQuery = async (args, api, extraOptions) => {
   const result = await rawBaseQuery(args, api, extraOptions);
 
-  console.log(result?.error)
+  // console.log(result?.error)
   const status = result?.error?.status;
 
   // 401: đăng xuất & dọn cache
   if (status === 401) {
+    try {
+      api.dispatch(logout());
+      // lưu ý: apiSlice được gán sau, nhưng tới lúc hàm này chạy đã có giá trị
+      api.dispatch(apiSlice.util.resetApiState());
+    } catch (e) {
+      console.log(e);
+    }
+    // (tuỳ chọn) chuyển về login:
+    if (typeof window !== "undefined") window.location.href = "/login";
+    return result;
+  }
+  if (status === 403 && result?.error?.data?.message === "Not authorized – no token") {
     try {
       api.dispatch(logout());
       // lưu ý: apiSlice được gán sau, nhưng tới lúc hàm này chạy đã có giá trị
