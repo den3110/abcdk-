@@ -1339,7 +1339,7 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
     return Number.isFinite(n) ? n : d;
   };
   const limit = Math.min(100, Math.max(1, parseIntOr(req.query?.pageSize, 12)));
-  const page = Math.max(parseIntOr(req.query?.page, 1) - 1, 0);
+  const page = Math.max(parseIntOr(req.query?.page, 0), 0); // Frontend sends 0-indexed page
 
   // Check if user is admin for extended projection
   const isAdminForProjection =
@@ -1468,7 +1468,7 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
     docs: first.docs,
     totalPages: first.totalPages,
     total: first.total,
-    page: page + 1,
+    page, // Return same 0-indexed page
   });
 });
 
@@ -1482,7 +1482,7 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     return Number.isFinite(n) ? n : d;
   };
   const limit = Math.min(100, Math.max(1, parseIntOr(req.query?.pageSize, 12)));
-  const page = Math.max(parseIntOr(req.query?.page, 1) - 1, 0);
+  const page = Math.max(parseIntOr(req.query?.page, 0), 0); // Frontend sends 0-indexed page
 
   const isAdminForProjection =
     req.user?.isAdmin === true ||
@@ -1605,7 +1605,7 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     docs: first.docs,
     totalPages: first.totalPages,
     total: first.total,
-    page: page + 1,
+    page, // Return same 0-indexed page
   });
 });
 
@@ -1708,7 +1708,7 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
     page >= MAX_PAGES_WHEN_QUOTA_EXHAUSTED
   ) {
     const err = new Error(
-      "Bạn đã sử dụng hết lượt tìm kiếm hôm nay, và chỉ được xem tối đa 5 trang kết quả. Vui lòng quay lại vào ngày mai."
+      "Bạn đã sử dụng hết lượt tìm kiếm hôm nay, và chỉ được xem tối đa 5 trang kết quả. Vui lòng quay lại vào ngày mai.",
     );
     err.statusCode = 429;
     err.remainingTime = 0;
@@ -2074,7 +2074,6 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
     remainingTime,
   });
 });
-
 
 /* ============================ ✅ NEW: podium30d-only ============================ */
 export const getPodium30d = asyncHandler(async (req, res) => {
