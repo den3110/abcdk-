@@ -153,13 +153,24 @@ export async function createAssessment(req, res) {
           scoredAt: new Date(),
         },
       ],
-      { session }
+      { session },
+    );
+
+    // Check if staff is scoring (for hasStaffAssessment field)
+    const isStaffScoring = ["admin", "mod", "moderator"].includes(
+      String(scoreBy).toLowerCase(),
     );
 
     const ranking = await Ranking.findOneAndUpdate(
       { user: userId },
       {
-        $set: { single: sLv, double: dLv, lastUpdated: new Date() },
+        $set: {
+          single: sLv,
+          double: dLv,
+          lastUpdated: new Date(),
+          // Set hasStaffAssessment if staff is scoring
+          ...(isStaffScoring ? { hasStaffAssessment: true } : {}),
+        },
         $inc: {
           points:
             (metaInput.freq || 0) +
@@ -167,8 +178,14 @@ export async function createAssessment(req, res) {
             (metaInput.external || 0) / 10,
         },
       },
-      { upsert: true, new: true, session }
+      { upsert: true, new: true, session },
     );
+
+    // Recalculate tier after updating hasStaffAssessment
+    if (isStaffScoring && ranking) {
+      ranking.recalculateTier();
+      await ranking.save({ session });
+    }
 
     await ScoreHistory.create(
       [
@@ -181,7 +198,7 @@ export async function createAssessment(req, res) {
           scoredAt: new Date(),
         },
       ],
-      { session }
+      { session },
     );
 
     await session.commitTransaction();
