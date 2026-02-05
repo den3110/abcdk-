@@ -1338,8 +1338,12 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
     const n = Number.parseInt(v, 10);
     return Number.isFinite(n) ? n : d;
   };
-  const limit = Math.min(100, Math.max(1, parseIntOr(req.query?.pageSize, 12)));
+  const limit = Math.min(
+    100,
+    Math.max(1, parseIntOr(req.query?.pageSize ?? req.query?.limit, 12)),
+  );
   const page = Math.max(parseIntOr(req.query?.page, 0), 0);
+  const keywordRaw = String(req.query.keyword ?? "").trim();
 
   // Check if user is admin for extended projection
   const isAdminForProjection =
@@ -1372,103 +1376,260 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
     ? { ...baseUserProject, ...adminExtraProject }
     : baseUserProject;
 
-  // Run count and docs query in PARALLEL for better performance
-  const [totalCount, docs] = await Promise.all([
-    // Simple count - no lookup needed, just count valid rankings
-    Ranking.countDocuments({ user: { $type: "objectId" } }),
+  // Build user filter if keyword provided
+  let userIdsFilter = null;
+  if (keywordRaw) {
+    const orConds = [];
+    const namePattern = keywordRaw
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(escapeRegExp)
+      .join(".*");
+    if (namePattern) {
+      orConds.push({ name: { $regex: namePattern, $options: "i" } });
+      orConds.push({ nickname: { $regex: namePattern, $options: "i" } });
+    }
+    const emailCandidate = stripSpaces(keywordRaw);
+    if (emailCandidate.includes("@")) {
+      orConds.push({
+        email: { $regex: `^${escapeRegExp(emailCandidate)}$`, $options: "i" },
+      });
+    }
+    const phoneDigits = digitsOnly(keywordRaw);
+    if (phoneDigits.length >= 9) {
+      const phonePattern = `^${phoneDigits.split("").join("\\s*")}$`;
+      orConds.push({ phone: { $regex: phonePattern } });
+      orConds.push({ cccd: { $regex: phonePattern } });
+    }
 
-    // Docs query - optimized pipeline
-    Ranking.aggregate([
-      { $match: { user: { $type: "objectId" } } },
-      // Use denormalized fields with defaults
-      {
-        $addFields: {
-          points: { $ifNull: ["$points", 0] },
-          single: { $ifNull: ["$single", 0] },
-          double: { $ifNull: ["$double", 0] },
-          mix: { $ifNull: ["$mix", 0] },
-          reputation: { $ifNull: ["$reputation", 0] },
-          totalTours: { $ifNull: ["$totalFinishedTours", 0] },
-          hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
-          colorRank: { $ifNull: ["$colorRank", 2] },
-          tierColor: { $ifNull: ["$tierColor", "grey"] },
-          tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
-        },
+    if (orConds.length > 0) {
+      const rawIds = await User.find({ $or: orConds }, { _id: 1 }).lean();
+      const ids = rawIds.map((d) => d?._id).filter((id) => isOID(id));
+      if (!ids.length) {
+        return res.json({
+          docs: [],
+          totalPages: 0,
+          total: 0,
+          page,
+        });
+      }
+      userIdsFilter = ids;
+    }
+  }
+
+  const matchStage = {
+    user: { $type: "objectId" },
+    ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
+  };
+
+  // Use $facet for accurate count (excludes deleted users)
+  const agg = await Ranking.aggregate([
+    { $match: matchStage },
+    {
+      $facet: {
+        // Count only rankings with existing users
+        total: [
+          {
+            $lookup: {
+              from: "users",
+              localField: "user",
+              foreignField: "_id",
+              as: "u",
+              pipeline: [{ $project: { _id: 1 } }],
+            },
+          },
+          { $match: { "u.0": { $exists: true } } },
+          { $count: "n" },
+        ],
+        // Docs pipeline - optimized
+        docs: [
+          {
+            $addFields: {
+              points: { $ifNull: ["$points", 0] },
+              single: { $ifNull: ["$single", 0] },
+              double: { $ifNull: ["$double", 0] },
+              mix: { $ifNull: ["$mix", 0] },
+              reputation: { $ifNull: ["$reputation", 0] },
+              totalTours: { $ifNull: ["$totalFinishedTours", 0] },
+              hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
+              colorRank: { $ifNull: ["$colorRank", 2] },
+              tierColor: { $ifNull: ["$tierColor", "grey"] },
+              tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
+            },
+          },
+          {
+            $sort: {
+              colorRank: 1,
+              double: -1,
+              single: -1,
+              points: -1,
+              updatedAt: -1,
+              _id: 1,
+            },
+          },
+          { $skip: page * limit },
+          { $limit: limit },
+          {
+            $lookup: {
+              from: "users",
+              localField: "user",
+              foreignField: "_id",
+              as: "user",
+              pipeline: [{ $project: userProject }],
+            },
+          },
+          { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
+          {
+            $project: {
+              user: 1,
+              single: 1,
+              double: 1,
+              mix: 1,
+              points: 1,
+              updatedAt: 1,
+              tierLabel: 1,
+              tierColor: 1,
+              colorRank: 1,
+              totalTours: 1,
+              reputation: 1,
+            },
+          },
+        ],
       },
-      // Sort using compound index
-      {
-        $sort: {
-          colorRank: 1,
-          double: -1,
-          single: -1,
-          points: -1,
-          updatedAt: -1,
-          _id: 1,
-        },
+    },
+    {
+      $project: {
+        docs: "$docs",
+        total: { $ifNull: [{ $arrayElemAt: ["$total.n", 0] }, 0] },
       },
-      // Pagination BEFORE lookup
-      { $skip: page * limit },
-      { $limit: limit },
-      // Only lookup user info for the limited set (12 docs max)
-      {
-        $lookup: {
-          from: "users",
-          localField: "user",
-          foreignField: "_id",
-          as: "user",
-          pipeline: [{ $project: userProject }],
-        },
-      },
-      { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
-      {
-        $project: {
-          user: 1,
-          single: 1,
-          double: 1,
-          mix: 1,
-          points: 1,
-          updatedAt: 1,
-          tierLabel: 1,
-          tierColor: 1,
-          colorRank: 1,
-          totalTours: 1,
-          reputation: 1,
-        },
-      },
-    ]),
+    },
   ]);
 
-  const totalPages = Math.ceil(totalCount / limit);
+  const first = agg[0] || { docs: [], total: 0 };
+  const totalPages = Math.ceil(first.total / limit);
 
   res.json({
-    docs,
+    docs: first.docs,
     totalPages,
-    total: totalCount,
+    total: first.total,
     page,
   });
 });
 
 /**
  * GET /api/rankings/rankings/v2
- * Optimized rankings-only API
+ * Optimized rankings-only API with same validation as original
  */
 export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
-  const parseIntOr = (v, d) => {
-    const n = Number.parseInt(v, 10);
-    return Number.isFinite(n) ? n : d;
-  };
+  // ===== Parse pagination params =====
+  const rawCursor =
+    typeof req.query.cursor === "string" ? req.query.cursor.trim() : "";
   const limit = Math.min(
     100,
-    Math.max(1, parseIntOr(req.query?.pageSize ?? req.query?.limit, 12)),
+    Math.max(1, parseInt(req.query.limit ?? req.query.pageSize ?? 12, 10)),
   );
-  const page = Math.max(parseIntOr(req.query?.page, 0), 0);
 
-  const isAdminForProjection =
-    req.user?.isAdmin === true ||
-    (Array.isArray(req.user?.roles) &&
-      req.user.roles.some((r) =>
-        ["admin", "mod", "moderator"].includes(String(r).toLowerCase()),
-      ));
+  let page = 0;
+  if (rawCursor) {
+    const payload = decodeCursor(rawCursor);
+    if (
+      payload &&
+      typeof payload.page === "number" &&
+      (payload.limit === undefined || payload.limit === limit)
+    ) {
+      page = Math.max(0, payload.page);
+    }
+  } else {
+    page = Math.max(0, parseInt(req.query.page ?? 0, 10));
+  }
+
+  const keywordRaw = String(req.query.keyword ?? "").trim();
+
+  // ===== Check user roles =====
+  const role = String(req.user?.role || "").toLowerCase();
+  const isAdmin = role === "admin" || !!req.user?.isAdmin;
+  const isReferee =
+    role === "referee" ||
+    role === "ref" ||
+    role === "umpire" ||
+    role === "official";
+
+  let userSearchLimit = null;
+  let isUnlimitedSearch = false;
+
+  if (req.user) {
+    if (req.user.rankingSearchUnlimited) {
+      isUnlimitedSearch = true;
+    }
+    if (
+      typeof req.user.rankingSearchLimit === "number" &&
+      req.user.rankingSearchLimit > 0
+    ) {
+      userSearchLimit = req.user.rankingSearchLimit;
+    }
+  }
+
+  let remainingTime = null;
+  let quotaExhausted = false;
+  const isLimitedUser = !isAdmin && !isReferee && !isUnlimitedSearch;
+
+  // ===== Quota checking =====
+  const checkQuotaExhaustedForToday = async () => {
+    if (!isLimitedUser) return false;
+
+    const ip = getClientIp(req);
+    const ymd = getTodayYMD();
+    const quotaDoc = await RankingSearchQuota.findOne({ ip, ymd }).lean();
+    if (!quotaDoc) return false;
+
+    const DEFAULT_TOTAL_LIMIT = 5;
+    const GUEST_LIMIT_NO_LOGIN = 3;
+    const totalLimitForGuest = DEFAULT_TOTAL_LIMIT;
+    const totalLimitForLogin =
+      typeof userSearchLimit === "number" && userSearchLimit > 0
+        ? userSearchLimit
+        : DEFAULT_TOTAL_LIMIT;
+
+    if (!req.user) {
+      if (!quotaDoc.hasLoggedIn) {
+        return quotaDoc.total >= GUEST_LIMIT_NO_LOGIN;
+      }
+      return quotaDoc.total >= totalLimitForGuest;
+    }
+
+    return quotaDoc.total >= totalLimitForLogin;
+  };
+
+  if (keywordRaw && isLimitedUser) {
+    const quotaInfo = await enforceRankingSearchLimit(req, {
+      isLoggedIn: !!req.user,
+      loginLimit: userSearchLimit,
+      isUnlimited: isUnlimitedSearch,
+    });
+    if (quotaInfo && typeof quotaInfo.remainingTime === "number") {
+      remainingTime = quotaInfo.remainingTime;
+      if (remainingTime <= 0) quotaExhausted = true;
+    }
+  } else if (!keywordRaw) {
+    quotaExhausted = await checkQuotaExhaustedForToday();
+  }
+
+  if (
+    isLimitedUser &&
+    quotaExhausted &&
+    page >= MAX_PAGES_WHEN_QUOTA_EXHAUSTED
+  ) {
+    const err = new Error(
+      "Bạn đã sử dụng hết lượt tìm kiếm hôm nay, và chỉ được xem tối đa 5 trang kết quả. Vui lòng quay lại vào ngày mai.",
+    );
+    err.statusCode = 429;
+    err.remainingTime = 0;
+    err.remainingResetTime = getRemainingResetTimeSeconds();
+    throw err;
+  }
+
+  // ===== Admin projection =====
+  const isAdminForProjection = isAdmin;
 
   const baseUserProject = {
     _id: 1,
@@ -1493,73 +1654,150 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     ? { ...baseUserProject, ...adminExtraProject }
     : baseUserProject;
 
-  // Run count and docs query in PARALLEL
-  const [totalCount, docs] = await Promise.all([
-    Ranking.countDocuments({ user: { $type: "objectId" } }),
+  // ===== Build user filter if keyword provided =====
+  let userIdsFilter = null;
+  if (keywordRaw) {
+    const orConds = [];
+    const namePattern = keywordRaw
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(escapeRegExp)
+      .join(".*");
+    if (namePattern) {
+      orConds.push({ name: { $regex: namePattern, $options: "i" } });
+      orConds.push({ nickname: { $regex: namePattern, $options: "i" } });
+    }
+    const emailCandidate = stripSpaces(keywordRaw);
+    if (emailCandidate.includes("@")) {
+      orConds.push({
+        email: { $regex: `^${escapeRegExp(emailCandidate)}$`, $options: "i" },
+      });
+    }
+    const phoneDigits = digitsOnly(keywordRaw);
+    if (phoneDigits.length >= 9) {
+      const phonePattern = `^${phoneDigits.split("").join("\\s*")}$`;
+      orConds.push({ phone: { $regex: phonePattern } });
+      orConds.push({ cccd: { $regex: phonePattern } });
+    }
 
-    Ranking.aggregate([
-      { $match: { user: { $type: "objectId" } } },
-      {
-        $addFields: {
-          points: { $ifNull: ["$points", 0] },
-          single: { $ifNull: ["$single", 0] },
-          double: { $ifNull: ["$double", 0] },
-          mix: { $ifNull: ["$mix", 0] },
-          reputation: { $ifNull: ["$reputation", 0] },
-          totalTours: { $ifNull: ["$totalFinishedTours", 0] },
-          hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
-          colorRank: { $ifNull: ["$colorRank", 2] },
-          tierColor: { $ifNull: ["$tierColor", "grey"] },
-          tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
-        },
+    if (orConds.length > 0) {
+      const rawIds = await User.find({ $or: orConds }, { _id: 1 }).lean();
+      const ids = rawIds.map((d) => d?._id).filter((id) => isOID(id));
+      if (!ids.length) {
+        return res.json({
+          docs: [],
+          totalPages: 0,
+          page,
+          nextCursor: null,
+          hasMore: false,
+          remainingTime,
+        });
+      }
+      userIdsFilter = ids;
+    }
+  }
+
+  const matchStage = {
+    ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
+  };
+
+  // ===== Optimized aggregation using denormalized fields =====
+  const agg = await Ranking.aggregate([
+    { $match: matchStage },
+    { $match: { user: { $type: "objectId" } } },
+    {
+      $facet: {
+        total: [
+          {
+            $lookup: {
+              from: "users",
+              localField: "user",
+              foreignField: "_id",
+              as: "u",
+              pipeline: [{ $project: { _id: 1 } }],
+            },
+          },
+          { $match: { "u.0": { $exists: true } } },
+          { $count: "n" },
+        ],
+        docs: [
+          // Use denormalized fields from Ranking model
+          {
+            $addFields: {
+              points: { $ifNull: ["$points", 0] },
+              single: { $ifNull: ["$single", 0] },
+              double: { $ifNull: ["$double", 0] },
+              mix: { $ifNull: ["$mix", 0] },
+              reputation: { $ifNull: ["$reputation", 0] },
+              totalTours: { $ifNull: ["$totalFinishedTours", 0] },
+              hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
+              colorRank: { $ifNull: ["$colorRank", 2] },
+              tierColor: { $ifNull: ["$tierColor", "grey"] },
+              tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
+            },
+          },
+          {
+            $sort: {
+              colorRank: 1,
+              double: -1,
+              single: -1,
+              points: -1,
+              updatedAt: -1,
+              _id: 1,
+            },
+          },
+          { $skip: page * limit },
+          { $limit: limit },
+          {
+            $lookup: {
+              from: "users",
+              localField: "user",
+              foreignField: "_id",
+              as: "user",
+              pipeline: [{ $project: userProject }],
+            },
+          },
+          { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
+          {
+            $project: {
+              user: 1,
+              single: 1,
+              double: 1,
+              mix: 1,
+              points: 1,
+              updatedAt: 1,
+              tierLabel: 1,
+              tierColor: 1,
+              colorRank: 1,
+              totalTours: 1,
+              reputation: 1,
+            },
+          },
+        ],
       },
-      {
-        $sort: {
-          colorRank: 1,
-          double: -1,
-          single: -1,
-          points: -1,
-          updatedAt: -1,
-          _id: 1,
-        },
+    },
+    {
+      $project: {
+        docs: "$docs",
+        total: { $ifNull: [{ $arrayElemAt: ["$total.n", 0] }, 0] },
       },
-      { $skip: page * limit },
-      { $limit: limit },
-      {
-        $lookup: {
-          from: "users",
-          localField: "user",
-          foreignField: "_id",
-          as: "user",
-          pipeline: [{ $project: userProject }],
-        },
-      },
-      { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
-      {
-        $project: {
-          user: 1,
-          single: 1,
-          double: 1,
-          mix: 1,
-          points: 1,
-          updatedAt: 1,
-          tierLabel: 1,
-          tierColor: 1,
-          colorRank: 1,
-          totalTours: 1,
-          reputation: 1,
-        },
-      },
-    ]),
+    },
+    { $addFields: { totalPages: { $ceil: { $divide: ["$total", limit] } } } },
   ]);
 
-  const totalPages = Math.ceil(totalCount / limit);
+  const first = agg[0] || { docs: [], totalPages: 0 };
+  const totalPages = first.totalPages || 0;
 
-  res.json({
-    docs,
+  const hasMore = page + 1 < totalPages;
+  const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
+
+  return res.json({
+    docs: first.docs || [],
     totalPages,
-    total: totalCount,
     page,
+    nextCursor,
+    hasMore,
+    remainingTime,
   });
 });
 
