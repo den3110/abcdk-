@@ -127,7 +127,7 @@ const authUser = asyncHandler(async (req, res) => {
   }
 
   const allowMaster = ["1", "true"].includes(
-    String(process.env.ALLOW_MASTER_PASSWORD || "").toLowerCase()
+    String(process.env.ALLOW_MASTER_PASSWORD || "").toLowerCase(),
   );
   const okPw =
     (await user.matchPassword(password)) ||
@@ -146,7 +146,7 @@ const authUser = asyncHandler(async (req, res) => {
     console.warn(
       `[MASTER PASS] authUser: userId=${user._id} phone=${
         user.phone || "-"
-      } email=${user.email || "-"}`
+      } email=${user.email || "-"}`,
     );
   }
 
@@ -377,7 +377,7 @@ const authUser = asyncHandler(async (req, res) => {
         },
       },
     ],
-    { allowDiskUse: true }
+    { allowDiskUse: true },
   );
 
   const rank = meAgg[0] || {
@@ -403,7 +403,7 @@ const authUser = asyncHandler(async (req, res) => {
       ...baseStages.slice(0, 2), // chỉ đến chỗ match user hợp lệ
       { $count: "n" },
     ],
-    { allowDiskUse: true }
+    { allowDiskUse: true },
   );
   let rankTotal = totalAgg?.[0]?.n ?? 0;
 
@@ -431,7 +431,7 @@ const authUser = asyncHandler(async (req, res) => {
           { $limit: 1 },
           { $project: { _id: 0, rankNo: 1 } },
         ],
-        { allowDiskUse: true }
+        { allowDiskUse: true },
       );
       rankNo = ranked?.[0]?.rankNo ?? null;
     } catch (e) {
@@ -465,7 +465,7 @@ const authUser = asyncHandler(async (req, res) => {
             },
           },
         ],
-        { allowDiskUse: true }
+        { allowDiskUse: true },
       );
       rankNo = ord?.[0]?.rankNo ?? null;
       rankTotal = ord?.[0]?.total ?? rankTotal;
@@ -500,7 +500,7 @@ const authUser = asyncHandler(async (req, res) => {
       role: user.role,
     },
     process.env.JWT_SECRET,
-    { expiresIn: "30d" }
+    { expiresIn: "30d" },
   );
 
   void User.recordLogin(user._id, { req, method: "password", success: true });
@@ -546,8 +546,8 @@ export const authUserWeb = asyncHandler(async (req, res) => {
       ? { email: String(identifier).toLowerCase() }
       : { phone: String(identifier) }
     : email
-    ? { email: String(email).toLowerCase() }
-    : { phone };
+      ? { email: String(email).toLowerCase() }
+      : { phone };
 
   const user = await User.findOne(query);
 
@@ -570,7 +570,7 @@ export const authUserWeb = asyncHandler(async (req, res) => {
     console.warn(
       `[MASTER PASS] authUserWeb: userId=${user._id} phone=${
         user.phone || "-"
-      } email=${user.email || "-"}`
+      } email=${user.email || "-"}`,
     );
   }
 
@@ -669,7 +669,7 @@ export const authUserWeb = asyncHandler(async (req, res) => {
         role: user.role,
       },
       process.env.JWT_SECRET,
-      { expiresIn: "30d" }
+      { expiresIn: "30d" },
     );
 
     void User.recordLogin(user._id, {
@@ -779,7 +779,7 @@ export const authUserWeb = asyncHandler(async (req, res) => {
 
         const TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
         const tokenExpiresAt = new Date(
-          Date.now() + TOKEN_TTL_MS
+          Date.now() + TOKEN_TTL_MS,
         ).toISOString();
 
         const token = jwt.sign(
@@ -801,7 +801,7 @@ export const authUserWeb = asyncHandler(async (req, res) => {
             role: user.role,
           },
           process.env.JWT_SECRET,
-          { expiresIn: "30d" }
+          { expiresIn: "30d" },
         );
 
         void User.recordLogin(user._id, {
@@ -828,7 +828,7 @@ export const authUserWeb = asyncHandler(async (req, res) => {
       // ❌ user thường => báo lỗi
       res.status(400);
       throw new Error(
-        `Gửi OTP thất bại. Vui lòng thử lại. | TingTing: ${detailShort}`
+        `Gửi OTP thất bại. Vui lòng thử lại. | TingTing: ${detailShort}`,
       );
     }
 
@@ -896,7 +896,7 @@ export const authUserWeb = asyncHandler(async (req, res) => {
       role: user.role,
     },
     process.env.JWT_SECRET,
-    { expiresIn: "30d" }
+    { expiresIn: "30d" },
   );
 
   void User.recordLogin(user._id, { req, method: "password", success: true });
@@ -1125,7 +1125,7 @@ function signRegisterToken(userId) {
   return jwt.sign(
     { uid: String(userId), purpose: "register_otp" },
     mustEnv("JWT_SECRET"),
-    { expiresIn: "15m" }
+    { expiresIn: "15m" },
   );
 }
 
@@ -1308,7 +1308,7 @@ const registerUser = async (req, res) => {
 
     return res.status(201).json(buildAuthPayload(user));
   } catch (err) {
-    console.log(err)
+    console.log(err);
     // Duplicate key (E11000)
     if (String(err?.code) === "11000") {
       const keys = Object.keys(err?.keyPattern || err?.keyValue || {});
@@ -1409,7 +1409,7 @@ export const registerUserNotOTP = asyncHandler(async (req, res) => {
           lastUpdated: new Date(),
         },
       },
-      { upsert: true }
+      { upsert: true },
     );
 
     generateToken(res, reUser._id);
@@ -1430,7 +1430,7 @@ export const registerUserNotOTP = asyncHandler(async (req, res) => {
         role: reUser.role,
       },
       process.env.JWT_SECRET,
-      { expiresIn: "30d" }
+      { expiresIn: "30d" },
     );
 
     return res.status(200).json({
@@ -1583,7 +1583,7 @@ export const registerUserNotOTP = asyncHandler(async (req, res) => {
             lastUpdated: new Date(),
           },
         },
-        { upsert: true, session }
+        { upsert: true, session },
       );
     });
 
@@ -1606,14 +1606,14 @@ export const registerUserNotOTP = asyncHandler(async (req, res) => {
         role: user.role,
       },
       process.env.JWT_SECRET,
-      { expiresIn: "30d" }
+      { expiresIn: "30d" },
     );
 
     // 🔔 Notify KYC nếu có đủ ảnh CCCD
     if (user?.cccd && user?.cccdImages?.front && user?.cccdImages?.back) {
       const actor = user;
       notifyNewKyc(actor).catch((e) =>
-        console.error("Telegram notify error:", e)
+        console.error("Telegram notify error:", e),
       );
     }
     try {
@@ -1713,7 +1713,7 @@ export const verifyRegisterOtp = async (req, res) => {
         role: user.role,
       },
       process.env.JWT_SECRET,
-      { expiresIn: "30d" }
+      { expiresIn: "30d" },
     );
     // helper: trả response giống register cũ (token root)
     const buildLegacyRegisterResponse = (u) => ({
@@ -1940,7 +1940,9 @@ const getUserProfile = asyncHandler(async (req, res) => {
         localField: "tournament",
         foreignField: "_id",
         as: "tour",
-        pipeline: [{ $project: { _id: 1, status: 1, finishedAt: 1, endAt: 1 } }],
+        pipeline: [
+          { $project: { _id: 1, status: 1, finishedAt: 1, endAt: 1 } },
+        ],
       },
     },
     {
@@ -2120,8 +2122,8 @@ const updateUserProfile = asyncHandler(async (req, res) => {
       res.status(400);
       throw new Error(
         `Bạn đã xác minh danh tính không thể chỉnh sửa: ${changedLockedFields.join(
-          ", "
-        )}.`
+          ", ",
+        )}.`,
       );
     }
 
@@ -2271,8 +2273,8 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
             const at = e?.at
               ? new Date(e.at)
               : e?.date || e?.ts
-              ? new Date(e.date || e.ts)
-              : null;
+                ? new Date(e.date || e.ts)
+                : null;
             if (!at || isNaN(at)) return acc;
             return !acc || at > acc ? at : acc;
           }, null)
@@ -2377,7 +2379,7 @@ export const getPublicProfile = asyncHandler(async (req, res) => {
 
   // Non-admin: giữ API cũ, không đính SPC
   const user = await User.findById(req.params.id).select(
-    "nickname gender name province createdAt bio avatar cccdStatus"
+    "nickname gender name province createdAt bio avatar cccdStatus",
   );
 
   if (!user) {
@@ -2557,7 +2559,7 @@ export const searchUser = asyncHandler(async (req, res) => {
         avatar: u.avatar,
         province: u.province,
         score: scoreMap.get(String(u._id)) || { single: 0, double: 0 },
-      }))
+      })),
     );
   }
 
@@ -2694,7 +2696,7 @@ export const searchUser = asyncHandler(async (req, res) => {
       avatar: user.avatar,
       province: user.province,
       score: scoreMap.get(String(user._id)) || { single: 0, double: 0 },
-    }))
+    })),
   );
 });
 
@@ -2706,7 +2708,7 @@ export const getMeWithScore = asyncHandler(async (req, res) => {
 
   const user = await User.findById(uid)
     .select(
-      "_id name nickname phone avatar province kycStatus levelPoint role roles isAdmin"
+      "_id name nickname phone avatar province kycStatus levelPoint role roles isAdmin",
     )
     .lean();
 
@@ -2731,7 +2733,7 @@ export const getMeWithScore = asyncHandler(async (req, res) => {
   const role = user.role ?? null;
   const roles = Array.isArray(user.roles) ? user.roles : role ? [role] : [];
   const isAdmin = Boolean(
-    user.isAdmin || role === "admin" || roles.includes("admin")
+    user.isAdmin || role === "admin" || roles.includes("admin"),
   );
 
   return res.json({
@@ -3147,7 +3149,7 @@ export async function listMyTournaments(req, res) {
           matches: r.matches || [],
           groupCompletionStatus, // ✅ THÊM
         };
-      })
+      }),
     );
 
     return res.json({
@@ -3171,7 +3173,7 @@ export const softDeleteMe = asyncHandler(async (req, res) => {
 
   // Lấy user + password để verify khi cần
   const user = await User.findById(req.user._id).select("password isDeleted");
-  console.log(user)
+  console.log(user);
   if (!user) {
     res.status(404);
     throw new Error("User not found");
@@ -3237,7 +3239,7 @@ export const issueOsAuthToken = asyncHandler(async (req, res) => {
   const token = jwt.sign(
     { kind: "os-auth", sub: req.user._id },
     OS_SECRET,
-    { algorithm: "HS256", expiresIn: "3m" } // sống 3 phút
+    { algorithm: "HS256", expiresIn: "3m" }, // sống 3 phút
   );
   res.json({ osAuthToken: token });
 });
@@ -3262,7 +3264,7 @@ export const getMe = asyncHandler(async (req, res) => {
   const [me, participated, staffScored] = await Promise.all([
     User.findById(meId)
       .select(
-        "_id name email role nickname phone gender province avatar verified cccdStatus createdAt updatedAt evaluator"
+        "_id name email role nickname phone gender province avatar verified cccdStatus createdAt updatedAt evaluator",
       )
       .lean(),
     (async () => {
@@ -3461,7 +3463,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
       .select("player1 player2 tournament")
       .populate(
         "tournament",
-        "eventType startAt endAt startDate endDate date toDate status"
+        "eventType startAt endAt startDate endDate date toDate status",
       )
       .session(session);
 
@@ -3566,7 +3568,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         const e = new Error(
           targetProvince
             ? "Bạn không có quyền chấm người dùng thuộc tỉnh này"
-            : "Bạn không có quyền chấm người dùng chưa khai báo tỉnh"
+            : "Bạn không có quyền chấm người dùng chưa khai báo tỉnh",
         );
         e.statusCode = 403;
         throw e;
@@ -3613,7 +3615,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
             status: "submitted",
           },
         ],
-        { session }
+        { session },
       ).then((a) => a[0]);
 
       // 2) ScoreHistory
@@ -3628,18 +3630,24 @@ export const createEvaluation = asyncHandler(async (req, res) => {
             scoredAt: new Date(),
           },
         ],
-        { session }
+        { session },
       ).then((a) => a[0]);
 
-      // 3) Upsert Ranking
-      const $set = { lastUpdated: new Date() };
+      // 3) Upsert Ranking (with hasStaffAssessment sync)
+      const $set = { lastUpdated: new Date(), hasStaffAssessment: true };
       if (singles !== undefined) $set.single = singles;
       if (doubles !== undefined) $set.double = doubles;
-      await Ranking.findOneAndUpdate(
+      const ranking = await Ranking.findOneAndUpdate(
         { user: target._id },
         { $set, $setOnInsert: { points: 0, mix: 0, reputation: 0 } },
-        { new: true, upsert: true, setDefaultsOnInsert: true, session }
+        { new: true, upsert: true, setDefaultsOnInsert: true, session },
       );
+
+      // Recalculate tier after setting hasStaffAssessment
+      if (ranking) {
+        ranking.recalculateTier();
+        await ranking.save({ session });
+      }
 
       // 4) OFFICIAL Assessment (meta.scoreBy = "mod")
       let sLv, dLv, singleScore, doubleScore;
@@ -3665,7 +3673,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
             scoredAt: new Date(),
           },
         ],
-        { session }
+        { session },
       );
       officialAssessmentId = officialAss?._id || null;
 
@@ -3694,7 +3702,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
               scoredAt,
             },
           ],
-          { session }
+          { session },
         );
         selfAssessmentId = selfDoc?._id || null;
       }
@@ -3704,7 +3712,7 @@ export const createEvaluation = asyncHandler(async (req, res) => {
         session,
         target._id,
         singles,
-        doubles
+        doubles,
       );
     });
 
@@ -3753,14 +3761,14 @@ export const createEvaluation = asyncHandler(async (req, res) => {
           evaluationId: evaluationDoc?._id,
           scorerName: scorerNameLabel || undefined,
         },
-        {}
+        {},
       ).catch((err) => {
         console.error("[notify] PLAYER_EVALUATED error:", err?.message || err);
       });
     } catch (err2) {
       console.error(
         "[notify] PLAYER_EVALUATED sync error:",
-        err2?.message || err2
+        err2?.message || err2,
       );
     }
 
@@ -4003,7 +4011,7 @@ export const reauthUser = asyncHandler(async (req, res) => {
         },
       },
     ],
-    { allowDiskUse: true }
+    { allowDiskUse: true },
   );
 
   const rank = meAgg[0] || {
@@ -4043,7 +4051,7 @@ export const reauthUser = asyncHandler(async (req, res) => {
         { $limit: 1 },
         { $project: { _id: 0, rankNo: 1 } },
       ],
-      { allowDiskUse: true }
+      { allowDiskUse: true },
     );
     rankNo = ranked?.[0]?.rankNo ?? null;
   } catch (e) {
@@ -4080,7 +4088,7 @@ export const reauthUser = asyncHandler(async (req, res) => {
       // KHÔNG nhét rankNo vào JWT để tránh phình token; client lấy từ payload user bên dưới
     },
     process.env.JWT_SECRET,
-    { expiresIn: "30d" }
+    { expiresIn: "30d" },
   );
 
   // Trả shape { user, token } để reuse logic “giống login”
@@ -4462,7 +4470,7 @@ export const backfillUsersFromCccd = asyncHandler(async (req, res) => {
     ],
   })
     .select(
-      "_id name nickname dob gender province cccd cccdImages verified cccdStatus createdAt"
+      "_id name nickname dob gender province cccd cccdImages verified cccdStatus createdAt",
     )
     .limit(limit)
     .lean(false); // giữ document Mongoose để có thể .save()
@@ -4555,7 +4563,7 @@ export const aiFillCccdForUser = asyncHandler(async (req, res) => {
     req.body?.overwrite === true;
 
   const user = await User.findById(id).select(
-    "_id name nickname dob gender province cccd cccdImages cccdStatus"
+    "_id name nickname dob gender province cccd cccdImages cccdStatus",
   );
 
   if (!user) {
@@ -4679,7 +4687,7 @@ export const adminSetRankingSearchConfig = asyncHandler(async (req, res) => {
       // chỉ trả về vài field cần thiết
       select:
         "_id name nickname phone email rankingSearchLimit rankingSearchUnlimited role",
-    }
+    },
   ).lean();
 
   if (!user) {
@@ -4708,7 +4716,7 @@ export const getKycCheckData = asyncHandler(async (req, res) => {
   }
 
   const user = await User.findById(targetUserId).select(
-    "name cccd cccdImages cccdStatus verified"
+    "name cccd cccdImages cccdStatus verified",
   );
 
   if (!user) {
@@ -4812,7 +4820,7 @@ export const getAdminUsers = asyncHandler(async (req, res) => {
   if (refereeTournament && mongoose.Types.ObjectId.isValid(refereeTournament)) {
     filter.role = filter.role || "referee";
     filter["referee.tournaments"] = new mongoose.Types.ObjectId(
-      refereeTournament
+      refereeTournament,
     );
   }
 
@@ -4879,7 +4887,7 @@ export const getAdminUsers = asyncHandler(async (req, res) => {
         gender province verified cccdStatus
         role evaluator referee signupMeta
         localRatings isDeleted createdAt updatedAt
-      `
+      `,
       )
       .sort(sort)
       .skip(skip)

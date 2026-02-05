@@ -63,7 +63,7 @@ function safe(label, fn, { silentCbError = false } = {}) {
       try {
         await replySafe(
           ctx,
-          "❌ Có lỗi xảy ra, vui lòng thử lại sau hoặc liên hệ admin."
+          "❌ Có lỗi xảy ra, vui lòng thử lại sau hoặc liên hệ admin.",
         );
       } catch (_) {}
     }
@@ -338,7 +338,7 @@ export async function initKycBot(app) {
     bot.use(
       safe("global-mw", async (_ctx, next) => {
         await next();
-      })
+      }),
     );
 
     // Nuốt lỗi Telegraf-level
@@ -353,11 +353,11 @@ export async function initKycBot(app) {
           if (err?.response?.error_code === 429) return;
           await replySafe(
             ctx,
-            "⚠️ Bot đang bận hoặc bị giới hạn, thử lại sau nhé."
+            "⚠️ Bot đang bận hoặc bị giới hạn, thử lại sau nhé.",
           );
         },
-        { silentCbError: true }
-      )
+        { silentCbError: true },
+      ),
     );
 
     // Logger callback_query (bọc an toàn + giữ next)
@@ -371,10 +371,10 @@ export async function initKycBot(app) {
           "[kycBot] callback_query:",
           ctx.callbackQuery?.data,
           "from",
-          ctx.from?.id
+          ctx.from?.id,
         );
         return next();
-      })
+      }),
     );
 
     // ====== Toggle thanh toán: reg:pay / reg:unpay ======
@@ -387,7 +387,7 @@ export async function initKycBot(app) {
             "Bạn không có quyền thực hiện thao tác này.",
             {
               show_alert: true,
-            }
+            },
           );
         }
 
@@ -401,7 +401,7 @@ export async function initKycBot(app) {
         const reg = await Registration.findByIdAndUpdate(
           regId,
           { $set: update },
-          { new: true }
+          { new: true },
         ).lean();
 
         if (!reg) {
@@ -444,7 +444,7 @@ export async function initKycBot(app) {
         const whenLine =
           isPaid && reg?.payment?.paidAt
             ? `• Thời điểm: <i>${new Date(reg.payment.paidAt).toLocaleString(
-                "vi-VN"
+                "vi-VN",
               )}</i>`
             : `• Thời điểm: <i>${new Date().toLocaleString("vi-VN")}</i>`;
 
@@ -464,9 +464,11 @@ export async function initKycBot(app) {
         });
 
         await ctx.answerCbQuery(
-          isPaid ? "Đã đánh dấu: ĐÃ thanh toán" : "Đã đánh dấu: CHƯA thanh toán"
+          isPaid
+            ? "Đã đánh dấu: ĐÃ thanh toán"
+            : "Đã đánh dấu: CHƯA thanh toán",
         );
-      })
+      }),
     );
 
     // ===== KYC: Duyệt / Từ chối =====
@@ -494,7 +496,7 @@ export async function initKycBot(app) {
         const updated = await User.findByIdAndUpdate(
           userId,
           { $set },
-          { new: true, runValidators: true }
+          { new: true, runValidators: true },
         ).select("_id cccdStatus verified");
         if (!updated) {
           await ctx.answerCbQuery("Cập nhật thất bại.", { show_alert: true });
@@ -502,7 +504,7 @@ export async function initKycBot(app) {
         }
 
         await ctx.answerCbQuery(
-          action === "approve" ? "Đã duyệt ✅" : "Đã từ chối ❌"
+          action === "approve" ? "Đã duyệt ✅" : "Đã từ chối ❌",
         );
 
         // Không để lỗi notify làm crash flow
@@ -511,7 +513,7 @@ export async function initKycBot(app) {
         } catch (e) {
           console.warn("[notifyKycReviewed] failed:", e?.message);
         }
-      })
+      }),
     );
 
     // ===== Complaint: ĐÃ XỬ LÝ / TỪ CHỐI =====
@@ -565,9 +567,9 @@ export async function initKycBot(app) {
         await ctx.answerCbQuery(
           newStatus === "resolved"
             ? "Đã đánh dấu: ĐÃ XỬ LÝ"
-            : "Đã đánh dấu: TỪ CHỐI"
+            : "Đã đánh dấu: TỪ CHỐI",
         );
-      })
+      }),
     );
 
     // Hiển thị lệnh (bọc try/catch)
@@ -631,9 +633,9 @@ export async function initKycBot(app) {
             "",
             "Gõ <code>/startkyc</code> để xem đầy đủ lệnh & cách dùng.",
           ].join("\n"),
-          { parse_mode: "HTML" }
+          { parse_mode: "HTML" },
         );
-      })
+      }),
     );
 
     // ------------------- /startkyc -------------------
@@ -700,7 +702,7 @@ export async function initKycBot(app) {
           parse_mode: "HTML",
           disable_web_page_preview: true,
         });
-      })
+      }),
     );
 
     // -------------------- /findkyc <q> -----------------
@@ -711,7 +713,7 @@ export async function initKycBot(app) {
         const q = (args[0] || "").trim();
         if (!q) {
           return ctx.reply(
-            "Cách dùng:\n/findkyc <email|số điện thoại|nickname>"
+            "Cách dùng:\n/findkyc <email|số điện thoại|nickname>",
           );
         }
 
@@ -769,7 +771,7 @@ export async function initKycBot(app) {
             });
           }
         }
-      })
+      }),
     );
 
     // -------------------- /pendkyc [limit] -----------------
@@ -779,7 +781,7 @@ export async function initKycBot(app) {
         const args = (ctx.message?.text || "").split(" ").slice(1);
         const limit = Math.min(
           Math.max(parseInt(args[0] || "20", 10) || 20, 1),
-          50
+          50,
         );
 
         const list = await User.find({ cccdStatus: "pending" })
@@ -793,7 +795,7 @@ export async function initKycBot(app) {
           (u, i) =>
             `${i + 1}. ${u?.name || "—"}${
               u?.nickname ? ` (@${u.nickname})` : ""
-            } — ${u?.phone || u?.email || ""}`
+            } — ${u?.phone || u?.email || ""}`,
         );
         const header = `📝 Danh sách KYC đang chờ (${list.length}):\n`;
         const summary = header + lines.join("\n");
@@ -848,10 +850,10 @@ export async function initKycBot(app) {
           }
         } else {
           await ctx.reply(
-            "Mẹo: Dùng /findkyc <email|phone|nickname> để mở chi tiết từng hồ sơ kèm ảnh & nút duyệt."
+            "Mẹo: Dùng /findkyc <email|phone|nickname> để mở chi tiết từng hồ sơ kèm ảnh & nút duyệt.",
           );
         }
-      })
+      }),
     );
 
     // ======================= /rank =========================
@@ -867,7 +869,7 @@ export async function initKycBot(app) {
               "Cách dùng:",
               '/rank <email|phone|nickname> <single> <double> [--guard] [--note "ghi chú..."]',
               'Ví dụ: /rank abcd 3.5 3.0 --note "đánh ổn định"',
-            ].join("\n")
+            ].join("\n"),
           );
         }
 
@@ -883,7 +885,7 @@ export async function initKycBot(app) {
         let sDouble = parseNumLoose(doubleStr);
         if (sSingle == null || sDouble == null) {
           return ctx.reply(
-            "❌ Điểm không hợp lệ. Ví dụ: 3.5 3.0 (dùng . hoặc , đều được)."
+            "❌ Điểm không hợp lệ. Ví dụ: 3.5 3.0 (dùng . hoặc , đều được).",
           );
         }
 
@@ -916,7 +918,7 @@ export async function initKycBot(app) {
               note ? `• Ghi chú: ${note}` : "",
             ]
               .filter(Boolean)
-              .join("\n")
+              .join("\n"),
           );
         }
 
@@ -925,9 +927,22 @@ export async function initKycBot(app) {
 
         const rank = await Ranking.findOneAndUpdate(
           { user: userId },
-          { $set: { single: sSingle, double: sDouble, updatedAt: new Date() } },
-          { upsert: true, new: true, setDefaultsOnInsert: true, lean: true }
+          {
+            $set: {
+              single: sSingle,
+              double: sDouble,
+              updatedAt: new Date(),
+              hasStaffAssessment: true,
+            },
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true },
         );
+
+        // Recalculate tier after setting hasStaffAssessment
+        if (rank) {
+          rank.recalculateTier();
+          await rank.save();
+        }
 
         const hasSelfAssessment = await Assessment.exists({
           user: userId,
@@ -978,9 +993,9 @@ export async function initKycBot(app) {
             note ? `• Ghi chú: ${note}` : "",
           ]
             .filter(Boolean)
-            .join("\n")
+            .join("\n"),
         );
-      })
+      }),
     );
 
     // ==================== /rankget | /point | /rating ====================
@@ -995,7 +1010,7 @@ export async function initKycBot(app) {
               "Cách dùng:",
               "/rankget <email|phone|nickname>",
               "Ví dụ: /rankget v1b2",
-            ].join("\n")
+            ].join("\n"),
           );
         }
 
@@ -1005,7 +1020,7 @@ export async function initKycBot(app) {
         const userId = String(u._id);
         const rank = await Ranking.findOne(
           { user: userId },
-          { single: 1, double: 1, updatedAt: 1 }
+          { single: 1, double: 1, updatedAt: 1 },
         ).lean();
 
         const _fmt1 = (v) =>
@@ -1027,13 +1042,13 @@ export async function initKycBot(app) {
             ]
               .filter(Boolean)
               .join("\n"),
-            { parse_mode: "HTML" }
+            { parse_mode: "HTML" },
           );
         }
 
         const last = await ScoreHistory.findOne(
           { user: userId },
-          { single: 1, double: 1, note: 1, scoredAt: 1 }
+          { single: 1, double: 1, note: 1, scoredAt: 1 },
         )
           .sort({ scoredAt: -1, _id: -1 })
           .lean();
@@ -1058,7 +1073,7 @@ export async function initKycBot(app) {
             ]
               .filter(Boolean)
               .join("\n"),
-            { parse_mode: "HTML" }
+            { parse_mode: "HTML" },
           );
         }
 
@@ -1066,9 +1081,9 @@ export async function initKycBot(app) {
           [
             "ℹ️ Chưa có điểm cho người dùng này.",
             "💡 Dùng /rank <q> <single> <double> để cập nhật.",
-          ].join("\n")
+          ].join("\n"),
         );
-      })
+      }),
     );
 
     // ========================== /reg ==========================
@@ -1086,7 +1101,7 @@ export async function initKycBot(app) {
               "Ví dụ:",
               "• /reg 10025",
               "• /reg 68c81897630cb625c458ea6f",
-            ].join("\n")
+            ].join("\n"),
           );
         }
 
@@ -1097,7 +1112,7 @@ export async function initKycBot(app) {
           reg = await Registration.findById(q).lean();
         } else {
           return ctx.reply(
-            "❌ Định dạng không hợp lệ. Nhập mã số (>=5 chữ số) hoặc _id (24 hex)."
+            "❌ Định dạng không hợp lệ. Nhập mã số (>=5 chữ số) hoặc _id (24 hex).",
           );
         }
 
@@ -1115,7 +1130,7 @@ export async function initKycBot(app) {
           reply_markup: buildPayKeyboard(reg._id, isPaid),
           disable_web_page_preview: true,
         });
-      })
+      }),
     );
 
     // ========================== /spc <query>[;province] [--debug] ==========================
@@ -1143,7 +1158,7 @@ export async function initKycBot(app) {
     }
     function renderSpcCaption(
       it,
-      { index = 1, total = 1, proxyUrl, status, debug = false } = {}
+      { index = 1, total = 1, proxyUrl, status, debug = false } = {},
     ) {
       const when = parseDotNetDate(it?.ThoiGianCham);
       const joined = parseDotNetDate(it?.JoinDate);
@@ -1161,7 +1176,7 @@ export async function initKycBot(app) {
         it?.TenTinhThanh ? `📍 Tỉnh/TP: <b>${esc(it?.TenTinhThanh)}</b>` : "",
         it?.SoDienThoai ? `📞 SĐT: <b>${esc(it?.SoDienThoai)}</b>` : "",
         `🥇 Điểm: <b>Single ${fmt1(it?.DiemDon)}</b> • <b>Double ${fmt1(
-          it?.DiemDoi
+          it?.DiemDoi,
         )}</b>`,
         `🏟 Môn: <b>${esc(sportNameById(it?.IDMonTheThao))}</b>`,
         it?.DienGiai ? `📝 Ghi chú: <i>${esc(it?.DienGiai)}</i>` : "",
@@ -1169,7 +1184,7 @@ export async function initKycBot(app) {
         joined ? `📅 Tham gia: <i>${fmtTimeVN(joined)}</i>` : "",
         debug
           ? `\n<b>Debug</b> • Status: <code>${esc(
-              String(status ?? "")
+              String(status ?? ""),
             )}</code>${
               proxyUrl ? ` • Proxy: <code>${esc(proxyUrl)}</code>` : ""
             }`
@@ -1203,7 +1218,7 @@ export async function initKycBot(app) {
               "/spc <chuỗi tìm kiếm>[;<tỉnh/thành>] [--debug]",
               "VD: /spc 0941xxxxxx",
               "VD: /spc Truong Vinh Hien;Ho Chi Minh",
-            ].join("\n")
+            ].join("\n"),
           );
         }
 
@@ -1220,7 +1235,7 @@ export async function initKycBot(app) {
                 : "",
             ]
               .filter(Boolean)
-              .join("\n")
+              .join("\n"),
           );
         }
 
@@ -1237,7 +1252,7 @@ export async function initKycBot(app) {
               provinceQuery ? `• Bộ lọc tỉnh: \"${provinceQuery}\"` : "",
             ]
               .filter(Boolean)
-              .join("\n")
+              .join("\n"),
           );
         }
 
@@ -1288,7 +1303,7 @@ export async function initKycBot(app) {
             disable_web_page_preview: true,
           });
         }
-      })
+      }),
     );
 
     // --------------------- Launch & Stop -------------------
@@ -1314,7 +1329,7 @@ export async function initKycBot(app) {
       bot.startPolling(
         30, // timeout (seconds)
         100, // limit (messages per request)
-        ["message", "callback_query", "inline_query"] // allowed updates
+        ["message", "callback_query", "inline_query"], // allowed updates
       );
 
       // ✅ Hoặc dùng launch() KHÔNG AWAIT

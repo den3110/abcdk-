@@ -175,12 +175,25 @@ export const adminUpdateRanking = asyncHandler(async (req, res) => {
     throw new Error("Không tìm thấy người dùng");
   }
 
-  // 3) Cập nhật/Upsert Ranking
+  // 3) Cập nhật/Upsert Ranking (with hasStaffAssessment sync)
   const rank = await Ranking.findOneAndUpdate(
     { user: userId },
-    { $set: { single: sSingle, double: sDouble, updatedAt: new Date() } },
-    { upsert: true, new: true, setDefaultsOnInsert: true, lean: true },
+    {
+      $set: {
+        single: sSingle,
+        double: sDouble,
+        updatedAt: new Date(),
+        hasStaffAssessment: true,
+      },
+    },
+    { upsert: true, new: true, setDefaultsOnInsert: true },
   );
+
+  // Recalculate tier after setting hasStaffAssessment
+  if (rank) {
+    rank.recalculateTier();
+    await rank.save();
+  }
 
   // 4) Nếu CHƯA từng có "tự chấm", tạo một bản tự chấm (admin hỗ trợ)
   const hasSelfAssessment = await Assessment.exists({
