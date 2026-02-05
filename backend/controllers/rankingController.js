@@ -1339,7 +1339,7 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
     return Number.isFinite(n) ? n : d;
   };
   const limit = Math.min(100, Math.max(1, parseIntOr(req.query?.pageSize, 12)));
-  const page = Math.max(parseIntOr(req.query?.page, 0), 0); // Frontend sends 0-indexed page
+  const page = Math.max(parseIntOr(req.query?.page, 0), 0);
 
   // Check if user is admin for extended projection
   const isAdminForProjection =
@@ -1372,103 +1372,79 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
     ? { ...baseUserProject, ...adminExtraProject }
     : baseUserProject;
 
-  const matchStage = {};
+  // Run count and docs query in PARALLEL for better performance
+  const [totalCount, docs] = await Promise.all([
+    // Simple count - no lookup needed, just count valid rankings
+    Ranking.countDocuments({ user: { $type: "objectId" } }),
 
-  const agg = await Ranking.aggregate([
-    { $match: matchStage },
-    { $match: { user: { $type: "objectId" } } },
-    {
-      $facet: {
-        total: [
-          {
-            $lookup: {
-              from: "users",
-              localField: "user",
-              foreignField: "_id",
-              as: "u",
-              pipeline: [{ $project: { _id: 1 } }],
-            },
-          },
-          { $match: { "u.0": { $exists: true } } },
-          { $group: { _id: "$user" } },
-          { $count: "n" },
-        ],
-        docs: [
-          // Use denormalized fields directly from Ranking document
-          {
-            $addFields: {
-              points: { $ifNull: ["$points", 0] },
-              single: { $ifNull: ["$single", 0] },
-              double: { $ifNull: ["$double", 0] },
-              mix: { $ifNull: ["$mix", 0] },
-              reputation: { $ifNull: ["$reputation", 0] },
-              // Use pre-computed fields from Ranking model
-              totalTours: { $ifNull: ["$totalFinishedTours", 0] },
-              hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
-              colorRank: { $ifNull: ["$colorRank", 2] },
-              tierColor: { $ifNull: ["$tierColor", "grey"] },
-              tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
-            },
-          },
-          // Sort using indexed colorRank field
-          {
-            $sort: {
-              colorRank: 1,
-              double: -1,
-              single: -1,
-              points: -1,
-              updatedAt: -1,
-              _id: 1,
-            },
-          },
-          // Pagination BEFORE lookup (key optimization!)
-          { $skip: page * limit },
-          { $limit: limit },
-          // Only lookup user info for the limited set
-          {
-            $lookup: {
-              from: "users",
-              localField: "user",
-              foreignField: "_id",
-              as: "user",
-              pipeline: [{ $project: userProject }],
-            },
-          },
-          { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
-          {
-            $project: {
-              user: 1,
-              single: 1,
-              double: 1,
-              mix: 1,
-              points: 1,
-              updatedAt: 1,
-              tierLabel: 1,
-              tierColor: 1,
-              colorRank: 1,
-              totalTours: 1,
-              reputation: 1,
-            },
-          },
-        ],
+    // Docs query - optimized pipeline
+    Ranking.aggregate([
+      { $match: { user: { $type: "objectId" } } },
+      // Use denormalized fields with defaults
+      {
+        $addFields: {
+          points: { $ifNull: ["$points", 0] },
+          single: { $ifNull: ["$single", 0] },
+          double: { $ifNull: ["$double", 0] },
+          mix: { $ifNull: ["$mix", 0] },
+          reputation: { $ifNull: ["$reputation", 0] },
+          totalTours: { $ifNull: ["$totalFinishedTours", 0] },
+          hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
+          colorRank: { $ifNull: ["$colorRank", 2] },
+          tierColor: { $ifNull: ["$tierColor", "grey"] },
+          tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
+        },
       },
-    },
-    {
-      $project: {
-        docs: "$docs",
-        total: { $ifNull: [{ $arrayElemAt: ["$total.n", 0] }, 0] },
+      // Sort using compound index
+      {
+        $sort: {
+          colorRank: 1,
+          double: -1,
+          single: -1,
+          points: -1,
+          updatedAt: -1,
+          _id: 1,
+        },
       },
-    },
-    { $addFields: { totalPages: { $ceil: { $divide: ["$total", limit] } } } },
+      // Pagination BEFORE lookup
+      { $skip: page * limit },
+      { $limit: limit },
+      // Only lookup user info for the limited set (12 docs max)
+      {
+        $lookup: {
+          from: "users",
+          localField: "user",
+          foreignField: "_id",
+          as: "user",
+          pipeline: [{ $project: userProject }],
+        },
+      },
+      { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
+      {
+        $project: {
+          user: 1,
+          single: 1,
+          double: 1,
+          mix: 1,
+          points: 1,
+          updatedAt: 1,
+          tierLabel: 1,
+          tierColor: 1,
+          colorRank: 1,
+          totalTours: 1,
+          reputation: 1,
+        },
+      },
+    ]),
   ]);
 
-  const first = agg[0] || { docs: [], totalPages: 0, total: 0 };
+  const totalPages = Math.ceil(totalCount / limit);
 
   res.json({
-    docs: first.docs,
-    totalPages: first.totalPages,
-    total: first.total,
-    page, // Return same 0-indexed page
+    docs,
+    totalPages,
+    total: totalCount,
+    page,
   });
 });
 
@@ -1481,8 +1457,11 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     const n = Number.parseInt(v, 10);
     return Number.isFinite(n) ? n : d;
   };
-  const limit = Math.min(100, Math.max(1, parseIntOr(req.query?.pageSize, 12)));
-  const page = Math.max(parseIntOr(req.query?.page, 0), 0); // Frontend sends 0-indexed page
+  const limit = Math.min(
+    100,
+    Math.max(1, parseIntOr(req.query?.pageSize ?? req.query?.limit, 12)),
+  );
+  const page = Math.max(parseIntOr(req.query?.page, 0), 0);
 
   const isAdminForProjection =
     req.user?.isAdmin === true ||
@@ -1514,98 +1493,73 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     ? { ...baseUserProject, ...adminExtraProject }
     : baseUserProject;
 
-  const matchStage = {};
+  // Run count and docs query in PARALLEL
+  const [totalCount, docs] = await Promise.all([
+    Ranking.countDocuments({ user: { $type: "objectId" } }),
 
-  const agg = await Ranking.aggregate([
-    { $match: matchStage },
-    { $match: { user: { $type: "objectId" } } },
-    {
-      $facet: {
-        total: [
-          {
-            $lookup: {
-              from: "users",
-              localField: "user",
-              foreignField: "_id",
-              as: "u",
-              pipeline: [{ $project: { _id: 1 } }],
-            },
-          },
-          { $match: { "u.0": { $exists: true } } },
-          { $group: { _id: "$user" } },
-          { $count: "n" },
-        ],
-        docs: [
-          {
-            $addFields: {
-              points: { $ifNull: ["$points", 0] },
-              single: { $ifNull: ["$single", 0] },
-              double: { $ifNull: ["$double", 0] },
-              mix: { $ifNull: ["$mix", 0] },
-              reputation: { $ifNull: ["$reputation", 0] },
-              totalTours: { $ifNull: ["$totalFinishedTours", 0] },
-              hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
-              colorRank: { $ifNull: ["$colorRank", 2] },
-              tierColor: { $ifNull: ["$tierColor", "grey"] },
-              tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
-            },
-          },
-          {
-            $sort: {
-              colorRank: 1,
-              double: -1,
-              single: -1,
-              points: -1,
-              updatedAt: -1,
-              _id: 1,
-            },
-          },
-          { $skip: page * limit },
-          { $limit: limit },
-          {
-            $lookup: {
-              from: "users",
-              localField: "user",
-              foreignField: "_id",
-              as: "user",
-              pipeline: [{ $project: userProject }],
-            },
-          },
-          { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
-          {
-            $project: {
-              user: 1,
-              single: 1,
-              double: 1,
-              mix: 1,
-              points: 1,
-              updatedAt: 1,
-              tierLabel: 1,
-              tierColor: 1,
-              colorRank: 1,
-              totalTours: 1,
-              reputation: 1,
-            },
-          },
-        ],
+    Ranking.aggregate([
+      { $match: { user: { $type: "objectId" } } },
+      {
+        $addFields: {
+          points: { $ifNull: ["$points", 0] },
+          single: { $ifNull: ["$single", 0] },
+          double: { $ifNull: ["$double", 0] },
+          mix: { $ifNull: ["$mix", 0] },
+          reputation: { $ifNull: ["$reputation", 0] },
+          totalTours: { $ifNull: ["$totalFinishedTours", 0] },
+          hasStaffAssessment: { $ifNull: ["$hasStaffAssessment", false] },
+          colorRank: { $ifNull: ["$colorRank", 2] },
+          tierColor: { $ifNull: ["$tierColor", "grey"] },
+          tierLabel: { $ifNull: ["$tierLabel", "0 điểm / Chưa đấu"] },
+        },
       },
-    },
-    {
-      $project: {
-        docs: "$docs",
-        total: { $ifNull: [{ $arrayElemAt: ["$total.n", 0] }, 0] },
+      {
+        $sort: {
+          colorRank: 1,
+          double: -1,
+          single: -1,
+          points: -1,
+          updatedAt: -1,
+          _id: 1,
+        },
       },
-    },
-    { $addFields: { totalPages: { $ceil: { $divide: ["$total", limit] } } } },
+      { $skip: page * limit },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: "users",
+          localField: "user",
+          foreignField: "_id",
+          as: "user",
+          pipeline: [{ $project: userProject }],
+        },
+      },
+      { $unwind: { path: "$user", preserveNullAndEmptyArrays: false } },
+      {
+        $project: {
+          user: 1,
+          single: 1,
+          double: 1,
+          mix: 1,
+          points: 1,
+          updatedAt: 1,
+          tierLabel: 1,
+          tierColor: 1,
+          colorRank: 1,
+          totalTours: 1,
+          reputation: 1,
+        },
+      },
+    ]),
   ]);
 
-  const first = agg[0] || { docs: [], totalPages: 0, total: 0 };
+  const totalPages = Math.ceil(totalCount / limit);
 
   res.json({
-    docs: first.docs,
-    totalPages: first.totalPages,
-    total: first.total,
-    page, // Return same 0-indexed page
+    docs,
+    totalPages,
+    total: totalCount,
+    page,
   });
 });
 
