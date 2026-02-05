@@ -130,6 +130,7 @@ function redirectTo503() {
 const baseQuery = async (args, api, extraOptions) => {
   const result = await rawBaseQuery(args, api, extraOptions);
 
+  console.log(result?.error)
   const status = result?.error?.status;
 
   // 401: đăng xuất & dọn cache
