@@ -51,7 +51,7 @@ export const rankingsApiSlice = apiSlice.injectEndpoints({
         if (keyword) params.set("keyword", String(keyword).trim());
         const qs = params.toString();
         return {
-          url: `/api/rankings/rankings${qs ? `?${qs}` : ""}`,
+          url: `/api/rankings/rankings/v2${qs ? `?${qs}` : ""}`,
           method: "GET",
         };
       },
