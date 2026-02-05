@@ -160,6 +160,14 @@ export async function createAssessment(req, res) {
     const isStaffScoring = ["admin", "mod", "moderator"].includes(
       String(scoreBy).toLowerCase(),
     );
+    console.log(
+      "[Assessment] scoreBy:",
+      scoreBy,
+      "| isStaffScoring:",
+      isStaffScoring,
+      "| userId:",
+      userId,
+    );
 
     const ranking = await Ranking.findOneAndUpdate(
       { user: userId },
