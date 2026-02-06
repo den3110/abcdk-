@@ -157,19 +157,34 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
     star.style.transformOrigin = "center";
     svg.appendChild(star);
 
-    // P text (hidden initially) - solid color for consistent mobile rendering
-    const pText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    pText.setAttribute("x", "14");
-    pText.setAttribute("y", "35");
-    pText.setAttribute("text-anchor", "middle");
-    pText.setAttribute("font-size", "32");
-    pText.setAttribute("font-weight", "800");
-    pText.setAttribute("fill", "#0d6efd"); // Solid blue - works on all devices
-    pText.textContent = pChar;
-    pText.style.opacity = "0";
-    svg.appendChild(pText);
+    // P letter as HTML span with CSS gradient (works on all devices including mobile)
+    const pSpan = document.createElement("span");
+    pSpan.textContent = pChar;
+    pSpan.style.display = "inline-block";
+    pSpan.style.opacity = "0";
+    pSpan.style.background = "linear-gradient(45deg, #0d6efd 30%, #0dcaf0 90%)";
+    pSpan.style.webkitBackgroundClip = "text";
+    pSpan.style.webkitTextFillColor = "transparent";
+    pSpan.style.backgroundClip = "text";
+    pSpan.style.fontWeight = "800";
+    pSpan.style.fontSize = isMobile ? "1.35rem" : "1.5rem";
+    pSpan.style.letterSpacing = "-0.5px";
+    pSpan.style.position = "absolute";
+    pSpan.style.left = "50%";
+    pSpan.style.top = "50%";
+    pSpan.style.transform = "translate(-50%, -50%)";
 
-    container.appendChild(svg);
+    // Create wrapper for SVG shapes and P span
+    const shapeWrapper = document.createElement("div");
+    shapeWrapper.style.position = "relative";
+    shapeWrapper.style.display = "inline-block";
+    shapeWrapper.style.width = "28px";
+    shapeWrapper.style.height = "50px";
+    shapeWrapper.style.marginRight = "-2px";
+    shapeWrapper.appendChild(svg);
+    shapeWrapper.appendChild(pSpan);
+    
+    container.appendChild(shapeWrapper);
 
     // === 2. CREATE REMAINING LETTERS (hidden initially) ===
     const remainingChars = text.slice(1).split("");
@@ -272,7 +287,7 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
       ease: "back.in(2)",
     });
 
-    masterTl.fromTo(pText,
+    masterTl.fromTo(pSpan,
       {
         opacity: 0,
         scale: 0,
@@ -330,7 +345,7 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
 
     // Continuous floating for all
     setTimeout(() => {
-      gsap.to([pText, ...remainingSpans], {
+      gsap.to([pSpan, ...remainingSpans], {
         y: "+=2",
         duration: 2,
         ease: "sine.inOut",
