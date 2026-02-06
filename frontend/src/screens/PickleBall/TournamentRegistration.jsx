@@ -421,7 +421,7 @@ const CountdownItem = ({ value, label }) => (
   <Box sx={{ textAlign: "center", minWidth: 48 }}>
     <Paper
       elevation={0}
-      sx={{
+      sx={(theme) => ({
         bgcolor: alpha(theme.palette.primary.contrastText, 0.15),
         color: theme.palette.primary.contrastText,
         py: 0.5,
@@ -429,7 +429,7 @@ const CountdownItem = ({ value, label }) => (
         borderRadius: 1,
         backdropFilter: "blur(4px)",
         border: `1px solid ${alpha(theme.palette.primary.contrastText, 0.1)}`,
-      }}
+      })}
     >
       <Typography variant="h6" fontWeight="bold" lineHeight={1}>
         {String(value).padStart(2, "0")}
@@ -1354,7 +1354,7 @@ export default function TournamentRegistration() {
           }}
         />
         <Box
-          sx={{
+          sx={(theme) => ({
             position: "absolute",
             bottom: -50,
             left: 50,
@@ -1363,7 +1363,7 @@ export default function TournamentRegistration() {
             borderRadius: "50%",
             bgcolor: theme.palette.primary.contrastText,
             opacity: 0.05,
-          }}
+          })}
         />
 
         <Container maxWidth="xl">
@@ -1384,7 +1384,7 @@ export default function TournamentRegistration() {
                   icon={<LocationOn sx={{ color: "white !important" }} />}
                   label={tour.location || "Đang cập nhật"}
                   size="small"
-                  sx={{ bgcolor: "transparent", color: theme.palette.primary.contrastText, pl: 0.5 }}
+                  sx={{ bgcolor: "transparent", color: "primary.contrastText", pl: 0.5 }}
                 />
               </Stack>
               <Typography
