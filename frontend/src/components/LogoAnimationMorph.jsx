@@ -169,22 +169,14 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
     pSpan.style.fontWeight = "800";
     pSpan.style.fontSize = isMobile ? "1.35rem" : "1.5rem";
     pSpan.style.letterSpacing = "-0.5px";
-    pSpan.style.position = "absolute";
-    pSpan.style.left = "50%";
-    pSpan.style.top = "50%";
-    pSpan.style.transform = "translate(-50%, -50%)";
+    pSpan.style.marginLeft = "-28px"; // Overlap with shapes SVG
+    pSpan.style.position = "relative";
+    pSpan.style.zIndex = "10";
 
-    // Create wrapper for SVG shapes and P span
-    const shapeWrapper = document.createElement("div");
-    shapeWrapper.style.position = "relative";
-    shapeWrapper.style.display = "inline-block";
-    shapeWrapper.style.width = "28px";
-    shapeWrapper.style.height = "50px";
-    shapeWrapper.style.marginRight = "-2px";
-    shapeWrapper.appendChild(svg);
-    shapeWrapper.appendChild(pSpan);
-    
-    container.appendChild(shapeWrapper);
+    // Add SVG first (shapes animate and disappear)
+    container.appendChild(svg);
+    // Add P span after SVG (will overlap via negative margin)
+    container.appendChild(pSpan);
 
     // === 2. CREATE REMAINING LETTERS (hidden initially) ===
     const remainingChars = text.slice(1).split("");
