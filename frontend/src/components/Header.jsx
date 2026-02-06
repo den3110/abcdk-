@@ -1,9 +1,10 @@
 // src/components/Header.jsx
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useSelector, useDispatch } from "react-redux";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { logout } from "../slices/authSlice";
 import { useLogoutMutation } from "../slices/usersApiSlice";
+import gsap from "gsap";
 
 import {
   AppBar,
@@ -26,7 +27,12 @@ import {
 import {
   ArrowBackIosNew as BackIcon,
   PersonAdd as PersonAddIcon,
+  LightMode as LightModeIcon,
+  DarkMode as DarkModeIcon,
 } from "@mui/icons-material";
+
+import { useThemeMode } from "../context/ThemeContext.jsx";
+import LogoAnimationMorph from "./LogoAnimationMorph.jsx";
 
 import { useGetLiveMatchesQuery } from "../slices/liveApiSlice";
 
@@ -63,6 +69,9 @@ const Header = () => {
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  
+  // Theme toggle
+  const { mode, toggleTheme, isDark } = useThemeMode();
 
   // Điều hướng Back cho mobile
   const [canGoBack, setCanGoBack] = useState(false);
@@ -174,7 +183,7 @@ const Header = () => {
       position="sticky"
       elevation={0}
       sx={{
-        backgroundColor: "rgba(255, 255, 255, 0.9)",
+        backgroundColor: isDark ? "rgba(30, 30, 30, 0.95)" : "rgba(255, 255, 255, 0.9)",
         backdropFilter: "blur(12px)",
         borderBottom: "1px solid",
         borderColor: "divider",
@@ -219,33 +228,7 @@ const Header = () => {
             )}
 
             {/* Logo: Desktop (Left) vs Mobile (Center) */}
-            <Link
-              to="/"
-              style={{
-                textDecoration: "none",
-                flexGrow: isMobile ? 1 : 0, // Mobile: chiếm hết chỗ để text-align center hoạt động
-                textAlign: isMobile ? "center" : "left", // Mobile: Căn giữa
-                display: "block",
-              }}
-            >
-              <Typography
-                variant="h5"
-                sx={{
-                  fontWeight: 800,
-                  background:
-                    "linear-gradient(45deg, #0d6efd 30%, #0dcaf0 90%)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  letterSpacing: "-0.5px",
-                  fontSize: { xs: "1.35rem", md: "1.5rem" },
-                  // Đảm bảo logo không bị lệch do nút back
-                  mr: isMobile && showBackButton ? 4 : 0,
-                  ml: isMobile && showBackButton ? 4 : 0,
-                }}
-              >
-                PickleTour
-              </Typography>
-            </Link>
+            <LogoAnimationMorph isMobile={isMobile} showBackButton={showBackButton} />
 
             {/* Desktop Divider */}
             <Divider
@@ -363,7 +346,7 @@ const Header = () => {
                     component="span"
                     sx={{
                       ml: 0.5,
-                      bgcolor: "#ffebee",
+                      bgcolor: alpha(theme.palette.error.main, 0.1),
                       color: "#c62828",
                       px: 0.8,
                       borderRadius: "10px",
@@ -409,6 +392,18 @@ const Header = () => {
                     {userInfo.nickname || userInfo.name}
                   </Typography>
                 </Box>
+                
+                {/* Theme Toggle Button - Next to Avatar */}
+                <Tooltip title={isDark ? "Chế độ sáng" : "Chế độ tối"}>
+                  <IconButton
+                    onClick={toggleTheme}
+                    sx={{
+                      color: "text.primary",
+                    }}
+                  >
+                    {isDark ? <LightModeIcon /> : <DarkModeIcon />}
+                  </IconButton>
+                </Tooltip>
 
                 <Tooltip title="Tài khoản">
                   <IconButton
@@ -492,7 +487,19 @@ const Header = () => {
               </>
             ) : (
               // Desktop Auth Buttons
-              <Box sx={{ display: "flex", gap: 1 }}>
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                {/* Theme Toggle Button for Guest */}
+                <Tooltip title={isDark ? "Chế độ sáng" : "Chế độ tối"}>
+                  <IconButton
+                    onClick={toggleTheme}
+                    sx={{
+                      color: "text.primary",
+                    }}
+                  >
+                    {isDark ? <LightModeIcon /> : <DarkModeIcon />}
+                  </IconButton>
+                </Tooltip>
+                
                 <Button
                   component={Link}
                   to="/login"
@@ -516,8 +523,9 @@ const Header = () => {
                     borderRadius: "50px",
                     fontWeight: 700,
                     boxShadow: "0 4px 12px rgba(13, 110, 253, 0.25)",
-                    background:
-                      "linear-gradient(45deg, #212121 30%, #424242 90%)",
+                    background: isDark 
+                      ? "linear-gradient(45deg, #3d8bff 30%, #6ba3ff 90%)"
+                      : "linear-gradient(45deg, #212121 30%, #424242 90%)",
                     px: 2.5,
                     textTransform: "none",
                   }}

@@ -422,13 +422,13 @@ const CountdownItem = ({ value, label }) => (
     <Paper
       elevation={0}
       sx={{
-        bgcolor: alpha("#fff", 0.15),
-        color: "#fff",
+        bgcolor: alpha(theme.palette.primary.contrastText, 0.15),
+        color: theme.palette.primary.contrastText,
         py: 0.5,
         px: 0.5,
         borderRadius: 1,
         backdropFilter: "blur(4px)",
-        border: "1px solid rgba(255,255,255,0.1)",
+        border: `1px solid ${alpha(theme.palette.primary.contrastText, 0.1)}`,
       }}
     >
       <Typography variant="h6" fontWeight="bold" lineHeight={1}>
@@ -1327,7 +1327,7 @@ export default function TournamentRegistration() {
     );
 
   return (
-    <Box sx={{ bgcolor: "#f8fafc", minHeight: "100vh", pb: 6 }}>
+    <Box sx={{ bgcolor: "background.default", minHeight: "100vh", pb: 6 }}>
       {/* --- 1. HERO BANNER --- */}
       <Box
         sx={{
@@ -1350,8 +1350,7 @@ export default function TournamentRegistration() {
             width: 300,
             height: 300,
             borderRadius: "50%",
-            bgcolor: "white",
-            opacity: 0.03,
+            bgcolor: alpha("#fff", 0.03), // Decorative element - very low opacity OK
           }}
         />
         <Box
@@ -1362,7 +1361,7 @@ export default function TournamentRegistration() {
             width: 150,
             height: 150,
             borderRadius: "50%",
-            bgcolor: "white",
+            bgcolor: theme.palette.primary.contrastText,
             opacity: 0.05,
           }}
         />
@@ -1385,7 +1384,7 @@ export default function TournamentRegistration() {
                   icon={<LocationOn sx={{ color: "white !important" }} />}
                   label={tour.location || "Đang cập nhật"}
                   size="small"
-                  sx={{ bgcolor: "transparent", color: "white", pl: 0.5 }}
+                  sx={{ bgcolor: "transparent", color: theme.palette.primary.contrastText, pl: 0.5 }}
                 />
               </Stack>
               <Typography
@@ -1642,7 +1641,7 @@ export default function TournamentRegistration() {
                           alignItems: "center",
                           gap: 2,
                           borderRadius: 2,
-                          bgcolor: "#f8fafc",
+                          bgcolor: "background.paper",
                         }}
                       >
                         <Avatar
@@ -1844,7 +1843,7 @@ export default function TournamentRegistration() {
                   gap: 2,
                   alignItems: "center",
                   justifyContent: "space-between",
-                  bgcolor: "white",
+                  bgcolor: "background.paper",
                 }}
               >
                 <Stack direction="row" alignItems="center" spacing={1.5}>
@@ -1886,7 +1885,7 @@ export default function TournamentRegistration() {
               </Box>
 
               {/* Content */}
-              <Box sx={{ flex: 1, bgcolor: "#f8fafc" }}>
+              <Box sx={{ flex: 1, bgcolor: "background.default" }}>
                 {listInitialLoading ? (
                   <Box sx={{ p: 2 }}>
                     <Grid container spacing={2}>

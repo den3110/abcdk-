@@ -10,6 +10,8 @@ import {
 } from "../slices/cmsApiSlice";
 import AppInstallBanner from "./AppInstallBanner";
 import SponsorMarquee from "./SponsorMarquee";
+import { useTheme } from "@mui/material/styles";
+import { useThemeMode } from "../context/ThemeContext.jsx";
 
 // ===== Assets & Fallbacks =====
 const fallbackImg = `${import.meta.env.BASE_URL}hero.jpg`;
@@ -57,12 +59,7 @@ const gradientTextStyle = {
   fontWeight: "800",
 };
 
-const glassCardStyle = {
-  background: "rgba(255, 255, 255, 0.9)",
-  backdropFilter: "blur(10px)",
-  border: "1px solid rgba(255,255,255,0.5)",
-  boxShadow: "0 10px 30px -5px rgba(0, 0, 0, 0.05)",
-};
+// Moved inside component for theme awareness
 
 const SkeletonBar = ({ w = "100%", h = 20, r = 8, className = "" }) => (
   <div
@@ -165,6 +162,8 @@ export default function Hero() {
   const { userInfo } = useSelector((state) => state.auth);
   const isLoggedIn = !!userInfo;
   const userId = userInfo?._id || userInfo?.id;
+  const { isDark } = useThemeMode();
+  const theme = useTheme();
 
   const { data: latest, isFetching } = useGetLatestAssessmentQuery(userId, {
     skip: !userId,
@@ -214,6 +213,17 @@ export default function Hero() {
   const hasPlayStore = !!contactInfo?.apps?.playStore;
   const hasApkPickleTour = !!contactInfo?.apps?.apkPickleTour;
   const hasApkReferee = !!contactInfo?.apps?.apkReferee;
+  const glassCardStyle = {
+    background: isDark ? "rgba(30, 30, 30, 0.8)" : "rgba(255, 255, 255, 0.9)",
+    backdropFilter: "blur(10px)",
+    border: isDark
+      ? "1px solid rgba(255, 255, 255, 0.1)"
+      : "1px solid rgba(255, 255, 255, 0.5)",
+    boxShadow: isDark
+      ? "0 10px 30px -5px rgba(0, 0, 0, 0.5)"
+      : "0 10px 30px -5px rgba(0, 0, 0, 0.05)",
+    color: isDark ? "#fff" : "inherit",
+  };
 
   return (
     <>
@@ -233,7 +243,7 @@ export default function Hero() {
       <section
         className="position-relative overflow-hidden py-5"
         style={{
-          backgroundColor: "#f8faff", // Màu nền xanh rất nhạt
+          backgroundColor: theme.palette.background.default,
           minHeight: "85vh",
           display: "flex",
           alignItems: "center",
@@ -261,9 +271,11 @@ export default function Hero() {
               {heroData ? (
                 <>
                   <Badge
-                    bg="light"
-                    text="primary"
-                    className="mb-3 px-3 py-2 rounded-pill border shadow-sm fw-bold"
+                    bg={isDark ? "dark" : "light"}
+                    text={isDark ? "light" : "primary"}
+                    className={`mb-3 px-3 py-2 rounded-pill border shadow-sm fw-bold ${
+                      isDark ? "border-secondary" : ""
+                    }`}
                   >
                     🏆 Nền tảng Pickleball số #1
                   </Badge>
@@ -280,7 +292,7 @@ export default function Hero() {
                         </span>
                       ))}
                   </h1>
-                  <p className="lead text-secondary mb-4 pe-lg-5 fs-5">
+                  <p className={`lead mb-4 pe-lg-5 fs-5 ${isDark ? "text-light opacity-75" : "text-secondary"}`}>
                     {heroData.lead}
                   </p>
                 </>
@@ -320,9 +332,11 @@ export default function Hero() {
                     <Button
                       as={Link}
                       to="/login"
-                      variant="light"
+                      variant={isDark ? "outline-light" : "light"}
                       size="lg"
-                      className="rounded-pill px-5 py-3 fw-bold shadow-sm border text-primary"
+                      className={`rounded-pill px-5 py-3 fw-bold shadow-sm border ${
+                        isDark ? "" : "text-primary"
+                      }`}
                     >
                       Đăng nhập
                     </Button>
@@ -394,7 +408,7 @@ export default function Hero() {
       </section>
 
       {/* ======= CONTACT INFO & APP SECTION ======= */}
-      <section className="py-5 bg-white">
+      <section className="py-5" style={{ backgroundColor: theme.palette.background.paper }}>
         <Container>
           <Row className="g-4">
             {/* Card 1: Liên hệ chính */}
@@ -412,15 +426,15 @@ export default function Hero() {
                   {!contactInfo ? (
                     <SkeletonBar h={80} />
                   ) : (
-                    <ul className="list-unstyled text-secondary mb-0 d-grid gap-3">
+                    <ul className={`list-unstyled mb-0 d-grid gap-3 ${isDark ? "opacity-75" : "text-secondary"}`}>
                       <li className="d-flex gap-3">
-                        <span className="fw-semibold text-dark flex-shrink-0">
+                        <span className="fw-semibold flex-shrink-0">
                           Địa chỉ:
                         </span>
                         <span>{contactInfo.address}</span>
                       </li>
                       <li className="d-flex gap-3">
-                        <span className="fw-semibold text-dark flex-shrink-0">
+                        <span className="fw-semibold flex-shrink-0">
                           Hotline:
                         </span>
                         {contactInfo.phone ? (
@@ -435,7 +449,7 @@ export default function Hero() {
                         )}
                       </li>
                       <li className="d-flex gap-3">
-                        <span className="fw-semibold text-dark flex-shrink-0">
+                        <span className="fw-semibold flex-shrink-0">
                           Email:
                         </span>
                         <a
@@ -481,10 +495,15 @@ export default function Hero() {
                       ].map((item, idx) => (
                         <div
                           key={idx}
-                          className="d-flex flex-column bg-light p-2 rounded-3"
+                          className="d-flex flex-column p-2 rounded-3"
+                          style={{
+                            backgroundColor: isDark
+                              ? "rgba(255, 255, 255, 0.05)"
+                              : "#f8f9fa",
+                          }}
                         >
                           <small
-                            className="text-uppercase text-muted fw-bold"
+                            className="text-uppercase fw-bold opacity-75"
                             style={{ fontSize: "0.7rem" }}
                           >
                             {item.label}
@@ -492,14 +511,18 @@ export default function Hero() {
                           <div className="d-flex justify-content-between align-items-center mt-1">
                             <a
                               href={`mailto:${item.email || item.generalEmail}`}
-                              className="text-dark text-decoration-none small text-break"
+                              className="text-reset text-decoration-none small text-break"
                             >
                               {item.email || item.generalEmail}
                             </a>
                             {(item.phone || item.generalPhone) && (
                               <a
                                 href={`tel:${item.phone || item.generalPhone}`}
-                                className="badge bg-white text-dark border shadow-sm text-decoration-none ms-2 flex-shrink-0"
+                                className={`badge border shadow-sm text-decoration-none ms-2 flex-shrink-0 ${
+                                  isDark
+                                    ? "bg-dark text-light border-secondary"
+                                    : "bg-white text-dark"
+                                }`}
                               >
                                 {item.phone || item.generalPhone}
                               </a>

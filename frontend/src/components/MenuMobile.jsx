@@ -328,7 +328,7 @@ export default function MobileBottomNav() {
                 opacity: isSmallScreen && !isActive ? 0.7 : 1,
 
                 "&:active": { transform: "scale(0.95)" },
-                "-webkit-tap-highlight-color": "transparent",
+                WebkitTapHighlightColor: "transparent",
               }}
             >
               <Box

@@ -617,12 +617,12 @@ export default function UsersPage() {
           sx={{
             px: 2,
             py: 0.5,
-            bgcolor: expanded ? "grey.50" : "transparent",
+            bgcolor: expanded ? "action.hover" : "transparent",
             display: "flex",
             justifyContent: "space-between",
             alignItems: "center",
             cursor: "pointer",
-            "&:hover": { bgcolor: "grey.50" },
+            "&:hover": { bgcolor: "action.hover" },
           }}
           onClick={() => setExpanded(!expanded)}
         >
@@ -647,7 +647,7 @@ export default function UsersPage() {
 
         {/* === Expanded Configuration === */}
         <Collapse in={expanded} timeout="auto" unmountOnExit>
-          <Box sx={{ p: 2, bgcolor: "grey.50" }}>
+          <Box sx={{ p: 2, bgcolor: "background.default" }}>
             <Grid container spacing={2}>
               {/* Col 1: Role & Evaluator */}
               <Grid size={{ xs: 12, md: 5 }}>
@@ -661,7 +661,7 @@ export default function UsersPage() {
                   PHÂN QUYỀN &amp; CHẤM TRÌNH
                 </Typography>
                 <Stack spacing={2}>
-                  <FormControl size="small" fullWidth sx={{ bgcolor: "white" }}>
+                  <FormControl size="small" fullWidth sx={{ bgcolor: "background.paper" }}>
                     <InputLabel>Role</InputLabel>
                     <Select
                       label="Role"
@@ -686,7 +686,7 @@ export default function UsersPage() {
                     variant="outlined"
                     sx={{
                       p: 1,
-                      bgcolor: "white",
+                      bgcolor: "background.paper",
                       display: "flex",
                       alignItems: "center",
                     }}
@@ -722,7 +722,7 @@ export default function UsersPage() {
                   QUOTA TÌM KIẾM
                 </Typography>
 
-                <Paper variant="outlined" sx={{ p: 1.5, bgcolor: "white" }}>
+                <Paper variant="outlined" sx={{ p: 1.5, bgcolor: "background.paper" }}>
                   <Stack
                     direction={{ xs: "column", sm: "row" }}
                     spacing={1.5}
@@ -995,7 +995,7 @@ export default function UsersPage() {
             <DialogTitle sx={{ borderBottom: "1px solid #eee" }}>
               Kiểm tra CCCD - {kyc.name}
             </DialogTitle>
-            <DialogContent sx={{ pt: 3, bgcolor: "grey.50" }}>
+            <DialogContent sx={{ pt: 3, bgcolor: "background.default" }}>
               <Grid container spacing={3}>
                 <Grid size={{ xs: 12 }}>
                   <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
@@ -1007,7 +1007,7 @@ export default function UsersPage() {
                         sx={{
                           flex: 1,
                           p: 1,
-                          bgcolor: "white",
+                          bgcolor: "background.paper",
                           textAlign: "center",
                         }}
                       >
@@ -1042,7 +1042,7 @@ export default function UsersPage() {
                 </Grid>
 
                 <Grid size={{ xs: 12 }}>
-                  <Paper variant="outlined" sx={{ p: 2, bgcolor: "white" }}>
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: "background.paper" }}>
                     <Stack
                       direction="row"
                       alignItems="center"
@@ -1278,7 +1278,7 @@ export default function UsersPage() {
                 </FormControl>
 
                 {/* Change Password Section */}
-                <Paper variant="outlined" sx={{ p: 2, bgcolor: "grey.50" }}>
+                <Paper variant="outlined" sx={{ p: 2, bgcolor: "background.default" }}>
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -1546,7 +1546,7 @@ export default function UsersPage() {
               </Stack>
             </DialogTitle>
 
-            <DialogContent dividers sx={{ bgcolor: "grey.50" }}>
+            <DialogContent dividers sx={{ bgcolor: "background.default" }}>
               {auditFetching ? (
                 <Stack alignItems="center" py={6}>
                   <CircularProgress />
@@ -1574,7 +1574,7 @@ export default function UsersPage() {
                     <Paper
                       key={log._id}
                       variant="outlined"
-                      sx={{ p: 2, bgcolor: "white", borderRadius: 2 }}
+                      sx={{ p: 2, bgcolor: "background.paper", borderRadius: 2 }}
                     >
                       <Stack
                         direction={{ xs: "column", sm: "row" }}
@@ -1612,7 +1612,7 @@ export default function UsersPage() {
                             sx={{
                               p: 1.25,
                               borderRadius: 2,
-                              bgcolor: "grey.50",
+                              bgcolor: "action.hover",
                             }}
                           >
                             <Stack spacing={0.75}>
@@ -1688,7 +1688,9 @@ export default function UsersPage() {
               )}
             </DialogContent>
 
-            <DialogActions sx={{ px: 3, py: 2, borderTop: "1px solid #eee" }}>
+            <DialogActions
+              sx={{ px: 3, py: 2, borderTop: "1px solid", borderColor: "divider" }}
+            >
               <Typography
                 variant="caption"
                 color="text.secondary"

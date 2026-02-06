@@ -60,7 +60,7 @@ export default function ClubCard({ club }) {
             position: "relative",
             width: "100%",
             height: 140,
-            backgroundColor: "grey.100",
+            backgroundColor: "action.hover",
           }}
         >
           <CardMedia
@@ -100,7 +100,7 @@ export default function ClubCard({ club }) {
               borderColor: "background.paper",
               boxShadow: theme.shadows[2],
               zIndex: 2,
-              backgroundColor: "white",
+              backgroundColor: "background.paper",
             }}
           />
         </Box>

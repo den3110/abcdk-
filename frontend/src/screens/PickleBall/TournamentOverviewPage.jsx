@@ -252,7 +252,7 @@ const MatchListItem = ({ m, onOpen }) => {
                   fontWeight: 700,
                   fontSize: "0.65rem",
                   height: 20,
-                  bgcolor: "grey.100",
+                  bgcolor: "action.selected",
                 }}
               />
               <Box>
@@ -555,7 +555,7 @@ export default function TournamentOverviewPage() {
   const visibleList = isExpanded ? displayList : displayList.slice(0, 10); // Mặc định hiện 10
 
   return (
-    <Box sx={{ bgcolor: "#f5f7fa", minHeight: "100vh", pb: 4 }}>
+    <Box sx={{ bgcolor: "background.default", minHeight: "100vh", pb: 4 }}>
       {/* Header: Full Width Hero */}
       <Paper
         elevation={0}
@@ -816,7 +816,7 @@ export default function TournamentOverviewPage() {
                 </Tabs>
               </Box>
 
-              <Box sx={{ p: { xs: 1.5, md: 2 }, bgcolor: "#fbfcfe", flex: 1 }}>
+              <Box sx={{ p: { xs: 1.5, md: 2 }, bgcolor: "background.default", flex: 1 }}>
                 {loadingMatches ? (
                   [1, 2, 3].map((i) => (
                     <Skeleton
@@ -848,7 +848,7 @@ export default function TournamentOverviewPage() {
                         sx={{
                           mt: 1,
                           py: 1.5,
-                          bgcolor: "white",
+                          bgcolor: "background.paper",
                           border: "1px dashed",
                           borderColor: "divider",
                         }}
@@ -946,7 +946,7 @@ export default function TournamentOverviewPage() {
                           sx={{
                             height: 6,
                             borderRadius: 1,
-                            bgcolor: "grey.200",
+                            bgcolor: "action.selected",
                             "& .MuiLinearProgress-bar": { borderRadius: 1 },
                           }}
                         />

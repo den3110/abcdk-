@@ -189,31 +189,50 @@ const buildRefReportHTML = ({
   logoUrl,
 }) => {
   const css = `
-    *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;margin:16px}
+    *{box-sizing:border-box}
+    body{font-family:Arial,Helvetica,sans-serif;margin:16px;background:#fff;color:#000}
     table{width:100%;border-collapse:collapse}
     td,th{border:1px solid #000;padding:6px;font-size:12px}
     .no-border td,.no-border th{border:none}
     .title{font-size:22px;font-weight:700;text-align:left}
     .section-title{font-weight:700}
     .small{font-size:11px}
+    @media screen {
+      body{background:var(--bg,#fff);color:var(--fg,#000)}
+      td,th{border-color:var(--border,#000)}
+    }
+    @media print {
+      body{background:#fff !important;color:#000 !important}
+      td,th{border-color:#000 !important}
+    }
   `;
   const pointRow = () => `
     <tr>
-      <td style="border:1px solid black"></td>
+      <td style="border:1px solid var(--border,black)"></td>
       ${Array.from(
     { length: 22 },
     (_, i) =>
-      `<td style="border:1px solid black">${i < 10 ? `&nbsp;${i}&nbsp;` : i
+      `<td style="border:1px solid var(--border,black)">${i < 10 ? `&nbsp;${i}&nbsp;` : i
       }</td>`
   ).join("")}
-      <td style="border:1px solid black"></td>
-      <td style="border:1px solid black"></td>
-      <td style="border:1px solid black"></td>
+      <td style="border:1px solid var(--border,black)"></td>
+      <td style="border:1px solid var(--border,black)"></td>
+      <td style="border:1px solid var(--border,black)"></td>
     </tr>`;
   return `<!DOCTYPE html>
   <html><head><meta charset="utf-8" />
     <title>Biên bản trọng tài - ${code}</title>
     <style>${css}</style>
+    <script>
+      (function(){
+        const dark=window.matchMedia&&window.matchMedia('(prefers-color-scheme:dark)').matches;
+        if(dark){
+          document.documentElement.style.setProperty('--bg','#1a1a1a');
+          document.documentElement.style.setProperty('--fg','#e0e0e0');
+          document.documentElement.style.setProperty('--border','#666');
+        }
+      })();
+    </script>
   </head>
   <body>
     <table class="no-border" style="width:100%">

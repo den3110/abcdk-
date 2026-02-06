@@ -1599,7 +1599,7 @@ export default function FacebookLiveStreamerAutoRTK({
         <>
           <Card
             elevation={3}
-            sx={{ mb: 3, bgcolor: autoMode ? "primary.light" : "grey.100" }}
+            sx={{ mb: 3, bgcolor: autoMode ? "primary.light" : "action.hover" }}
           >
             <CardContent>
               <Grid container spacing={2} alignItems="center">

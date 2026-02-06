@@ -183,9 +183,9 @@ export default function SponsorMarquee({
 function MarqueeGroup({ items, height, gap, utm, openInNewTab, variant }) {
   return (
     <Stack direction="row" spacing={gap / 8} sx={{ pr: gap / 8 }}>
-      {items.map((sp) => (
+      {items.map((sp, idx) => (
         <SponsorLogo
-          key={sp.id || sp.slug || sp.name}
+          key={`${sp.id || sp.slug || sp.name}-${idx}`}
           item={sp}
           height={height}
           utm={utm}

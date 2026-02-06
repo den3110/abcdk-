@@ -519,7 +519,7 @@ export default function TournamentCheckin() {
     <Box
       sx={{
         minHeight: "100vh",
-        backgroundColor: "#f5f7fa",
+        backgroundColor: "background.default",
         pb: 8,
         fontFamily: "'Inter', sans-serif",
       }}
@@ -595,7 +595,7 @@ export default function TournamentCheckin() {
                   variant="contained"
                   startIcon={<BracketIcon />}
                   sx={{
-                    bgcolor: "white",
+                    bgcolor: "background.paper",
                     color: BRAND_COLOR,
                     fontWeight: "bold",
                     "&:hover": { bgcolor: "#e3f2fd" },
@@ -612,7 +612,7 @@ export default function TournamentCheckin() {
                     color: "white",
                     borderColor: "rgba(255,255,255,0.5)",
                     "&:hover": {
-                      borderColor: "white",
+                      borderColor: "rgba(255,255,255,0.9)",
                       bgcolor: "rgba(255,255,255,0.1)",
                     },
                   }}
@@ -631,7 +631,7 @@ export default function TournamentCheckin() {
           <Box
             sx={{
               p: 3,
-              background: "white",
+              background: (theme) => theme.palette.background.paper,
               borderRadius: 3,
             }}
           >
@@ -664,7 +664,7 @@ export default function TournamentCheckin() {
                       <SearchIcon color="action" />
                     </InputAdornment>
                   ),
-                  sx: { borderRadius: 2, bgcolor: "#f9fafb" },
+                  sx: { borderRadius: 2, bgcolor: "action.hover" },
                 }}
               />
               <MuiButton
@@ -847,7 +847,7 @@ export default function TournamentCheckin() {
                   </InputAdornment>
                 ),
                 sx: {
-                  bgcolor: "white",
+                  bgcolor: "background.paper",
                   borderRadius: 2,
                   minWidth: { sm: 300 },
                 },

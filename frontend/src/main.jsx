@@ -49,8 +49,7 @@ import ClubsListPage from "./screens/clubs/ClubsListPage.jsx";
 import ClubDetailPage from "./components/ClubDetailPage.jsx";
 import LiveStudioPage from "./screens/live/LiveStudioPage.jsx";
 import "@fontsource-variable/montserrat";
-import { CssBaseline, ThemeProvider } from "@mui/material";
-import { theme } from "./theme.js";
+import { ThemeContextProvider } from "./context/ThemeContext.jsx";
 import LiveMatchesPage from "./screens/live/LiveMatchesPage.jsx";
 import CourtLiveStudioPage from "./screens/live/CourtLiveStudio.jsx";
 import CourtStreamingPage from "./screens/court-live/Courtstreamingpage.jsx";
@@ -149,8 +148,7 @@ const router = createBrowserRouter(
 ReactDOM.createRoot(document.getElementById("root")).render(
   <Provider store={store}>
     <React.StrictMode>
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
+      <ThemeContextProvider>
         <AppInitGate>
           <SocketProvider>
             <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
@@ -158,7 +156,7 @@ ReactDOM.createRoot(document.getElementById("root")).render(
             </LocalizationProvider>
           </SocketProvider>
         </AppInitGate>
-      </ThemeProvider>
+      </ThemeContextProvider>
     </React.StrictMode>
   </Provider>
 );

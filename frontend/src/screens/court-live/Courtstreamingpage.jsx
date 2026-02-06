@@ -139,7 +139,7 @@ export default function CourtStreamingPage() {
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       {/* Header with breadcrumbs */}
-      <Box sx={{ bgcolor: "primary.main", color: "white", py: 2, mb: 3 }}>
+      <Box sx={{ bgcolor: "primary.main", color: "primary.contrastText", py: 2, mb: 3 }}>
         <Container maxWidth="xl">
           <Breadcrumbs
             sx={{

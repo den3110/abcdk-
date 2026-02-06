@@ -227,15 +227,15 @@ export default function AppInstallBanner({ links }) {
                 rel={btnRel}
                 startIcon={!installed && <GetAppIcon fontSize="inherit" />}
                 sx={{
-                  bgcolor: "#fff",
-                  color: "#000",
+                  bgcolor: "background.paper",
+                  color: "text.primary",
                   fontWeight: 700,
                   textTransform: "none",
                   borderRadius: 4,
                   px: 2,
                   whiteSpace: "nowrap",
                   "&:hover": {
-                    bgcolor: "#e0e0e0",
+                    bgcolor: "action.hover",
                   },
                 }}
               >

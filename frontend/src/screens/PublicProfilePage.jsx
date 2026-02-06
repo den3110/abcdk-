@@ -436,7 +436,7 @@ export default function PublicProfilePage() {
             width: 200,
             height: 200,
             borderRadius: "50%",
-            bgcolor: "white",
+            bgcolor: "rgba(255,255,255,0.8)",
             opacity: 0.05,
           }}
         />
@@ -448,7 +448,7 @@ export default function PublicProfilePage() {
             width: 100,
             height: 100,
             borderRadius: "50%",
-            bgcolor: "white",
+            bgcolor: "rgba(255,255,255,0.8)",
             opacity: 0.05,
           }}
         />

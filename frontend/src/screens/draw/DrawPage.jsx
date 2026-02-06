@@ -391,7 +391,7 @@ const PoolPanel = memo(function PoolPanel({
                     p: 1,
                     border: "1px dashed #e5e7eb",
                     borderRadius: 1,
-                    background: "#fafafa",
+                    bgcolor: "action.hover",
                     transition: "transform .28s ease",
                     "&:hover": { transform: "translateY(-1px)" },
                   }}
@@ -448,7 +448,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
                             ? isHit
                               ? "#f0fff4"
                               : "#f8fbff"
-                            : "#fafafa",
+                            : "action.hover",
                           position: "relative",
                           overflow: "hidden",
                         }}
@@ -568,7 +568,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
                         ? isHit
                           ? "#f0fff4"
                           : "#f8fbff"
-                        : "#fafafa",
+                        : "action.hover",
                       position: "relative",
                       overflow: "hidden",
                     }}

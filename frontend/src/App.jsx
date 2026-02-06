@@ -7,11 +7,13 @@ import MobileBottomNav from "./components/MenuMobile";
 import RegInvitesModal from "./components/RegInvitesModal";
 import { useEffect, useRef } from "react";
 import { initGA, logPageView } from "./utils/analytics";
+import { useThemeMode } from "./context/ThemeContext";
 
 import Clarity from "@microsoft/clarity";
 
 const App = () => {
   const location = useLocation();
+  const { isDark } = useThemeMode();
 
   // ✅ tránh init 2 lần (React 18 StrictMode dev)
   const clarityInitedRef = useRef(false);
@@ -55,7 +57,7 @@ const App = () => {
   return (
     <>
       <Header />
-      <ToastContainer />
+      <ToastContainer theme={isDark ? "dark" : "light"} />
       <Container className="" style={{ marginBottom: "80px" }}>
         <Outlet />
         <MobileBottomNav />

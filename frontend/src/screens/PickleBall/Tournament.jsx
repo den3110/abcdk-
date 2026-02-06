@@ -97,7 +97,7 @@ const StatusBadge = styled(Box)(({ theme, status }) => {
       width: 6,
       height: 6,
       borderRadius: "50%",
-      backgroundColor: "#fff",
+      backgroundColor: "#fff", // Badge dot - intentionally white for visibility
       animation: status === "ongoing" ? "pulse 1.5s infinite" : "none",
     },
     "@keyframes pulse": {
@@ -433,7 +433,7 @@ export default function TournamentDashboard() {
             position: "relative",
             height: 180,
             overflow: "hidden",
-            bgcolor: "grey.100",
+            bgcolor: "action.hover",
           }}
         >
           <Box sx={{ position: "absolute", top: 12, right: 12, zIndex: 2 }}>
@@ -573,7 +573,15 @@ export default function TournamentDashboard() {
           <Stack
             direction="row"
             spacing={2}
-            sx={{ width: { xs: "100%", md: "auto" }, overflowX: "auto", pb: 1 }}
+            sx={{ 
+              width: { xs: "100%", md: "auto" }, 
+              overflowX: "auto", 
+              pb: 1,
+              // Hide scrollbar
+              "&::-webkit-scrollbar": { display: "none" },
+              scrollbarWidth: "none", // Firefox
+              msOverflowStyle: "none", // IE/Edge
+            }}
           >
             <StatBox>
               <Typography
@@ -644,7 +652,7 @@ export default function TournamentDashboard() {
                 textTransform: "none",
                 minHeight: 44,
                 transition: "all 0.2s",
-                "&.Mui-selected": { bgcolor: "primary.main", color: "#fff" },
+                "&.Mui-selected": { bgcolor: "primary.main", color: "primary.contrastText" },
               },
               "& .MuiTabs-indicator": { display: "none" },
             }}

@@ -39,6 +39,8 @@ import SaveIcon from "@mui/icons-material/Save";
 import VerifiedUserIcon from "@mui/icons-material/VerifiedUser";
 import GppBadIcon from "@mui/icons-material/GppBad";
 import PendingIcon from "@mui/icons-material/Pending";
+import LightModeIcon from "@mui/icons-material/LightMode";
+import DarkModeIcon from "@mui/icons-material/DarkMode";
 
 import {
   useGetProfileQuery,
@@ -51,6 +53,7 @@ import {
 } from "../slices/uploadApiSlice";
 import { logout } from "../slices/authSlice";
 import CccdDropzone from "../components/CccdDropzone";
+import { useThemeMode } from "../context/ThemeContext";
 
 /* ✅ MUI X Date Pickers */
 import dayjs from "dayjs";
@@ -256,6 +259,7 @@ export default function ProfileScreen() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const location = useLocation();
+  const { isDark, toggleTheme } = useThemeMode();
 
   const cccdSectionRef = useRef(null);
   const HEADER_OFFSET = 72;
@@ -648,8 +652,29 @@ export default function ProfileScreen() {
                     textAlign: "center",
                     borderRadius: 4,
                     height: "100%",
+                    position: "relative",
                   }}
                 >
+                  {/* Theme Toggle Icon - Top Right (Mobile Only) */}
+                  <IconButton
+                    onClick={toggleTheme}
+                    sx={{
+                      position: "absolute",
+                      top: 16,
+                      right: 16,
+                      bgcolor: "background.default",
+                      border: "1px solid",
+                      borderColor: "divider",
+                      "&:hover": {
+                        bgcolor: "action.hover",
+                        borderColor: "primary.main",
+                      },
+                      display: { xs: "flex", md: "none" }, // Only show on mobile
+                    }}
+                    size="small"
+                  >
+                    {isDark ? <LightModeIcon fontSize="small" /> : <DarkModeIcon fontSize="small" />}
+                  </IconButton>
                   <Box
                     sx={{
                       position: "relative",
@@ -708,7 +733,8 @@ export default function ProfileScreen() {
                         sx={{
                           width: 140,
                           height: 140,
-                          border: "4px solid #e3f2fd",
+                          border: "4px solid",
+                          borderColor: "primary.light",
                           boxShadow: 3,
                           cursor: "zoom-in",
                           transition: "transform 0.2s",
@@ -772,9 +798,10 @@ export default function ProfileScreen() {
                     fontWeight={700}
                     mb={3}
                     sx={{
-                      borderLeft: "4px solid #1976d2",
+                      borderLeft: "4px solid",
+                      borderColor: "primary.main",
                       pl: 2,
-                      color: "#1976d2",
+                      color: "primary.main",
                     }}
                   >
                     Thông tin chung
@@ -932,9 +959,10 @@ export default function ProfileScreen() {
                     mt={4}
                     p={2}
                     sx={{
-                      bgcolor: "grey.50",
+                      bgcolor: "action.hover",
                       borderRadius: 3,
-                      border: "1px dashed #ccc",
+                      border: "1px dashed",
+                      borderColor: "divider",
                     }}
                   >
                     <FormControlLabel
@@ -1086,9 +1114,10 @@ export default function ProfileScreen() {
                       <Box
                         p={3}
                         sx={{
-                          bgcolor: "#f9fafb",
+                          bgcolor: "action.hover",
                           borderRadius: 3,
-                          border: "1px solid #eee",
+                          border: "1px solid",
+                          borderColor: "divider",
                         }}
                       >
                         {isCccdEmpty && (
@@ -1144,7 +1173,7 @@ export default function ProfileScreen() {
                             variant="outlined"
                             sx={{
                               p: 1,
-                              bgcolor: "#f4f4f4",
+                              bgcolor: "action.hover",
                               cursor: "zoom-in",
                               "&:hover": { borderColor: "primary.main" },
                             }}
@@ -1175,7 +1204,7 @@ export default function ProfileScreen() {
                             variant="outlined"
                             sx={{
                               p: 1,
-                              bgcolor: "#f4f4f4",
+                              bgcolor: "action.hover",
                               cursor: "zoom-in",
                               "&:hover": { borderColor: "primary.main" },
                             }}

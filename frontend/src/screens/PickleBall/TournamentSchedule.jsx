@@ -378,7 +378,7 @@ const QueueMatchItem = ({ m, onOpen }) => (
         minWidth: 24,
         height: 24,
         borderRadius: "50%",
-        bgcolor: "grey.200",
+        bgcolor: "action.selected",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -422,7 +422,7 @@ function CourtPanel({ court, onOpenMatch }) {
       <Box
         sx={{
           p: 1.5,
-          bgcolor: "grey.50",
+          bgcolor: "action.hover",
           borderBottom: "1px solid",
           borderColor: "divider",
         }}
@@ -479,7 +479,7 @@ function CourtPanel({ court, onOpenMatch }) {
             sx={{
               py: 2,
               textAlign: "center",
-              bgcolor: "grey.50",
+              bgcolor: "action.hover",
               borderRadius: 2,
               border: "1px dashed",
               borderColor: "divider",
@@ -571,7 +571,7 @@ function CourtCarousel({ courts, onOpenMatch }) {
             boxShadow: 3,
             border: "1px solid",
             borderColor: "divider",
-            "&:hover": { bgcolor: "grey.100" },
+            "&:hover": { bgcolor: "action.hover" },
             display: { xs: "none", md: "flex" },
           }}
         >
@@ -618,7 +618,7 @@ function CourtCarousel({ courts, onOpenMatch }) {
             boxShadow: 3,
             border: "1px solid",
             borderColor: "divider",
-            "&:hover": { bgcolor: "grey.100" },
+            "&:hover": { bgcolor: "action.hover" },
             display: { xs: "none", md: "flex" },
           }}
         >
@@ -630,11 +630,16 @@ function CourtCarousel({ courts, onOpenMatch }) {
 }
 
 function MatchListItem({ m, onOpenMatch }) {
+  const theme = useTheme();
   const finished = isFinished(m);
   const live = isLive(m);
   const scheduled = isScheduled(m);
   const borderColor = live ? "success.main" : "divider";
-  const bgColor = live ? "#f0fdf4" : "background.paper";
+  const bgColor = live 
+    ? theme.palette.mode === "dark" 
+      ? "rgba(34, 197, 94, 0.1)" 
+      : "#f0fdf4" 
+    : "background.paper";
 
   return (
     <Paper
@@ -660,9 +665,9 @@ function MatchListItem({ m, onOpenMatch }) {
         sx={{
           px: 2,
           py: 0.75,
-          bgcolor: live ? "success.100" : "grey.100",
+          bgcolor: live ? "success.100" : "action.hover",
           borderBottom: "1px solid",
-          borderColor: live ? "success.200" : "grey.200",
+          borderColor: live ? "success.200" : "divider",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
@@ -676,7 +681,7 @@ function MatchListItem({ m, onOpenMatch }) {
               height: 20,
               fontSize: "0.65rem",
               fontWeight: 700,
-              bgcolor: "white",
+              bgcolor: "background.paper",
               border: "1px solid",
               borderColor: "divider",
             }}
@@ -745,7 +750,7 @@ function MatchListItem({ m, onOpenMatch }) {
                   width: 32,
                   height: 32,
                   borderRadius: "50%",
-                  bgcolor: "grey.100",
+                  bgcolor: "action.hover",
                   color: "text.secondary",
                   display: "flex",
                   alignItems: "center",
@@ -753,7 +758,7 @@ function MatchListItem({ m, onOpenMatch }) {
                   fontSize: "0.75rem",
                   fontWeight: 700,
                   border: "1px dashed",
-                  borderColor: "grey.400",
+                  borderColor: "divider",
                 }}
               >
                 VS
@@ -1184,7 +1189,7 @@ export default function TournamentSchedule() {
   }, [allSorted]);
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "#f8fafc", pb: 4 }}>
+    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 4 }}>
       <Paper
         square
         elevation={1}

@@ -1977,7 +1977,7 @@ export default function RankingList() {
                         sx={{
                           mt: 1.5,
                           p: 1.25,
-                          bgcolor: "grey.50",
+                          bgcolor: "action.hover",
                           borderRadius: 1,
                         }}
                       >

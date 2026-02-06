@@ -3772,7 +3772,7 @@ export default function TournamentBracket() {
                     width: 12,
                     height: 12,
                     borderRadius: 0.5,
-                    bgcolor: "#f9a825",
+                    bgcolor: "warning.main", // Gold/yellow for winner badge
                     flex: "0 0 12px",
                   }}
                 />

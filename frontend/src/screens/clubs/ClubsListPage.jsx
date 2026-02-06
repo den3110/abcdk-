@@ -41,6 +41,7 @@ import { toast } from "react-toastify";
 import ClubCreateDialog from "../../components/ClubCreateDialog";
 import ClubCard from "../../components/ClubCard";
 import { useListClubsQuery } from "../../slices/clubsApiSlice";
+import { useThemeMode } from "../../context/ThemeContext.jsx";
 
 const SPORT_OPTIONS = ["pickleball"];
 
@@ -54,7 +55,7 @@ function ClubCardSkeleton() {
         overflow: "hidden",
         height: "100%",
         border: "1px solid rgba(0,0,0,0.08)",
-        bgcolor: "#fff",
+        bgcolor: "background.paper",
       }}
     >
       <Box
@@ -62,7 +63,7 @@ function ClubCardSkeleton() {
           position: "relative",
           width: "100%",
           pt: "56.25%",
-          bgcolor: "#f5f5f5",
+          bgcolor: "action.hover",
         }}
       >
         <Skeleton
@@ -114,14 +115,15 @@ const tabStyles = {
   fontSize: "0.9rem",
   color: "text.secondary",
   "&.Mui-selected": {
-    color: "#fff",
-    bgcolor: "#212121",
+    color: "background.paper",
+    bgcolor: "text.primary",
   },
   transition: "all 0.2s",
 };
 
 export default function ClubsListPage() {
   const theme = useTheme();
+  const { isDark } = useThemeMode();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [tab, setTab] = useState("all");
 
@@ -193,14 +195,15 @@ export default function ClubsListPage() {
   const noResults = !showSkeleton && !shouldSkip && items.length === 0;
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "#f8faff", pb: 8 }}>
+    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 8 }}>
       {/* === HERO SECTION === */}
       <Box
         sx={{
-          bgcolor: "#fff",
+          bgcolor: "background.paper",
           pt: 4,
           pb: 3,
-          borderBottom: "1px solid rgba(0,0,0,0.05)",
+          borderBottom: "1px solid",
+          borderColor: "divider",
           boxShadow: "0 2px 10px rgba(0,0,0,0.02)",
         }}
       >
@@ -263,7 +266,7 @@ export default function ClubsListPage() {
               flexDirection: { xs: "column", md: "row" },
               alignItems: "center",
               gap: 2,
-              bgcolor: "#f9fafb",
+              bgcolor: "action.hover",
             }}
           >
             {/* Search Input */}
@@ -286,7 +289,7 @@ export default function ClubsListPage() {
                   </IconButton>
                 ),
                 sx: {
-                  bgcolor: "#fff",
+                  bgcolor: "background.paper",
                   borderRadius: 3,
                   px: 1,
                   py: 0.8,
@@ -308,7 +311,6 @@ export default function ClubsListPage() {
               select
               value={sport}
               onChange={(e) => setSport(e.target.value)}
-              displayEmpty
               variant="standard"
               InputProps={{
                 disableUnderline: true,
@@ -320,7 +322,7 @@ export default function ClubsListPage() {
                 ),
                 sx: {
                   height: 48,
-                  bgcolor: "#fff",
+                  bgcolor: "background.paper",
                   borderRadius: 3,
                   px: 2,
                   minWidth: 180,
@@ -353,7 +355,7 @@ export default function ClubsListPage() {
                 disableUnderline: true,
                 sx: {
                   height: 48,
-                  bgcolor: "#fff",
+                  bgcolor: "background.paper",
                   borderRadius: 3,
                   px: 2,
                   minWidth: 180,
@@ -463,7 +465,7 @@ export default function ClubsListPage() {
                   <Box
                     sx={{
                       p: 3,
-                      bgcolor: "#f5f5f5",
+                      bgcolor: "action.hover",
                       borderRadius: "50%",
                       mb: 2,
                     }}
@@ -493,7 +495,7 @@ export default function ClubsListPage() {
                   <Box
                     sx={{
                       p: 3,
-                      bgcolor: "#f5f5f5",
+                      bgcolor: "action.hover",
                       borderRadius: "50%",
                       mb: 2,
                     }}
@@ -521,7 +523,7 @@ export default function ClubsListPage() {
                   <Box
                     sx={{
                       p: 3,
-                      bgcolor: "#f5f5f5",
+                      bgcolor: "action.hover",
                       borderRadius: "50%",
                       mb: 2,
                     }}
