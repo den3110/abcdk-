@@ -157,14 +157,14 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
     star.style.transformOrigin = "center";
     svg.appendChild(star);
 
-    // P text (hidden initially)
+    // P text (hidden initially) - solid color for consistent mobile rendering
     const pText = document.createElementNS("http://www.w3.org/2000/svg", "text");
     pText.setAttribute("x", "14");
     pText.setAttribute("y", "35");
     pText.setAttribute("text-anchor", "middle");
     pText.setAttribute("font-size", "32");
     pText.setAttribute("font-weight", "800");
-    pText.setAttribute("fill", "url(#grad-blue)");
+    pText.setAttribute("fill", "#0d6efd"); // Solid blue - works on all devices
     pText.textContent = pChar;
     pText.style.opacity = "0";
     svg.appendChild(pText);
