@@ -417,7 +417,8 @@ function LiveThinking({ theme, steps }) {
 //  SSE Stream Parser
 // ═══════════════════════════════════════════
 async function sendMessageStream(message, onEvent) {
-  const res = await fetch("/api/chat/stream", {
+  const base = import.meta.env.VITE_API_URL || "";
+  const res = await fetch(`${base}/api/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message }),
