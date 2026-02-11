@@ -25,6 +25,7 @@ import notifyRoutes from "./routes/notifyRoutes.js";
 import cmsRoutes from "./routes/cmsRoutes.js";
 import { initSocket } from "./socket/index.js";
 import cors from "cors";
+import helmet from "helmet";
 import dotenv from "dotenv";
 import { startTournamentCrons } from "./jobs/tournamentCron.js";
 import { agenda, startAgenda } from "./jobs/agenda.js";
@@ -80,7 +81,7 @@ import radarRoutes from "./routes/radarRoutes.js";
 import supportRoutes from "./routes/supportRoutes.js";
 import auditRoutes from "./routes/auditRoutes.js";
 import slackEventsRoutes from "./routes/slackEventsRoutes.js";
-import head2headRoutes from "./routes/head2headRoutes.js"
+import head2headRoutes from "./routes/head2headRoutes.js";
 import otaRoutes from "./routes/otaRoutes.js";
 import expoUpdatesRoutes from "./routes/expoUpdatesRoutes.js";
 import Match from "./models/matchModel.js";
@@ -99,11 +100,15 @@ const WHITELIST = [
 connectDB();
 
 const app = express();
+
+// Security headers - chặn Clickjacking, XSS, MIME sniffing, etc.
+app.use(helmet());
+
 app.use(
   cors({
     origin: WHITELIST, // ✅ KHÔNG dùng '*'
     credentials: true, // ✅ Phải bật
-  })
+  }),
 );
 
 app.use(
@@ -130,7 +135,7 @@ app.use(
       console.error("❌ Proxy error:", err);
       res.status(500).json({ error: "Go service unavailable" });
     },
-  })
+  }),
 );
 app.use("/api/live/recordings", liveRecordingRoutes);
 
@@ -227,7 +232,7 @@ app.get("/dl/file/:id", async (req, res) => {
     res.setHeader("Content-Type", doc.mime || "application/octet-stream");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${encodeURIComponent(downloadName)}"`
+      `attachment; filename="${encodeURIComponent(downloadName)}"`,
     );
 
     // Chuyển nội bộ cho Nginx đọc file từ đĩa (KHÔNG qua Node)
@@ -256,7 +261,7 @@ const startServer = async () => {
       app.use(express.static(path.join(__dirname, "/frontend/dist")));
 
       app.get("*", (req, res) =>
-        res.sendFile(path.resolve(__dirname, "frontend", "dist", "index.html"))
+        res.sendFile(path.resolve(__dirname, "frontend", "dist", "index.html")),
       );
     } else {
       app.get("/", (req, res) => {

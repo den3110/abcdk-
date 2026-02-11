@@ -129,11 +129,18 @@ export default function MobileBottomNav() {
     // Check ngay lần đầu
     detectBackground();
 
+    // Retry sau khi page đã paint xong (DOM có thể chưa sẵn sàng lúc mount)
+    const retryTimers = [
+      setTimeout(detectBackground, 300),
+      setTimeout(detectBackground, 800),
+    ];
+
     return () => {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onScroll);
       observer.disconnect(); // Tắt camera khi unmount
       clearTimeout(debounceTimer);
+      retryTimers.forEach(clearTimeout);
     };
   }, [detectBackground]); // Chỉ phụ thuộc vào hàm detect
 
@@ -234,8 +241,8 @@ export default function MobileBottomNav() {
 
   // 1. Màu nền (Quan trọng: Opacity thấp 0.6 để thấy độ mờ phía sau)
   const glassBackground = isDarkOverlay
-    ? "rgba(35, 35, 35, ,.2)" // Đen mờ (Khi vào vùng tối)
-    : "rgba(255, 255, 255, ,.2)"; // Trắng mờ (Khi ở vùng sáng)
+    ? "rgba(35, 35, 35, 0.2)" // Đen mờ (Khi vào vùng tối)
+    : "rgba(255, 255, 255, 0.2)"; // Trắng mờ (Khi ở vùng sáng)
 
   // 2. Viền (Border)
   const glassBorder = isDarkOverlay

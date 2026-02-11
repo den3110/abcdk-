@@ -3,10 +3,30 @@ import { apiSlice } from "./apiSlice";
 
 export const chatBotApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
-    chatBot: builder.query({
-      query: () => ({ url: "/api/bot/chat", method: "POST" }),
+    sendMessage: builder.mutation({
+      query: (data) => ({
+        url: "/api/chat",
+        method: "POST",
+        body: data,
+      }),
+    }),
+    getChatHistory: builder.query({
+      query: ({ before } = {}) => ({
+        url: `/api/chat/history${before ? `?before=${before}` : ""}`,
+        method: "GET",
+      }),
+    }),
+    clearChatHistory: builder.mutation({
+      query: () => ({
+        url: "/api/chat/history",
+        method: "DELETE",
+      }),
     }),
   }),
 });
 
-export const { useChatBotQuery } = chatBotApiSlice;
+export const {
+  useSendMessageMutation,
+  useGetChatHistoryQuery,
+  useClearChatHistoryMutation,
+} = chatBotApiSlice;

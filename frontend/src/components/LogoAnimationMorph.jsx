@@ -157,7 +157,21 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
     star.style.transformOrigin = "center";
     svg.appendChild(star);
 
-    // P letter as HTML span with CSS gradient (works on all devices including mobile)
+    // Create a wrapper for the entire logo text
+    const logoWrapper = document.createElement("div");
+    logoWrapper.style.display = "inline-flex";
+    logoWrapper.style.alignItems = "center";
+    logoWrapper.style.position = "relative";
+    // Reserve full width for "PickleTour" from the start to prevent layout shift
+    logoWrapper.style.minWidth = isMobile ? "95px" : "115px";
+
+    // Create wrapper for P and shapes - will start offset to center, then slide to left
+    const pWrapper = document.createElement("div");
+    pWrapper.style.display = "inline-flex";
+    pWrapper.style.alignItems = "center";
+    pWrapper.style.position = "relative";
+
+    // P letter as HTML span with CSS gradient
     const pSpan = document.createElement("span");
     pSpan.textContent = pChar;
     pSpan.style.display = "inline-block";
@@ -169,22 +183,27 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
     pSpan.style.fontWeight = "800";
     pSpan.style.fontSize = isMobile ? "1.35rem" : "1.5rem";
     pSpan.style.letterSpacing = "-0.5px";
-    pSpan.style.marginLeft = "-28px"; // Overlap with shapes SVG
+    pSpan.style.marginLeft = "-28px";
     pSpan.style.position = "relative";
     pSpan.style.zIndex = "10";
 
-    // Add SVG first (shapes animate and disappear)
-    container.appendChild(svg);
-    // Add P span after SVG (will overlap via negative margin)
-    container.appendChild(pSpan);
+    // Add SVG shapes and P to pWrapper
+    pWrapper.appendChild(svg);
+    pWrapper.appendChild(pSpan);
 
-    // === 2. CREATE REMAINING LETTERS (hidden initially) ===
+    // Create letters wrapper (ickleTour) - hidden initially
+    const lettersWrapper = document.createElement("span");
+    lettersWrapper.style.display = "inline-block";
+    lettersWrapper.style.whiteSpace = "nowrap";
+    lettersWrapper.style.opacity = "0";
+    lettersWrapper.style.width = "0";
+    lettersWrapper.style.overflow = "hidden";
+    
     const remainingChars = text.slice(1).split("");
     const remainingSpans = remainingChars.map((char) => {
       const span = document.createElement("span");
       span.textContent = char;
       span.style.display = "inline-block";
-      span.style.opacity = "0";
       span.style.background = "linear-gradient(45deg, #0d6efd 30%, #0dcaf0 90%)";
       span.style.webkitBackgroundClip = "text";
       span.style.webkitTextFillColor = "transparent";
@@ -195,7 +214,20 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
       return span;
     });
 
-    remainingSpans.forEach(span => container.appendChild(span));
+    remainingSpans.forEach(span => lettersWrapper.appendChild(span));
+
+    // Add both to logoWrapper
+    logoWrapper.appendChild(pWrapper);
+    logoWrapper.appendChild(lettersWrapper);
+    
+    // Add to container
+    container.appendChild(logoWrapper);
+    
+    // Calculate offset to center P initially (half of ickleTour width)
+    const ickleTourWidth = isMobile ? 75 : 90;
+    
+    // Set initial position IMMEDIATELY so P starts centered
+    gsap.set(logoWrapper, { x: ickleTourWidth / 2 });
 
     // === 3. MORPHING ANIMATION TIMELINE ===
     const masterTl = gsap.timeline();
@@ -279,6 +311,7 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
       ease: "back.in(2)",
     });
 
+    // P appears in center with entrance animation
     masterTl.fromTo(pSpan,
       {
         opacity: 0,
@@ -295,25 +328,39 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
       "-=0.4"
     );
 
-    // P stays in place (no bounce to avoid jumping)
+    // Short pause to let P shine in the center
+    masterTl.to({}, { duration: 0.4 });
 
-    // Stage 9: Remaining letters slide in from right
+    // logoWrapper slides to the left (x: 0) while "ickleTour" appears
+    masterTl.to(logoWrapper, {
+      x: 0,
+      duration: 0.6,
+      ease: "power2.out",
+    });
+
+    // lettersWrapper expands width and fades in at the same time
+    masterTl.to(lettersWrapper, {
+      width: "auto",
+      opacity: 1,
+      duration: 0.5,
+      ease: "power2.out",
+    }, "-=0.5");
+
+    // Each letter slides in from right with stagger
     masterTl.fromTo(
       remainingSpans,
       {
+        x: 20,
         opacity: 0,
-        x: 50,
-        scale: 0.5,
       },
       {
-        opacity: 1,
         x: 0,
-        scale: 1,
-        duration: 0.6,
-        stagger: 0.05,
-        ease: "back.out(1.7)",
+        opacity: 1,
+        duration: 0.35,
+        stagger: 0.03,
+        ease: "back.out(1.5)",
       },
-      "+=0.2"
+      "-=0.4"
     );
 
     // Bounce wave for remaining letters

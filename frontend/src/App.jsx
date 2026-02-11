@@ -5,6 +5,7 @@ import "react-toastify/dist/ReactToastify.css";
 import Header from "./components/Header";
 import MobileBottomNav from "./components/MenuMobile";
 import RegInvitesModal from "./components/RegInvitesModal";
+import ChatBotDrawer from "./components/ChatBotDrawer";
 import { useEffect, useRef } from "react";
 import { initGA, logPageView } from "./utils/analytics";
 import { useThemeMode } from "./context/ThemeContext";
@@ -63,6 +64,7 @@ const App = () => {
         <MobileBottomNav />
         {/* <RegInvitesModal /> */}
       </Container>
+      <ChatBotDrawer />
     </>
   );
 };
