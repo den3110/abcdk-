@@ -69,17 +69,32 @@ const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick
   const components = useMemo(
     () => ({
       a: ({ href, children }) => {
-        // Treat any non-http, non-mailto link as internal (covers /user/x and user/x)
-        const isInternal = href && !href.startsWith("http") && !href.startsWith("mailto:");
+        if (!href) return <span>{children}</span>;
+
+        // Normalize: strip origin if it's same-site (react-markdown may resolve relative URLs)
+        let path = href;
+        try {
+          const url = new URL(href, window.location.origin);
+          if (url.origin === window.location.origin) {
+            path = url.pathname + url.search + url.hash;
+          }
+        } catch {
+          // not a valid URL, treat as relative path
+        }
+
+        // Internal link: relative path or known internal routes
+        const isInternal =
+          !path.startsWith("http") && !path.startsWith("mailto:");
         if (isInternal) {
-          const path = href.startsWith("/") ? href : `/${href}`;
+          const normalizedPath = path.startsWith("/") ? path : `/${path}`;
           return (
             <Box
               component="span"
               onClick={(e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 onLinkClick?.();
-                navigate(path);
+                navigate(normalizedPath);
               }}
               sx={{
                 color: theme.palette.primary.main,
