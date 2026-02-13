@@ -15,6 +15,7 @@ export const TOOL_EXECUTORS = {
   get_my_info: dbTools.get_my_info,
   get_match_info: dbTools.get_match_info,
   get_leaderboard: dbTools.get_leaderboard,
+  get_most_active_players: dbTools.get_most_active_players,
   get_my_registrations: dbTools.get_my_registrations,
   get_my_rating_changes: dbTools.get_my_rating_changes,
   query_db: dbTools.query_db,
@@ -208,7 +209,7 @@ export const TOOL_DEFINITIONS = [
     function: {
       name: "get_leaderboard",
       description:
-        "Xem bảng xếp hạng VĐV (reputation, điểm đơn, điểm đôi, mix, points). Dùng Ranking model giống trang BXH thật. Có thể sort theo từng loại điểm.",
+        "Xem bảng xếp hạng VĐV. Dùng Ranking model giống trang BXH thật. Có thể sort theo từng loại điểm và lọc theo tier xác thực (yellow=đã xác thực/Official, red=tự chấm/chưa xác thực, grey=chưa đấu).",
       parameters: {
         type: "object",
         properties: {
@@ -218,6 +219,36 @@ export const TOOL_DEFINITIONS = [
             enum: ["single", "double", "mix", "points", "reputation"],
             description:
               "Sort theo loại điểm nào. VD: 'single' = điểm đơn, 'double' = điểm đôi, 'mix' = điểm đánh mix, 'points' = tổng điểm, 'reputation' = uy tín. Không truyền = sort mặc định (tier→double→single→points).",
+          },
+          tierColor: {
+            type: "string",
+            enum: ["yellow", "red", "grey"],
+            description:
+              "Lọc theo tier xác thực. 'yellow' = điểm đã xác thực (Official/Đã duyệt), 'red' = điểm tự chấm (chưa xác thực), 'grey' = chưa đấu. Không truyền = tất cả tier.",
+          },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_most_active_players",
+      description:
+        "Tìm top VĐV tích cực nhất (chơi nhiều trận nhất). Dùng khi user hỏi: ai chơi nhiều nhất, VĐV tích cực nhất, top trận đấu.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "number", description: "Số lượng top (mặc định 10)" },
+          status: {
+            type: "string",
+            enum: ["finished", "live", "scheduled"],
+            description: "Lọc theo status trận (mặc định: finished)",
+          },
+          tournamentId: {
+            type: "string",
+            description:
+              "Lọc trong 1 giải cụ thể (không truyền = toàn hệ thống)",
           },
         },
       },

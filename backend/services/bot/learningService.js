@@ -19,6 +19,7 @@ const DYNAMIC_TOOLS = new Set([
   "get_ongoing_matches",
   "get_live_sessions",
   "get_leaderboard",
+  "get_most_active_players",
   "get_player_ranking",
   "get_match_score_detail",
   "get_tournament_registrations",

@@ -71,22 +71,28 @@ const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick
       a: ({ href, children }) => {
         if (!href) return <span>{children}</span>;
 
-        // Normalize: strip origin if it's same-site (react-markdown may resolve relative URLs)
-        let path = href;
+        // Extract pathname from any URL (react-markdown may resolve
+        // relative paths like /user/x into https://example.com/user/x)
+        let internalPath = null;
         try {
           const url = new URL(href, window.location.origin);
-          if (url.origin === window.location.origin) {
-            path = url.pathname + url.search + url.hash;
+          const p = url.pathname;
+          // Known internal routes — always treat as SPA navigation
+          const internalPrefixes = ["/user/", "/tournament/", "/club/", "/pickle-ball/"];
+          if (
+            url.origin === window.location.origin ||
+            internalPrefixes.some((prefix) => p.startsWith(prefix))
+          ) {
+            internalPath = p;
           }
         } catch {
-          // not a valid URL, treat as relative path
+          // Not a full URL — treat as relative path
+          if (!href.startsWith("mailto:")) {
+            internalPath = href.startsWith("/") ? href : `/${href}`;
+          }
         }
 
-        // Internal link: relative path or known internal routes
-        const isInternal =
-          !path.startsWith("http") && !path.startsWith("mailto:");
-        if (isInternal) {
-          const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+        if (internalPath) {
           return (
             <Box
               component="span"
@@ -94,7 +100,7 @@ const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick
                 e.preventDefault();
                 e.stopPropagation();
                 onLinkClick?.();
-                navigate(normalizedPath);
+                navigate(internalPath);
               }}
               sx={{
                 color: theme.palette.primary.main,

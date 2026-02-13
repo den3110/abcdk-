@@ -29,6 +29,7 @@ const TOOL_LABELS = {
   get_my_info: "Thông tin tôi",
   get_match_info: "Chi tiết trận",
   get_leaderboard: "BXH",
+  get_most_active_players: "Top VĐV tích cực",
   get_my_registrations: "Đăng ký của tôi",
   get_my_rating_changes: "Biến động rating",
   get_tournament_matches: "Trận đấu giải",
@@ -332,6 +333,7 @@ const TOOL_GROUPS = {
     "get_user_profile_detail",
     "get_player_evaluations",
     "get_leaderboard",
+    "get_most_active_players",
   ],
   user_social: [
     "search_users",

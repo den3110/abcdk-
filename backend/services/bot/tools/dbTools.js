@@ -305,9 +305,16 @@ export async function get_match_info({ matchId }, context) {
  * Bảng xếp hạng — dùng cùng sort order với trang ranking V2
  * Sort mặc định: colorRank ASC → double DESC → single DESC → points DESC
  * Có thể chọn sortBy: single, double, mix, points, reputation
+ * Có thể filter theo tierColor: yellow (xác thực), red (tự chấm), grey (chưa đấu)
  */
-export async function get_leaderboard({ limit = 10, sortBy }) {
+export async function get_leaderboard({ limit = 10, sortBy, tierColor }) {
   const safeLimit = Math.min(Number(limit) || 10, 30);
+
+  // Build match stage for tier filter
+  const matchStage = {};
+  if (tierColor && ["yellow", "red", "grey"].includes(tierColor)) {
+    matchStage.tierColor = tierColor;
+  }
 
   // Build sort stage based on sortBy
   let sortStage;
@@ -315,7 +322,11 @@ export async function get_leaderboard({ limit = 10, sortBy }) {
     sortBy &&
     ["single", "double", "mix", "points", "reputation"].includes(sortBy)
   ) {
-    sortStage = { [sortBy]: -1, colorRank: 1, updatedAt: -1, _id: 1 };
+    // When filtering by specific tier, no need for colorRank in sort
+    // When NOT filtering, still sort by colorRank first then by sortBy
+    sortStage = tierColor
+      ? { [sortBy]: -1, updatedAt: -1, _id: 1 }
+      : { colorRank: 1, [sortBy]: -1, updatedAt: -1, _id: 1 };
   } else {
     // Default sort: uses compound index ranking_sort_idx
     sortStage = {
@@ -328,12 +339,19 @@ export async function get_leaderboard({ limit = 10, sortBy }) {
     };
   }
 
-  const list = await Ranking.aggregate([
-    // Sort FIRST — uses index directly (no $addFields to invalidate it)
+  const pipeline = [];
+
+  // Filter by tier BEFORE sort (uses index on tierColor)
+  if (Object.keys(matchStage).length > 0) {
+    pipeline.push({ $match: matchStage });
+  }
+
+  pipeline.push(
+    // Sort — uses index when no $addFields before it
     { $sort: sortStage },
-    // Limit BEFORE $lookup — only look up N users instead of entire collection
+    // Limit BEFORE $lookup
     { $limit: safeLimit * 2 },
-    // Lookup user info (now only for limited set)
+    // Lookup user info
     {
       $lookup: {
         from: "users",
@@ -365,10 +383,21 @@ export async function get_leaderboard({ limit = 10, sortBy }) {
         tierColor: 1,
       },
     },
-  ]);
+  );
+
+  const list = await Ranking.aggregate(pipeline);
+
+  const tierLabels = {
+    yellow: "điểm xác thực (Official)",
+    red: "điểm tự chấm (chưa xác thực)",
+    grey: "chưa đấu",
+  };
 
   return {
     sortedBy: sortBy || "default (colorRank → double → single → points)",
+    ...(tierColor
+      ? { filteredByTier: tierLabels[tierColor] || tierColor }
+      : {}),
     players: list.map((u, i) => ({
       rank: i + 1,
       name: u.user ? `[${u.name}](/user/${u.user})` : u.name,
@@ -385,6 +414,65 @@ export async function get_leaderboard({ limit = 10, sortBy }) {
   };
 }
 
+/**
+ * Top VĐV tích cực nhất — ai chơi nhiều trận nhất
+ */
+export async function get_most_active_players({
+  limit = 10,
+  status = "finished",
+  tournamentId,
+}) {
+  const safeLimit = Math.min(Number(limit) || 10, 30);
+
+  const matchFilter = {};
+  if (status) matchFilter.status = status;
+  if (tournamentId) matchFilter.tournament = toObjectId(tournamentId);
+
+  const list = await Match.aggregate([
+    ...(Object.keys(matchFilter).length > 0 ? [{ $match: matchFilter }] : []),
+    { $unwind: "$participants" },
+    {
+      $group: {
+        _id: "$participants",
+        totalMatches: { $sum: 1 },
+      },
+    },
+    { $sort: { totalMatches: -1 } },
+    { $limit: safeLimit },
+    {
+      $lookup: {
+        from: "users",
+        localField: "_id",
+        foreignField: "_id",
+        as: "userInfo",
+        pipeline: [{ $project: { name: 1, nickname: 1, province: 1 } }],
+      },
+    },
+    { $addFields: { userInfo: { $arrayElemAt: ["$userInfo", 0] } } },
+    { $match: { userInfo: { $ne: null } } },
+    {
+      $project: {
+        userId: "$_id",
+        name: "$userInfo.name",
+        nickname: "$userInfo.nickname",
+        province: "$userInfo.province",
+        totalMatches: 1,
+      },
+    },
+  ]);
+
+  return {
+    description: `Top ${safeLimit} VĐV chơi nhiều trận nhất${tournamentId ? " trong giải" : ""}`,
+    players: list.map((u, i) => ({
+      rank: i + 1,
+      name: u.userId ? `[${u.name}](/user/${u.userId})` : u.name,
+      nickname: u.nickname,
+      province: u.province,
+      totalMatches: u.totalMatches,
+    })),
+    count: list.length,
+  };
+}
 /**
  * Các giải user đã đăng ký
  */
