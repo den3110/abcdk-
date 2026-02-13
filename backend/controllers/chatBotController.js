@@ -480,6 +480,34 @@ export async function handleClearChatHistory(req, res) {
   }
 }
 
+/* ========== CLEAR LEARNING MEMORY ========== */
+export async function handleClearLearningMemory(req, res) {
+  try {
+    const currentUser = req.user;
+    if (!currentUser) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    // Only admins can clear the shared learning memory
+    if (currentUser.role !== "admin") {
+      return res
+        .status(403)
+        .json({ error: "Chỉ admin mới có thể xóa bộ nhớ học" });
+    }
+
+    const Knowledge = (await import("../models/knowledgeModel.js")).default;
+    const result = await Knowledge.deleteMany({ source: "bot-learned" });
+
+    return res.json({
+      success: true,
+      deleted: result.deletedCount,
+    });
+  } catch (err) {
+    console.error("[handleClearLearningMemory] error:", err);
+    return res.status(500).json({ error: "Lỗi server" });
+  }
+}
+
 /* ========== HELPERS ========== */
 function computeSessionResetAt(limitTime) {
   const t = new Date(limitTime);

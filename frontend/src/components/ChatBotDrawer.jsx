@@ -15,6 +15,8 @@ import {
   Fade,
   Chip,
   Collapse,
+  Slide,
+  Switch,
   useMediaQuery,
   Dialog,
   DialogTitle,
@@ -27,6 +29,12 @@ import { useTheme, alpha } from "@mui/material/styles";
 import SendIcon from "@mui/icons-material/Send";
 import CloseIcon from "@mui/icons-material/Close";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
+import SettingsIcon from "@mui/icons-material/Settings";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import PsychologyIcon from "@mui/icons-material/Psychology";
+import SmartToyIcon from "@mui/icons-material/SmartToy";
+import TipsAndUpdatesIcon from "@mui/icons-material/TipsAndUpdates";
+import SchoolIcon from "@mui/icons-material/School";
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
@@ -35,7 +43,7 @@ import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useClearChatHistoryMutation, chatBotApiSlice } from "../slices/chatBotApiSlice";
+import { useClearChatHistoryMutation, useClearLearningMemoryMutation, chatBotApiSlice } from "../slices/chatBotApiSlice";
 import { useSelector } from "react-redux";
 import { useNavigate as useRouterNavigate } from "react-router-dom";
 
@@ -724,6 +732,7 @@ export default function ChatBotDrawer() {
   const [isTyping, setIsTyping] = useState(false);
   const [liveSteps, setLiveSteps] = useState([]);
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [dynamicSuggestions, setDynamicSuggestions] = useState([]);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -734,6 +743,7 @@ export default function ChatBotDrawer() {
 
   const { userInfo } = useSelector((state) => state.auth);
   const [clearHistory] = useClearChatHistoryMutation();
+  const [clearLearning] = useClearLearningMemoryMutation();
   const [fetchHistory] = chatBotApiSlice.useLazyGetChatHistoryQuery();
   const historyLoaded = useRef(false);
   const nextCursorRef = useRef(null);
@@ -878,6 +888,22 @@ export default function ChatBotDrawer() {
     })();
   }, [open, userInfo, fetchHistory, mapMessage, jumpToBottom]);
 
+  // Reset chat state when user changes (logout/login)
+  const prevUserIdRef = useRef(userInfo?._id);
+  useEffect(() => {
+    const currentId = userInfo?._id || null;
+    const prevId = prevUserIdRef.current || null;
+    if (currentId !== prevId) {
+      prevUserIdRef.current = currentId;
+      setMessages([]);
+      setDynamicSuggestions([]);
+      setShowSettings(false);
+      historyLoaded.current = false;
+      nextCursorRef.current = null;
+      hasMoreRef.current = true;
+    }
+  }, [userInfo?._id]);
+
   // ─── Send message via SSE stream ───
   const handleSend = async (overrideText) => {
     const text = (overrideText || input).trim();
@@ -1021,6 +1047,7 @@ export default function ChatBotDrawer() {
 
   const handleClear = async () => {
     setConfirmClearOpen(false);
+    setShowSettings(false);
     try {
       await clearHistory().unwrap();
     } catch { /* ignore */ }
@@ -1096,6 +1123,15 @@ export default function ChatBotDrawer() {
             minHeight: 64,
           }}
         >
+          {showSettings && (
+            <IconButton
+              size="small"
+              onClick={() => setShowSettings(false)}
+              sx={{ color: "rgba(255,255,255,0.7)", "&:hover": { color: "#fff" }, ml: -0.5 }}
+            >
+              <ArrowBackIcon fontSize="small" />
+            </IconButton>
+          )}
           <Avatar
             src={BOT_ICON}
             sx={{
@@ -1107,21 +1143,23 @@ export default function ChatBotDrawer() {
           />
           <Box sx={{ flex: 1 }}>
             <Typography variant="subtitle1" fontWeight={700}>
-              Pikora
+              {showSettings ? "Cài đặt" : "Pikora"}
             </Typography>
             <Typography variant="caption" sx={{ opacity: 0.85 }}>
-              {isTyping ? "Đang xử lý..." : "Trợ lý ảo PickleTour 🏓"}
+              {showSettings ? "Tùy chỉnh trợ lý" : isTyping ? "Đang xử lý..." : "Trợ lý ảo PickleTour"}
             </Typography>
           </Box>
-          <Tooltip title="Xóa lịch sử chat">
-            <IconButton
-              size="small"
-              onClick={() => setConfirmClearOpen(true)}
-              sx={{ color: "rgba(255,255,255,0.7)", "&:hover": { color: "#fff" } }}
-            >
-              <DeleteOutlineIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
+          {!showSettings && (
+            <Tooltip title="Cài đặt">
+              <IconButton
+                size="small"
+                onClick={() => setShowSettings(true)}
+                sx={{ color: "rgba(255,255,255,0.7)", "&:hover": { color: "#fff" } }}
+              >
+                <SettingsIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
           <Tooltip title="Đóng">
             <IconButton
               size="small"
@@ -1135,6 +1173,138 @@ export default function ChatBotDrawer() {
 
         <Divider />
 
+        {/* ─── Settings Panel ─── */}
+        {showSettings ? (
+          <Box
+            sx={{
+              flex: 1,
+              overflowY: "auto",
+              p: 2.5,
+              display: "flex",
+              flexDirection: "column",
+              gap: 1,
+            }}
+          >
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, fontSize: "0.9rem", display: "flex", alignItems: "center", gap: 0.8 }}>
+              <SettingsIcon sx={{ fontSize: 18, color: "text.secondary" }} /> Cài đặt
+            </Typography>
+
+            {/* Memory info */}
+            <Box
+              sx={{
+                borderRadius: 2,
+                border: `1px solid ${alpha(theme.palette.divider, 0.15)}`,
+                bgcolor: alpha(theme.palette.background.paper, isDark ? 0.4 : 0.9),
+                p: 2,
+              }}
+            >
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5, display: "flex", alignItems: "center", gap: 0.8 }}>
+                <PsychologyIcon sx={{ fontSize: 18, color: theme.palette.primary.main }} /> Bộ nhớ hội thoại
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {messages.length} tin nhắn trong phiên hiện tại
+              </Typography>
+              <Box sx={{ mt: 1.5 }}>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  size="small"
+                  startIcon={<DeleteOutlineIcon />}
+                  onClick={() => setConfirmClearOpen(true)}
+                  sx={{
+                    textTransform: "none",
+                    fontWeight: 600,
+                    borderRadius: 2,
+                    fontSize: "0.8rem",
+                  }}
+                >
+                  Xóa lịch sử chat
+                </Button>
+              </Box>
+            </Box>
+
+            {/* Bot info */}
+            <Box
+              sx={{
+                borderRadius: 2,
+                border: `1px solid ${alpha(theme.palette.divider, 0.15)}`,
+                bgcolor: alpha(theme.palette.background.paper, isDark ? 0.4 : 0.9),
+                p: 2,
+              }}
+            >
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5, display: "flex", alignItems: "center", gap: 0.8 }}>
+                <SmartToyIcon sx={{ fontSize: 18, color: theme.palette.info.main }} /> Thông tin bot
+              </Typography>
+              <Typography variant="caption" color="text.secondary" component="div" sx={{ lineHeight: 1.8 }}>
+                <b>Tên:</b> Pikora<br />
+                <b>Khả năng:</b> Tìm giải, BXH, thống kê VĐV, hướng dẫn app
+              </Typography>
+            </Box>
+
+            {/* Tips */}
+            <Box
+              sx={{
+                borderRadius: 2,
+                border: `1px solid ${alpha(theme.palette.divider, 0.15)}`,
+                bgcolor: alpha(theme.palette.background.paper, isDark ? 0.4 : 0.9),
+                p: 2,
+              }}
+            >
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5, display: "flex", alignItems: "center", gap: 0.8 }}>
+                <TipsAndUpdatesIcon sx={{ fontSize: 18, color: theme.palette.warning.main }} /> Mẹo sử dụng
+              </Typography>
+              <Typography variant="caption" color="text.secondary" component="div" sx={{ lineHeight: 1.8 }}>
+                • Hỏi cụ thể để được kết quả chính xác hơn<br />
+                • Nói &quot;của tôi&quot; để xem thông tin cá nhân<br />
+                • Xóa lịch sử nếu bot trả lời lạc đề
+              </Typography>
+            </Box>
+
+            {/* Learning memory (admin only) */}
+            {userInfo?.role === "admin" && (
+              <Box
+                sx={{
+                  borderRadius: 2,
+                  border: `1px solid ${alpha(theme.palette.divider, 0.15)}`,
+                  bgcolor: alpha(theme.palette.background.paper, isDark ? 0.4 : 0.9),
+                  p: 2,
+                }}
+              >
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5, display: "flex", alignItems: "center", gap: 0.8 }}>
+                  <SchoolIcon sx={{ fontSize: 18, color: theme.palette.success.main }} /> Tự học (Auto-learn)
+                </Typography>
+                <Typography variant="caption" color="text.secondary" component="div" sx={{ lineHeight: 1.6 }}>
+                  Bot tự động học từ các câu hỏi thành công để trả lời nhanh hơn.
+                </Typography>
+                <Box sx={{ mt: 1.5 }}>
+                  <Button
+                    variant="outlined"
+                    color="warning"
+                    size="small"
+                    startIcon={<DeleteOutlineIcon />}
+                    onClick={async () => {
+                      try {
+                        const res = await clearLearning().unwrap();
+                        alert(`Đã xóa ${res.deleted} mục học`);
+                      } catch (err) {
+                        alert(err?.data?.error || "Lỗi khi xóa bộ nhớ học");
+                      }
+                    }}
+                    sx={{
+                      textTransform: "none",
+                      fontWeight: 600,
+                      borderRadius: 2,
+                      fontSize: "0.8rem",
+                    }}
+                  >
+                    Xóa bộ nhớ học
+                  </Button>
+                </Box>
+              </Box>
+            )}
+          </Box>
+        ) : (
+        <>
         {/* ─── Messages ─── */}
         <Box
           ref={messagesContainerRef}
@@ -1463,6 +1633,8 @@ export default function ChatBotDrawer() {
             )}
           </IconButton>
         </Box>
+        </>
+        )}
       </Drawer>
 
       {/* ═══ Confirm Clear Dialog ═══ */}
@@ -1474,7 +1646,7 @@ export default function ChatBotDrawer() {
         }}
       >
         <DialogTitle sx={{ fontWeight: 700, fontSize: "1rem", pb: 0.5 }}>
-          Xóa lịch sử chat? 🗑️
+          Xóa lịch sử chat?
         </DialogTitle>
         <DialogContent>
           <DialogContentText sx={{ fontSize: "0.875rem" }}>

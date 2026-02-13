@@ -22,6 +22,12 @@ export const chatBotApiSlice = apiSlice.injectEndpoints({
         method: "DELETE",
       }),
     }),
+    clearLearningMemory: builder.mutation({
+      query: () => ({
+        url: "/api/chat/learning",
+        method: "DELETE",
+      }),
+    }),
   }),
 });
 
@@ -29,4 +35,5 @@ export const {
   useSendMessageMutation,
   useGetChatHistoryQuery,
   useClearChatHistoryMutation,
+  useClearLearningMemoryMutation,
 } = chatBotApiSlice;
