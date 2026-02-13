@@ -307,6 +307,8 @@ export async function get_match_info({ matchId }, context) {
  * Có thể chọn sortBy: single, double, mix, points, reputation
  */
 export async function get_leaderboard({ limit = 10, sortBy }) {
+  const safeLimit = Math.min(Number(limit) || 10, 30);
+
   // Build sort stage based on sortBy
   let sortStage;
   if (
@@ -315,7 +317,7 @@ export async function get_leaderboard({ limit = 10, sortBy }) {
   ) {
     sortStage = { [sortBy]: -1, colorRank: 1, updatedAt: -1, _id: 1 };
   } else {
-    // Default sort: same as ranking page V2
+    // Default sort: uses compound index ranking_sort_idx
     sortStage = {
       colorRank: 1,
       double: -1,
@@ -327,20 +329,11 @@ export async function get_leaderboard({ limit = 10, sortBy }) {
   }
 
   const list = await Ranking.aggregate([
-    // Normalize nulls
-    {
-      $addFields: {
-        points: { $ifNull: ["$points", 0] },
-        single: { $ifNull: ["$single", 0] },
-        double: { $ifNull: ["$double", 0] },
-        mix: { $ifNull: ["$mix", 0] },
-        reputation: { $ifNull: ["$reputation", 0] },
-        colorRank: { $ifNull: ["$colorRank", 2] },
-        tierColor: { $ifNull: ["$tierColor", "grey"] },
-      },
-    },
+    // Sort FIRST — uses index directly (no $addFields to invalidate it)
     { $sort: sortStage },
-    // Lookup user info
+    // Limit BEFORE $lookup — only look up N users instead of entire collection
+    { $limit: safeLimit * 2 },
+    // Lookup user info (now only for limited set)
     {
       $lookup: {
         from: "users",
@@ -356,8 +349,8 @@ export async function get_leaderboard({ limit = 10, sortBy }) {
     { $addFields: { userInfo: { $arrayElemAt: ["$userInfo", 0] } } },
     // Filter out deleted users
     { $match: { userInfo: { $ne: null } } },
-    // Limit AFTER filtering
-    { $limit: Number(limit) || 10 },
+    // Final limit
+    { $limit: safeLimit },
     {
       $project: {
         user: 1,
