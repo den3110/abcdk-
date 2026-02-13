@@ -162,6 +162,12 @@ export const TOOL_DEFINITIONS = [
             description: "Tên VĐV cần tìm",
           },
           limit: { type: "number", description: "Số lượng tối đa" },
+          sortBy: {
+            type: "string",
+            enum: ["ratingDoubles", "ratingSingles", "name"],
+            description:
+              "Sắp xếp kết quả. Dùng khi user hỏi 'điểm cao nhất', 'rating cao nhất'",
+          },
         },
         required: ["name"],
       },

@@ -17,6 +17,7 @@ const openai = new OpenAI({
 
 const MODEL = process.env.BOT_MODEL || "gpt-4o-mini";
 const MAX_TOOL_ROUNDS = 5; // Giới hạn số lần gọi tool liên tiếp
+const MAX_TOOL_RESULT_CHARS = 3000; // Cap tool result size to reduce tokens
 const isDev = process.env.NODE_ENV !== "production";
 
 // ─────────────── TOOL LABELS (Vietnamese) ───────────────
@@ -583,9 +584,11 @@ function selectTools(message, context, memory = []) {
 export async function runAgent(message, context = {}, userId = null) {
   const startTime = Date.now();
 
-  // 1) Load memory & profile
-  const memory = userId ? await getRecentMessages(userId, 10) : [];
-  const userProfile = userId ? await fetchUserProfile(userId) : null;
+  // 1) Load memory & profile in parallel
+  const [memory, userProfile] = await Promise.all([
+    userId ? getRecentMessages(userId, 6) : [],
+    userId ? fetchUserProfile(userId) : null,
+  ]);
 
   // 2) Build system prompt with context
   let systemContent = SYSTEM_PROMPT;
@@ -752,7 +755,7 @@ export async function runAgent(message, context = {}, userId = null) {
           return {
             tool_call_id: toolCall.id,
             role: "tool",
-            content: JSON.stringify(result),
+            content: truncateResult(JSON.stringify(result)),
           };
         } catch (err) {
           console.error(`[Agent] Tool ${fnName} error:`, err.message);
@@ -801,9 +804,11 @@ export async function runAgentStream(
 
   emit("thinking", { step: "Đang tải ngữ cảnh hội thoại..." });
 
-  // 1) Load memory & profile
-  const memory = userId ? await getRecentMessages(userId, 10) : [];
-  const userProfile = userId ? await fetchUserProfile(userId) : null;
+  // 1) Load memory & profile in parallel
+  const [memory, userProfile] = await Promise.all([
+    userId ? getRecentMessages(userId, 6) : [],
+    userId ? fetchUserProfile(userId) : null,
+  ]);
 
   // 2) Build system prompt with context
   let systemContent = SYSTEM_PROMPT;
@@ -972,7 +977,7 @@ export async function runAgentStream(
           return {
             tool_call_id: toolCall.id,
             role: "tool",
-            content: JSON.stringify(result),
+            content: truncateResult(JSON.stringify(result)),
           };
         } catch (err) {
           console.error(`[Agent] Tool ${fnName} error:`, err.message);
@@ -1397,6 +1402,14 @@ function safeParseJSON(str) {
   } catch {
     return {};
   }
+}
+
+function truncateResult(str) {
+  if (str.length <= MAX_TOOL_RESULT_CHARS) return str;
+  return (
+    str.slice(0, MAX_TOOL_RESULT_CHARS) +
+    "\n... [truncated — data quá dài, chỉ hiển thị phần đầu]"
+  );
 }
 
 // ─────────────── BOT IDENTITY (export cho controller) ───────────────

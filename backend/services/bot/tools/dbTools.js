@@ -187,14 +187,23 @@ export async function count_registrations({ tournamentId }) {
 /**
  * Tìm VĐV theo tên (public info only - không trả phone/email)
  */
-export async function search_users({ name, limit = 5 }) {
+export async function search_users({ name, limit = 5, sortBy }) {
   if (!name) return { error: "Cần nhập tên để tìm" };
+
+  // Build sort option
+  const sortMap = {
+    ratingDoubles: { "localRatings.doubles": -1 },
+    ratingSingles: { "localRatings.singles": -1 },
+    name: { name: 1 },
+  };
+  const sort = sortMap[sortBy] || {};
 
   const users = await User.find({
     name: { $regex: escapeRegex(name), $options: "i" },
     isDeleted: false,
   })
     .select("name nickname gender dob province localRatings")
+    .sort(sort)
     .limit(Number(limit))
     .lean();
 
@@ -210,6 +219,7 @@ export async function search_users({ name, limit = 5 }) {
       ratingSingles: u.localRatings?.singles || 2.5,
     })),
     count: users.length,
+    sortedBy: sortBy || "default",
   };
 }
 
@@ -1146,11 +1156,9 @@ export async function get_user_matches(
     .select(
       "code tournament bracket status winner pairA pairB gameScores startedAt finishedAt round courtLabel",
     )
-    .populate("pairA", "player1 player2")
-    .populate("pairB", "player1 player2")
-    .populate("tournament", "name")
     .populate({
       path: "pairA",
+      select: "player1 player2",
       populate: [
         { path: "player1.user", select: "name" },
         { path: "player2.user", select: "name" },
@@ -1158,11 +1166,13 @@ export async function get_user_matches(
     })
     .populate({
       path: "pairB",
+      select: "player1 player2",
       populate: [
         { path: "player1.user", select: "name" },
         { path: "player2.user", select: "name" },
       ],
     })
+    .populate("tournament", "name")
     .sort({ startedAt: -1, createdAt: -1 })
     .limit(Math.min(Number(limit) || 10, 30))
     .lean();
@@ -2247,23 +2257,27 @@ export async function check_my_registration({ tournamentId, userId }, ctx) {
 export async function get_head_to_head({ playerAId, playerBId }) {
   if (!playerAId || !playerBId) return { error: "Cần playerAId và playerBId" };
 
-  // Find registrations of both players
-  const regsA = await Registration.find({
-    $or: [
-      { "player1.user": toObjectId(playerAId) },
-      { "player2.user": toObjectId(playerAId) },
-    ],
-  })
-    .select("_id")
-    .lean();
-  const regsB = await Registration.find({
-    $or: [
-      { "player1.user": toObjectId(playerBId) },
-      { "player2.user": toObjectId(playerBId) },
-    ],
-  })
-    .select("_id")
-    .lean();
+  // Fetch registrations + player names in parallel
+  const [regsA, regsB, pA, pB] = await Promise.all([
+    Registration.find({
+      $or: [
+        { "player1.user": toObjectId(playerAId) },
+        { "player2.user": toObjectId(playerAId) },
+      ],
+    })
+      .select("_id")
+      .lean(),
+    Registration.find({
+      $or: [
+        { "player1.user": toObjectId(playerBId) },
+        { "player2.user": toObjectId(playerBId) },
+      ],
+    })
+      .select("_id")
+      .lean(),
+    User.findById(playerAId).select("name").lean(),
+    User.findById(playerBId).select("name").lean(),
+  ]);
 
   const regAIds = regsA.map((r) => r._id);
   const regBIds = regsB.map((r) => r._id);
@@ -2306,12 +2320,6 @@ export async function get_head_to_head({ playerAId, playerBId }) {
       date: m.updatedAt,
     };
   });
-
-  // Get player names
-  const [pA, pB] = await Promise.all([
-    User.findById(playerAId).select("name").lean(),
-    User.findById(playerBId).select("name").lean(),
-  ]);
 
   return {
     playerA: pA?.name || "?",
@@ -2567,69 +2575,34 @@ export async function get_match_score_detail({ matchId }, ctx) {
 export async function compare_players({ playerAId, playerBId }) {
   if (!playerAId || !playerBId) return { error: "Cần playerAId và playerBId" };
 
-  const [userA, userB] = await Promise.all([
-    User.findById(playerAId).select("name skillLevel rating reputation").lean(),
-    User.findById(playerBId).select("name skillLevel rating reputation").lean(),
+  // 1) Fetch users + registration IDs in parallel
+  const [userA, userB, regIdsA, regIdsB] = await Promise.all([
+    User.findById(playerAId)
+      .select("name nickname localRatings province")
+      .lean(),
+    User.findById(playerBId)
+      .select("name nickname localRatings province")
+      .lean(),
+    Registration.find({
+      $or: [{ "player1.user": playerAId }, { "player2.user": playerAId }],
+    }).distinct("_id"),
+    Registration.find({
+      $or: [{ "player1.user": playerBId }, { "player2.user": playerBId }],
+    }).distinct("_id"),
   ]);
 
   if (!userA || !userB) return { error: "Không tìm thấy 1 hoặc cả 2 VĐV" };
 
-  // Count matches each player has done
-  const [matchCountA, matchCountB] = await Promise.all([
+  // 2) Run all counts in parallel
+  const [matchCountA, matchCountB, tourCountA, tourCountB] = await Promise.all([
     Match.countDocuments({
       status: "finished",
-      $or: [
-        {
-          pairA: {
-            $in: await Registration.find({
-              $or: [
-                { "player1.user": playerAId },
-                { "player2.user": playerAId },
-              ],
-            }).distinct("_id"),
-          },
-        },
-        {
-          pairB: {
-            $in: await Registration.find({
-              $or: [
-                { "player1.user": playerAId },
-                { "player2.user": playerAId },
-              ],
-            }).distinct("_id"),
-          },
-        },
-      ],
+      participants: toObjectId(playerAId),
     }),
     Match.countDocuments({
       status: "finished",
-      $or: [
-        {
-          pairA: {
-            $in: await Registration.find({
-              $or: [
-                { "player1.user": playerBId },
-                { "player2.user": playerBId },
-              ],
-            }).distinct("_id"),
-          },
-        },
-        {
-          pairB: {
-            $in: await Registration.find({
-              $or: [
-                { "player1.user": playerBId },
-                { "player2.user": playerBId },
-              ],
-            }).distinct("_id"),
-          },
-        },
-      ],
+      participants: toObjectId(playerBId),
     }),
-  ]);
-
-  // Tournament count
-  const [tourCountA, tourCountB] = await Promise.all([
     Registration.distinct("tournament", {
       $or: [{ "player1.user": playerAId }, { "player2.user": playerAId }],
     }).then((r) => r.length),
@@ -2641,17 +2614,19 @@ export async function compare_players({ playerAId, playerBId }) {
   return {
     playerA: {
       name: userA.name,
-      skillLevel: userA.skillLevel || null,
-      rating: userA.rating || null,
-      reputation: userA.reputation || null,
+      nickname: userA.nickname,
+      province: userA.province,
+      ratingDoubles: userA.localRatings?.doubles || 2.5,
+      ratingSingles: userA.localRatings?.singles || 2.5,
       totalMatches: matchCountA,
       totalTournaments: tourCountA,
     },
     playerB: {
       name: userB.name,
-      skillLevel: userB.skillLevel || null,
-      rating: userB.rating || null,
-      reputation: userB.reputation || null,
+      nickname: userB.nickname,
+      province: userB.province,
+      ratingDoubles: userB.localRatings?.doubles || 2.5,
+      ratingSingles: userB.localRatings?.singles || 2.5,
       totalMatches: matchCountB,
       totalTournaments: tourCountB,
     },
@@ -3938,42 +3913,31 @@ export async function get_user_stats({ userId, name }, context) {
 
   if (!user) return { error: "Không tìm thấy VĐV" };
 
-  // Đếm tổng trận + thắng (Match model dùng participants[] và winner: "A"/"B")
   const uid = user._id;
 
-  const [totalMatches, totalTournaments] = await Promise.all([
+  // 1) Get all registration IDs for this user (one query, reuse everywhere)
+  const regIds = await Registration.find({
+    $or: [{ "player1.user": uid }, { "player2.user": uid }],
+  }).distinct("_id");
+
+  // 2) Run everything in parallel
+  const [totalMatches, wonMatches, totalTournaments] = await Promise.all([
     Match.countDocuments({
       status: "finished",
       participants: uid,
     }),
-    Registration.countDocuments({
-      $or: [{ "player1.user": uid }, { "player2.user": uid }],
+    Match.countDocuments({
+      status: "finished",
+      participants: uid,
+      $or: [
+        { winner: "A", pairA: { $in: regIds } },
+        { winner: "B", pairB: { $in: regIds } },
+      ],
     }),
+    Registration.distinct("tournament", {
+      $or: [{ "player1.user": uid }, { "player2.user": uid }],
+    }).then((ids) => ids.length),
   ]);
-
-  // Đếm thắng: user trong pairA và winner=A, hoặc user trong pairB và winner=B
-  const wonMatches = await Match.countDocuments({
-    status: "finished",
-    participants: uid,
-    $or: [
-      {
-        winner: "A",
-        pairA: {
-          $in: await Registration.find({
-            $or: [{ "player1.user": uid }, { "player2.user": uid }],
-          }).distinct("_id"),
-        },
-      },
-      {
-        winner: "B",
-        pairB: {
-          $in: await Registration.find({
-            $or: [{ "player1.user": uid }, { "player2.user": uid }],
-          }).distinct("_id"),
-        },
-      },
-    ],
-  });
 
   const lostMatches = totalMatches - wonMatches;
   const winRate =
