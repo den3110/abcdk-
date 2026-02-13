@@ -581,11 +581,11 @@ export default function Hero() {
                 {/* App Downloads */}
                 {(hasAppStore || hasPlayStore || hasApkPickleTour) && (
                   <Card
-                    className="flex-grow-1 border-0 bg-dark text-white"
-                    style={{ ...glassCardStyle, background: "#212529" }}
+                    className="flex-grow-1 border-0"
+                    style={{ ...glassCardStyle }}
                   >
                     <Card.Body className="p-4">
-                      <h6 className="fw-bold mb-3 text-white">
+                      <h6 className="fw-bold mb-3">
                         Tải ứng dụng ngay
                       </h6>
                       <div className="d-flex flex-wrap gap-2">
@@ -619,15 +619,15 @@ export default function Hero() {
                         )}
                       </div>
                       {(hasApkPickleTour || hasApkReferee) && (
-                        <div className="mt-3 pt-3 border-top border-secondary">
-                          <div className="small text-secondary mb-2">
+                        <div className={`mt-3 pt-3 border-top ${isDark ? "border-secondary" : "border-2"}`}>
+                          <div className={`small mb-2 ${isDark ? "text-secondary" : "text-muted"}`}>
                             Tải file APK trực tiếp:
                           </div>
                           <div className="d-flex gap-2">
                             {hasApkPickleTour && (
                               <a
                                 href={contactInfo.apps.apkPickleTour}
-                                className="btn btn-sm btn-outline-light rounded-pill"
+                                className={`btn btn-sm rounded-pill ${isDark ? "btn-outline-light" : "btn-outline-primary"}`}
                                 download
                               >
                                 <IDownload size={14} /> Cho người dùng
@@ -636,7 +636,7 @@ export default function Hero() {
                             {hasApkReferee && (
                               <a
                                 href={contactInfo.apps.apkReferee}
-                                className="btn btn-sm btn-outline-secondary rounded-pill"
+                                className={`btn btn-sm rounded-pill ${isDark ? "btn-outline-secondary" : "btn-outline-dark"}`}
                                 download
                               >
                                 <IDownload size={14} /> Trọng tài
