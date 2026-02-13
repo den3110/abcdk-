@@ -191,6 +191,8 @@ export async function handleChatStream(req, res) {
     const matchId = req.headers["x-pkt-match-id"];
     const bracketId = req.headers["x-pkt-bracket-id"];
     const courtCode = req.headers["x-pkt-court-code"];
+    const courtId = req.headers["x-pkt-court-id"];
+    const currentPath = req.headers["x-pkt-current-path"];
 
     const context = {
       currentUser,
@@ -199,6 +201,8 @@ export async function handleChatStream(req, res) {
       matchId,
       bracketId,
       courtCode,
+      courtId,
+      currentPath,
     };
 
     const userId = currentUser?._id || null;
@@ -280,8 +284,36 @@ export async function handleChatStream(req, res) {
       res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
 
+    // Collect thinking steps during stream for DB persistence
+    const collectedSteps = [];
+    const wrappedEmit = (event, data) => {
+      emit(event, data);
+      if (event === "thinking") {
+        collectedSteps.push({ label: data.step, status: "done" });
+      } else if (event === "tool_start") {
+        collectedSteps.push({
+          label: data.tool,
+          status: "running",
+          tool: data.tool,
+        });
+      } else if (event === "tool_done") {
+        const idx = collectedSteps.findLastIndex(
+          (s) => s.tool === data.tool && s.status === "running",
+        );
+        if (idx !== -1) {
+          collectedSteps[idx] = {
+            ...collectedSteps[idx],
+            label: data.resultPreview || data.tool,
+            status: "done",
+            durationMs: data.durationMs,
+            error: data.error || false,
+          };
+        }
+      }
+    };
+
     // ═══ Run Agent with streaming ═══
-    const result = await runAgentStream(message, context, userId, emit);
+    const result = await runAgentStream(message, context, userId, wrappedEmit);
 
     // Log bot message after completion
     if (result) {
@@ -295,6 +327,8 @@ export async function handleChatStream(req, res) {
             source: "agent-stream",
             toolsUsed: result.toolsUsed,
             processingTime: result.processingTime,
+            suggestions: result.suggestions || [],
+            thinkingSteps: collectedSteps,
           },
           navigation: result.navigation || null,
           context: { tournamentId, matchId, bracketId, courtCode },

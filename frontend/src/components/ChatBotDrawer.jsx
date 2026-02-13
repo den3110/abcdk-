@@ -1,5 +1,5 @@
 // src/components/ChatBotDrawer.jsx
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import {
   Drawer,
   Fab,
@@ -32,29 +32,16 @@ import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
 import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
 import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useClearChatHistoryMutation, chatBotApiSlice } from "../slices/chatBotApiSlice";
 import { useSelector } from "react-redux";
+import { useNavigate as useRouterNavigate } from "react-router-dom";
 
 const BOT_ICON = "/icon-chatbot.png";
 
-// ─── Tool name → Vietnamese label ───
-const TOOL_LABELS = {
-  search_knowledge: "Tìm kiến thức",
-  search_tournaments: "Tìm giải đấu",
-  search_players: "Tìm VĐV",
-  get_tournament_info: "Thông tin giải",
-  get_match_info: "Thông tin trận",
-  get_bracket_info: "Bảng đấu",
-  get_leaderboard: "BXH",
-  get_my_info: "Thông tin cá nhân",
-  get_my_registrations: "Đăng ký giải",
-  get_court_info: "Thông tin sân",
-  navigate: "Điều hướng",
-  query_db: "Truy vấn DB",
-  get_user_stats: "Thống kê VĐV",
-};
+
 
 // ─── Initial Suggestions (only for welcome screen) ───
 const GUEST_SUGGESTIONS = [
@@ -76,37 +63,220 @@ function getWelcomeSuggestions(userInfo) {
 // ═══════════════════════════════════════════
 //  Markdown Renderer
 // ═══════════════════════════════════════════
-function MarkdownContent({ text, theme }) {
+const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick }) {
   const isDark = theme.palette.mode === "dark";
+  const navigate = useRouterNavigate();
   const components = useMemo(
     () => ({
-      table: ({ children }) => (
-        <Box
-          component="table"
-          sx={{
-            width: "100%",
-            borderCollapse: "collapse",
-            my: 1,
-            fontSize: "0.8rem",
-            "& th, & td": {
-              border: `1px solid ${alpha(theme.palette.divider, 0.3)}`,
-              px: 1,
-              py: 0.5,
-              textAlign: "left",
-            },
-            "& th": {
-              bgcolor: alpha(theme.palette.primary.main, isDark ? 0.2 : 0.08),
-              fontWeight: 600,
-              fontSize: "0.75rem",
-            },
-            "& tr:nth-of-type(even)": {
-              bgcolor: alpha(theme.palette.action.hover, 0.04),
-            },
-          }}
-        >
-          {children}
-        </Box>
-      ),
+      a: ({ href, children }) => {
+        // Treat any non-http, non-mailto link as internal (covers /user/x and user/x)
+        const isInternal = href && !href.startsWith("http") && !href.startsWith("mailto:");
+        if (isInternal) {
+          const path = href.startsWith("/") ? href : `/${href}`;
+          return (
+            <Box
+              component="span"
+              onClick={(e) => {
+                e.preventDefault();
+                onLinkClick?.();
+                navigate(path);
+              }}
+              sx={{
+                color: theme.palette.primary.main,
+                cursor: "pointer",
+                textDecoration: "underline",
+                "&:hover": { opacity: 0.8 },
+              }}
+            >
+              {children}
+            </Box>
+          );
+        }
+        return (
+          <Box
+            component="a"
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            sx={{ color: theme.palette.primary.main }}
+          >
+            {children}
+          </Box>
+        );
+      },
+      table: ({ children }) => {
+        // Extract headers and rows from React children
+        const extractText = (node) => {
+          if (!node) return "";
+          if (typeof node === "string") return node;
+          if (typeof node === "number") return String(node);
+          if (Array.isArray(node)) return node.map(extractText).join("");
+          if (node?.props?.children) return extractText(node.props.children);
+          return "";
+        };
+
+        let headers = [];
+        let rows = [];
+        let rowNodes = []; // Keep original React children for card mode
+        const childArr = Array.isArray(children) ? children : [children];
+        childArr.forEach((child) => {
+          if (!child?.props?.children) return;
+          const sections = Array.isArray(child.props.children)
+            ? child.props.children
+            : [child.props.children];
+          sections.forEach((section) => {
+            if (!section?.props?.children) return;
+            const trs = Array.isArray(section.props.children)
+              ? section.props.children
+              : [section.props.children];
+            trs.forEach((tr) => {
+              if (!tr?.props?.children) return;
+              const cells = Array.isArray(tr.props.children)
+                ? tr.props.children
+                : [tr.props.children];
+              const texts = cells.map((c) => extractText(c));
+              // Detect header row: check if cells are th type
+              const isHeader = cells.some(
+                (c) => c?.props?.node?.tagName === "th" || c?.type === "th"
+              );
+              if (isHeader || headers.length === 0) {
+                headers = texts;
+              } else {
+                rows.push(texts);
+                // Keep original cell children for rendering links in card mode
+                rowNodes.push(cells.map((c) => c?.props?.children ?? extractText(c)));
+              }
+            });
+          });
+        });
+
+        const colCount = headers.length;
+
+        // ─── CARD MODE (> 3 columns) ───
+        if (colCount > 3) {
+          return (
+            <Box sx={{ my: 1.5, display: "flex", flexDirection: "column", gap: 1 }}>
+              {rowNodes.map((nodeRow, ri) => (
+                <Box
+                  key={ri}
+                  sx={{
+                    borderRadius: 2,
+                    border: `1px solid ${alpha(theme.palette.divider, 0.15)}`,
+                    bgcolor: isDark
+                      ? alpha(theme.palette.background.paper, 0.4)
+                      : alpha(theme.palette.background.paper, 0.9),
+                    overflow: "hidden",
+                    transition: "box-shadow 0.2s",
+                    "&:hover": {
+                      boxShadow: `0 2px 8px ${alpha(theme.palette.primary.main, 0.1)}`,
+                    },
+                  }}
+                >
+                  {headers.map((h, ci) => (
+                    <Box
+                      key={ci}
+                      sx={{
+                        display: "flex",
+                        alignItems: "baseline",
+                        gap: 1,
+                        px: 1.5,
+                        py: 0.5,
+                        ...(ci < headers.length - 1 && {
+                          borderBottom: `1px solid ${alpha(theme.palette.divider, 0.08)}`,
+                        }),
+                      }}
+                    >
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          minWidth: 72,
+                          flexShrink: 0,
+                          color: isDark
+                            ? theme.palette.primary.light
+                            : theme.palette.primary.dark,
+                          fontWeight: 600,
+                          fontSize: "0.68rem",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.02em",
+                        }}
+                      >
+                        {h}
+                      </Typography>
+                      <Typography
+                        variant="body2"
+                        component="span"
+                        sx={{ fontSize: "0.8rem", lineHeight: 1.5, wordBreak: "break-word" }}
+                      >
+                        {nodeRow[ci] ?? "—"}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              ))}
+            </Box>
+          );
+        }
+
+        // ─── TABLE MODE (≤ 3 columns) ───
+        return (
+          <Box
+            sx={{
+              my: 1.5,
+              mx: -0.5,
+              overflowX: "auto",
+              WebkitOverflowScrolling: "touch",
+              borderRadius: 2,
+              border: `1px solid ${alpha(theme.palette.divider, 0.15)}`,
+              "&::-webkit-scrollbar": { height: 4 },
+              "&::-webkit-scrollbar-thumb": {
+                bgcolor: alpha(theme.palette.primary.main, 0.2),
+                borderRadius: 2,
+              },
+            }}
+          >
+            <Box
+              component="table"
+              sx={{
+                width: "100%",
+                minWidth: 200,
+                borderCollapse: "separate",
+                borderSpacing: 0,
+                fontSize: "0.78rem",
+                lineHeight: 1.4,
+                "& th": {
+                  bgcolor: alpha(theme.palette.primary.main, isDark ? 0.18 : 0.07),
+                  fontWeight: 700,
+                  fontSize: "0.72rem",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.02em",
+                  color: isDark ? theme.palette.primary.light : theme.palette.primary.dark,
+                  px: 1,
+                  py: 0.7,
+                  whiteSpace: "nowrap",
+                  textAlign: "left",
+                  borderBottom: `2px solid ${alpha(theme.palette.primary.main, 0.2)}`,
+                },
+                "& td": {
+                  px: 1,
+                  py: 0.6,
+                  textAlign: "left",
+                  borderBottom: `1px solid ${alpha(theme.palette.divider, 0.1)}`,
+                  verticalAlign: "top",
+                },
+                "& tr:last-child td": { borderBottom: "none" },
+                "& tbody tr:hover": {
+                  bgcolor: alpha(theme.palette.primary.main, isDark ? 0.08 : 0.03),
+                },
+                "& tr:nth-of-type(even)": {
+                  bgcolor: alpha(theme.palette.action.hover, 0.03),
+                },
+              }}
+            >
+              {children}
+            </Box>
+          </Box>
+        );
+      },
       strong: ({ children }) => (
         <Box
           component="strong"
@@ -175,17 +345,23 @@ function MarkdownContent({ text, theme }) {
       {text}
     </ReactMarkdown>
   );
-}
+});
 
 // ═══════════════════════════════════════════
 //  Thinking Block (collapsible, giống Claude)
 // ═══════════════════════════════════════════
-function ThinkingBlock({ steps, theme, isActive, processingTime }) {
-  const [expanded, setExpanded] = useState(true);
+const ThinkingBlock = memo(function ThinkingBlock({ steps, theme, isActive, processingTime }) {
+  const [expanded, setExpanded] = useState(isActive);
+  const wasActiveRef = useRef(isActive);
 
-  // Auto-collapse khi done
+  // Track if this block was ever active (live stream)
   useEffect(() => {
-    if (!isActive && steps.length > 0) {
+    if (isActive) wasActiveRef.current = true;
+  }, [isActive]);
+
+  // Auto-collapse only when transitioning from active → done (not on history load)
+  useEffect(() => {
+    if (!isActive && wasActiveRef.current && steps.length > 0) {
       const t = setTimeout(() => setExpanded(false), 1000);
       return () => clearTimeout(t);
     }
@@ -313,12 +489,12 @@ function ThinkingBlock({ steps, theme, isActive, processingTime }) {
       </Collapse>
     </Box>
   );
-}
+});
 
 // ═══════════════════════════════════════════
 //  Message Bubble
 // ═══════════════════════════════════════════
-function MessageBubble({ msg, theme }) {
+const MessageBubble = memo(function MessageBubble({ msg, theme, onNavigate, onClose }) {
   const isBot = msg.role === "bot" || msg.role === "assistant";
   const isDark = theme.palette.mode === "dark";
 
@@ -377,15 +553,46 @@ function MessageBubble({ msg, theme }) {
           }}
         >
           {isBot ? (
-            <MarkdownContent text={msg.text} theme={theme} />
+            <MarkdownContent text={msg.text} theme={theme} onLinkClick={onClose} />
           ) : (
             msg.text
           )}
         </Box>
+
+        {/* Navigation button */}
+        {isBot && msg.navigation?.webPath && (
+          <Box
+            onClick={() => onNavigate?.(msg.navigation.webPath)}
+            sx={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 0.5,
+              mt: 0.8,
+              px: 1.5,
+              py: 0.6,
+              borderRadius: 2,
+              cursor: "pointer",
+              fontSize: "0.78rem",
+              fontWeight: 600,
+              color: theme.palette.primary.main,
+              bgcolor: alpha(theme.palette.primary.main, 0.08),
+              border: `1px solid ${alpha(theme.palette.primary.main, 0.2)}`,
+              transition: "all 0.2s ease",
+              "&:hover": {
+                bgcolor: alpha(theme.palette.primary.main, 0.15),
+                transform: "translateY(-1px)",
+                boxShadow: `0 2px 8px ${alpha(theme.palette.primary.main, 0.2)}`,
+              },
+            }}
+          >
+            <OpenInNewIcon sx={{ fontSize: 14 }} />
+            {msg.navigation.description || "Mở trang"}
+          </Box>
+        )}
       </Box>
     </Box>
   );
-}
+});
 
 // ═══════════════════════════════════════════
 //  Active Thinking Indicator (live streaming)
@@ -418,9 +625,29 @@ function LiveThinking({ theme, steps }) {
 // ═══════════════════════════════════════════
 async function sendMessageStream(message, onEvent) {
   const base = import.meta.env.VITE_API_URL || "";
+
+  // ── Extract context from current URL path ──
+  const pathname = window.location.pathname;
+  const headers = { "Content-Type": "application/json" };
+
+  // /tournament/:id/... → tournamentId
+  const tourMatch = pathname.match(/\/tournament\/([a-f0-9]{24})/i);
+  if (tourMatch) headers["x-pkt-tournament-id"] = tourMatch[1];
+
+  // /brackets/:bracketId/... → bracketId
+  const bracketMatch = pathname.match(/\/brackets?\/([a-f0-9]{24})/i);
+  if (bracketMatch) headers["x-pkt-bracket-id"] = bracketMatch[1];
+
+  // /live/:tid/brackets/:bid/live-studio/:courtId → courtId
+  const courtMatch = pathname.match(/\/(?:streaming|live-studio)\/([a-f0-9]{24})/i);
+  if (courtMatch) headers["x-pkt-court-id"] = courtMatch[1];
+
+  // Always send current path for context
+  headers["x-pkt-current-path"] = pathname;
+
   const res = await fetch(`${base}/api/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ message }),
     credentials: "include",
   });
@@ -468,6 +695,7 @@ export default function ChatBotDrawer() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isDark = theme.palette.mode === "dark";
+  const routerNavigate = useRouterNavigate();
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -497,6 +725,7 @@ export default function ChatBotDrawer() {
     text: m.message || "",
     toolsUsed: m.meta?.toolsUsed || [],
     processingTime: m.meta?.processingTime || null,
+    thinkingSteps: m.meta?.thinkingSteps || [],
     navigation: m.navigation || null,
   }), []);
 
@@ -555,27 +784,45 @@ export default function ChatBotDrawer() {
     setIsLoadingMore(false);
   }, [isLoadingMore, userInfo, fetchHistory, mapMessage]);
 
+  const handleChatNavigate = useCallback((path) => {
+    setOpen(false);
+    routerNavigate(path);
+  }, [routerNavigate]);
+
+  const handleCloseDrawer = useCallback(() => setOpen(false), []);
+
+  const isNearBottomRef = useRef(true);
+  const userJustSentRef = useRef(false);
+
   const handleMessagesScroll = useCallback(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
     // Show/hide scroll-to-bottom button
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     setShowScrollBtn(distanceFromBottom > 120);
+    isNearBottomRef.current = distanceFromBottom < 150;
     // Infinite scroll: load more when near top
     if (el.scrollTop < 60 && hasMoreRef.current && !isLoadingMore && !isPrependingRef.current) {
       loadMore();
     }
   }, [isLoadingMore, loadMore]);
 
-  // Auto-scroll to bottom only when typing status changes or live steps update
-  // (Handling new messages explicitly via isTyping toggles)
+  // Auto-scroll to bottom ONLY when user is near bottom or just sent a message
   useEffect(() => {
-    scrollToBottom();
-  }, [isTyping, liveSteps, scrollToBottom]);
+    if (isPrependingRef.current) return;
+    if (isNearBottomRef.current || userJustSentRef.current) {
+      scrollToBottom();
+      userJustSentRef.current = false;
+    }
+  }, [isTyping, liveSteps, messages.length, scrollToBottom]);
 
   useEffect(() => {
-    if (open) setTimeout(() => inputRef.current?.focus(), 300);
-  }, [open]);
+    if (open) {
+      setTimeout(() => inputRef.current?.focus(), 300);
+      // Scroll to bottom when drawer (re)opens — delay for Drawer animation
+      setTimeout(() => jumpToBottom(), 350);
+    }
+  }, [open, jumpToBottom]);
 
   // Load initial history on first open
   useEffect(() => {
@@ -590,6 +837,12 @@ export default function ChatBotDrawer() {
             .filter((m) => m.role === "user" || m.role === "assistant" || m.role === "bot")
             .map(mapMessage);
           if (mapped.length) setMessages(mapped);
+
+          // Restore suggestions from the last bot message
+          const lastBotMsg = [...res.messages].reverse().find((m) => m.role === "bot");
+          if (lastBotMsg?.meta?.suggestions?.length) {
+            setDynamicSuggestions(lastBotMsg.meta.suggestions);
+          }
         }
         nextCursorRef.current = res?.nextCursor || null;
         hasMoreRef.current = !!res?.hasMore;
@@ -610,6 +863,8 @@ export default function ChatBotDrawer() {
     if (!text || isTyping) return;
 
     setInput("");
+    userJustSentRef.current = true;
+    isNearBottomRef.current = true;
     setMessages((prev) => [...prev, { role: "user", text }]);
     setIsTyping(true);
     setLiveSteps([]);
@@ -642,7 +897,7 @@ export default function ChatBotDrawer() {
             collectedSteps.forEach((s) => {
               if (s.status === "running") s.status = "done";
             });
-            const label = TOOL_LABELS[data.tool] || data.tool;
+            const label = data.label || data.tool;
             collectedSteps.push({
               label: `${label}...`,
               status: "running",
@@ -659,7 +914,7 @@ export default function ChatBotDrawer() {
             if (idx !== -1) {
               collectedSteps[idx] = {
                 ...collectedSteps[idx],
-                label: data.resultPreview || (TOOL_LABELS[data.tool] || data.tool),
+                label: data.resultPreview || data.label || data.tool,
                 status: "done",
                 durationMs: data.durationMs,
                 error: data.error || false,
@@ -966,7 +1221,13 @@ export default function ChatBotDrawer() {
                 </Typography>
               )}
               {messages.map((msg, i) => (
-                <MessageBubble key={msg.id || `msg-${i}`} msg={msg} theme={theme} />
+                <MessageBubble
+                  key={msg.id || `msg-${i}`}
+                  msg={msg}
+                  theme={theme}
+                  onNavigate={handleChatNavigate}
+                  onClose={handleCloseDrawer}
+                />
               ))}
             </>
           )}

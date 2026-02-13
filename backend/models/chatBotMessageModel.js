@@ -10,7 +10,7 @@ const chatBotMessageSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["user", "bot"],
+      enum: ["user", "bot", "system"],
       required: true,
     },
     message: {
@@ -47,7 +47,7 @@ const chatBotMessageSchema = new mongoose.Schema(
   },
   {
     timestamps: true, // createdAt, updatedAt
-  }
+  },
 );
 
 const ChatBotMessage =
