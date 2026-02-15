@@ -115,7 +115,38 @@ export default function LoginScreen() {
   };
 
   return (
-                borderRadius: "20px",
+    <Box
+      sx={{
+        width: "100vw",
+        height: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+      }}
+    >
+      <SEOHead title="Đăng nhập" />
+      <Container component="main" maxWidth="xs">
+        <Paper
+          elevation={6}
+          sx={{
+            p: 4,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            borderRadius: "24px",
+            background: "rgba(255, 255, 255, 0.9)",
+            backdropFilter: "blur(20px)",
+          }}
+        >
+          <Box sx={{ mb: 2 }}>
+            <img
+              src={WEB_LOGO_PATH}
+              alt="Logo"
+              style={{
+                width: 80,
+                height: 80,
+                objectFit: "contain",
                 filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.15))",
               }}
             />

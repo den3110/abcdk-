@@ -1,7 +1,7 @@
 
 // src/layouts/tournament/AdminDrawPage.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import DashboardNavbar from "../../components/DashboardNavbar";
+// import DashboardNavbar from "../../components/DashboardNavbar";
 import SEOHead from "../../components/SEOHead";
 import {
   Box,

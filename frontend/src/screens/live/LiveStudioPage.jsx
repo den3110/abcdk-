@@ -1,6 +1,6 @@
 import React, { useMemo } from "react";
 import { useSelector } from "react-redux";
-import BrowserStudio from "../../components/BrowserStudio";
+// import BrowserStudio from "../../components/BrowserStudio";
 import SEOHead from "../../components/SEOHead";
 import ScoreOverlay from "../PickleBall/ScoreOverlay";
 import FacebookLiveStreamerMUI from "../../components/FacebookLiveStreamer/FacebookLiveStreamerMUI";

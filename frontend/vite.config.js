@@ -43,8 +43,12 @@ export default defineConfig({
     },
   },
   build: {
+    minify: "terser", // Set minify to 'terser'
     terserOptions: {
-      compress: { drop_console: true, drop_debugger: true },
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+      },
     },
   },
 });

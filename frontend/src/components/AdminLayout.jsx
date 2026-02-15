@@ -1,6 +1,6 @@
 // src/layouts/AdminLayout.jsx
 import { useState, useEffect } from "react";
-import { Outlet, useLocation, useNavigate } from "react-router-dom";
+
 import {
   Box,
   Drawer,
@@ -25,7 +25,7 @@ import SEOHead from "../components/SEOHead";
 import PeopleIcon from "@mui/icons-material/People";
 import HomeIcon from "@mui/icons-material/Home";
 import { useLocation, useNavigate, Outlet, Navigate } from "react-router-dom"; // ✅ thêm Navigate
-import { useTheme } from "@mui/material/styles";
+
 import { useSelector } from "react-redux"; // ✅ lấy userInfo từ redux
 
 const drawerWidth = 240;

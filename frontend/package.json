@@ -39,6 +39,7 @@
     "react-dropzone": "^14.3.8",
     "react-ga4": "^2.1.0",
     "react-helmet-async": "^2.0.5",
+    "react-hls-player": "^3.0.7",
     "react-icons": "^4.8.0",
     "react-markdown": "^10.1.0",
     "react-photo-view": "^1.2.7",
