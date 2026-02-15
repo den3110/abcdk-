@@ -79,6 +79,7 @@
     "concurrently": "^8.0.1",
     "cross-env": "^10.1.0",
     "nodemon": "^2.0.22",
-    "prompt-sync": "^4.2.0"
+    "prompt-sync": "^4.2.0",
+    "terser": "^5.46.0"
   }
 }
