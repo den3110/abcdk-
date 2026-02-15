@@ -26,6 +26,7 @@ import { useRegisterMutation } from "../slices/usersApiSlice";
 import { useUploadRealAvatarMutation } from "../slices/uploadApiSlice";
 import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
+import SEOHead from "../components/SEOHead";
 
 /* Icons */
 import Visibility from "@mui/icons-material/Visibility";
@@ -326,6 +327,11 @@ export default function RegisterScreen() {
 
   return (
     <Container maxWidth="sm" sx={{ py: 5 }}>
+      <SEOHead
+        title="Đăng ký"
+        description="Đăng ký tài khoản Pickletour.vn để tham gia giải đấu, theo dõi điểm trình và kết nối cộng đồng."
+        path="/register"
+      />
       <Paper elevation={2} sx={{ p: 3 }}>
         <Typography variant="h4" gutterBottom>
           Đăng ký

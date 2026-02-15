@@ -14,6 +14,7 @@ import {
 } from "@mui/material";
 import { useForgotPasswordMutation } from "../slices/usersApiSlice";
 import { toast } from "react-toastify";
+import SEOHead from "../components/SEOHead";
 
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState("");
@@ -35,6 +36,7 @@ export default function ForgotPasswordScreen() {
 
   return (
     <Container component="main" maxWidth="xs">
+      <SEOHead title="Quên mật khẩu" description="Khôi phục mật khẩu tài khoản Pickletour.vn" />
       <Box component={Paper} elevation={3} sx={{ p: 4, mt: 8 }}>
         <Typography variant="h5" fontWeight={600} mb={1}>
           Quên mật khẩu

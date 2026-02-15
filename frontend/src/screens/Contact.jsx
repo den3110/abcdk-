@@ -14,6 +14,7 @@ import FacebookIcon from "@mui/icons-material/Facebook";
 import YouTubeIcon from "@mui/icons-material/YouTube";
 import ChatIcon from "@mui/icons-material/Chat";
 import { useGetContactContentQuery } from "../slices/cmsApiSlice";
+import SEOHead from "../components/SEOHead";
 
 const FALLBACK = {
   address: "Abcd, abcd, abcd",
@@ -52,6 +53,12 @@ export default function ContactPage() {
 
   return (
     <Container maxWidth="md" sx={{ py: 5 }}>
+      <SEOHead
+        title="Liên hệ"
+        description="Liên hệ với Pickletour.vn - Hỗ trợ giải đấu, điểm trình, và các dịch vụ thể thao. Email, điện thoại, mạng xã hội."
+        keywords="liên hệ, hỗ trợ, pickletour, email, điện thoại"
+        path="/contact"
+      />
       <Typography variant="h4" align="center" fontWeight={700} gutterBottom>
         Thông tin liên hệ.
       </Typography>

@@ -7,6 +7,7 @@ import {
 import { useParams } from "react-router-dom";
 import { useGetTournamentQuery } from "../../slices/tournamentsApiSlice";
 import { TournamentWeatherSection } from "../TournamentWeatherSection";
+import SEOHead from "../../components/SEOHead";
 
 function TournamentDetailPage() {
   const { id } = useParams();
@@ -80,6 +81,63 @@ function TournamentDetailPage() {
 
   return (
     <Container maxWidth="lg">
+      <SEOHead
+        title={tournament?.name}
+        description={`Thông tin giải đấu ${tournament?.name}, địa điểm ${tournament?.location}, thời gian và lịch thi đấu chi tiết.`}
+        image={tournament?.cover}
+        path={`/tournament/${id}`}
+        structuredData={[
+          {
+            "@context": "https://schema.org",
+            "@type": "Event",
+            name: tournament?.name,
+            startDate: tournament?.startDate,
+            endDate: tournament?.endDate,
+            eventStatus: "https://schema.org/EventScheduled",
+            eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+            location: {
+              "@type": "Place",
+              name: tournament?.location || "Sân Pickleball",
+              address: {
+                "@type": "PostalAddress",
+                addressLocality: tournament?.location,
+                addressCountry: "VN",
+              },
+            },
+            image: [tournament?.cover || "https://pickletour.vn/banner.jpg"],
+            description: tournament?.description,
+            organizer: {
+              "@type": "Organization",
+              name: tournament?.organizer?.name || "PickleTour User",
+              url: "https://pickletour.vn",
+            },
+          },
+          {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "Trang chủ",
+                "item": "https://pickletour.vn"
+              },
+              {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "Giải đấu",
+                "item": "https://pickletour.vn/tournaments"
+              },
+              {
+                "@type": "ListItem",
+                "position": 3,
+                "name": tournament?.name || "Chi tiết giải",
+                "item": `https://pickletour.vn/tournament/${id}`
+              }
+            ]
+          }
+        ]}
+      />
       <Box sx={{ mt: 3 }}>
         <TournamentWeatherSection
           tournamentId={id}

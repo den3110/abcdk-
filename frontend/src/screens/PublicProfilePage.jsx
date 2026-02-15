@@ -51,6 +51,7 @@ import {
   useGetMatchHistoryQuery,
 } from "../slices/usersApiSlice";
 import { ZoomableWrapper } from "../components/Zoom";
+import SEOHead from "../components/SEOHead";
 
 /* ---------- CONSTANTS & UTILS ---------- */
 const AVA_PLACE = "https://dummyimage.com/160x160/cccccc/ffffff&text=?";
@@ -907,6 +908,24 @@ export default function PublicProfilePage() {
           theme.palette.mode === "light" ? "#f8f9fa" : "background.default",
       }}
     >
+      <SEOHead
+        title={base?.name || "Hồ sơ người chơi"}
+        description={base?.bio || `Xem hồ sơ, thành tích và lịch sử thi đấu của ${base?.name || "người chơi"} trên Pickletour.vn`}
+        ogImage={base?.avatar}
+        path={`/u/${profileCode}`}
+        structuredData={{
+          "@context": "https://schema.org",
+          "@type": "Person",
+          name: base?.name || "Người chơi",
+          image: base?.avatar || "https://pickletour.vn/icon.png",
+          description: base?.bio || `Vận động viên Pickleball ${base?.name}`,
+          url: `https://pickletour.vn/u/${profileCode}`,
+          mainEntityOfPage: {
+            "@type": "ProfilePage",
+            "@id": `https://pickletour.vn/u/${profileCode}`,
+          },
+        }}
+      />
       {/* 1. Header Section */}
       {HeaderSection}
 

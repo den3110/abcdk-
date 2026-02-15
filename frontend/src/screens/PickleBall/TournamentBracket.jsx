@@ -67,6 +67,7 @@ import {
 } from "../../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
+import SEOHead from "../../components/SEOHead";
 
 const HighlightContext = createContext({ hovered: null, setHovered: () => {} });
 
@@ -3623,6 +3624,11 @@ export default function TournamentBracket() {
 
   return (
     <Box sx={{ width: "100%", pb: { xs: 6, sm: 0 } }}>
+      <SEOHead
+        title={`Sơ đồ: ${tour?.name}`}
+        description={`Xem sơ đồ thi đấu, kết quả và lịch trinh giải đấu ${tour?.name} trên Pickletour.vn`}
+        path={`/tournament/${tourId}/bracket`}
+      />
       <Typography variant="h5" sx={{ mb: 2, mt: 2 }} fontWeight="bold">
         Sơ đồ giải: {tour?.name}
       </Typography>

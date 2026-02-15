@@ -54,6 +54,7 @@ import { useNavigate } from "react-router-dom";
 import { useListMyTournamentsQuery } from "../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./PickleBall/match/ResponsiveMatchViewer";
 import { useSocket } from "../context/SocketContext";
+import SEOHead from "../components/SEOHead";
 
 function normalizeGroupCode(code) {
   const s = String(code || "")

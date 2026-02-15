@@ -1,4 +1,5 @@
 import React from "react";
+import { HelmetProvider } from "react-helmet-async";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import {
@@ -148,15 +149,17 @@ const router = createBrowserRouter(
 ReactDOM.createRoot(document.getElementById("root")).render(
   <Provider store={store}>
     <React.StrictMode>
-      <ThemeContextProvider>
-        <AppInitGate>
-          <SocketProvider>
-            <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
-              <RouterProvider router={router} />
-            </LocalizationProvider>
-          </SocketProvider>
-        </AppInitGate>
-      </ThemeContextProvider>
+      <HelmetProvider>
+        <ThemeContextProvider>
+          <AppInitGate>
+            <SocketProvider>
+              <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
+                <RouterProvider router={router} />
+              </LocalizationProvider>
+            </SocketProvider>
+          </AppInitGate>
+        </ThemeContextProvider>
+      </HelmetProvider>
     </React.StrictMode>
   </Provider>
 );

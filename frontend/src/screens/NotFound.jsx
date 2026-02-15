@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { Box, Paper, Stack, Typography, Button, Divider } from "@mui/material";
 import { Link as RouterLink, useNavigate, useLocation } from "react-router-dom";
+import SEOHead from "../components/SEOHead";
 
 export default function NotFound() {
   const nav = useNavigate();

@@ -16,6 +16,7 @@ import HomeIcon from "@mui/icons-material/Home";
 import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import { Link, useSearchParams } from "react-router-dom";
+import SEOHead from "../components/SEOHead";
 
 const AUTO_RETRY_SECONDS = 15;
 

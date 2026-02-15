@@ -1,22 +1,27 @@
 // src/layouts/AdminLayout.jsx
-import React from "react";
+import { useState, useEffect } from "react";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
-  AppBar,
-  Toolbar,
-  Typography,
+  Box,
   Drawer,
   List,
+  ListItem,
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  Box,
-  Button,
-  useMediaQuery,
-  Tabs,
-  Tab,
+  AppBar,
+  Toolbar,
+  Typography,
   IconButton,
-  Tooltip,
+  Avatar,
+  Menu,
+  MenuItem,
+  useTheme,
+  useMediaQuery,
+  Button,
+  Badge,
 } from "@mui/material";
+import SEOHead from "../components/SEOHead";
 import PeopleIcon from "@mui/icons-material/People";
 import HomeIcon from "@mui/icons-material/Home";
 import { useLocation, useNavigate, Outlet, Navigate } from "react-router-dom"; // ✅ thêm Navigate
@@ -89,6 +94,8 @@ export default function AdminLayout({ children }) {
     </Box>
   );
 
+
+
   return (
     <Box
       sx={{
@@ -97,6 +104,7 @@ export default function AdminLayout({ children }) {
         bgcolor: "background.default",
       }}
     >
+      <SEOHead title="Quản trị hệ thống" noIndex={true} />
       {isDesktop ? (
         <>
           <Drawer

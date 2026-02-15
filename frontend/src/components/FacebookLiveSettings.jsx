@@ -22,6 +22,8 @@ import {
   Tooltip,
   Divider,
 } from "@mui/material";
+import { toast } from "react-toastify";
+import SEOHead from "../components/SEOHead";
 
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import StarIcon from "@mui/icons-material/Star";
@@ -101,8 +103,11 @@ const FacebookLiveSettings = () => {
 
   const loadingList = isLoading || isFetching;
 
+
+
   return (
     <Container maxWidth="md">
+      <SEOHead title="Cấu hình Facebook Live" noIndex={true} />
       <Stack spacing={3} sx={{ py: 3 }}>
         {/* Header */}
         <Stack

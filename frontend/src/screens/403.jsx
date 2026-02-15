@@ -2,6 +2,7 @@
 import { Box, Button, Container, Stack, Typography } from "@mui/material";
 import BlockIcon from "@mui/icons-material/Block";
 import { useNavigate, useLocation } from "react-router-dom";
+import SEOHead from "../components/SEOHead";
 
 export default function Forbidden403() {
   const navigate = useNavigate();
@@ -13,6 +14,7 @@ export default function Forbidden403() {
       maxWidth="md"
       sx={{ minHeight: "100vh", display: "flex", alignItems: "center" }}
     >
+      <SEOHead title="403 - Forbidden" noIndex={true} />
       <Box sx={{ width: "100%", textAlign: "center", py: { xs: 6, md: 10 } }}>
         <BlockIcon sx={{ fontSize: { xs: 56, md: 80 }, mb: 1 }} color="error" />
         <Typography

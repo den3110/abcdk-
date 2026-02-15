@@ -79,6 +79,7 @@ import {
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
+import SEOHead from "../../components/SEOHead";
 
 /********************** FX helpers **********************/
 // Ưu tiên server cursor; nếu không, suy từ slots hoặc reveals
@@ -3683,6 +3684,7 @@ export default function DrawPage() {
 
   return (
     <RBContainer fluid="xl" className="py-4">
+      <SEOHead title={`Bốc thăm - ${tournament?.name || "Giải đấu"}`} />
       <Stack
         direction="row"
         alignItems="center"

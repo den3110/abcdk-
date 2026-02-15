@@ -73,6 +73,7 @@ import { setupGraphQL } from "./graphql/index.js";
 import { timezoneMiddleware } from "./middleware/timezoneMiddleware.js";
 import { normalizeRequestDates } from "./middleware/normalizeRequestDates.js";
 import { convertResponseDates } from "./middleware/convertResponseDates.js";
+import { prerenderMiddleware } from "./middleware/prerender.middleware.js";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { registerAutoHealJobs } from "./utils/scheduleNotifications.js";
 import weatherRoutes from "./routes/weatherRoutes.js";
@@ -258,6 +259,7 @@ const startServer = async () => {
 
     if (process.env.NODE_ENV === "production") {
       const __dirname = path.resolve();
+      app.use(prerenderMiddleware);
       app.use(express.static(path.join(__dirname, "/frontend/dist")));
 
       app.get("*", (req, res) =>

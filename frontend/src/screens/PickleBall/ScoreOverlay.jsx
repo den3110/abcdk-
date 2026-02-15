@@ -604,11 +604,15 @@ const ClockBox = React.memo(function ClockBox({
   );
 });
 
+import SEOHead from "../../components/SEOHead";
+
 /* ======================== Component ======================== */
 const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   const socket = useSocket();
   const [q] = useSearchParams();
   const navigate = useNavigate();
+
+
 
   const matchId = props?.matchIdProp || q.get("matchId") || "";
   const replay = parseQPBool(q.get("replay")) === true;
@@ -1699,6 +1703,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   // ✅ BÌNH THƯỜNG: render scoreboard như cũ
   return (
     <>
+      <SEOHead title="Score Overlay" noIndex={true} />
       {/* CARD CHÍNH */}
       <div
         className="ovl-wrap"

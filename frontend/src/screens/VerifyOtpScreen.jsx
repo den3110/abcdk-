@@ -26,6 +26,7 @@ import {
   useResendLoginOtpMutation,
   useVerifyLoginOtpMutation,
 } from "../slices/usersApiSlice";
+import SEOHead from "../components/SEOHead";
 
 export default function VerifyOtpScreen() {
   const [params] = useSearchParams();
@@ -132,6 +133,7 @@ export default function VerifyOtpScreen() {
         p: 2,
       }}
     >
+      <SEOHead title="Xác thực OTP - Đăng nhập" noIndex={true} />
       <Container
         maxWidth={isMobile ? "sm" : "xs"}
         sx={{ px: isMobile ? 1 : 3 }}

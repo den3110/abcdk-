@@ -42,6 +42,7 @@ import ClubCreateDialog from "../../components/ClubCreateDialog";
 import ClubCard from "../../components/ClubCard";
 import { useListClubsQuery } from "../../slices/clubsApiSlice";
 import { useThemeMode } from "../../context/ThemeContext.jsx";
+import SEOHead from "../../components/SEOHead";
 
 const SPORT_OPTIONS = ["pickleball"];
 
@@ -196,6 +197,12 @@ export default function ClubsListPage() {
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 8 }}>
+      <SEOHead
+        title="Câu lạc bộ"
+        description="Tham gia các câu lạc bộ Pickleball, kết nối cộng đồng, tạo đội nhóm và thi đấu giao lưu."
+        keywords="câu lạc bộ pickleball, club pickleball, tham gia clb, tạo clb"
+        path="/clubs"
+      />
       {/* === HERO SECTION === */}
       <Box
         sx={{

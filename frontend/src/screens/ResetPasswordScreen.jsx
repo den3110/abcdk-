@@ -18,6 +18,7 @@ import Visibility from "@mui/icons-material/Visibility";
 import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import { useResetPasswordMutation } from "../slices/usersApiSlice";
 import { toast } from "react-toastify";
+import SEOHead from "../components/SEOHead";
 
 export default function ResetPasswordScreen() {
   const { token } = useParams();
@@ -53,6 +54,7 @@ export default function ResetPasswordScreen() {
 
   return (
     <Container component="main" maxWidth="xs">
+      <SEOHead title="Đặt lại mật khẩu" description="Đặt lại mật khẩu mới cho tài khoản của bạn" />
       <Box component={Paper} elevation={3} sx={{ p: 4, mt: 8 }}>
         <Typography variant="h5" fontWeight={600} mb={1}>
           Đặt lại mật khẩu

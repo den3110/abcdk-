@@ -10,6 +10,7 @@ import {
 } from "../slices/cmsApiSlice";
 import AppInstallBanner from "./AppInstallBanner";
 import SponsorMarquee from "./SponsorMarquee";
+import SEOHead from "./SEOHead";
 import { useTheme } from "@mui/material/styles";
 import { useThemeMode } from "../context/ThemeContext.jsx";
 
@@ -227,6 +228,11 @@ export default function Hero() {
 
   return (
     <>
+      <SEOHead
+        path="/"
+        description="Pickletour.vn - Nền tảng kết nối cộng đồng thể thao, quản lý giải đấu, theo dõi điểm trình và bảng xếp hạng Pickleball Việt Nam."
+        keywords="pickleball, giải đấu, bảng xếp hạng, điểm trình, thể thao, cộng đồng"
+      />
       {/* ======= Smart install banner (Mobile Only) ======= */}
       {contactInfo?.apps && (
         <AppInstallBanner
@@ -421,7 +427,7 @@ export default function Hero() {
                   >
                     <ILocation size={24} />
                   </div>
-                  <h5 className="fw-bold mb-3">Trụ sở chính</h5>
+                  <h5 className="fw-bold mb-3">Trụ sở chính 123</h5>
 
                   {!contactInfo ? (
                     <SkeletonBar h={80} />

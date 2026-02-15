@@ -61,6 +61,7 @@ import "dayjs/locale/vi";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
+import SEOHead from "../components/SEOHead";
 
 /* ---------- Config ---------- */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -621,6 +622,7 @@ export default function ProfileScreen() {
 
   return (
     <>
+      <SEOHead title="Hồ sơ cá nhân" noIndex={true} />
       <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
         <Container maxWidth="md" sx={{ py: 5 }}>
           <Box mb={4} textAlign="center">

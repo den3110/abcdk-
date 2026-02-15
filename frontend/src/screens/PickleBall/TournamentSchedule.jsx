@@ -45,6 +45,7 @@ import {
 } from "../../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
+import SEOHead from "../../components/SEOHead";
 import { skipToken } from "@reduxjs/toolkit/query";
 import { useSelector } from "react-redux";
 
@@ -1190,6 +1191,11 @@ export default function TournamentSchedule() {
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 4 }}>
+      <SEOHead
+        title={`Lịch thi đấu: ${tournament?.name || "Giải đấu"}`}
+        description={`Xem lịch thi đấu, kết quả và trạng thái sân của giải ${tournament?.name} trên Pickletour.vn`}
+        path={`/tournament/${id}/schedule`}
+      />
       <Paper
         square
         elevation={1}

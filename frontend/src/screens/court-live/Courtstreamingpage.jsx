@@ -20,6 +20,7 @@ import {
 import { Home, Stadium, ArrowBack } from "@mui/icons-material";
 import FacebookLiveStreamerAutoRTK from "./Facebooklivestreamerautortk";
 import { useGetCourtInfoQuery } from "../../slices/liveStreamingApiSlice";
+import SEOHead from "../../components/SEOHead";
 // import FacebookLiveStreamerAutoRTK from "../features/streaming/FacebookLiveStreamerAutoRTK";
 // import { useGetCourtInfoQuery } from "../features/streaming/liveStreamingApiSlice";
 
@@ -138,6 +139,11 @@ export default function CourtStreamingPage() {
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
+      <SEOHead
+        title={`Live: ${courtName} - ${tournamentName}`}
+        description={`Xem trực tiếp trận đấu tại ${courtName} thuộc giải ${tournamentName} trên Pickletour.vn`}
+        path={`/streaming/${courtId}`}
+      />
       {/* Header with breadcrumbs */}
       <Box sx={{ bgcolor: "primary.main", color: "primary.contrastText", py: 2, mb: 3 }}>
         <Container maxWidth="xl">

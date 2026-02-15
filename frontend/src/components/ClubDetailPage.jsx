@@ -24,6 +24,7 @@ import ClubMembersCards from "./ClubMembersCards";
 import ClubEventsSection from "./events/ClubEventsSection";
 import ClubAnnouncements from "./news/ClubAnnouncements";
 import ClubPolls from "./polls/ClubPolls";
+import SEOHead from "./SEOHead";
 
 function calcCanSeeMembers(club, my) {
   const vis = club?.memberVisibility || "admins";
@@ -126,6 +127,51 @@ export default function ClubDetailPage() {
 
   return (
     <Container maxWidth="lg" sx={{ py: 3 }}>
+      <SEOHead
+        title={club?.name}
+        description={club?.description || `Câu lạc bộ Pickleball ${club?.name} - Tham gia và giao lưu!`}
+        ogImage={club?.avatar}
+        path={`/clubs/${club?._id}`}
+        structuredData={[
+          {
+            "@context": "https://schema.org",
+            "@type": "SportsTeam",
+            name: club?.name,
+            sport: "Pickleball",
+            description: club?.description || `Câu lạc bộ Pickleball ${club?.name}`,
+            logo: club?.avatar || "https://pickletour.vn/icon.png",
+            url: `https://pickletour.vn/clubs/${club?._id}`,
+            member: (club?.members || []).map((m) => ({
+              "@type": "Person",
+              name: m?.user?.name || m?.user?.fullName || "Thành viên",
+            })).slice(0, 10),
+          },
+          {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "Trang chủ",
+                "item": "https://pickletour.vn"
+              },
+              {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "Danh sách CLB",
+                "item": "https://pickletour.vn/clubs"
+              },
+              {
+                "@type": "ListItem",
+                "position": 3,
+                "name": club?.name || "Chi tiết CLB",
+                "item": `https://pickletour.vn/clubs/${club?._id}`
+              }
+            ]
+          }
+        ]}
+      />
       <ClubHeader
         club={club}
         onEdit={isOwnerOrAdmin ? () => setOpenEdit(true) : undefined}

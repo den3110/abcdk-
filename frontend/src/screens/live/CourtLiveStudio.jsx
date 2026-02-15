@@ -18,6 +18,16 @@ import {
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import LiveTvIcon from "@mui/icons-material/LiveTv";
 import SportsTennisIcon from "@mui/icons-material/SportsTennis";
+import HlsPlayer from "react-hls-player";
+import {
+  Stream as StreamIcon,
+  Sensors as SensorsIcon,
+  VideocamOff as VideocamOffIcon,
+  Refresh as RefreshIcon,
+  Settings as SettingsIcon,
+  Scoreboard as ScoreboardIcon,
+} from "@mui/icons-material";
+import SEOHead from "../../components/SEOHead";
 
 import { useAdminListCourtsByTournamentQuery } from "../../slices/courtsApiSlice";
 import { useCreateFacebookLiveForMatchMutation } from "../../slices/adminMatchLiveApiSlice";
@@ -173,8 +183,11 @@ export default function CourtLiveStudioPage() {
     };
   }, []);
 
+
+
   return (
     <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+      <SEOHead title={`Live Studio - ${courtLabel}`} noIndex={true} />
       <AppBar position="static" color="default" elevation={1}>
         <Toolbar sx={{ gap: 1 }}>
           <IconButton edge="start" onClick={() => navigate(-1)}>

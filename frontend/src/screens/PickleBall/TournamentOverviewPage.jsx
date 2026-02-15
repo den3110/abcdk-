@@ -49,6 +49,7 @@ import {
   useAdminListMatchesByTournamentQuery,
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
+import SEOHead from "../../components/SEOHead";
 
 /* ===== HELPERS ===== */
 const TYPE_LABEL = (t) => {
@@ -556,6 +557,11 @@ export default function TournamentOverviewPage() {
 
   return (
     <Box sx={{ bgcolor: "background.default", minHeight: "100vh", pb: 4 }}>
+      <SEOHead
+        title={`Tổng quan: ${tour?.name || "Giải đấu"}`}
+        description={`Xem tổng quan, thống kê và danh sách trận đấu của giải ${tour?.name} trên Pickletour.vn`}
+        path={`/tournament/${id}/overview`}
+      />
       {/* Header: Full Width Hero */}
       <Paper
         elevation={0}

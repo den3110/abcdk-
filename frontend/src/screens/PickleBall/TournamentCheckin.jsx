@@ -151,6 +151,8 @@ const gradientText = {
   WebkitTextFillColor: "transparent",
 };
 
+import SEOHead from "../../components/SEOHead";
+
 export default function TournamentCheckin() {
   const { id } = useParams();
   const theme = useTheme();
@@ -158,6 +160,10 @@ export default function TournamentCheckin() {
 
   /* fetch tournament / registrations / matches */
   const { data: tour, isLoading: tourLoading } = useGetTournamentQuery(id);
+  
+  // ... existing code ...
+
+
   const {
     data: regs = [],
     isLoading: regsLoading,
@@ -524,6 +530,7 @@ export default function TournamentCheckin() {
         fontFamily: "'Inter', sans-serif",
       }}
     >
+      <SEOHead title={`Check-in - ${tour?.name || "Giải đấu"}`} noIndex={true} />
       {/* HERO HEADER */}
       <Box
         sx={{

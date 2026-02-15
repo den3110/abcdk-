@@ -92,6 +92,7 @@ import CourtManagerDialog from "../../components/CourtManagerDialog";
 import ManageRefereesDialog from "../../components/RefereeManagerDialog";
 import LiveSetupDialog from "../../components/LiveSetupDialog";
 import BulkAssignRefDialog from "../../components/BulkAssignRefDialog";
+import SEOHead from "../../components/SEOHead";
 
 /* ---------------- helpers ---------------- */
 // ✅ Hàm chuẩn hóa: A→1, B→2, C→3, D→4, hoặc giữ nguyên số
@@ -1842,6 +1843,7 @@ export default function TournamentManagePage() {
   /* ---------- UI ---------- */
   return (
     <Box p={{ xs: 2, md: 3 }}>
+      <SEOHead title={`Quản lý: ${tour?.name || "Giải đấu"}`} noIndex={true} />
       {/* Header */}
       <Stack spacing={1.5} mb={2}>
         <Stack

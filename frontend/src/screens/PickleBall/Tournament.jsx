@@ -46,6 +46,7 @@ import { DateRangePicker } from "@mui/x-date-pickers-pro/DateRangePicker";
 // ====== Zoom components ======
 import { ZoomProvider, ZoomItem } from "../../components/Zoom";
 import SponsorMarquee from "../../components/SponsorMarquee";
+import SEOHead from "../../components/SEOHead";
 
 // --- STYLED COMPONENTS ---
 const GlassCard = styled(Card)(({ theme }) => ({
@@ -552,6 +553,12 @@ export default function TournamentDashboard() {
 
   return (
     <>
+      <SEOHead
+        title="Giải đấu"
+        description="Khám phá và đăng ký tham gia các giải đấu Pickleball trên khắp Việt Nam. Xem lịch đấu, kết quả và sơ đồ thi đấu."
+        keywords="giải đấu pickleball, đăng ký giải, lịch thi đấu, kết quả giải đấu"
+        path="/tournaments"
+      />
       <SponsorMarquee variant="glass" height={80} gap={24} />
       <Container maxWidth="xl" sx={{ py: 2, minHeight: "100vh" }}>
         {/* HEADER STATS */}

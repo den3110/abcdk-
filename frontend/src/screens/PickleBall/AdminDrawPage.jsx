@@ -1,5 +1,8 @@
+
 // src/layouts/tournament/AdminDrawPage.jsx
 import React, { useEffect, useMemo, useState } from "react";
+import DashboardNavbar from "../../components/DashboardNavbar";
+import SEOHead from "../../components/SEOHead";
 import {
   Box,
   Stack,
@@ -312,8 +315,11 @@ export default function AdminDrawPage() {
     await refetchStatus();
   };
 
+
+
   return (
     <>
+      <SEOHead title="Quản lý bốc thăm" noIndex={true} />
       {/* <DashboardNavbar /> */}
       <Box p={2} pb={6} maxWidth={1200} mx="auto">
         <Stack

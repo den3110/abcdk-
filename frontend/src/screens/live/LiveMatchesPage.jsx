@@ -38,6 +38,7 @@ import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import LiveMatchCard from "./LiveMatchCard";
 import { useGetLiveMatchesQuery } from "../../slices/liveApiSlice";
+import SEOHead from "../../components/SEOHead";
 
 const LIMIT = 12;
 // CARD_HEIGHT chỉ dùng cho skeleton lúc loading để UI đỡ nhảy
@@ -446,6 +447,11 @@ export default function LiveMatchesPage() {
 
   return (
     <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
+      <SEOHead
+        title="Trực tiếp"
+        description="Xem trực tiếp tỉ số, video và diễn biến các trận đấu Pickleball đang diễn ra tại Việt Nam."
+        path="/live"
+      />
       <Paper
         variant="outlined"
         sx={{

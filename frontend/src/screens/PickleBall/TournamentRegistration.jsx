@@ -67,6 +67,7 @@ import PlayerSelector from "../../components/PlayerSelector";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 import { getFeeAmount } from "../../utils/fee";
 import { useBotContext } from "../../hook/useBotContext";
+import SEOHead from "../../components/SEOHead";
 
 /* ---------------- 1. CONSTANTS & HELPERS ---------------- */
 const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";

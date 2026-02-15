@@ -18,6 +18,7 @@ import {
   useVerifyRegisterOtpMutation,
   useResendRegisterOtpMutation,
 } from "../slices/usersApiSlice";
+import SEOHead from "../components/SEOHead";
 
 export default function RegisterOtpScreen() {
   const navigate = useNavigate();
@@ -98,6 +99,7 @@ export default function RegisterOtpScreen() {
 
   return (
     <Container maxWidth="xs" sx={{ py: 6 }}>
+      <SEOHead title="Xác thực OTP - Đăng ký" noIndex={true} />
       <Paper elevation={2} sx={{ p: 3 }}>
         <Typography variant="h5" gutterBottom>
           Xác thực OTP

@@ -78,6 +78,7 @@ import { useCreateEvaluationMutation } from "../../slices/evaluationsApiSlice";
 import { useReviewKycMutation } from "../../slices/adminApiSlice";
 import { skipToken } from "@reduxjs/toolkit/query";
 import SponsorMarquee from "../../components/SponsorMarquee";
+import SEOHead from "../../components/SEOHead";
 
 /* ================= LAZY LOADING AVATAR COMPONENT ================= */
 const LazyAvatar = memo(
@@ -1123,6 +1124,12 @@ export default function RankingList() {
 
   return (
     <>
+      <SEOHead
+        title="Bảng xếp hạng"
+        description="Bảng xếp hạng Pickleball Việt Nam - Theo dõi thứ hạng, điểm trình và thành tích của các vận động viên."
+        keywords="bảng xếp hạng pickleball, điểm trình pickleball, ranking pickleball, vđv pickleball"
+        path="/rankings"
+      />
       <SponsorMarquee variant="glass" height={80} gap={24} />
 
       {isFetching && !isLoading && (

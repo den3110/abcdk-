@@ -26,6 +26,7 @@ import { useLoginMutation } from "../slices/usersApiSlice";
 import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
 import apiSlice from "../slices/apiSlice";
+import SEOHead from "../components/SEOHead";
 
 const WEB_LOGO_PATH = "/icon.png";
 
@@ -114,39 +115,6 @@ export default function LoginScreen() {
   };
 
   return (
-    <Box
-      sx={{
-        minHeight: "100vh",
-        width: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        p: 2,
-      }}
-    >
-      <Container maxWidth={isMobile ? "sm" : "xs"} sx={{ px: isMobile ? 1 : 3 }}>
-        <Paper
-          elevation={24}
-          sx={{
-            p: isMobile ? 3 : 4,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            background: "rgba(255, 255, 255, 0.85)",
-            backdropFilter: "blur(20px)",
-            borderRadius: "24px",
-            border: "1px solid rgba(255, 255, 255, 0.5)",
-            boxShadow: "0 8px 32px 0 rgba(31, 38, 135, 0.37)",
-          }}
-        >
-          <Box sx={{ mb: 3, display: "flex", justifyContent: "center" }}>
-            <img
-              src={WEB_LOGO_PATH}
-              alt="Logo"
-              style={{
-                width: isMobile ? "100px" : "120px",
-                height: isMobile ? "100px" : "120px",
-                objectFit: "contain",
                 borderRadius: "20px",
                 filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.15))",
               }}

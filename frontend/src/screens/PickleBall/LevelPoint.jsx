@@ -19,6 +19,7 @@ import {
   useCreateAssessmentMutation,
   useGetLatestAssessmentQuery,
 } from "../../slices/assessmentsApiSlice";
+import SEOHead from "../../components/SEOHead";
 
 /* ===== DUPR helpers (min = 1.6) ===== */
 const DUPR_MIN = 1.6;
@@ -313,6 +314,7 @@ export default function LevelPointPage({ userId: userIdProp }) {
 
   return (
     <Box className="min-h-screen bg-gray-50">
+      <SEOHead title="Tự đánh giá trình độ (DUPR)" noIndex={true} />
       <Container maxWidth="md" sx={{ py: 4 }}>
         <Stack
           direction={{ xs: "column", sm: "row" }}

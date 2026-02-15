@@ -1,5 +1,7 @@
 import React, { useMemo } from "react";
-import BrowserStudio from "./BrowserStudio";
+import { useSelector } from "react-redux";
+import BrowserStudio from "../../components/BrowserStudio";
+import SEOHead from "../../components/SEOHead";
 import ScoreOverlay from "../PickleBall/ScoreOverlay";
 import FacebookLiveStreamerMUI from "../../components/FacebookLiveStreamer/FacebookLiveStreamerMUI";
 
@@ -38,8 +40,11 @@ export default function LiveStudioPage() {
 
   const overlayUrl = `${window.location.origin}/overlay/score?matchId=${matchId}&theme=dark&size=md&showSets=1&autoNext=1`;
 
+
+
   return (
     <>
+      <SEOHead title="Live Studio" noIndex={true} />
       {/* <BrowserStudio
         matchId={matchId}
         fbServer={fbServer}
