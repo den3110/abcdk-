@@ -98,7 +98,7 @@ const WHITELIST = [
   "http://localhost:3000",
 ];
 
-connectDB();
+// connectDB(); // ❌ Moved inside startServer for async await
 
 const app = express();
 
@@ -254,16 +254,22 @@ app.get("/dl/file/:id", async (req, res) => {
 // 🔹 gom phần start server + GraphQL vào 1 hàm async
 const startServer = async () => {
   try {
+    // 🔹 Connect DB first
+    await connectDB();
+
     // 🔹 mount GraphQL trước fallback routes (*)
     await setupGraphQL(app);
 
     if (process.env.NODE_ENV === "production") {
       const __dirname = path.resolve();
       app.use(prerenderMiddleware);
-      app.use(express.static(path.join(__dirname, "/frontend/dist")));
+      // Fix: serve from sibling frontend directory
+      app.use(express.static(path.join(__dirname, "../frontend/dist")));
 
       app.get("*", (req, res) =>
-        res.sendFile(path.resolve(__dirname, "frontend", "dist", "index.html")),
+        res.sendFile(
+          path.resolve(__dirname, "../frontend", "dist", "index.html"),
+        ),
       );
     } else {
       app.get("/", (req, res) => {
@@ -304,7 +310,9 @@ const startServer = async () => {
         startFacebookBusyCron();
         initEmail();
         initNewsCron();
-        startAgenda();
+        initEmail();
+        initNewsCron();
+        await startAgenda(); // ✅ Await agenda start
         registerAutoHealJobs({ Tournament, Match });
       } catch (error) {
         console.error(`❌ Error starting server: ${error.message}`);

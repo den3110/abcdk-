@@ -42,7 +42,7 @@ import dayjs from "dayjs";
 import "dayjs/locale/vi";
 import { LocalizationProvider } from "@mui/x-date-pickers";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
-import "../index.css";
+// import "../index.css"; // REMOVED: Moved to src/index.css
 import Forbidden403 from "./screens/403.jsx";
 import ServiceUnavailable from "./screens/503.jsx";
 import PublicProfilePage from "./screens/PublicProfilePage.jsx";
