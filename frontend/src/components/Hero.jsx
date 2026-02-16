@@ -592,7 +592,7 @@ export default function Hero() {
                   >
                     <Card.Body className="p-4">
                       <h6 className="fw-bold mb-3">
-                        Tải ứng dụng ngay
+                        Tải ứng dụng
                       </h6>
                       <div className="d-flex flex-wrap gap-2">
                         {hasAppStore && (
