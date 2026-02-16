@@ -96,6 +96,7 @@ const WHITELIST = [
   "https://admin.pickletour.vn",
   "http://localhost:3001",
   "http://localhost:3000",
+  "https://pickletour.vn"
 ];
 
 // connectDB(); // ❌ Moved inside startServer for async await
