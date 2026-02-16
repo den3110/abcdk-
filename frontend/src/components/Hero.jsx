@@ -427,7 +427,7 @@ export default function Hero() {
                   >
                     <ILocation size={24} />
                   </div>
-                  <h5 className="fw-bold mb-3">Trụ sở chính 123</h5>
+                  <h5 className="fw-bold mb-3">Trụ sở chính</h5>
 
                   {!contactInfo ? (
                     <SkeletonBar h={80} />
