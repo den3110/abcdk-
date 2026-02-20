@@ -15,14 +15,6 @@ import Clarity from "@microsoft/clarity";
 const App = () => {
   const location = useLocation();
   const { isDark } = useThemeMode();
-  
-  // Define routes that should have a full-screen layout (no header/footer)
-  const isAuthPage = [
-    "/login", 
-    "/register", 
-    "/forgot-password", 
-    "/reset-password"
-  ].some(path => location.pathname.startsWith(path));
 
   // ✅ tránh init 2 lần (React 18 StrictMode dev)
   const clarityInitedRef = useRef(false);
@@ -65,22 +57,14 @@ const App = () => {
 
   return (
     <>
-      {!isAuthPage && <Header />}
+      <Header />
       <ToastContainer theme={isDark ? "dark" : "light"} />
-      
-      {isAuthPage ? (
-        /* Auth pages: Full screen, no container constraints */
+      <Container className="" style={{ marginBottom: "80px" }}>
         <Outlet />
-      ) : (
-        /* Normal pages: Container with margin */
-        <Container className="" style={{ marginBottom: "80px" }}>
-          <Outlet />
-          <MobileBottomNav />
-          {/* <RegInvitesModal /> */}
-        </Container>
-      )}
-      
-      {!isAuthPage && <ChatBotDrawer />}
+        <MobileBottomNav />
+        {/* <RegInvitesModal /> */}
+      </Container>
+      <ChatBotDrawer />
     </>
   );
 };

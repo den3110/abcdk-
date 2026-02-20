@@ -1,5 +1,5 @@
 // services/emailService.js
-import sgMail from "@sendgrid/mail";
+import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -39,12 +39,26 @@ function parseFrom(raw, fallbackEmail, fallbackName) {
 }
 const FROM_OBJ = parseFrom(FROM, FROM_EMAIL_ENV, FROM_NAME_ENV);
 
+// SMTP Config (Hostinger)
+const transporter = nodemailer.createTransport({
+  host: "smtp.hostinger.com",
+  port: 465,
+  secure: true, // true for 465, false for other ports
+  auth: {
+    user: "support@pickletour.vn",
+    pass: "Pickletour@123",
+  },
+});
+
 export function initEmail() {
-  if (!process.env.SENDGRID_API_KEY) {
-    console.warn("⚠️ Missing SENDGRID_API_KEY, emails will be skipped.");
-  } else {
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-  }
+  // Verify connection configuration
+  transporter.verify(function (error, success) {
+    if (error) {
+      console.error("❌ SMTP Connection Error:", error);
+    } else {
+      console.log("✅ Server is ready to take our messages (SMTP)");
+    }
+  });
 }
 
 /**
@@ -120,8 +134,8 @@ function renderEmail({
                   <td style="vertical-align:middle;">
                     <div style="font-size:16px;font-weight:700;color:${TEXT_COLOR};line-height:1;margin:0">${APP_NAME}</div>
                     <div style="font-size:12px;color:${MUTED_COLOR};line-height:1.4;margin-top:4px">${
-    FROM_OBJ.email
-  }</div>
+                      FROM_OBJ.email
+                    }</div>
                   </td>
                 </tr>
               </table>
@@ -162,10 +176,8 @@ function renderEmail({
 }
 
 export async function sendPasswordResetEmail({ to, token }) {
-  if (!process.env.SENDGRID_API_KEY) return { skipped: true };
-
   const resetUrl = `${FRONTEND_URL}/reset-password/${encodeURIComponent(
-    token
+    token,
   )}`;
 
   const html = renderEmail({
@@ -183,7 +195,8 @@ export async function sendPasswordResetEmail({ to, token }) {
 
   const msg = {
     to,
-    from: { email: FROM_OBJ.email, name: FROM_OBJ.name },
+    from: { name: FROM_OBJ.name, address: "support@pickletour.vn" }, // Using the auth user as sender address is safer for SMTP
+    replyTo: FROM_OBJ.email,
     subject: `[${APP_NAME}] Đặt lại mật khẩu`,
     text: `Bạn nhận được email này vì đã yêu cầu đặt lại mật khẩu cho tài khoản ${to}.
 Nhấp vào liên kết dưới đây để đặt lại mật khẩu (hết hạn sau 1 giờ):
@@ -193,13 +206,16 @@ Nếu không phải bạn yêu cầu, vui lòng bỏ qua email này.`,
     html,
   };
 
-  await sgMail.send(msg);
-  return { ok: true };
+  try {
+    await transporter.sendMail(msg);
+    return { ok: true };
+  } catch (error) {
+    console.error("Error sending password reset email:", error);
+    return { ok: false, error };
+  }
 }
 
 export async function sendPasswordChangedEmail({ to }) {
-  if (!process.env.SENDGRID_API_KEY) return { skipped: true };
-
   const html = renderEmail({
     previewText: "Mật khẩu của bạn vừa được thay đổi.",
     heading: "Mật khẩu đã được thay đổi",
@@ -211,14 +227,20 @@ export async function sendPasswordChangedEmail({ to }) {
 
   const msg = {
     to,
-    from: { email: FROM_OBJ.email, name: FROM_OBJ.name },
+    from: { name: FROM_OBJ.name, address: "support@pickletour.vn" },
+    replyTo: FROM_OBJ.email,
     subject: `Mật khẩu của bạn trên ${APP_NAME} đã được thay đổi`,
     text: `Mật khẩu cho tài khoản ${to} vừa được thay đổi. Nếu không phải bạn, hãy liên hệ hỗ trợ ngay lập tức.`,
     html,
   };
 
-  await sgMail.send(msg);
-  return { ok: true };
+  try {
+    await transporter.sendMail(msg);
+    return { ok: true };
+  } catch (error) {
+    console.error("Error sending password changed email:", error);
+    return { ok: false, error };
+  }
 }
 
 // ⬇️ Thêm vào dưới cùng file services/emailService.js
@@ -227,8 +249,6 @@ export async function sendPasswordResetOtpEmail({
   otp,
   expiresInSec = 600,
 }) {
-  if (!process.env.SENDGRID_API_KEY) return { skipped: true };
-
   const mins = Math.max(1, Math.round(expiresInSec / 60));
 
   // Hiển thị OTP to rõ, cách chữ để chống đọc nhầm; giữ inline styles để tương thích client email
@@ -265,7 +285,8 @@ export async function sendPasswordResetOtpEmail({
 
   const msg = {
     to,
-    from: { email: FROM_OBJ.email, name: FROM_OBJ.name },
+    from: { name: FROM_OBJ.name, address: "support@pickletour.vn" },
+    replyTo: FROM_OBJ.email,
     subject: `[${APP_NAME}] Mã OTP đặt lại mật khẩu (${mins} phút)`,
     text: `Bạn đang yêu cầu đặt lại mật khẩu cho tài khoản ${to}.
 Mã OTP của bạn là: ${otp}
@@ -275,6 +296,11 @@ Nếu không phải bạn thực hiện, hãy bỏ qua email này.`,
     html,
   };
 
-  await sgMail.send(msg);
-  return { ok: true };
+  try {
+    await transporter.sendMail(msg);
+    return { ok: true };
+  } catch (error) {
+    console.error("Error sending OTP email:", error);
+    return { ok: false, error };
+  }
 }
