@@ -40,13 +40,14 @@ function parseFrom(raw, fallbackEmail, fallbackName) {
 const FROM_OBJ = parseFrom(FROM, FROM_EMAIL_ENV, FROM_NAME_ENV);
 
 // SMTP Config (Hostinger)
+// SMTP Config (Hostinger)
 const transporter = nodemailer.createTransport({
-  host: "smtp.hostinger.com",
-  port: 465,
-  secure: true, // true for 465, false for other ports
+  host: process.env.SMTP_HOST || "smtp.hostinger.com",
+  port: Number(process.env.SMTP_PORT) || 465,
+  secure: process.env.SMTP_SECURE === "true", // true for 465, false for other ports
   auth: {
-    user: "support@pickletour.vn",
-    pass: "Pickletour@123",
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
   },
 });
 
@@ -55,6 +56,9 @@ export function initEmail() {
   transporter.verify(function (error, success) {
     if (error) {
       console.error("❌ SMTP Connection Error:", error);
+      if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
+        console.warn("⚠️  Hint: Check your .env for SMTP_USER and SMTP_PASS");
+      }
     } else {
       console.log("✅ Server is ready to take our messages (SMTP)");
     }
@@ -195,7 +199,10 @@ export async function sendPasswordResetEmail({ to, token }) {
 
   const msg = {
     to,
-    from: { name: FROM_OBJ.name, address: "support@pickletour.vn" }, // Using the auth user as sender address is safer for SMTP
+    from: {
+      name: FROM_OBJ.name,
+      address: process.env.SMTP_USER || FROM_OBJ.email,
+    }, // Using the auth user as sender address is safer for SMTP
     replyTo: FROM_OBJ.email,
     subject: `[${APP_NAME}] Đặt lại mật khẩu`,
     text: `Bạn nhận được email này vì đã yêu cầu đặt lại mật khẩu cho tài khoản ${to}.
