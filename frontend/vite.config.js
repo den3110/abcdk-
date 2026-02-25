@@ -10,10 +10,21 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["icon.png", "vite.svg"],
       workbox: {
-        // Không cache bất kỳ file nào
         globPatterns: [],
         navigateFallback: null,
-        runtimeCaching: [],
+        runtimeCaching: [
+          {
+            urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp|ico)$/i,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "images-cache",
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 2 * 24 * 60 * 60, // 2 ngày
+              },
+            },
+          },
+        ],
       },
       manifest: {
         name: "Pickletour.vn",
