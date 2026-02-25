@@ -10,42 +10,10 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["icon.png", "vite.svg"],
       workbox: {
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5 MiB
-        // Chỉ precache các file static (JS, CSS, HTML, fonts, images)
-        globPatterns: [
-          "**/*.{js,css,html,ico,png,svg,jpg,jpeg,webp,woff,woff2}",
-        ],
-        // Loại bỏ API và các route động khỏi cache
-        navigateFallbackDenylist: [/^\/api/, /^\/uploads/, /^\/socket\.io/],
-        runtimeCaching: [
-          {
-            // API calls - luôn lấy từ network, không cache
-            urlPattern: /^https?:\/\/.*\/api\/.*/i,
-            handler: "NetworkOnly",
-          },
-          {
-            // Uploads - luôn lấy từ network
-            urlPattern: /^https?:\/\/.*\/uploads\/.*/i,
-            handler: "NetworkOnly",
-          },
-          {
-            // Socket.io - không cache
-            urlPattern: /^https?:\/\/.*\/socket\.io\/.*/i,
-            handler: "NetworkOnly",
-          },
-          {
-            // Cache ảnh từ CDN/external với stale-while-revalidate
-            urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp)$/i,
-            handler: "StaleWhileRevalidate",
-            options: {
-              cacheName: "images-cache",
-              expiration: {
-                maxEntries: 100,
-                maxAgeSeconds: 7 * 24 * 60 * 60, // 7 ngày
-              },
-            },
-          },
-        ],
+        // Không cache bất kỳ file nào
+        globPatterns: [],
+        navigateFallback: null,
+        runtimeCaching: [],
       },
       manifest: {
         name: "Pickletour.vn",
