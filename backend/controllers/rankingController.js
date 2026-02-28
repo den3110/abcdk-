@@ -248,6 +248,7 @@ export const adminUpdateRanking = asyncHandler(async (req, res) => {
 
 export async function getLeaderboard(req, res) {
   const list = await Ranking.aggregate([
+    { $match: { isHiddenFromRankings: { $ne: true } } },
     {
       $lookup: {
         from: "assessments",
@@ -522,12 +523,24 @@ async function buildRecentPodiumsByUser({ days = 30 } = {}) {
   const allRegIds = uniq(achievementsReg.flatMap((a) => a.regIds));
   const regToUsers = await mapRegToUsers(allRegIds);
 
-  // 4) Bung thành achievements theo user
+  // 4) Fetch hidden users to exclude them from podiums
+  const allUserIds = uniq(Array.from(regToUsers.values()).flat());
+  const hiddenRankings = await mongoose
+    .model("Ranking")
+    .find(
+      { user: { $in: allUserIds }, isHiddenFromRankings: true },
+      { user: 1 },
+    )
+    .lean();
+  const hiddenUserIds = new Set(hiddenRankings.map((r) => String(r.user)));
+
+  // 5) Bung thành achievements theo user
   const podiumMapByUserId = {};
   for (const a of achievementsReg) {
     for (const rid of a.regIds) {
       const userIds = regToUsers.get(String(rid)) || [];
       for (const uid of userIds) {
+        if (hiddenUserIds.has(String(uid))) continue; // Bỏ qua user bị ẩn khỏi bxh
         (podiumMapByUserId[uid] ||= []).push({
           tournamentId: String(a.tournamentId),
           tournamentName: a.tournamentName,
@@ -898,6 +911,7 @@ export const getRankings = asyncHandler(async (req, res) => {
 
   /* ======= aggregate rankings ======= */
   const matchStage = {
+    isHiddenFromRankings: { $ne: true },
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
   };
 
@@ -1432,6 +1446,7 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
 
   const matchStage = {
     user: { $type: "objectId" },
+    isHiddenFromRankings: { $ne: true },
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
   };
 
@@ -1439,21 +1454,20 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
   const agg = await Ranking.aggregate([
     { $match: matchStage },
     {
+      $lookup: {
+        from: "users",
+        localField: "user",
+        foreignField: "_id",
+        as: "u_chk",
+        pipeline: [{ $project: { _id: 1 } }],
+      },
+    },
+    { $match: { "u_chk.0": { $exists: true } } },
+    { $project: { u_chk: 0 } },
+    {
       $facet: {
         // Count only rankings with existing users
-        total: [
-          {
-            $lookup: {
-              from: "users",
-              localField: "user",
-              foreignField: "_id",
-              as: "u",
-              pipeline: [{ $project: { _id: 1 } }],
-            },
-          },
-          { $match: { "u.0": { $exists: true } } },
-          { $count: "n" },
-        ],
+        total: [{ $count: "n" }],
         // Docs pipeline - optimized
         docs: [
           {
@@ -1711,6 +1725,7 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
   }
 
   const matchStage = {
+    isHiddenFromRankings: { $ne: true },
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
   };
 
@@ -1719,20 +1734,19 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
     { $match: matchStage },
     { $match: { user: { $type: "objectId" } } },
     {
+      $lookup: {
+        from: "users",
+        localField: "user",
+        foreignField: "_id",
+        as: "u_chk",
+        pipeline: [{ $project: { _id: 1 } }],
+      },
+    },
+    { $match: { "u_chk.0": { $exists: true } } },
+    { $project: { u_chk: 0 } },
+    {
       $facet: {
-        total: [
-          {
-            $lookup: {
-              from: "users",
-              localField: "user",
-              foreignField: "_id",
-              as: "u",
-              pipeline: [{ $project: { _id: 1 } }],
-            },
-          },
-          { $match: { "u.0": { $exists: true } } },
-          { $count: "n" },
-        ],
+        total: [{ $count: "n" }],
         docs: [
           // Use denormalized fields from Ranking model
           {
@@ -1989,6 +2003,7 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
     : baseUserProject;
 
   const matchStage = {
+    isHiddenFromRankings: { $ne: true },
     ...(userIdsFilter ? { user: { $in: userIdsFilter } } : {}),
   };
 

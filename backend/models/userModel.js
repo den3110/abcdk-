@@ -18,7 +18,7 @@ const SignupDeviceSchema = new mongoose.Schema(
     model: { type: String, default: "", trim: true },
     ua: { type: String, default: "", trim: true },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const SignupWebSchema = new mongoose.Schema(
@@ -26,7 +26,7 @@ const SignupWebSchema = new mongoose.Schema(
     referer: { type: String, default: "", trim: true },
     origin: { type: String, default: "", trim: true },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const otpStateSchema = new mongoose.Schema(
@@ -39,7 +39,7 @@ const otpStateSchema = new mongoose.Schema(
     tranId: { type: String, default: "" },
     cost: { type: Number, default: 0 },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const SignupIpSchema = new mongoose.Schema(
@@ -47,7 +47,7 @@ const SignupIpSchema = new mongoose.Schema(
     client: { type: String, default: "", trim: true },
     chain: { type: [String], default: [] },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const SignupGeoSchema = new mongoose.Schema(
@@ -57,7 +57,7 @@ const SignupGeoSchema = new mongoose.Schema(
     latitude: { type: String, default: "", trim: true }, // để string cho an toàn parse từ header CDN
     longitude: { type: String, default: "", trim: true },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const SignupMetaSchema = new mongoose.Schema(
@@ -74,7 +74,7 @@ const SignupMetaSchema = new mongoose.Schema(
     geo: { type: SignupGeoSchema, default: () => ({}) },
     registeredAt: { type: Date, default: Date.now }, // thời điểm ghi nhận meta
   },
-  { _id: false }
+  { _id: false },
 );
 
 /* ---------- Evaluator ---------- */
@@ -86,7 +86,7 @@ const EvaluatorSchema = new mongoose.Schema(
       sports: { type: [String], enum: ALLOWED_SPORTS, default: ["pickleball"] },
     },
   },
-  { _id: false }
+  { _id: false },
 );
 
 // ADD: phạm vi trọng tài theo giải
@@ -95,7 +95,7 @@ const RefereeScopeSchema = new mongoose.Schema(
     // Danh sách giải được phép chấm
     tournaments: [{ type: mongoose.Schema.Types.ObjectId, ref: "Tournament" }],
   },
-  { _id: false }
+  { _id: false },
 );
 
 const userSchema = new mongoose.Schema(
@@ -208,12 +208,16 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false, // true = không giới hạn khi đăng nhập
     },
+    isHiddenFromRankings: {
+      type: Boolean,
+      default: false,
+    },
 
     /* ------- (ĐÃ BỎ) Login tracking ra model riêng ------- */
     // lastLoginAt: { type: Date }
     // loginHistory: [...]
   },
-  { timestamps: true, strict: true }
+  { timestamps: true, strict: true },
 );
 
 /* ---------- Bcrypt helpers ---------- */
@@ -239,21 +243,21 @@ userSchema.pre("validate", function (next) {
     const provinces = Array.from(
       new Set(
         (this.evaluator.gradingScopes?.provinces || []).map((s) =>
-          String(s || "").trim()
-        )
-      )
+          String(s || "").trim(),
+        ),
+      ),
     ).filter(Boolean);
     if (provinces.length === 0) {
       return next(
         new Error(
-          "Evaluator phải có ít nhất 1 tỉnh trong gradingScopes.provinces"
-        )
+          "Evaluator phải có ít nhất 1 tỉnh trong gradingScopes.provinces",
+        ),
       );
     }
     this.evaluator.gradingScopes.provinces = provinces;
 
     const sports = Array.from(
-      new Set(this.evaluator.gradingScopes?.sports || [])
+      new Set(this.evaluator.gradingScopes?.sports || []),
     );
     const invalid = sports.filter((s) => !ALLOWED_SPORTS.includes(s));
     if (invalid.length)
@@ -304,8 +308,8 @@ userSchema.pre("validate", function (next) {
         new Set(
           this.signupMeta.ip.chain
             .map((s) => String(s || "").trim())
-            .filter(Boolean)
-        )
+            .filter(Boolean),
+        ),
       );
       this.signupMeta.ip.chain = uniq.slice(0, 20); // cắt bớt nếu chuỗi quá dài
     }
@@ -334,7 +338,7 @@ userSchema.post("save", async function (doc, next) {
           },
         },
       },
-      { upsert: true }
+      { upsert: true },
     );
 
     return next();
@@ -342,7 +346,7 @@ userSchema.post("save", async function (doc, next) {
     console.error(
       "[User.post(save)] Failed to create UserRadar for user",
       doc._id,
-      err.message
+      err.message,
     );
     // tuỳ bạn: nếu không muốn chặn signup thì vẫn cho next()
     return next(); // hoặc next(err) nếu muốn fail cứng
@@ -424,45 +428,45 @@ const RatingSchema = new mongoose.Schema(
     minBound: { type: Number, default: 2.0 },
     maxBound: { type: Number, default: 8.0 },
   },
-  { _id: false }
+  { _id: false },
 );
 userSchema.add({ localRatings: { type: RatingSchema, default: () => ({}) } });
 
 /* ---------- Index ---------- */
 userSchema.index(
   { nickname: 1 },
-  { name: "idx_nickname_vi", collation: { locale: "vi", strength: 1 } }
+  { name: "idx_nickname_vi", collation: { locale: "vi", strength: 1 } },
 );
 userSchema.index(
   { name: 1 },
-  { name: "idx_name_vi", collation: { locale: "vi", strength: 1 } }
+  { name: "idx_name_vi", collation: { locale: "vi", strength: 1 } },
 );
 userSchema.index(
   { province: 1 },
-  { name: "idx_province_vi", collation: { locale: "vi", strength: 1 } }
+  { name: "idx_province_vi", collation: { locale: "vi", strength: 1 } },
 );
 userSchema.index({ cccdStatus: 1, updatedAt: -1 });
 userSchema.index({ "evaluator.enabled": 1 }, { name: "idx_eval_enabled" });
 userSchema.index(
   { "evaluator.gradingScopes.provinces": 1 },
-  { name: "idx_eval_province" }
+  { name: "idx_eval_province" },
 );
 userSchema.index({ role: 1 }, { name: "idx_role" });
 
 // 👇 Index phục vụ thống kê/loc đăng ký
 userSchema.index(
   { "signupMeta.platform": 1, createdAt: -1 },
-  { name: "idx_signup_platform" }
+  { name: "idx_signup_platform" },
 );
 userSchema.index(
   { "signupMeta.ip.client": 1, createdAt: -1 },
-  { name: "idx_signup_ip" }
+  { name: "idx_signup_ip" },
 );
 userSchema.index({ lastKnownLocation: "2dsphere" });
 
 userSchema.index(
   { loginOtpBypassUntil: -1 },
-  { name: "idx_login_otp_bypass_until" }
+  { name: "idx_login_otp_bypass_until" },
 );
 
 export default mongoose.model("User", userSchema);

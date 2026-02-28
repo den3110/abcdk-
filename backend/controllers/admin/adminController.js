@@ -97,10 +97,20 @@ export const updateUserInfo = asyncHandler(async (req, res) => {
     "gender",
     "province",
     "cccd",
+    "isHiddenFromRankings",
   ];
 
+  let rankingUpdateNeeded = false;
+  let newHiddenStatus = false;
+
   fields.forEach((f) => {
-    if (req.body[f] !== undefined) user[f] = req.body[f];
+    if (req.body[f] !== undefined) {
+      if (f === "isHiddenFromRankings" && user[f] !== req.body[f]) {
+        rankingUpdateNeeded = true;
+        newHiddenStatus = req.body[f];
+      }
+      user[f] = req.body[f];
+    }
   });
 
   /* --- kiểm tra trùng email / phone --- */
@@ -128,6 +138,19 @@ export const updateUserInfo = asyncHandler(async (req, res) => {
   }
 
   await user.save();
+
+  if (rankingUpdateNeeded) {
+    try {
+      const { default: Ranking } = await import("../../models/rankingModel.js");
+      await Ranking.updateOne(
+        { user: user._id },
+        { isHiddenFromRankings: newHiddenStatus },
+      );
+    } catch (err) {
+      console.error("Error updating ranking isHiddenFromRankings:", err);
+    }
+  }
+
   res.json({ message: "User updated", user });
 });
 /* ✨ Duyệt / Từ chối KYC */

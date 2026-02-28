@@ -1277,6 +1277,26 @@ export default function UsersPage() {
                   </Select>
                 </FormControl>
 
+                {/* Hide from Rankings Section */}
+                <Paper variant="outlined" sx={{ p: 2, bgcolor: "background.default" }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={!!edit.isHiddenFromRankings}
+                        onChange={(e) => setEdit({ ...edit, isHiddenFromRankings: e.target.checked })}
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography fontWeight={600}>Ẩn khỏi Bảng xếp hạng</Typography>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Người dùng này sẽ không hiển thị trên danh sách bảng xếp hạng công khai.
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </Paper>
+
                 {/* Change Password Section */}
                 <Paper variant="outlined" sx={{ p: 2, bgcolor: "background.default" }}>
                   <FormControlLabel
@@ -1383,6 +1403,7 @@ export default function UsersPage() {
                           ? edit.gender
                           : "unspecified",
                         province: edit.province,
+                        isHiddenFromRankings: !!edit.isHiddenFromRankings,
                       },
                     }).unwrap(),
                     "Đã cập nhật thông tin"

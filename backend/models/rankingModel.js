@@ -10,40 +10,45 @@ const rankingSchema = new mongoose.Schema(
       unique: true, // 🔒 1 user chỉ có 1 ranking
       index: true,
     },
-    
+
     // ========== Điểm số ==========
     single: { type: Number, default: 0, min: 0 },
     double: { type: Number, default: 0, min: 0 },
     mix: { type: Number, default: 0, min: 0 },
     points: { type: Number, default: 0, min: 0 },
-    
+
     // ========== Uy tín ==========
     reputation: { type: Number, default: 0, min: 0, max: 100 },
     repMeta: {
       tournamentsFinished: { type: Number, default: 0 },
       lastBonusAt: { type: Date },
     },
-    
+
     // ========== Denormalized fields (tối ưu query) ==========
     // Số giải đã kết thúc mà user tham gia
     totalFinishedTours: { type: Number, default: 0, min: 0 },
-    
+
     // User có assessment do staff chấm không
     hasStaffAssessment: { type: Boolean, default: false },
-    
+
     // Tier/màu xếp hạng (Gold/Red/Grey)
     tierColor: {
       type: String,
       enum: ["yellow", "red", "grey"],
       default: "grey",
     },
-    
+
     tierLabel: {
       type: String,
-      enum: ["Official/Đã duyệt", "Tự chấm", "0 điểm / Chưa đấu", "Chưa có điểm"],
+      enum: [
+        "Official/Đã duyệt",
+        "Tự chấm",
+        "0 điểm / Chưa đấu",
+        "Chưa có điểm",
+      ],
       default: "0 điểm / Chưa đấu",
     },
-    
+
     // Số thứ tự ưu tiên sort: 0=Gold, 1=Red, 2=Grey, 3=Default
     colorRank: {
       type: Number,
@@ -51,19 +56,25 @@ const rankingSchema = new mongoose.Schema(
       min: 0,
       max: 3,
     },
-    
+
+    // Check xem user có bị ẩn khỏi Bảng xếp hạng không
+    isHiddenFromRankings: {
+      type: Boolean,
+      default: false,
+    },
+
     // ========== Metadata ==========
     lastUpdated: { type: Date, default: Date.now },
-    
+
     // Cache timestamp của lần update tier cuối
     tierUpdatedAt: { type: Date },
   },
-  { 
+  {
     timestamps: true,
     // Tối ưu cho queries lớn
     toJSON: { virtuals: true },
     toObject: { virtuals: true },
-  }
+  },
 );
 
 // ========== INDEXES ==========
@@ -72,15 +83,15 @@ rankingSchema.index({ user: 1 }, { unique: true });
 
 // Compound index cho sorting rankings (QUAN TRỌNG nhất!)
 rankingSchema.index(
-  { 
-    colorRank: 1,      // Sort tier trước
-    double: -1,        // Sau đó sort theo double
-    single: -1,        // Rồi single
-    points: -1,        // Rồi points
-    updatedAt: -1,     // Cuối cùng updatedAt
-    _id: 1             // Tie-breaker
+  {
+    colorRank: 1, // Sort tier trước
+    double: -1, // Sau đó sort theo double
+    single: -1, // Rồi single
+    points: -1, // Rồi points
+    updatedAt: -1, // Cuối cùng updatedAt
+    _id: 1, // Tie-breaker
   },
-  { name: "ranking_sort_idx" }
+  { name: "ranking_sort_idx" },
 );
 
 // Index cho filter theo tier
@@ -101,19 +112,28 @@ rankingSchema.virtual("hasPoints").get(function () {
 
 // Check xem có phải 0 điểm không
 rankingSchema.virtual("isZeroPoints").get(function () {
-  return this.points === 0 && this.single === 0 && this.double === 0 && this.mix === 0;
+  return (
+    this.points === 0 &&
+    this.single === 0 &&
+    this.double === 0 &&
+    this.mix === 0
+  );
 });
 
 // ========== METHODS ==========
 // Method để recalculate tier
 rankingSchema.methods.recalculateTier = function () {
-  const zeroPoints = this.points === 0 && this.single === 0 
-                    && this.double === 0 && this.mix === 0;
-  
+  const zeroPoints =
+    this.points === 0 &&
+    this.single === 0 &&
+    this.double === 0 &&
+    this.mix === 0;
+
   const isGrey = zeroPoints && this.totalFinishedTours === 0;
-  const isGold = !isGrey && (this.totalFinishedTours > 0 || this.hasStaffAssessment);
+  const isGold =
+    !isGrey && (this.totalFinishedTours > 0 || this.hasStaffAssessment);
   const isRed = this.totalFinishedTours === 0 && !isGold && !isGrey;
-  
+
   // Update tier fields
   if (isGold) {
     this.colorRank = 0;
@@ -132,11 +152,11 @@ rankingSchema.methods.recalculateTier = function () {
     this.tierColor = "grey";
     this.tierLabel = "Chưa có điểm";
   }
-  
+
   // Update reputation
   this.reputation = Math.min(100, this.totalFinishedTours * 10);
   this.tierUpdatedAt = new Date();
-  
+
   return this;
 };
 
@@ -145,8 +165,8 @@ rankingSchema.methods.recalculateTier = function () {
 rankingSchema.statics.bulkRecalculateTiers = async function (userIds = []) {
   const query = userIds.length > 0 ? { user: { $in: userIds } } : {};
   const rankings = await this.find(query);
-  
-  const bulkOps = rankings.map(ranking => {
+
+  const bulkOps = rankings.map((ranking) => {
     ranking.recalculateTier();
     return {
       updateOne: {
@@ -163,11 +183,11 @@ rankingSchema.statics.bulkRecalculateTiers = async function (userIds = []) {
       },
     };
   });
-  
+
   if (bulkOps.length > 0) {
     await this.bulkWrite(bulkOps);
   }
-  
+
   return bulkOps.length;
 };
 
@@ -180,9 +200,14 @@ rankingSchema.pre("save", function (next) {
 
 // Auto recalculate tier nếu điểm thay đổi
 rankingSchema.pre("save", function (next) {
-  if (this.isModified("single") || this.isModified("double") || 
-      this.isModified("mix") || this.isModified("points") ||
-      this.isModified("totalFinishedTours") || this.isModified("hasStaffAssessment")) {
+  if (
+    this.isModified("single") ||
+    this.isModified("double") ||
+    this.isModified("mix") ||
+    this.isModified("points") ||
+    this.isModified("totalFinishedTours") ||
+    this.isModified("hasStaffAssessment")
+  ) {
     this.recalculateTier();
   }
   next();
