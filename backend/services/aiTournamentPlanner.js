@@ -1,5 +1,5 @@
 // services/aiTournamentPlanner.js
-import OpenAI from "openai";
+import { openai as client } from "../lib/openaiClient.js";
 
 /* ---------- Helpers (đồng bộ với FE) ---------- */
 const ceilPow2 = (n) => (n <= 1 ? 1 : 1 << Math.ceil(Math.log2(n)));
@@ -23,7 +23,7 @@ const poMatchesForRound = (N, r) => {
 function buildKoSeedsFromPO(
   poDrawSize,
   poMaxRounds,
-  poStageIndex /* 1-based */
+  poStageIndex /* 1-based */,
 ) {
   const list = [];
   for (let r = 1; r <= poMaxRounds; r++) {
@@ -58,7 +58,7 @@ function buildKoSeedsFromPO(
 function buildKoSeedsFromGroups(
   groupCount,
   groupTopN,
-  groupStageIndex /* 1-based */
+  groupStageIndex /* 1-based */,
 ) {
   const groups = Array.from({ length: groupCount }, (_, i) => String(i + 1));
   // winners, runners, others...
@@ -142,14 +142,14 @@ function estimateMetrics({ groups, po, ko, avgMinutesPerMatch = 25 }) {
       : Array.from({ length: groups.count }, () => Number(groups.size || 0));
     groupMatches = sizes.reduce(
       (acc, s) => acc + RR_MATCHES(Number(s) || 0),
-      0
+      0,
     );
   }
 
   const poMatches = po?.drawSize
     ? poMatchesForRound(po.drawSize, 1) +
       Array.from({ length: Math.max(1, po.maxRounds || 1) - 1 }, (_, i) =>
-        poMatchesForRound(po.drawSize, i + 2)
+        poMatchesForRound(po.drawSize, i + 2),
       ).reduce((a, b) => a + b, 0)
     : 0;
 
@@ -179,7 +179,6 @@ export async function planWithAI({ tournament, preferences = {} }) {
   // Gọi OpenAI — optional. Nếu lỗi thì fallback.
   let ai;
   try {
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const system = `
 Bạn là trợ lý lập kế hoạch giải đấu. Trả về JSON THUẦN theo schema:
 {
@@ -243,7 +242,7 @@ YÊU CẦU:
   const groupSizes = hasGroup
     ? Array.from(
         { length: groupCount },
-        (_, i) => baseSize + (i === groupCount - 1 ? remainder : 0)
+        (_, i) => baseSize + (i === groupCount - 1 ? remainder : 0),
       )
     : [];
 
@@ -347,7 +346,7 @@ YÊU CẦU:
     const sizes = hasGroup
       ? Array.from(
           { length: gCount },
-          (_, i) => base + (i === gCount - 1 ? rem : 0)
+          (_, i) => base + (i === gCount - 1 ? rem : 0),
         )
       : [];
     const koFromG = hasGroup

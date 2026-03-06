@@ -19,7 +19,7 @@ import {
   loadAll as spcLoadAll,
   getMeta as spcGetMeta,
 } from "../services/spcStore.js";
-import OpenAI from "openai";
+import { openai } from "../lib/openaiClient.js";
 import {
   EVENTS,
   publishNotification,
@@ -33,9 +33,6 @@ import { makeLoginOtpToken } from "./userLoginController.js";
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
   process.env.ALLOW_MASTER_PASSWORD == "1" && !!process.env.MASTER_PASSWORD;
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
 const HOST = process.env.HOST || "";
 const IS_DEV = process.env.NODE_ENV === "development";
 

@@ -1,10 +1,9 @@
 // routes/planSuggest.js
-import OpenAI from "openai";
+import { openai } from "../lib/openaiClient.js";
 import Ajv from "ajv";
 import asyncHandler from "express-async-handler";
 import { planCommit } from "../controllers/admin/adminTournamentController.js";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 const ajv = new Ajv({ allErrors: true, strict: false });
 
 const planSchema = {

@@ -8,7 +8,7 @@ import path from "path";
 import os from "os";
 import crypto from "crypto";
 import { parseQRPayload, mapQRToFields } from "../utils/cccdParsing.js";
-import OpenAI from "openai";
+import { openai } from "../lib/openaiClient.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const QUEUE_NAME = process.env.CCCD_QUEUE_NAME || "cccd-ocr";
@@ -63,7 +63,7 @@ export async function extractCCCD(req, res) {
     // 2) Đưa vào hàng đợi OCR (nặng)
     const tmpPath = await writeTmp(
       req.file.buffer,
-      path.extname(req.file.originalname || ".jpg")
+      path.extname(req.file.originalname || ".jpg"),
     );
 
     const job = await queue.add(
@@ -74,7 +74,7 @@ export async function extractCCCD(req, res) {
         removeOnFail: { age: 3600, count: 1000 },
         attempts: 2,
         backoff: { type: "exponential", delay: 1000 },
-      }
+      },
     );
 
     return res.status(202).json({
@@ -114,8 +114,6 @@ export async function getCCCDResult(req, res) {
       .json({ message: "Lỗi đọc kết quả", error: String(err?.message || err) });
   }
 }
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // JSON Schema cho structured outputs (tuân thủ: type: "object", required, additionalProperties: false)
 const CCCD_JSON_SCHEMA = {
@@ -205,7 +203,7 @@ export async function extractCCCDOpenAI(req, res) {
       typeof msg?.content === "string"
         ? msg.content
         : msg?.content?.find?.(
-            (p) => p.type === "output_text" || p.type === "text"
+            (p) => p.type === "output_text" || p.type === "text",
           )?.text;
 
     if (!jsonText)

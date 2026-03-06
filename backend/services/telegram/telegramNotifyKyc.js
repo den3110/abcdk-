@@ -1,7 +1,7 @@
 // server/services/telegramNotify.js
 import fetch from "node-fetch";
 import dotenv from "dotenv";
-import OpenAI from "openai";
+import { openai } from "../../lib/openaiClient.js";
 import FormData from "form-data";
 import {
   CATEGORY,
@@ -44,7 +44,6 @@ const HOST =
     ? (process.env.HOST || "").replace(/\/+$/, "")
     : "http://localhost:5001"; // ví dụ: https://pickletour.vn
 const toPosix = (s = "") => s.replace(/\\/g, "/");
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 // ---------------- utils ----------------
 function escapeHtml(s = "") {
@@ -329,7 +328,8 @@ function normDOB(value) {
 }
 
 async function openaiExtractFromImageUrl(imageUrl, detail = "low") {
-  if (!openai.apiKey) throw new Error("Missing OPENAI_API_KEY");
+  if (!process.env.OPENAI_API_KEY && !process.env.CLIPROXY_API_KEY)
+    throw new Error("Missing OPENAI_API_KEY");
 
   // Nếu URL local/private -> tải buffer và đổi sang data URL
   let imagePart;
@@ -380,7 +380,7 @@ async function openaiExtractFromImageUrl(imageUrl, detail = "low") {
     typeof msg?.content === "string"
       ? msg.content
       : msg?.content?.find?.(
-          (p) => p.type === "output_text" || p.type === "text"
+          (p) => p.type === "output_text" || p.type === "text",
         )?.text;
 
   let data = {};
@@ -451,7 +451,7 @@ export async function notifyNewKyc(user) {
           await UM.findByIdAndUpdate(
             user._id,
             { $set: { cccdStatus: "verified", verified: "verified" } },
-            { new: false }
+            { new: false },
           ).lean();
           try {
             await publishNotification(EVENTS.KYC_APPROVED, {
@@ -469,7 +469,7 @@ export async function notifyNewKyc(user) {
           await UM.findByIdAndUpdate(
             user._id,
             { $set: { cccdStatus: "rejected" } },
-            { new: false }
+            { new: false },
           ).lean();
           try {
             await publishNotification(EVENTS.KYC_REJECTED, {
@@ -503,8 +503,8 @@ export async function notifyNewKyc(user) {
     auto.status === "approved"
       ? "✅ <b>TỰ ĐỘNG DUYỆT</b>"
       : auto.status === "rejected"
-      ? "❌ <b>TỰ ĐỘNG TỪ CHỐI</b>"
-      : "⏳ <b>Chờ KYC</b>";
+        ? "❌ <b>TỰ ĐỘNG TỪ CHỐI</b>"
+        : "⏳ <b>Chờ KYC</b>";
 
   const reportLines = [];
   if (auto.report) {
@@ -513,14 +513,14 @@ export async function notifyNewKyc(user) {
     reportLines.push(
       "🔎 <b>Kết quả so khớp</b>",
       `• Họ tên: ${nameOK ? "✅" : "❌"} <code>${escapeHtml(
-        got.name || "—"
+        got.name || "—",
       )}</code> (kỳ vọng: <code>${escapeHtml(wanted.name || "—")}</code>)`,
       `• Ngày sinh: ${dobOK ? "✅" : "❌"} <code>${escapeHtml(
-        got.dob || "—"
+        got.dob || "—",
       )}</code> (kỳ vọng: <code>${escapeHtml(wanted.dob || "—")}</code>)`,
       `• Số CCCD: ${idOK ? "✅" : "❌"} <code>${escapeHtml(
-        got.id || "—"
-      )}</code> (kỳ vọng: <code>${escapeHtml(wanted.id || "—")}</code>)`
+        got.id || "—",
+      )}</code> (kỳ vọng: <code>${escapeHtml(wanted.id || "—")}</code>)`,
     );
   } else if (auto.reason) {
     reportLines.push(`ℹ️ ${escapeHtml(auto.reason)}`);
@@ -625,7 +625,7 @@ export async function notifyKycReviewed(user, action) {
 // ---------------- Register callback buttons ----------------
 export function registerKycReviewButtons(
   bot,
-  { UserModel, onAfterReview } = {}
+  { UserModel, onAfterReview } = {},
 ) {
   if (!bot) return;
 
@@ -668,7 +668,7 @@ export function registerKycReviewButtons(
       const updated = await UM.findByIdAndUpdate(
         userId,
         { $set },
-        { new: true, runValidators: true }
+        { new: true, runValidators: true },
       ).select("_id cccdStatus verified name nickname email phone cccd");
 
       if (!updated) {
@@ -701,7 +701,7 @@ export function registerKycReviewButtons(
 
       try {
         await ctx.answerCbQuery(
-          action === "approve" ? "Đã duyệt ✅" : "Đã từ chối ❌"
+          action === "approve" ? "Đã duyệt ✅" : "Đã từ chối ❌",
         );
         await notifyKycReviewed(updated, action);
       } catch (err) {

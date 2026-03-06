@@ -2,18 +2,13 @@
 // ✅ NEW: Agent-based chatbot engine with OpenAI Function Calling
 // Thay thế toàn bộ 3-layer cũ (quickResponse + skillMatching + GPT planner)
 
-import OpenAI from "openai";
+import { openai } from "../../lib/openaiClient.js";
 import { TOOL_DEFINITIONS, TOOL_EXECUTORS } from "./tools/index.js";
 import { getRecentMessages } from "./memoryService.js";
 import { maybeLearn } from "./learningService.js";
 import User from "../../models/userModel.js";
 
 // ─────────────── CONFIG ───────────────
-
-const openai = new OpenAI({
-  apiKey: process.env.CLIPROXY_API_KEY || process.env.OPENAI_API_KEY,
-  baseURL: process.env.CLIPROXY_BASE_URL || undefined,
-});
 
 const MODEL = process.env.BOT_MODEL || "gpt-4o-mini";
 const MAX_TOOL_ROUNDS = 5; // Giới hạn số lần gọi tool liên tiếp

@@ -1,9 +1,5 @@
 // services/geocodeTournamentLocation.js
-import OpenAI from "openai";
-
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { openai as client } from "../lib/openaiClient.js";
 
 const BASE_RESULT = {
   lat: null,
@@ -41,7 +37,7 @@ const buildSystemPrompt = (kind) => {
 
   const output =
     "Output format: STRICT JSON OBJECT with these fields only:\n" +
-    '{\n' +
+    "{\n" +
     '  "lat": number | null,\n' +
     '  "lon": number | null,\n' +
     '  "countryCode": string | null,\n' +
@@ -152,12 +148,17 @@ export async function geocodeTournamentLocation({
  * ✅ NEW: Geocode địa điểm CLB bằng OpenAI
  * @param {string} location - address/locationText (ví dụ: "CLB ABC, 126 Lê Hồng Phong, Nam Định")
  */
-export async function geocodeClubLocation({ location, countryHint = "VN" } = {}) {
+export async function geocodeClubLocation({
+  location,
+  countryHint = "VN",
+} = {}) {
   const raw = String(location || "").trim();
   if (!raw) return { ...BASE_RESULT, raw: "" };
 
   if (!process.env.OPENAI_API_KEY) {
-    console.warn("[geocodeClubLocation] Missing OPENAI_API_KEY", { location: raw });
+    console.warn("[geocodeClubLocation] Missing OPENAI_API_KEY", {
+      location: raw,
+    });
     return { ...BASE_RESULT, raw };
   }
 

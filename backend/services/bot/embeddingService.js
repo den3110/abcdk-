@@ -1,13 +1,11 @@
 // services/embeddingService.js
-import OpenAI from "openai";
-
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+import { openai } from "../../lib/openaiClient.js";
 
 // Dùng model embed rẻ, ví dụ: "text-embedding-3-small"
 export async function embedText(text) {
   const res = await openai.embeddings.create({
     model: "text-embedding-3-small",
-    input: text
+    input: text,
   });
   return res.data[0].embedding; // array of numbers
 }
@@ -15,7 +13,9 @@ export async function embedText(text) {
 // Cosine similarity đơn giản
 export function cosineSim(a, b) {
   const len = Math.min(a.length, b.length);
-  let dot = 0, na = 0, nb = 0;
+  let dot = 0,
+    na = 0,
+    nb = 0;
   for (let i = 0; i < len; i++) {
     dot += a[i] * b[i];
     na += a[i] * a[i];
