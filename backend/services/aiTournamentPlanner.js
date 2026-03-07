@@ -1,5 +1,5 @@
 // services/aiTournamentPlanner.js
-import { openai as client } from "../lib/openaiClient.js";
+import { openai as client, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
 
 /* ---------- Helpers (đồng bộ với FE) ---------- */
 const ceilPow2 = (n) => (n <= 1 ? 1 : 1 << Math.ceil(Math.log2(n)));
@@ -210,8 +210,9 @@ YÊU CẦU:
       preferences, // weight & constraints từ FE (có hoặc không)
     };
 
+    // Gửi prompt
     const resp = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: OPENAI_DEFAULT_MODEL,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: system },

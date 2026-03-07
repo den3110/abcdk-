@@ -1,7 +1,6 @@
-// server/services/telegramNotify.js
 import fetch from "node-fetch";
 import dotenv from "dotenv";
-import { openai } from "../../lib/openaiClient.js";
+import { openai, OPENAI_VISION_MODEL } from "../../lib/openaiClient.js";
 import FormData from "form-data";
 import {
   CATEGORY,
@@ -363,7 +362,7 @@ async function openaiExtractFromImageUrl(imageUrl, detail = "low") {
   ].join(" ");
 
   const resp = await openai.chat.completions.create({
-    model: "gpt-4o",
+    model: OPENAI_VISION_MODEL,
     temperature: 0,
     response_format: { type: "json_schema", json_schema: CCCD_JSON_SCHEMA },
     messages: [

@@ -1,13 +1,18 @@
 // services/embeddingService.js
-import { openai } from "../../lib/openaiClient.js";
+import { openai, OPENAI_EMBEDDING_MODEL } from "../../lib/openaiClient.js";
 
 // Dùng model embed rẻ, ví dụ: "text-embedding-3-small"
 export async function embedText(text) {
-  const res = await openai.embeddings.create({
-    model: "text-embedding-3-small",
-    input: text,
-  });
-  return res.data[0].embedding; // array of numbers
+  try {
+    const response = await openai.embeddings.create({
+      model: OPENAI_EMBEDDING_MODEL,
+      input: text,
+    });
+    return response.data[0].embedding; // array of numbers
+  } catch (error) {
+    console.error("Error embedding text:", error);
+    throw error; // Re-throw the error after logging
+  }
 }
 
 // Cosine similarity đơn giản

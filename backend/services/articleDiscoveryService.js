@@ -1,7 +1,7 @@
 // src/services/articleDiscoveryService.js
 import NewsSettings from "../models/newsSettingsModel.js";
 import NewsLinkCandidate from "../models/newsLinkCandicateModel.js";
-import { openai } from "../lib/openaiClient.js";
+import { openai, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
 
 const SYSTEM_PROMPT_VI = `
 Bạn là hệ thống "PickleTour News Link Selector", chạy trong backend.
@@ -102,13 +102,13 @@ function isLikelyVietnamese(str = "") {
   const s = (str || "").toLowerCase();
   if (
     /[ăâđêôơưáàảãạắằẳẵặấầẩẫậéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/.test(
-      s
+      s,
     )
   )
     return true;
   if (
     /việt nam|viet nam|hà nội|ha noi|tp\.hcm|tphcm|hồ chí minh|ho chi minh|đà nẵng|da nang/.test(
-      s
+      s,
     )
   )
     return true;
@@ -126,7 +126,7 @@ function isAllowedDomain(url, settings) {
 
     if (settings.allowedDomains?.length) {
       return settings.allowedDomains.some((d) =>
-        host.endsWith(d.toLowerCase())
+        host.endsWith(d.toLowerCase()),
       );
     }
 
@@ -135,7 +135,7 @@ function isAllowedDomain(url, settings) {
 
     if (
       /vnexpress\.net$|tuoitre\.vn$|thanhnien\.vn$|thanhnien\.com\.vn$|vietnamnet\.vn$|zingnews\.vn$|nld\.com\.vn$|laodong\.vn$|dantri\.com\.vn$|vtv\.vn$/i.test(
-        host
+        host,
       )
     ) {
       return true;
@@ -217,8 +217,7 @@ export async function discoverFeaturedArticles() {
   const minScore = settings.minAiScore ?? 0.75;
 
   const response = await openai.responses.create({
-    // ✅ đổi sang model rẻ hơn
-    model: "gpt-5-nano",
+    model: OPENAI_DEFAULT_MODEL,
     instructions: SYSTEM_PROMPT_VI,
     input: [
       {
@@ -273,7 +272,7 @@ export async function discoverFeaturedArticles() {
   if (!data || !Array.isArray(data.items)) {
     console.error(
       "[NewsDiscovery] Không đọc được JSON hợp lệ từ gpt-5-nano Responses.",
-      JSON.stringify(response, null, 500)
+      JSON.stringify(response, null, 500),
     );
     return { inserted: 0, total: 0 };
   }
@@ -327,7 +326,7 @@ export async function discoverFeaturedArticles() {
             status: "pending",
           },
         },
-        { upsert: true }
+        { upsert: true },
       );
 
       inserted++;
@@ -335,13 +334,13 @@ export async function discoverFeaturedArticles() {
       console.warn(
         "[NewsDiscovery] Upsert candidate error:",
         it.url,
-        err.message
+        err.message,
       );
     }
   }
 
   console.log(
-    `[NewsDiscovery][gpt-5-nano+web_search][VN only] model_items=${items.length}, passed_filter=${considered}, inserted=${inserted}`
+    `[NewsDiscovery][gpt-5-nano+web_search][VN only] model_items=${items.length}, passed_filter=${considered}, inserted=${inserted}`,
   );
 
   return {

@@ -19,7 +19,7 @@ import {
   loadAll as spcLoadAll,
   getMeta as spcGetMeta,
 } from "../services/spcStore.js";
-import { openai } from "../lib/openaiClient.js";
+import { openai, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
 import {
   EVENTS,
   publishNotification,
@@ -4227,12 +4227,12 @@ async function extractCccdFieldsFromImages({ frontUrl, backUrl }) {
   }
 
   const resp = await openai.chat.completions.create({
-    model: "gpt-4.1-mini",
+    model: OPENAI_DEFAULT_MODEL,
     response_format: {
       type: "json_schema",
       json_schema: {
         name: "cccd_fields",
-        strict: true, // vẫn giữ strict
+        strict: true,
         schema: {
           type: "object",
           properties: {

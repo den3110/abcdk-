@@ -3,12 +3,10 @@ import IORedis from "ioredis";
 import { Queue } from "bullmq";
 import { createCanvas, loadImage } from "canvas";
 import jsQR from "jsqr";
-import fs from "fs/promises";
-import path from "path";
 import os from "os";
 import crypto from "crypto";
 import { parseQRPayload, mapQRToFields } from "../utils/cccdParsing.js";
-import { openai } from "../lib/openaiClient.js";
+import { openai, OPENAI_VISION_MODEL } from "../lib/openaiClient.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const QUEUE_NAME = process.env.CCCD_QUEUE_NAME || "cccd-ocr";
@@ -183,7 +181,7 @@ export async function extractCCCDOpenAI(req, res) {
 
     // 👇 Chat Completions + Structured Outputs
     const resp = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: OPENAI_VISION_MODEL,
       response_format: { type: "json_schema", json_schema: CCCD_JSON_SCHEMA }, // structured outputs
       messages: [
         { role: "system", content: systemPrompt },
@@ -224,7 +222,7 @@ export async function extractCCCDOpenAI(req, res) {
     data.dob = normalizeDate(data.dob);
     data.expiry = normalizeDate(data.expiry);
 
-    return res.json({ source: "openai", model: "gpt-4o-mini", ...data });
+    return res.json({ source: "openai", model: OPENAI_VISION_MODEL, ...data });
   } catch (err) {
     console.error("[cccd-openai] extract error:", err);
     return res.status(500).json({

@@ -1,5 +1,5 @@
 // routes/planSuggest.js
-import { openai } from "../lib/openaiClient.js";
+import { openai, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
 import Ajv from "ajv";
 import asyncHandler from "express-async-handler";
 import { planCommit } from "../controllers/admin/adminTournamentController.js";
@@ -246,7 +246,7 @@ async function askOpenAIForPlan(payload) {
   const input = buildUserPrompt(payload);
 
   const resp = await openai.responses.create({
-    model: process.env.OPENAI_MODEL || "gpt-4.1-mini",
+    model: OPENAI_DEFAULT_MODEL,
     instructions,
     input,
     text: {

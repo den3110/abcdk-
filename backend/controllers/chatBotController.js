@@ -8,6 +8,7 @@ import {
   BOT_IDENTITY,
 } from "../services/bot/agentService.js";
 import ChatBotMessage from "../models/chatBotMessageModel.js";
+import { OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
 
 // Roles that bypass session limit
 const UNLIMITED_ROLES = ["admin", "referee"];
@@ -366,7 +367,7 @@ export async function handleHealthCheck(req, res) {
     bot: BOT_IDENTITY,
     engine: {
       type: "agent-function-calling",
-      model: process.env.BOT_MODEL || "gpt-4o-mini",
+      model: OPENAI_DEFAULT_MODEL,
       provider: process.env.CLIPROXY_BASE_URL ? "CLIProxyAPI" : "OpenAI",
       tools: [
         "search_tournaments",

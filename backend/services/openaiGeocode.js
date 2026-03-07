@@ -1,5 +1,5 @@
 // services/geocodeTournamentLocation.js
-import { openai as client } from "../lib/openaiClient.js";
+import { openai as client, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
 
 const BASE_RESULT = {
   lat: null,
