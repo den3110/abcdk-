@@ -57,8 +57,9 @@ import CourtStreamingPage from "./screens/court-live/Courtstreamingpage.jsx";
 import { useGetAppInitQuery } from "./slices/appInitApiSlice.js";
 import FacebookLiveSettings from "./components/FacebookLiveSettings";
 import TournamentDetailPage from "./screens/PickleBall/TournamentDetailPage.jsx";
-import RegisterOtpScreen from "./screens/RegisterOtpScreen.jsx";
-import VerifyOtpScreen from "./screens/VerifyOtpScreen.jsx";
+// OTP tạm tắt
+// import RegisterOtpScreen from "./screens/RegisterOtpScreen.jsx";
+// import VerifyOtpScreen from "./screens/VerifyOtpScreen.jsx";
 
 dayjs.locale("vi");
 
@@ -76,9 +77,10 @@ const router = createBrowserRouter(
       <Route path="/" element={<App />}>
         <Route index={true} path="/" element={<HomeScreen />} />
         <Route path="/login" element={<LoginScreen />} />
-        <Route path="/verify-otp" element={<VerifyOtpScreen />} />
+        {/* OTP tạm tắt */}
+        {/* <Route path="/verify-otp" element={<VerifyOtpScreen />} /> */}
         <Route path="/register" element={<RegisterScreen />} />
-        <Route path="/register/otp" element={<RegisterOtpScreen />} />
+        {/* <Route path="/register/otp" element={<RegisterOtpScreen />} /> */}
         <Route
           path="/pickle-ball/tournaments"
           element={<TournamentDashboard />}

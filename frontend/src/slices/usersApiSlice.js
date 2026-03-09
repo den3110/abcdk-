@@ -108,39 +108,38 @@ export const userApiSlice = apiSlice.injectEndpoints({
         { type: "Achievements", id },
       ],
     }),
-    verifyRegisterOtp: builder.mutation({
-      query: (body) => ({
-        url: "/api/users/register/verify-otp",
-        method: "POST",
-        body,
-      }),
-    }),
+    // OTP tạm tắt
+    // verifyRegisterOtp: builder.mutation({
+    //   query: (body) => ({
+    //     url: "/api/users/register/verify-otp",
+    //     method: "POST",
+    //     body,
+    //   }),
+    // }),
 
-    resendRegisterOtp: builder.mutation({
-      query: (body) => ({
-        url: "/api/users/register/resend-otp",
-        method: "POST",
-        body,
-      }),
-    }),
+    // resendRegisterOtp: builder.mutation({
+    //   query: (body) => ({
+    //     url: "/api/users/register/resend-otp",
+    //     method: "POST",
+    //     body,
+    //   }),
+    // }),
 
-    // ✅ OTP ĐĂNG NHẬP: gửi lại OTP
-    resendLoginOtp: builder.mutation({
-      query: ({ loginToken }) => ({
-        url: `${USERS_URL}/login-otp/resend`,
-        method: "POST",
-        body: { loginToken },
-      }),
-    }),
+    // resendLoginOtp: builder.mutation({
+    //   query: ({ loginToken }) => ({
+    //     url: `${USERS_URL}/login-otp/resend`,
+    //     method: "POST",
+    //     body: { loginToken },
+    //   }),
+    // }),
 
-    // ✅ OTP ĐĂNG NHẬP: verify OTP
-    verifyLoginOtp: builder.mutation({
-      query: ({ loginToken, otp }) => ({
-        url: `${USERS_URL}/login-otp/verify`,
-        method: "POST",
-        body: { loginToken, otp },
-      }),
-    }),
+    // verifyLoginOtp: builder.mutation({
+    //   query: ({ loginToken, otp }) => ({
+    //     url: `${USERS_URL}/login-otp/verify`,
+    //     method: "POST",
+    //     body: { loginToken, otp },
+    //   }),
+    // }),
   }),
 });
 
@@ -161,8 +160,9 @@ export const {
   useGetMeScoreQuery,
   useDeleteRatingHistoryMutation,
   useGetUserAchievementsQuery,
-  useVerifyRegisterOtpMutation,
-  useResendRegisterOtpMutation,
-  useResendLoginOtpMutation,
-  useVerifyLoginOtpMutation
+  // OTP tạm tắt
+  // useVerifyRegisterOtpMutation,
+  // useResendRegisterOtpMutation,
+  // useResendLoginOtpMutation,
+  // useVerifyLoginOtpMutation
 } = userApiSlice;

@@ -281,34 +281,7 @@ export default function RegisterScreen() {
 
       const res = await register(payload).unwrap();
 
-      // ✅ NEW: nếu cần OTP -> nhảy sang màn OTP
-      if (res?.otpRequired) {
-        const registerToken = res?.registerToken || "";
-        if (!registerToken) {
-          toast.error("Thiếu registerToken từ server.");
-          return;
-        }
-
-        // lưu để refresh page không mất
-        sessionStorage.setItem(
-          "register_otp",
-          JSON.stringify({
-            registerToken,
-            phoneMasked: res?.phoneMasked || payload.phone,
-          })
-        );
-
-        toast.info("Vui lòng nhập OTP để hoàn tất đăng ký.");
-        navigate("/register/otp", {
-          state: {
-            registerToken,
-            phoneMasked: res?.phoneMasked || payload.phone,
-          },
-        });
-        return;
-      }
-
-      // ✅ flow cũ: đăng ký xong login luôn
+      // ✅ đăng ký xong login luôn (OTP tạm tắt)
       dispatch(setCredentials(res));
       toast.success("Đăng ký thành công!");
       navigate("/");

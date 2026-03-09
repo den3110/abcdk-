@@ -57,55 +57,7 @@ export default function LoginScreen() {
       // ✅ gửi identifier để backend tự phân biệt email/phone
       const res = await login({ identifier: cleanIdentifier, password: cleanPassword }).unwrap();
 
-      // ✅ nếu backend báo cần OTP đăng nhập
-      if (res?.needLoginOtp) {
-        // lưu lại context (đỡ phải nhét vào URL quá nhiều)
-        try {
-          sessionStorage.setItem(
-            "LOGIN_OTP_CONTEXT",
-            JSON.stringify({
-              loginToken: res?.loginToken || "",
-              phoneMasked: res?.phoneMasked || "",
-              cooldown: Number(res?.cooldown || 0),
-              devOtp: res?.devOtp || "",
-              // user info trả về từ backend (không có token ở nhánh này)
-              user: {
-                _id: res?._id,
-                name: res?.name,
-                nickname: res?.nickname,
-                phone: res?.phone,
-                email: res?.email,
-                avatar: res?.avatar,
-                province: res?.province,
-                dob: res?.dob,
-                verified: res?.verified,
-                cccdStatus: res?.cccdStatus,
-                ratingSingle: res?.ratingSingle,
-                ratingDouble: res?.ratingDouble,
-                createdAt: res?.createdAt,
-                cccd: res?.cccd,
-                role: res?.role,
-              },
-              loginOtpVerifiedAt: res?.loginOtpVerifiedAt || null,
-              loginOtpBypassUntil: res?.loginOtpBypassUntil || null,
-              otpBypassDays: res?.otpBypassDays || null,
-            })
-          );
-        } catch {}
-
-        const qs = new URLSearchParams({
-          loginToken: res?.loginToken || "",
-          phoneMasked: res?.phoneMasked || "",
-          // optional: verify-otp có thể dùng thêm
-          cooldown: String(res?.cooldown ?? ""),
-          devOtp: res?.devOtp || "",
-        }).toString();
-
-        navigate(`/verify-otp?${qs}`);
-        return;
-      }
-
-      // ✅ login bình thường (bao gồm admin/referee bypass hoặc test-account bypass)
+      // ✅ login trực tiếp (OTP tạm tắt)
       dispatch(setCredentials({ ...res }));
       dispatch(apiSlice.util.resetApiState());
       navigate("/");

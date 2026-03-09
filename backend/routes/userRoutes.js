@@ -50,37 +50,24 @@ import {
 } from "../controllers/userStatsController.js";
 import { loadConfig } from "../middleware/versionGate.js";
 import { isWebRequest } from "../utils/isWebRequest.js";
-import { resendLoginOtp, verifyLoginOtp } from "../controllers/userLoginController.js";
+// import { resendLoginOtp, verifyLoginOtp } from "../controllers/userLoginController.js"; // OTP tạm tắt
+import { authUserWebNoOtp } from "../controllers/userLoginNoOtpController.js";
 
 const router = express.Router();
 
-// router.post("/", registerUser);
-router.post("/", async (req, res, next) => {
-  try {
-    const ctrl = isWebRequest(req);
-    const appVersion = await loadConfig(); // <-- điều kiện của bạn
-    if (appVersion.ios.minSupportedBuild < 22 && ctrl !== true) {
-      console.log(1)
-      return await registerUserNotOTP(req, res, next); // controller 2
-    } else {
-      console.log(2)
+// router.post("/", registerUser); // OTP tạm tắt
+// OTP tạm tắt — luôn dùng registerUserNotOTP
+router.post("/", registerUserNotOTP);
 
-      return await registerUser(req, res, next); // controller 1
-    }
-  } catch (e) {
-    next(e);
-  }
-});
-
-router.post("/register/verify-otp", verifyRegisterOtp);
-router.post("/register/resend-otp", resendRegisterOtp);
-
-router.post("/login-otp/resend", resendLoginOtp);
-router.post("/login-otp/verify", verifyLoginOtp);
+// OTP tạm tắt
+// router.post("/register/verify-otp", verifyRegisterOtp);
+// router.post("/register/resend-otp", resendRegisterOtp);
+// router.post("/login-otp/resend", resendLoginOtp);
+// router.post("/login-otp/verify", verifyLoginOtp);
 
 router.get("/reauth", protect, reauthUser);
 router.post("/auth", authUser); // mobile
-router.post("/auth/web", authUserWeb); // web
+router.post("/auth/web", authUserWebNoOtp); // web — OTP tạm tắt (cũ: authUserWeb)
 router.post("/logout", logoutUser);
 router.get("/:id/public", passProtect, getPublicProfile);
 router.get("/:id/ratings", passProtect, getRatingHistory);
@@ -109,7 +96,7 @@ router.delete(
   "/:userId/rating-history/:historyId",
   protect,
   authorize("admin"),
-  deleteRatingHistoryItem
+  deleteRatingHistoryItem,
 );
 
 router.get("/stats/:uid/stats/overview", protect, overview);
