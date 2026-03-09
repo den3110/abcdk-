@@ -254,8 +254,8 @@ export function normalize_for_search(input, options = {}) {
 
 /**
  * Tạo Regex Pattern tiếng Việt hỗ trợ tìm kiếm không dấu (Accent-insensitive) cho MongoDB.
- * Chuyển một chuỗi đã được bỏ dấu (folded) thành regex pattern khớp với mọi biến thể có dấu.
- * Ví dụ: "nguyen" -> "ng[uúùủũụưứừửữự][yýỳỷỹỵ][eéèẻẽẹêếềểễệ]n"
+ * Chuyển một chuỗi đã được bỏ dấu (folded) thành regex pattern khớp với mọi biến thể có dấu (NFC hoặc NFD).
+ * Ví dụ: "nguyen" -> "ng[\u0300-\u036f]*[uúùủũụưứừửữự][\u0300-\u036f]*[yýỳỷỹỵ][\u0300-\u036f]*[eéèẻẽẹêếềểễệ][\u0300-\u036f]*n[\u0300-\u036f]*"
  *
  * @param {string} folded_str - Chuỗi đã được normalize_for_search và bỏ dấu
  * @returns {string} Regex pattern
@@ -274,13 +274,22 @@ export function build_vietnamese_regex(folded_str) {
   let pattern = "";
   for (const char of folded_str) {
     const lowerChar = char.toLowerCase();
+
     if (accentMap[lowerChar]) {
-      // Escape regex cho case upper/lower là không cần thiết nếu mongo dùng $options: 'i'
+      // Thêm Regex Class của tất cả các biến thể NFC
       pattern += `[${accentMap[lowerChar]}]`;
     } else {
       // Escape các ký tự regex đặc biệt
       pattern += char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     }
+
+    // RẤT QUAN TRỌNG:
+    // MongoDB regex KHÔNG hỗ trợ unicode equivalence tự động (như `collation`).
+    // Chữ `hoà` nếu người dùng lưu ở dạng NFD sẽ là `h` + `o` + `a` + `\u0300`.
+    // Kí tự `a` ở vòng lặp hiện tại chỉ match được `a` NFC.
+    // Việc chèn `[\u0300-\u036f]*` vào sau từng chữ cái sẽ giúp regex "hút" hết toàn bộ
+    // các dấu thanh (Tone Marks) bị văng ra ở mảng NFD.
+    pattern += `[\\u0300-\\u036f]*`;
   }
   return pattern;
 }
