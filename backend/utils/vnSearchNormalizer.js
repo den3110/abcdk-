@@ -187,13 +187,25 @@ export function remove_diacritics(str_nfd) {
 }
 
 /**
- * Xóa ký tự ẩn (ZWSP, LRM,...) và chuẩn hóa whitespace
+ * Xóa ký tự ẩn (ZWSP, LRM,...), chuẩn hóa whitespace, và đặc biệt:
+ * cắt bỏ các ký tự dấu Telex lẻ loi ở cuối từ (nếu có lỗi gõ phím chưa được convert thành dấu).
+ * Ví dụ: "quang hof" -> "quang ho" (sau đó Mongo regex sẽ tự tìm ra quang hoà)
  */
 export function clean_whitespace_and_hidden_chars(input) {
   if (!input) return "";
   let cleaned = input.replace(HIDDEN_CHARS_REGEX, "");
   // Chuyển NBSP (\u00A0) và các loại space khác thành space thường
   cleaned = cleaned.replace(/[\s\u00A0]+/g, " ");
+
+  // Clean telex trailing tone marks (f, s, r, x, j) ngay sau nguyên âm
+  // Việc này xử lý trường hợp user type "quang hof" thay vì "quang hoà"
+  cleaned = cleaned
+    .split(" ")
+    .map((word) => {
+      return word.replace(/([aăâeêioôơuưy]+)[fsrxj]$/iu, "$1");
+    })
+    .join(" ");
+
   return cleaned.trim();
 }
 
