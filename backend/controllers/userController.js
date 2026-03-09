@@ -28,6 +28,7 @@ import { writeAuditLog } from "../services/audit.service.js";
 import * as crypto from "crypto";
 import { sendTingTingOtp } from "../services/tingtingZns.service.js";
 import bcrypt from "bcryptjs";
+import { normalize_for_search } from "../utils/vnSearchNormalizer.js";
 import { makeLoginOtpToken } from "./userLoginController.js";
 
 // helpers (có thể đặt trên cùng file)
@@ -2404,13 +2405,12 @@ function clampInt(v, min, max, dflt) {
 
 /* ========= helpers chung (normalize/regex/phone) ========= */
 function vnNorm(s) {
-  return String(s || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // bỏ dấu
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D")
-    .toLowerCase()
-    .trim();
+  // Thay thế code cũ bằng hàm chuẩn hoá mới
+  return normalize_for_search(s, {
+    canonicalize_tone: true,
+    fold_case: true,
+    fold_accents: true,
+  }).folded;
 }
 
 function escapeReg(s) {
@@ -2450,10 +2450,20 @@ export const searchUser = asyncHandler(async (req, res) => {
   const limit = clampInt(req.query.limit, 1, 50, 10);
   if (!rawQ) return res.json([]);
 
-  const qNorm = vnNorm(rawQ);
+  // Dùng bộ chuẩn hoá tiếng Việt mới
+  const searchOpts = {
+    canonicalize_tone: true,
+    fold_case: true,
+    fold_accents: true,
+    tokenize: true,
+  };
+  const { folded: qNorm, tokens: qTokensNorm } = normalize_for_search(
+    rawQ,
+    searchOpts,
+  );
+
   const qCompact = qNorm.replace(/\s+/g, "");
   const qTokensRaw = rawQ.split(/\s+/).filter(Boolean); // giữ dấu để regex trực tiếp
-  const qTokensNorm = qNorm.split(/\s+/).filter(Boolean); // cho scoring
 
   const qDigits = rawQ.replace(/\D/g, "");
 

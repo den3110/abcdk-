@@ -10,7 +10,11 @@ import ScoreHistory from "../models/scoreHistoryModel.js";
 import Bracket from "../models/bracketModel.js";
 import { decodeCursor, encodeCursor } from "../utils/cursor.js";
 import RankingSearchQuota from "../models/rankingSearchQuotaModel.js";
-/* GET điểm kèm user (dùng trong danh sách) */ // Admin
+import {
+  normalize_for_search,
+  build_vietnamese_regex,
+} from "../utils/vnSearchNormalizer.js";
+
 /* GET điểm kèm user (dùng trong danh sách) */ // Admin
 export const getUsersWithRank = asyncHandler(async (req, res) => {
   const parseIntOr = (v, d) => {
@@ -845,11 +849,18 @@ export const getRankings = asyncHandler(async (req, res) => {
   let userIdsFilter = null;
   if (keywordRaw) {
     const orConds = [];
-    const namePattern = keywordRaw
+
+    // Normalization & Accent-Insensitive Regex cho name và nickname
+    const { folded } = normalize_for_search(keywordRaw, {
+      fold_case: true,
+      fold_accents: true,
+    });
+    const namePattern = folded
       .split(/\s+/)
       .filter(Boolean)
-      .map(escapeRegExp)
+      .map((t) => build_vietnamese_regex(t))
       .join(".*");
+
     if (namePattern) {
       orConds.push({ name: { $regex: namePattern, $options: "i" } });
       orConds.push({ nickname: { $regex: namePattern, $options: "i" } });
@@ -1407,11 +1418,18 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
   let userIdsFilter = null;
   if (keywordRaw) {
     const orConds = [];
-    const namePattern = keywordRaw
+
+    // Normalization & Accent-Insensitive Regex cho name và nickname
+    const { folded } = normalize_for_search(keywordRaw, {
+      fold_case: true,
+      fold_accents: true,
+    });
+    const namePattern = folded
       .split(/\s+/)
       .filter(Boolean)
-      .map(escapeRegExp)
+      .map((t) => build_vietnamese_regex(t))
       .join(".*");
+
     if (namePattern) {
       orConds.push({ name: { $regex: namePattern, $options: "i" } });
       orConds.push({ nickname: { $regex: namePattern, $options: "i" } });
