@@ -70,7 +70,7 @@ const rawBaseQuery = fetchBaseQuery({
       if (botCtx?.tournamentId) {
         headers.set("x-pkt-tournament-id", botCtx.tournamentId);
       }
-       if (botCtx?.bracketId) {
+      if (botCtx?.bracketId) {
         headers.set("x-pkt-bracket-id", botCtx.bracketId);
       }
       if (botCtx?.courtCode) {
@@ -134,19 +134,28 @@ const baseQuery = async (args, api, extraOptions) => {
   const status = result?.error?.status;
 
   // 401: đăng xuất & dọn cache
+  // ⚠️ bỏ qua 401 cho endpoint login/register (sai mật khẩu trả 401 là bình thường)
   if (status === 401) {
-    try {
-      api.dispatch(logout());
-      // lưu ý: apiSlice được gán sau, nhưng tới lúc hàm này chạy đã có giá trị
-      api.dispatch(apiSlice.util.resetApiState());
-    } catch (e) {
-      console.log(e);
+    const url = typeof args === "string" ? args : args?.url || "";
+    const isAuthEndpoint =
+      url.includes("/auth") ||
+      (url.includes("/users") && !url.includes("/profile"));
+
+    if (!isAuthEndpoint) {
+      try {
+        api.dispatch(logout());
+        api.dispatch(apiSlice.util.resetApiState());
+      } catch (e) {
+        console.log(e);
+      }
+      if (typeof window !== "undefined") window.location.href = "/login";
     }
-    // (tuỳ chọn) chuyển về login:
-    if (typeof window !== "undefined") window.location.href = "/login";
     return result;
   }
-  if (status === 403 && result?.error?.data?.message === "Not authorized – no token") {
+  if (
+    status === 403 &&
+    result?.error?.data?.message === "Not authorized – no token"
+  ) {
     try {
       api.dispatch(logout());
       // lưu ý: apiSlice được gán sau, nhưng tới lúc hàm này chạy đã có giá trị
