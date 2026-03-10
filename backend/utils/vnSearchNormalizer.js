@@ -272,36 +272,23 @@ export function normalize_for_search(input, options = {}) {
  * @param {string} folded_str - Chuỗi đã được normalize_for_search và bỏ dấu
  * @returns {string} Regex pattern
  */
-export function build_vietnamese_regex(folded_str) {
-  const accentMap = {
-    a: "aáàảãạăắằẳẵặâấầẩẫậ",
-    e: "eéèẻẽẹêếềểễệ",
-    i: "iíìỉĩị",
-    o: "oóòỏõọôốồổỗộơớờởỡợ",
-    u: "uúùủũụưứừửữự",
-    y: "yýỳỷỹỵ",
-    d: "dđ",
-  };
 
-  let pattern = "";
-  for (const char of folded_str) {
-    const lowerChar = char.toLowerCase();
+const VI_CHAR_CLASS = {
+  a: "aàáảãạăằắẳẵặâầấẩẫậAÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬ",
+  e: "eèéẻẽẹêềếểễệEÈÉẺẼẸÊỀẾỂỄỆ",
+  i: "iìíỉĩịIÌÍỈĨỊ",
+  o: "oòóỏõọôồốổỗộơờớởỡợOÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢ",
+  u: "uùúủũụưừứửữựUÙÚỦŨỤƯỪỨỬỮỰ",
+  y: "yỳýỷỹỵYỲÝỶỸỴ",
+  d: "dđDĐ",
+};
 
-    if (accentMap[lowerChar]) {
-      // Thêm Regex Class của tất cả các biến thể NFC
-      pattern += `[${accentMap[lowerChar]}]`;
-    } else {
-      // Escape các ký tự regex đặc biệt
-      pattern += char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    }
+const escapeRegExp = (s = "") => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-    // RẤT QUAN TRỌNG:
-    // MongoDB regex KHÔNG hỗ trợ unicode equivalence tự động (như `collation`).
-    // Chữ `hoà` nếu người dùng lưu ở dạng NFD sẽ là `h` + `o` + `a` + `\u0300`.
-    // Kí tự `a` ở vòng lặp hiện tại chỉ match được `a` NFC.
-    // Việc chèn `[\u0300-\u036f]*` vào sau từng chữ cái sẽ giúp regex "hút" hết toàn bộ
-    // các dấu thanh (Tone Marks) bị văng ra ở mảng NFD.
-    pattern += `[\\u0300-\\u036f]*`;
-  }
-  return pattern;
+export function build_vietnamese_regex(token = "") {
+  const escaped = escapeRegExp(String(token));
+  return escaped.replace(/[aeiouydAEIOUYD]/g, (ch) => {
+    const cls = VI_CHAR_CLASS[ch.toLowerCase()];
+    return cls ? `[${cls}]` : ch;
+  });
 }

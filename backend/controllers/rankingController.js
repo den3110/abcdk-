@@ -861,9 +861,21 @@ export const getRankings = asyncHandler(async (req, res) => {
       .map((t) => build_vietnamese_regex(t))
       .join(".*");
 
-    if (namePattern) {
+    const looksLikeBadPCRE = (p) => /\\[uUlLFN]/.test(p); // \u \U \l \L \F \N
+
+    if (namePattern && !looksLikeBadPCRE(namePattern)) {
       orConds.push({ name: { $regex: namePattern, $options: "i" } });
       orConds.push({ nickname: { $regex: namePattern, $options: "i" } });
+    } else if (folded) {
+      const safe = folded
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(escapeRegExp)
+        .join(".*");
+      if (safe) {
+        orConds.push({ name: { $regex: safe, $options: "i" } });
+        orConds.push({ nickname: { $regex: safe, $options: "i" } });
+      }
     }
     const emailCandidate = stripSpaces(keywordRaw);
     if (emailCandidate.includes("@")) {
