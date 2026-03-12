@@ -168,7 +168,11 @@ const io = initSocket(server, { whitelist: WHITELIST, path: "/socket.io" });
 app.set("io", io);
 // app.set("trust proxy", true);
 
-app.use("/uploads", express.static("uploads"));
+app.use("/uploads", express.static("uploads", {
+  setHeaders: (res) => {
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  },
+}));
 app.use("/api/users", userRoutes);
 app.use("/api/tournaments", tournamentRoute);
 app.use("/api/brackets", bracketRoutes);
