@@ -8,11 +8,23 @@ import {
   useGetHeroContentQuery,
   useGetContactContentQuery,
 } from "../slices/cmsApiSlice";
+import { useGetHomeSummaryQuery } from "../slices/homeApiSlice";
 import AppInstallBanner from "./AppInstallBanner";
 import SponsorMarquee from "./SponsorMarquee";
 import SEOHead from "./SEOHead";
 import { useTheme } from "@mui/material/styles";
 import { useThemeMode } from "../context/ThemeContext.jsx";
+import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
+import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
+import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
+import SportsTennisIcon from "@mui/icons-material/SportsTennis";
+import HomeWorkIcon from "@mui/icons-material/HomeWork";
+import AnalyticsIcon from "@mui/icons-material/Analytics";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
+import HandshakeIcon from "@mui/icons-material/Handshake";
+import SmartphoneIcon from "@mui/icons-material/Smartphone";
+import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
+import LocationOnIcon from "@mui/icons-material/LocationOn";
 
 // ===== Assets & Fallbacks =====
 const fallbackImg = `${import.meta.env.BASE_URL}hero.jpg`;
@@ -50,17 +62,66 @@ const CONTACT_FALLBACK = {
   },
 };
 
+const CLUB_COLORS = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD"];
+
+
 // ===== Styled Components =====
 
-const gradientTextStyle = {
-  background: "linear-gradient(135deg, #0d6efd 0%, #0dcaf0 100%)",
+const animatedGradientText = {
+  background: "linear-gradient(to right, #00C9FF 0%, #92FE9D 25%, #00C9FF 50%, #92FE9D 75%, #00C9FF 100%)",
+  backgroundSize: "400% auto",
   WebkitBackgroundClip: "text",
   WebkitTextFillColor: "transparent",
   backgroundClip: "text",
-  fontWeight: "800",
+  animation: "shine 4s linear infinite",
 };
 
-// Moved inside component for theme awareness
+const floatingAnimation = `
+  @keyframes float {
+    0% { transform: translateY(0px) rotate(0deg); }
+    33% { transform: translateY(-20px) rotate(5deg); }
+    66% { transform: translateY(10px) rotate(-5deg); }
+    100% { transform: translateY(0px) rotate(0deg); }
+  }
+  @keyframes floatReverse {
+    0% { transform: translateY(0px) rotate(0deg); }
+    33% { transform: translateY(20px) rotate(-5deg); }
+    66% { transform: translateY(-10px) rotate(5deg); }
+    100% { transform: translateY(0px) rotate(0deg); }
+  }
+  @keyframes shine {
+    to { background-position: 400% center; }
+  }
+  @keyframes pulseGlow {
+    0% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0.4); }
+    70% { box-shadow: 0 0 0 15px rgba(13, 110, 253, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(13, 110, 253, 0); }
+  }
+  @keyframes gradientBorder {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+  @keyframes panBackground {
+    0% { background-position: 0% 0%; }
+    100% { background-position: 100% 100%; }
+  }
+  
+  .premium-btn {
+    position: relative;
+    background: var(--btn-bg);
+    border: none;
+    border-radius: 50px;
+    z-index: 1;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: var(--btn-shadow);
+  }
+  .premium-btn:hover {
+    transform: translateY(-2px) scale(1.02);
+    background: var(--btn-hover-bg);
+    box-shadow: var(--btn-hover-shadow);
+  }
+`;
 
 const SkeletonBar = ({ w = "100%", h = 20, r = 8, className = "" }) => (
   <div
@@ -179,6 +240,7 @@ export default function Hero() {
     isLoading: contactLoading,
     isError: contactError,
   } = useGetContactContentQuery();
+  const { data: homeRes, isLoading: homeLoading } = useGetHomeSummaryQuery({ clubsLimit: 6 });
 
   // ===== Data Logic =====
   const heroData = useMemo(() => {
@@ -226,8 +288,53 @@ export default function Hero() {
     color: isDark ? "#fff" : "inherit",
   };
 
+  const numberFormatter = useMemo(() => new Intl.NumberFormat("vi-VN"), []);
+
+  const formatCountPlus = (value) => {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return "0";
+    return `${numberFormatter.format(n)}+`;
+  };
+
+  const statsList = homeRes?.stats
+    ? [
+        {
+          number: formatCountPlus(homeRes.stats.players),
+          label: "Người chơi",
+          icon: <PeopleAltIcon sx={{ fontSize: "2.5rem" }} />,
+        },
+        {
+          number: formatCountPlus(homeRes.stats.tournaments),
+          label: "Giải đấu",
+          icon: <EmojiEventsIcon sx={{ fontSize: "2.5rem" }} />,
+        },
+        {
+          number: formatCountPlus(homeRes.stats.matches),
+          label: "Trận đấu",
+          icon: <SportsTennisIcon sx={{ fontSize: "2.5rem" }} />,
+        },
+        {
+          number: formatCountPlus(homeRes.stats.clubs),
+          label: "CLB Pickleball",
+          icon: <HomeWorkIcon sx={{ fontSize: "2.5rem" }} />,
+        },
+      ]
+    : null;
+
+  const clubsList = Array.isArray(homeRes?.clubs)
+    ? homeRes.clubs.map((club, idx) => ({
+        id: club.id || club._id || club.slug || idx,
+        name: club.name || "CLB",
+        location: club.location || "-",
+        members: formatCountPlus(club.memberCount),
+        color: CLUB_COLORS[idx % CLUB_COLORS.length],
+      }))
+    : [];
+
+
   return (
     <>
+      <style>{floatingAnimation}</style>
       <SEOHead
         path="/"
         description="Pickletour.vn - Nền tảng kết nối cộng đồng thể thao, quản lý giải đấu, theo dõi điểm trình và bảng xếp hạng Pickleball Việt Nam."
@@ -245,106 +352,182 @@ export default function Hero() {
       )}
       <SponsorMarquee variant="glass" height={80} gap={24} />
 
-      {/* ======= HERO SECTION ======= */}
+      {/* ======= RADICAL HERO SECTION ======= */}
       <section
-        className="position-relative overflow-hidden py-5"
+        className="position-relative overflow-hidden"
         style={{
-          backgroundColor: theme.palette.background.default,
-          minHeight: "85vh",
+          backgroundColor: isDark ? "#050505" : "#fbfbfd",
+          minHeight: "100vh",
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
+          justifyContent: "center",
+          paddingTop: "120px",
+          paddingBottom: "140px",
         }}
       >
-        {/* Background Blob */}
+        {/* Animated Grid Background */}
         <div
-          className="position-absolute d-none d-lg-block"
+          className="position-absolute w-100 h-100"
           style={{
-            top: "-10%",
-            right: "-5%",
-            width: "50vw",
-            height: "50vw",
-            background:
-              "radial-gradient(circle, rgba(13,202,240,0.1) 0%, rgba(255,255,255,0) 70%)",
-            borderRadius: "50%",
+            top: 0,
+            left: 0,
+            backgroundImage: isDark
+              ? "linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)"
+              : "linear-gradient(rgba(0,0,0,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.03) 1px, transparent 1px)",
+            backgroundSize: "40px 40px",
+            animation: "panBackground 20s linear infinite",
+            maskImage: "radial-gradient(ellipse at center, black 40%, transparent 80%)",
+            WebkitMaskImage: "radial-gradient(ellipse at center, black 40%, transparent 80%)",
+            pointerEvents: "none",
             zIndex: 0,
           }}
         />
 
-        <Container className="position-relative" style={{ zIndex: 1 }}>
-          <Row className="align-items-center g-5">
-            {/* TEXT COLUMN */}
-            <Col lg={6} className="text-center text-lg-start">
-              {heroData ? (
-                <>
-                  <Badge
-                    bg={isDark ? "dark" : "light"}
-                    text={isDark ? "light" : "primary"}
-                    className={`mb-3 px-3 py-2 rounded-pill border shadow-sm fw-bold ${
-                      isDark ? "border-secondary" : ""
-                    }`}
-                  >
-                    🏆 Nền tảng Pickleball số #1
-                  </Badge>
-                  <h1 className="display-4 fw-bolder mb-4 lh-tight">
-                    {String(heroData.title || "")
-                      .split("\n")
-                      .map((line, i) => (
-                        <span key={i} style={i === 0 ? gradientTextStyle : {}}>
-                          {line}
-                          {i <
-                            String(heroData.title || "").split("\n").length -
-                              1 && <br />}
-                          {i === 0 && " "}
-                        </span>
-                      ))}
-                  </h1>
-                  <p className={`lead mb-4 pe-lg-5 fs-5 ${isDark ? "text-light opacity-75" : "text-secondary"}`}>
-                    {heroData.lead}
-                  </p>
-                </>
-              ) : (
-                <div className="mb-4">
-                  <SkeletonBar
-                    w="100px"
-                    h={30}
-                    className="mb-3 mx-auto mx-lg-0"
-                  />
-                  <SkeletonBar
-                    w="90%"
-                    h={50}
-                    className="mb-2 mx-auto mx-lg-0"
-                  />
-                  <SkeletonBar
-                    w="60%"
-                    h={50}
-                    className="mb-4 mx-auto mx-lg-0"
-                  />
-                  <SkeletonBar w="100%" h={80} />
-                </div>
-              )}
+        {/* Dynamic Glowing Orbs Background */}
+        <div
+          className="position-absolute"
+          style={{
+            top: "20%",
+            left: "20%",
+            width: "40vw",
+            height: "40vw",
+            background: "radial-gradient(circle, rgba(13,110,253,0.15) 0%, rgba(0,0,0,0) 70%)",
+            filter: "blur(60px)",
+            zIndex: 0,
+            animation: "float 14s ease-in-out infinite",
+            pointerEvents: "none"
+          }}
+        />
+        <div
+          className="position-absolute"
+          style={{
+            bottom: "10%",
+            right: "15%",
+            width: "35vw",
+            height: "35vw",
+            background: "radial-gradient(circle, rgba(146,254,157,0.12) 0%, rgba(0,0,0,0) 70%)",
+            filter: "blur(60px)",
+            zIndex: 0,
+            animation: "floatReverse 18s ease-in-out infinite",
+            pointerEvents: "none"
+          }}
+        />
+        <div
+          className="position-absolute d-none d-lg-block"
+          style={{
+            top: "40%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "60vw",
+            height: "20vh",
+            background: isDark 
+              ? "radial-gradient(ellipse, rgba(13,202,240,0.1) 0%, rgba(0,0,0,0) 70%)" 
+              : "radial-gradient(ellipse, rgba(13,202,240,0.05) 0%, rgba(255,255,255,0) 70%)",
+            filter: "blur(80px)",
+            zIndex: 0,
+            pointerEvents: "none"
+          }}
+        />
 
-              {/* Action Buttons */}
-              <div className="d-flex flex-column flex-sm-row gap-3 justify-content-center justify-content-lg-start animate__animated animate__fadeInUp">
+        <Container className="position-relative" style={{ zIndex: 1, maxWidth: "1200px" }}>
+          <div className="text-center mb-5">
+            {heroData ? (
+              <>
+                <Badge
+                  bg="transparent"
+                  className="mb-4 px-4 py-2 rounded-pill fw-bold bg-opacity-10"
+                  style={{ 
+                    fontSize: "0.85rem", 
+                    letterSpacing: "1px",
+                    textTransform: "uppercase",
+                    color: isDark ? "#92FE9D" : theme.palette.primary.main,
+                    border: isDark ? "1px solid rgba(146,254,157,0.3)" : `1px solid ${theme.palette.primary.main}40`,
+                    backgroundColor: isDark ? "rgba(146,254,157,0.05)" : "rgba(13,110,253,0.05)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "8px"
+                  }}
+                >
+                  <RocketLaunchIcon sx={{ fontSize: "1.1rem" }} /> Cách Mạng Hoá Pickleball Việt Nam
+                </Badge>
+                
+                <h1 
+                  className="fw-bold mb-4"
+                  style={{
+                    fontSize: "clamp(2.5rem, 6vw, 5rem)",
+                    lineHeight: 1.15,
+                    letterSpacing: "-0.03em",
+                    color: isDark ? "#fff" : "#111",
+                    position: "relative",
+                  }}
+                >
+                  {String(heroData.title || "")
+                    .split("\n")
+                    .map((line, i) => (
+                      <span key={i} style={{ display: "block" }}>
+                        {line}
+                      </span>
+                    ))}
+                </h1>
+                
+                <p 
+                  className="mx-auto mb-5"
+                  style={{ 
+                    fontSize: "clamp(1.1rem, 2vw, 1.4rem)",
+                    lineHeight: "1.6",
+                    maxWidth: "700px",
+                    color: isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.6)",
+                  }}
+                >
+                  {heroData.lead}
+                </p>
+              </>
+            ) : (
+                <div className="d-flex flex-column align-items-center mb-5">
+                  <SkeletonBar w="150px" h={30} className="mb-4 rounded-pill" />
+                  <SkeletonBar w="80%" h={80} className="mb-3" />
+                  <SkeletonBar w="60%" h={80} className="mb-4" />
+                  <SkeletonBar w="50%" h={24} className="mb-2" />
+                  <SkeletonBar w="40%" h={24} className="mb-5" />
+                </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="d-flex flex-column flex-sm-row gap-4 justify-content-center align-items-center animate__animated animate__fadeInUp">
                 {!isLoggedIn ? (
                   <>
                     <Button
                       as={Link}
                       to="/register"
                       size="lg"
-                      className="rounded-pill px-5 py-3 fw-bold shadow-sm btn-primary"
+                      className="premium-btn px-5 py-3 fw-bold text-decoration-none"
+                      style={{
+                        "--btn-bg": isDark ? "#fff" : "#111",
+                        "--btn-hover-bg": isDark ? "#f0f0f0" : "#333",
+                        "--btn-shadow": isDark ? "0 10px 30px rgba(255,255,255,0.1)" : "0 10px 30px rgba(0,0,0,0.1)",
+                        "--btn-hover-shadow": isDark ? "0 15px 40px rgba(255,255,255,0.2)" : "0 15px 40px rgba(0,0,0,0.2)",
+                        color: isDark ? "#000" : "#fff",
+                      }}
                     >
                       Bắt đầu ngay
                     </Button>
                     <Button
                       as={Link}
                       to="/login"
-                      variant={isDark ? "outline-light" : "light"}
+                      variant="text"
                       size="lg"
-                      className={`rounded-pill px-5 py-3 fw-bold shadow-sm border ${
-                        isDark ? "" : "text-primary"
-                      }`}
+                      className="rounded-pill px-5 py-3 fw-bold text-decoration-none"
+                      style={{ 
+                        color: isDark ? "#fff" : "#111",
+                        transition: "all 0.3s ease",
+                        border: isDark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
+                        backgroundColor: "transparent",
+                      }}
+                      onMouseOver={(e) => e.target.style.backgroundColor = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"}
+                      onMouseOut={(e) => e.target.style.backgroundColor = "transparent"}
                     >
-                      Đăng nhập
+                      Đăng nhập <span style={{ marginLeft: "8px" }}>&rarr;</span>
                     </Button>
                   </>
                 ) : (
@@ -354,18 +537,35 @@ export default function Hero() {
                         as={Link}
                         to="/levelpoint"
                         size="lg"
-                        className="rounded-pill px-4 py-3 fw-bold shadow btn-primary"
+                        className="premium-btn px-5 py-3 fw-bold text-decoration-none"
+                        style={{
+                          "--btn-bg": isDark ? "#fff" : "#111",
+                          "--btn-hover-bg": isDark ? "#f0f0f0" : "#333",
+                          "--btn-shadow": isDark ? "0 10px 30px rgba(255,255,255,0.1)" : "0 10px 30px rgba(0,0,0,0.1)",
+                          "--btn-hover-shadow": isDark ? "0 15px 40px rgba(255,255,255,0.2)" : "0 15px 40px rgba(0,0,0,0.2)",
+                          color: isDark ? "#000" : "#fff",
+                        }}
                       >
-                        ✨ Tự chấm trình
+                        <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <AutoAwesomeIcon sx={{ fontSize: "1.2rem" }} /> Tự chấm trình
+                        </span>
                       </Button>
                     )}
                     {needKyc && (
                       <Button
                         as={Link}
                         to="/profile#2"
-                        variant={needSelfAssess ? "outline-primary" : "primary"}
                         size="lg"
-                        className="rounded-pill px-4 py-3 fw-bold shadow-sm"
+                        className={`rounded-pill px-5 py-3 fw-bold border text-decoration-none`}
+                        style={{
+                           backgroundColor: needSelfAssess ? "transparent" : (isDark ? "#fff" : "#111"),
+                           color: needSelfAssess ? (isDark ? "#fff" : "#111") : (isDark ? "#000" : "#fff"),
+                           borderColor: isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)",
+                           boxShadow: !needSelfAssess ? "0 10px 30px rgba(0,0,0,0.2)" : "none",
+                           transition: "all 0.3s ease"
+                        }}
+                        onMouseOver={(e) => e.target.style.backgroundColor = needSelfAssess ? (isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)") : (isDark ? "#e0e0e0" : "#333")}
+                        onMouseOut={(e) => e.target.style.backgroundColor = needSelfAssess ? "transparent" : (isDark ? "#fff" : "#111")}
                       >
                         Xác minh danh tính
                       </Button>
@@ -375,46 +575,652 @@ export default function Hero() {
                         as={Link}
                         to="/pickle-ball/tournaments"
                         size="lg"
-                        className="rounded-pill px-5 py-3 fw-bold shadow btn-primary"
+                        className="premium-btn px-5 py-3 fw-bold text-decoration-none"
+                        style={{
+                          "--btn-bg": isDark ? "#fff" : "#111",
+                          "--btn-hover-bg": isDark ? "#f0f0f0" : "#333",
+                          "--btn-shadow": isDark ? "0 10px 30px rgba(255,255,255,0.1)" : "0 10px 30px rgba(0,0,0,0.1)",
+                          "--btn-hover-shadow": isDark ? "0 15px 40px rgba(255,255,255,0.2)" : "0 15px 40px rgba(0,0,0,0.2)",
+                          color: isDark ? "#000" : "#fff",
+                        }}
                       >
                         Khám phá giải đấu
                       </Button>
                     )}
                   </>
                 )}
-              </div>
-            </Col>
+            </div>
+          </div>
 
-            {/* IMAGE COLUMN */}
-            <Col lg={6}>
-              <div className="position-relative">
-                {heroData ? (
+          {/* MASSIVE IMAGE AT BOTTOM WITH ENHANCED 3D */}
+          <div 
+            className="w-100 mx-auto mt-5 pt-3 animate__animated animate__fadeInUp animate__delay-1s" 
+            style={{ 
+              maxWidth: "1000px",
+              perspective: "1500px",
+              transformStyle: "preserve-3d"
+            }}
+          >
+            {heroData ? (
+              <div
+                className="overflow-hidden position-relative"
+                style={{
+                  borderRadius: "32px",
+                  border: isDark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(255,255,255,0.6)",
+                  boxShadow: isDark 
+                    ? "0 50px 100px -20px rgba(0,0,0,0.9), 0 30px 60px -30px rgba(13,202,240,0.3)" 
+                    : "0 50px 100px -20px rgba(0,0,0,0.15), 0 30px 60px -30px rgba(13,110,253,0.2)",
+                  transform: "rotateX(8deg) scale(0.92) translateY(20px)",
+                  transformOrigin: "bottom center",
+                  transition: "all 0.8s cubic-bezier(0.16, 1, 0.3, 1)",
+                  backgroundColor: isDark ? "#111" : "#fff",
+                }}
+                onMouseOver={(e) => {
+                  e.currentTarget.style.transform = "rotateX(0deg) scale(1) translateY(0px)";
+                  e.currentTarget.style.boxShadow = isDark 
+                    ? "0 40px 80px -10px rgba(0,0,0,0.9), 0 20px 40px -20px rgba(13,202,240,0.4)" 
+                    : "0 40px 80px -10px rgba(0,0,0,0.2), 0 20px 40px -20px rgba(13,110,253,0.3)";
+                  
+                  // Glare effect
+                  const glare = e.currentTarget.querySelector('.img-glare');
+                  if(glare) {
+                    glare.style.opacity = '1';
+                    glare.style.transform = 'translate(100%, 100%)';
+                  }
+                }}
+                onMouseOut={(e) => {
+                  e.currentTarget.style.transform = "rotateX(8deg) scale(0.92) translateY(20px)";
+                  e.currentTarget.style.boxShadow = isDark 
+                    ? "0 50px 100px -20px rgba(0,0,0,0.9), 0 30px 60px -30px rgba(13,202,240,0.3)" 
+                    : "0 50px 100px -20px rgba(0,0,0,0.15), 0 30px 60px -30px rgba(13,110,253,0.2)";
+                    
+                  // Glare effect reset
+                  const glare = e.currentTarget.querySelector('.img-glare');
+                  if(glare) {
+                    glare.style.opacity = '0';
+                    glare.style.transform = 'translate(-100%, -100%)';
+                  }
+                }}
+              >
+                {/* Glass Glare Highlight */}
+                <div 
+                  className="img-glare"
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    background: "linear-gradient(135deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 50%)",
+                    transform: "translate(-100%, -100%)",
+                    transition: "transform 1s cubic-bezier(0.16, 1, 0.3, 1), opacity 1s",
+                    opacity: 0,
+                    pointerEvents: "none",
+                    zIndex: 2,
+                  }} 
+                />
+                
+                <div style={{ paddingBottom: "56.25%", position: "relative", zIndex: 1 }}> {/* 16:9 Aspect Ratio */}
+                  <img
+                    draggable={false}
+                    src={heroData.imageUrl || fallbackImg}
+                    alt={heroData.imageAlt || "Hero image"}
+                    style={{ 
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%", 
+                      height: "100%", 
+                      objectFit: "cover",
+                    }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <SkeletonBar w="100%" h={500} r={24} className="shadow-lg mt-5 mx-auto" style={{ maxWidth: "1000px" }} />
+            )}
+          </div>
+        </Container>
+      </section>
+
+      {/* ======= STATS SECTION ======= */}
+      <section
+        style={{
+          backgroundColor: isDark ? "#050505" : "#fbfbfd",
+          padding: "100px 0",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        {/* Bridging Orb 1 */}
+        <div
+          className="position-absolute"
+          style={{
+            top: "-10%",
+            right: "-5%",
+            width: "40vw",
+            height: "40vw",
+            background: isDark
+              ? "radial-gradient(circle, rgba(0,201,255,0.04) 0%, transparent 70%)"
+              : "radial-gradient(circle, rgba(0,110,253,0.03) 0%, transparent 70%)",
+            filter: "blur(80px)",
+            pointerEvents: "none",
+            zIndex: 0,
+          }}
+        />
+        <Container style={{ maxWidth: "1200px", position: "relative", zIndex: 1 }}>
+          <div className="text-center mb-5">
+            <p
+              className="text-uppercase fw-bold mb-2"
+              style={{
+                fontSize: "0.85rem",
+                letterSpacing: "2px",
+                color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)",
+              }}
+            >
+              Con số biết nói
+            </p>
+            <h2
+              className="fw-bolder"
+              style={{
+                fontSize: "clamp(2rem, 4vw, 3.5rem)",
+                color: isDark ? "#fff" : "#111",
+                letterSpacing: "-0.03em",
+              }}
+            >
+              Cộng đồng đang phát triển
+            </h2>
+          </div>
+          <Row className="g-4 justify-content-center">
+            {statsList ? (
+              statsList.map((stat, idx) => (
+                <Col key={idx} xs={6} md={3}>
                   <div
-                    className="rounded-5 shadow-lg overflow-hidden"
+                    className="text-center p-4 h-100"
                     style={{
-                      transform: "rotate(-2deg)",
-                      border: "5px solid rgba(255,255,255,0.8)",
+                      borderRadius: "24px",
+                      backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+                      border: isDark
+                        ? "1px solid rgba(255,255,255,0.06)"
+                        : "1px solid rgba(0,0,0,0.06)",
+                      transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+                      cursor: "default",
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.transform = "translateY(-6px)";
+                      e.currentTarget.style.boxShadow = isDark
+                        ? "0 20px 40px rgba(0,0,0,0.4)"
+                        : "0 20px 40px rgba(0,0,0,0.08)";
+                      e.currentTarget.style.borderColor = isDark
+                        ? "rgba(255,255,255,0.15)"
+                        : "rgba(0,0,0,0.12)";
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.boxShadow = "none";
+                      e.currentTarget.style.borderColor = isDark
+                        ? "rgba(255,255,255,0.06)"
+                        : "rgba(0,0,0,0.06)";
                     }}
                   >
-                    <img
-                      draggable={false}
-                      src={heroData.imageUrl || fallbackImg}
-                      alt={heroData.imageAlt || "Hero image"}
-                      className="w-100 h-100 object-fit-cover"
-                      style={{ minHeight: "350px", display: "block" }}
-                    />
+                    <div style={{ marginBottom: "12px", color: isDark ? "rgba(255,255,255,0.8)" : theme.palette.primary.main }}>{stat.icon}</div>
+                    <h3
+                      className="fw-bolder mb-1"
+                      style={{
+                        fontSize: "clamp(1.8rem, 3vw, 2.8rem)",
+                        color: isDark ? "#fff" : "#111",
+                        letterSpacing: "-0.02em",
+                      }}
+                    >
+                      {stat.number}
+                    </h3>
+                    <p
+                      className="mb-0"
+                      style={{
+                        fontSize: "0.95rem",
+                        color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)",
+                        fontWeight: 500,
+                      }}
+                    >
+                      {stat.label}
+                    </p>
                   </div>
-                ) : (
-                  <SkeletonBar w="100%" h={400} r={32} className="shadow-sm" />
-                )}
-              </div>
-            </Col>
+                </Col>
+              ))
+            ) : homeLoading ? (
+              Array.from({ length: 4 }).map((_, idx) => (
+                <Col key={idx} xs={6} md={3}>
+                  <div
+                    className="text-center p-4 h-100"
+                    style={{
+                      borderRadius: "24px",
+                      backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+                      border: isDark
+                        ? "1px solid rgba(255,255,255,0.06)"
+                        : "1px solid rgba(0,0,0,0.06)",
+                      transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+                      cursor: "default",
+                    }}
+                  >
+                    <SkeletonBar w="40%" h={24} className="mx-auto mb-3" />
+                    <SkeletonBar w="60%" h={28} className="mx-auto mb-2" />
+                    <SkeletonBar w="50%" h={16} className="mx-auto" />
+                  </div>
+                </Col>
+              ))
+            ) : null}
+
           </Row>
         </Container>
       </section>
 
+      {/* ======= FEATURES SECTION ======= */}
+      <section
+        style={{
+          backgroundColor: isDark ? "#050505" : "#fbfbfd",
+          padding: "120px 0",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        {/* Bridging Orb 2 */}
+        <div
+          className="position-absolute"
+          style={{
+            bottom: "-15%",
+            left: "-10%",
+            width: "50vw",
+            height: "50vw",
+            background: isDark
+              ? "radial-gradient(circle, rgba(146,254,157,0.03) 0%, transparent 70%)"
+              : "radial-gradient(circle, rgba(25,135,84,0.02) 0%, transparent 70%)",
+            filter: "blur(100px)",
+            pointerEvents: "none",
+            zIndex: 0,
+          }}
+        />
+        <Container style={{ maxWidth: "1200px", position: "relative", zIndex: 1 }}>
+          <div className="text-center mb-5">
+            <p
+              className="text-uppercase fw-bold mb-2"
+              style={{
+                fontSize: "0.85rem",
+                letterSpacing: "2px",
+                color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)",
+              }}
+            >
+              Tính năng nổi bật
+            </p>
+            <h2
+              className="fw-bolder mb-3"
+              style={{
+                fontSize: "clamp(2rem, 4vw, 3.5rem)",
+                color: isDark ? "#fff" : "#111",
+                letterSpacing: "-0.03em",
+              }}
+            >
+              Mọi thứ bạn cần, một nền tảng
+            </h2>
+            <p
+              className="mx-auto"
+              style={{
+                maxWidth: "600px",
+                color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)",
+                fontSize: "1.1rem",
+                lineHeight: 1.6,
+              }}
+            >
+              Từ quản lý giải đấu đến theo dõi điểm trình, PickleTour cung cấp đầy đủ công cụ cho mọi người chơi.
+            </p>
+          </div>
+
+          <Row className="g-4">
+            {[
+              {
+                icon: <AnalyticsIcon />,
+                title: "Hệ thống điểm DUPR",
+                desc: "Tính điểm trình chuyên nghiệp theo chuẩn quốc tế, cập nhật sau mỗi trận đấu thi đấu.",
+              },
+              {
+                icon: <EmojiEventsIcon />,
+                title: "Tổ chức giải đấu",
+                desc: "Tạo và quản lý giải đấu dễ dàng với bảng đấu tự động, bracket và kết quả real-time.",
+              },
+              {
+                icon: <PeopleAltIcon />,
+                title: "Hồ sơ & Thống kê",
+                desc: "Theo dõi lịch sử thi đấu, phong độ, win-rate và tiến trình phát triển cá nhân.",
+              },
+              {
+                icon: <HandshakeIcon />,
+                title: "Cộng đồng năng động",
+                desc: "Kết nối với hàng nghìn người chơi, tìm đối thủ phù hợp trình độ gần bạn.",
+              },
+              {
+                icon: <SmartphoneIcon />,
+                title: "Ứng dụng di động",
+                desc: "Trải nghiệm mượt mà trên cả iOS và Android, luôn cập nhật mọi lúc mọi nơi.",
+              },
+              {
+                icon: <NotificationsActiveIcon />,
+                title: "Thông báo thông minh",
+                desc: "Nhận nhắc nhở về giải đấu sắp diễn ra, kết quả trận đấu và cập nhật điểm.",
+              },
+            ].map((feature, idx) => (
+              <Col key={idx} md={6} lg={4}>
+                <div
+                  className="p-4 h-100"
+                  style={{
+                    borderRadius: "24px",
+                    backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "#fff",
+                    border: isDark
+                      ? "1px solid rgba(255,255,255,0.06)"
+                      : "1px solid rgba(0,0,0,0.06)",
+                    transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+                    cursor: "default",
+                  }}
+                  onMouseOver={(e) => {
+                    e.currentTarget.style.transform = "translateY(-8px)";
+                    e.currentTarget.style.boxShadow = isDark
+                      ? "0 20px 50px rgba(0,0,0,0.5)"
+                      : "0 20px 50px rgba(0,0,0,0.08)";
+                    e.currentTarget.style.borderColor = isDark
+                      ? "rgba(255,255,255,0.12)"
+                      : "rgba(0,0,0,0.1)";
+                  }}
+                  onMouseOut={(e) => {
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "none";
+                    e.currentTarget.style.borderColor = isDark
+                      ? "rgba(255,255,255,0.06)"
+                      : "rgba(0,0,0,0.06)";
+                  }}
+                >
+                  <div
+                    className="d-flex align-items-center justify-content-center mb-3"
+                    style={{
+                      width: "56px",
+                      height: "56px",
+                      borderRadius: "16px",
+                      backgroundColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+                      color: isDark ? "rgba(255,255,255,0.8)" : theme.palette.primary.main,
+                    }}
+                  >
+                    {feature.icon}
+                  </div>
+                  <h5
+                    className="fw-bold mb-2"
+                    style={{ color: isDark ? "#fff" : "#111" }}
+                  >
+                    {feature.title}
+                  </h5>
+                  <p
+                    className="mb-0"
+                    style={{
+                      color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)",
+                      lineHeight: 1.6,
+                      fontSize: "0.95rem",
+                    }}
+                  >
+                    {feature.desc}
+                  </p>
+                </div>
+              </Col>
+            ))}
+          </Row>
+        </Container>
+      </section>
+
+      {/* ======= CLUB SHOWCASE SECTION ======= */}
+      <section
+        style={{
+          backgroundColor: isDark ? "#050505" : "#fbfbfd",
+          padding: "120px 0",
+          position: "relative",
+          overflow: "hidden",
+        }}
+      >
+        {/* Bridging Orb 3 */}
+        <div
+          className="position-absolute"
+          style={{
+            top: "20%",
+            right: "10%",
+            width: "35vw",
+            height: "35vw",
+            background: isDark
+              ? "radial-gradient(circle, rgba(13,202,240,0.04) 0%, transparent 70%)"
+              : "radial-gradient(circle, rgba(13,202,240,0.03) 0%, transparent 70%)",
+            filter: "blur(80px)",
+            pointerEvents: "none",
+            zIndex: 0,
+          }}
+        />
+        <Container style={{ maxWidth: "1200px", position: "relative", zIndex: 1 }}>
+          <div className="text-center mb-5">
+            <p
+              className="text-uppercase fw-bold mb-2"
+              style={{
+                fontSize: "0.85rem",
+                letterSpacing: "2px",
+                color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)",
+              }}
+            >
+              Đối tác & Câu lạc bộ
+            </p>
+            <h2
+              className="fw-bolder mb-3"
+              style={{
+                fontSize: "clamp(2rem, 4vw, 3.5rem)",
+                color: isDark ? "#fff" : "#111",
+                letterSpacing: "-0.03em",
+              }}
+            >
+              Được tin dùng bởi các CLB hàng đầu
+            </h2>
+            <p
+              className="mx-auto"
+              style={{
+                maxWidth: "600px",
+                color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)",
+                fontSize: "1.1rem",
+                lineHeight: 1.6,
+              }}
+            >
+              Hàng trăm câu lạc bộ Pickleball trên khắp Việt Nam đã lựa chọn PickleTour làm nền tảng quản lý giải đấu và theo dõi điểm trình.
+            </p>
+          </div>
+
+          <div className="mt-5 pt-4">
+            <Row className="g-4 justify-content-center">
+            {clubsList.length > 0 ? (
+              clubsList.map((club, idx) => (
+                <Col key={club.id || idx} xs={6} md={4} lg={4}>
+                  <div
+                    className="p-4 h-100 d-flex flex-column"
+                    style={{
+                      borderRadius: "24px",
+                      backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "#fff",
+                      border: isDark
+                        ? "1px solid rgba(255,255,255,0.06)"
+                        : "1px solid rgba(0,0,0,0.06)",
+                      transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
+                      cursor: "default",
+                    }}
+                    onMouseOver={(e) => {
+                      e.currentTarget.style.transform = "translateY(-6px)";
+                      e.currentTarget.style.borderColor = club.color + "40";
+                      e.currentTarget.style.boxShadow = `0 20px 40px ${club.color}15`;
+                    }}
+                    onMouseOut={(e) => {
+                      e.currentTarget.style.transform = "translateY(0)";
+                      e.currentTarget.style.borderColor = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
+                      e.currentTarget.style.boxShadow = "none";
+                    }}
+                  >
+                    <div
+                      className="d-flex align-items-center justify-content-center mb-3"
+                      style={{
+                        width: "48px",
+                        height: "48px",
+                        borderRadius: "14px",
+                        backgroundColor: club.color + "18",
+                        fontSize: "1.4rem",
+                        fontWeight: 800,
+                        color: club.color,
+                      }}
+                    >
+                      {(club.name || "C").charAt(0)}
+                    </div>
+                    <h6
+                      className="fw-bold mb-1"
+                      style={{
+                        color: isDark ? "#fff" : "#111",
+                        fontSize: "1rem",
+                      }}
+                    >
+                      {club.name}
+                    </h6>
+                    <p
+                      className="mb-2 d-flex align-items-center gap-1"
+                      style={{
+                        color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)",
+                        fontSize: "0.85rem",
+                      }}
+                    >
+                      <LocationOnIcon sx={{ fontSize: "0.95rem" }} /> {club.location}
+                    </p>
+                    <p
+                      className="mb-0 mt-auto"
+                      style={{
+                        color: isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.6)",
+                        fontSize: "0.85rem",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {club.members} th�nh vi�n
+                    </p>
+                  </div>
+                </Col>
+              ))
+            ) : homeLoading ? (
+              Array.from({ length: 6 }).map((_, idx) => (
+                <Col key={idx} xs={6} md={4} lg={4}>
+                  <div
+                    className="p-4 h-100 d-flex flex-column"
+                    style={{
+                      borderRadius: "24px",
+                      backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "#fff",
+                      border: isDark
+                        ? "1px solid rgba(255,255,255,0.06)"
+                        : "1px solid rgba(0,0,0,0.06)",
+                    }}
+                  >
+                    <SkeletonBar w="48px" h={48} r={14} className="mb-3" />
+                    <SkeletonBar w="70%" h={18} className="mb-2" />
+                    <SkeletonBar w="60%" h={14} className="mb-2" />
+                    <SkeletonBar w="50%" h={14} className="mt-auto" />
+                  </div>
+                </Col>
+              ))
+            ) : null}
+
+          </Row>
+          </div>
+        </Container>
+      </section>
+
+      {/* ======= BOTTOM CTA SECTION ======= */}
+      <section
+        className="position-relative overflow-hidden"
+        style={{
+          padding: "120px 0",
+          backgroundColor: isDark ? "#050505" : "#fbfbfd",
+        }}
+      >
+        {/* Background orbs */}
+        <div
+          className="position-absolute"
+          style={{
+            top: "50%",
+            left: "30%",
+            transform: "translate(-50%, -50%)",
+            width: "40vw",
+            height: "40vw",
+            background: "radial-gradient(circle, rgba(13,110,253,0.08) 0%, transparent 70%)",
+            filter: "blur(60px)",
+            pointerEvents: "none",
+          }}
+        />
+        <div
+          className="position-absolute"
+          style={{
+            top: "50%",
+            right: "10%",
+            transform: "translateY(-50%)",
+            width: "30vw",
+            height: "30vw",
+            background: "radial-gradient(circle, rgba(146,254,157,0.06) 0%, transparent 70%)",
+            filter: "blur(60px)",
+            pointerEvents: "none",
+          }}
+        />
+        <Container style={{ maxWidth: "900px", position: "relative", zIndex: 1 }}>
+          <div
+            className="text-center p-5"
+            style={{
+              borderRadius: "32px",
+              backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+              border: isDark
+                ? "1px solid rgba(255,255,255,0.08)"
+                : "1px solid rgba(0,0,0,0.06)",
+              backdropFilter: "blur(20px)",
+            }}
+          >
+            <h2
+              className="fw-bolder mb-3"
+              style={{
+                fontSize: "clamp(1.8rem, 3.5vw, 3rem)",
+                color: isDark ? "#fff" : "#111",
+                letterSpacing: "-0.03em",
+              }}
+            >
+              Sẵn sàng nâng tầm trải nghiệm Pickleball?
+            </h2>
+            <p
+              className="mx-auto mb-5"
+              style={{
+                maxWidth: "600px",
+                color: isDark ? "rgba(255,255,255,0.5)" : "rgba(0,0,0,0.5)",
+                fontSize: "1.15rem",
+                lineHeight: 1.7,
+              }}
+            >
+              Tham gia cùng hàng nghìn người chơi trên PickleTour. Đăng ký miễn phí và bắt đầu hành trình của bạn ngay hôm nay.
+            </p>
+            <div className="d-flex flex-column flex-sm-row gap-3 justify-content-center">
+              <Button
+                as={Link}
+                to={isLoggedIn ? "/pickle-ball/tournaments" : "/register"}
+                size="lg"
+                className="premium-btn px-5 py-3 fw-bold text-decoration-none"
+                style={{
+                  "--btn-bg": isDark ? "#fff" : "#111",
+                  "--btn-hover-bg": isDark ? "#f0f0f0" : "#333",
+                  "--btn-shadow": isDark ? "0 10px 30px rgba(255,255,255,0.1)" : "0 10px 30px rgba(0,0,0,0.1)",
+                  "--btn-hover-shadow": isDark ? "0 15px 40px rgba(255,255,255,0.2)" : "0 15px 40px rgba(0,0,0,0.2)",
+                  color: isDark ? "#000" : "#fff",
+                }}
+              >
+                {isLoggedIn ? "Khám phá giải đấu" : "Tạo tài khoản miễn phí"}
+              </Button>
+            </div>
+          </div>
+        </Container>
+      </section>
+
       {/* ======= CONTACT INFO & APP SECTION ======= */}
-      <section className="py-5" style={{ backgroundColor: theme.palette.background.paper }}>
+      <section className="py-5" style={{ backgroundColor: isDark ? "#050505" : "#fbfbfd" }}>
         <Container>
           <Row className="g-4">
             {/* Card 1: Liên hệ chính */}

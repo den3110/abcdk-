@@ -123,12 +123,29 @@ export const createRegistration = asyncHandler(async (req, res) => {
   }).lean();
 
   if (alreadyReg) {
+    // Tìm nickname VĐV đã đăng ký để hiển thị chi tiết
+    const dupeNames = [];
+    const p1u = alreadyReg.player1?.user ? String(alreadyReg.player1.user) : null;
+    const p2u = alreadyReg.player2?.user ? String(alreadyReg.player2.user) : null;
+    const uidStrs = userIds.map(String);
+    if (p1u && uidStrs.includes(p1u)) {
+      dupeNames.push(alreadyReg.player1.nickName || alreadyReg.player1.fullName || "VĐV");
+    }
+    if (p2u && uidStrs.includes(p2u)) {
+      dupeNames.push(alreadyReg.player2?.nickName || alreadyReg.player2?.fullName || "VĐV");
+    }
+
+    let msg;
+    if (isSingles) {
+      msg = "Bạn đã đăng ký giải đấu rồi";
+    } else if (dupeNames.length >= 2) {
+      msg = "Cả 2 VĐV đã đăng ký giải đấu rồi";
+    } else {
+      const who = dupeNames[0] || "VĐV";
+      msg = `Vận động viên ${who} đã đăng ký giải đấu rồi`;
+    }
     res.status(400);
-    throw new Error(
-      isSingles
-        ? "VĐV đã đăng ký giải đấu rồi"
-        : "Một trong hai VĐV đã đăng ký giải đấu rồi"
-    );
+    throw new Error(msg);
   }
 
   /* ─ 8) Điểm trình mới nhất ─ */

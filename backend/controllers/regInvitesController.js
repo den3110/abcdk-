@@ -82,7 +82,7 @@ async function latestScoresMap(userIds) {
 }
 
 async function alreadyRegistered(tourId, userIds) {
-  if (!userIds.length) return false;
+  if (!userIds.length) return null;
   const exist = await Registration.findOne({
     tournament: tourId,
     $or: [
@@ -90,7 +90,7 @@ async function alreadyRegistered(tourId, userIds) {
       { "player2.user": { $in: userIds } },
     ],
   }).lean();
-  return !!exist;
+  return exist || null;
 }
 
 function inRegWindow(tour) {
@@ -145,11 +145,29 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
   }
 
   // (3) Duplicate đã đăng ký
-  if (await alreadyRegistered(tour._id, ids)) {
+  const existReg = await alreadyRegistered(tour._id, ids);
+  if (existReg) {
+    const dupeNames = [];
+    const p1u = existReg.player1?.user ? String(existReg.player1.user) : null;
+    const p2u = existReg.player2?.user ? String(existReg.player2.user) : null;
+    for (const uid of ids) {
+      if (p1u === String(uid)) dupeNames.push(existReg.player1.nickName || existReg.player1.fullName || "VĐV");
+      if (p2u === String(uid)) dupeNames.push(existReg.player2?.nickName || existReg.player2?.fullName || "VĐV");
+    }
+
+    let msg;
+    if (isSingle) {
+      msg = "Bạn đã đăng ký giải đấu rồi";
+    } else if (dupeNames.length >= 2) {
+      msg = "Cả 2 VĐV đã đăng ký giải đấu rồi";
+    } else {
+      const who = dupeNames[0] || "VĐV";
+      msg = `Vận động viên ${who} đã đăng ký giải đấu rồi`;
+    }
     return {
       ok: false,
       reason: "duplicate",
-      message: "VĐV đã đăng ký giải đấu rồi",
+      message: msg,
     };
   }
 

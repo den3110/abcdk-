@@ -59,6 +59,7 @@ import courtRoutes from "./routes/courtRoutes.js";
 import spcRoutes from "./routes/spc.routes.js";
 import fbTokenRoutes from "./routes/fbTokenRoutes.js";
 import publicOverlayRoutes from "./routes/publicOverlayRoutes.js";
+import publicHomeRoutes from "./routes/publicHomeRoutes.js";
 import newsRoutes from "./routes/newsPublicRoutes.js";
 import appInitRoutes from "./routes/appInitRoutes.js";
 import leaderboardRoutes from "./routes/leaderboardRoutes.js";
@@ -68,7 +69,7 @@ import facebookRoutes from "./routes/facebookRoutes.js";
 import userMatchRoutes from "./routes/userMatchRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
 import { initNewsCron } from "./jobs/newsCron.js";
-// 🔹 GraphQL layer
+// ðŸ”¹ GraphQL layer
 import { setupGraphQL } from "./graphql/index.js";
 import { timezoneMiddleware } from "./middleware/timezoneMiddleware.js";
 import { normalizeRequestDates } from "./middleware/normalizeRequestDates.js";
@@ -99,17 +100,17 @@ const WHITELIST = [
   "https://pickletour.vn"
 ];
 
-// connectDB(); // ❌ Moved inside startServer for async await
+// connectDB(); // âŒ Moved inside startServer for async await
 
 const app = express();
 
-// Security headers - chặn Clickjacking, XSS, MIME sniffing, etc.
+// Security headers - cháº·n Clickjacking, XSS, MIME sniffing, etc.
 app.use(helmet());
 
 app.use(
   cors({
-    origin: WHITELIST, // ✅ KHÔNG dùng '*'
-    credentials: true, // ✅ Phải bật
+    origin: WHITELIST, // âœ… KHÃ”NG dÃ¹ng '*'
+    credentials: true, // âœ… Pháº£i báº­t
   }),
 );
 
@@ -118,11 +119,11 @@ app.use(
   protect,
   authorize("admin"),
   createProxyMiddleware({
-    target: "http://127.0.0.1:8003/api/admin/system", // ❌ Bỏ phần /api/admin/system ở target
+    target: "http://127.0.0.1:8003/api/admin/system", // âŒ Bá» pháº§n /api/admin/system á»Ÿ target
     changeOrigin: true,
 
     pathRewrite: {
-      "^/api/admin/system": "/api/admin/system", // ✅ Giữ nguyên hoặc map sang path Go service expect
+      "^/api/admin/system": "/api/admin/system", // âœ… Giá»¯ nguyÃªn hoáº·c map sang path Go service expect
     },
     onProxyReq: (proxyReq, req, res) => {
       if (req.body && Object.keys(req.body).length > 0) {
@@ -134,14 +135,14 @@ app.use(
       }
     },
     onError: (err, req, res) => {
-      console.error("❌ Proxy error:", err);
+      console.error("âŒ Proxy error:", err);
       res.status(500).json({ error: "Go service unavailable" });
     },
   }),
 );
 app.use("/api/live/recordings", liveRecordingRoutes);
 
-// body limit rộng hơn cho HTML/JSON dài
+// body limit rá»™ng hÆ¡n cho HTML/JSON dÃ i
 app.use(express.json({ limit: "50mb" }));
 app.use(timezoneMiddleware);
 app.use(normalizeRequestDates);
@@ -160,10 +161,10 @@ app.use(httpLogger);
 
 // HTTP + Socket.IO
 const server = http.createServer(app);
-// 👇 Khởi tạo socket tách riêng
+// ðŸ‘‡ Khá»Ÿi táº¡o socket tÃ¡ch riÃªng
 const io = initSocket(server, { whitelist: WHITELIST, path: "/socket.io" });
 
-// Cho controllers dùng io: req.app.get('io')
+// Cho controllers dÃ¹ng io: req.app.get('io')
 app.set("io", io);
 // app.set("trust proxy", true);
 
@@ -207,6 +208,7 @@ app.use("/api/live", liveRoutes);
 app.use("/api/courts", courtRoutes);
 app.use("/api/admin/spc", spcRoutes);
 app.use("/api/public", publicOverlayRoutes);
+app.use("/api/public", publicHomeRoutes);
 app.use("/api/fb-tokens", fbTokenRoutes);
 app.use("/api/app/init", appInitRoutes);
 app.use("/api/leaderboards", leaderboardRoutes);
@@ -225,40 +227,40 @@ app.use("/api/expo-updates", expoUpdatesRoutes);
 app.get("/dl/file/:id", async (req, res) => {
   try {
     const doc = await FileAsset.findById(req.params.id);
-    if (!doc) return res.status(404).send("File không tồn tại");
+    if (!doc) return res.status(404).send("File khÃ´ng tá»“n táº¡i");
 
-    // Tên file hiển thị khi tải về
+    // TÃªn file hiá»ƒn thá»‹ khi táº£i vá»
     const downloadName = doc.originalName || doc.fileName || "download.bin";
 
-    // Header nội dung + ép tải
+    // Header ná»™i dung + Ã©p táº£i
     res.setHeader("Content-Type", doc.mime || "application/octet-stream");
     res.setHeader(
       "Content-Disposition",
       `attachment; filename="${encodeURIComponent(downloadName)}"`,
     );
 
-    // Chuyển nội bộ cho Nginx đọc file từ đĩa (KHÔNG qua Node)
-    // "fileName" là tên đã lưu trong uploads/public
+    // Chuyá»ƒn ná»™i bá»™ cho Nginx Ä‘á»c file tá»« Ä‘Ä©a (KHÃ”NG qua Node)
+    // "fileName" lÃ  tÃªn Ä‘Ã£ lÆ°u trong uploads/public
     const accelPath = `/_protected_uploads/${encodeURIComponent(doc.fileName)}`;
     res.setHeader("X-Accel-Redirect", accelPath);
 
-    // (tuỳ chọn) cho resume/caching
+    // (tuá»³ chá»n) cho resume/caching
     res.setHeader("Accept-Ranges", "bytes");
 
     res.end();
   } catch (e) {
     console.error("/dl/file error", e);
-    res.status(500).send("Lỗi tải file");
+    res.status(500).send("Lá»—i táº£i file");
   }
 });
 
-// 🔹 gom phần start server + GraphQL vào 1 hàm async
+// ðŸ”¹ gom pháº§n start server + GraphQL vÃ o 1 hÃ m async
 const startServer = async () => {
   try {
-    // 🔹 Connect DB first
+    // ðŸ”¹ Connect DB first
     await connectDB();
 
-    // 🔹 mount GraphQL trước fallback routes (*)
+    // ðŸ”¹ mount GraphQL trÆ°á»›c fallback routes (*)
     await setupGraphQL(app);
 
     if (process.env.NODE_ENV === "production") {
@@ -283,29 +285,29 @@ const startServer = async () => {
 
     if (process.env.TELEGRAM_BOT_TOKEN) {
       try {
-        console.log("✅ Running KYC bot...");
+        console.log("âœ… Running KYC bot...");
         initKycBot(app)
           .then((bot) => {
             if (bot) {
-              console.log("✅ KYC bot initialized successfully");
+              console.log("âœ… KYC bot initialized successfully");
             } else {
-              console.warn("⚠️ KYC bot returned null");
+              console.warn("âš ï¸ KYC bot returned null");
             }
           })
           .catch((e) => {
-            console.error("❌ KYC bot initialization failed:");
+            console.error("âŒ KYC bot initialization failed:");
             console.error("Error name:", e?.name);
             console.error("Error message:", e?.message);
             console.error("Error stack:", e?.stack);
           });
       } catch (error) {
-        console.log("❌ Failed to start KYC bot:", error.message);
+        console.log("âŒ Failed to start KYC bot:", error.message);
       }
     }
 
     server.listen(port, "0.0.0.0", async () => {
       try {
-        console.log(`✅ Server started on port ${port}`);
+        console.log(`âœ… Server started on port ${port}`);
         startTournamentCrons();
         startFbRefreshCron();
         startFacebookBusyCron();
@@ -313,14 +315,14 @@ const startServer = async () => {
         initNewsCron();
         initEmail();
         initNewsCron();
-        await startAgenda(); // ✅ Await agenda start
+        await startAgenda(); // âœ… Await agenda start
         registerAutoHealJobs({ Tournament, Match });
       } catch (error) {
-        console.error(`❌ Error starting server: ${error.message}`);
+        console.error(`âŒ Error starting server: ${error.message}`);
       }
     });
   } catch (err) {
-    console.error("❌ Failed to start server", err);
+    console.error("âŒ Failed to start server", err);
     process.exit(1);
   }
 };

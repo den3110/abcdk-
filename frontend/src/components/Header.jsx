@@ -183,16 +183,24 @@ const Header = () => {
       position="sticky"
       elevation={0}
       sx={{
-        backgroundColor: isDark ? "rgba(30, 30, 30, 0.95)" : "rgba(255, 255, 255, 0.9)",
-        backdropFilter: "blur(12px)",
-        borderBottom: "1px solid",
-        borderColor: "divider",
-        top: 0,
+        backgroundColor: isDark ? "rgba(18, 18, 18, 0.65)" : "rgba(255, 255, 255, 0.75)",
+        backdropFilter: "blur(24px)",
+        WebkitBackdropFilter: "blur(24px)",
+        borderRadius: { xs: "0px", md: "100px" },
+        top: { xs: 0, md: 24 },
+        mt: { xs: 0, md: 3 },
+        mx: "auto",
+        width: { xs: "100%", md: "90%", lg: "1200px" },
+        border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid rgba(255, 255, 255, 0.4)",
+        boxShadow: isDark 
+          ? "0 20px 40px -10px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)" 
+          : "0 20px 40px -10px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.5)",
         zIndex: 1199,
+        transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
         ...pulseKeyframes,
       }}
     >
-      <Container maxWidth="xl">
+      <Container maxWidth="xl" sx={{ px: { xs: 2, md: 4 } }}>
         {/* relative để căn chỉnh absolute cho nút Back trên mobile */}
         <Toolbar
           disableGutters
@@ -508,8 +516,13 @@ const Header = () => {
                     borderRadius: "50px",
                     fontWeight: 600,
                     color: "text.primary",
-                    px: 2.5,
+                    px: 3,
+                    py: 1,
                     textTransform: "none",
+                    transition: "all 0.3s ease",
+                    "&:hover": {
+                      backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"
+                    }
                   }}
                 >
                   Đăng nhập
@@ -518,16 +531,26 @@ const Header = () => {
                   component={Link}
                   to="/register"
                   variant="contained"
-                  startIcon={<PersonAddIcon fontSize="small" />}
+                  disableElevation
                   sx={{
                     borderRadius: "50px",
                     fontWeight: 700,
-                    boxShadow: "0 4px 12px rgba(13, 110, 253, 0.25)",
-                    background: isDark 
-                      ? "linear-gradient(45deg, #3d8bff 30%, #6ba3ff 90%)"
-                      : "linear-gradient(45deg, #212121 30%, #424242 90%)",
-                    px: 2.5,
+                    backgroundColor: isDark ? "#fff" : "#111",
+                    color: isDark ? "#000" : "#fff",
+                    px: 3.5,
+                    py: 1,
                     textTransform: "none",
+                    transition: "all 0.3s ease",
+                    boxShadow: isDark 
+                      ? "0 4px 14px rgba(255,255,255,0.15)" 
+                      : "0 4px 14px rgba(0,0,0,0.15)",
+                    "&:hover": {
+                      backgroundColor: isDark ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.8)",
+                      transform: "translateY(-1px)",
+                      boxShadow: isDark 
+                        ? "0 6px 20px rgba(255,255,255,0.2)" 
+                        : "0 6px 20px rgba(0,0,0,0.2)",
+                    }
                   }}
                 >
                   Đăng ký
