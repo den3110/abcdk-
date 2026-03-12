@@ -1098,7 +1098,7 @@ export default function Hero() {
                         fontWeight: 600,
                       }}
                     >
-                      {club.members} th�nh vi�n
+                      {club.members} thành viên
                     </p>
                   </div>
                 </Col>
