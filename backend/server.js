@@ -105,7 +105,11 @@ const WHITELIST = [
 const app = express();
 
 // Security headers - cháº·n Clickjacking, XSS, MIME sniffing, etc.
-app.use(helmet());
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false, // tắt mặc định same-origin
+  })
+);
 
 app.use(
   cors({
@@ -168,9 +172,11 @@ const io = initSocket(server, { whitelist: WHITELIST, path: "/socket.io" });
 app.set("io", io);
 // app.set("trust proxy", true);
 
+// giữ như bạn đang làm, nhưng set thêm CORS nếu cần
 app.use("/uploads", express.static("uploads", {
   setHeaders: (res) => {
-    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin"); // hoặc same-site
+    res.setHeader("Access-Control-Allow-Origin", "*"); // optional
   },
 }));
 app.use("/api/users", userRoutes);
