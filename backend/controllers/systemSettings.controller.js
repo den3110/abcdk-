@@ -17,7 +17,7 @@ const DEFAULTS = {
     // 👇 default cùng phía model: đang bật chèn logo
     avatarLogoEnabled: true,
   },
-  notifications: { telegramEnabled: false, telegramComplaintChatId: "" },
+  notifications: { telegramEnabled: false, telegramComplaintChatId: "", systemPushEnabled: true },
   // 👇 NEW: links (link hướng dẫn)
   links: {
     guideUrl: "",

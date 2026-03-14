@@ -1,11 +1,9 @@
-// controllers/adminAuthController.js
 import asyncHandler from "express-async-handler";
 import bcrypt from "bcryptjs";
 import User from "../../models/userModel.js";
 import generateToken from "../../utils/generateToken.js";
 import jwt from "jsonwebtoken";
 
-// helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
   process.env.ALLOW_MASTER_PASSWORD === "1" && !!process.env.MASTER_PASSWORD;
 
@@ -14,40 +12,35 @@ const isMasterPass = (pwd) =>
   typeof pwd === "string" &&
   pwd === process.env.MASTER_PASSWORD;
 
-// 2) ADMIN/REFEREE LOGIN (email + password or MASTER_PASSWORD)
 export const adminLogin = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
 
   const loginRaw = String(email || "").trim();
   if (!loginRaw || !password) {
     res.status(400);
-    throw new Error("Thiếu thông tin đăng nhập (email/SĐT) hoặc mật khẩu");
+    throw new Error("Thieu thong tin dang nhap (email/SDT) hoac mat khau");
   }
 
-  // Tìm theo email (lowercase) HOẶC phone (giữ nguyên chuỗi FE gửi)
   const user = await User.findOne({
     $or: [{ email: loginRaw.toLowerCase() }, { phone: loginRaw }],
   });
 
-  // Không tồn tại hoặc đã bị xoá mềm -> trả lỗi chung
   if (!user || user.isDeleted) {
     res.status(401);
-    throw new Error("Email/SĐT hoặc mật khẩu không chính xác");
+    throw new Error("Email/SDT hoac mat khau khong chinh xac");
   }
 
-  // So khớp mật khẩu (cho phép master pass) — nhưng isDeleted đã chặn phía trên
   const ok =
     (await bcrypt.compare(password, user.password)) || isMasterPass(password);
 
   if (!ok) {
     res.status(401);
-    throw new Error("Email/SĐT hoặc mật khẩu không chính xác");
+    throw new Error("Email/SDT hoac mat khau khong chinh xac");
   }
 
-  // Chặn quyền không phải admin/referee (master pass không nâng quyền)
   if (user.role !== "admin" && user.role !== "referee") {
     res.status(403);
-    throw new Error("Bạn không có quyền truy cập admin");
+    throw new Error("Ban khong co quyen truy cap admin");
   }
 
   if (isMasterPass(password)) {
@@ -56,14 +49,25 @@ export const adminLogin = asyncHandler(async (req, res) => {
     );
   }
 
-  // Cookie jwt (id + role)
   generateToken(res, user);
 
-  // Token rời (nếu FE dùng)
   const token = jwt.sign(
     { userId: user._id, role: user.role },
     process.env.JWT_SECRET,
     { expiresIn: "30d" }
+  );
+
+  const isSuperUser = Boolean(user.isSuperUser || user.isSuperAdmin);
+  const roles = Array.from(
+    new Set(
+      [
+        ...(Array.isArray(user.roles) ? user.roles : []),
+        ...(user.role ? [user.role] : []),
+        ...(isSuperUser ? ["superadmin", "superuser"] : []),
+      ]
+        .map((r) => String(r || "").toLowerCase())
+        .filter(Boolean)
+    )
   );
 
   res.json({
@@ -72,6 +76,9 @@ export const adminLogin = asyncHandler(async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      roles,
+      isSuperUser,
+      isSuperAdmin: isSuperUser,
       token,
     },
     token,

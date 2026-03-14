@@ -1,19 +1,41 @@
-// routes/authRoutes.js
 import express from "express";
+import { authorize, protect, protectJwt } from "../middleware/authMiddleware.js";
 import {
-  authorize,
-  protect,
-  protectJwt,
-} from "../middleware/authMiddleware.js";
-import { getOtaAllowed, getRegistrationSettings } from "../controllers/systemSettings.controller.js";
+  getOtaAllowed,
+  getRegistrationSettings,
+} from "../controllers/systemSettings.controller.js";
 
 const router = express.Router();
 
-// GET /api/auth/verify  → 200 + user, hoặc 401
 router.get("/verify", protectJwt, authorize("admin", "referee"), (req, res) => {
-  // chỉ trả vài field cần thiết
   const { _id, name, email, role } = req.user;
-  res.json({ _id, name, email, role });
+  const isSuperUser = Boolean(req.user?.isSuperUser || req.user?.isSuperAdmin);
+
+  const roles = new Set(
+    [
+      ...(Array.isArray(req.user?.roles) ? req.user.roles : []),
+      ...(role ? [role] : []),
+    ]
+      .map((r) => String(r || "").toLowerCase())
+      .filter(Boolean)
+  );
+
+  if (req.user?.isAdmin) roles.add("admin");
+  if (isSuperUser) {
+    roles.add("admin");
+    roles.add("superadmin");
+    roles.add("superuser");
+  }
+
+  res.json({
+    _id,
+    name,
+    email,
+    role,
+    roles: Array.from(roles),
+    isSuperUser,
+    isSuperAdmin: isSuperUser,
+  });
 });
 
 router.post("/logout", protectJwt, authorize("admin"), (req, res) => {

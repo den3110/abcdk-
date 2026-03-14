@@ -4,13 +4,29 @@ import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import Header from "./components/Header";
 import MobileBottomNav from "./components/MenuMobile";
-import RegInvitesModal from "./components/RegInvitesModal";
 import ChatBotDrawer from "./components/ChatBotDrawer";
 import { useEffect, useRef } from "react";
+import { useSelector } from "react-redux";
 import { initGA, logPageView } from "./utils/analytics";
 import { useThemeMode } from "./context/ThemeContext";
+import { useGetProfileQuery } from "./slices/usersApiSlice";
 
 import Clarity from "@microsoft/clarity";
+
+function AuthSessionSync() {
+  const userInfo = useSelector((s) => s.auth?.userInfo || null);
+  const isLoggedIn = Boolean(userInfo?._id || userInfo?.token || userInfo?.email);
+
+  // Keep userInfo (role/permissions) fresh without forcing re-login.
+  useGetProfileQuery(undefined, {
+    skip: !isLoggedIn,
+    pollingInterval: 60 * 1000,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
+
+  return null;
+}
 
 const App = () => {
   const location = useLocation();
@@ -65,6 +81,7 @@ const App = () => {
 
   return (
     <>
+      <AuthSessionSync />
       {!isAuthPage && <Header />}
       <ToastContainer theme={isDark ? "dark" : "light"} />
       

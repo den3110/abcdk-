@@ -20,6 +20,10 @@ import {
   useMediaQuery,
   Button,
   Badge,
+  Tabs,
+  Tab,
+  Tooltip,
+  CircularProgress,
 } from "@mui/material";
 import SEOHead from "../components/SEOHead";
 import PeopleIcon from "@mui/icons-material/People";
@@ -27,6 +31,8 @@ import HomeIcon from "@mui/icons-material/Home";
 import { useLocation, useNavigate, Outlet, Navigate } from "react-router-dom"; // ✅ thêm Navigate
 
 import { useSelector } from "react-redux"; // ✅ lấy userInfo từ redux
+
+import { useGetProfileQuery } from "../slices/usersApiSlice";
 
 const drawerWidth = 240;
 
@@ -49,7 +55,27 @@ export default function AdminLayout({ children }) {
 
   // ✅ lấy quyền admin từ redux
   const { userInfo } = useSelector((s) => s.auth || {});
+  const { isLoading: syncingProfile } = useGetProfileQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
   const isAdmin = userInfo?.role === "admin" || userInfo?.isAdmin === true;
+
+  if (syncingProfile && !isAdmin) {
+    return (
+      <Box
+        sx={{
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <CircularProgress size={28} />
+      </Box>
+    );
+  }
 
   // ✅ nếu không phải admin -> đẩy ra 403
   if (!isAdmin) {

@@ -572,7 +572,21 @@ export const authUserWeb = asyncHandler(async (req, res) => {
     );
   }
 
-  const buildUserInfo = (u) => ({
+  const buildUserInfo = (u) => {
+  const isSuperUser = Boolean(u?.isSuperUser || u?.isSuperAdmin);
+  const roles = Array.from(
+    new Set(
+      [
+        ...(Array.isArray(u?.roles) ? u.roles : []),
+        ...(u?.role ? [u.role] : []),
+        ...(isSuperUser ? ["superadmin", "superuser"] : []),
+      ]
+        .map((r) => String(r || "").toLowerCase())
+        .filter(Boolean)
+    )
+  );
+
+  return {
     _id: u._id,
     name: u.name,
     nickname: u.nickname,
@@ -588,7 +602,11 @@ export const authUserWeb = asyncHandler(async (req, res) => {
     createdAt: u.createdAt,
     cccd: u.cccd,
     role: u.role,
-  });
+    roles,
+    isSuperUser,
+    isSuperAdmin: isSuperUser,
+  };
+};
 
   const maskPhone = (p = "") => {
     const s = String(p || "").trim();

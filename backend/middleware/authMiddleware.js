@@ -24,6 +24,24 @@ function extractToken(req) {
 
   return null;
 }
+const normalizeRole = (role) => String(role || "").trim().toLowerCase();
+const isSuperAdminUser = (user) =>
+  Boolean(user?.isSuperUser || user?.isSuperAdmin);
+const getRoleSet = (user) => {
+  const roles = new Set();
+  if (typeof user?.role === "string") roles.add(normalizeRole(user.role));
+  if (Array.isArray(user?.roles)) {
+    user.roles.forEach((r) => roles.add(normalizeRole(r)));
+  }
+  if (user?.isAdmin === true) roles.add("admin");
+  if (isSuperAdminUser(user)) {
+    roles.add("admin");
+    roles.add("superadmin");
+    roles.add("superuser");
+  }
+  roles.delete("");
+  return roles;
+};
 
 /* --------- Bảo vệ tất cả route yêu cầu đăng nhập --------- */
 export const protect = asyncHandler(async (req, res, next) => {
@@ -97,7 +115,12 @@ export const authorize =
       throw new Error("Not authorized");
     }
 
-    if (!allowedRoles.includes(req.user.role)) {
+    const allowed = (allowedRoles || []).map(normalizeRole).filter(Boolean);
+    if (!allowed.length) return next();
+
+    const actorRoles = getRoleSet(req.user);
+    const ok = allowed.some((r) => actorRoles.has(r));
+    if (!ok) {
       res.status(403);
       throw new Error("Forbidden – insufficient role");
     }
@@ -190,14 +213,16 @@ export async function optionalAuth(req, res, next) {
 
     if (uid) {
       const u = await User.findById(uid)
-        .select("_id roles role isAdmin")
+        .select("_id roles role isAdmin isSuperUser isSuperAdmin")
         .lean();
       if (u) {
         req.user = {
           _id: String(u._id),
-          roles: Array.isArray(u.roles) ? u.roles : u.role ? [u.role] : [],
+          roles: Array.from(getRoleSet(u)),
           role: u.role,
           isAdmin: !!u.isAdmin,
+          isSuperUser: isSuperAdminUser(u),
+          isSuperAdmin: isSuperAdminUser(u),
         };
       }
     }
@@ -377,10 +402,22 @@ export const passProtect = asyncHandler(async (req, res, next) => {
 
 // ✅ Super user middleware
 export const superUser = (req, res, next) => {
-  if (req.user && req.user.isSuperUser) {
+  if (req.user && isSuperAdminUser(req.user)) {
     return next();
   }
 
   res.status(403);
   throw new Error("Not authorized as super user");
+};
+
+export const requireSuperAdmin = (req, res, next) => {
+  if (!req.user) {
+    res.status(401);
+    throw new Error("Not authorized");
+  }
+  if (!isSuperAdminUser(req.user)) {
+    res.status(403);
+    throw new Error("Forbidden – super admin required");
+  }
+  return next();
 };

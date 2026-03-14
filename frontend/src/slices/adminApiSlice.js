@@ -20,7 +20,14 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         method: "PUT",
         body: { role },
       }),
-      invalidatesTags: ["User"],
+    }),
+
+    updateUserSuperAdmin: builder.mutation({
+      query: ({ id, isSuperUser }) => ({
+        url: `/api/admin/users/${id}/super-admin`,
+        method: "PATCH",
+        body: { isSuperUser },
+      }),
     }),
 
     deleteUser: builder.mutation({
@@ -35,7 +42,6 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         method: "PUT",
         body,
       }),
-      invalidatesTags: ["User"],
     }),
 
     /** ✨ DUYỆT hoặc TỪ CHỐI KYC */
@@ -45,7 +51,6 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         method: "PUT",
         body: { action }, // "approve" | "reject"
       }),
-      invalidatesTags: ["User"],
     }),
 
     updateRanking: builder.mutation({
@@ -54,7 +59,6 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         method: "PUT",
         body: { single, double },
       }),
-      invalidatesTags: ["User"],
     }),
 
     // =========================
@@ -82,7 +86,6 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         method: "PATCH",
         body, // { provinces: string[], sports: string[] }
       }),
-      invalidatesTags: ["User"],
     }),
 
     /** Promote user -> evaluator */
@@ -92,7 +95,6 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         method: "POST",
         body: { idOrEmail, provinces, sports },
       }),
-      invalidatesTags: ["User"],
     }),
 
     /** Demote evaluator -> role khác (mặc định: user) */
@@ -102,8 +104,8 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         method: "PATCH",
         body: body ?? { toRole: "user" },
       }),
-      invalidatesTags: ["User"],
     }),
+
     changeUserPassword: builder.mutation({
       query: ({ id, body }) => ({
         url: `/api/admin/users/${id}/password`,
@@ -111,6 +113,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         body, // { newPassword: string }
       }),
     }),
+
     updateRankingSearchConfig: builder.mutation({
       query: ({ id, body }) => ({
         url: `/api/admin/users/${id}/ranking-search-config`,
@@ -118,6 +121,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         body,
       }),
     }),
+
     // ✅ ADD trong adminApiSlice.js
     getUserAudit: builder.query({
       query: ({ userId, page = 1, limit = 20, actorId, field }) => {
@@ -133,6 +137,22 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         };
       },
     }),
+
+    // =========================
+    // SYSTEM SETTINGS
+    // =========================
+    getSystemSettings: builder.query({
+      query: () => `/api/admin/settings`,
+      providesTags: ["SystemSettings"],
+    }),
+    updateSystemSettings: builder.mutation({
+      query: (body) => ({
+        url: `/api/admin/settings`,
+        method: "PUT",
+        body,
+      }),
+      invalidatesTags: ["SystemSettings"],
+    }),
   }),
 });
 
@@ -140,6 +160,7 @@ export const {
   // users
   useGetUsersQuery,
   useUpdateUserRoleMutation,
+  useUpdateUserSuperAdminMutation,
   useDeleteUserMutation,
   useReviewKycMutation,
   useUpdateUserInfoMutation,
@@ -152,4 +173,7 @@ export const {
   useDemoteEvaluatorMutation,
   useChangeUserPasswordMutation,
   useUpdateRankingSearchConfigMutation,
+  // system settings
+  useGetSystemSettingsQuery,
+  useUpdateSystemSettingsMutation,
 } = adminApiSlice;

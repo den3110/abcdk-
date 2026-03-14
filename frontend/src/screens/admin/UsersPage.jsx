@@ -50,10 +50,12 @@ import BadgeIcon from "@mui/icons-material/Badge";
 import SportsTennisIcon from "@mui/icons-material/SportsTennis";
 
 import { useDispatch, useSelector } from "react-redux";
+import { useSearchParams } from "react-router-dom";
 
 import {
   useGetUsersQuery,
   useUpdateUserRoleMutation,
+  useUpdateUserSuperAdminMutation,
   useUpdateUserInfoMutation,
   useReviewKycMutation,
   useUpdateRankingMutation,
@@ -63,6 +65,9 @@ import {
   useDeleteUserMutation,
   useUpdateRankingSearchConfigMutation,
   useGetUserAuditQuery,
+  useGetSystemSettingsQuery,
+  useUpdateSystemSettingsMutation,
+  adminApiSlice,
 } from "../../slices/adminApiSlice";
 import { setPage, setKeyword, setRole } from "../../slices/adminUiSlice";
 
@@ -162,6 +167,38 @@ const prettyDate = (d) => (d ? new Date(d).toLocaleDateString("vi-VN") : "—");
 const roleText = (r) =>
   r === "admin" ? "Admin" : r === "referee" ? "Trọng tài" : "User";
 
+const normalizeRole = (r) =>
+  String(r || "")
+    .trim()
+    .toLowerCase();
+const hasRole = (u, role) => {
+  const wanted = normalizeRole(role);
+  const roles = new Set([
+    ...(Array.isArray(u?.roles) ? u.roles : []).map(normalizeRole),
+    normalizeRole(u?.role),
+  ]);
+  if (u?.isAdmin) roles.add("admin");
+  if (u?.isSuperUser || u?.isSuperAdmin) {
+    roles.add("superadmin");
+    roles.add("superuser");
+    roles.add("admin");
+  }
+  roles.delete("");
+  return roles.has(wanted);
+};
+const isTruthy = (v) => v === true || v === 1 || v === "1" || v === "true";
+const isSuperAdminFlag = (u) =>
+  isTruthy(u?.isSuperUser) ||
+  isTruthy(u?.isSuperAdmin) ||
+  isTruthy(u?.superAdmin) ||
+  isTruthy(u?.super_admin);
+const isSuperAdminUser = (u) => {
+  const byRole = hasRole(u, "superadmin") || hasRole(u, "superuser");
+  const byFlag = isSuperAdminFlag(u);
+  const adminBase = hasRole(u, "admin") || normalizeRole(u?.role) === "admin";
+  return adminBase && (byRole || byFlag);
+};
+
 const getEvalProvinces = (u) =>
   Array.isArray(u?.evaluator?.gradingScopes?.provinces)
     ? u.evaluator.gradingScopes.provinces.filter(Boolean)
@@ -170,7 +207,7 @@ const getIsFullEvaluator = (u) => {
   const list = getEvalProvinces(u);
   if (!list.length) return false;
   const normalized = Array.from(
-    new Set(list.filter((p) => PROVINCES_SET.has(p)))
+    new Set(list.filter((p) => PROVINCES_SET.has(p))),
   );
   return normalized.length === PROVINCES.length;
 };
@@ -204,7 +241,7 @@ function normalizeMaybeUrl(v) {
   if (typeof v === "string") return v.trim();
   if (typeof v === "object") {
     return String(
-      v.url || v.secure_url || v.path || v.location || v.src || ""
+      v.url || v.secure_url || v.path || v.location || v.src || "",
     ).trim();
   }
   return "";
@@ -237,17 +274,44 @@ export default function UsersPage() {
   const isXs = useMediaQuery(theme.breakpoints.down("sm"));
 
   const dispatch = useDispatch();
+  const [searchParams, setSearchParams] = useSearchParams();
+  
   const { page, keyword, role = "" } = useSelector((s) => s.adminUi);
-  const [kycFilter, setKycFilter] = useState("");
+  const currentUser = useSelector((s) => s.auth?.userInfo || null);
+  const [kycFilter, setKycFilter] = useState(() => searchParams.get("kyc") || "");
+
+  // Sync URL to Redux on mount
+  useEffect(() => {
+    const pPage = parseInt(searchParams.get("page") || "0", 10);
+    const pKey = searchParams.get("q") || "";
+    const pRole = searchParams.get("role") || "";
+    
+    dispatch(setPage(pPage));
+    dispatch(setKeyword(pKey));
+    dispatch(setRole(pRole));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync local/Redux state to URL when they change
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (keyword) params.set("q", keyword);
+    if (role) params.set("role", role);
+    if (kycFilter) params.set("kyc", kycFilter);
+    if (page > 0) params.set("page", page.toString());
+    
+    setSearchParams(params, { replace: true });
+  }, [keyword, role, kycFilter, page, setSearchParams]);
 
   // query
   const { data, isFetching, refetch } = useGetUsersQuery(
     { page: page + 1, keyword, role, cccdStatus: kycFilter },
-    { refetchOnMountOrArgChange: true }
+    { refetchOnMountOrArgChange: true },
   );
 
   // mutations
   const [updateRoleMut] = useUpdateUserRoleMutation();
+  const [updateSuperAdminMut] = useUpdateUserSuperAdminMutation();
   const [updateInfoMut] = useUpdateUserInfoMutation();
   const [reviewKycMut] = useReviewKycMutation();
   const [updateRanking] = useUpdateRankingMutation();
@@ -257,9 +321,12 @@ export default function UsersPage() {
   const [demoteEvaluatorMut] = useDemoteEvaluatorMutation();
   const [deleteUserMut] = useDeleteUserMutation();
   const [updateRankingSearchConfigMut] = useUpdateRankingSearchConfigMutation();
+  const [updateSystemSettingsMut] = useUpdateSystemSettingsMutation();
+
+  const { data: sysSettings } = useGetSystemSettingsQuery();
 
   // UI state
-  const [search, setSearch] = useState(keyword);
+  const [search, setSearch] = useState(() => searchParams.get("q") || keyword);
   useEffect(() => {
     const t = setTimeout(() => dispatch(setKeyword(search.trim())), 500);
     return () => clearTimeout(t);
@@ -285,7 +352,7 @@ export default function UsersPage() {
     auditUser
       ? { userId: auditUser._id, page: auditPage, limit: AUDIT_LIMIT }
       : { userId: "" },
-    { skip: !auditUser }
+    { skip: !auditUser },
   );
 
   useEffect(() => {
@@ -315,6 +382,7 @@ export default function UsersPage() {
 
   // FULL tỉnh optimistic
   const [fullMap, setFullMap] = useState({});
+  const [expandedMap, setExpandedMap] = useState({});
   useEffect(() => {
     if (data?.users) {
       const next = {};
@@ -323,11 +391,29 @@ export default function UsersPage() {
     }
   }, [data?.users]);
 
-  const handle = async (promise, successMsg) => {
+  const updateLocalUser = (userId, patchFn) => {
+    dispatch(
+      adminApiSlice.util.updateQueryData(
+        "getUsers",
+        { page: page + 1, keyword, role, cccdStatus: kycFilter },
+        (draft) => {
+          if (!draft?.users) return;
+          const user = draft.users.find((u) => u._id === userId);
+          if (user) patchFn(user);
+        },
+      ),
+    );
+  };
+
+  const handle = async (promise, successMsg, optimisticPatchFn = null) => {
     try {
       const res = await promise;
       showSnack("success", successMsg);
-      await refetch();
+      if (optimisticPatchFn) {
+        optimisticPatchFn(res);
+      } else {
+        await refetch();
+      }
       return res;
     } catch (err) {
       showSnack("error", err?.data?.message || err.error || "Đã xảy ra lỗi");
@@ -351,12 +437,28 @@ export default function UsersPage() {
           body: { toRole: "user" },
         }).unwrap();
         showSnack("success", "Đã tắt Admin chấm trình");
+        updateLocalUser(userId, (draft) => {
+          draft.role = "user";
+        });
       }
-      refetch();
     } catch (err) {
       setFullMap((m) => ({ ...m, [userId]: !enable }));
       showSnack("error", err?.data?.message || err.error || "Đã xảy ra lỗi");
     }
+  };
+
+  const canManageSuperAdmin =
+    (hasRole(currentUser, "admin") || normalizeRole(currentUser?.role) === "admin") &&
+    isSuperAdminFlag(currentUser);
+  const toggleSuperAdmin = async (userId, enable) => {
+    await handle(
+      updateSuperAdminMut({ id: userId, isSuperUser: enable }).unwrap(),
+      enable ? "Promoted to super admin" : "Removed super admin",
+      () =>
+        updateLocalUser(userId, (draft) => {
+          draft.isSuperUser = enable;
+        }),
+    );
   };
 
   const users = data?.users ?? [];
@@ -367,7 +469,12 @@ export default function UsersPage() {
   // ========= COMPONENT: USER CARD =========
   const UserCard = ({ u }) => {
     const isFull = !!fullMap[u._id];
-    const [expanded, setExpanded] = useState(false);
+    const targetIsSuperAdmin = isSuperAdminUser(u);
+    const isSelf = String(u?._id) === String(currentUser?._id);
+    const expanded = !!expandedMap[u._id];
+    const toggleExpanded = () => {
+      setExpandedMap((prev) => ({ ...prev, [u._id]: !prev[u._id] }));
+    };
 
     const avatarSrc = pickUserAvatarSrc(u);
 
@@ -375,7 +482,7 @@ export default function UsersPage() {
     const [limitInput, setLimitInput] = useState(
       typeof u.rankingSearchLimit === "number" && u.rankingSearchLimit > 0
         ? String(u.rankingSearchLimit)
-        : ""
+        : "",
     );
     const [unlimited, setUnlimited] = useState(!!u.rankingSearchUnlimited);
     const [savingLimit, setSavingLimit] = useState(false);
@@ -384,7 +491,7 @@ export default function UsersPage() {
       setLimitInput(
         typeof u.rankingSearchLimit === "number" && u.rankingSearchLimit > 0
           ? String(u.rankingSearchLimit)
-          : ""
+          : "",
       );
       setUnlimited(!!u.rankingSearchUnlimited);
     }, [u.rankingSearchLimit, u.rankingSearchUnlimited, u._id]);
@@ -405,7 +512,12 @@ export default function UsersPage() {
       try {
         await handle(
           updateRankingSearchConfigMut({ id: u._id, body }).unwrap(),
-          "Cập nhật cấu hình tìm kiếm xếp hạng thành công."
+          "Cập nhật cấu hình tìm kiếm xếp hạng thành công.",
+          () =>
+            updateLocalUser(u._id, (draft) => {
+              draft.rankingSearchLimit = body.limit;
+              draft.rankingSearchUnlimited = body.unlimited;
+            }),
         );
       } catch (e) {
         // handled
@@ -485,6 +597,15 @@ export default function UsersPage() {
                       size="small"
                       color={u.role === "admin" ? "error" : "info"}
                       variant="outlined"
+                      sx={{ height: 20, fontSize: "0.7rem" }}
+                    />
+                  )}
+
+                  {targetIsSuperAdmin && (
+                    <Chip
+                      label="Super Admin"
+                      size="small"
+                      color="warning"
                       sx={{ height: 20, fontSize: "0.7rem" }}
                     />
                   )}
@@ -624,7 +745,7 @@ export default function UsersPage() {
             cursor: "pointer",
             "&:hover": { bgcolor: "action.hover" },
           }}
-          onClick={() => setExpanded(!expanded)}
+          onClick={toggleExpanded}
         >
           <Typography
             variant="caption"
@@ -661,18 +782,27 @@ export default function UsersPage() {
                   PHÂN QUYỀN &amp; CHẤM TRÌNH
                 </Typography>
                 <Stack spacing={2}>
-                  <FormControl size="small" fullWidth sx={{ bgcolor: "background.paper" }}>
+                  <FormControl
+                    size="small"
+                    fullWidth
+                    sx={{ bgcolor: "background.paper" }}
+                  >
                     <InputLabel>Role</InputLabel>
                     <Select
                       label="Role"
                       value={u.role}
+                      disabled={!canManageSuperAdmin && targetIsSuperAdmin}
                       onChange={(e) =>
                         handle(
                           updateRoleMut({
                             id: u._id,
                             role: e.target.value,
                           }).unwrap(),
-                          "Đã cập nhật role"
+                          "Đã cập nhật role",
+                          () =>
+                            updateLocalUser(u._id, (draft) => {
+                              draft.role = e.target.value;
+                            }),
                         )
                       }
                     >
@@ -694,9 +824,9 @@ export default function UsersPage() {
                     <Checkbox
                       size="small"
                       checked={isFull}
-                      onChange={(e) =>
-                        toggleAdminEvaluator(u._id, e.target.checked)
-                      }
+                      onChange={(e) => {
+                        toggleAdminEvaluator(u._id, e.target.checked);
+                      }}
                     />
                     <Box>
                       <Typography variant="body2" fontWeight={600}>
@@ -707,6 +837,36 @@ export default function UsersPage() {
                       </Typography>
                     </Box>
                   </Paper>
+                  {canManageSuperAdmin && (
+                    <Paper
+                      variant="outlined"
+                      sx={{
+                        p: 1,
+                        bgcolor: "background.paper",
+                        display: "flex",
+                        alignItems: "center",
+                      }}
+                    >
+                      <Checkbox
+                        size="small"
+                        checked={targetIsSuperAdmin}
+                        disabled={isSelf && targetIsSuperAdmin}
+                        onChange={(e) => {
+                          toggleSuperAdmin(u._id, e.target.checked);
+                        }}
+                      />
+                      <Box>
+                        <Typography variant="body2" fontWeight={600}>
+                          Super admin
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {isSelf && targetIsSuperAdmin
+                            ? "Cannot remove your own super admin role."
+                            : "Full admin area access, including group/PO structure."}
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  )}
                 </Stack>
               </Grid>
 
@@ -722,7 +882,10 @@ export default function UsersPage() {
                   QUOTA TÌM KIẾM
                 </Typography>
 
-                <Paper variant="outlined" sx={{ p: 1.5, bgcolor: "background.paper" }}>
+                <Paper
+                  variant="outlined"
+                  sx={{ p: 1.5, bgcolor: "background.paper" }}
+                >
                   <Stack
                     direction={{ xs: "column", sm: "row" }}
                     spacing={1.5}
@@ -764,6 +927,53 @@ export default function UsersPage() {
                       Lưu
                     </Button>
                   </Stack>
+                </Paper>
+
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  fontWeight={600}
+                  display="block"
+                  mb={1}
+                  mt={2}
+                >
+                  CÀI ĐẶT THÔNG BÁO PUSH
+                </Typography>
+
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 1,
+                    bgcolor: "background.paper",
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                >
+                  <Checkbox
+                    size="small"
+                    checked={u.isPushNotificationEnabled !== false}
+                    onChange={(e) =>
+                      handle(
+                        updateInfoMut({
+                          id: u._id,
+                          body: { isPushNotificationEnabled: e.target.checked },
+                        }).unwrap(),
+                        "Đã cập nhật cài đặt thông báo push",
+                        () =>
+                          updateLocalUser(u._id, (draft) => {
+                            draft.isPushNotificationEnabled = e.target.checked;
+                          }),
+                      )
+                    }
+                  />
+                  <Box>
+                    <Typography variant="body2" fontWeight={600}>
+                      Nhận thông báo Push
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Cho phép gửi thông báo đẩy đến các thiết bị của người dùng
+                    </Typography>
+                  </Box>
                 </Paper>
               </Grid>
             </Grid>
@@ -817,6 +1027,55 @@ export default function UsersPage() {
           Quản lý người dùng
         </Typography>
       </Stack>
+
+      {/* SYSTEM SETTINGS BAR */}
+      <Paper
+        elevation={0}
+        sx={{
+          p: 2,
+          mb: 3,
+          border: "1px solid",
+          borderColor: "divider",
+          borderRadius: 2,
+          bgcolor: "background.paper",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <Box>
+          <Typography variant="subtitle1" fontWeight={700}>
+            Cài đặt hệ thống
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Bật/tắt thông báo đẩy cho toàn bộ người dùng trên hệ thống.
+          </Typography>
+        </Box>
+        <FormControlLabel
+          control={
+            <Checkbox
+              checked={sysSettings?.notifications?.systemPushEnabled !== false}
+              onChange={(e) =>
+                handle(
+                  updateSystemSettingsMut({
+                    notifications: {
+                      ...sysSettings?.notifications,
+                      systemPushEnabled: e.target.checked,
+                    },
+                  }).unwrap(),
+                  "Đã cập nhật cấu hình thông báo hệ thống",
+                  () => {}, // system settings update no-op skip user refetch
+                )
+              }
+            />
+          }
+          label={
+            sysSettings?.notifications?.systemPushEnabled !== false
+              ? "Đang bật Push"
+              : "Đã tắt Push"
+          }
+        />
+      </Paper>
 
       {/* FILTER BAR */}
       <Paper
@@ -1042,7 +1301,10 @@ export default function UsersPage() {
                 </Grid>
 
                 <Grid size={{ xs: 12 }}>
-                  <Paper variant="outlined" sx={{ p: 2, bgcolor: "background.paper" }}>
+                  <Paper
+                    variant="outlined"
+                    sx={{ p: 2, bgcolor: "background.paper" }}
+                  >
                     <Stack
                       direction="row"
                       alignItems="center"
@@ -1140,7 +1402,11 @@ export default function UsersPage() {
                 onClick={() =>
                   handle(
                     reviewKycMut({ id: kyc._id, action: "reject" }).unwrap(),
-                    "Đã từ chối KYC"
+                    "Đã từ chối KYC",
+                    () =>
+                      updateLocalUser(kyc._id, (draft) => {
+                        draft.cccdStatus = "rejected";
+                      }),
                   ).then(() => setKyc(null))
                 }
               >
@@ -1153,7 +1419,11 @@ export default function UsersPage() {
                 onClick={() =>
                   handle(
                     reviewKycMut({ id: kyc._id, action: "approve" }).unwrap(),
-                    "Đã duyệt KYC"
+                    "Đã duyệt KYC",
+                    () =>
+                      updateLocalUser(kyc._id, (draft) => {
+                        draft.cccdStatus = "verified";
+                      }),
                   ).then(() => setKyc(null))
                 }
               >
@@ -1216,7 +1486,7 @@ export default function UsersPage() {
                       label="Giới tính"
                       value={
                         ["male", "female", "unspecified", "other"].includes(
-                          edit.gender
+                          edit.gender,
                         )
                           ? edit.gender
                           : "unspecified"
@@ -1278,19 +1548,34 @@ export default function UsersPage() {
                 </FormControl>
 
                 {/* Hide from Rankings Section */}
-                <Paper variant="outlined" sx={{ p: 2, bgcolor: "background.default" }}>
+                <Paper
+                  variant="outlined"
+                  sx={{ p: 2, bgcolor: "background.default" }}
+                >
                   <FormControlLabel
                     control={
                       <Checkbox
                         checked={!!edit.isHiddenFromRankings}
-                        onChange={(e) => setEdit({ ...edit, isHiddenFromRankings: e.target.checked })}
+                        onChange={(e) =>
+                          setEdit({
+                            ...edit,
+                            isHiddenFromRankings: e.target.checked,
+                          })
+                        }
                       />
                     }
                     label={
                       <Box>
-                        <Typography fontWeight={600}>Ẩn khỏi Bảng xếp hạng</Typography>
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          Người dùng này sẽ không hiển thị trên danh sách bảng xếp hạng công khai.
+                        <Typography fontWeight={600}>
+                          Ẩn khỏi Bảng xếp hạng
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          display="block"
+                        >
+                          Người dùng này sẽ không hiển thị trên danh sách bảng
+                          xếp hạng công khai.
                         </Typography>
                       </Box>
                     }
@@ -1298,7 +1583,10 @@ export default function UsersPage() {
                 </Paper>
 
                 {/* Change Password Section */}
-                <Paper variant="outlined" sx={{ p: 2, bgcolor: "background.default" }}>
+                <Paper
+                  variant="outlined"
+                  sx={{ p: 2, bgcolor: "background.default" }}
+                >
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -1362,7 +1650,8 @@ export default function UsersPage() {
                               id: edit._id,
                               body: { newPassword: newPass },
                             }).unwrap(),
-                            "Đã đổi mật khẩu thành công"
+                            "Đã đổi mật khẩu thành công",
+                            () => {}, // no-op skip user refetch
                           ).then(() => {
                             setChangePass(false);
                             setNewPass("");
@@ -1406,7 +1695,28 @@ export default function UsersPage() {
                         isHiddenFromRankings: !!edit.isHiddenFromRankings,
                       },
                     }).unwrap(),
-                    "Đã cập nhật thông tin"
+                    "Đã cập nhật thông tin",
+                    () =>
+                      updateLocalUser(edit._id, (draft) => {
+                        Object.assign(draft, {
+                          name: edit.name,
+                          nickname: edit.nickname,
+                          phone: edit.phone,
+                          email: edit.email,
+                          cccd: edit.cccd,
+                          dob: edit.dob,
+                          gender: [
+                            "male",
+                            "female",
+                            "unspecified",
+                            "other",
+                          ].includes(edit.gender)
+                            ? edit.gender
+                            : "unspecified",
+                          province: edit.province,
+                          isHiddenFromRankings: !!edit.isHiddenFromRankings,
+                        });
+                      }),
                   ).then(() => setEdit(null))
                 }
               >
@@ -1446,7 +1756,7 @@ export default function UsersPage() {
             color="error"
             onClick={() =>
               handle(deleteUserMut(del._id).unwrap(), "Đã xoá người dùng").then(
-                () => setDel(null)
+                () => setDel(null),
               )
             }
           >
@@ -1510,7 +1820,12 @@ export default function UsersPage() {
                       single: Number(score.single),
                       double: Number(score.double),
                     }).unwrap(),
-                    "Đã cập nhật điểm"
+                    "Đã cập nhật điểm",
+                    () =>
+                      updateLocalUser(score._id, (draft) => {
+                        draft.single = Number(score.single);
+                        draft.double = Number(score.double);
+                      }),
                   ).then(() => setScore(null))
                 }
               >
@@ -1595,7 +1910,11 @@ export default function UsersPage() {
                     <Paper
                       key={log._id}
                       variant="outlined"
-                      sx={{ p: 2, bgcolor: "background.paper", borderRadius: 2 }}
+                      sx={{
+                        p: 2,
+                        bgcolor: "background.paper",
+                        borderRadius: 2,
+                      }}
                     >
                       <Stack
                         direction={{ xs: "column", sm: "row" }}
@@ -1710,7 +2029,12 @@ export default function UsersPage() {
             </DialogContent>
 
             <DialogActions
-              sx={{ px: 3, py: 2, borderTop: "1px solid", borderColor: "divider" }}
+              sx={{
+                px: 3,
+                py: 2,
+                borderTop: "1px solid",
+                borderColor: "divider",
+              }}
             >
               <Typography
                 variant="caption"

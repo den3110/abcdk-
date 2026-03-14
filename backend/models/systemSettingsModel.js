@@ -34,6 +34,7 @@ const SystemSettingsSchema = new mongoose.Schema(
     notifications: {
       telegramEnabled: { type: Boolean, default: false },
       telegramComplaintChatId: { type: String, default: "" },
+      systemPushEnabled: { type: Boolean, default: true },
     },
 
     links: {

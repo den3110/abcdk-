@@ -212,6 +212,10 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isPushNotificationEnabled: {
+      type: Boolean,
+      default: true,
+    },
 
     /* ------- (ĐÃ BỎ) Login tracking ra model riêng ------- */
     // lastLoginAt: { type: Date }

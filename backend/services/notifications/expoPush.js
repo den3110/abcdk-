@@ -2,6 +2,7 @@
 import { Expo } from "expo-server-sdk";
 import PushToken from "../../models/pushTokenModel.js";
 import dotenv from "dotenv";
+import SystemSettings from "../../models/systemSettingsModel.js";
 dotenv.config();
 
 const expo = new Expo({
@@ -339,6 +340,12 @@ export async function sendToTokens(
   if (!tokensOrRows.length)
     return { tickets: [], ticketResults: [], receiptResults: [] };
 
+  const sys = await SystemSettings.findById("system").lean();
+  if (sys?.notifications?.systemPushEnabled === false) {
+    log("info", "sendToTokens: aborted because systemPushEnabled is false");
+    return { tickets: [], ticketResults: [], receiptResults: [] };
+  }
+
   log("info", "sendToTokens: start", { count: tokensOrRows.length });
 
   // Nhóm theo project để không trộn DEV/PROD/white-label trong cùng request
@@ -365,6 +372,12 @@ export async function sendToUserIds(userIds = [], basePayload = {}, opts = {}) {
   if (!userIds.length)
     return { tokens: 0, tickets: [], ticketResults: [], receiptResults: [] };
 
+  const sys = await SystemSettings.findById("system").lean();
+  if (sys?.notifications?.systemPushEnabled === false) {
+    log("info", "sendToUserIds: aborted because systemPushEnabled is false");
+    return { tokens: 0, tickets: [], ticketResults: [], receiptResults: [] };
+  }
+
   log("info", "sendToUserIds: load tokens", { users: userIds.length });
 
   // Lấy kèm metadata để group theo project
@@ -372,8 +385,9 @@ export async function sendToUserIds(userIds = [], basePayload = {}, opts = {}) {
     user: { $in: userIds },
     enabled: true,
   })
+    .populate("user", "isPushNotificationEnabled")
     .select(
-      "token platform easProjectId projectId experienceId appId bundleId androidPackage buildChannel"
+      "token platform easProjectId projectId experienceId appId bundleId androidPackage buildChannel user"
     )
     .lean();
 
@@ -381,6 +395,7 @@ export async function sendToUserIds(userIds = [], basePayload = {}, opts = {}) {
   const seen = new Set();
   const uniqueRows = [];
   for (const r of rows) {
+    if (r.user && r.user.isPushNotificationEnabled === false) continue;
     if (!r?.token || seen.has(r.token)) continue;
     seen.add(r.token);
     uniqueRows.push(r);

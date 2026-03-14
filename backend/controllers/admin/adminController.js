@@ -8,6 +8,10 @@ import {
 } from "../../services/notifications/notificationHub.js";
 import mongoose from "mongoose";
 
+const isSuperAdminActor = (req) =>
+  Boolean(req.user?.isSuperUser || req.user?.isSuperAdmin);
+
+
 /**
  * GET  /api/admin/users
  * Query: page=1 keyword=abc role=user|referee|admin
@@ -50,18 +54,75 @@ export const updateUserRole = asyncHandler(async (req, res) => {
   const { role } = req.body;
   if (!["user", "referee", "admin"].includes(role)) {
     res.status(400);
-    throw new Error("Role không hợp lệ");
+    throw new Error("Role khong hop le");
   }
 
   const user = await User.findById(req.params.id);
   if (!user) {
     res.status(404);
-    throw new Error("User không tồn tại");
+    throw new Error("User khong ton tai");
+  }
+
+  const actorIsSuper = isSuperAdminActor(req);
+  if (user.isSuperUser && !actorIsSuper) {
+    res.status(403);
+    throw new Error("Chi super admin moi duoc sua role cua super admin");
+  }
+
+  if (user.isSuperUser && role !== "admin") {
+    res.status(400);
+    throw new Error("Super admin phai co role admin");
   }
 
   user.role = role;
   await user.save();
-  res.json({ message: "Cập nhật role thành công", role: user.role });
+  res.json({
+    message: "Cap nhat role thanh cong",
+    role: user.role,
+    isSuperUser: Boolean(user.isSuperUser),
+  });
+});
+
+export const updateUserSuperAdmin = asyncHandler(async (req, res) => {
+  const actorIsSuper = isSuperAdminActor(req);
+  if (!actorIsSuper) {
+    res.status(403);
+    throw new Error("Chi super admin moi duoc cap quyen super admin");
+  }
+
+  const { isSuperUser } = req.body || {};
+  if (typeof isSuperUser !== "boolean") {
+    res.status(400);
+    throw new Error("isSuperUser phai la boolean");
+  }
+
+  const user = await User.findById(req.params.id);
+  if (!user) {
+    res.status(404);
+    throw new Error("User khong ton tai");
+  }
+
+  if (String(user._id) === String(req.user?._id) && isSuperUser === false) {
+    res.status(400);
+    throw new Error("Khong the tu go quyen super admin cua chinh minh");
+  }
+
+  user.isSuperUser = isSuperUser;
+  if (isSuperUser && user.role !== "admin") user.role = "admin";
+
+  await user.save();
+
+  res.json({
+    message: isSuperUser
+      ? "Da thang cap super admin"
+      : "Da go quyen super admin",
+    user: {
+      _id: user._id,
+      role: user.role,
+      isSuperUser: Boolean(user.isSuperUser),
+      isSuperAdmin: Boolean(user.isSuperUser),
+    },
+  });
 });
 
 /**
@@ -98,6 +159,7 @@ export const updateUserInfo = asyncHandler(async (req, res) => {
     "province",
     "cccd",
     "isHiddenFromRankings",
+    "isPushNotificationEnabled",
   ];
 
   let rankingUpdateNeeded = false;
@@ -203,3 +265,4 @@ export const reviewUserKyc = asyncHandler(async (req, res) => {
 
   return res.json({ message: "KYC updated", status: user.cccdStatus });
 });
+

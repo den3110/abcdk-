@@ -6,6 +6,7 @@ import Match from "../../models/matchModel.js";
 import Tournament from "../../models/tournamentModel.js";
 import { sendToTokens } from "./expoPush.js";
 import { asId } from "../../utils/ids.js";
+import SystemSettings from "../../models/systemSettingsModel.js";
 
 /** ───── Audience resolvers ───── */
 const audienceResolvers = {
@@ -129,13 +130,23 @@ export async function emitNotification(eventType, ctx = {}, sendOpts = {}) {
     throw new Error(`Unsupported eventType: ${eventType}`);
   }
 
+  const sys = await SystemSettings.findById("system").lean();
+  if (sys?.notifications?.systemPushEnabled === false) {
+    return { sent: 0, tokens: 0, tickets: [] };
+  }
+
   const userIds = await resolveAudience(ctx);
   if (userIds.length === 0) return { sent: 0, tokens: 0, tickets: [] };
 
   const rows = await PushToken.find({ user: { $in: userIds }, enabled: true })
-    .select("token")
+    .populate("user", "isPushNotificationEnabled")
+    .select("token user")
     .lean();
-  const tokens = rows.map((r) => r.token);
+
+  const tokens = rows
+    .filter((r) => r.user?.isPushNotificationEnabled !== false)
+    .map((r) => r.token);
+
   if (!tokens.length) return { sent: userIds.length, tokens: 0, tickets: [] };
 
   const payload = await buildPayload(ctx);
@@ -162,6 +173,11 @@ export async function broadcastToAllTokens(
   payload = {},
   sendOpts = {}
 ) {
+  const sys = await SystemSettings.findById("system").lean();
+  if (sys?.notifications?.systemPushEnabled === false) {
+    return { summary: { tokens: 0, ok: 0, error: 0 }, tickets: [] };
+  }
+
   const q = { enabled: true };
   if (platform) q.platform = platform;
 
@@ -170,7 +186,10 @@ export async function broadcastToAllTokens(
   if (maxVersion) q.appVersion = { ...(q.appVersion || {}), $lte: maxVersion };
 
   // Duyệt theo cursor để không ăn nhiều RAM khi tập lớn
-  const cursor = PushToken.find(q).select("token").cursor();
+  const cursor = PushToken.find(q)
+    .populate("user", "isPushNotificationEnabled")
+    .select("token user")
+    .cursor();
 
   let batch = [];
   const BATCH_SIZE = 200; // tuỳ chỉnh
@@ -178,6 +197,7 @@ export async function broadcastToAllTokens(
   let tokensCount = 0;
 
   for await (const doc of cursor) {
+    if (doc.user && doc.user.isPushNotificationEnabled === false) continue;
     if (!doc?.token) continue;
     batch.push(doc.token);
     if (batch.length >= BATCH_SIZE) {

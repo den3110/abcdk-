@@ -6,11 +6,13 @@ import {
   deleteUser,
   reviewUserKyc,
   updateUserInfo,
+  updateUserSuperAdmin,
 } from "../controllers/admin/adminController.js";
 import {
   protect,
   authorize,
   isManagerTournament,
+  requireSuperAdmin,
 } from "../middleware/authMiddleware.js";
 import { adminLogin } from "../controllers/admin/adminAuthController.js";
 import {
@@ -248,6 +250,7 @@ router.use(protect, authorize("admin")); // tất cả dưới đây cần admin
 router.get("/users", getUsersWithRank);
 router.post("/users", adminCreateUser);
 router.put("/users/:id/role", updateUserRole);
+router.patch("/users/:id/super-admin", requireSuperAdmin, updateUserSuperAdmin);
 router.delete("/users/:id", deleteUser);
 router.put("/users/:id", updateUserInfo);
 router.put("/users/:id/kyc", reviewUserKyc); // approve / reject
@@ -343,6 +346,7 @@ router.post(
   "/brackets/:bid/slot-plan/bulk-assign",
   protect,
   authorize("admin"),
+  requireSuperAdmin,
   bulkAssignSlotPlan
 );
 
@@ -744,6 +748,7 @@ router.post(
   "/brackets/:bid/po-plan/bulk-assign",
   protect,
   authorize("admin"),
+  requireSuperAdmin,
   bulkAssignPoPlan
 );
 
@@ -777,3 +782,5 @@ router.patch(
 
 
 export default router;
+
+
