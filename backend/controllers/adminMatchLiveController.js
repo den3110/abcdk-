@@ -2117,6 +2117,9 @@ export const createFacebookLiveForMatch = async (req, res) => {
     );
 
     for (const candidatePage of candidatePages) {
+      const currentPageId = candidatePage.pageId;
+      let reserved = false;
+      let ok = false;
       try {
         console.log(
           `[FB Live] Đang thử page: ${
@@ -2124,7 +2127,31 @@ export const createFacebookLiveForMatch = async (req, res) => {
           }`
         );
 
-        const currentPageId = candidatePage.pageId;
+        const sameMatchBusy =
+          candidatePage.isBusy &&
+          candidatePage.busyMatch &&
+          String(candidatePage.busyMatch) === String(match._id);
+
+        if (!sameMatchBusy) {
+          const claimed = await FacebookPage.findOneAndUpdate(
+            {
+              _id: candidatePage._id,
+              isBusy: false,
+              needsReauth: false,
+              disabled: { $ne: true },
+            },
+            {
+              $set: {
+                isBusy: true,
+                busyMatch: match._id,
+                busySince: new Date(),
+              },
+            },
+            { new: true }
+          );
+          if (!claimed) continue;
+          reserved = true;
+        }
 
         let currentPageAccessToken;
         try {
@@ -2163,6 +2190,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
         live = currentLive;
         liveId = currentLiveId;
         liveInfo = currentLiveInfo;
+        ok = true;
 
         console.log(
           `[FB Live] ✅ Tạo live thành công trên page: ${
@@ -2189,6 +2217,24 @@ export const createFacebookLiveForMatch = async (req, res) => {
         });
 
         continue;
+      } finally {
+        if (reserved && !ok) {
+          await FacebookPage.updateOne(
+            {
+              pageId: currentPageId,
+              isBusy: true,
+              busyMatch: match._id,
+              busyLiveVideoId: null,
+            },
+            {
+              $set: {
+                isBusy: false,
+                busyMatch: null,
+                busySince: null,
+              },
+            }
+          ).catch(() => {});
+        }
       }
     }
 

@@ -5,11 +5,23 @@ import LiveSession from "../models/liveSessionModel.js";
 import { PROVIDERS } from "./liveProviders/index.js";
 import { withRetry } from "./retry.service.js";
 import IORedis from "ioredis";
-import Redlock from "redlock";
 import { getCfgInt } from "./config.service.js";
+import { randomUUID } from "crypto";
 
 const redis = process.env.REDIS_URL ? new IORedis(process.env.REDIS_URL) : null;
-const redlock = redis ? new Redlock([redis], { retryCount: 0 }) : null;
+
+const RELEASE_LOCK_LUA =
+  "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+
+async function acquireRedisLock(key, ttlMs) {
+  if (!redis) return null;
+  const token = randomUUID();
+  const ok = await redis.set(key, token, "PX", ttlMs, "NX").catch(() => null);
+  if (ok !== "OK") return null;
+  return async () => {
+    await redis.eval(RELEASE_LOCK_LUA, 1, key, token).catch(() => {});
+  };
+}
 
 function isBusyError(err) {
   const m = (
@@ -89,10 +101,7 @@ export async function createLiveForMatchMulti({
     crossProviderExclusive: !!policy?.constraints?.crossProviderExclusive,
   };
 
-  const lockKey = redis ? `lock:live:create:${match._id}` : null;
-  const lock = redlock
-    ? await redlock.acquire([lockKey], 10000).catch(() => null)
-    : null;
+  const releaseLock = await acquireRedisLock(`lock:live:create:${match._id}`, 10000);
 
   try {
     const candidates = await pickCandidateChannels({ match, providersWanted });
@@ -203,6 +212,6 @@ export async function createLiveForMatchMulti({
     err.detail = detail;
     throw err;
   } finally {
-    if (lock) await lock.release().catch(() => {});
+    if (releaseLock) await releaseLock();
   }
 }

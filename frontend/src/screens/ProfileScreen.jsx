@@ -63,9 +63,16 @@ import {
 import { logout } from "../slices/authSlice";
 import CccdDropzone from "../components/CccdDropzone";
 import { useThemeMode } from "../context/ThemeContext";
+import { useLanguage } from "../context/LanguageContext";
+import { getDateInputFormat } from "../i18n/format";
+import {
+  getGenderLabel,
+  getGenderOptions,
+  getKycMeta,
+  getProvincePlaceholder,
+} from "../i18n/uiOptions";
 
 import dayjs from "dayjs";
-import "dayjs/locale/vi";
 import { LocalizationProvider } from "@mui/x-date-pickers/LocalizationProvider";
 import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
@@ -142,13 +149,6 @@ const PROVINCES = [
   "Yên Bái",
 ];
 
-const GENDER_OPTIONS = [
-  { value: "unspecified", label: "Chưa xác định" },
-  { value: "male", label: "Nam" },
-  { value: "female", label: "Nữ" },
-  { value: "other", label: "Khác" },
-];
-
 const EMPTY = {
   name: "",
   nickname: "",
@@ -163,41 +163,18 @@ const EMPTY = {
   avatar: "",
 };
 
-const KYC_META = {
-  unverified: {
-    label: "Chưa xác minh",
-    chipColor: "default",
-    accent: "#64748b",
-    Icon: PendingIcon,
-    description: "Điền đủ CCCD và tải đủ hai mặt ảnh để gửi duyệt.",
-  },
-  pending: {
-    label: "Đang chờ duyệt",
-    chipColor: "warning",
-    accent: "#f59e0b",
-    Icon: PendingIcon,
-    description: "Hồ sơ đã được gửi và đang chờ đội ngũ kiểm tra.",
-  },
-  verified: {
-    label: "Đã xác minh",
-    chipColor: "success",
-    accent: "#10b981",
-    Icon: VerifiedUserIcon,
-    description: "CCCD đã được xác minh và hiện đã khóa chỉnh sửa.",
-  },
-  rejected: {
-    label: "Bị từ chối",
-    chipColor: "error",
-    accent: "#ef4444",
-    Icon: GppBadIcon,
-    description: "Bạn có thể cập nhật lại thông tin và gửi ảnh mới.",
-  },
+const KYC_STATUS_ICONS = {
+  unverified: PendingIcon,
+  pending: PendingIcon,
+  verified: VerifiedUserIcon,
+  rejected: GppBadIcon,
 };
 
-const formatDisplayDate = (value, format = "DD/MM/YYYY") => {
-  if (!value) return "Chưa cập nhật";
+const formatDisplayDate = (value, language, fallback) => {
+  const format = getDateInputFormat(language);
+  if (!value) return fallback;
   const parsed = dayjs(value);
-  return parsed.isValid() ? parsed.format(format) : "Chưa cập nhật";
+  return parsed.isValid() ? parsed.format(format) : fallback;
 };
 
 function HeroMetric({ label, value, caption }) {
@@ -344,6 +321,7 @@ function SummaryRow({ icon, label, value }) {
 
 function ProfileSkeleton({ onLogout }) {
   const theme = useTheme();
+  const { t } = useLanguage();
 
   return (
     <Container maxWidth="xl" sx={{ py: { xs: 3, md: 5 } }}>
@@ -435,7 +413,7 @@ function ProfileSkeleton({ onLogout }) {
               onClick={onLogout}
               sx={{ borderRadius: 3, py: 1.25 }}
             >
-              Đăng xuất
+              {t("profile.hero.logout")}
             </Button>
           </Paper>
         </Grid>
@@ -477,6 +455,10 @@ export default function ProfileScreen() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark, toggleTheme } = useThemeMode();
+  const { language, t } = useLanguage();
+  const genderOptions = useMemo(() => getGenderOptions(t), [t]);
+  const kycMetaMap = useMemo(() => getKycMeta(t), [t]);
+  const provincePlaceholder = useMemo(() => getProvincePlaceholder(t), [t]);
 
   const cccdSectionRef = useRef(null);
   const HEADER_OFFSET = 72;
@@ -546,7 +528,7 @@ export default function ProfileScreen() {
       setSnack({
         open: true,
         type: "error",
-        msg: err?.data?.message || "Đăng xuất thất bại",
+        msg: err?.data?.message || t("profile.logout.failed"),
       });
       setLogoutConfirmOpen(false);
     }
@@ -594,52 +576,52 @@ export default function ProfileScreen() {
   const validate = (data) => {
     const nextErrors = {};
 
-    if (!data.name.trim()) nextErrors.name = "Không được bỏ trống";
-    else if (data.name.trim().length < 2) nextErrors.name = "Tối thiểu 2 ký tự";
+    if (!data.name.trim()) nextErrors.name = t("profile.validation.empty");
+    else if (data.name.trim().length < 2) nextErrors.name = t("profile.validation.min2");
 
-    if (!data.nickname.trim()) nextErrors.nickname = "Không được bỏ trống";
+    if (!data.nickname.trim()) nextErrors.nickname = t("profile.validation.empty");
     else if (data.nickname.trim().length < 2) {
-      nextErrors.nickname = "Tối thiểu 2 ký tự";
+      nextErrors.nickname = t("profile.validation.min2");
     }
 
     if (!/^0\d{9}$/.test(data.phone.trim())) {
-      nextErrors.phone = "Sai định dạng (10 chữ số)";
+      nextErrors.phone = t("profile.validation.invalidPhone");
     }
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email.trim())) {
-      nextErrors.email = "Email không hợp lệ";
+      nextErrors.email = t("profile.validation.invalidEmail");
     }
 
     if (data.dob) {
       const day = new Date(data.dob);
-      if (Number.isNaN(day)) nextErrors.dob = "Ngày sinh không hợp lệ";
-      else if (day > new Date()) nextErrors.dob = "Không được ở tương lai";
+      if (Number.isNaN(day)) nextErrors.dob = t("profile.validation.invalidDob");
+      else if (day > new Date()) nextErrors.dob = t("profile.validation.futureDob");
       else if (new Date(data.dob) < new Date("1940-01-01")) {
-        nextErrors.dob = "Không trước 01/01/1940";
+        nextErrors.dob = t("profile.validation.minDob");
       }
     }
 
-    if (!data.province) nextErrors.province = "Bắt buộc";
+    if (!data.province) nextErrors.province = t("profile.validation.provinceRequired");
 
     if (data.cccd && !/^\d{12}$/.test(data.cccd.trim())) {
-      nextErrors.cccd = "CCCD phải đủ 12 số";
+      nextErrors.cccd = t("profile.validation.invalidCccd");
     }
 
     if (changePassword) {
-      if (!data.password) nextErrors.password = "Vui lòng nhập mật khẩu mới";
+      if (!data.password) nextErrors.password = t("profile.validation.passwordRequired");
       else if (data.password.length < 6) {
-        nextErrors.password = "Tối thiểu 6 ký tự";
+        nextErrors.password = t("profile.validation.passwordMin");
       }
 
       if (!data.confirmPassword) {
-        nextErrors.confirmPassword = "Vui lòng nhập lại mật khẩu";
+        nextErrors.confirmPassword = t("profile.validation.confirmPasswordRequired");
       } else if (data.password !== data.confirmPassword) {
-        nextErrors.confirmPassword = "Không khớp";
+        nextErrors.confirmPassword = t("profile.validation.passwordMismatch");
       }
     }
 
     if (!["male", "female", "unspecified", "other"].includes(data.gender)) {
-      nextErrors.gender = "Giới tính không hợp lệ";
+      nextErrors.gender = t("profile.validation.invalidGender");
     }
 
     return nextErrors;
@@ -688,7 +670,7 @@ export default function ProfileScreen() {
       setSnack({
         open: true,
         type: "error",
-        msg: "Vui lòng kiểm tra lại thông tin!",
+        msg: t("profile.feedback.reviewInfo"),
       });
       return;
     }
@@ -697,7 +679,7 @@ export default function ProfileScreen() {
       setSnack({
         open: true,
         type: "info",
-        msg: "Bạn chưa thay đổi thông tin nào.",
+        msg: t("profile.feedback.noChanges"),
       });
       return;
     }
@@ -709,7 +691,7 @@ export default function ProfileScreen() {
           setSnack({
             open: true,
             type: "error",
-            msg: "Ảnh không được vượt quá 10 MB.",
+            msg: t("profile.feedback.avatarTooLarge"),
           });
           return;
         }
@@ -733,13 +715,13 @@ export default function ProfileScreen() {
       setSnack({
         open: true,
         type: "success",
-        msg: "Cập nhật hồ sơ thành công!",
+        msg: t("profile.feedback.updateSuccess"),
       });
     } catch (err) {
       setSnack({
         open: true,
         type: "error",
-        msg: err?.data?.message || err?.error || "Cập nhật thất bại",
+        msg: err?.data?.message || err?.error || t("profile.feedback.updateFailed"),
       });
     }
   };
@@ -750,7 +732,7 @@ export default function ProfileScreen() {
       setSnack({
         open: true,
         type: "error",
-        msg: "Vui lòng nhập số CCCD hợp lệ (12 số) trước khi gửi ảnh.",
+        msg: t("profile.feedback.cccdInvalidBeforeUpload"),
       });
       return;
     }
@@ -767,13 +749,13 @@ export default function ProfileScreen() {
       setSnack({
         open: true,
         type: "success",
-        msg: "Đã gửi ảnh, vui lòng chờ xác minh.",
+        msg: t("profile.feedback.cccdUploadSuccess"),
       });
     } catch (err) {
       setSnack({
         open: true,
         type: "error",
-        msg: err?.data?.message || "Upload thất bại",
+        msg: err?.data?.message || t("profile.feedback.cccdUploadFailed"),
       });
     }
   };
@@ -785,7 +767,7 @@ export default function ProfileScreen() {
       setSnack({
         open: true,
         type: "error",
-        msg: "Ảnh quá lớn (>10MB).",
+        msg: t("profile.feedback.avatarTooLarge"),
       });
       return;
     }
@@ -833,7 +815,7 @@ export default function ProfileScreen() {
           sx={{ mb: 1 }}
         >
           <Typography variant="h6" fontWeight={800}>
-            Xác nhận đăng xuất
+            {t("profile.logout.title")}
           </Typography>
           <IconButton onClick={closeLogoutConfirm} disabled={isLoggingOut}>
             <CloseIcon />
@@ -841,12 +823,12 @@ export default function ProfileScreen() {
         </Stack>
 
         <Typography color="text.secondary" sx={{ mb: 2 }}>
-          Bạn có chắc muốn đăng xuất không?
+          {t("profile.logout.body")}
         </Typography>
 
         <Stack direction="row" spacing={1.2} justifyContent="flex-end">
           <Button variant="outlined" onClick={closeLogoutConfirm} disabled={isLoggingOut}>
-            Huỷ
+            {t("common.actions.cancel")}
           </Button>
           <Button
             variant="contained"
@@ -861,7 +843,7 @@ export default function ProfileScreen() {
               )
             }
           >
-            {isLoggingOut ? "Đang đăng xuất..." : "Đăng xuất"}
+            {isLoggingOut ? t("profile.logout.pending") : t("profile.hero.logout")}
           </Button>
         </Stack>
       </Box>
@@ -877,31 +859,34 @@ export default function ProfileScreen() {
     );
   }
 
-  const kycMeta = KYC_META[status] || KYC_META.unverified;
-  const KycStatusIcon = kycMeta.Icon;
+  const kycMeta = kycMetaMap[status] || kycMetaMap.unverified;
+  const KycStatusIcon = KYC_STATUS_ICONS[status] || PendingIcon;
   const saveDisabled = !isDirty || !isValid || isLoading || uploadingAvatar;
   const hasAvatar = Boolean(form.avatar || avatarPreview);
   const pendingUploads = [frontImg, backImg].filter(Boolean).length;
   const storedCccdImages = [frontUrl, backUrl].filter(Boolean).length;
   const cccdSummary =
     status === "verified"
-      ? "Đã xác minh"
+      ? t("profile.kyc.summary.verified")
       : status === "pending"
-      ? "Đang chờ duyệt"
+      ? t("profile.kyc.summary.pending")
       : pendingUploads > 0
-      ? `Đã chọn ${pendingUploads}/2 ảnh`
+      ? t("profile.kyc.summary.selectedImages", { count: pendingUploads })
       : storedCccdImages > 0
-      ? `Đã có ${storedCccdImages}/2 ảnh`
+      ? t("profile.kyc.summary.storedImages", { count: storedCccdImages })
       : isCccdValid
-      ? "Đã có số CCCD hợp lệ"
+      ? t("profile.kyc.summary.validNumber")
       : cccdTrim
-      ? "Số CCCD chưa hợp lệ"
-      : "Chưa có";
+      ? t("profile.kyc.summary.invalidNumber")
+      : t("profile.kyc.summary.empty");
   const profileCode = user?._id ? String(user._id).slice(-6).toUpperCase() : "------";
-  const memberSince = formatDisplayDate(user?.createdAt || user?.joinedAt);
-  const genderLabel =
-    GENDER_OPTIONS.find((option) => option.value === form.gender)?.label ||
-    "Chưa xác định";
+  const memberSince =
+    formatDisplayDate(
+      user?.createdAt || user?.joinedAt,
+      language,
+      t("common.states.notUpdated")
+    ) || t("common.states.notUpdated");
+  const genderLabel = getGenderLabel(t, form.gender);
   const hasFullCccdImages =
     pendingUploads === 2 ||
     storedCccdImages === 2 ||
@@ -909,17 +894,17 @@ export default function ProfileScreen() {
     status === "verified";
   const hasSubmittedKyc = status === "pending" || status === "verified";
   const completionItems = [
-    { label: "Họ và tên", done: Boolean(form.name.trim()) },
-    { label: "Biệt danh", done: Boolean(form.nickname.trim()) },
-    { label: "Số điện thoại", done: /^0\d{9}$/.test(form.phone.trim()) },
-    { label: "Email", done: Boolean(form.email.trim()) },
-    { label: "Ngày sinh", done: Boolean(form.dob) },
-    { label: "Tỉnh / Thành phố", done: Boolean(form.province) },
-    { label: "Giới tính", done: form.gender !== "unspecified" },
-    { label: "Ảnh đại diện", done: hasAvatar },
-    { label: "Số CCCD hợp lệ", done: isCccdValid },
-    { label: "Đủ 2 ảnh CCCD", done: hasFullCccdImages },
-    { label: "Đã gửi hồ sơ KYC", done: hasSubmittedKyc },
+    { label: t("profile.completionItems.name"), done: Boolean(form.name.trim()) },
+    { label: t("profile.completionItems.nickname"), done: Boolean(form.nickname.trim()) },
+    { label: t("profile.completionItems.phone"), done: /^0\d{9}$/.test(form.phone.trim()) },
+    { label: t("profile.completionItems.email"), done: Boolean(form.email.trim()) },
+    { label: t("profile.completionItems.dob"), done: Boolean(form.dob) },
+    { label: t("profile.completionItems.province"), done: Boolean(form.province) },
+    { label: t("profile.completionItems.gender"), done: form.gender !== "unspecified" },
+    { label: t("profile.completionItems.avatar"), done: hasAvatar },
+    { label: t("profile.completionItems.cccd"), done: isCccdValid },
+    { label: t("profile.completionItems.cccdImages"), done: hasFullCccdImages },
+    { label: t("profile.completionItems.kycSubmitted"), done: hasSubmittedKyc },
   ];
   const completionCount = completionItems.filter((item) => item.done).length;
   const profileCompletion = Math.round(
@@ -929,27 +914,27 @@ export default function ProfileScreen() {
   const kycAlert = {
     unverified: {
       severity: "info",
-      message: "Hoàn tất số CCCD và tải đủ hai mặt ảnh để bắt đầu quy trình xác minh.",
+      message: t("profile.kyc.alerts.unverified"),
     },
     pending: {
       severity: "warning",
-      message: "Yêu cầu của bạn đang được xử lý. Tạm thời chưa cần gửi lại ảnh.",
+      message: t("profile.kyc.alerts.pending"),
     },
     verified: {
       severity: "success",
-      message: "Hồ sơ KYC đã hoàn tất. Số CCCD hiện đã khóa để đảm bảo tính nhất quán.",
+      message: t("profile.kyc.alerts.verified"),
     },
     rejected: {
       severity: "error",
-      message: "Yêu cầu trước đó bị từ chối. Hãy cập nhật lại thông tin và ảnh rõ nét hơn.",
+      message: t("profile.kyc.alerts.rejected"),
     },
   }[status];
 
   return (
     <>
-      <SEOHead title="Hồ sơ cá nhân" noIndex={true} />
+      <SEOHead title={t("profile.seoTitle")} noIndex />
 
-      <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
+      <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale={language}>
         <Box
           sx={{
             minHeight: "100vh",
@@ -993,7 +978,7 @@ export default function ProfileScreen() {
                         letterSpacing: "0.16em",
                       }}
                     >
-                      HỒ SƠ CÁ NHÂN
+                      {t("profile.hero.title").toUpperCase()}
                     </Typography>
 
                     <Box>
@@ -1006,7 +991,7 @@ export default function ProfileScreen() {
                           maxWidth: 760,
                         }}
                       >
-                        Quản lý hồ sơ cá nhân
+                        {t("profile.hero.title")}
                       </Typography>
                       <Typography
                         variant="body1"
@@ -1016,8 +1001,7 @@ export default function ProfileScreen() {
                           color: "text.secondary",
                         }}
                       >
-                        Cập nhật thông tin cá nhân, bảo mật tài khoản và theo dõi trạng
-                        thái xác minh tại một nơi, gọn hơn và dễ thao tác hơn.
+                        {t("profile.hero.subtitle")}
                       </Typography>
                     </Box>
 
@@ -1040,7 +1024,11 @@ export default function ProfileScreen() {
                             <VerifiedUserIcon fontSize="small" />
                           )
                         }
-                        label={isDirty ? "Có thay đổi chưa lưu" : "Hồ sơ đã đồng bộ"}
+                        label={
+                          isDirty
+                            ? t("profile.summary.unsaved")
+                            : t("profile.summary.synced")
+                        }
                         sx={{
                           color: "text.primary",
                           bgcolor: alpha(theme.palette.primary.main, 0.06),
@@ -1054,26 +1042,26 @@ export default function ProfileScreen() {
                     <Grid container spacing={2}>
                       <Grid size={{ xs: 12, sm: 4 }}>
                         <HeroMetric
-                          label="Mức hoàn thiện"
+                          label={t("profile.summary.completion")}
                           value={`${profileCompletion}%`}
-                          caption={`${completionCount}/${completionItems.length} mục đã hoàn thiện`}
+                          caption={`${completionCount}/${completionItems.length} ${t("profile.summary.completion").toLowerCase()}`}
                         />
                       </Grid>
                       <Grid size={{ xs: 12, sm: 4 }}>
                         <HeroMetric
-                          label="Trạng thái KYC"
+                          label={t("profile.summary.kycStatus")}
                           value={kycMeta.label}
                           caption={kycMeta.description}
                         />
                       </Grid>
                       <Grid size={{ xs: 12, sm: 4 }}>
                         <HeroMetric
-                          label="Thay đổi chờ lưu"
-                          value={isDirty ? "Có" : "Không"}
+                          label={t("profile.summary.pendingChanges")}
+                          value={isDirty ? t("common.states.on") : t("common.states.off")}
                           caption={
                             isDirty
-                              ? "Nhấn lưu để áp dụng cập nhật mới."
-                              : "Không có chỉnh sửa nào đang treo."
+                              ? t("profile.savePanel.ready")
+                              : t("profile.summary.noChanges")
                           }
                         />
                       </Grid>
@@ -1158,7 +1146,7 @@ export default function ProfileScreen() {
                               fontSize: { xs: "1.3rem", md: "1.55rem" },
                             }}
                           >
-                            {form.name || "Người dùng PickleTour"}
+                            {form.name || "PickleTour"}
                           </Typography>
                           <Typography
                             variant="body2"
@@ -1171,7 +1159,7 @@ export default function ProfileScreen() {
                             noWrap
                             sx={{ color: "text.secondary", mt: 0.75 }}
                           >
-                            {form.email || "Chưa cập nhật email"}
+                            {form.email || t("common.states.notUpdated")}
                           </Typography>
                         </Box>
                       </Stack>
@@ -1198,17 +1186,17 @@ export default function ProfileScreen() {
                           icon: <CalendarMonthRoundedIcon fontSize="small" />,
                         },
                         {
-                          label: "Tỉnh thành",
-                          value: form.province || "Chưa chọn",
+                          label: t("publicProfile.labels.province"),
+                          value: form.province || provincePlaceholder,
                           icon: <PlaceRoundedIcon fontSize="small" />,
                         },
                         {
-                          label: "Điện thoại",
-                          value: form.phone || "Chưa cập nhật",
+                          label: t("profile.fields.phone"),
+                          value: form.phone || t("common.states.notUpdated"),
                           icon: <PhoneIphoneRoundedIcon fontSize="small" />,
                         },
                         {
-                          label: "Mã hồ sơ",
+                          label: t("profile.summary.profileCode"),
                           value: profileCode,
                           icon: <PersonRoundedIcon fontSize="small" />,
                         },
@@ -1268,7 +1256,7 @@ export default function ProfileScreen() {
                           "&:hover": { bgcolor: "primary.dark" },
                         }}
                       >
-                        Đi tới KYC
+                        {t("profile.sections.kycTitle")}
                       </Button>
 
                       {hasAvatar && (
@@ -1288,7 +1276,7 @@ export default function ProfileScreen() {
                             },
                           }}
                         >
-                          Gỡ ảnh
+                          {t("common.actions.delete")}
                         </Button>
                       )}
                     </Stack>
@@ -1321,10 +1309,10 @@ export default function ProfileScreen() {
                       }}
                     >
                       <Typography variant="h6" fontWeight={800}>
-                        Tình trạng tài khoản
+                        {t("publicProfile.labels.accountStatus")}
                       </Typography>
                       <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
-                        Theo dõi nhanh mức hoàn thiện và các hạng mục cần chú ý.
+                        {t("profile.hero.subtitle")}
                       </Typography>
 
                       <Box sx={{ mt: 2.5 }}>
@@ -1335,7 +1323,7 @@ export default function ProfileScreen() {
                           sx={{ mb: 1 }}
                         >
                           <Typography variant="body2" fontWeight={700}>
-                            Hồ sơ đã hoàn thiện
+                            {t("profile.summary.completion")}
                           </Typography>
                           <Typography variant="body2" fontWeight={800}>
                             {profileCompletion}%
@@ -1359,7 +1347,7 @@ export default function ProfileScreen() {
                           color="text.secondary"
                           sx={{ display: "block", mt: 1 }}
                         >
-                          {completionCount}/{completionItems.length} mục đang hoàn thiện
+                          {completionCount}/{completionItems.length} {t("profile.summary.completion").toLowerCase()}
                         </Typography>
                         <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1.5 }}>
                           {completionItems.map((item) => (
@@ -1387,19 +1375,21 @@ export default function ProfileScreen() {
                       <Grid container spacing={1.5} sx={{ mt: 0.5, mb: 3 }}>
                         {[
                           {
-                            label: "Ảnh đại diện",
-                            value: hasAvatar ? "Đã có" : "Chưa có",
+                            label: t("profile.completionItems.avatar"),
+                            value: hasAvatar ? t("common.states.on") : t("common.states.off"),
                           },
                           {
-                            label: "Bảo mật",
-                            value: changePassword ? "Sẽ đổi mật khẩu" : "Giữ nguyên",
+                            label: t("profile.sections.securityTitle"),
+                            value: changePassword
+                              ? t("profile.actions.enablePassword")
+                              : t("common.actions.default"),
                           },
                           {
-                            label: "Xác minh",
+                            label: t("profile.sections.kycTitle"),
                             value: kycMeta.label,
                           },
                           {
-                            label: "Dữ liệu CCCD",
+                            label: t("profile.fields.cccd"),
                             value: cccdSummary,
                           },
                         ].map((item) => (
@@ -1432,23 +1422,23 @@ export default function ProfileScreen() {
                       <Stack spacing={1.5}>
                         <SummaryRow
                           icon={<PersonRoundedIcon fontSize="small" />}
-                          label="Họ và tên"
-                          value={form.name || "Chưa cập nhật"}
+                          label={t("profile.fields.name")}
+                          value={form.name || t("common.states.notUpdated")}
                         />
                         <SummaryRow
                           icon={<MailOutlineRoundedIcon fontSize="small" />}
-                          label="Email đăng nhập"
-                          value={form.email || "Chưa cập nhật"}
+                          label={t("profile.fields.email")}
+                          value={form.email || t("common.states.notUpdated")}
                         />
                         <SummaryRow
                           icon={<PhoneIphoneRoundedIcon fontSize="small" />}
-                          label="Số điện thoại"
-                          value={form.phone || "Chưa cập nhật"}
+                          label={t("profile.fields.phone")}
+                          value={form.phone || t("common.states.notUpdated")}
                         />
                         <SummaryRow
                           icon={<PlaceRoundedIcon fontSize="small" />}
-                          label="Khu vực"
-                          value={form.province || "Chưa chọn tỉnh thành"}
+                          label={t("profile.fields.province")}
+                          value={form.province || provincePlaceholder}
                         />
                       </Stack>
 
@@ -1471,7 +1461,11 @@ export default function ProfileScreen() {
                               <VerifiedUserIcon fontSize="small" />
                             )
                           }
-                          label={isDirty ? "Cần lưu thay đổi" : "Không có thay đổi"}
+                          label={
+                            isDirty
+                              ? t("profile.summary.needSave")
+                              : t("profile.summary.noChanges")
+                          }
                           color={isDirty ? "warning" : "success"}
                           variant="outlined"
                         />
@@ -1485,7 +1479,7 @@ export default function ProfileScreen() {
                         onClick={requestLogout}
                         sx={{ borderRadius: 3, py: 1.3 }}
                       >
-                        Đăng xuất
+                        {t("profile.hero.logout")}
                       </Button>
                     </Paper>
 
@@ -1503,17 +1497,17 @@ export default function ProfileScreen() {
                       }}
                     >
                       <Typography variant="h6" fontWeight={800}>
-                        Lưu ý nhanh
+                        {t("profile.notes.title")}
                       </Typography>
                       <Stack spacing={1.5} sx={{ mt: 2 }}>
                         <Typography variant="body2" color="text.secondary">
-                          Ảnh đại diện nên nhẹ hơn 10MB để tải lên nhanh và sắc nét hơn.
+                          {t("profile.notes.avatar")}
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                          Email hiện chỉ hiển thị để tham chiếu và chưa chỉnh trực tiếp ở màn này.
+                          {t("profile.notes.email")}
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                          Sau khi KYC được duyệt, số CCCD sẽ bị khóa để tránh sai lệch dữ liệu.
+                          {t("profile.notes.kyc")}
                         </Typography>
                       </Stack>
                     </Paper>
@@ -1525,12 +1519,12 @@ export default function ProfileScreen() {
                     <SectionCard
                       tone="primary"
                       icon={<PersonRoundedIcon />}
-                      title="Thông tin cơ bản"
-                      subtitle="Cập nhật những trường nhận diện chính của bạn trên hệ thống."
+                      title={t("profile.sections.basicTitle")}
+                      subtitle={t("profile.sections.basicSubtitle")}
                       action={
                         <Chip
                           size="small"
-                          label={isDirty ? "Chưa lưu" : "Đã đồng bộ"}
+                          label={isDirty ? t("profile.summary.unsaved") : t("profile.summary.synced")}
                           color={isDirty ? "warning" : "success"}
                           variant="outlined"
                         />
@@ -1539,7 +1533,7 @@ export default function ProfileScreen() {
                       <Grid container spacing={2}>
                         <Grid size={{ xs: 12, sm: 6 }}>
                           <TextField
-                            label="Họ và tên"
+                            label={t("profile.fields.name")}
                             name="name"
                             value={form.name}
                             onChange={onChange}
@@ -1553,7 +1547,7 @@ export default function ProfileScreen() {
 
                         <Grid size={{ xs: 12, sm: 6 }}>
                           <TextField
-                            label="Biệt danh"
+                            label={t("profile.fields.nickname")}
                             name="nickname"
                             value={form.nickname}
                             onChange={onChange}
@@ -1567,7 +1561,7 @@ export default function ProfileScreen() {
 
                         <Grid size={{ xs: 12, sm: 6 }}>
                           <TextField
-                            label="Số điện thoại"
+                            label={t("profile.fields.phone")}
                             name="phone"
                             value={form.phone}
                             onChange={onChange}
@@ -1582,7 +1576,7 @@ export default function ProfileScreen() {
 
                         <Grid size={{ xs: 12, sm: 6 }}>
                           <TextField
-                            label="Email"
+                            label={t("profile.fields.email")}
                             name="email"
                             value={form.email}
                             onChange={onChange}
@@ -1594,23 +1588,23 @@ export default function ProfileScreen() {
                             helperText={
                               showErr("email")
                                 ? errors.email
-                                : "Email hiện dùng làm thông tin đăng nhập"
+                                : t("profile.fields.emailHelper")
                             }
                           />
                         </Grid>
 
                         <Grid size={{ xs: 12, sm: 6 }}>
                           <FormControl fullWidth error={showErr("gender")}>
-                            <InputLabel id="gender-lbl">Giới tính</InputLabel>
+                            <InputLabel id="gender-lbl">{t("profile.fields.gender")}</InputLabel>
                             <Select
                               labelId="gender-lbl"
-                              label="Giới tính"
+                              label={t("profile.fields.gender")}
                               name="gender"
                               value={form.gender}
                               onChange={onChange}
                               onBlur={onBlur}
                             >
-                              {GENDER_OPTIONS.map((option) => (
+                              {genderOptions.map((option) => (
                                 <MenuItem key={option.value} value={option.value}>
                                   {option.label}
                                 </MenuItem>
@@ -1621,7 +1615,7 @@ export default function ProfileScreen() {
 
                         <Grid size={{ xs: 12, sm: 6 }}>
                           <DatePicker
-                            label="Ngày sinh"
+                            label={t("profile.fields.dob")}
                             value={dobValue}
                             onChange={(newValue) => {
                               setTouched((prev) => ({ ...prev, dob: true }));
@@ -1633,7 +1627,7 @@ export default function ProfileScreen() {
                                     : "",
                               }));
                             }}
-                            format="DD/MM/YYYY"
+                            format={getDateInputFormat(language)}
                             minDate={MIN_DOB}
                             disableFuture
                             slotProps={{
@@ -1650,17 +1644,17 @@ export default function ProfileScreen() {
 
                         <Grid size={{ xs: 12 }}>
                           <FormControl fullWidth required error={showErr("province")}>
-                            <InputLabel id="province-lbl">Tỉnh / Thành phố</InputLabel>
+                            <InputLabel id="province-lbl">{t("profile.fields.province")}</InputLabel>
                             <Select
                               labelId="province-lbl"
-                              label="Tỉnh / Thành phố"
+                              label={t("profile.fields.province")}
                               name="province"
                               value={form.province}
                               onChange={onChange}
                               onBlur={onBlur}
                             >
                               <MenuItem value="">
-                                <em>-- Chọn --</em>
+                                <em>{provincePlaceholder}</em>
                               </MenuItem>
                               {PROVINCES.map((province) => (
                                 <MenuItem key={province} value={province}>
@@ -1685,15 +1679,15 @@ export default function ProfileScreen() {
                       <Grid container spacing={1.5} sx={{ mt: 1.5 }}>
                         {[
                           {
-                            label: "Ngày tham gia",
+                            label: t("profile.summary.memberSince"),
                             value: memberSince,
                           },
                           {
-                            label: "Giới tính đang chọn",
+                            label: t("profile.summary.selectedGender"),
                             value: genderLabel,
                           },
                           {
-                            label: "Mã hồ sơ",
+                            label: t("profile.summary.profileCode"),
                             value: profileCode,
                           },
                         ].map((item) => (
@@ -1738,8 +1732,8 @@ export default function ProfileScreen() {
                           }}
                         >
                           {isLoading || uploadingAvatar
-                            ? "Đang xử lý..."
-                            : "Lưu thông tin cơ bản"}
+                            ? t("profile.actions.saving")
+                            : t("profile.actions.saveBasic")}
                         </Button>
                       </Stack>
                     </SectionCard>
@@ -1747,8 +1741,8 @@ export default function ProfileScreen() {
                     <SectionCard
                       tone="info"
                       icon={<ShieldRoundedIcon />}
-                      title="Bảo mật tài khoản"
-                      subtitle="Chỉ bật đổi mật khẩu khi bạn thực sự muốn cập nhật thông tin đăng nhập."
+                      title={t("profile.sections.securityTitle")}
+                      subtitle={t("profile.sections.securitySubtitle")}
                     >
                       <Box
                         sx={{
@@ -1787,11 +1781,11 @@ export default function ProfileScreen() {
                           }
                           label={
                             <Box>
-                              <Typography fontWeight={700}>Đổi mật khẩu</Typography>
+                              <Typography fontWeight={700}>{t("profile.actions.enablePassword")}</Typography>
                               <Typography variant="body2" color="text.secondary">
                                 {changePassword
-                                  ? "Mật khẩu mới sẽ được áp dụng sau khi bạn lưu hồ sơ."
-                                  : "Bật tùy chọn này khi cần thay đổi mật khẩu hiện tại."}
+                                  ? t("profile.password.enabledHint")
+                                  : t("profile.password.disabledHint")}
                               </Typography>
                             </Box>
                           }
@@ -1801,7 +1795,7 @@ export default function ProfileScreen() {
                           <Grid container spacing={2} sx={{ mt: 1.5 }}>
                             <Grid size={{ xs: 12, sm: 6 }}>
                               <TextField
-                                label="Mật khẩu mới"
+                                label={t("profile.fields.password")}
                                 type="password"
                                 name="password"
                                 value={form.password}
@@ -1815,7 +1809,7 @@ export default function ProfileScreen() {
 
                             <Grid size={{ xs: 12, sm: 6 }}>
                               <TextField
-                                label="Xác nhận mật khẩu"
+                                label={t("profile.fields.confirmPassword")}
                                 type="password"
                                 name="confirmPassword"
                                 value={form.confirmPassword}
@@ -1855,8 +1849,8 @@ export default function ProfileScreen() {
                             }}
                           >
                             {isLoading || uploadingAvatar
-                              ? "Đang xử lý..."
-                              : "Lưu"}
+                              ? t("profile.actions.saving")
+                              : t("profile.actions.save")}
                           </Button>
                         </Stack>
                       )}
@@ -1865,8 +1859,8 @@ export default function ProfileScreen() {
                     <SectionCard
                       tone="warning"
                       icon={<FingerprintRoundedIcon />}
-                      title="Xác minh danh tính"
-                      subtitle="Hoàn tất KYC để tăng độ tin cậy và khóa thông tin định danh chính xác."
+                      title={t("profile.sections.kycTitle")}
+                      subtitle={t("profile.sections.kycSubtitle")}
                       action={
                         <Chip
                           size="small"
@@ -1889,7 +1883,7 @@ export default function ProfileScreen() {
                         <Grid container spacing={2} sx={{ mb: 2 }}>
                           <Grid size={{ xs: 12, md: 7 }}>
                             <TextField
-                              label="Số CCCD (12 số)"
+                              label={t("profile.fields.cccd")}
                               name="cccd"
                               value={form.cccd}
                               onChange={onChange}
@@ -1900,12 +1894,12 @@ export default function ProfileScreen() {
                               error={showErr("cccd")}
                               helperText={
                                 isKycLocked
-                                  ? "Không thể sửa khi đã xác minh"
+                                  ? t("profile.kyc.helpers.locked")
                                   : showErr("cccd")
                                   ? errors.cccd
                                   : isCccdEmpty
-                                  ? "Nhập số CCCD để kích hoạt upload ảnh"
-                                  : "Thông tin này chỉ dùng cho quy trình xác minh"
+                                  ? t("profile.kyc.helpers.activateUpload")
+                                  : t("profile.kyc.helpers.processOnly")
                               }
                             />
                           </Grid>
@@ -1927,7 +1921,7 @@ export default function ProfileScreen() {
                               }}
                             >
                               <Typography variant="caption" color="text.secondary">
-                                Tình trạng hiện tại
+                                {t("profile.fields.currentState")}
                               </Typography>
                               <Typography variant="body1" fontWeight={800} sx={{ mt: 0.5 }}>
                                 {kycMeta.label}
@@ -1951,22 +1945,21 @@ export default function ProfileScreen() {
                           >
                             {isCccdEmpty && (
                               <Alert severity="info" sx={{ mb: 2, borderRadius: 3 }}>
-                                Vui lòng nhập <strong>số CCCD</strong> ở trên trước khi tải
-                                ảnh lên.
+                                {t("profile.kyc.helpers.enterBeforeUpload")}
                               </Alert>
                             )}
 
                             <Grid container spacing={2}>
                               <Grid size={{ xs: 12, md: 6 }}>
                                 <CccdDropzone
-                                  label="Mặt trước"
+                                  label={t("profile.kyc.images.front")}
                                   file={frontImg}
                                   onFile={setFrontImg}
                                 />
                               </Grid>
                               <Grid size={{ xs: 12, md: 6 }}>
                                 <CccdDropzone
-                                  label="Mặt sau"
+                                  label={t("profile.kyc.images.back")}
                                   file={backImg}
                                   onFile={setBackImg}
                                 />
@@ -1984,14 +1977,20 @@ export default function ProfileScreen() {
                                 <Chip
                                   size="small"
                                   label={
-                                    frontImg ? "Đã chọn mặt trước" : "Chưa chọn mặt trước"
+                                    frontImg
+                                      ? t("profile.kyc.images.frontSelected")
+                                      : t("profile.kyc.images.frontMissing")
                                   }
                                   color={frontImg ? "success" : "default"}
                                   variant="outlined"
                                 />
                                 <Chip
                                   size="small"
-                                  label={backImg ? "Đã chọn mặt sau" : "Chưa chọn mặt sau"}
+                                  label={
+                                    backImg
+                                      ? t("profile.kyc.images.backSelected")
+                                      : t("profile.kyc.images.backMissing")
+                                  }
                                   color={backImg ? "success" : "default"}
                                   variant="outlined"
                                 />
@@ -2010,7 +2009,9 @@ export default function ProfileScreen() {
                                 onClick={sendCccd}
                                 sx={{ borderRadius: 99, px: 3, py: 1.2, fontWeight: 700 }}
                               >
-                                {upLoad ? "Đang gửi yêu cầu..." : "Gửi yêu cầu xác minh"}
+                                {upLoad
+                                  ? t("profile.actions.submittingKyc")
+                                  : t("profile.actions.submitKyc")}
                               </Button>
                             </Stack>
                           </Box>
@@ -2034,7 +2035,7 @@ export default function ProfileScreen() {
                               >
                                 <img
                                   src={frontUrl}
-                                  alt="Mặt trước"
+                                  alt={t("profile.kyc.images.front")}
                                   style={{
                                     width: "100%",
                                     height: 180,
@@ -2049,7 +2050,7 @@ export default function ProfileScreen() {
                                   fontWeight={700}
                                   sx={{ mt: 1 }}
                                 >
-                                  Mặt trước CCCD
+                                  {t("profile.kyc.images.frontTitle")}
                                 </Typography>
                               </Paper>
                             </Grid>
@@ -2072,7 +2073,7 @@ export default function ProfileScreen() {
                               >
                                 <img
                                   src={backUrl}
-                                  alt="Mặt sau"
+                                  alt={t("profile.kyc.images.back")}
                                   style={{
                                     width: "100%",
                                     height: 180,
@@ -2087,7 +2088,7 @@ export default function ProfileScreen() {
                                   fontWeight={700}
                                   sx={{ mt: 1 }}
                                 >
-                                  Mặt sau CCCD
+                                  {t("profile.kyc.images.backTitle")}
                                 </Typography>
                               </Paper>
                             </Grid>
@@ -2119,14 +2120,14 @@ export default function ProfileScreen() {
                       >
                         <Box sx={{ maxWidth: 520 }}>
                           <Typography variant="h6" fontWeight={800}>
-                            Lưu thay đổi
+                            {t("profile.sections.saveTitle")}
                           </Typography>
                           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
                             {saveDisabled
                               ? isDirty
-                                ? "Một vài trường vẫn chưa hợp lệ. Kiểm tra lại trước khi lưu."
-                                : "Bạn chưa có thay đổi nào cần lưu."
-                              : "Mọi cập nhật sẽ được áp dụng ngay vào hồ sơ cá nhân của bạn."}
+                                ? t("profile.savePanel.invalid")
+                                : t("profile.savePanel.unchanged")
+                              : t("profile.savePanel.ready")}
                           </Typography>
                         </Box>
 
@@ -2155,8 +2156,8 @@ export default function ProfileScreen() {
                             }}
                           >
                             {isLoading || uploadingAvatar
-                              ? "Đang xử lý..."
-                              : "Lưu thay đổi"}
+                              ? t("profile.actions.saving")
+                              : t("profile.actions.saveChanges")}
                           </Button>
                         </Stack>
                       </Stack>

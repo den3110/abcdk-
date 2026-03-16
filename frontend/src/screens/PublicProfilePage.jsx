@@ -52,41 +52,17 @@ import {
 } from "../slices/usersApiSlice";
 import { ZoomableWrapper } from "../components/Zoom";
 import SEOHead from "../components/SEOHead";
+import { useLanguage } from "../context/LanguageContext";
+import { formatDate, formatDateTime } from "../i18n/format";
+import { getGenderLabel } from "../i18n/uiOptions";
 
 /* ---------- CONSTANTS & UTILS ---------- */
 const AVA_PLACE = "https://dummyimage.com/160x160/cccccc/ffffff&text=?";
-const tz = { timeZone: "Asia/Bangkok" };
-
-// Formatters
-const fmtDate = (iso) =>
-  iso ? new Date(iso).toLocaleDateString("vi-VN", tz) : "—";
-
-const fmtDT = (iso) =>
-  iso
-    ? new Date(iso).toLocaleString("vi-VN", {
-        ...tz,
-        hour: "2-digit",
-        minute: "2-digit",
-        day: "2-digit",
-        month: "2-digit",
-      })
-    : "—";
-
-// ✅ Giữ lại phần thập phân như bản cũ (mặc định 3 số sau dấu phẩy)
+// Keep decimals like the legacy screen (default 3 digits).
 const num = (v, digits = 3) =>
   Number.isFinite(+v) ? Number(v).toFixed(digits) : "—";
 const numFloat = (v, digits = 3) =>
   Number.isFinite(+v) ? Number(v).toFixed(digits) : "—";
-
-const getGenderInfo = (g) => {
-  if (g === null || g === undefined) return { label: "Khác", color: "default" };
-  const s = String(g).toLowerCase().trim();
-  if (["1", "male", "m", "nam"].includes(s))
-    return { label: "Nam", color: "info" };
-  if (["2", "female", "f", "nu", "nữ"].includes(s))
-    return { label: "Nữ", color: "error" };
-  return { label: "Khác", color: "default" };
-};
 
 const calcAge = (iso) => {
   if (!iso) return "—";
@@ -103,9 +79,9 @@ const calcAge = (iso) => {
 const getHandLabel = (h) => {
   if (!h) return null;
   const s = String(h).toLowerCase();
-  if (["left", "trai", "l"].includes(s)) return "Tay trái";
-  if (["right", "phai", "r"].includes(s)) return "Tay phải";
-  if (["both", "ambi", "2", "hai tay"].includes(s)) return "Hai tay";
+  if (["left", "trai", "l"].includes(s)) return "left";
+  if (["right", "phai", "r"].includes(s)) return "right";
+  if (["both", "ambi", "2", "hai tay"].includes(s)) return "both";
   return h;
 };
 
@@ -123,6 +99,7 @@ const hasData = (v) => {
 
 // 1. Modern Copy Button
 const CopyBtn = ({ value, label }) => {
+  const { t } = useLanguage();
   const [copied, setCopied] = useState(false);
   const handleCopy = async (e) => {
     e.stopPropagation();
@@ -136,7 +113,13 @@ const CopyBtn = ({ value, label }) => {
   };
 
   return (
-    <Tooltip title={copied ? "Đã sao chép!" : `Sao chép ${label || ""}`}>
+    <Tooltip
+      title={
+        copied
+          ? t("publicProfile.copy.success")
+          : t("publicProfile.copy.action", { label: label || "" })
+      }
+    >
       <IconButton
         size="small"
         onClick={handleCopy}
@@ -216,26 +199,33 @@ const StatBox = ({ icon, value, label, subValue, color = "primary" }) => {
 };
 
 // 3. Match Result Badge
-const MatchResultBadge = ({ isWinner }) => (
-  <Chip
-    label={isWinner ? "THẮNG" : "THUA"}
-    size="small"
-    color={isWinner ? "success" : "default"}
-    sx={{
-      fontWeight: 800,
-      borderRadius: 1,
-      height: 24,
-      minWidth: 60,
-      bgcolor: isWinner ? "success.main" : "action.hover",
-      color: isWinner ? "#fff" : "text.secondary",
-    }}
-  />
-);
+const MatchResultBadge = ({ isWinner }) => {
+  const { t } = useLanguage();
+
+  return (
+    <Chip
+      label={
+        isWinner
+          ? t("publicProfile.matchResult.win")
+          : t("publicProfile.matchResult.lose")
+      }
+      size="small"
+      color={isWinner ? "success" : "default"}
+      sx={{
+        fontWeight: 800,
+        borderRadius: 1,
+        height: 24,
+        minWidth: 60,
+        bgcolor: isWinner ? "success.main" : "action.hover",
+        color: isWinner ? "#fff" : "text.secondary",
+      }}
+    />
+  );
+};
 
 // 4. Player Mini Cell – giữ thập phân & căn giữa
 const PlayerRow = ({ p, highlight }) => {
   const up = (p?.delta ?? 0) > 0;
-  const down = (p?.delta ?? 0) < 0;
   const name =
     p?.user?.nickname ||
     p?.user?.fullName ||
@@ -318,20 +308,53 @@ export default function PublicProfilePage() {
   const { id } = useParams();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const { locale, t } = useLanguage();
   const [tab, setTab] = useState(0);
+  const fmtDate = (iso) =>
+    iso
+      ? formatDate(iso, locale, { timeZone: "Asia/Bangkok" })
+      : t("common.unavailable");
+  const fmtDT = (iso) =>
+    iso
+      ? formatDateTime(iso, locale, {
+          timeZone: "Asia/Bangkok",
+          hour: "2-digit",
+          minute: "2-digit",
+          day: "2-digit",
+          month: "2-digit",
+        })
+      : t("common.unavailable");
+  const genderInfo = (gender) => {
+    const label = getGenderLabel(t, gender);
+    if (label === t("profile.genderOptions.male")) return { label, color: "info" };
+    if (label === t("profile.genderOptions.female")) return { label, color: "error" };
+    return { label, color: "default" };
+  };
+  const handLabelValue = (value) => {
+    const hand = getHandLabel(value);
+    if (hand === "left") return t("publicProfile.values.handLeft");
+    if (hand === "right") return t("publicProfile.values.handRight");
+    if (hand === "both") return t("publicProfile.values.handBoth");
+    return hand || t("common.unavailable");
+  };
 
   // Queries
   const baseQ = useGetPublicProfileQuery(id);
   const rateQ = useGetRatingHistoryQuery(id);
   const matchQ = useGetMatchHistoryQuery(id);
 
-  const base = baseQ.data || {};
-  const ratingRaw = Array.isArray(rateQ.data?.history)
-    ? rateQ.data.history
-    : rateQ.data?.items || [];
-  const matchRaw = Array.isArray(matchQ.data)
-    ? matchQ.data
-    : matchQ.data?.items || [];
+  const base = useMemo(() => baseQ.data || {}, [baseQ.data]);
+  const ratingRaw = useMemo(
+    () =>
+      Array.isArray(rateQ.data?.history)
+        ? rateQ.data.history
+        : rateQ.data?.items || [],
+    [rateQ.data]
+  );
+  const matchRaw = useMemo(
+    () => (Array.isArray(matchQ.data) ? matchQ.data : matchQ.data?.items || []),
+    [matchQ.data]
+  );
 
   // Auth viewer (để biết có phải admin / chính chủ không)
   const { userInfo } = useSelector((state) => state.auth || {});
@@ -343,7 +366,7 @@ export default function PublicProfilePage() {
     userInfo?.role === "admin" ||
     (Array.isArray(userInfo?.roles) && userInfo.roles.includes("admin"));
   const canSeeSensitive = isSelf || isAdminViewer;
-  const profileCode = baseId ? String(baseId).slice(-6).toUpperCase() : "—";
+  const profileCode = baseId ? String(baseId).slice(-6).toUpperCase() : t("common.unavailable");
 
   // ✅ latestSingle / latestDouble giống bản cũ (ưu tiên history, fallback levelPoint)
   const latestSingle = useMemo(() => {
@@ -406,7 +429,7 @@ export default function PublicProfilePage() {
         await navigator.share({ title: base?.name, url });
       } else {
         await navigator.clipboard.writeText(url);
-        alert("Đã sao chép liên kết!");
+        alert(t("publicProfile.copy.shareSuccess"));
       }
     } catch {
       // user cancel
@@ -493,7 +516,7 @@ export default function PublicProfilePage() {
               />
             </ZoomableWrapper>
             {base?.isAdmin && (
-              <Tooltip title="Quản trị viên">
+              <Tooltip title={t("publicProfile.adminTooltip")}>
                 <VerifiedUserIcon
                   color="primary"
                   sx={{
@@ -517,7 +540,7 @@ export default function PublicProfilePage() {
             }}
           >
             <Typography variant="h4" fontWeight={800} sx={{ mb: 0.5 }}>
-              {base?.name || base?.fullName || "Người dùng"}
+              {base?.name || base?.fullName || t("publicProfile.defaultName")}
             </Typography>
             <Stack
               direction="row"
@@ -527,10 +550,10 @@ export default function PublicProfilePage() {
               sx={{ mb: 2, color: "text.secondary" }}
             >
               <Typography variant="body1" fontWeight={500}>
-                @{base?.nickname || "no_nick"}
+                @{base?.nickname || t("publicProfile.nicknameFallback")}
               </Typography>
               {hasData(base?.nickname) && (
-                <CopyBtn value={base?.nickname || ""} label="Nickname" />
+                <CopyBtn value={base?.nickname || ""} label={t("publicProfile.labels.nickname")} />
               )}
             </Stack>
 
@@ -551,13 +574,13 @@ export default function PublicProfilePage() {
               )}
               <Chip
                 icon={<CalendarMonthIcon fontSize="small" />}
-                label={`Gia nhập: ${fmtDate(base.joinedAt || base.createdAt)}`}
+                label={t("publicProfile.joinedAt", { date: fmtDate(base.joinedAt || base.createdAt) })}
                 size="small"
                 variant="outlined"
               />
               <Chip
-                label={getGenderInfo(base?.gender).label}
-                color={getGenderInfo(base?.gender).color}
+                label={genderInfo(base?.gender).label}
+                color={genderInfo(base?.gender).color}
                 size="small"
                 variant="soft"
               />
@@ -572,7 +595,7 @@ export default function PublicProfilePage() {
               onClick={handleShare}
               sx={{ borderRadius: 20, px: 3, textTransform: "none" }}
             >
-              Chia sẻ
+              {t("publicProfile.share")}
             </Button>
           </Box>
         </Paper>
@@ -586,27 +609,27 @@ export default function PublicProfilePage() {
       <Grid size={{ xs: 12, sm: 4 }}>
         <StatBox
           icon={<SportsTennisIcon />}
-          label="Tổng trận đấu"
+          label={t("publicProfile.stats.totalMatches")}
           value={totalMatches}
-          subValue="Trận đã tham gia"
+          subValue={t("publicProfile.stats.totalMatchesHint")}
           color="primary"
         />
       </Grid>
       <Grid size={{ xs: 12, sm: 4 }}>
         <StatBox
           icon={<EmojiEventsIcon />}
-          label="Chiến thắng"
+          label={t("publicProfile.stats.wins")}
           value={wins}
-          subValue={`${winRate}% Tỷ lệ thắng`}
+          subValue={t("publicProfile.stats.winRate", { rate: winRate })}
           color="warning"
         />
       </Grid>
       <Grid size={{ xs: 12, sm: 4 }}>
         <StatBox
           icon={<TrendingUpIcon />}
-          label="Điểm trình (Đơn/Đôi)"
+          label={t("publicProfile.stats.rating")}
           value={`${num(latestSingle)} / ${num(latestDouble)}`}
-          subValue="Điểm hiện tại"
+          subValue={t("publicProfile.stats.ratingHint")}
           color="success"
         />
       </Grid>
@@ -617,7 +640,7 @@ export default function PublicProfilePage() {
     <Stack spacing={2}>
       {matchPaged.length === 0 ? (
         <Alert severity="info" sx={{ borderRadius: 3 }}>
-          Chưa có dữ liệu trận đấu nào.
+          {t("publicProfile.values.noMatches")}
         </Alert>
       ) : (
         matchPaged.map((m) => {
@@ -657,7 +680,7 @@ export default function PublicProfilePage() {
                     </Typography>
                   </Stack>
                   <Chip
-                    label={m.tournament?.name || "Giao hữu"}
+                    label={m.tournament?.name || t("publicProfile.values.friendlyMatch")}
                     size="small"
                     variant="outlined"
                     sx={{ maxWidth: 200 }}
@@ -733,7 +756,7 @@ export default function PublicProfilePage() {
                       color="error"
                       sx={{ borderRadius: 10 }}
                     >
-                      Xem Video Replay
+                      {t("common.actions.view")}
                     </Button>
                   </Box>
                 )}
@@ -766,11 +789,11 @@ export default function PublicProfilePage() {
         <Table size={isMobile ? "small" : "medium"}>
           <TableHead sx={{ bgcolor: "action.hover" }}>
             <TableRow>
-              <TableCell>Thời gian</TableCell>
-              <TableCell>Người chấm</TableCell>
-              <TableCell align="center">Điểm Đơn</TableCell>
-              <TableCell align="center">Điểm Đôi</TableCell>
-              {!isMobile && <TableCell>Ghi chú</TableCell>}
+              <TableCell>{t("publicProfile.labels.time")}</TableCell>
+              <TableCell>{t("publicProfile.labels.scorer")}</TableCell>
+              <TableCell align="center">{t("publicProfile.labels.singlePoint")}</TableCell>
+              <TableCell align="center">{t("publicProfile.labels.doublePoint")}</TableCell>
+              {!isMobile && <TableCell>{t("publicProfile.labels.note")}</TableCell>}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -782,7 +805,7 @@ export default function PublicProfilePage() {
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2">
-                      {row.scorer?.name || "Hệ thống"}
+                      {row.scorer?.name || t("publicProfile.values.system")}
                     </Typography>
                   </TableCell>
                   <TableCell align="center">
@@ -815,7 +838,7 @@ export default function PublicProfilePage() {
             ) : (
               <TableRow>
                 <TableCell colSpan={5} align="center">
-                  Không có lịch sử
+                  {t("publicProfile.values.noRatingHistory")}
                 </TableCell>
               </TableRow>
             )}
@@ -856,16 +879,16 @@ export default function PublicProfilePage() {
     return (
       <Container sx={{ pt: 10 }}>
         <Alert severity="error">
-          Không tìm thấy người dùng hoặc có lỗi xảy ra.
+          {t("publicProfile.values.notFound")}
         </Alert>
       </Container>
     );
 
   // Một số label từ dữ liệu mở rộng
   const handLabel =
-    getHandLabel(
+    handLabelValue(
       base?.playHand || base?.hand || base?.handedness || base?.dominantHand
-    ) || "—";
+    ) || t("common.unavailable");
   const dob = base?.dob || base?.birthday || base?.dateOfBirth;
   const clubName =
     base?.clubName ||
@@ -878,10 +901,10 @@ export default function PublicProfilePage() {
     : base?.role || (base?.isAdmin ? "admin" : "user");
 
   const accountStatus = (() => {
-    if (base?.isDeleted) return "Đã xoá";
-    if (base?.isBanned) return "Bị khoá";
-    if (base?.isSuspended) return "Tạm khoá";
-    return "Hoạt động";
+    if (base?.isDeleted) return t("publicProfile.values.deleted");
+    if (base?.isBanned) return t("publicProfile.values.banned");
+    if (base?.isSuspended) return t("publicProfile.values.suspended");
+    return t("publicProfile.values.active");
   })();
 
   // booleans để ẩn cả block nếu không có field nào có data
@@ -909,16 +932,25 @@ export default function PublicProfilePage() {
       }}
     >
       <SEOHead
-        title={base?.name || "Hồ sơ người chơi"}
-        description={base?.bio || `Xem hồ sơ, thành tích và lịch sử thi đấu của ${base?.name || "người chơi"} trên Pickletour.vn`}
+        title={base?.name || t("publicProfile.seoTitle")}
+        description={
+          base?.bio ||
+          (base?.name
+            ? t("publicProfile.seoDescription", { name: base.name })
+            : t("publicProfile.seoDescriptionFallback"))
+        }
         ogImage={base?.avatar}
         path={`/u/${profileCode}`}
         structuredData={{
           "@context": "https://schema.org",
           "@type": "Person",
-          name: base?.name || "Người chơi",
+          name: base?.name || t("publicProfile.defaultPlayer"),
           image: base?.avatar || "https://pickletour.vn/icon.png",
-          description: base?.bio || `Vận động viên Pickleball ${base?.name}`,
+          description:
+            base?.bio ||
+            t("publicProfile.seoStructuredDescription", {
+              name: base?.name || t("publicProfile.defaultPlayer"),
+            }),
           url: `https://pickletour.vn/u/${profileCode}`,
           mainEntityOfPage: {
             "@type": "ProfilePage",
@@ -960,9 +992,9 @@ export default function PublicProfilePage() {
                 "& .MuiTabs-indicator": { display: "none" },
               }}
             >
-              <Tab label="Hồ sơ chi tiết" iconPosition="start" />
-              <Tab label="Lịch sử thi đấu" iconPosition="start" />
-              <Tab label="Lịch sử điểm trình" iconPosition="start" />
+              <Tab label={t("publicProfile.tabs.profile")} iconPosition="start" />
+              <Tab label={t("publicProfile.tabs.matches")} iconPosition="start" />
+              <Tab label={t("publicProfile.tabs.ratings")} iconPosition="start" />
             </Tabs>
           </Stack>
 
@@ -972,27 +1004,27 @@ export default function PublicProfilePage() {
                 <CardContent sx={{ p: 3 }}>
                   {/* Giới thiệu */}
                   <Typography variant="h6" gutterBottom fontWeight={700}>
-                    Giới thiệu
+                    {t("publicProfile.sections.intro")}
                   </Typography>
                   <Typography
                     paragraph
                     color="text.secondary"
                     sx={{ whiteSpace: "pre-wrap" }}
                   >
-                    {base?.bio || "Chưa có."}
+                    {base?.bio || t("publicProfile.values.noBio")}
                   </Typography>
 
                   <Divider sx={{ my: 2 }} />
 
                   {/* Thông tin cơ bản (public) */}
                   <Typography variant="h6" gutterBottom fontWeight={700}>
-                    Thông tin cơ bản
+                    {t("publicProfile.sections.basic")}
                   </Typography>
                   <Grid container spacing={2} sx={{ mb: 2 }}>
                     {hasData(base?.name || base?.fullName) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                         <InfoItem
-                          label="Họ và tên"
+                          label={t("publicProfile.labels.fullName")}
                           value={base?.name || base?.fullName}
                         />
                       </Grid>
@@ -1000,7 +1032,7 @@ export default function PublicProfilePage() {
                     {hasData(base?.nickname) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                         <InfoItem
-                          label="Nickname"
+                          label={t("publicProfile.labels.nickname")}
                           value={base?.nickname}
                           copyable
                         />
@@ -1008,68 +1040,68 @@ export default function PublicProfilePage() {
                     )}
                     <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                       <InfoItem
-                        label="Giới tính"
-                        value={getGenderInfo(base?.gender).label}
+                        label={t("publicProfile.labels.gender")}
+                        value={genderInfo(base?.gender).label}
                       />
                     </Grid>
                     {hasData(base?.province) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <InfoItem label="Tỉnh thành" value={base?.province} />
+                        <InfoItem label={t("publicProfile.labels.province")} value={base?.province} />
                       </Grid>
                     )}
                     {hasData(dob) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <InfoItem label="Ngày sinh" value={fmtDate(dob)} />
+                        <InfoItem label={t("publicProfile.labels.dob")} value={fmtDate(dob)} />
                       </Grid>
                     )}
                     {hasData(calcAge(dob)) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <InfoItem label="Tuổi" value={calcAge(dob)} />
+                        <InfoItem label={t("publicProfile.labels.age")} value={calcAge(dob)} />
                       </Grid>
                     )}
                     {hasData(handLabel) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <InfoItem label="Tay thuận" value={handLabel} />
+                        <InfoItem label={t("publicProfile.labels.dominantHand")} value={handLabel} />
                       </Grid>
                     )}
                     {hasData(profileCode) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <InfoItem label="Mã hồ sơ" value={profileCode} />
+                        <InfoItem label={t("publicProfile.labels.profileCode")} value={profileCode} />
                       </Grid>
                     )}
                   </Grid>
 
                   {/* Thông tin thi đấu (public) */}
                   <Typography variant="h6" gutterBottom fontWeight={700}>
-                    Thông tin thi đấu
+                    {t("publicProfile.sections.competition")}
                   </Typography>
                   <Grid container spacing={2} sx={{ mb: 2 }}>
                     {hasData(clubName) && (
                       <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <InfoItem label="CLB chính" value={clubName} />
+                        <InfoItem label={t("publicProfile.labels.mainClub")} value={clubName} />
                       </Grid>
                     )}
                     <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                       <InfoItem
-                        label="Điểm đơn hiện tại"
+                        label={t("publicProfile.labels.singleRating")}
                         value={num(latestSingle)}
                       />
                     </Grid>
                     <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                       <InfoItem
-                        label="Điểm đôi hiện tại"
+                        label={t("publicProfile.labels.doubleRating")}
                         value={num(latestDouble)}
                       />
                     </Grid>
                     <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                       <InfoItem
-                        label="Tổng trận / Thắng"
+                        label={t("publicProfile.labels.record")}
                         value={`${totalMatches || 0} / ${wins || 0}`}
                       />
                     </Grid>
                     <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                       <InfoItem
-                        label="Tỷ lệ thắng"
+                        label={t("publicProfile.stats.wins")}
                         value={`${winRate || 0}%`}
                       />
                     </Grid>
@@ -1081,13 +1113,13 @@ export default function PublicProfilePage() {
                       <Divider sx={{ my: 2 }} />
 
                       <Typography variant="h6" gutterBottom fontWeight={700}>
-                        Thông tin liên hệ
+                        {t("publicProfile.sections.contact")}
                       </Typography>
                       <Grid container spacing={2} sx={{ mb: 2 }}>
                         {hasData(base?.phone) && (
                           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                             <InfoItem
-                              label="Số điện thoại"
+                              label={t("publicProfile.labels.phone")}
                               value={base?.phone}
                               copyable
                             />
@@ -1105,7 +1137,7 @@ export default function PublicProfilePage() {
                         {hasData(base?.address || base?.street) && (
                           <Grid size={{ xs: 12, sm: 6, md: 6 }}>
                             <InfoItem
-                              label="Địa chỉ"
+                              label={t("common.labels.address")}
                               value={base?.address || base?.street}
                             />
                           </Grid>
@@ -1117,13 +1149,13 @@ export default function PublicProfilePage() {
                   {canSeeSensitive && hasSystemBlock && (
                     <>
                       <Typography variant="h6" gutterBottom fontWeight={700}>
-                        Thông tin hệ thống
+                        {t("publicProfile.sections.system")}
                       </Typography>
                       <Grid container spacing={2}>
                         {hasData(baseId) && (
                           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                             <InfoItem
-                              label="ID người dùng (Mongo)"
+                              label={t("publicProfile.labels.userId")}
                               value={baseId}
                               copyable
                             />
@@ -1132,7 +1164,7 @@ export default function PublicProfilePage() {
                         {hasData(base.joinedAt || base.createdAt) && (
                           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                             <InfoItem
-                              label="Ngày tham gia"
+                              label={t("publicProfile.labels.memberSince")}
                               value={fmtDT(base.joinedAt || base.createdAt)}
                             />
                           </Grid>
@@ -1140,7 +1172,7 @@ export default function PublicProfilePage() {
                         {hasData(base.lastLoginAt || base.lastActiveAt) && (
                           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                             <InfoItem
-                              label="Lần đăng nhập gần nhất"
+                              label={t("publicProfile.labels.lastLogin")}
                               value={fmtDT(
                                 base.lastLoginAt || base.lastActiveAt
                               )}
@@ -1149,13 +1181,13 @@ export default function PublicProfilePage() {
                         )}
                         {hasData(rolesLabel) && (
                           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                            <InfoItem label="Vai trò" value={rolesLabel} />
+                            <InfoItem label={t("publicProfile.labels.role")} value={rolesLabel} />
                           </Grid>
                         )}
                         {hasData(accountStatus) && (
                           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                             <InfoItem
-                              label="Trạng thái tài khoản"
+                              label={t("publicProfile.labels.accountStatus")}
                               value={accountStatus}
                             />
                           </Grid>
@@ -1163,7 +1195,7 @@ export default function PublicProfilePage() {
                         {hasData(base?.kycStatus) && (
                           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                             <InfoItem
-                              label="Trạng thái KYC"
+                              label={t("publicProfile.labels.kycStatus")}
                               value={base?.kycStatus}
                             />
                           </Grid>
@@ -1171,7 +1203,7 @@ export default function PublicProfilePage() {
                         {hasData(base?.kycNote) && (
                           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                             <InfoItem
-                              label="Ghi chú KYC"
+                              label={t("publicProfile.labels.kycNote")}
                               value={base?.kycNote}
                             />
                           </Grid>
