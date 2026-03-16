@@ -53,7 +53,15 @@ export const createLiveSessionForLiveApp = async (req, res) => {
     const metaFb = m?.meta?.facebook || null;
 
     const fbStatus = String(fbLive?.status || "CREATED").toUpperCase();
-    const allowReuse = !forceNew && fbStatus !== "ENDED" && fbStatus !== "STOPPED";
+    const createdAtMs = fbLive?.createdAt ? new Date(fbLive.createdAt).getTime() : 0;
+    const createdAtOk = Number.isFinite(createdAtMs) && createdAtMs > 0;
+    const maxReuseMs = 60_000;
+    const freshEnough = createdAtOk && Date.now() - createdAtMs <= maxReuseMs;
+    const allowReuse =
+      !forceNew &&
+      fbStatus !== "ENDED" &&
+      fbStatus !== "STOPPED" &&
+      (fbStatus === "LIVE" || freshEnough);
 
     if (
       allowReuse &&
