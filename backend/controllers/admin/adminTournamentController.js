@@ -329,6 +329,7 @@ const createSchema = Joi.object({
     .label(FIELD_LABELS.contentHtml),
 
   noRankDelta: boolLoose.default(false).label("Không áp dụng điểm trình"),
+  allowExceedMaxRating: boolLoose.default(false).label("Cho phép vượt quá điểm trình"),
   requireKyc: boolLoose.default(true).label(FIELD_LABELS.requireKyc),
 
   scoringScope: scoringScopeCreate,
@@ -383,6 +384,7 @@ const updateSchema = Joi.object({
   contentHtml: Joi.string().allow("").label(FIELD_LABELS.contentHtml),
 
   noRankDelta: boolLoose.label("Không áp dụng điểm trình"),
+  allowExceedMaxRating: boolLoose.label("Cho phép vượt quá điểm trình"),
   requireKyc: boolLoose.label(FIELD_LABELS.requireKyc),
 
   scoringScope: scoringScopeUpdate,

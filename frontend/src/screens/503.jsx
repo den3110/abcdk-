@@ -1,5 +1,6 @@
 // src/pages/ServiceUnavailable.jsx
 import React from "react";
+import PropTypes from "prop-types";
 import {
   Box,
   Container,
@@ -17,6 +18,7 @@ import SupportAgentIcon from "@mui/icons-material/SupportAgent";
 import ErrorOutlineIcon from "@mui/icons-material/ErrorOutline";
 import { Link, useSearchParams } from "react-router-dom";
 import SEOHead from "../components/SEOHead";
+import { useLanguage } from "../context/LanguageContext.jsx";
 
 const AUTO_RETRY_SECONDS = 15;
 
@@ -28,6 +30,7 @@ export default function ServiceUnavailable({
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const [search] = useSearchParams();
+  const { t, locale } = useLanguage();
   const reqId = search.get("reqId") || search.get("requestId") || null;
 
   // Countdown & auto retry
@@ -64,6 +67,7 @@ export default function ServiceUnavailable({
                radial-gradient(800px 400px at 110% 110%, rgba(46,125,50,0.06), transparent)`,
       }}
     >
+      <SEOHead title={t("errors.serviceUnavailable.seoTitle")} noIndex={true} />
       <Container maxWidth="md" sx={{ width: "100%" }}>
         <Paper
           elevation={0}
@@ -111,11 +115,10 @@ export default function ServiceUnavailable({
                 503
               </Typography>
               <Typography variant="h5" fontWeight={700} sx={{ mt: 0.5 }}>
-                Dịch vụ tạm thời gián đoạn
+                {t("errors.serviceUnavailable.title")}
               </Typography>
               <Typography sx={{ mt: 1.25 }} color="text.secondary">
-                Máy chủ đang bận hoặc hệ thống đang bảo trì. Bạn vui lòng thử
-                lại sau ít phút. Chúng tôi rất xin lỗi vì sự bất tiện này.
+                {t("errors.serviceUnavailable.description")}
               </Typography>
             </Box>
           </Stack>
@@ -218,7 +221,7 @@ export default function ServiceUnavailable({
               color="text.secondary"
               sx={{ display: "block", mt: 0.75, textAlign: "center" }}
             >
-              Tự thử lại sau <b>{sec}s</b>…
+              {t("errors.serviceUnavailable.autoRetry")} <b>{sec}s</b>…
             </Typography>
           </Box>
 
@@ -235,7 +238,7 @@ export default function ServiceUnavailable({
               variant="contained"
               size="large"
             >
-              Thử lại ngay
+              {t("errors.serviceUnavailable.retryNow")}
             </Button>
             <Button
               component={Link}
@@ -244,7 +247,7 @@ export default function ServiceUnavailable({
               variant="outlined"
               size="large"
             >
-              Về trang chủ
+              {t("common.actions.backHome")}
             </Button>
             <Button
               href={`mailto:${supportEmail}`}
@@ -252,7 +255,7 @@ export default function ServiceUnavailable({
               variant="text"
               size="large"
             >
-              Liên hệ hỗ trợ
+              {t("common.actions.contactSupport")}
             </Button>
           </Stack>
 
@@ -265,15 +268,15 @@ export default function ServiceUnavailable({
             justifyContent="center"
           >
             <Typography variant="caption" color="text.secondary">
-              Mã trạng thái: <b>503</b>
+              {t("common.labels.statusCode")}: <b>503</b>
             </Typography>
             {reqId && (
               <Typography variant="caption" color="text.secondary">
-                Request ID: <code>{reqId}</code>
+                {t("common.labels.requestId")}: <code>{reqId}</code>
               </Typography>
             )}
             <Typography variant="caption" color="text.secondary">
-              Thời gian: {new Date().toLocaleString("vi-VN")}
+              {t("common.labels.time")}: {new Date().toLocaleString(locale)}
             </Typography>
           </Stack>
         </Paper>
@@ -281,3 +284,9 @@ export default function ServiceUnavailable({
     </Box>
   );
 }
+
+ServiceUnavailable.propTypes = {
+  homePath: PropTypes.string,
+  supportEmail: PropTypes.string,
+  onRetry: PropTypes.func,
+};

@@ -1,5 +1,5 @@
 // src/pages/clubs/ClubsListPage.jsx
-import React, { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import {
   Box,
   Container,
@@ -19,8 +19,6 @@ import {
   Paper,
   Divider,
   Chip,
-  useTheme,
-  useMediaQuery,
   Fade,
   IconButton,
   Grid,
@@ -41,8 +39,8 @@ import { toast } from "react-toastify";
 import ClubCreateDialog from "../../components/ClubCreateDialog";
 import ClubCard from "../../components/ClubCard";
 import { useListClubsQuery } from "../../slices/clubsApiSlice";
-import { useThemeMode } from "../../context/ThemeContext.jsx";
 import SEOHead from "../../components/SEOHead";
+import { useLanguage } from "../../context/LanguageContext.jsx";
 
 const SPORT_OPTIONS = ["pickleball"];
 
@@ -101,12 +99,12 @@ function ClubCardSkeleton() {
   );
 }
 
-const getApiErrMsg = (err) =>
+const getApiErrMsg = (err, fallback) =>
   err?.data?.message ||
   err?.error ||
   (typeof err?.data === "string"
     ? err.data
-    : "Có lỗi xảy ra, vui lòng thử lại.");
+    : fallback);
 
 const tabStyles = {
   minHeight: 40,
@@ -123,9 +121,7 @@ const tabStyles = {
 };
 
 export default function ClubsListPage() {
-  const theme = useTheme();
-  const { isDark } = useThemeMode();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const { t } = useLanguage();
   const [tab, setTab] = useState("all");
 
   const [qInput, setQInput] = useState("");
@@ -141,10 +137,9 @@ export default function ClubsListPage() {
   const [province, setProvince] = useState("");
   const [openCreate, setOpenCreate] = useState(false);
 
-  const authUser =
-    useSelector((s) => s.auth?.userInfo) ||
-    useSelector((s) => s.user?.userInfo) ||
-    null;
+  const authUserFromAuth = useSelector((s) => s.auth?.userInfo || null);
+  const authUserFromUser = useSelector((s) => s.user?.userInfo || null);
+  const authUser = authUserFromAuth || authUserFromUser || null;
   const isAuth = !!(authUser?._id || authUser?.token);
 
   const wantMine = tab === "mine";
@@ -178,11 +173,11 @@ export default function ClubsListPage() {
       notifiedRef.current = true;
       const msg =
         error?.status === 401 && wantMine
-          ? "Bạn cần đăng nhập để xem danh sách CLB của tôi."
-          : getApiErrMsg(error);
+          ? t("clubs.list.loginRequired")
+          : getApiErrMsg(error, t("clubs.list.genericError"));
       toast.error(msg);
     }
-  }, [error, wantMine]);
+  }, [error, t, wantMine]);
 
   const clearFilters = () => {
     setQInput("");
@@ -198,9 +193,9 @@ export default function ClubsListPage() {
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 8 }}>
       <SEOHead
-        title="Câu lạc bộ"
-        description="Tham gia các câu lạc bộ Pickleball, kết nối cộng đồng, tạo đội nhóm và thi đấu giao lưu."
-        keywords="câu lạc bộ pickleball, club pickleball, tham gia clb, tạo clb"
+        title={t("clubs.list.seoTitle")}
+        description={t("clubs.list.seoDescription")}
+        keywords={t("clubs.list.seoKeywords")}
         path="/clubs"
       />
       {/* === HERO SECTION === */}
@@ -233,10 +228,10 @@ export default function ClubsListPage() {
                   mb: 0.5,
                 }}
               >
-                Cộng đồng & Câu lạc bộ
+                {t("clubs.list.heroTitle")}
               </Typography>
               <Typography variant="body1" color="text.secondary">
-                Kết nối, giao lưu và tham gia các giải đấu hấp dẫn
+                {t("clubs.list.heroSubtitle")}
               </Typography>
             </Box>
 
@@ -257,7 +252,7 @@ export default function ClubsListPage() {
                 },
               }}
             >
-              Tạo CLB Mới
+              {t("clubs.list.createClub")}
             </Button>
           </Stack>
 
@@ -279,7 +274,7 @@ export default function ClubsListPage() {
             {/* Search Input */}
             <TextField
               fullWidth
-              placeholder="Tìm kiếm CLB..."
+              placeholder={t("clubs.list.searchPlaceholder")}
               value={qInput}
               onChange={(e) => setQInput(e.target.value)}
               variant="standard"
@@ -339,7 +334,9 @@ export default function ClubsListPage() {
               sx={{ flex: 1, width: { xs: "100%", md: "auto" } }}
             >
               <MenuItem value="">
-                <Typography color="text.secondary">Tất cả môn</Typography>
+                <Typography color="text.secondary">
+                  {t("clubs.list.allSports")}
+                </Typography>
               </MenuItem>
               {SPORT_OPTIONS.map((s) => (
                 <MenuItem
@@ -354,7 +351,7 @@ export default function ClubsListPage() {
 
             {/* Select Province */}
             <TextField
-              placeholder="Tỉnh/Thành phố"
+              placeholder={t("clubs.list.provincePlaceholder")}
               value={province}
               onChange={(e) => setProvince(e.target.value)}
               variant="standard"
@@ -386,11 +383,16 @@ export default function ClubsListPage() {
                 "& .MuiTabs-flexContainer": { gap: 1 },
               }}
             >
-              <Tab label="Khám phá" value="all" sx={tabStyles} disableRipple />
+              <Tab
+                label={t("clubs.list.discoverTab")}
+                value="all"
+                sx={tabStyles}
+                disableRipple
+              />
               <Tab
                 label={
                   <Box display="flex" alignItems="center" gap={1}>
-                    CLB của tôi{" "}
+                    {t("clubs.list.myClubsTab")}{" "}
                     {isAuth && (
                       <Chip
                         label="Member"
@@ -423,11 +425,11 @@ export default function ClubsListPage() {
               sx={{ mb: 4, borderRadius: 3 }}
               variant="outlined"
             >
-              Vui lòng{" "}
+              {t("clubs.list.loginToViewMinePrefix")}{" "}
               <Button color="inherit" size="small" sx={{ fontWeight: 700 }}>
-                Đăng nhập
+                {t("clubs.list.loginToViewMineAction")}
               </Button>{" "}
-              để xem danh sách CLB bạn đang tham gia.
+              {t("clubs.list.loginToViewMineSuffix")}
             </Alert>
           </Fade>
         )}
@@ -482,11 +484,10 @@ export default function ClubsListPage() {
                     />
                   </Box>
                   <Typography variant="h6" fontWeight={700} gutterBottom>
-                    Bạn chưa tham gia CLB nào
+                    {t("clubs.list.emptyMineTitle")}
                   </Typography>
                   <Typography sx={{ mb: 3, maxWidth: 400 }}>
-                    Hãy bắt đầu bằng việc tạo CLB riêng của bạn hoặc khám phá
-                    các CLB đang hoạt động.
+                    {t("clubs.list.emptyMineBody")}
                   </Typography>
                   <Button
                     variant="contained"
@@ -494,7 +495,7 @@ export default function ClubsListPage() {
                     onClick={() => setOpenCreate(true)}
                     sx={{ borderRadius: 20, px: 4 }}
                   >
-                    Tạo CLB ngay
+                    {t("clubs.list.createNow")}
                   </Button>
                 </>
               ) : hasFilters ? (
@@ -512,17 +513,17 @@ export default function ClubsListPage() {
                     />
                   </Box>
                   <Typography variant="h6" fontWeight={700} gutterBottom>
-                    Không tìm thấy kết quả
+                    {t("clubs.list.noSearchTitle")}
                   </Typography>
                   <Typography sx={{ mb: 3 }}>
-                    Không có CLB nào khớp với từ khóa hoặc bộ lọc hiện tại.
+                    {t("clubs.list.noSearchBody")}
                   </Typography>
                   <Button
                     variant="outlined"
                     onClick={clearFilters}
                     sx={{ borderRadius: 20 }}
                   >
-                    Xóa bộ lọc tìm kiếm
+                    {t("clubs.list.clearFilters")}
                   </Button>
                 </>
               ) : (
@@ -540,10 +541,10 @@ export default function ClubsListPage() {
                     />
                   </Box>
                   <Typography variant="h6" fontWeight={700} gutterBottom>
-                    Chưa có CLB nào
+                    {t("clubs.list.emptyTitle")}
                   </Typography>
                   <Typography sx={{ mb: 3 }}>
-                    Hệ thống hiện tại chưa có CLB nào được tạo.
+                    {t("clubs.list.emptyBody")}
                   </Typography>
                   <Button
                     variant="contained"
@@ -551,7 +552,7 @@ export default function ClubsListPage() {
                     onClick={() => setOpenCreate(true)}
                     sx={{ borderRadius: 20 }}
                   >
-                    Tạo CLB đầu tiên
+                    {t("clubs.list.createFirst")}
                   </Button>
                 </>
               )}
@@ -565,7 +566,7 @@ export default function ClubsListPage() {
         onClose={(ok) => {
           setOpenCreate(false);
           if (ok) {
-            toast.success("Tạo CLB thành công!");
+            toast.success(t("clubs.list.createSuccess"));
             refetch();
           }
         }}

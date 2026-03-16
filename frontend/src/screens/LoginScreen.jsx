@@ -27,6 +27,7 @@ import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
 import apiSlice from "../slices/apiSlice";
 import SEOHead from "../components/SEOHead";
+import { useLanguage } from "../context/LanguageContext.jsx";
 
 const WEB_LOGO_PATH = "/icon.png";
 
@@ -39,6 +40,7 @@ export default function LoginScreen() {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const { t } = useLanguage();
 
   const [login, { isLoading }] = useLoginMutation();
   const { userInfo } = useSelector((state) => state.auth);
@@ -62,7 +64,7 @@ export default function LoginScreen() {
       dispatch(apiSlice.util.resetApiState());
       navigate("/");
     } catch (err) {
-      toast.error(err?.data?.message || err?.error || "Đăng nhập thất bại");
+      toast.error(err?.data?.message || err?.error || t("auth.login.errors.failed"));
     }
   };
 
@@ -77,7 +79,7 @@ export default function LoginScreen() {
         background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
       }}
     >
-      <SEOHead title="Đăng nhập" />
+      <SEOHead title={t("auth.login.seoTitle")} />
       <Container component="main" maxWidth="xs">
         <Paper
           elevation={6}
@@ -112,14 +114,14 @@ export default function LoginScreen() {
             sx={{ mb: 1 }}
             align="center"
           >
-            Chào mừng bạn trở lại Pickletour!
+            {t("auth.login.welcome")}
           </Typography>
           <Typography
             variant={isMobile ? "body2" : "body1"}
             color="text.secondary"
             sx={{ mb: 4, textAlign: "center" }}
           >
-            Đăng nhập hệ thống
+            {t("auth.login.subtitle")}
           </Typography>
 
           <Box component="form" onSubmit={submitHandler} sx={{ width: "100%" }}>
@@ -128,7 +130,7 @@ export default function LoginScreen() {
               required
               fullWidth
               id="identifier"
-              label="Số điện thoại hoặc Email"
+              label={t("auth.login.identifierLabel")}
               name="identifier"
               autoComplete="username"
               autoFocus
@@ -154,7 +156,7 @@ export default function LoginScreen() {
               required
               fullWidth
               name="password"
-              label="Mật khẩu"
+              label={t("auth.login.passwordLabel")}
               type={showPassword ? "text" : "password"}
               id="password"
               autoComplete="current-password"
@@ -208,7 +210,11 @@ export default function LoginScreen() {
               }}
               disabled={isLoading}
             >
-              {isLoading ? <CircularProgress size={24} color="inherit" /> : "Đăng nhập"}
+              {isLoading ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : (
+                t("auth.login.submit")
+              )}
             </Button>
 
             <Box
@@ -229,7 +235,7 @@ export default function LoginScreen() {
                   mb: isMobile ? 1 : 0,
                 }}
               >
-                Quên mật khẩu?
+                {t("auth.login.forgot")}
               </Link>
               <Link
                 component={RouterLink}
@@ -241,7 +247,7 @@ export default function LoginScreen() {
                   fontWeight: 600,
                 }}
               >
-                Đăng ký
+                {t("auth.login.register")}
               </Link>
             </Box>
           </Box>

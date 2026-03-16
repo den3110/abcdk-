@@ -1,6 +1,7 @@
+/* eslint-disable react/prop-types */
 // src/pages/MyTournamentsPage.jsx — Thêm chức năng Expandable cho List View (MUI v7 Grid v2)
 
-import React, {
+import {
   useMemo,
   useState,
   useCallback,
@@ -55,6 +56,11 @@ import { useListMyTournamentsQuery } from "../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./PickleBall/match/ResponsiveMatchViewer";
 import { useSocket } from "../context/SocketContext";
 import SEOHead from "../components/SEOHead";
+import { useLanguage } from "../context/LanguageContext.jsx";
+import {
+  formatDate,
+  formatDateTime,
+} from "../i18n/format.js";
 
 function normalizeGroupCode(code) {
   const s = String(code || "")
@@ -67,14 +73,14 @@ function normalizeGroupCode(code) {
 }
 
 /* ================= Utils (Giữ nguyên) ================= */
-const dateFmt = (s) => {
+const dateFmt = (s, locale) => {
   if (!s) return "—";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return "—";
-  return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], {
+  return `${formatDate(d, locale)} ${formatDateTime(d, locale, {
     hour: "2-digit",
     minute: "2-digit",
-  })}`;
+  }).split(", ").pop()}`;
 };
 const stripVN = (s = "") =>
   String(s)
@@ -100,7 +106,7 @@ const teamLabel = (team, eventType) => {
   if (players.length === 1) return nameWithNick(players[0]);
   return `${nameWithNick(players[0])} & ${nameWithNick(players[1])}`;
 };
-function roundText(m) {
+function roundText(m, translate) {
   if (m.roundName) return m.roundName;
   if (m.phase) return m.phase;
 
@@ -111,39 +117,50 @@ function roundText(m) {
     if (poolName) {
       // Nếu là số → "Bảng 1", "Bảng 2"
       if (/^\d+$/.test(String(poolName))) {
-        return `Bảng ${poolName}`;
+        return translate("myTournaments.rounds.groupName", {
+          name: poolName,
+        });
       }
       // Nếu là chữ → "Bảng A", "Bảng B"
-      return `Bảng ${String(poolName).toUpperCase()}`;
+      return translate("myTournaments.rounds.groupName", {
+        name: String(poolName).toUpperCase(),
+      });
     }
 
     // Fallback: có rrRound → "Vòng bảng - Lượt X"
     if (Number.isFinite(m.rrRound)) {
-      return `Vòng bảng - Lượt ${m.rrRound + 1}`;
+      return translate("myTournaments.rounds.groupRound", {
+        round: m.rrRound + 1,
+      });
     }
 
     // Không có gì → chỉ "Vòng bảng"
-    return "Vòng bảng";
+    return translate("myTournaments.rounds.group");
   }
 
   // ✅ Các format khác
   if (Number.isFinite(m.swissRound)) {
-    return `Swiss - Vòng ${m.swissRound + 1}`;
+    return translate("myTournaments.rounds.swissRound", {
+      round: m.swissRound + 1,
+    });
   }
 
   if (Number.isFinite(m.round)) {
     // Knockout/Playoff
     if (m.format === "knockout" || m.format === "roundElim") {
       const roundNames = {
-        1: "Vòng 1/16",
-        2: "Vòng 1/8",
-        3: "Tứ kết",
-        4: "Bán kết",
-        5: "Chung kết",
+        1: translate("myTournaments.rounds.roundOf16"),
+        2: translate("myTournaments.rounds.roundOf8"),
+        3: translate("myTournaments.rounds.quarterfinal"),
+        4: translate("myTournaments.rounds.semifinal"),
+        5: translate("myTournaments.rounds.final"),
       };
-      return roundNames[m.round] || `Vòng ${m.round}`;
+      return (
+        roundNames[m.round] ||
+        translate("myTournaments.rounds.round", { round: m.round })
+      );
     }
-    return `Vòng ${m.round}`;
+    return translate("myTournaments.rounds.round", { round: m.round });
   }
 
   return "—";
@@ -159,13 +176,33 @@ const toneToMuiColor = (tone) => {
 
 /* ================= Small UI bits (Giữ nguyên) ================= */
 
-function StatusChipWithIcon({ status }) {
+function StatusChipWithIcon({ status, translate }) {
   const map = {
-    live: { label: "Đang diễn ra", color: "warning", Icon: PlayArrowIcon },
-    finished: { label: "Đã kết thúc", color: "success", Icon: EmojiEventsIcon },
-    scheduled: { label: "Sắp diễn ra", color: "primary", Icon: PauseIcon },
-    upcoming: { label: "Sắp diễn ra", color: "primary", Icon: PauseIcon },
-    ongoing: { label: "Đang diễn ra", color: "warning", Icon: PlayArrowIcon },
+    live: {
+      label: translate("tournaments.statuses.ongoing"),
+      color: "warning",
+      Icon: PlayArrowIcon,
+    },
+    finished: {
+      label: translate("tournaments.statuses.finished"),
+      color: "success",
+      Icon: EmojiEventsIcon,
+    },
+    scheduled: {
+      label: translate("tournaments.statuses.upcoming"),
+      color: "primary",
+      Icon: PauseIcon,
+    },
+    upcoming: {
+      label: translate("tournaments.statuses.upcoming"),
+      color: "primary",
+      Icon: PauseIcon,
+    },
+    ongoing: {
+      label: translate("tournaments.statuses.ongoing"),
+      color: "warning",
+      Icon: PlayArrowIcon,
+    },
   };
   const conf = map[status] || map.scheduled;
   const Icon = conf.Icon;
@@ -257,7 +294,7 @@ function ScoreBadge({ m }) {
 }
 
 /* ⬇️ UPDATED: TournamentListRow - Thêm tính năng mở rộng trận đấu */
-function TournamentListRow({ t, onOpenMatch }) {
+function TournamentListRow({ t, onOpenMatch, translate, locale }) {
   const onOpen = useCallback((m) => onOpenMatch?.(m), [onOpenMatch]);
   const [expanded, setExpanded] = useState(false);
 
@@ -311,21 +348,22 @@ function TournamentListRow({ t, onOpenMatch }) {
           <StatusIcon color={statusColor} sx={{ mt: 0.5, flexShrink: 0 }} />
           <Stack spacing={0.5} sx={{ minWidth: 0, flex: 1 }}>
             <Stack direction="row" spacing={1} alignItems="center">
-              <StatusChipWithIcon status={t.status} />
+              <StatusChipWithIcon status={t.status} translate={translate} />
             </Stack>
             <Typography variant="h6" fontWeight={700} noWrap>
-              {t.name || "Giải đấu"}
+              {t.name || translate("myTournaments.tournamentFallback")}
             </Typography>
             <SmallMeta
               icon={PlaceIcon}
-              text={t.location || "Chưa xác định địa điểm"}
+              text={t.location || translate("myTournaments.unknownLocation")}
             />
             <SmallMeta
               icon={CalendarMonthIcon}
               text={
                 (t.startDate || t.startAt) && (t.endDate || t.endAt)
-                  ? `${dateFmt(t.startDate || t.startAt)} → ${dateFmt(
-                      t.endDate || t.endAt
+                  ? `${dateFmt(t.startDate || t.startAt, locale)} → ${dateFmt(
+                      t.endDate || t.endAt,
+                      locale
                     )}`
                   : "—"
               }
@@ -382,10 +420,16 @@ function TournamentListRow({ t, onOpenMatch }) {
                     >
                       {teamLabel(a, t.eventType)} vs {teamLabel(b, t.eventType)}
                     </Typography>
-                    <SmallMeta icon={ScheduleIcon} text={roundText(m)} />
+                    <SmallMeta
+                      icon={ScheduleIcon}
+                      text={roundText(m, translate)}
+                    />
                     <SmallMeta
                       icon={AccessTimeIcon}
-                      text={dateFmt(m.scheduledAt || m.startTime || m.time)}
+                      text={dateFmt(
+                        m.scheduledAt || m.startTime || m.time,
+                        locale
+                      )}
                     />
                   </Stack>
                 );
@@ -400,12 +444,12 @@ function TournamentListRow({ t, onOpenMatch }) {
                     mt: 0.5,
                     alignSelf: "flex-start",
                   }}
-                >
+                  >
                   {expanded
-                    ? "Thu gọn danh sách"
-                    : `Xem tất cả ${
-                        remainingMatches.length + summaryMatches.length
-                      } trận`}
+                    ? translate("myTournaments.collapseList")
+                    : translate("myTournaments.viewAllMatches", {
+                        count: remainingMatches.length + summaryMatches.length,
+                      })}
                 </Button>
               )}
             </Stack>
@@ -418,7 +462,7 @@ function TournamentListRow({ t, onOpenMatch }) {
             >
               <Stack direction="row" spacing={1} alignItems="center">
                 <InfoIcon fontSize="small" />{" "}
-                <span>Chưa có trận đấu nào được lên lịch.</span>
+                <span>{translate("myTournaments.noScheduledMatches")}</span>
               </Stack>
             </Typography>
           )}
@@ -453,7 +497,7 @@ function TournamentListRow({ t, onOpenMatch }) {
   );
 }
 
-function MatchRow({ m, onOpen, eventType }) {
+function MatchRow({ m, onOpen, eventType, translate, locale }) {
   const a = m.teamA || m.home || m.teams?.[0] || m.pairA;
   const b = m.teamB || m.away || m.teams?.[1] || m.pairB;
   const status = m.status || (m.winner ? "finished" : "scheduled");
@@ -482,7 +526,7 @@ function MatchRow({ m, onOpen, eventType }) {
               <Typography noWrap fontWeight={600}>
                 {teamLabel(a, eventType)}
               </Typography>
-              <StatusChipWithIcon status={status} />
+              <StatusChipWithIcon status={status} translate={translate} />
             </Stack>
             <Typography noWrap fontWeight={600}>
               {teamLabel(b, eventType)}
@@ -495,11 +539,17 @@ function MatchRow({ m, onOpen, eventType }) {
               useFlexGap
               sx={{ mt: 0.5 }}
             >
-              <SmallMeta icon={AccessTimeIcon} text={dateFmt(when)} />
+              <SmallMeta icon={AccessTimeIcon} text={dateFmt(when, locale)} />
               {!!court && (
-                <SmallMeta icon={SportsTennisIcon} text={`Sân ${court}`} />
+                <SmallMeta
+                  icon={SportsTennisIcon}
+                  text={translate("myTournaments.court", { name: court })}
+                />
               )}
-              <SmallMeta icon={ScheduleIcon} text={roundText(m)} />
+              <SmallMeta
+                icon={ScheduleIcon}
+                text={roundText(m, translate)}
+              />
             </Stack>
           </Stack>
           <Box sx={{ alignSelf: "center", pl: 0.5 }}>
@@ -511,13 +561,13 @@ function MatchRow({ m, onOpen, eventType }) {
   );
 }
 
-function Banner({ t, collapsed, onToggle }) {
+function Banner({ t, collapsed, onToggle, translate }) {
   const statusText =
     t.status === "ongoing"
-      ? "Đang diễn ra"
+      ? translate("tournaments.statuses.ongoing")
       : t.status === "finished"
-      ? "Đã kết thúc"
-      : "Sắp diễn ra";
+      ? translate("tournaments.statuses.finished")
+      : translate("tournaments.statuses.upcoming");
   const statusColor =
     t.status === "ongoing"
       ? "warning"
@@ -579,7 +629,7 @@ function Banner({ t, collapsed, onToggle }) {
         >
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography variant="h6" fontWeight={600} color="#fff" noWrap>
-              {t.name || "Giải đấu"}
+              {t.name || translate("myTournaments.tournamentFallback")}
             </Typography>
             {!!t.location && (
               <Stack
@@ -613,7 +663,11 @@ function Banner({ t, collapsed, onToggle }) {
                 bgcolor: "rgba(255,255,255,0.12)",
                 "&:hover": { bgcolor: "rgba(255,255,255,0.2)" },
               }}
-              title={collapsed ? "Mở chi tiết" : "Thu gọn"}
+              title={
+                collapsed
+                  ? translate("myTournaments.expandDetails")
+                  : translate("myTournaments.collapse")
+              }
             >
               {collapsed ? <ExpandMoreIcon /> : <ExpandLessIcon />}
             </IconButton>
@@ -624,7 +678,7 @@ function Banner({ t, collapsed, onToggle }) {
   );
 }
 
-function TournamentCard({ t, onOpenMatch }) {
+function TournamentCard({ t, onOpenMatch, translate, locale }) {
   const [collapsed, setCollapsed] = useState(t.status === "finished");
   const [expanded, setExpanded] = useState(false);
   const [matchQuery, setMatchQuery] = useState("");
@@ -671,6 +725,7 @@ function TournamentCard({ t, onOpenMatch }) {
         t={t}
         collapsed={collapsed}
         onToggle={() => setCollapsed((v) => !v)}
+        translate={translate}
       />
 
       <Collapse in={!collapsed} timeout="auto" unmountOnExit>
@@ -686,8 +741,9 @@ function TournamentCard({ t, onOpenMatch }) {
               <AccessTimeIcon sx={{ fontSize: 18, color: "text.secondary" }} />
               <Typography variant="body2" color="text.secondary" noWrap>
                 {(t.startDate || t.startAt) && (t.endDate || t.endAt)
-                  ? `${dateFmt(t.startDate || t.startAt)}  →  ${dateFmt(
-                      t.endDate || t.endAt
+                  ? `${dateFmt(t.startDate || t.startAt, locale)}  →  ${dateFmt(
+                      t.endDate || t.endAt,
+                      locale
                     )}`
                   : "—"}
               </Typography>
@@ -705,7 +761,7 @@ function TournamentCard({ t, onOpenMatch }) {
               value={matchQuery}
               onChange={(e) => setMatchQuery(e.target.value)}
               size="small"
-              placeholder="Tìm trận (VĐV, vòng, sân...)"
+              placeholder={translate("myTournaments.matchSearchPlaceholder")}
               fullWidth
               InputProps={{
                 startAdornment: (
@@ -732,19 +788,19 @@ function TournamentCard({ t, onOpenMatch }) {
             sx={{ mb: 1.5 }}
           >
             <ToggleChip
-              label="Sắp diễn ra"
+              label={translate("tournaments.statuses.upcoming")}
               active={statusFilter.has("scheduled")}
               onClick={() => toggleStatus("scheduled")}
               tone="scheduled"
             />
             <ToggleChip
-              label="Đang diễn ra"
+              label={translate("tournaments.statuses.ongoing")}
               active={statusFilter.has("live")}
               onClick={() => toggleStatus("live")}
               tone="live"
             />
             <ToggleChip
-              label="Đã kết thúc"
+              label={translate("tournaments.statuses.finished")}
               active={statusFilter.has("finished")}
               onClick={() => toggleStatus("finished")}
               tone="finished"
@@ -758,7 +814,7 @@ function TournamentCard({ t, onOpenMatch }) {
                 size="small"
                 variant="text"
               >
-                Reset
+                {translate("myTournaments.reset")}
               </Button>
             )}
           </Stack>
@@ -779,7 +835,7 @@ function TournamentCard({ t, onOpenMatch }) {
                 🎾
               </Typography>
               <Typography color="text.secondary">
-                Không có trận phù hợp bộ lọc.
+                {translate("myTournaments.noFilteredMatches")}
               </Typography>
             </Box>
           ) : (
@@ -800,8 +856,10 @@ function TournamentCard({ t, onOpenMatch }) {
                     size="small"
                   >
                     {expanded
-                      ? "Thu gọn"
-                      : `Xem tất cả ${filteredMatches.length} trận`}
+                      ? translate("myTournaments.collapse")
+                      : translate("myTournaments.viewAllMatches", {
+                          count: filteredMatches.length,
+                        })}
                   </Button>
                 </Box>
               )}
@@ -816,6 +874,7 @@ function TournamentCard({ t, onOpenMatch }) {
 /* ======= Login Prompt (Giữ nguyên) ======= */
 function LoginPrompt() {
   const navigate = useNavigate();
+  const { t } = useLanguage();
   return (
     <Box
       sx={{ display: "grid", placeItems: "center", minHeight: "60vh", p: 3 }}
@@ -838,14 +897,13 @@ function LoginPrompt() {
             <LockIcon sx={{ color: "primary.contrastText" }} />
           </Box>
           <Typography variant="h6" fontWeight={600}>
-            Hãy đăng nhập để xem{" "}
+            {t("myTournaments.loginTitle").replace(" Giải của tôi", "")}{" "}
             <Typography component="span" fontWeight={600}>
-              Giải của tôi
+              {t("myTournaments.title")}
             </Typography>
           </Typography>
           <Typography color="text.secondary">
-            Sau khi đăng nhập, bạn sẽ thấy danh sách các giải mình đã tham gia,
-            lịch thi đấu và kết quả cá nhân.
+            {t("myTournaments.loginBody")}
           </Typography>
           <Button
             onClick={() => navigate("/login")}
@@ -853,7 +911,7 @@ function LoginPrompt() {
             startIcon={<LoginIcon />}
             size="medium"
           >
-            Đăng nhập
+            {t("common.actions.login")}
           </Button>
         </Stack>
       </Card>
@@ -867,6 +925,7 @@ const LS_VIEW_MODE_KEY = "myTournamentsViewMode";
 export default function MyTournamentsPage() {
   const theme = useTheme();
   const isMdUp = useMediaQuery(theme.breakpoints.up("md"));
+  const { t: translate, locale } = useLanguage();
   const [viewerOpen, setViewerOpen] = useState(false);
   const [matchId, setMatchId] = useState(null);
 
@@ -1089,7 +1148,6 @@ export default function MyTournamentsPage() {
     const getLive = (m) => liveMapRef.current.get(String(m?._id)) || m;
 
     return tournamentsRaw.map((t) => {
-      const tid = String(t._id);
       const base = { ...t };
 
       // ✅ Lấy trạng thái bảng từ backend
@@ -1132,9 +1190,7 @@ export default function MyTournamentsPage() {
   }, [tournamentsRaw, liveBump]);
 
   const [tourQuery, setTourQuery] = useState("");
-  const [tourStatus, setTourStatus] = useState(
-    new Set(["upcoming", "ongoing", "finished"])
-  );
+  const [tourStatus] = useState(new Set(["upcoming", "ongoing", "finished"]));
   const tournaments = useMemo(() => {
     const q = stripVN(tourQuery);
     const filtered = tournamentsLive.filter((t) => {
@@ -1165,6 +1221,7 @@ export default function MyTournamentsPage() {
 
   return (
     <Box sx={{ minHeight: "100dvh", bgcolor: "background.default" }}>
+      <SEOHead title={translate("myTournaments.title")} noIndex={true} />
       {/* Sticky header */}
       <Box
         sx={{
@@ -1185,7 +1242,7 @@ export default function MyTournamentsPage() {
         <Container maxWidth="xl" sx={{ py: 3 }}>
           <Stack spacing={1}>
             <Typography variant="h5" fontWeight={600}>
-              Giải của tôi
+              {translate("myTournaments.title")}
             </Typography>
 
             <Stack
@@ -1198,7 +1255,7 @@ export default function MyTournamentsPage() {
                 value={tourQuery}
                 onChange={(e) => setTourQuery(e.target.value)}
                 size="small"
-                placeholder="Tìm giải (tên, địa điểm)"
+                placeholder={translate("myTournaments.searchPlaceholder")}
                 fullWidth
                 InputProps={{
                   startAdornment: (
@@ -1227,14 +1284,14 @@ export default function MyTournamentsPage() {
                   <ToggleButton
                     value="list"
                     aria-label="list view"
-                    title="Chế độ List"
+                    title={translate("myTournaments.listMode")}
                   >
                     <ViewListIcon />
                   </ToggleButton>
                   <ToggleButton
                     value="card"
                     aria-label="card view"
-                    title="Chế độ Card"
+                    title={translate("myTournaments.cardMode")}
                   >
                     <GridViewIcon />
                   </ToggleButton>
@@ -1250,7 +1307,9 @@ export default function MyTournamentsPage() {
                     alignSelf: { xs: "flex-start", sm: "center" },
                   }}
                 >
-                  {tournaments.length} giải phù hợp
+                  {translate("myTournaments.matchingCount", {
+                    count: tournaments.length,
+                  })}
                 </Typography>
               )}
             </Stack>
@@ -1273,10 +1332,10 @@ export default function MyTournamentsPage() {
         ) : isError ? (
           <Box sx={{ py: 6, textAlign: "center" }}>
             <Typography color="error">
-              Có lỗi khi tải dữ liệu. Vui lòng thử lại.
+              {translate("myTournaments.loadError")}
             </Typography>
             <Button onClick={refetch} sx={{ mt: 1 }} variant="outlined">
-              Thử lại
+              {translate("common.actions.retry")}
             </Button>
           </Box>
         ) : tournaments.length === 0 ? (
@@ -1292,10 +1351,10 @@ export default function MyTournamentsPage() {
               🏆
             </Typography>
             <Typography fontWeight={600} variant="h6">
-              Chưa có giải nào
+              {translate("myTournaments.emptyTitle")}
             </Typography>
             <Typography color="text.secondary" sx={{ mt: 0.5 }}>
-              Tham gia giải để theo dõi lịch đấu và kết quả của bạn tại đây.
+              {translate("myTournaments.emptyBody")}
             </Typography>
           </Box>
         ) : isMdUp && viewMode === "list" ? (
@@ -1306,6 +1365,8 @@ export default function MyTournamentsPage() {
                 key={t._id}
                 t={t}
                 onOpenMatch={handleOpenMatch}
+                translate={translate}
+                locale={locale}
               />
             ))}
           </Stack>
@@ -1317,7 +1378,12 @@ export default function MyTournamentsPage() {
                 key={t._id}
                 size={{ xs: 12, sm: 12, md: 6, lg: 4 }} // MUI v7 Grid v2 API
               >
-                <TournamentCard t={t} onOpenMatch={handleOpenMatch} />
+                <TournamentCard
+                  t={t}
+                  onOpenMatch={handleOpenMatch}
+                  translate={translate}
+                  locale={locale}
+                />
               </Grid>
             ))}
           </Grid>
@@ -1330,7 +1396,9 @@ export default function MyTournamentsPage() {
             variant="outlined"
             size="small"
           >
-            {isFetching ? "Đang làm mới..." : "Làm mới"}
+            {isFetching
+              ? translate("myTournaments.refreshing")
+              : translate("myTournaments.refresh")}
           </Button>
         </Box>
       </Container>

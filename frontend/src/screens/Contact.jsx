@@ -7,6 +7,7 @@ import {
   Link as MuiLink,
   IconButton,
 } from "@mui/material";
+import PropTypes from "prop-types";
 import LocationOnIcon from "@mui/icons-material/LocationOn";
 import PhoneIcon from "@mui/icons-material/Phone";
 import EmailIcon from "@mui/icons-material/Email";
@@ -15,6 +16,7 @@ import YouTubeIcon from "@mui/icons-material/YouTube";
 import ChatIcon from "@mui/icons-material/Chat";
 import { useGetContactContentQuery } from "../slices/cmsApiSlice";
 import SEOHead from "../components/SEOHead";
+import { useLanguage } from "../context/LanguageContext.jsx";
 
 const FALLBACK = {
   address: "Abcd, abcd, abcd",
@@ -46,21 +48,29 @@ const Bar = ({ w = "100%", h = 18, r = 8, mt = 6 }) => (
   />
 );
 
+Bar.propTypes = {
+  w: PropTypes.string,
+  h: PropTypes.number,
+  r: PropTypes.number,
+  mt: PropTypes.number,
+};
+
 export default function ContactPage() {
   const { data, isLoading, isError } = useGetContactContentQuery();
+  const { t } = useLanguage();
 
   const info = isLoading ? null : isError ? FALLBACK : { ...FALLBACK, ...data };
 
   return (
     <Container maxWidth="md" sx={{ py: 5 }}>
       <SEOHead
-        title="Liên hệ"
-        description="Liên hệ với Pickletour.vn - Hỗ trợ giải đấu, điểm trình, và các dịch vụ thể thao. Email, điện thoại, mạng xã hội."
-        keywords="liên hệ, hỗ trợ, pickletour, email, điện thoại"
+        title={t("contact.seoTitle")}
+        description={t("contact.seoDescription")}
+        keywords={t("contact.seoKeywords")}
         path="/contact"
       />
       <Typography variant="h4" align="center" fontWeight={700} gutterBottom>
-        Thông tin liên hệ.
+        {t("contact.title")}
       </Typography>
 
       {info ? (
@@ -68,18 +78,18 @@ export default function ContactPage() {
           <Stack direction="row" alignItems="center" spacing={1}>
             <LocationOnIcon color="action" />
             <Typography>
-              <strong>Địa chỉ:</strong> {info.address}
+              <strong>{t("common.labels.address")}:</strong> {info.address}
             </Typography>
           </Stack>
 
           <Stack direction="row" alignItems="center" spacing={1}>
             <PhoneIcon color="action" />
             <Typography>
-              <strong>Điện thoại:</strong>{" "}
+              <strong>{t("common.labels.phone")}:</strong>{" "}
               {info.phone ? (
                 <MuiLink href={`tel:${info.phone}`}>{info.phone}</MuiLink>
               ) : (
-                "—"
+                t("common.unavailable")
               )}
             </Typography>
           </Stack>
@@ -87,7 +97,7 @@ export default function ContactPage() {
           <Stack direction="row" alignItems="center" spacing={1}>
             <EmailIcon color="action" />
             <Typography>
-              <strong>Email:</strong>{" "}
+              <strong>{t("common.labels.email")}:</strong>{" "}
               <MuiLink href={`mailto:${info.email}`}>{info.email}</MuiLink>
             </Typography>
           </Stack>
@@ -127,7 +137,7 @@ export default function ContactPage() {
 
           <Box mt={2}>
             <Typography>
-              <strong>Hỗ trợ:</strong>{" "}
+              <strong>{t("contact.supportRoles.general")}:</strong>{" "}
               <MuiLink href={`mailto:${info.support.generalEmail}`}>
                 {info.support.generalEmail}
               </MuiLink>{" "}
@@ -137,11 +147,11 @@ export default function ContactPage() {
                   {info.support.generalPhone}
                 </MuiLink>
               ) : (
-                "—"
+                t("common.unavailable")
               )}
             </Typography>
             <Typography>
-              <strong>Hỗ trợ điểm trình:</strong>{" "}
+              <strong>{t("contact.supportRoles.scoring")}:</strong>{" "}
               <MuiLink href={`mailto:${info.support.scoringEmail}`}>
                 {info.support.scoringEmail}
               </MuiLink>{" "}
@@ -151,11 +161,11 @@ export default function ContactPage() {
                   {info.support.scoringPhone}
                 </MuiLink>
               ) : (
-                "—"
+                t("common.unavailable")
               )}
             </Typography>
             <Typography>
-              <strong>Bán hàng:</strong>{" "}
+              <strong>{t("contact.supportRoles.sales")}:</strong>{" "}
               <MuiLink href={`mailto:${info.support.salesEmail}`}>
                 {info.support.salesEmail}
               </MuiLink>

@@ -2,3 +2,6 @@ User-agent: *
 Allow: /
 
 Sitemap: https://pickletour.vn/sitemap.xml
+
+Sitemap: https://pickletour.vn/api/seo-news/sitemap.xml
+

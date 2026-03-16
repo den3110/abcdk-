@@ -126,6 +126,7 @@ const tournamentSchema = new mongoose.Schema(
     },
 
     noRankDelta: { type: Boolean, default: false },
+    allowExceedMaxRating: { type: Boolean, default: false },
 
     scoringScope: {
       type: {

@@ -19,6 +19,7 @@ import VisibilityOff from "@mui/icons-material/VisibilityOff";
 import { useResetPasswordMutation } from "../slices/usersApiSlice";
 import { toast } from "react-toastify";
 import SEOHead from "../components/SEOHead";
+import { useLanguage } from "../context/LanguageContext.jsx";
 
 export default function ResetPasswordScreen() {
   const { token } = useParams();
@@ -27,6 +28,7 @@ export default function ResetPasswordScreen() {
   const [confirm, setConfirm] = useState("");
   const [show, setShow] = useState(false);
   const [resetPassword, { isLoading }] = useResetPasswordMutation();
+  const { t } = useLanguage();
 
   const disabled = useMemo(
     () => !password || password.length < 6 || password !== confirm,
@@ -36,32 +38,32 @@ export default function ResetPasswordScreen() {
   const onSubmit = async (e) => {
     e.preventDefault();
     try {
-      if (!token) return toast.error("Thiếu token. Mở từ email để tiếp tục.");
+      if (!token) return toast.error(t("auth.reset.errors.missingToken"));
       if (password !== confirm)
-        return toast.error("Mật khẩu nhập lại không khớp");
+        return toast.error(t("auth.reset.errors.mismatch"));
       const res = await resetPassword({ token, password }).unwrap();
       toast.success(
-        res?.message || "Đổi mật khẩu thành công. Vui lòng đăng nhập lại."
+        res?.message || t("auth.reset.success")
       );
       navigate("/login");
     } catch (err) {
-      toast.error(
-        err?.data?.message ||
-          "Không thể đặt lại mật khẩu. Token có thể đã hết hạn."
-      );
+      toast.error(err?.data?.message || t("auth.reset.errors.failed"));
     }
   };
 
   return (
     <Container component="main" maxWidth="xs">
-      <SEOHead title="Đặt lại mật khẩu" description="Đặt lại mật khẩu mới cho tài khoản của bạn" />
+      <SEOHead
+        title={t("auth.reset.seoTitle")}
+        description={t("auth.reset.seoDescription")}
+      />
       <Box component={Paper} elevation={3} sx={{ p: 4, mt: 8 }}>
         <Typography variant="h5" fontWeight={600} mb={1}>
-          Đặt lại mật khẩu
+          {t("auth.reset.title")}
         </Typography>
         {!token && (
           <Alert severity="warning" sx={{ mb: 2 }}>
-            Thiếu token. Vui lòng mở liên kết từ email.
+            {t("auth.reset.missingToken")}
           </Alert>
         )}
 
@@ -69,13 +71,13 @@ export default function ResetPasswordScreen() {
           <TextField
             fullWidth
             required
-            label="Mật khẩu mới"
+            label={t("auth.reset.newPasswordLabel")}
             type={show ? "text" : "password"}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             margin="normal"
             inputProps={{ minLength: 6 }}
-            helperText="Tối thiểu 6 ký tự"
+            helperText={t("auth.reset.minLengthHint")}
             InputProps={{
               endAdornment: (
                 <InputAdornment position="end">
@@ -90,13 +92,15 @@ export default function ResetPasswordScreen() {
           <TextField
             fullWidth
             required
-            label="Nhập lại mật khẩu"
+            label={t("auth.reset.confirmPasswordLabel")}
             type={show ? "text" : "password"}
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             margin="normal"
             error={!!confirm && confirm !== password}
-            helperText={confirm && confirm !== password ? "Không khớp" : " "}
+            helperText={
+              confirm && confirm !== password ? t("auth.reset.mismatchShort") : " "
+            }
           />
 
           <Button
@@ -107,7 +111,7 @@ export default function ResetPasswordScreen() {
             sx={{ mt: 2 }}
             disabled={isLoading || disabled}
           >
-            {isLoading ? <CircularProgress size={24} /> : "Đổi mật khẩu"}
+            {isLoading ? <CircularProgress size={24} /> : t("auth.reset.submit")}
           </Button>
 
           <Link
@@ -116,7 +120,7 @@ export default function ResetPasswordScreen() {
             underline="hover"
             sx={{ display: "inline-block", mt: 2 }}
           >
-            Quay lại đăng nhập
+            {t("auth.reset.backToLogin")}
           </Link>
         </Box>
       </Box>

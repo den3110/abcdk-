@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import {
   Container,
@@ -11,7 +11,6 @@ import {
   Skeleton,
   Tabs,
   Tab,
-  Badge,
   Box,
 } from "@mui/material";
 import { toast } from "react-toastify";
@@ -25,6 +24,7 @@ import ClubEventsSection from "./events/ClubEventsSection";
 import ClubAnnouncements from "./news/ClubAnnouncements";
 import ClubPolls from "./polls/ClubPolls";
 import SEOHead from "./SEOHead";
+import { useLanguage } from "../context/LanguageContext.jsx";
 
 function calcCanSeeMembers(club, my) {
   const vis = club?.memberVisibility || "admins";
@@ -39,18 +39,19 @@ function calcCanSeeMembers(club, my) {
   if (vis === "public") return true;
   return false;
 }
-function memberGuardMessage(club) {
+function memberGuardMessage(club, t) {
   const vis = club?.memberVisibility || "admins";
   if (vis === "admins")
-    return "Danh sách thành viên chỉ hiển thị với quản trị viên CLB.";
+    return t("clubs.detail.memberGuardAdmins");
   if (vis === "members")
-    return "Danh sách thành viên chỉ hiển thị với thành viên CLB.";
-  return "Danh sách thành viên hiện không thể hiển thị.";
+    return t("clubs.detail.memberGuardMembers");
+  return t("clubs.detail.memberGuardUnavailable");
 }
 
 const ALLOWED_TABS = ["news", "events", "polls"];
 
 export default function ClubDetailPage() {
+  const { t } = useLanguage();
   const { id } = useParams();
   const { data: club, isLoading, refetch } = useGetClubQuery(id);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -73,20 +74,24 @@ export default function ClubDetailPage() {
     () => (
       <Paper variant="outlined" sx={{ p: 2, borderRadius: 3 }}>
         <Stack spacing={2}>
-          <Typography variant="subtitle1">Tác vụ</Typography>
+          <Typography variant="subtitle1">
+            {t("clubs.detail.actionsTitle")}
+          </Typography>
           <ClubActions club={club} my={my} />
           {isOwnerOrAdmin && (
             <>
               <Divider />
-              <Typography variant="subtitle1">Quản trị CLB</Typography>
+              <Typography variant="subtitle1">
+                {t("clubs.detail.manageTitle")}
+              </Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap">
                 <Button variant="outlined" onClick={() => setOpenEdit(true)}>
-                  Chỉnh sửa CLB
+                  {t("clubs.detail.editClub")}
                 </Button>
               </Stack>
               <Stack direction="row" spacing={1} flexWrap="wrap">
                 <Button variant="outlined" onClick={() => setOpenJR(true)}>
-                  Duyệt yêu cầu gia nhập
+                  {t("clubs.detail.reviewJoinRequests")}
                 </Button>
               </Stack>
             </>
@@ -94,7 +99,7 @@ export default function ClubDetailPage() {
         </Stack>
       </Paper>
     ),
-    [club, my, isOwnerOrAdmin]
+    [club, my, isOwnerOrAdmin, t]
   );
 
   if (isLoading) {
@@ -117,7 +122,7 @@ export default function ClubDetailPage() {
     return (
       <Container maxWidth="md" sx={{ py: 6 }}>
         <Typography align="center" color="text.secondary">
-          Không tìm thấy CLB
+          {t("clubs.detail.notFound")}
         </Typography>
       </Container>
     );
@@ -129,7 +134,10 @@ export default function ClubDetailPage() {
     <Container maxWidth="lg" sx={{ py: 3 }}>
       <SEOHead
         title={club?.name}
-        description={club?.description || `Câu lạc bộ Pickleball ${club?.name} - Tham gia và giao lưu!`}
+        description={
+          club?.description ||
+          t("clubs.detail.descriptionFallback", { name: club?.name })
+        }
         ogImage={club?.avatar}
         path={`/clubs/${club?._id}`}
         structuredData={[
@@ -138,12 +146,17 @@ export default function ClubDetailPage() {
             "@type": "SportsTeam",
             name: club?.name,
             sport: "Pickleball",
-            description: club?.description || `Câu lạc bộ Pickleball ${club?.name}`,
+            description:
+              club?.description ||
+              t("clubs.detail.descriptionFallback", { name: club?.name }),
             logo: club?.avatar || "https://pickletour.vn/icon.png",
             url: `https://pickletour.vn/clubs/${club?._id}`,
             member: (club?.members || []).map((m) => ({
               "@type": "Person",
-              name: m?.user?.name || m?.user?.fullName || "Thành viên",
+              name:
+                m?.user?.name ||
+                m?.user?.fullName ||
+                t("clubs.detail.memberFallback"),
             })).slice(0, 10),
           },
           {
@@ -153,19 +166,19 @@ export default function ClubDetailPage() {
               {
                 "@type": "ListItem",
                 "position": 1,
-                "name": "Trang chủ",
+                "name": t("clubs.detail.breadcrumbHome"),
                 "item": "https://pickletour.vn"
               },
               {
                 "@type": "ListItem",
                 "position": 2,
-                "name": "Danh sách CLB",
+                "name": t("clubs.detail.breadcrumbClubs"),
                 "item": "https://pickletour.vn/clubs"
               },
               {
                 "@type": "ListItem",
                 "position": 3,
-                "name": club?.name || "Chi tiết CLB",
+                "name": club?.name || t("clubs.detail.breadcrumbDetail"),
                 "item": `https://pickletour.vn/clubs/${club?._id}`
               }
             ]
@@ -189,9 +202,9 @@ export default function ClubDetailPage() {
           variant="scrollable"
           allowScrollButtonsMobile
         >
-          <Tab label="Bảng tin" value="news" />
-          <Tab label="Sự kiện" value="events" />
-          <Tab label="Khảo sát" value="polls" />
+          <Tab label={t("clubs.detail.tabs.news")} value="news" />
+          <Tab label={t("clubs.detail.tabs.events")} value="events" />
+          <Tab label={t("clubs.detail.tabs.polls")} value="polls" />
         </Tabs>
       </Paper>
 
@@ -201,12 +214,12 @@ export default function ClubDetailPage() {
             {tab === "news" && (
               <>
                 <Typography variant="h6" sx={{ mb: 1 }}>
-                  Bảng tin
+                  {t("clubs.detail.sections.news")}
                 </Typography>
                 <ClubAnnouncements club={club} canManage={canManage} />
                 <Divider sx={{ my: 2 }} />
                 <Typography variant="h6" sx={{ mb: 1 }}>
-                  Thành viên CLB
+                  {t("clubs.detail.sections.members")}
                 </Typography>
                 {canSeeMembers ? (
                   <Box sx={{ mt: 2 }}>
@@ -217,7 +230,7 @@ export default function ClubDetailPage() {
                   </Box>
                 ) : (
                   <Typography color="text.secondary">
-                    {memberGuardMessage(club)}
+                    {memberGuardMessage(club, t)}
                   </Typography>
                 )}
               </>
@@ -226,7 +239,7 @@ export default function ClubDetailPage() {
             {tab === "events" && (
               <>
                 <Typography variant="h6" sx={{ mb: 1 }}>
-                  Sự kiện
+                  {t("clubs.detail.sections.events")}
                 </Typography>
                 <ClubEventsSection club={club} canManage={canManage} />
               </>
@@ -235,7 +248,7 @@ export default function ClubDetailPage() {
             {tab === "polls" && (
               <>
                 <Typography variant="h6" sx={{ mb: 1 }}>
-                  Khảo sát
+                  {t("clubs.detail.sections.polls")}
                 </Typography>
                 <ClubPolls club={club} canManage={canManage} />
               </>
@@ -253,7 +266,7 @@ export default function ClubDetailPage() {
         onClose={(ok) => {
           setOpenEdit(false);
           if (ok) {
-            toast.success("Lưu CLB thành công!");
+            toast.success(t("clubs.detail.saveSuccess"));
             refetch();
           }
         }}

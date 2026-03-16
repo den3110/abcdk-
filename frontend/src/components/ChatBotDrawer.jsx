@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 // src/components/ChatBotDrawer.jsx
 import { useState, useRef, useEffect, useCallback, useMemo, memo } from "react";
 import {
@@ -13,10 +14,7 @@ import {
   Tooltip,
   Badge,
   Fade,
-  Chip,
   Collapse,
-  Slide,
-  Switch,
   useMediaQuery,
   Dialog,
   DialogTitle,
@@ -46,26 +44,17 @@ import remarkGfm from "remark-gfm";
 import { useClearChatHistoryMutation, useClearLearningMemoryMutation, chatBotApiSlice } from "../slices/chatBotApiSlice";
 import { useSelector } from "react-redux";
 import { useNavigate as useRouterNavigate } from "react-router-dom";
+import { useLanguage } from "../context/LanguageContext.jsx";
 
 const BOT_ICON = "/icon-chatbot.png";
 
 
 
 // ─── Initial Suggestions (only for welcome screen) ───
-const GUEST_SUGGESTIONS = [
-  "Pickleball là gì?",
-  "Cách đăng ký tài khoản",
-  "Giải đấu sắp tới?",
-  "Hướng dẫn đăng ký giải",
-];
-const LOGGED_IN_SUGGESTIONS = [
-  "Điểm rating của tôi?",
-  "Giải đấu tôi đã đăng ký?",
-  "Thống kê trận đấu của tôi",
-  "Giải đấu sắp tới?",
-];
-function getWelcomeSuggestions(userInfo) {
-  return userInfo ? LOGGED_IN_SUGGESTIONS : GUEST_SUGGESTIONS;
+function getWelcomeSuggestions(userInfo, t) {
+  return userInfo
+    ? t("chatbot.suggestions.member")
+    : t("chatbot.suggestions.guest");
 }
 
 // ═══════════════════════════════════════════
@@ -366,7 +355,7 @@ const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick
         </Typography>
       ),
     }),
-    [theme, isDark]
+    [theme, isDark, navigate, onLinkClick]
   );
 
   return (
@@ -379,7 +368,13 @@ const MarkdownContent = memo(function MarkdownContent({ text, theme, onLinkClick
 // ═══════════════════════════════════════════
 //  Thinking Block (collapsible, giống Claude)
 // ═══════════════════════════════════════════
-const ThinkingBlock = memo(function ThinkingBlock({ steps, theme, isActive, processingTime }) {
+const ThinkingBlock = memo(function ThinkingBlock({
+  steps,
+  theme,
+  isActive,
+  processingTime,
+  t,
+}) {
   const [expanded, setExpanded] = useState(isActive);
   const wasActiveRef = useRef(isActive);
 
@@ -439,12 +434,12 @@ const ThinkingBlock = memo(function ThinkingBlock({ steps, theme, isActive, proc
           }}
         >
           {isActive
-            ? "Đang xử lý..."
-            : `Hoàn tất${
-                processingTime
-                  ? ` trong ${(processingTime / 1000).toFixed(1)}s`
-                  : ""
-              }`}
+            ? t("chatbot.thinking.active")
+            : processingTime
+              ? t("chatbot.thinking.doneWithDuration", {
+                  seconds: (processingTime / 1000).toFixed(1),
+                })
+              : t("chatbot.thinking.done")}
         </Typography>
         {expanded ? (
           <ExpandLessIcon sx={{ fontSize: 16, color: "text.disabled" }} />
@@ -523,7 +518,13 @@ const ThinkingBlock = memo(function ThinkingBlock({ steps, theme, isActive, proc
 // ═══════════════════════════════════════════
 //  Message Bubble
 // ═══════════════════════════════════════════
-const MessageBubble = memo(function MessageBubble({ msg, theme, onNavigate, onClose }) {
+const MessageBubble = memo(function MessageBubble({
+  msg,
+  theme,
+  onNavigate,
+  onClose,
+  t,
+}) {
   const isBot = msg.role === "bot" || msg.role === "assistant";
   const isDark = theme.palette.mode === "dark";
 
@@ -556,6 +557,7 @@ const MessageBubble = memo(function MessageBubble({ msg, theme, onNavigate, onCl
             theme={theme}
             isActive={false}
             processingTime={msg.processingTime}
+            t={t}
           />
         )}
 
@@ -615,7 +617,7 @@ const MessageBubble = memo(function MessageBubble({ msg, theme, onNavigate, onCl
             }}
           >
             <OpenInNewIcon sx={{ fontSize: 14 }} />
-            {msg.navigation.description || "Mở trang"}
+            {msg.navigation.description || t("chatbot.navigationOpen")}
           </Box>
         )}
       </Box>
@@ -626,7 +628,7 @@ const MessageBubble = memo(function MessageBubble({ msg, theme, onNavigate, onCl
 // ═══════════════════════════════════════════
 //  Active Thinking Indicator (live streaming)
 // ═══════════════════════════════════════════
-function LiveThinking({ theme, steps }) {
+function LiveThinking({ theme, steps, t }) {
   return (
     <Box sx={{ display: "flex", alignItems: "flex-start", px: 1, mb: 1.5 }}>
       <Avatar
@@ -643,6 +645,7 @@ function LiveThinking({ theme, steps }) {
           steps={steps}
           theme={theme}
           isActive={true}
+          t={t}
         />
       </Box>
     </Box>
@@ -690,9 +693,12 @@ async function sendMessageStream(message, onEvent) {
   const decoder = new TextDecoder();
   let buffer = "";
 
-  while (true) {
-    const { value, done } = await reader.read();
+  let done = false;
+  while (!done) {
+    const chunk = await reader.read();
+    done = chunk.done;
     if (done) break;
+    const { value } = chunk;
 
     buffer += decoder.decode(value, { stream: true });
 
@@ -725,6 +731,7 @@ export default function ChatBotDrawer() {
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isDark = theme.palette.mode === "dark";
   const routerNavigate = useRouterNavigate();
+  const { t } = useLanguage();
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -748,6 +755,7 @@ export default function ChatBotDrawer() {
   const historyLoaded = useRef(false);
   const nextCursorRef = useRef(null);
   const hasMoreRef = useRef(true);
+  const tipItems = t("chatbot.settings.tips");
 
   // ─── Map backend message to frontend format ───
   const mapMessage = useCallback((m) => ({
@@ -986,7 +994,7 @@ export default function ChatBotDrawer() {
               }
             });
             replyData = {
-              text: `❌ ${data.message || "Có lỗi xảy ra"}`,
+              text: `❌ ${data.message || t("chatbot.errors.generic")}`,
               toolsUsed: [],
               processingTime: null,
             };
@@ -1018,9 +1026,9 @@ export default function ChatBotDrawer() {
         ]);
       }
     } catch (err) {
-      let errorText = "❌ Có lỗi xảy ra, bạn thử lại nhé!";
+      let errorText = `❌ ${t("chatbot.errors.genericRetry")}`;
       if (err.message?.includes("session_limit_reached") || err.message?.includes("429")) {
-        errorText = "⏳ Bạn đã hết lượt hỏi cho phiên này. Vui lòng thử lại sau nhé!";
+        errorText = `⏳ ${t("chatbot.errors.rateLimit")}`;
       } else if (err.message) {
         errorText = `❌ ${err.message}`;
       }
@@ -1143,14 +1151,18 @@ export default function ChatBotDrawer() {
           />
           <Box sx={{ flex: 1 }}>
             <Typography variant="subtitle1" fontWeight={700}>
-              {showSettings ? "Cài đặt" : "Pikora"}
+              {showSettings ? t("chatbot.settingsTitle") : t("chatbot.title")}
             </Typography>
             <Typography variant="caption" sx={{ opacity: 0.85 }}>
-              {showSettings ? "Tùy chỉnh trợ lý" : isTyping ? "Đang xử lý..." : "Trợ lý ảo PickleTour"}
+              {showSettings
+                ? t("chatbot.settingsSubtitle")
+                : isTyping
+                  ? t("chatbot.processing")
+                  : t("chatbot.subtitle")}
             </Typography>
           </Box>
           {!showSettings && (
-            <Tooltip title="Cài đặt">
+            <Tooltip title={t("chatbot.settingsTooltip")}>
               <IconButton
                 size="small"
                 onClick={() => setShowSettings(true)}
@@ -1160,7 +1172,7 @@ export default function ChatBotDrawer() {
               </IconButton>
             </Tooltip>
           )}
-          <Tooltip title="Đóng">
+          <Tooltip title={t("chatbot.closeTooltip")}>
             <IconButton
               size="small"
               onClick={() => setOpen(false)}
@@ -1186,7 +1198,9 @@ export default function ChatBotDrawer() {
             }}
           >
             <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, fontSize: "0.9rem", display: "flex", alignItems: "center", gap: 0.8 }}>
-              <SettingsIcon sx={{ fontSize: 18, color: "text.secondary" }} /> Cài đặt
+              <SettingsIcon sx={{ fontSize: 18, color: "text.secondary" }} /> {t(
+                "chatbot.settingsTitle"
+              )}
             </Typography>
 
             {/* Memory info */}
@@ -1199,10 +1213,14 @@ export default function ChatBotDrawer() {
               }}
             >
               <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5, display: "flex", alignItems: "center", gap: 0.8 }}>
-                <PsychologyIcon sx={{ fontSize: 18, color: theme.palette.primary.main }} /> Bộ nhớ hội thoại
+                <PsychologyIcon sx={{ fontSize: 18, color: theme.palette.primary.main }} /> {t(
+                  "chatbot.settings.memoryTitle"
+                )}
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                {messages.length} tin nhắn trong phiên hiện tại
+                {t("chatbot.settings.sessionMessageCount", {
+                  count: messages.length,
+                })}
               </Typography>
               <Box sx={{ mt: 1.5 }}>
                 <Button
@@ -1218,7 +1236,7 @@ export default function ChatBotDrawer() {
                     fontSize: "0.8rem",
                   }}
                 >
-                  Xóa lịch sử chat
+                  {t("chatbot.settings.clearHistory")}
                 </Button>
               </Box>
             </Box>
@@ -1233,11 +1251,16 @@ export default function ChatBotDrawer() {
               }}
             >
               <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5, display: "flex", alignItems: "center", gap: 0.8 }}>
-                <SmartToyIcon sx={{ fontSize: 18, color: theme.palette.info.main }} /> Thông tin bot
+                <SmartToyIcon sx={{ fontSize: 18, color: theme.palette.info.main }} /> {t(
+                  "chatbot.settings.botInfoTitle"
+                )}
               </Typography>
               <Typography variant="caption" color="text.secondary" component="div" sx={{ lineHeight: 1.8 }}>
-                <b>Tên:</b> Pikora<br />
-                <b>Khả năng:</b> Tìm giải, BXH, thống kê VĐV, hướng dẫn app
+                <b>{t("chatbot.settings.botNameLabel")}:</b>{" "}
+                {t("chatbot.settings.botNameValue")}
+                <br />
+                <b>{t("chatbot.settings.capabilitiesLabel")}:</b>{" "}
+                {t("chatbot.settings.capabilitiesValue")}
               </Typography>
             </Box>
 
@@ -1251,13 +1274,23 @@ export default function ChatBotDrawer() {
               }}
             >
               <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5, display: "flex", alignItems: "center", gap: 0.8 }}>
-                <TipsAndUpdatesIcon sx={{ fontSize: 18, color: theme.palette.warning.main }} /> Mẹo sử dụng
+                <TipsAndUpdatesIcon sx={{ fontSize: 18, color: theme.palette.warning.main }} /> {t(
+                  "chatbot.settings.tipsTitle"
+                )}
               </Typography>
-              <Typography variant="caption" color="text.secondary" component="div" sx={{ lineHeight: 1.8 }}>
-                • Hỏi cụ thể để được kết quả chính xác hơn<br />
-                • Nói &quot;của tôi&quot; để xem thông tin cá nhân<br />
-                • Xóa lịch sử nếu bot trả lời lạc đề
-              </Typography>
+              <Box component="ul" sx={{ m: 0, pl: 2.25, color: "text.secondary" }}>
+                {Array.isArray(tipItems) &&
+                  tipItems.map((tip) => (
+                    <Typography
+                      key={tip}
+                      component="li"
+                      variant="caption"
+                      sx={{ lineHeight: 1.8 }}
+                    >
+                      {tip}
+                    </Typography>
+                  ))}
+              </Box>
             </Box>
 
             {/* Learning memory (admin only) */}
@@ -1271,10 +1304,12 @@ export default function ChatBotDrawer() {
                 }}
               >
                 <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5, display: "flex", alignItems: "center", gap: 0.8 }}>
-                  <SchoolIcon sx={{ fontSize: 18, color: theme.palette.success.main }} /> Tự học (Auto-learn)
+                  <SchoolIcon sx={{ fontSize: 18, color: theme.palette.success.main }} /> {t(
+                    "chatbot.settings.learningTitle"
+                  )}
                 </Typography>
                 <Typography variant="caption" color="text.secondary" component="div" sx={{ lineHeight: 1.6 }}>
-                  Bot tự động học từ các câu hỏi thành công để trả lời nhanh hơn.
+                  {t("chatbot.settings.learningBody")}
                 </Typography>
                 <Box sx={{ mt: 1.5 }}>
                   <Button
@@ -1285,9 +1320,16 @@ export default function ChatBotDrawer() {
                     onClick={async () => {
                       try {
                         const res = await clearLearning().unwrap();
-                        alert(`Đã xóa ${res.deleted} mục học`);
+                        alert(
+                          t("chatbot.settings.clearLearningSuccess", {
+                            count: res.deleted,
+                          })
+                        );
                       } catch (err) {
-                        alert(err?.data?.error || "Lỗi khi xóa bộ nhớ học");
+                        alert(
+                          err?.data?.error ||
+                            t("chatbot.settings.clearLearningError")
+                        );
                       }
                     }}
                     sx={{
@@ -1297,7 +1339,7 @@ export default function ChatBotDrawer() {
                       fontSize: "0.8rem",
                     }}
                   >
-                    Xóa bộ nhớ học
+                    {t("chatbot.settings.clearLearning")}
                   </Button>
                 </Box>
               </Box>
@@ -1332,15 +1374,17 @@ export default function ChatBotDrawer() {
                 }}
               />
               <Typography variant="h6" fontWeight={600} gutterBottom>
-                Xin chào{userInfo?.name ? `, ${userInfo.name}` : ""}! 👋
+                {t("chatbot.welcomeTitle", {
+                  name: userInfo?.name ? `, ${userInfo.name}` : "",
+                })}{" "}
+                👋
               </Typography>
               <Typography
                 variant="body2"
                 color="text.secondary"
                 sx={{ mb: 3 }}
               >
-                Mình là Pikora - trợ lý ảo của PickleTour. Hỏi mình bất cứ gì
-                về giải đấu, rating, VĐV nhé!
+                {t("chatbot.welcomeBody")}
               </Typography>
               <Box
                 sx={{
@@ -1350,7 +1394,7 @@ export default function ChatBotDrawer() {
                   justifyContent: "center",
                 }}
               >
-                {getWelcomeSuggestions(userInfo).map((text) => (
+                {getWelcomeSuggestions(userInfo, t).map((text) => (
                   <Box
                     key={text}
                     onClick={() => handleSend(text)}
@@ -1408,7 +1452,7 @@ export default function ChatBotDrawer() {
                   color="text.disabled"
                   sx={{ display: "block", textAlign: "center", py: 2, opacity: 0.7 }}
                 >
-                  — Đã tải hết lịch sử —
+                  {t("chatbot.historyLoadedAll")}
                 </Typography>
               )}
               {messages.map((msg, i) => (
@@ -1418,6 +1462,7 @@ export default function ChatBotDrawer() {
                   theme={theme}
                   onNavigate={handleChatNavigate}
                   onClose={handleCloseDrawer}
+                  t={t}
                 />
               ))}
             </>
@@ -1425,7 +1470,7 @@ export default function ChatBotDrawer() {
 
           {/* Live thinking (during streaming) */}
           {isTyping && liveSteps.length > 0 && (
-            <LiveThinking theme={theme} steps={liveSteps} />
+            <LiveThinking theme={theme} steps={liveSteps} t={t} />
           )}
           {isTyping && liveSteps.length === 0 && (
             <Box
@@ -1588,7 +1633,7 @@ export default function ChatBotDrawer() {
             multiline
             maxRows={3}
             size="small"
-            placeholder="Nhập tin nhắn..."
+            placeholder={t("chatbot.inputPlaceholder")}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -1646,12 +1691,11 @@ export default function ChatBotDrawer() {
         }}
       >
         <DialogTitle sx={{ fontWeight: 700, fontSize: "1rem", pb: 0.5 }}>
-          Xóa lịch sử chat?
+          {t("chatbot.confirmClearTitle")}
         </DialogTitle>
         <DialogContent>
           <DialogContentText sx={{ fontSize: "0.875rem" }}>
-            Toàn bộ tin nhắn sẽ bị xóa và không thể khôi phục. Bạn có chắc
-            chắn muốn xóa?
+            {t("chatbot.confirmClearBody")}
           </DialogContentText>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -1659,7 +1703,7 @@ export default function ChatBotDrawer() {
             onClick={() => setConfirmClearOpen(false)}
             sx={{ textTransform: "none", fontWeight: 600 }}
           >
-            Hủy
+            {t("common.actions.cancel")}
           </Button>
           <Button
             onClick={handleClear}
@@ -1667,7 +1711,7 @@ export default function ChatBotDrawer() {
             variant="contained"
             sx={{ textTransform: "none", fontWeight: 600, borderRadius: 2 }}
           >
-            Xóa
+            {t("common.actions.delete")}
           </Button>
         </DialogActions>
       </Dialog>

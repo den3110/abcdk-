@@ -19,6 +19,7 @@ import bracketRoutes from "./routes/bracketRoutes.js";
 import drawSettingsRoutes from "./routes/drawSettingsRoutes.js";
 import progressionRoutes from "./routes/progressionRoutes.js";
 import matchRoutes from "./routes/matchesRoutes.js";
+import liveAppRoutes from "./routes/liveAppRoutes.js";
 import pushTokenRoutes from "./routes/pushTokenRoutes.js";
 import subscriptionsRoutes from "./routes/subscriptionsRoutes.js";
 import notifyRoutes from "./routes/notifyRoutes.js";
@@ -61,6 +62,7 @@ import fbTokenRoutes from "./routes/fbTokenRoutes.js";
 import publicOverlayRoutes from "./routes/publicOverlayRoutes.js";
 import publicHomeRoutes from "./routes/publicHomeRoutes.js";
 import newsRoutes from "./routes/newsPublicRoutes.js";
+import seoNewsRoutes from "./routes/seoNewsPublicRoutes.js";
 import appInitRoutes from "./routes/appInitRoutes.js";
 import leaderboardRoutes from "./routes/leaderboardRoutes.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
@@ -69,7 +71,8 @@ import facebookRoutes from "./routes/facebookRoutes.js";
 import userMatchRoutes from "./routes/userMatchRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
 import { initNewsCron } from "./jobs/newsCron.js";
-// ðŸ”¹ GraphQL layer
+import { initSeoNewsCron } from "./jobs/seoNewsCron.js";
+// Ã°Å¸â€Â¹ GraphQL layer
 import { setupGraphQL } from "./graphql/index.js";
 import { timezoneMiddleware } from "./middleware/timezoneMiddleware.js";
 import { normalizeRequestDates } from "./middleware/normalizeRequestDates.js";
@@ -100,21 +103,21 @@ const WHITELIST = [
   "https://pickletour.vn"
 ];
 
-// connectDB(); // âŒ Moved inside startServer for async await
+// connectDB(); // Ã¢ÂÅ’ Moved inside startServer for async await
 
 const app = express();
 
-// Security headers - cháº·n Clickjacking, XSS, MIME sniffing, etc.
+// Security headers - chÃ¡ÂºÂ·n Clickjacking, XSS, MIME sniffing, etc.
 app.use(
   helmet({
-    crossOriginResourcePolicy: false, // tắt mặc định same-origin
+    crossOriginResourcePolicy: false, // táº¯t máº·c Ä‘á»‹nh same-origin
   })
 );
 
 app.use(
   cors({
-    origin: WHITELIST, // âœ… KHÃ”NG dÃ¹ng '*'
-    credentials: true, // âœ… Pháº£i báº­t
+    origin: WHITELIST, // Ã¢Å“â€¦ KHÃƒâ€NG dÃƒÂ¹ng '*'
+    credentials: true, // Ã¢Å“â€¦ PhÃ¡ÂºÂ£i bÃ¡ÂºÂ­t
   }),
 );
 
@@ -123,11 +126,11 @@ app.use(
   protect,
   authorize("admin"),
   createProxyMiddleware({
-    target: "http://127.0.0.1:8003/api/admin/system", // âŒ Bá» pháº§n /api/admin/system á»Ÿ target
+    target: "http://127.0.0.1:8003/api/admin/system", // Ã¢ÂÅ’ BÃ¡Â»Â phÃ¡ÂºÂ§n /api/admin/system Ã¡Â»Å¸ target
     changeOrigin: true,
 
     pathRewrite: {
-      "^/api/admin/system": "/api/admin/system", // âœ… Giá»¯ nguyÃªn hoáº·c map sang path Go service expect
+      "^/api/admin/system": "/api/admin/system", // Ã¢Å“â€¦ GiÃ¡Â»Â¯ nguyÃƒÂªn hoÃ¡ÂºÂ·c map sang path Go service expect
     },
     onProxyReq: (proxyReq, req, res) => {
       if (req.body && Object.keys(req.body).length > 0) {
@@ -139,14 +142,14 @@ app.use(
       }
     },
     onError: (err, req, res) => {
-      console.error("âŒ Proxy error:", err);
+      console.error("Ã¢ÂÅ’ Proxy error:", err);
       res.status(500).json({ error: "Go service unavailable" });
     },
   }),
 );
 app.use("/api/live/recordings", liveRecordingRoutes);
 
-// body limit rá»™ng hÆ¡n cho HTML/JSON dÃ i
+// body limit rÃ¡Â»â„¢ng hÃ†Â¡n cho HTML/JSON dÃƒÂ i
 app.use(express.json({ limit: "50mb" }));
 app.use(timezoneMiddleware);
 app.use(normalizeRequestDates);
@@ -165,17 +168,17 @@ app.use(httpLogger);
 
 // HTTP + Socket.IO
 const server = http.createServer(app);
-// ðŸ‘‡ Khá»Ÿi táº¡o socket tÃ¡ch riÃªng
+// Ã°Å¸â€˜â€¡ KhÃ¡Â»Å¸i tÃ¡ÂºÂ¡o socket tÃƒÂ¡ch riÃƒÂªng
 const io = initSocket(server, { whitelist: WHITELIST, path: "/socket.io" });
 
-// Cho controllers dÃ¹ng io: req.app.get('io')
+// Cho controllers dÃƒÂ¹ng io: req.app.get('io')
 app.set("io", io);
 // app.set("trust proxy", true);
 
-// giữ như bạn đang làm, nhưng set thêm CORS nếu cần
+// giá»¯ nhÆ° báº¡n Ä‘ang lÃ m, nhÆ°ng set thÃªm CORS náº¿u cáº§n
 app.use("/uploads", express.static("uploads", {
   setHeaders: (res) => {
-    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin"); // hoặc same-site
+    res.setHeader("Cross-Origin-Resource-Policy", "cross-origin"); // hoáº·c same-site
     res.setHeader("Access-Control-Allow-Origin", "*"); // optional
   },
 }));
@@ -198,6 +201,7 @@ app.use("/api/draw", drawRoutes);
 app.use("/api/d", drawSettingsRoutes);
 app.use("/api/progression", progressionRoutes);
 app.use("/api/cms", cmsRoutes);
+app.use("/api/live-app", liveAppRoutes);
 app.use("/api/matches", matchRoutes);
 app.use("/api/push", pushTokenRoutes);
 app.use("/api/subscriptions", subscriptionsRoutes);
@@ -210,6 +214,7 @@ app.use("/api/files", fileRoutes);
 app.use("/api/clubs", clubRoutes);
 app.use("/api/capture", captureRoutes);
 app.use("/api/news", newsRoutes);
+app.use("/api/seo-news", seoNewsRoutes);
 app.use("/api/weather", weatherRoutes);
 app.use("/api/admin/sponsors", adminSponsorRoutes);
 app.use("/api/sponsors", publicSponsorRoutes);
@@ -237,40 +242,40 @@ app.use("/api/expo-updates", expoUpdatesRoutes);
 app.get("/dl/file/:id", async (req, res) => {
   try {
     const doc = await FileAsset.findById(req.params.id);
-    if (!doc) return res.status(404).send("File khÃ´ng tá»“n táº¡i");
+    if (!doc) return res.status(404).send("File khÃƒÂ´ng tÃ¡Â»â€œn tÃ¡ÂºÂ¡i");
 
-    // TÃªn file hiá»ƒn thá»‹ khi táº£i vá»
+    // TÃƒÂªn file hiÃ¡Â»Æ’n thÃ¡Â»â€¹ khi tÃ¡ÂºÂ£i vÃ¡Â»Â
     const downloadName = doc.originalName || doc.fileName || "download.bin";
 
-    // Header ná»™i dung + Ã©p táº£i
+    // Header nÃ¡Â»â„¢i dung + ÃƒÂ©p tÃ¡ÂºÂ£i
     res.setHeader("Content-Type", doc.mime || "application/octet-stream");
     res.setHeader(
       "Content-Disposition",
       `attachment; filename="${encodeURIComponent(downloadName)}"`,
     );
 
-    // Chuyá»ƒn ná»™i bá»™ cho Nginx Ä‘á»c file tá»« Ä‘Ä©a (KHÃ”NG qua Node)
-    // "fileName" lÃ  tÃªn Ä‘Ã£ lÆ°u trong uploads/public
+    // ChuyÃ¡Â»Æ’n nÃ¡Â»â„¢i bÃ¡Â»â„¢ cho Nginx Ã„â€˜Ã¡Â»Âc file tÃ¡Â»Â« Ã„â€˜Ã„Â©a (KHÃƒâ€NG qua Node)
+    // "fileName" lÃƒÂ  tÃƒÂªn Ã„â€˜ÃƒÂ£ lÃ†Â°u trong uploads/public
     const accelPath = `/_protected_uploads/${encodeURIComponent(doc.fileName)}`;
     res.setHeader("X-Accel-Redirect", accelPath);
 
-    // (tuá»³ chá»n) cho resume/caching
+    // (tuÃ¡Â»Â³ chÃ¡Â»Ân) cho resume/caching
     res.setHeader("Accept-Ranges", "bytes");
 
     res.end();
   } catch (e) {
     console.error("/dl/file error", e);
-    res.status(500).send("Lá»—i táº£i file");
+    res.status(500).send("LÃ¡Â»â€”i tÃ¡ÂºÂ£i file");
   }
 });
 
-// ðŸ”¹ gom pháº§n start server + GraphQL vÃ o 1 hÃ m async
+// Ã°Å¸â€Â¹ gom phÃ¡ÂºÂ§n start server + GraphQL vÃƒÂ o 1 hÃƒÂ m async
 const startServer = async () => {
   try {
-    // ðŸ”¹ Connect DB first
+    // Ã°Å¸â€Â¹ Connect DB first
     await connectDB();
 
-    // ðŸ”¹ mount GraphQL trÆ°á»›c fallback routes (*)
+    // Ã°Å¸â€Â¹ mount GraphQL trÃ†Â°Ã¡Â»â€ºc fallback routes (*)
     await setupGraphQL(app);
 
     if (process.env.NODE_ENV === "production") {
@@ -295,46 +300,49 @@ const startServer = async () => {
 
     if (process.env.TELEGRAM_BOT_TOKEN) {
       try {
-        console.log("âœ… Running KYC bot...");
+        console.log("Ã¢Å“â€¦ Running KYC bot...");
         initKycBot(app)
           .then((bot) => {
             if (bot) {
-              console.log("âœ… KYC bot initialized successfully");
+              console.log("Ã¢Å“â€¦ KYC bot initialized successfully");
             } else {
-              console.warn("âš ï¸ KYC bot returned null");
+              console.warn("Ã¢Å¡Â Ã¯Â¸Â KYC bot returned null");
             }
           })
           .catch((e) => {
-            console.error("âŒ KYC bot initialization failed:");
+            console.error("Ã¢ÂÅ’ KYC bot initialization failed:");
             console.error("Error name:", e?.name);
             console.error("Error message:", e?.message);
             console.error("Error stack:", e?.stack);
           });
       } catch (error) {
-        console.log("âŒ Failed to start KYC bot:", error.message);
+        console.log("Ã¢ÂÅ’ Failed to start KYC bot:", error.message);
       }
     }
 
     server.listen(port, "0.0.0.0", async () => {
       try {
-        console.log(`âœ… Server started on port ${port}`);
+        console.log(`Ã¢Å“â€¦ Server started on port ${port}`);
         startTournamentCrons();
         startFbRefreshCron();
         startFacebookBusyCron();
         initEmail();
         initNewsCron();
+        initSeoNewsCron();
         initEmail();
         initNewsCron();
-        await startAgenda(); // âœ… Await agenda start
+        await startAgenda(); // Ã¢Å“â€¦ Await agenda start
         registerAutoHealJobs({ Tournament, Match });
       } catch (error) {
-        console.error(`âŒ Error starting server: ${error.message}`);
+        console.error(`Ã¢ÂÅ’ Error starting server: ${error.message}`);
       }
     });
   } catch (err) {
-    console.error("âŒ Failed to start server", err);
+    console.error("Ã¢ÂÅ’ Failed to start server", err);
     process.exit(1);
   }
 };
 
 startServer();
+
+

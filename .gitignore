@@ -26,3 +26,4 @@ dist-ssr
 uploads
 node_modules
 micro-services/downloader-video/downloads/*
+native-live-app

@@ -1,6 +1,5 @@
 // src/screens/RegisterScreen.jsx
-import { useState, useMemo, useRef, useEffect } from "react";
-import React from "react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   Box,
   Button,
@@ -27,6 +26,7 @@ import { useUploadRealAvatarMutation } from "../slices/uploadApiSlice";
 import { setCredentials } from "../slices/authSlice";
 import { toast } from "react-toastify";
 import SEOHead from "../components/SEOHead";
+import { useLanguage } from "../context/LanguageContext.jsx";
 
 /* Icons */
 import Visibility from "@mui/icons-material/Visibility";
@@ -40,13 +40,6 @@ import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 /* ---------- Config ---------- */
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const MIN_DOB = dayjs("1970-01-01");
-
-const GENDER_OPTIONS = [
-  { value: "unspecified", label: "--" },
-  { value: "male", label: "Nam" },
-  { value: "female", label: "Nữ" },
-  { value: "other", label: "Khác" },
-];
 
 const PROVINCES = [
   "An Giang",
@@ -132,6 +125,7 @@ const EMPTY = {
 export default function RegisterScreen() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const { t, language } = useLanguage();
 
   const [register, { isLoading }] = useRegisterMutation();
   const [uploadAvatar, { isLoading: uploadingAvatar }] =
@@ -160,6 +154,16 @@ export default function RegisterScreen() {
     return d.isValid() ? d : null;
   }, [form.dob]);
 
+  const genderOptions = useMemo(
+    () => [
+      { value: "unspecified", label: t("auth.register.genderOptions.unspecified") },
+      { value: "male", label: t("auth.register.genderOptions.male") },
+      { value: "female", label: t("auth.register.genderOptions.female") },
+      { value: "other", label: t("auth.register.genderOptions.other") },
+    ],
+    [t]
+  );
+
   const showErr = (f) => touched[f] && !!errors[f];
 
   const onChange = (e) => {
@@ -172,51 +176,56 @@ export default function RegisterScreen() {
     setErrors(() => validate({ ...form }));
   };
 
-  const validate = (d) => {
+  const validate = useCallback((d) => {
     const e = {};
-    if (!d.name.trim()) e.name = "Không được bỏ trống";
-    else if (d.name.trim().length < 2) e.name = "Tối thiểu 2 ký tự";
+    if (!d.name.trim()) e.name = t("auth.register.validation.empty");
+    else if (d.name.trim().length < 2)
+      e.name = t("auth.register.validation.minChars", { count: 2 });
 
-    if (!d.nickname.trim()) e.nickname = "Không được bỏ trống";
-    else if (d.nickname.trim().length < 2) e.nickname = "Tối thiểu 2 ký tự";
+    if (!d.nickname.trim()) e.nickname = t("auth.register.validation.empty");
+    else if (d.nickname.trim().length < 2)
+      e.nickname = t("auth.register.validation.minChars", { count: 2 });
 
     if (!/^0\d{9}$/.test(d.phone.trim()))
-      e.phone = "Sai định dạng (10 chữ số, bắt đầu bằng 0)";
+      e.phone = t("auth.register.validation.invalidPhone");
 
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email.trim()))
-      e.email = "Email không hợp lệ";
+      e.email = t("auth.register.validation.invalidEmail");
 
-    if (!d.password) e.password = "Bắt buộc";
-    else if (d.password.length < 6) e.password = "Tối thiểu 6 ký tự";
-    if (d.password !== d.confirmPassword) e.confirmPassword = "Không khớp";
+    if (!d.password) e.password = t("auth.register.validation.required");
+    else if (d.password.length < 6)
+      e.password = t("auth.register.validation.minChars", { count: 6 });
+    if (d.password !== d.confirmPassword)
+      e.confirmPassword = t("auth.register.validation.passwordMismatch");
 
-    if (!d.dob) e.dob = "Bắt buộc";
+    if (!d.dob) e.dob = t("auth.register.validation.required");
     else {
       const day = new Date(d.dob);
-      if (Number.isNaN(day)) e.dob = "Ngày sinh không hợp lệ";
-      else if (day > new Date()) e.dob = "Không được ở tương lai";
+      if (Number.isNaN(day)) e.dob = t("auth.register.validation.invalidDob");
+      else if (day > new Date()) e.dob = t("auth.register.validation.futureDob");
       else if (new Date(d.dob) < new Date("1940-01-01"))
-        e.dob = "Không trước 01/01/1940";
+        e.dob = t("auth.register.validation.minDob");
     }
 
-    if (!d.province) e.province = "Bắt buộc";
+    if (!d.province) e.province = t("auth.register.validation.required");
 
     if (!["male", "female", "unspecified", "other"].includes(d.gender))
-      e.gender = "Giới tính không hợp lệ";
+      e.gender = t("auth.register.validation.invalidGender");
 
-    if (!d.cccd.trim()) e.cccd = "Bắt buộc";
-    else if (!/^\d{12}$/.test(d.cccd.trim())) e.cccd = "CCCD phải đủ 12 số";
+    if (!d.cccd.trim()) e.cccd = t("auth.register.validation.required");
+    else if (!/^\d{12}$/.test(d.cccd.trim()))
+      e.cccd = t("auth.register.validation.invalidCccd");
 
-    if (!avatarFile) e.avatar = "Vui lòng tải ảnh đại diện.";
+    if (!avatarFile) e.avatar = t("auth.register.validation.avatarRequired");
     if (avatarFile && avatarFile.size > MAX_FILE_SIZE)
-      e.avatar = "Ảnh không vượt quá 10MB";
+      e.avatar = t("auth.register.validation.avatarTooLarge");
 
     return e;
-  };
+  }, [avatarFile, t]);
 
   useEffect(() => {
     setErrors(validate(form));
-  }, [form, avatarFile]);
+  }, [form, validate]);
 
   useEffect(() => {
     if (!errors.avatar) setHighlightAvatar(false);
@@ -252,7 +261,7 @@ export default function RegisterScreen() {
     }
 
     if (Object.keys(errs).length) {
-      toast.error("Vui lòng kiểm tra lại thông tin.");
+      toast.error(t("auth.register.errors.checkInfo"));
       return;
     }
 
@@ -262,7 +271,7 @@ export default function RegisterScreen() {
       if (avatarFile) {
         const up = await uploadAvatar(avatarFile).unwrap();
         avatarUrl = up?.url || "";
-        if (!avatarUrl) throw new Error("Upload avatar thất bại");
+        if (!avatarUrl) throw new Error(t("auth.register.errors.avatarUploadFailed"));
       }
 
       // 2) Register
@@ -283,15 +292,15 @@ export default function RegisterScreen() {
 
       // ✅ đăng ký xong login luôn (OTP tạm tắt)
       dispatch(setCredentials(res));
-      toast.success("Đăng ký thành công!");
+      toast.success(t("auth.register.success"));
       navigate("/");
     } catch (err) {
-      const msg = err?.data?.message || err?.message || "Đăng ký thất bại";
+      const msg = err?.data?.message || err?.message || t("auth.register.errors.failed");
       const map = {
-        Email: "Email đã được sử dụng",
-        "Số điện thoại": "Số điện thoại đã được sử dụng",
-        CCCD: "CCCD đã được sử dụng",
-        nickname: "Nickname đã tồn tại",
+        Email: t("auth.register.errors.emailUsed"),
+        "Số điện thoại": t("auth.register.errors.phoneUsed"),
+        CCCD: t("auth.register.errors.cccdUsed"),
+        nickname: t("auth.register.errors.nicknameUsed"),
       };
       const matched = Object.keys(map).find((k) => msg.includes(k));
       toast.error(matched ? map[matched] : msg);
@@ -301,13 +310,13 @@ export default function RegisterScreen() {
   return (
     <Container maxWidth="sm" sx={{ py: 5 }}>
       <SEOHead
-        title="Đăng ký"
-        description="Đăng ký tài khoản Pickletour.vn để tham gia giải đấu, theo dõi điểm trình và kết nối cộng đồng."
+        title={t("auth.register.seoTitle")}
+        description={t("auth.register.seoDescription")}
         path="/register"
       />
       <Paper elevation={2} sx={{ p: 3 }}>
         <Typography variant="h4" gutterBottom>
-          Đăng ký
+          {t("auth.register.title")}
         </Typography>
 
         <Box component="form" noValidate onSubmit={submitHandler}>
@@ -338,7 +347,7 @@ export default function RegisterScreen() {
                     component="label"
                     disabled={uploadingAvatar || isLoading}
                   >
-                    Chọn ảnh đại diện
+                    {t("auth.register.chooseAvatar")}
                     <input
                       type="file"
                       accept="image/*"
@@ -349,7 +358,7 @@ export default function RegisterScreen() {
                         if (file.size > MAX_FILE_SIZE) {
                           setErrors((p) => ({
                             ...p,
-                            avatar: "Ảnh không vượt quá 10MB",
+                            avatar: t("auth.register.validation.avatarTooLarge"),
                           }));
                           jumpAndHighlight(avatarRef, setHighlightAvatar);
                           return;
@@ -370,7 +379,7 @@ export default function RegisterScreen() {
             </Box>
 
             <TextField
-              label="Họ và tên"
+              label={t("auth.register.nameLabel")}
               name="name"
               value={form.name}
               onChange={onChange}
@@ -381,7 +390,7 @@ export default function RegisterScreen() {
               helperText={showErr("name") ? errors.name : " "}
             />
             <TextField
-              label="Nickname"
+              label={t("auth.register.nicknameLabel")}
               name="nickname"
               value={form.nickname}
               onChange={onChange}
@@ -392,7 +401,7 @@ export default function RegisterScreen() {
               helperText={showErr("nickname") ? errors.nickname : " "}
             />
             <TextField
-              label="Số điện thoại"
+              label={t("auth.register.phoneLabel")}
               name="phone"
               value={form.phone}
               onChange={onChange}
@@ -409,7 +418,7 @@ export default function RegisterScreen() {
             />
 
             <TextField
-              label="Email"
+              label={t("auth.register.emailLabel")}
               type="email"
               name="email"
               value={form.email}
@@ -424,11 +433,11 @@ export default function RegisterScreen() {
             {/* Gender */}
             <FormControl fullWidth error={showErr("gender")}>
               <InputLabel id="gender-lbl" shrink>
-                Giới tính
+                {t("auth.register.genderLabel")}
               </InputLabel>
               <Select
                 labelId="gender-lbl"
-                label="Giới tính"
+                label={t("auth.register.genderLabel")}
                 name="gender"
                 value={form.gender}
                 onChange={onChange}
@@ -436,7 +445,7 @@ export default function RegisterScreen() {
                 displayEmpty
                 required
               >
-                {GENDER_OPTIONS.map((opt) => (
+                {genderOptions.map((opt) => (
                   <MenuItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </MenuItem>
@@ -451,7 +460,7 @@ export default function RegisterScreen() {
 
             {/* DOB */}
             <DatePicker
-              label="Ngày sinh"
+              label={t("auth.register.dobLabel")}
               value={dobValue}
               onChange={(newVal) => {
                 setTouched((t) => ({ ...t, dob: true }));
@@ -463,7 +472,7 @@ export default function RegisterScreen() {
                       : "",
                 }));
               }}
-              format="DD/MM/YYYY"
+              format={language === "en" ? "MM/DD/YYYY" : "DD/MM/YYYY"}
               minDate={MIN_DOB}
               defaultCalendarMonth={MIN_DOB}
               referenceDate={MIN_DOB}
@@ -473,7 +482,7 @@ export default function RegisterScreen() {
                 textField: {
                   fullWidth: true,
                   required: true,
-                  placeholder: "DD/MM/YYYY",
+                  placeholder: language === "en" ? "MM/DD/YYYY" : "DD/MM/YYYY",
                   onBlur: () => setTouched((t) => ({ ...t, dob: true })),
                   error: showErr("dob"),
                   helperText: showErr("dob") ? errors.dob : " ",
@@ -484,11 +493,11 @@ export default function RegisterScreen() {
             {/* Province */}
             <FormControl fullWidth required error={showErr("province")}>
               <InputLabel id="province-lbl" shrink>
-                Tỉnh / Thành phố
+                {t("auth.register.provinceLabel")}
               </InputLabel>
               <Select
                 labelId="province-lbl"
-                label="Tỉnh / Thành phố"
+                label={t("auth.register.provinceLabel")}
                 name="province"
                 value={form.province}
                 onChange={onChange}
@@ -497,7 +506,7 @@ export default function RegisterScreen() {
                 required
               >
                 <MenuItem value="">
-                  <em>-- Chọn --</em>
+                  <em>{t("auth.register.provincePlaceholder")}</em>
                 </MenuItem>
                 {PROVINCES.map((p) => (
                   <MenuItem key={p} value={p}>
@@ -514,14 +523,14 @@ export default function RegisterScreen() {
 
             {/* CCCD */}
             <TextField
-              label="Mã định danh CCCD"
+              label={t("auth.register.cccdLabel")}
               name="cccd"
               value={form.cccd}
               onChange={onChange}
               onBlur={onBlur}
               fullWidth
               required
-              placeholder="12 chữ số"
+              placeholder={t("auth.register.cccdPlaceholder")}
               inputProps={{ inputMode: "numeric", maxLength: 12 }}
               error={showErr("cccd")}
               helperText={showErr("cccd") ? errors.cccd : " "}
@@ -529,7 +538,7 @@ export default function RegisterScreen() {
 
             {/* Password (✅ hide/show) */}
             <TextField
-              label="Mật khẩu"
+              label={t("auth.register.passwordLabel")}
               type={showPassword ? "text" : "password"}
               name="password"
               value={form.password}
@@ -545,7 +554,7 @@ export default function RegisterScreen() {
                     <IconButton
                       onClick={() => setShowPassword((v) => !v)}
                       edge="end"
-                      aria-label="toggle password visibility"
+                      aria-label={t("auth.register.aria.togglePassword")}
                     >
                       {showPassword ? <VisibilityOff /> : <Visibility />}
                     </IconButton>
@@ -555,7 +564,7 @@ export default function RegisterScreen() {
             />
 
             <TextField
-              label="Xác nhận mật khẩu"
+              label={t("auth.register.confirmPasswordLabel")}
               type={showConfirmPassword ? "text" : "password"}
               name="confirmPassword"
               value={form.confirmPassword}
@@ -573,7 +582,7 @@ export default function RegisterScreen() {
                     <IconButton
                       onClick={() => setShowConfirmPassword((v) => !v)}
                       edge="end"
-                      aria-label="toggle confirm password visibility"
+                      aria-label={t("auth.register.aria.toggleConfirmPassword")}
                     >
                       {showConfirmPassword ? <VisibilityOff /> : <Visibility />}
                     </IconButton>
@@ -592,15 +601,17 @@ export default function RegisterScreen() {
                 (isLoading || uploadingAvatar) && <CircularProgress size={20} />
               }
             >
-              {isLoading || uploadingAvatar ? "Đang xử lý..." : "Đăng ký"}
+              {isLoading || uploadingAvatar
+                ? t("auth.register.processing")
+                : t("auth.register.submit")}
             </Button>
           </Stack>
         </Box>
 
         <Typography variant="body2" align="center" sx={{ mt: 2 }}>
-          Đã có tài khoản?{" "}
+          {t("auth.register.hasAccount")}{" "}
           <MuiLink component={Link} to="/login" underline="hover">
-            Đăng nhập
+            {t("auth.register.login")}
           </MuiLink>
         </Typography>
       </Paper>

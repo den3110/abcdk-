@@ -1,18 +1,22 @@
-import React, { useMemo } from "react";
+import { useMemo } from "react";
 import { Box, Paper, Stack, Typography, Button, Divider } from "@mui/material";
 import { Link as RouterLink, useNavigate, useLocation } from "react-router-dom";
 import SEOHead from "../components/SEOHead";
+import { useLanguage } from "../context/LanguageContext.jsx";
 
 export default function NotFound() {
   const nav = useNavigate();
   const loc = useLocation();
+  const { t } = useLanguage();
 
   // Đường dẫn gốc gây lỗi 404 (được set từ baseQuery khi API trả 404)
   const origin = useMemo(() => {
     try {
       const saved = sessionStorage.getItem("nf_origin");
       if (saved) return saved;
-    } catch {}
+    } catch {
+      // Ignore session storage failures in restricted browsers.
+    }
     const qOrigin = new URLSearchParams(loc.search).get("origin");
     return qOrigin || "";
   }, [loc.search]);
@@ -32,6 +36,7 @@ export default function NotFound() {
         py: { xs: 0, sm: 2 },
       }}
     >
+      <SEOHead title={t("errors.notFound.seoTitle")} noIndex={true} />
       <Paper
         elevation={0}
         sx={{
@@ -65,7 +70,7 @@ export default function NotFound() {
           fontWeight={700}
           sx={{ mt: 1, fontSize: { xs: 20, sm: 24 } }}
         >
-          Không tìm thấy nội dung
+          {t("errors.notFound.title")}
         </Typography>
 
         <Typography
@@ -79,12 +84,11 @@ export default function NotFound() {
             overflowWrap: "anywhere",
           }}
         >
-          Tài nguyên bạn yêu cầu không tồn tại, đã bị xoá hoặc đường dẫn không
-          hợp lệ.
+          {t("errors.notFound.description")}
           {origin ? (
             <>
               <br />
-              <b>URL gốc:</b>{" "}
+              <b>{t("errors.notFound.originLabel")}</b>{" "}
               <Box
                 component="code"
                 sx={{
@@ -127,7 +131,7 @@ export default function NotFound() {
               py: 1.1,
             }}
           >
-            Về trang chủ
+            {t("common.actions.backHome")}
           </Button>
 
           <Button
@@ -135,7 +139,7 @@ export default function NotFound() {
             onClick={goBack}
             sx={{ width: { xs: "100%", sm: "auto" }, py: 1.1 }}
           >
-            Quay lại
+            {t("common.actions.back")}
           </Button>
 
           <Button
@@ -143,7 +147,7 @@ export default function NotFound() {
             onClick={tryAgain}
             sx={{ width: { xs: "100%", sm: "auto" }, py: 1.1 }}
           >
-            Thử tải lại
+            {t("common.actions.reload")}
           </Button>
 
           <Button
@@ -155,7 +159,7 @@ export default function NotFound() {
               display: { xs: "none", sm: "inline-flex" },
             }}
           >
-            Liên hệ hỗ trợ
+            {t("common.actions.contactSupport")}
           </Button>
         </Stack>
       </Paper>

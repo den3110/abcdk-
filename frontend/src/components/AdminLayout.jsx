@@ -1,11 +1,10 @@
 // src/layouts/AdminLayout.jsx
-import { useState, useEffect } from "react";
+import PropTypes from "prop-types";
 
 import {
   Box,
   Drawer,
   List,
-  ListItem,
   ListItemButton,
   ListItemIcon,
   ListItemText,
@@ -13,34 +12,29 @@ import {
   Toolbar,
   Typography,
   IconButton,
-  Avatar,
-  Menu,
-  MenuItem,
   useTheme,
   useMediaQuery,
   Button,
-  Badge,
   Tabs,
   Tab,
   Tooltip,
   CircularProgress,
 } from "@mui/material";
 import SEOHead from "../components/SEOHead";
+import AppFooter from "../components/AppFooter";
 import PeopleIcon from "@mui/icons-material/People";
 import HomeIcon from "@mui/icons-material/Home";
+import ArticleIcon from "@mui/icons-material/Article";
 import { useLocation, useNavigate, Outlet, Navigate } from "react-router-dom"; // ✅ thêm Navigate
 
 import { useSelector } from "react-redux"; // ✅ lấy userInfo từ redux
 
 import { useGetProfileQuery } from "../slices/usersApiSlice";
+import { useLanguage } from "../context/LanguageContext.jsx";
 
 const drawerWidth = 240;
 
-const navItems = [
-  { label: "Quản lý user", icon: <PeopleIcon />, path: "/admin/users" },
-];
-
-function indexFromPath(pathname) {
+function indexFromPath(pathname, navItems) {
   const idx = navItems.findIndex(
     (i) => pathname === i.path || pathname.startsWith(i.path + "/")
   );
@@ -52,6 +46,19 @@ export default function AdminLayout({ children }) {
   const isDesktop = useMediaQuery(theme.breakpoints.up("md"));
   const location = useLocation();
   const navigate = useNavigate();
+  const { t } = useLanguage();
+  const navItems = [
+    {
+      label: t("admin.layout.users"),
+      icon: <PeopleIcon />,
+      path: "/admin/users",
+    },
+    {
+      label: t("admin.layout.news"),
+      icon: <ArticleIcon />,
+      path: "/admin/news",
+    },
+  ];
 
   // ✅ lấy quyền admin từ redux
   const { userInfo } = useSelector((s) => s.auth || {});
@@ -82,16 +89,16 @@ export default function AdminLayout({ children }) {
     return <Navigate to="/403" replace state={{ from: location }} />;
   }
 
-  const current = indexFromPath(location.pathname);
+  const current = indexFromPath(location.pathname, navItems);
 
   const drawer = (
     <Box sx={{ display: "flex", flexDirection: "column", height: "100%" }}>
       <Box sx={{ px: 2, py: 2 }}>
         <Typography variant="h6" noWrap>
-          Admin
+          {t("admin.layout.title")}
         </Typography>
         <Typography variant="caption" color="text.secondary">
-          Bảng điều khiển
+          {t("admin.layout.subtitle")}
         </Typography>
       </Box>
 
@@ -100,7 +107,10 @@ export default function AdminLayout({ children }) {
           <ListItemButton
             key={item.path}
             selected={current === idx}
-            onClick={() => navigate(item.path)}
+            onClick={() => {
+              navigate(item.path);
+              window.scrollTo(0, 0);
+            }}
           >
             <ListItemIcon>{item.icon}</ListItemIcon>
             <ListItemText
@@ -113,14 +123,19 @@ export default function AdminLayout({ children }) {
 
       <Box sx={{ flexGrow: 1 }} />
       <Box sx={{ p: 2 }}>
-        <Button fullWidth variant="outlined" onClick={() => navigate("/")}>
-          Về trang chủ
+        <Button
+          fullWidth
+          variant="outlined"
+          onClick={() => {
+            navigate("/");
+            window.scrollTo(0, 0);
+          }}
+        >
+          {t("admin.layout.backHome")}
         </Button>
       </Box>
     </Box>
   );
-
-
 
   return (
     <Box
@@ -130,7 +145,7 @@ export default function AdminLayout({ children }) {
         bgcolor: "background.default",
       }}
     >
-      <SEOHead title="Quản trị hệ thống" noIndex={true} />
+      <SEOHead title={t("admin.layout.seoTitle")} noIndex={true} />
       {isDesktop ? (
         <>
           <Drawer
@@ -148,8 +163,20 @@ export default function AdminLayout({ children }) {
             {drawer}
           </Drawer>
 
-          <Box component="main" sx={{ flexGrow: 1, p: { xs: 2, md: 3 } }}>
-            {children ?? <Outlet />}
+          <Box
+            component="main"
+            sx={{
+              flexGrow: 1,
+              minWidth: 0,
+              p: { xs: 1.5, md: 3 },
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              {children ?? <Outlet />}
+            </Box>
+            <AppFooter />
           </Box>
         </>
       ) : (
@@ -157,16 +184,19 @@ export default function AdminLayout({ children }) {
           <AppBar position="fixed" color="inherit" elevation={1}>
             <Toolbar variant="dense" sx={{ gap: 1, px: 1 }}>
               <Typography variant="h6" sx={{ flexShrink: 0 }}>
-                Admin
+                {t("admin.layout.title")}
               </Typography>
 
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Tabs
                   value={current}
-                  onChange={(_, v) => navigate(navItems[v].path)}
+                  onChange={(_, v) => {
+                    navigate(navItems[v].path);
+                    window.scrollTo(0, 0);
+                  }}
                   variant="scrollable"
                   scrollButtons="auto"
-                  aria-label="Điều hướng admin"
+                  aria-label={t("admin.layout.navAria")}
                   sx={{
                     "& .MuiTab-root": { minWidth: 120, textTransform: "none" },
                   }}
@@ -182,12 +212,15 @@ export default function AdminLayout({ children }) {
                 </Tabs>
               </Box>
 
-              <Tooltip title="Về trang chủ">
+              <Tooltip title={t("admin.layout.backHome")}>
                 <IconButton
                   edge="end"
                   size="small"
-                  aria-label="Về trang chủ"
-                  onClick={() => navigate("/")}
+                  aria-label={t("admin.layout.backHome")}
+                  onClick={() => {
+                    navigate("/");
+                    window.scrollTo(0, 0);
+                  }}
                 >
                   <HomeIcon />
                 </IconButton>
@@ -195,11 +228,27 @@ export default function AdminLayout({ children }) {
             </Toolbar>
           </AppBar>
 
-          <Box component="main" sx={{ p: 2, mt: 10 }}>
-            {children ?? <Outlet />}
+          <Box
+            component="main"
+            sx={{
+              p: 2,
+              mt: 10,
+              minHeight: "calc(100dvh - 80px)",
+              display: "flex",
+              flexDirection: "column",
+            }}
+          >
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              {children ?? <Outlet />}
+            </Box>
+            <AppFooter />
           </Box>
         </>
       )}
     </Box>
   );
 }
+
+AdminLayout.propTypes = {
+  children: PropTypes.node,
+};

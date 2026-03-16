@@ -185,8 +185,11 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
   const pairCapEnabled = Number.isFinite(pairCap) && pairCap > 0;
   const gap = Number(tour.scoreGap) || 0;
 
-  if (singleCapEnabled) {
-    if (s1 > singleCap || (!isSingle && s2 > singleCap)) {
+  if (singleCapEnabled && !tour.allowExceedMaxRating) {
+    if (
+      Math.round(s1 * 1000) > Math.round(singleCap * 1000) ||
+      (!isSingle && Math.round(s2 * 1000) > Math.round(singleCap * 1000))
+    ) {
       return {
         ok: false,
         reason: "single_cap_exceeded",
@@ -195,8 +198,8 @@ async function preflightChecks({ tour, eventType, p1UserId, p2UserId }) {
     }
   }
 
-  if (!isSingle && pairCapEnabled) {
-    if (s1 + s2 > pairCap + gap) {
+  if (!isSingle && pairCapEnabled && !tour.allowExceedMaxRating) {
+    if (Math.round((s1 + s2) * 1000) > Math.round((pairCap + gap) * 1000)) {
       return {
         ok: false,
         reason: "pair_cap_exceeded",

@@ -19,6 +19,15 @@ const typography = {
   fontWeightBold: 700,
 };
 
+const containerGutters = {
+  paddingLeft: 12,
+  paddingRight: 12,
+  "@media (min-width:600px)": {
+    paddingLeft: 24,
+    paddingRight: 24,
+  },
+};
+
 // Light Theme (default)
 export const lightTheme = createTheme({
   palette: {
@@ -64,6 +73,11 @@ export const lightTheme = createTheme({
           backgroundColor: "#f8f9fa",
           color: "#212529",
         },
+      },
+    },
+    MuiContainer: {
+      styleOverrides: {
+        root: containerGutters,
       },
     },
     MuiAppBar: {
@@ -129,6 +143,11 @@ export const darkTheme = createTheme({
           backgroundColor: "#121212",
           color: "#e9ecef",
         },
+      },
+    },
+    MuiContainer: {
+      styleOverrides: {
+        root: containerGutters,
       },
     },
     MuiAppBar: {

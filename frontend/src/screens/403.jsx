@@ -3,10 +3,12 @@ import { Box, Button, Container, Stack, Typography } from "@mui/material";
 import BlockIcon from "@mui/icons-material/Block";
 import { useNavigate, useLocation } from "react-router-dom";
 import SEOHead from "../components/SEOHead";
+import { useLanguage } from "../context/LanguageContext.jsx";
 
 export default function Forbidden403() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { t, locale } = useLanguage();
   const from = location.state?.from?.pathname || "/";
 
   return (
@@ -14,7 +16,7 @@ export default function Forbidden403() {
       maxWidth="md"
       sx={{ minHeight: "100vh", display: "flex", alignItems: "center" }}
     >
-      <SEOHead title="403 - Forbidden" noIndex={true} />
+      <SEOHead title={t("errors.forbidden.seoTitle")} noIndex={true} />
       <Box sx={{ width: "100%", textAlign: "center", py: { xs: 6, md: 10 } }}>
         <BlockIcon sx={{ fontSize: { xs: 56, md: 80 }, mb: 1 }} color="error" />
         <Typography
@@ -29,11 +31,10 @@ export default function Forbidden403() {
           403
         </Typography>
         <Typography variant="h5" sx={{ mt: 1, fontWeight: 700 }}>
-          Truy cập bị từ chối
+          {t("errors.forbidden.title")}
         </Typography>
         <Typography color="text.secondary" sx={{ mt: 1.5 }}>
-          Bạn không có quyền truy cập trang này. Hãy đăng nhập bằng tài khoản
-          admin hoặc quay lại trang trước.
+          {t("errors.forbidden.description")}
         </Typography>
 
         <Stack
@@ -43,16 +44,16 @@ export default function Forbidden403() {
           sx={{ mt: 3 }}
         >
           <Button variant="contained" onClick={() => navigate("/")}>
-            Về trang chủ
+            {t("common.actions.backHome")}
           </Button>
           <Button variant="outlined" onClick={() => navigate(-1)}>
-            Quay lại
+            {t("common.actions.back")}
           </Button>
           <Button
             variant="text"
             onClick={() => navigate("/login", { state: { redirectTo: from } })}
           >
-            Đăng nhập
+            {t("errors.forbidden.login")}
           </Button>
         </Stack>
 
@@ -61,7 +62,7 @@ export default function Forbidden403() {
           color="text.secondary"
           sx={{ display: "block", mt: 3 }}
         >
-          Mã lỗi: 403 • {new Date().toLocaleString()}
+          {t("common.labels.statusCode")}: 403 • {new Date().toLocaleString(locale)}
         </Typography>
       </Box>
     </Container>

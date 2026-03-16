@@ -1,3 +1,9 @@
+@media (max-width: 899.95px) {
+  .app-shell {
+    --bs-gutter-x: 0;
+    margin-bottom: 0;
+  }
+}
 .MuiDateRangeCalendar-root > div:first-of-type {
   display: none !important;
 }

@@ -81,7 +81,7 @@ export const createRegistration = asyncHandler(async (req, res) => {
   const userIds = isSingles ? [player1Id] : [player1Id, player2Id];
   const users = await User.find({ _id: { $in: userIds } }).select(
     // cần thêm cccdStatus/cccd để kiểm tra xác thực
-    "name nickname phone avatar province cccd cccdStatus"
+    "name nickname phone avatar province cccd cccdStatus",
   );
   if (users.length !== userIds.length) {
     res.status(400);
@@ -125,14 +125,22 @@ export const createRegistration = asyncHandler(async (req, res) => {
   if (alreadyReg) {
     // Tìm nickname VĐV đã đăng ký để hiển thị chi tiết
     const dupeNames = [];
-    const p1u = alreadyReg.player1?.user ? String(alreadyReg.player1.user) : null;
-    const p2u = alreadyReg.player2?.user ? String(alreadyReg.player2.user) : null;
+    const p1u = alreadyReg.player1?.user
+      ? String(alreadyReg.player1.user)
+      : null;
+    const p2u = alreadyReg.player2?.user
+      ? String(alreadyReg.player2.user)
+      : null;
     const uidStrs = userIds.map(String);
     if (p1u && uidStrs.includes(p1u)) {
-      dupeNames.push(alreadyReg.player1.nickName || alreadyReg.player1.fullName || "VĐV");
+      dupeNames.push(
+        alreadyReg.player1.nickName || alreadyReg.player1.fullName || "VĐV",
+      );
     }
     if (p2u && uidStrs.includes(p2u)) {
-      dupeNames.push(alreadyReg.player2?.nickName || alreadyReg.player2?.fullName || "VĐV");
+      dupeNames.push(
+        alreadyReg.player2?.nickName || alreadyReg.player2?.fullName || "VĐV",
+      );
     }
 
     let msg;
@@ -169,14 +177,17 @@ export const createRegistration = asyncHandler(async (req, res) => {
   const map = Object.fromEntries(scores.map((s) => [String(s._id), s]));
   const key = isDoubles ? "double" : "single";
   const s1 = map[String(player1Id)]?.[key] ?? 0;
-  const s2 = isDoubles ? map[String(player2Id)]?.[key] ?? 0 : 0;
+  const s2 = isDoubles ? (map[String(player2Id)]?.[key] ?? 0) : 0;
 
   /* ─ 9) Validate điểm trình ─ */
   const noPointCap = Number(tour.scoreCap) === 0;
 
-  if (!noPointCap) {
+  if (!noPointCap && !tour.allowExceedMaxRating) {
     if (typeof tour.singleCap === "number" && tour.singleCap > 0) {
-      if (s1 > tour.singleCap || (isDoubles && s2 > tour.singleCap)) {
+      if (
+        Math.round(s1 * 1000) > Math.round(tour.singleCap * 1000) ||
+        (isDoubles && Math.round(s2 * 1000) > Math.round(tour.singleCap * 1000))
+      ) {
         res.status(400);
         throw new Error("Điểm của 1 VĐV vượt giới hạn");
       }
@@ -184,7 +195,10 @@ export const createRegistration = asyncHandler(async (req, res) => {
 
     if (isDoubles && Number(tour.scoreCap) > 0) {
       const gap = Number(tour.scoreGap) || 0;
-      if (s1 + s2 > Number(tour.scoreCap) + gap) {
+      if (
+        Math.round((s1 + s2) * 1000) >
+        Math.round((Number(tour.scoreCap) + gap) * 1000)
+      ) {
         res.status(400);
         throw new Error("Tổng điểm đôi vượt giới hạn của giải");
       }
@@ -221,7 +235,7 @@ export const createRegistration = asyncHandler(async (req, res) => {
 
   await Tournament.updateOne(
     { _id: id },
-    { $inc: { registered: 1 }, $set: { updatedAt: new Date() } }
+    { $inc: { registered: 1 }, $set: { updatedAt: new Date() } },
   );
 
   res.status(201).json(reg);
@@ -271,7 +285,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
       // eslint-disable-next-line no-await-in-loop
       const upd = await Registration.updateOne(
         { _id: r._id, $or: [{ code: { $exists: false } }, { code: null }] },
-        { $set: { code: next } }
+        { $set: { code: next } },
       );
       if (upd.modifiedCount > 0) {
         r.code = next;
@@ -293,7 +307,7 @@ export const getRegistrations = asyncHandler(async (req, res) => {
   // 3) query User: lấy thêm verified & cccdStatus
   const users = await User.find({ _id: { $in: [...uids] } })
     .select(
-      "_id avatar fullName name nickName nickname phone verified cccdStatus"
+      "_id avatar fullName name nickName nickname phone verified cccdStatus",
     )
     .lean();
   const userById = new Map(users.map((u) => [String(u._id), u]));
@@ -528,7 +542,7 @@ export const updateRegistrationPayment = asyncHandler(async (req, res) => {
       console.error(
         "[notify] REGISTRATION_PAYMENT_PAID failed for registration",
         String(id),
-        e
+        e,
       );
       // không throw: tránh làm fail API trả về, chỉ log lỗi gửi notif
     }
@@ -577,7 +591,7 @@ async function isTourManager(userId, tour) {
   if (Array.isArray(tour.managers) && tour.managers.length) {
     const ok = tour.managers.some((m) => {
       const mid =
-        typeof m === "object" && m !== null ? m.user ?? m._id ?? m : m;
+        typeof m === "object" && m !== null ? (m.user ?? m._id ?? m) : m;
       return String(mid) === String(userId);
     });
     if (ok) return true;
@@ -597,8 +611,8 @@ function toPlayerSubdoc(u) {
     typeof u.score === "number"
       ? u.score
       : typeof u.skillScore === "number"
-      ? u.skillScore
-      : 0;
+        ? u.skillScore
+        : 0;
 
   return {
     user: u._id,
@@ -683,7 +697,7 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
   }
 
   const tour = await Tournament.findById(reg.tournament).select(
-    "eventType createdBy managers"
+    "eventType createdBy managers",
   );
   if (!tour) {
     res.status(404);
@@ -1001,7 +1015,7 @@ export const searchRegistrations = async (req, res, next) => {
         : null;
 
     const tokenPrefixRegexes = tokens.map(
-      (t) => new RegExp("(?:^|\\s)" + escapeRegExp(t), "i")
+      (t) => new RegExp("(?:^|\\s)" + escapeRegExp(t), "i"),
     );
     const tokenAnyRegexes = tokens.map((t) => new RegExp(escapeRegExp(t), "i"));
 

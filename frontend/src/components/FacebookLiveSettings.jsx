@@ -15,14 +15,12 @@ import {
   ListItemAvatar,
   Avatar,
   ListItemText,
-  ListItemSecondaryAction,
   IconButton,
   Chip,
   CircularProgress,
   Tooltip,
   Divider,
 } from "@mui/material";
-import { toast } from "react-toastify";
 import SEOHead from "../components/SEOHead";
 
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
@@ -35,8 +33,10 @@ import {
   useSetDefaultFacebookPageMutation,
   useDeleteFacebookPageMutation,
 } from "../slices/facebookApiSlice";
+import { useLanguage } from "../context/LanguageContext.jsx";
 
 const FacebookLiveSettings = () => {
+  const { t } = useLanguage();
   // Lấy danh sách page đã connect
   const {
     data: pages = [],
@@ -66,9 +66,9 @@ const FacebookLiveSettings = () => {
       }
     } catch (err) {
       console.error("getLoginUrl error", err);
-      alert("Không lấy được link kết nối Facebook, vui lòng thử lại.");
+      alert(t("facebookLive.connectError"));
     }
-  }, [getLoginUrl]);
+  }, [getLoginUrl, t]);
 
   const handleSetDefault = useCallback(
     async (pageConnectionId) => {
@@ -77,16 +77,16 @@ const FacebookLiveSettings = () => {
         void refetch();
       } catch (err) {
         console.error("setDefaultPage error", err);
-        alert("Không đặt được page mặc định, vui lòng thử lại.");
+        alert(t("facebookLive.setDefaultError"));
       }
     },
-    [setDefaultPage, refetch]
+    [setDefaultPage, refetch, t]
   );
 
   const handleDelete = useCallback(
     async (id) => {
       const ok = window.confirm(
-        "Bạn có chắc muốn xoá kết nối fanpage này khỏi tài khoản?"
+        t("facebookLive.deleteConfirm")
       );
       if (!ok) return;
 
@@ -95,10 +95,10 @@ const FacebookLiveSettings = () => {
         void refetch();
       } catch (err) {
         console.error("deletePage error", err);
-        alert("Không xoá được kết nối, vui lòng thử lại.");
+        alert(t("facebookLive.deleteError"));
       }
     },
-    [deletePage, refetch]
+    [deletePage, refetch, t]
   );
 
   const loadingList = isLoading || isFetching;
@@ -107,7 +107,7 @@ const FacebookLiveSettings = () => {
 
   return (
     <Container maxWidth="md">
-      <SEOHead title="Cấu hình Facebook Live" noIndex={true} />
+      <SEOHead title={t("facebookLive.seoTitle")} noIndex={true} />
       <Stack spacing={3} sx={{ py: 3 }}>
         {/* Header */}
         <Stack
@@ -118,11 +118,10 @@ const FacebookLiveSettings = () => {
         >
           <Box>
             <Typography variant="h5" fontWeight={600}>
-              Facebook Live
+              {t("facebookLive.title")}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Kết nối Facebook để livestream match trực tiếp lên fanpage của
-              bạn.
+              {t("facebookLive.subtitle")}
             </Typography>
           </Box>
 
@@ -131,22 +130,22 @@ const FacebookLiveSettings = () => {
             onClick={handleConnectFacebook}
             disabled={isConnecting}
           >
-            {isConnecting ? "Đang mở Facebook..." : "Kết nối Facebook"}
+            {isConnecting
+              ? t("facebookLive.connecting")
+              : t("facebookLive.connect")}
           </Button>
         </Stack>
 
         {/* Info */}
         <Alert severity="info">
-          Sau khi bấm &quot;Kết nối Facebook&quot;, hệ thống sẽ mở cửa sổ
-          Facebook để bạn cấp quyền. Khi chấp nhận xong, quay lại trang này và
-          danh sách fanpage sẽ được cập nhật tự động.
+          {t("facebookLive.infoAlert")}
         </Alert>
 
         {/* Card danh sách page */}
         <Card>
           <CardHeader
-            title="Fanpage đã kết nối"
-            subheader="Chọn 1 fanpage làm mặc định để livestream match."
+            title={t("facebookLive.connectedPagesTitle")}
+            subheader={t("facebookLive.connectedPagesSubtitle")}
           />
           <Divider />
 
@@ -156,7 +155,7 @@ const FacebookLiveSettings = () => {
                 <Stack direction="row" spacing={1} alignItems="center">
                   <CircularProgress size={18} />
                   <Typography variant="body2">
-                    Đang tải danh sách fanpage...
+                    {t("facebookLive.loadingPages")}
                   </Typography>
                 </Stack>
               </Stack>
@@ -164,14 +163,13 @@ const FacebookLiveSettings = () => {
 
             {!loadingList && error && (
               <Alert severity="error">
-                Không tải được danh sách fanpage. Vui lòng thử lại sau.
+                {t("facebookLive.loadError")}
               </Alert>
             )}
 
             {!loadingList && !error && pages.length === 0 && (
               <Alert severity="warning">
-                Bạn chưa kết nối fanpage nào. Bấm &quot;Kết nối Facebook&quot;
-                để bắt đầu.
+                {t("facebookLive.empty")}
               </Alert>
             )}
 
@@ -195,8 +193,8 @@ const FacebookLiveSettings = () => {
                             <Tooltip
                               title={
                                 isDefault
-                                  ? "Đây là fanpage mặc định"
-                                  : "Đặt làm fanpage mặc định"
+                                  ? t("facebookLive.defaultPageTooltip")
+                                  : t("facebookLive.setDefaultTooltip")
                               }
                             >
                               <span>
@@ -217,7 +215,7 @@ const FacebookLiveSettings = () => {
                             </Tooltip>
 
                             {/* Nút xoá */}
-                            <Tooltip title="Xoá kết nối fanpage này">
+                            <Tooltip title={t("facebookLive.deleteTooltip")}>
                               <span>
                                 <IconButton
                                   edge="end"
@@ -252,7 +250,7 @@ const FacebookLiveSettings = () => {
                               {isDefault && (
                                 <Chip
                                   size="small"
-                                  label="Mặc định"
+                                  label={t("facebookLive.defaultBadge")}
                                   color="primary"
                                   variant="outlined"
                                 />
@@ -282,8 +280,7 @@ const FacebookLiveSettings = () => {
 
         {/* Optional: giải thích cách dùng trong match */}
         <Alert severity="success" variant="outlined">
-          Khi tạo live cho match, backend sẽ ưu tiên dùng fanpage mặc định của
-          bạn. Nếu không có, hệ thống sẽ tự dùng page pool chung như hiện tại.
+          {t("facebookLive.matchUsage")}
         </Alert>
       </Stack>
     </Container>

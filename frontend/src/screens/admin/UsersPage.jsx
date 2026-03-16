@@ -1,4 +1,4 @@
-// src/pages/admin/UsersPage.jsx
+﻿// src/pages/admin/UsersPage.jsx
 /* eslint-disable react/prop-types */
 import { useState, useEffect } from "react";
 import {
@@ -1071,8 +1071,8 @@ export default function UsersPage() {
           }
           label={
             sysSettings?.notifications?.systemPushEnabled !== false
-              ? "Đang bật Push"
-              : "Đã tắt Push"
+              ? "Đang bật Push notification"
+              : "Đã tắt Push notification"
           }
         />
       </Paper>

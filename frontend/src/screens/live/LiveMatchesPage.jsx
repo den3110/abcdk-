@@ -1,4 +1,5 @@
-import React, {
+/* eslint-disable react/prop-types */
+import {
   useMemo,
   useState,
   useEffect,
@@ -39,6 +40,11 @@ import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import LiveMatchCard from "./LiveMatchCard";
 import { useGetLiveMatchesQuery } from "../../slices/liveApiSlice";
 import SEOHead from "../../components/SEOHead";
+import { useLanguage } from "../../context/LanguageContext.jsx";
+import {
+  formatDate,
+  formatTime,
+} from "../../i18n/format.js";
 
 const LIMIT = 12;
 // CARD_HEIGHT chỉ dùng cho skeleton lúc loading để UI đỡ nhảy
@@ -61,7 +67,7 @@ function useTickingAgo() {
   return ts;
 }
 
-function FiltersDialog({ open, onClose, initial, onApply }) {
+function FiltersDialog({ open, onClose, initial, onApply, t, statusLabels }) {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down("sm"));
   const [statuses, setStatuses] = useState(initial.statuses);
@@ -74,9 +80,9 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
 
   // ⚙️ format label cho option thời gian
   const formatWindowOptionLabel = (h) => {
-    if (h < 24) return `${h} giờ gần nhất`;
+    if (h < 24) return t("live.matches.recentHours", { count: h });
     const days = h / 24;
-    return `${days} ngày gần nhất`;
+    return t("live.matches.recentDays", { count: days });
   };
 
   useEffect(() => {
@@ -115,18 +121,22 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
       maxWidth="sm"
       fullWidth
     >
-      <DialogTitle>Bộ lọc</DialogTitle>
+      <DialogTitle>{t("live.matches.filterTitle")}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
           <Stack spacing={1}>
-            <Typography variant="subtitle2">Trạng thái</Typography>
+            <Typography variant="subtitle2">
+              {t("live.matches.statusTitle")}
+            </Typography>
             <Select
               multiple
               size="small"
               value={statuses}
               onChange={handleStatusesChange}
               renderValue={(s) =>
-                s.length === STATUS_OPTIONS.length ? "Tất cả" : s.join(", ")
+                s.length === STATUS_OPTIONS.length
+                  ? t("live.matches.all")
+                  : s.map((item) => statusLabels[item] || item).join(", ")
               }
               MenuProps={{
                 disablePortal: true,
@@ -135,20 +145,22 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
             >
               <MenuItem value="__ALL__">
                 <Checkbox checked={allSelected} />
-                <ListItemText primary="Tất cả" />
+                <ListItemText primary={t("live.matches.all")} />
               </MenuItem>
               <Divider />
               {STATUS_OPTIONS.map((s) => (
                 <MenuItem key={s} value={s}>
                   <Checkbox checked={statuses.indexOf(s) > -1} />
-                  <ListItemText primary={s} />
+                  <ListItemText primary={statusLabels[s] || s} />
                 </MenuItem>
               ))}
             </Select>
           </Stack>
 
           <Stack spacing={1}>
-            <Typography variant="subtitle2">Cửa sổ thời gian</Typography>
+            <Typography variant="subtitle2">
+              {t("live.matches.timeWindowTitle")}
+            </Typography>
             <Select
               size="small"
               value={windowHours}
@@ -170,14 +182,16 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
               }
               label={
                 excludeFinished
-                  ? "Đang loại các trận finished"
-                  : "Đang gồm cả finished"
+                  ? t("live.matches.excludingFinished")
+                  : t("live.matches.includingFinished")
               }
             />
           </Stack>
 
           <Stack spacing={1}>
-            <Typography variant="subtitle2">Tự làm mới</Typography>
+            <Typography variant="subtitle2">
+              {t("live.matches.autoRefreshTitle")}
+            </Typography>
             <Stack direction="row" spacing={1} alignItems="center">
               <FormControlLabel
                 control={
@@ -186,7 +200,7 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
                     onChange={(e) => setAutoRefresh(e.target.checked)}
                   />
                 }
-                label="Bật"
+                label={t("live.matches.enable")}
               />
               <Select
                 size="small"
@@ -195,10 +209,18 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
                 disabled={!autoRefresh}
                 MenuProps={{ disablePortal: true }}
               >
-                <MenuItem value={10}>10 giây</MenuItem>
-                <MenuItem value={15}>15 giây</MenuItem>
-                <MenuItem value={30}>30 giây</MenuItem>
-                <MenuItem value={60}>60 giây</MenuItem>
+                <MenuItem value={10}>
+                  {t("live.matches.seconds", { count: 10 })}
+                </MenuItem>
+                <MenuItem value={15}>
+                  {t("live.matches.seconds", { count: 15 })}
+                </MenuItem>
+                <MenuItem value={30}>
+                  {t("live.matches.seconds", { count: 30 })}
+                </MenuItem>
+                <MenuItem value={60}>
+                  {t("live.matches.seconds", { count: 60 })}
+                </MenuItem>
               </Select>
             </Stack>
           </Stack>
@@ -206,10 +228,10 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
       </DialogContent>
       <DialogActions sx={{ px: 2 }}>
         <Button startIcon={<RestartAltIcon />} onClick={handleReset}>
-          Mặc định
+          {t("common.actions.default")}
         </Button>
         <Box sx={{ flex: 1 }} />
-        <Button onClick={onClose}>Hủy</Button>
+        <Button onClick={onClose}>{t("common.actions.cancel")}</Button>
         <Button
           variant="contained"
           onClick={() =>
@@ -222,7 +244,7 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
             })
           }
         >
-          Áp dụng
+          {t("common.actions.apply")}
         </Button>
       </DialogActions>
     </Dialog>
@@ -230,6 +252,7 @@ function FiltersDialog({ open, onClose, initial, onApply }) {
 }
 
 export default function LiveMatchesPage() {
+  const { t, locale } = useLanguage();
   const [keyword, setKeyword] = useState("");
   const [statuses, setStatuses] = useState([...STATUS_OPTIONS]);
   const [excludeFinished, setExcludeFinished] = useState(
@@ -244,6 +267,16 @@ export default function LiveMatchesPage() {
 
   // ✅ NEW: list id match đã xoá video (ẩn card trên FE)
   const [removedIds, setRemovedIds] = useState([]);
+  const statusLabels = useMemo(
+    () => ({
+      scheduled: t("tournaments.statuses.upcoming"),
+      queued: t("tournaments.statuses.upcoming"),
+      assigned: t("tournaments.statuses.upcoming"),
+      live: t("tournaments.statuses.ongoing"),
+      finished: t("tournaments.statuses.finished"),
+    }),
+    [t]
+  );
 
   // ✅ load filters từ localStorage lần đầu
   useEffect(() => {
@@ -336,7 +369,7 @@ export default function LiveMatchesPage() {
   }, [autoRefresh, refreshSec, refetch, qArgs]);
 
   const pages = data?.pages || 1;
-  const items = data?.items || [];
+  const items = data?.items ?? [];
   const total = data?.rawCount ?? 0;
 
   const tick = useTickingAgo();
@@ -357,12 +390,12 @@ export default function LiveMatchesPage() {
     const from = new Date(now.getTime() - windowHours * 3600 * 1000);
 
     const fmtTime = (d) =>
-      d.toLocaleTimeString("vi-VN", {
+      formatTime(d, locale, {
         hour: "2-digit",
         minute: "2-digit",
       });
     const fmtDate = (d) =>
-      d.toLocaleDateString("vi-VN", {
+      formatDate(d, locale, {
         day: "2-digit",
         month: "2-digit",
       });
@@ -371,14 +404,16 @@ export default function LiveMatchesPage() {
 
     if (sameDay) {
       // Ví dụ: 13:00–21:00 hôm nay (24/11)
-      return `${fmtTime(from)}–${fmtTime(now)} hôm nay (${fmtDate(now)})`;
+      return `${fmtTime(from)}–${fmtTime(now)} ${t("live.matches.today")} (${fmtDate(
+        now
+      )})`;
     }
 
     // Ví dụ: 22:00 23/11 – 06:00 24/11
     return `${fmtTime(from)} ${fmtDate(from)} – ${fmtTime(now)} ${fmtDate(
       now
     )}`;
-  }, [tick, windowHours]);
+  }, [locale, t, tick, windowHours]);
 
   const activeFilters =
     (statuses.length !== STATUS_OPTIONS.length ? 1 : 0) +
@@ -448,8 +483,8 @@ export default function LiveMatchesPage() {
   return (
     <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
       <SEOHead
-        title="Trực tiếp"
-        description="Xem trực tiếp tỉ số, video và diễn biến các trận đấu Pickleball đang diễn ra tại Việt Nam."
+        title={t("live.matches.seoTitle")}
+        description={t("live.matches.seoDescription")}
         path="/live"
       />
       <Paper
@@ -470,7 +505,7 @@ export default function LiveMatchesPage() {
             setKeyword(e.target.value);
             setPage(1);
           }}
-          placeholder="Tìm mã trận, sân, nền tảng…"
+          placeholder={t("live.matches.searchPlaceholder")}
           size="small"
           startAdornment={
             <InputAdornment position="start">
@@ -479,17 +514,18 @@ export default function LiveMatchesPage() {
           }
           sx={{ flex: 1, minWidth: 240 }}
         />
-        <Tooltip title="Bộ lọc">
+        <Tooltip title={t("live.matches.filterTitle")}>
           <Button
             variant="outlined"
             startIcon={<TuneIcon />}
             onClick={() => setFilterOpen(true)}
             sx={{ textTransform: "none" }}
           >
-            Bộ lọc {activeFilters > 0 ? `(${activeFilters})` : ""}
+            {t("live.matches.filterButton")}{" "}
+            {activeFilters > 0 ? `(${activeFilters})` : ""}
           </Button>
         </Tooltip>
-        <Tooltip title="Làm mới">
+        <Tooltip title={t("live.matches.refreshTooltip")}>
           <span>
             <IconButton onClick={() => refetch()} disabled={isFetching}>
               <RefreshIcon fontSize="small" />
@@ -501,7 +537,9 @@ export default function LiveMatchesPage() {
       <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1 }}>
         {statuses.length !== STATUS_OPTIONS.length && (
           <Chip
-            label={`Trạng thái: ${statuses.join(", ")}`}
+            label={t("live.matches.statusChip", {
+              value: statuses.map((item) => statusLabels[item] || item).join(", "),
+            })}
             onDelete={() => clearChip("statuses")}
             size="small"
             variant="outlined"
@@ -509,7 +547,7 @@ export default function LiveMatchesPage() {
         )}
         {windowHours !== DEFAULT_WINDOW_HOURS && (
           <Chip
-            label={`Cửa sổ: ${windowHours}h`}
+            label={t("live.matches.windowChip", { value: windowHours })}
             onDelete={() => clearChip("window")}
             size="small"
             variant="outlined"
@@ -517,7 +555,7 @@ export default function LiveMatchesPage() {
         )}
         {excludeFinished && (
           <Chip
-            label="Đang loại finished"
+            label={t("live.matches.finishedChip")}
             onDelete={() => clearChip("finished")}
             size="small"
             variant="outlined"
@@ -525,7 +563,11 @@ export default function LiveMatchesPage() {
         )}
         {(!autoRefresh || refreshSec !== DEFAULT_REFRESH_SEC) && (
           <Chip
-            label={`Auto: ${autoRefresh ? `${refreshSec}s` : "Tắt"}`}
+            label={t("live.matches.autoChip", {
+              value: autoRefresh
+                ? t("live.matches.seconds", { count: refreshSec })
+                : t("common.states.off"),
+            })}
             onDelete={() => clearChip("auto")}
             size="small"
             variant="outlined"
@@ -534,7 +576,10 @@ export default function LiveMatchesPage() {
         <Box sx={{ flex: 1 }} />
         <Typography variant="body2" color="text.secondary">
           <PlayCircleOutlineIcon sx={{ mr: 0.5 }} fontSize="small" />
-          {total} luồng trực tiếp • cập nhật {updatedAgoSec}s trước
+          {t("live.matches.streamCountUpdated", {
+            count: total,
+            seconds: updatedAgoSec,
+          })}
         </Typography>
       </Stack>
 
@@ -545,7 +590,7 @@ export default function LiveMatchesPage() {
           color="text.secondary"
           sx={{ mb: 2, width: "100%", textAlign: "right" }}
         >
-          Khoảng thời gian: {windowRangeLabel}
+          {t("live.matches.timeRangeLabel", { value: windowRangeLabel })}
         </Typography>
       )}
 
@@ -596,11 +641,14 @@ export default function LiveMatchesPage() {
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page <= 1}
                   >
-                    Trước
+                    {t("common.actions.previous")}
                   </Button>
                   <Divider orientation="vertical" flexItem />
                   <Typography variant="body2" px={1.5}>
-                    Trang {page}/{pages}
+                    {t("common.states.page", {
+                      current: page,
+                      total: pages,
+                    })}
                   </Typography>
                   <Divider orientation="vertical" flexItem />
                   <Button
@@ -608,7 +656,7 @@ export default function LiveMatchesPage() {
                     onClick={() => setPage((p) => Math.min(pages || 1, p + 1))}
                     disabled={page >= (pages || 1)}
                   >
-                    Sau
+                    {t("common.actions.next")}
                   </Button>
                 </Stack>
               </Paper>
@@ -617,9 +665,11 @@ export default function LiveMatchesPage() {
 
           {visibleItems.length === 0 && (
             <Box sx={{ textAlign: "center", py: 6 }}>
-              <Typography variant="h6">Không có trận phù hợp bộ lọc</Typography>
+              <Typography variant="h6">
+                {t("live.matches.emptyTitle")}
+              </Typography>
               <Typography variant="body2" color="text.secondary">
-                Thử "Bộ lọc" → chọn "LIVE" hoặc tăng cửa sổ thời gian.
+                {t("live.matches.emptyBody")}
               </Typography>
             </Box>
           )}
@@ -631,6 +681,8 @@ export default function LiveMatchesPage() {
         onClose={() => setFilterOpen(false)}
         initial={initialFilters}
         onApply={applyFilters}
+        t={t}
+        statusLabels={statusLabels}
       />
     </Box>
   );

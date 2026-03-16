@@ -15,11 +15,13 @@ import {
 import { useForgotPasswordMutation } from "../slices/usersApiSlice";
 import { toast } from "react-toastify";
 import SEOHead from "../components/SEOHead";
+import { useLanguage } from "../context/LanguageContext.jsx";
 
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState("");
   const [sentTo, setSentTo] = useState("");
   const [forgotPassword, { isLoading }] = useForgotPasswordMutation();
+  const { t } = useLanguage();
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -27,29 +29,31 @@ export default function ForgotPasswordScreen() {
       const res = await forgotPassword({ email }).unwrap();
       setSentTo(res?.masked || email);
       toast.success(
-        res?.message || "Đã gửi yêu cầu hướng dẫn đặt lại mật khẩu qua email"
+        res?.message || t("auth.forgot.successToast")
       );
     } catch (err) {
-      toast.error(err?.data?.message || "Không gửi được yêu cầu. Thử lại sau.");
+      toast.error(err?.data?.message || t("auth.forgot.errors.failed"));
     }
   };
 
   return (
     <Container component="main" maxWidth="xs">
-      <SEOHead title="Quên mật khẩu" description="Khôi phục mật khẩu tài khoản Pickletour.vn" />
+      <SEOHead
+        title={t("auth.forgot.seoTitle")}
+        description={t("auth.forgot.seoDescription")}
+      />
       <Box component={Paper} elevation={3} sx={{ p: 4, mt: 8 }}>
         <Typography variant="h5" fontWeight={600} mb={1}>
-          Quên mật khẩu
+          {t("auth.forgot.title")}
         </Typography>
         <Typography variant="body2" color="text.secondary" mb={2}>
-          Nhập <b>email</b> bạn đã đăng ký với tài khoản của bạn. Chúng tôi sẽ gửi liên kết để đặt lại
-          mật khẩu.
+          {t("auth.forgot.intro")}
         </Typography>
 
         {sentTo && (
           <Alert severity="success" sx={{ mb: 2 }}>
-            Đã gửi yêu cầu đến: <b>{sentTo}</b>. Hãy kiểm tra hộp thư (hoặc
-            spam).
+            {t("auth.forgot.sentNoticePrefix")} <b>{sentTo}</b>.{" "}
+            {t("auth.forgot.sentNoticeSuffix")}
           </Alert>
         )}
 
@@ -58,7 +62,7 @@ export default function ForgotPasswordScreen() {
             fullWidth
             required
             type="email"
-            label="Email"
+            label={t("auth.forgot.emailLabel")}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             autoFocus
@@ -71,7 +75,7 @@ export default function ForgotPasswordScreen() {
             sx={{ mt: 2 }}
             disabled={isLoading}
           >
-            {isLoading ? <CircularProgress size={24} /> : "Gửi hướng dẫn"}
+            {isLoading ? <CircularProgress size={24} /> : t("auth.forgot.submit")}
           </Button>
 
           <Link
@@ -80,7 +84,7 @@ export default function ForgotPasswordScreen() {
             underline="hover"
             sx={{ display: "inline-block", mt: 2 }}
           >
-            Quay lại đăng nhập
+            {t("auth.forgot.backToLogin")}
           </Link>
         </Box>
       </Box>

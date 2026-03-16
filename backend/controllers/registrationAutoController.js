@@ -330,8 +330,8 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
   }
 
   const applies = {
-    singleCap: enforceCaps && capSingle > 0,
-    scoreCap: enforceCaps && capTotal > 0,
+    singleCap: enforceCaps && capSingle > 0 && !tour.allowExceedMaxRating,
+    scoreCap: enforceCaps && capTotal > 0 && !tour.allowExceedMaxRating,
     scoreGap: enforceCaps && capGap > 0,
   };
 
@@ -339,9 +339,22 @@ export const autoGenerateRegistrations = asyncHandler(async (req, res) => {
   const passCaps = (a, b) => {
     const s1 = a.score,
       s2 = b.score;
-    if (applies.singleCap && (s1 > capSingle || s2 > capSingle)) return false;
-    if (applies.scoreCap && s1 + s2 > capTotal) return false;
-    if (applies.scoreGap && Math.abs(s1 - s2) > capGap) return false;
+    if (
+      applies.singleCap &&
+      (Math.round(s1 * 1000) > Math.round(capSingle * 1000) ||
+        Math.round(s2 * 1000) > Math.round(capSingle * 1000))
+    )
+      return false;
+    if (
+      applies.scoreCap &&
+      Math.round((s1 + s2) * 1000) > Math.round(capTotal * 1000)
+    )
+      return false;
+    if (
+      applies.scoreGap &&
+      Math.round(Math.abs(s1 - s2) * 1000) > Math.round(capGap * 1000)
+    )
+      return false;
     return true;
   };
 

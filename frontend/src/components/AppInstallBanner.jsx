@@ -1,5 +1,5 @@
 // src/components/AppInstallBanner.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Button,
@@ -7,11 +7,11 @@ import {
   Typography,
   IconButton,
   Collapse,
-  useTheme,
-  alpha,
 } from "@mui/material";
 import CloseIcon from "@mui/icons-material/Close";
 import GetAppIcon from "@mui/icons-material/GetApp";
+import PropTypes from "prop-types";
+import { useLanguage } from "../context/LanguageContext.jsx";
 
 /* =========================================================
    LOGIC GIỮ NGUYÊN (Detect Platform & Store Links)
@@ -61,7 +61,7 @@ async function detectInstalledAndroid(androidPackage) {
 }
 
 export default function AppInstallBanner({ links }) {
-  const theme = useTheme();
+  const { t } = useLanguage();
   const { isAndroid, isIOS, isMobile, isStandalone } = detectPlatform();
   const [visible, setVisible] = useState(false);
   const [installed, setInstalled] = useState(false);
@@ -118,13 +118,17 @@ export default function AppInstallBanner({ links }) {
     if (sp.get("from_app") === "1" || sp.get("app_installed") === "1") {
       try {
         localStorage.setItem(INSTALLED_FLAG, "1");
-      } catch {}
+      } catch {
+        // Ignore storage write failures in restricted browsers.
+      }
       setInstalled(true);
       return;
     }
     try {
       if (localStorage.getItem(INSTALLED_FLAG) === "1") setInstalled(true);
-    } catch {}
+    } catch {
+      // Ignore storage read failures in restricted browsers.
+    }
   }, []);
 
   // Check android api
@@ -159,7 +163,9 @@ export default function AppInstallBanner({ links }) {
     setVisible(false);
   };
 
-  const primaryLabel = installed ? "Mở App" : "Tải App";
+  const primaryLabel = installed
+    ? t("common.actions.openApp")
+    : t("common.actions.downloadApp");
   const btnHref = installed
     ? (isAndroid ? intentHref || deeplinkUrl : deeplinkUrl) || storeHref
     : storeHref;
@@ -206,14 +212,14 @@ export default function AppInstallBanner({ links }) {
             {/* Content */}
             <Box flexGrow={1} minWidth={0}>
               <Typography variant="subtitle2" fontWeight={700} lineHeight={1.2}>
-                Trải nghiệm tốt hơn trên App
+                {t("installBanner.title")}
               </Typography>
               <Typography
                 variant="caption"
                 sx={{ color: "rgba(255,255,255,0.7)", display: "block" }}
                 noWrap
               >
-                Thông báo, chấm trình & cập nhật tức thời.
+                {t("installBanner.subtitle")}
               </Typography>
             </Box>
 
@@ -252,6 +258,7 @@ export default function AppInstallBanner({ links }) {
                     bgcolor: "rgba(255,255,255,0.1)",
                   },
                 }}
+                aria-label={t("common.actions.cancel")}
               >
                 <CloseIcon fontSize="small" />
               </IconButton>
@@ -262,3 +269,18 @@ export default function AppInstallBanner({ links }) {
     </Collapse>
   );
 }
+
+AppInstallBanner.propTypes = {
+  links: PropTypes.shape({
+    appStore: PropTypes.string,
+    playStore: PropTypes.string,
+    apkPickleTour: PropTypes.string,
+    androidPackage: PropTypes.string,
+    deeplinkPath: PropTypes.string,
+    domain: PropTypes.string,
+  }),
+};
+
+AppInstallBanner.defaultProps = {
+  links: {},
+};

@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 // src/pages/TournamentDashboard.jsx
 import { useState, useEffect, useMemo } from "react";
 import { useSearchParams, Link as RouterLink } from "react-router-dom";
@@ -47,6 +48,10 @@ import { DateRangePicker } from "@mui/x-date-pickers-pro/DateRangePicker";
 import { ZoomProvider, ZoomItem } from "../../components/Zoom";
 import SponsorMarquee from "../../components/SponsorMarquee";
 import SEOHead from "../../components/SEOHead";
+import { useLanguage } from "../../context/LanguageContext.jsx";
+import {
+  formatDate as formatLocaleDate,
+} from "../../i18n/format.js";
 
 // --- STYLED COMPONENTS ---
 const GlassCard = styled(Card)(({ theme }) => ({
@@ -70,11 +75,6 @@ const GlassCard = styled(Card)(({ theme }) => ({
 }));
 
 const StatusBadge = styled(Box)(({ theme, status }) => {
-  const colors = {
-    upcoming: theme.palette.info.main,
-    ongoing: theme.palette.success.main,
-    finished: theme.palette.text.disabled,
-  };
   const bgColors = {
     upcoming: alpha(theme.palette.info.main, 0.9),
     ongoing: alpha(theme.palette.success.main, 0.9),
@@ -121,16 +121,29 @@ const StatBox = styled(Box)(({ theme }) => ({
   boxShadow: theme.shadows[1],
 }));
 
-const STATUS_META = {
-  upcoming: { label: "Sắp diễn ra", id: "upcoming" },
-  ongoing: { label: "Đang diễn ra", id: "ongoing" },
-  finished: { label: "Đã kết thúc", id: "finished" },
-};
 const TABS = ["upcoming", "ongoing", "finished"];
 
 export default function TournamentDashboard() {
   const theme = useTheme();
+  const { t: translate, locale } = useLanguage();
   const me = useSelector((s) => s.auth?.userInfo || null);
+  const statusMeta = useMemo(
+    () => ({
+      upcoming: {
+        label: translate("tournaments.statuses.upcoming"),
+        id: "upcoming",
+      },
+      ongoing: {
+        label: translate("tournaments.statuses.ongoing"),
+        id: "ongoing",
+      },
+      finished: {
+        label: translate("tournaments.statuses.finished"),
+        id: "finished",
+      },
+    }),
+    [translate]
+  );
 
   // --- Auth Logic ---
   const isAdmin = !!(
@@ -261,7 +274,14 @@ export default function TournamentDashboard() {
     );
   };
 
-  const formatDate = (d) => (d ? dayjs(d).format("DD/MM/YYYY") : "--");
+  const formatDate = (d) =>
+    d
+      ? formatLocaleDate(d, locale, {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        })
+      : "--";
 
   // --- COMPONENT: Action Buttons (Đăng ký TO NHẤT + bỏ Check-in) ---
   const Actions = ({ t }) => {
@@ -298,7 +318,7 @@ export default function TournamentDashboard() {
               startIcon={<HowToRegIcon />}
               sx={registerBigSx}
             >
-              Đăng ký
+              {translate("tournaments.actions.register")}
             </Button>
           </Grid>
 
@@ -312,7 +332,7 @@ export default function TournamentDashboard() {
               startIcon={<EventNoteIcon />}
               sx={btnSx}
             >
-              Lịch đấu
+              {translate("tournaments.actions.schedule")}
             </Button>
           </Grid>
 
@@ -326,7 +346,7 @@ export default function TournamentDashboard() {
               startIcon={<AccountTreeIcon />}
               sx={btnSx}
             >
-              Sơ đồ
+              {translate("tournaments.actions.bracket")}
             </Button>
           </Grid>
         </Grid>
@@ -347,7 +367,7 @@ export default function TournamentDashboard() {
               startIcon={<HowToRegIcon />}
               sx={registerBigSx}
             >
-              Đăng ký
+              {translate("tournaments.actions.register")}
             </Button>
           </Grid>
 
@@ -361,7 +381,7 @@ export default function TournamentDashboard() {
               startIcon={<AccountTreeIcon />}
               sx={btnSx}
             >
-              Sơ đồ
+              {translate("tournaments.actions.bracket")}
             </Button>
           </Grid>
         </Grid>
@@ -382,7 +402,7 @@ export default function TournamentDashboard() {
               startIcon={<EventNoteIcon />}
               sx={btnSx}
             >
-              Lịch đấu
+              {translate("tournaments.actions.schedule")}
             </Button>
           </Grid>
 
@@ -396,7 +416,7 @@ export default function TournamentDashboard() {
               startIcon={<AccountTreeIcon />}
               sx={btnSx}
             >
-              Sơ đồ
+              {translate("tournaments.actions.bracket")}
             </Button>
           </Grid>
         </Grid>
@@ -414,7 +434,7 @@ export default function TournamentDashboard() {
         startIcon={<AccountTreeIcon />}
         sx={btnSx}
       >
-        Xem sơ đồ kết quả
+        {translate("tournaments.actions.viewResults")}
       </Button>
     );
   };
@@ -439,7 +459,7 @@ export default function TournamentDashboard() {
         >
           <Box sx={{ position: "absolute", top: 12, right: 12, zIndex: 2 }}>
             <StatusBadge status={t.status}>
-              <div className="dot" /> {STATUS_META[t.status].label}
+              <div className="dot" /> {statusMeta[t.status].label}
             </StatusBadge>
           </Box>
 
@@ -500,7 +520,7 @@ export default function TournamentDashboard() {
             >
               <PlaceIcon fontSize="small" color="action" />
               <Typography variant="body2" noWrap sx={{ maxWidth: "100%" }}>
-                {t.location || "Chưa cập nhật"}
+                {t.location || translate("tournaments.dashboard.locationFallback")}
               </Typography>
             </Stack>
 
@@ -511,7 +531,7 @@ export default function TournamentDashboard() {
                   fontWeight={600}
                   color="text.secondary"
                 >
-                  Số đội đăng ký
+                  {translate("tournaments.dashboard.registeredTeams")}
                 </Typography>
                 <Typography
                   variant="caption"
@@ -554,9 +574,9 @@ export default function TournamentDashboard() {
   return (
     <>
       <SEOHead
-        title="Giải đấu"
-        description="Khám phá và đăng ký tham gia các giải đấu Pickleball trên khắp Việt Nam. Xem lịch đấu, kết quả và sơ đồ thi đấu."
-        keywords="giải đấu pickleball, đăng ký giải, lịch thi đấu, kết quả giải đấu"
+        title={translate("tournaments.dashboard.seoTitle")}
+        description={translate("tournaments.dashboard.seoDescription")}
+        keywords={translate("tournaments.dashboard.seoKeywords")}
         path="/tournaments"
       />
       <SponsorMarquee variant="glass" height={80} gap={24} />
@@ -570,10 +590,10 @@ export default function TournamentDashboard() {
         >
           <Box flex={1}>
             <Typography variant="h4" fontWeight={600} sx={{ mb: 1 }}>
-              Giải Đấu
+              {translate("tournaments.dashboard.title")}
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              Quản lý và tham gia các giải đấu thể thao chuyên nghiệp.
+              {translate("tournaments.dashboard.subtitle")}
             </Typography>
           </Box>
 
@@ -596,7 +616,7 @@ export default function TournamentDashboard() {
                 fontWeight={700}
                 color="text.secondary"
               >
-                TỔNG GIẢI
+                {translate("tournaments.dashboard.totalCount")}
               </Typography>
               <Typography variant="h4" fontWeight={800}>
                 {counts.total}
@@ -614,7 +634,7 @@ export default function TournamentDashboard() {
                 fontWeight={700}
                 color="success.main"
               >
-                ĐANG DIỄN RA
+                {translate("tournaments.dashboard.ongoingCount")}
               </Typography>
               <Typography variant="h4" fontWeight={800} color="success.main">
                 {counts.ongoing}
@@ -628,7 +648,7 @@ export default function TournamentDashboard() {
               }}
             >
               <Typography variant="caption" fontWeight={700} color="info.main">
-                SẮP TỚI
+                {translate("tournaments.dashboard.upcomingCount")}
               </Typography>
               <Typography variant="h4" fontWeight={800} color="info.main">
                 {counts.upcoming}
@@ -665,13 +685,13 @@ export default function TournamentDashboard() {
             }}
           >
             {TABS.map((v) => (
-              <Tab key={v} value={v} label={STATUS_META[v].label} />
+              <Tab key={v} value={v} label={statusMeta[v].label} />
             ))}
           </Tabs>
 
           <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5}>
             <TextField
-              placeholder="Tìm tên giải đấu..."
+              placeholder={translate("tournaments.dashboard.searchPlaceholder")}
               size="small"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
@@ -705,7 +725,7 @@ export default function TournamentDashboard() {
                   textField: {
                     size: "small",
                     fullWidth: true,
-                    placeholder: "Lọc theo ngày",
+                    placeholder: translate("tournaments.dashboard.datePlaceholder"),
                     InputProps: {
                       sx: { borderRadius: 3, bgcolor: "background.paper" },
                     },
@@ -731,7 +751,9 @@ export default function TournamentDashboard() {
         <Box sx={{ minHeight: 400 }}>
           {error && (
             <Box p={3} color="error.dark" borderRadius={3} textAlign="center">
-              Lỗi tải dữ liệu: {error?.data?.message}
+              {translate("tournaments.dashboard.loadError", {
+                message: error?.data?.message || error?.error || "",
+              })}
             </Box>
           )}
 
@@ -760,7 +782,7 @@ export default function TournamentDashboard() {
                     sx={{ fontSize: 80, color: "text.disabled" }}
                   />
                   <Typography variant="h6" color="text.disabled">
-                    Không tìm thấy giải đấu nào phù hợp.
+                    {translate("tournaments.dashboard.empty")}
                   </Typography>
                 </Stack>
               ) : (

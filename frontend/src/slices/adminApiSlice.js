@@ -3,7 +3,7 @@ import { apiSlice } from "./apiSlice";
 export const adminApiSlice = apiSlice.injectEndpoints({
   endpoints: (builder) => ({
     // =========================
-    // USER MANAGEMENT (cũ)
+    // USER MANAGEMENT (cÅ©)
     // =========================
     getUsers: builder.query({
       query: ({ page = 1, keyword = "", role = "", cccdStatus = "" }) =>
@@ -35,7 +35,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       invalidatesTags: ["User"],
     }),
 
-    /** ✨ SỬA hồ sơ (name, phone, …) */
+    /** âœ¨ Sá»¬A há»“ sÆ¡ (name, phone, â€¦) */
     updateUserInfo: builder.mutation({
       query: ({ id, body }) => ({
         url: `/api/admin/users/${id}`,
@@ -44,7 +44,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    /** ✨ DUYỆT hoặc TỪ CHỐI KYC */
+    /** âœ¨ DUYá»†T hoáº·c Tá»ª CHá»I KYC */
     reviewKyc: builder.mutation({
       query: ({ id, action }) => ({
         url: `/api/admin/users/${id}/kyc`,
@@ -62,9 +62,9 @@ export const adminApiSlice = apiSlice.injectEndpoints({
     }),
 
     // =========================
-    // EVALUATOR MANAGEMENT (mới)
+    // EVALUATOR MANAGEMENT (má»›i)
     // =========================
-    /** Danh sách evaluator + filter */
+    /** Danh sÃ¡ch evaluator + filter */
     getEvaluators: builder.query({
       query: ({ page = 1, keyword = "", province, sport } = {}) => {
         const params = new URLSearchParams();
@@ -74,12 +74,12 @@ export const adminApiSlice = apiSlice.injectEndpoints({
         if (sport) params.set("sport", sport);
         return `/api/admin/evaluators?${params.toString()}`;
       },
-      // dùng chung tag "User" để tự động refetch các bảng liên quan
+      // dÃ¹ng chung tag "User" Ä‘á»ƒ tá»± Ä‘á»™ng refetch cÃ¡c báº£ng liÃªn quan
       providesTags: ["User"],
       keepUnusedDataFor: 30,
     }),
 
-    /** Cập nhật phạm vi chấm (nhiều tỉnh + nhiều môn) */
+    /** Cáº­p nháº­t pháº¡m vi cháº¥m (nhiá»u tá»‰nh + nhiá»u mÃ´n) */
     updateEvaluatorScopes: builder.mutation({
       query: ({ id, body }) => ({
         url: `/api/admin/evaluators/${id}/scopes`,
@@ -97,7 +97,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    /** Demote evaluator -> role khác (mặc định: user) */
+    /** Demote evaluator -> role khÃ¡c (máº·c Ä‘á»‹nh: user) */
     demoteEvaluator: builder.mutation({
       query: ({ id, body }) => ({
         url: `/api/admin/evaluators/${id}/demote`,
@@ -122,7 +122,7 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
-    // ✅ ADD trong adminApiSlice.js
+    // âœ… ADD trong adminApiSlice.js
     getUserAudit: builder.query({
       query: ({ userId, page = 1, limit = 20, actorId, field }) => {
         const params = new URLSearchParams();
@@ -138,6 +138,79 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       },
     }),
 
+    // =========================
+    // SEO NEWS ADMIN
+    // =========================
+    getSeoNewsSettings: builder.query({
+      query: () => ({
+        url: "/api/admin/seo-news/settings",
+        method: "GET",
+      }),
+    }),
+    updateSeoNewsSettings: builder.mutation({
+      query: (body) => ({
+        url: "/api/admin/seo-news/settings",
+        method: "PUT",
+        body,
+      }),
+    }),
+    getSeoNewsCandidates: builder.query({
+      query: ({ limit = 120, status } = {}) => ({
+        url: "/api/admin/seo-news/candidates",
+        method: "GET",
+        params: {
+          limit,
+          ...(status ? { status } : {}),
+        },
+      }),
+    }),
+    getSeoNewsArticles: builder.query({
+      query: ({
+        page = 1,
+        limit = 40,
+        status = "draft",
+        origin = "external",
+        keyword = "",
+      } = {}) => ({
+        url: "/api/admin/seo-news/articles",
+        method: "GET",
+        params: {
+          page,
+          limit,
+          status,
+          origin,
+          ...(keyword ? { keyword } : {}),
+        },
+      }),
+    }),
+    pushSeoNewsDrafts: builder.mutation({
+      query: (body = {}) => ({
+        url: "/api/admin/seo-news/articles/push",
+        method: "POST",
+        body,
+      }),
+    }),
+    createSeoNewsReadyArticles: builder.mutation({
+      query: (body = {}) => ({
+        url: "/api/admin/seo-news/articles/create-ready",
+        method: "POST",
+        body,
+      }),
+    }),
+    runSeoNewsPendingCandidates: builder.mutation({
+      query: (body = {}) => ({
+        url: "/api/admin/seo-news/candidates/run",
+        method: "POST",
+        body,
+      }),
+    }),
+    runSeoNewsSync: builder.mutation({
+      query: (body = {}) => ({
+        url: "/api/admin/seo-news/run",
+        method: "POST",
+        body,
+      }),
+    }),
     // =========================
     // SYSTEM SETTINGS
     // =========================
@@ -173,7 +246,17 @@ export const {
   useDemoteEvaluatorMutation,
   useChangeUserPasswordMutation,
   useUpdateRankingSearchConfigMutation,
+  // seo news admin
+  useGetSeoNewsSettingsQuery,
+  useUpdateSeoNewsSettingsMutation,
+  useGetSeoNewsCandidatesQuery,
+  useGetSeoNewsArticlesQuery,
+  usePushSeoNewsDraftsMutation,
+  useCreateSeoNewsReadyArticlesMutation,
+  useRunSeoNewsPendingCandidatesMutation,
+  useRunSeoNewsSyncMutation,
   // system settings
   useGetSystemSettingsQuery,
   useUpdateSystemSettingsMutation,
 } = adminApiSlice;
+

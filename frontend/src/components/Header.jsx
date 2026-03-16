@@ -1,51 +1,36 @@
-// src/components/Header.jsx
-import React, { useMemo, useState, useEffect, useRef } from "react";
-import { useSelector, useDispatch } from "react-redux";
-import { Link, useNavigate, useLocation } from "react-router-dom";
-import { logout } from "../slices/authSlice";
-import { useLogoutMutation } from "../slices/usersApiSlice";
-import gsap from "gsap";
-
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useDispatch, useSelector } from "react-redux";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   AppBar,
-  Toolbar,
-  Typography,
+  Avatar,
   Box,
   Button,
+  Container,
+  Divider,
   IconButton,
   Menu,
   MenuItem,
-  Avatar,
+  Toolbar,
   Tooltip,
-  useTheme,
-  useMediaQuery,
-  Container,
-  Divider,
+  Typography,
   alpha,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
-
 import {
   ArrowBackIosNew as BackIcon,
-  PersonAdd as PersonAddIcon,
-  LightMode as LightModeIcon,
   DarkMode as DarkModeIcon,
+  LightMode as LightModeIcon,
 } from "@mui/icons-material";
 
-import { useThemeMode } from "../context/ThemeContext.jsx";
-import LogoAnimationMorph from "./LogoAnimationMorph.jsx";
-
+import { logout } from "../slices/authSlice";
+import { useLogoutMutation } from "../slices/usersApiSlice";
 import { useGetLiveMatchesQuery } from "../slices/liveApiSlice";
-
-/* ================== Cấu hình & Constants ================== */
-const navConfig = [
-  {
-    label: "Pickleball",
-    submenu: [
-      { label: "Giải đấu", path: "/pickle-ball/tournaments" },
-      { label: "Điểm trình", path: "/pickle-ball/rankings" },
-    ],
-  },
-];
+import { useThemeMode } from "../context/ThemeContext.jsx";
+import { useLanguage } from "../context/LanguageContext.jsx";
+import LogoAnimationMorph from "./LogoAnimationMorph.jsx";
+import LanguageSwitcher from "./LanguageSwitcher.jsx";
 
 const CLUB_BADGE_START = new Date(2025, 9, 5, 0, 0, 0, 0);
 const CLUB_BADGE_END = new Date(2025, 10, 5, 23, 59, 59, 999);
@@ -58,23 +43,33 @@ const pulseKeyframes = {
   },
 };
 
-const Header = () => {
+export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
+  const hasUserInfo = Boolean(userInfo);
   const isAdmin = userInfo?.role === "admin" || userInfo?.isAdmin === true;
 
   const [logoutApiCall] = useLogoutMutation();
 
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
-  
-  // Theme toggle
-  const { mode, toggleTheme, isDark } = useThemeMode();
+  const { toggleTheme, isDark } = useThemeMode();
+  const { t } = useLanguage();
 
-  // Điều hướng Back cho mobile
+  const navLinks = useMemo(
+    () => [
+      { label: t("header.nav.tournaments"), path: "/pickle-ball/tournaments" },
+      { label: t("header.nav.rankings"), path: "/pickle-ball/rankings" },
+    ],
+    [t]
+  );
+
   const [canGoBack, setCanGoBack] = useState(false);
+  const [userAnchor, setUserAnchor] = useState(null);
+  const headerScrollPendingRef = useRef(false);
+
   const BOTTOM_NAV_TABS = useMemo(
     () =>
       new Set([
@@ -84,33 +79,65 @@ const Header = () => {
         "/my-tournaments",
         "/profile",
         "/clubs",
+        "/news",
       ]),
     []
   );
-  // Logic cũ: Nếu không phải tab chính thì hiện nút back
+
   const showBackButton =
     isMobile && canGoBack && !BOTTOM_NAV_TABS.has(location.pathname);
 
-  const [userAnchor, setUserAnchor] = useState(null);
-  const openUserMenu = (e) => setUserAnchor(e.currentTarget);
+  const openUserMenu = (event) => setUserAnchor(event.currentTarget);
   const closeUserMenu = () => setUserAnchor(null);
+
+  const scrollToTop = () => {
+    if (typeof window === "undefined") return;
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  };
+
+  const isSameHeaderTarget = (path) => {
+    if (!path) return false;
+    if (path === "/") return location.pathname === "/";
+    return location.pathname === path || location.pathname.startsWith(`${path}/`);
+  };
+
+  const handleHeaderLinkClick = (path, options = {}) => {
+    if (options.closeMenu) closeUserMenu();
+
+    if (isSameHeaderTarget(path)) {
+      scrollToTop();
+      return;
+    }
+
+    headerScrollPendingRef.current = true;
+  };
+
+  const navigateWithScroll = (to) => {
+    headerScrollPendingRef.current = true;
+    navigate(to);
+  };
+
+  const goBackWithScroll = () => {
+    headerScrollPendingRef.current = true;
+    navigate(-1);
+  };
 
   const logoutHandler = async () => {
     try {
       setUserAnchor(null);
       await logoutApiCall().unwrap();
       dispatch(logout());
-      navigate("/login");
-    } catch (err) {
-      console.error(err);
+      navigateWithScroll("/login");
+    } catch (error) {
+      console.error(error);
     }
   };
 
   useEffect(() => {
     try {
-      const st = window.history?.state;
-      if (st && typeof st.idx === "number") {
-        setCanGoBack(st.idx > 0);
+      const state = window.history?.state;
+      if (state && typeof state.idx === "number") {
+        setCanGoBack(state.idx > 0);
       } else {
         setCanGoBack(Boolean(document.referrer));
       }
@@ -121,7 +148,16 @@ const Header = () => {
 
   useEffect(() => {
     setUserAnchor(null);
-  }, [location.pathname, !!userInfo]);
+  }, [location.pathname, hasUserInfo]);
+
+  useEffect(() => {
+    if (!headerScrollPendingRef.current) return;
+
+    headerScrollPendingRef.current = false;
+    window.requestAnimationFrame(() => {
+      scrollToTop();
+    });
+  }, [location.key]);
 
   const avatarInitial =
     (userInfo?.name || userInfo?.nickname || userInfo?.email || "?")
@@ -143,24 +179,24 @@ const Header = () => {
     excludeFinished: true,
     windowMs: 8 * 3600 * 1000,
   };
+
   const { data: liveData } = useGetLiveMatchesQuery(liveQueryArgs, {
     pollingInterval: 15000,
     refetchOnFocus: true,
     refetchOnReconnect: true,
   });
-  // const liveCount = liveData?.rawCount ?? 0;
-  const liveCount= 0
-  console.log(liveData)
 
-  // --- Helper: Kiểm tra Active Tab ---
+  const liveCount = 0;
+  console.log(liveData);
+
   const isActive = (path) => {
     if (path === "/" && location.pathname !== "/") return false;
     return location.pathname.startsWith(path);
   };
 
-  // --- Style cho Nav Button (có trạng thái Active) ---
   const getNavButtonStyle = (path) => {
     const active = isActive(path);
+
     return {
       color: active ? theme.palette.primary.main : "text.primary",
       bgcolor: active ? alpha(theme.palette.primary.main, 0.08) : "transparent",
@@ -183,25 +219,28 @@ const Header = () => {
       position="sticky"
       elevation={0}
       sx={{
-        backgroundColor: isDark ? "rgba(18, 18, 18, 0.65)" : "rgba(255, 255, 255, 0.75)",
+        backgroundColor: isDark
+          ? "rgba(18, 18, 18, 0.65)"
+          : "rgba(255, 255, 255, 0.75)",
         backdropFilter: "blur(24px)",
         WebkitBackdropFilter: "blur(24px)",
-        borderRadius: { xs: "0px", md: "100px" },
+        borderRadius: { xs: 0, md: "100px" },
         top: { xs: 0, md: 24 },
         mt: { xs: 0, md: 3 },
         mx: "auto",
-        width: { xs: "100%", md: "90%", lg: "1200px" },
-        border: isDark ? "1px solid rgba(255, 255, 255, 0.08)" : "1px solid rgba(255, 255, 255, 0.4)",
-        boxShadow: isDark 
-          ? "0 20px 40px -10px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)" 
+        width: { xs: "100%", md: "94%", lg: "1320px" },
+        border: isDark
+          ? "1px solid rgba(255, 255, 255, 0.08)"
+          : "1px solid rgba(255, 255, 255, 0.4)",
+        boxShadow: isDark
+          ? "0 20px 40px -10px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1)"
           : "0 20px 40px -10px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.5)",
         zIndex: 1199,
         transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
         ...pulseKeyframes,
       }}
     >
-      <Container maxWidth="xl" sx={{ px: { xs: 2, md: 4 } }}>
-        {/* relative để căn chỉnh absolute cho nút Back trên mobile */}
+      <Container maxWidth="xl" sx={{ px: { xs: 1.5, md: 4 } }}>
         <Toolbar
           disableGutters
           sx={{
@@ -210,7 +249,6 @@ const Header = () => {
             position: "relative",
           }}
         >
-          {/* === LEFT & CENTER LOGO === */}
           <Box
             sx={{
               display: "flex",
@@ -218,11 +256,10 @@ const Header = () => {
               width: { xs: "100%", md: "auto" },
             }}
           >
-            {/* Mobile Back Button (Absolute Left) */}
-            {showBackButton && (
+            {showBackButton ? (
               <IconButton
-                aria-label="Quay lại"
-                onClick={() => navigate(-1)}
+                aria-label={t("header.actions.back")}
+                onClick={goBackWithScroll}
                 size="small"
                 sx={{
                   position: "absolute",
@@ -233,12 +270,13 @@ const Header = () => {
               >
                 <BackIcon fontSize="small" />
               </IconButton>
-            )}
+            ) : null}
 
-            {/* Logo: Desktop (Left) vs Mobile (Center) */}
-            <LogoAnimationMorph isMobile={isMobile} showBackButton={showBackButton} />
+            <LogoAnimationMorph
+              isMobile={isMobile}
+              showBackButton={showBackButton}
+            />
 
-            {/* Desktop Divider */}
             <Divider
               orientation="vertical"
               flexItem
@@ -250,7 +288,6 @@ const Header = () => {
               }}
             />
 
-            {/* === DESKTOP NAV LINKS === */}
             <Box
               sx={{
                 display: { xs: "none", md: "flex" },
@@ -258,27 +295,36 @@ const Header = () => {
                 alignItems: "center",
               }}
             >
-              {navConfig
-                .flatMap((item) => item.submenu)
-                .map((sub) => (
-                  <Button
-                    key={sub.path}
-                    component={Link}
-                    to={sub.path}
-                    sx={getNavButtonStyle(sub.path)}
-                  >
-                    {sub.label}
-                  </Button>
-                ))}
+              {navLinks.map((sub) => (
+                <Button
+                  key={sub.path}
+                  component={Link}
+                  to={sub.path}
+                  sx={getNavButtonStyle(sub.path)}
+                  onClick={() => handleHeaderLinkClick(sub.path)}
+                >
+                  {sub.label}
+                </Button>
+              ))}
 
-              {userInfo && (
+              <Button
+                component={Link}
+                to="/news"
+                sx={getNavButtonStyle("/news")}
+                onClick={() => handleHeaderLinkClick("/news")}
+              >
+                {t("header.nav.news")}
+              </Button>
+
+              {userInfo ? (
                 <>
                   <Button
                     component={Link}
                     to="/my-tournaments"
                     sx={getNavButtonStyle("/my-tournaments")}
+                    onClick={() => handleHeaderLinkClick("/my-tournaments")}
                   >
-                    Giải của tôi
+                    {t("header.nav.myTournaments")}
                   </Button>
 
                   <Box sx={{ position: "relative" }}>
@@ -286,10 +332,11 @@ const Header = () => {
                       component={Link}
                       to="/clubs"
                       sx={getNavButtonStyle("/clubs")}
+                      onClick={() => handleHeaderLinkClick("/clubs")}
                     >
-                      Câu lạc bộ
+                      {t("header.nav.clubs")}
                     </Button>
-                    {showClubNewBadge && (
+                    {showClubNewBadge ? (
                       <Box
                         sx={{
                           position: "absolute",
@@ -307,15 +354,15 @@ const Header = () => {
                       >
                         NEW
                       </Box>
-                    )}
+                    ) : null}
                   </Box>
                 </>
-              )}
+              ) : null}
 
-              {/* LIVE BUTTON */}
               <Button
                 component={Link}
                 to="/live"
+                onClick={() => handleHeaderLinkClick("/live")}
                 sx={{
                   ...getNavButtonStyle("/live"),
                   color: isActive("/live")
@@ -336,7 +383,7 @@ const Header = () => {
                   },
                 }}
               >
-                {liveCount > 0 && (
+                {liveCount > 0 ? (
                   <Box
                     sx={{
                       width: 10,
@@ -347,9 +394,9 @@ const Header = () => {
                       boxShadow: "0 0 0 0 rgba(255, 68, 68, 0.7)",
                     }}
                   />
-                )}
-                Live
-                {liveCount > 0 && (
+                ) : null}
+                {t("header.nav.live")}
+                {liveCount > 0 ? (
                   <Box
                     component="span"
                     sx={{
@@ -364,23 +411,34 @@ const Header = () => {
                   >
                     {liveCount > 99 ? "99+" : liveCount}
                   </Box>
-                )}
+                ) : null}
               </Button>
 
-              {isAdmin && (
+              {isAdmin ? (
                 <Button
                   component={Link}
                   to="/admin"
                   sx={getNavButtonStyle("/admin")}
+                  onClick={() => handleHeaderLinkClick("/admin")}
                 >
-                  Admin
+                  {t("header.nav.admin")}
                 </Button>
-              )}
+              ) : null}
             </Box>
           </Box>
 
-          {/* === RIGHT: User Controls (DESKTOP ONLY) === */}
-          {/* Ẩn hoàn toàn trên Mobile theo yêu cầu */}
+          <Box
+            sx={{
+              display: { xs: "flex", md: "none" },
+              position: "absolute",
+              right: 0,
+              top: "50%",
+              transform: "translateY(-50%)",
+            }}
+          >
+            <LanguageSwitcher compact />
+          </Box>
+
           <Box
             sx={{
               display: { xs: "none", md: "flex" },
@@ -390,30 +448,44 @@ const Header = () => {
           >
             {userInfo ? (
               <>
+                <LanguageSwitcher compact />
+
                 <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                  {/* Chỉ hiện Nickname, bỏ Role */}
                   <Typography
                     variant="subtitle2"
                     fontWeight={600}
-                    sx={{ lineHeight: 1.2, color: "text.primary" }}
+                    component={Link}
+                    to="/profile"
+                    onClick={() => handleHeaderLinkClick("/profile")}
+                    sx={{
+                      lineHeight: 1.2,
+                      color: isActive("/profile")
+                        ? theme.palette.primary.main
+                        : "text.primary",
+                      textDecoration: "none",
+                      fontWeight: isActive("/profile") ? 700 : 600,
+                      "&:hover": {
+                        color: theme.palette.primary.main,
+                      },
+                    }}
                   >
                     {userInfo.nickname || userInfo.name}
                   </Typography>
                 </Box>
-                
-                {/* Theme Toggle Button - Next to Avatar */}
-                <Tooltip title={isDark ? "Chế độ sáng" : "Chế độ tối"}>
-                  <IconButton
-                    onClick={toggleTheme}
-                    sx={{
-                      color: "text.primary",
-                    }}
-                  >
+
+                <Tooltip
+                  title={
+                    isDark
+                      ? t("header.actions.lightMode")
+                      : t("header.actions.darkMode")
+                  }
+                >
+                  <IconButton onClick={toggleTheme} sx={{ color: "text.primary" }}>
                     {isDark ? <LightModeIcon /> : <DarkModeIcon />}
                   </IconButton>
                 </Tooltip>
 
-                <Tooltip title="Tài khoản">
+                <Tooltip title={t("header.actions.account")}>
                   <IconButton
                     onClick={openUserMenu}
                     sx={{
@@ -479,39 +551,43 @@ const Header = () => {
                   <MenuItem
                     component={Link}
                     to="/profile"
-                    onClick={closeUserMenu}
+                    onClick={() =>
+                      handleHeaderLinkClick("/profile", { closeMenu: true })
+                    }
                     sx={{ fontWeight: 500 }}
                   >
-                    Hồ sơ cá nhân
+                    {t("header.actions.profile")}
                   </MenuItem>
                   <Divider />
                   <MenuItem
                     onClick={logoutHandler}
                     sx={{ color: "error.main", fontWeight: 500 }}
                   >
-                    Đăng xuất
+                    {t("header.actions.logout")}
                   </MenuItem>
                 </Menu>
               </>
             ) : (
-              // Desktop Auth Buttons
               <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
-                {/* Theme Toggle Button for Guest */}
-                <Tooltip title={isDark ? "Chế độ sáng" : "Chế độ tối"}>
-                  <IconButton
-                    onClick={toggleTheme}
-                    sx={{
-                      color: "text.primary",
-                    }}
-                  >
+                <LanguageSwitcher compact />
+
+                <Tooltip
+                  title={
+                    isDark
+                      ? t("header.actions.lightMode")
+                      : t("header.actions.darkMode")
+                  }
+                >
+                  <IconButton onClick={toggleTheme} sx={{ color: "text.primary" }}>
                     {isDark ? <LightModeIcon /> : <DarkModeIcon />}
                   </IconButton>
                 </Tooltip>
-                
+
                 <Button
                   component={Link}
                   to="/login"
                   variant="text"
+                  onClick={() => handleHeaderLinkClick("/login")}
                   sx={{
                     borderRadius: "50px",
                     fontWeight: 600,
@@ -521,17 +597,21 @@ const Header = () => {
                     textTransform: "none",
                     transition: "all 0.3s ease",
                     "&:hover": {
-                      backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"
-                    }
+                      backgroundColor: isDark
+                        ? "rgba(255,255,255,0.05)"
+                        : "rgba(0,0,0,0.05)",
+                    },
                   }}
                 >
-                  Đăng nhập
+                  {t("header.actions.login")}
                 </Button>
+
                 <Button
                   component={Link}
                   to="/register"
                   variant="contained"
                   disableElevation
+                  onClick={() => handleHeaderLinkClick("/register")}
                   sx={{
                     borderRadius: "50px",
                     fontWeight: 700,
@@ -541,19 +621,21 @@ const Header = () => {
                     py: 1,
                     textTransform: "none",
                     transition: "all 0.3s ease",
-                    boxShadow: isDark 
-                      ? "0 4px 14px rgba(255,255,255,0.15)" 
+                    boxShadow: isDark
+                      ? "0 4px 14px rgba(255,255,255,0.15)"
                       : "0 4px 14px rgba(0,0,0,0.15)",
                     "&:hover": {
-                      backgroundColor: isDark ? "rgba(255,255,255,0.9)" : "rgba(0,0,0,0.8)",
+                      backgroundColor: isDark
+                        ? "rgba(255,255,255,0.9)"
+                        : "rgba(0,0,0,0.8)",
                       transform: "translateY(-1px)",
-                      boxShadow: isDark 
-                        ? "0 6px 20px rgba(255,255,255,0.2)" 
+                      boxShadow: isDark
+                        ? "0 6px 20px rgba(255,255,255,0.2)"
                         : "0 6px 20px rgba(0,0,0,0.2)",
-                    }
+                    },
                   }}
                 >
-                  Đăng ký
+                  {t("header.actions.register")}
                 </Button>
               </Box>
             )}
@@ -562,6 +644,4 @@ const Header = () => {
       </Container>
     </AppBar>
   );
-};
-
-export default Header;
+}

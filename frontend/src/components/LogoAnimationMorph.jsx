@@ -1,7 +1,7 @@
-// src/components/LogoAnimationMorph.jsx
 import { useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Box } from "@mui/material";
+import PropTypes from "prop-types";
 import gsap from "gsap";
 import MorphSVGPlugin from "gsap/MorphSVGPlugin";
 
@@ -275,6 +275,7 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
         textAlign: isMobile ? "center" : "left",
         display: "block",
       }}
+      onClick={() => window.scrollTo(0, 0)}
     >
       <Box
         ref={containerRef}
@@ -294,6 +295,11 @@ const LogoAnimationMorph = ({ isMobile, showBackButton }) => {
       />
     </Link>
   );
+};
+
+LogoAnimationMorph.propTypes = {
+  isMobile: PropTypes.bool,
+  showBackButton: PropTypes.bool,
 };
 
 export default LogoAnimationMorph;

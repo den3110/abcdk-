@@ -3,6 +3,7 @@ import { useMemo } from "react";
 import { Container, Row, Col, Button, Card, Badge } from "react-bootstrap";
 import { Link } from "react-router-dom";
 import { useSelector } from "react-redux";
+import PropTypes from "prop-types";
 import { useGetLatestAssessmentQuery } from "../slices/assessmentsApiSlice";
 import {
   useGetHeroContentQuery,
@@ -14,6 +15,7 @@ import SponsorMarquee from "./SponsorMarquee";
 import SEOHead from "./SEOHead";
 import { useTheme } from "@mui/material/styles";
 import { useThemeMode } from "../context/ThemeContext.jsx";
+import { useLanguage } from "../context/LanguageContext.jsx";
 import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
 import PeopleAltIcon from "@mui/icons-material/PeopleAlt";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
@@ -32,10 +34,7 @@ const APPSTORE_BADGE = `${import.meta.env.BASE_URL}app-store-badge.svg`;
 const PLAY_BADGE = `${import.meta.env.BASE_URL}google-play-badge.svg`;
 
 const HERO_FALLBACK = {
-  title: "Kết nối cộng đồng & quản lý giải đấu thể thao",
-  lead: "PickleTour giúp bạn đăng ký, tổ chức, theo dõi điểm trình và cập nhật bảng xếp hạng cho mọi môn thể thao – ngay trên điện thoại.",
   imageUrl: fallbackImg,
-  imageAlt: "PickleTour — Kết nối cộng đồng & quản lý giải đấu",
 };
 
 const CONTACT_FALLBACK = {
@@ -63,18 +62,7 @@ const CONTACT_FALLBACK = {
 };
 
 const CLUB_COLORS = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7", "#DDA0DD"];
-
-
 // ===== Styled Components =====
-
-const animatedGradientText = {
-  background: "linear-gradient(to right, #00C9FF 0%, #92FE9D 25%, #00C9FF 50%, #92FE9D 75%, #00C9FF 100%)",
-  backgroundSize: "400% auto",
-  WebkitBackgroundClip: "text",
-  WebkitTextFillColor: "transparent",
-  backgroundClip: "text",
-  animation: "shine 4s linear infinite",
-};
 
 const floatingAnimation = `
   @keyframes float {
@@ -132,6 +120,13 @@ const SkeletonBar = ({ w = "100%", h = 20, r = 8, className = "" }) => (
   </div>
 );
 
+SkeletonBar.propTypes = {
+  w: PropTypes.string,
+  h: PropTypes.number,
+  r: PropTypes.number,
+  className: PropTypes.string,
+};
+
 // ===== Icons =====
 const Icon = ({ path, size = 20, className = "" }) => (
   <svg
@@ -149,6 +144,13 @@ const Icon = ({ path, size = 20, className = "" }) => (
     {path}
   </svg>
 );
+
+Icon.propTypes = {
+  path: PropTypes.node.isRequired,
+  size: PropTypes.number,
+  className: PropTypes.string,
+};
+
 const ILocation = (p) => (
   <Icon
     {...p}
@@ -156,25 +158,6 @@ const ILocation = (p) => (
       <>
         <path d="M12 21s-6-5.33-6-10a6 6 0 1 1 12 0c0 4.67-6 10-6 10z" />
         <circle cx="12" cy="11" r="2.5" />
-      </>
-    }
-  />
-);
-const IPhone = (p) => (
-  <Icon
-    {...p}
-    path={
-      <path d="M22 16.92v2a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.08 4.2 2 2 0 0 1 4.1 2h2a2 2 0 0 1 2 1.72c.12.9.33 1.77.63 2.6a2 2 0 0 1-.45 2.11L7.1 9.9a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.83.3 1.7.51 2.6.63A2 2 0 0 1 22 16.92z" />
-    }
-  />
-);
-const IEmail = (p) => (
-  <Icon
-    {...p}
-    path={
-      <>
-        <path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z" />
-        <path d="m22 6-10 7L2 6" />
       </>
     }
   />
@@ -226,6 +209,7 @@ export default function Hero() {
   const userId = userInfo?._id || userInfo?.id;
   const { isDark } = useThemeMode();
   const theme = useTheme();
+  const { t, locale } = useLanguage();
 
   const { data: latest, isFetching } = useGetLatestAssessmentQuery(userId, {
     skip: !userId,
@@ -241,19 +225,31 @@ export default function Hero() {
     isError: contactError,
   } = useGetContactContentQuery();
   const { data: homeRes, isLoading: homeLoading } = useGetHomeSummaryQuery({ clubsLimit: 6 });
+  const fallbackHero = t("home.heroFallback");
+  const featureSection = t("home.features");
+  const clubSection = t("home.clubs");
+  const ctaSection = t("home.cta");
+  const contactCards = t("home.contactCards");
 
   // ===== Data Logic =====
   const heroData = useMemo(() => {
     if (heroLoading) return null;
-    if (heroError) return HERO_FALLBACK;
+    if (heroError) {
+      return {
+        title: fallbackHero.title,
+        lead: fallbackHero.lead,
+        imageUrl: HERO_FALLBACK.imageUrl,
+        imageAlt: fallbackHero.imageAlt,
+      };
+    }
     const d = heroRes || {};
     return {
-      title: d.title || HERO_FALLBACK.title,
-      lead: d.lead || HERO_FALLBACK.lead,
+      title: d.title || fallbackHero.title,
+      lead: d.lead || fallbackHero.lead,
       imageUrl: d.imageUrl || HERO_FALLBACK.imageUrl,
-      imageAlt: d.imageAlt || HERO_FALLBACK.imageAlt,
+      imageAlt: d.imageAlt || fallbackHero.imageAlt,
     };
-  }, [heroLoading, heroError, heroRes]);
+  }, [fallbackHero, heroLoading, heroError, heroRes]);
 
   const contactInfo = useMemo(() => {
     if (contactLoading) return null;
@@ -288,7 +284,7 @@ export default function Hero() {
     color: isDark ? "#fff" : "inherit",
   };
 
-  const numberFormatter = useMemo(() => new Intl.NumberFormat("vi-VN"), []);
+  const numberFormatter = useMemo(() => new Intl.NumberFormat(locale), [locale]);
 
   const formatCountPlus = (value) => {
     const n = Number(value);
@@ -300,22 +296,22 @@ export default function Hero() {
     ? [
         {
           number: formatCountPlus(homeRes.stats.players),
-          label: "Người chơi",
+          label: t("home.stats.cards.players"),
           icon: <PeopleAltIcon sx={{ fontSize: "2.5rem" }} />,
         },
         {
           number: formatCountPlus(homeRes.stats.tournaments),
-          label: "Giải đấu",
+          label: t("home.stats.cards.tournaments"),
           icon: <EmojiEventsIcon sx={{ fontSize: "2.5rem" }} />,
         },
         {
           number: formatCountPlus(homeRes.stats.matches),
-          label: "Trận đấu",
+          label: t("home.stats.cards.matches"),
           icon: <SportsTennisIcon sx={{ fontSize: "2.5rem" }} />,
         },
         {
           number: formatCountPlus(homeRes.stats.clubs),
-          label: "CLB Pickleball",
+          label: t("home.stats.cards.clubs"),
           icon: <HomeWorkIcon sx={{ fontSize: "2.5rem" }} />,
         },
       ]
@@ -337,8 +333,8 @@ export default function Hero() {
       <style>{floatingAnimation}</style>
       <SEOHead
         path="/"
-        description="Pickletour.vn - Nền tảng kết nối cộng đồng thể thao, quản lý giải đấu, theo dõi điểm trình và bảng xếp hạng Pickleball Việt Nam."
-        keywords="pickleball, giải đấu, bảng xếp hạng, điểm trình, thể thao, cộng đồng"
+        description={t("home.seoDescription")}
+        keywords={t("home.seoKeywords")}
       />
       {/* ======= Smart install banner (Mobile Only) ======= */}
       {contactInfo?.apps && (
@@ -449,7 +445,7 @@ export default function Hero() {
                     gap: "8px"
                   }}
                 >
-                  <RocketLaunchIcon sx={{ fontSize: "1.1rem" }} /> Cách Mạng Hoá Pickleball Việt Nam
+                  <RocketLaunchIcon sx={{ fontSize: "1.1rem" }} /> {t("home.hero.badge")}
                 </Badge>
                 
                 <h1 
@@ -510,7 +506,7 @@ export default function Hero() {
                         color: isDark ? "#000" : "#fff",
                       }}
                     >
-                      Bắt đầu ngay
+                      {t("home.actions.getStarted")}
                     </Button>
                     <Button
                       as={Link}
@@ -527,7 +523,7 @@ export default function Hero() {
                       onMouseOver={(e) => e.target.style.backgroundColor = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"}
                       onMouseOut={(e) => e.target.style.backgroundColor = "transparent"}
                     >
-                      Đăng nhập <span style={{ marginLeft: "8px" }}>&rarr;</span>
+                      {t("home.actions.login")} <span style={{ marginLeft: "8px" }}>&rarr;</span>
                     </Button>
                   </>
                 ) : (
@@ -547,7 +543,7 @@ export default function Hero() {
                         }}
                       >
                         <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <AutoAwesomeIcon sx={{ fontSize: "1.2rem" }} /> Tự chấm trình
+                          <AutoAwesomeIcon sx={{ fontSize: "1.2rem" }} /> {t("home.actions.selfAssess")}
                         </span>
                       </Button>
                     )}
@@ -567,7 +563,7 @@ export default function Hero() {
                         onMouseOver={(e) => e.target.style.backgroundColor = needSelfAssess ? (isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)") : (isDark ? "#e0e0e0" : "#333")}
                         onMouseOut={(e) => e.target.style.backgroundColor = needSelfAssess ? "transparent" : (isDark ? "#fff" : "#111")}
                       >
-                        Xác minh danh tính
+                        {t("home.actions.verifyIdentity")}
                       </Button>
                     )}
                     {!needSelfAssess && !needKyc && (
@@ -584,7 +580,7 @@ export default function Hero() {
                           color: isDark ? "#000" : "#fff",
                         }}
                       >
-                        Khám phá giải đấu
+                        {t("home.actions.exploreTournaments")}
                       </Button>
                     )}
                   </>
@@ -664,7 +660,7 @@ export default function Hero() {
                   <img
                     draggable={false}
                     src={heroData.imageUrl || fallbackImg}
-                    alt={heroData.imageAlt || "Hero image"}
+                    alt={heroData.imageAlt || fallbackHero.imageAlt}
                     style={{ 
                       position: "absolute",
                       top: 0,
@@ -718,7 +714,7 @@ export default function Hero() {
                 color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)",
               }}
             >
-              Con số biết nói
+              {t("home.stats.eyebrow")}
             </p>
             <h2
               className="fw-bolder"
@@ -728,7 +724,7 @@ export default function Hero() {
                 letterSpacing: "-0.03em",
               }}
             >
-              Cộng đồng đang phát triển
+              {t("home.stats.title")}
             </h2>
           </div>
           <Row className="g-4 justify-content-center">
@@ -849,7 +845,7 @@ export default function Hero() {
                 color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)",
               }}
             >
-              Tính năng nổi bật
+              {featureSection.eyebrow}
             </p>
             <h2
               className="fw-bolder mb-3"
@@ -859,7 +855,7 @@ export default function Hero() {
                 letterSpacing: "-0.03em",
               }}
             >
-              Mọi thứ bạn cần, một nền tảng
+              {featureSection.title}
             </h2>
             <p
               className="mx-auto"
@@ -870,43 +866,21 @@ export default function Hero() {
                 lineHeight: 1.6,
               }}
             >
-              Từ quản lý giải đấu đến theo dõi điểm trình, PickleTour cung cấp đầy đủ công cụ cho mọi người chơi.
+              {featureSection.description}
             </p>
           </div>
 
           <Row className="g-4">
             {[
-              {
-                icon: <AnalyticsIcon />,
-                title: "Hệ thống điểm DUPR",
-                desc: "Tính điểm trình chuyên nghiệp theo chuẩn quốc tế, cập nhật sau mỗi trận đấu thi đấu.",
-              },
-              {
-                icon: <EmojiEventsIcon />,
-                title: "Tổ chức giải đấu",
-                desc: "Tạo và quản lý giải đấu dễ dàng với bảng đấu tự động, bracket và kết quả real-time.",
-              },
-              {
-                icon: <PeopleAltIcon />,
-                title: "Hồ sơ & Thống kê",
-                desc: "Theo dõi lịch sử thi đấu, phong độ, win-rate và tiến trình phát triển cá nhân.",
-              },
-              {
-                icon: <HandshakeIcon />,
-                title: "Cộng đồng năng động",
-                desc: "Kết nối với hàng nghìn người chơi, tìm đối thủ phù hợp trình độ gần bạn.",
-              },
-              {
-                icon: <SmartphoneIcon />,
-                title: "Ứng dụng di động",
-                desc: "Trải nghiệm mượt mà trên cả iOS và Android, luôn cập nhật mọi lúc mọi nơi.",
-              },
-              {
-                icon: <NotificationsActiveIcon />,
-                title: "Thông báo thông minh",
-                desc: "Nhận nhắc nhở về giải đấu sắp diễn ra, kết quả trận đấu và cập nhật điểm.",
-              },
-            ].map((feature, idx) => (
+              <AnalyticsIcon key="analytics" />,
+              <EmojiEventsIcon key="events" />,
+              <PeopleAltIcon key="people" />,
+              <HandshakeIcon key="handshake" />,
+              <SmartphoneIcon key="phone" />,
+              <NotificationsActiveIcon key="notifications" />,
+            ].map((icon, idx) => {
+              const feature = featureSection.items[idx];
+              return (
               <Col key={idx} md={6} lg={4}>
                 <div
                   className="p-4 h-100"
@@ -946,7 +920,7 @@ export default function Hero() {
                       color: isDark ? "rgba(255,255,255,0.8)" : theme.palette.primary.main,
                     }}
                   >
-                    {feature.icon}
+                    {icon}
                   </div>
                   <h5
                     className="fw-bold mb-2"
@@ -966,7 +940,8 @@ export default function Hero() {
                   </p>
                 </div>
               </Col>
-            ))}
+              );
+            })}
           </Row>
         </Container>
       </section>
@@ -1006,7 +981,7 @@ export default function Hero() {
                 color: isDark ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)",
               }}
             >
-              Đối tác & Câu lạc bộ
+              {clubSection.eyebrow}
             </p>
             <h2
               className="fw-bolder mb-3"
@@ -1016,7 +991,7 @@ export default function Hero() {
                 letterSpacing: "-0.03em",
               }}
             >
-              Được tin dùng bởi các CLB hàng đầu
+              {clubSection.title}
             </h2>
             <p
               className="mx-auto"
@@ -1027,7 +1002,7 @@ export default function Hero() {
                 lineHeight: 1.6,
               }}
             >
-              Hàng trăm câu lạc bộ Pickleball trên khắp Việt Nam đã lựa chọn PickleTour làm nền tảng quản lý giải đấu và theo dõi điểm trình.
+              {clubSection.description}
             </p>
           </div>
 
@@ -1098,7 +1073,7 @@ export default function Hero() {
                         fontWeight: 600,
                       }}
                     >
-                      {club.members} thành viên
+                      {t("home.clubs.members", { count: club.members })}
                     </p>
                   </div>
                 </Col>
@@ -1185,7 +1160,7 @@ export default function Hero() {
                 letterSpacing: "-0.03em",
               }}
             >
-              Sẵn sàng nâng tầm trải nghiệm Pickleball?
+              {ctaSection.title}
             </h2>
             <p
               className="mx-auto mb-5"
@@ -1196,7 +1171,7 @@ export default function Hero() {
                 lineHeight: 1.7,
               }}
             >
-              Tham gia cùng hàng nghìn người chơi trên PickleTour. Đăng ký miễn phí và bắt đầu hành trình của bạn ngay hôm nay.
+              {ctaSection.description}
             </p>
             <div className="d-flex flex-column flex-sm-row gap-3 justify-content-center">
               <Button
@@ -1212,7 +1187,7 @@ export default function Hero() {
                   color: isDark ? "#000" : "#fff",
                 }}
               >
-                {isLoggedIn ? "Khám phá giải đấu" : "Tạo tài khoản miễn phí"}
+                {isLoggedIn ? ctaSection.memberButton : ctaSection.guestButton}
               </Button>
             </div>
           </div>
@@ -1233,7 +1208,7 @@ export default function Hero() {
                   >
                     <ILocation size={24} />
                   </div>
-                  <h5 className="fw-bold mb-3">Trụ sở chính</h5>
+                  <h5 className="fw-bold mb-3">{contactCards.headquartersTitle}</h5>
 
                   {!contactInfo ? (
                     <SkeletonBar h={80} />
@@ -1241,13 +1216,13 @@ export default function Hero() {
                     <ul className={`list-unstyled mb-0 d-grid gap-3 ${isDark ? "opacity-75" : "text-secondary"}`}>
                       <li className="d-flex gap-3">
                         <span className="fw-semibold flex-shrink-0">
-                          Địa chỉ:
+                          {t("common.labels.address")}:
                         </span>
                         <span>{contactInfo.address}</span>
                       </li>
                       <li className="d-flex gap-3">
                         <span className="fw-semibold flex-shrink-0">
-                          Hotline:
+                          {t("common.labels.hotline")}:
                         </span>
                         {contactInfo.phone ? (
                           <a
@@ -1257,12 +1232,12 @@ export default function Hero() {
                             {contactInfo.phone}
                           </a>
                         ) : (
-                          "—"
+                          t("common.unavailable")
                         )}
                       </li>
                       <li className="d-flex gap-3">
                         <span className="fw-semibold flex-shrink-0">
-                          Email:
+                          {t("common.labels.email")}:
                         </span>
                         <a
                           href={`mailto:${contactInfo.email}`}
@@ -1287,21 +1262,24 @@ export default function Hero() {
                   >
                     <IChat size={24} />
                   </div>
-                  <h5 className="fw-bold mb-3">Kênh hỗ trợ</h5>
+                  <h5 className="fw-bold mb-3">{contactCards.supportTitle}</h5>
 
                   {!contactInfo ? (
                     <SkeletonBar h={80} />
                   ) : (
                     <div className="d-grid gap-3">
                       {[
-                        { label: "Chung", ...contactInfo.support },
                         {
-                          label: "Điểm trình",
+                          label: contactCards.supportRoles.general,
+                          ...contactInfo.support,
+                        },
+                        {
+                          label: contactCards.supportRoles.scoring,
                           email: contactInfo.support.scoringEmail,
                           phone: contactInfo.support.scoringPhone,
                         },
                         {
-                          label: "Hợp tác",
+                          label: contactCards.supportRoles.partnership,
                           email: contactInfo.support.salesEmail,
                         },
                       ].map((item, idx) => (
@@ -1354,7 +1332,7 @@ export default function Hero() {
                 {/* Socials */}
                 <Card className="border-0" style={glassCardStyle}>
                   <Card.Body className="p-4 text-center">
-                    <h6 className="fw-bold mb-3 text-start">Mạng xã hội</h6>
+                    <h6 className="fw-bold mb-3 text-start">{contactCards.socialTitle}</h6>
                     <div className="d-flex gap-2 justify-content-start">
                       {contactInfo?.socials?.facebook && (
                         <a
@@ -1398,7 +1376,7 @@ export default function Hero() {
                   >
                     <Card.Body className="p-4">
                       <h6 className="fw-bold mb-3">
-                        Tải ứng dụng
+                        {contactCards.appDownloadsTitle}
                       </h6>
                       <div className="d-flex flex-wrap gap-2">
                         {hasAppStore && (
@@ -1411,7 +1389,7 @@ export default function Hero() {
                             <img
                               src={APPSTORE_BADGE}
                               height={35}
-                              alt="App Store"
+                              alt={t("common.appStores.appStore")}
                             />
                           </a>
                         )}
@@ -1425,7 +1403,7 @@ export default function Hero() {
                             <img
                               src={PLAY_BADGE}
                               height={35}
-                              alt="Google Play"
+                              alt={t("common.appStores.googlePlay")}
                             />
                           </a>
                         )}
@@ -1433,7 +1411,7 @@ export default function Hero() {
                       {(hasApkPickleTour || hasApkReferee) && (
                         <div className={`mt-3 pt-3 border-top ${isDark ? "border-secondary" : "border-2"}`}>
                           <div className={`small mb-2 ${isDark ? "text-secondary" : "text-muted"}`}>
-                            Tải file APK trực tiếp:
+                            {contactCards.directApk}
                           </div>
                           <div className="d-flex gap-2">
                             {hasApkPickleTour && (
@@ -1442,7 +1420,7 @@ export default function Hero() {
                                 className={`btn btn-sm rounded-pill ${isDark ? "btn-outline-light" : "btn-outline-primary"}`}
                                 download
                               >
-                                <IDownload size={14} /> Cho người dùng
+                                <IDownload size={14} /> {contactCards.userApp}
                               </a>
                             )}
                             {hasApkReferee && (
@@ -1451,7 +1429,7 @@ export default function Hero() {
                                 className={`btn btn-sm rounded-pill ${isDark ? "btn-outline-secondary" : "btn-outline-dark"}`}
                                 download
                               >
-                                <IDownload size={14} /> Trọng tài
+                                <IDownload size={14} /> {contactCards.refereeApp}
                               </a>
                             )}
                           </div>

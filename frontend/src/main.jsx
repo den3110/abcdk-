@@ -25,6 +25,11 @@ import TournamentBracket from "./screens/PickleBall/TournamentBracket.jsx";
 import RankingList from "./screens/PickleBall/RankingList.jsx";
 import LevelPointPage from "./screens/PickleBall/LevelPoint.jsx";
 import ContactPage from "./screens/Contact.jsx";
+import CookiesPage from "./screens/CookiesPage.jsx";
+import PrivacyPage from "./screens/PrivacyPage.jsx";
+import TermsPage from "./screens/TermsPage.jsx";
+import SeoNewsListScreen from "./screens/seo-news/SeoNewsListScreen.jsx";
+import SeoNewsDetailScreen from "./screens/seo-news/SeoNewsDetailScreen.jsx";
 import { SocketProvider } from "./context/SocketContext.jsx";
 import ScoreOverlay from "./screens/PickleBall/ScoreOverlay.jsx";
 import AdminDrawPage from "./screens/PickleBall/AdminDrawPage.jsx";
@@ -38,10 +43,7 @@ import ForgotPasswordScreen from "./screens/ForgotPasswordScreen.jsx";
 import ResetPasswordScreen from "./screens/ResetPasswordScreen.jsx";
 import AdminLayout from "./components/AdminLayout.jsx";
 import UsersPage from "./screens/admin/UsersPage.jsx";
-import dayjs from "dayjs";
-import "dayjs/locale/vi";
-import { LocalizationProvider } from "@mui/x-date-pickers";
-import { AdapterDayjs } from "@mui/x-date-pickers/AdapterDayjs";
+import NewsPage from "./screens/admin/NewsPage.jsx";
 // import "../index.css"; // REMOVED: Moved to src/index.css
 import Forbidden403 from "./screens/403.jsx";
 import ServiceUnavailable from "./screens/503.jsx";
@@ -51,25 +53,17 @@ import ClubDetailPage from "./components/ClubDetailPage.jsx";
 import LiveStudioPage from "./screens/live/LiveStudioPage.jsx";
 import "@fontsource-variable/montserrat";
 import { ThemeContextProvider } from "./context/ThemeContext.jsx";
+import { LanguageContextProvider } from "./context/LanguageContext.jsx";
 import LiveMatchesPage from "./screens/live/LiveMatchesPage.jsx";
 import CourtLiveStudioPage from "./screens/live/CourtLiveStudio.jsx";
 import CourtStreamingPage from "./screens/court-live/Courtstreamingpage.jsx";
-import { useGetAppInitQuery } from "./slices/appInitApiSlice.js";
+import AppInitGate from "./components/AppInitGate.jsx";
 import FacebookLiveSettings from "./components/FacebookLiveSettings";
 import TournamentDetailPage from "./screens/PickleBall/TournamentDetailPage.jsx";
+import LocalizedDateProvider from "./components/LocalizedDateProvider.jsx";
 // OTP tạm tắt
 // import RegisterOtpScreen from "./screens/RegisterOtpScreen.jsx";
 // import VerifyOtpScreen from "./screens/VerifyOtpScreen.jsx";
-
-dayjs.locale("vi");
-
-// ví dụ trong App.jsx / RootLayout.jsx
-
-function AppInitGate({ children }) {
-  useGetAppInitQuery(); // auto fire 1 lần, set cookie session
-  
-  return children;
-}
 
 const router = createBrowserRouter(
   createRoutesFromElements(
@@ -97,6 +91,11 @@ const router = createBrowserRouter(
         />
         <Route path="/pickle-ball/rankings" element={<RankingList />} />
         <Route path="/contact" element={<ContactPage />} />
+        <Route path="/cookies" element={<CookiesPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/news" element={<SeoNewsListScreen />} />
+        <Route path="/news/:slug" element={<SeoNewsDetailScreen />} />
         <Route
           path="/tournament/:id/brackets/:bracketId/draw"
           element={<AdminDrawPage />}
@@ -143,6 +142,7 @@ const router = createBrowserRouter(
       <Route path="/admin" element={<AdminLayout />}>
         <Route index element={<Navigate to="/admin/users" replace />} />
         <Route path="users" element={<UsersPage />} />
+        <Route path="news" element={<NewsPage />} />
       </Route>
     </>
   )
@@ -153,13 +153,15 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <React.StrictMode>
       <HelmetProvider>
         <ThemeContextProvider>
-          <AppInitGate>
-            <SocketProvider>
-              <LocalizationProvider dateAdapter={AdapterDayjs} adapterLocale="vi">
-                <RouterProvider router={router} />
-              </LocalizationProvider>
-            </SocketProvider>
-          </AppInitGate>
+          <LanguageContextProvider>
+            <AppInitGate>
+              <SocketProvider>
+                <LocalizedDateProvider>
+                  <RouterProvider router={router} />
+                </LocalizedDateProvider>
+              </SocketProvider>
+            </AppInitGate>
+          </LanguageContextProvider>
         </ThemeContextProvider>
       </HelmetProvider>
     </React.StrictMode>

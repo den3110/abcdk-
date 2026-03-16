@@ -1,4 +1,5 @@
 import { Container } from "react-bootstrap";
+import Box from "@mui/material/Box";
 import { Outlet, useLocation } from "react-router-dom";
 import { ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -10,12 +11,15 @@ import { useSelector } from "react-redux";
 import { initGA, logPageView } from "./utils/analytics";
 import { useThemeMode } from "./context/ThemeContext";
 import { useGetProfileQuery } from "./slices/usersApiSlice";
+import AppFooter from "./components/AppFooter";
 
 import Clarity from "@microsoft/clarity";
 
 function AuthSessionSync() {
   const userInfo = useSelector((s) => s.auth?.userInfo || null);
-  const isLoggedIn = Boolean(userInfo?._id || userInfo?.token || userInfo?.email);
+  const isLoggedIn = Boolean(
+    userInfo?._id || userInfo?.token || userInfo?.email,
+  );
 
   // Keep userInfo (role/permissions) fresh without forcing re-login.
   useGetProfileQuery(undefined, {
@@ -31,14 +35,14 @@ function AuthSessionSync() {
 const App = () => {
   const location = useLocation();
   const { isDark } = useThemeMode();
-  
+
   // Define routes that should have a full-screen layout (no header/footer)
   const isAuthPage = [
-    "/login", 
-    "/register", 
-    "/forgot-password", 
-    "/reset-password"
-  ].some(path => location.pathname.startsWith(path));
+    "/login",
+    "/register",
+    "/forgot-password",
+    "/reset-password",
+  ].some((path) => location.pathname.startsWith(path));
 
   // ✅ tránh init 2 lần (React 18 StrictMode dev)
   const clarityInitedRef = useRef(false);
@@ -84,19 +88,32 @@ const App = () => {
       <AuthSessionSync />
       {!isAuthPage && <Header />}
       <ToastContainer theme={isDark ? "dark" : "light"} />
-      
+
       {isAuthPage ? (
         /* Auth pages: Full screen, no container constraints */
         <Outlet />
       ) : (
-        /* Normal pages: Container with margin */
-        <Container className="" style={{ marginBottom: "80px" }}>
-          <Outlet />
+        /* Normal pages: keep desktop shell, trim mobile gutters */
+        <Container className="app-shell">
+          <Box
+            component="main"
+            sx={{
+              minHeight: { xs: "calc(100dvh - 56px)", md: "calc(100vh - 88px)" },
+              display: "flex",
+              flexDirection: "column",
+              pb: { xs: 10, md: 0 },
+            }}
+          >
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Outlet />
+            </Box>
+            <AppFooter />
+          </Box>
           <MobileBottomNav />
           {/* <RegInvitesModal /> */}
         </Container>
       )}
-      
+
       {!isAuthPage && <ChatBotDrawer />}
     </>
   );
