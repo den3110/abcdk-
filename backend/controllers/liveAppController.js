@@ -29,6 +29,9 @@ export const createLiveSessionForLiveApp = async (req, res) => {
   const matchId = String(req.params?.matchId || "").trim();
   if (!matchId) return res.status(400).json({ message: "matchId is required" });
 
+  const forceNew =
+    ["1", "true", "yes"].includes(String(req.query?.force || req.query?.refresh || "").toLowerCase());
+
   const releaseLock = await acquireRedisLock(
     `lock:live-app:create:${matchId}`,
     20000,
@@ -49,7 +52,14 @@ export const createLiveSessionForLiveApp = async (req, res) => {
     const fbLive = m?.facebookLive || null;
     const metaFb = m?.meta?.facebook || null;
 
-    if (fbLive && (fbLive.secure_stream_url || (fbLive.server_url && fbLive.stream_key))) {
+    const fbStatus = String(fbLive?.status || "CREATED").toUpperCase();
+    const allowReuse = !forceNew && fbStatus !== "ENDED" && fbStatus !== "STOPPED";
+
+    if (
+      allowReuse &&
+      fbLive &&
+      (fbLive.secure_stream_url || (fbLive.server_url && fbLive.stream_key))
+    ) {
       payload = {
         facebook: {
           secure_stream_url: fbLive.secure_stream_url || null,

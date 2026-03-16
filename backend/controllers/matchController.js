@@ -2148,6 +2148,10 @@ export const notifyStreamStarted = asyncHandler(async (req, res) => {
       .select("live")
       .lean();
 
+    if (platform === "facebook") {
+      await UserMatch.updateOne({ _id: id }, { $set: { "facebookLive.status": "LIVE" } }).catch(() => {});
+    }
+
     emitSocket(req, id, {
       matchId: id,
       platform,
@@ -2206,6 +2210,10 @@ export const notifyStreamStarted = asyncHandler(async (req, res) => {
   )
     .select("live")
     .lean();
+
+  if (platform === "facebook") {
+    await Match.updateOne({ _id: id }, { $set: { "facebookLive.status": "LIVE" } }).catch(() => {});
+  }
 
   emitSocket(req, id, {
     matchId: id,
@@ -2391,6 +2399,18 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
       } catch (e) {
         console.warn("[FB][UserMatch] end_live exception:", e?.message || e);
       }
+
+      await UserMatch.updateOne(
+        { _id: id },
+        {
+          $set: { "facebookLive.status": "ENDED" },
+          $unset: {
+            "facebookLive.secure_stream_url": 1,
+            "facebookLive.server_url": 1,
+            "facebookLive.stream_key": 1,
+          },
+        }
+      ).catch(() => {});
     }
 
     emitSocket(req, id, {
@@ -2458,7 +2478,7 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
     .lean();
 
   // ======= END LIVE FACEBOOK (Match): token lấy từ match.facebookLive.pageAccessToken =======
-  if (platform === "all") {
+  if (platform === "facebook" || platform === "all") {
     const { pageId, liveVideoId, pageAccessToken } = pickFacebookMeta(match);
 
     try {
@@ -2480,6 +2500,18 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
     } catch (e) {
       console.warn("[FB][Match] end_live exception:", e?.message || e);
     }
+
+    await Match.updateOne(
+      { _id: id },
+      {
+        $set: { "facebookLive.status": "ENDED" },
+        $unset: {
+          "facebookLive.secure_stream_url": 1,
+          "facebookLive.server_url": 1,
+          "facebookLive.stream_key": 1,
+        },
+      }
+    ).catch(() => {});
   }
 
   emitSocket(req, id, {
