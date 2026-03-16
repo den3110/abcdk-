@@ -1,5 +1,5 @@
 /* eslint-disable react/prop-types */
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useSelector } from "react-redux";
 import {
@@ -34,7 +34,6 @@ import {
   Schedule as ScheduleIcon,
   PlayCircle as PlayCircleIcon,
   DoneAll as DoneAllIcon,
-  OpenInNew as OpenInNewIcon,
   EmojiEvents as EmojiEventsIcon,
   History as HistoryIcon,
   Settings as SettingsIcon,
@@ -49,33 +48,58 @@ import {
   useAdminListMatchesByTournamentQuery,
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
+import { useLanguage } from "../../context/LanguageContext";
+import { formatDate as formatLocaleDate, formatTime as formatLocaleTime } from "../../i18n/format";
 import SEOHead from "../../components/SEOHead";
 
 /* ===== HELPERS ===== */
-const TYPE_LABEL = (t) => {
+const TYPE_LABEL = (t, tFn) => {
   const key = String(t || "").toLowerCase();
-  if (key === "group") return "Vòng bảng";
-  if (key === "po" || key === "playoff") return "Playoff";
-  if (key === "knockout" || key === "ko") return "Knockout";
-  if (key === "double_elim" || key === "doubleelim") return "Double Elim";
-  return t || "Khác";
+  if (key === "group") return tFn("tournaments.overview.types.group");
+  if (key === "po" || key === "playoff")
+    return tFn("tournaments.overview.types.playoff");
+  if (key === "knockout" || key === "ko")
+    return tFn("tournaments.overview.types.knockout");
+  if (key === "double_elim" || key === "doubleelim")
+    return tFn("tournaments.overview.types.doubleElim");
+  return t || tFn("tournaments.overview.typeFallback");
 };
 const playerName = (p) => p?.fullName || p?.name || p?.nickName || "—";
-const pairLabel = (pair) => {
-  if (!pair) return "TBD";
+const pairLabel = (pair, tFn) => {
+  if (!pair) return tFn("tournaments.overview.pairFallback");
   if (pair.name) return pair.name;
   const ps = [pair.player1, pair.player2].filter(Boolean).map(playerName);
-  return ps.join(" / ") || "TBD";
+  return ps.join(" / ") || tFn("tournaments.overview.pairFallback");
 };
 const matchCode = (m) =>
   m?.code || `R${m?.round ?? "?"}#${(m?.order ?? 0) + 1}`;
-const statusChip = (st) => {
+const statusChip = (st, tFn) => {
   const map = {
-    scheduled: { label: "Chưa xếp", bg: "#f5f5f5", text: "#757575" },
-    queued: { label: "Hàng chờ", bg: "#e3f2fd", text: "#0277bd" },
-    assigned: { label: "Đã gán sân", bg: "#f3e5f5", text: "#7b1fa2" },
-    live: { label: "Đang đấu", bg: "#fff3e0", text: "#ef6c00" },
-    finished: { label: "Kết thúc", bg: "#e8f5e9", text: "#2e7d32" },
+    scheduled: {
+      label: tFn("tournaments.overview.status.scheduled"),
+      bg: "#f5f5f5",
+      text: "#757575",
+    },
+    queued: {
+      label: tFn("tournaments.overview.status.queued"),
+      bg: "#e3f2fd",
+      text: "#0277bd",
+    },
+    assigned: {
+      label: tFn("tournaments.overview.status.assigned"),
+      bg: "#f3e5f5",
+      text: "#7b1fa2",
+    },
+    live: {
+      label: tFn("tournaments.overview.status.live"),
+      bg: "#fff3e0",
+      text: "#ef6c00",
+    },
+    finished: {
+      label: tFn("tournaments.overview.status.finished"),
+      bg: "#e8f5e9",
+      text: "#2e7d32",
+    },
   };
   const v = map[st] || { label: st || "—", bg: "#eee", text: "#333" };
   return (
@@ -95,20 +119,6 @@ const statusChip = (st) => {
   );
 };
 const safeDate = (d) => (d ? new Date(d) : null);
-const formatTime = (d) =>
-  d
-    ? new Date(d).toLocaleTimeString("vi-VN", {
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-    : "—";
-const formatDate = (d) =>
-  d
-    ? new Date(d).toLocaleDateString("vi-VN", {
-      day: "2-digit",
-      month: "2-digit",
-    })
-    : "";
 
 const hasCourt = (m) =>
   !!(m?.court?._id || m?.court || m?.courtId || m?.courtName);
@@ -211,7 +221,7 @@ const ModernStatCard = ({
   );
 };
 
-const MatchListItem = ({ m, onOpen }) => {
+const MatchListItem = ({ m, onOpen, t, locale }) => {
   return (
     <Card
       elevation={0}
@@ -263,10 +273,16 @@ const MatchListItem = ({ m, onOpen }) => {
                   display="block"
                   sx={{ lineHeight: 1.2 }}
                 >
-                  {formatDate(m?.scheduledAt)}
+                  {formatLocaleDate(m?.scheduledAt, locale, {
+                    day: "2-digit",
+                    month: "2-digit",
+                  })}
                 </Typography>
                 <Typography variant="body2" fontWeight={700}>
-                  {formatTime(m?.scheduledAt)}
+                  {formatLocaleTime(m?.scheduledAt, locale, {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  }) || "—"}
                 </Typography>
               </Box>
             </Stack>
@@ -283,9 +299,9 @@ const MatchListItem = ({ m, onOpen }) => {
                 variant="body2"
                 fontWeight={600}
                 noWrap
-                title={pairLabel(m?.pairA)}
+                title={pairLabel(m?.pairA, t)}
               >
-                {pairLabel(m?.pairA)}
+                {pairLabel(m?.pairA, t)}
               </Typography>
 
               <Divider sx={{ borderStyle: "dashed", my: 0.5 }} />
@@ -294,9 +310,9 @@ const MatchListItem = ({ m, onOpen }) => {
                 variant="body2"
                 fontWeight={600}
                 noWrap
-                title={pairLabel(m?.pairB)}
+                title={pairLabel(m?.pairB, t)}
               >
-                {pairLabel(m?.pairB)}
+                {pairLabel(m?.pairB, t)}
               </Typography>
             </Stack>
             <Typography
@@ -324,11 +340,11 @@ const MatchListItem = ({ m, onOpen }) => {
             </Box>
             <Stack direction="row" spacing={1} alignItems="center">
               {m?.video && (
-                <Tooltip title="Có Video">
+                <Tooltip title={t("tournaments.overview.videoTooltip")}>
                   <PlayCircleIcon color="error" fontSize="small" />
                 </Tooltip>
               )}
-              {statusChip(m?.status)}
+              {statusChip(m?.status, t)}
             </Stack>
           </Grid>
         </Grid>
@@ -342,6 +358,7 @@ export default function TournamentOverviewPage() {
   const { id } = useParams();
   const me = useSelector((s) => s.auth?.userInfo || null);
   const theme = useTheme();
+  const { locale, t } = useLanguage();
 
   const [tabValue, setTabValue] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false); // State điều khiển "Xem tất cả"
@@ -378,7 +395,7 @@ export default function TournamentOverviewPage() {
   const loadingRegs = regsLoading;
   const loadingBr = brLoading;
   const loadingMatches = mLoading;
-  const allMatches = matchPage?.list || [];
+  const allMatches = useMemo(() => matchPage?.list || [], [matchPage]);
 
   // Permissions
   const isAdmin = !!(
@@ -432,7 +449,7 @@ export default function TournamentOverviewPage() {
     (brackets || []).forEach((b) =>
       byId.set(String(b._id), {
         _id: String(b._id),
-        name: b?.name || "Bracket",
+        name: b?.name || t("tournaments.overview.bracketFallback"),
         type: b?.type || "",
         stage: b?.stage,
         total: 0,
@@ -449,7 +466,7 @@ export default function TournamentOverviewPage() {
     return Array.from(byId.values()).sort(
       (a, b) => (a.stage ?? 0) - (b.stage ?? 0)
     );
-  }, [brackets, allMatches]);
+  }, [brackets, allMatches, t]);
 
   // Filter Matches
   const now = Date.now();
@@ -534,8 +551,7 @@ export default function TournamentOverviewPage() {
     };
   }, [socket, brackets, allMatches, refetchMatches, refetchBrackets]);
 
-  const [viewer, setViewer] = useState({ open: false, matchId: null });
-  const openMatch = (mid) => setViewer({ open: true, matchId: mid });
+  const openMatch = () => {};
 
   const anyError =
     tourErr?.data?.message ||
@@ -547,7 +563,9 @@ export default function TournamentOverviewPage() {
   if (readyForPermission && !canManage)
     return (
       <Box p={3} display="flex" justifyContent="center">
-        <Alert severity="warning">Bạn không có quyền truy cập.</Alert>
+        <Alert severity="warning">
+          {t("tournaments.overview.permissionDenied")}
+        </Alert>
       </Box>
     );
 
@@ -558,8 +576,12 @@ export default function TournamentOverviewPage() {
   return (
     <Box sx={{ bgcolor: "background.default", minHeight: "100vh", pb: 4 }}>
       <SEOHead
-        title={`Tổng quan: ${tour?.name || "Giải đấu"}`}
-        description={`Xem tổng quan, thống kê và danh sách trận đấu của giải ${tour?.name} trên Pickletour.vn`}
+        title={t("tournaments.overview.seoTitle", {
+          name: tour?.name || t("tournaments.overview.seoFallbackName"),
+        })}
+        description={t("tournaments.overview.seoDescription", {
+          name: tour?.name || t("tournaments.overview.seoFallbackName"),
+        })}
         path={`/tournament/${id}/overview`}
       />
       {/* Header: Full Width Hero */}
@@ -591,7 +613,7 @@ export default function TournamentOverviewPage() {
                   fontWeight={700}
                   letterSpacing={1}
                 >
-                  Tổng quan giải đấu
+                  {t("tournaments.overview.heroEyebrow")}
                 </Typography>
               </Stack>
               {loadingTour ? (
@@ -633,7 +655,7 @@ export default function TournamentOverviewPage() {
                 startIcon={<SettingsIcon />}
                 sx={{ flex: { xs: 1, md: "none" } }}
               >
-                Cài đặt
+                {t("tournaments.overview.settings")}
               </Button>
               <Button
                 component={Link}
@@ -643,7 +665,7 @@ export default function TournamentOverviewPage() {
                 startIcon={<GroupsIcon />}
                 sx={{ flex: { xs: 1, md: "none" }, minWidth: 120 }}
               >
-                Bốc thăm
+                {t("tournaments.overview.draw")}
               </Button>
             </Stack>
           </Stack>
@@ -662,7 +684,7 @@ export default function TournamentOverviewPage() {
         <Grid container spacing={3} mb={4}>
           {[
             {
-              title: "Vận động viên",
+              title: t("tournaments.overview.stats.players"),
               value: regTotal,
               icon: <GroupsIcon />,
               color: "primary",
@@ -671,7 +693,9 @@ export default function TournamentOverviewPage() {
                   <Chip
                     size="small"
                     icon={<MonetizationOnIcon />}
-                    label={`${regPaid} Paid`}
+                    label={t("tournaments.overview.stats.paid", {
+                      count: regPaid,
+                    })}
                     color="success"
                     variant="outlined"
                     sx={{
@@ -682,7 +706,9 @@ export default function TournamentOverviewPage() {
                   <Chip
                     size="small"
                     icon={<CheckCircleIcon />}
-                    label={`${regCheckin} Check-in`}
+                    label={t("tournaments.overview.stats.checkedIn", {
+                      count: regCheckin,
+                    })}
                     color="info"
                     variant="outlined"
                     sx={{
@@ -694,7 +720,7 @@ export default function TournamentOverviewPage() {
               ),
             },
             {
-              title: "Tổng số trận",
+              title: t("tournaments.overview.stats.totalMatches"),
               value: allMatches.length,
               icon: <SportsScoreIcon />,
               color: "warning",
@@ -706,7 +732,7 @@ export default function TournamentOverviewPage() {
                     mb={0.5}
                   >
                     <Typography variant="caption" fontWeight={600}>
-                      Hoàn thành
+                      {t("tournaments.overview.stats.completed")}
                     </Typography>
                     <Typography variant="caption">
                       {Math.round(
@@ -734,24 +760,24 @@ export default function TournamentOverviewPage() {
               ),
             },
             {
-              title: "Đang thi đấu",
+              title: t("tournaments.overview.stats.live"),
               value: matchStatusCount.live,
               icon: <PlayCircleIcon />,
               color: "error",
               subtext: (
                 <Typography variant="caption" color="text.secondary">
-                  Trận đấu đang diễn ra realtime.
+                  {t("tournaments.overview.stats.liveBody")}
                 </Typography>
               ),
             },
             {
-              title: "Media / Video",
+              title: t("tournaments.overview.stats.media"),
               value: videoCount,
               icon: <MovieIcon />,
               color: "secondary",
               subtext: (
                 <Typography variant="caption" color="text.secondary">
-                  Trận có link video/livestream.
+                  {t("tournaments.overview.stats.mediaBody")}
                 </Typography>
               ),
             },
@@ -812,12 +838,16 @@ export default function TournamentOverviewPage() {
                   <Tab
                     icon={<ScheduleIcon sx={{ fontSize: 18, mb: 0 }} />}
                     iconPosition="start"
-                    label={`Sắp tới (${upcoming.length})`}
+                    label={t("tournaments.overview.tabs.upcoming", {
+                      count: upcoming.length,
+                    })}
                   />
                   <Tab
                     icon={<HistoryIcon sx={{ fontSize: 18, mb: 0 }} />}
                     iconPosition="start"
-                    label={`Vừa kết thúc (${recent.length})`}
+                    label={t("tournaments.overview.tabs.recent", {
+                      count: recent.length,
+                    })}
                   />
                 </Tabs>
               </Box>
@@ -836,13 +866,19 @@ export default function TournamentOverviewPage() {
                   <>
                     {displayList.length === 0 ? (
                       <Alert severity="info" variant="outlined" sx={{ mt: 2 }}>
-                        Không có trận đấu nào.
+                        {t("tournaments.overview.emptyMatches")}
                       </Alert>
                     ) : (
                       // Sử dụng Collapse để bọc list, tạo hiệu ứng mượt mà khi expand/collapse
                       <Collapse in={true} timeout={300}>
                         {visibleList.map((m) => (
-                          <MatchListItem key={m._id} m={m} onOpen={openMatch} />
+                          <MatchListItem
+                            key={m._id}
+                            m={m}
+                            onOpen={openMatch}
+                            t={t}
+                            locale={locale}
+                          />
                         ))}
                       </Collapse>
                     )}
@@ -864,8 +900,10 @@ export default function TournamentOverviewPage() {
                         }
                       >
                         {isExpanded
-                          ? "Thu gọn"
-                          : `Xem tất cả (${displayList.length - 10} trận nữa)`}
+                          ? t("tournaments.overview.collapse")
+                          : t("tournaments.overview.expandMore", {
+                              count: displayList.length - 10,
+                            })}
                       </Button>
                     )}
                   </>
@@ -890,7 +928,7 @@ export default function TournamentOverviewPage() {
               <Stack direction="row" alignItems="center" spacing={1} mb={3}>
                 <DoneAllIcon color="primary" />
                 <Typography variant="h6" fontWeight={700}>
-                  Tiến độ Bảng đấu
+                  {t("tournaments.overview.bracketProgress")}
                 </Typography>
               </Stack>
               {loadingBr ? (
@@ -899,7 +937,9 @@ export default function TournamentOverviewPage() {
                   <Skeleton variant="rounded" height={60} width="100%" />
                 </Stack>
               ) : bracketProgress.length === 0 ? (
-                <Alert severity="warning">Chưa tạo bảng đấu nào</Alert>
+                <Alert severity="warning">
+                  {t("tournaments.overview.noBrackets")}
+                </Alert>
               ) : (
                 <Stack spacing={2}>
                   {bracketProgress.map((b) => {
@@ -937,7 +977,7 @@ export default function TournamentOverviewPage() {
                               variant="caption"
                               color="text.secondary"
                             >
-                              {TYPE_LABEL(b.type)}
+                              {TYPE_LABEL(b.type, t)}
                             </Typography>
                           </Box>
                           <Chip
@@ -961,7 +1001,10 @@ export default function TournamentOverviewPage() {
                           color="text.secondary"
                           sx={{ mt: 1, display: "block", textAlign: "right" }}
                         >
-                          {b.finished}/{b.total} trận
+                          {t("tournaments.overview.matchesCount", {
+                            finished: b.finished,
+                            total: b.total,
+                          })}
                         </Typography>
                       </Box>
                     );

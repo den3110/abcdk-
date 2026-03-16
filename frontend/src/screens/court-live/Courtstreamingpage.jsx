@@ -4,12 +4,11 @@
 //   - /streaming/:courtId  (ví dụ: /streaming/court_123)
 //   - /streaming?courtId=court_123
 
-import React, { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import {
   Box,
   Container,
-  Paper,
   Typography,
   Alert,
   Button,
@@ -20,12 +19,14 @@ import {
 import { Home, Stadium, ArrowBack } from "@mui/icons-material";
 import FacebookLiveStreamerAutoRTK from "./Facebooklivestreamerautortk";
 import { useGetCourtInfoQuery } from "../../slices/liveStreamingApiSlice";
+import { useLanguage } from "../../context/LanguageContext";
 import SEOHead from "../../components/SEOHead";
 // import FacebookLiveStreamerAutoRTK from "../features/streaming/FacebookLiveStreamerAutoRTK";
 // import { useGetCourtInfoQuery } from "../features/streaming/liveStreamingApiSlice";
 
 export default function CourtStreamingPage() {
   const navigate = useNavigate();
+  const { t } = useLanguage();
 
   // Hỗ trợ 2 patterns:
   // 1. /streaming/:courtId
@@ -66,10 +67,10 @@ export default function CourtStreamingPage() {
       <Container maxWidth="lg" sx={{ py: 4 }}>
         <Alert severity="error">
           <Typography variant="h6" gutterBottom>
-            Thiếu Court ID
+            {t("live.streamingPage.missingCourtIdTitle")}
           </Typography>
           <Typography variant="body2" gutterBottom>
-            URL phải có courtId. Ví dụ:
+            {t("live.streamingPage.missingCourtIdBody")}
           </Typography>
           <ul>
             <li>
@@ -84,7 +85,7 @@ export default function CourtStreamingPage() {
             onClick={() => navigate("/")}
             sx={{ mt: 2 }}
           >
-            Về trang chủ
+            {t("live.streamingPage.home")}
           </Button>
         </Alert>
       </Container>
@@ -113,13 +114,14 @@ export default function CourtStreamingPage() {
       <Container maxWidth="lg" sx={{ py: 4 }}>
         <Alert severity="error">
           <Typography variant="h6" gutterBottom>
-            Không thể tải thông tin sân
+            {t("live.streamingPage.loadCourtErrorTitle")}
           </Typography>
           <Typography variant="body2">
-            Court ID: <code>{courtId}</code>
+            {t("live.streamingPage.courtId")}: <code>{courtId}</code>
           </Typography>
           <Typography variant="body2" sx={{ mt: 1 }}>
-            Error: {courtError?.message || JSON.stringify(courtError)}
+            {t("live.streamingPage.errorLabel")}:{" "}
+            {courtError?.message || JSON.stringify(courtError)}
           </Typography>
           <Button
             variant="contained"
@@ -127,7 +129,7 @@ export default function CourtStreamingPage() {
             startIcon={<ArrowBack />}
             sx={{ mt: 2 }}
           >
-            Quay lại
+            {t("live.streamingPage.back")}
           </Button>
         </Alert>
       </Container>
@@ -135,13 +137,20 @@ export default function CourtStreamingPage() {
   }
 
   const courtName = courtInfo?.name || `Court ${courtId}`;
-  const tournamentName = courtInfo?.tournament?.name || "Tournament";
+  const tournamentName =
+    courtInfo?.tournament?.name || t("live.streamingPage.tournamentFallback");
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       <SEOHead
-        title={`Live: ${courtName} - ${tournamentName}`}
-        description={`Xem trực tiếp trận đấu tại ${courtName} thuộc giải ${tournamentName} trên Pickletour.vn`}
+        title={t("live.streamingPage.seoTitle", {
+          court: courtName,
+          tournament: tournamentName,
+        })}
+        description={t("live.streamingPage.seoDescription", {
+          court: courtName,
+          tournament: tournamentName,
+        })}
         path={`/streaming/${courtId}`}
       />
       {/* Header with breadcrumbs */}
@@ -166,7 +175,7 @@ export default function CourtStreamingPage() {
               }}
             >
               <Home fontSize="small" />
-              Trang chủ
+              {t("live.streamingPage.home")}
             </Link>
             <Link
               component="button"
@@ -177,7 +186,7 @@ export default function CourtStreamingPage() {
                 "&:hover": { textDecoration: "underline" },
               }}
             >
-              Streaming
+              {t("live.streamingPage.breadcrumbsStreaming")}
             </Link>
             <Typography
               sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
@@ -188,7 +197,7 @@ export default function CourtStreamingPage() {
           </Breadcrumbs>
 
           <Typography variant="h4" fontWeight="bold" sx={{ mt: 2 }}>
-            🎥 Live Streaming - {courtName}
+            {t("live.streamingPage.liveTitle", { court: courtName })}
           </Typography>
           <Typography variant="body2" sx={{ opacity: 0.9 }}>
             {tournamentName}

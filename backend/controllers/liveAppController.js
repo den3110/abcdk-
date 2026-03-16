@@ -57,6 +57,18 @@ export const createLiveSessionForLiveApp = async (req, res) => {
           stream_key: fbLive.stream_key || null,
           pageId: fbLive.pageId || metaFb?.pageId || null,
           pageName: metaFb?.pageName || null,
+          watch_url:
+            fbLive.watch_url ||
+            fbLive.watchUrl ||
+            metaFb?.watch_url ||
+            metaFb?.watchUrl ||
+            null,
+          permalink_url:
+            fbLive.permalink_url ||
+            fbLive.permalinkUrl ||
+            metaFb?.permalink_url ||
+            metaFb?.permalinkUrl ||
+            null,
         },
       };
       return;
@@ -97,6 +109,22 @@ export const createLiveSessionForLiveApp = async (req, res) => {
     fb?.secure_stream_url || fb?.secureStreamUrl || primary?.secure_stream_url || primary?.secureStreamUrl || null;
   const server_url = fb?.server_url || fb?.serverUrl || primary?.server_url || primary?.serverUrl || null;
   const stream_key = fb?.stream_key || fb?.streamKey || primary?.stream_key || primary?.streamKey || null;
+  const watch_url =
+    fb?.watch_url ||
+    fb?.watchUrl ||
+    payload?.facebook_watch_url ||
+    payload?.facebookWatchUrl ||
+    payload?.platforms?.facebook?.live?.watch_url ||
+    payload?.platforms?.facebook?.live?.watchUrl ||
+    null;
+  const permalink_url =
+    fb?.permalink_url ||
+    fb?.permalinkUrl ||
+    payload?.facebook_permalink_url ||
+    payload?.facebookPermalinkUrl ||
+    payload?.platforms?.facebook?.live?.permalink_url ||
+    payload?.platforms?.facebook?.live?.permalinkUrl ||
+    null;
 
   if (secure_stream_url == null && (!server_url || !stream_key)) {
     return res.status(409).json({
@@ -112,6 +140,8 @@ export const createLiveSessionForLiveApp = async (req, res) => {
       stream_key,
       pageId: fb?.pageId || fb?.page_id || primary?.pageId || primary?.page_id || null,
       pageName: fb?.pageName || fb?.page_name || primary?.pageName || primary?.page_name || null,
+      watch_url,
+      permalink_url,
     },
   });
 };

@@ -70,18 +70,19 @@ import {
   adminApiSlice,
 } from "../../slices/adminApiSlice";
 import { setPage, setKeyword, setRole } from "../../slices/adminUiSlice";
+import { useLanguage } from "../../context/LanguageContext";
+import { formatDate, formatDateTime } from "../../i18n/format";
+import {
+  getGenderOptions,
+  getKycLabelMap,
+  getRoleLabel,
+  getProvincePlaceholder,
+} from "../../i18n/uiOptions";
 
 import HistoryIcon from "@mui/icons-material/History";
 import RefreshIcon from "@mui/icons-material/Refresh";
 
 /* ================== Utils & Consts ================== */
-const GENDER_OPTIONS = [
-  { value: "unspecified", label: "--" },
-  { value: "male", label: "Nam" },
-  { value: "female", label: "Nữ" },
-  { value: "other", label: "Khác" },
-];
-
 const PROVINCES = [
   "An Giang",
   "Bà Rịa-Vũng Tàu",
@@ -149,23 +150,12 @@ const PROVINCES = [
 ];
 const PROVINCES_SET = new Set(PROVINCES);
 
-const KYC_LABEL = {
-  unverified: "Chưa KYC",
-  pending: "Chờ duyệt",
-  verified: "Đã xác thực",
-  rejected: "Từ chối",
-};
-
 const KYC_COLOR = {
   unverified: "default",
   pending: "warning",
   verified: "success",
   rejected: "error",
 };
-
-const prettyDate = (d) => (d ? new Date(d).toLocaleDateString("vi-VN") : "—");
-const roleText = (r) =>
-  r === "admin" ? "Admin" : r === "referee" ? "Trọng tài" : "User";
 
 const normalizeRole = (r) =>
   String(r || "")
@@ -272,6 +262,10 @@ function pickUserAvatarSrc(u) {
 export default function UsersPage() {
   const theme = useTheme();
   const isXs = useMediaQuery(theme.breakpoints.down("sm"));
+  const { locale, t } = useLanguage();
+  const genderOptions = getGenderOptions(t);
+  const kycLabelMap = getKycLabelMap(t);
+  const provincePlaceholder = getProvincePlaceholder(t);
 
   const dispatch = useDispatch();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -359,13 +353,15 @@ export default function UsersPage() {
     if (!auditUser) setAuditPage(1);
   }, [auditUser]);
 
-  const fmtDateTime = (d) => (d ? new Date(d).toLocaleString("vi-VN") : "—");
+  const fmtDateTime = (d) =>
+    d ? formatDateTime(d, locale) : t("common.unavailable");
+  const prettyDate = (d) => (d ? formatDate(d, locale) : t("common.unavailable"));
 
   const fmtVal = (v) => {
-    if (v === null || v === undefined) return "—";
+    if (v === null || v === undefined) return t("common.unavailable");
     if (typeof v === "string") {
       const s = v.trim();
-      if (!s) return "—";
+      if (!s) return t("common.unavailable");
       return s.length > 140 ? `${s.slice(0, 140)}…` : s;
     }
     if (typeof v === "number" || typeof v === "boolean") return String(v);
@@ -416,7 +412,10 @@ export default function UsersPage() {
       }
       return res;
     } catch (err) {
-      showSnack("error", err?.data?.message || err.error || "Đã xảy ra lỗi");
+      showSnack(
+        "error",
+        err?.data?.message || err.error || t("admin.users.errors.generic")
+      );
       throw err;
     }
   };
@@ -430,20 +429,23 @@ export default function UsersPage() {
           provinces: PROVINCES,
           sports: [],
         }).unwrap();
-        showSnack("success", "Đã bật Admin chấm trình (FULL tỉnh)");
+        showSnack("success", t("admin.users.evaluator.enabled"));
       } else {
         await demoteEvaluatorMut({
           id: userId,
           body: { toRole: "user" },
         }).unwrap();
-        showSnack("success", "Đã tắt Admin chấm trình");
+        showSnack("success", t("admin.users.evaluator.disabled"));
         updateLocalUser(userId, (draft) => {
           draft.role = "user";
         });
       }
     } catch (err) {
       setFullMap((m) => ({ ...m, [userId]: !enable }));
-      showSnack("error", err?.data?.message || err.error || "Đã xảy ra lỗi");
+      showSnack(
+        "error",
+        err?.data?.message || err.error || t("admin.users.errors.generic")
+      );
     }
   };
 
@@ -453,7 +455,9 @@ export default function UsersPage() {
   const toggleSuperAdmin = async (userId, enable) => {
     await handle(
       updateSuperAdminMut({ id: userId, isSuperUser: enable }).unwrap(),
-      enable ? "Promoted to super admin" : "Removed super admin",
+      enable
+        ? t("admin.users.evaluator.promoted")
+        : t("admin.users.evaluator.demoted"),
       () =>
         updateLocalUser(userId, (draft) => {
           draft.isSuperUser = enable;
@@ -503,7 +507,7 @@ export default function UsersPage() {
       } else {
         const parsed = Number(limitInput);
         if (!Number.isFinite(parsed) || parsed < 0) {
-          showSnack("error", "Limit không hợp lệ");
+          showSnack("error", t("admin.users.quota.invalid"));
           return;
         }
         body.limit = parsed;
@@ -512,7 +516,7 @@ export default function UsersPage() {
       try {
         await handle(
           updateRankingSearchConfigMut({ id: u._id, body }).unwrap(),
-          "Cập nhật cấu hình tìm kiếm xếp hạng thành công.",
+          t("admin.users.quota.saved"),
           () =>
             updateLocalUser(u._id, (draft) => {
               draft.rankingSearchLimit = body.limit;
@@ -593,7 +597,7 @@ export default function UsersPage() {
 
                   {u.role !== "user" && (
                     <Chip
-                      label={roleText(u.role)}
+                      label={getRoleLabel(t, u.role)}
                       size="small"
                       color={u.role === "admin" ? "error" : "info"}
                       variant="outlined"
@@ -603,7 +607,7 @@ export default function UsersPage() {
 
                   {targetIsSuperAdmin && (
                     <Chip
-                      label="Super Admin"
+                      label={t("admin.users.roles.superAdmin")}
                       size="small"
                       color="warning"
                       sx={{ height: 20, fontSize: "0.7rem" }}
@@ -613,7 +617,7 @@ export default function UsersPage() {
                   <Chip
                     size="small"
                     icon={u.cccdStatus === "verified" ? <VerifiedIcon /> : null}
-                    label={KYC_LABEL[u.cccdStatus || "unverified"]}
+                    label={kycLabelMap[u.cccdStatus || "unverified"]}
                     color={KYC_COLOR[u.cccdStatus || "unverified"]}
                     sx={{ height: 20, fontSize: "0.7rem" }}
                   />
@@ -633,8 +637,8 @@ export default function UsersPage() {
                   color="text.secondary"
                   sx={{ display: "block", mt: 0.5, wordBreak: "break-word" }}
                 >
-                  Phone: {u.phone || "--"} •{" "}
-                  {u.province || "Chưa cập nhật tỉnh"}
+                  {t("admin.users.card.phonePrefix")}: {u.phone || "--"} •{" "}
+                  {u.province || t("admin.users.card.provinceFallback")}
                 </Typography>
 
                 {/* Stats & CCCD / KYC action */}
@@ -647,7 +651,9 @@ export default function UsersPage() {
                   <Stack direction="row" spacing={1} flexWrap="wrap">
                     <Chip
                       icon={<SportsTennisIcon sx={{ fontSize: 14 }} />}
-                      label={`Đơn: ${u.single ?? "-"}`}
+                      label={t("admin.users.card.singles", {
+                        value: u.single ?? "-",
+                      })}
                       size="small"
                       sx={{
                         bgcolor: alpha(theme.palette.primary.main, 0.1),
@@ -657,7 +663,9 @@ export default function UsersPage() {
                     />
                     <Chip
                       icon={<SportsTennisIcon sx={{ fontSize: 14 }} />}
-                      label={`Đôi: ${u.double ?? "-"}`}
+                      label={t("admin.users.card.doubles", {
+                        value: u.double ?? "-",
+                      })}
                       size="small"
                       sx={{
                         bgcolor: alpha(theme.palette.secondary.main, 0.1),
@@ -677,7 +685,7 @@ export default function UsersPage() {
                       sx={{ textTransform: "none", fontWeight: 600 }}
                       fullWidth={isXs}
                     >
-                      Xem CCCD / KYC
+                      {t("admin.users.card.viewKyc")}
                     </Button>
                   )}
                 </Stack>
@@ -693,7 +701,7 @@ export default function UsersPage() {
               flexWrap="wrap"
               sx={{ alignSelf: { xs: "flex-end", sm: "flex-start" } }}
             >
-              <Tooltip title="Lịch sử chỉnh sửa">
+              <Tooltip title={t("admin.users.card.editHistory")}>
                 <IconButton
                   size="small"
                   onClick={() => setAuditUser(u)}
@@ -703,7 +711,7 @@ export default function UsersPage() {
                 </IconButton>
               </Tooltip>
 
-              <Tooltip title="Cập nhật điểm">
+              <Tooltip title={t("admin.users.card.updateScore")}>
                 <IconButton
                   size="small"
                   onClick={() => setScore({ ...u })}
@@ -713,13 +721,13 @@ export default function UsersPage() {
                 </IconButton>
               </Tooltip>
 
-              <Tooltip title="Sửa thông tin">
+              <Tooltip title={t("admin.users.card.editInfo")}>
                 <IconButton size="small" onClick={() => setEdit({ ...u })}>
                   <EditIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
 
-              <Tooltip title="Xoá người dùng">
+              <Tooltip title={t("admin.users.card.deleteUser")}>
                 <IconButton
                   size="small"
                   onClick={() => setDel(u)}
@@ -752,8 +760,8 @@ export default function UsersPage() {
             sx={{ fontWeight: 600, color: "text.secondary" }}
           >
             {expanded
-              ? "Ẩn cấu hình nâng cao"
-              : "Cấu hình nâng cao (Role, Limit Search...)"}
+              ? t("admin.users.card.advancedHidden")
+              : t("admin.users.card.advancedVisible")}
           </Typography>
           <IconButton
             size="small"
@@ -779,7 +787,7 @@ export default function UsersPage() {
                   display="block"
                   mb={1}
                 >
-                  PHÂN QUYỀN &amp; CHẤM TRÌNH
+                  {t("admin.users.evaluator.title")}
                 </Typography>
                 <Stack spacing={2}>
                   <FormControl
@@ -787,9 +795,9 @@ export default function UsersPage() {
                     fullWidth
                     sx={{ bgcolor: "background.paper" }}
                   >
-                    <InputLabel>Role</InputLabel>
+                    <InputLabel>{t("admin.users.filters.role")}</InputLabel>
                     <Select
-                      label="Role"
+                      label={t("admin.users.filters.role")}
                       value={u.role}
                       disabled={!canManageSuperAdmin && targetIsSuperAdmin}
                       onChange={(e) =>
@@ -798,7 +806,7 @@ export default function UsersPage() {
                             id: u._id,
                             role: e.target.value,
                           }).unwrap(),
-                          "Đã cập nhật role",
+                          t("admin.users.evaluator.roleUpdated"),
                           () =>
                             updateLocalUser(u._id, (draft) => {
                               draft.role = e.target.value;
@@ -807,7 +815,7 @@ export default function UsersPage() {
                       }
                     >
                       <MenuItem value="user">User</MenuItem>
-                      <MenuItem value="referee">Trọng tài</MenuItem>
+                      <MenuItem value="referee">{t("admin.users.roles.referee")}</MenuItem>
                       <MenuItem value="admin">Admin</MenuItem>
                     </Select>
                   </FormControl>
@@ -830,10 +838,10 @@ export default function UsersPage() {
                     />
                     <Box>
                       <Typography variant="body2" fontWeight={600}>
-                        Admin chấm trình (Full tỉnh)
+                        {t("admin.users.evaluator.fullProvinceTitle")}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        Quyền chấm điểm mọi khu vực
+                        {t("admin.users.evaluator.fullProvinceBody")}
                       </Typography>
                     </Box>
                   </Paper>
@@ -857,12 +865,12 @@ export default function UsersPage() {
                       />
                       <Box>
                         <Typography variant="body2" fontWeight={600}>
-                          Super admin
+                          {t("admin.users.evaluator.superAdminTitle")}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           {isSelf && targetIsSuperAdmin
-                            ? "Cannot remove your own super admin role."
-                            : "Full admin area access, including group/PO structure."}
+                            ? t("admin.users.evaluator.superAdminSelf")
+                            : t("admin.users.evaluator.superAdminBody")}
                         </Typography>
                       </Box>
                     </Paper>
@@ -879,7 +887,7 @@ export default function UsersPage() {
                   display="block"
                   mb={1}
                 >
-                  QUOTA TÌM KIẾM
+                  {t("admin.users.quota.title")}
                 </Typography>
 
                 <Paper
@@ -894,10 +902,10 @@ export default function UsersPage() {
                     <TextField
                       size="small"
                       type="number"
-                      label="Limit/ngày"
+                      label={t("admin.users.quota.limitPerDay")}
                       value={limitInput}
                       onChange={(e) => setLimitInput(e.target.value)}
-                      placeholder="Mặc định (5)"
+                      placeholder={t("admin.users.quota.defaultPlaceholder")}
                       sx={{ flex: 1 }}
                       InputLabelProps={{ shrink: true }}
                       fullWidth
@@ -912,7 +920,7 @@ export default function UsersPage() {
                           onChange={(e) => setUnlimited(e.target.checked)}
                         />
                       }
-                      label="Không giới hạn"
+                      label={t("admin.users.quota.unlimited")}
                     />
 
                     <Button
@@ -924,7 +932,7 @@ export default function UsersPage() {
                       sx={{ minWidth: 90 }}
                       fullWidth={isXs}
                     >
-                      Lưu
+                      {t("common.actions.save")}
                     </Button>
                   </Stack>
                 </Paper>
@@ -937,7 +945,7 @@ export default function UsersPage() {
                   mb={1}
                   mt={2}
                 >
-                  CÀI ĐẶT THÔNG BÁO PUSH
+                  {t("admin.users.push.title")}
                 </Typography>
 
                 <Paper
@@ -958,7 +966,7 @@ export default function UsersPage() {
                           id: u._id,
                           body: { isPushNotificationEnabled: e.target.checked },
                         }).unwrap(),
-                        "Đã cập nhật cài đặt thông báo push",
+                        t("admin.users.push.saved"),
                         () =>
                           updateLocalUser(u._id, (draft) => {
                             draft.isPushNotificationEnabled = e.target.checked;
@@ -968,10 +976,10 @@ export default function UsersPage() {
                   />
                   <Box>
                     <Typography variant="body2" fontWeight={600}>
-                      Nhận thông báo Push
+                      {t("admin.users.push.receive")}
                     </Typography>
                     <Typography variant="caption" color="text.secondary">
-                      Cho phép gửi thông báo đẩy đến các thiết bị của người dùng
+                      {t("admin.users.push.body")}
                     </Typography>
                   </Box>
                 </Paper>
@@ -1024,7 +1032,7 @@ export default function UsersPage() {
           fontWeight={800}
           sx={{ color: "text.primary" }}
         >
-          Quản lý người dùng
+          {t("admin.users.title")}
         </Typography>
       </Stack>
 
@@ -1045,10 +1053,10 @@ export default function UsersPage() {
       >
         <Box>
           <Typography variant="subtitle1" fontWeight={700}>
-            Cài đặt hệ thống
+            {t("admin.users.systemSettingsTitle")}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Bật/tắt thông báo đẩy cho toàn bộ người dùng trên hệ thống.
+            {t("admin.users.systemSettingsBody")}
           </Typography>
         </Box>
         <FormControlLabel
@@ -1063,7 +1071,7 @@ export default function UsersPage() {
                       systemPushEnabled: e.target.checked,
                     },
                   }).unwrap(),
-                  "Đã cập nhật cấu hình thông báo hệ thống",
+                  t("admin.users.push.systemSaved"),
                   () => {}, // system settings update no-op skip user refetch
                 )
               }
@@ -1071,8 +1079,8 @@ export default function UsersPage() {
           }
           label={
             sysSettings?.notifications?.systemPushEnabled !== false
-              ? "Đang bật Push notification"
-              : "Đã tắt Push notification"
+              ? t("admin.users.systemPushOn")
+              : t("admin.users.systemPushOff")
           }
         />
       </Paper>
@@ -1097,7 +1105,7 @@ export default function UsersPage() {
           <TextField
             name="search-query"
             size="small"
-            placeholder="Tìm kiếm theo Tên, Email..."
+            placeholder={t("admin.users.searchPlaceholder")}
             value={search}
             autoComplete="off"
             onChange={(e) => setSearch(e.target.value)}
@@ -1119,39 +1127,39 @@ export default function UsersPage() {
             sx={{ width: { xs: "100%", md: "auto" }, flex: 1 }}
           >
             <FormControl size="small" fullWidth>
-              <InputLabel id="role-filter">Role</InputLabel>
+              <InputLabel id="role-filter">{t("admin.users.filters.role")}</InputLabel>
               <Select
                 labelId="role-filter"
-                label="Role"
+                label={t("admin.users.filters.role")}
                 value={role}
                 onChange={(e) => {
                   dispatch(setRole(e.target.value));
                   dispatch(setPage(0));
                 }}
               >
-                <MenuItem value="">Tất cả Role</MenuItem>
-                <MenuItem value="user">User</MenuItem>
-                <MenuItem value="referee">Trọng tài</MenuItem>
-                <MenuItem value="admin">Admin</MenuItem>
+                <MenuItem value="">{t("admin.users.filters.allRoles")}</MenuItem>
+                <MenuItem value="user">{getRoleLabel(t, "user")}</MenuItem>
+                <MenuItem value="referee">{getRoleLabel(t, "referee")}</MenuItem>
+                <MenuItem value="admin">{getRoleLabel(t, "admin")}</MenuItem>
               </Select>
             </FormControl>
 
             <FormControl size="small" fullWidth>
-              <InputLabel id="cccd-filter">Trạng thái KYC</InputLabel>
+              <InputLabel id="cccd-filter">{t("admin.users.filters.kycStatus")}</InputLabel>
               <Select
                 labelId="cccd-filter"
-                label="Trạng thái KYC"
+                label={t("admin.users.filters.kycStatus")}
                 value={kycFilter}
                 onChange={(e) => {
                   setKycFilter(String(e.target.value));
                   dispatch(setPage(0));
                 }}
               >
-                <MenuItem value="">Tất cả</MenuItem>
-                <MenuItem value="unverified">{KYC_LABEL.unverified}</MenuItem>
-                <MenuItem value="pending">{KYC_LABEL.pending}</MenuItem>
-                <MenuItem value="verified">{KYC_LABEL.verified}</MenuItem>
-                <MenuItem value="rejected">{KYC_LABEL.rejected}</MenuItem>
+                <MenuItem value="">{t("admin.users.filters.all")}</MenuItem>
+                <MenuItem value="unverified">{kycLabelMap.unverified}</MenuItem>
+                <MenuItem value="pending">{kycLabelMap.pending}</MenuItem>
+                <MenuItem value="verified">{kycLabelMap.verified}</MenuItem>
+                <MenuItem value="rejected">{kycLabelMap.rejected}</MenuItem>
               </Select>
             </FormControl>
           </Stack>
@@ -1164,7 +1172,7 @@ export default function UsersPage() {
           <Stack alignItems="center" py={8}>
             <CircularProgress />
             <Typography variant="body2" color="text.secondary" mt={2}>
-              Đang tải dữ liệu...
+              {t("admin.users.states.loading")}
             </Typography>
           </Stack>
         ) : users.length === 0 ? (
@@ -1176,10 +1184,10 @@ export default function UsersPage() {
               sx={{ fontSize: 48, color: "text.disabled", mb: 1 }}
             />
             <Typography variant="h6" color="text.secondary">
-              Không tìm thấy người dùng nào
+              {t("admin.users.states.noUsers")}
             </Typography>
             <Typography variant="body2" color="text.disabled">
-              Thử thay đổi bộ lọc tìm kiếm
+              {t("admin.users.states.adjustFilters")}
             </Typography>
           </Paper>
         ) : (
@@ -1228,7 +1236,7 @@ export default function UsersPage() {
         {zoom && (
           <img
             src={zoom}
-            alt="zoom"
+            alt={t("admin.users.kyc.zoomAlt")}
             style={{
               maxWidth: "100%",
               maxHeight: "90vh",
@@ -1252,7 +1260,7 @@ export default function UsersPage() {
         {kyc && (
           <>
             <DialogTitle sx={{ borderBottom: "1px solid #eee" }}>
-              Kiểm tra CCCD - {kyc.name}
+              {t("admin.users.kyc.reviewTitle", { name: kyc.name })}
             </DialogTitle>
             <DialogContent sx={{ pt: 3, bgcolor: "background.default" }}>
               <Grid container spacing={3}>
@@ -1293,7 +1301,9 @@ export default function UsersPage() {
                             textTransform: "uppercase",
                           }}
                         >
-                          {side === "front" ? "Mặt trước" : "Mặt sau"}
+                          {side === "front"
+                            ? t("admin.users.kyc.front")
+                            : t("admin.users.kyc.back")}
                         </Typography>
                       </Paper>
                     ))}
@@ -1312,11 +1322,11 @@ export default function UsersPage() {
                       mb={2}
                     >
                       <Typography variant="subtitle2" fontWeight={700}>
-                        THÔNG TIN NGƯỜI DÙNG
+                        {t("admin.users.kyc.userInfo")}
                       </Typography>
                       <Chip
                         size="small"
-                        label={KYC_LABEL[kyc.cccdStatus || "unverified"]}
+                        label={kycLabelMap[kyc.cccdStatus || "unverified"]}
                         color={KYC_COLOR[kyc.cccdStatus || "unverified"]}
                       />
                     </Stack>
@@ -1324,7 +1334,7 @@ export default function UsersPage() {
                     <Grid container spacing={2}>
                       <Grid size={{ xs: 6, md: 3 }}>
                         <Typography variant="body2" color="text.secondary">
-                          Họ tên:
+                          {t("admin.users.kyc.fullName")}
                         </Typography>
                       </Grid>
                       <Grid size={{ xs: 6, md: 3 }}>
@@ -1335,7 +1345,7 @@ export default function UsersPage() {
 
                       <Grid size={{ xs: 6, md: 3 }}>
                         <Typography variant="body2" color="text.secondary">
-                          Ngày sinh:
+                          {t("admin.users.kyc.dob")}
                         </Typography>
                       </Grid>
                       <Grid size={{ xs: 6, md: 3 }}>
@@ -1346,7 +1356,7 @@ export default function UsersPage() {
 
                       <Grid size={{ xs: 6, md: 3 }}>
                         <Typography variant="body2" color="text.secondary">
-                          Số CCCD:
+                          {t("admin.users.kyc.cccd")}
                         </Typography>
                       </Grid>
                       <Grid size={{ xs: 6, md: 3 }}>
@@ -1361,7 +1371,7 @@ export default function UsersPage() {
 
                       <Grid size={{ xs: 6, md: 3 }}>
                         <Typography variant="body2" color="text.secondary">
-                          Khu vực:
+                          {t("admin.users.kyc.province")}
                         </Typography>
                       </Grid>
                       <Grid size={{ xs: 6, md: 3 }}>
@@ -1378,7 +1388,7 @@ export default function UsersPage() {
                           display="block"
                           fontWeight={700}
                         >
-                          Ghi chú:
+                          {t("admin.users.kyc.note")}
                         </Typography>
                         {kyc.note}
                       </Alert>
@@ -1393,7 +1403,7 @@ export default function UsersPage() {
                 variant="outlined"
                 color="inherit"
               >
-                Đóng
+                {t("common.actions.close")}
               </Button>
               <Button
                 variant="contained"
@@ -1402,7 +1412,7 @@ export default function UsersPage() {
                 onClick={() =>
                   handle(
                     reviewKycMut({ id: kyc._id, action: "reject" }).unwrap(),
-                    "Đã từ chối KYC",
+                    t("admin.users.kyc.rejected"),
                     () =>
                       updateLocalUser(kyc._id, (draft) => {
                         draft.cccdStatus = "rejected";
@@ -1410,7 +1420,7 @@ export default function UsersPage() {
                   ).then(() => setKyc(null))
                 }
               >
-                Từ chối
+                {t("common.actions.reject")}
               </Button>
               <Button
                 variant="contained"
@@ -1419,7 +1429,7 @@ export default function UsersPage() {
                 onClick={() =>
                   handle(
                     reviewKycMut({ id: kyc._id, action: "approve" }).unwrap(),
-                    "Đã duyệt KYC",
+                    t("admin.users.kyc.approved"),
                     () =>
                       updateLocalUser(kyc._id, (draft) => {
                         draft.cccdStatus = "verified";
@@ -1427,7 +1437,7 @@ export default function UsersPage() {
                   ).then(() => setKyc(null))
                 }
               >
-                Duyệt
+                {t("common.actions.approve")}
               </Button>
             </DialogActions>
           </>
@@ -1444,11 +1454,13 @@ export default function UsersPage() {
       >
         {edit && (
           <>
-            <DialogTitle>Sửa thông tin: {edit.name}</DialogTitle>
+            <DialogTitle>
+              {t("admin.users.edit.title", { name: edit.name })}
+            </DialogTitle>
             <DialogContent dividers>
               <Stack spacing={2} sx={{ mt: 1 }}>
                 <TextField
-                  label="Họ tên"
+                  label={t("admin.users.edit.name")}
                   value={edit.name}
                   onChange={(e) => setEdit({ ...edit, name: e.target.value })}
                   fullWidth
@@ -1463,7 +1475,7 @@ export default function UsersPage() {
                     fullWidth
                   />
                   <TextField
-                    label="Phone"
+                    label={t("admin.users.edit.phone")}
                     value={edit.phone || ""}
                     onChange={(e) =>
                       setEdit({ ...edit, phone: e.target.value })
@@ -1481,9 +1493,9 @@ export default function UsersPage() {
                     fullWidth
                   />
                   <FormControl fullWidth>
-                    <InputLabel>Giới tính</InputLabel>
+                    <InputLabel>{t("admin.users.edit.gender")}</InputLabel>
                     <Select
-                      label="Giới tính"
+                      label={t("admin.users.edit.gender")}
                       value={
                         ["male", "female", "unspecified", "other"].includes(
                           edit.gender,
@@ -1495,7 +1507,7 @@ export default function UsersPage() {
                         setEdit({ ...edit, gender: e.target.value })
                       }
                     >
-                      {GENDER_OPTIONS.map((opt) => (
+                      {genderOptions.map((opt) => (
                         <MenuItem key={opt.value} value={opt.value}>
                           {opt.label}
                         </MenuItem>
@@ -1506,7 +1518,7 @@ export default function UsersPage() {
 
                 <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
                   <TextField
-                    label="CCCD"
+                    label={t("admin.users.edit.cccd")}
                     value={edit.cccd || ""}
                     onChange={(e) =>
                       setEdit({
@@ -1515,10 +1527,10 @@ export default function UsersPage() {
                       })
                     }
                     fullWidth
-                    helperText="12 chữ số"
+                    helperText={t("admin.users.edit.cccdHint")}
                   />
                   <TextField
-                    label="Ngày sinh"
+                    label={t("admin.users.edit.dob")}
                     type="date"
                     InputLabelProps={{ shrink: true }}
                     value={edit.dob ? String(edit.dob).slice(0, 10) : ""}
@@ -1528,16 +1540,16 @@ export default function UsersPage() {
                 </Stack>
 
                 <FormControl fullWidth>
-                  <InputLabel>Khu vực (Tỉnh/Thành)</InputLabel>
+                  <InputLabel>{t("admin.users.edit.province")}</InputLabel>
                   <Select
-                    label="Khu vực (Tỉnh/Thành)"
+                    label={t("admin.users.edit.province")}
                     value={edit.province || ""}
                     onChange={(e) =>
                       setEdit({ ...edit, province: e.target.value })
                     }
                   >
                     <MenuItem value="">
-                      <em>-- Chọn --</em>
+                      <em>{provincePlaceholder}</em>
                     </MenuItem>
                     {PROVINCES.map((p) => (
                       <MenuItem key={p} value={p}>
@@ -1567,15 +1579,14 @@ export default function UsersPage() {
                     label={
                       <Box>
                         <Typography fontWeight={600}>
-                          Ẩn khỏi Bảng xếp hạng
+                          {t("admin.users.edit.hideFromRankings")}
                         </Typography>
                         <Typography
                           variant="caption"
                           color="text.secondary"
                           display="block"
                         >
-                          Người dùng này sẽ không hiển thị trên danh sách bảng
-                          xếp hạng công khai.
+                          {t("admin.users.edit.hideFromRankingsBody")}
                         </Typography>
                       </Box>
                     }
@@ -1595,18 +1606,22 @@ export default function UsersPage() {
                       />
                     }
                     label={
-                      <Typography fontWeight={600}>Đổi mật khẩu</Typography>
+                      <Typography fontWeight={600}>
+                        {t("admin.users.edit.changePassword")}
+                      </Typography>
                     }
                   />
                   <Collapse in={changePass}>
                     <Stack spacing={2} mt={1}>
                       <TextField
-                        label="Mật khẩu mới"
+                        label={t("admin.users.edit.newPassword")}
                         type={showNew ? "text" : "password"}
                         value={newPass}
                         onChange={(e) => setNewPass(e.target.value)}
                         error={Boolean(passTooShort)}
-                        helperText={passTooShort ? "Tối thiểu 6 ký tự" : ""}
+                        helperText={
+                          passTooShort ? t("admin.users.edit.passwordMin") : ""
+                        }
                         InputProps={{
                           endAdornment: (
                             <InputAdornment position="end">
@@ -1618,12 +1633,16 @@ export default function UsersPage() {
                         }}
                       />
                       <TextField
-                        label="Xác nhận mật khẩu"
+                        label={t("admin.users.edit.confirmPassword")}
                         type={showConfirm ? "text" : "password"}
                         value={confirmPass}
                         onChange={(e) => setConfirmPass(e.target.value)}
                         error={Boolean(passNotMatch)}
-                        helperText={passNotMatch ? "Mật khẩu không khớp" : ""}
+                        helperText={
+                          passNotMatch
+                            ? t("admin.users.edit.passwordMismatch")
+                            : ""
+                        }
                         InputProps={{
                           endAdornment: (
                             <InputAdornment position="end">
@@ -1650,7 +1669,7 @@ export default function UsersPage() {
                               id: edit._id,
                               body: { newPassword: newPass },
                             }).unwrap(),
-                            "Đã đổi mật khẩu thành công",
+                            t("admin.users.edit.passwordChanged"),
                             () => {}, // no-op skip user refetch
                           ).then(() => {
                             setChangePass(false);
@@ -1659,7 +1678,7 @@ export default function UsersPage() {
                           })
                         }
                       >
-                        Lưu mật khẩu mới
+                        {t("admin.users.edit.savePassword")}
                       </Button>
                     </Stack>
                   </Collapse>
@@ -1668,7 +1687,7 @@ export default function UsersPage() {
             </DialogContent>
             <DialogActions sx={{ p: 2 }}>
               <Button onClick={() => setEdit(null)} color="inherit">
-                Huỷ bỏ
+                {t("admin.users.edit.cancel")}
               </Button>
               <Button
                 variant="contained"
@@ -1695,7 +1714,7 @@ export default function UsersPage() {
                         isHiddenFromRankings: !!edit.isHiddenFromRankings,
                       },
                     }).unwrap(),
-                    "Đã cập nhật thông tin",
+                    t("admin.users.edit.saved"),
                     () =>
                       updateLocalUser(edit._id, (draft) => {
                         Object.assign(draft, {
@@ -1720,7 +1739,7 @@ export default function UsersPage() {
                   ).then(() => setEdit(null))
                 }
               >
-                Lưu thông tin
+                {t("admin.users.edit.saveInfo")}
               </Button>
             </DialogActions>
           </>
@@ -1737,30 +1756,31 @@ export default function UsersPage() {
             gap: 1,
           }}
         >
-          <DeleteIcon /> Xoá người dùng?
+          <DeleteIcon /> {t("admin.users.delete.title")}
         </DialogTitle>
         <DialogContent>
           <Typography>
-            Bạn có chắc chắn muốn xoá người dùng <b>{del?.name}</b>?
+            {t("admin.users.delete.body", { name: del?.name || "" })}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Hành động này không thể hoàn tác.
+            {t("admin.users.delete.irreversible")}
           </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDel(null)} color="inherit">
-            Huỷ
+            {t("common.actions.cancel")}
           </Button>
           <Button
             variant="contained"
             color="error"
             onClick={() =>
-              handle(deleteUserMut(del._id).unwrap(), "Đã xoá người dùng").then(
-                () => setDel(null),
-              )
+              handle(
+                deleteUserMut(del._id).unwrap(),
+                t("admin.users.delete.deleted"),
+              ).then(() => setDel(null))
             }
           >
-            Xoá vĩnh viễn
+            {t("admin.users.delete.permanent")}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1774,11 +1794,11 @@ export default function UsersPage() {
       >
         {score && (
           <>
-            <DialogTitle>Cập nhật điểm trình</DialogTitle>
+            <DialogTitle>{t("admin.users.score.title")}</DialogTitle>
             <DialogContent>
               <Stack spacing={3} mt={1}>
                 <TextField
-                  label="Điểm Đơn"
+                  label={t("admin.users.score.singles")}
                   type="number"
                   value={score.single}
                   onChange={(e) =>
@@ -1787,12 +1807,14 @@ export default function UsersPage() {
                   fullWidth
                   InputProps={{
                     endAdornment: (
-                      <InputAdornment position="end">điểm</InputAdornment>
+                      <InputAdornment position="end">
+                        {t("admin.users.score.unit")}
+                      </InputAdornment>
                     ),
                   }}
                 />
                 <TextField
-                  label="Điểm Đôi"
+                  label={t("admin.users.score.doubles")}
                   type="number"
                   value={score.double}
                   onChange={(e) =>
@@ -1801,7 +1823,9 @@ export default function UsersPage() {
                   fullWidth
                   InputProps={{
                     endAdornment: (
-                      <InputAdornment position="end">điểm</InputAdornment>
+                      <InputAdornment position="end">
+                        {t("admin.users.score.unit")}
+                      </InputAdornment>
                     ),
                   }}
                 />
@@ -1809,7 +1833,7 @@ export default function UsersPage() {
             </DialogContent>
             <DialogActions sx={{ p: 2 }}>
               <Button onClick={() => setScore(null)} color="inherit">
-                Huỷ
+                {t("common.actions.cancel")}
               </Button>
               <Button
                 variant="contained"
@@ -1820,7 +1844,7 @@ export default function UsersPage() {
                       single: Number(score.single),
                       double: Number(score.double),
                     }).unwrap(),
-                    "Đã cập nhật điểm",
+                    t("admin.users.score.saved"),
                     () =>
                       updateLocalUser(score._id, (draft) => {
                         draft.single = Number(score.single);
@@ -1829,7 +1853,7 @@ export default function UsersPage() {
                   ).then(() => setScore(null))
                 }
               >
-                Lưu điểm
+                {t("admin.users.score.save")}
               </Button>
             </DialogActions>
           </>
@@ -1855,15 +1879,16 @@ export default function UsersPage() {
               >
                 <Box sx={{ minWidth: 0 }}>
                   <Typography variant="h6" fontWeight={800} noWrap>
-                    Lịch sử chỉnh sửa • {auditUser.name}
+                    {t("admin.users.audit.title", { name: auditUser.name })}
                   </Typography>
                   <Typography variant="caption" color="text.secondary" noWrap>
-                    {auditUser.email} • ID: {auditUser._id}
+                    {auditUser.email} • {t("admin.users.audit.idLabel")}:{" "}
+                    {auditUser._id}
                   </Typography>
                 </Box>
 
                 <Stack direction="row" spacing={1} alignItems="center">
-                  <Tooltip title="Tải lại">
+                  <Tooltip title={t("admin.users.audit.reload")}>
                     <IconButton
                       onClick={() => refetchAudit?.()}
                       disabled={auditFetching}
@@ -1876,7 +1901,7 @@ export default function UsersPage() {
                     variant="outlined"
                     color="inherit"
                   >
-                    Đóng
+                    {t("common.actions.close")}
                   </Button>
                 </Stack>
               </Stack>
@@ -1887,21 +1912,20 @@ export default function UsersPage() {
                 <Stack alignItems="center" py={6}>
                   <CircularProgress />
                   <Typography variant="body2" color="text.secondary" mt={2}>
-                    Đang tải lịch sử...
+                    {t("admin.users.audit.loading")}
                   </Typography>
                 </Stack>
               ) : auditError ? (
                 <Alert severity="error">
-                  {auditError?.data?.message ||
-                    "Không tải được lịch sử chỉnh sửa"}
+                  {auditError?.data?.message || t("admin.users.audit.loadError")}
                 </Alert>
               ) : (auditData?.items?.length || 0) === 0 ? (
                 <Paper variant="outlined" sx={{ p: 3, textAlign: "center" }}>
                   <Typography fontWeight={700}>
-                    Chưa có lịch sử chỉnh sửa
+                    {t("admin.users.audit.emptyTitle")}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Người dùng này chưa có bản ghi update nào.
+                    {t("admin.users.audit.emptyBody")}
                   </Typography>
                 </Paper>
               ) : (
@@ -1927,7 +1951,10 @@ export default function UsersPage() {
                             {fmtDateTime(log.createdAt)}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            Actor: {log?.actor?.kind || "user"} •{" "}
+                            {t("admin.users.audit.actor")}:{" "}
+                            {log?.actor?.kind ||
+                              t("admin.users.audit.actorFallback")}{" "}
+                            •{" "}
                             {log?.actor?.id || "—"}
                             {log?.note ? ` • ${log.note}` : ""}
                           </Typography>
@@ -1968,11 +1995,11 @@ export default function UsersPage() {
                               <Grid container spacing={1.5}>
                                 <Grid size={{ xs: 12, md: 6 }}>
                                   <Typography
-                                    variant="caption"
-                                    color="text.secondary"
-                                    fontWeight={700}
-                                  >
-                                    Trước
+                                  variant="caption"
+                                  color="text.secondary"
+                                  fontWeight={700}
+                                >
+                                    {t("admin.users.audit.before")}
                                   </Typography>
                                   <Typography
                                     variant="body2"
@@ -1987,11 +2014,11 @@ export default function UsersPage() {
 
                                 <Grid size={{ xs: 12, md: 6 }}>
                                   <Typography
-                                    variant="caption"
-                                    color="text.secondary"
-                                    fontWeight={700}
-                                  >
-                                    Sau
+                                  variant="caption"
+                                  color="text.secondary"
+                                  fontWeight={700}
+                                >
+                                    {t("admin.users.audit.after")}
                                   </Typography>
                                   <Typography
                                     variant="body2"
@@ -2041,10 +2068,12 @@ export default function UsersPage() {
                 color="text.secondary"
                 sx={{ flex: 1 }}
               >
-                Tổng: {auditData?.total ?? "—"} bản ghi
+                {t("admin.users.audit.total", {
+                  total: auditData?.total ?? t("common.unavailable"),
+                })}
               </Typography>
               <Button onClick={() => setAuditUser(null)} color="inherit">
-                Đóng
+                {t("common.actions.close")}
               </Button>
             </DialogActions>
           </>

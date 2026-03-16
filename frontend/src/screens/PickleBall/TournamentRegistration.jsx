@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types, react/display-name */
 import { useState, useMemo, useEffect, useCallback, memo, useRef } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -65,6 +66,8 @@ import {
 import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
+import { useLanguage } from "../../context/LanguageContext";
+import { formatDate as formatLocaleDate } from "../../i18n/format";
 import { getFeeAmount } from "../../utils/fee";
 import { useBotContext } from "../../hook/useBotContext";
 import SEOHead from "../../components/SEOHead";
@@ -74,10 +77,13 @@ const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";
 const BRAND_COLOR = "#1976d2";
 const CARD_RADIUS = 3;
 
-const totalChipStyle = (total, cap, delta) => {
+const totalChipStyle = (total, cap, delta, t) => {
   const hasCap = Number.isFinite(cap) && cap > 0;
   if (!hasCap || !Number.isFinite(total)) {
-    return { color: "default", title: "Không có giới hạn" };
+    return {
+      color: "default",
+      title: t("tournaments.registration.totalChip.unlimited"),
+    };
   }
 
   const d = Number.isFinite(delta) && delta > 0 ? Number(delta) : 0;
@@ -87,20 +93,29 @@ const totalChipStyle = (total, cap, delta) => {
   if (total > threshold + EPS) {
     return {
       color: "error",
-      title: `> ${fmt3(cap)} + ${fmt3(d)} (Vượt quá mức cho phép)`,
+      title: t("tournaments.registration.totalChip.over", {
+        cap: fmt3(cap),
+        delta: fmt3(d),
+      }),
     };
   }
 
   if (Math.abs(total - threshold) <= EPS) {
     return {
       color: "warning",
-      title: `= ${fmt3(cap)} + ${fmt3(d)} (Chạm ngưỡng tối đa)`,
+      title: t("tournaments.registration.totalChip.maxed", {
+        cap: fmt3(cap),
+        delta: fmt3(d),
+      }),
     };
   }
 
   return {
     color: "success",
-    title: `< ${fmt3(cap)} + ${fmt3(d)} (Hợp lệ)`,
+    title: t("tournaments.registration.totalChip.valid", {
+      cap: fmt3(cap),
+      delta: fmt3(d),
+    }),
   };
 };
 
@@ -176,7 +191,9 @@ const toHttpsIfNeeded = (u) => {
       url.protocol = "https:";
       return url.toString();
     }
-  } catch {}
+  } catch {
+    // ignore invalid URL parsing
+  }
   return u;
 };
 
@@ -211,32 +228,33 @@ const normalizeNoAccent = (s) =>
 /* ---------------- 2. UI COMPONENTS ---------------- */
 
 /* Badge KYC */
-const kycMeta = (status) => {
+const kycMeta = (status, t) => {
   const s = String(status || "").toLowerCase();
   switch (s) {
     case "verified":
       return {
         icon: <VerifiedIcon fontSize="inherit" />,
         color: "info.main",
-        tip: "Đã KYC",
+        tip: t("tournaments.registration.kyc.verified"),
       };
     case "pending":
       return {
         icon: <PendingIcon fontSize="inherit" />,
         color: "warning.main",
-        tip: "Đang chờ KYC",
+        tip: t("tournaments.registration.kyc.pending"),
       };
     default:
       return {
         icon: <DangerousSharpIcon fontSize="inherit" />,
         color: "text.disabled",
-        tip: "Chưa KYC",
+        tip: t("tournaments.registration.kyc.unverified"),
       };
   }
 };
 
 const VerifyBadge = memo(({ status }) => {
-  const { icon, color, tip } = kycMeta(status);
+  const { t } = useLanguage();
+  const { icon, color, tip } = kycMeta(status, t);
   return (
     <Tooltip title={tip} arrow>
       <Box
@@ -302,11 +320,16 @@ const LazyAvatar = memo(({ src, alt, size = 40, onClick, sx }) => {
 
 /* Chips */
 const PaymentChip = memo(({ status }) => {
+  const { t } = useLanguage();
   const isPaid = status === "Paid";
   return (
     <Chip
       size="small"
-      label={isPaid ? "Đã Thanh toán" : "Chưa Thanh toán"}
+      label={
+        isPaid
+          ? t("tournaments.registration.payment.paid")
+          : t("tournaments.registration.payment.unpaid")
+      }
       sx={{
         bgcolor: isPaid ? alpha("#2e7d32", 0.1) : alpha("#ed6c02", 0.1),
         color: isPaid ? "#1b5e20" : "#e65100",
@@ -319,12 +342,13 @@ const PaymentChip = memo(({ status }) => {
 });
 
 const CheckinChip = memo(({ checkinAt }) => {
+  const { t } = useLanguage();
   if (!checkinAt) return null;
   return (
     <Chip
       size="small"
       icon={<CheckCircle sx={{ fontSize: "14px !important" }} />}
-      label="Đã Check-in"
+      label={t("tournaments.registration.checkin.done")}
       color="info"
       variant="outlined"
       sx={{ fontSize: "0.7rem", height: 24 }}
@@ -453,6 +477,7 @@ const CountdownItem = ({ value, label }) => (
 
 /** 🔹 Countdown tách riêng, tự quản state + interval, memo để không ảnh hưởng component khác */
 const RegistrationCountdown = memo(({ deadline }) => {
+  const { t } = useLanguage();
   const [timeLeft, setTimeLeft] = useState(null);
 
   useEffect(() => {
@@ -513,13 +538,25 @@ const RegistrationCountdown = memo(({ deadline }) => {
           fontWeight: 600,
         }}
       >
-        Đăng ký kết thúc sau
+        {t("tournaments.registration.countdown.title")}
       </Typography>
       <Stack direction="row" spacing={2} justifyContent="center">
-        <CountdownItem value={timeLeft.d} label="Ngày" />
-        <CountdownItem value={timeLeft.h} label="Giờ" />
-        <CountdownItem value={timeLeft.m} label="Phút" />
-        <CountdownItem value={timeLeft.s} label="Giây" />
+        <CountdownItem
+          value={timeLeft.d}
+          label={t("tournaments.registration.countdown.days")}
+        />
+        <CountdownItem
+          value={timeLeft.h}
+          label={t("tournaments.registration.countdown.hours")}
+        />
+        <CountdownItem
+          value={timeLeft.m}
+          label={t("tournaments.registration.countdown.minutes")}
+        />
+        <CountdownItem
+          value={timeLeft.s}
+          label={t("tournaments.registration.countdown.seconds")}
+        />
       </Stack>
     </Box>
   );
@@ -527,6 +564,7 @@ const RegistrationCountdown = memo(({ deadline }) => {
 
 /* HTML Preview */
 const HtmlPreviewSection = ({ title, html }) => {
+  const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const processedHtml = useMemo(() => fixHtmlHttps(html), [html]);
   if (!html) return null;
@@ -549,7 +587,7 @@ const HtmlPreviewSection = ({ title, html }) => {
             <InfoOutlined fontSize="small" color="primary" /> {title}
           </Typography>
           <Button size="small" onClick={() => setOpen(true)}>
-            Xem chi tiết
+            {t("tournaments.registration.previews.viewDetails")}
           </Button>
         </Stack>
         <Box
@@ -582,7 +620,9 @@ const HtmlPreviewSection = ({ title, html }) => {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setOpen(false)}>Đóng</Button>
+          <Button onClick={() => setOpen(false)}>
+            {t("tournaments.registration.previews.close")}
+          </Button>
         </DialogActions>
       </Dialog>
     </>
@@ -602,6 +642,32 @@ const ActionButtons = memo(
     onOpenComplaint,
     busy,
   }) => (
+    <ActionButtonsInner
+      r={r}
+      canManage={canManage}
+      isOwner={isOwner}
+      onTogglePayment={onTogglePayment}
+      onCancel={onCancel}
+      onOpenPayment={onOpenPayment}
+      onOpenComplaint={onOpenComplaint}
+      busy={busy}
+    />
+  )
+);
+
+const ActionButtonsInner = ({
+  r,
+  canManage,
+  isOwner,
+  onTogglePayment,
+  onCancel,
+  onOpenPayment,
+  onOpenComplaint,
+  busy,
+}) => {
+  const { t } = useLanguage();
+
+  return (
     <Stack
       direction="row"
       spacing={0.5}
@@ -609,7 +675,7 @@ const ActionButtons = memo(
       alignItems="center"
     >
       {canManage && (
-        <Tooltip title="Đổi trạng thái thanh toán">
+        <Tooltip title={t("tournaments.registration.payment.toggleTooltip")}>
           <IconButton
             size="small"
             onClick={() => onTogglePayment(r)}
@@ -625,8 +691,7 @@ const ActionButtons = memo(
         </Tooltip>
       )}
 
-      {/* --- Nút Thanh toán (Đã chuyển sang Button) --- */}
-      <Tooltip title="Mã QR Thanh toán">
+      <Tooltip title={t("tournaments.registration.payment.qrTooltip")}>
         <Button
           size="small"
           variant="text"
@@ -640,12 +705,11 @@ const ActionButtons = memo(
             px: 1, // Padding ngang
           }}
         >
-          Thanh toán
+          {t("tournaments.registration.actions.pay")}
         </Button>
       </Tooltip>
 
-      {/* --- Nút Khiếu nại (Đã chuyển sang Button) --- */}
-      <Tooltip title="Khiếu nại">
+      <Tooltip title={t("tournaments.registration.actions.complaint")}>
         <Button
           size="small"
           variant="text"
@@ -659,12 +723,12 @@ const ActionButtons = memo(
             px: 1,
           }}
         >
-          Khiếu nại
+          {t("tournaments.registration.actions.complaint")}
         </Button>
       </Tooltip>
 
       {(canManage || isOwner) && (
-        <Tooltip title="Huỷ đăng ký">
+        <Tooltip title={t("tournaments.registration.actions.cancelRegistration")}>
           <IconButton
             size="small"
             color="error"
@@ -677,8 +741,8 @@ const ActionButtons = memo(
         </Tooltip>
       )}
     </Stack>
-  )
-);
+  );
+};
 
 const PlayerInfo = memo(
   ({ player, onEdit, canEdit, onOpenPreview, onOpenProfile }) => (
@@ -752,8 +816,9 @@ const PlayerInfo = memo(
 /* Card dùng chung cho cả mobile + desktop */
 const RegCard = memo(
   ({ r, index, isSingles, cap, delta, regCodeOf, ...props }) => {
+    const { t } = useLanguage();
     const total = totalScoreOf(r, isSingles);
-    const chip = totalChipStyle(total, cap, delta);
+    const chip = totalChipStyle(total, cap, delta, t);
 
     const colorMap = {
       default: "text.primary",
@@ -840,7 +905,7 @@ const RegCard = memo(
                   fullWidth
                   variant="outlined"
                 >
-                  Thêm VĐV 2
+                  {t("tournaments.registration.list.addPlayer2")}
                 </Button>
               )}
             </Box>
@@ -856,7 +921,7 @@ const RegCard = memo(
             >
               <Box>
                 <Typography variant="caption" color="text.secondary">
-                  Tổng điểm
+                  {t("tournaments.registration.list.totalScore")}
                 </Typography>
                 <Stack direction="row" alignItems="baseline" spacing={0.5}>
                   <Typography
@@ -936,6 +1001,7 @@ const RegCardSkeleton = () => (
 export default function TournamentRegistration() {
   const { id } = useParams();
   useBotContext({ tournamentId: id });
+  const { locale, t } = useLanguage();
 
   /* Data Fetching */
   const { data: me, isLoading: meLoading } = useGetMeScoreQuery();
@@ -1089,17 +1155,6 @@ export default function TournamentRegistration() {
     []
   );
 
-  const buildTourCode = useCallback((name) => {
-    const clean = normalizeNoAccent(name || "").toUpperCase();
-    if (!clean) return "";
-    return clean
-      .split(" ")
-      .filter(Boolean)
-      .map((t) => (/^\d/.test(t) ? t.match(/\d/)[0] : t[0]))
-      .join("")
-      .slice(0, 8);
-  }, []);
-
   const qrImgUrlFor = useCallback(
     (r) => {
       const bank =
@@ -1134,7 +1189,7 @@ export default function TournamentRegistration() {
       if (amount > 0) params.set("amount", String(amount));
       return `https://qr.sepay.vn/img?${params.toString()}`;
     },
-    [tour, me, id, regCodeOf, buildTourCode]
+    [tour, me, regCodeOf]
   );
 
   /* Handlers */
@@ -1142,13 +1197,19 @@ export default function TournamentRegistration() {
     async (e) => {
       e.preventDefault();
       if (regLockedForUser)
-        return toast.info("Đã hết hạn đăng ký cho VĐV. Vui lòng liên hệ BTC.");
-      if (!isLoggedIn) return toast.info("Vui lòng đăng nhập");
+        return toast.info(t("tournaments.registration.toasts.registrationClosed"));
+      if (!isLoggedIn)
+        return toast.info(t("tournaments.registration.toasts.loginRequired"));
       const p1Id = isAdmin ? p1?._id : String(me?._id);
 
       if (!p1Id)
-        return toast.error(isAdmin ? "Chọn VĐV 1" : "Lỗi thông tin của bạn");
-      if (isDoubles && !p2?._id) return toast.error("Giải đôi cần 2 VĐV");
+        return toast.error(
+          isAdmin
+            ? t("tournaments.registration.toasts.selectPlayer1")
+            : t("tournaments.registration.toasts.ownInfoError")
+        );
+      if (isDoubles && !p2?._id)
+        return toast.error(t("tournaments.registration.toasts.doublesNeedTwo"));
 
       try {
         await createInvite({
@@ -1157,16 +1218,18 @@ export default function TournamentRegistration() {
           player1Id: p1Id,
           player2Id: p2?._id,
         }).unwrap();
-        toast.success("Đăng ký thành công!");
+        toast.success(t("tournaments.registration.toasts.registrationSuccess"));
         refetchRegs();
         setMsg("");
         setP2(null);
         if (isAdmin) setP1(null);
       } catch (err) {
         if (err?.status === 412) {
-          toast.error("VĐV chưa xác thực KYC (CCCD). Vui lòng cập nhật hồ sơ.");
+          toast.error(t("tournaments.registration.toasts.kycRequired"));
         } else {
-          toast.error(err?.data?.message || "Lỗi đăng ký");
+          toast.error(
+            err?.data?.message || t("tournaments.registration.toasts.registrationError")
+          );
         }
       }
     },
@@ -1182,23 +1245,27 @@ export default function TournamentRegistration() {
       id,
       createInvite,
       refetchRegs,
+      t,
     ]
   );
 
   const handleCancel = useCallback(
     async (r) => {
       if (!canManage && r?.payment?.status === "Paid")
-        return toast.info("Đã đóng phí, vui lòng liên hệ BTC để huỷ");
-      if (!window.confirm("Bạn chắc chắn muốn huỷ đăng ký này?")) return;
+        return toast.info(t("tournaments.registration.toasts.paidContactOrganizer"));
+      if (!window.confirm(t("tournaments.registration.toasts.cancelConfirm")))
+        return;
       setCancelingId(r._id);
       try {
         if (canManage) await adminDeleteReg(r._id).unwrap();
         else await cancelReg(r._id).unwrap();
-        toast.success("Đã huỷ");
+        toast.success(t("tournaments.registration.toasts.cancelSuccess"));
         refetchRegs();
         if (debouncedQ) refetchSearch();
       } catch (e) {
-        toast.error(e?.data?.message || "Huỷ thất bại");
+        toast.error(
+          e?.data?.message || t("tournaments.registration.toasts.cancelError")
+        );
       } finally {
         setCancelingId(null);
       }
@@ -1210,6 +1277,7 @@ export default function TournamentRegistration() {
       refetchRegs,
       debouncedQ,
       refetchSearch,
+      t,
     ]
   );
 
@@ -1219,14 +1287,14 @@ export default function TournamentRegistration() {
       try {
         const next = r?.payment?.status === "Paid" ? "Unpaid" : "Paid";
         await setPaymentStatus({ regId: r._id, status: next }).unwrap();
-        toast.success("Đã cập nhật thanh toán");
+        toast.success(t("tournaments.registration.toasts.paymentUpdated"));
         refetchRegs();
         if (debouncedQ) refetchSearch();
       } catch (e) {
-        toast.error("Lỗi cập nhật");
+        toast.error(t("tournaments.registration.toasts.paymentError"));
       }
     },
-    [canManage, setPaymentStatus, refetchRegs, debouncedQ, refetchSearch]
+    [canManage, setPaymentStatus, refetchRegs, debouncedQ, refetchSearch, t]
   );
 
   const submitReplace = useCallback(async () => {
@@ -1237,13 +1305,15 @@ export default function TournamentRegistration() {
         slot: replaceDlg.slot,
         userId: newPlayer._id,
       }).unwrap();
-      toast.success("Đã thay VĐV");
+      toast.success(t("tournaments.registration.toasts.replaceSuccess"));
       setReplaceDlg({ open: false, reg: null, slot: "p1" });
       setNewPlayer(null);
       refetchRegs();
       if (debouncedQ) refetchSearch();
     } catch (e) {
-      toast.error(e?.data?.message || "Lỗi thay người");
+      toast.error(
+        e?.data?.message || t("tournaments.registration.toasts.replaceError")
+      );
     }
   }, [
     newPlayer,
@@ -1252,6 +1322,7 @@ export default function TournamentRegistration() {
     refetchRegs,
     debouncedQ,
     refetchSearch,
+    t,
   ]);
 
   const submitComplaint = useCallback(async () => {
@@ -1262,12 +1333,12 @@ export default function TournamentRegistration() {
         regId: complaintDlg.reg._id,
         content: complaintDlg.text,
       }).unwrap();
-      toast.success("Đã gửi khiếu nại");
+      toast.success(t("tournaments.registration.toasts.complaintSuccess"));
       setComplaintDlg({ open: false, reg: null, text: "" });
     } catch (e) {
-      toast.error("Lỗi gửi khiếu nại");
+      toast.error(t("tournaments.registration.toasts.complaintError"));
     }
-  }, [complaintDlg, createComplaint, id]);
+  }, [complaintDlg, createComplaint, id, t]);
 
   /* Dialog open/close handlers */
   const handleOpenPreview = useCallback((src, name) => {
@@ -1323,12 +1394,23 @@ export default function TournamentRegistration() {
   if (tourErr || !tour)
     return (
       <Box p={3}>
-        <Alert severity="error">Không tải được thông tin giải đấu</Alert>
+        <Alert severity="error">
+          {t("tournaments.registration.errorLoadTournament")}
+        </Alert>
       </Box>
     );
 
   return (
     <Box sx={{ bgcolor: "background.default", minHeight: "100vh", pb: 6 }}>
+      <SEOHead
+        title={t("tournaments.registration.seoTitle", {
+          name: tour?.name || t("tournaments.registration.seoFallbackName"),
+        })}
+        description={t("tournaments.registration.seoDescription", {
+          name: tour?.name || t("tournaments.registration.seoFallbackName"),
+        })}
+        path={`/tournament/${id}/register`}
+      />
       {/* --- 1. HERO BANNER --- */}
       <Box
         sx={{
@@ -1372,7 +1454,11 @@ export default function TournamentRegistration() {
             <Grid size={{ xs: 12, md: 7 }}>
               <Stack direction="row" spacing={1} mb={2}>
                 <Chip
-                  label={isSingles ? "Đơn" : "Đôi"}
+                  label={
+                    isSingles
+                      ? t("tournaments.registration.eventSingles")
+                      : t("tournaments.registration.eventDoubles")
+                  }
                   size="small"
                   sx={{
                     bgcolor: "rgba(255,255,255,0.2)",
@@ -1383,7 +1469,9 @@ export default function TournamentRegistration() {
                 />
                 <Chip
                   icon={<LocationOn sx={{ color: "white !important" }} />}
-                  label={tour.location || "Đang cập nhật"}
+                  label={
+                    tour.location || t("tournaments.registration.locationFallback")
+                  }
                   size="small"
                   sx={{ bgcolor: "transparent", color: "primary.contrastText", pl: 0.5 }}
                 />
@@ -1407,11 +1495,11 @@ export default function TournamentRegistration() {
               >
                 <CalendarMonth fontSize="small" />
                 <span>
-                  {new Date(tour.startDate).toLocaleDateString("vi-VN")}
+                  {formatLocaleDate(tour.startDate, locale)}
                 </span>
-                <span>—</span>
+                <span>{t("tournaments.registration.dateRangeSeparator")}</span>
                 <span>
-                  {new Date(tour.endDate).toLocaleDateString("vi-VN")}
+                  {formatLocaleDate(tour.endDate, locale)}
                 </span>
               </Stack>
             </Grid>
@@ -1428,7 +1516,7 @@ export default function TournamentRegistration() {
                 <RegistrationCountdown deadline={rawDeadline} />
               ) : isRegClosed ? (
                 <Chip
-                  label="ĐÃ ĐÓNG CỔNG ĐĂNG KÝ"
+                  label={t("tournaments.registration.registrationClosedChip")}
                   color="error"
                   sx={{
                     fontWeight: "bold",
@@ -1484,13 +1572,22 @@ export default function TournamentRegistration() {
               <Grid size={{ xs: 6, md: 3 }}>
                 <StatCard
                   icon={<EmojiEvents />}
-                  label="Tổng điểm tối đa"
-                  value={cap > 0 ? fmt3(cap) : "Không giới hạn"}
+                  label={t("tournaments.registration.stats.maxScore")}
+                  value={
+                    cap > 0 ? fmt3(cap) : t("tournaments.registration.unlimited")
+                  }
                   subValue={[
-                    `Điểm mỗi VĐV: ${
-                      eachCap > 0 ? fmt3(eachCap) : "Không giới hạn"
-                    }`,
-                    delta > 0 ? `Chênh lệch: ${fmt3(delta)}` : null,
+                    t("tournaments.registration.stats.playerScore", {
+                      value:
+                        eachCap > 0
+                          ? fmt3(eachCap)
+                          : t("tournaments.registration.unlimited"),
+                    }),
+                    delta > 0
+                      ? t("tournaments.registration.stats.delta", {
+                          value: fmt3(delta),
+                        })
+                      : null,
                   ]
                     .filter(Boolean)
                     .join(" • ")}
@@ -1499,32 +1596,40 @@ export default function TournamentRegistration() {
               <Grid size={{ xs: 6, md: 3 }}>
                 <StatCard
                   icon={<Groups />}
-                  label="Đã đăng ký"
+                  label={t("tournaments.registration.stats.registered")}
                   value={activeList.length}
-                  subValue={isSingles ? "Vận động viên" : "Cặp đôi"}
+                  subValue={
+                    isSingles
+                      ? t("tournaments.registration.stats.participants")
+                      : t("tournaments.registration.stats.teams")
+                  }
                 />
               </Grid>
               <Grid size={{ xs: 6, md: 3 }}>
                 <StatCard
                   icon={<MonetizationOn />}
-                  label="Đã thanh toán"
+                  label={t("tournaments.registration.stats.paid")}
                   value={paidCount}
-                  subValue={`${
-                    activeList.length
+                  subValue={t("tournaments.registration.stats.completion", {
+                    value: activeList.length
                       ? Math.round((paidCount / activeList.length) * 100)
-                      : 0
-                  }% hoàn thành`}
+                      : 0,
+                  })}
                 />
               </Grid>
               <Grid size={{ xs: 6, md: 3 }}>
                 <StatCard
                   icon={<AccessTimeFilled />}
-                  label="Trạng thái"
-                  value={isRegClosed ? "Đã đóng" : "Đang mở"}
+                  label={t("tournaments.registration.stats.status")}
+                  value={
+                    isRegClosed
+                      ? t("tournaments.registration.stats.closed")
+                      : t("tournaments.registration.stats.open")
+                  }
                   subValue={
                     isRegClosed
-                      ? "Hẹn gặp bạn giải sau"
-                      : "Đăng ký ngay hôm nay"
+                      ? t("tournaments.registration.stats.nextTime")
+                      : t("tournaments.registration.stats.registerToday")
                   }
                 />
               </Grid>
@@ -1540,7 +1645,7 @@ export default function TournamentRegistration() {
                 {tour.contentHtml && (
                   <Box flex={1}>
                     <HtmlPreviewSection
-                      title="Điều lệ & Nội dung"
+                      title={t("tournaments.registration.previews.rulesTitle")}
                       html={tour.contentHtml}
                     />
                   </Box>
@@ -1548,7 +1653,7 @@ export default function TournamentRegistration() {
                 {tour.contactHtml && (
                   <Box flex={1}>
                     <HtmlPreviewSection
-                      title="Liên hệ BTC"
+                      title={t("tournaments.registration.previews.contactTitle")}
                       html={tour.contactHtml}
                     />
                   </Box>
@@ -1587,7 +1692,7 @@ export default function TournamentRegistration() {
                   <SportsTennis fontSize="small" />
                 </Box>
                 <Typography variant="h6" fontWeight={700}>
-                  Đăng ký thi đấu
+                  {t("tournaments.registration.form.title")}
                 </Typography>
               </Stack>
 
@@ -1599,11 +1704,11 @@ export default function TournamentRegistration() {
                   variant="outlined"
                   sx={{ borderRadius: 2 }}
                 >
-                  Vui lòng{" "}
+                  {t("tournaments.registration.form.loginPrefix")}{" "}
                   <Link to="/login" style={{ fontWeight: "bold" }}>
-                    đăng nhập
+                    {t("tournaments.registration.form.loginLink")}
                   </Link>{" "}
-                  để đăng ký.
+                  {t("tournaments.registration.form.loginSuffix")}
                 </Alert>
               ) : regLockedForUser ? (
                 <Alert
@@ -1611,8 +1716,7 @@ export default function TournamentRegistration() {
                   variant="filled"
                   sx={{ borderRadius: 2 }}
                 >
-                  Đã hết thời gian đăng ký cho VĐV. Vui lòng liên hệ BTC nếu cần
-                  hỗ trợ thêm.
+                  {t("tournaments.registration.form.locked")}
                 </Alert>
               ) : (
                 <form onSubmit={submit}>
@@ -1623,15 +1727,17 @@ export default function TournamentRegistration() {
                       gutterBottom
                       fontWeight={600}
                     >
-                      Vận động viên 1 (Bạn)
+                      {t("tournaments.registration.form.player1Title")}
                     </Typography>
                     {isAdmin ? (
                       <PlayerSelector
                         value={p1}
                         onChange={setP1}
                         eventType={tour.eventType}
-                        label="VĐV 1"
-                        placeholder="Tìm theo tên, SĐT..."
+                        label={t("tournaments.registration.form.player1Label")}
+                        placeholder={t(
+                          "tournaments.registration.form.playerSearchPlaceholder"
+                        )}
                       />
                     ) : (
                       <Card
@@ -1672,7 +1778,7 @@ export default function TournamentRegistration() {
                               {me?.nickname ||
                                 me?.name ||
                                 me?.fullName ||
-                                "VĐV 1"}
+                                t("tournaments.registration.form.player1Fallback")}
                             </Typography>
 
                             {/* Badge KYC dính sát tên */}
@@ -1681,11 +1787,12 @@ export default function TournamentRegistration() {
 
                           {/* Hàng điểm + SĐT */}
                           <Typography variant="caption" color="text.secondary">
-                            Điểm:{" "}
+                            {t("tournaments.registration.form.scorePrefix")}{" "}
                             {fmt3(
                               isSingles ? me?.score?.single : me?.score?.double
                             )}{" "}
-                            • {me?.phone || "Chưa có SĐT"}
+                            •{" "}
+                            {me?.phone || t("tournaments.registration.form.noPhone")}
                           </Typography>
                         </Box>
                       </Card>
@@ -1700,14 +1807,16 @@ export default function TournamentRegistration() {
                         gutterBottom
                         fontWeight={600}
                       >
-                        Vận động viên 2 (Partner)
+                        {t("tournaments.registration.form.player2Title")}
                       </Typography>
                       <PlayerSelector
                         value={p2}
                         onChange={setP2}
                         eventType={tour.eventType}
-                        label="VĐV 2"
-                        placeholder="Tìm theo tên, SĐT..."
+                        label={t("tournaments.registration.form.player2Label")}
+                        placeholder={t(
+                          "tournaments.registration.form.playerSearchPlaceholder"
+                        )}
                       />
                     </Box>
                   )}
@@ -1716,8 +1825,8 @@ export default function TournamentRegistration() {
                     fullWidth
                     multiline
                     rows={2}
-                    label="Lời nhắn cho BTC"
-                    placeholder="Ví dụ: Xin ghép cặp, xin đánh trễ..."
+                    label={t("tournaments.registration.form.noteLabel")}
+                    placeholder={t("tournaments.registration.form.notePlaceholder")}
                     size="small"
                     value={msg}
                     onChange={(e) => setMsg(e.target.value)}
@@ -1739,7 +1848,9 @@ export default function TournamentRegistration() {
                       fontSize: "1rem",
                     }}
                   >
-                    {saving ? "Đang xử lý..." : "Gửi Đăng Ký Ngay"}
+                    {saving
+                      ? t("tournaments.registration.form.submitting")
+                      : t("tournaments.registration.form.submit")}
                   </Button>
                   <Typography
                     variant="caption"
@@ -1747,7 +1858,7 @@ export default function TournamentRegistration() {
                     display="block"
                     sx={{ mt: 1.5, color: "text.secondary" }}
                   >
-                    Bằng việc đăng ký, bạn đồng ý với điều lệ giải.
+                    {t("tournaments.registration.form.agreement")}
                   </Typography>
                 </form>
               )}
@@ -1764,7 +1875,7 @@ export default function TournamentRegistration() {
                       component={Link}
                       to={`/tournament/${id}/manage`}
                     >
-                      Quản lý giải đấu
+                      {t("tournaments.registration.actions.manageTournament")}
                     </Button>
 
                     {/* Nút Bốc thăm – căn giữa nội dung */}
@@ -1780,7 +1891,7 @@ export default function TournamentRegistration() {
                         textTransform: "none",
                       }}
                     >
-                      Bốc thăm
+                      {t("tournaments.registration.actions.draw")}
                     </Button>
                   </Stack>
                 )}
@@ -1798,7 +1909,7 @@ export default function TournamentRegistration() {
                     textTransform: "none",
                   }}
                 >
-                  Xem Sơ đồ thi đấu
+                  {t("tournaments.registration.actions.bracket")}
                 </Button>
 
                 <Button
@@ -1813,7 +1924,7 @@ export default function TournamentRegistration() {
                     textTransform: "none",
                   }}
                 >
-                  Check-in
+                  {t("tournaments.registration.actions.checkin")}
                 </Button>
               </Stack>
             </Paper>
@@ -1849,12 +1960,12 @@ export default function TournamentRegistration() {
               >
                 <Stack direction="row" alignItems="center" spacing={1.5}>
                   <Typography variant="h6" fontWeight={700}>
-                    Danh sách tham gia
+                    {t("tournaments.registration.list.title")}
                   </Typography>
                   <Chip
                     label={
                       regsLoading || searching
-                        ? "Đang tải..."
+                        ? t("tournaments.registration.list.loading")
                         : String(activeList.length)
                     }
                     color="primary"
@@ -1863,7 +1974,7 @@ export default function TournamentRegistration() {
                   />
                 </Stack>
                 <TextField
-                  placeholder="Tìm tên, SĐT, mã..."
+                  placeholder={t("tournaments.registration.list.searchPlaceholder")}
                   size="small"
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
@@ -1900,7 +2011,7 @@ export default function TournamentRegistration() {
                 ) : activeList.length === 0 ? (
                   <Box p={4} textAlign="center" color="text.secondary">
                     <Groups sx={{ fontSize: 48, opacity: 0.3, mb: 1 }} />
-                    <Typography>Chưa có đăng ký nào.</Typography>
+                    <Typography>{t("tournaments.registration.list.empty")}</Typography>
                   </Box>
                 ) : (
                   <Box sx={{ p: 2 }}>
@@ -1944,7 +2055,9 @@ export default function TournamentRegistration() {
         maxWidth="md"
         fullWidth
       >
-        <DialogTitle sx={{ p: 2 }}>{imgPreview.name || "Ảnh VĐV"}</DialogTitle>
+        <DialogTitle sx={{ p: 2 }}>
+          {imgPreview.name || t("tournaments.registration.dialogs.imageFallback")}
+        </DialogTitle>
         <DialogContent
           sx={{
             p: 0,
@@ -1975,28 +2088,28 @@ export default function TournamentRegistration() {
       >
         <DialogTitle>
           {replaceDlg.slot === "p2"
-            ? "Thay đổi / Thêm VĐV 2"
-            : "Thay đổi VĐV 1"}
+            ? t("tournaments.registration.dialogs.replaceTitlePlayer2")
+            : t("tournaments.registration.dialogs.replaceTitlePlayer1")}
         </DialogTitle>
         <DialogContent dividers>
           <Alert severity="info" sx={{ mb: 2 }}>
-            Chọn VĐV mới để thay thế vào vị trí này.
+            {t("tournaments.registration.dialogs.replaceInfo")}
           </Alert>
           <PlayerSelector
             value={newPlayer}
             onChange={setNewPlayer}
             eventType={tour.eventType}
-            label="Tìm kiếm VĐV..."
+            label={t("tournaments.registration.dialogs.replaceSearch")}
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseReplace}>Hủy</Button>
+          <Button onClick={handleCloseReplace}>{t("common.actions.cancel")}</Button>
           <Button
             variant="contained"
             onClick={submitReplace}
             disabled={!newPlayer}
           >
-            Lưu thay đổi
+            {t("tournaments.registration.dialogs.saveChanges")}
           </Button>
         </DialogActions>
       </Dialog>
@@ -2008,16 +2121,16 @@ export default function TournamentRegistration() {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle>Gửi khiếu nại / Hỗ trợ</DialogTitle>
+        <DialogTitle>{t("tournaments.registration.dialogs.complaintTitle")}</DialogTitle>
         <DialogContent dividers>
           <Typography variant="body2" gutterBottom color="text.secondary">
-            Nội dung sẽ được gửi tới Ban Tổ Chức giải đấu.
+            {t("tournaments.registration.dialogs.complaintInfo")}
           </Typography>
           <TextField
             fullWidth
             multiline
             rows={4}
-            placeholder="Nhập nội dung..."
+            placeholder={t("tournaments.registration.dialogs.complaintPlaceholder")}
             value={complaintDlg.text}
             onChange={(e) =>
               setComplaintDlg((s) => ({ ...s, text: e.target.value }))
@@ -2026,13 +2139,15 @@ export default function TournamentRegistration() {
           />
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseComplaint}>Đóng</Button>
+          <Button onClick={handleCloseComplaint}>{t("common.actions.close")}</Button>
           <Button
             variant="contained"
             onClick={submitComplaint}
             disabled={sendingComplaint}
           >
-            {sendingComplaint ? "Đang gửi..." : "Gửi khiếu nại"}
+            {sendingComplaint
+              ? t("tournaments.registration.dialogs.complaintSending")
+              : t("tournaments.registration.dialogs.complaintSubmit")}
           </Button>
         </DialogActions>
       </Dialog>
@@ -2044,13 +2159,14 @@ export default function TournamentRegistration() {
         maxWidth="xs"
         fullWidth
       >
-        <DialogTitle>Thanh toán lệ phí</DialogTitle>
+        <DialogTitle>{t("tournaments.registration.dialogs.paymentTitle")}</DialogTitle>
         <DialogContent sx={{ textAlign: "center", pb: 4 }} dividers>
           {paymentDlg.reg && (
             <>
               <Typography variant="body2" mb={2}>
-                Quét mã bên dưới để thanh toán cho mã ĐK:{" "}
-                <b>{regCodeOf(paymentDlg.reg)}</b>
+                {t("tournaments.registration.dialogs.paymentIntro", {
+                  code: regCodeOf(paymentDlg.reg),
+                })}
               </Typography>
               {qrImgUrlFor(paymentDlg.reg) ? (
                 <Box
@@ -2072,7 +2188,7 @@ export default function TournamentRegistration() {
                 </Box>
               ) : (
                 <Alert severity="warning">
-                  BTC chưa cấu hình tài khoản ngân hàng.
+                  {t("tournaments.registration.dialogs.paymentNoBank")}
                 </Alert>
               )}
               <Typography
@@ -2081,8 +2197,7 @@ export default function TournamentRegistration() {
                 display="block"
                 mt={2}
               >
-                Nội dung chuyển khoản đã được tạo tự động. Vui lòng không sửa
-                đổi để hệ thống tự động cập nhật.
+                {t("tournaments.registration.dialogs.paymentNote")}
               </Typography>
             </>
           )}
@@ -2096,9 +2211,9 @@ export default function TournamentRegistration() {
               handleOpenComplaint(r);
             }}
           >
-            Báo lỗi / Khiếu nại
+            {t("tournaments.registration.dialogs.paymentReport")}
           </Button>
-          <Button onClick={handleClosePayment}>Đóng</Button>
+          <Button onClick={handleClosePayment}>{t("common.actions.close")}</Button>
         </DialogActions>
       </Dialog>
 

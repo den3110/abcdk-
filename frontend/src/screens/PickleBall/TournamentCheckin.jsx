@@ -7,11 +7,6 @@ import {
   TextField,
   Button as MuiButton,
   InputAdornment,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
   Chip,
   CircularProgress,
   Alert,
@@ -27,9 +22,6 @@ import {
   CardContent,
   Avatar,
   Grid,
-  IconButton,
-  Tooltip,
-  Badge,
   Container,
 } from "@mui/material";
 
@@ -42,7 +34,6 @@ import {
   QrCodeScanner as ScanIcon,
   CheckCircle as CheckCircleIcon,
   Cancel as CancelIcon,
-  Refresh as RefreshIcon,
   EventNote as BracketIcon,
   Group as ListIcon,
 } from "@mui/icons-material";
@@ -50,7 +41,6 @@ import { toast } from "react-toastify";
 
 import {
   useGetRegistrationsQuery,
-  useCheckinMutation,
   useGetTournamentQuery,
   useGetTournamentMatchesForCheckinQuery,
   useSearchUserMatchesQuery,
@@ -59,11 +49,12 @@ import {
 } from "../../slices/tournamentsApiSlice";
 
 import { useSocket } from "../../context/SocketContext";
+import { useLanguage } from "../../context/LanguageContext";
+import { formatTime } from "../../i18n/format";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 
 /* ---------- Utils & Config ---------- */
-const fmtDate = (s) => (s ? new Date(s).toLocaleDateString("vi-VN") : "—");
-const fmtTime = (s) => (s && s.length ? s : "—");
+const fmtTimeValue = (s, fallback) => (s && s.length ? s : fallback);
 const normType = (t) => {
   const s = String(t || "").toLowerCase();
   if (s === "single" || s === "singles") return "single";
@@ -74,67 +65,6 @@ const normType = (t) => {
 // Màu sắc chủ đạo (Bạn có thể chỉnh theo brand)
 const BRAND_COLOR = "#1976d2";
 const ACCENT_COLOR = "#ff9800";
-
-/* ---------- Referee helpers ---------- */
-const toArr = (v) => (Array.isArray(v) ? v : v ? [v] : []);
-const nickOf = (u) => {
-  if (!u) return "";
-  if (typeof u === "string") return u;
-  const nick =
-    u.nickName || u.nickname || u.userName || u.username || u.displayName || "";
-  const name = u.fullName || u.name || "";
-  return String(nick || name || "").trim();
-};
-
-const buildRefIndexFromMatches = (matches, regResults) => {
-  const map = new Map();
-  const add = (r) => {
-    if (!r || typeof r !== "object") return;
-    const id = String(
-      r._id || r.id || r.nickname || r.nickName || r.name || ""
-    );
-    if (!id) return;
-    map.set(id, r);
-    if (r.nickname) map.set(`nick:${String(r.nickname).toLowerCase()}`, r);
-    if (r.nickName) map.set(`nick:${String(r.nickName).toLowerCase()}`, r);
-    if (r.name) map.set(`name:${String(r.name).toLowerCase()}`, r);
-  };
-  const scan = (m) => {
-    if (!m) return;
-    [
-      ...toArr(m.referees),
-      ...toArr(m.referee),
-      ...toArr(m.refereeIds),
-      ...toArr(m.refereeId),
-    ]
-      .flat()
-      .forEach((x) => typeof x === "object" && add(x));
-  };
-  (matches || []).forEach(scan);
-  (regResults || []).forEach((reg) => (reg.matches || []).forEach(scan));
-  return map;
-};
-
-const makeRenderRefs = (refIndex) => (m) => {
-  const raw =
-    m?.referees ?? m?.referee ?? m?.refereeIds ?? m?.refereeId ?? null;
-  const arr = toArr(raw);
-  const labels = arr
-    .map((x) => {
-      if (!x) return "";
-      if (typeof x === "object") return nickOf(x);
-      const id = String(x);
-      const byId = refIndex.get(id);
-      if (byId) return nickOf(byId);
-      const byNick = refIndex.get(`nick:${id.toLowerCase()}`);
-      if (byNick) return nickOf(byNick);
-      const byName = refIndex.get(`name:${id.toLowerCase()}`);
-      if (byName) return nickOf(byName);
-      return id;
-    })
-    .filter(Boolean);
-  return labels.length ? labels.join(", ") : "—";
-};
 
 /* ---------- Styled Components (via SX) ---------- */
 const cardStyle = {
@@ -156,7 +86,8 @@ import SEOHead from "../../components/SEOHead";
 export default function TournamentCheckin() {
   const { id } = useParams();
   const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  useMediaQuery(theme.breakpoints.down("sm"));
+  const { locale, t } = useLanguage();
 
   /* fetch tournament / registrations / matches */
   const { data: tour, isLoading: tourLoading } = useGetTournamentQuery(id);
@@ -165,8 +96,6 @@ export default function TournamentCheckin() {
 
 
   const {
-    data: regs = [],
-    isLoading: regsLoading,
     error: regsError,
     refetch: refetchRegs,
   } = useGetRegistrationsQuery(id);
@@ -199,9 +128,6 @@ export default function TournamentCheckin() {
   );
 
   /* (Cũ) Check-in theo SĐT - Giữ logic nhưng ẩn UI nếu không cần thiết, hoặc tích hợp */
-  const [phone, setPhone] = useState("");
-  const [busyId, setBusy] = useState(null);
-  const [checkin] = useCheckinMutation();
 
   /* (Mới) Tìm & check-in theo SĐT/Nickname */
   const [q, setQ] = useState("");
@@ -210,7 +136,6 @@ export default function TournamentCheckin() {
     data: searchRes,
     isFetching: searching,
     isError: searchError,
-    error: searchErrObj,
     refetch: refetchSearch,
   } = useSearchUserMatchesQuery(
     { tournamentId: id, q: submittedQ },
@@ -221,15 +146,15 @@ export default function TournamentCheckin() {
 
   const onSubmitSearch = useCallback(() => {
     const key = q.trim();
-    if (!key) return toast.info("Nhập SĐT hoặc nickname để tìm");
+    if (!key) return toast.info(t("tournaments.checkin.searchHint"));
     setSubmittedQ(key);
-  }, [q]);
+  }, [q, t]);
 
   const onKeyDownSearch = (e) => {
     if (e.key === "Enter") onSubmitSearch();
   };
 
-  const results = searchRes?.results || [];
+  const results = useMemo(() => searchRes?.results || [], [searchRes]);
 
   const handleUserCheckin = async (regId) => {
     try {
@@ -238,18 +163,22 @@ export default function TournamentCheckin() {
         q: submittedQ,
         regId,
       }).unwrap();
-      toast.success(res?.message || "Check-in thành công");
+      toast.success(res?.message || t("tournaments.checkin.checkinSuccess"));
       try {
         socket?.emit?.("registration:checkin", {
           tournamentId: id,
           regId,
           keyword: submittedQ,
         });
-      } catch {}
+      } catch {
+        // ignore socket sync errors
+      }
       refetchSearch();
       refetchRegs();
     } catch (e) {
-      toast.error(e?.data?.message || e?.error || "Check-in thất bại");
+      toast.error(
+        e?.data?.message || e?.error || t("tournaments.checkin.checkinFailed")
+      );
     }
   };
 
@@ -372,14 +301,18 @@ export default function TournamentCheckin() {
         bracketIds.forEach((bid) =>
           socket.emit("draw:subscribe", { bracketId: bid })
         );
-      } catch {}
+      } catch {
+        // ignore subscribe errors during reconnect
+      }
     };
     const unsubscribeDrawRooms = () => {
       try {
         bracketIds.forEach((bid) =>
           socket.emit("draw:unsubscribe", { bracketId: bid })
         );
-      } catch {}
+      } catch {
+        // ignore unsubscribe errors during teardown
+      }
     };
     const joinAllMatches = () => {
       try {
@@ -390,7 +323,9 @@ export default function TournamentCheckin() {
             joinedRef.current.add(mid);
           }
         });
-      } catch {}
+      } catch {
+        // ignore socket join errors during reconnect
+      }
     };
 
     const onUpsert = (payload) => queueUpsert(payload);
@@ -453,12 +388,6 @@ export default function TournamentCheckin() {
     [id, liveBump]
   );
 
-  const refIndex = useMemo(
-    () => buildRefIndexFromMatches(matches, results),
-    [matches, results]
-  );
-  const renderRefs = useMemo(() => makeRenderRefs(refIndex), [refIndex]);
-
   /* Filter matches */
   const [search, setSearch] = useState("");
   const filtered = useMemo(() => {
@@ -491,7 +420,9 @@ export default function TournamentCheckin() {
       try {
         socket?.emit?.("match:join", { matchId: String(mid) });
         socket?.emit?.("match:snapshot:request", { matchId: String(mid) });
-      } catch {}
+      } catch {
+        // ignore viewer socket sync errors
+      }
     },
     [socket]
   );
@@ -530,7 +461,12 @@ export default function TournamentCheckin() {
         fontFamily: "'Inter', sans-serif",
       }}
     >
-      <SEOHead title={`Check-in - ${tour?.name || "Giải đấu"}`} noIndex={true} />
+      <SEOHead
+        title={t("tournaments.checkin.seoTitle", {
+          name: tour?.name || t("tournaments.checkin.seoFallbackName"),
+        })}
+        noIndex={true}
+      />
       {/* HERO HEADER */}
       <Box
         sx={{
@@ -558,7 +494,7 @@ export default function TournamentCheckin() {
                     variant="overline"
                     sx={{ opacity: 0.9, letterSpacing: 1.5 }}
                   >
-                    Tournament Dashboard
+                    {t("tournaments.checkin.heroEyebrow")}
                   </Typography>
                 </Stack>
                 {tourLoading ? (
@@ -584,7 +520,11 @@ export default function TournamentCheckin() {
                   {!tourLoading && (
                     <Chip
                       icon={<TennisIcon sx={{ fill: "white !important" }} />}
-                      label={isSingles ? "Giải đơn" : "Giải đôi"}
+                      label={
+                        isSingles
+                          ? t("tournaments.checkin.singlesEvent")
+                          : t("tournaments.checkin.doublesEvent")
+                      }
                       sx={{
                         bgcolor: "rgba(255,255,255,0.2)",
                         color: "white",
@@ -608,7 +548,7 @@ export default function TournamentCheckin() {
                     "&:hover": { bgcolor: "#e3f2fd" },
                   }}
                 >
-                  Sơ đồ giải
+                  {t("tournaments.checkin.bracketButton")}
                 </MuiButton>
                 <MuiButton
                   component={Link}
@@ -624,7 +564,7 @@ export default function TournamentCheckin() {
                     },
                   }}
                 >
-                  Danh sách VĐV
+                  {t("tournaments.checkin.participantsButton")}
                 </MuiButton>
               </Stack>
             </Stack>
@@ -650,7 +590,7 @@ export default function TournamentCheckin() {
               sx={{ display: "flex", alignItems: "center", gap: 1 }}
             >
               <ScanIcon color="primary" />
-              Check-in Vận động viên
+              {t("tournaments.checkin.searchTitle")}
             </Typography>
 
             <Stack
@@ -660,7 +600,7 @@ export default function TournamentCheckin() {
             >
               <TextField
                 fullWidth
-                placeholder="Nhập số điện thoại hoặc tên VĐV..."
+                placeholder={t("tournaments.checkin.searchPlaceholder")}
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 onKeyDown={onKeyDownSearch}
@@ -690,7 +630,7 @@ export default function TournamentCheckin() {
                 {searching ? (
                   <CircularProgress size={24} color="inherit" />
                 ) : (
-                  "TÌM KIẾM"
+                  t("tournaments.checkin.searchButton")
                 )}
               </MuiButton>
             </Stack>
@@ -701,12 +641,14 @@ export default function TournamentCheckin() {
               results.length === 0 &&
               !searchError && (
                 <Alert severity="info" sx={{ mt: 3, borderRadius: 2 }}>
-                  Không tìm thấy dữ liệu cho <strong>"{submittedQ}"</strong>
+                  {t("tournaments.checkin.searchEmpty", {
+                    query: submittedQ,
+                  })}
                 </Alert>
               )}
             {searchError && (
               <Alert severity="error" sx={{ mt: 3, borderRadius: 2 }}>
-                Đã có lỗi xảy ra khi tìm kiếm.
+                {t("tournaments.checkin.searchError")}
               </Alert>
             )}
 
@@ -748,7 +690,7 @@ export default function TournamentCheckin() {
                                 {teamLabel?.charAt(0)?.toUpperCase()}
                               </Avatar>
                               <Typography variant="h5" fontWeight={700}>
-                                {teamLabel || "Chưa có tên"}
+                                {teamLabel || t("tournaments.checkin.unnamedTeam")}
                               </Typography>
                             </Stack>
                             <Stack
@@ -760,7 +702,9 @@ export default function TournamentCheckin() {
                               <Chip
                                 size="small"
                                 label={
-                                  reg.paid ? "Đã đóng phí" : "Chưa đóng phí"
+                                  reg.paid
+                                    ? t("tournaments.checkin.feePaid")
+                                    : t("tournaments.checkin.feeUnpaid")
                                 }
                                 color={reg.paid ? "success" : "warning"}
                                 variant={reg.paid ? "filled" : "outlined"}
@@ -775,12 +719,12 @@ export default function TournamentCheckin() {
                               {reg.checkinAt ? (
                                 <Chip
                                   size="small"
-                                  label={`Check-in lúc ${new Date(
-                                    reg.checkinAt
-                                  ).toLocaleTimeString("vi-VN", {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}`}
+                                  label={t("tournaments.checkin.checkedInAt", {
+                                    time: formatTime(reg.checkinAt, locale, {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    }),
+                                  })}
                                   color="primary"
                                   sx={{
                                     bgcolor: "#e3f2fd",
@@ -789,7 +733,10 @@ export default function TournamentCheckin() {
                                   }}
                                 />
                               ) : (
-                                <Chip size="small" label="Chưa điểm danh" />
+                                <Chip
+                                  size="small"
+                                  label={t("tournaments.checkin.notCheckedIn")}
+                                />
                               )}
                             </Stack>
                           </Box>
@@ -817,7 +764,9 @@ export default function TournamentCheckin() {
                               opacity: !canCheckin ? 0.6 : 1,
                             }}
                           >
-                            {reg.checkinAt ? "ĐÃ CHECK-IN" : "CHECK-IN NGAY"}
+                            {reg.checkinAt
+                              ? t("tournaments.checkin.checkedIn")
+                              : t("tournaments.checkin.checkinNow")}
                           </MuiButton>
                         </Stack>
                       </CardContent>
@@ -839,12 +788,12 @@ export default function TournamentCheckin() {
             spacing={2}
           >
             <Typography variant="h5" fontWeight={800} sx={gradientText}>
-              Danh sách các trận
+              {t("tournaments.checkin.matchesTitle")}
             </Typography>
 
             <TextField
               size="small"
-              placeholder="Tìm trận đấu, VĐV, sân..."
+              placeholder={t("tournaments.checkin.matchesSearchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               InputProps={{
@@ -882,7 +831,7 @@ export default function TournamentCheckin() {
               ) : filtered.length === 0 ? (
                 <Box width="100%" textAlign="center" py={5}>
                   <Typography color="text.secondary">
-                    Chưa có trận đấu nào phù hợp.
+                    {t("tournaments.checkin.noMatches")}
                   </Typography>
                 </Box>
               ) : (
@@ -1035,7 +984,10 @@ export default function TournamentCheckin() {
                           >
                             <TimeIcon fontSize="inherit" />
                             <Typography variant="caption">
-                              {fmtTime(m.time)}
+                              {fmtTimeValue(
+                                m.time,
+                                t("common.unavailable")
+                              )}
                             </Typography>
                           </Stack>
                           <Stack
@@ -1045,7 +997,9 @@ export default function TournamentCheckin() {
                           >
                             <LocationIcon fontSize="inherit" />
                             <Typography variant="caption">
-                              {m.field || m?.court?.name || "Sân ?"}
+                              {m.field ||
+                                m?.court?.name ||
+                                t("tournaments.checkin.courtFallback")}
                             </Typography>
                           </Stack>
                           {m?.bracket?.name && (

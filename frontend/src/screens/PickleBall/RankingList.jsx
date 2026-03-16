@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 // RankingList.jsx
 import React, {
   useEffect,
@@ -79,6 +80,8 @@ import { useReviewKycMutation } from "../../slices/adminApiSlice";
 import { skipToken } from "@reduxjs/toolkit/query";
 import SponsorMarquee from "../../components/SponsorMarquee";
 import SEOHead from "../../components/SEOHead";
+import { useLanguage } from "../../context/LanguageContext";
+import { formatDate } from "../../i18n/format";
 
 /* ================= LAZY LOADING AVATAR COMPONENT ================= */
 const LazyAvatar = memo(
@@ -159,6 +162,7 @@ const LazyAvatar = memo(
 LazyAvatar.displayName = "LazyAvatar";
 
 function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
+  const { t } = useLanguage();
   const [loaded, setLoaded] = React.useState(false);
   const [err, setErr] = React.useState(false);
   const imgRef = React.useRef(null);
@@ -259,7 +263,7 @@ function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
           }}
         >
           <Typography variant="body2" color="text.secondary">
-            Không tải được ảnh
+            {t("rankings.feedback.imageLoadFailed")}
           </Typography>
         </Box>
       )}
@@ -275,7 +279,7 @@ function KycImage({ src, alt, label, onClick, maxHeight = 320 }) {
           }}
         >
           <Typography variant="body2" color="text.secondary">
-            Chưa có ảnh
+            {t("rankings.feedback.noImage")}
           </Typography>
         </Box>
       )}
@@ -296,7 +300,6 @@ const HEX = {
 const MIN_RATING = 1.6;
 const MAX_RATING = 8.0;
 const fmt3 = (x) => (Number.isFinite(x) ? Number(x).toFixed(3) : "0.000");
-const prettyDate = (d) => (d ? new Date(d).toLocaleDateString("vi-VN") : "—");
 
 const SKELETON_CARDS_MOBILE = 6;
 const SKELETON_ROWS_DESKTOP = 10;
@@ -329,27 +332,27 @@ const calcAge = (u) => {
   return null;
 };
 
-const cccdBadge = (status) => {
+const cccdBadge = (status, t) => {
   switch (status) {
     case "verified":
-      return { text: "Đã xác thực", color: "success" };
+      return { text: t("rankings.statuses.verified"), color: "success" };
     case "pending":
-      return { text: "Chờ xác thực", color: "warning" };
+      return { text: t("rankings.statuses.pending"), color: "warning" };
     default:
-      return { text: "Chưa xác thực", color: "default" };
+      return { text: t("rankings.statuses.unverified"), color: "default" };
   }
 };
 
-const genderLabel = (g) => {
+const genderLabel = (g, t) => {
   switch (g) {
     case "male":
-      return "Nam";
+      return t("profile.genderOptions.male");
     case "female":
-      return "Nữ";
+      return t("rankings.statuses.female");
     case "other":
-      return "Khác";
+      return t("rankings.statuses.other");
     case "unspecified":
-      return "Chưa xác định";
+      return t("rankings.statuses.unspecified");
     default:
       return "--";
   }
@@ -461,13 +464,13 @@ const flameCardSx = (type = "gold") => ({
   },
 });
 
-const medalLabel = (m) =>
+const medalLabel = (m, t) =>
   m === "gold"
-    ? "Nhà vô địch"
+    ? t("rankings.medals.champion")
     : m === "silver"
-    ? "Á quân"
+    ? t("rankings.medals.runnerUp")
     : m === "bronze"
-    ? "Đồng hạng 3"
+    ? t("rankings.medals.bronze")
     : "";
 
 const medalChipStyle = (medal, maxWidth = 280) => ({
@@ -506,7 +509,6 @@ const medalChipStyleFull = (medal, maxWidth = "100%") => ({
 const DesktopCard = memo(
   ({
     r,
-    idx,
     me,
     cccdPatch,
     patchMap,
@@ -518,10 +520,12 @@ const DesktopCard = memo(
     onOpenKyc,
     onZoomAvatar,
     staggerDelay,
+    locale,
+    t,
   }) => {
     const u = r?.user || {};
     const effectiveStatus = (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
-    const badge = useMemo(() => cccdBadge(effectiveStatus), [effectiveStatus]);
+    const badge = useMemo(() => cccdBadge(effectiveStatus, t), [effectiveStatus, t]);
     const avatarSrc =
       u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
     const tierHex = HEX[r?.tierColor] || HEX.grey;
@@ -583,7 +587,7 @@ const DesktopCard = memo(
                     mt={0.5}
                   >
                     {Number.isFinite(age) && (
-                      <Chip size="small" label={`${age} tuổi`} />
+                      <Chip size="small" label={t("rankings.labels.age", { value: age })} />
                     )}
                     <Chip label={badge.text} size="small" color={badge.color} />
                   </Stack>
@@ -626,9 +630,9 @@ const DesktopCard = memo(
               >
                 <Chip
                   size="small"
-                  label={`Giới tính: ${genderLabel(u?.gender)}`}
+                  label={t("rankings.labels.gender", { value: genderLabel(u?.gender, t) })}
                 />
-                <Chip size="small" label={`Tỉnh: ${u?.province || "--"}`} />
+                <Chip size="small" label={t("rankings.labels.province", { value: u?.province || "--" })} />
               </Stack>
 
               <Divider sx={{ mb: 1.25 }} />
@@ -640,10 +644,10 @@ const DesktopCard = memo(
                 sx={{ "& .score": { color: tierHex, fontWeight: 700 } }}
               >
                 <Typography variant="body2" className="score">
-                  Đôi: {fmt3(patched.double)}
+                  {t("rankings.labels.doubles", { value: fmt3(patched.double) })}
                 </Typography>
                 <Typography variant="body2" className="score">
-                  Đơn: {fmt3(patched.single)}
+                  {t("rankings.labels.singles", { value: fmt3(patched.single) })}
                 </Typography>
               </Stack>
 
@@ -652,20 +656,20 @@ const DesktopCard = memo(
                 color="text.secondary"
                 display="block"
               >
-                Cập nhật:{" "}
-                {patched?.updatedAt
-                  ? new Date(patched.updatedAt).toLocaleDateString()
-                  : "--"}
+                {t("rankings.labels.updatedAt", {
+                  value: patched?.updatedAt
+                    ? formatDate(patched.updatedAt, locale)
+                    : "--",
+                })}
               </Typography>
               <Typography
                 variant="caption"
                 color="text.secondary"
                 display="block"
               >
-                Tham gia:{" "}
-                {u?.createdAt
-                  ? new Date(u.createdAt).toLocaleDateString()
-                  : "--"}
+                {t("common.updatedAt", {
+                  date: u?.createdAt ? formatDate(u.createdAt, locale) : "--",
+                })}
               </Typography>
 
               <Stack direction="row" spacing={1} mt="auto">
@@ -675,7 +679,7 @@ const DesktopCard = memo(
                   color="success"
                   onClick={() => onOpenProfile(u?._id)}
                 >
-                  Hồ sơ
+                  {t("rankings.actions.profile")}
                 </Button>
                 {canGrade && (
                   <Button
@@ -683,7 +687,7 @@ const DesktopCard = memo(
                     variant="outlined"
                     onClick={() => onOpenGrade(u, r)}
                   >
-                    Chấm trình
+                    {t("rankings.actions.grade")}
                   </Button>
                 )}
                 {allowKyc && (
@@ -692,7 +696,7 @@ const DesktopCard = memo(
                     variant="outlined"
                     onClick={() => onOpenKyc(u)}
                   >
-                    Xem KYC
+                    {t("rankings.actions.viewKyc")}
                   </Button>
                 )}
               </Stack>
@@ -709,6 +713,7 @@ DesktopCard.displayName = "DesktopCard";
 /* ================= Main Component ================= */
 export default function RankingList() {
   const dispatch = useDispatch();
+  const { locale, t } = useLanguage();
   const { keyword, page } = useSelector((s) => s?.rankingUi || {});
   const [searchParams, setSearchParams] = useSearchParams();
   const containerRef = useRef(null);
@@ -740,9 +745,7 @@ export default function RankingList() {
 
   const {
     data: podiumData,
-    isLoading: isLoadingPod,
     isFetching: isFetchingPod,
-    error: errorPod,
   } = useGetRankingsPodiums30dQuery();
 
   const list = listData?.docs || [];
@@ -968,12 +971,15 @@ export default function RankingList() {
       if (!inRange(singles) || !inRange(doubles)) {
         showSnack(
           "error",
-          `Điểm phải trong khoảng ${MIN_RATING} - ${MAX_RATING}`
+          t("rankings.feedback.invalidRange", {
+            min: MIN_RATING,
+            max: MAX_RATING,
+          })
         );
         return;
       }
       if (!gradeDlg.userId) {
-        showSnack("error", "Thiếu thông tin người được chấm hoặc tỉnh.");
+        showSnack("error", t("rankings.feedback.missingTarget"));
         return;
       }
 
@@ -1011,12 +1017,12 @@ export default function RankingList() {
         setProfileRefreshKey((k) => k + 1);
       }
 
-      showSnack("success", "Đã gửi phiếu chấm!");
+      showSnack("success", t("rankings.feedback.submitSuccess"));
       setGradeDlg({ open: false, userId: null, nickname: "", province: "" });
     } catch (err) {
       showSnack(
         "error",
-        err?.data?.message || err?.error || "Không thể gửi phiếu chấm"
+        err?.data?.message || err?.error || t("rankings.feedback.submitFailed")
       );
     }
   };
@@ -1036,12 +1042,14 @@ export default function RankingList() {
       setKycView((v) => (v ? { ...v, cccdStatus: nextStatus } : v));
       showSnack(
         "success",
-        action === "approve" ? "Đã duyệt KYC" : "Đã từ chối KYC"
+        action === "approve"
+          ? t("rankings.feedback.kycReviewed")
+          : t("rankings.feedback.kycRejected")
       );
     } catch (err) {
       showSnack(
         "error",
-        err?.data?.message || err?.error || "Không thể xử lý KYC"
+        err?.data?.message || err?.error || t("rankings.feedback.kycFailed")
       );
     }
   };
@@ -1085,10 +1093,10 @@ export default function RankingList() {
         })[0];
 
         const plusN = Math.max(0, arr.length - 1);
-        const medalText = medalLabel(picked.medal);
-        const tourName = picked.tournamentName || picked.name || "Giải đấu";
+        const medalText = medalLabel(picked.medal, t);
+        const tourName = picked.tournamentName || picked.name || t("rankings.labels.tournamentFallback");
         const fullTitle = `${medalText} – ${tourName}${
-          plusN > 0 ? ` (+${plusN} giải khác)` : ""
+          plusN > 0 ? t("rankings.labels.plusEvents", { count: plusN }) : ""
         }`;
 
         topMap.set(String(uid), picked.medal);
@@ -1103,7 +1111,7 @@ export default function RankingList() {
         labelFullByUser: fullMap,
         hrefByUser: hrefMap,
       };
-    }, [podiums30d]);
+    }, [podiums30d, t]);
 
   const handleChangeDesktopView = useCallback(
     (_, next) => {
@@ -1125,9 +1133,9 @@ export default function RankingList() {
   return (
     <>
       <SEOHead
-        title="Bảng xếp hạng"
-        description="Bảng xếp hạng Pickleball Việt Nam - Theo dõi thứ hạng, điểm trình và thành tích của các vận động viên."
-        keywords="bảng xếp hạng pickleball, điểm trình pickleball, ranking pickleball, vđv pickleball"
+        title={t("rankings.seoTitle")}
+        description={t("rankings.seoDescription")}
+        keywords={t("rankings.seoKeywords")}
         path="/rankings"
       />
       <SponsorMarquee variant="glass" height={80} gap={24} />
@@ -1164,7 +1172,7 @@ export default function RankingList() {
           gap={1}
         >
           <Typography variant="h5" fontWeight={600}>
-            Bảng xếp hạng
+            {t("rankings.title")}
           </Typography>
 
           <Stack direction="row" alignItems="center" spacing={1}>
@@ -1174,12 +1182,12 @@ export default function RankingList() {
                 value={desktopView}
                 exclusive
                 onChange={handleChangeDesktopView}
-                aria-label="Chế độ hiển thị desktop"
+                aria-label={t("rankings.viewModes.desktop")}
                 disabled={isFetching}
               >
-                <ToggleButton value="list" aria-label="Danh sách">
+                <ToggleButton value="list" aria-label={t("rankings.viewModes.list")}>
                   <Tooltip
-                    title="Hiển thị dạng danh sách"
+                    title={t("rankings.viewModes.listTooltip")}
                     arrow
                     enterDelay={500}
                   >
@@ -1189,8 +1197,8 @@ export default function RankingList() {
                   </Tooltip>
                 </ToggleButton>
 
-                <ToggleButton value="cards" aria-label="Thẻ">
-                  <Tooltip title="Hiển thị dạng lưới" arrow enterDelay={500}>
+                <ToggleButton value="cards" aria-label={t("rankings.viewModes.cards")}>
+                  <Tooltip title={t("rankings.viewModes.cardsTooltip")} arrow enterDelay={500}>
                     <Box component="span" sx={{ display: "flex" }}>
                       <GridViewIcon fontSize="small" />
                     </Box>
@@ -1206,7 +1214,7 @@ export default function RankingList() {
                 variant="contained"
                 size="small"
               >
-                Tự chấm trình
+                {t("rankings.selfAssess")}
               </Button>
             )}
           </Stack>
@@ -1219,21 +1227,21 @@ export default function RankingList() {
           sx={{ columnGap: 1.5, rowGap: 1, mb: 2 }}
         >
           <Chip
-            label="Điểm vàng: Đã xác thực"
+            label={t("rankings.scoreLegend.verified")}
             sx={{ bgcolor: HEX.yellow, color: "#000" }}
           />
           <Chip
-            label="Điểm đỏ: Tự chấm"
+            label={t("rankings.scoreLegend.selfAssessed")}
             sx={{ bgcolor: HEX.red, color: "#fff" }}
           />
           <Chip
-            label="Điểm xám: Chưa xác thực"
+            label={t("rankings.scoreLegend.unverified")}
             sx={{ bgcolor: HEX.grey, color: "#fff" }}
           />
         </Stack>
 
         <TextField
-          label="Tìm kiếm"
+          label={t("rankings.searchLabel")}
           variant="outlined"
           size="small"
           value={searchInput}
@@ -1262,7 +1270,7 @@ export default function RankingList() {
               </InputAdornment>
             ),
           }}
-          placeholder="Nick, tỉnh, số CCCD, ..."
+          placeholder={t("rankings.searchPlaceholder")}
         />
 
         {error ? (
@@ -1365,16 +1373,16 @@ export default function RankingList() {
                   <TableRow>
                     {[
                       "#",
-                      "Ảnh",
+                      t("rankings.table.avatar"),
                       "Nick",
-                      "Tuổi",
-                      "Giới tính",
-                      "Tỉnh",
-                      "Điểm đôi",
-                      "Điểm đơn",
-                      "Cập nhật",
+                      t("rankings.table.age"),
+                      t("rankings.table.gender"),
+                      t("rankings.table.province"),
+                      t("rankings.table.doubles"),
+                      t("rankings.table.singles"),
+                      t("rankings.table.updated"),
                       "Tham gia",
-                      "Xác thực",
+                      t("rankings.table.verified"),
                       "",
                     ].map((h) => (
                       <TableCell key={h}>{h}</TableCell>
@@ -1446,7 +1454,6 @@ export default function RankingList() {
               <DesktopCard
                 key={r?._id || r?.user?._id || idx}
                 r={r}
-                idx={idx}
                 me={me}
                 cccdPatch={cccdPatch}
                 patchMap={patchMap}
@@ -1458,17 +1465,19 @@ export default function RankingList() {
                 onOpenKyc={openKyc}
                 onZoomAvatar={openZoom}
                 staggerDelay={idx * 30}
+                locale={locale}
+                t={t}
               />
             ))}
           </Box>
         ) : isMobile ? (
           <Fade in timeout={400}>
             <Stack spacing={2}>
-              {list?.map((r, idx) => {
+              {list?.map((r) => {
                 const u = r?.user || {};
                 const effectiveStatus =
                   (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
-                const badge = cccdBadge(effectiveStatus);
+                const badge = cccdBadge(effectiveStatus, t);
                 const avatarSrc =
                   u?.avatar || PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
                 const tierHex = HEX[r?.tierColor] || HEX.grey;
@@ -1518,7 +1527,10 @@ export default function RankingList() {
                           flexWrap="wrap"
                         >
                           {Number.isFinite(age) && (
-                            <Chip size="small" label={`${age} tuổi`} />
+                            <Chip
+                              size="small"
+                              label={t("rankings.labels.age", { value: age })}
+                            />
                           )}
                           <Chip
                             label={badge.text}
@@ -1557,11 +1569,15 @@ export default function RankingList() {
                       >
                         <Chip
                           size="small"
-                          label={`Giới tính: ${genderLabel(u?.gender)}`}
+                          label={t("rankings.labels.gender", {
+                            value: genderLabel(u?.gender, t),
+                          })}
                         />
                         <Chip
                           size="small"
-                          label={`Tỉnh: ${u?.province || "--"}`}
+                          label={t("rankings.labels.province", {
+                            value: u?.province || "--",
+                          })}
                         />
                       </Stack>
 
@@ -1574,10 +1590,14 @@ export default function RankingList() {
                         sx={{ "& .score": { color: tierHex, fontWeight: 600 } }}
                       >
                         <Typography variant="body2" className="score">
-                          Đôi: {fmt3(patchedScores.double)}
+                          {t("rankings.labels.doubles", {
+                            value: fmt3(patchedScores.double),
+                          })}
                         </Typography>
                         <Typography variant="body2" className="score">
-                          Đơn: {fmt3(patchedScores.single)}
+                          {t("rankings.labels.singles", {
+                            value: fmt3(patchedScores.single),
+                          })}
                         </Typography>
                       </Stack>
 
@@ -1586,12 +1606,11 @@ export default function RankingList() {
                         color="text.secondary"
                         display="block"
                       >
-                        Cập nhật:{" "}
-                        {patchedScores?.updatedAt
-                          ? new Date(
-                              patchedScores.updatedAt
-                            ).toLocaleDateString()
-                          : "--"}
+                        {t("rankings.labels.updatedAt", {
+                          value: patchedScores?.updatedAt
+                            ? formatDate(patchedScores.updatedAt, locale)
+                            : "--",
+                        })}
                       </Typography>
                       <Typography
                         variant="caption"
@@ -1600,7 +1619,7 @@ export default function RankingList() {
                       >
                         Tham gia:{" "}
                         {u?.createdAt
-                          ? new Date(u.createdAt).toLocaleDateString()
+                          ? formatDate(u.createdAt, locale)
                           : "--"}
                       </Typography>
 
@@ -1617,7 +1636,7 @@ export default function RankingList() {
                           color="success"
                           onClick={() => handleOpenProfile(u?._id)}
                         >
-                          Hồ sơ
+                          {t("rankings.actions.profile")}
                         </Button>
                         {canGrade && (
                           <Button
@@ -1625,7 +1644,7 @@ export default function RankingList() {
                             variant="outlined"
                             onClick={() => openGrade(u, r)}
                           >
-                            Chấm trình
+                            {t("rankings.actions.grade")}
                           </Button>
                         )}
                         {allowKyc && (
@@ -1634,7 +1653,7 @@ export default function RankingList() {
                             variant="outlined"
                             onClick={() => openKyc(u)}
                           >
-                            Xem KYC
+                            {t("rankings.actions.viewKyc")}
                           </Button>
                         )}
                       </Stack>
@@ -1650,16 +1669,16 @@ export default function RankingList() {
               <TableHead>
                 <TableRow>
                   <TableCell>#</TableCell>
-                  <TableCell>Ảnh</TableCell>
+                  <TableCell>{t("rankings.table.avatar")}</TableCell>
                   <TableCell>Nick</TableCell>
-                  <TableCell>Tuổi</TableCell>
-                  <TableCell>Giới&nbsp;tính</TableCell>
-                  <TableCell>Tỉnh</TableCell>
-                  <TableCell>Điểm&nbsp;đôi</TableCell>
-                  <TableCell>Điểm&nbsp;đơn</TableCell>
-                  <TableCell>Cập nhật</TableCell>
+                  <TableCell>{t("rankings.table.age")}</TableCell>
+                  <TableCell>{t("rankings.table.gender")}</TableCell>
+                  <TableCell>{t("rankings.table.province")}</TableCell>
+                  <TableCell>{t("rankings.table.doubles")}</TableCell>
+                  <TableCell>{t("rankings.table.singles")}</TableCell>
+                  <TableCell>{t("rankings.table.updated")}</TableCell>
                   <TableCell>Tham gia</TableCell>
-                  <TableCell>Xác thực</TableCell>
+                  <TableCell>{t("rankings.table.verified")}</TableCell>
                   <TableCell></TableCell>
                 </TableRow>
               </TableHead>
@@ -1668,7 +1687,7 @@ export default function RankingList() {
                   const u = r?.user || {};
                   const effectiveStatus =
                     (u && u._id && cccdPatch[u._id]) || u?.cccdStatus;
-                  const badge = cccdBadge(effectiveStatus);
+                  const badge = cccdBadge(effectiveStatus, t);
                   const avatarSrc =
                     u?.avatar ||
                     PLACE + u?.nickname?.slice(0, 1)?.toUpperCase();
@@ -1732,7 +1751,7 @@ export default function RankingList() {
                         </Box>
                       </TableCell>
                       <TableCell>{Number.isFinite(age) ? age : "--"}</TableCell>
-                      <TableCell>{genderLabel(u?.gender)}</TableCell>
+                      <TableCell>{genderLabel(u?.gender, t)}</TableCell>
                       <TableCell>{u?.province || "--"}</TableCell>
                       <TableCell sx={{ color: tierHex, fontWeight: 600 }}>
                         {fmt3(patchedScores.double)}
@@ -1742,15 +1761,11 @@ export default function RankingList() {
                       </TableCell>
                       <TableCell>
                         {patchedScores?.updatedAt
-                          ? new Date(
-                              patchedScores.updatedAt
-                            ).toLocaleDateString()
+                          ? formatDate(patchedScores.updatedAt, locale)
                           : "--"}
                       </TableCell>
                       <TableCell>
-                        {u?.createdAt
-                          ? new Date(u.createdAt).toLocaleDateString()
-                          : "--"}
+                        {u?.createdAt ? formatDate(u.createdAt, locale) : "--"}
                       </TableCell>
                       <TableCell>
                         <Chip
@@ -1767,7 +1782,7 @@ export default function RankingList() {
                             color="success"
                             onClick={() => handleOpenProfile(u?._id)}
                           >
-                            Hồ sơ
+                            {t("rankings.actions.profile")}
                           </Button>
                           {canGrade && (
                             <Button
@@ -1775,7 +1790,7 @@ export default function RankingList() {
                               variant="outlined"
                               onClick={() => openGrade(u, r)}
                             >
-                              Chấm trình
+                              {t("rankings.actions.grade")}
                             </Button>
                           )}
                           {allowKyc && (
@@ -1784,7 +1799,7 @@ export default function RankingList() {
                               variant="outlined"
                               onClick={() => openKyc(u)}
                             >
-                              Xem KYC
+                            {t("rankings.actions.viewKyc")}
                             </Button>
                           )}
                         </Stack>
@@ -1824,7 +1839,7 @@ export default function RankingList() {
           sx={{ zIndex: (t) => t.zIndex.tooltip + 2 }}
           slotProps={{ paper: { sx: { borderRadius: 2 } } }}
         >
-          <DialogTitle>Ảnh KYC</DialogTitle>
+          <DialogTitle>{t("rankings.kycImageTitle")}</DialogTitle>
           <DialogContent
             dividers
             sx={{ display: "flex", justifyContent: "center" }}
@@ -1841,7 +1856,7 @@ export default function RankingList() {
             />
           </DialogContent>
           <DialogActions>
-            <Button onClick={closeZoom}>Đóng</Button>
+            <Button onClick={closeZoom}>{t("common.actions.close")}</Button>
           </DialogActions>
         </Dialog>
 
@@ -1908,7 +1923,11 @@ export default function RankingList() {
                           <KycImage
                             src={kycView?.cccdImages?.[side]}
                             alt={side}
-                            label={side === "front" ? "Mặt trước" : "Mặt sau"}
+                            label={
+                              side === "front"
+                                ? t("rankings.kycFront")
+                                : t("rankings.kycBack")
+                            }
                             onClick={() =>
                               openZoom(kycView?.cccdImages?.[side])
                             }
@@ -1941,12 +1960,12 @@ export default function RankingList() {
                         label={
                           cccdBadge(
                             cccdPatch[kycView?._id] || kycView?.cccdStatus
-                          ).text
+                          , t).text
                         }
                         color={
                           cccdBadge(
                             cccdPatch[kycView?._id] || kycView?.cccdStatus
-                          ).color
+                          , t).color
                         }
                       />
                     </Stack>
@@ -1964,18 +1983,20 @@ export default function RankingList() {
                         "& .value": { fontWeight: 600, fontSize: 15 },
                       }}
                     >
-                      <Box className="label">Họ & tên</Box>
+                      <Box className="label">{t("rankings.kycLabels.name")}</Box>
                       <Box className="value">{kycView?.name || "—"}</Box>
 
-                      <Box className="label">Ngày sinh</Box>
-                      <Box className="value">{prettyDate(kycView?.dob)}</Box>
+                      <Box className="label">{t("rankings.kycLabels.dob")}</Box>
+                      <Box className="value">
+                        {kycView?.dob ? formatDate(kycView.dob, locale) : t("common.unavailable")}
+                      </Box>
 
-                      <Box className="label">Số CCCD</Box>
+                      <Box className="label">{t("rankings.kycLabels.cccd")}</Box>
                       <Box className="value" sx={{ fontFamily: "monospace" }}>
                         {kycView?.cccd || "—"}
                       </Box>
 
-                      <Box className="label">Tỉnh / Thành</Box>
+                      <Box className="label">{t("rankings.kycLabels.province")}</Box>
                       <Box className="value">{kycView?.province || "—"}</Box>
                     </Box>
 
@@ -1989,7 +2010,7 @@ export default function RankingList() {
                         }}
                       >
                         <Typography variant="caption" color="text.secondary">
-                          Ghi chú
+                          {t("rankings.kycLabels.note")}
                         </Typography>
                         <Typography variant="body2" display="block">
                           {kycView?.note}
@@ -2001,7 +2022,7 @@ export default function RankingList() {
               </Grid>
             ) : (
               <Box p={2}>
-                <Alert severity="info">Không có dữ liệu KYC để hiển thị.</Alert>
+                <Alert severity="info">{t("rankings.kycNoData")}</Alert>
               </Box>
             )}
           </Box>
@@ -2017,14 +2038,14 @@ export default function RankingList() {
             }}
           >
             <Stack direction="row" spacing={1} justifyContent="flex-end">
-              <Button onClick={closeKyc}>Đóng</Button>
+              <Button onClick={closeKyc}>{t("common.actions.close")}</Button>
               <Button
                 color="error"
                 startIcon={<CancelIcon fontSize="small" />}
                 onClick={() => doReview("reject")}
                 disabled={reviewing || !kycView?._id}
               >
-                Từ chối
+                {t("common.actions.reject")}
               </Button>
               <Button
                 color="success"
@@ -2032,7 +2053,7 @@ export default function RankingList() {
                 onClick={() => doReview("approve")}
                 disabled={reviewing || !kycView?._id}
               >
-                Duyệt
+                {t("common.actions.approve")}
               </Button>
             </Stack>
           </Box>
@@ -2044,27 +2065,35 @@ export default function RankingList() {
           maxWidth="xs"
           fullWidth
         >
-          <DialogTitle>Chấm trình – {gradeDlg.nickname}</DialogTitle>
+          <DialogTitle>
+            {t("rankings.gradeDialog.title", { name: gradeDlg.nickname })}
+          </DialogTitle>
           <DialogContent
             dividers
             sx={{ display: "flex", flexDirection: "column", gap: 2 }}
           >
             <TextField
-              label={`Điểm đơn (${MIN_RATING} – ${MAX_RATING})`}
+              label={t("rankings.gradeDialog.singles", {
+                min: MIN_RATING,
+                max: MAX_RATING,
+              })}
               type="number"
               inputProps={{ step: "0.05", min: MIN_RATING, max: MAX_RATING }}
               value={gradeSingles}
               onChange={(e) => setGradeSingles(e.target.value)}
             />
             <TextField
-              label={`Điểm đôi (${MIN_RATING} – ${MAX_RATING})`}
+              label={t("rankings.gradeDialog.doubles", {
+                min: MIN_RATING,
+                max: MAX_RATING,
+              })}
               type="number"
               inputProps={{ step: "0.05", min: MIN_RATING, max: MAX_RATING }}
               value={gradeDoubles}
               onChange={(e) => setGradeDoubles(e.target.value)}
             />
             <TextField
-              label="Ghi chú"
+              label={t("rankings.gradeDialog.note")}
               multiline
               minRows={2}
               value={gradeNotes}
@@ -2072,23 +2101,26 @@ export default function RankingList() {
             />
             {me?.role === "admin" ? (
               <Alert severity="success">
-                Bạn là admin: có thể chấm tất cả tỉnh.
+                {t("rankings.feedback.adminGradeAll")}
               </Alert>
             ) : (
               <Alert severity="info">
-                Tỉnh áp dụng: <b>{gradeDlg.province || "--"}</b>. Bạn chỉ có thể
-                chấm khi thuộc phạm vi được cấp.
+                {t("rankings.feedback.evaluatorScope", {
+                  province: gradeDlg.province || "--",
+                })}
               </Alert>
             )}
           </DialogContent>
           <DialogActions>
-            <Button onClick={() => setGradeDlg({ open: false })}>Huỷ</Button>
+            <Button onClick={() => setGradeDlg({ open: false })}>
+              {t("common.actions.cancel")}
+            </Button>
             <Button
               onClick={submitGrade}
               disabled={creating}
               variant="contained"
             >
-              {creating ? "Đang lưu..." : "Gửi chấm trình"}
+              {creating ? t("rankings.actions.saving") : t("rankings.actions.submitGrade")}
             </Button>
           </DialogActions>
         </Dialog>

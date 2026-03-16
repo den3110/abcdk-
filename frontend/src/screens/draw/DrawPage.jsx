@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types, react/display-name */
 // DrawPage.jsx — add Card-Deck draw mode (Classic/Card), deal & flip animations, KO=flip 2 to pair; Group=flip 1 and auto-seat per cursor. Pool still disappears immediately after drawNext; Group board reads board.groups[*].slots (fallback groupsMeta+reveals).
 import React, {
   useEffect,
@@ -78,6 +79,7 @@ import {
   useAssignByesMutation,
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
+import { useLanguage } from "../../context/LanguageContext";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 import SEOHead from "../../components/SEOHead";
 
@@ -292,13 +294,82 @@ const buildKnockoutOptions = (teamCount) => {
 };
 
 /********************** Pool (đội chờ bốc) **********************/
+const getBracketTypeLabel = (bracketType, t) => {
+  switch (String(bracketType || "").toLowerCase()) {
+    case "group":
+      return t("draw.bracketTypeGroup");
+    case "knockout":
+      return t("draw.bracketTypeKnockout");
+    case "roundelim":
+      return t("draw.bracketTypeRoundElim");
+    case "double_elim":
+      return t("draw.bracketTypeDoubleElim");
+    case "swiss":
+      return t("draw.bracketTypeSwiss");
+    case "gsl":
+      return t("draw.bracketTypeGsl");
+    default:
+      return bracketType || "-";
+  }
+};
+
+const getCodeLabelForSize = (size, t) => {
+  if (size === 2) return { code: "F", label: t("draw.finalLabel") };
+  if (size === 4) return { code: "SF", label: t("draw.semifinalLabel") };
+  if (size === 8) return { code: "QF", label: t("draw.quarterfinalLabel") };
+  const denom = Math.max(2, size / 2);
+  return {
+    code: `R${size}`,
+    label: t("draw.roundOfLabel", { denom, size }),
+  };
+};
+
+const getKnockoutOptions = (teamCount, t) => {
+  if (!Number.isFinite(teamCount) || teamCount < 2) {
+    return [{ code: "F", label: t("draw.finalLabel"), roundNumber: 1 }];
+  }
+  const full = nextPow2(teamCount);
+  const out = [];
+  for (let size = full, idx = 1; size >= 2; size >>= 1, idx++) {
+    const { code, label } = getCodeLabelForSize(size, t);
+    out.push({ code, label, roundNumber: idx });
+  }
+  return out;
+};
+
+const getRoundTitleByCount = (cnt, t) => {
+  if (cnt === 1) return t("draw.roundTitleFinal");
+  if (cnt === 2) return t("draw.roundTitleSemifinal");
+  if (cnt === 4) return t("draw.roundTitleQuarterfinal");
+  if (cnt === 8) return t("draw.roundTitleRoundOf16");
+  if (cnt === 16) return t("draw.roundTitleRoundOf32");
+  return t("draw.roundTitleMatches", { count: cnt });
+};
+
+const getLabelDep = (prev, t) => {
+  if (!prev) return t("draw.teamPending");
+  const round = prev.round ?? "?";
+  const index = (prev.order ?? 0) + 1;
+  return t("draw.winnerOfRound", { round, index });
+};
+
+const getMatchSideName = (match, side, eventType, t) => {
+  const prev = side === "A" ? match?.previousA : match?.previousB;
+  const pair = side === "A" ? match?.pairA : match?.pairB;
+  if (pair) return safePairName(pair, eventType);
+  if (prev) return getLabelDep(prev, t);
+  return t("draw.teamPending");
+};
+
 const PoolPanel = memo(function PoolPanel({
-  title = "Pool đội chờ bốc",
+  title,
   eventType,
   regIndex,
   poolIds,
   revealsGroup,
 }) {
+  const { t } = useLanguage();
+  const panelTitle = title || t("draw.poolTitle");
   const poolItems = useMemo(() => {
     if (Array.isArray(poolIds)) {
       return poolIds
@@ -366,13 +437,16 @@ const PoolPanel = memo(function PoolPanel({
         justifyContent="space-between"
         sx={{ mb: 1 }}
       >
-        <Typography fontWeight={700}>{title}</Typography>
-        <Chip size="small" label={`Còn lại: ${items.length}`} />
+        <Typography fontWeight={700}>{panelTitle}</Typography>
+        <Chip
+          size="small"
+          label={t("draw.poolRemaining", { count: items.length })}
+        />
       </Stack>
 
       {items.length === 0 ? (
         <Typography variant="body2" color="text.secondary">
-          Pool trống.
+          {t("draw.poolEmpty")}
         </Typography>
       ) : (
         <Stack
@@ -417,6 +491,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
   eventType,
   lastHighlight,
 }) {
+  const { t } = useLanguage();
   if (board && Array.isArray(board.groups) && board.groups.length > 0) {
     return (
       <Grid container spacing={2}>
@@ -427,7 +502,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
             <Grid item size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={code}>
               <Card variant="outlined" sx={{ p: 1.5 }}>
                 <Typography fontWeight={700} sx={{ mb: 1 }}>
-                  Bảng {code}
+                  {t("draw.groupLabel", { code })}
                 </Typography>
                 <Stack spacing={0.75}>
                   {slots.map((regId, si) => {
@@ -467,7 +542,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
                           />
                         )}
                         <Typography variant="body2">
-                          <b>Slot {si + 1}:</b> {name}
+                          {t("draw.slotLabel", { index: si + 1, name })}
                         </Typography>
                       </Box>
                     );
@@ -549,7 +624,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
         <Grid item size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={g.code}>
           <Card variant="outlined" sx={{ p: 1.5 }}>
             <Typography fontWeight={700} sx={{ mb: 1 }}>
-              Bảng {g.code}
+              {t("draw.groupLabel", { code: g.code })}
             </Typography>
             <Stack spacing={0.75}>
               {g.slots.map((val, idx) => {
@@ -587,7 +662,10 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
                       />
                     )}
                     <Typography variant="body2">
-                      <b>Slot {idx + 1}:</b> {val?.label ?? "—"}
+                      {t("draw.slotLabel", {
+                        index: idx + 1,
+                        name: val?.label ?? "—",
+                      })}
                     </Typography>
                   </Box>
                 );
@@ -633,6 +711,7 @@ const RoundRobinPreview = memo(function RoundRobinPreview({
   regIndex,
   doubleRound = false,
 }) {
+  const { t } = useLanguage();
   return (
     <Stack spacing={2}>
       {groupsMeta.map((g) => {
@@ -687,19 +766,28 @@ const RoundRobinPreview = memo(function RoundRobinPreview({
               sx={{ mb: 1 }}
             >
               <Typography fontWeight={700}>
-                Lịch thi đấu — Bảng {g.code}{" "}
-                {doubleRound ? "(2 lượt)" : "(1 lượt)"}
+                {t("draw.rrTitle", {
+                  code: g.code,
+                  mode: doubleRound
+                    ? t("draw.rrDouble")
+                    : t("draw.rrSingle"),
+                })}
               </Typography>
-              <Chip size="small" label={`Tổng: ${totalMatches} trận`} />
+              <Chip
+                size="small"
+                label={t("draw.rrTotal", { count: totalMatches })}
+              />
             </Stack>
 
             {!teamNames.length ? (
-              <Typography color="text.secondary">Chưa có đội.</Typography>
+              <Typography color="text.secondary">
+                {t("draw.rrNoTeams")}
+              </Typography>
             ) : (
               schedule.map((roundPairs, idx) => (
                 <Box key={idx} sx={{ mb: 1.25 }}>
                   <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-                    Vòng {idx + 1}
+                    {t("draw.rrRound", { index: idx + 1 })}
                   </Typography>
                   <Stack spacing={0.5}>
                     {roundPairs.map((p, i2) => (
@@ -894,6 +982,7 @@ const Ticker = memo(function Ticker({
 });
 
 const CountdownSplash = memo(function CountdownSplash({ seconds = 3, onDone }) {
+  const { t } = useLanguage();
   const [n, setN] = useState(seconds);
   useEffect(() => {
     let i = seconds;
@@ -931,7 +1020,7 @@ const CountdownSplash = memo(function CountdownSplash({ seconds = 3, onDone }) {
           textAlign: "center",
         }}
       >
-        {n > 0 ? n : "BẮT ĐẦU!"}
+        {n > 0 ? n : t("draw.countdownStart")}
       </Box>
       <style>{`
         @keyframes popIn { 0%{ transform: scale(0.6); opacity: 0 } 70%{ transform: scale(1.05); opacity: 1 } 100%{ transform: scale(1); } }
@@ -951,6 +1040,7 @@ const RevealOverlay = memo(function RevealOverlay({
   onAfterShow,
   autoCloseMs = 120,
 }) {
+  const { t } = useLanguage();
   const { beep } = useAudioCue(!muted);
   const closeRef = useRef();
   const scheduleAutoClose = useCallback(() => {
@@ -999,7 +1089,7 @@ const RevealOverlay = memo(function RevealOverlay({
         {isGroup ? (
           <>
             <Typography sx={{ opacity: 0.9, mb: 1, letterSpacing: 1 }}>
-              BỐC VÀO BẢNG
+              {t("draw.overlayGroupTitle")}
             </Typography>
             <Box
               sx={{
@@ -1049,7 +1139,7 @@ const RevealOverlay = memo(function RevealOverlay({
         ) : (
           <>
             <Typography sx={{ opacity: 0.9, mb: 1, letterSpacing: 1 }}>
-              CẶP ĐẤU
+              {t("draw.overlayVersusTitle")}
             </Typography>
             <Box
               sx={{
@@ -1079,7 +1169,7 @@ const RevealOverlay = memo(function RevealOverlay({
           variant="caption"
           sx={{ opacity: 0.7, display: "block", mt: 2 }}
         >
-          Nhấn để đóng lớp hiệu ứng
+          {t("draw.overlayCloseHint")}
         </Typography>
       </Box>
     </Box>
@@ -1180,6 +1270,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
   roundCode, // ← THÊM PROP
   onRestore, // ← THÊM CALLBACK
 }) {
+  const { t } = useLanguage();
   const HEADER_H = 52;
   const pairPalette = useMemo(
     () => [
@@ -1230,7 +1321,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         // Có data saved → restore
         setDeck(savedDeck);
         initialCountRef.current = savedDeck.length;
-        toast.info("Đã khôi phục trạng thái thẻ từ lần bốc trước");
+        toast.info(t("draw.restoreDeckSuccess"));
         // ===== GỌI CALLBACK ĐỂ ĐỒNG BỘ REVEALS =====
         if (onRestore) {
           // Tạo lại reveals array từ các thẻ đã flip
@@ -1294,7 +1385,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         initialCountRef.current = initialDeck.length;
       }
     }
-  }, [open, initialDeck, bracketId, mode, roundCode, onRestore]);
+  }, [open, initialDeck, bracketId, mode, roundCode, onRestore, t]);
 
   // ===== SAVE TO LOCALSTORAGE KHI DECK THAY ĐỔI =====
   useEffect(() => {
@@ -1577,10 +1668,19 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
           noWrap
           sx={{ fontWeight: 800, letterSpacing: 1, mr: 1, minWidth: 0 }}
         >
-          Bốc thăm kiểu Thẻ bài {mode === "group" ? "— Vòng bảng" : "— KO / PO"}
+          {t("draw.cardModeTitle", {
+            mode:
+              mode === "group"
+                ? t("draw.cardModeGroup")
+                : t("draw.cardModeKo"),
+          })}
         </Typography>
 
-        <Chip size="small" sx={{ ml: 1 }} label={`Còn: ${remaining}`} />
+        <Chip
+          size="small"
+          sx={{ ml: 1 }}
+          label={t("draw.cardRemaining", { count: remaining })}
+        />
 
         <Box sx={{ flex: 1, minWidth: 0 }} />
 
@@ -1597,8 +1697,10 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                 textOverflow: "ellipsis",
               },
             }}
-            label={`ĐANG BỐC: Bảng ${targetInfo.groupCode} · Slot ${Number(targetInfo.slotIndex) + 1
-              }`}
+            label={t("draw.currentTarget", {
+              group: targetInfo.groupCode,
+              slot: Number(targetInfo.slotIndex) + 1,
+            })}
           />
         )}
 
@@ -1695,9 +1797,11 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
           const pairTitle =
             mode !== "group"
               ? typeof c.meta?.pairIndex === "number"
-                ? `Cặp #${Number(c.meta.pairIndex) + 1}`
+                ? t("draw.pairLabel", {
+                    index: Number(c.meta.pairIndex) + 1,
+                  })
                 : c.pairId != null
-                  ? `Cặp #${c.pairId + 1}`
+                  ? t("draw.pairLabel", { index: c.pairId + 1 })
                   : null
               : null;
 
@@ -1769,7 +1873,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                         ?
                       </Box>
                       <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                        Nhấn để lật
+                        {t("draw.clickToFlip")}
                       </Typography>
                     </Box>
                   )}
@@ -1852,8 +1956,10 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                                   textOverflow: "ellipsis",
                                 }}
                               >
-                                Bảng {c.meta.groupCode} • Slot{" "}
-                                {Number(c.meta.slotIndex) + 1}
+                                {t("draw.groupSlotMeta", {
+                                  group: c.meta.groupCode,
+                                  slot: Number(c.meta.slotIndex) + 1,
+                                })}
                               </Typography>
                             )}
 
@@ -1873,15 +1979,19 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                                   }}
                                 >
                                   {typeof c.meta?.pairIndex === "number"
-                                    ? `Cặp #${Number(c.meta.pairIndex) + 1}`
-                                    : `Cặp #${(c.pairId ?? 0) + 1}`}
+                                    ? t("draw.pairLabel", {
+                                        index: Number(c.meta.pairIndex) + 1,
+                                      })
+                                    : t("draw.pairLabel", {
+                                        index: (c.pairId ?? 0) + 1,
+                                      })}
                                   {c.meta?.side && (
                                     <>
                                       <div style={{ opacity: 0.6 }}> </div>
                                       <div style={{ opacity: 0.6 }}>
                                         {c.meta.side === "A"
-                                          ? "Đội A"
-                                          : "Đội B"}
+                                          ? t("draw.soundSideA")
+                                          : t("draw.soundSideB")}
                                       </div>
                                     </>
                                   )}
@@ -1943,14 +2053,14 @@ const getPreferredRoundCode = (bracket, bracketDetail) => {
   if (drawSize >= 2) return `R${drawSize}`;
   return null;
 };
-const mergeOptionsWithPrefill = (options, prefillCode) => {
+const mergeOptionsWithPrefill = (options, prefillCode, t) => {
   if (!prefillCode) return options || [];
   const exists = (options || []).some(
     (o) => String(o.code).toUpperCase() === String(prefillCode).toUpperCase()
   );
   if (exists) return options || [];
   const size = sizeFromRoundCode(prefillCode);
-  const { label } = codeLabelForSize(size);
+  const { label } = getCodeLabelForSize(size, t);
   const merged = (options || []).concat([
     { code: prefillCode, label, roundNumber: 1 },
   ]);
@@ -1967,6 +2077,7 @@ const GroupMatchesDialog = memo(function GroupMatchesDialog({
   regIndex,
   selBracketId,
 }) {
+  const { t } = useLanguage();
   const [tabMode, setTabMode] = useState("auto");
   const [doubleRound, setDoubleRound] = useState(false);
   const [generateGroupMatches, { isLoading: genLoading }] =
@@ -1988,20 +2099,20 @@ const GroupMatchesDialog = memo(function GroupMatchesDialog({
           matches: [],
         }).unwrap();
       }
-      toast.success("Đã tạo trận trong bảng.");
+      toast.success(t("draw.groupMatchesSuccess"));
       onClose();
     } catch (e) {
-      toast.error(e?.data?.message || e?.error || "Tạo trận thất bại.");
+      toast.error(e?.data?.message || e?.error || t("draw.groupMatchesError"));
     }
-  }, [selBracketId, tabMode, doubleRound, generateGroupMatches, onClose]);
+  }, [selBracketId, tabMode, doubleRound, generateGroupMatches, onClose, t]);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Bốc thăm trận trong bảng</DialogTitle>
+      <DialogTitle>{t("draw.groupMatchesDialogTitle")}</DialogTitle>
       <DialogContent dividers>
         <Tabs value={tabMode} onChange={(_, v) => setTabMode(v)} sx={{ mb: 2 }}>
-          <Tab value="auto" label="Tự động (vòng tròn)" />
-          <Tab value="manual" label="Thủ công (ghép cặp)" />
+          <Tab value="auto" label={t("draw.modeAuto")} />
+          <Tab value="manual" label={t("draw.modeManual")} />
         </Tabs>
         {tabMode === "auto" && (
           <FormControlLabel
@@ -2012,7 +2123,7 @@ const GroupMatchesDialog = memo(function GroupMatchesDialog({
                 onChange={(e) => setDoubleRound(e.target.checked)}
               />
             }
-            label="Đánh 2 lượt (home–away)"
+            label={t("draw.doubleRound")}
           />
         )}
         {tabMode === "auto" ? (
@@ -2024,22 +2135,22 @@ const GroupMatchesDialog = memo(function GroupMatchesDialog({
             />
           ) : (
             <Alert severity="info">
-              Chưa có dữ liệu bảng để tạo preview vòng tròn.
+              {t("draw.noGroupPreview")}
             </Alert>
           )
         ) : (
-          <Alert severity="info">UI thủ công sẽ thêm sau.</Alert>
+          <Alert severity="info">{t("draw.manualComingSoon")}</Alert>
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Đóng</Button>
+        <Button onClick={onClose}>{t("common.actions.close")}</Button>
         <Button
           onClick={handleCreate}
           disabled={genLoading}
           variant="contained"
           sx={{ color: "white !important" }}
         >
-          Tạo trận
+          {t("draw.createMatches")}
         </Button>
       </DialogActions>
     </Dialog>
@@ -2059,6 +2170,7 @@ const AssignByesDialog = memo(function AssignByesDialog({
   assignByes,
   eventType,
 }) {
+  const { t } = useLanguage();
   const [mode, setMode] = useState("manual");
   const [dryRun, setDryRun] = useState(true);
   const [randomSeed, setRandomSeed] = useState("");
@@ -2113,7 +2225,7 @@ const AssignByesDialog = memo(function AssignByesDialog({
       if (mode === "manual") {
         body.source.params.teamIds = manualTeams.map((x) => x.id || x);
         if (!body.source.params.teamIds?.length) {
-          toast.warn("Chọn ít nhất 1 đội cho chế độ Manual.");
+          toast.warn(t("draw.selectAtLeastOneTeam"));
           setSubmitting(false);
           return;
         }
@@ -2133,12 +2245,14 @@ const AssignByesDialog = memo(function AssignByesDialog({
       if (dryRun) {
         setPreview(Array.isArray(resp?.preview) ? resp.preview : []);
       } else {
-        toast.success(`Đã gán BYE cho ${resp?.assigned || 0} trận.`);
+        toast.success(
+          t("draw.assignByeSuccess", { count: resp?.assigned || 0 })
+        );
         await Promise.all([refetchMatches?.(), refetchBracket?.()]);
         onClose?.();
       }
     } catch (e) {
-      toast.error(e?.data?.message || e?.error || "Bốc BYE thất bại.");
+      toast.error(e?.data?.message || e?.error || t("draw.assignByeError"));
     } finally {
       setSubmitting(false);
     }
@@ -2160,28 +2274,29 @@ const AssignByesDialog = memo(function AssignByesDialog({
     refetchMatches,
     refetchBracket,
     onClose,
+    t,
   ]);
 
   return (
     <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>Bốc BYE cho Knockout</DialogTitle>
+      <DialogTitle>{t("draw.byesDialogTitle")}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={2}>
           <FormControl fullWidth>
-            <InputLabel>Nguồn chọn đội</InputLabel>
+            <InputLabel>{t("draw.sourceLabel")}</InputLabel>
             <Select
-              label="Nguồn chọn đội"
+              label={t("draw.sourceLabel")}
               value={mode}
               onChange={(e) => {
                 setMode(e.target.value);
                 resetPreview();
               }}
             >
-              <MenuItem value="manual">Chỉ định đội (manual)</MenuItem>
+              <MenuItem value="manual">{t("draw.sourceManual")}</MenuItem>
               <MenuItem value="topEachGroup">
-                Random từ top 3/4… mỗi bảng
+                {t("draw.sourceTopEachGroup")}
               </MenuItem>
-              <MenuItem value="bestOfTopN">Top N tốt nhất toàn giải</MenuItem>
+              <MenuItem value="bestOfTopN">{t("draw.sourceBestOfTopN")}</MenuItem>
             </Select>
           </FormControl>
 
@@ -2198,8 +2313,8 @@ const AssignByesDialog = memo(function AssignByesDialog({
               renderInput={(params) => (
                 <TextField
                   {...params}
-                  label="Chọn đội (Registration)"
-                  placeholder="Gõ để tìm…"
+                  label={t("draw.chooseTeams")}
+                  placeholder={t("draw.searchTeams")}
                 />
               )}
             />
@@ -2208,18 +2323,18 @@ const AssignByesDialog = memo(function AssignByesDialog({
           {mode === "topEachGroup" && (
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               <TextField
-                label="Rank N (ví dụ 3)"
+                label={t("draw.rankN")}
                 type="number"
                 value={rank}
                 onChange={(e) => {
                   setRank(e.target.value);
                   resetPreview();
                 }}
-                helperText="Để trống nếu dùng khoảng"
+                helperText={t("draw.emptyIfRange")}
                 fullWidth
               />
               <TextField
-                label="Khoảng từ (lo)"
+                label={t("draw.rangeFrom")}
                 type="number"
                 value={rangeLo}
                 onChange={(e) => {
@@ -2229,7 +2344,7 @@ const AssignByesDialog = memo(function AssignByesDialog({
                 fullWidth
               />
               <TextField
-                label="Khoảng đến (hi)"
+                label={t("draw.rangeTo")}
                 type="number"
                 value={rangeHi}
                 onChange={(e) => {
@@ -2239,7 +2354,7 @@ const AssignByesDialog = memo(function AssignByesDialog({
                 fullWidth
               />
               <TextField
-                label="Lấy mỗi bảng"
+                label={t("draw.takePerGroup")}
                 type="number"
                 value={takePerGroup}
                 onChange={(e) => {
@@ -2253,7 +2368,7 @@ const AssignByesDialog = memo(function AssignByesDialog({
 
           {mode === "bestOfTopN" && (
             <TextField
-              label="Rank N (mặc định 3)"
+              label={t("draw.rankDefault")}
               type="number"
               value={rank}
               onChange={(e) => {
@@ -2281,10 +2396,12 @@ const AssignByesDialog = memo(function AssignByesDialog({
                   }}
                 />
               }
-              label={`Giới hạn theo Round hiện tại (R${selectedRoundNumber})`}
+              label={t("draw.limitCurrentRound", {
+                round: selectedRoundNumber,
+              })}
             />
             <Typography variant="body2" color="text.secondary">
-              Hoặc chọn chi tiết từng match BYE:
+              {t("draw.chooseByeMatches")}
             </Typography>
           </Stack>
           <Stack
@@ -2332,7 +2449,7 @@ const AssignByesDialog = memo(function AssignByesDialog({
               })
             ) : (
               <Typography variant="body2" color="text.secondary">
-                Không có slot BYE trống ở round này.
+                {t("draw.noByeSlots")}
               </Typography>
             )}
           </Stack>
@@ -2341,7 +2458,7 @@ const AssignByesDialog = memo(function AssignByesDialog({
 
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <TextField
-              label="Limit (tuỳ chọn)"
+              label={t("draw.optionalLimit")}
               type="number"
               value={limit}
               onChange={(e) => {
@@ -2351,7 +2468,7 @@ const AssignByesDialog = memo(function AssignByesDialog({
               fullWidth
             />
             <TextField
-              label="Random seed (tuỳ chọn)"
+              label={t("draw.optionalRandomSeed")}
               type="number"
               value={randomSeed}
               onChange={(e) => {
@@ -2367,25 +2484,28 @@ const AssignByesDialog = memo(function AssignByesDialog({
                   onChange={(e) => setDryRun(e.target.checked)}
                 />
               }
-              label="Dry run (xem trước)"
+              label={t("draw.dryRun")}
             />
           </Stack>
 
           {Array.isArray(preview) && (
             <Paper variant="outlined" sx={{ p: 1.5 }}>
               <Typography fontWeight={700} gutterBottom>
-                Preview gán BYE
+                {t("draw.byePreview")}
               </Typography>
               {preview.length === 0 ? (
                 <Typography variant="body2">
-                  Không có cặp nào được gán.
+                  {t("draw.byePreviewEmpty")}
                 </Typography>
               ) : (
                 <Stack spacing={0.5}>
                   {preview.map((p, idx) => (
                     <Typography key={idx} variant="body2">
-                      • Match <b>{idx + 1}</b> — Side <b>{p.side}</b> ⇢{" "}
-                      <i>{nameByRegId(p.teamId)}</i>
+                      {t("draw.byePreviewItem", {
+                        match: idx + 1,
+                        side: p.side,
+                        team: nameByRegId(p.teamId),
+                      })}
                     </Typography>
                   ))}
                 </Stack>
@@ -2395,14 +2515,14 @@ const AssignByesDialog = memo(function AssignByesDialog({
         </Stack>
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>Đóng</Button>
+        <Button onClick={onClose}>{t("common.actions.close")}</Button>
         <Button
           disabled={submitting}
           onClick={handleSubmit}
           variant="contained"
           sx={{ color: "white !important" }}
         >
-          {dryRun ? "Xem trước (Dry run)" : "Gán BYE"}
+          {dryRun ? t("draw.previewDryRun") : t("draw.assignByeNow")}
         </Button>
       </DialogActions>
     </Dialog>
@@ -2411,6 +2531,7 @@ const AssignByesDialog = memo(function AssignByesDialog({
 
 /********************** MAIN **********************/
 export default function DrawPage() {
+  const { t } = useLanguage();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const navigate = useNavigate();
@@ -2663,16 +2784,16 @@ export default function DrawPage() {
   const knockoutOptionsBase = useMemo(() => {
     if (drawType === "po")
       return buildPlayoffOptions(bracket, bracketDetail, regCount);
-    return buildKnockoutOptions(koEntrantSize);
-  }, [drawType, bracket, bracketDetail, regCount, koEntrantSize]);
+    return getKnockoutOptions(koEntrantSize, t);
+  }, [drawType, bracket, bracketDetail, regCount, koEntrantSize, t]);
 
   const preferredRoundCode = useMemo(
     () => getPreferredRoundCode(bracket, bracketDetail),
     [bracket, bracketDetail]
   );
   const knockoutOptionsFinal = useMemo(
-    () => mergeOptionsWithPrefill(knockoutOptionsBase, preferredRoundCode),
-    [knockoutOptionsBase, preferredRoundCode]
+    () => mergeOptionsWithPrefill(knockoutOptionsBase, preferredRoundCode, t),
+    [knockoutOptionsBase, preferredRoundCode, t]
   );
 
   const largestRoundCode = useMemo(() => {
@@ -2833,7 +2954,7 @@ export default function DrawPage() {
         setDrawDoc(null);
       } catch (e) {
         toast.error(
-          e?.data?.message || e?.error || "Có lỗi khi bắt đầu bốc thăm."
+          e?.data?.message || e?.error || t("draw.startError")
         );
       }
     };
@@ -3135,8 +3256,8 @@ export default function DrawPage() {
               id: m._id || `${selBracketId}-${r}-${i}`,
               __match: m,
               teams: [
-                { name: matchSideName(m, "A", eventType) },
-                { name: matchSideName(m, "B", eventType) },
+                { name: getMatchSideName(m, "A", eventType, t) },
+                { name: getMatchSideName(m, "B", eventType, t) },
               ],
             };
           });
@@ -3169,12 +3290,14 @@ export default function DrawPage() {
 
         const localNo = r - firstRound + 1;
         const title =
-          drawType === "po" ? `Vòng ${localNo}` : roundTitleByCount(need);
+          drawType === "po"
+            ? t("draw.rrRound", { index: localNo })
+            : getRoundTitleByCount(need, t);
         rounds.push({ title, seeds });
       }
       return rounds;
     },
-    [drawType]
+    [drawType, t]
   );
 
   /* ===== Hoàn thành chỉ khi drawNext làm pool về 0 ===== */
@@ -3251,7 +3374,7 @@ export default function DrawPage() {
     } catch (e) {
       console.log(e);
       toast.error(
-        e?.data?.message || e?.error || "Có lỗi khi bắt đầu bốc thăm."
+        e?.data?.message || e?.error || t("draw.startError")
       );
     }
   }, [
@@ -3329,8 +3452,8 @@ export default function DrawPage() {
         if (fxEnabled) fireConfettiBurst();
         toast.success(
           drawType === "group"
-            ? "Bốc thăm vòng bảng đã hoàn thành!"
-            : "Bốc thăm vòng này đã hoàn thành!"
+            ? t("draw.groupRevealDone")
+            : t("draw.roundRevealDone")
         );
       }
       prevPoolCountRef.current = cur;
@@ -3441,7 +3564,7 @@ export default function DrawPage() {
       return out;
     } catch (e) {
       lastRevealActionRef.current = false;
-      toast.error(e?.data?.message || e?.error || "Reveal thất bại.");
+      toast.error(e?.data?.message || e?.error || t("draw.revealFailed"));
       return [];
     }
   }, [
@@ -3663,7 +3786,7 @@ export default function DrawPage() {
       <Box p={3}>
         <Alert severity="error">
           {(et?.data?.message || et?.error || eb?.data?.message || eb?.error) ??
-            "Lỗi tải dữ liệu."}
+            t("draw.loadError")}
         </Alert>
       </Box>
     );
@@ -3673,10 +3796,10 @@ export default function DrawPage() {
     return (
       <Box p={3}>
         <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(-1)}>
-          Quay lại
+          {t("draw.back")}
         </Button>
         <Alert severity="error" sx={{ mt: 2 }}>
-          Chỉ admin hoặc quản lý giải mới truy cập trang bốc thăm.
+          {t("draw.permissionDenied")}
         </Alert>
       </Box>
     );
@@ -3684,7 +3807,11 @@ export default function DrawPage() {
 
   return (
     <RBContainer fluid="xl" className="py-4">
-      <SEOHead title={`Bốc thăm - ${tournament?.name || "Giải đấu"}`} />
+      <SEOHead
+        title={t("draw.seoTitle", {
+          name: tournament?.name || t("draw.seoFallbackName"),
+        })}
+      />
       <Stack
         direction="row"
         alignItems="center"
@@ -3692,10 +3819,10 @@ export default function DrawPage() {
         sx={{ mb: 2, flexWrap: "wrap" }}
       >
         <Button startIcon={<ArrowBackIcon />} onClick={() => navigate(-1)}>
-          Quay lại
+          {t("draw.back")}
         </Button>
         <Typography variant="h5" fontWeight={700} sx={{ ml: 1 }}>
-          Bốc thăm • {tournament?.name}
+          {t("draw.pageTitle", { name: tournament?.name })}
         </Typography>
         {state !== "idle" && (
           <Chip
@@ -3719,14 +3846,14 @@ export default function DrawPage() {
               onChange={(e) => setFxEnabled(e.target.checked)}
             />
           }
-          label="Hiệu ứng livestream"
+          label={t("draw.livestreamFx")}
         />
-        <Tooltip title={fxMuted ? "Bật âm" : "Tắt âm"}>
+        <Tooltip title={fxMuted ? t("draw.soundOn") : t("draw.soundOff")}>
           <IconButton onClick={() => setFxMuted((v) => !v)}>
             {fxMuted ? <VolumeOffIcon /> : <VolumeUpIcon />}
           </IconButton>
         </Tooltip>
-        <Tooltip title="Bắn confetti">
+        <Tooltip title={t("draw.confetti")}>
           <IconButton onClick={() => fxEnabled && fireConfettiBurst()}>
             <CelebrationIcon />
           </IconButton>
@@ -3740,7 +3867,7 @@ export default function DrawPage() {
         sx={{ mb: 1.5 }}
       >
         <Typography variant="body2" sx={{ mt: 0.5, opacity: 0.8 }}>
-          Kiểu bốc:
+          {t("draw.drawStyle")}
         </Typography>
         <ToggleButtonGroup
           exclusive
@@ -3748,8 +3875,8 @@ export default function DrawPage() {
           value={uiMode}
           onChange={(_, v) => v && setUiMode(v)}
         >
-          <ToggleButton value="classic">Classic</ToggleButton>
-          <ToggleButton value="cards">Thẻ bài</ToggleButton>
+          <ToggleButton value="classic">{t("draw.styleClassic")}</ToggleButton>
+          <ToggleButton value="cards">{t("draw.styleCards")}</ToggleButton>
         </ToggleButtonGroup>
         {state === "running" && uiMode === "cards" && (
           <Button
@@ -3757,7 +3884,7 @@ export default function DrawPage() {
             variant="outlined"
             onClick={openCardAfterCountdown}
           >
-            Mở giao diện thẻ
+            {t("draw.openCards")}
           </Button>
         )}
       </Stack>
@@ -3769,7 +3896,7 @@ export default function DrawPage() {
           sx={{ mb: 2 }}
           onClose={() => setShowDoneBanner(false)}
         >
-          Bốc thăm vòng bảng đã hoàn thành!
+          {t("draw.groupDone")}
         </Alert>
       )}
 
@@ -3783,25 +3910,26 @@ export default function DrawPage() {
       >
         <Stack spacing={2}>
           <Alert severity="info">
-            Chỉ admin hoặc quản lý mới thấy trang này. Thể loại giải:{" "}
-            <b>{(tournament?.eventType || "").toUpperCase()}</b>
+            {t("draw.adminOnlyInfo", {
+              type: (tournament?.eventType || "").toUpperCase(),
+            })}
           </Alert>
 
           {/* ==== BRACKET SELECT ==== */}
           <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
             <FormControl fullWidth>
-              <InputLabel>Chọn Bracket</InputLabel>
+              <InputLabel>{t("draw.selectBracket")}</InputLabel>
               <Select
-                label="Chọn Bracket"
+                label={t("draw.selectBracket")}
                 value={selBracketId || ""}
                 onChange={(e) => setSelBracketId(e.target.value)}
               >
                 <MenuItem value="">
-                  <em>— Chọn Bracket —</em>
+                  <em>{t("draw.selectBracketPlaceholder")}</em>
                 </MenuItem>
                 {brackets.map((b) => (
                   <MenuItem key={b._id} value={b._id}>
-                    {b.name} — {labelBracketType(b)}
+                    {b.name} — {getBracketTypeLabel(b?.type, t)}
                   </MenuItem>
                 ))}
               </Select>
@@ -3809,9 +3937,9 @@ export default function DrawPage() {
 
             {selBracketId && (drawType === "knockout" || drawType === "po") && (
               <FormControl fullWidth>
-                <InputLabel>Vòng cần bốc</InputLabel>
+                <InputLabel>{t("draw.selectRound")}</InputLabel>
                 <Select
-                  label="Vòng cần bốc"
+                  label={t("draw.selectRound")}
                   value={selectRoundValue}
                   onChange={(e) => {
                     setRoundTouched(true);
@@ -3835,7 +3963,7 @@ export default function DrawPage() {
                     onChange={(e) => setUsePrevWinners(e.target.checked)}
                   />
                 }
-                label="Lấy đội thắng ở vòng trước"
+                label={t("draw.usePrevWinners")}
               />
             )}
           </Stack>
@@ -3850,7 +3978,7 @@ export default function DrawPage() {
               onClick={onStart}
               sx={{ color: "white !important" }}
             >
-              Bắt đầu bốc
+              {t("draw.startDraw")}
             </Button>
             <Button
               variant="outlined"
@@ -3858,7 +3986,7 @@ export default function DrawPage() {
               disabled={!canOperate || revealing}
               onClick={onReveal}
             >
-              Reveal tiếp
+              {t("draw.revealNext")}
             </Button>
             <Button
               color="success"
@@ -3883,14 +4011,14 @@ export default function DrawPage() {
                   committed = true;
                   toast.success(
                     drawType === "group"
-                      ? "Đã ghi kết quả bốc thăm vòng bảng."
-                      : "Đã ghi kết quả bốc thăm vòng này."
+                      ? t("draw.commitGroupSuccess")
+                      : t("draw.commitRoundSuccess")
                   );
                 } catch (e) {
                   toast.error(
                     e?.data?.message ||
                     e?.error ||
-                    "Ghi kết quả bốc thăm thất bại."
+                    t("draw.commitError")
                   );
                 }
 
@@ -3906,14 +4034,14 @@ export default function DrawPage() {
                     toast.error(
                       e?.data?.message ||
                       e?.error ||
-                      "Đã ghi kết quả nhưng tải lại dữ liệu bị lỗi, thử reload trang nếu vẫn không thấy cập nhật."
+                      t("draw.commitReloadError")
                     );
                   }
                 }
               }}
               sx={{ color: "white !important" }}
             >
-              Ghi kết quả (Commit)
+              {t("draw.commit")}
             </Button>
             <Button
               color="error"
@@ -3927,7 +4055,7 @@ export default function DrawPage() {
                   canceled = true;
                 } catch (e) {
                   toast.error(
-                    e?.data?.message || e?.error || "Có lỗi khi huỷ phiên bốc."
+                    e?.data?.message || e?.error || t("draw.cancelError")
                   );
                 }
 
@@ -3956,12 +4084,12 @@ export default function DrawPage() {
                     // lỗi refetch thì thôi, đã reset local rồi
                   }
                   toast.success(
-                    "Đã huỷ phiên bốc và xóa dữ liệu thẻ tạm. Bạn có thể bắt đầu phiên mới."
+                    t("draw.cancelSuccess")
                   );
                 }
               }}
             >
-              Huỷ phiên
+              {t("draw.cancelSession")}
             </Button>
           </Stack>
         </Stack>
