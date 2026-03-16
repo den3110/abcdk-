@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types, react/display-name, no-empty, no-undef, no-constant-condition, no-unused-vars */
 // FacebookLiveStreamerMUI.jsx
 // FULL VERSION - Fixed flicker + Responsive
 // ++ UPDATED: Auto-fill Facebook/YouTube/TikTok from URL params & d64 payload
@@ -63,6 +64,7 @@ import {
   ExpandMore,
   ExpandLess,
 } from "@mui/icons-material";
+import { useLanguage } from "../../context/LanguageContext";
 
 // --------------------- Helpers (new) ---------------------
 const safeAtobUtf8 = (b64) => {
@@ -142,14 +144,36 @@ export default function FacebookLiveStreamerMUI({
   wsUrl = "wss://pickletour.vn/ws/rtmp",
   apiUrl = "http://localhost:5001/api/overlay/match",
 }) {
+  const { t } = useLanguage();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
+  const qualityPresets = useMemo(
+    () => ({
+      low: {
+        ...QUALITY_PRESETS.low,
+        description: t("live.browserStudio.presetLowDescription"),
+      },
+      medium: {
+        ...QUALITY_PRESETS.medium,
+        description: t("live.browserStudio.presetMediumDescription"),
+      },
+      high: {
+        ...QUALITY_PRESETS.high,
+        description: t("live.browserStudio.presetHighDescription"),
+      },
+      ultra: {
+        ...QUALITY_PRESETS.ultra,
+        description: t("live.browserStudio.presetUltraDescription"),
+      },
+    }),
+    [t]
+  );
 
   const [isStreaming, setIsStreaming] = useState(false);
-  const [isConnected, setIsConnected] = useState(false);
+  const [, setIsConnected] = useState(false);
   const [loading, setLoading] = useState(false);
   const [streamKey, setStreamKey] = useState("");
-  const [status, setStatus] = useState("Chưa kết nối");
+  const [status, setStatus] = useState(t("live.browserStudio.disconnected"));
   const [statusType, setStatusType] = useState("info");
   const [overlayData, setOverlayData] = useState(null);
   const [facingMode, setFacingMode] = useState("user");
@@ -330,29 +354,31 @@ export default function FacebookLiveStreamerMUI({
       }
 
       if (d64 || fbKey || ys || yk || ts || tk) {
-        setStatus("✅ Auto-fill destinations từ URL");
+        setStatus(t("live.browserStudio.autoFillFromUrl"));
         setStatusType("success");
       }
     } catch (err) {
       console.warn("Cannot parse URL params:", err);
     }
-  }, []);
+  }, [t]);
 
   // -------- Original: feature detection --------
   useEffect(() => {
     const supported = typeof window.VideoEncoder !== "undefined";
     setSupportsWebCodecs(supported);
     if (!supported) {
-      setStatus("⚠️ WebCodecs không hỗ trợ. Cần Chrome/Edge 94+");
+      setStatus(t("live.browserStudio.webCodecsUnsupported"));
       setStatusType("warning");
     } else {
       // only set when we haven't already set a success from URL parsing
       setStatus((s) =>
-        s.startsWith("✅ Auto-fill") ? s : "✅ WebCodecs ready - ADAPTIVE"
+        s.startsWith("✅ Auto-fill")
+          ? s
+          : t("live.browserStudio.webCodecsReady")
       );
       setStatusType("success");
     }
-  }, []);
+  }, [t]);
 
   const measureNetworkSpeed = useCallback(async () => {
     if (networkTestRef.current) return; // đang chạy rồi thì bỏ
@@ -916,12 +942,20 @@ export default function FacebookLiveStreamerMUI({
       }
       setVideoSize({ w, h });
       setFacingMode(preferFacing);
-      setStatus(`Camera sẵn sàng - ${QUALITY_PRESETS[qualityMode].label}`);
+      setStatus(
+        t("live.browserStudio.cameraReady", {
+          label: qualityPresets[qualityMode].label,
+        })
+      );
       setStatusType("success");
       await enumerateVideoDevices();
       return true;
     } catch (err) {
-      setStatus("Lỗi: Không thể truy cập camera - " + err.message);
+      setStatus(
+        t("live.browserStudio.cameraAccessError", {
+          message: err.message,
+        })
+      );
       setStatusType("error");
       return false;
     }
@@ -932,7 +966,7 @@ export default function FacebookLiveStreamerMUI({
     setLoading(true);
     const ok = await initCamera(next);
     if (!ok) {
-      setStatus("Thiết bị không hỗ trợ đổi camera");
+      setStatus(t("live.browserStudio.cameraSwitchUnsupported"));
       setStatusType("warning");
     }
     setLoading(false);
@@ -1081,20 +1115,20 @@ export default function FacebookLiveStreamerMUI({
 
   const startStreamingPro = async () => {
     if (!supportsWebCodecs) {
-      setStatus("❌ WebCodecs không hỗ trợ. Cần Chrome/Edge 94+");
+      setStatus(t("live.browserStudio.webCodecsUnsupported"));
       setStatusType("error");
       return;
     }
     if (!canStartNow()) {
       setStatus(
-        "❌ Vui lòng nhập ít nhất một đích phát (Facebook/YouTube/TikTok)"
+        t("live.browserStudio.startTargetRequired")
       );
       setStatusType("error");
       return;
     }
     setLoading(true);
     try {
-      setStatus("Đang kết nối WebSocket...");
+      setStatus(t("live.browserStudio.connectingWebsocket"));
       const ws = await new Promise((resolve, reject) => {
         const socket = new WebSocket(wsUrl);
         socket.binaryType = "arraybuffer";
@@ -1114,7 +1148,7 @@ export default function FacebookLiveStreamerMUI({
       wsRef.current = ws;
       setIsConnected(true);
 
-      setStatus("Đang khởi tạo H264 encoder...");
+      setStatus(t("live.browserStudio.initEncoder"));
       const encoder = new VideoEncoder({
         output: (chunk, metadata) => {
           if (ws.readyState !== WebSocket.OPEN) return;
@@ -1343,7 +1377,11 @@ export default function FacebookLiveStreamerMUI({
       setStatus(`✅ LIVE - ${preset.label}`);
       setStatusType("success");
     } catch (err) {
-      setStatus("❌ Lỗi: " + (err?.message || String(err)));
+      setStatus(
+        t("live.browserStudio.streamError", {
+          message: err?.message || String(err),
+        })
+      );
       setStatusType("error");
       setIsStreaming(false);
       setIsConnected(false);
@@ -1397,11 +1435,15 @@ export default function FacebookLiveStreamerMUI({
       }
       setIsStreaming(false);
       setIsConnected(false);
-      setStatus("Đã dừng streaming");
+      setStatus(t("live.browserStudio.stopped"));
       setStatusType("info");
       setStreamHealth({ fps: 0, bitrate: 0, dropped: 0 });
     } catch (err) {
-      setStatus("Lỗi khi dừng: " + err.message);
+      setStatus(
+        t("live.browserStudio.stopError", {
+          message: err.message,
+        })
+      );
       setStatusType("error");
     } finally {
       setLoading(false);
@@ -1714,7 +1756,9 @@ export default function FacebookLiveStreamerMUI({
                           variant={isMobile ? "subtitle1" : "h6"}
                           fontWeight={600}
                         >
-                          Camera ({QUALITY_PRESETS[qualityMode].label})
+                          {t("live.browserStudio.cameraTitle", {
+                            label: qualityPresets[qualityMode].label,
+                          })}
                         </Typography>
                       </Box>
                       <Button
@@ -1724,7 +1768,9 @@ export default function FacebookLiveStreamerMUI({
                         onClick={toggleCamera}
                         disabled={!canSwitchCamera || isStreaming || loading}
                       >
-                        {facingMode === "environment" ? "Sau" : "Trước"}
+                        {facingMode === "environment"
+                          ? t("live.browserStudio.backCamera")
+                          : t("live.browserStudio.frontCamera")}
                       </Button>
                     </Box>
                     <Box
@@ -1772,7 +1818,10 @@ export default function FacebookLiveStreamerMUI({
                         variant={isMobile ? "subtitle1" : "h6"}
                         fontWeight={600}
                       >
-                        Stream Preview (Match: {matchId || "N/A"})
+                        {t("live.browserStudio.streamPreview", {
+                          matchId:
+                            matchId || t("live.browserStudio.matchUnknown"),
+                        })}
                       </Typography>
                     </Box>
                     <Box
@@ -1824,7 +1873,7 @@ export default function FacebookLiveStreamerMUI({
                           fontWeight={600}
                           gutterBottom
                         >
-                          Stream Health
+                          {t("live.browserStudio.streamHealth")}
                         </Typography>
                         <Grid container spacing={1}>
                           <Grid item size={{ xs: 4 }}>
@@ -1845,7 +1894,9 @@ export default function FacebookLiveStreamerMUI({
                           </Grid>
                           <Grid item size={{ xs: 4 }}>
                             <Chip
-                              label={`Drop: ${streamHealth.dropped}`}
+                              label={t("live.browserStudio.droppedShort", {
+                                count: streamHealth.dropped,
+                              })}
                               color={
                                 streamHealth.dropped > 10 ? "error" : "default"
                               }
@@ -1858,7 +1909,7 @@ export default function FacebookLiveStreamerMUI({
                     )}
                     <Alert severity="success" sx={{ mt: 2 }}>
                       <Typography variant="body2">
-                        ⚡ Adaptive Quality: Tự động điều chỉnh theo mạng!
+                        {t("live.browserStudio.adaptiveQualityHint")}
                       </Typography>
                     </Alert>
                   </CardContent>
@@ -1887,7 +1938,7 @@ export default function FacebookLiveStreamerMUI({
                       >
                         <SettingsInputHdmi color="primary" />
                         <Typography variant="h6" fontWeight={600}>
-                          Quality Settings
+                          {t("live.browserStudio.qualitySettings")}
                         </Typography>
                       </Box>
                       {isMobile &&
@@ -1913,9 +1964,9 @@ export default function FacebookLiveStreamerMUI({
                           >
                             <Speed fontSize="small" color="action" />
                             <Typography variant="body2" color="text.secondary">
-                              Network Speed
+                              {t("live.browserStudio.networkSpeed")}
                             </Typography>
-                            <Tooltip title="Test lại tốc độ mạng">
+                            <Tooltip title={t("live.browserStudio.retestNetwork")}>
                               <IconButton
                                 size="small"
                                 onClick={measureNetworkSpeed}
@@ -1929,7 +1980,7 @@ export default function FacebookLiveStreamerMUI({
                             label={
                               networkSpeed > 0
                                 ? `${networkSpeed} Mbps`
-                                : "Testing..."
+                                : t("live.browserStudio.testing")
                             }
                             size="small"
                             color={
@@ -1974,7 +2025,7 @@ export default function FacebookLiveStreamerMUI({
                           >
                             <AutoMode fontSize="small" />
                             <Typography variant="body2">
-                              Auto Quality
+                              {t("live.browserStudio.autoQuality")}
                             </Typography>
                           </Box>
                         }
@@ -1985,13 +2036,13 @@ export default function FacebookLiveStreamerMUI({
                         sx={{ mt: 2 }}
                         disabled={isStreaming || autoQuality}
                       >
-                        <InputLabel>Quality Preset</InputLabel>
+                        <InputLabel>{t("live.browserStudio.qualityPreset")}</InputLabel>
                         <Select
                           value={qualityMode}
-                          label="Quality Preset"
+                          label={t("live.browserStudio.qualityPreset")}
                           onChange={(e) => setQualityMode(e.target.value)}
                         >
-                          {Object.entries(QUALITY_PRESETS).map(
+                          {Object.entries(qualityPresets).map(
                             ([key, preset]) => (
                               <MenuItem key={key} value={key}>
                                 <Box>
@@ -2018,10 +2069,9 @@ export default function FacebookLiveStreamerMUI({
                           sx={{ mt: 2 }}
                         >
                           <Typography variant="caption">
-                            Recommended:{" "}
-                            <strong>
-                              {QUALITY_PRESETS[recommendedQuality].label}
-                            </strong>
+                            {t("live.browserStudio.recommended", {
+                              label: qualityPresets[recommendedQuality].label,
+                            })}
                           </Typography>
                         </Alert>
                       )}
@@ -2040,26 +2090,26 @@ export default function FacebookLiveStreamerMUI({
                           display="block"
                           gutterBottom
                         >
-                          Current Settings:
+                          {t("live.browserStudio.currentSettings")}
                         </Typography>
                         <Grid container spacing={1}>
                           <Grid item size={{ xs: 6 }}>
                             <Typography variant="caption">
-                              <strong>Resolution:</strong>{" "}
-                              {QUALITY_PRESETS[qualityMode].width}x
-                              {QUALITY_PRESETS[qualityMode].height}
+                              <strong>{t("live.browserStudio.resolution")}</strong>{" "}
+                              {qualityPresets[qualityMode].width}x
+                              {qualityPresets[qualityMode].height}
                             </Typography>
                           </Grid>
                           <Grid item size={{ xs: 6 }}>
                             <Typography variant="caption">
-                              <strong>FPS:</strong>{" "}
-                              {QUALITY_PRESETS[qualityMode].fps}
+                              <strong>{t("live.browserStudio.fps")}</strong>{" "}
+                              {qualityPresets[qualityMode].fps}
                             </Typography>
                           </Grid>
                           <Grid item size={{ xs: 12 }}>
                             <Typography variant="caption">
-                              <strong>Bitrate:</strong>{" "}
-                              {QUALITY_PRESETS[qualityMode].videoBitsPerSecond}
+                              <strong>{t("live.browserStudio.bitrate")}</strong>{" "}
+                              {qualityPresets[qualityMode].videoBitsPerSecond}
                               kbps
                             </Typography>
                           </Grid>
@@ -2083,7 +2133,7 @@ export default function FacebookLiveStreamerMUI({
                     >
                       <Info color="primary" />
                       <Typography variant="h6" fontWeight={600}>
-                        Stream Settings
+                        {t("live.browserStudio.streamSettings")}
                       </Typography>
                     </Box>
 
@@ -2093,7 +2143,7 @@ export default function FacebookLiveStreamerMUI({
                         color="text.secondary"
                         sx={{ mb: 1 }}
                       >
-                        Destinations
+                        {t("live.browserStudio.destinations")}
                       </Typography>
                       <Stack direction="column" spacing={1}>
                         <FormControlLabel
@@ -2165,8 +2215,8 @@ export default function FacebookLiveStreamerMUI({
 
                     <TextField
                       type="password"
-                      label="Facebook Stream Key"
-                      placeholder="Auto từ URL hoặc nhập thủ công"
+                      label={t("live.browserStudio.facebookStreamKey")}
+                      placeholder={t("live.browserStudio.facebookPlaceholder")}
                       value={streamKey}
                       onChange={(e) => setStreamKey(e.target.value)}
                       disabled={isStreaming || !targetFacebook}
@@ -2176,16 +2226,16 @@ export default function FacebookLiveStreamerMUI({
                         targetFacebook
                           ? streamKey
                             ? autoFillFlags.fb
-                              ? "✓ Đã tự động điền từ URL/d64"
-                              : "✓ Stream key đã có"
-                            : "Sẽ tự động lấy từ URL param 'key' hoặc d64"
-                          : "Facebook đang tắt — không cần nhập key"
+                              ? t("live.browserStudio.autoFilledFromUrl")
+                              : t("live.browserStudio.streamKeyPresent")
+                            : t("live.browserStudio.facebookAutoHint")
+                          : t("live.browserStudio.facebookDisabledHint")
                       }
                       sx={{ mb: 2 }}
                     />
 
                     <TextField
-                      label="YouTube Server"
+                      label={t("live.browserStudio.youtubeServer")}
                       placeholder="rtmp://a.rtmp.youtube.com/live2"
                       value={ytServer}
                       onChange={(e) => setYtServer(e.target.value)}
@@ -2194,13 +2244,13 @@ export default function FacebookLiveStreamerMUI({
                       size={isMobile ? "small" : "medium"}
                       helperText={
                         targetYoutube && autoFillFlags.yt
-                          ? "✓ Đã tự động điền từ URL/d64"
+                          ? t("live.browserStudio.autoFilledFromUrl")
                           : ""
                       }
                       sx={{ mb: 1 }}
                     />
                     <TextField
-                      label="YouTube Stream Key"
+                      label={t("live.browserStudio.youtubeStreamKey")}
                       placeholder="xxxx-xxxx-xxxx-xxxx"
                       value={ytKey}
                       onChange={(e) => setYtKey(e.target.value)}
@@ -2209,14 +2259,14 @@ export default function FacebookLiveStreamerMUI({
                       size={isMobile ? "small" : "medium"}
                       helperText={
                         targetYoutube && autoFillFlags.yt && ytKey
-                          ? "✓ Key từ URL/d64"
+                          ? t("live.browserStudio.keyFromUrl")
                           : ""
                       }
                       sx={{ mb: 2 }}
                     />
 
                     <TextField
-                      label="TikTok Server (paste từ Live Center)"
+                      label={t("live.browserStudio.tiktokServer")}
                       placeholder="rtmp://..."
                       value={ttServer}
                       onChange={(e) => setTtServer(e.target.value)}
@@ -2225,13 +2275,13 @@ export default function FacebookLiveStreamerMUI({
                       size={isMobile ? "small" : "medium"}
                       helperText={
                         targetTiktok && autoFillFlags.tt
-                          ? "✓ Đã tự động điền từ URL/d64"
+                          ? t("live.browserStudio.autoFilledFromUrl")
                           : ""
                       }
                       sx={{ mb: 1 }}
                     />
                     <TextField
-                      label="TikTok Stream Key"
+                      label={t("live.browserStudio.tiktokStreamKey")}
                       placeholder="xxxxxxxx"
                       value={ttKey}
                       onChange={(e) => setTtKey(e.target.value)}
@@ -2240,7 +2290,7 @@ export default function FacebookLiveStreamerMUI({
                       size={isMobile ? "small" : "medium"}
                       helperText={
                         targetTiktok && autoFillFlags.tt && ttKey
-                          ? "✓ Key từ URL/d64"
+                          ? t("live.browserStudio.keyFromUrl")
                           : ""
                       }
                       sx={{ mb: 3 }}
@@ -2267,10 +2317,10 @@ export default function FacebookLiveStreamerMUI({
                       sx={{ py: 1.5, fontWeight: "bold", fontSize: "1rem" }}
                     >
                       {loading
-                        ? "Đang xử lý..."
+                        ? t("live.browserStudio.processing")
                         : isStreaming
-                          ? "Dừng Stream"
-                          : "Start Streaming"}
+                          ? t("live.browserStudio.stopStream")
+                          : t("live.browserStudio.startStreaming")}
                     </Button>
 
                     <Alert
@@ -2293,22 +2343,20 @@ export default function FacebookLiveStreamerMUI({
                         component="div"
                         sx={{ lineHeight: 1.6 }}
                       >
-                        <strong>🚀 Features:</strong>
+                        <strong>{t("live.browserStudio.featuresTitle")}</strong>
                         <ul style={{ margin: 0, paddingLeft: 18 }}>
                           <li>
-                            ✅ Multi-platform outputs (Facebook / YouTube /
-                            TikTok)
+                            {t("live.browserStudio.featureMultiPlatform")}
                           </li>
-                          <li>✅ Auto quality từ network speed</li>
+                          <li>{t("live.browserStudio.featureAutoQuality")}</li>
                           <li>
-                            ✅ <strong>Auto-fill từ URL/d64</strong> (key,
-                            yt_server/yt, tt_server/tt)
+                            {t("live.browserStudio.featureAutoFill")}
                           </li>
-                          <li>✅ Manual quality override</li>
-                          <li>✅ Real-time health monitoring</li>
-                          <li>✅ 4 quality presets (360p-1080p)</li>
-                          <li>✅ Perfect audio sync (128k)</li>
-                          <li>✅ Zero flicker overlay rendering</li>
+                          <li>{t("live.browserStudio.featureManualQuality")}</li>
+                          <li>{t("live.browserStudio.featureHealth")}</li>
+                          <li>{t("live.browserStudio.featurePresets")}</li>
+                          <li>{t("live.browserStudio.featureAudioSync")}</li>
+                          <li>{t("live.browserStudio.featureZeroFlicker")}</li>
                         </ul>
                       </Typography>
                     </Alert>

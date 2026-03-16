@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types */
 import React, { useEffect, useRef, useState } from "react";
 import {
   Container,
@@ -19,6 +20,7 @@ import {
   useCreateAssessmentMutation,
   useGetLatestAssessmentQuery,
 } from "../../slices/assessmentsApiSlice";
+import { useLanguage } from "../../context/LanguageContext";
 import SEOHead from "../../components/SEOHead";
 
 /* ===== DUPR helpers (min = 1.6) ===== */
@@ -31,69 +33,12 @@ const duprFromRaw = (raw0to10) =>
   round3(DUPR_MIN + clamp(raw0to10, 0, 10) * ((DUPR_MAX - DUPR_MIN) / 10));
 
 /* Rubric (bắt đầu từ 1.6, không còn 2.0) */
-const RUBRIC = [
-  {
-    level: 1.6,
-    label: "Beginner",
-    bullets: [
-      "Giao bóng chưa ổn định",
-      "Chỉ đánh bóng dễ",
-      "Chưa kiểm soát vị trí",
-    ],
-  },
-  {
-    level: 2.5,
-    label: "Lower Intermediate",
-    bullets: ["Giao & trả ổn định", "Rally ngắn", "Bắt đầu dink (lỗi)"],
-  },
-  {
-    level: 3.0,
-    label: "Intermediate",
-    bullets: [
-      "Giao chắc",
-      "Dink có kiểm soát",
-      "Bắt đầu third shot",
-      "Phối hợp cơ bản",
-    ],
-  },
-  {
-    level: 4.0,
-    label: "Advanced Intermediate",
-    bullets: [
-      "Ít lỗi unforced",
-      "Third shot hiệu quả",
-      "Dink ổn định",
-      "Vị trí hợp lý",
-    ],
-  },
-  {
-    level: 4.5,
-    label: "Advanced",
-    bullets: [
-      "Rất ít lỗi",
-      "Dink chiến thuật",
-      "Volley ổn định",
-      "Đọc trận tốt",
-    ],
-  },
-  {
-    level: 5.0,
-    label: "Pro (5.0+)",
-    bullets: [
-      "Thi đấu cao cấp",
-      "Hầu như không lỗi",
-      "Phối hợp cực tốt",
-      "Chiến thuật linh hoạt",
-    ],
-  },
-];
-
-const nearestRubricLevel = (val) => {
+const nearestRubricLevel = (val, rubric) => {
   const n = Number(val);
   if (Number.isNaN(n)) return null;
-  let best = RUBRIC[0].level,
+  let best = rubric[0].level,
     d = Math.abs(n - best);
-  for (const r of RUBRIC) {
+  for (const r of rubric) {
     const nd = Math.abs(n - r.level);
     if (nd < d) {
       d = nd;
@@ -142,7 +87,10 @@ const InputCard = React.memo(function InputCard({
   didPrefillRef,
   initializing,
 }) {
+  const { t } = useLanguage();
   const theme = useTheme();
+  const minLabel = DUPR_MIN.toFixed(3);
+  const maxLabel = DUPR_MAX.toFixed(3);
   return (
     <Box
       sx={{
@@ -171,12 +119,12 @@ const InputCard = React.memo(function InputCard({
         }}
         autoComplete="off"
         label={label}
-        placeholder={initializing ? "" : "vd. 1.75"}
+        placeholder={initializing ? "" : t("levelPoint.placeholderExample")}
         error={value !== "" && !isValidDupr(parseFloat(value))}
         helperText={
           value !== "" && !isValidDupr(parseFloat(value))
-            ? `Nhập ${DUPR_MIN.toFixed(3)}–${DUPR_MAX.toFixed(3)}`
-            : `Dải hợp lệ ${DUPR_MIN.toFixed(3)}–${DUPR_MAX.toFixed(3)}`
+            ? t("levelPoint.inputHint", { min: minLabel, max: maxLabel })
+            : t("levelPoint.validRange", { min: minLabel, max: maxLabel })
         }
       />
       <Typography
@@ -185,8 +133,8 @@ const InputCard = React.memo(function InputCard({
         sx={{ mt: 1, display: "block" }}
       >
         {color === "primary"
-          ? "Viền xanh lam = ĐƠN (Single)"
-          : "Viền xanh lục = ĐÔI (Double)"}
+          ? t("levelPoint.singleBorderHint")
+          : t("levelPoint.doubleBorderHint")}
       </Typography>
     </Box>
   );
@@ -194,6 +142,7 @@ const InputCard = React.memo(function InputCard({
 
 /* ======= Component chính ======= */
 export default function LevelPointPage({ userId: userIdProp }) {
+  const { t } = useLanguage();
   const theme = useTheme();
   const authedId = useSelector((s) => s?.auth?.userInfo?._id);
   const userId = userIdProp || authedId;
@@ -215,6 +164,7 @@ export default function LevelPointPage({ userId: userIdProp }) {
   } = useGetLatestAssessmentQuery(userId, { skip: !userId });
 
   const initializing = loadingLatest || fetchingLatest;
+  const rubric = t("levelPoint.rubric", undefined, []);
 
   // ✅ Prefill CHỈ 1 LẦN, CHỈ KHI CHƯA GÕ (input rỗng)
   useEffect(() => {
@@ -250,20 +200,20 @@ export default function LevelPointPage({ userId: userIdProp }) {
   const singleValid = isValidDupr(singleVal);
   const doubleValid = isValidDupr(doubleVal);
 
-  const nearestSingle = singleValid ? nearestRubricLevel(singleVal) : null;
-  const nearestDouble = doubleValid ? nearestRubricLevel(doubleVal) : null;
+  const nearestSingle = singleValid ? nearestRubricLevel(singleVal, rubric) : null;
+  const nearestDouble = doubleValid ? nearestRubricLevel(doubleVal, rubric) : null;
 
   const latestChip = (() => {
     if (!userId) return null;
     if (initializing)
-      return <Chip size="small" label="Đang tải lần chấm gần nhất…" />;
+      return <Chip size="small" label={t("levelPoint.loadingLatest")} />;
     if (latestError)
       return (
         <Chip
           size="small"
           color="error"
           variant="outlined"
-          label="Không tải được lần chấm gần nhất"
+          label={t("levelPoint.loadLatestError")}
         />
       );
     if (latest?._id) {
@@ -275,7 +225,7 @@ export default function LevelPointPage({ userId: userIdProp }) {
           size="small"
           color="info"
           variant="outlined"
-          label={`Đã tự điền từ lần gần nhất${when}`}
+          label={t("levelPoint.latestPrefill", { when })}
         />
       );
     }
@@ -284,14 +234,15 @@ export default function LevelPointPage({ userId: userIdProp }) {
 
   const handleSubmit = async () => {
     if (!userId) {
-      toast.error("Thiếu userId.");
+      toast.error(t("levelPoint.missingUserId"));
       return;
     }
     if (!singleValid || !doubleValid) {
       toast.error(
-        `Vui lòng nhập đủ Đơn & Đôi trong dải ${DUPR_MIN.toFixed(
-          3
-        )}–${DUPR_MAX.toFixed(3)}.`
+        t("levelPoint.invalidRange", {
+          min: DUPR_MIN.toFixed(3),
+          max: DUPR_MAX.toFixed(3),
+        })
       );
       return;
     }
@@ -300,21 +251,21 @@ export default function LevelPointPage({ userId: userIdProp }) {
         userId,
         singleLevel: singleVal,
         doubleLevel: doubleVal,
-        note: "Tự đánh giá, cần đánh giá thêm",
+        note: t("levelPoint.saveNote"),
       }).unwrap();
-      toast.success("Đã lưu đánh giá & cập nhật ranking!");
+      toast.success(t("levelPoint.saveSuccess"));
     } catch (err) {
       const msg =
         err?.data?.message ||
         err?.error ||
-        "Lỗi không xác định khi lưu đánh giá.";
+        t("levelPoint.saveUnknownError");
       toast.error(msg);
     }
   };
 
   return (
     <Box className="min-h-screen bg-gray-50">
-      <SEOHead title="Tự đánh giá trình độ (DUPR)" noIndex={true} />
+      <SEOHead title={t("levelPoint.seoTitle")} noIndex={true} />
       <Container maxWidth="md" sx={{ py: 4 }}>
         <Stack
           direction={{ xs: "column", sm: "row" }}
@@ -324,7 +275,7 @@ export default function LevelPointPage({ userId: userIdProp }) {
           mb={2}
         >
           <Typography variant="h4">
-            Bảng tự đánh giá trình Pickleball
+            {t("levelPoint.pageTitle")}
           </Typography>
           <Stack direction="row" gap={1} flexWrap="wrap">
             {latestChip}
@@ -336,7 +287,7 @@ export default function LevelPointPage({ userId: userIdProp }) {
           <CardContent>
             <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
               <InputCard
-                label="Trình ĐƠN (Single)"
+                label={t("levelPoint.singleLabel")}
                 value={singleInput}
                 setValue={setSingleInput}
                 color="primary"
@@ -344,7 +295,7 @@ export default function LevelPointPage({ userId: userIdProp }) {
                 initializing={initializing}
               />
               <InputCard
-                label="Trình ĐÔI (Double)"
+                label={t("levelPoint.doubleLabel")}
                 value={doubleInput}
                 setValue={setDoubleInput}
                 color="success"
@@ -363,14 +314,14 @@ export default function LevelPointPage({ userId: userIdProp }) {
               <Stack direction="row" spacing={1} flexWrap="wrap" rowGap={1}>
                 {singleValid && (
                   <Chip
-                    label={`Đơn: ${singleVal}`}
+                    label={t("levelPoint.singleChip", { value: singleVal })}
                     color="primary"
                     sx={{ fontSize: "1rem", px: 2, py: 1 }}
                   />
                 )}
                 {doubleValid && (
                   <Chip
-                    label={`Đôi: ${doubleVal}`}
+                    label={t("levelPoint.doubleChip", { value: doubleVal })}
                     color="success"
                     sx={{ fontSize: "1rem", px: 2, py: 1 }}
                   />
@@ -383,7 +334,7 @@ export default function LevelPointPage({ userId: userIdProp }) {
                   onClick={handleSubmit}
                   disabled={saving || !userId}
                 >
-                  {saving ? "Đang cập nhật…" : "Cập nhật"}
+                  {saving ? t("levelPoint.saving") : t("levelPoint.save")}
                 </Button>
                 <Button
                   variant="text"
@@ -392,7 +343,7 @@ export default function LevelPointPage({ userId: userIdProp }) {
                     setDoubleInput("");
                   }}
                 >
-                  Đặt lại
+                  {t("levelPoint.reset")}
                 </Button>
               </Stack>
             </Stack>
@@ -402,19 +353,20 @@ export default function LevelPointPage({ userId: userIdProp }) {
               color="text.secondary"
               sx={{ display: "block", mt: 2 }}
             >
-              Màu sắc: <b>xanh lam</b> = ĐƠN (Single), <b>xanh lục</b> = ĐÔI
-              (Double). Nhập số trong dải {DUPR_MIN.toFixed(3)}–
-              {DUPR_MAX.toFixed(3)}.
+              {t("levelPoint.colorHint", {
+                min: DUPR_MIN.toFixed(3),
+                max: DUPR_MAX.toFixed(3),
+              })}
             </Typography>
           </CardContent>
         </Card>
 
         {/* Rubric – viền trái theo giá trị đã nhập */}
         <Card variant="outlined" sx={{ borderRadius: 3 }}>
-          <CardHeader title="📝 Bảng tự đánh giá trình độ Pickleball (tham khảo DUPR)" />
+          <CardHeader title={`📝 ${t("levelPoint.rubricTitle")}`} />
           <CardContent>
             <Stack spacing={2}>
-              {RUBRIC.map((r) => {
+              {rubric.map((r) => {
                 const colors = [];
                 if (nearestSingle === r.level)
                   colors.push(theme.palette.primary.main);
@@ -436,7 +388,10 @@ export default function LevelPointPage({ userId: userIdProp }) {
                     }}
                   >
                     <Typography variant="h6" sx={{ mb: 0.5 }}>
-                      Mức {r.level} ({r.label})
+                      {t("levelPoint.levelLabel", {
+                        level: r.level,
+                        label: r.label,
+                      })}
                     </Typography>
                     <Typography variant="body2" sx={{ whiteSpace: "pre-line" }}>
                       • {r.bullets.join("\n• ")}

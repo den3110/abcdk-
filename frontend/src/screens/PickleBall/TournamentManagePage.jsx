@@ -1,5 +1,5 @@
 // src/pages/admin/parts/TournamentManagePage.jsx
-/* eslint-disable react/prop-types */
+/* eslint-disable react/prop-types, no-unused-vars, no-empty */
 import React, {
   useMemo,
   useState,
@@ -93,6 +93,8 @@ import ManageRefereesDialog from "../../components/RefereeManagerDialog";
 import LiveSetupDialog from "../../components/LiveSetupDialog";
 import BulkAssignRefDialog from "../../components/BulkAssignRefDialog";
 import SEOHead from "../../components/SEOHead";
+import { useLanguage } from "../../context/LanguageContext";
+import { formatDateTime } from "../../i18n/format";
 
 /* ---------------- helpers ---------------- */
 // ✅ Hàm chuẩn hóa: A→1, B→2, C→3, D→4, hoặc giữ nguyên số
@@ -170,6 +172,49 @@ const TYPE_LABEL = (t) => {
 };
 
 const WEB_LOGO_URL = "/icon.png";
+
+const getTypeLabel = (t, type) => {
+  const key = String(type || "").toLowerCase();
+  if (key === "group") return t("tournaments.overview.types.group");
+  if (key === "po" || key === "playoff" || key === "roundelim") {
+    return t("tournaments.overview.types.playoff");
+  }
+  if (key === "knockout" || key === "ko") {
+    return t("tournaments.overview.types.knockout");
+  }
+  if (key === "double_elim" || key === "doubleelim") {
+    return t("tournaments.overview.types.doubleElim");
+  }
+  if (key === "swiss") return "Swiss";
+  if (key === "gsl") return "GSL";
+  return type || t("tournaments.overview.typeFallback");
+};
+
+const getManageStatusMeta = (t, status) => {
+  const key = String(status || "").toLowerCase();
+  const map = {
+    scheduled: {
+      color: "default",
+      label: t("tournaments.overview.status.scheduled"),
+    },
+    queued: { color: "info", label: t("tournaments.overview.status.queued") },
+    assigned: {
+      color: "secondary",
+      label: t("tournaments.overview.status.assigned"),
+    },
+    live: { color: "warning", label: t("tournaments.overview.status.live") },
+    finished: {
+      color: "success",
+      label: t("tournaments.overview.status.finished"),
+    },
+  };
+  return map[key] || { color: "default", label: status || "—" };
+};
+
+const statusChipLocalized = (t, status) => {
+  const meta = getManageStatusMeta(t, status);
+  return <Chip size="small" color={meta.color} label={meta.label} />;
+};
 
 const refereeNames = (m) => {
   const pickOne = (u) => personNickname(u);
@@ -558,6 +603,67 @@ const ActionChips = React.memo(function ActionChips({
   );
 });
 
+const ActionChipsLocalized = React.memo(function ActionChipsLocalized(props) {
+  const { t } = useLanguage();
+  const st = String(props.match?.status || "").toLowerCase();
+  const canAssignCourt = !(st === "live" || st === "finished");
+
+  return (
+    <Box
+      onClick={(e) => e.stopPropagation()}
+      sx={{ display: "flex", flexWrap: "wrap", columnGap: 0.75, rowGap: 0.75 }}
+    >
+      <Chip
+        size="small"
+        color="primary"
+        variant="filled"
+        icon={<PrintIcon />}
+        label={t("tournaments.manage.refereeReport")}
+        onClick={() => props.onExportRefNote?.(props.match)}
+      />
+      <Chip
+        size="small"
+        color="info"
+        variant={props.match?.video ? "filled" : "outlined"}
+        icon={<MovieIcon />}
+        label={
+          props.match?.video
+            ? t("tournaments.manage.editVideo")
+            : t("tournaments.manage.attachVideo")
+        }
+        onClick={() => props.onOpenVideo(props.match)}
+      />
+      {props.match?.video && (
+        <Chip
+          size="small"
+          color="error"
+          variant="outlined"
+          label={t("tournaments.manage.removeVideo")}
+          onClick={() => props.onDeleteVideo(props.match)}
+        />
+      )}
+      {canAssignCourt && (
+        <Chip
+          size="small"
+          color="secondary"
+          variant="outlined"
+          icon={<StadiumIcon />}
+          label={t("tournaments.manage.assignCourt")}
+          onClick={() => props.onAssignCourt(props.match)}
+        />
+      )}
+      <Chip
+        size="small"
+        color="primary"
+        variant="outlined"
+        icon={<RefereeIcon />}
+        label={t("tournaments.manage.assignSingleReferee")}
+        onClick={() => props.onAssignRef(props.match)}
+      />
+    </Box>
+  );
+});
+
 /* ======= NEW: Desktop two-line rows ======= */
 const MatchDesktopRows = React.memo(function MatchDesktopRows({
   match,
@@ -571,6 +677,7 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
   checked = false,
   onToggleSelect,
 }) {
+  const { t } = useLanguage();
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
 
@@ -616,7 +723,7 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
         {scoreSummary(merged)}
       </TableCell>
       <TableCell sx={{ width: 110, whiteSpace: "nowrap", py: 0.5 }}>
-        {statusChip(merged?.status)}
+        {statusChipLocalized(t, merged?.status)}
       </TableCell>
       <TableCell
         onClick={(e) => e.stopPropagation()}
@@ -646,7 +753,7 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
     <TableRow>
       <TableCell sx={{ width: 56, minWidth: 56, py: 0.25 }} />
       <TableCell colSpan={8} sx={{ py: 0.75, whiteSpace: "normal" }}>
-        <ActionChips
+        <ActionChipsLocalized
           match={merged}
           onOpenVideo={onOpenVideo}
           onDeleteVideo={onDeleteVideo}
@@ -678,6 +785,7 @@ const MatchCard = React.memo(function MatchCard({
   checked = false,
   onToggleSelect,
 }) {
+  const { t } = useLanguage();
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
   const code = matchCode(merged);
@@ -728,7 +836,7 @@ const MatchCard = React.memo(function MatchCard({
             <Typography variant="subtitle2" noWrap>
               {code}
             </Typography>
-            {statusChip(merged?.status)}
+            {statusChipLocalized(t, merged?.status)}
           </Stack>
         }
         subheader={
@@ -873,8 +981,65 @@ const BulkVideoDialog = React.memo(function BulkVideoDialog({
   );
 });
 
+const BulkVideoDialogLocalized = React.memo(function BulkVideoDialogLocalized({
+  open,
+  selectedCount = 0,
+  busy = false,
+  onClose,
+  onSubmit,
+}) {
+  const { t } = useLanguage();
+  const [url, setUrl] = React.useState("");
+
+  React.useEffect(() => {
+    if (open) setUrl("");
+  }, [open]);
+
+  const handleSubmit = React.useCallback(() => {
+    const value = (url || "").trim();
+    if (!value || !selectedCount || busy) return;
+    onSubmit?.(value);
+  }, [url, selectedCount, busy, onSubmit]);
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm" keepMounted>
+      <DialogTitle>
+        {t("tournaments.manage.bulkVideoTitle", { count: selectedCount })}
+      </DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={2}>
+          <TextField
+            autoFocus
+            label={t("tournaments.manage.videoUrlLabel")}
+            placeholder="https://..."
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            fullWidth
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSubmit();
+            }}
+          />
+          <Alert severity="info">{t("tournaments.manage.bulkVideoHint")}</Alert>
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>{t("common.close", undefined, "Close")}</Button>
+        <Button
+          variant="contained"
+          startIcon={<MovieIcon />}
+          disabled={busy || !url.trim() || !selectedCount}
+          onClick={handleSubmit}
+        >
+          {t("tournaments.manage.attachVideo")}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+});
+
 /* ---------------- Component chính ---------------- */
 export default function TournamentManagePage() {
+  const { t } = useLanguage();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
@@ -1824,7 +1989,7 @@ export default function TournamentManagePage() {
           {tourErr?.data?.message ||
             brErr?.data?.message ||
             mErr?.data?.message ||
-            "Lỗi tải dữ liệu"}
+            t("tournaments.manage.loadError")}
         </Alert>
       </Box>
     );
@@ -1832,9 +1997,9 @@ export default function TournamentManagePage() {
   if (!canManage) {
     return (
       <Box p={3}>
-        <Alert severity="warning">Bạn không có quyền truy cập trang này.</Alert>
+        <Alert severity="warning">{t("tournaments.manage.noAccess")}</Alert>
         <Button component={Link} to={`/tournament/${id}`} sx={{ mt: 2 }}>
-          Quay lại trang giải
+          {t("tournaments.manage.backToTournament")}
         </Button>
       </Box>
     );
@@ -1843,7 +2008,12 @@ export default function TournamentManagePage() {
   /* ---------- UI ---------- */
   return (
     <Box p={{ xs: 2, md: 3 }}>
-      <SEOHead title={`Quản lý: ${tour?.name || "Giải đấu"}`} noIndex={true} />
+      <SEOHead
+        title={t("tournaments.manage.seoTitle", {
+          name: tour?.name || t("tournaments.manage.fallbackName"),
+        })}
+        noIndex={true}
+      />
       {/* Header */}
       <Stack spacing={1.5} mb={2}>
         <Stack
@@ -1853,7 +2023,9 @@ export default function TournamentManagePage() {
           sx={{ gap: 1 }}
         >
           <Typography variant="h5" noWrap>
-            Quản lý giải: {tour?.name}
+            {t("tournaments.manage.pageTitle", {
+              name: tour?.name || t("tournaments.manage.fallbackName"),
+            })}
           </Typography>
 
           {/* Desktop actions */}
@@ -1875,7 +2047,7 @@ export default function TournamentManagePage() {
               startIcon={<RefereeIcon />}
               onClick={() => setRefMgrOpen(true)}
             >
-              Quản lý trọng tài
+              {t("tournaments.manage.manageReferees")}
             </Button>
 
             {/* Quản lý sân TOÀN GIẢI */}
@@ -1885,18 +2057,18 @@ export default function TournamentManagePage() {
               startIcon={<StadiumIcon />}
               onClick={() => openManageCourts()}
             >
-              Quản lý sân
+              {t("tournaments.manage.manageCourts")}
             </Button>
 
             {/* Thiết lập LIVE TOÀN GIẢI */}
-            <Tooltip title="Áp dụng TOÀN GIẢI" arrow>
+            <Tooltip title={t("tournaments.manage.liveSetupAllHint")} arrow>
               <Button
                 variant="outlined"
                 size="small"
                 startIcon={<MovieIcon />}
                 onClick={openLiveSetup}
               >
-                Thiết lập LIVE
+                {t("tournaments.manage.liveSetup")}
               </Button>
             </Tooltip>
 
@@ -1908,7 +2080,7 @@ export default function TournamentManagePage() {
               onClick={openExportMenu}
               disabled={exporting || bracketsOfTab.length === 0}
             >
-              Xuất file
+              {t("tournaments.manage.exportFiles")}
             </Button>
             <Menu
               anchorEl={exportAnchor}
@@ -1924,7 +2096,11 @@ export default function TournamentManagePage() {
                   <PictureAsPdfIcon fontSize="small" />
                 </ListItemIcon>
                 <ListItemText
-                  primary={exporting ? "Đang xuất PDF…" : "Xuất PDF"}
+                  primary={
+                    exporting
+                      ? t("tournaments.manage.exportPdfLoading")
+                      : t("tournaments.manage.exportPdf")
+                  }
                 />
               </MenuItem>
               <MenuItem
@@ -1935,7 +2111,11 @@ export default function TournamentManagePage() {
                   <DescriptionIcon fontSize="small" />
                 </ListItemIcon>
                 <ListItemText
-                  primary={exporting ? "Đang xuất Word…" : "Xuất Word (.docx)"}
+                  primary={
+                    exporting
+                      ? t("tournaments.manage.exportWordLoading")
+                      : t("tournaments.manage.exportWord")
+                  }
                 />
               </MenuItem>
             </Menu>
@@ -1946,7 +2126,7 @@ export default function TournamentManagePage() {
               variant="outlined"
               size="small"
             >
-              Tổng quan
+              {t("tournaments.manage.overview")}
             </Button>
           </Stack>
 
@@ -1959,7 +2139,7 @@ export default function TournamentManagePage() {
                 onClick={openActionMenu}
                 startIcon={<MovieIcon />}
               >
-                Hành động
+                {t("tournaments.manage.actions")}
               </Button>
               <Menu
                 anchorEl={actionAnchor}
@@ -1976,7 +2156,9 @@ export default function TournamentManagePage() {
                   <ListItemIcon>
                     <RefereeIcon fontSize="small" />
                   </ListItemIcon>
-                  <ListItemText primary="Quản lý trọng tài" />
+                  <ListItemText
+                    primary={t("tournaments.manage.manageReferees")}
+                  />
                 </MenuItem>
 
                 <MenuItem
@@ -1988,7 +2170,9 @@ export default function TournamentManagePage() {
                   <ListItemIcon>
                     <StadiumIcon fontSize="small" />
                   </ListItemIcon>
-                  <ListItemText primary="Quản lý sân" />
+                  <ListItemText
+                    primary={t("tournaments.manage.manageCourts")}
+                  />
                 </MenuItem>
 
                 <MenuItem
@@ -2000,7 +2184,9 @@ export default function TournamentManagePage() {
                   <ListItemIcon>
                     <MovieIcon fontSize="small" />
                   </ListItemIcon>
-                  <ListItemText primary="Thiết lập LIVE" />
+                  <ListItemText
+                    primary={t("tournaments.manage.liveSetup")}
+                  />
                 </MenuItem>
 
                 <Divider />
@@ -2013,7 +2199,11 @@ export default function TournamentManagePage() {
                     <PictureAsPdfIcon fontSize="small" />
                   </ListItemIcon>
                   <ListItemText
-                    primary={exporting ? "Đang xuất PDF…" : "Xuất PDF"}
+                    primary={
+                      exporting
+                        ? t("tournaments.manage.exportPdfLoading")
+                        : t("tournaments.manage.exportPdf")
+                    }
                   />
                 </MenuItem>
                 <MenuItem
@@ -2025,7 +2215,9 @@ export default function TournamentManagePage() {
                   </ListItemIcon>
                   <ListItemText
                     primary={
-                      exporting ? "Đang xuất Word…" : "Xuất Word (.docx)"
+                      exporting
+                        ? t("tournaments.manage.exportWordLoading")
+                        : t("tournaments.manage.exportWord")
                     }
                   />
                 </MenuItem>
@@ -2037,7 +2229,7 @@ export default function TournamentManagePage() {
                   to={`/tournament/${id}`}
                   onClick={closeActionMenu}
                 >
-                  <ListItemText primary="Trang giải" />
+                  <ListItemText primary={t("tournaments.manage.tournamentPage")} />
                 </MenuItem>
               </Menu>
             </Stack>
@@ -2060,7 +2252,7 @@ export default function TournamentManagePage() {
           >
             <TextField
               size="small"
-              placeholder="Tìm trận, cặp đấu, sân, link…"
+              placeholder={t("tournaments.manage.searchPlaceholder")}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               InputProps={{
@@ -2074,7 +2266,7 @@ export default function TournamentManagePage() {
             <TextField
               select
               size="small"
-              label="Sắp xếp"
+              label={t("tournaments.manage.sortLabel")}
               value={sortKey}
               onChange={(e) => setSortKey(e.target.value)}
               InputProps={{
@@ -2085,19 +2277,19 @@ export default function TournamentManagePage() {
                 ),
               }}
             >
-              <MenuItem value="round">Vòng (global → order)</MenuItem>
-              <MenuItem value="order">Thứ tự (order)</MenuItem>
-              <MenuItem value="time">Thời gian</MenuItem>
+              <MenuItem value="round">{t("tournaments.manage.sortRound")}</MenuItem>
+              <MenuItem value="order">{t("tournaments.manage.sortOrder")}</MenuItem>
+              <MenuItem value="time">{t("tournaments.manage.sortTime")}</MenuItem>
             </TextField>
             <TextField
               select
               size="small"
-              label="Chiều"
+              label={t("tournaments.manage.directionLabel")}
               value={sortDir}
               onChange={(e) => setSortDir(e.target.value)}
             >
-              <MenuItem value="asc">Tăng dần</MenuItem>
-              <MenuItem value="desc">Giảm dần</MenuItem>
+              <MenuItem value="asc">{t("tournaments.manage.directionAsc")}</MenuItem>
+              <MenuItem value="desc">{t("tournaments.manage.directionDesc")}</MenuItem>
             </TextField>
 
             {/* Lọc theo Sân */}
@@ -2115,7 +2307,11 @@ export default function TournamentManagePage() {
                 </li>
               )}
               renderInput={(params) => (
-                <TextField {...params} label="Sân" placeholder="Chọn sân" />
+                <TextField
+                  {...params}
+                  label={t("tournaments.manage.courtFilterLabel")}
+                  placeholder={t("tournaments.manage.courtFilterPlaceholder")}
+                />
               )}
             />
 
@@ -2128,7 +2324,7 @@ export default function TournamentManagePage() {
                   onChange={(e) => setShowBye(e.target.checked)}
                 />
               }
-              label="Hiện trận BYE"
+              label={t("tournaments.manage.showBye")}
             />
 
             <Stack
@@ -2138,7 +2334,10 @@ export default function TournamentManagePage() {
               <Chip
                 size="small"
                 variant="outlined"
-                label={`${bracketsOfTab.length} bracket • ${TYPE_LABEL(tab)}`}
+                label={t("tournaments.manage.bracketSummary", {
+                  count: bracketsOfTab.length,
+                  type: TYPE_LABEL(tab),
+                })}
               />
             </Stack>
           </Box>
@@ -2188,7 +2387,9 @@ export default function TournamentManagePage() {
                   size="small"
                   color="primary"
                   variant="outlined"
-                  label={`Đã chọn ${selectedMatchIds.size} trận`}
+                  label={t("tournaments.manage.selectedMatches", {
+                    count: selectedMatchIds.size,
+                  })}
                 />
                 <Divider orientation="vertical" flexItem sx={{ mx: 1 }} />
                 <Button
@@ -2198,7 +2399,7 @@ export default function TournamentManagePage() {
                   onClick={() => setBulkDlgOpen(true)}
                   sx={{ whiteSpace: "nowrap" }}
                 >
-                  Gán trọng tài
+                  {t("tournaments.manage.assignReferees")}
                 </Button>
                 <Button
                   variant="outlined"
@@ -2207,14 +2408,14 @@ export default function TournamentManagePage() {
                   onClick={() => setBulkVideoDlg({ open: true, url: "" })}
                   sx={{ whiteSpace: "nowrap" }}
                 >
-                  Gán video
+                  {t("tournaments.manage.assignVideo")}
                 </Button>
                 <Button
                   size="small"
                   onClick={clearSelection}
                   sx={{ whiteSpace: "nowrap" }}
                 >
-                  Bỏ chọn
+                  {t("tournaments.manage.clearSelection")}
                 </Button>
               </Paper>
             </Box>
@@ -2243,7 +2444,9 @@ export default function TournamentManagePage() {
                       size="small"
                       color="primary"
                       variant="outlined"
-                      label={`Đã chọn ${selectedMatchIds.size} trận`}
+                      label={t("tournaments.manage.selectedMatches", {
+                        count: selectedMatchIds.size,
+                      })}
                     />
                     <Box sx={{ flexGrow: 1 }} />
                   </Stack>
@@ -2255,7 +2458,7 @@ export default function TournamentManagePage() {
                       startIcon={<RefereeIcon />}
                       onClick={() => setBulkDlgOpen(true)}
                     >
-                      Gán trọng tài
+                      {t("tournaments.manage.assignReferees")}
                     </Button>
                     <Button
                       variant="outlined"
@@ -2263,10 +2466,10 @@ export default function TournamentManagePage() {
                       startIcon={<MovieIcon />}
                       onClick={() => setBulkVideoDlg({ open: true, url: "" })}
                     >
-                      Gán video
+                      {t("tournaments.manage.assignVideo")}
                     </Button>
                     <Button fullWidth onClick={clearSelection}>
-                      Bỏ chọn
+                      {t("tournaments.manage.clearSelection")}
                     </Button>
                   </Stack>
                 </Stack>
@@ -2279,7 +2482,7 @@ export default function TournamentManagePage() {
       {/* Bracket list */}
       {bracketsOfTab.length === 0 ? (
         <Alert severity="info">
-          Chưa có bracket thuộc loại {TYPE_LABEL(tab)}.
+          {t("tournaments.manage.emptyType", { type: TYPE_LABEL(tab) })}
         </Alert>
       ) : (
         bracketsOfTab.map((b) => {

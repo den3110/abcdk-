@@ -8,9 +8,11 @@ import { useParams } from "react-router-dom";
 import { useGetTournamentQuery } from "../../slices/tournamentsApiSlice";
 import { TournamentWeatherSection } from "../TournamentWeatherSection";
 import SEOHead from "../../components/SEOHead";
+import { useLanguage } from "../../context/LanguageContext";
 
 function TournamentDetailPage() {
   const { id } = useParams();
+  const { t } = useLanguage();
 
   const {
     data: tournament,
@@ -25,7 +27,7 @@ function TournamentDetailPage() {
     return (
       <Container maxWidth="lg">
         <Box sx={{ mt: 3 }}>
-          <Typography>Thiếu id giải đấu</Typography>
+          <Typography>{t("tournaments.detail.missingId")}</Typography>
         </Box>
       </Container>
     );
@@ -69,7 +71,7 @@ function TournamentDetailPage() {
       <Container maxWidth="lg">
         <Box sx={{ mt: 3 }}>
           <Typography color="error">
-            Không tải được thông tin giải đấu
+            {t("tournaments.detail.loadError")}
           </Typography>
           {process.env.NODE_ENV === "development" && (
             <Typography variant="body2">{JSON.stringify(error)}</Typography>
@@ -83,7 +85,11 @@ function TournamentDetailPage() {
     <Container maxWidth="lg">
       <SEOHead
         title={tournament?.name}
-        description={`Thông tin giải đấu ${tournament?.name}, địa điểm ${tournament?.location}, thời gian và lịch thi đấu chi tiết.`}
+        description={t("tournaments.detail.seoDescription", {
+          name: tournament?.name || t("tournaments.schedule.seoFallbackName"),
+          location:
+            tournament?.location || t("tournaments.dashboard.locationFallback"),
+        })}
         image={tournament?.cover}
         path={`/tournament/${id}`}
         structuredData={[
@@ -97,7 +103,8 @@ function TournamentDetailPage() {
             eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
             location: {
               "@type": "Place",
-              name: tournament?.location || "Sân Pickleball",
+              name:
+                tournament?.location || t("tournaments.detail.placeFallback"),
               address: {
                 "@type": "PostalAddress",
                 addressLocality: tournament?.location,
@@ -108,7 +115,9 @@ function TournamentDetailPage() {
             description: tournament?.description,
             organizer: {
               "@type": "Organization",
-              name: tournament?.organizer?.name || "PickleTour User",
+              name:
+                tournament?.organizer?.name ||
+                t("tournaments.detail.organizerFallback"),
               url: "https://pickletour.vn",
             },
           },
@@ -119,19 +128,21 @@ function TournamentDetailPage() {
               {
                 "@type": "ListItem",
                 "position": 1,
-                "name": "Trang chủ",
+                "name": t("tournaments.detail.breadcrumbs.home"),
                 "item": "https://pickletour.vn"
               },
               {
                 "@type": "ListItem",
                 "position": 2,
-                "name": "Giải đấu",
+                "name": t("tournaments.detail.breadcrumbs.tournaments"),
                 "item": "https://pickletour.vn/tournaments"
               },
               {
                 "@type": "ListItem",
                 "position": 3,
-                "name": tournament?.name || "Chi tiết giải",
+                "name":
+                  tournament?.name ||
+                  t("tournaments.detail.breadcrumbs.detailFallback"),
                 "item": `https://pickletour.vn/tournament/${id}`
               }
             ]

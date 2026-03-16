@@ -1,6 +1,6 @@
-
+/* eslint-disable react/prop-types */
 // src/layouts/tournament/AdminDrawPage.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 // import DashboardNavbar from "../../components/DashboardNavbar";
 import SEOHead from "../../components/SEOHead";
 import {
@@ -16,9 +16,6 @@ import {
   Divider,
   Grid,
   LinearProgress,
-  IconButton,
-  useMediaQuery,
-  useTheme,
 } from "@mui/material";
 import {
   PlayArrow,
@@ -26,7 +23,6 @@ import {
   DoneAll,
   Cancel,
   RestartAlt,
-  ArrowForward,
 } from "@mui/icons-material";
 import { useParams, useNavigate } from "react-router-dom";
 
@@ -45,6 +41,8 @@ import {
   useFinalizeKoMutation,
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
+import { useLanguage } from "../../context/LanguageContext";
+import { formatDateTime } from "../../i18n/format";
 
 
 /* ===== helpers ===== */
@@ -59,6 +57,7 @@ const safePairName = (reg, evType = "double") => {
 };
 
 function GroupBoard({ session, eventType }) {
+  const { t } = useLanguage();
   const groups = Number(session?.config?.groups || 0);
   const groupSize = Number(session?.config?.groupSize || 0);
   const labels = useMemo(() => {
@@ -84,7 +83,7 @@ function GroupBoard({ session, eventType }) {
   }, [labels, groupSize, session?.applied]);
 
   if (!groups || !groupSize) {
-    return <Alert severity="info">Chưa có cấu hình bảng.</Alert>;
+    return <Alert severity="info">{t("tournaments.adminDraw.groupConfigMissing")}</Alert>;
   }
 
   return (
@@ -98,7 +97,9 @@ function GroupBoard({ session, eventType }) {
               justifyContent="space-between"
               sx={{ mb: 1 }}
             >
-              <Typography fontWeight={700}>Bảng {lb}</Typography>
+              <Typography fontWeight={700}>
+                {t("tournaments.adminDraw.groupLabel", { label: lb })}
+              </Typography>
               <Chip
                 size="small"
                 label={`${(byLabel.get(lb) || []).filter(Boolean).length
@@ -137,6 +138,7 @@ function GroupBoard({ session, eventType }) {
 }
 
 function KnockoutBoard({ session, eventType }) {
+  const { t } = useLanguage();
   // applied: [{ matchOrder, side, reg }]
   const buckets = useMemo(() => {
     const m = new Map(); // order -> {A,B}
@@ -150,7 +152,7 @@ function KnockoutBoard({ session, eventType }) {
   }, [session?.applied]);
 
   if (!buckets.length) {
-    return <Alert severity="info">Chưa có cặp nào được bốc.</Alert>;
+    return <Alert severity="info">{t("tournaments.adminDraw.noDrawnPairs")}</Alert>;
   }
 
   return (
@@ -162,7 +164,9 @@ function KnockoutBoard({ session, eventType }) {
               size="small"
               color="primary"
               variant="outlined"
-              label={`Cặp #${order + 1}`}
+              label={t("tournaments.adminDraw.pairLabel", {
+                index: order + 1,
+              })}
             />
             <Typography
               sx={{ flex: 1 }}
@@ -187,10 +191,9 @@ function KnockoutBoard({ session, eventType }) {
 }
 
 export default function AdminDrawPage() {
+  const { t, locale } = useLanguage();
   const { id: tournamentId, bracketId } = useParams();
   const navigate = useNavigate();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
 
   // info
   const { data: tour } = useGetTournamentQuery(tournamentId);
@@ -271,7 +274,6 @@ export default function AdminDrawPage() {
     ["ready", "running"].includes(session.status) &&
     progress.cur < progress.total;
   const isKO = session?.mode === "knockout";
-  const isGroup = session?.mode === "group";
 
   const handleInit = async () => {
     const body =
@@ -319,7 +321,7 @@ export default function AdminDrawPage() {
 
   return (
     <>
-      <SEOHead title="Quản lý bốc thăm" noIndex={true} />
+      <SEOHead title={t("tournaments.adminDraw.seoTitle")} noIndex={true} />
       {/* <DashboardNavbar /> */}
       <Box p={2} pb={6} maxWidth={1200} mx="auto">
         <Stack
@@ -330,17 +332,24 @@ export default function AdminDrawPage() {
         >
           <Stack spacing={0.3}>
             <Typography variant="h5" fontWeight={800}>
-              Bốc thăm — {tour?.name || "Giải đấu"}
+              {t("tournaments.adminDraw.title", {
+                name: tour?.name || t("tournaments.adminDraw.fallbackName"),
+              })}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Bracket: {thisBracket?.name} •{" "}
-              {thisBracket?.type === "group" ? "Vòng bảng" : "Knockout"} •{" "}
-              {eventType === "single" ? "Giải đơn" : "Giải đôi"}
+              {thisBracket?.type === "group"
+                ? t("tournaments.adminDraw.modeGroup")
+                : t("tournaments.adminDraw.modeKnockout")}{" "}
+              •{" "}
+              {eventType === "single"
+                ? t("tournaments.adminDraw.eventSingle")
+                : t("tournaments.adminDraw.eventDouble")}
             </Typography>
           </Stack>
           <Stack direction="row" spacing={1}>
             <Button variant="outlined" onClick={() => navigate(-1)}>
-              Quay lại
+              {t("tournaments.adminDraw.back")}
             </Button>
           </Stack>
         </Stack>
@@ -352,19 +361,23 @@ export default function AdminDrawPage() {
         {!session || ["done", "canceled"].includes(session.status) ? (
           <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
             <Typography variant="h6" fontWeight={700} gutterBottom>
-              Khởi tạo phiên bốc thăm
+              {t("tournaments.adminDraw.initTitle")}
             </Typography>
             <Grid container spacing={2}>
               <Grid item size={{ xs: 12, sm: "auto" }}>
                 <TextField
                   select
-                  label="Chế độ"
+                  label={t("tournaments.adminDraw.modeLabel")}
                   value={mode}
                   onChange={(e) => setMode(e.target.value)}
                   sx={{ minWidth: 180 }}
                 >
-                  <MenuItem value="group">Vòng bảng</MenuItem>
-                  <MenuItem value="knockout">Knockout</MenuItem>
+                  <MenuItem value="group">
+                    {t("tournaments.adminDraw.modeGroup")}
+                  </MenuItem>
+                  <MenuItem value="knockout">
+                    {t("tournaments.adminDraw.modeKnockout")}
+                  </MenuItem>
                 </TextField>
               </Grid>
 
@@ -373,7 +386,7 @@ export default function AdminDrawPage() {
                   <Grid item size={{ xs: 6, sm: "auto" }}>
                     <TextField
                       type="number"
-                      label="Số bảng"
+                      label={t("tournaments.adminDraw.groupsLabel")}
                       value={groups}
                       onChange={(e) =>
                         setGroups(Math.max(1, Number(e.target.value)))
@@ -384,7 +397,7 @@ export default function AdminDrawPage() {
                   <Grid item size={{ xs: 6, sm: "auto" }}>
                     <TextField
                       type="number"
-                      label="Đội/bảng"
+                      label={t("tournaments.adminDraw.groupSizeLabel")}
                       value={groupSize}
                       onChange={(e) =>
                         setGroupSize(Math.max(2, Number(e.target.value)))
@@ -397,7 +410,7 @@ export default function AdminDrawPage() {
                 <Grid item size={{ xs: 12, sm: "auto" }}>
                   <TextField
                     select
-                    label="Số đội KO"
+                    label={t("tournaments.adminDraw.knockoutSlotsLabel")}
                     value={knockoutSlots}
                     onChange={(e) => setKnockoutSlots(Number(e.target.value))}
                     sx={{ minWidth: 160 }}
@@ -423,7 +436,7 @@ export default function AdminDrawPage() {
                     )
                   }
                   sx={{ minWidth: 160 }}
-                  helperText="Xáo trộn nhẹ tăng ngẫu nhiên"
+                  helperText={t("tournaments.adminDraw.jitterHint")}
                 />
               </Grid>
 
@@ -436,7 +449,7 @@ export default function AdminDrawPage() {
                     startIcon={<RestartAlt />}
                     sx={{ color: "white !important" }}
                   >
-                    Khởi tạo
+                    {t("tournaments.adminDraw.initAction")}
                   </Button>
                 </Stack>
               </Grid>
@@ -451,21 +464,24 @@ export default function AdminDrawPage() {
             >
               <Stack sx={{ flex: 1 }}>
                 <Typography variant="h6" fontWeight={700}>
-                  Phiên bốc thăm •{" "}
-                  {session.mode === "group" ? "Vòng bảng" : "Knockout"}
+                  {t("tournaments.adminDraw.sessionTitle")} •{" "}
+                  {session.mode === "group"
+                    ? t("tournaments.adminDraw.modeGroup")
+                    : t("tournaments.adminDraw.modeKnockout")}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Trạng thái:{" "}
+                  {t("tournaments.adminDraw.statusLabel")}:{" "}
                   <b>
                     {session.status === "running"
-                      ? "Đang chạy"
+                      ? t("tournaments.adminDraw.statuses.running")
                       : session.status === "ready"
-                        ? "Sẵn sàng"
+                        ? t("tournaments.adminDraw.statuses.ready")
                         : session.status === "done"
-                          ? "Hoàn tất"
-                          : "Đã huỷ"}
+                          ? t("tournaments.adminDraw.statuses.done")
+                          : t("tournaments.adminDraw.statuses.canceled")}
                   </b>{" "}
-                  • Tiến độ: {progress.cur}/{progress.total}
+                  • {t("tournaments.adminDraw.progressLabel")}: {progress.cur}/
+                  {progress.total}
                 </Typography>
                 <Box sx={{ mt: 1 }}>
                   <LinearProgress variant="determinate" value={progress.pct} />
@@ -480,7 +496,7 @@ export default function AdminDrawPage() {
                   startIcon={<PlayArrow />}
                   sx={{ color: "white !important" }}
                 >
-                  Bốc tiếp
+                  {t("tournaments.adminDraw.revealNext")}
                 </Button>
                 <Button
                   variant="outlined"
@@ -498,7 +514,7 @@ export default function AdminDrawPage() {
                     onClick={handleFinalizeKo}
                     startIcon={<DoneAll />}
                   >
-                    Tạo R1 (Finalize)
+                    {t("tournaments.adminDraw.finalizeRoundOne")}
                   </Button>
                 )}
                 <Button
@@ -508,7 +524,7 @@ export default function AdminDrawPage() {
                   onClick={handleCancel}
                   startIcon={<Cancel />}
                 >
-                  Huỷ phiên
+                  {t("tournaments.adminDraw.cancelSession")}
                 </Button>
               </Stack>
             </Stack>
@@ -525,19 +541,23 @@ export default function AdminDrawPage() {
               sx={{ mb: 1 }}
             >
               <Typography variant="h6" fontWeight={700}>
-                Kết quả bốc thăm
+                {t("tournaments.adminDraw.resultsTitle")}
               </Typography>
               <Chip
                 size="small"
                 color={session.mode === "group" ? "default" : "primary"}
                 variant="outlined"
-                label={session.mode === "group" ? "Group" : "Knockout"}
+                label={
+                  session.mode === "group"
+                    ? t("tournaments.adminDraw.modeGroup")
+                    : t("tournaments.adminDraw.modeKnockout")
+                }
               />
               <Box sx={{ flex: 1 }} />
               <Typography variant="caption" color="text.secondary">
-                Cập nhật:{" "}
+                {t("tournaments.adminDraw.updatedAt")}:{" "}
                 {session.updatedAt
-                  ? new Date(session.updatedAt).toLocaleString()
+                  ? formatDateTime(session.updatedAt, locale)
                   : "—"}
               </Typography>
             </Stack>

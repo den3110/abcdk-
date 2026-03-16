@@ -9,6 +9,7 @@ import {
 } from "../../slices/tournamentsApiSlice";
 import { useGetOverlayConfigQuery } from "../../slices/overlayApiSlice";
 import { useSocket } from "../../context/SocketContext";
+import { useLanguage } from "../../context/LanguageContext";
 import { toHttpsIfNotLocalhost } from "../../utils/url";
 
 /* ========================== Utils ========================== */
@@ -608,6 +609,7 @@ import SEOHead from "../../components/SEOHead";
 
 /* ======================== Component ======================== */
 const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
+  const { t } = useLanguage();
   const socket = useSocket();
   const [q] = useSearchParams();
   const navigate = useNavigate();
@@ -1042,6 +1044,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
           );
         }
       } catch {
+        // ignore auto-next navigation failures
       } finally {
         inFlight = false;
       }
@@ -1277,7 +1280,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                       maxWidth: 260,
                     }}
                   >
-                    {tourName || "Giải đấu"}
+                    {tourName || t("scoreOverlay.fallbackTournament")}
                   </div>
                   {data?.court?.name ? (
                     <div
@@ -1286,7 +1289,8 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                         color: "var(--muted)",
                       }}
                     >
-                      Sân: <strong>{data.court.name}</strong>
+                      {t("scoreOverlay.courtLabel")}:{" "}
+                      <strong>{data.court.name}</strong>
                     </div>
                   ) : null}
                 </div>
@@ -1300,10 +1304,10 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                     marginBottom: 4,
                   }}
                 >
-                  ĐANG TẠM NGHỈ
+                  {t("scoreOverlay.breakTitle")}
                 </div>
                 <div style={{ fontSize: "var(--meta)", lineHeight: 1.25 }}>
-                  Chờ trọng tài bắt đầu game tiếp theo...
+                  {t("scoreOverlay.breakSubtitle")}
                 </div>
                 {data?.isBreak?.note ? (
                   <div
@@ -1313,7 +1317,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
                       opacity: 0.7,
                     }}
                   >
-                    Ghi chú: {data.isBreak.note}
+                    {t("scoreOverlay.breakNote", { note: data.isBreak.note })}
                   </div>
                 ) : null}
               </div>
@@ -1703,7 +1707,7 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   // ✅ BÌNH THƯỜNG: render scoreboard như cũ
   return (
     <>
-      <SEOHead title="Score Overlay" noIndex={true} />
+      <SEOHead title={t("scoreOverlay.seoTitle")} noIndex={true} />
       {/* CARD CHÍNH */}
       <div
         className="ovl-wrap"

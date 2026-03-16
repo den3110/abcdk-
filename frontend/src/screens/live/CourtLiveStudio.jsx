@@ -18,16 +18,8 @@ import {
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import LiveTvIcon from "@mui/icons-material/LiveTv";
 import SportsTennisIcon from "@mui/icons-material/SportsTennis";
-import HlsPlayer from "react-hls-player";
-import {
-  Stream as StreamIcon,
-  Sensors as SensorsIcon,
-  VideocamOff as VideocamOffIcon,
-  Refresh as RefreshIcon,
-  Settings as SettingsIcon,
-  Scoreboard as ScoreboardIcon,
-} from "@mui/icons-material";
 import SEOHead from "../../components/SEOHead";
+import { useLanguage } from "../../context/LanguageContext";
 
 import { useAdminListCourtsByTournamentQuery } from "../../slices/courtsApiSlice";
 import { useCreateFacebookLiveForMatchMutation } from "../../slices/adminMatchLiveApiSlice";
@@ -71,6 +63,7 @@ const normalizeDestinations = (raw) => {
 };
 
 export default function CourtLiveStudioPage() {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const { tid, bid, courtId } = useParams();
 
@@ -113,16 +106,23 @@ export default function CourtLiveStudioPage() {
   );
 
   const courtLabel = React.useMemo(() => {
-    if (!court) return `Sân #${String(courtId).slice(-4)}`;
+    if (!court)
+      return t("live.courtStudio.fallbackCourtLabel", {
+        suffix: String(courtId).slice(-4),
+      });
     return (
       court.name ||
       court.label ||
       court.code ||
       (Number.isFinite(court.number)
-        ? `Sân ${court.number}`
-        : `Sân #${String(courtId).slice(-4)}`)
+        ? t("live.courtStudio.numberedCourtLabel", {
+            number: court.number,
+          })
+        : t("live.courtStudio.fallbackCourtLabel", {
+            suffix: String(courtId).slice(-4),
+          }))
     );
-  }, [court, courtId]);
+  }, [court, courtId, t]);
 
   const currentMatchId = court?.currentMatch?._id || null;
   const liveEnabled = !!court?.liveConfig?.enabled;
@@ -187,33 +187,36 @@ export default function CourtLiveStudioPage() {
 
   return (
     <Box sx={{ height: "100vh", display: "flex", flexDirection: "column" }}>
-      <SEOHead title={`Live Studio - ${courtLabel}`} noIndex={true} />
+      <SEOHead
+        title={t("live.courtStudio.seoTitle", { court: courtLabel })}
+        noIndex={true}
+      />
       <AppBar position="static" color="default" elevation={1}>
         <Toolbar sx={{ gap: 1 }}>
           <IconButton edge="start" onClick={() => navigate(-1)}>
             <ArrowBackIcon />
           </IconButton>
           <Typography variant="h6" sx={{ flex: 1 }} noWrap>
-            Live Studio — {courtLabel}
+            {t("live.courtStudio.pageTitle", { court: courtLabel })}
           </Typography>
           <Stack direction="row" spacing={1} alignItems="center">
             <Chip
               icon={<SportsTennisIcon />}
-              label={`Bracket: ${bid}`}
+              label={t("live.courtStudio.bracketChip", { id: bid })}
               size="small"
             />
             {liveEnabled ? (
               <Chip
                 color="success"
                 icon={<LiveTvIcon />}
-                label="LIVE config: ON"
+                label={t("live.courtStudio.configOn")}
                 size="small"
               />
             ) : (
               <Chip
                 color="default"
                 icon={<LiveTvIcon />}
-                label="LIVE config: OFF"
+                label={t("live.courtStudio.configOff")}
                 size="small"
               />
             )}
@@ -230,22 +233,20 @@ export default function CourtLiveStudioPage() {
               <CircularProgress />
             </Box>
           ) : isError ? (
-            <Alert severity="error">Không tải được thông tin sân.</Alert>
+            <Alert severity="error">{t("live.courtStudio.loadError")}</Alert>
           ) : !court ? (
-            <Alert severity="warning">Không tìm thấy sân.</Alert>
+            <Alert severity="warning">{t("live.courtStudio.notFound")}</Alert>
           ) : (
             <>
               {!liveEnabled && (
                 <Alert severity="info" sx={{ mb: 2 }}>
-                  Sân này hiện <strong>chưa bật LIVE config</strong>. Bạn vẫn có
-                  thể mở studio và phát thủ công, nhưng nên bật LIVE ở Live
-                  Setup để đồng bộ.
+                  {t("live.courtStudio.configDisabled")}
                 </Alert>
               )}
 
               {defaultUrl && (
                 <Alert severity="success" sx={{ mb: 2 }}>
-                  Gợi ý URL hiện tại của sân: <strong>{defaultUrl}</strong>
+                  {t("live.courtStudio.currentUrlHint", { url: defaultUrl })}
                 </Alert>
               )}
 
@@ -269,13 +270,13 @@ export default function CourtLiveStudioPage() {
                 sx={{ mt: 2 }}
               >
                 <Button variant="outlined" onClick={() => navigate(-1)}>
-                  Quay lại
+                  {t("live.courtStudio.back")}
                 </Button>
                 <Button
                   variant="outlined"
                   onClick={() => navigate(`/tournament/${tid}/manage`)}
                 >
-                  Về trang quản lý giải
+                  {t("live.courtStudio.manageTournament")}
                 </Button>
               </Stack>
             </>

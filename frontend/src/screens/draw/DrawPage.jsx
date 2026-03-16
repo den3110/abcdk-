@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types, react/display-name */
 // DrawPage.jsx — add Card-Deck draw mode (Classic/Card), deal & flip animations, KO=flip 2 to pair; Group=flip 1 and auto-seat per cursor. Pool still disappears immediately after drawNext; Group board reads board.groups[*].slots (fallback groupsMeta+reveals).
-import React, {
+import {
   useEffect,
   useMemo,
   useState,
@@ -22,8 +22,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  useMediaQuery,
-  useTheme,
   Checkbox,
   FormControlLabel,
   Dialog,
@@ -159,14 +157,14 @@ function inferNextGroupCursor(board, groupsMeta, reveals) {
 
 function useAudioCue(enabled) {
   const ctxRef = useRef(null);
-  const ensure = () => {
+  const ensure = useCallback(() => {
     if (!enabled) return null;
     if (!ctxRef.current) {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (Ctx) ctxRef.current = new Ctx();
     }
     return ctxRef.current;
-  };
+  }, [enabled]);
   const beep = useCallback(
     (freq = 880, duration = 0.12, type = "triangle", gain = 0.02) => {
       const ctx = ensure();
@@ -182,7 +180,7 @@ function useAudioCue(enabled) {
       osc.start(t);
       osc.stop(t + duration);
     },
-    [enabled]
+    [ensure]
   );
   return { beep };
 }
@@ -213,7 +211,9 @@ async function fireConfettiBurst() {
         }),
       180
     );
-  } catch { }
+  } catch {
+    // Ignore effect-load failures.
+  }
 }
 
 /********************** utils **********************/
@@ -492,6 +492,67 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
   lastHighlight,
 }) {
   const { t } = useLanguage();
+  const seats = useMemo(() => {
+    const map = new Map();
+    (groupsMeta || []).forEach((g, idx) => {
+      const code = g.code ?? String.fromCharCode(65 + idx);
+      map.set(norm(code), {
+        code,
+        size: Number(g.size) || 0,
+        slots: Array.from({ length: Number(g.size) || 0 }, () => null),
+      });
+    });
+    (reveals || []).forEach((rv) => {
+      const key =
+        rv.groupCode ||
+        rv.groupKey ||
+        (typeof rv.group === "string" ? rv.group : "");
+      const rid =
+        asId(rv.regId) ||
+        asId(rv.reg) ||
+        asId(rv.registration) ||
+        asId(rv.id) ||
+        asId(rv._id);
+      const regDoc =
+        rid && regIndex?.get(String(rid)) ? regIndex.get(String(rid)) : null;
+
+      const p1 =
+        rv.player1 ||
+        rv.user1 ||
+        rv.A ||
+        rv?.pair?.player1 ||
+        rv?.pairA?.player1;
+      const p2 =
+        rv.player2 ||
+        rv.user2 ||
+        rv.B ||
+        rv?.pair?.player2 ||
+        rv?.pairB?.player2;
+
+      const nm =
+        (regDoc && safePairName(regDoc, eventType)) ||
+        (eventType === "single"
+          ? (p1 && nameFromPlayer(p1)) || null
+          : [p1, p2].filter(Boolean).map(nameFromPlayer).join(" & ")) ||
+        rv.nickName ||
+        rv.teamName ||
+        rv.name ||
+        rv.team ||
+        rv.displayName ||
+        rv.AName ||
+        rv.BName ||
+        "—";
+
+      const group = map.get(norm(key));
+      if (group) {
+        const slot = group.slots.findIndex((x) => !x);
+        if (slot >= 0) {
+          group.slots[slot] = { label: nm, reg: regDoc, p1, p2 };
+        }
+      }
+    });
+    return Array.from(map.values());
+  }, [groupsMeta, reveals, regIndex, eventType]);
   if (board && Array.isArray(board.groups) && board.groups.length > 0) {
     return (
       <Grid container spacing={2}>
@@ -557,66 +618,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
     );
   }
 
-  // Fallback từ groupsMeta + reveals
-  const seats = useMemo(() => {
-    const map = new Map();
-    (groupsMeta || []).forEach((g, idx) => {
-      const code = g.code ?? String.fromCharCode(65 + idx);
-      map.set(norm(code), {
-        code,
-        size: Number(g.size) || 0,
-        slots: Array.from({ length: Number(g.size) || 0 }, () => null),
-      });
-    });
-    (reveals || []).forEach((rv) => {
-      const key =
-        rv.groupCode ||
-        rv.groupKey ||
-        (typeof rv.group === "string" ? rv.group : "");
-      const rid =
-        asId(rv.regId) ||
-        asId(rv.reg) ||
-        asId(rv.registration) ||
-        asId(rv.id) ||
-        asId(rv._id);
-      const regDoc =
-        rid && regIndex?.get(String(rid)) ? regIndex.get(String(rid)) : null;
-
-      const p1 =
-        rv.player1 ||
-        rv.user1 ||
-        rv.A ||
-        rv?.pair?.player1 ||
-        rv?.pairA?.player1;
-      const p2 =
-        rv.player2 ||
-        rv.user2 ||
-        rv.B ||
-        rv?.pair?.player2 ||
-        rv?.pairB?.player2;
-
-      const nm =
-        (regDoc && safePairName(regDoc, eventType)) ||
-        (eventType === "single"
-          ? (p1 && nameFromPlayer(p1)) || null
-          : [p1, p2].filter(Boolean).map(nameFromPlayer).join(" & ")) ||
-        rv.nickName ||
-        rv.teamName ||
-        rv.name ||
-        rv.team ||
-        rv.displayName ||
-        rv.AName ||
-        rv.BName ||
-        "—";
-
-      const g = map.get(norm(key));
-      if (g) {
-        const slot = g.slots.findIndex((x) => !x);
-        if (slot >= 0) g.slots[slot] = { label: nm, reg: regDoc, p1, p2 };
-      }
-    });
-    return Array.from(map.values());
-  }, [groupsMeta, reveals, regIndex, eventType]);
+  // Fallback seats hook moved above the early return.
 
   return (
     <Grid container spacing={2}>
@@ -864,8 +866,9 @@ const matchSideName = (m, side, eventType) => {
   return "Chưa có đội";
 };
 const CustomSeed = memo(function CustomSeed({ seed, breakpoint }) {
-  const nameA = seed?.teams?.[0]?.name || "Chưa có đội";
-  const nameB = seed?.teams?.[1]?.name || "Chưa có đội";
+  const { t } = useLanguage();
+  const nameA = seed?.teams?.[0]?.name || t("draw.teamPending");
+  const nameB = seed?.teams?.[1]?.name || t("draw.teamPending");
   const nodeA = seed?.teams?.[0]?.node;
   const nodeB = seed?.teams?.[1]?.node;
   const ITEM_HEIGHT = 100;
@@ -1244,6 +1247,11 @@ const clearAllCardDecks = () => {
     console.warn("Failed to clear all decks:", e);
   }
 };
+void clearAllCardDecks;
+void labelBracketType;
+void buildKnockoutOptions;
+void roundTitleByCount;
+void matchSideName;
 
 /********************** CARD MODE OVERLAY **********************/
 // ===== CardDeckOverlay.jsx (inline trong DrawPage.jsx cũng được) =====
@@ -1263,8 +1271,6 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
   mode = "group",
   cards = [],
   onFlipOne,
-  muted = false,
-  reveals,
   targetInfo,
   bracketId, // ← THÊM PROP
   roundCode, // ← THÊM PROP
@@ -1368,10 +1374,10 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
               .sort((a, b) => a[0] - b[0]) // sort by pairIndex
               .forEach(([pIdx, pair]) => {
                 restoredReveals.push({
-                  AName: pair.A || "Chưa có đội",
-                  BName: pair.B || "Chưa có đội",
-                  A: pair.A || "Chưa có đội",
-                  B: pair.B || "Chưa có đội",
+                  AName: pair.A || t("draw.teamPending"),
+                  BName: pair.B || t("draw.teamPending"),
+                  A: pair.A || t("draw.teamPending"),
+                  B: pair.B || t("draw.teamPending"),
                   pairIndex: pIdx,
                 });
               });
@@ -1490,7 +1496,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
     };
   }, [open, computeLayout]);
 
-  const [pairBuffer, setPairBuffer] = useState([]);
+  const [, setPairBuffer] = useState([]);
   const [pairCount, setPairCount] = useState(0);
   const [pairLinks, setPairLinks] = useState({});
   const [lastPair, setLastPair] = useState(null);
@@ -1584,10 +1590,10 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
                   .sort((a, b) => a[0] - b[0])
                   .forEach(([pIdx, pair]) => {
                     restoredReveals.push({
-                      AName: pair.A || "Chưa có đội",
-                      BName: pair.B || "Chưa có đội",
-                      A: pair.A || "Chưa có đội",
-                      B: pair.B || "Chưa có đội",
+                      AName: pair.A || t("draw.teamPending"),
+                      BName: pair.B || t("draw.teamPending"),
+                      A: pair.A || t("draw.teamPending"),
+                      B: pair.B || t("draw.teamPending"),
                       pairIndex: pIdx,
                     });
                   });
@@ -1634,7 +1640,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
         setBusy(false);
       }
     },
-    [onFlipOne, mode, pairCount, getDistinctPairColor, onRestore]
+    [onFlipOne, mode, pairCount, getDistinctPairColor, onRestore, t]
   );
   if (!open) return null;
 
@@ -1704,7 +1710,7 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
           />
         )}
 
-        <Tooltip title="Đóng">
+        <Tooltip title={t("common.actions.close")}>
           <IconButton onClick={onClose} sx={{ color: "#fff" }}>
             <CloseIcon />
           </IconButton>
@@ -1818,6 +1824,8 @@ const CardDeckOverlay = memo(function CardDeckOverlay({
               }
             }
           }
+          void pairTitle;
+          void mateName;
 
           return (
             <Box
@@ -2532,8 +2540,6 @@ const AssignByesDialog = memo(function AssignByesDialog({
 /********************** MAIN **********************/
 export default function DrawPage() {
   const { t } = useLanguage();
-  const theme = useTheme();
-  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const navigate = useNavigate();
   const { id: tournamentId } = useParams();
 
@@ -2566,8 +2572,8 @@ export default function DrawPage() {
   const [cardQueue, setCardQueue] = useState([]); // names to flip
 
   // NEW: snapshot deck của phiên bốc hiện tại (một lần/phiên)
-  const [cardSnapshot, setCardSnapshot] = useState([]); // [{id, label}]
-  const [cardGoneIds, setCardGoneIds] = useState([]); // ["regId", ...]
+  const [, setCardSnapshot] = useState([]); // [{id, label}]
+  const [, setCardGoneIds] = useState([]); // ["regId", ...]
 
   const [cardOpenPending, setCardOpenPending] = useState(false);
   // NEW: helper mở thẻ có đợi countdown khi FX bật
@@ -2582,12 +2588,7 @@ export default function DrawPage() {
     }
   }, [fxEnabled, setShowCountdown]);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [profileUserId, setProfileUserId] = useState(null);
-  const openProfile = useCallback((uid) => {
-    if (!uid) return;
-    setProfileUserId(String(uid));
-    setProfileOpen(true);
-  }, []);
+  const profileUserId = null;
 
   // Queries
   const {
@@ -2943,7 +2944,9 @@ export default function DrawPage() {
       setState("committed");
       try {
         await Promise.all([refetchMatches?.(), refetchBracket?.()]);
-      } catch { }
+      } catch {
+        // Ignore refetch sync failures after commit broadcast.
+      }
       if (fxEnabled) fireConfettiBurst();
     };
     const onCanceled = () => {
@@ -2969,7 +2972,7 @@ export default function DrawPage() {
       socket.off("draw:canceled", onCanceled);
       socket.emit("draw:leave", { drawId });
     };
-  }, [socket, drawId, refetchBracket, refetchMatches, fxEnabled]);
+  }, [socket, drawId, refetchBracket, refetchMatches, fxEnabled, t]);
 
   // groups
   const groupsRaw = useMemo(
@@ -3061,17 +3064,21 @@ export default function DrawPage() {
       AName: m.pairA
         ? safePairName(m.pairA, tournament?.eventType)
         : (m.previousA &&
-          `Winner of R${m.previousA.round ?? "?"} #${(m.previousA.order ?? 0) + 1
-          }`) ||
+          t("draw.winnerOfRound", {
+            round: m.previousA.round ?? "?",
+            index: (m.previousA.order ?? 0) + 1,
+          })) ||
         "—",
       BName: m.pairB
         ? safePairName(m.pairB, tournament?.eventType)
         : (m.previousB &&
-          `Winner of R${m.previousB.round ?? "?"} #${(m.previousB.order ?? 0) + 1
-          }`) ||
+          t("draw.winnerOfRound", {
+            round: m.previousB.round ?? "?",
+            index: (m.previousB.order ?? 0) + 1,
+          })) ||
         "—",
     }));
-  }, [koMatchesThisBracket, selectedRoundNumber, tournament?.eventType]);
+  }, [koMatchesThisBracket, selectedRoundNumber, tournament?.eventType, t]);
 
   const revealsForKO = useMemo(() => {
     // RUNNING: luôn theo reveals
@@ -3218,8 +3225,8 @@ export default function DrawPage() {
       });
 
       const revealsPairs = (reveals || []).map((rv) => ({
-        A: rv?.A?.name || rv?.AName || rv?.A || "Chưa có đội",
-        B: rv?.B?.name || rv?.BName || rv?.B || "Chưa có đội",
+        A: rv?.A?.name || rv?.AName || rv?.A || t("draw.teamPending"),
+        B: rv?.B?.name || rv?.BName || rv?.B || t("draw.teamPending"),
       }));
 
       const expectedFirstPairs = Math.max(1, Math.floor(startTeams / 2));
@@ -3242,7 +3249,10 @@ export default function DrawPage() {
         const seeds = Array.from({ length: need }, (_, i) => ({
           id: `ph-${selBracketId}-${r}-${i}`,
           __match: null,
-          teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
+          teams: [
+            { name: t("draw.teamPending") },
+            { name: t("draw.teamPending") },
+          ],
         }));
 
         const ms = realSorted
@@ -3275,14 +3285,14 @@ export default function DrawPage() {
             const curB = seeds[i]?.teams?.[1]?.name;
             if (
               rp.A &&
-              rp.A !== "Chưa có đội" &&
-              (!curA || curA === "Chưa có đội")
+              rp.A !== t("draw.teamPending") &&
+              (!curA || curA === t("draw.teamPending"))
             )
               seeds[i].teams[0].name = rp.A;
             if (
               rp.B &&
-              rp.B !== "Chưa có đội" &&
-              (!curB || curB === "Chưa có đội")
+              rp.B !== t("draw.teamPending") &&
+              (!curB || curB === t("draw.teamPending"))
             )
               seeds[i].teams[1].name = rp.B;
           }
@@ -3364,7 +3374,9 @@ export default function DrawPage() {
       // (không bắt buộc) ép refetch matches để sidebar/bye-info cập nhật sớm
       try {
         await refetchMatches?.();
-      } catch { }
+      } catch {
+        // Ignore eager match refetch failures here.
+      }
 
       // Auto open Card overlay nếu đang ở card mode
       if (uiMode === "cards") {
@@ -3385,6 +3397,9 @@ export default function DrawPage() {
     startDraw,
     fxEnabled,
     uiMode,
+    openCardAfterCountdown,
+    refetchMatches,
+    t,
   ]);
 
   const canOperate = Boolean(drawId && state === "running");
@@ -3431,11 +3446,11 @@ export default function DrawPage() {
             const AName =
               nx.side === "A"
                 ? nx.name || "—"
-                : pair.AName || pair.A || "Chưa có đội";
+                : pair.AName || pair.A || t("draw.teamPending");
             const BName =
               nx.side === "B"
                 ? nx.name || "—"
-                : pair.BName || pair.B || "Chưa có đội";
+                : pair.BName || pair.B || t("draw.teamPending");
             setOverlayMode("ko");
             setOverlayData({ AName, BName });
             setOverlayOpen(true);
@@ -3472,6 +3487,7 @@ export default function DrawPage() {
     usingCardMode,
     revealsForKO,
     drawType,
+    t,
   ]);
 
   // === Card mode reveal helper: call drawNext and return names just revealed ===
@@ -3576,6 +3592,7 @@ export default function DrawPage() {
     eventType,
     drawType,
     fxEnabled,
+    t,
   ]);
   // trong DrawPage.jsx
   const onFlipOneForCards = useCallback(async () => {
@@ -4099,11 +4116,11 @@ export default function DrawPage() {
         {/* Reveal board */}
         <Paper variant="outlined" sx={{ p: 2, flex: 1 }}>
           <Typography fontWeight={700} gutterBottom>
-            Kết quả bốc (reveal)
+            {t("draw.revealTitle")}
           </Typography>
 
           {!selBracketId ? (
-            <Alert severity="info">Hãy chọn một Bracket để bắt đầu.</Alert>
+            <Alert severity="info">{t("draw.selectBracketHint")}</Alert>
           ) : drawType === "group" ? (
             hasGroups || drawDoc?.board ? (
               <GroupSeatingBoard
@@ -4117,7 +4134,7 @@ export default function DrawPage() {
               />
             ) : (
               <Typography color="text.secondary">
-                Chưa có thông tin bảng/slot để hiển thị.
+                {t("draw.noGroupInfo")}
               </Typography>
             )
           ) : (
@@ -4152,7 +4169,7 @@ export default function DrawPage() {
         <Stack spacing={2} sx={{ width: { md: 380 } }}>
           {drawType === "group" ? (
             <PoolPanel
-              title="Pool đội chờ bốc"
+              title={t("draw.poolTitle")}
               eventType={eventType}
               regIndex={regIndex}
               poolIds={drawDoc?.pool || null}
@@ -4161,18 +4178,17 @@ export default function DrawPage() {
           ) : (
             <Paper variant="outlined" sx={{ p: 2 }}>
               <Typography fontWeight={700} gutterBottom>
-                Pool đội chờ bốc
+                {t("draw.poolTitle")}
               </Typography>
               <Alert severity="info">
-                Pool áp dụng cho vòng bảng; với Knockout, nguồn đội phụ thuộc
-                seeding/matches của round.
+                {t("draw.knockoutPoolInfo")}
               </Alert>
             </Paper>
           )}
 
           <Paper variant="outlined" sx={{ p: 2 }}>
             <Typography fontWeight={700} gutterBottom>
-              Liên kết nhanh
+              {t("draw.quickLinks")}
             </Typography>
             <Stack spacing={1}>
               <Button
@@ -4180,7 +4196,7 @@ export default function DrawPage() {
                 to={`/tournament/${tournamentId}/bracket`}
                 variant="outlined"
               >
-                Xem sơ đồ giải
+                {t("draw.openBracket")}
               </Button>
               {selBracketId && (
                 <Button
@@ -4193,7 +4209,7 @@ export default function DrawPage() {
                   )}`}
                   variant="outlined"
                 >
-                  Mở Bracket đang bốc
+                  {t("draw.openCurrentBracket")}
                 </Button>
               )}
               {selBracketId &&
@@ -4204,7 +4220,7 @@ export default function DrawPage() {
                     onClick={() => setOpenGroupDlg(true)}
                     sx={{ color: "white !important" }}
                   >
-                    Bốc thăm trận trong bảng
+                    {t("draw.createGroupMatches")}
                   </Button>
                 )}
               {selBracketId &&
@@ -4216,9 +4232,11 @@ export default function DrawPage() {
                     startIcon={<CasinoIcon />}
                     sx={{ color: "white !important" }}
                   >
-                    Bốc BYE (round {selectedRoundNumber})
+                    {t("draw.assignByes", { round: selectedRoundNumber })}
                     {byeMatchesThisRound.length
-                      ? ` • ${byeMatchesThisRound.length} slot`
+                      ? t("draw.assignByesSlots", {
+                          count: byeMatchesThisRound.length,
+                        })
                       : ""}
                   </Button>
                 )}
@@ -4228,16 +4246,20 @@ export default function DrawPage() {
               <>
                 <Divider sx={{ my: 2 }} />
                 <Typography fontWeight={700} gutterBottom>
-                  Kế hoạch (planned)
+                  {t("draw.planned")}
                 </Typography>
                 {planned?.planned?.groupSizes && (
                   <Typography variant="body2" sx={{ mb: 0.5 }}>
-                    Group sizes: {JSON.stringify(planned.planned.groupSizes)}
+                    {t("draw.plannedGroupSizes", {
+                      value: JSON.stringify(planned.planned.groupSizes),
+                    })}
                   </Typography>
                 )}
                 {Number.isFinite(planned?.planned?.byes) && (
                   <Typography variant="body2" sx={{ mb: 0.5 }}>
-                    Byes: {planned.planned.byes}
+                    {t("draw.plannedByes", {
+                      value: planned.planned.byes,
+                    })}
                   </Typography>
                 )}
               </>

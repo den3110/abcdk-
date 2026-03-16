@@ -1,29 +1,18 @@
-import React, { useMemo } from "react";
-import { useSelector } from "react-redux";
+import { useMemo } from "react";
 // import BrowserStudio from "../../components/BrowserStudio";
 import SEOHead from "../../components/SEOHead";
 import ScoreOverlay from "../PickleBall/ScoreOverlay";
 import FacebookLiveStreamerMUI from "../../components/FacebookLiveStreamer/FacebookLiveStreamerMUI";
+import { useLanguage } from "../../context/LanguageContext";
 
 export default function LiveStudioPage() {
+  const { t } = useLanguage();
   const sp = new URLSearchParams(window.location.search);
 
   const matchId = sp.get("matchId") || "";
   const fbServer =
     sp.get("server") || "rtmps://live-api-s.facebook.com:443/rtmp/";
   const fbKey = sp.get("key") || "";
-
-  // wsUrl: .env -> same-origin
-  const wsUrl = useMemo(() => {
-    const env = import.meta?.env?.VITE_RTMP_WS_URL;
-    if (env) return env;
-
-    const origin = window.location.origin;
-    const base = origin.startsWith("https")
-      ? origin.replace(/^https/, "wss")
-      : origin.replace(/^http/, "ws");
-    return `${base}/ws/rtmp`;
-  }, []);
 
   // apiUrl: .env full -> .env base -> same-origin
   const apiUrl = useMemo(() => {
@@ -44,7 +33,7 @@ export default function LiveStudioPage() {
 
   return (
     <>
-      <SEOHead title="Live Studio" noIndex={true} />
+      <SEOHead title={t("liveStudio.seoTitle")} noIndex={true} />
       {/* <BrowserStudio
         matchId={matchId}
         fbServer={fbServer}

@@ -1,3 +1,4 @@
+/* eslint-disable react/prop-types, no-unused-vars, react-refresh/only-export-components */
 // src/layouts/tournament/TournamentBracket.jsx
 import {
   useMemo,
@@ -67,6 +68,7 @@ import {
 } from "../../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
+import { useLanguage } from "../../context/LanguageContext";
 import SEOHead from "../../components/SEOHead";
 
 const HighlightContext = createContext({ hovered: null, setHovered: () => {} });
@@ -517,6 +519,7 @@ const CustomSeed = ({
   resolveSideLabel,
   baseRoundStart = 1,
 }) => {
+  const { t: tLang } = useLanguage();
   const PRIMARY = "#1976d2";
   const primaryRGBA = (a) => `rgba(25,118,210,${a})`;
   // ⬇️ Hooks luôn ở top-level
@@ -524,8 +527,12 @@ const CustomSeed = ({
   const m = seed.__match || null;
   const roundNo = Number(seed.__round || m?.round || 1);
 
-  const nameA = resolveSideLabel?.(m, "A") ?? (m ? "—" : "Chưa có đội");
-  const nameB = resolveSideLabel?.(m, "B") ?? (m ? "—" : "Chưa có đội");
+  const nameA =
+    resolveSideLabel?.(m, "A") ??
+    (m ? "—" : tLang("tournaments.bracket.pendingTeam"));
+  const nameB =
+    resolveSideLabel?.(m, "B") ??
+    (m ? "—" : tLang("tournaments.bracket.pendingTeam"));
 
   // ===== BYE detection
   const isByeWord = (s) => typeof s === "string" && /\bBYE\b/i.test(s);
@@ -536,7 +543,9 @@ const CustomSeed = ({
   const winA = !isByeMatch && m?.status === "finished" && m?.winner === "A";
   const winB = !isByeMatch && m?.status === "finished" && m?.winner === "B";
   const isPlaceholder =
-    !m && nameA === "Chưa có đội" && nameB === "Chưa có đội";
+    !m &&
+    nameA === tLang("tournaments.bracket.pendingTeam") &&
+    nameB === tLang("tournaments.bracket.pendingTeam");
   const isChampion =
     !!m &&
     !!championMatchId &&
@@ -703,7 +712,7 @@ const CustomSeed = ({
 
           {m?.status === "live" && (
             <span
-              title="Đang diễn ra"
+              title={tLang("tournaments.bracket.result.live")}
               style={{
                 position: "absolute",
                 right: -22,
@@ -770,10 +779,29 @@ const CustomSeed = ({
             {isByeMatch
               ? ""
               : m
-              ? resultLabel(m)
+              ? resultLabel(m).replace(
+                  "Đang diễn ra",
+                  tLang("tournaments.bracket.result.live")
+                )
+                  .replace(
+                    "Đội A thắng",
+                    tLang("tournaments.bracket.result.teamAWin")
+                  )
+                  .replace(
+                    "Đội B thắng",
+                    tLang("tournaments.bracket.result.teamBWin")
+                  )
+                  .replace(
+                    "Hoà/Không xác định",
+                    tLang("tournaments.bracket.result.draw")
+                  )
+                  .replace(
+                    "Chưa diễn ra",
+                    tLang("tournaments.bracket.result.pending")
+                  )
               : isPlaceholder
-              ? "Chưa có đội"
-              : "Chưa diễn ra"}
+              ? tLang("tournaments.bracket.pendingTeam")
+              : tLang("tournaments.bracket.result.pending")}
           </div>
         </div>
       </SeedItem>
@@ -818,6 +846,8 @@ function StandingsLegend({
   points = { win: 3, draw: 1, loss: 0 },
   tiebreakers = [],
 }) {
+  const { t } = useLanguage();
+
   return (
     <Paper
       variant="outlined"
@@ -837,7 +867,7 @@ function StandingsLegend({
         flexWrap="wrap"
       >
         <Typography variant="caption" sx={{ fontWeight: 700 }}>
-          Chú thích BXH
+          {t("tournaments.bracket.standingsLegendTitle")}
         </Typography>
 
         <Stack
@@ -850,17 +880,21 @@ function StandingsLegend({
           <Chip
             size="small"
             variant="outlined"
-            label={`Thắng +${points.win ?? 3}`}
+            label={t("tournaments.bracket.standingsWinPoints", {
+              count: points.win ?? 3,
+            })}
           />
           <Chip
             size="small"
             variant="outlined"
-            label={`Thua +${points.loss ?? 0}`}
+            label={t("tournaments.bracket.standingsLossPoints", {
+              count: points.loss ?? 0,
+            })}
           />
           <Chip
             size="small"
             variant="outlined"
-            label="Hiệu số = Điểm ghi - Điểm thua"
+            label={t("tournaments.bracket.standingsDiffHint")}
           />
           {Array.isArray(tiebreakers) && tiebreakers.length > 0 && (
             <Chip
@@ -1308,10 +1342,10 @@ function buildGroupStarts(bracket) {
   return { starts, sizeOf };
 }
 
-function formatTime(ts) {
+function formatBracketTime(ts, locale = "vi-VN") {
   if (!ts) return "";
   try {
-    return new Date(ts).toLocaleString("vi-VN");
+    return new Date(ts).toLocaleString(locale);
   } catch {
     return "";
   }
@@ -1434,7 +1468,12 @@ function buildStandingsWithFallback(bracket, matchesReal, eventType) {
 }
 
 /* ===================== RoundElim/KO builders ===================== */
-function buildRoundElimRounds(bracket, brMatches, resolveSideLabel) {
+function buildRoundElimRounds(
+  bracket,
+  brMatches,
+  resolveSideLabel,
+  pendingTeamLabel = "Chưa có đội"
+) {
   const r1FromPrefill =
     Array.isArray(bracket?.prefill?.seeds) && bracket.prefill.seeds.length
       ? bracket.prefill.seeds.length
@@ -1471,7 +1510,7 @@ function buildRoundElimRounds(bracket, brMatches, resolveSideLabel) {
       id: `re-${r}-${i}`,
       __match: null,
       __round: r,
-      teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
+      teams: [{ name: pendingTeamLabel }, { name: pendingTeamLabel }],
     }));
 
     const ms = (brMatches || [])
@@ -1505,7 +1544,10 @@ function buildRoundElimRounds(bracket, brMatches, resolveSideLabel) {
   return rounds;
 }
 
-function buildEmptyRoundsByScale(scale /* 2^n */) {
+function buildEmptyRoundsByScale(
+  scale /* 2^n */,
+  pendingTeamLabel = "Chưa có đội"
+) {
   const rounds = [];
   let matches = Math.max(1, Math.floor(scale / 2));
   let r = 1;
@@ -1514,7 +1556,7 @@ function buildEmptyRoundsByScale(scale /* 2^n */) {
       id: `placeholder-${r}-${i}`,
       __match: null,
       __round: r,
-      teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
+      teams: [{ name: pendingTeamLabel }, { name: pendingTeamLabel }],
     }));
     rounds.push({
       title: koRoundTitle(matches), // <— đổi ở đây
@@ -1528,7 +1570,11 @@ function buildEmptyRoundsByScale(scale /* 2^n */) {
   return rounds;
 }
 
-function buildRoundsFromPrefill(prefill, koMeta) {
+function buildRoundsFromPrefill(
+  prefill,
+  koMeta,
+  pendingTeamLabel = "Chưa có đội"
+) {
   const useSeeds =
     prefill && Array.isArray(prefill.seeds) && prefill.seeds.length > 0;
   const usePairs =
@@ -1557,8 +1603,8 @@ function buildRoundsFromPrefill(prefill, koMeta) {
           };
         } else {
           const p = prefill.pairs[i] || {};
-          const nameA = p?.a?.name || "Chưa có đội";
-          const nameB = p?.b?.name || "Chưa có đội";
+          const nameA = p?.a?.name || pendingTeamLabel;
+          const nameB = p?.b?.name || pendingTeamLabel;
           return {
             id: `pf-${r}-${i}`,
             __match: null,
@@ -1571,7 +1617,7 @@ function buildRoundsFromPrefill(prefill, koMeta) {
         id: `pf-${r}-${i}`,
         __match: null,
         __round: r,
-        teams: [{ name: "Chưa có đội" }, { name: "Chưa có đội" }],
+        teams: [{ name: pendingTeamLabel }, { name: pendingTeamLabel }],
       };
     });
 
@@ -1598,7 +1644,12 @@ const koRoundTitle = (matchesCount) => {
 function buildRoundsWithPlaceholders(
   brMatches,
   resolveSideLabel,
-  { minRounds = 0, extendForward = true, expectedFirstRoundPairs = 0 } = {}
+  {
+    minRounds = 0,
+    extendForward = true,
+    expectedFirstRoundPairs = 0,
+    pendingTeamLabel = "Chưa có đội",
+  } = {}
 ) {
   const real = (brMatches || [])
     .slice()
@@ -1652,8 +1703,8 @@ function buildRoundsWithPlaceholders(
   const res = roundNums.map((r) => {
     const need = seedsCount[r]; // số trận ở round r
     const seeds = Array.from({ length: need }, (_, i) => [
-      { name: "Chưa có đội" },
-      { name: "Chưa có đội" },
+      { name: pendingTeamLabel },
+      { name: pendingTeamLabel },
     ]).map((teams, i) => ({
       id: `placeholder-${r}-${i}`,
       __match: null,
@@ -2025,6 +2076,8 @@ function TournamentBracketLoadingSkeleton({ isMdUp }) {
 
 /* ===================== Component chính ===================== */
 export default function TournamentBracket() {
+  const { t, locale } = useLanguage();
+  const pendingTeamLabel = t("tournaments.bracket.pendingTeam");
   const socket = useSocket();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
@@ -2486,7 +2539,7 @@ export default function TournamentBracket() {
   const resolveSideLabel = useCallback(
     function resolveSideLabel(m, side) {
       const eventType = tour?.eventType;
-      if (!m) return "Chưa có đội";
+      if (!m) return pendingTeamLabel;
 
       const seed = side === "A" ? m.seedA : m.seedB;
 
@@ -2561,21 +2614,26 @@ export default function TournamentBracket() {
       // Không prev → rơi về nhãn seed gốc (groupRank/registration/…)
       if (seed && seed.type) return seedLabel(seed);
 
-      return "Chưa có đội";
+      return pendingTeamLabel;
     },
     [
       matchIndex,
       tour?.eventType,
       baseRoundStartForCurrent,
       isSeedBlockedByUnfinishedGroup,
+      pendingTeamLabel,
     ]
   );
   // Prefill rounds for KO
   const prefillRounds = useMemo(() => {
     if (!current?.prefill) return null;
-    const r = buildRoundsFromPrefill(current.prefill, current?.ko);
+    const r = buildRoundsFromPrefill(
+      current.prefill,
+      current?.ko,
+      pendingTeamLabel
+    );
     return r && r.length ? r : null;
-  }, [current]);
+  }, [current, pendingTeamLabel]);
 
   // Group indexing for mapping matches → group
   const { byRegId: groupIndex } = useMemo(
@@ -2599,11 +2657,12 @@ export default function TournamentBracket() {
   // KO placeholder builder
   const buildEmptyRoundsForKO = useCallback((koBracket) => {
     const scaleFromBracket = readBracketScale(koBracket);
-    if (scaleFromBracket) return buildEmptyRoundsByScale(scaleFromBracket);
+    if (scaleFromBracket)
+      return buildEmptyRoundsByScale(scaleFromBracket, pendingTeamLabel);
     const fallback = 4;
     const scale = ceilPow2(fallback);
-    return buildEmptyRoundsByScale(scale);
-  }, []);
+    return buildEmptyRoundsByScale(scale, pendingTeamLabel);
+  }, [pendingTeamLabel]);
 
   function useStableLiveSpotlight(current, currentMatches) {
     const enabled = !!(current && current.type === "group");
@@ -2723,7 +2782,7 @@ export default function TournamentBracket() {
       const seq = seqIndexByMatchId.get(String(m._id)) ?? "?";
       const code = `V${stageNo}-B${bIndex}-T${seq}`;
 
-      const time = formatTime(pickGroupKickoffTime(m));
+      const time = formatBracketTime(pickGroupKickoffTime(m), locale);
       const court = getStickyCourt(m);
       const score = scoreLabel(m);
       return {
@@ -2754,7 +2813,7 @@ export default function TournamentBracket() {
         <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
           <Chip label="LIVE" color="error" size="small" />
           <Typography variant="subtitle1" fontWeight={700}>
-            Trận đang diễn ra (Vòng bảng)
+            {t("tournaments.bracket.liveSpotlightTitle")}
           </Typography>
         </Stack>
 
@@ -2763,16 +2822,20 @@ export default function TournamentBracket() {
             <Table size="small" aria-label="live-spotlight">
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ width: 200, fontWeight: 700 }}>Mã</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Trận</TableCell>
+                  <TableCell sx={{ width: 200, fontWeight: 700 }}>
+                    {t("tournaments.bracket.columns.code")}
+                  </TableCell>
+                  <TableCell sx={{ fontWeight: 700 }}>
+                    {t("tournaments.bracket.columns.match")}
+                  </TableCell>
                   <TableCell sx={{ width: 180, fontWeight: 700 }}>
-                    Giờ đấu
+                    {t("tournaments.bracket.columns.time")}
                   </TableCell>
                   <TableCell sx={{ width: 160, fontWeight: 700 }}>
-                    Sân
+                    {t("tournaments.bracket.columns.court")}
                   </TableCell>
                   <TableCell sx={{ width: 120, fontWeight: 700 }}>
-                    Tỷ số
+                    {t("tournaments.bracket.columns.score")}
                   </TableCell>
                 </TableRow>
               </TableHead>
@@ -2898,7 +2961,7 @@ export default function TournamentBracket() {
           gap: 0.5,
         }}
       >
-        <Tooltip title="Thu nhỏ (−)">
+        <Tooltip title={t("common.zoomOut", undefined, "Thu nhỏ (−)")}>
           <span>
             <IconButton
               size="small"
@@ -2915,7 +2978,7 @@ export default function TournamentBracket() {
         >
           {Math.round(zoom * 100)}%
         </Typography>
-        <Tooltip title="Phóng to (+)">
+        <Tooltip title={t("common.zoomIn", undefined, "Phóng to (+)")}>
           <span>
             <IconButton
               size="small"
@@ -2926,7 +2989,7 @@ export default function TournamentBracket() {
             </IconButton>
           </span>
         </Tooltip>
-        <Tooltip title="Về 100%">
+        <Tooltip title={t("common.resetZoom", undefined, "Về 100%")}>
           <IconButton size="small" onClick={onReset}>
             <ResetZoomIcon fontSize="small" />
           </IconButton>
@@ -2946,7 +3009,7 @@ export default function TournamentBracket() {
     return (
       <Box p={3}>
         <Alert severity="error">
-          {error?.data?.message || error?.error || "Lỗi tải dữ liệu."}
+          {error?.data?.message || error?.error || t("tournaments.bracket.loadError")}
         </Alert>
       </Box>
     );
@@ -2954,22 +3017,22 @@ export default function TournamentBracket() {
   if (!brackets.length) {
     return (
       <Box p={3}>
-        <Alert severity="info">Chưa có sơ đồ cho giải đấu này.</Alert>
+        <Alert severity="info">{t("tournaments.bracket.empty")}</Alert>
       </Box>
     );
   }
 
   const tabLabels = brackets.map((b) => {
-    const t =
+    const typeLabel =
       b.type === "group"
-        ? "Group"
+        ? t("tournaments.bracket.typeGroup")
         : b.type === "roundElim"
-        ? "Round Elim"
-        : "Knockout";
+        ? t("tournaments.bracket.typeRoundElim")
+        : t("tournaments.bracket.typeKnockout");
     return (
       <Stack key={b._id} direction="row" spacing={1} alignItems="center">
         <Typography>{toText(b.name)}</Typography>
-        <Chip size="small" label={t} color="default" variant="outlined" />
+        <Chip size="small" label={typeLabel} color="default" variant="outlined" />
       </Stack>
     );
   });
@@ -2999,7 +3062,7 @@ export default function TournamentBracket() {
     if (!groupsRaw.length) {
       return (
         <Paper variant="outlined" sx={{ p: 2, textAlign: "center" }}>
-          Chưa có cấu hình bảng.
+          {t("tournaments.bracket.groupConfigMissing")}
         </Paper>
       );
     }
@@ -3036,7 +3099,7 @@ export default function TournamentBracket() {
               const code = `V${stageNo}-B${labelNumeric}-T${idx + 1}`;
               const aName = resolveSideLabel(m, "A");
               const bName = resolveSideLabel(m, "B");
-              const time = formatTime(pickGroupKickoffTime(m));
+              const time = formatBracketTime(pickGroupKickoffTime(m), locale);
               const court = courtName(m);
               const score = scoreLabel(m);
               const video = hasVideo(m);
@@ -3112,25 +3175,31 @@ export default function TournamentBracket() {
                 <Chip
                   color="primary"
                   size="small"
-                  label={`Bảng ${labelNumeric}`}
+                  label={t("tournaments.bracket.groupLabel", {
+                    index: labelNumeric,
+                  })}
                 />
                 {(g.name || g.code) && (
                   <Chip
                     size="small"
                     variant="outlined"
-                    label={`Mã: ${g.name || g.code}`}
+                    label={t("tournaments.bracket.groupCode", {
+                      value: g.name || g.code,
+                    })}
                   />
                 )}
                 <Chip
                   size="small"
                   variant="outlined"
-                  label={`Số đội: ${size || 0}`}
+                  label={t("tournaments.bracket.groupTeamCount", {
+                    count: size || 0,
+                  })}
                 />
                 {isMine && (
                   <Chip
                     size="small"
                     color="success"
-                    label="Bảng của bạn"
+                    label={t("tournaments.bracket.myGroup")}
                     sx={{ fontWeight: 700 }}
                   />
                 )}
@@ -3142,7 +3211,7 @@ export default function TournamentBracket() {
                 sx={{ fontWeight: 700 }}
                 gutterBottom
               >
-                Trận trong bảng
+                {t("tournaments.bracket.groupMatchesTitle")}
               </Typography>
 
               {isMdUp ? (
@@ -3156,17 +3225,19 @@ export default function TournamentBracket() {
                     <TableHead>
                       <TableRow>
                         <TableCell sx={{ width: { md: 140 }, fontWeight: 700 }}>
-                          Mã
+                          {t("tournaments.bracket.columns.code")}
                         </TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Trận</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>
+                          {t("tournaments.bracket.columns.match")}
+                        </TableCell>
                         <TableCell sx={{ width: { md: 180 }, fontWeight: 700 }}>
-                          Giờ đấu
+                          {t("tournaments.bracket.columns.time")}
                         </TableCell>
                         <TableCell sx={{ width: { md: 160 }, fontWeight: 700 }}>
-                          Sân
+                          {t("tournaments.bracket.columns.court")}
                         </TableCell>
                         <TableCell sx={{ width: { md: 120 }, fontWeight: 700 }}>
-                          Tỷ số
+                          {t("tournaments.bracket.columns.score")}
                         </TableCell>
                       </TableRow>
                     </TableHead>
@@ -3200,26 +3271,34 @@ export default function TournamentBracket() {
                               {(() => {
                                 const badge = codeBadge(r.match);
                                 const state = matchStateKey(r.match);
-                                const tip =
+                                const stateLabel =
                                   state === "live"
-                                    ? `Đang diễn ra${
-                                        r.score ? ` • Tỷ số: ${r.score}` : ""
-                                      }${r.court ? ` • Sân: ${r.court}` : ""}${
-                                        r.time ? ` • Giờ: ${r.time}` : ""
-                                      }`
+                                    ? t("tournaments.bracket.stateTip.live")
                                     : state === "done"
-                                    ? `Đã kết thúc${
-                                        r.score ? ` • Tỷ số: ${r.score}` : ""
-                                      }${r.court ? ` • Sân: ${r.court}` : ""}${
-                                        r.time ? ` • Giờ: ${r.time}` : ""
-                                      }`
+                                    ? t("tournaments.bracket.stateTip.done")
                                     : state === "ready"
-                                    ? `Chuẩn bị (đã gán sân)${
-                                        r.court ? ` • Sân: ${r.court}` : ""
-                                      }${r.time ? ` • Giờ: ${r.time}` : ""}`
-                                    : `Dự kiến${
-                                        r.time ? ` • Giờ: ${r.time}` : ""
-                                      }`;
+                                    ? t("tournaments.bracket.stateTip.ready")
+                                    : t("tournaments.bracket.stateTip.planned");
+                                const tip =
+                                  `${stateLabel}${
+                                    r.score
+                                      ? ` • ${t(
+                                          "tournaments.bracket.stateTip.score"
+                                        )}: ${r.score}`
+                                      : ""
+                                  }${
+                                    r.court
+                                      ? ` • ${t(
+                                          "tournaments.bracket.stateTip.court"
+                                        )}: ${r.court}`
+                                      : ""
+                                  }${
+                                    r.time
+                                      ? ` • ${t(
+                                          "tournaments.bracket.stateTip.time"
+                                        )}: ${r.time}`
+                                      : ""
+                                  }`;
                                 return (
                                   <Box
                                     sx={{
@@ -3247,7 +3326,10 @@ export default function TournamentBracket() {
                                     </Tooltip>
 
                                     {r.video && (
-                                      <Tooltip title="Có video/stream" arrow>
+                                      <Tooltip
+                                        title={t("tournaments.bracket.videoTooltip")}
+                                        arrow
+                                      >
                                         <VideoIcon
                                           sx={{
                                             fontSize: 18,
@@ -3289,7 +3371,7 @@ export default function TournamentBracket() {
                       ) : (
                         <TableRow>
                           <TableCell colSpan={5} align="center">
-                            Chưa có trận nào.
+                            {t("tournaments.bracket.noMatches")}
                           </TableCell>
                         </TableRow>
                       )}
@@ -3430,7 +3512,7 @@ export default function TournamentBracket() {
                       variant="outlined"
                       sx={{ p: 2, textAlign: "center" }}
                     >
-                      Chưa có trận nào.
+                      {t("tournaments.bracket.noMatches")}
                     </Paper>
                   )}
                 </Stack>
@@ -3442,7 +3524,7 @@ export default function TournamentBracket() {
                 sx={{ fontWeight: 700 }}
                 gutterBottom
               >
-                Bảng xếp hạng
+                {t("tournaments.bracket.standingsTitle")}
               </Typography>
 
               {/* Chú thích điểm (giữ style cũ) */}
@@ -3464,24 +3546,26 @@ export default function TournamentBracket() {
                         >
                           #
                         </TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Đội</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>
+                          {t("tournaments.bracket.columns.team")}
+                        </TableCell>
                         <TableCell
                           sx={{ width: 100, fontWeight: 700 }}
                           align="center"
                         >
-                          Điểm
+                          {t("tournaments.bracket.columns.points")}
                         </TableCell>
                         <TableCell
                           sx={{ width: 120, fontWeight: 700 }}
                           align="center"
                         >
-                          Hiệu số
+                          {t("tournaments.bracket.columns.diff")}
                         </TableCell>
                         <TableCell
                           sx={{ width: 120, fontWeight: 700 }}
                           align="center"
                         >
-                          Xếp hạng
+                          {t("tournaments.bracket.columns.rank")}
                         </TableCell>
                       </TableRow>
                     </TableHead>
@@ -3516,7 +3600,7 @@ export default function TournamentBracket() {
                       ) : (
                         <TableRow>
                           <TableCell colSpan={5} align="center">
-                            Chưa có dữ liệu BXH.
+                            {t("tournaments.bracket.noStandings")}
                           </TableCell>
                         </TableRow>
                       )}
@@ -3587,17 +3671,23 @@ export default function TournamentBracket() {
                             >
                               <Chip
                                 size="small"
-                                label={`Điểm: ${pts}`}
+                                label={t("tournaments.bracket.mobilePoints", {
+                                  count: pts,
+                                })}
                                 variant="outlined"
                               />
                               <Chip
                                 size="small"
-                                label={`Hiệu số: ${diff}`}
+                                label={t("tournaments.bracket.mobileDiff", {
+                                  count: diff,
+                                })}
                                 variant="outlined"
                               />
                               <Chip
                                 size="small"
-                                label={`Hạng: ${rank}`}
+                                label={t("tournaments.bracket.mobileRank", {
+                                  count: rank,
+                                })}
                                 color="primary"
                               />
                             </Stack>
@@ -3610,7 +3700,7 @@ export default function TournamentBracket() {
                       variant="outlined"
                       sx={{ p: 2, textAlign: "center" }}
                     >
-                      Chưa có dữ liệu BXH.
+                      {t("tournaments.bracket.noStandings")}
                     </Paper>
                   )}
                 </Stack>
@@ -3625,12 +3715,14 @@ export default function TournamentBracket() {
   return (
     <Box sx={{ width: "100%", pb: { xs: 6, sm: 0 } }}>
       <SEOHead
-        title={`Sơ đồ: ${tour?.name}`}
-        description={`Xem sơ đồ thi đấu, kết quả và lịch trinh giải đấu ${tour?.name} trên Pickletour.vn`}
+        title={t("tournaments.bracket.seoTitle", { name: tour?.name })}
+        description={t("tournaments.bracket.seoDescription", {
+          name: tour?.name,
+        })}
         path={`/tournament/${tourId}/bracket`}
       />
       <Typography variant="h5" sx={{ mb: 2, mt: 2 }} fontWeight="bold">
-        Sơ đồ giải: {tour?.name}
+        {t("tournaments.bracket.pageTitle", { name: tour?.name })}
       </Typography>
 
       {/* ===== NEW: META & CHÚ THÍCH (trên Tabs) ===== */}
@@ -3655,19 +3747,25 @@ export default function TournamentBracket() {
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
             <Chip
               icon={<GroupIcon sx={{ fontSize: 18 }} />}
-              label={`Số đội: ${metaBar.totalTeams}`}
+              label={t("tournaments.bracket.metaTeams", {
+                count: metaBar.totalTeams,
+              })}
               size="small"
               variant="outlined"
             />
             <Chip
               icon={<CheckIcon sx={{ fontSize: 18 }} />}
-              label={`Check-in: ${metaBar.checkinLabel}`}
+              label={t("tournaments.bracket.metaCheckin", {
+                count: metaBar.checkinLabel,
+              })}
               size="small"
               variant="outlined"
             />
             <Chip
               icon={<PlaceIcon sx={{ fontSize: 18 }} />}
-              label={`Địa điểm: ${metaBar.locationText}`}
+              label={t("tournaments.bracket.metaLocation", {
+                value: metaBar.locationText,
+              })}
               size="small"
               variant="outlined"
             />
@@ -3697,8 +3795,8 @@ export default function TournamentBracket() {
                       lineHeight: 1.3,
                     }}
                   >
-                    <b>Chú thích:</b> R/V: Vòng; T: Trận; B: Bảng; W: Thắng; L:
-                    Thua; BYE: Ưu tiên
+                    <b>{t("tournaments.bracket.legendTitle")}</b>{" "}
+                    {t("tournaments.bracket.legendBody")}
                   </Box>
                 }
                 sx={{
@@ -3739,7 +3837,7 @@ export default function TournamentBracket() {
                   }}
                 />
                 <Typography variant="caption" sx={{ wordBreak: "break-word" }}>
-                  Xanh: hoàn thành
+                  {t("tournaments.bracket.colorDone")}
                 </Typography>
               </Box>
 
@@ -3761,7 +3859,7 @@ export default function TournamentBracket() {
                   }}
                 />
                 <Typography variant="caption" sx={{ wordBreak: "break-word" }}>
-                  Cam: đang thi đấu
+                  {t("tournaments.bracket.colorLive")}
                 </Typography>
               </Box>
 
@@ -3783,7 +3881,7 @@ export default function TournamentBracket() {
                   }}
                 />
                 <Typography variant="caption" sx={{ wordBreak: "break-word" }}>
-                  Vàng: chuẩn bị
+                  {t("tournaments.bracket.colorReady")}
                 </Typography>
               </Box>
 
@@ -3805,7 +3903,7 @@ export default function TournamentBracket() {
                   }}
                 />
                 <Typography variant="caption" sx={{ wordBreak: "break-word" }}>
-                  Ghi: dự kiến
+                  {t("tournaments.bracket.colorPlanned")}
                 </Typography>
               </Box>
             </Box>
@@ -3838,7 +3936,7 @@ export default function TournamentBracket() {
             sx={{ mb: 1 }}
           >
             <Typography variant="h6" sx={{ m: 0 }}>
-              Vòng bảng: {current.name}
+              {t("tournaments.bracket.groupStageTitle", { name: current.name })}
             </Typography>
             <Button
               size="small"
@@ -3846,7 +3944,7 @@ export default function TournamentBracket() {
               startIcon={<FilterListIcon />}
               onClick={() => setFilterOpen(true)}
             >
-              Bộ lọc
+              {t("tournaments.bracket.filterButton")}
             </Button>
           </Stack>
 
@@ -3857,7 +3955,7 @@ export default function TournamentBracket() {
             fullWidth
             maxWidth="sm"
           >
-            <DialogTitle>Bộ lọc bảng</DialogTitle>
+            <DialogTitle>{t("tournaments.bracket.filterTitle")}</DialogTitle>
             <DialogContent dividers>
               <Stack spacing={1.25}>
                 {/* Tóm tắt nhanh */}
@@ -3865,21 +3963,25 @@ export default function TournamentBracket() {
                   <Chip
                     size="small"
                     variant="outlined"
-                    label={`Tổng: ${allGroupKeys.length}`}
+                    label={t("tournaments.bracket.totalGroups", {
+                      count: allGroupKeys.length,
+                    })}
                   />
                   <Chip
                     size="small"
                     color={groupSelected.size === 0 ? "default" : "primary"}
                     variant="outlined"
-                    label={`Đang chọn: ${
-                      groupSelected.size === 0 ? "0" : groupSelected.size
-                    }`}
+                    label={t("tournaments.bracket.selectedGroups", {
+                      count: groupSelected.size === 0 ? "0" : groupSelected.size,
+                    })}
                   />
                   <Chip
                     size="small"
                     color={myGroupKeys.size ? "success" : "default"}
                     variant="outlined"
-                    label={`Bảng của tôi: ${myGroupKeys.size}`}
+                    label={t("tournaments.bracket.myGroupsCount", {
+                      count: myGroupKeys.size,
+                    })}
                   />
                 </Stack>
 
@@ -3913,7 +4015,7 @@ export default function TournamentBracket() {
                         }
                       />
                     }
-                    label="Chọn tất cả"
+                    label={t("tournaments.bracket.selectAll")}
                   />
                 </FormGroup>
 
@@ -3923,7 +4025,9 @@ export default function TournamentBracket() {
                     const key = groupKeyOf(g, gi);
                     const checked = groupSelected.has(key);
                     const mine = myGroupKeys.has(key);
-                    const label = `Bảng ${gi + 1}`;
+                    const label = t("tournaments.bracket.groupLabel", {
+                      index: gi + 1,
+                    });
                     return (
                       <FormControlLabel
                         key={key}
@@ -3944,7 +4048,7 @@ export default function TournamentBracket() {
                               <Chip
                                 size="small"
                                 color="success"
-                                label="Bảng của tôi"
+                                label={t("tournaments.bracket.myGroup")}
                               />
                             )}
                           </Stack>
@@ -3956,10 +4060,14 @@ export default function TournamentBracket() {
               </Stack>
             </DialogContent>
             <DialogActions>
-              <Button onClick={handleClearAll}>Bỏ chọn hết</Button>
-              <Button onClick={handleSelectAll}>Chọn tất cả</Button>
+              <Button onClick={handleClearAll}>
+                {t("tournaments.bracket.clearAll")}
+              </Button>
+              <Button onClick={handleSelectAll}>
+                {t("tournaments.bracket.selectAll")}
+              </Button>
               <Button variant="contained" onClick={() => setFilterOpen(false)}>
-                Áp dụng
+                {t("tournaments.bracket.apply")}
               </Button>
             </DialogActions>
           </Dialog>
@@ -3970,14 +4078,15 @@ export default function TournamentBracket() {
       ) : current.type === "roundElim" ? (
         <Paper sx={{ p: 2 }}>
           <Typography variant="h6" gutterBottom>
-            Vòng loại rút gọn (Round Elimination): {current.name}
+            {t("tournaments.bracket.roundElimTitle", { name: current.name })}
           </Typography>
 
           {(() => {
             const reRounds = buildRoundElimRounds(
               current,
               currentMatches,
-              resolveSideLabel
+              resolveSideLabel,
+              pendingTeamLabel
             );
             const roundsKeyRE = `${current._id}:${reRounds.length}:${reRounds
               .map((r) => r.seeds.length)
@@ -4046,7 +4155,7 @@ export default function TournamentBracket() {
                 </Box>
                 {!currentMatches.length && (
                   <Typography variant="caption" color="text.secondary">
-                    * Chưa bốc cặp — đang hiển thị khung theo vòng cắt (V1..Vk).
+                    {t("tournaments.bracket.emptyRoundElimHint")}
                   </Typography>
                 )}
               </>
@@ -4056,7 +4165,7 @@ export default function TournamentBracket() {
       ) : (
         <Paper sx={{ p: 2 }}>
           <Typography variant="h6" gutterBottom>
-            Vòng knock-out: {current.name}
+            {t("tournaments.bracket.knockoutTitle", { name: current.name })}
           </Typography>
 
           {(() => {
@@ -4085,11 +4194,12 @@ export default function TournamentBracket() {
                     currentMatches,
                     resolveSideLabel,
                     {
-                      minRounds: minRoundsForCurrent,
-                      extendForward: true,
-                      expectedFirstRoundPairs,
-                    }
-                  )
+                  minRounds: minRoundsForCurrent,
+                  extendForward: true,
+                  expectedFirstRoundPairs,
+                  pendingTeamLabel,
+                }
+              )
                 : prefillRounds
                 ? prefillRounds
                 : current.drawRounds && current.drawRounds > 0
@@ -4112,7 +4222,9 @@ export default function TournamentBracket() {
                     <Chip
                       size="small"
                       variant="outlined"
-                      label={`Bắt đầu: ${current.ko.startKey}`}
+                      label={t("tournaments.bracket.startFrom", {
+                        value: current.ko.startKey,
+                      })}
                     />
                   )}
                   {current?.prefill?.isVirtual && (
@@ -4120,14 +4232,16 @@ export default function TournamentBracket() {
                       size="small"
                       color="warning"
                       variant="outlined"
-                      label="Prefill ảo"
+                      label={t("tournaments.bracket.virtualPrefill")}
                     />
                   )}
                   {current?.prefill?.source?.fromName && (
                     <Chip
                       size="small"
                       variant="outlined"
-                      label={`Nguồn: ${current.prefill.source.fromName}`}
+                      label={t("tournaments.bracket.sourceFrom", {
+                        value: current.prefill.source.fromName,
+                      })}
                     />
                   )}
                   {current?.prefill?.roundKey && (
@@ -4141,7 +4255,7 @@ export default function TournamentBracket() {
 
                 {championPair && (
                   <Alert severity="success" sx={{ mb: 1 }}>
-                    Vô địch:{" "}
+                    {t("tournaments.bracket.champion")}{" "}
                     <b>{pairLabelWithNick(championPair, tour?.eventType)}</b>
                   </Alert>
                 )}
@@ -4187,24 +4301,18 @@ export default function TournamentBracket() {
 
                 {currentMatches.length === 0 && prefillRounds && (
                   <Typography variant="caption" color="text.secondary">
-                    * Đang hiển thị khung <b>prefill</b>
-                    {current?.prefill?.isVirtual
-                      ? " (ảo theo seeding)"
-                      : ""}{" "}
-                    bắt đầu từ{" "}
-                    <b>
-                      {current?.ko?.startKey ||
-                        current?.prefill?.roundKey ||
-                        "?"}
-                    </b>
-                    . Khi có trận thật, nhánh sẽ tự cập nhật.
+                    {t("tournaments.bracket.prefillHint", {
+                      virtualSuffix: current?.prefill?.isVirtual
+                        ? t("tournaments.bracket.prefillVirtualSuffix")
+                        : "",
+                      start:
+                        current?.ko?.startKey || current?.prefill?.roundKey || "?",
+                    })}
                   </Typography>
                 )}
                 {currentMatches.length === 0 && !prefillRounds && (
                   <Typography variant="caption" color="text.secondary">
-                    * Chưa bốc thăm / chưa lấy đội từ vòng trước — tạm hiển thị
-                    khung theo <b>quy mô</b>. Khi có trận thật, nhánh sẽ tự cập
-                    nhật.
+                    {t("tournaments.bracket.emptyKoHint")}
                   </Typography>
                 )}
               </>

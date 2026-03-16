@@ -1,6 +1,6 @@
 // src/pages/TournamentSchedule.jsx
 /* eslint-disable react/prop-types */
-import React, {
+import {
   useMemo,
   useState,
   useEffect,
@@ -31,7 +31,6 @@ import {
 import PlayCircleOutlineIcon from "@mui/icons-material/PlayCircleOutline";
 import ScheduleIcon from "@mui/icons-material/Schedule";
 import EmojiEventsIcon from "@mui/icons-material/EmojiEvents";
-import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SearchIcon from "@mui/icons-material/Search";
 import SportsTennisIcon from "@mui/icons-material/SportsTennis";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
@@ -45,6 +44,7 @@ import {
 } from "../../slices/tournamentsApiSlice";
 import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
+import { useLanguage } from "../../context/LanguageContext";
 import SEOHead from "../../components/SEOHead";
 import { skipToken } from "@reduxjs/toolkit/query";
 import { useSelector } from "react-redux";
@@ -66,13 +66,6 @@ function isGroupMatch(m) {
     t === "rr"
   );
 }
-function normRound(m) {
-  const r = m?.round ?? m?.stageRound ?? m?.r;
-  if (!hasVal(r)) return "";
-  const n = Number(r);
-  return Number.isFinite(n) ? String(n) : String(r).trim();
-}
-
 // ===== Group helpers =====
 function buildGroupIndex(bracket) {
   const byRegId = new Map();
@@ -163,11 +156,11 @@ function pairToName(pair) {
 function seedToName(seed) {
   return seed?.label || null;
 }
-function teamNameFrom(m, side) {
-  if (!m) return "TBD";
+function teamNameFrom(m, side, fallback = "TBD") {
+  if (!m) return fallback;
   const pair = side === "A" ? m.pairA : m.pairB;
   const seed = side === "A" ? m.seedA : m.seedB;
-  return pairToName(pair) || seedToName(seed) || "TBD";
+  return pairToName(pair) || seedToName(seed) || fallback;
 }
 function scoreText(m) {
   if (typeof m?.scoreText === "string" && m.scoreText.trim())
@@ -176,12 +169,12 @@ function scoreText(m) {
     return m.gameScores.map((s) => `${s?.a ?? 0}-${s?.b ?? 0}`).join(", ");
   return "";
 }
-function courtNameOf(m) {
+function courtNameOf(m, fallback = "Chưa phân sân") {
   return (
     (m?.courtName && m.courtName.trim()) ||
     m?.court?.name ||
     m?.courtLabel ||
-    "Chưa phân sân"
+    fallback
   );
 }
 
@@ -304,8 +297,12 @@ const TeamDisplay = ({ name, isWinner, align = "left" }) => (
   </Stack>
 );
 
-const LiveMatchCard = ({ m, onOpen }) => (
-  <Paper
+const LiveMatchCard = ({ m, onOpen }) => {
+  const { t } = useLanguage();
+  const teamFallback = t("tournaments.schedule.match.pendingTeam");
+
+  return (
+    <Paper
     elevation={0}
     onClick={() => onOpen(m._id)}
     sx={{
@@ -328,7 +325,7 @@ const LiveMatchCard = ({ m, onOpen }) => (
       mb={1}
     >
       <Chip
-        label="LIVE"
+        label={t("tournaments.schedule.liveChip")}
         color="success"
         size="small"
         icon={<PlayCircleOutlineIcon />}
@@ -345,8 +342,8 @@ const LiveMatchCard = ({ m, onOpen }) => (
     </Stack>
     <Stack spacing={1}>
       <Box>
-        <TeamDisplay name={teamNameFrom(m, "A")} />
-        <TeamDisplay name={teamNameFrom(m, "B")} />
+        <TeamDisplay name={teamNameFrom(m, "A", teamFallback)} />
+        <TeamDisplay name={teamNameFrom(m, "B", teamFallback)} />
       </Box>
       <Divider sx={{ borderStyle: "dashed", borderColor: "success.300" }} />
       <Typography
@@ -355,14 +352,19 @@ const LiveMatchCard = ({ m, onOpen }) => (
         color="success.800"
         fontWeight={800}
       >
-        {scoreText(m) || "0 - 0"}
+        {scoreText(m) || t("tournaments.schedule.match.scoreFallback")}
       </Typography>
     </Stack>
   </Paper>
-);
+  );
+};
 
-const QueueMatchItem = ({ m, onOpen }) => (
-  <Stack
+const QueueMatchItem = ({ m, onOpen }) => {
+  const { t } = useLanguage();
+  const teamFallback = t("tournaments.schedule.match.pendingTeam");
+
+  return (
+    <Stack
     direction="row"
     alignItems="center"
     spacing={1}
@@ -392,10 +394,11 @@ const QueueMatchItem = ({ m, onOpen }) => (
     </Box>
     <Box sx={{ flex: 1, overflow: "hidden" }}>
       <Typography variant="caption" display="block" noWrap fontWeight={500}>
-        {teamNameFrom(m, "A")}
+        {teamNameFrom(m, "A", teamFallback)}
       </Typography>
       <Typography variant="caption" display="block" noWrap fontWeight={500}>
-        vs {teamNameFrom(m, "B")}
+        {t("tournaments.schedule.match.versus")}{" "}
+        {teamNameFrom(m, "B", teamFallback)}
       </Typography>
     </Box>
     <Chip
@@ -404,9 +407,11 @@ const QueueMatchItem = ({ m, onOpen }) => (
       sx={{ height: 20, fontSize: "0.65rem" }}
     />
   </Stack>
-);
+  );
+};
 
 function CourtPanel({ court, onOpenMatch }) {
+  const { t } = useLanguage();
   const hasLive = court.live.length > 0;
   return (
     <Card
@@ -456,7 +461,9 @@ function CourtPanel({ court, onOpenMatch }) {
           {court.queue.length > 0 && (
             <Chip
               size="small"
-              label={`${court.queue.length} chờ`}
+              label={t("tournaments.schedule.court.queue", {
+                count: court.queue.length,
+              })}
               sx={{ height: 20, fontSize: "0.7rem", flexShrink: 0 }}
             />
           )}
@@ -487,7 +494,7 @@ function CourtPanel({ court, onOpenMatch }) {
             }}
           >
             <Typography variant="caption" color="text.secondary">
-              Sân trống
+              {t("tournaments.schedule.court.empty")}
             </Typography>
           </Box>
         )}
@@ -499,7 +506,7 @@ function CourtPanel({ court, onOpenMatch }) {
               color="text.secondary"
               sx={{ mb: 0.5, display: "block", textTransform: "uppercase" }}
             >
-              Tiếp theo
+              {t("tournaments.schedule.court.next")}
             </Typography>
             {court.queue.slice(0, 3).map((m) => (
               <QueueMatchItem key={m._id} m={m} onOpen={onOpenMatch} />
@@ -511,7 +518,9 @@ function CourtPanel({ court, onOpenMatch }) {
                 display="block"
                 sx={{ mt: 0.5, color: "text.secondary" }}
               >
-                +{court.queue.length - 3} trận khác...
+                {t("tournaments.schedule.court.moreMatches", {
+                  count: court.queue.length - 3,
+                })}
               </Typography>
             )}
           </Box>
@@ -631,10 +640,11 @@ function CourtCarousel({ courts, onOpenMatch }) {
 }
 
 function MatchListItem({ m, onOpenMatch }) {
+  const { t } = useLanguage();
   const theme = useTheme();
   const finished = isFinished(m);
   const live = isLive(m);
-  const scheduled = isScheduled(m);
+  const teamFallback = t("tournaments.schedule.match.pendingTeam");
   const borderColor = live ? "success.main" : "divider";
   const bgColor = live 
     ? theme.palette.mode === "dark" 
@@ -697,7 +707,7 @@ function MatchListItem({ m, onOpenMatch }) {
             fontWeight={600}
             sx={{ color: live ? "success.700" : "text.secondary" }}
           >
-            {courtNameOf(m)}
+            {courtNameOf(m, t("tournaments.schedule.court.unassigned"))}
           </Typography>
         </Stack>
       </Box>
@@ -717,7 +727,7 @@ function MatchListItem({ m, onOpenMatch }) {
             }}
           >
             <TeamDisplay
-              name={teamNameFrom(m, "A")}
+              name={teamNameFrom(m, "A", teamFallback)}
               isWinner={m.winner === "A"}
               align={window.innerWidth < 600 ? "center" : "right"}
             />
@@ -733,7 +743,9 @@ function MatchListItem({ m, onOpenMatch }) {
           >
             {live || finished ? (
               <Chip
-                label={scoreText(m) || "0 - 0"}
+                label={
+                  scoreText(m) || t("tournaments.schedule.match.scoreFallback")
+                }
                 color={live ? "success" : "default"}
                 variant={live ? "filled" : "outlined"}
                 sx={{
@@ -762,7 +774,7 @@ function MatchListItem({ m, onOpenMatch }) {
                   borderColor: "divider",
                 }}
               >
-                VS
+                {t("tournaments.schedule.match.versus")}
               </Box>
             )}
             <Typography
@@ -775,7 +787,11 @@ function MatchListItem({ m, onOpenMatch }) {
                 textTransform: "uppercase",
               }}
             >
-              {live ? "Đang đấu" : finished ? "Kết thúc" : "Chưa đấu"}
+              {live
+                ? t("tournaments.schedule.match.status.live")
+                : finished
+                  ? t("tournaments.schedule.match.status.finished")
+                  : t("tournaments.schedule.match.status.pending")}
             </Typography>
           </Box>
           <Box
@@ -787,7 +803,7 @@ function MatchListItem({ m, onOpenMatch }) {
             }}
           >
             <TeamDisplay
-              name={teamNameFrom(m, "B")}
+              name={teamNameFrom(m, "B", teamFallback)}
               isWinner={m.winner === "B"}
               align={window.innerWidth < 600 ? "center" : "left"}
             />
@@ -800,6 +816,7 @@ function MatchListItem({ m, onOpenMatch }) {
 
 /* ---------- MAIN PAGE ---------- */
 export default function TournamentSchedule() {
+  const { t } = useLanguage();
   const { userInfo } = useSelector((s) => s.auth || {});
   const roleStr = String(userInfo?.role || "").toLowerCase();
   const roles = new Set(
@@ -1083,10 +1100,12 @@ export default function TournamentSchedule() {
     [groupMaps]
   );
   const codeStickyRef = useRef(new Map());
+  const unassignedCourtLabel = t("tournaments.schedule.court.unassigned");
+  const pendingTeamLabel = t("tournaments.schedule.match.pendingTeam");
   const matchesWithCode = useMemo(() => {
     return (matches || []).map((m) => {
       const T = normMatchNo(m);
-      let label = "Trận";
+      let label = t("tournaments.schedule.fallbackMatchCode");
       if (isGroupMatch(m)) {
         const stageNo = Number(m?.bracket?.stage ?? m?.stage ?? 1) || 1;
         const bFromMap = groupNumberFromMatch(m);
@@ -1095,7 +1114,9 @@ export default function TournamentSchedule() {
         if (stageNo) parts.push(`V${stageNo}`);
         if (B) parts.push(`B${B}`);
         if (T) parts.push(`T${T}`);
-        const candidate = parts.length ? parts.join("-") : "Trận";
+        const candidate = parts.length
+          ? parts.join("-")
+          : t("tournaments.schedule.fallbackMatchCode");
         const prev = codeStickyRef.current.get(m._id);
         const candHasB = candidate.includes("-B");
         const prevHasB = typeof prev === "string" && prev.includes("-B");
@@ -1109,11 +1130,13 @@ export default function TournamentSchedule() {
         const parts = [];
         if (Vdisp) parts.push(`V${Vdisp}`);
         if (T) parts.push(`T${T}`);
-        label = parts.length ? parts.join("-") : "Trận";
+        label = parts.length
+          ? parts.join("-")
+          : t("tournaments.schedule.fallbackMatchCode");
       }
       return { ...m, __displayCode: label };
     });
-  }, [matches, baseRoundStartMap, groupNumberFromMatch]);
+  }, [matches, baseRoundStartMap, groupNumberFromMatch, t]);
   const allSorted = useMemo(() => {
     return [...matchesWithCode].sort((a, b) => {
       const ak = orderKey(a);
@@ -1136,22 +1159,22 @@ export default function TournamentSchedule() {
       if (!qnorm) return true;
       const hay = [
         m.__displayCode,
-        teamNameFrom(m, "A"),
-        teamNameFrom(m, "B"),
+        teamNameFrom(m, "A", pendingTeamLabel),
+        teamNameFrom(m, "B", pendingTeamLabel),
         m.bracket?.name,
-        courtNameOf(m),
+        courtNameOf(m, unassignedCourtLabel),
       ]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
       return hay.includes(qnorm);
     });
-  }, [allSorted, q, status]);
+  }, [allSorted, pendingTeamLabel, q, status, unassignedCourtLabel]);
 
   const courts = useMemo(() => {
     const map = new Map();
     allSorted.forEach((m) => {
-      const name = courtNameOf(m);
+      const name = courtNameOf(m, unassignedCourtLabel);
       if (!map.has(name)) map.set(name, { live: [], queue: [] });
       if (isLive(m)) map.get(name).live.push(m);
       else if (!isFinished(m)) map.get(name).queue.push(m);
@@ -1172,7 +1195,7 @@ export default function TournamentSchedule() {
       ...data,
     }));
     const isUnassigned = (n) =>
-      String(n).toLowerCase().includes("chưa phân sân");
+      String(n).toLowerCase() === unassignedCourtLabel.toLowerCase();
     const natNum = (s) => {
       const d = String(s).match(/\d+/)?.[0];
       return d ? Number(d) : Number.POSITIVE_INFINITY;
@@ -1184,16 +1207,20 @@ export default function TournamentSchedule() {
       const an = natNum(a.name);
       const bn = natNum(b.name);
       if (an !== bn) return an - bn;
-      return a.name.localeCompare(b.name, "vi");
+      return a.name.localeCompare(b.name);
     });
     return entries.filter((e) => !isUnassigned(e.name));
-  }, [allSorted]);
+  }, [allSorted, unassignedCourtLabel]);
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default", pb: 4 }}>
       <SEOHead
-        title={`Lịch thi đấu: ${tournament?.name || "Giải đấu"}`}
-        description={`Xem lịch thi đấu, kết quả và trạng thái sân của giải ${tournament?.name} trên Pickletour.vn`}
+        title={t("tournaments.schedule.seoTitle", {
+          name: tournament?.name || t("tournaments.schedule.seoFallbackName"),
+        })}
+        description={t("tournaments.schedule.seoDescription", {
+          name: tournament?.name || t("tournaments.schedule.seoFallbackName"),
+        })}
         path={`/tournament/${id}/schedule`}
       />
       <Paper
@@ -1211,7 +1238,7 @@ export default function TournamentSchedule() {
             <Box>
               <Stack direction="row" alignItems="center" gap={1}>
                 <Typography variant="h5" fontWeight={800} color="text.primary">
-                  Lịch thi đấu
+                  {t("tournaments.schedule.title")}
                 </Typography>
                 {tournament?.name && (
                   <Typography
@@ -1234,7 +1261,7 @@ export default function TournamentSchedule() {
                   color="inherit"
                   size="small"
                 >
-                  Quản lý giải
+                  {t("tournaments.schedule.manageTournament")}
                 </Button>
               )}
               <Button
@@ -1245,7 +1272,7 @@ export default function TournamentSchedule() {
                 size="small"
                 startIcon={<EmojiEventsIcon />}
               >
-                Xem sơ đồ
+                {t("tournaments.schedule.viewBracket")}
               </Button>
             </Box>
           </Stack>
@@ -1261,7 +1288,7 @@ export default function TournamentSchedule() {
             gutterBottom
             sx={{ display: "flex", alignItems: "center", gap: 1, mb: 2 }}
           >
-            <ScheduleIcon color="primary" /> Tình trạng sân đấu
+            <ScheduleIcon color="primary" /> {t("tournaments.schedule.courtsTitle")}
           </Typography>
 
           {isLoading ? (
@@ -1298,7 +1325,7 @@ export default function TournamentSchedule() {
               color="text.secondary"
               fontStyle="italic"
             >
-              Chưa có thông tin sân đấu.
+              {t("tournaments.schedule.courtsEmpty")}
             </Typography>
           )}
         </Box>
@@ -1326,19 +1353,25 @@ export default function TournamentSchedule() {
                 },
               }}
             >
-              <Tab label="Tất cả" value="all" />
+              <Tab label={t("tournaments.schedule.tabs.all")} value="all" />
               <Tab
-                label="Đang diễn ra"
+                label={t("tournaments.schedule.tabs.live")}
                 value="live"
                 iconPosition="start"
                 icon={<PlayCircleOutlineIcon sx={{ fontSize: 18 }} />}
               />
-              <Tab label="Sắp tới" value="upcoming" />
-              <Tab label="Đã kết thúc" value="finished" />
+              <Tab
+                label={t("tournaments.schedule.tabs.upcoming")}
+                value="upcoming"
+              />
+              <Tab
+                label={t("tournaments.schedule.tabs.finished")}
+                value="finished"
+              />
             </Tabs>
             <TextField
               size="small"
-              placeholder="Tìm mã trận, tên đội..."
+              placeholder={t("tournaments.schedule.searchPlaceholder")}
               value={q}
               onChange={(e) => setQ(e.target.value)}
               InputProps={{
@@ -1375,7 +1408,7 @@ export default function TournamentSchedule() {
                 <SportsTennisIcon
                   sx={{ fontSize: 60, color: "grey.300", mb: 2 }}
                 />
-                <Typography>Không tìm thấy trận đấu nào</Typography>
+                <Typography>{t("tournaments.schedule.noMatches")}</Typography>
               </Box>
             )}
           </Box>
