@@ -9,6 +9,11 @@ import {
   NOW_UTC,
   pickUsefulDebug,
 } from "../services/fbGraph.js";
+import { getValidPageToken } from "../services/fbTokenService.js";
+import { getPageLiveState } from "../services/facebookApi.js";
+import { buildFbPageMonitorSnapshot } from "../services/fbPageMonitor.service.js";
+import { publishFbPageMonitorUpdate } from "../services/fbPageMonitorEvents.service.js";
+import { cancelScheduledFacebookPageRelease } from "../services/facebookPagePool.service.js";
 
 const isId = (s) => mongoose.Types.ObjectId.isValid(String(s));
 
@@ -65,6 +70,15 @@ function buildStatus({ dbgUser, dbgPage, canRead, canLive, doc }) {
 
   return { code, problems, hints, missingScopes };
 }
+
+/**
+ * GET /api/fb-tokens/monitor
+ * Snapshot giàu dữ liệu cho admin realtime monitor.
+ */
+export const getFbPageMonitor = asyncHandler(async (_req, res) => {
+  const snapshot = await buildFbPageMonitorSnapshot();
+  res.json(snapshot);
+});
 
 /**
  * GET /api/fb-tokens
@@ -130,6 +144,7 @@ export const listFbTokens = asyncHandler(async (req, res) => {
  * Gọi debug + test quyền, lưu kết quả gần nhất (lastStatus*) và normalize expires.
  */
 export const checkOneFbToken = asyncHandler(async (req, res) => {
+  const suppressMonitorUpdate = req.get("x-pkt-monitor-batch") === "1";
   const idOrPage = String(req.params.id);
   const doc = isId(idOrPage)
     ? await FbToken.findById(idOrPage)
@@ -191,6 +206,13 @@ export const checkOneFbToken = asyncHandler(async (req, res) => {
 
   await doc.save();
 
+  if (!suppressMonitorUpdate) {
+    await publishFbPageMonitorUpdate({
+      reason: "fb_token_checked",
+      pageIds: [doc.pageId],
+    });
+  }
+
   res.json({
     ok: status.code === "OK",
     status,
@@ -208,6 +230,43 @@ export const checkOneFbToken = asyncHandler(async (req, res) => {
       pageTokenIsNever: doc.pageTokenIsNever,
       disabled: doc.disabled,
     },
+  });
+});
+
+/**
+ * POST /api/fb-tokens/:id/probe-live
+ * Thử đọc live state hiện tại của page từ Graph API.
+ */
+export const probeFbLiveState = asyncHandler(async (req, res) => {
+  const idOrPage = String(req.params.id);
+  const doc = isId(idOrPage)
+    ? await FbToken.findById(idOrPage)
+    : await FbToken.findOne({ pageId: idOrPage });
+
+  if (!doc) {
+    res.status(404);
+    throw new Error("Page token not found");
+  }
+
+  const pageAccessToken = await getValidPageToken(doc.pageId);
+  const state = await getPageLiveState({
+    pageId: doc.pageId,
+    pageAccessToken,
+  });
+
+  await publishFbPageMonitorUpdate({
+    reason: "fb_page_live_probe",
+    pageIds: [doc.pageId],
+  });
+
+  res.json({
+    ok: true,
+    pageId: doc.pageId,
+    pageName: doc.pageName || "",
+    busy: Boolean(state.busy),
+    liveNow: Array.isArray(state.liveNow) ? state.liveNow : [],
+    prepared: Array.isArray(state.prepared) ? state.prepared : [],
+    checkedAt: new Date(),
   });
 });
 
@@ -236,7 +295,10 @@ export const checkAllFbTokens = asyncHandler(async (req, res) => {
           `${req.protocol}://${req.get("host")}/api/fb-tokens/${id}/check`,
           {
             method: "POST",
-            headers: { cookie: req.headers.cookie || "" }, // reuse session
+            headers: {
+              cookie: req.headers.cookie || "",
+              "x-pkt-monitor-batch": "1",
+            }, // reuse session
           }
         ).then((r) => r.json())
       )
@@ -251,6 +313,11 @@ export const checkAllFbTokens = asyncHandler(async (req, res) => {
       );
     }
   }
+
+  await publishFbPageMonitorUpdate({
+    reason: "fb_token_check_all_completed",
+    mode: "event",
+  });
 
   res.json({ ok, bad, resultsCount: results.length });
 });
@@ -267,6 +334,10 @@ export const markNeedsReauth = asyncHandler(async (req, res) => {
   doc.needsReauth = true;
   doc.lastCheckedAt = NOW_UTC();
   await doc.save();
+  await publishFbPageMonitorUpdate({
+    reason: "fb_token_marked_reauth",
+    pageIds: [doc.pageId],
+  });
   res.json({ ok: true });
 });
 
@@ -279,11 +350,16 @@ export const clearBusyFlag = asyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Not found");
   }
+  cancelScheduledFacebookPageRelease(doc.pageId);
   doc.isBusy = false;
   doc.busyMatch = null;
   doc.busyLiveVideoId = null;
   doc.busySince = null;
   await doc.save();
+  await publishFbPageMonitorUpdate({
+    reason: "fb_token_busy_cleared",
+    pageIds: [doc.pageId],
+  });
   res.json({ ok: true });
 });
 
@@ -298,6 +374,10 @@ export const disableFbToken = asyncHandler(async (req, res) => {
   }
   doc.disabled = true;
   await doc.save();
+  await publishFbPageMonitorUpdate({
+    reason: "fb_token_disabled",
+    pageIds: [doc.pageId],
+  });
   res.json({ ok: true, disabled: true });
 });
 
@@ -312,5 +392,9 @@ export const enableFbToken = asyncHandler(async (req, res) => {
   }
   doc.disabled = false;
   await doc.save();
+  await publishFbPageMonitorUpdate({
+    reason: "fb_token_enabled",
+    pageIds: [doc.pageId],
+  });
   res.json({ ok: true, disabled: false });
 });

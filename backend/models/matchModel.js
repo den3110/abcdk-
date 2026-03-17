@@ -267,6 +267,15 @@ const matchSchema = new Schema(
     stageIndex: { type: Number, default: 1, index: true },
     labelKey: { type: String, default: "" },
     meta: { type: Schema.Types.Mixed, default: {} },
+    live: {
+      type: Schema.Types.Mixed,
+      default: () => ({
+        status: "idle",
+        platforms: {},
+        sessions: [],
+        lastChangedAt: null,
+      }),
+    },
 
     facebookLive: {
       id: { type: String, trim: true },

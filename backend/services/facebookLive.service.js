@@ -89,6 +89,26 @@ export async function fbGoLive({ liveVideoId, pageAccessToken, status = "LIVE_NO
 }
 
 /**
+ * Kết thúc 1 Facebook live video.
+ */
+export async function fbEndLiveVideo({ liveVideoId, pageAccessToken }) {
+  if (!liveVideoId || !pageAccessToken) {
+    throw new Error("Missing liveVideoId/pageAccessToken");
+  }
+
+  const params = new URLSearchParams({
+    access_token: pageAccessToken,
+    end_live_video: "true",
+  });
+
+  const url = await base(`/${liveVideoId}`);
+  return await fbFetch(url, {
+    method: "POST",
+    body: params,
+  });
+}
+
+/**
  * Poll đợi permalink (dùng khi: tạo sớm → vài giây sau mới stream)
  */
 export async function fbPollPermalink({

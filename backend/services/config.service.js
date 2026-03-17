@@ -21,6 +21,16 @@ const ENV_ONLY_KEYS = new Set([
   "LIVE_SECRET_KEY_BASE64_OLD",
 ]);
 
+const NON_NEGATIVE_INT_KEYS = new Set([
+  "LIVE_BUSY_WINDOW_MS",
+  "LIVE_FB_POOL_SAFE_FREE_DELAY_MS",
+  "LIVE_FB_POOL_FAST_FREE_DELAY_MS",
+  "LIVE_FB_POOL_STALE_IDLE_FREE_DELAY_MS",
+  "LIVE_FB_POOL_STALE_BUSY_MS",
+  "LIVE_FB_LEASE_HEARTBEAT_MS",
+  "LIVE_FB_LEASE_TIMEOUT_MS",
+]);
+
 function now() {
   return Date.now();
 }
@@ -116,7 +126,7 @@ function validateKeyValue(key, val) {
       throw new Error("GRAPH_VER phải dạng vNN.N (vd: v24.0)");
     }
   }
-  if (key === "LIVE_BUSY_WINDOW_MS") {
+  if (NON_NEGATIVE_INT_KEYS.has(key)) {
     const n = parseInt(val, 10);
     if (!Number.isFinite(n) || n < 0) {
       throw new Error("LIVE_BUSY_WINDOW_MS phải là số nguyên >= 0");

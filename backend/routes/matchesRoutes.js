@@ -2,6 +2,7 @@ import express from "express";
 import {
   adminPatchMatch,
   notifyStreamEnded,
+  notifyStreamHeartbeat,
   notifyStreamStarted,
   setMatchLive,
   updateMatchSettings,
@@ -23,6 +24,7 @@ router.post("/:matchId/live/facebook", createFacebookLiveForMatch);
 router.post("/:matchId/live/create", createFacebookLiveForMatch);
 
 router.post("/:id/live/start", protect, notifyStreamStarted);
+router.post("/:id/live/heartbeat", protect, notifyStreamHeartbeat);
 router.post("/:id/live/end", protect, notifyStreamEnded);
 
 router.patch('/:matchId/update', updateMatchSettings);

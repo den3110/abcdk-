@@ -151,6 +151,71 @@ async function getPageLabel(pageId) {
   return doc?.pageName ? `${doc.pageName} (${pageId})` : String(pageId);
 }
 
+function getFacebookOwnerBucketKey(page) {
+  const longUserToken = String(page?.longUserToken || "").trim();
+  const pageId = String(page?.pageId || "").trim();
+  return longUserToken ? `user:${longUserToken}` : `page:${pageId}`;
+}
+
+async function preflightFacebookOwnerBuckets({ allPages, matchId }) {
+  const pagesByBucket = new Map();
+  const busyBuckets = new Map();
+  const targetMatchId = matchId ? String(matchId) : "";
+
+  for (const page of allPages || []) {
+    const bucketKey = getFacebookOwnerBucketKey(page);
+    if (!pagesByBucket.has(bucketKey)) pagesByBucket.set(bucketKey, []);
+    pagesByBucket.get(bucketKey).push(page);
+  }
+
+  for (const [bucketKey, bucketPages] of pagesByBucket.entries()) {
+    const locallyBusyPage = bucketPages.find((page) => {
+      if (!page?.isBusy) return false;
+      const busyMatchId = page?.busyMatch ? String(page.busyMatch) : "";
+      return !targetMatchId || busyMatchId !== targetMatchId;
+    });
+
+    if (locallyBusyPage) {
+      busyBuckets.set(bucketKey, {
+        reason: "pool_busy",
+        pageId: locallyBusyPage.pageId,
+        pageName: locallyBusyPage.pageName || locallyBusyPage.pageId,
+      });
+      continue;
+    }
+
+    for (const page of bucketPages) {
+      let pageAccessToken = null;
+      try {
+        pageAccessToken = await getValidPageToken(page.pageId);
+      } catch {
+        continue;
+      }
+
+      try {
+        const state = await getPageLiveState({
+          pageId: page.pageId,
+          pageAccessToken,
+        });
+        if (state.busy) {
+          busyBuckets.set(bucketKey, {
+            reason: "graph_busy",
+            pageId: page.pageId,
+            pageName: page.pageName || page.pageId,
+            liveCount: state.liveNow?.length || 0,
+            preparedCount: state.prepared?.length || 0,
+          });
+          break;
+        }
+      } catch {
+        // ignore preflight failures here; create step will still validate
+      }
+    }
+  }
+
+  return { busyBuckets };
+}
+
 function isBusyCreateError(err) {
   const gErr = err?.response?.data?.error || {};
   const msg = (gErr.message || err.message || "").toLowerCase();
@@ -1066,6 +1131,7 @@ export const createFacebookLiveForCourt = async (req, res) => {
                 secure_stream_url: live.secure_stream_url,
                 server_url: server,
                 stream_key: streamKey,
+                pageAccessToken,
                 createdAt: new Date(),
                 status: "CREATED",
               };
@@ -1084,6 +1150,19 @@ export const createFacebookLiveForCourt = async (req, res) => {
                 raw: live,
               });
               await mm.save();
+
+              try {
+                await markFacebookPageBusy({
+                  pageId,
+                  matchId: mm._id,
+                  liveVideoId: liveId,
+                });
+              } catch (busyErr) {
+                console.warn(
+                  "[FB][Court] mark page busy failed:",
+                  busyErr?.message || busyErr
+                );
+              }
             }
           } catch {}
 
@@ -1317,7 +1396,11 @@ export const createFacebookLiveForMatchForUserNotSystem = async (
 
     // Nếu dùng page pool hệ thống thì mark page đang bận
     if (source === "SYSTEM_POOL") {
-      await markFacebookPageBusy(pageId, match._id); // tuỳ bạn đang implement
+      await markFacebookPageBusy({
+        pageId,
+        matchId: match._id,
+        liveVideoId: liveId,
+      });
     }
 
     return res.json({
@@ -2065,33 +2148,29 @@ export const createFacebookLiveForMatch = async (req, res) => {
     // ============================================================
     const FacebookPage = (await import("../models/fbTokenModel.js")).default;
     const existingPageId = match.facebookLive?.pageId;
+    const allEnabledPages = await FacebookPage.find({
+      needsReauth: false,
+      disabled: { $ne: true },
+    }).sort({ lastCheckedAt: 1 });
     let candidatePages = [];
 
     // ✅ Ưu tiên page đang dùng (nếu có) nhưng KHÔNG disabled
-    if (existingPageId) {
-      const existingPage = await FacebookPage.findOne({
-        pageId: existingPageId,
-        disabled: { $ne: true },
-      });
-      if (existingPage && !existingPage.needsReauth) {
-        if (
-          !existingPage.isBusy ||
-          (existingPage.busyMatch &&
-            String(existingPage.busyMatch) === String(match._id))
-        ) {
-          candidatePages.push(existingPage);
-        }
+    const existingPage = existingPageId
+      ? allEnabledPages.find((page) => page.pageId === existingPageId) || null
+      : null;
+    if (existingPage) {
+      if (
+        !existingPage.isBusy ||
+        (existingPage.busyMatch &&
+          String(existingPage.busyMatch) === String(match._id))
+      ) {
+        candidatePages.push(existingPage);
       }
     }
 
     // ✅ Lấy tất cả pages rảnh khác, không disabled
-    const freePages = await FacebookPage.find({
-      needsReauth: false,
-      isBusy: false,
-      disabled: { $ne: true },
-    }).sort({ lastCheckedAt: 1 });
-
-    for (const page of freePages) {
+    for (const page of allEnabledPages) {
+      if (page.isBusy) continue;
       if (!candidatePages.find((p) => p.pageId === page.pageId)) {
         candidatePages.push(page);
       }
@@ -2104,6 +2183,11 @@ export const createFacebookLiveForMatch = async (req, res) => {
       });
     }
 
+    const { busyBuckets } = await preflightFacebookOwnerBuckets({
+      allPages: allEnabledPages,
+      matchId: match._id,
+    });
+
     let pageDoc = null;
     let pageId = null;
     let pageAccessToken = null;
@@ -2111,6 +2195,7 @@ export const createFacebookLiveForMatch = async (req, res) => {
     let liveId = null;
     let liveInfo = null;
     const failedPages = [];
+    const skippedBuckets = new Set();
 
     console.log(
       `[FB Live] Có ${candidatePages.length} pages để thử cho match ${matchId}`
@@ -2118,6 +2203,23 @@ export const createFacebookLiveForMatch = async (req, res) => {
 
     for (const candidatePage of candidatePages) {
       const currentPageId = candidatePage.pageId;
+      const bucketKey = getFacebookOwnerBucketKey(candidatePage);
+      if (skippedBuckets.has(bucketKey)) continue;
+
+      const bucketBusy = busyBuckets.get(bucketKey);
+      if (bucketBusy) {
+        skippedBuckets.add(bucketKey);
+        failedPages.push({
+          pageId: bucketBusy.pageId,
+          pageName: bucketBusy.pageName,
+          error:
+            bucketBusy.reason === "pool_busy"
+              ? "Page owner Ä‘ang báº­n trÃªn page khÃ¡c trong pool."
+              : `Page owner Ä‘ang cÃ³ live/prepared trÃªn Facebook (live=${bucketBusy.liveCount || 0}, prepared=${bucketBusy.preparedCount || 0}).`,
+        });
+        continue;
+      }
+
       let reserved = false;
       let ok = false;
       try {
@@ -2215,6 +2317,10 @@ export const createFacebookLiveForMatch = async (req, res) => {
           pageName: candidatePage.pageName,
           error: error.message,
         });
+
+        if (isBusyCreateError(error)) {
+          skippedBuckets.add(bucketKey);
+        }
 
         continue;
       } finally {

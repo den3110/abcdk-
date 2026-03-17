@@ -70,6 +70,7 @@ import liveRecordingRoutes from "./routes/liveRecordingRoutes.js";
 import facebookRoutes from "./routes/facebookRoutes.js";
 import userMatchRoutes from "./routes/userMatchRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
+import { startLiveSessionLeaseCron } from "./services/liveSessionLease.service.js";
 import { initNewsCron } from "./jobs/newsCron.js";
 import { initSeoNewsCron } from "./jobs/seoNewsCron.js";
 // Ã°Å¸â€Â¹ GraphQL layer
@@ -326,6 +327,7 @@ const startServer = async () => {
         startTournamentCrons();
         startFbRefreshCron();
         startFacebookBusyCron();
+        startLiveSessionLeaseCron();
         initEmail();
         initNewsCron();
         initSeoNewsCron();

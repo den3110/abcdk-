@@ -604,7 +604,7 @@ const ActionChips = React.memo(function ActionChips({
 });
 
 const ActionChipsLocalized = React.memo(function ActionChipsLocalized(props) {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const st = String(props.match?.status || "").toLowerCase();
   const canAssignCourt = !(st === "live" || st === "finished");
 
@@ -677,7 +677,7 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
   checked = false,
   onToggleSelect,
 }) {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
 
@@ -785,7 +785,7 @@ const MatchCard = React.memo(function MatchCard({
   checked = false,
   onToggleSelect,
 }) {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
   const code = matchCode(merged);
@@ -841,7 +841,12 @@ const MatchCard = React.memo(function MatchCard({
         }
         subheader={
           <Stack direction="row" spacing={0.5} flexWrap="wrap">
-            <Chip size="small" label={`Sân: ${courtLabel(merged)}`} />
+            <Chip
+              size="small"
+              label={t("tournaments.manage.courtChip", {
+                court: courtLabel(merged),
+              })}
+            />
             {Number.isFinite(merged?.order) && (
               <Chip
                 size="small"
@@ -857,7 +862,7 @@ const MatchCard = React.memo(function MatchCard({
         <Stack spacing={0.75}>
           <Box>
             <Typography variant="caption" color="text.secondary">
-              Cặp A
+              {t("tournaments.manage.pairA")}
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
               {pairLabel(merged?.pairA)}
@@ -865,7 +870,7 @@ const MatchCard = React.memo(function MatchCard({
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">
-              Cặp B
+              {t("tournaments.manage.pairB")}
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
               {pairLabel(merged?.pairB)}
@@ -873,7 +878,7 @@ const MatchCard = React.memo(function MatchCard({
           </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">
-              Tỉ số
+              {t("tournaments.manage.score")}
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
               {scoreSummary(merged)}
@@ -912,7 +917,7 @@ const MatchCard = React.memo(function MatchCard({
             )}
           </Box>
 
-          <ActionChips
+          <ActionChipsLocalized
             match={merged}
             onOpenVideo={onOpenVideo}
             onDeleteVideo={onDeleteVideo}
@@ -934,6 +939,7 @@ const BulkVideoDialog = React.memo(function BulkVideoDialog({
   onClose,
   onSubmit,
 }) {
+  const { t } = useLanguage();
   const [url, setUrl] = React.useState("");
   React.useEffect(() => {
     if (open) setUrl("");
@@ -952,7 +958,7 @@ const BulkVideoDialog = React.memo(function BulkVideoDialog({
         <Stack spacing={2}>
           <TextField
             autoFocus
-            label="Link video (Facebook, YouTube, v.v.)"
+            label={t("tournaments.manage.videoUrlLabel")}
             placeholder="https://..."
             value={url}
             onChange={(e) => setUrl(e.target.value)}
@@ -988,7 +994,7 @@ const BulkVideoDialogLocalized = React.memo(function BulkVideoDialogLocalized({
   onClose,
   onSubmit,
 }) {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const [url, setUrl] = React.useState("");
 
   React.useEffect(() => {
@@ -1039,7 +1045,7 @@ const BulkVideoDialogLocalized = React.memo(function BulkVideoDialogLocalized({
 
 /* ---------------- Component chính ---------------- */
 export default function TournamentManagePage() {
-  const { t } = useLanguage();
+  const { t, locale } = useLanguage();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
 
@@ -1100,19 +1106,24 @@ export default function TournamentManagePage() {
   const typesAvailable = useMemo(() => {
     const uniq = new Map();
     (brackets || []).forEach((b) => {
-      const t = (b?.type || "").toString().toLowerCase();
-      if (!t) return;
-      if (!uniq.has(t))
-        uniq.set(t, {
-          type: t,
-          label: TYPE_LABEL(t),
-          weight: typeOrderWeight(t),
+      const type = (b?.type || "").toString().toLowerCase();
+      if (!type) return;
+      if (!uniq.has(type))
+        uniq.set(type, {
+          type,
+          label: getTypeLabel(t, type),
+          weight: typeOrderWeight(type),
         });
     });
-    if (uniq.size === 0)
-      uniq.set("group", { type: "group", label: "Vòng bảng", weight: 1 });
+    if (uniq.size === 0) {
+      uniq.set("group", {
+        type: "group",
+        label: getTypeLabel(t, "group"),
+        weight: 1,
+      });
+    }
     return Array.from(uniq.values()).sort((a, b) => a.weight - b.weight);
-  }, [brackets, typeOrderWeight]);
+  }, [brackets, t, typeOrderWeight]);
 
   const [tab, setTab] = useState(typesAvailable[0]?.type || "group");
   useEffect(() => {
@@ -1163,7 +1174,7 @@ export default function TournamentManagePage() {
       else hasUnassigned = true;
     }
     const arr = Array.from(s).sort(naturalCompare);
-    return hasUnassigned ? ["Chưa gán sân", ...arr] : arr;
+    return hasUnassigned ? [t("tournaments.manage.unassignedCourt"), ...arr] : arr;
   }, [allMatchesBase, naturalCompare]);
 
   useEffect(() => {
@@ -1202,7 +1213,11 @@ export default function TournamentManagePage() {
           matchId: videoDlg.match._id,
           video: url || "",
         }).unwrap();
-        toast.success(url ? "Đã gán link video" : "Đã xoá link video");
+        toast.success(
+          url
+            ? t("tournaments.manage.videoAssigned")
+            : t("tournaments.manage.videoRemoved")
+        );
         closeVideoDlg();
       } catch (e) {
         toast.error(
@@ -1312,17 +1327,21 @@ export default function TournamentManagePage() {
   const submitBatchAssign = useCallback(async () => {
     const ids = Array.from(selectedMatchIds);
     const refs = pickedRefs.map(idOfRef).filter(Boolean);
-    if (!ids.length) return toast.info("Chưa chọn trận nào.");
-    if (!refs.length) return toast.info("Hãy chọn ít nhất 1 trọng tài.");
+    if (!ids.length) return toast.info(t("tournaments.manage.noMatchesSelected"));
+    if (!refs.length) {
+      return toast.info(t("tournaments.manage.selectRefereesHint"));
+    }
     try {
       await batchAssign({ ids, referees: refs }).unwrap();
-      toast.success(`Đã gán trọng tài cho ${ids.length} trận`);
+      toast.success(
+        t("tournaments.manage.bulkRefereeAssigned", { count: ids.length })
+      );
       setBulkDlgOpen(false);
       clearSelection();
       setPickedRefs([]);
       await refetchMatches?.();
     } catch (e) {
-      toast.error(e?.data?.message || "Gán trọng tài thất bại");
+      toast.error(e?.data?.message || t("tournaments.manage.assignRefereesFailed"));
     }
   }, [
     selectedMatchIds,
@@ -1337,16 +1356,18 @@ export default function TournamentManagePage() {
     async (urlParam) => {
       const ids = Array.from(selectedMatchIds);
       const url = (urlParam || "").trim();
-      if (!ids.length) return toast.info("Chưa chọn trận nào.");
-      if (!url) return toast.info("Hãy nhập link video hợp lệ.");
+      if (!ids.length) return toast.info(t("tournaments.manage.noMatchesSelected"));
+      if (!url) return toast.info(t("tournaments.manage.enterValidVideoUrl"));
       try {
         await batchSetLiveUrl({ ids, video: url }).unwrap();
-        toast.success(`Đã gán video cho ${ids.length} trận`);
+        toast.success(
+          t("tournaments.manage.bulkVideoAssigned", { count: ids.length })
+        );
         setBulkVideoDlg({ open: false, url: "" });
         clearSelection();
         await refetchMatches?.();
       } catch (e) {
-        toast.error(e?.data?.message || "Gán video thất bại");
+        toast.error(e?.data?.message || t("tournaments.manage.assignVideoFailed"));
       }
     },
     [selectedMatchIds, batchSetLiveUrl, refetchMatches, clearSelection]
@@ -1388,7 +1409,7 @@ export default function TournamentManagePage() {
         tryPrint();
       } catch (e) {
         console.error(e);
-        toast.error("Không mở được biên bản trọng tài");
+        toast.error(t("tournaments.manage.openRefereeReportFailed"));
       }
     },
     [tour, liveStore]
@@ -1559,7 +1580,7 @@ export default function TournamentManagePage() {
         const lbl = courtLabel(merged);
         const isUn = lbl === "—";
         const matchByCourt =
-          (isUn && courtFilter.includes("Chưa gán sân")) ||
+          (isUn && courtFilter.includes(t("tournaments.manage.unassignedCourt"))) ||
           (!!lbl && lbl !== "—" && courtFilter.includes(lbl));
         if (!matchByCourt) continue;
       }
@@ -1784,10 +1805,13 @@ export default function TournamentManagePage() {
       pdfMake.vfs = pdfFonts.pdfMake.vfs;
 
       const data = buildExportPayload();
-      const title = `Quản lý giải: ${tour?.name || ""}`;
-      const sub = `Loại: ${TYPE_LABEL(
-        tab
-      )} • Xuất lúc: ${new Date().toLocaleString()}`;
+      const title = t("tournaments.manage.exportTitle", {
+        name: tour?.name || t("tournaments.manage.fallbackName"),
+      });
+      const sub = t("tournaments.manage.exportSubtitle", {
+        type: getTypeLabel(t, tab),
+        time: formatDateTime(new Date(), locale),
+      });
 
       const content = [
         { text: title, style: "title" },
@@ -1796,15 +1820,23 @@ export default function TournamentManagePage() {
 
       data.forEach((sec, idx) => {
         content.push({
-          text: `${sec.bracket?.name || "Bracket"} — ${TYPE_LABEL(
-            sec.bracket?.type
-          )}`,
+          text: t("tournaments.manage.exportSectionTitle", {
+            name: sec.bracket?.name || "Bracket",
+            type: getTypeLabel(t, sec.bracket?.type),
+          }),
           style: "h2",
           margin: [0, idx === 0 ? 0 : 8, 0, 6],
         });
 
         const tableBody = [
-          ["Mã trận", "Cặp A", "Cặp B", "Sân", "Thứ tự", "Tỉ số"],
+          [
+            t("tournaments.manage.exportHeaders.matchCode"),
+            t("tournaments.manage.exportHeaders.pairA"),
+            t("tournaments.manage.exportHeaders.pairB"),
+            t("tournaments.manage.exportHeaders.court"),
+            t("tournaments.manage.exportHeaders.order"),
+            t("tournaments.manage.exportHeaders.score"),
+          ],
           ...sec.rows.map((r) =>
             r.map((cell) => (cell == null ? "" : String(cell)))
           ),
@@ -1831,7 +1863,7 @@ export default function TournamentManagePage() {
           h2: { fontSize: 12, bold: true },
         },
         footer: (currentPage, pageCount) => ({
-          text: `Trang ${currentPage}/${pageCount}`,
+          text: t("tournaments.manage.exportPage", { current: currentPage, total: pageCount }),
           alignment: "left",
           margin: [30, 0, 0, 20],
           fontSize: 9,
@@ -1849,7 +1881,7 @@ export default function TournamentManagePage() {
 
       pdfMake.createPdf({ ...docDefinition, content }).download(fname);
     } catch (e) {
-      toast.error("Xuất PDF thất bại");
+      toast.error(t("tournaments.manage.exportPdfFailed"));
       console.error(e);
     } finally {
       setExporting(false);
@@ -1878,14 +1910,18 @@ export default function TournamentManagePage() {
 
       sections.push(
         new Paragraph({
-          text: `Quản lý giải: ${tour?.name || ""}`,
+          text: t("tournaments.manage.exportTitle", {
+            name: tour?.name || t("tournaments.manage.fallbackName"),
+          }),
           heading: HeadingLevel.TITLE,
         }),
         new Paragraph({
           children: [
-            new TextRun({ text: `Loại: ${TYPE_LABEL(tab)}`, size: 18 }),
             new TextRun({
-              text: ` • Xuất lúc: ${new Date().toLocaleString()}`,
+              text: t("tournaments.manage.exportSubtitle", {
+                type: getTypeLabel(t, tab),
+                time: formatDateTime(new Date(), locale),
+              }),
               size: 18,
             }),
           ],
@@ -1896,20 +1932,23 @@ export default function TournamentManagePage() {
       data.forEach((sec) => {
         sections.push(
           new Paragraph({
-            text: `${sec.bracket?.name || "Bracket"} — ${TYPE_LABEL(
-              sec.bracket?.type
-            )}`,
+            text: t("tournaments.manage.exportSectionTitle", {
+            name: sec.bracket?.name || "Bracket",
+            type: getTypeLabel(t, sec.bracket?.type),
+          }),
             heading: HeadingLevel.HEADING_2,
           })
         );
         const head = [
-          "Mã trận",
-          "Cặp A",
-          "Cặp B",
-          "Sân",
-          "Thứ tự",
-          "Tỉ số",
-        ].map((t) => new TableCell({ children: [new Paragraph({ text: t })] }));
+          t("tournaments.manage.exportHeaders.matchCode"),
+          t("tournaments.manage.exportHeaders.pairA"),
+          t("tournaments.manage.exportHeaders.pairB"),
+          t("tournaments.manage.exportHeaders.court"),
+          t("tournaments.manage.exportHeaders.order"),
+          t("tournaments.manage.exportHeaders.score"),
+        ].map((label) => new TableCell({
+          children: [new Paragraph({ text: label })],
+        }));
         const rows = [
           new TableRow({ children: head }),
           ...sec.rows.map(
@@ -1953,7 +1992,7 @@ export default function TournamentManagePage() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (e) {
-      toast.error("Xuất Word thất bại");
+      toast.error(t("tournaments.manage.exportWordFailed"));
       console.error(e);
     } finally {
       setExporting(false);
@@ -2336,7 +2375,7 @@ export default function TournamentManagePage() {
                 variant="outlined"
                 label={t("tournaments.manage.bracketSummary", {
                   count: bracketsOfTab.length,
-                  type: TYPE_LABEL(tab),
+                  type: getTypeLabel(t, tab),
                 })}
               />
             </Stack>
@@ -2352,8 +2391,12 @@ export default function TournamentManagePage() {
             scrollButtons="auto"
             sx={{ px: 1 }}
           >
-            {typesAvailable.map((t) => (
-              <Tab key={t.type} label={TYPE_LABEL(t.type)} value={t.type} />
+            {typesAvailable.map((typeItem) => (
+              <Tab
+                key={typeItem.type}
+                label={getTypeLabel(t, typeItem.type)}
+                value={typeItem.type}
+              />
             ))}
           </Tabs>
         </Paper>
@@ -2482,7 +2525,7 @@ export default function TournamentManagePage() {
       {/* Bracket list */}
       {bracketsOfTab.length === 0 ? (
         <Alert severity="info">
-          {t("tournaments.manage.emptyType", { type: TYPE_LABEL(tab) })}
+          {t("tournaments.manage.emptyType", { type: getTypeLabel(t, tab) })}
         </Alert>
       ) : (
         bracketsOfTab.map((b) => {
@@ -2506,7 +2549,7 @@ export default function TournamentManagePage() {
                   <Chip
                     size="small"
                     variant="outlined"
-                    label={TYPE_LABEL(b?.type)}
+                    label={getTypeLabel(t, b?.type)}
                   />
                   {typeof b?.stage === "number" && (
                     <Chip
@@ -2561,12 +2604,22 @@ export default function TournamentManagePage() {
                             }
                           />
                         </TableCell>
-                        <TableCell sx={{ width: 100 }}>Mã trận</TableCell>
-                        <TableCell sx={{ width: 220 }}>Cặp A</TableCell>
-                        <TableCell sx={{ width: 220 }}>Cặp B</TableCell>
-                        <TableCell sx={{ width: 96 }}>Sân</TableCell>
+                        <TableCell sx={{ width: 100 }}>
+                          {t("tournaments.manage.exportHeaders.matchCode")}
+                        </TableCell>
+                        <TableCell sx={{ width: 220 }}>
+                          {t("tournaments.manage.exportHeaders.pairA")}
+                        </TableCell>
+                        <TableCell sx={{ width: 220 }}>
+                          {t("tournaments.manage.exportHeaders.pairB")}
+                        </TableCell>
+                        <TableCell sx={{ width: 96 }}>
+                          {t("tournaments.manage.exportHeaders.court")}
+                        </TableCell>
                         <TableCell sx={{ width: 68 }}>Thứ tự</TableCell>
-                        <TableCell sx={{ width: 110 }}>Tỉ số</TableCell>
+                        <TableCell sx={{ width: 110 }}>
+                          {t("tournaments.manage.exportHeaders.score")}
+                        </TableCell>
                         <TableCell sx={{ width: 110 }}>Trạng thái</TableCell>
                         <TableCell sx={{ width: 76 }} align="center">
                           Video
@@ -2768,7 +2821,7 @@ export default function TournamentManagePage() {
       />
 
       {/* ===== Dialog gán video (batch) ===== */}
-      <BulkVideoDialog
+      <BulkVideoDialogLocalized
         open={bulkVideoDlg.open}
         selectedCount={selectedMatchIds.size}
         busy={batchingVideo}

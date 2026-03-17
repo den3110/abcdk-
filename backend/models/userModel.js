@@ -178,6 +178,22 @@ const userSchema = new mongoose.Schema(
       default: "unverified",
     },
 
+    isTempAccount: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    tempAccountMeta: {
+      source: { type: String, default: "" },
+      createdForTournament: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Tournament",
+        default: null,
+      },
+      originalPhone: { type: String, default: "" },
+      originalEmail: { type: String, default: "" },
+    },
+
     /* ------- Quyền chính ------- */
     role: { type: String, enum: ["user", "referee", "admin"], default: "user" },
     // ✅ Super user – quyền cao nhất, thường dùng cho owner hệ thống

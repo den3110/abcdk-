@@ -5,6 +5,17 @@ import Registration from "../models/registrationModel.js";
 import Bracket from "../models/bracketModel.js";
 import { applyRatingForFinishedMatch } from "../utils/applyRatingForFinishedMatch.js";
 import UserMatch from "../models/userMatchModel.js";
+import {
+  endFacebookLiveVideo,
+  endLease,
+  ensureLiveShape,
+  getLiveTargetDoc,
+  heartbeatLease,
+  normalizeMatchKind,
+  pickFacebookMeta,
+  releaseFacebookPagePoolAfterEnd,
+  startOrRenewLease,
+} from "../services/liveSessionLease.service.js";
 // controllers/matchController.js
 const getMatchesByTournament = asyncHandler(async (req, res) => {
   const raw = await Match.find({ tournament: req.params.id })
@@ -2046,6 +2057,7 @@ const ALLOWED_PLATFORMS = new Set([
   "tiktok",
   "rtmp",
   "other",
+  "all",
 ]);
 
 const normPlatform = (p) => {
@@ -2059,27 +2071,6 @@ const parseTs = (ts) => {
   return Number.isFinite(d.getTime()) ? d : new Date();
 };
 
-const ensureLiveShape = (live = {}) => {
-  const out = {
-    status: "idle",
-    platforms: {},
-    sessions: [],
-    lastChangedAt: new Date(),
-  };
-  if (live && typeof live === "object") {
-    out.status = live.status || "idle";
-    out.platforms =
-      live.platforms && typeof live.platforms === "object"
-        ? { ...live.platforms }
-        : {};
-    out.sessions = Array.isArray(live.sessions) ? [...live.sessions] : [];
-    out.lastChangedAt = live.lastChangedAt
-      ? new Date(live.lastChangedAt)
-      : new Date();
-  }
-  return out;
-};
-
 const emitSocket = (req, matchId, payload) => {
   try {
     const io = req.app?.get?.("io");
@@ -2087,23 +2078,203 @@ const emitSocket = (req, matchId, payload) => {
   } catch {}
 };
 
+const resolveRequestMatchKind = (req) =>
+  normalizeMatchKind(
+    req.get("x-pkt-match-kind") || req.headers["x-pkt-match-kind"]
+  );
+
+async function getCurrentLiveState(matchId, matchKind) {
+  const doc = await getLiveTargetDoc(matchId, matchKind);
+  return doc ? ensureLiveShape(doc.live) : ensureLiveShape();
+}
+
+async function cleanupFacebookLiveAfterEnd({ matchId, matchKind }) {
+  const TargetModel =
+    normalizeMatchKind(matchKind) === "userMatch" ? UserMatch : Match;
+  await TargetModel.updateOne(
+    { _id: matchId },
+    {
+      $set: { "facebookLive.status": "ENDED" },
+      $unset: {
+        "facebookLive.secure_stream_url": 1,
+        "facebookLive.server_url": 1,
+        "facebookLive.stream_key": 1,
+      },
+    }
+  ).catch(() => {});
+}
+
+export const notifyStreamStarted = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    res.status(400);
+    throw new Error("matchId khong hop le");
+  }
+
+  const platform = normPlatform(req.body?.platform);
+  const matchKind = resolveRequestMatchKind(req);
+  const result = await startOrRenewLease({
+    matchId: id,
+    matchKind,
+    platform,
+    timestamp: req.body?.timestamp,
+    clientSessionId: req.body?.clientSessionId,
+  });
+
+  if (result?.notFound) {
+    res.status(404);
+    throw new Error(
+      matchKind === "userMatch"
+        ? "UserMatch khong ton tai"
+        : "Match khong ton tai"
+    );
+  }
+
+  const live = result.live || (await getCurrentLiveState(id, matchKind));
+  const status = live?.status || "live";
+
+  emitSocket(req, id, {
+    matchId: id,
+    platform,
+    status,
+    live,
+    lease: result.leaseInfo,
+  });
+
+  return res.json({
+    ok: true,
+    matchId: id,
+    platform,
+    status,
+    live,
+    ...result.leaseInfo,
+  });
+});
+
+export const notifyStreamHeartbeat = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    res.status(400);
+    throw new Error("matchId khong hop le");
+  }
+
+  const platform = normPlatform(req.body?.platform);
+  const matchKind = resolveRequestMatchKind(req);
+  const result = await heartbeatLease({
+    matchId: id,
+    matchKind,
+    platform,
+    timestamp: req.body?.timestamp,
+    clientSessionId: req.body?.clientSessionId,
+  });
+
+  return res.json({
+    ok: result.ok !== false,
+    matchId: id,
+    platform,
+    leaseStatus: result.leaseStatus || "active",
+    leaseId: result.leaseId || null,
+    clientSessionId: result.clientSessionId || null,
+    expiresAt: result.expiresAt || null,
+    heartbeatIntervalMs: result.heartbeatIntervalMs || null,
+    leaseTimeoutMs: result.leaseTimeoutMs || null,
+  });
+});
+
+export const notifyStreamEnded = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    res.status(400);
+    throw new Error("matchId khong hop le");
+  }
+
+  const platform = normPlatform(req.body?.platform);
+  const leasePlatform = platform === "all" ? "facebook" : platform;
+  const matchKind = resolveRequestMatchKind(req);
+  const result = await endLease({
+    matchId: id,
+    matchKind,
+    platform: leasePlatform,
+    timestamp: req.body?.timestamp,
+    clientSessionId: req.body?.clientSessionId,
+  });
+
+  if ((platform === "facebook" || platform === "all") && result.shouldTerminatePlatform) {
+    const targetDoc = await getLiveTargetDoc(id, matchKind);
+    const { pageId, liveVideoId, pageAccessToken } = pickFacebookMeta(targetDoc);
+
+    try {
+      const fbRes = await endFacebookLiveVideo({
+        liveVideoId,
+        pageAccessToken,
+      });
+
+      if (fbRes?.error || fbRes?.skipped) {
+        console.warn("[FB] end_live failed/skipped:", {
+          matchId: id,
+          matchKind,
+          pageId,
+          liveVideoId,
+          status: fbRes?.status,
+          data: fbRes?.data,
+          skippedReason: fbRes?.reason,
+        });
+      }
+
+      await releaseFacebookPagePoolAfterEnd({
+        pageId,
+        liveVideoId,
+        endResult: fbRes,
+      });
+    } catch (e) {
+      console.warn("[FB] end_live exception:", e?.message || e);
+      await releaseFacebookPagePoolAfterEnd({
+        pageId,
+        liveVideoId,
+        endResult: { error: true, data: { message: e?.message || String(e) } },
+      });
+    }
+
+    await cleanupFacebookLiveAfterEnd({ matchId: id, matchKind });
+  }
+
+  const live = result.live || (await getCurrentLiveState(id, matchKind));
+  const status = live?.status || (result.shouldTerminatePlatform ? "idle" : "live");
+
+  emitSocket(req, id, {
+    matchId: id,
+    platform: leasePlatform,
+    status,
+    live,
+    leaseStatus: result.leaseStatus || "ended",
+    clientSessionId: result.clientSessionId || null,
+  });
+
+  return res.json({
+    ok: true,
+    matchId: id,
+    platform: leasePlatform,
+    status,
+    live,
+    leaseStatus: result.leaseStatus || "ended",
+    clientSessionId: result.clientSessionId || null,
+    shouldTerminatePlatform: result.shouldTerminatePlatform,
+  });
+});
+
 /**
  * POST /api/matches/:id/live/start
  * body: { platform, timestamp? }
  */
-export const notifyStreamStarted = asyncHandler(async (req, res) => {
+const legacyNotifyStreamStarted = asyncHandler(async (req, res) => {
   const { id } = req.params;
-  console.log(req.body)
   if (!mongoose.isValidObjectId(id)) {
     res.status(400);
     throw new Error("matchId không hợp lệ");
   }
 
   const platform = normPlatform(req.body?.platform);
-  const startedAt = parseTs(req.body?.timestamp);
-
-  const matchKindHeader =
-    req.get("x-pkt-match-kind") || req.headers["x-pkt-match-kind"];
+  const matchKind = resolveRequestMatchKind(req);
 
   // ====================== USER MATCH BRANCH ======================
   if (matchKindHeader) {
@@ -2240,7 +2411,7 @@ export const notifyStreamStarted = asyncHandler(async (req, res) => {
  * body: { platform, timestamp? }
  */
 
-function pickFacebookMeta(doc) {
+function legacyPickFacebookMeta(doc) {
   const liveVideoId =
     doc?.facebookLive?.videoId ||
     doc?.facebookLive?.liveVideoId ||
@@ -2271,34 +2442,20 @@ function pickFacebookMeta(doc) {
   };
 }
 
-async function endFacebookLiveVideo({
+async function legacyEndFacebookLiveVideo({
   liveVideoId,
   pageAccessToken,
-  graphVersion = process.env.FB_GRAPH_VERSION || "v21.0",
 }) {
   if (!liveVideoId || !pageAccessToken) {
     return { skipped: true, reason: "missing_liveVideoId_or_pageAccessToken" };
   }
 
-  const url = `https://graph.facebook.com/${graphVersion}/${encodeURIComponent(
-    String(liveVideoId)
-  )}`;
-
   try {
-    const resp = await axios.post(
-      url,
-      null,
-      {
-        params: { end_live_video: true },
-        headers: {
-          Authorization: `Bearer ${pageAccessToken}`,
-          Accept: "application/json",
-        },
-        timeout: 12_000,
-      }
-    );
-
-    return { status: resp.status, data: resp.data };
+    const data = await fbEndLiveVideo({
+      liveVideoId,
+      pageAccessToken,
+    });
+    return { status: 200, data };
   } catch (err) {
     return {
       error: true,
@@ -2308,7 +2465,50 @@ async function endFacebookLiveVideo({
   }
 }
 
-export const notifyStreamEnded = asyncHandler(async (req, res) => {
+async function legacyReleaseFacebookPagePoolAfterEnd({
+  pageId,
+  liveVideoId,
+  endResult,
+}) {
+  const delays = await getFacebookPagePoolDelays();
+  const success = !!endResult && !endResult.error && !endResult.skipped;
+  const delayMs = success ? delays.fastFreeDelayMs : delays.safeFreeDelayMs;
+  const reasonSuffix = success
+    ? "fb_end_ok"
+    : endResult?.skipped
+    ? `fb_end_skipped:${endResult.reason || "unknown"}`
+    : "fb_end_error";
+
+  const jobs = [];
+  if (liveVideoId) {
+    jobs.push(
+      markFacebookPageFreeByLive(liveVideoId, {
+        delayMs,
+        force: true,
+        reason: `free_by_live:${liveVideoId}:${reasonSuffix}`,
+      })
+    );
+  }
+  if (pageId) {
+    jobs.push(
+      markFacebookPageFreeByPage(pageId, {
+        delayMs,
+        force: true,
+        reason: `free_by_page:${reasonSuffix}`,
+      })
+    );
+  }
+  if (!jobs.length) return;
+
+  const settled = await Promise.allSettled(jobs);
+  for (const item of settled) {
+    if (item.status === "rejected") {
+      console.warn("[FB] schedule pool release failed:", item.reason?.message || item.reason);
+    }
+  }
+}
+
+const legacyNotifyStreamEnded = asyncHandler(async (req, res) => {
   console.log(1234567890);
 
   const { id } = req.params;
@@ -2396,8 +2596,19 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
             skippedReason: fbRes?.reason,
           });
         }
+
+        await releaseFacebookPagePoolAfterEnd({
+          pageId,
+          liveVideoId,
+          endResult: fbRes,
+        });
       } catch (e) {
         console.warn("[FB][UserMatch] end_live exception:", e?.message || e);
+        await releaseFacebookPagePoolAfterEnd({
+          pageId,
+          liveVideoId,
+          endResult: { error: true, data: { message: e?.message || String(e) } },
+        });
       }
 
       await UserMatch.updateOne(
@@ -2497,8 +2708,19 @@ export const notifyStreamEnded = asyncHandler(async (req, res) => {
           skippedReason: fbRes?.reason,
         });
       }
+
+      await releaseFacebookPagePoolAfterEnd({
+        pageId,
+        liveVideoId,
+        endResult: fbRes,
+      });
     } catch (e) {
       console.warn("[FB][Match] end_live exception:", e?.message || e);
+      await releaseFacebookPagePoolAfterEnd({
+        pageId,
+        liveVideoId,
+        endResult: { error: true, data: { message: e?.message || String(e) } },
+      });
     }
 
     await Match.updateOne(

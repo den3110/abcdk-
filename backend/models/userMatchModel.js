@@ -432,6 +432,15 @@ const userMatchSchema = new Schema(
     stageIndex: { type: Number, default: 1 },
     labelKey: { type: String, default: "" },
     meta: { type: Schema.Types.Mixed, default: {} },
+    live: {
+      type: Schema.Types.Mixed,
+      default: () => ({
+        status: "idle",
+        platforms: {},
+        sessions: [],
+        lastChangedAt: null,
+      }),
+    },
 
     /* ========= FACEBOOK LIVE ========= */
     facebookLive: {

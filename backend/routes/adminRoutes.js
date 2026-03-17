@@ -74,6 +74,11 @@ import {
   previewAutoUsers,
 } from "../controllers/admin/adminUserController.js";
 import {
+  commitRegistrationImport,
+  previewRegistrationImport,
+  previewRegistrationImportStream,
+} from "../controllers/admin/adminAiImportController.js";
+import {
   getDashboardMetrics,
   getDashboardSeries,
 } from "../controllers/admin/adminDashboardController.js";
@@ -514,6 +519,27 @@ router.post(
   protect,
   authorize("admin"),
   autoGenerateRegistrations
+);
+
+router.post(
+  "/tournaments/:tourId/registrations/ai-import/preview",
+  protect,
+  authorize("admin"),
+  previewRegistrationImport
+);
+
+router.post(
+  "/tournaments/:tourId/registrations/ai-import/preview-stream",
+  protect,
+  authorize("admin"),
+  previewRegistrationImportStream
+);
+
+router.post(
+  "/tournaments/:tourId/registrations/ai-import/commit",
+  protect,
+  authorize("admin"),
+  commitRegistrationImport
 );
 
 router.patch(

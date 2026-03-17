@@ -2,8 +2,10 @@
 import express from "express";
 import {
   listFbTokens,
+  getFbPageMonitor,
   checkOneFbToken,
   checkAllFbTokens,
+  probeFbLiveState,
   markNeedsReauth,
   clearBusyFlag,
   disableFbToken,
@@ -15,9 +17,11 @@ const router = express.Router();
 
 // List + filter
 router.get("/", protect, authorize("admin"), listFbTokens);
+router.get("/monitor", protect, authorize("admin"), getFbPageMonitor);
 
 // Check 1 page (by Mongo _id or pageId)
 router.post("/:id/check", protect, authorize("admin"), checkOneFbToken);
+router.post("/:id/probe-live", protect, authorize("admin"), probeFbLiveState);
 
 // Check all pages (chunked to avoid rate limit)
 router.post("/~batch/check-all", protect, authorize("admin"), checkAllFbTokens);

@@ -35,10 +35,102 @@ import {
 import { ensureAdmin, ensureReferee } from "../utils/socketAuth.js";
 import UserMatch from "../models/userMatchModel.js";
 import { computeStageInfoForMatchDoc } from "../controllers/refereeController.js";
+import { buildFbPageMonitorSnapshot } from "../services/fbPageMonitor.service.js";
+import {
+  registerFbPageMonitorPublisher,
+  setFbPageMonitorMeta,
+} from "../services/fbPageMonitorEvents.service.js";
 
 /* 👇 THÊM BIẾN TOÀN CỤC LƯU IO */
 let ioInstance = null;
 let sweeperStarted = false;
+let fbPageMonitorTickerStarted = false;
+let fbPageMonitorPublishTimer = null;
+let fbPageMonitorPendingReasons = new Set();
+let fbPageMonitorPendingPageIds = new Set();
+let fbPageMonitorPendingHasEvent = false;
+
+const FB_PAGE_MONITOR_ROOM = "fb-pages:watchers";
+const FB_PAGE_MONITOR_TICK_MS = 15000;
+const FB_PAGE_MONITOR_DEBOUNCE_MS = 300;
+
+async function emitFbPageMonitorSnapshot(io, options = {}) {
+  const { socketId = null } =
+    typeof options === "string" ? { socketId: options } : options;
+  try {
+    const snapshot = await buildFbPageMonitorSnapshot();
+    if (socketId) {
+      io.to(socketId).emit("fb-pages:update", snapshot);
+      return;
+    }
+    io.to(FB_PAGE_MONITOR_ROOM).emit("fb-pages:update", snapshot);
+  } catch (error) {
+    console.error(
+      "[socket] fb-pages:update error:",
+      error?.message || error
+    );
+  }
+}
+
+function resetFbPageMonitorPendingState() {
+  fbPageMonitorPendingReasons = new Set();
+  fbPageMonitorPendingPageIds = new Set();
+  fbPageMonitorPendingHasEvent = false;
+}
+
+async function flushFbPageMonitorPublish(io) {
+  const reasons = Array.from(fbPageMonitorPendingReasons);
+  const pageIds = Array.from(fbPageMonitorPendingPageIds);
+  const mode = fbPageMonitorPendingHasEvent ? "event" : "reconcile";
+  resetFbPageMonitorPendingState();
+  fbPageMonitorPublishTimer = null;
+
+  setFbPageMonitorMeta({
+    reason: reasons.length ? reasons.join(", ") : "unknown_event",
+    pageIds,
+    mode,
+    at: new Date(),
+  });
+
+  const watchers = io.sockets.adapter.rooms.get(FB_PAGE_MONITOR_ROOM)?.size || 0;
+  if (!watchers) return;
+  await emitFbPageMonitorSnapshot(io);
+}
+
+function scheduleFbPageMonitorPublish(io, payload = {}) {
+  const reason =
+    String(payload.reason || "unknown_event").trim() || "unknown_event";
+  const pageIds = Array.isArray(payload.pageIds) ? payload.pageIds : [];
+  const mode = payload.mode === "reconcile" ? "reconcile" : "event";
+
+  fbPageMonitorPendingReasons.add(reason);
+  for (const pageId of pageIds) {
+    if (pageId) fbPageMonitorPendingPageIds.add(String(pageId));
+  }
+  if (mode === "event") fbPageMonitorPendingHasEvent = true;
+
+  const flushNow = async () => {
+    try {
+      await flushFbPageMonitorPublish(io);
+    } catch (error) {
+      console.error("[socket] fb-pages flush error:", error);
+    }
+  };
+
+  if (mode === "reconcile") {
+    if (fbPageMonitorPublishTimer) {
+      clearTimeout(fbPageMonitorPublishTimer);
+      fbPageMonitorPublishTimer = null;
+    }
+    void flushNow();
+    return;
+  }
+
+  if (fbPageMonitorPublishTimer) return;
+  fbPageMonitorPublishTimer = setTimeout(() => {
+    void flushNow();
+  }, FB_PAGE_MONITOR_DEBOUNCE_MS);
+}
 
 function guessClientType(socket) {
   try {
@@ -399,6 +491,9 @@ export function initSocket(
   });
 
   ioInstance = io; // 👈 LƯU LẠI ĐỂ FILE KHÁC LẤY
+  registerFbPageMonitorPublisher((payload) => {
+    scheduleFbPageMonitorPublish(io, payload);
+  });
 
   // Optional Redis adapter (clustered scale-out)
   (async () => {
@@ -526,6 +621,24 @@ export function initSocket(
         await emitSummary(io, socket.id); // gửi riêng cho socket này
       } catch (e) {
         console.error("[socket] presence:watch error:", e);
+      }
+    });
+
+    socket.on("fb-pages:watch", async () => {
+      try {
+        if (!ensureAdmin(socket)) return;
+        socket.join(FB_PAGE_MONITOR_ROOM);
+        await emitFbPageMonitorSnapshot(io, socket.id);
+      } catch (e) {
+        console.error("[socket] fb-pages:watch error:", e);
+      }
+    });
+
+    socket.on("fb-pages:unwatch", () => {
+      try {
+        socket.leave(FB_PAGE_MONITOR_ROOM);
+      } catch (e) {
+        console.error("[socket] fb-pages:unwatch error:", e);
       }
     });
 
@@ -2402,6 +2515,20 @@ export function initSocket(
       console.error("[socket] sweepStaleSockets timer error:", e);
     }
   }, SWEEP_EVERY_MS);
+
+  if (!fbPageMonitorTickerStarted) {
+    fbPageMonitorTickerStarted = true;
+    setInterval(async () => {
+      try {
+        scheduleFbPageMonitorPublish(io, {
+          reason: "fallback_reconcile",
+          mode: "reconcile",
+        });
+      } catch (e) {
+        console.error("[socket] fb-pages ticker error:", e);
+      }
+    }, FB_PAGE_MONITOR_TICK_MS);
+  }
 
   return ioInstance;
 }
