@@ -1,6 +1,8 @@
 import asyncHandler from "express-async-handler";
 import {
   commitAiRegistrationImport,
+  getAiImportUserBatch,
+  listAiImportUserBatches,
   previewAiRegistrationImport,
 } from "../../services/aiRegistrationImport.service.js";
 
@@ -22,6 +24,11 @@ export const previewRegistrationImport = asyncHandler(async (req, res) => {
     sheetUrl,
     rawText,
     adminPrompt,
+    actorMeta: {
+      actorId: req.user?._id || null,
+      ip: req.ip || "",
+      userAgent: req.headers["user-agent"] || "",
+    },
   });
 
   res.json(result);
@@ -85,6 +92,11 @@ export const previewRegistrationImportStream = async (req, res) => {
       sheetUrl,
       rawText,
       adminPrompt,
+      actorMeta: {
+        actorId: req.user?._id || null,
+        ip: req.ip || "",
+        userAgent: req.headers["user-agent"] || "",
+      },
       onProgress: (payload) => {
         if (closed) return;
         writeSse(res, "progress", payload);
@@ -111,13 +123,42 @@ export const previewRegistrationImportStream = async (req, res) => {
 
 export const commitRegistrationImport = asyncHandler(async (req, res) => {
   const { tourId } = req.params;
-  const { rows = [] } = req.body || {};
+  const { rows = [], paidRowIds } = req.body || {};
 
   const result = await commitAiRegistrationImport({
     tournamentId: tourId,
     rows,
+    paidRowIds,
     actorId: req.user?._id,
+    actorMeta: {
+      actorId: req.user?._id || null,
+      ip: req.ip || "",
+      userAgent: req.headers["user-agent"] || "",
+    },
   });
 
   res.status(201).json(result);
+});
+
+export const listImportUserBatches = asyncHandler(async (req, res) => {
+  const { tourId } = req.params;
+  const { limit = 20 } = req.query || {};
+
+  const result = await listAiImportUserBatches({
+    tournamentId: tourId,
+    limit,
+  });
+
+  res.json(result);
+});
+
+export const getImportUserBatch = asyncHandler(async (req, res) => {
+  const { tourId, batchId } = req.params;
+
+  const result = await getAiImportUserBatch({
+    tournamentId: tourId,
+    batchId,
+  });
+
+  res.json(result);
 });

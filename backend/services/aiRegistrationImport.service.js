@@ -10,6 +10,8 @@ import { openai, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
 import Registration from "../models/registrationModel.js";
 import Tournament from "../models/tournamentModel.js";
 import User from "../models/userModel.js";
+import AiImportUserBatch from "../models/aiImportUserBatchModel.js";
+import { writeAuditLog } from "./audit.service.js";
 
 // Model riêng cho AI Import Đăng Ký:
 // dùng để phân tích bố cục file, gom dòng thành hồ sơ, và tách VĐV/cặp/đội.
@@ -3555,6 +3557,98 @@ function mapPaymentStatusLabel(value) {
   return "Chưa rõ";
 }
 
+async function writeAiImportAudit({
+  tournament,
+  actorMeta,
+  note,
+  changes,
+}) {
+  if (!tournament?._id) return;
+
+  try {
+    await writeAuditLog({
+      entityType: "Tournament",
+      entityId: tournament._id,
+      action: "OTHER",
+      actorId: actorMeta?.actorId || null,
+      actorKind: "user",
+      ip: actorMeta?.ip || "",
+      userAgent: actorMeta?.userAgent || "",
+      before: {},
+      after: {},
+      note,
+      extraChanges: changes,
+    });
+  } catch (error) {
+    console.warn("[AI Import] audit log failed:", error.message);
+  }
+}
+
+async function createAiImportUserBatch({
+  tournament,
+  actorMeta,
+  selectedRows,
+  paidRowIds,
+  createdRegistrations,
+  createdUsers,
+  results,
+}) {
+  return AiImportUserBatch.create({
+    tournament: tournament._id,
+    actor: {
+      id: actorMeta?.actorId || null,
+      ip: actorMeta?.ip || "",
+      userAgent: actorMeta?.userAgent || "",
+    },
+    source: {
+      selectedRowIds: (selectedRows || []).map((row) => String(row?.rowId || "")),
+      selectedRowNumbers: (selectedRows || []).map((row) => Number(row?.sourceRowNumber || 0)),
+      paidRowIds: Array.isArray(paidRowIds) ? paidRowIds.map((value) => String(value || "")) : [],
+    },
+    createdRegistrations,
+    createdUsers: createdUsers.length,
+    credentials: createdUsers.map((user) => ({
+      ...user,
+      userId: user.userId || null,
+    })),
+    results: (results || []).map((item) => ({
+      rowId: item.rowId || "",
+      rowNumber: item.rowNumber || 0,
+      status: item.status || "",
+      registrationId: item.registrationId || "",
+      error: item.error || "",
+    })),
+  });
+}
+
+export async function getAiImportUserBatch({ tournamentId, batchId }) {
+  const item = await AiImportUserBatch.findOne({
+    _id: batchId,
+    tournament: tournamentId,
+  }).lean();
+
+  if (!item) {
+    throw new Error("Không tìm thấy lượt lưu user từ AI import");
+  }
+
+  return {
+    ok: true,
+    batch: item,
+  };
+}
+
+export async function listAiImportUserBatches({ tournamentId, limit = 20 }) {
+  const items = await AiImportUserBatch.find({ tournament: tournamentId })
+    .sort({ createdAt: -1 })
+    .limit(Math.max(1, Math.min(Number(limit) || 20, 100)))
+    .lean();
+
+  return {
+    ok: true,
+    items,
+  };
+}
+
 async function resolvePreviewPlayer({
   slot,
   rowNumber,
@@ -3899,6 +3993,7 @@ export async function previewAiRegistrationImport({
   rawText,
   adminPrompt = "",
   onProgress,
+  actorMeta,
 }) {
   const normalizedAdminPrompt = normalizeAdminPrompt(adminPrompt);
   reportPreviewProgress(onProgress, {
@@ -3986,7 +4081,7 @@ export async function previewAiRegistrationImport({
       responseMode: aiDiagnostics.responseMode || "json",
     });
 
-    return {
+    const result = {
       ok: true,
       tournament: {
         _id: String(tournament._id),
@@ -4008,6 +4103,21 @@ export async function previewAiRegistrationImport({
       exports: catgptResult.exports || [],
       rows: previewRows,
     };
+    await writeAiImportAudit({
+      tournament,
+      actorMeta,
+      note: "AI_IMPORT_PREVIEW",
+      changes: [
+        { field: "aiImport.mode", from: null, to: "preview" },
+        { field: "aiImport.provider", from: null, to: "catgpt" },
+        { field: "aiImport.sourceType", from: null, to: source.sourceType || "" },
+        { field: "aiImport.readyRows", from: null, to: result.summary.readyRows || 0 },
+        { field: "aiImport.reviewRows", from: null, to: result.summary.reviewRows || 0 },
+        { field: "aiImport.skippedRows", from: null, to: result.summary.skippedRows || 0 },
+        { field: "aiImport.sourceRows", from: null, to: result.summary.sourceRows || 0 },
+      ],
+    });
+    return result;
   }
 
   const tableContext = buildTableContext(parsed.headers, sourceRows);
@@ -4073,7 +4183,7 @@ export async function previewAiRegistrationImport({
     reviewRows: previewRows.filter((row) => row.status === "needs_review").length,
   });
 
-  return {
+  const result = {
     ok: true,
     tournament: {
       _id: String(tournament._id),
@@ -4093,6 +4203,21 @@ export async function previewAiRegistrationImport({
     exports: [],
     rows: previewRows,
   };
+  await writeAiImportAudit({
+    tournament,
+    actorMeta,
+    note: "AI_IMPORT_PREVIEW",
+    changes: [
+      { field: "aiImport.mode", from: null, to: "preview" },
+      { field: "aiImport.provider", from: null, to: "legacy" },
+      { field: "aiImport.sourceType", from: null, to: source.sourceType || "" },
+      { field: "aiImport.readyRows", from: null, to: result.summary.readyRows || 0 },
+      { field: "aiImport.reviewRows", from: null, to: result.summary.reviewRows || 0 },
+      { field: "aiImport.skippedRows", from: null, to: result.summary.skippedRows || 0 },
+      { field: "aiImport.sourceRows", from: null, to: result.summary.sourceRows || 0 },
+    ],
+  });
+  return result;
 }
 
 function generatePassword(length = 12) {
@@ -4286,7 +4411,9 @@ function validateCommitRow(
 export async function commitAiRegistrationImport({
   tournamentId,
   rows,
+  paidRowIds,
   actorId,
+  actorMeta,
 }) {
   const tournament = await Tournament.findById(tournamentId).select(
     "_id name eventType maxPairs singleCap scoreCap scoreGap allowExceedMaxRating"
@@ -4296,6 +4423,10 @@ export async function commitAiRegistrationImport({
   }
 
   const selectedRows = Array.isArray(rows) ? rows : [];
+  const hasPaidOverrides = Array.isArray(paidRowIds);
+  const paidRowIdSet = new Set(
+    hasPaidOverrides ? paidRowIds.map((value) => String(value || "")) : []
+  );
   if (!selectedRows.length) {
     throw new Error("Không có dòng nào được chọn để commit");
   }
@@ -4360,8 +4491,20 @@ export async function commitAiRegistrationImport({
                 ? null
                 : buildRegistrationPlayer(secondary.user, secondary.score),
             payment: {
-              status: row.paymentStatusKey === "paid" ? "Paid" : "Unpaid",
-              paidAt: row.paymentStatusKey === "paid" ? new Date() : undefined,
+              status:
+                hasPaidOverrides && paidRowIdSet.has(String(row.rowId || ""))
+                  ? "Paid"
+                  : hasPaidOverrides
+                  ? "Unpaid"
+                  : row.paymentStatusKey === "paid"
+                  ? "Paid"
+                  : "Unpaid",
+              paidAt:
+                hasPaidOverrides && paidRowIdSet.has(String(row.rowId || ""))
+                  ? new Date()
+                  : !hasPaidOverrides && row.paymentStatusKey === "paid"
+                  ? new Date()
+                  : undefined,
             },
             createdBy: actorId || undefined,
           },
@@ -4406,11 +4549,44 @@ export async function commitAiRegistrationImport({
     }
   }
 
-  return {
+  const result = {
     ok: true,
     createdRegistrations,
     createdUsers: createdUsers.length,
     credentials: createdUsers,
     results,
   };
+  const userBatch = await createAiImportUserBatch({
+    tournament,
+    actorMeta: { ...(actorMeta || {}), actorId },
+    selectedRows,
+    paidRowIds: [...paidRowIdSet],
+    createdRegistrations,
+    createdUsers,
+    results,
+  });
+  result.userBatchId = String(userBatch._id);
+  await writeAiImportAudit({
+    tournament,
+    actorMeta: { ...(actorMeta || {}), actorId },
+    note: "AI_IMPORT_COMMIT",
+    changes: [
+      { field: "aiImport.mode", from: null, to: "commit" },
+      { field: "aiImport.selectedRowIds", from: null, to: selectedRows.map((row) => row.rowId) },
+      {
+        field: "aiImport.selectedRowNumbers",
+        from: null,
+        to: selectedRows.map((row) => row.sourceRowNumber),
+      },
+      { field: "aiImport.paidRowIds", from: null, to: [...paidRowIdSet] },
+      { field: "aiImport.createdRegistrations", from: null, to: createdRegistrations },
+      { field: "aiImport.createdUsers", from: null, to: createdUsers.length },
+      {
+        field: "aiImport.failedRows",
+        from: null,
+        to: results.filter((item) => item.status === "failed").map((item) => item.rowId),
+      },
+    ],
+  });
+  return result;
 }

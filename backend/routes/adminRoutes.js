@@ -75,6 +75,8 @@ import {
 } from "../controllers/admin/adminUserController.js";
 import {
   commitRegistrationImport,
+  getImportUserBatch,
+  listImportUserBatches,
   previewRegistrationImport,
   previewRegistrationImportStream,
 } from "../controllers/admin/adminAiImportController.js";
@@ -540,6 +542,20 @@ router.post(
   protect,
   authorize("admin"),
   commitRegistrationImport
+);
+
+router.get(
+  "/tournaments/:tourId/registrations/ai-import/user-batches",
+  protect,
+  authorize("admin"),
+  listImportUserBatches
+);
+
+router.get(
+  "/tournaments/:tourId/registrations/ai-import/user-batches/:batchId",
+  protect,
+  authorize("admin"),
+  getImportUserBatch
 );
 
 router.patch(
