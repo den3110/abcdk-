@@ -4,7 +4,7 @@ import PropTypes from "prop-types";
 import { useLanguage } from "../context/LanguageContext.jsx";
 
 const SITE_NAME = "Pickletour.vn";
-const DEFAULT_IMAGE = "https://pickletour.vn/icon.png";
+const DEFAULT_IMAGE = "https://pickletour.vn/icon-512.png";
 const BASE_URL = "https://pickletour.vn";
 
 export default function SEOHead({

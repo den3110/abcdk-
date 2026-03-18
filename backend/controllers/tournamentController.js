@@ -9,9 +9,10 @@ import Court from "../models/courtModel.js";
 import { sleep } from "../utils/sleep.js";
 import { es, ES_TOURNAMENT_INDEX } from "../services/esClient.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
+import { ensureTournamentCardImageUrl } from "../utils/tournamentImageVariant.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
-const normalizeTournamentPublicUrls = (req, tournament) => {
+const normalizeTournamentPublicUrls = async (req, tournament) => {
   if (!tournament || typeof tournament !== "object") return tournament;
 
   const overlay =
@@ -26,7 +27,7 @@ const normalizeTournamentPublicUrls = (req, tournament) => {
 
   return {
     ...tournament,
-    image: toPublicUrl(req, tournament.image),
+    image: await ensureTournamentCardImageUrl(req, tournament.image),
     overlay,
   };
 };
@@ -303,8 +304,10 @@ const getTournaments = asyncHandler(async (req, res) => {
     }
   );
 
-  const tournaments = (await Tournament.aggregate(pipeline)).map((t) =>
-    normalizeTournamentPublicUrls(req, t)
+  const tournaments = await Promise.all(
+    (await Tournament.aggregate(pipeline)).map((t) =>
+      normalizeTournamentPublicUrls(req, t)
+    )
   );
   res.status(200).json(tournaments);
 });
@@ -377,8 +380,10 @@ const getTournamentById = asyncHandler(async (req, res) => {
   })();
 
   // Trả về
+  const normalizedTour = await normalizeTournamentPublicUrls(req, tour);
+
   res.json({
-    ...normalizeTournamentPublicUrls(req, tour),
+    ...normalizedTour,
     status, // trạng thái tính theo thời điểm hiện tại
     managers,
     amOwner,
@@ -1077,12 +1082,14 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       sort: [{ startAt: "asc" }],
     });
 
-    const items = result.hits.hits.map((hit) =>
-      normalizeTournamentPublicUrls(req, {
-        id: hit._id,
-        score: hit._score,
-        ...hit._source,
-      })
+    const items = await Promise.all(
+      result.hits.hits.map((hit) =>
+        normalizeTournamentPublicUrls(req, {
+          id: hit._id,
+          score: hit._score,
+          ...hit._source,
+        })
+      )
     );
 
     res.json({ items });

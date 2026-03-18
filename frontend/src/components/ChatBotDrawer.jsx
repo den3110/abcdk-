@@ -46,7 +46,7 @@ import { useSelector } from "react-redux";
 import { useNavigate as useRouterNavigate } from "react-router-dom";
 import { useLanguage } from "../context/LanguageContext.jsx";
 
-const BOT_ICON = "/icon-chatbot.png";
+const BOT_ICON = "/icon-chatbot-192.png";
 
 
 

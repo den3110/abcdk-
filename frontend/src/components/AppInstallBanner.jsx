@@ -74,7 +74,7 @@ export default function AppInstallBanner({ links }) {
   const domain = links?.domain || "";
 
   // Logo
-  const logoSrc = `${import.meta.env.BASE_URL}icon.png`;
+  const logoSrc = `${import.meta.env.BASE_URL}icon-192.png`;
 
   // Deeplink
   const deeplinkUrl = useMemo(() => {

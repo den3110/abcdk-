@@ -945,7 +945,7 @@ export default function PublicProfilePage() {
           "@context": "https://schema.org",
           "@type": "Person",
           name: base?.name || t("publicProfile.defaultPlayer"),
-          image: base?.avatar || "https://pickletour.vn/icon.png",
+          image: base?.avatar || "https://pickletour.vn/icon-192.png",
           description:
             base?.bio ||
             t("publicProfile.seoStructuredDescription", {

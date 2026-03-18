@@ -29,7 +29,7 @@ import apiSlice from "../slices/apiSlice";
 import SEOHead from "../components/SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
 
-const WEB_LOGO_PATH = "/icon.png";
+const WEB_LOGO_PATH = "/icon-192.png";
 
 export default function LoginScreen() {
   const [identifier, setIdentifier] = useState(""); // ✅ SĐT hoặc Email

@@ -152,7 +152,7 @@ export default function SeoNewsDetailScreen() {
         name: "PickleTour.vn",
         logo: {
           "@type": "ImageObject",
-          url: `${SITE_URL}/icon.png`,
+          url: `${SITE_URL}/icon-512.png`,
         },
       },
     };

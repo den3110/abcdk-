@@ -149,7 +149,7 @@ export default function ClubDetailPage() {
             description:
               club?.description ||
               t("clubs.detail.descriptionFallback", { name: club?.name }),
-            logo: club?.avatar || "https://pickletour.vn/icon.png",
+            logo: club?.avatar || "https://pickletour.vn/icon-192.png",
             url: `https://pickletour.vn/clubs/${club?._id}`,
             member: (club?.members || []).map((m) => ({
               "@type": "Person",

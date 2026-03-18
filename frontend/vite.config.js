@@ -8,7 +8,14 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["icon.png", "vite.svg"],
+      includeAssets: [
+        "favicon-64.png",
+        "apple-touch-icon.png",
+        "icon-192.png",
+        "icon-512.png",
+        "icon-chatbot-192.png",
+        "vite.svg",
+      ],
       workbox: {
         globPatterns: [],
         navigateFallback: null,
@@ -35,17 +42,17 @@ export default defineConfig({
         display: "standalone",
         icons: [
           {
-            src: "/icon.png",
+            src: "/icon-192.png",
             sizes: "192x192",
             type: "image/png",
           },
           {
-            src: "/icon.png",
+            src: "/icon-512.png",
             sizes: "512x512",
             type: "image/png",
           },
           {
-            src: "/icon.png",
+            src: "/icon-512.png",
             sizes: "512x512",
             type: "image/png",
             purpose: "any maskable",

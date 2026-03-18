@@ -171,7 +171,7 @@ const TYPE_LABEL = (t) => {
   return t || "Khác";
 };
 
-const WEB_LOGO_URL = "/icon.png";
+const WEB_LOGO_URL = "/icon-192.png";
 
 const getTypeLabel = (t, type) => {
   const key = String(type || "").toLowerCase();
