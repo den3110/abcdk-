@@ -14,6 +14,7 @@ import {
   normalize_for_search,
   build_vietnamese_regex,
 } from "../utils/vnSearchNormalizer.js";
+import { toPublicUrl } from "../utils/publicUrl.js";
 
 /* GET điểm kèm user (dùng trong danh sách) */ // Admin
 export const getUsersWithRank = asyncHandler(async (req, res) => {
@@ -115,28 +116,13 @@ export const getUsersWithRank = asyncHandler(async (req, res) => {
     }, {});
   }
 
-  // ── build absolute URL cho cccdImages ở production
   const isProd = process.env.NODE_ENV === "production";
-  const proto =
-    (req.headers["x-forwarded-proto"] &&
-      String(req.headers["x-forwarded-proto"]).split(",")[0]) ||
-    req.protocol ||
-    "http";
-  const host = req.headers["x-forwarded-host"] || req.get("host");
-  const origin = `${proto}://${host}`;
-
-  const isAbsUrl = (s) => /^https?:\/\//i.test(s || "");
-  const toAbsUrl = (p) => {
-    if (!p) return p;
-    if (isAbsUrl(p)) return p;
-    return `${origin}${p.startsWith("/") ? "" : "/"}${p}`;
-  };
 
   const list = users.map((u) => {
     const cccdImages = isProd
       ? {
-          front: toAbsUrl(u?.cccdImages?.front || ""),
-          back: toAbsUrl(u?.cccdImages?.back || ""),
+          front: toPublicUrl(req, u?.cccdImages?.front || ""),
+          back: toPublicUrl(req, u?.cccdImages?.back || ""),
         }
       : u?.cccdImages || { front: "", back: "" };
 

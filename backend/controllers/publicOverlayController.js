@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import { Sponsor, SPONSOR_TIERS } from "../models/sponsorModel.js";
 import CmsBlock from "../models/cmsBlockModel.js";
 import Tournament from "../models/tournamentModel.js"; // ✅ NEW
+import { toPublicUrl } from "../utils/publicUrl.js";
 
 /* ---------- helpers ---------- */
 const parseBoolQP = (v) => {
@@ -28,26 +29,6 @@ const normalizeTier = (name) => {
   const want = String(name).trim().toLowerCase();
   const found = SPONSOR_TIERS.find((t) => t.toLowerCase() === want);
   return found || null;
-};
-
-// ✅ chỉ ép https ở môi trường production
-const FORCE_HTTPS = process.env.NODE_ENV === "production";
-
-const ensureHttps = (url) => {
-  if (!url) return url;
-  const s = String(url).trim();
-  if (!s) return s;
-
-  // đã là https rồi thì giữ nguyên
-  if (/^https:\/\//i.test(s)) return s;
-
-  // http => https
-  if (/^http:\/\//i.test(s)) {
-    return s.replace(/^http:\/\//i, "https://");
-  }
-
-  // relative path (/uploads/...) thì kệ, để frontend/normalizeUrl xử lý
-  return s;
 };
 
 /* ---------- controller ---------- */
@@ -78,11 +59,8 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
 
   // ✅ default: chưa có tid -> không có sponsors, không có ảnh giải
   if (!tid) {
-    if (FORCE_HTTPS) {
-      webLogoUrl = ensureHttps(webLogoUrl);
-    }
     return res.json({
-      webLogoUrl,
+      webLogoUrl: toPublicUrl(req, webLogoUrl, { absolute: false }),
       webLogoAlt,
       sponsors: [],
       tournamentImageUrl: null, // ✅ NEW
@@ -118,23 +96,19 @@ export const getOverlayConfig = asyncHandler(async (req, res) => {
   let sponsors = sponsorsRaw;
   let tournamentImageUrl = tournament?.image || null; // ✅ lấy ảnh giải
 
-  // ✅ ép https cho sponsor khi chạy production
-  if (FORCE_HTTPS) {
-    webLogoUrl = ensureHttps(webLogoUrl);
-    tournamentImageUrl = ensureHttps(tournamentImageUrl);
-
-    sponsors = sponsors.map((s) => ({
-      ...s,
-      logoUrl: ensureHttps(s.logoUrl),
-      websiteUrl: ensureHttps(s.websiteUrl),
-      refLink: ensureHttps(s.refLink),
-    }));
-  }
+  sponsors = sponsors.map((s) => ({
+    ...s,
+    logoUrl: toPublicUrl(req, s.logoUrl, { absolute: false }),
+    websiteUrl: toPublicUrl(req, s.websiteUrl, { absolute: false }),
+    refLink: toPublicUrl(req, s.refLink, { absolute: false }),
+  }));
 
   return res.json({
-    webLogoUrl,
+    webLogoUrl: toPublicUrl(req, webLogoUrl, { absolute: false }),
     webLogoAlt,
-    tournamentImageUrl, // ✅ trả thêm về FE
+    tournamentImageUrl: toPublicUrl(req, tournamentImageUrl, {
+      absolute: false,
+    }),
     sponsors,
   });
 });

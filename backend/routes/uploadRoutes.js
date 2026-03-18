@@ -3,20 +3,17 @@ import express from "express";
 import multer from "multer";
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 import { protect } from "../middleware/authMiddleware.js";
 import { cccdUpload } from "../middleware/cccdUpload.js";
 import { uploadCccd } from "../controllers/uploadController.js";
 import { processAvatarWithLogoAlways } from "../services/avatarProcessor.js"; // ✅ dùng service
 import SystemSettings from "../models/systemSettingsModel.js";
 import { optimizeImage } from "../middleware/optimizeImage.js";
+import { toPublicUrl } from "../utils/publicUrl.js";
 
 const router = express.Router();
 
 /* ===== Helpers ===== */
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const ROOT_UPLOAD_DIR = path.join(process.cwd(), "uploads");
 const AVATAR_DIR = path.join(ROOT_UPLOAD_DIR, "avatars");
 const CCCD_DIR = path.join(ROOT_UPLOAD_DIR, "cccd");
@@ -46,24 +43,6 @@ function getExt(file) {
   const fromName = path.extname(file.originalname || "").replace(".", "");
   if (fromName) return fromName.toLowerCase();
   return MIME_EXT[file.mimetype] || "jpg";
-}
-function getBaseUrl(req) {
-  if (process.env.EXTERNAL_BASE_URL) return process.env.EXTERNAL_BASE_URL;
-  const proto =
-    req.headers["x-forwarded-proto"]?.split(",")[0]?.trim() || req.protocol;
-  const host = req.headers["x-forwarded-host"] || req.get("host");
-  return `${proto}://${host}`;
-}
-
-// helper nhỏ trong file uploadRoute.js, đặt trên Routes cũng được
-function buildAbsoluteUrl(baseUrl, urlPath) {
-  if (!urlPath) return baseUrl;
-  if (urlPath.startsWith("http://") || urlPath.startsWith("https://")) {
-    return urlPath;
-  }
-  const normalizedBase = baseUrl.replace(/\/+$/, "");
-  const normalizedPath = urlPath.replace(/^\/+/, "");
-  return `${normalizedBase}/${normalizedPath}`;
 }
 
 // helper đọc flag từ SystemSettings (fail-safe: nếu lỗi thì coi như bật logo)
@@ -187,7 +166,7 @@ const perIdUpload = multer({
 
 router.post("/avatar", (req, res) => {
   avatarUpload.single("avatar")(req, res, async (err) => {
-    const baseUrl = getBaseUrl(req);
+    const toAbsoluteUrl = (value) => toPublicUrl(req, value);
 
     try {
       // 1) Multer lỗi hoặc không có file -> dùng service fallback (default avatar, không quan tâm flag)
@@ -209,7 +188,7 @@ router.post("/avatar", (req, res) => {
           `fallback_${Date.now()}`
         );
 
-        const fullUrl = buildAbsoluteUrl(baseUrl, avatarUrl);
+        const fullUrl = toAbsoluteUrl(avatarUrl);
         return res.status(200).json({ url: fullUrl });
       }
 
@@ -219,7 +198,7 @@ router.post("/avatar", (req, res) => {
       if (!avatarLogoEnabled) {
         // Không chèn logo: trả luôn URL file mà Multer đã lưu
         const rawPath = `/uploads/avatars/${req.file.filename}`;
-        const fullUrl = buildAbsoluteUrl(baseUrl, rawPath);
+        const fullUrl = toAbsoluteUrl(rawPath);
         return res.status(200).json({ url: fullUrl });
       }
 
@@ -235,7 +214,7 @@ router.post("/avatar", (req, res) => {
         safeBaseName
       );
 
-      const fullUrl = buildAbsoluteUrl(baseUrl, avatarUrl);
+      const fullUrl = toAbsoluteUrl(avatarUrl);
       return res.status(200).json({ url: fullUrl });
     } catch (e) {
       console.error(
@@ -248,7 +227,7 @@ router.post("/avatar", (req, res) => {
         (req.file && `/uploads/avatars/${req.file.filename}`) ||
         "/uploads/avatars/default-avatar.jpg";
 
-      const fullUrl = buildAbsoluteUrl(baseUrl, fallbackPath);
+      const fullUrl = toAbsoluteUrl(fallbackPath);
       return res.status(200).json({ url: fullUrl });
     }
   });
@@ -256,7 +235,7 @@ router.post("/avatar", (req, res) => {
 
 router.post("/user/avatar", (req, res) => {
   avatarUpload.single("avatar")(req, res, async (err) => {
-    const baseUrl = getBaseUrl(req);
+    const toAbsoluteUrl = (value) => toPublicUrl(req, value);
 
     try {
       // 1) Multer lỗi hoặc không có file -> dùng service fallback (default avatar, không quan tâm flag)
@@ -278,7 +257,7 @@ router.post("/user/avatar", (req, res) => {
           `fallback_${Date.now()}`
         );
 
-        const fullUrl = buildAbsoluteUrl(baseUrl, avatarUrl);
+        const fullUrl = toAbsoluteUrl(avatarUrl);
         return res.status(200).json({ url: fullUrl });
       }
 
@@ -288,7 +267,7 @@ router.post("/user/avatar", (req, res) => {
       if (!avatarLogoEnabled) {
         // Không chèn logo: trả luôn URL file mà Multer đã lưu
         const rawPath = `/uploads/avatars/${req.file.filename}`;
-        const fullUrl = buildAbsoluteUrl(baseUrl, rawPath);
+        const fullUrl = toAbsoluteUrl(rawPath);
         return res.status(200).json({ url: fullUrl });
       }
 
@@ -304,7 +283,7 @@ router.post("/user/avatar", (req, res) => {
         safeBaseName
       );
 
-      const fullUrl = buildAbsoluteUrl(baseUrl, avatarUrl);
+      const fullUrl = toAbsoluteUrl(avatarUrl);
       return res.status(200).json({ url: fullUrl });
     } catch (e) {
       console.error(
@@ -317,7 +296,7 @@ router.post("/user/avatar", (req, res) => {
         (req.file && `/uploads/avatars/${req.file.filename}`) ||
         "/uploads/avatars/default-avatar.jpg";
 
-      const fullUrl = buildAbsoluteUrl(baseUrl, fallbackPath);
+      const fullUrl = toAbsoluteUrl(fallbackPath);
       return res.status(200).json({ url: fullUrl });
     }
   });
@@ -336,7 +315,7 @@ router.post("/register-cccd", (req, res) => {
     }
     if (!req.file)
       return res.status(400).json({ message: "Không nhận được file 'image'" });
-    const publicUrl = `${getBaseUrl(req)}/uploads/cccd/${req.file.filename}`;
+    const publicUrl = toPublicUrl(req, `/uploads/cccd/${req.file.filename}`);
     res.status(200).json({ url: publicUrl });
   });
 });
@@ -387,8 +366,6 @@ router.post("/:id", (req, res) => {
       }
 
       // 🔁 Sau optimizeImage, req.file đã update sang file mới (đã nén)
-      const baseUrl = getBaseUrl(req);
-
       // Lấy relative path từ ROOT_UPLOAD_DIR để build URL chuẩn cross-platform
       const relativePath = path
         .relative(ROOT_UPLOAD_DIR, req.file.path)
@@ -396,7 +373,7 @@ router.post("/:id", (req, res) => {
         .join("/"); // đổi \ -> / nếu chạy Windows
 
       const rawPath = `/uploads/${relativePath}`;
-      const fullUrl = buildAbsoluteUrl(baseUrl, rawPath);
+      const fullUrl = toPublicUrl(req, rawPath);
 
       return res.status(200).json({
         url: fullUrl,

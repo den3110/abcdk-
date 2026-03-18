@@ -7,6 +7,7 @@ import fsp from "fs/promises";
 import crypto from "crypto";
 import FileAsset from "../models/fileAssetModel.js";
 import { authorize, protect } from "../middleware/authMiddleware.js";
+import { toPublicUrl } from "../utils/publicUrl.js";
 
 const router = express.Router();
 
@@ -17,14 +18,6 @@ const UPLOAD_DIR = path.resolve("uploads/public");
 const CHUNK_TMP_DIR = path.resolve("uploads/chunks");
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 fs.mkdirSync(CHUNK_TMP_DIR, { recursive: true });
-
-function hostFrom(req) {
-  return (
-    process.env.HOST ??
-    process.env.WEB_URL ??
-    `${req.protocol}://${req.get("host")}`
-  ).replace(/\/+$/, "");
-}
 
 const DEFAULT_CHUNK = 8 * 1024 * 1024; // 8MB
 const MAX_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
@@ -69,8 +62,6 @@ router.post(
       if (!req.files?.length)
         return res.status(400).json({ message: "Không có file nào" });
 
-      const base = hostFrom(req);
-
       const items = await Promise.all(
         req.files.map(async (f) => {
           const doc = await FileAsset.create({
@@ -91,10 +82,11 @@ router.post(
             mime: doc.mime,
             category: doc.category,
             createdAt: doc.createdAt,
-            publicUrl: `${base}/dl/file/${doc._id}`, // ép tải về (X-Accel-Redirect ở Nginx/BE)
-            staticUrl: `${base}/uploads/public/${encodeURIComponent(
-              doc.fileName
-            )}`,
+            publicUrl: toPublicUrl(req, `/dl/file/${doc._id}`),
+            staticUrl: toPublicUrl(
+              req,
+              `/uploads/public/${encodeURIComponent(doc.fileName)}`
+            ),
           };
         })
       );
@@ -367,7 +359,6 @@ router.post(
       console.warn("cleanup chunk dir failed", e?.message);
     }
 
-    const baseUrl = hostFrom(req);
     const item = {
       _id: doc._id,
       originalName: doc.originalName,
@@ -376,10 +367,11 @@ router.post(
       mime: doc.mime,
       category: doc.category,
       createdAt: doc.createdAt,
-      publicUrl: `${baseUrl}/dl/file/${doc._id}`,
-      staticUrl: `${baseUrl}/uploads/public/${encodeURIComponent(
-        doc.fileName
-      )}`,
+      publicUrl: toPublicUrl(req, `/dl/file/${doc._id}`),
+      staticUrl: toPublicUrl(
+        req,
+        `/uploads/public/${encodeURIComponent(doc.fileName)}`
+      ),
     };
     res.status(201).json({ item });
   }
@@ -431,8 +423,6 @@ router.get("/", protect, authorize("admin"), async (req, res, next) => {
       FileAsset.countDocuments(filter),
     ]);
 
-    const base = hostFrom(req);
-
     res.json({
       items: items.map((d) => ({
         _id: d._id,
@@ -442,8 +432,11 @@ router.get("/", protect, authorize("admin"), async (req, res, next) => {
         mime: d.mime,
         category: d.category,
         createdAt: d.createdAt,
-        publicUrl: `${base}/dl/file/${d._id}`,
-        staticUrl: `${base}/uploads/public/${encodeURIComponent(d.fileName)}`,
+        publicUrl: toPublicUrl(req, `/dl/file/${d._id}`),
+        staticUrl: toPublicUrl(
+          req,
+          `/uploads/public/${encodeURIComponent(d.fileName)}`
+        ),
       })),
       total,
       page: Number(page),

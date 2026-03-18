@@ -6,24 +6,7 @@ import { Sponsor } from "../models/sponsorModel.js";
 import CmsBlock from "../models/cmsBlockModel.js";
 import UserMatch from "../models/userMatchModel.js";
 import Tournament from "../models/tournamentModel.js";
-
-const FORCE_HTTPS = process.env.NODE_ENV === "production";
-const ensureHttps = (url) => {
-  if (!url) return url;
-  const s = String(url).trim();
-  if (!s) return s;
-
-  // đã là https rồi thì giữ nguyên
-  if (/^https:\/\//i.test(s)) return s;
-
-  // http => https
-  if (/^http:\/\//i.test(s)) {
-    return s.replace(/^http:\/\//i, "https://");
-  }
-
-  // relative path (/uploads/...) thì kệ, để frontend/normalizeUrl xử lý
-  return s;
-};
+import { toPublicUrl } from "../utils/publicUrl.js";
 // ===== Helpers =====
 const gamesToWin = (bestOf) => Math.floor((Number(bestOf) || 3) / 2) + 1;
 const gameWon = (x, y, pts, byTwo) =>
@@ -105,6 +88,8 @@ function gameWinner(g, rules) {
 export async function getOverlayMatch(req, res) {
   try {
     const { id } = req.params;
+    const normalizePublicAssetUrl = (value) =>
+      toPublicUrl(req, value, { absolute: false });
 
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid match id" });
@@ -261,17 +246,13 @@ export async function getOverlayMatch(req, res) {
         .lean();
     }
 
-    // ép https giống getOverlayConfig
-    if (typeof FORCE_HTTPS !== "undefined" && FORCE_HTTPS) {
-      webLogoUrl = ensureHttps(webLogoUrl);
-
-      sponsors = sponsors.map((s) => ({
-        ...s,
-        logoUrl: ensureHttps(s.logoUrl),
-        websiteUrl: ensureHttps(s.websiteUrl),
-        refLink: ensureHttps(s.refLink),
-      }));
-    }
+    webLogoUrl = normalizePublicAssetUrl(webLogoUrl);
+    sponsors = sponsors.map((s) => ({
+      ...s,
+      logoUrl: normalizePublicAssetUrl(s.logoUrl),
+      websiteUrl: normalizePublicAssetUrl(s.websiteUrl),
+      refLink: normalizePublicAssetUrl(s.refLink),
+    }));
 
     const sponsorLogos = sponsors
       .map((s) => (s.logoUrl || "").trim())
@@ -467,9 +448,7 @@ export async function getOverlayMatch(req, res) {
       ? String(baseOverlay?.logoUrl || "").trim()
       : String(tournamentDoc?.overlay?.logoUrl || "").trim();
 
-    if (typeof FORCE_HTTPS !== "undefined" && FORCE_HTTPS) {
-      resolvedLogoUrl = ensureHttps(resolvedLogoUrl);
-    }
+    resolvedLogoUrl = normalizePublicAssetUrl(resolvedLogoUrl);
 
     const rootOverlay = {
       theme: baseOverlay.theme || "dark",

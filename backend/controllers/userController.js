@@ -30,6 +30,7 @@ import { sendTingTingOtp } from "../services/tingtingZns.service.js";
 import bcrypt from "bcryptjs";
 import { normalize_for_search } from "../utils/vnSearchNormalizer.js";
 import { makeLoginOtpToken } from "./userLoginController.js";
+import { toPublicUrl as toClientPublicUrl } from "../utils/publicUrl.js";
 
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
@@ -1946,10 +1947,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
   }
 
   // Ghép URL tuyệt đối cho ảnh nếu là path tương đối
-  const toUrl = (p) =>
-    p && !String(p).startsWith("http")
-      ? `${req.protocol}://${req.get("host")}${p}`
-      : p;
+  const toUrl = (p) => toClientPublicUrl(req, p);
 
   // ===== 1) ratingSingle / ratingDouble (ưu tiên Ranking) =====
   const rankDoc = await Ranking.findOne({ user: uid })
