@@ -175,33 +175,40 @@ export default {
       seoTitle: "Log in",
       formLabel: "Member access",
       welcome: "Welcome back to PickleTour!",
-      subtitle: "Sign in to your account",
-      brandBadge: "Pickleball tournament platform",
+      subtitle: "Log in to keep up with your tournaments and match schedule.",
+      brandBadge: "Tournament workflow",
       brandTitle:
-        "Log in to track tournaments, rankings, and live scores in one place.",
+        "One place to run tournaments, follow live scores, and watch rankings move.",
       brandBody:
-        "One account to register for events, view brackets, follow live matches, and stay connected with the PickleTour community.",
+        "Brackets, schedules, check-in, and tournament flow come together in a cleaner match-day experience.",
       helper: "Use the phone number or email you registered with to continue.",
+      registerPrompt: "New to PickleTour?",
       chips: {
         schedule: "Schedule & brackets",
         live: "Live score",
-        community: "Community",
+        community: "Rankings",
       },
       highlights: {
         tournaments: {
-          title: "Events at your fingertips",
-          body: "Register, follow schedules, and track brackets from a single interface.",
+          title: "Brackets and schedule",
+          body: "Follow round robin groups, knockout brackets, and court times in one place.",
         },
         ranking: {
-          title: "Rankings stay fresh",
-          body: "Ratings and results sync quickly after every match.",
+          title: "Rankings stay current",
+          body: "Match results and ratings sync quickly so the table stays easy to trust.",
         },
         live: {
-          title: "Follow in real time",
-          body: "Stay on top of courts, scores, and match status as they change.",
+          title: "Real-time live score",
+          body: "Track courts, scores, and live match status without jumping between screens.",
         },
       },
-      identifierLabel: "Phone number or Email",
+      testimonial: {
+        quote:
+          "Brackets feel clearer, live score is smoother, and check-in takes far less effort on match day.",
+        author: "PickleTour operations",
+        role: "Tournament workflow",
+      },
+      identifierLabel: "Phone number",
       passwordLabel: "Password",
       submit: "Log in",
       forgot: "Forgot password?",
