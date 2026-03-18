@@ -274,6 +274,12 @@ function buildAiDiagnostics() {
       apiTokenConfigured: isCatgpt
         ? Boolean(CATGPT_GATEWAY_API_TOKEN)
         : Boolean(process.env.CLIPROXY_API_KEY || process.env.OPENAI_API_KEY),
+      gatewayStatusUrl: isCatgpt ? `${getCatgptGatewayRootUrl()}/status` : "",
+      gatewayStatusChecked: false,
+      gatewayReachable: null,
+      gatewayHealthy: null,
+      gatewayLoggedIn: null,
+      gatewayStatusSummary: "",
     },
     hasErrors: false,
     hasWarnings: false,
@@ -350,8 +356,20 @@ function classifyImportDiagnosticSummary(diagnostics) {
     .join(" | ")
     .toLowerCase();
   const provider = diagnostics?.environment?.provider || AI_IMPORT_PROVIDER;
+  const gatewayReachable = diagnostics?.environment?.gatewayReachable;
+  const gatewayHealthy = diagnostics?.environment?.gatewayHealthy;
+  const gatewayLoggedIn = diagnostics?.environment?.gatewayLoggedIn;
 
   if (provider === "catgpt") {
+    if (gatewayLoggedIn === false) {
+      return "CatGPT-Gateway đang chạy nhưng chưa đăng nhập ChatGPT. Mở http://localhost:6080/vnc.html rồi đăng nhập lại.";
+    }
+    if (gatewayReachable === false) {
+      return "CatGPT-Gateway local đang không sẵn sàng hoặc container đang unhealthy. Kiểm tra Docker `catgpt`; nếu cần hãy đăng nhập lại qua http://localhost:6080/vnc.html.";
+    }
+    if (gatewayHealthy === false && text.includes("socket")) {
+      return "CatGPT-Gateway local đang tự đóng kết nối trong lúc xử lý. Kiểm tra container `catgpt` và phiên ChatGPT bên trong.";
+    }
     if (
       text.includes("timed out") ||
       text.includes("timeout") ||
@@ -387,9 +405,12 @@ function classifyImportDiagnosticSummary(diagnostics) {
       text.includes("econnrefused") ||
       text.includes("fetch failed") ||
       text.includes("network") ||
-      text.includes("socket")
+      text.includes("socket") ||
+      text.includes("econnreset") ||
+      text.includes("connection was closed unexpectedly") ||
+      text.includes("underlying connection was closed")
     ) {
-      return "Không kết nối được tới CatGPT-Gateway. Hãy kiểm tra endpoint local hoặc container.";
+      return "Không kết nối được tới CatGPT-Gateway local. Kiểm tra container `catgpt`, endpoint `http://localhost:8000`, hoặc đăng nhập lại ChatGPT qua http://localhost:6080/vnc.html.";
     }
     if (diagnostics.hasErrors) {
       return "CatGPT-Gateway đang lỗi cấu hình, upload file, hoặc phiên ChatGPT.";
@@ -405,6 +426,153 @@ function classifyImportDiagnosticSummary(diagnostics) {
 
 function getCatgptGatewayRootUrl() {
   return CATGPT_GATEWAY_BASE_URL.replace(/\/v1$/i, "");
+}
+
+function buildCatgptGatewayHeaders(accept = "application/json") {
+  return {
+    accept,
+    ...(CATGPT_GATEWAY_API_TOKEN
+      ? { authorization: `Bearer ${CATGPT_GATEWAY_API_TOKEN}` }
+      : {}),
+  };
+}
+
+function isCatgptGatewayNetworkError(error) {
+  const text = String(error?.message || error || "")
+    .trim()
+    .toLowerCase();
+  return (
+    text.includes("socket hang up") ||
+    text.includes("econnreset") ||
+    text.includes("econnrefused") ||
+    text.includes("fetch failed") ||
+    text.includes("network") ||
+    text.includes("underlying connection was closed") ||
+    text.includes("connection was closed unexpectedly")
+  );
+}
+
+function attachAiDiagnosticsToError(error, diagnostics, fallbackMessage = "") {
+  const finalMessage =
+    String(classifyImportDiagnosticSummary(diagnostics) || "").trim() ||
+    String(fallbackMessage || error?.message || "AI import failed").trim();
+  const wrappedError =
+    error instanceof Error && error.message === finalMessage
+      ? error
+      : new Error(finalMessage);
+  wrappedError.aiDiagnostics = diagnostics;
+  wrappedError.rawMessage = String(error?.message || fallbackMessage || "").trim();
+  return wrappedError;
+}
+
+async function probeCatgptGatewayStatus(
+  diagnostics,
+  { stage = "gateway_status", timeoutMs = 6000, silent = false } = {}
+) {
+  if (!CATGPT_GATEWAY_BASE_URL) return null;
+
+  const rootUrl = getCatgptGatewayRootUrl();
+  const statusUrl = `${rootUrl}/status`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  diagnostics.environment.gatewayStatusUrl = statusUrl;
+
+  try {
+    const response = await fetch(statusUrl, {
+      headers: buildCatgptGatewayHeaders("application/json"),
+      signal: controller.signal,
+    });
+    const rawBody = await response.text();
+    const payload = parseJsonLoose(rawBody) || {};
+    const loggedIn =
+      typeof payload?.logged_in === "boolean"
+        ? payload.logged_in
+        : typeof payload?.loggedIn === "boolean"
+        ? payload.loggedIn
+        : null;
+    const healthy = Boolean(response.ok) && loggedIn !== false;
+
+    diagnostics.environment.gatewayStatusChecked = true;
+    diagnostics.environment.gatewayReachable = true;
+    diagnostics.environment.gatewayHealthy = healthy;
+    diagnostics.environment.gatewayLoggedIn = loggedIn;
+    diagnostics.environment.gatewayStatusSummary =
+      typeof payload?.message === "string" && payload.message.trim()
+        ? payload.message.trim()
+        : response.ok
+        ? loggedIn === false
+          ? "Gateway đang chạy nhưng chưa đăng nhập ChatGPT."
+          : "Gateway đang phản hồi bình thường."
+        : `Gateway trả trạng thái ${response.status}.`;
+
+    if (!silent) {
+      diagnostics.stages.push({
+        stage,
+        ok: response.ok && loggedIn !== false,
+        model: CATGPT_GATEWAY_MODEL,
+        route: "catgpt/status",
+        attempts: response.ok
+          ? []
+          : [
+              {
+                route: "catgpt/status",
+                model: CATGPT_GATEWAY_MODEL,
+                error: `HTTP ${response.status}: ${truncate(
+                  rawBody || response.statusText,
+                  240
+                )}`,
+              },
+            ],
+        message: diagnostics.environment.gatewayStatusSummary,
+      });
+    }
+
+    return {
+      reachable: true,
+      healthy,
+      loggedIn,
+      statusCode: response.status,
+      payload,
+    };
+  } catch (error) {
+    diagnostics.environment.gatewayStatusChecked = true;
+    diagnostics.environment.gatewayReachable = false;
+    diagnostics.environment.gatewayHealthy = false;
+    diagnostics.environment.gatewayLoggedIn = null;
+    diagnostics.environment.gatewayStatusSummary =
+      "Không gọi được /status từ CatGPT-Gateway local.";
+
+    if (!silent) {
+      diagnostics.hasWarnings = true;
+      diagnostics.stages.push({
+        stage,
+        ok: false,
+        model: CATGPT_GATEWAY_MODEL,
+        route: "catgpt/status",
+        attempts: [
+          {
+            route: "catgpt/status",
+            model: CATGPT_GATEWAY_MODEL,
+            error:
+              error?.name === "AbortError"
+                ? `status probe timed out after ${Math.round(timeoutMs / 1000)}s`
+                : String(error?.message || error || "status probe failed"),
+          },
+        ],
+        message: diagnostics.environment.gatewayStatusSummary,
+      });
+    }
+
+    return {
+      reachable: false,
+      healthy: false,
+      loggedIn: null,
+      error: String(error?.message || error || "status probe failed"),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function shouldInlineChatInstructions(attempt) {
@@ -2355,10 +2523,7 @@ async function requestCatgptGateway({
         method: "POST",
         headers: {
           "content-type": "application/json",
-          accept: "application/json",
-          ...(CATGPT_GATEWAY_API_TOKEN
-            ? { authorization: `Bearer ${CATGPT_GATEWAY_API_TOKEN}` }
-            : {}),
+          ...buildCatgptGatewayHeaders("application/json"),
         },
         body: JSON.stringify({
           model: CATGPT_GATEWAY_MODEL,
@@ -2446,7 +2611,13 @@ async function requestCatgptGateway({
           ? "Không lấy được phản hồi từ CatGPT-Gateway."
           : "CatGPT-Gateway đang xử lý quá lâu, client đã dừng chờ để tránh treo preview.",
     });
-    throw normalizedError;
+    if (isCatgptGatewayNetworkError(normalizedError)) {
+      await probeCatgptGatewayStatus(diagnostics, {
+        stage: "gateway_status",
+        timeoutMs: 5000,
+      });
+    }
+    throw attachAiDiagnosticsToError(normalizedError, diagnostics);
   } finally {
     clearTimeout(timeout);
   }
@@ -2455,12 +2626,7 @@ async function requestCatgptGateway({
 async function fetchCatgptModels(diagnostics) {
   try {
     const response = await fetch(`${CATGPT_GATEWAY_BASE_URL}/models`, {
-      headers: {
-        accept: "application/json",
-        ...(CATGPT_GATEWAY_API_TOKEN
-          ? { authorization: `Bearer ${CATGPT_GATEWAY_API_TOKEN}` }
-          : {}),
-      },
+      headers: buildCatgptGatewayHeaders("application/json"),
     });
     const raw = await response.text();
     if (!response.ok) {
@@ -3065,6 +3231,18 @@ async function analyzeWithCatgptGateway({
   });
 
   try {
+    const gatewayStatus = await probeCatgptGatewayStatus(diagnostics, {
+      stage: "gateway_status",
+      timeoutMs: 5000,
+    });
+    if (gatewayStatus?.reachable === false || gatewayStatus?.loggedIn === false) {
+      diagnostics.hasErrors = true;
+      throw attachAiDiagnosticsToError(
+        new Error("CatGPT-Gateway chưa sẵn sàng."),
+        diagnostics
+      );
+    }
+
     await fetchCatgptModels(diagnostics);
     reportPreviewProgress(onProgress, {
       step: "gateway_uploading",
@@ -3766,14 +3944,21 @@ export async function previewAiRegistrationImport({
     AI_IMPORT_PROVIDER === "catgpt" && Boolean(CATGPT_GATEWAY_BASE_URL);
 
   if (useCatgptProvider) {
-    const catgptResult = await analyzeWithCatgptGateway({
-      tournament,
-      source,
-      parsed,
-      diagnostics: aiDiagnostics,
-      onProgress,
-      adminPrompt: normalizedAdminPrompt,
-    });
+    let catgptResult;
+    try {
+      catgptResult = await analyzeWithCatgptGateway({
+        tournament,
+        source,
+        parsed,
+        diagnostics: aiDiagnostics,
+        onProgress,
+        adminPrompt: normalizedAdminPrompt,
+      });
+    } catch (error) {
+      aiDiagnostics.hasErrors = true;
+      aiDiagnostics.summary = classifyImportDiagnosticSummary(aiDiagnostics);
+      throw attachAiDiagnosticsToError(error, aiDiagnostics);
+    }
 
     reportPreviewProgress(onProgress, {
       step: "preview_building",

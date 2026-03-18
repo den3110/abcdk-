@@ -1,0 +1,357 @@
+import asyncHandler from "express-async-handler";
+import mongoose from "mongoose";
+import Match from "../models/matchModel.js";
+import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
+import {
+  buildRecordingPlaybackUrl,
+} from "../services/liveRecordingV2Export.service.js";
+import {
+  buildRecordingManifestObjectKey,
+  buildRecordingPrefix,
+  buildRecordingSegmentObjectKey,
+  createRecordingSegmentUploadUrl,
+  isRecordingR2Configured,
+  putRecordingManifest,
+} from "../services/liveRecordingV2Storage.service.js";
+import { enqueueLiveRecordingExport } from "../services/liveRecordingV2Queue.service.js";
+
+function isValidObjectId(value) {
+  return mongoose.isValidObjectId(String(value || ""));
+}
+
+function asTrimmed(value) {
+  const normalized = String(value || "").trim();
+  return normalized || "";
+}
+
+function normalizeMode(mode) {
+  const normalized = asTrimmed(mode).toUpperCase();
+  return ["STREAM_AND_RECORD", "RECORD_ONLY", "STREAM_ONLY"].includes(normalized)
+    ? normalized
+    : "";
+}
+
+function serializeRecording(recording) {
+  if (!recording) return null;
+  return {
+    id: String(recording._id),
+    matchId: String(recording.match),
+    courtId: recording.courtId ? String(recording.courtId) : null,
+    mode: recording.mode,
+    quality: recording.quality || "",
+    status: recording.status,
+    recordingSessionId: recording.recordingSessionId,
+    durationSeconds: recording.durationSeconds || 0,
+    sizeBytes: recording.sizeBytes || 0,
+    driveFileId: recording.driveFileId || null,
+    driveRawUrl: recording.driveRawUrl || null,
+    drivePreviewUrl: recording.drivePreviewUrl || null,
+    playbackUrl:
+      recording.playbackUrl || buildRecordingPlaybackUrl(recording._id),
+    exportAttempts: recording.exportAttempts || 0,
+    error: recording.error || null,
+    finalizedAt: recording.finalizedAt || null,
+    readyAt: recording.readyAt || null,
+    createdAt: recording.createdAt || null,
+    updatedAt: recording.updatedAt || null,
+    segments: (recording.segments || []).map((segment) => ({
+      index: segment.index,
+      objectKey: segment.objectKey,
+      uploadStatus: segment.uploadStatus,
+      sizeBytes: segment.sizeBytes || 0,
+      durationSeconds: segment.durationSeconds || 0,
+      isFinal: Boolean(segment.isFinal),
+      uploadedAt: segment.uploadedAt || null,
+    })),
+  };
+}
+
+export const startLiveRecordingV2 = asyncHandler(async (req, res) => {
+  const matchId = asTrimmed(req.body?.matchId);
+  const mode = normalizeMode(req.body?.mode);
+  const quality = asTrimmed(req.body?.quality);
+  const courtId = asTrimmed(req.body?.courtId) || null;
+  const recordingSessionId =
+    asTrimmed(req.body?.recordingSessionId) ||
+    `recording_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+  if (!isValidObjectId(matchId)) {
+    return res.status(400).json({ message: "matchId is required" });
+  }
+  if (!mode) {
+    return res.status(400).json({ message: "mode is invalid" });
+  }
+
+  const match = await Match.findById(matchId).select("_id court").lean();
+  if (!match) {
+    return res.status(404).json({ message: "Match not found" });
+  }
+
+  let recording = await LiveRecordingV2.findOne({
+    recordingSessionId,
+  });
+
+  if (!recording) {
+    recording = await LiveRecordingV2.create({
+      match: match._id,
+      courtId:
+        courtId && isValidObjectId(courtId)
+          ? courtId
+          : match.court && isValidObjectId(match.court)
+          ? match.court
+          : null,
+      mode,
+      quality,
+      recordingSessionId,
+      status: "recording",
+      r2Prefix: buildRecordingPrefix({
+        recordingId: new mongoose.Types.ObjectId(),
+        matchId,
+      }),
+    });
+    recording.r2Prefix = buildRecordingPrefix({
+      recordingId: recording._id,
+      matchId,
+    });
+    recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
+    await recording.save();
+  } else {
+    recording.mode = mode;
+    recording.quality = quality;
+    recording.status =
+      recording.status === "ready" ? "recording" : recording.status || "recording";
+    if (!recording.playbackUrl) {
+      recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
+    }
+    await recording.save();
+  }
+
+  return res.json({
+    ok: true,
+    storage: {
+      r2Configured: isRecordingR2Configured(),
+    },
+    recording: serializeRecording(recording),
+  });
+});
+
+export const presignLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.body?.recordingId);
+  const segmentIndex = Number(req.body?.segmentIndex);
+  const contentType = asTrimmed(req.body?.contentType) || "video/mp4";
+
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "recordingId is required" });
+  }
+  if (!Number.isInteger(segmentIndex) || segmentIndex < 0) {
+    return res.status(400).json({ message: "segmentIndex must be >= 0" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  const objectKey = buildRecordingSegmentObjectKey({
+    recordingId: recording._id,
+    matchId: recording.match,
+    segmentIndex,
+  });
+
+  const upload = await createRecordingSegmentUploadUrl({
+    objectKey,
+    contentType,
+  });
+
+  const existing = recording.segments.find((segment) => segment.index === segmentIndex);
+  if (!existing) {
+    recording.segments.push({
+      index: segmentIndex,
+      objectKey,
+      uploadStatus: "presigned",
+      isFinal: false,
+    });
+    await recording.save();
+  }
+
+  return res.json({
+    ok: true,
+    recordingId: String(recording._id),
+    segmentIndex,
+    objectKey,
+    upload,
+  });
+});
+
+export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.body?.recordingId);
+  const segmentIndex = Number(req.body?.segmentIndex);
+  const objectKey = asTrimmed(req.body?.objectKey);
+  const etag = asTrimmed(req.body?.etag) || null;
+  const sizeBytes = Number(req.body?.sizeBytes) || 0;
+  const durationSeconds = Number(req.body?.durationSeconds) || 0;
+  const isFinal = Boolean(req.body?.isFinal);
+
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "recordingId is required" });
+  }
+  if (!Number.isInteger(segmentIndex) || segmentIndex < 0) {
+    return res.status(400).json({ message: "segmentIndex must be >= 0" });
+  }
+  if (!objectKey) {
+    return res.status(400).json({ message: "objectKey is required" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  const existing = recording.segments.find((segment) => segment.index === segmentIndex);
+  if (existing) {
+    existing.objectKey = objectKey;
+    existing.uploadStatus = "uploaded";
+    existing.etag = etag;
+    existing.sizeBytes = sizeBytes;
+    existing.durationSeconds = durationSeconds;
+    existing.isFinal = isFinal;
+    existing.uploadedAt = new Date();
+  } else {
+    recording.segments.push({
+      index: segmentIndex,
+      objectKey,
+      uploadStatus: "uploaded",
+      etag,
+      sizeBytes,
+      durationSeconds,
+      isFinal,
+      uploadedAt: new Date(),
+    });
+  }
+
+  recording.status = "uploading";
+  recording.sizeBytes = (recording.segments || []).reduce(
+    (sum, segment) => sum + (Number(segment.sizeBytes) || 0),
+    0
+  );
+  recording.durationSeconds = (recording.segments || []).reduce(
+    (sum, segment) => sum + (Number(segment.durationSeconds) || 0),
+    0
+  );
+  recording.error = null;
+  await recording.save();
+
+  return res.json({
+    ok: true,
+    recording: serializeRecording(recording),
+  });
+});
+
+export const finalizeLiveRecordingV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.body?.recordingId);
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "recordingId is required" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  const uploadedSegments = [...(recording.segments || [])]
+    .filter((segment) => segment.uploadStatus === "uploaded")
+    .sort((a, b) => a.index - b.index);
+
+  if (!uploadedSegments.length) {
+    return res.status(400).json({
+      message: "Cannot finalize a recording with no uploaded segments",
+    });
+  }
+
+  const manifestKey = buildRecordingManifestObjectKey({
+    recordingId: recording._id,
+    matchId: recording.match,
+  });
+
+  await putRecordingManifest({
+    objectKey: manifestKey,
+    manifest: {
+      recordingId: String(recording._id),
+      matchId: String(recording.match),
+      courtId: recording.courtId ? String(recording.courtId) : null,
+      mode: recording.mode,
+      quality: recording.quality,
+      finalizedAt: new Date().toISOString(),
+      segments: uploadedSegments.map((segment) => ({
+        index: segment.index,
+        objectKey: segment.objectKey,
+        sizeBytes: segment.sizeBytes,
+        durationSeconds: segment.durationSeconds,
+        isFinal: segment.isFinal,
+      })),
+    },
+  });
+
+  recording.r2ManifestKey = manifestKey;
+  recording.finalizedAt = new Date();
+  recording.status = "exporting";
+  recording.error = null;
+  recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
+  await recording.save();
+
+  await enqueueLiveRecordingExport(recording._id);
+
+  return res.json({
+    ok: true,
+    queued: true,
+    recording: serializeRecording(recording),
+  });
+});
+
+export const getLiveRecordingByMatchV2 = asyncHandler(async (req, res) => {
+  const matchId = asTrimmed(req.params?.matchId);
+  if (!isValidObjectId(matchId)) {
+    return res.status(400).json({ message: "matchId is invalid" });
+  }
+
+  const recording = await LiveRecordingV2.findOne({ match: matchId }).sort({
+    createdAt: -1,
+  });
+
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  return res.json({
+    ok: true,
+    recording: serializeRecording(recording),
+  });
+});
+
+export const playLiveRecordingV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id);
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "Recording id is invalid" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId).lean();
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  if (recording.status === "ready") {
+    if (recording.driveRawUrl) {
+      return res.redirect(recording.driveRawUrl);
+    }
+    if (recording.drivePreviewUrl) {
+      return res.redirect(recording.drivePreviewUrl);
+    }
+  }
+
+  return res.status(409).json({
+    ok: false,
+    status: recording.status,
+    message: "Recording is not ready yet",
+    recording: serializeRecording(recording),
+  });
+});

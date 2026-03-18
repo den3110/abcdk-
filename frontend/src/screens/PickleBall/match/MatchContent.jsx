@@ -320,6 +320,10 @@ function detectEmbed(url) {
     return { kind: "file", canEmbed: true, embedUrl: url, aspect };
   }
 
+  if (/\/api\/live\/recordings\/v2\/[^/]+\/play(?:\?|$)/i.test(url)) {
+    return { kind: "file", canEmbed: true, embedUrl: url, aspect };
+  }
+
   // Google Drive preview
   if (host.includes("drive.google.com")) {
     const m = url.match(/\/file\/d\/([^/]+)\//);

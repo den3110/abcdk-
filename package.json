@@ -12,6 +12,7 @@
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "create-admin": "node scripts/createAdmin.js",
     "cccd:worker": "node backend/worker/index.js",
+    "recording:worker": "node backend/worker/liveRecordingExport.worker.js",
     "seo-news:backfill-images": "node backend/scripts/backfillSeoNewsImages.js"
   },
   "author": "Brad Traversy",

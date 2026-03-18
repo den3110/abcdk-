@@ -9,6 +9,10 @@ function writeSse(res, event, data) {
   res.write(`data: ${JSON.stringify(data)}\n\n`);
 }
 
+function writeSseComment(res, comment = "keepalive") {
+  res.write(`: ${comment}\n\n`);
+}
+
 export const previewRegistrationImport = asyncHandler(async (req, res) => {
   const { tourId } = req.params;
   const { sheetUrl = "", rawText = "", adminPrompt = "" } = req.body || {};
@@ -27,16 +31,47 @@ export const previewRegistrationImportStream = async (req, res) => {
   const { tourId } = req.params;
   const { sheetUrl = "", rawText = "", adminPrompt = "" } = req.body || {};
   let closed = false;
+  let heartbeat = null;
 
-  req.on("close", () => {
+  const stopHeartbeat = () => {
+    if (heartbeat) {
+      clearInterval(heartbeat);
+      heartbeat = null;
+    }
+  };
+
+  const markClosed = () => {
     closed = true;
-  });
+    stopHeartbeat();
+  };
+
+  req.on("close", markClosed);
+  req.on("aborted", markClosed);
+
+  req.setTimeout?.(0);
+  res.setTimeout?.(0);
+  req.socket?.setKeepAlive?.(true, 15_000);
+  req.socket?.setTimeout?.(0);
 
   res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
   res.setHeader("X-Accel-Buffering", "no");
   res.flushHeaders?.();
+
+  heartbeat = setInterval(() => {
+    if (closed || res.writableEnded || res.destroyed) {
+      stopHeartbeat();
+      return;
+    }
+
+    try {
+      writeSseComment(res, "keepalive");
+    } catch (error) {
+      console.warn("[AI Import] preview stream heartbeat stopped:", error.message);
+      markClosed();
+    }
+  }, 15_000);
 
   writeSse(res, "progress", {
     step: "connected",
@@ -58,6 +93,7 @@ export const previewRegistrationImportStream = async (req, res) => {
 
     if (!closed) {
       writeSse(res, "complete", result);
+      stopHeartbeat();
       res.end();
     }
   } catch (error) {
@@ -65,7 +101,9 @@ export const previewRegistrationImportStream = async (req, res) => {
     if (!closed) {
       writeSse(res, "error", {
         message: error.message || "Không thể xem trước danh sách này",
+        aiDiagnostics: error.aiDiagnostics || null,
       });
+      stopHeartbeat();
       res.end();
     }
   }

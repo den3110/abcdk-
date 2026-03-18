@@ -28,6 +28,8 @@ const DEFAULTS = {
     apps: {
       appStore: "",     // vd: https://apps.apple.com/app/idXXXXXXXXX
       playStore: "",    // vd: https://play.google.com/store/apps/details?id=...
+      apkPickleTour: "", // vd: https://pickletour.vn/downloads/pickletour-live.apk
+      apkReferee: "",    // vd: https://pickletour.vn/downloads/pickletour-referee.apk
     },
   },
 };

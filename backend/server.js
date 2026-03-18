@@ -67,6 +67,7 @@ import appInitRoutes from "./routes/appInitRoutes.js";
 import leaderboardRoutes from "./routes/leaderboardRoutes.js";
 import scheduleRoutes from "./routes/scheduleRoutes.js";
 import liveRecordingRoutes from "./routes/liveRecordingRoutes.js";
+import liveRecordingV2Routes from "./routes/liveRecordingV2Routes.js";
 import facebookRoutes from "./routes/facebookRoutes.js";
 import userMatchRoutes from "./routes/userMatchRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
@@ -150,6 +151,7 @@ app.use(
   }),
 );
 app.use("/api/live/recordings", liveRecordingRoutes);
+app.use("/api/live/recordings/v2", liveRecordingV2Routes);
 
 // body limit rÃ¡Â»â„¢ng hÃ†Â¡n cho HTML/JSON dÃƒÂ i
 app.use(express.json({ limit: "50mb" }));
