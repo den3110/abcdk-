@@ -6,10 +6,15 @@ import {
   buildRecordingPlaybackUrl,
 } from "../services/liveRecordingV2Export.service.js";
 import {
+  abortRecordingMultipartUpload,
   buildRecordingManifestObjectKey,
   buildRecordingPrefix,
   buildRecordingSegmentObjectKey,
+  completeRecordingMultipartUpload,
+  createRecordingMultipartUpload,
+  createRecordingMultipartUploadPartUrl,
   createRecordingSegmentUploadUrl,
+  getRecordingMultipartPartSizeBytes,
   isRecordingR2Configured,
   putRecordingManifest,
 } from "../services/liveRecordingV2Storage.service.js";
@@ -29,6 +34,18 @@ function normalizeMode(mode) {
   return ["STREAM_AND_RECORD", "RECORD_ONLY", "STREAM_ONLY"].includes(normalized)
     ? normalized
     : "";
+}
+
+function getSegmentMeta(segment) {
+  const meta =
+    segment && segment.meta && typeof segment.meta === "object"
+      ? { ...segment.meta }
+      : {};
+  return meta;
+}
+
+function findRecordingSegment(recording, segmentIndex) {
+  return (recording.segments || []).find((segment) => segment.index === segmentIndex);
 }
 
 function serializeRecording(recording) {
@@ -180,6 +197,292 @@ export const presignLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
     segmentIndex,
     objectKey,
     upload,
+  });
+});
+
+export const startMultipartLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.body?.recordingId);
+  const segmentIndex = Number(req.body?.segmentIndex);
+  const contentType = asTrimmed(req.body?.contentType) || "video/mp4";
+
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "recordingId is required" });
+  }
+  if (!Number.isInteger(segmentIndex) || segmentIndex < 0) {
+    return res.status(400).json({ message: "segmentIndex must be >= 0" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  let segment = findRecordingSegment(recording, segmentIndex);
+  const objectKey =
+    segment?.objectKey ||
+    buildRecordingSegmentObjectKey({
+      recordingId: recording._id,
+      matchId: recording.match,
+      segmentIndex,
+    });
+  const segmentMeta = getSegmentMeta(segment);
+
+  if (segment?.uploadStatus === "uploaded") {
+    return res.json({
+      ok: true,
+      recordingId: String(recording._id),
+      segmentIndex,
+      objectKey,
+      uploadId: null,
+      partSizeBytes:
+        Number(segmentMeta.partSizeBytes) || getRecordingMultipartPartSizeBytes(),
+      alreadyUploaded: true,
+    });
+  }
+
+  let uploadId = asTrimmed(segmentMeta.uploadId);
+  let partSizeBytes =
+    Number(segmentMeta.partSizeBytes) || getRecordingMultipartPartSizeBytes();
+
+  if (!uploadId || segment?.uploadStatus === "aborted" || segment?.uploadStatus === "failed") {
+    const multipart = await createRecordingMultipartUpload({
+      objectKey,
+      contentType,
+    });
+    uploadId = multipart.uploadId;
+    partSizeBytes = multipart.partSizeBytes;
+  }
+
+  const nextMeta = {
+    ...segmentMeta,
+    uploadId,
+    partSizeBytes,
+    contentType,
+    startedAt:
+      segmentMeta.startedAt || new Date().toISOString(),
+    abortedAt: null,
+  };
+
+  if (segment) {
+    segment.objectKey = objectKey;
+    segment.uploadStatus = "uploading_parts";
+    segment.meta = nextMeta;
+  } else {
+    recording.segments.push({
+      index: segmentIndex,
+      objectKey,
+      uploadStatus: "uploading_parts",
+      isFinal: false,
+      meta: nextMeta,
+    });
+  }
+
+  recording.error = null;
+  await recording.save();
+
+  return res.json({
+    ok: true,
+    recordingId: String(recording._id),
+    segmentIndex,
+    objectKey,
+    uploadId,
+    partSizeBytes,
+    alreadyUploaded: false,
+  });
+});
+
+export const presignMultipartLiveRecordingSegmentPartV2 = asyncHandler(
+  async (req, res) => {
+    const recordingId = asTrimmed(req.body?.recordingId);
+    const segmentIndex = Number(req.body?.segmentIndex);
+    const partNumber = Number(req.body?.partNumber);
+
+    if (!isValidObjectId(recordingId)) {
+      return res.status(400).json({ message: "recordingId is required" });
+    }
+    if (!Number.isInteger(segmentIndex) || segmentIndex < 0) {
+      return res.status(400).json({ message: "segmentIndex must be >= 0" });
+    }
+    if (!Number.isInteger(partNumber) || partNumber <= 0) {
+      return res.status(400).json({ message: "partNumber must be >= 1" });
+    }
+
+    const recording = await LiveRecordingV2.findById(recordingId);
+    if (!recording) {
+      return res.status(404).json({ message: "Recording not found" });
+    }
+
+    const segment = findRecordingSegment(recording, segmentIndex);
+    if (!segment) {
+      return res.status(404).json({ message: "Recording segment not found" });
+    }
+    if (segment.uploadStatus === "uploaded") {
+      return res.status(409).json({ message: "Recording segment already uploaded" });
+    }
+
+    const segmentMeta = getSegmentMeta(segment);
+    const uploadId = asTrimmed(segmentMeta.uploadId);
+    if (!uploadId) {
+      return res
+        .status(409)
+        .json({ message: "Multipart upload has not been started for this segment" });
+    }
+
+    const upload = await createRecordingMultipartUploadPartUrl({
+      objectKey: segment.objectKey,
+      uploadId,
+      partNumber,
+    });
+
+    return res.json({
+      ok: true,
+      recordingId: String(recording._id),
+      segmentIndex,
+      partNumber,
+      objectKey: segment.objectKey,
+      uploadId,
+      upload,
+    });
+  }
+);
+
+export const completeMultipartLiveRecordingSegmentV2 = asyncHandler(
+  async (req, res) => {
+    const recordingId = asTrimmed(req.body?.recordingId);
+    const segmentIndex = Number(req.body?.segmentIndex);
+    const sizeBytes = Number(req.body?.sizeBytes) || 0;
+    const durationSeconds = Number(req.body?.durationSeconds) || 0;
+    const isFinal = Boolean(req.body?.isFinal);
+    const parts = Array.isArray(req.body?.parts) ? req.body.parts : [];
+
+    if (!isValidObjectId(recordingId)) {
+      return res.status(400).json({ message: "recordingId is required" });
+    }
+    if (!Number.isInteger(segmentIndex) || segmentIndex < 0) {
+      return res.status(400).json({ message: "segmentIndex must be >= 0" });
+    }
+    if (!parts.length) {
+      return res.status(400).json({ message: "parts are required for multipart completion" });
+    }
+
+    const recording = await LiveRecordingV2.findById(recordingId);
+    if (!recording) {
+      return res.status(404).json({ message: "Recording not found" });
+    }
+
+    const segment = findRecordingSegment(recording, segmentIndex);
+    if (!segment) {
+      return res.status(404).json({ message: "Recording segment not found" });
+    }
+    if (segment.uploadStatus === "uploaded") {
+      return res.json({
+        ok: true,
+        recording: serializeRecording(recording),
+      });
+    }
+
+    const segmentMeta = getSegmentMeta(segment);
+    const uploadId = asTrimmed(segmentMeta.uploadId);
+    if (!uploadId) {
+      return res
+        .status(409)
+        .json({ message: "Multipart upload has not been started for this segment" });
+    }
+
+    await completeRecordingMultipartUpload({
+      objectKey: segment.objectKey,
+      uploadId,
+      parts,
+    });
+
+    segment.uploadStatus = "uploaded";
+    segment.etag = asTrimmed(parts[parts.length - 1]?.etag) || null;
+    segment.sizeBytes = sizeBytes;
+    segment.durationSeconds = durationSeconds;
+    segment.isFinal = isFinal;
+    segment.uploadedAt = new Date();
+    segment.meta = {
+      ...segmentMeta,
+      uploadId: null,
+      completedParts: parts.map((part) => ({
+        partNumber: Number(part.partNumber) || 0,
+        etag: asTrimmed(part.etag),
+      })),
+      completedAt: new Date().toISOString(),
+    };
+
+    recording.status = "uploading";
+    recording.sizeBytes = (recording.segments || []).reduce(
+      (sum, item) => sum + (Number(item.sizeBytes) || 0),
+      0
+    );
+    recording.durationSeconds = (recording.segments || []).reduce(
+      (sum, item) => sum + (Number(item.durationSeconds) || 0),
+      0
+    );
+    recording.error = null;
+    await recording.save();
+
+    return res.json({
+      ok: true,
+      recording: serializeRecording(recording),
+    });
+  }
+);
+
+export const abortMultipartLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.body?.recordingId);
+  const segmentIndex = Number(req.body?.segmentIndex);
+
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "recordingId is required" });
+  }
+  if (!Number.isInteger(segmentIndex) || segmentIndex < 0) {
+    return res.status(400).json({ message: "segmentIndex must be >= 0" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  const segment = findRecordingSegment(recording, segmentIndex);
+  if (!segment) {
+    return res.json({ ok: true, aborted: false });
+  }
+  if (segment.uploadStatus === "uploaded") {
+    return res.json({ ok: true, aborted: false, alreadyUploaded: true });
+  }
+
+  const segmentMeta = getSegmentMeta(segment);
+  const uploadId = asTrimmed(segmentMeta.uploadId);
+
+  if (uploadId && segment.objectKey) {
+    try {
+      await abortRecordingMultipartUpload({
+        objectKey: segment.objectKey,
+        uploadId,
+      });
+    } catch (error) {
+      const message = String(error?.message || "");
+      if (!/NoSuchUpload/i.test(message)) {
+        throw error;
+      }
+    }
+  }
+
+  segment.uploadStatus = "aborted";
+  segment.meta = {
+    ...segmentMeta,
+    uploadId: null,
+    abortedAt: new Date().toISOString(),
+  };
+  await recording.save();
+
+  return res.json({
+    ok: true,
+    aborted: true,
+    recording: serializeRecording(recording),
   });
 });
 

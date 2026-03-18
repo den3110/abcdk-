@@ -14,6 +14,7 @@ import AppInstallBanner from "./AppInstallBanner";
 import SponsorMarquee from "./SponsorMarquee";
 import SEOHead from "./SEOHead";
 import { useTheme } from "@mui/material/styles";
+import { useMediaQuery } from "@mui/material";
 import { useThemeMode } from "../context/ThemeContext.jsx";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import RocketLaunchIcon from "@mui/icons-material/RocketLaunch";
@@ -209,6 +210,8 @@ export default function Hero() {
   const userId = userInfo?._id || userInfo?.id;
   const { isDark } = useThemeMode();
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const isSmallPhone = useMediaQuery("(max-width:399.95px)");
   const { t, locale } = useLanguage();
 
   const { data: latest, isFetching } = useGetLatestAssessmentQuery(userId, {
@@ -358,8 +361,8 @@ export default function Hero() {
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          paddingTop: "120px",
-          paddingBottom: "140px",
+          paddingTop: isSmallPhone ? "96px" : isMobile ? "104px" : "120px",
+          paddingBottom: isSmallPhone ? "88px" : isMobile ? "96px" : "140px",
         }}
       >
         {/* Animated Grid Background */}
@@ -426,7 +429,15 @@ export default function Hero() {
           }}
         />
 
-        <Container className="position-relative" style={{ zIndex: 1, maxWidth: "1200px" }}>
+        <Container
+          className="position-relative"
+          style={{
+            zIndex: 1,
+            maxWidth: "1200px",
+            paddingLeft: isSmallPhone ? "20px" : undefined,
+            paddingRight: isSmallPhone ? "20px" : undefined,
+          }}
+        >
           <div className="text-center mb-5">
             {heroData ? (
               <>
@@ -434,7 +445,7 @@ export default function Hero() {
                   bg="transparent"
                   className="mb-4 px-4 py-2 rounded-pill fw-bold bg-opacity-10"
                   style={{ 
-                    fontSize: "0.85rem", 
+                    fontSize: isSmallPhone ? "0.72rem" : "0.85rem", 
                     letterSpacing: "1px",
                     textTransform: "uppercase",
                     color: isDark ? "#92FE9D" : theme.palette.primary.main,
@@ -442,7 +453,14 @@ export default function Hero() {
                     backgroundColor: isDark ? "rgba(146,254,157,0.05)" : "rgba(13,110,253,0.05)",
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: "8px"
+                    justifyContent: "center",
+                    gap: isSmallPhone ? "6px" : "8px",
+                    maxWidth: "100%",
+                    whiteSpace: "normal",
+                    textAlign: "center",
+                    lineHeight: 1.35,
+                    paddingLeft: isSmallPhone ? "14px" : undefined,
+                    paddingRight: isSmallPhone ? "14px" : undefined,
                   }}
                 >
                   <RocketLaunchIcon sx={{ fontSize: "1.1rem" }} /> {t("home.hero.badge")}
@@ -473,6 +491,8 @@ export default function Hero() {
                     fontSize: "clamp(1.1rem, 2vw, 1.4rem)",
                     lineHeight: "1.6",
                     maxWidth: "700px",
+                    paddingLeft: isSmallPhone ? "6px" : 0,
+                    paddingRight: isSmallPhone ? "6px" : 0,
                     color: isDark ? "rgba(255,255,255,0.6)" : "rgba(0,0,0,0.6)",
                   }}
                 >
@@ -490,7 +510,10 @@ export default function Hero() {
             )}
 
             {/* Action Buttons */}
-            <div className="d-flex flex-column flex-sm-row gap-4 justify-content-center align-items-center animate__animated animate__fadeInUp">
+            <div
+              className="d-flex flex-column flex-sm-row gap-4 justify-content-center align-items-center animate__animated animate__fadeInUp"
+              style={{ width: "100%" }}
+            >
                 {!isLoggedIn ? (
                   <>
                     <Button
@@ -504,6 +527,7 @@ export default function Hero() {
                         "--btn-shadow": isDark ? "0 10px 30px rgba(255,255,255,0.1)" : "0 10px 30px rgba(0,0,0,0.1)",
                         "--btn-hover-shadow": isDark ? "0 15px 40px rgba(255,255,255,0.2)" : "0 15px 40px rgba(0,0,0,0.2)",
                         color: isDark ? "#000" : "#fff",
+                        width: isMobile ? "min(100%, 320px)" : "auto",
                       }}
                     >
                       {t("home.actions.getStarted")}
@@ -519,6 +543,7 @@ export default function Hero() {
                         transition: "all 0.3s ease",
                         border: isDark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.1)",
                         backgroundColor: "transparent",
+                        width: isMobile ? "min(100%, 320px)" : "auto",
                       }}
                       onMouseOver={(e) => e.target.style.backgroundColor = isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)"}
                       onMouseOut={(e) => e.target.style.backgroundColor = "transparent"}
@@ -540,6 +565,7 @@ export default function Hero() {
                           "--btn-shadow": isDark ? "0 10px 30px rgba(255,255,255,0.1)" : "0 10px 30px rgba(0,0,0,0.1)",
                           "--btn-hover-shadow": isDark ? "0 15px 40px rgba(255,255,255,0.2)" : "0 15px 40px rgba(0,0,0,0.2)",
                           color: isDark ? "#000" : "#fff",
+                          width: isMobile ? "min(100%, 320px)" : "auto",
                         }}
                       >
                         <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -558,7 +584,8 @@ export default function Hero() {
                            color: needSelfAssess ? (isDark ? "#fff" : "#111") : (isDark ? "#000" : "#fff"),
                            borderColor: isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)",
                            boxShadow: !needSelfAssess ? "0 10px 30px rgba(0,0,0,0.2)" : "none",
-                           transition: "all 0.3s ease"
+                           transition: "all 0.3s ease",
+                           width: isMobile ? "min(100%, 320px)" : "auto",
                         }}
                         onMouseOver={(e) => e.target.style.backgroundColor = needSelfAssess ? (isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.05)") : (isDark ? "#e0e0e0" : "#333")}
                         onMouseOut={(e) => e.target.style.backgroundColor = needSelfAssess ? "transparent" : (isDark ? "#fff" : "#111")}
@@ -578,6 +605,7 @@ export default function Hero() {
                           "--btn-shadow": isDark ? "0 10px 30px rgba(255,255,255,0.1)" : "0 10px 30px rgba(0,0,0,0.1)",
                           "--btn-hover-shadow": isDark ? "0 15px 40px rgba(255,255,255,0.2)" : "0 15px 40px rgba(0,0,0,0.2)",
                           color: isDark ? "#000" : "#fff",
+                          width: isMobile ? "min(100%, 320px)" : "auto",
                         }}
                       >
                         {t("home.actions.exploreTournaments")}
@@ -593,7 +621,7 @@ export default function Hero() {
             className="w-100 mx-auto mt-5 pt-3 animate__animated animate__fadeInUp animate__delay-1s" 
             style={{ 
               maxWidth: "1000px",
-              perspective: "1500px",
+              perspective: isMobile ? "none" : "1500px",
               transformStyle: "preserve-3d"
             }}
           >
@@ -601,17 +629,20 @@ export default function Hero() {
               <div
                 className="overflow-hidden position-relative"
                 style={{
-                  borderRadius: "32px",
+                  borderRadius: isSmallPhone ? "20px" : isMobile ? "24px" : "32px",
                   border: isDark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(255,255,255,0.6)",
                   boxShadow: isDark 
                     ? "0 50px 100px -20px rgba(0,0,0,0.9), 0 30px 60px -30px rgba(13,202,240,0.3)" 
                     : "0 50px 100px -20px rgba(0,0,0,0.15), 0 30px 60px -30px rgba(13,110,253,0.2)",
-                  transform: "rotateX(8deg) scale(0.92) translateY(20px)",
+                  transform: isMobile
+                    ? "none"
+                    : "rotateX(8deg) scale(0.92) translateY(20px)",
                   transformOrigin: "bottom center",
                   transition: "all 0.8s cubic-bezier(0.16, 1, 0.3, 1)",
                   backgroundColor: isDark ? "#111" : "#fff",
                 }}
                 onMouseOver={(e) => {
+                  if (isMobile) return;
                   e.currentTarget.style.transform = "rotateX(0deg) scale(1) translateY(0px)";
                   e.currentTarget.style.boxShadow = isDark 
                     ? "0 40px 80px -10px rgba(0,0,0,0.9), 0 20px 40px -20px rgba(13,202,240,0.4)" 
@@ -625,6 +656,7 @@ export default function Hero() {
                   }
                 }}
                 onMouseOut={(e) => {
+                  if (isMobile) return;
                   e.currentTarget.style.transform = "rotateX(8deg) scale(0.92) translateY(20px)";
                   e.currentTarget.style.boxShadow = isDark 
                     ? "0 50px 100px -20px rgba(0,0,0,0.9), 0 30px 60px -30px rgba(13,202,240,0.3)" 
@@ -683,7 +715,7 @@ export default function Hero() {
       <section
         style={{
           backgroundColor: isDark ? "#050505" : "#fbfbfd",
-          padding: "100px 0",
+          padding: isSmallPhone ? "72px 0" : isMobile ? "84px 0" : "100px 0",
           position: "relative",
           overflow: "hidden",
         }}
@@ -730,10 +762,11 @@ export default function Hero() {
           <Row className="g-4 justify-content-center">
             {statsList ? (
               statsList.map((stat, idx) => (
-                <Col key={idx} xs={6} md={3}>
+                <Col key={idx} xs={12} sm={6} md={3}>
                   <div
-                    className="text-center p-4 h-100"
+                    className="text-center h-100"
                     style={{
+                      padding: isSmallPhone ? "20px 16px" : "24px",
                       borderRadius: "24px",
                       backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
                       border: isDark
@@ -785,10 +818,11 @@ export default function Hero() {
               ))
             ) : homeLoading ? (
               Array.from({ length: 4 }).map((_, idx) => (
-                <Col key={idx} xs={6} md={3}>
+                <Col key={idx} xs={12} sm={6} md={3}>
                   <div
-                    className="text-center p-4 h-100"
+                    className="text-center h-100"
                     style={{
+                      padding: isSmallPhone ? "20px 16px" : "24px",
                       borderRadius: "24px",
                       backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
                       border: isDark
@@ -814,7 +848,7 @@ export default function Hero() {
       <section
         style={{
           backgroundColor: isDark ? "#050505" : "#fbfbfd",
-          padding: "120px 0",
+          padding: isSmallPhone ? "72px 0" : isMobile ? "88px 0" : "120px 0",
           position: "relative",
           overflow: "hidden",
         }}
@@ -881,10 +915,11 @@ export default function Hero() {
             ].map((icon, idx) => {
               const feature = featureSection.items[idx];
               return (
-              <Col key={idx} md={6} lg={4}>
+              <Col key={idx} xs={12} md={6} lg={4}>
                 <div
-                  className="p-4 h-100"
+                  className="h-100"
                   style={{
+                    padding: isSmallPhone ? "20px 16px" : "24px",
                     borderRadius: "24px",
                     backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "#fff",
                     border: isDark
@@ -950,7 +985,7 @@ export default function Hero() {
       <section
         style={{
           backgroundColor: isDark ? "#050505" : "#fbfbfd",
-          padding: "120px 0",
+          padding: isSmallPhone ? "72px 0" : isMobile ? "88px 0" : "120px 0",
           position: "relative",
           overflow: "hidden",
         }}
@@ -1010,10 +1045,11 @@ export default function Hero() {
             <Row className="g-4 justify-content-center">
             {clubsList.length > 0 ? (
               clubsList.map((club, idx) => (
-                <Col key={club.id || idx} xs={6} md={4} lg={4}>
+                <Col key={club.id || idx} xs={12} sm={6} md={4} lg={4}>
                   <div
-                    className="p-4 h-100 d-flex flex-column"
+                    className="h-100 d-flex flex-column"
                     style={{
+                      padding: isSmallPhone ? "20px 16px" : "24px",
                       borderRadius: "24px",
                       backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "#fff",
                       border: isDark
@@ -1080,10 +1116,11 @@ export default function Hero() {
               ))
             ) : homeLoading ? (
               Array.from({ length: 6 }).map((_, idx) => (
-                <Col key={idx} xs={6} md={4} lg={4}>
+                <Col key={idx} xs={12} sm={6} md={4} lg={4}>
                   <div
-                    className="p-4 h-100 d-flex flex-column"
+                    className="h-100 d-flex flex-column"
                     style={{
+                      padding: isSmallPhone ? "20px 16px" : "24px",
                       borderRadius: "24px",
                       backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "#fff",
                       border: isDark
@@ -1109,7 +1146,7 @@ export default function Hero() {
       <section
         className="position-relative overflow-hidden"
         style={{
-          padding: "120px 0",
+          padding: isSmallPhone ? "72px 0" : isMobile ? "88px 0" : "120px 0",
           backgroundColor: isDark ? "#050505" : "#fbfbfd",
         }}
       >
@@ -1142,8 +1179,9 @@ export default function Hero() {
         />
         <Container style={{ maxWidth: "900px", position: "relative", zIndex: 1 }}>
           <div
-            className="text-center p-5"
+            className="text-center"
             style={{
+              padding: isSmallPhone ? "28px 18px" : isMobile ? "36px 24px" : "48px",
               borderRadius: "32px",
               backgroundColor: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
               border: isDark
@@ -1298,7 +1336,7 @@ export default function Hero() {
                           >
                             {item.label}
                           </small>
-                          <div className="d-flex justify-content-between align-items-center mt-1">
+                          <div className="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-2 mt-1">
                             <a
                               href={`mailto:${item.email || item.generalEmail}`}
                               className="text-reset text-decoration-none small text-break"
@@ -1388,8 +1426,9 @@ export default function Hero() {
                           >
                             <img
                               src={APPSTORE_BADGE}
-                              height={35}
+                              height={isSmallPhone ? 32 : 35}
                               alt={t("common.appStores.appStore")}
+                              style={{ maxWidth: "100%", height: isSmallPhone ? 32 : 35 }}
                             />
                           </a>
                         )}
@@ -1402,8 +1441,9 @@ export default function Hero() {
                           >
                             <img
                               src={PLAY_BADGE}
-                              height={35}
+                              height={isSmallPhone ? 32 : 35}
                               alt={t("common.appStores.googlePlay")}
+                              style={{ maxWidth: "100%", height: isSmallPhone ? 32 : 35 }}
                             />
                           </a>
                         )}

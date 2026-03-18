@@ -6,7 +6,7 @@ const liveRecordingV2SegmentSchema = new mongoose.Schema(
     objectKey: { type: String, required: true },
     uploadStatus: {
       type: String,
-      enum: ["presigned", "uploaded", "failed"],
+      enum: ["presigned", "uploading_parts", "uploaded", "failed", "aborted"],
       default: "presigned",
     },
     etag: { type: String, default: null },
