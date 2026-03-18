@@ -8,8 +8,28 @@ import Registration from "../models/registrationModel.js";
 import Court from "../models/courtModel.js";
 import { sleep } from "../utils/sleep.js";
 import { es, ES_TOURNAMENT_INDEX } from "../services/esClient.js";
+import { toPublicUrl } from "../utils/publicUrl.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
+const normalizeTournamentPublicUrls = (req, tournament) => {
+  if (!tournament || typeof tournament !== "object") return tournament;
+
+  const overlay =
+    tournament.overlay && typeof tournament.overlay === "object"
+      ? {
+          ...tournament.overlay,
+          logoUrl: toPublicUrl(req, tournament.overlay.logoUrl, {
+            absolute: false,
+          }),
+        }
+      : tournament.overlay;
+
+  return {
+    ...tournament,
+    image: toPublicUrl(req, tournament.image),
+    overlay,
+  };
+};
 // @desc    Lấy danh sách giải đấu (lọc theo sportType & groupId)
 // @route   GET /api/tournaments?sportType=&groupId=
 // @access  Public
@@ -283,7 +303,9 @@ const getTournaments = asyncHandler(async (req, res) => {
     }
   );
 
-  const tournaments = await Tournament.aggregate(pipeline);
+  const tournaments = (await Tournament.aggregate(pipeline)).map((t) =>
+    normalizeTournamentPublicUrls(req, t)
+  );
   res.status(200).json(tournaments);
 });
 
@@ -356,7 +378,7 @@ const getTournamentById = asyncHandler(async (req, res) => {
 
   // Trả về
   res.json({
-    ...tour,
+    ...normalizeTournamentPublicUrls(req, tour),
     status, // trạng thái tính theo thời điểm hiện tại
     managers,
     amOwner,
@@ -1055,11 +1077,13 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
       sort: [{ startAt: "asc" }],
     });
 
-    const items = result.hits.hits.map((hit) => ({
-      id: hit._id,
-      score: hit._score,
-      ...hit._source,
-    }));
+    const items = result.hits.hits.map((hit) =>
+      normalizeTournamentPublicUrls(req, {
+        id: hit._id,
+        score: hit._score,
+        ...hit._source,
+      })
+    );
 
     res.json({ items });
   } catch (err) {
