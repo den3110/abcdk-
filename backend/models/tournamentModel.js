@@ -69,6 +69,11 @@ const tournamentSchema = new mongoose.Schema(
     startDate: { type: Date, required: true, default: Date.now },
     endDate: { type: Date, required: true, default: Date.now },
     eventType: { type: String, enum: ["single", "double"], default: "double" },
+    nameDisplayMode: {
+      type: String,
+      enum: ["nickname", "fullName"],
+      default: "nickname",
+    },
     scoreCap: { type: Number, required: true, default: 0 },
     scoreGap: { type: Number, required: true, default: 0 },
     singleCap: { type: Number, required: true, default: 0 },

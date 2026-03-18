@@ -147,6 +147,10 @@ export const toDTO = (m) => {
         _id: m.tournament._id || m.tournament,
         name: m.tournament.name || "",
         image: m.tournament.image || "",
+        nameDisplayMode:
+          m.tournament.nameDisplayMode === "fullName"
+            ? "fullName"
+            : "nickname",
         eventType: (m.tournament.eventType || "").toLowerCase(),
         overlay: m.tournament.overlay || undefined,
       }
@@ -390,10 +394,11 @@ export async function startMatch(matchId, refereeId, io) {
   m.liveVersion = (m.liveVersion || 0) + 1;
   await m.save();
 
-  const doc = await Match.findById(m._id).populate("pairA pairB referee");
+  const doc = await loadMatchWithNickForEmit(m._id);
+  if (!doc) return;
   io.to(`match:${matchId}`).emit("match:update", {
     type: "start",
-    data: toDTO(doc),
+    data: toDTO(decorateServeAndSlots(doc)),
   });
 }
 
@@ -658,7 +663,7 @@ export async function addPoint(matchId, team, step = 1, by, io, opts = {}) {
     .populate({ path: "nextMatch", select: "_id" })
     .populate({
       path: "tournament",
-      select: "name image eventType overlay",
+      select: "name image eventType overlay nameDisplayMode",
     })
     // 🆕 BRACKET: gửi đủ groups + meta + config như mẫu JSON bạn đưa
     .populate({
@@ -740,10 +745,11 @@ export async function undoLast(matchId, by, io) {
       m.liveVersion = (m.liveVersion || 0) + 1;
       await m.save();
 
-      const doc = await Match.findById(m._id).populate("pairA pairB referee");
+      const doc = await loadMatchWithNickForEmit(m._id);
+      if (!doc) return;
       io.to(`match:${matchId}`).emit("match:update", {
         type: "undo",
-        data: toDTO(doc),
+        data: toDTO(decorateServeAndSlots(doc)),
       });
       return;
     }
@@ -895,10 +901,11 @@ export async function setServe(matchId, side, server, serverId, by, io) {
   await m.save();
 
   // phát update
-  const doc = await Match.findById(m._id).populate("pairA pairB referee");
+  const doc = await loadMatchWithNickForEmit(m._id);
+  if (!doc) return;
   io?.to(`match:${matchId}`)?.emit("match:update", {
     type: "serve",
-    data: toDTO(doc),
+    data: toDTO(decorateServeAndSlots(doc)),
   });
 }
 
@@ -932,75 +939,16 @@ export async function finishMatch(matchId, winner, reason, by, io) {
     console.error("[rating] applyRatingForFinishedMatch error:", err);
   }
 
-  const doc = await Match.findById(m._id)
-    .populate({
-      path: "pairA",
-      select: "player1 player2 seed label teamName",
-      populate: [
-        {
-          path: "player1",
-          select: "nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
-        },
-        {
-          path: "player2",
-          select: "nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
-        },
-      ],
-    })
-    .populate({
-      path: "pairB",
-      select: "player1 player2 seed label teamName",
-      populate: [
-        {
-          path: "player1",
-          select: "nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
-        },
-        {
-          path: "player2",
-          select: "nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
-        },
-      ],
-    })
-    .populate({ path: "referee", select: "name fullName nickname nickName" })
-    .lean();
+  const doc = await loadMatchWithNickForEmit(m._id);
 
   if (!doc) return;
-
-  // Ưu tiên player.nickname/nickName; nếu thiếu HOẶC rỗng -> fallback user.nickname/user.nickName
-  const fillNick = (p) => {
-    if (!p) return p;
-    const pick = (v) => (v && String(v).trim()) || "";
-    const primary = pick(p.nickname) || pick(p.nickName);
-    const fromUser = pick(p.user?.nickname) || pick(p.user?.nickName);
-    const n = primary || fromUser || "";
-    if (n) {
-      p.nickname = n;
-      p.nickName = n;
-    }
-    // (tuỳ chọn) giảm payload:
-    // if (p.user) delete p.user;
-    return p;
-  };
-
-  if (doc.pairA) {
-    doc.pairA.player1 = fillNick(doc.pairA.player1);
-    doc.pairA.player2 = fillNick(doc.pairA.player2);
-  }
-  if (doc.pairB) {
-    doc.pairB.player1 = fillNick(doc.pairB.player1);
-    doc.pairB.player2 = fillNick(doc.pairB.player2);
-  }
 
   // (tuỳ chọn) nếu bạn có meta.streams muốn đính kèm
   if (!doc.streams && doc.meta?.streams) doc.streams = doc.meta.streams;
 
   io?.to(`match:${matchId}`)?.emit("match:update", {
     type: "finish",
-    data: toDTO(doc),
+    data: toDTO(decorateServeAndSlots(doc)),
   });
 }
 

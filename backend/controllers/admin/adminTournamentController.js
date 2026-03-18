@@ -97,6 +97,7 @@ const FIELD_LABELS = {
   sportType: "Loại môn",
   groupId: "Nhóm",
   eventType: "Hình thức",
+  nameDisplayMode: "Kiểu hiển thị tên VĐV",
   regOpenDate: "Mở đăng ký",
   registrationDeadline: "Hạn đăng ký",
   startDate: "Ngày bắt đầu",
@@ -299,6 +300,10 @@ const createSchema = Joi.object({
     .valid("single", "double")
     .default("double")
     .label(FIELD_LABELS.eventType),
+  nameDisplayMode: Joi.string()
+    .valid("nickname", "fullName")
+    .default("nickname")
+    .label(FIELD_LABELS.nameDisplayMode),
 
   regOpenDate: dateISO.required().label(FIELD_LABELS.regOpenDate),
   registrationDeadline: dateISO
@@ -368,6 +373,9 @@ const updateSchema = Joi.object({
   eventType: Joi.string()
     .valid("single", "double")
     .label(FIELD_LABELS.eventType),
+  nameDisplayMode: Joi.string()
+    .valid("nickname", "fullName")
+    .label(FIELD_LABELS.nameDisplayMode),
 
   regOpenDate: dateISO.label(FIELD_LABELS.regOpenDate),
   registrationDeadline: dateISO.label(FIELD_LABELS.registrationDeadline),

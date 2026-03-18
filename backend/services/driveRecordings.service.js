@@ -21,12 +21,7 @@ export function getRecordingDriveConfig() {
 
 export function isRecordingDriveConfigured() {
   const cfg = getRecordingDriveConfig();
-  return Boolean(
-    cfg.serviceAccountEmail &&
-      cfg.privateKey &&
-      cfg.sharedDriveId &&
-      cfg.folderId
-  );
+  return Boolean(cfg.serviceAccountEmail && cfg.privateKey && cfg.folderId);
 }
 
 function getDriveClient() {
@@ -54,17 +49,17 @@ export async function uploadRecordingToDrive({
 }) {
   const { drive, cfg } = getDriveClient();
 
+  const usingSharedDrive = Boolean(cfg.sharedDriveId);
   const createResp = await drive.files.create({
     requestBody: {
       name: fileName,
       parents: [cfg.folderId],
-      driveId: cfg.sharedDriveId,
     },
     media: {
       mimeType,
       body: fs.createReadStream(filePath),
     },
-    supportsAllDrives: true,
+    supportsAllDrives: usingSharedDrive,
     fields: "id, webViewLink, webContentLink, size",
   });
 
@@ -75,7 +70,7 @@ export async function uploadRecordingToDrive({
 
   await drive.permissions.create({
     fileId,
-    supportsAllDrives: true,
+    supportsAllDrives: usingSharedDrive,
     requestBody: {
       role: "reader",
       type: "anyone",

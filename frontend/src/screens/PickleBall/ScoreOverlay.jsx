@@ -11,6 +11,10 @@ import { useGetOverlayConfigQuery } from "../../slices/overlayApiSlice";
 import { useSocket } from "../../context/SocketContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { toHttpsIfNotLocalhost } from "../../utils/url";
+import {
+  getTournamentNameDisplayMode,
+  getTournamentTeamName,
+} from "../../utils/tournamentName";
 
 /* ========================== Utils ========================== */
 const smax = (v) => (Number.isFinite(+v) ? +v : 0);
@@ -254,6 +258,7 @@ function normalizePayload(p) {
       id: p?.tournament?._id || p?.tournament?.id || p?.tournamentId || null,
       name: p?.tournament?.name || readStr(p?.tournamentName) || "",
       image: p?.tournament?.image || "",
+      nameDisplayMode: getTournamentNameDisplayMode(p?.tournament),
       eventType:
         (p?.tournament?.eventType || p?.eventType || "").toLowerCase() ===
         "single"
@@ -370,13 +375,16 @@ const parseQPBool = (raw) => {
   return true;
 };
 
-const teamNameFull = (team) => {
+const teamNameFull = (team, eventType = "double", displayMode = "nickname") => {
+  return getTournamentTeamName(team, eventType, displayMode, {
+    fallback: readStr(team?.name, "â€”"),
+  }); /*
   if (Array.isArray(team?.players) && team.players.length) {
     const nicks = team.players.map(preferNick).filter(Boolean);
     if (nicks.length) return nicks.join(" & ");
   }
   return readStr(team?.name, "—");
-};
+*/};
 
 const knockoutRoundLabel = (data) => {
   const t = (data?.bracketType || data?.bracket?.type || "").toLowerCase();
@@ -662,6 +670,12 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
 
   const [data, setData] = useState(null);
   const [overlayBE, setOverlayBE] = useState(null);
+  const displayMode = getTournamentNameDisplayMode(data?.tournament);
+  const eventType =
+    String(data?.tournament?.eventType || data?.eventType || "").toLowerCase() ===
+    "single"
+      ? "single"
+      : "double";
 
   // Bật overlay extras khi &overlay=1
   const overlayEnabled =
@@ -745,6 +759,9 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
               id: cur?.tournament?.id ?? detail?._id ?? detail?.id ?? null,
               name: detail?.name,
               image: detail?.image,
+              eventType: detail?.eventType || cur?.tournament?.eventType,
+              nameDisplayMode:
+                detail?.nameDisplayMode || cur?.tournament?.nameDisplayMode,
             },
           });
         });
@@ -938,8 +955,8 @@ const ScoreOverlay = forwardRef(function ScoreOverlay(props, overlayRef) {
   /* ---------- Data hiển thị ---------- */
   const tourName = data?.tournament?.name || "";
   const rawStatus = (data?.status || "").toUpperCase();
-  const nameA = teamNameFull(data?.teams?.A) || "Team A";
-  const nameB = teamNameFull(data?.teams?.B) || "Team B";
+  const nameA = teamNameFull(data?.teams?.A, eventType, displayMode) || "Team A";
+  const nameB = teamNameFull(data?.teams?.B, eventType, displayMode) || "Team B";
 
   const gi = Number.isInteger(data?.currentGame) ? data.currentGame : 0;
   const cur = (data?.gameScores || [])[gi] || { a: 0, b: 0 };

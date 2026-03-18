@@ -566,7 +566,7 @@ export const adminGetAllMatchesPagination = expressAsyncHandler(
     // Lấy danh sách + tổng
     const [listRaw, total] = await Promise.all([
       Match.find(filter)
-        .populate({ path: "tournament", select: "name" })
+        .populate({ path: "tournament", select: "name nameDisplayMode" })
         // cần thêm type/stage/order và meta để suy ra số vòng của bracket
         .populate({
           path: "bracket",
@@ -825,7 +825,7 @@ export const adminGetAllMatches = expressAsyncHandler(async (req, res) => {
   if (status) filter.status = status;
 
   const raw = await Match.find(filter)
-    .populate({ path: "tournament", select: "name" })
+    .populate({ path: "tournament", select: "name nameDisplayMode" })
     .populate({ path: "bracket", select: "name type stage" })
     .populate({ path: "pairA", select: "player1 player2" })
     .populate({ path: "pairB", select: "player1 player2" })
@@ -1204,7 +1204,7 @@ export const adminGetMatchById = expressAsyncHandler(async (req, res) => {
    * NHÁNH 2: Match thường – logic cũ giữ nguyên
    * =======================================================*/
   const match = await Match.findById(req.params.id)
-    .populate({ path: "tournament", select: "name eventType" })
+    .populate({ path: "tournament", select: "name eventType nameDisplayMode" })
     .populate({
       path: "bracket",
       select: "name type stage round rules format eventType order meta",

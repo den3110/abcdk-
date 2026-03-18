@@ -2,6 +2,7 @@
 import { Server } from "socket.io";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { createClient } from "redis";
+import IORedis from "ioredis";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import {
@@ -43,6 +44,12 @@ import {
 } from "../services/fbPageMonitorEvents.service.js";
 import { buildTournamentCourtLivePresenceSnapshot } from "../services/courtLivePresence.service.js";
 import { registerCourtLivePresencePublisher } from "../services/courtLivePresenceEvents.service.js";
+import { buildLiveRecordingMonitorSnapshot } from "../services/liveRecordingMonitor.service.js";
+import {
+  getLiveRecordingMonitorEventsChannel,
+  registerLiveRecordingMonitorPublisher,
+  setLiveRecordingMonitorMeta,
+} from "../services/liveRecordingMonitorEvents.service.js";
 
 /* 👇 THÊM BIẾN TOÀN CỤC LƯU IO */
 let ioInstance = null;
@@ -54,6 +61,13 @@ let fbPageMonitorPendingPageIds = new Set();
 let fbPageMonitorPendingHasEvent = false;
 let courtLiveTickerStarted = false;
 const courtLivePendingByTournamentId = new Map();
+let liveRecordingMonitorTickerStarted = false;
+let liveRecordingMonitorPublishTimer = null;
+let liveRecordingMonitorPendingReasons = new Set();
+let liveRecordingMonitorPendingRecordingIds = new Set();
+let liveRecordingMonitorPendingHasEvent = false;
+let liveRecordingMonitorRedisSubscriber = null;
+let liveRecordingMonitorRedisSubscriberStarted = false;
 
 const FB_PAGE_MONITOR_ROOM = "fb-pages:watchers";
 const FB_PAGE_MONITOR_TICK_MS = 15000;
@@ -61,6 +75,11 @@ const FB_PAGE_MONITOR_DEBOUNCE_MS = 300;
 const COURT_LIVE_ROOM_PREFIX = "court-live:watch:";
 const COURT_LIVE_RECONCILE_TICK_MS = 15000;
 const COURT_LIVE_DEBOUNCE_MS = 300;
+const LIVE_RECORDING_MONITOR_ROOM = "recordings-v2:watchers";
+const LIVE_RECORDING_MONITOR_TICK_MS = 15000;
+const LIVE_RECORDING_MONITOR_DEBOUNCE_MS = 300;
+const LIVE_RECORDING_MONITOR_REDIS_URL =
+  process.env.REDIS_URL || "redis://127.0.0.1:6379";
 
 async function emitFbPageMonitorSnapshot(io, options = {}) {
   const { socketId = null } =
@@ -229,6 +248,89 @@ function scheduleCourtLivePresencePublish(io, payload = {}) {
   }, COURT_LIVE_DEBOUNCE_MS);
 }
 
+async function emitLiveRecordingMonitorSnapshot(io, options = {}) {
+  const { socketId = null } =
+    typeof options === "string" ? { socketId: options } : options;
+  try {
+    const snapshot = await buildLiveRecordingMonitorSnapshot();
+    if (socketId) {
+      io.to(socketId).emit("recordings-v2:update", snapshot);
+      return;
+    }
+    io.to(LIVE_RECORDING_MONITOR_ROOM).emit("recordings-v2:update", snapshot);
+  } catch (error) {
+    console.error(
+      "[socket] recordings-v2:update error:",
+      error?.message || error
+    );
+  }
+}
+
+function resetLiveRecordingMonitorPendingState() {
+  liveRecordingMonitorPendingReasons = new Set();
+  liveRecordingMonitorPendingRecordingIds = new Set();
+  liveRecordingMonitorPendingHasEvent = false;
+}
+
+async function flushLiveRecordingMonitorPublish(io) {
+  const reasons = Array.from(liveRecordingMonitorPendingReasons);
+  const recordingIds = Array.from(liveRecordingMonitorPendingRecordingIds);
+  const mode = liveRecordingMonitorPendingHasEvent ? "event" : "reconcile";
+  resetLiveRecordingMonitorPendingState();
+  liveRecordingMonitorPublishTimer = null;
+
+  setLiveRecordingMonitorMeta({
+    reason: reasons.length ? reasons.join(", ") : "unknown_event",
+    recordingIds,
+    mode,
+    at: new Date(),
+  });
+
+  const watchers =
+    io.sockets.adapter.rooms.get(LIVE_RECORDING_MONITOR_ROOM)?.size || 0;
+  if (!watchers) return;
+  await emitLiveRecordingMonitorSnapshot(io);
+}
+
+function scheduleLiveRecordingMonitorPublish(io, payload = {}) {
+  const reason =
+    String(payload.reason || "unknown_event").trim() || "unknown_event";
+  const recordingIds = Array.isArray(payload.recordingIds)
+    ? payload.recordingIds
+    : [];
+  const mode = payload.mode === "reconcile" ? "reconcile" : "event";
+
+  liveRecordingMonitorPendingReasons.add(reason);
+  for (const recordingId of recordingIds) {
+    if (recordingId) {
+      liveRecordingMonitorPendingRecordingIds.add(String(recordingId));
+    }
+  }
+  if (mode === "event") liveRecordingMonitorPendingHasEvent = true;
+
+  const flushNow = async () => {
+    try {
+      await flushLiveRecordingMonitorPublish(io);
+    } catch (error) {
+      console.error("[socket] recordings-v2 flush error:", error);
+    }
+  };
+
+  if (mode === "reconcile") {
+    if (liveRecordingMonitorPublishTimer) {
+      clearTimeout(liveRecordingMonitorPublishTimer);
+      liveRecordingMonitorPublishTimer = null;
+    }
+    void flushNow();
+    return;
+  }
+
+  if (liveRecordingMonitorPublishTimer) return;
+  liveRecordingMonitorPublishTimer = setTimeout(() => {
+    void flushNow();
+  }, LIVE_RECORDING_MONITOR_DEBOUNCE_MS);
+}
+
 function guessClientType(socket) {
   try {
     const raw = socket.handshake.query?.client || "";
@@ -338,7 +440,10 @@ const loadMatchForSnapshot = async (matchId, userMatch = false) => {
       .populate({ path: "previousA", select: "round order" })
       .populate({ path: "previousB", select: "round order" })
       .populate({ path: "nextMatch", select: "_id" })
-      .populate({ path: "tournament", select: "name image eventType overlay" })
+      .populate({
+        path: "tournament",
+        select: "name image eventType overlay nameDisplayMode",
+      })
       // BRACKET: groups + meta + config như mẫu bạn đưa
       .populate({
         path: "bracket",
@@ -594,6 +699,49 @@ export function initSocket(
   registerCourtLivePresencePublisher((payload) => {
     scheduleCourtLivePresencePublish(io, payload);
   });
+  registerLiveRecordingMonitorPublisher((payload) => {
+    scheduleLiveRecordingMonitorPublish(io, payload);
+  });
+
+  if (!liveRecordingMonitorRedisSubscriberStarted) {
+    liveRecordingMonitorRedisSubscriberStarted = true;
+    liveRecordingMonitorRedisSubscriber = new IORedis(
+      LIVE_RECORDING_MONITOR_REDIS_URL,
+      {
+        maxRetriesPerRequest: null,
+      }
+    );
+    liveRecordingMonitorRedisSubscriber.on("error", (error) => {
+      console.error(
+        "[socket] recordings-v2 redis subscriber error:",
+        error?.message || error
+      );
+    });
+    liveRecordingMonitorRedisSubscriber.subscribe(
+      getLiveRecordingMonitorEventsChannel(),
+      (error) => {
+        if (error) {
+          console.error(
+            "[socket] recordings-v2 subscribe failed:",
+            error?.message || error
+          );
+        }
+      }
+    );
+    liveRecordingMonitorRedisSubscriber.on("message", (channel, message) => {
+      if (channel !== getLiveRecordingMonitorEventsChannel()) return;
+      try {
+        const payload = JSON.parse(message || "{}");
+        if (payload?.at) payload.at = new Date(payload.at);
+        scheduleLiveRecordingMonitorPublish(io, payload);
+      } catch (error) {
+        console.error(
+          "[socket] recordings-v2 redis message parse failed:",
+          error?.message || error
+        );
+      }
+    });
+  }
 
   // Optional Redis adapter (clustered scale-out)
   (async () => {
@@ -768,6 +916,24 @@ export function initSocket(
       }
     });
 
+    socket.on("recordings-v2:watch", async () => {
+      try {
+        if (!(await ensureAdmin(socket))) return;
+        socket.join(LIVE_RECORDING_MONITOR_ROOM);
+        await emitLiveRecordingMonitorSnapshot(io, socket.id);
+      } catch (e) {
+        console.error("[socket] recordings-v2:watch error:", e);
+      }
+    });
+
+    socket.on("recordings-v2:unwatch", () => {
+      try {
+        socket.leave(LIVE_RECORDING_MONITOR_ROOM);
+      } catch (e) {
+        console.error("[socket] recordings-v2:unwatch error:", e);
+      }
+    });
+
     // heartbeat từ client (app/web gửi mỗi 10s)
     socket.on("presence:ping", async () => {
       try {
@@ -875,7 +1041,7 @@ export function initSocket(
             .populate({ path: "nextMatch", select: "_id" })
             .populate({
               path: "tournament",
-              select: "name image eventType overlay",
+              select: "name image eventType overlay nameDisplayMode",
             })
             // BRACKET: gửi đủ groups + meta + config như mẫu JSON bạn đưa
             .populate({
@@ -1615,7 +1781,7 @@ export function initSocket(
               { path: "player2", select: "user" },
             ],
           })
-          .populate({ path: "tournament", select: "eventType" });
+          .populate({ path: "tournament", select: "eventType nameDisplayMode" });
 
         if (!m) return ack?.({ ok: false, message: "Match not found" });
 
@@ -1858,7 +2024,7 @@ export function initSocket(
         .populate({ path: "nextMatch", select: "_id" })
         .populate({
           path: "tournament",
-          select: "name image eventType overlay",
+          select: "name image eventType overlay nameDisplayMode",
         })
         // 🆕 BRACKET: bổ sung đủ groups + meta + config (giữ cái cũ, chỉ add thêm)
         .populate({
@@ -2005,7 +2171,7 @@ export function initSocket(
         // tournament kèm overlay (để pickOverlay)
         .populate({
           path: "tournament",
-          select: "name image eventType overlay",
+          select: "name image eventType overlay nameDisplayMode",
         })
         // 🔼 BỔ SUNG: BRACKET đầy đủ cho toDTO (meta, groups, config, overlay...)
         .populate({
@@ -2327,7 +2493,7 @@ export function initSocket(
         .populate({ path: "nextMatch", select: "_id" })
         .populate({
           path: "tournament",
-          select: "name image eventType overlay",
+          select: "name image eventType overlay nameDisplayMode",
         })
         .populate({
           // gửi đủ groups + meta + config như mẫu JSON
@@ -2676,6 +2842,20 @@ export function initSocket(
         console.error("[socket] court-live ticker error:", e);
       }
     }, COURT_LIVE_RECONCILE_TICK_MS);
+  }
+
+  if (!liveRecordingMonitorTickerStarted) {
+    liveRecordingMonitorTickerStarted = true;
+    setInterval(async () => {
+      try {
+        scheduleLiveRecordingMonitorPublish(io, {
+          reason: "fallback_reconcile",
+          mode: "reconcile",
+        });
+      } catch (e) {
+        console.error("[socket] recordings-v2 ticker error:", e);
+      }
+    }, LIVE_RECORDING_MONITOR_TICK_MS);
   }
 
   return ioInstance;

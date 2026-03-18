@@ -48,6 +48,10 @@ import { useLanguage } from "../../context/LanguageContext";
 import SEOHead from "../../components/SEOHead";
 import { skipToken } from "@reduxjs/toolkit/query";
 import { useSelector } from "react-redux";
+import {
+  getTournamentNameDisplayMode,
+  getTournamentPairName,
+} from "../../utils/tournamentName";
 
 /* ---------- KEEPING HELPERS (LOGIC GIỮ NGUYÊN) ---------- */
 const hasVal = (v) =>
@@ -146,21 +150,50 @@ function orderKey(m) {
   const ts = m?.createdAt ? new Date(m.createdAt).getTime() : 9e15;
   return [bo, r, o, codeNum, ts];
 }
-function pairToName(pair) {
+function pairToName(pair, eventType = "double", displayMode = "nickname") {
   if (!pair) return null;
-  const p1 = pair.player1?.nickName || pair.player1?.fullName;
-  const p2 = pair.player2?.nickName || pair.player2?.fullName;
-  const name = [p1, p2].filter(Boolean).join(" & ");
-  return name || null;
+  return (
+    getTournamentPairName(pair, eventType, displayMode) ||
+    pair?.name ||
+    null
+  );
 }
 function seedToName(seed) {
   return seed?.label || null;
 }
-function teamNameFrom(m, side, fallback = "TBD") {
+function teamNameFrom(
+  m,
+  side,
+  eventTypeOrFallback = "double",
+  displayModeOrFallback = "nickname",
+  fallback = "TBD"
+) {
   if (!m) return fallback;
+  const normalizedEventType = String(eventTypeOrFallback || "").toLowerCase();
+  const eventType =
+    normalizedEventType === "single" || normalizedEventType === "double"
+      ? normalizedEventType
+      : String(m?.tournament?.eventType || m?.eventType || "double")
+          .toLowerCase()
+          .includes("single")
+      ? "single"
+      : "double";
+  const displayMode =
+    displayModeOrFallback === "fullName" ||
+    displayModeOrFallback === "nickname"
+      ? displayModeOrFallback
+      : getTournamentNameDisplayMode(m?.tournament);
+  const resolvedFallback =
+    normalizedEventType === "single" || normalizedEventType === "double"
+      ? fallback
+      : eventTypeOrFallback;
   const pair = side === "A" ? m.pairA : m.pairB;
   const seed = side === "A" ? m.seedA : m.seedB;
-  return pairToName(pair) || seedToName(seed) || fallback;
+  return (
+    pairToName(pair, eventType, displayMode) ||
+    seedToName(seed) ||
+    resolvedFallback
+  );
 }
 function scoreText(m) {
   if (typeof m?.scoreText === "string" && m.scoreText.trim())
@@ -854,6 +887,7 @@ export default function TournamentSchedule() {
 
   // API
   const { data: tournament, isLoading: tLoading } = useGetTournamentQuery(id);
+  const displayMode = getTournamentNameDisplayMode(tournament);
   const {
     data: matchesResp,
     isLoading: mLoading,
@@ -1134,9 +1168,17 @@ export default function TournamentSchedule() {
           ? parts.join("-")
           : t("tournaments.schedule.fallbackMatchCode");
       }
-      return { ...m, __displayCode: label };
+      return {
+        ...m,
+        tournament: {
+          ...(m?.tournament || {}),
+          eventType: tournament?.eventType || m?.tournament?.eventType,
+          nameDisplayMode: displayMode,
+        },
+        __displayCode: label,
+      };
     });
-  }, [matches, baseRoundStartMap, groupNumberFromMatch, t]);
+  }, [matches, baseRoundStartMap, groupNumberFromMatch, t, tournament?.eventType, displayMode]);
   const allSorted = useMemo(() => {
     return [...matchesWithCode].sort((a, b) => {
       const ak = orderKey(a);

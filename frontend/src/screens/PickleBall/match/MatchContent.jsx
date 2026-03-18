@@ -1,6 +1,6 @@
 // src/screens/PickleBall/match/MatchContent.jsx
 /* eslint-disable react/prop-types */
-import React, {
+import {
   useEffect,
   useRef,
   useState,
@@ -64,6 +64,10 @@ import {
 } from "../../../slices/tournamentsApiSlice";
 import { useSocket } from "../../../context/SocketContext";
 import MatchRowActions from "../../../components/MatchRowActions";
+import {
+  getTournamentNameDisplayMode,
+  getTournamentPairName,
+} from "../../../utils/tournamentName";
 
 /* ====================== utils ====================== */
 const sid = (x) => {
@@ -528,7 +532,9 @@ function StreamPlayer({ stream }) {
         try {
           video.removeEventListener("loadedmetadata", onMeta);
           hls?.destroy();
-        } catch {}
+        } catch {
+          // ignore teardown errors from partially initialized players
+        }
       };
     }
   }, [stream]);
@@ -608,7 +614,7 @@ function StreamPlayer({ stream }) {
 }
 
 /* ====================== PlayerLink & team helpers ====================== */
-function PlayerLink({ person, onOpen }) {
+function PlayerLink({ person, onOpen, displayMode = "nickname" }) {
   if (!person) return null;
   const uid =
     person?.user?._id ||
@@ -636,14 +642,23 @@ function PlayerLink({ person, onOpen }) {
         cursor: "pointer",
         "&:hover": { textDecorationColor: "inherit" },
       }}
-      title={nameWithNick(person)}
+      title={nameWithNick(person, displayMode)}
     >
-      {nameWithNick(person)}
+      {nameWithNick(person, displayMode)}
     </MuiLink>
   );
 }
 const idOf = (x) => x?._id || x?.id || x?.value || x || null;
-function pairLabel(reg, isSingle) {
+function pairLabel(reg, isSingle, displayMode = "nickname") {
+  return getTournamentPairName(reg, isSingle ? "single" : "double", displayMode, {
+    fallback:
+      reg?.code ||
+      reg?.shortCode ||
+      String(reg?._id || reg?.id || reg)
+        .slice(-5)
+        .toUpperCase() ||
+      "â€”",
+  }); /*
   if (!reg) return "—";
   const p1 = reg?.player1 || reg?.players?.[0] || reg?.p1;
   const p2 = reg?.player2 || reg?.players?.[1] || reg?.p2;
@@ -664,7 +679,7 @@ function pairLabel(reg, isSingle) {
       .toUpperCase();
 
   return [n1, n2].filter(Boolean).join(" & ") || code || "—";
-}
+*/}
 function useDebounced(value, delay = 400) {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -680,6 +695,7 @@ function EditTeamsDialog({
   onClose,
   tournamentId,
   isSingle,
+  displayMode = "nickname",
   defaultA,
   defaultB,
   onSaved,
@@ -775,7 +791,7 @@ function EditTeamsDialog({
                 options={options}
                 value={selA}
                 onChange={(_, v) => setSelA(v)}
-                getOptionLabel={(o) => pairLabel(o, isSingle)}
+                getOptionLabel={(o) => pairLabel(o, isSingle, displayMode)}
                 isOptionEqualToValue={(o, v) => idOf(o) === idOf(v)}
                 renderInput={(params) => (
                   <TextField
@@ -797,7 +813,7 @@ function EditTeamsDialog({
                 options={options}
                 value={selB}
                 onChange={(_, v) => setSelB(v)}
-                getOptionLabel={(o) => pairLabel(o, isSingle)}
+                getOptionLabel={(o) => pairLabel(o, isSingle, displayMode)}
                 isOptionEqualToValue={(o, v) => idOf(o) === idOf(v)}
                 renderInput={(params) => (
                   <TextField
@@ -897,13 +913,14 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
     roles.has("superadmin")
   );
 
-  const { tournamentId: tidParam, id: idParam, tid } = useParams();
+  const { tournamentId: tidParam, id: idParam } = useParams();
   const location = useLocation();
   const qs = new URLSearchParams(location.search);
   const tidQuery = qs.get("tournamentId") || qs.get("tournament") || null;
 
   const tour =
     m?.tournament && typeof m.tournament === "object" ? m.tournament : null;
+  const displayMode = getTournamentNameDisplayMode(tour);
 
   const tournamentId =
     tidParam ||
@@ -956,7 +973,6 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
   const {
     lockedId,
     view: mm,
-    waiting,
   } = useLockedMatch(m, { loading: globalLoading });
 
   const groupDoneByStage = useMemo(() => {
@@ -1567,7 +1583,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             </Typography>
             {mm?.pairA && !blockA ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                <PlayerLink person={mm.pairA?.player1} onOpen={openProfile} />
+                <PlayerLink
+                  person={mm.pairA?.player1}
+                  onOpen={openProfile}
+                  displayMode={displayMode}
+                />
                 {!isSingle && mm.pairA?.player2 && (
                   <>
                     {" "}
@@ -1575,6 +1595,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                     <PlayerLink
                       person={mm.pairA.player2}
                       onOpen={openProfile}
+                      displayMode={displayMode}
                     />
                   </>
                 )}
@@ -1614,7 +1635,11 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
             </Typography>
             {mm?.pairB && !blockB ? (
               <Typography variant="h6" sx={{ wordBreak: "break-word" }}>
-                <PlayerLink person={mm.pairB?.player1} onOpen={openProfile} />
+                <PlayerLink
+                  person={mm.pairB?.player1}
+                  onOpen={openProfile}
+                  displayMode={displayMode}
+                />
                 {!isSingle && mm.pairB?.player2 && (
                   <>
                     {" "}
@@ -1622,6 +1647,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
                     <PlayerLink
                       person={mm.pairB.player2}
                       onOpen={openProfile}
+                      displayMode={displayMode}
                     />
                   </>
                 )}
@@ -1881,6 +1907,7 @@ export default function MatchContent({ m, isLoading, liveLoading, onSaved }) {
         onClose={() => setTeamsOpen(false)}
         tournamentId={tournamentId}
         isSingle={isSingle}
+        displayMode={displayMode}
         defaultA={localPatch?.pairA ?? mm?.pairA ?? null}
         defaultB={localPatch?.pairB ?? mm?.pairB ?? null}
         onSaved={handleTeamsSavedLocal}

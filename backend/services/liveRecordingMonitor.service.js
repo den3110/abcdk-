@@ -1,0 +1,319 @@
+import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
+import { getLiveRecordingMonitorMeta } from "./liveRecordingMonitorEvents.service.js";
+
+function pickPersonName(person) {
+  return (
+    person?.nickname ||
+    person?.nickName ||
+    person?.fullName ||
+    person?.name ||
+    person?.shortName ||
+    person?.displayName ||
+    ""
+  );
+}
+
+function buildPairLabel(pair) {
+  if (!pair) return "";
+  if (pair.teamName) return pair.teamName;
+  const p1 = pickPersonName(pair.player1?.user || pair.player1);
+  const p2 = pickPersonName(pair.player2?.user || pair.player2);
+  return [p1, p2].filter(Boolean).join(" / ") || pair.label || "";
+}
+
+function buildParticipantsLabel(match) {
+  const sideA = buildPairLabel(match?.pairA);
+  const sideB = buildPairLabel(match?.pairB);
+  return [sideA, sideB].filter(Boolean).join(" vs ");
+}
+
+function buildCourtLabel(match, recording) {
+  if (match?.courtLabel) return match.courtLabel;
+  if (match?.court?.name) return match.court.name;
+  if (match?.court?.label) return match.court.label;
+  if (Number.isFinite(match?.court?.number)) return `Court ${match.court.number}`;
+  if (recording?.courtId?.label) return recording.courtId.label;
+  if (recording?.courtId?.name) return recording.courtId.name;
+  if (Number.isFinite(recording?.courtId?.number)) {
+    return `Court ${recording.courtId.number}`;
+  }
+  return "";
+}
+
+function compactLabel(parts) {
+  return parts.filter(Boolean).join(" • ");
+}
+
+function toNumber(value, fallback = 0) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function sanitizeSegmentMeta(meta) {
+  return meta && typeof meta === "object" ? { ...meta } : {};
+}
+
+function summarizeSegments(segments = []) {
+  const sortedSegments = [...segments].sort((a, b) => a.index - b.index);
+  const uploadedSegments = sortedSegments.filter(
+    (segment) => segment.uploadStatus === "uploaded"
+  );
+  const uploadingSegments = sortedSegments.filter((segment) =>
+    ["presigned", "uploading_parts"].includes(segment.uploadStatus)
+  );
+  const failedSegments = sortedSegments.filter(
+    (segment) => segment.uploadStatus === "failed"
+  );
+  const abortedSegments = sortedSegments.filter(
+    (segment) => segment.uploadStatus === "aborted"
+  );
+  const latestSegment = sortedSegments[sortedSegments.length - 1] || null;
+  const activeUploadSegment =
+    uploadingSegments.sort((a, b) => b.index - a.index)[0] || null;
+
+  const buildSegmentProgress = (segment) => {
+    if (!segment) return null;
+    const meta = sanitizeSegmentMeta(segment.meta);
+    const completedParts = Array.isArray(meta.completedParts)
+      ? meta.completedParts
+      : [];
+    const completedBytes = completedParts.reduce(
+      (sum, part) => sum + toNumber(part?.sizeBytes),
+      0
+    );
+    const totalSizeBytes =
+      toNumber(meta.totalSizeBytes) ||
+      toNumber(meta.segmentSizeBytes) ||
+      toNumber(segment.sizeBytes);
+    const percent =
+      totalSizeBytes > 0
+        ? Math.max(0, Math.min(100, Math.round((completedBytes / totalSizeBytes) * 100)))
+        : segment.uploadStatus === "uploaded"
+        ? 100
+        : 0;
+    return {
+      index: segment.index,
+      uploadStatus: segment.uploadStatus,
+      isFinal: Boolean(segment.isFinal),
+      sizeBytes: toNumber(segment.sizeBytes),
+      durationSeconds: toNumber(segment.durationSeconds),
+      uploadedAt: segment.uploadedAt || null,
+      completedPartCount: completedParts.length,
+      completedBytes,
+      totalSizeBytes,
+      percent,
+      partSizeBytes: toNumber(meta.partSizeBytes),
+      lastPartUploadedAt: meta.lastPartUploadedAt || null,
+      startedAt: meta.startedAt || null,
+    };
+  };
+
+  return {
+    totalSegments: sortedSegments.length,
+    uploadedSegments: uploadedSegments.length,
+    uploadingSegments: uploadingSegments.length,
+    failedSegments: failedSegments.length,
+    abortedSegments: abortedSegments.length,
+    totalUploadedBytes: uploadedSegments.reduce(
+      (sum, segment) => sum + toNumber(segment.sizeBytes),
+      0
+    ),
+    finalSegmentUploaded: uploadedSegments.some((segment) => segment.isFinal),
+    latestSegment: buildSegmentProgress(latestSegment),
+    activeUploadSegment: buildSegmentProgress(activeUploadSegment),
+  };
+}
+
+function buildStatusMeta(status) {
+  switch (String(status || "").toLowerCase()) {
+    case "recording":
+      return { code: "recording", color: "error", label: "Recording" };
+    case "uploading":
+      return { code: "uploading", color: "warning", label: "Uploading" };
+    case "exporting":
+      return { code: "exporting", color: "info", label: "Exporting" };
+    case "ready":
+      return { code: "ready", color: "success", label: "Ready" };
+    case "failed":
+      return { code: "failed", color: "error", label: "Failed" };
+    default:
+      return {
+        code: String(status || "unknown").toLowerCase(),
+        color: "default",
+        label: status || "Unknown",
+      };
+  }
+}
+
+function buildModeLabel(mode) {
+  switch (String(mode || "").toUpperCase()) {
+    case "STREAM_AND_RECORD":
+      return "Livestream + Record";
+    case "RECORD_ONLY":
+      return "Record only";
+    case "STREAM_ONLY":
+      return "Livestream only";
+    default:
+      return mode || "Unknown";
+  }
+}
+
+function buildRow(recording) {
+  const match = recording.match || {};
+  const participantsLabel = buildParticipantsLabel(match);
+  const tournamentName = match?.tournament?.name || "";
+  const bracketName = match?.bracket?.name || "";
+  const bracketStage = match?.bracket?.stage || "";
+  const courtLabel = buildCourtLabel(match, recording);
+  const segmentSummary = summarizeSegments(recording.segments || []);
+  const statusMeta = buildStatusMeta(recording.status);
+  const competitionLabel = compactLabel([
+    tournamentName,
+    compactLabel([bracketName, bracketStage]),
+    courtLabel,
+  ]);
+
+  return {
+    id: String(recording._id),
+    recordingId: String(recording._id),
+    recordingSessionId: recording.recordingSessionId,
+    status: recording.status,
+    statusMeta,
+    mode: recording.mode,
+    modeLabel: buildModeLabel(recording.mode),
+    quality: recording.quality || "",
+    matchId: match?._id ? String(match._id) : String(recording.match || ""),
+    matchCode: match?.code || "",
+    participantsLabel: participantsLabel || "Unknown match",
+    tournamentName: tournamentName || "",
+    bracketName: bracketName || "",
+    bracketStage: bracketStage || "",
+    courtLabel: courtLabel || "",
+    competitionLabel: competitionLabel || "",
+    createdAt: recording.createdAt || null,
+    updatedAt: recording.updatedAt || null,
+    finalizedAt: recording.finalizedAt || null,
+    readyAt: recording.readyAt || null,
+    durationSeconds: toNumber(recording.durationSeconds),
+    sizeBytes: toNumber(recording.sizeBytes),
+    exportAttempts: toNumber(recording.exportAttempts),
+    playbackUrl: recording.playbackUrl || null,
+    driveRawUrl: recording.driveRawUrl || null,
+    drivePreviewUrl: recording.drivePreviewUrl || null,
+    driveFileId: recording.driveFileId || null,
+    error: recording.error || "",
+    segmentSummary,
+  };
+}
+
+function sortRows(rows) {
+  const priority = {
+    recording: 0,
+    uploading: 1,
+    exporting: 2,
+    failed: 3,
+    ready: 4,
+  };
+  return [...rows].sort((a, b) => {
+    const pa = priority[a.status] ?? 99;
+    const pb = priority[b.status] ?? 99;
+    if (pa !== pb) return pa - pb;
+    return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
+  });
+}
+
+export async function buildLiveRecordingMonitorSnapshot() {
+  const recordings = await LiveRecordingV2.find({})
+    .sort({ updatedAt: -1, createdAt: -1 })
+    .populate({
+      path: "match",
+      select: "code courtLabel pairA pairB court bracket tournament status",
+      populate: [
+        {
+          path: "pairA",
+          select: "player1 player2 teamName label",
+          populate: [
+            {
+              path: "player1",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "name fullName nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "name fullName nickname nickName" },
+            },
+          ],
+        },
+        {
+          path: "pairB",
+          select: "player1 player2 teamName label",
+          populate: [
+            {
+              path: "player1",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "name fullName nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "name fullName nickname nickName" },
+            },
+          ],
+        },
+        { path: "court", select: "name label number" },
+        { path: "bracket", select: "name stage" },
+        { path: "tournament", select: "name" },
+      ],
+    })
+    .populate({ path: "courtId", select: "name label number" })
+    .lean();
+
+  const rows = sortRows(recordings.map(buildRow));
+  const summary = rows.reduce(
+    (acc, row) => {
+      acc.total += 1;
+      if (row.status === "recording") acc.recording += 1;
+      if (row.status === "uploading") acc.uploading += 1;
+      if (row.status === "exporting") acc.exporting += 1;
+      if (row.status === "ready") acc.ready += 1;
+      if (row.status === "failed") acc.failed += 1;
+      if (["recording", "uploading", "exporting"].includes(row.status)) {
+        acc.active += 1;
+      }
+      acc.totalDurationSeconds += toNumber(row.durationSeconds);
+      acc.totalSizeBytes += toNumber(row.sizeBytes);
+      acc.totalSegments += toNumber(row.segmentSummary?.totalSegments);
+      acc.uploadedSegments += toNumber(row.segmentSummary?.uploadedSegments);
+      acc.pendingSegments += Math.max(
+        0,
+        toNumber(row.segmentSummary?.totalSegments) -
+          toNumber(row.segmentSummary?.uploadedSegments)
+      );
+      return acc;
+    },
+    {
+      total: 0,
+      active: 0,
+      recording: 0,
+      uploading: 0,
+      exporting: 0,
+      ready: 0,
+      failed: 0,
+      totalDurationSeconds: 0,
+      totalSizeBytes: 0,
+      totalSegments: 0,
+      uploadedSegments: 0,
+      pendingSegments: 0,
+    }
+  );
+
+  return {
+    summary,
+    rows,
+    meta: {
+      ...getLiveRecordingMonitorMeta(),
+      generatedAt: new Date(),
+    },
+  };
+}

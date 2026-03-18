@@ -78,6 +78,7 @@ import {
 } from "../../slices/tournamentsApiSlice";
 import { useSocket } from "../../context/SocketContext";
 import { useLanguage } from "../../context/LanguageContext";
+import { getTournamentNameDisplayMode } from "../../utils/tournamentName";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 import SEOHead from "../../components/SEOHead";
 
@@ -2605,7 +2606,7 @@ export default function DrawPage() {
 
   // NEW: UI mode
   const [uiMode, setUiMode] = useState("classic"); // 'classic' | 'cards'
-  const [nameDisplayMode, setNameDisplayMode] = useState("nickname");
+  const [nameDisplayModeOverride, setNameDisplayModeOverride] = useState(null);
   const usingCardMode = uiMode === "cards";
 
   // Card overlay state
@@ -2656,6 +2657,12 @@ export default function DrawPage() {
     refetchOnReconnect: true,
     forceRefetch: () => true,
   });
+  const nameDisplayMode =
+    nameDisplayModeOverride || getTournamentNameDisplayMode(tournament);
+
+  useEffect(() => {
+    setNameDisplayModeOverride(null);
+  }, [tournamentId]);
 
   // Xác định quyền bốc thăm
   // isTournamentManager: người quản lý giải
@@ -3966,7 +3973,7 @@ export default function DrawPage() {
           exclusive
           size="small"
           value={nameDisplayMode}
-          onChange={(_, v) => v && setNameDisplayMode(v)}
+          onChange={(_, v) => v && setNameDisplayModeOverride(v)}
         >
           <ToggleButton value="nickname">
             {t("draw.displayModeNickname")}

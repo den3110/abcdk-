@@ -409,7 +409,7 @@ async function emitMatchRefereeSnapshot(matchIds = []) {
       .populate({ path: "nextMatch", select: "_id" })
       .populate({
         path: "tournament",
-        select: "name image eventType overlay",
+        select: "name image eventType overlay nameDisplayMode",
       })
       .populate({
         path: "bracket",

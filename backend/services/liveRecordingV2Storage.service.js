@@ -12,21 +12,28 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
+const RECORDINGS_ENDPOINT =
+  process.env.R2_RECORDINGS_ENDPOINT || process.env.R2_ENDPOINT;
+const RECORDINGS_ACCESS_KEY_ID =
+  process.env.R2_RECORDINGS_ACCESS_KEY_ID || process.env.R2_ACCESS_KEY_ID;
+const RECORDINGS_SECRET_ACCESS_KEY =
+  process.env.R2_RECORDINGS_SECRET_ACCESS_KEY ||
+  process.env.R2_SECRET_ACCESS_KEY;
 const RECORDINGS_BUCKET =
   process.env.R2_RECORDINGS_BUCKET_NAME || process.env.R2_BUCKET_NAME;
 const DEFAULT_RECORDING_PART_SIZE_BYTES = 8 * 1024 * 1024;
 const MIN_MULTIPART_PART_SIZE_BYTES = 5 * 1024 * 1024;
 
 const r2Client =
-  process.env.R2_ENDPOINT &&
-  process.env.R2_ACCESS_KEY_ID &&
-  process.env.R2_SECRET_ACCESS_KEY
+  RECORDINGS_ENDPOINT &&
+  RECORDINGS_ACCESS_KEY_ID &&
+  RECORDINGS_SECRET_ACCESS_KEY
     ? new S3Client({
         region: "auto",
-        endpoint: process.env.R2_ENDPOINT,
+        endpoint: RECORDINGS_ENDPOINT,
         credentials: {
-          accessKeyId: process.env.R2_ACCESS_KEY_ID,
-          secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+          accessKeyId: RECORDINGS_ACCESS_KEY_ID,
+          secretAccessKey: RECORDINGS_SECRET_ACCESS_KEY,
         },
       })
     : null;

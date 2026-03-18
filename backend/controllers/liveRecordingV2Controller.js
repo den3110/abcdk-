@@ -19,6 +19,8 @@ import {
   putRecordingManifest,
 } from "../services/liveRecordingV2Storage.service.js";
 import { enqueueLiveRecordingExport } from "../services/liveRecordingV2Queue.service.js";
+import { buildLiveRecordingMonitorSnapshot } from "../services/liveRecordingMonitor.service.js";
+import { publishLiveRecordingMonitorUpdate } from "../services/liveRecordingMonitorEvents.service.js";
 
 function isValidObjectId(value) {
   return mongoose.isValidObjectId(String(value || ""));
@@ -46,6 +48,13 @@ function getSegmentMeta(segment) {
 
 function findRecordingSegment(recording, segmentIndex) {
   return (recording.segments || []).find((segment) => segment.index === segmentIndex);
+}
+
+async function publishRecordingMonitor(recording, reason) {
+  await publishLiveRecordingMonitorUpdate({
+    reason,
+    recordingIds: recording?._id ? [String(recording._id)] : [],
+  });
 }
 
 function serializeRecording(recording) {
@@ -142,6 +151,8 @@ export const startLiveRecordingV2 = asyncHandler(async (req, res) => {
     }
     await recording.save();
   }
+
+  await publishRecordingMonitor(recording, "recording_started");
 
   return res.json({
     ok: true,
@@ -279,6 +290,7 @@ export const startMultipartLiveRecordingSegmentV2 = asyncHandler(async (req, res
 
   recording.error = null;
   await recording.save();
+  await publishRecordingMonitor(recording, "multipart_segment_started");
 
   return res.json({
     ok: true,
@@ -346,6 +358,82 @@ export const presignMultipartLiveRecordingSegmentPartV2 = asyncHandler(
   }
 );
 
+export const reportMultipartLiveRecordingSegmentProgressV2 = asyncHandler(
+  async (req, res) => {
+    const recordingId = asTrimmed(req.body?.recordingId);
+    const segmentIndex = Number(req.body?.segmentIndex);
+    const partNumber = Number(req.body?.partNumber);
+    const etag = asTrimmed(req.body?.etag);
+    const sizeBytes = Number(req.body?.sizeBytes) || 0;
+    const totalSizeBytes = Number(req.body?.totalSizeBytes) || 0;
+
+    if (!isValidObjectId(recordingId)) {
+      return res.status(400).json({ message: "recordingId is required" });
+    }
+    if (!Number.isInteger(segmentIndex) || segmentIndex < 0) {
+      return res.status(400).json({ message: "segmentIndex must be >= 0" });
+    }
+    if (!Number.isInteger(partNumber) || partNumber <= 0) {
+      return res.status(400).json({ message: "partNumber must be >= 1" });
+    }
+
+    const recording = await LiveRecordingV2.findById(recordingId);
+    if (!recording) {
+      return res.status(404).json({ message: "Recording not found" });
+    }
+
+    const segment = findRecordingSegment(recording, segmentIndex);
+    if (!segment) {
+      return res.status(404).json({ message: "Recording segment not found" });
+    }
+    if (segment.uploadStatus === "uploaded") {
+      return res.json({ ok: true, uploaded: true, recording: serializeRecording(recording) });
+    }
+
+    const segmentMeta = getSegmentMeta(segment);
+    const existingParts = Array.isArray(segmentMeta.completedParts)
+      ? segmentMeta.completedParts
+      : [];
+    const nextParts = [
+      ...existingParts.filter(
+        (part) => Number(part?.partNumber) !== partNumber
+      ),
+      {
+        partNumber,
+        etag,
+        sizeBytes,
+        uploadedAt: new Date().toISOString(),
+      },
+    ].sort((a, b) => Number(a.partNumber) - Number(b.partNumber));
+    const completedBytes = nextParts.reduce(
+      (sum, part) => sum + (Number(part?.sizeBytes) || 0),
+      0
+    );
+
+    segment.uploadStatus = "uploading_parts";
+    segment.meta = {
+      ...segmentMeta,
+      completedParts: nextParts,
+      completedPartCount: nextParts.length,
+      completedBytes,
+      totalSizeBytes:
+        totalSizeBytes > 0
+          ? totalSizeBytes
+          : Number(segmentMeta.totalSizeBytes) || Number(segment.sizeBytes) || 0,
+      lastPartUploadedAt: new Date().toISOString(),
+    };
+    recording.status = "uploading";
+    recording.error = null;
+    await recording.save();
+    await publishRecordingMonitor(recording, "multipart_part_progress");
+
+    return res.json({
+      ok: true,
+      recording: serializeRecording(recording),
+    });
+  }
+);
+
 export const completeMultipartLiveRecordingSegmentV2 = asyncHandler(
   async (req, res) => {
     const recordingId = asTrimmed(req.body?.recordingId);
@@ -404,10 +492,31 @@ export const completeMultipartLiveRecordingSegmentV2 = asyncHandler(
     segment.meta = {
       ...segmentMeta,
       uploadId: null,
-      completedParts: parts.map((part) => ({
-        partNumber: Number(part.partNumber) || 0,
-        etag: asTrimmed(part.etag),
-      })),
+      completedParts: parts.map((part) => {
+        const existingPart = Array.isArray(segmentMeta.completedParts)
+          ? segmentMeta.completedParts.find(
+              (item) => Number(item?.partNumber) === Number(part?.partNumber)
+            )
+          : null;
+        return {
+          partNumber: Number(part.partNumber) || 0,
+          etag: asTrimmed(part.etag),
+          sizeBytes: Number(existingPart?.sizeBytes) || 0,
+        };
+      }),
+      completedPartCount: parts.length,
+      completedBytes: parts.reduce(
+        (sum, part) => {
+          const existingPart = Array.isArray(segmentMeta.completedParts)
+            ? segmentMeta.completedParts.find(
+                (item) => Number(item?.partNumber) === Number(part?.partNumber)
+              )
+            : null;
+          return sum + (Number(existingPart?.sizeBytes) || 0);
+        },
+        0
+      ),
+      totalSizeBytes: sizeBytes,
       completedAt: new Date().toISOString(),
     };
 
@@ -422,6 +531,7 @@ export const completeMultipartLiveRecordingSegmentV2 = asyncHandler(
     );
     recording.error = null;
     await recording.save();
+    await publishRecordingMonitor(recording, "multipart_segment_uploaded");
 
     return res.json({
       ok: true,
@@ -478,6 +588,7 @@ export const abortMultipartLiveRecordingSegmentV2 = asyncHandler(async (req, res
     abortedAt: new Date().toISOString(),
   };
   await recording.save();
+  await publishRecordingMonitor(recording, "multipart_segment_aborted");
 
   return res.json({
     ok: true,
@@ -543,6 +654,7 @@ export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
   );
   recording.error = null;
   await recording.save();
+  await publishRecordingMonitor(recording, "segment_uploaded_legacy");
 
   return res.json({
     ok: true,
@@ -603,6 +715,7 @@ export const finalizeLiveRecordingV2 = asyncHandler(async (req, res) => {
   await recording.save();
 
   await enqueueLiveRecordingExport(recording._id);
+  await publishRecordingMonitor(recording, "recording_export_queued");
 
   return res.json({
     ok: true,
@@ -629,6 +742,11 @@ export const getLiveRecordingByMatchV2 = asyncHandler(async (req, res) => {
     ok: true,
     recording: serializeRecording(recording),
   });
+});
+
+export const getLiveRecordingMonitorV2 = asyncHandler(async (_req, res) => {
+  const snapshot = await buildLiveRecordingMonitorSnapshot();
+  return res.json(snapshot);
 });
 
 export const playLiveRecordingV2 = asyncHandler(async (req, res) => {

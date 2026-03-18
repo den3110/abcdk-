@@ -51,6 +51,10 @@ import { useSocket } from "../../context/SocketContext";
 import { useLanguage } from "../../context/LanguageContext";
 import { formatDate as formatLocaleDate, formatTime as formatLocaleTime } from "../../i18n/format";
 import SEOHead from "../../components/SEOHead";
+import {
+  getTournamentNameDisplayMode,
+  getTournamentPairName,
+} from "../../utils/tournamentName";
 
 /* ===== HELPERS ===== */
 const TYPE_LABEL = (t, tFn) => {
@@ -65,8 +69,17 @@ const TYPE_LABEL = (t, tFn) => {
   return t || tFn("tournaments.overview.typeFallback");
 };
 const playerName = (p) => p?.fullName || p?.name || p?.nickName || "—";
-const pairLabel = (pair, tFn) => {
+const pairLabel = (
+  pair,
+  tFn,
+  eventType = "double",
+  displayMode = "nickname"
+) => {
   if (!pair) return tFn("tournaments.overview.pairFallback");
+  const resolved = getTournamentPairName(pair, eventType, displayMode, {
+    separator: " / ",
+  });
+  if (resolved) return resolved;
   if (pair.name) return pair.name;
   const ps = [pair.player1, pair.player2].filter(Boolean).map(playerName);
   return ps.join(" / ") || tFn("tournaments.overview.pairFallback");
@@ -222,6 +235,8 @@ const ModernStatCard = ({
 };
 
 const MatchListItem = ({ m, onOpen, t, locale }) => {
+  const eventType = m?.tournament?.eventType || "double";
+  const displayMode = getTournamentNameDisplayMode(m?.tournament);
   return (
     <Card
       elevation={0}
@@ -299,9 +314,9 @@ const MatchListItem = ({ m, onOpen, t, locale }) => {
                 variant="body2"
                 fontWeight={600}
                 noWrap
-                title={pairLabel(m?.pairA, t)}
+                title={pairLabel(m?.pairA, t, eventType, displayMode)}
               >
-                {pairLabel(m?.pairA, t)}
+                {pairLabel(m?.pairA, t, eventType, displayMode)}
               </Typography>
 
               <Divider sx={{ borderStyle: "dashed", my: 0.5 }} />
@@ -310,9 +325,9 @@ const MatchListItem = ({ m, onOpen, t, locale }) => {
                 variant="body2"
                 fontWeight={600}
                 noWrap
-                title={pairLabel(m?.pairB, t)}
+                title={pairLabel(m?.pairB, t, eventType, displayMode)}
               >
-                {pairLabel(m?.pairB, t)}
+                {pairLabel(m?.pairB, t, eventType, displayMode)}
               </Typography>
             </Stack>
             <Typography

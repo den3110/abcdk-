@@ -60,7 +60,7 @@ export const getMatchAdmin = asyncHandler(async (req, res) => {
   const { id } = req.params;
 
   const m = await Match.findById(id)
-    .populate({ path: "tournament", select: "name _id" })
+    .populate({ path: "tournament", select: "name _id nameDisplayMode" })
     .populate({ path: "bracket", select: "name type stage _id createdAt" })
     .populate({ path: "pairA", select: "player1 player2" })
     .populate({ path: "pairB", select: "player1 player2" })
@@ -534,7 +534,10 @@ export async function assignMatchToCourt(req, res) {
       .populate({ path: "previousA", select: "round order" })
       .populate({ path: "previousB", select: "round order" })
       .populate({ path: "nextMatch", select: "_id" })
-      .populate({ path: "tournament", select: "name image eventType overlay" })
+      .populate({
+        path: "tournament",
+        select: "name image eventType overlay nameDisplayMode",
+      })
       .populate({
         path: "court",
         select: "name number code label zone area venue building floor cluster",
@@ -842,7 +845,10 @@ export async function clearMatchCourt(req, res) {
       .populate({ path: "previousA", select: "round order" })
       .populate({ path: "previousB", select: "round order" })
       .populate({ path: "nextMatch", select: "_id" })
-      .populate({ path: "tournament", select: "name image eventType overlay" })
+      .populate({
+        path: "tournament",
+        select: "name image eventType overlay nameDisplayMode",
+      })
       .populate({
         path: "bracket",
         select: [

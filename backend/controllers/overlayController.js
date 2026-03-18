@@ -129,7 +129,7 @@ export async function getOverlayMatch(req, res) {
         .populate({
           path: "tournament",
           // ✅ tournament có overlay.logoUrl (theo schema bạn gửi)
-          select: "name eventType image overlay",
+          select: "name eventType image overlay nameDisplayMode",
         })
         .populate({
           path: "bracket",
@@ -225,7 +225,7 @@ export async function getOverlayMatch(req, res) {
     let tournamentDoc = null;
     if (!isUserMatch && tid) {
       tournamentDoc = await Tournament.findById(tid)
-        .select("name eventType image overlay")
+        .select("name eventType image overlay nameDisplayMode")
         .lean();
 
       // fallback nếu query fail mà populate có sẵn object
@@ -677,6 +677,7 @@ export async function getOverlayMatch(req, res) {
             id: null,
             name: m?.title || "",
             image: "",
+            nameDisplayMode: "nickname",
             eventType: evType,
             overlay: undefined,
             webLogoUrl,
@@ -687,6 +688,11 @@ export async function getOverlayMatch(req, res) {
             id: tournamentDoc?._id || m?.tournament?._id || tid || null,
             name: tournamentDoc?.name || m?.tournament?.name || "",
             image: tournamentDoc?.image || m?.tournament?.image || "",
+            nameDisplayMode:
+              tournamentDoc?.nameDisplayMode === "fullName" ||
+              m?.tournament?.nameDisplayMode === "fullName"
+                ? "fullName"
+                : "nickname",
             eventType: evType,
             overlay:
               tournamentDoc?.overlay || m?.tournament?.overlay || undefined,

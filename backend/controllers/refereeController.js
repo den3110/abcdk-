@@ -190,7 +190,7 @@ export const getAssignedMatches = asyncHandler(async (req, res) => {
   let items = [];
   if (ids.length) {
     items = await Match.find({ _id: { $in: ids } })
-      .populate({ path: "tournament", select: "name eventType" })
+      .populate({ path: "tournament", select: "name eventType nameDisplayMode" })
       .populate({ path: "bracket", select: "name type stage" })
       .populate({
         path: "pairA",
@@ -400,7 +400,10 @@ async function loadMatchWithNickForEmit(matchId) {
     .populate({ path: "previousB", select: "round order" })
     .populate({ path: "nextMatch", select: "_id" })
     // tournament kèm overlay để FE pickOverlay
-    .populate({ path: "tournament", select: "name image eventType overlay" })
+    .populate({
+      path: "tournament",
+      select: "name image eventType overlay nameDisplayMode",
+    })
     // 🆕 BRACKET: mở rộng như các handler khác (meta, groups, config, overlay...)
     .populate({
       path: "bracket",
@@ -1303,7 +1306,10 @@ export const patchStatus = asyncHandler(async (req, res) => {
     .populate({ path: "previousA", select: "round order" })
     .populate({ path: "previousB", select: "round order" })
     .populate({ path: "nextMatch", select: "_id" })
-    .populate({ path: "tournament", select: "name image eventType overlay" })
+    .populate({
+      path: "tournament",
+      select: "name image eventType overlay nameDisplayMode",
+    })
     // 🆕 BRACKET: mở rộng meta/groups/config/overlay như các handler khác
     .populate({
       path: "bracket",
@@ -2647,7 +2653,7 @@ async function populateMatchForEmit(matchId) {
     .populate({ path: "nextMatch", select: "_id" })
     .populate({
       path: "tournament",
-      select: "name image eventType overlay",
+      select: "name image eventType overlay nameDisplayMode",
     })
     .populate({
       // gửi đủ groups + meta + config như mẫu JSON

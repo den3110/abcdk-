@@ -95,6 +95,10 @@ import BulkAssignRefDialog from "../../components/BulkAssignRefDialog";
 import SEOHead from "../../components/SEOHead";
 import { useLanguage } from "../../context/LanguageContext";
 import { formatDateTime } from "../../i18n/format";
+import {
+  getTournamentNameDisplayMode,
+  getTournamentPairName,
+} from "../../utils/tournamentName";
 
 /* ---------------- helpers ---------------- */
 // ✅ Hàm chuẩn hóa: A→1, B→2, C→3, D→4, hoặc giữ nguyên số
@@ -152,12 +156,11 @@ const personNickname = (p) =>
   p?.name ||
   "—";
 
-const pairLabel = (pair) => {
-  if (!pair) return "—";
-  if (pair.name) return pair.name;
-  const ps = [pair.player1, pair.player2].filter(Boolean).map(personNickname);
-  return ps.join(" / ") || "—";
-};
+const pairLabel = (
+  pair,
+  eventType = "double",
+  displayMode = "nickname"
+) => getTournamentPairName(pair, eventType, displayMode, { separator: " / " });
 
 const TYPE_LABEL = (t) => {
   const key = String(t || "").toLowerCase();
@@ -680,6 +683,10 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
   const { t, locale } = useLanguage();
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
+  const eventType = merged?.tournament?.eventType || match?.tournament?.eventType;
+  const displayMode = getTournamentNameDisplayMode(
+    merged?.tournament || match?.tournament
+  );
 
   const MainRow = (
     <TableRow
@@ -708,10 +715,10 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
         {matchCode(merged)}
       </TableCell>
       <TableCell sx={{ width: 220, maxWidth: 220, py: 0.5 }}>
-        <Typography noWrap>{pairLabel(merged?.pairA)}</Typography>
+        <Typography noWrap>{pairLabel(merged?.pairA, eventType, displayMode)}</Typography>
       </TableCell>
       <TableCell sx={{ width: 220, maxWidth: 220, py: 0.5 }}>
-        <Typography noWrap>{pairLabel(merged?.pairB)}</Typography>
+        <Typography noWrap>{pairLabel(merged?.pairB, eventType, displayMode)}</Typography>
       </TableCell>
       <TableCell sx={{ width: 96, whiteSpace: "nowrap", py: 0.5 }}>
         {courtLabel(merged)}
@@ -789,6 +796,10 @@ const MatchCard = React.memo(function MatchCard({
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
   const code = matchCode(merged);
+  const eventType = merged?.tournament?.eventType || match?.tournament?.eventType;
+  const displayMode = getTournamentNameDisplayMode(
+    merged?.tournament || match?.tournament
+  );
 
   return (
     <Card
@@ -865,7 +876,7 @@ const MatchCard = React.memo(function MatchCard({
               {t("tournaments.manage.pairA")}
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
-              {pairLabel(merged?.pairA)}
+              {pairLabel(merged?.pairA, eventType, displayMode)}
             </Typography>
           </Box>
           <Box>
@@ -873,7 +884,7 @@ const MatchCard = React.memo(function MatchCard({
               {t("tournaments.manage.pairB")}
             </Typography>
             <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
-              {pairLabel(merged?.pairB)}
+              {pairLabel(merged?.pairB, eventType, displayMode)}
             </Typography>
           </Box>
           <Box>
@@ -1058,6 +1069,7 @@ export default function TournamentManagePage() {
     isLoading: tourLoading,
     error: tourErr,
   } = useGetTournamentQuery(id);
+  const displayMode = getTournamentNameDisplayMode(tour);
   const {
     data: brackets = [],
     isLoading: brLoading,
@@ -1384,8 +1396,8 @@ export default function TournamentManagePage() {
           code: matchCode(merged),
           court: courtLabel(merged),
           referee: refereeNames(merged),
-          team1: pairLabel(merged?.pairA),
-          team2: pairLabel(merged?.pairB),
+          team1: pairLabel(merged?.pairA, tour?.eventType, displayMode),
+          team2: pairLabel(merged?.pairB, tour?.eventType, displayMode),
           logoUrl: WEB_LOGO_URL,
         });
         const w = window.open("", "_blank");
@@ -1563,8 +1575,8 @@ export default function TournamentManagePage() {
         const text = norm(
           [
             matchCode(merged),
-            pairLabel(merged?.pairA),
-            pairLabel(merged?.pairB),
+            pairLabel(merged?.pairA, tour?.eventType, displayMode),
+            pairLabel(merged?.pairB, tour?.eventType, displayMode),
             courtLabel(merged),
             merged?.status,
             merged?.video,
@@ -1777,8 +1789,8 @@ export default function TournamentManagePage() {
         const merged = { ...m, ...(liveStore.get(String(m._id)) || {}) };
         return [
           matchCode(merged),
-          pairLabel(merged?.pairA),
-          pairLabel(merged?.pairB),
+          pairLabel(merged?.pairA, tour?.eventType, displayMode),
+          pairLabel(merged?.pairB, tour?.eventType, displayMode),
           courtLabel(merged),
           Number.isFinite(merged?.order) ? `T${merged.order + 1}` : "—",
           scoreSummary(merged),

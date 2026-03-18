@@ -71,6 +71,10 @@ import { formatDate as formatLocaleDate } from "../../i18n/format";
 import { getFeeAmount } from "../../utils/fee";
 import { useBotContext } from "../../hook/useBotContext";
 import SEOHead from "../../components/SEOHead";
+import {
+  getTournamentNameDisplayMode,
+  getTournamentPlayerName,
+} from "../../utils/tournamentName";
 
 /* ---------------- 1. CONSTANTS & HELPERS ---------------- */
 const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";
@@ -133,12 +137,13 @@ const normType = (t) => {
   return s || "double";
 };
 
-const displayName = (pl) => {
+const displayName = (pl, displayMode = "nickname") => {
+  return getTournamentPlayerName(pl, displayMode); /*
   if (!pl) return "—";
-  const nn = pl?.nickName || pl?.nickname || pl?.user?.nickname || "";
   return nn || pl.fullName || pl.name || pl.displayName || "—";
 };
 
+*/};
 const getUserId = (pl) => {
   const u = pl?.user;
   if (!u) return null;
@@ -745,11 +750,11 @@ const ActionButtonsInner = ({
 };
 
 const PlayerInfo = memo(
-  ({ player, onEdit, canEdit, onOpenPreview, onOpenProfile }) => (
+  ({ player, onEdit, canEdit, onOpenPreview, onOpenProfile, displayMode }) => (
     <Stack direction="row" spacing={1.5} alignItems="center">
       <Box
         sx={{ position: "relative", cursor: "zoom-in" }}
-        onClick={() => onOpenPreview(player?.avatar, displayName(player))}
+        onClick={() => onOpenPreview(player?.avatar, displayName(player, displayMode))}
       >
         <LazyAvatar src={player?.avatar} size={40} />
         {canEdit && (
@@ -791,7 +796,7 @@ const PlayerInfo = memo(
             alignItems: "center",
           }}
         >
-          {displayName(player)} <VerifyBadge status={kycOf(player)} />
+          {displayName(player, displayMode)} <VerifyBadge status={kycOf(player)} />
         </Typography>
         <Stack direction="row" spacing={1} alignItems="center">
           <Typography
@@ -884,6 +889,7 @@ const RegCard = memo(
                 player={r.player1}
                 onEdit={() => props.onOpenReplace(r, "p1")}
                 canEdit={props.canManage}
+                displayMode={props.displayMode}
                 {...props}
               />
               {!isSingles && r.player2 && (
@@ -892,6 +898,7 @@ const RegCard = memo(
                     player={r.player2}
                     onEdit={() => props.onOpenReplace(r, "p2")}
                     canEdit={props.canManage}
+                    displayMode={props.displayMode}
                     {...props}
                   />
                 </Box>
@@ -1010,6 +1017,7 @@ export default function TournamentRegistration() {
     isLoading: tourLoading,
     error: tourErr,
   } = useGetTournamentQuery(id);
+  const displayMode = getTournamentNameDisplayMode(tour);
   const {
     data: regs = [],
     isLoading: regsLoading,
@@ -1775,10 +1783,10 @@ export default function TournamentRegistration() {
                                 maxWidth: "100%",
                               }}
                             >
-                              {me?.nickname ||
-                                me?.name ||
-                                me?.fullName ||
-                                t("tournaments.registration.form.player1Fallback")}
+                              {displayName(
+                                me,
+                                displayMode
+                              ) || t("tournaments.registration.form.player1Fallback")}
                             </Typography>
 
                             {/* Badge KYC dính sát tên */}
@@ -2033,6 +2041,7 @@ export default function TournamentRegistration() {
                             onOpenProfile={handleOpenProfile}
                             onOpenPayment={handleOpenPayment}
                             onOpenComplaint={handleOpenComplaint}
+                            displayMode={displayMode}
                             regCodeOf={regCodeOf}
                             busy={busy}
                           />

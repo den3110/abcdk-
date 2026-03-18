@@ -70,6 +70,11 @@ import ResponsiveMatchViewer from "./match/ResponsiveMatchViewer";
 import { useSocket } from "../../context/SocketContext";
 import { useLanguage } from "../../context/LanguageContext";
 import SEOHead from "../../components/SEOHead";
+import {
+  getTournamentNameDisplayMode,
+  getTournamentPairName,
+  getTournamentPlayerName,
+} from "../../utils/tournamentName";
 
 const HighlightContext = createContext({ hovered: null, setHovered: () => {} });
 
@@ -144,16 +149,14 @@ function computeMetaBar(brackets, tour) {
 
   return { totalTeams, checkinLabel, locationText };
 }
-export const safePairName = (pair, eventType = "double") => {
-  if (!pair) return "—";
-  const isSingle = String(eventType).toLowerCase() === "single";
-  const a = nameWithNick(pair.player1); // nickname or "—"
-  const b = pair.player2 ? nameWithNick(pair.player2) : "";
-  if (isSingle) return a;
-  return b && b !== "—" ? `${a} & ${b}` : a;
-};
+export const safePairName = (
+  pair,
+  eventType = "double",
+  displayMode = "nickname"
+) => getTournamentPairName(pair, eventType, displayMode);
 
-export const preferName = (p) => preferNick(p);
+export const preferName = (p, displayMode = "nickname") =>
+  getTournamentPlayerName(p, displayMode);
 
 export const preferNick = (p) =>
   (p?.nickname?.length > 0 && String(p.nickname).trim()) ||
@@ -161,19 +164,14 @@ export const preferNick = (p) =>
   (p?.nick?.length > 0 && String(p.nick).trim()) ||
   "";
 
-export const pairLabelWithNick = (pair, eventType = "double") => {
-  if (!pair) return "—";
-  const isSingle = String(eventType).toLowerCase() === "single";
-  const a = nameWithNick(pair.player1);
-  if (isSingle) return a;
-  const b = pair.player2 ? nameWithNick(pair.player2) : "";
-  return b && b !== "—" ? `${a} & ${b}` : a;
-};
+export const pairLabelWithNick = (
+  pair,
+  eventType = "double",
+  displayMode = "nickname"
+) => getTournamentPairName(pair, eventType, displayMode);
 
-export const nameWithNick = (p) => {
-  const nk = preferNick(p);
-  return nk || "—";
-};
+export const nameWithNick = (p, displayMode = "nickname") =>
+  getTournamentPlayerName(p, displayMode);
 
 /* ----- seed label helpers ----- */
 export const seedLabel = (seed) => {
@@ -995,9 +993,10 @@ function TeamHistoryDialog({
   matches,
   points,
   eventType,
+  displayMode = "nickname",
   onOpenMatch,
 }) {
-  const titleName = safePairName(teamRow?.pair, eventType) || "—";
+  const titleName = safePairName(teamRow?.pair, eventType, displayMode) || "—";
   const groupLabel =
     bracket?.groups?.find?.(
       (g) => String(g.name || g.code || g._id || "") === String(groupKey)
@@ -1048,7 +1047,7 @@ function TeamHistoryDialog({
         match: m,
         round: m.round || 1,
         order: m.order ?? 0,
-        opponentName: pairLabelWithNick(opp, eventType),
+        opponentName: pairLabelWithNick(opp, eventType, displayMode),
         status: m.status,
         outcome,
         setsSelf,
@@ -1059,7 +1058,7 @@ function TeamHistoryDialog({
     });
 
     return normed.sort((a, b) => a.round - b.round || a.order - b.order);
-  }, [matches, byRegId, groupKey, teamId, eventType]);
+  }, [matches, byRegId, groupKey, teamId, eventType, displayMode]);
 
   const summary = useMemo(() => {
     const S = {
@@ -1119,7 +1118,12 @@ function TeamHistoryDialog({
 }
 
 /* ============ BXH theo trận thật (giữ logic cũ) ============ */
-function computeGroupTablesForBracket(bracket, matches, eventType) {
+function computeGroupTablesForBracket(
+  bracket,
+  matches,
+  eventType,
+  displayMode = "nickname"
+) {
   const { byKey, byRegId } = buildGroupIndex(bracket);
   const PWIN = bracket?.config?.roundRobin?.points?.win ?? 3;
   const PDRAW = bracket?.config?.roundRobin?.points?.draw ?? 1;
@@ -1273,8 +1277,8 @@ function computeGroupTablesForBracket(bracket, matches, eventType) {
     // head-to-head map omitted for brevity in tie equal points
     if (y.setDiff !== x.setDiff) return y.setDiff - x.setDiff;
     if (y.pointDiff !== x.pointDiff) return y.pointDiff - x.pointDiff;
-    const nx = safePairName(x.pair, eventType) || "";
-    const ny = safePairName(y.pair, eventType) || "";
+    const nx = safePairName(x.pair, eventType, displayMode) || "";
+    const ny = safePairName(y.pair, eventType, displayMode) || "";
     return nx.localeCompare(ny);
   };
 
@@ -1432,11 +1436,17 @@ function buildGroupPlaceholderMatches({
 }
 
 /** BXH fallback (nếu chưa có đội/trận) */
-function buildStandingsWithFallback(bracket, matchesReal, eventType) {
+function buildStandingsWithFallback(
+  bracket,
+  matchesReal,
+  eventType,
+  displayMode = "nickname"
+) {
   const real = computeGroupTablesForBracket(
     bracket,
     matchesReal,
-    eventType
+    eventType,
+    displayMode
   ) || {
     groups: [],
     points: { win: 3, draw: 1, loss: 0 },
@@ -2103,6 +2113,7 @@ export default function TournamentBracket() {
     isLoading: l1,
     error: e1,
   } = useGetTournamentQuery(tourId);
+  const displayMode = getTournamentNameDisplayMode(tour);
   const {
     data: brackets = [],
     isLoading: l2,
@@ -2550,7 +2561,7 @@ export default function TournamentBracket() {
 
       // Có cặp thật rồi → ưu tiên tên cặp
       const pair = side === "A" ? m.pairA : m.pairB;
-      if (pair) return pairLabelWithNick(pair, eventType);
+      if (pair) return pairLabelWithNick(pair, eventType, displayMode);
 
       const prev = side === "A" ? m.previousA : m.previousB;
       if (prev) {
@@ -2588,7 +2599,7 @@ export default function TournamentBracket() {
               return fromSeed;
 
             const winPair = pm[`pair${winSide}`];
-            if (winPair) return pairLabelWithNick(winPair, eventType);
+            if (winPair) return pairLabelWithNick(winPair, eventType, displayMode);
           }
 
           const rPrev = Number(pm?.round ?? 1);
@@ -2599,7 +2610,7 @@ export default function TournamentBracket() {
         // Trận trước đã xong và có winner → trả tên cặp thắng
         if (pm && pm.status === "finished" && pm.winner) {
           const wp = pm.winner === "A" ? pm.pairA : pm.pairB;
-          if (wp) return pairLabelWithNick(wp, eventType);
+          if (wp) return pairLabelWithNick(wp, eventType, displayMode);
         }
 
         // Trận trước chưa xong → nhãn W-V{offset}-T{idx}
@@ -2622,6 +2633,7 @@ export default function TournamentBracket() {
       baseRoundStartForCurrent,
       isSeedBlockedByUnfinishedGroup,
       pendingTeamLabel,
+      displayMode,
     ]
   );
   // Prefill rounds for KO
@@ -2651,7 +2663,12 @@ export default function TournamentBracket() {
   // Standings data (real & fallback)
   const standingsData = useMemo(() => {
     if (!current || current.type !== "group") return null;
-    return buildStandingsWithFallback(current, currentMatches, tour?.eventType);
+    return buildStandingsWithFallback(
+      current,
+      currentMatches,
+      tour?.eventType,
+      displayMode
+    );
   }, [current, currentMatches, tour?.eventType]);
 
   // KO placeholder builder
@@ -3573,7 +3590,7 @@ export default function TournamentBracket() {
                       {gStand?.rows?.length ? (
                         gStand.rows.map((row, idx) => {
                           const name = row.pair
-                            ? safePairName(row.pair, tour?.eventType)
+                            ? safePairName(row.pair, tour?.eventType, displayMode)
                             : row.name || "—";
                           const pts = Number(row.pts ?? 0);
                           const diff = Number.isFinite(row.pointDiff)
@@ -3613,7 +3630,7 @@ export default function TournamentBracket() {
                   {gStand?.rows?.length ? (
                     gStand.rows.map((row, idx) => {
                       const name = row.pair
-                        ? safePairName(row.pair, tour?.eventType)
+                        ? safePairName(row.pair, tour?.eventType, displayMode)
                         : row.name || "—";
                       const pts = Number(row.pts ?? 0);
                       const diff = Number.isFinite(row.pointDiff)
@@ -4256,7 +4273,7 @@ export default function TournamentBracket() {
                 {championPair && (
                   <Alert severity="success" sx={{ mb: 1 }}>
                     {t("tournaments.bracket.champion")}{" "}
-                    <b>{pairLabelWithNick(championPair, tour?.eventType)}</b>
+                    <b>{pairLabelWithNick(championPair, tour?.eventType, displayMode)}</b>
                   </Alert>
                 )}
 

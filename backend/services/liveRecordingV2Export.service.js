@@ -15,6 +15,7 @@ import {
   isRecordingDriveConfigured,
   uploadRecordingToDrive,
 } from "./driveRecordings.service.js";
+import { publishLiveRecordingMonitorUpdate } from "./liveRecordingMonitorEvents.service.js";
 
 function getAppHost() {
   return String(
@@ -151,6 +152,10 @@ export async function exportLiveRecordingV2(recordingId) {
   recording.exportAttempts = (recording.exportAttempts || 0) + 1;
   recording.error = null;
   await recording.save();
+  await publishLiveRecordingMonitorUpdate({
+    reason: "recording_export_started",
+    recordingIds: [String(recording._id)],
+  });
 
   const workDir = await ensureDir(
     path.join(buildTempRoot(), String(recording._id), `${Date.now()}`)
@@ -203,6 +208,10 @@ export async function exportLiveRecordingV2(recordingId) {
     recording.readyAt = new Date();
     recording.error = null;
     await recording.save();
+    await publishLiveRecordingMonitorUpdate({
+      reason: "recording_ready",
+      recordingIds: [String(recording._id)],
+    });
 
     await Match.findByIdAndUpdate(recording.match, {
       $set: {
@@ -215,6 +224,10 @@ export async function exportLiveRecordingV2(recordingId) {
     recording.status = "failed";
     recording.error = error?.message || String(error);
     await recording.save();
+    await publishLiveRecordingMonitorUpdate({
+      reason: "recording_export_failed",
+      recordingIds: [String(recording._id)],
+    });
     throw error;
   } finally {
     await cleanupDir(workDir);
