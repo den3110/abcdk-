@@ -1,6 +1,9 @@
 import OpenAI from "openai";
 import fetch from "node-fetch";
+import { promises as fs } from "fs";
 import mongoose from "mongoose";
+import os from "os";
+import path from "path";
 import pLimit from "p-limit";
 import slugify from "slugify";
 import { openai, OPENAI_DEFAULT_MODEL } from "../lib/openaiClient.js";
@@ -10,6 +13,41 @@ import User from "../models/userModel.js";
 
 // Model riêng cho AI Import Đăng Ký:
 // dùng để phân tích bố cục file, gom dòng thành hồ sơ, và tách VĐV/cặp/đội.
+function normalizeImportProvider(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return normalized === "catgpt" || normalized === "legacy"
+    ? normalized
+    : "";
+}
+
+function normalizeGatewayBaseUrl(value) {
+  const base = String(value || "").trim().replace(/\/+$/, "");
+  if (!base) return "";
+  return /\/v1$/i.test(base) ? base : `${base}/v1`;
+}
+
+const CATGPT_GATEWAY_BASE_URL = normalizeGatewayBaseUrl(
+  process.env.CATGPT_GATEWAY_BASE_URL || ""
+);
+const CATGPT_GATEWAY_API_TOKEN = String(
+  process.env.CATGPT_GATEWAY_API_TOKEN || process.env.CLIPROXY_API_KEY || ""
+).trim();
+const CATGPT_GATEWAY_MODEL =
+  String(process.env.CATGPT_GATEWAY_MODEL || "catgpt-browser").trim() ||
+  "catgpt-browser";
+const CATGPT_GATEWAY_TIMEOUT_MS = Math.max(
+  60_000,
+  Math.min(
+    600_000,
+    Number(process.env.CATGPT_GATEWAY_TIMEOUT_MS || 420_000)
+  )
+);
+const AI_IMPORT_PROVIDER =
+  normalizeImportProvider(process.env.AI_IMPORT_PROVIDER) ||
+  (CATGPT_GATEWAY_BASE_URL ? "catgpt" : "legacy");
+
 const IMPORT_MODEL =
   process.env.OPENAI_REG_IMPORT_MODEL || OPENAI_DEFAULT_MODEL;
 
@@ -160,12 +198,32 @@ function buildImportClientAttempts() {
 }
 
 function buildAiDiagnostics() {
+  const provider =
+    AI_IMPORT_PROVIDER === "catgpt" && CATGPT_GATEWAY_BASE_URL
+      ? "catgpt"
+      : "legacy";
+  const isCatgpt = provider === "catgpt";
   return {
+    provider,
+    responseMode: "",
+    fileType: "",
+    completionId: "",
+    artifactManifestAvailable: false,
+    artifactSource: "",
+    artifactKeys: [],
+    availableModels: [],
     environment: {
-      configuredBaseUrl: process.env.CLIPROXY_BASE_URL || "",
-      configuredModel: IMPORT_MODEL,
-      directFallbackEnabled: Boolean(directOpenAI),
-      directFallbackModel: directOpenAI ? IMPORT_DIRECT_MODEL : "",
+      provider,
+      configuredBaseUrl: isCatgpt
+        ? CATGPT_GATEWAY_BASE_URL
+        : process.env.CLIPROXY_BASE_URL || "",
+      configuredModel: isCatgpt ? CATGPT_GATEWAY_MODEL : IMPORT_MODEL,
+      directFallbackEnabled: !isCatgpt && Boolean(directOpenAI),
+      directFallbackModel:
+        !isCatgpt && directOpenAI ? IMPORT_DIRECT_MODEL : "",
+      apiTokenConfigured: isCatgpt
+        ? Boolean(CATGPT_GATEWAY_API_TOKEN)
+        : Boolean(process.env.CLIPROXY_API_KEY || process.env.OPENAI_API_KEY),
     },
     hasErrors: false,
     hasWarnings: false,
@@ -233,6 +291,70 @@ function classifyAiDiagnosticSummary(diagnostics) {
     return "AI vẫn chạy được nhưng đang phải fallback sang đường gọi khác. Nên kiểm tra lại cấu hình proxy/model.";
   }
   return "AI import đang hoạt động bình thường.";
+}
+
+function classifyImportDiagnosticSummary(diagnostics) {
+  const text = diagnostics.stages
+    .flatMap((stage) => stage.attempts || [])
+    .map((attempt) => attempt.error || "")
+    .join(" | ")
+    .toLowerCase();
+  const provider = diagnostics?.environment?.provider || AI_IMPORT_PROVIDER;
+
+  if (provider === "catgpt") {
+    if (
+      text.includes("timed out") ||
+      text.includes("timeout") ||
+      text.includes("aborterror")
+    ) {
+      return `CatGPT-Gateway da nhan request nhung ChatGPT xu ly qua lau. Tang CATGPT_GATEWAY_TIMEOUT_MS hoac rut gon file/prompt. Timeout hien tai: ${Math.round(
+        CATGPT_GATEWAY_TIMEOUT_MS / 1000
+      )}s.`;
+    }
+    if (text.includes("401") || text.includes("unauthorized")) {
+      return "CatGPT-Gateway tu choi xac thuc. Kiem tra CATGPT_GATEWAY_API_TOKEN.";
+    }
+    if (text.includes("403") || text.includes("forbidden")) {
+      return "CatGPT-Gateway dang chan request nay hoac session ChatGPT khong du quyen.";
+    }
+    if (text.includes("404")) {
+      return "CatGPT-Gateway khong tim thay route /v1/chat/completions. Kiem tra CATGPT_GATEWAY_BASE_URL.";
+    }
+    if (
+      text.includes("503") ||
+      text.includes("chatgpt client not initialized") ||
+      text.includes("not initialized")
+    ) {
+      return "CatGPT-Gateway chua san sang hoac phien ChatGPT chua dang nhap.";
+    }
+    if (text.includes("upload") && text.includes("file")) {
+      return "CatGPT-Gateway khong tai duoc file dinh kem len ChatGPT.";
+    }
+    if (text.includes("parse") || text.includes("json") || text.includes("csv")) {
+      return "ChatGPT da phan hoi nhung khong dung dinh dang JSON/CSV mong muon.";
+    }
+    if (
+      text.includes("econnrefused") ||
+      text.includes("fetch failed") ||
+      text.includes("network") ||
+      text.includes("socket")
+    ) {
+      return "Khong ket noi duoc toi CatGPT-Gateway. Kiem tra endpoint local hoac container.";
+    }
+    if (diagnostics.hasErrors) {
+      return "CatGPT-Gateway dang loi cau hinh, upload file hoac phien ChatGPT.";
+    }
+    if (diagnostics.hasWarnings) {
+      return "CatGPT-Gateway van chay duoc nhung da phai dung duong parse du phong.";
+    }
+    return "CatGPT-Gateway dang hoat dong binh thuong.";
+  }
+
+  return classifyAiDiagnosticSummary(diagnostics);
+}
+
+function getCatgptGatewayRootUrl() {
+  return CATGPT_GATEWAY_BASE_URL.replace(/\/v1$/i, "");
 }
 
 function shouldInlineChatInstructions(attempt) {
@@ -1784,6 +1906,1132 @@ async function analyzeRows(
   return chunkResults.flat();
 }
 
+function csvEscapeCell(value) {
+  const text = String(value ?? "");
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function serializeCsv(rows = []) {
+  return rows
+    .map((row) => row.map((cell) => csvEscapeCell(cell)).join(","))
+    .join("\n");
+}
+
+function buildCsvFromParsed(parsed) {
+  const rows = [];
+  if (Array.isArray(parsed?.headers) && parsed.headers.length) {
+    rows.push(parsed.headers);
+  }
+  (parsed?.rows || []).forEach((row) => {
+    rows.push((row?.cells || []).map((cell) => String(cell ?? "").trim()));
+  });
+  return serializeCsv(rows);
+}
+
+async function materializeSourceFile({ source, parsed }) {
+  const hasTabularShape =
+    Array.isArray(parsed?.headers) && parsed.headers.length > 0
+      ? true
+      : (parsed?.rows || []).some((row) => (row?.cells || []).length > 1);
+  const preferCsv = source?.sourceType === "sheet" || hasTabularShape;
+  const csvContent = preferCsv ? buildCsvFromParsed(parsed) : "";
+  const fileType = csvContent.trim() ? "csv" : "txt";
+  const mimeType = fileType === "csv" ? "text/csv" : "text/plain";
+  const content = fileType === "csv" ? csvContent : String(source?.text || "");
+  const dir = path.join(os.tmpdir(), "pickletour-ai-import");
+  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const filename = `ai-import-${stamp}.${fileType}`;
+  const filePath = path.join(dir, filename);
+
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(filePath, content, "utf8");
+
+  return {
+    filePath,
+    filename,
+    fileType,
+    mimeType,
+    content,
+    base64: Buffer.from(content, "utf8").toString("base64"),
+  };
+}
+
+async function cleanupMaterializedSource(materializedSource) {
+  if (!materializedSource?.filePath) return;
+  try {
+    await fs.unlink(materializedSource.filePath);
+  } catch {
+    // ignore temp cleanup errors
+  }
+}
+
+function extractRowNumbersFromSourceLabel(sourceLabel) {
+  const text = String(sourceLabel || "")
+    .trim()
+    .replace(/[–—]/g, "-");
+  if (!text) return [];
+
+  const rowNumbers = new Set();
+  const rangePattern = /(\d+)\s*-\s*(\d+)/g;
+  let rangeMatch = rangePattern.exec(text);
+  while (rangeMatch) {
+    const start = Number(rangeMatch[1]);
+    const end = Number(rangeMatch[2]);
+    if (Number.isFinite(start) && Number.isFinite(end)) {
+      const [minValue, maxValue] = start <= end ? [start, end] : [end, start];
+      for (
+        let current = minValue;
+        current <= maxValue && rowNumbers.size < 100;
+        current += 1
+      ) {
+        rowNumbers.add(current);
+      }
+    }
+    rangeMatch = rangePattern.exec(text);
+  }
+
+  (text.match(/\d+/g) || []).forEach((value) => {
+    const number = Number(value);
+    if (Number.isFinite(number)) rowNumbers.add(number);
+  });
+
+  return Array.from(rowNumbers).sort((a, b) => a - b);
+}
+
+function coerceBoolean(value) {
+  if (typeof value === "boolean") return value;
+  const text = String(value || "")
+    .trim()
+    .toLowerCase();
+  return ["1", "true", "yes", "y", "review", "can xem lai"].includes(text);
+}
+
+function normalizeGatewayPaymentStatus(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "paid") return "paid";
+  if (normalized === "unpaid") return "unpaid";
+  return "unknown";
+}
+
+function normalizeGatewayRating(value) {
+  const rating = Number(value);
+  if (!Number.isFinite(rating) || rating < 0) return -1;
+  return Math.min(10, rating);
+}
+
+function buildGatewaySourcePreview(registration) {
+  const players = Array.isArray(registration?.players)
+    ? registration.players
+    : [];
+  const names = players
+    .map((player) => normalizeName(player?.fullName))
+    .filter(Boolean)
+    .join(" / ");
+  return truncate(
+    [
+      registration?.sourceLabel
+        ? `rows ${registration.sourceLabel}`
+        : "row ?",
+      names || "chua tach duoc ten",
+      registration?.eventGuess ? `event: ${registration.eventGuess}` : null,
+      registration?.paymentStatus
+        ? `payment: ${normalizeGatewayPaymentStatus(registration.paymentStatus)}`
+        : null,
+      registration?.notes ? `notes: ${registration.notes}` : null,
+    ]
+      .filter(Boolean)
+      .join(" | "),
+    320
+  );
+}
+
+function buildCatgptJsonPrompt(tournament, materializedSource) {
+  const isSingles = String(tournament?.eventType || "double") === "single";
+  return `
+Ban la he thong AI ho tro admin PickleTour nhap danh sach dang ky giai.
+
+Nguon chinh la FILE dinh kem. Hay doc file do va tra ve DUY NHAT 1 JSON object hop le.
+
+Thong tin giai:
+- tournamentName: ${tournament?.name || ""}
+- eventType: ${isSingles ? "single" : "double"}
+- location: ${tournament?.location || ""}
+- uploadedFileType: ${materializedSource?.fileType || "unknown"}
+
+Yeu cau bat buoc:
+- Khong bia nguoi choi, so dien thoai, email, rating, thanh toan.
+- Duoc phep tach 2 VDV nam chung 1 o hoac 1 dong.
+- Phai phan biet ten doi, ten cong ty, sponsor, ma don, STT voi ten nguoi choi.
+- sourceLabel phai tham chieu dong goc trong file, vi du: "2", "5-6", "8,10".
+- rating dung so 0..10, neu khong ro thi -1.
+- paymentStatus chi duoc la: "paid", "unpaid", "unknown".
+- needsReview = true neu du lieu mo ho, thieu doi, khong chac bo cuc, hoac de nham team voi ten nguoi.
+- registrations chi gom cac muc trong giong mot ho so dang ky.
+- cac phan khong parse duoc dua vao unparsedSections.
+- Giu notes va warnings ngan gon, de admin de doc.
+
+JSON phai dung shape nay:
+{
+  "documentAnalysis": {
+    "layoutType": "tabular|sectioned|free_text|mixed|unknown",
+    "registrationStyle": "one_row_one_registration|one_row_contains_pair|grouped_rows|mixed|unknown",
+    "summary": "string",
+    "notes": "string",
+    "confidence": 0.0
+  },
+  "warnings": ["string"],
+  "unparsedSections": [
+    {
+      "sourceLabel": "string",
+      "reason": "string"
+    }
+  ],
+  "registrations": [
+    {
+      "sourceLabel": "string",
+      "players": [
+        {
+          "slot": 1,
+          "fullName": "string",
+          "phone": "string",
+          "email": "string",
+          "rating": -1
+        },
+        {
+          "slot": 2,
+          "fullName": "string",
+          "phone": "string",
+          "email": "string",
+          "rating": -1
+        }
+      ],
+      "eventGuess": "string",
+      "paymentStatus": "paid|unpaid|unknown",
+      "notes": "string",
+      "confidence": 0.0,
+      "needsReview": true,
+      "reasons": ["string"]
+    }
+  ]
+}
+
+Chi tra ve JSON object. Khong markdown. Khong giai thich them.
+  `.trim();
+}
+
+function buildCatgptCsvFallbackPrompt(tournament, materializedSource) {
+  const isSingles = String(tournament?.eventType || "double") === "single";
+  return `
+Ban vua nhan 1 FILE dang ky giai PickleTour.
+
+Neu khong the tra ve JSON dep, hay tra ve DUY NHAT CSV voi dung header sau:
+sourceLabel,confidence,needsReview,paymentStatus,eventGuess,notes,reasons,primaryName,primaryPhone,primaryEmail,primaryRating,secondaryName,secondaryPhone,secondaryEmail,secondaryRating
+
+Yeu cau:
+- eventType cua giai: ${isSingles ? "single" : "double"}
+- fileType: ${materializedSource?.fileType || "unknown"}
+- sourceLabel phai tham chieu dong goc, vi du "2" hoac "5-6"
+- paymentStatus chi duoc la paid/unpaid/unknown
+- needsReview chi duoc la true/false
+- rating la so 0..10, neu khong ro thi -1
+- reasons gom ngan gon, neu nhieu ly do thi ngan cach bang "; "
+- Khong markdown, khong code fence, khong giai thich them
+
+Chi tra ve CSV.
+  `.trim();
+}
+
+async function requestCatgptGateway({
+  prompt,
+  materializedSource,
+  diagnostics,
+  stage,
+}) {
+  if (!CATGPT_GATEWAY_BASE_URL) {
+    throw new Error("Thieu CATGPT_GATEWAY_BASE_URL cho AI import.");
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    CATGPT_GATEWAY_TIMEOUT_MS
+  );
+
+  try {
+    const response = await fetch(
+      `${CATGPT_GATEWAY_BASE_URL}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          ...(CATGPT_GATEWAY_API_TOKEN
+            ? { authorization: `Bearer ${CATGPT_GATEWAY_API_TOKEN}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          model: CATGPT_GATEWAY_MODEL,
+          stream: false,
+          temperature: 0.1,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: prompt },
+                {
+                  type: "file",
+                  file: {
+                    filename: materializedSource.filename,
+                    data: materializedSource.base64,
+                    mime_type: materializedSource.mimeType,
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+        signal: controller.signal,
+      }
+    );
+
+    const rawBody = await response.text();
+    if (!response.ok) {
+      const error = new Error(
+        `HTTP ${response.status}: ${truncate(rawBody || response.statusText, 320)}`
+      );
+      error.status = response.status;
+      throw error;
+    }
+
+    const payload = JSON.parse(rawBody);
+    const content = extractChatText(payload);
+    if (!String(content || "").trim()) {
+      throw new Error("Gateway tra ve phan hoi rong.");
+    }
+    diagnostics.completionId = String(payload?.id || "").trim();
+
+    diagnostics.stages.push({
+      stage,
+      ok: true,
+      model: CATGPT_GATEWAY_MODEL,
+      route: "catgpt/chat_completions",
+      attempts: [],
+      message: "Da nhan phan hoi tu CatGPT-Gateway.",
+    });
+
+    return {
+      completionId: String(payload?.id || "").trim(),
+      model: String(payload?.model || CATGPT_GATEWAY_MODEL),
+      usage: payload?.usage || null,
+      text: String(content || "").trim(),
+      messageContent: payload?.choices?.[0]?.message?.content ?? null,
+      payload,
+      rawBody,
+    };
+  } catch (error) {
+    const normalizedError =
+      error?.name === "AbortError"
+        ? new Error(
+            `Gateway timed out after ${Math.round(
+              CATGPT_GATEWAY_TIMEOUT_MS / 1000
+            )}s while waiting for ChatGPT response.`
+          )
+        : error;
+    diagnostics.hasErrors = true;
+    diagnostics.stages.push({
+      stage,
+      ok: false,
+      model: CATGPT_GATEWAY_MODEL,
+      route: "catgpt/chat_completions",
+      attempts: [
+        {
+          route: "catgpt/chat_completions",
+          model: CATGPT_GATEWAY_MODEL,
+          error: normalizedError.message,
+        },
+      ],
+      message:
+        normalizedError === error
+          ? "Khong lay duoc phan hoi tu CatGPT-Gateway."
+          : "CatGPT-Gateway dang xu ly qua lau, client da dung cho de tranh treo preview.",
+    });
+    throw normalizedError;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchCatgptModels(diagnostics) {
+  try {
+    const response = await fetch(`${CATGPT_GATEWAY_BASE_URL}/models`, {
+      headers: {
+        accept: "application/json",
+        ...(CATGPT_GATEWAY_API_TOKEN
+          ? { authorization: `Bearer ${CATGPT_GATEWAY_API_TOKEN}` }
+          : {}),
+      },
+    });
+    const raw = await response.text();
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${truncate(raw || response.statusText, 240)}`);
+    }
+    const payload = JSON.parse(raw);
+    diagnostics.availableModels = (payload?.data || [])
+      .map((item) => String(item?.id || "").trim())
+      .filter(Boolean);
+    diagnostics.stages.push({
+      stage: "gateway_models",
+      ok: true,
+      model: CATGPT_GATEWAY_MODEL,
+      route: "catgpt/models",
+      attempts: [],
+      message: diagnostics.availableModels.length
+        ? `Gateway dang mo ${diagnostics.availableModels.join(", ")}.`
+        : "Gateway tra ve danh sach model rong.",
+    });
+  } catch (error) {
+    diagnostics.hasWarnings = true;
+    diagnostics.stages.push({
+      stage: "gateway_models",
+      ok: false,
+      model: CATGPT_GATEWAY_MODEL,
+      route: "catgpt/models",
+      attempts: [
+        {
+          route: "catgpt/models",
+          model: CATGPT_GATEWAY_MODEL,
+          error: error.message,
+        },
+      ],
+      message: "Khong doc duoc danh sach model tu CatGPT-Gateway.",
+    });
+  }
+}
+
+async function fetchCatgptArtifactBundle({ completionId, diagnostics }) {
+  const normalizedCompletionId = String(completionId || "").trim();
+  if (!normalizedCompletionId) return null;
+
+  const rootUrl = getCatgptGatewayRootUrl();
+
+  try {
+    const manifestResponse = await fetch(
+      `${rootUrl}/artifacts/completions/${encodeURIComponent(normalizedCompletionId)}`,
+      {
+        headers: {
+          accept: "application/json",
+          ...(CATGPT_GATEWAY_API_TOKEN
+            ? { authorization: `Bearer ${CATGPT_GATEWAY_API_TOKEN}` }
+            : {}),
+        },
+      }
+    );
+    const rawManifest = await manifestResponse.text();
+    if (manifestResponse.status === 404) {
+      diagnostics.hasWarnings = true;
+      diagnostics.artifactManifestAvailable = false;
+      diagnostics.stages.push({
+        stage: "gateway_artifacts",
+        ok: false,
+        model: CATGPT_GATEWAY_MODEL,
+        route: "catgpt/artifacts_manifest",
+        attempts: [
+          {
+            route: "catgpt/artifacts_manifest",
+            model: CATGPT_GATEWAY_MODEL,
+            error: "artifact manifest not found",
+          },
+        ],
+        message: "Gateway chua co artifact manifest cho completion nay, dang dung fallback local.",
+      });
+      return null;
+    }
+    if (!manifestResponse.ok) {
+      throw new Error(
+        `HTTP ${manifestResponse.status}: ${truncate(
+          rawManifest || manifestResponse.statusText,
+          240
+        )}`
+      );
+    }
+
+    const manifest = JSON.parse(rawManifest);
+    const artifacts = Array.isArray(manifest?.artifacts) ? manifest.artifacts : [];
+    diagnostics.artifactManifestAvailable = true;
+    diagnostics.artifactKeys = artifacts
+      .map((artifact) => String(artifact?.key || "").trim())
+      .filter(Boolean);
+
+    const downloads = {};
+    for (const artifact of artifacts) {
+      const key = String(artifact?.key || "").trim();
+      const downloadPath = String(artifact?.download_path || "").trim();
+      if (!key || !downloadPath) continue;
+      if (!["raw_text", "parsed_json", "parsed_csv"].includes(key)) continue;
+
+      const artifactResponse = await fetch(`${rootUrl}${downloadPath}`, {
+        headers: {
+          accept: "text/plain, application/json, text/csv",
+          ...(CATGPT_GATEWAY_API_TOKEN
+            ? { authorization: `Bearer ${CATGPT_GATEWAY_API_TOKEN}` }
+            : {}),
+        },
+      });
+      const artifactText = await artifactResponse.text();
+      if (!artifactResponse.ok) {
+        throw new Error(
+          `Artifact ${key} HTTP ${artifactResponse.status}: ${truncate(
+            artifactText || artifactResponse.statusText,
+            240
+          )}`
+        );
+      }
+      downloads[key] = {
+        ...artifact,
+        content: artifactText,
+      };
+    }
+
+    diagnostics.stages.push({
+      stage: "gateway_artifacts",
+      ok: true,
+      model: CATGPT_GATEWAY_MODEL,
+      route: "catgpt/artifacts_manifest",
+      attempts: [],
+      message: diagnostics.artifactKeys.length
+        ? `Da lay artifact: ${diagnostics.artifactKeys.join(", ")}.`
+        : "Da lay manifest artifact, nhung khong co file text/csv/json phu hop.",
+    });
+
+    return {
+      manifest,
+      rawText: downloads.raw_text || null,
+      parsedJson: downloads.parsed_json || null,
+      parsedCsv: downloads.parsed_csv || null,
+    };
+  } catch (error) {
+    diagnostics.hasWarnings = true;
+    diagnostics.artifactManifestAvailable = false;
+    diagnostics.stages.push({
+      stage: "gateway_artifacts",
+      ok: false,
+      model: CATGPT_GATEWAY_MODEL,
+      route: "catgpt/artifacts_manifest",
+      attempts: [
+        {
+          route: "catgpt/artifacts_manifest",
+          model: CATGPT_GATEWAY_MODEL,
+          error: error.message,
+        },
+      ],
+      message: "Khong lay duoc artifact tu gateway, dang dung local fallback.",
+    });
+    return null;
+  }
+}
+
+function parseCatgptJsonPayload(text) {
+  const parsed = parseJsonLoose(text);
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("ChatGPT khong tra ve JSON object hop le.");
+  }
+
+  return {
+    documentAnalysis:
+      parsed.documentAnalysis && typeof parsed.documentAnalysis === "object"
+        ? parsed.documentAnalysis
+        : {},
+    warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+    unparsedSections: Array.isArray(parsed.unparsedSections)
+      ? parsed.unparsedSections
+      : [],
+    registrations: Array.isArray(parsed.registrations)
+      ? parsed.registrations
+      : [],
+  };
+}
+
+function stripMarkdownWrapper(text) {
+  const raw = String(text || "").trim();
+  const fenced = raw.match(/```(?:csv|text)?\s*([\s\S]*?)```/i);
+  return fenced?.[1]?.trim() || raw;
+}
+
+function parseCatgptCsvPayload(text) {
+  const raw = stripMarkdownWrapper(text);
+  const delimiter = detectDelimiter(raw) || ",";
+  const matrix = parseDelimited(raw, delimiter).filter((row) => !isBlankRow(row));
+  if (matrix.length < 2) {
+    throw new Error("CSV fallback khong co du dong du lieu.");
+  }
+
+  const headers = buildHeaders(matrix[0]);
+  const rows = matrix.slice(1).map((cells) =>
+    Object.fromEntries(
+      headers.map((header, index) => [header, String(cells[index] || "").trim()])
+    )
+  );
+
+  return rows.map((row) => ({
+    sourceLabel: row.sourcelabel || row.source_label || "",
+    confidence: safeNumber(row.confidence, 0),
+    needsReview: coerceBoolean(row.needsreview || row.needs_review),
+    paymentStatus: normalizeGatewayPaymentStatus(
+      row.paymentstatus || row.payment_status
+    ),
+    eventGuess: row.eventguess || row.event_guess || "",
+    notes: row.notes || "",
+    reasons: compactList(
+      String(row.reasons || "")
+        .split(";")
+        .map((item) => item.trim())
+    ),
+    players: [
+      {
+        slot: 1,
+        fullName: row.primaryname || row.primary_name || "",
+        phone: row.primaryphone || row.primary_phone || "",
+        email: row.primaryemail || row.primary_email || "",
+        rating: normalizeGatewayRating(
+          row.primaryrating || row.primary_rating
+        ),
+      },
+      {
+        slot: 2,
+        fullName: row.secondaryname || row.secondary_name || "",
+        phone: row.secondaryphone || row.secondary_phone || "",
+        email: row.secondaryemail || row.secondary_email || "",
+        rating: normalizeGatewayRating(
+          row.secondaryrating || row.secondary_rating
+        ),
+      },
+    ],
+  }));
+}
+
+function normalizeCatgptDocumentAnalysis(
+  parsedHeaders,
+  parsedRows,
+  gatewayPayload,
+  diagnostics
+) {
+  const fallback = buildFallbackDocumentAnalysis(parsedHeaders, parsedRows);
+  const incoming =
+    gatewayPayload?.documentAnalysis &&
+    typeof gatewayPayload.documentAnalysis === "object"
+      ? gatewayPayload.documentAnalysis
+      : {};
+  const notes = compactList(
+    [
+      incoming.summary,
+      incoming.notes,
+      diagnostics?.responseMode === "csv-fallback"
+        ? "Da dung duong CSV du phong de doc file nay."
+        : "",
+      ...(gatewayPayload?.warnings || []),
+    ].filter(Boolean)
+  ).join(" ");
+
+  return {
+    ...fallback,
+    layoutType: String(incoming.layoutType || fallback.layoutType),
+    registrationStyle: String(
+      incoming.registrationStyle || fallback.registrationStyle
+    ),
+    notes: notes || fallback.notes,
+    confidence: safeNumber(incoming.confidence, fallback.confidence),
+    registrationHints: compactList(gatewayPayload?.warnings || []).slice(0, 12),
+  };
+}
+
+function buildCatgptSourceGroups(parsedRows, registrations) {
+  const rowMap = new Map((parsedRows || []).map((row) => [row.rowNumber, row]));
+  const limitedRegistrations = (registrations || []).slice(0, PREVIEW_MAX_ROWS);
+
+  return limitedRegistrations.map((registration, index) => {
+    const parsedRowNumbers = extractRowNumbersFromSourceLabel(
+      registration?.sourceLabel
+    );
+    const matchedRows = parsedRowNumbers
+      .map((rowNumber) => rowMap.get(rowNumber))
+      .filter(Boolean);
+    const rows =
+      matchedRows.length > 0
+        ? matchedRows
+        : [
+            {
+              rowNumber: parsedRowNumbers[0] || index + 1,
+              cells: [],
+              object: null,
+              sourcePreview: buildGatewaySourcePreview(registration),
+            },
+          ];
+    const rowNumbers = compactList(rows.map((row) => row.rowNumber));
+    const sourceLabel =
+      String(registration?.sourceLabel || "").trim() ||
+      (rowNumbers.length > 1
+        ? `${rowNumbers[0]}-${rowNumbers[rowNumbers.length - 1]}`
+        : String(rowNumbers[0] || index + 1));
+
+    return {
+      groupId: `gateway-${index + 1}-${slugify(sourceLabel, {
+        lower: true,
+        strict: true,
+      })}`,
+      rowNumber: rowNumbers[0] || index + 1,
+      rowNumbers,
+      rowLabel: sourceLabel,
+      rows,
+      sourcePreview:
+        matchedRows.length > 0
+          ? buildGroupedSourcePreview(rows, 320)
+          : buildGatewaySourcePreview(registration),
+      isRegistrationGroup: true,
+      groupConfidence: safeNumber(registration?.confidence, 0.4),
+      groupReasons: compactList(registration?.reasons || []),
+    };
+  });
+}
+
+function buildCatgptAiRows(registrations, sourceGroups) {
+  return (sourceGroups || []).map((group, index) => {
+    const registration = registrations[index] || {};
+    const playerMap = new Map(
+      (Array.isArray(registration?.players) ? registration.players : [])
+        .filter(Boolean)
+        .map((player, playerIndex) => [
+          Number(player?.slot) || playerIndex + 1,
+          player,
+        ])
+    );
+    const primary = playerMap.get(1) || registration?.players?.[0] || {};
+    const secondary = playerMap.get(2) || registration?.players?.[1] || {};
+    const notes = compactList(
+      [registration?.eventGuess ? `Noi dung doan: ${registration.eventGuess}` : "", registration?.notes]
+        .filter(Boolean)
+    ).join(" | ");
+    const reasons = compactList([
+      ...(registration?.reasons || []),
+      registration?.needsReview ? "AI danh dau can xem lai." : "",
+      !registration?.sourceLabel ? "AI chua chi ro dong goc cua ho so nay." : "",
+    ]);
+
+    return {
+      rowIndex: index,
+      isRegistrationRow: true,
+      confidence: Math.min(
+        1,
+        Math.max(
+          0,
+          safeNumber(registration?.confidence, group?.groupConfidence || 0.35)
+        )
+      ),
+      primaryName: normalizeName(primary?.fullName),
+      primaryPhone: normalizePhone(primary?.phone),
+      primaryEmail: normalizeEmail(primary?.email),
+      primaryRating: normalizeGatewayRating(primary?.rating),
+      secondaryName: normalizeName(secondary?.fullName),
+      secondaryPhone: normalizePhone(secondary?.phone),
+      secondaryEmail: normalizeEmail(secondary?.email),
+      secondaryRating: normalizeGatewayRating(secondary?.rating),
+      paidStatus: normalizeGatewayPaymentStatus(registration?.paymentStatus),
+      notes,
+      reasons,
+    };
+  });
+}
+
+function buildExportBaseName(tournament) {
+  const slug =
+    slugify(String(tournament?.name || "ai-import"), {
+      lower: true,
+      strict: true,
+    }) || "ai-import";
+  return `${slug}-preview`;
+}
+
+function buildCatgptExportCsv(registrations = []) {
+  const rows = [
+    [
+      "sourceLabel",
+      "confidence",
+      "needsReview",
+      "paymentStatus",
+      "eventGuess",
+      "notes",
+      "reasons",
+      "primaryName",
+      "primaryPhone",
+      "primaryEmail",
+      "primaryRating",
+      "secondaryName",
+      "secondaryPhone",
+      "secondaryEmail",
+      "secondaryRating",
+    ],
+  ];
+
+  (registrations || []).forEach((registration) => {
+    const players = Array.isArray(registration?.players) ? registration.players : [];
+    const bySlot = new Map(
+      players.map((player, index) => [Number(player?.slot) || index + 1, player || {}])
+    );
+    const primary = bySlot.get(1) || players[0] || {};
+    const secondary = bySlot.get(2) || players[1] || {};
+    rows.push([
+      String(registration?.sourceLabel || "").trim(),
+      String(safeNumber(registration?.confidence, 0)),
+      String(Boolean(registration?.needsReview)),
+      normalizeGatewayPaymentStatus(registration?.paymentStatus),
+      String(registration?.eventGuess || "").trim(),
+      String(registration?.notes || "").trim(),
+      compactList(registration?.reasons || []).join("; "),
+      normalizeName(primary?.fullName),
+      normalizePhone(primary?.phone),
+      normalizeEmail(primary?.email),
+      String(normalizeGatewayRating(primary?.rating)),
+      normalizeName(secondary?.fullName),
+      normalizePhone(secondary?.phone),
+      normalizeEmail(secondary?.email),
+      String(normalizeGatewayRating(secondary?.rating)),
+    ]);
+  });
+
+  return serializeCsv(rows);
+}
+
+function buildCatgptExportText({
+  tournament,
+  source,
+  materializedSource,
+  diagnostics,
+  payload,
+  analysis,
+}) {
+  const lines = [
+    `Giai: ${tournament?.name || "-"}`,
+    `Noi dung: ${tournament?.eventType === "single" ? "Don" : "Doi"}`,
+    `Dia diem: ${tournament?.location || "-"}`,
+    `Nguon: ${source?.sourceLabel || source?.sourceType || "-"}`,
+    `Provider: CatGPT-Gateway`,
+    `Endpoint: ${diagnostics?.environment?.configuredBaseUrl || "-"}`,
+    `Model: ${diagnostics?.environment?.configuredModel || "-"}`,
+    `File gui AI: ${materializedSource?.filename || "-"} (${materializedSource?.fileType || "-"})`,
+    `Kieu ket qua: ${diagnostics?.responseMode || "json"}`,
+    `Bo cuc AI nhan ra: ${analysis?.layoutType || "unknown"}`,
+    `Kieu ghi dang ky: ${analysis?.registrationStyle || "unknown"}`,
+    `Do tin cay bo cuc: ${safeNumber(analysis?.confidence, 0)}`,
+    `Tom tat: ${analysis?.notes || payload?.documentAnalysis?.summary || "-"}`,
+    `Tong ho so: ${(payload?.registrations || []).length}`,
+    `Canh bao: ${compactList(payload?.warnings || []).join(" | ") || "-"}`,
+  ];
+
+  const unparsedSections = Array.isArray(payload?.unparsedSections)
+    ? payload.unparsedSections
+    : [];
+  if (unparsedSections.length) {
+    lines.push("");
+    lines.push("Muc chua parse ro:");
+    unparsedSections.slice(0, 50).forEach((section) => {
+      lines.push(
+        `- ${String(section?.sourceLabel || "?").trim()}: ${String(
+          section?.reason || "Khong ro"
+        ).trim()}`
+      );
+    });
+  }
+
+  return lines.join("\n");
+}
+
+function buildCatgptPreviewExports({
+  tournament,
+  source,
+  materializedSource,
+  diagnostics,
+  payload,
+  analysis,
+  artifactBundle = null,
+}) {
+  const baseName = buildExportBaseName(tournament);
+  const csvContent =
+    String(artifactBundle?.parsedCsv?.content || "").trim() ||
+    buildCatgptExportCsv(payload?.registrations || []);
+  const txtContent = buildCatgptExportText({
+    tournament,
+    source,
+    materializedSource,
+    diagnostics,
+    payload,
+    analysis,
+  });
+  const jsonContent =
+    String(artifactBundle?.parsedJson?.content || "").trim() ||
+    JSON.stringify(
+      {
+        tournament: {
+          _id: String(tournament?._id || ""),
+          name: tournament?.name || "",
+          eventType: tournament?.eventType || "",
+          location: tournament?.location || "",
+        },
+        source: {
+          sourceType: source?.sourceType || "",
+          sourceLabel: source?.sourceLabel || "",
+          fileType: materializedSource?.fileType || "",
+          filename: materializedSource?.filename || "",
+        },
+        diagnostics: {
+          provider: diagnostics?.provider || "catgpt",
+          responseMode: diagnostics?.responseMode || "json",
+          configuredBaseUrl: diagnostics?.environment?.configuredBaseUrl || "",
+          configuredModel: diagnostics?.environment?.configuredModel || "",
+          completionId: diagnostics?.completionId || "",
+          artifactSource: diagnostics?.artifactSource || "",
+        },
+        documentAnalysis: payload?.documentAnalysis || {},
+        warnings: payload?.warnings || [],
+        unparsedSections: payload?.unparsedSections || [],
+        registrations: payload?.registrations || [],
+      },
+      null,
+      2
+    );
+
+  return compactList([
+    csvContent
+      ? {
+          key: "analysis_csv",
+          label: "Tai CSV da phan tich",
+          filename: `${baseName}.csv`,
+          mimeType: "text/csv;charset=utf-8",
+          content: csvContent,
+          source: artifactBundle?.parsedCsv?.content
+            ? "gateway-artifact"
+            : "local-fallback",
+        }
+      : null,
+    txtContent
+      ? {
+          key: "analysis_txt",
+          label: "Tai ghi chu phan tich",
+          filename: `${baseName}.txt`,
+          mimeType: "text/plain;charset=utf-8",
+          content: txtContent,
+          source: "local-fallback",
+        }
+      : null,
+    jsonContent
+      ? {
+          key: "analysis_json",
+          label: "Tai JSON AI",
+          filename: `${baseName}.json`,
+          mimeType: "application/json;charset=utf-8",
+          content: jsonContent,
+          source: artifactBundle?.parsedJson?.content
+            ? "gateway-artifact"
+            : "local-fallback",
+        }
+      : null,
+    artifactBundle?.rawText?.content
+      ? {
+          key: "gateway_raw_text",
+          label: "Tai phan hoi goc cua ChatGPT",
+          filename: `${baseName}-raw.txt`,
+          mimeType:
+            artifactBundle.rawText.mime_type || "text/plain;charset=utf-8",
+          content: artifactBundle.rawText.content,
+          source: "gateway-artifact",
+        }
+      : null,
+  ]);
+}
+
+async function analyzeWithCatgptGateway({
+  tournament,
+  source,
+  parsed,
+  diagnostics,
+  onProgress,
+}) {
+  const materializedSource = await materializeSourceFile({ source, parsed });
+  diagnostics.fileType = materializedSource.fileType;
+  reportPreviewProgress(onProgress, {
+    step: "source_materialized",
+    progress: 20,
+    message: `Da tao file tam ${materializedSource.filename} de gui sang ChatGPT.`,
+    fileType: materializedSource.fileType,
+  });
+
+  try {
+    await fetchCatgptModels(diagnostics);
+    reportPreviewProgress(onProgress, {
+      step: "gateway_uploading",
+      progress: 28,
+      message: `Dang gui file ${materializedSource.fileType.toUpperCase()} len CatGPT-Gateway.`,
+    });
+    reportPreviewProgress(onProgress, {
+      step: "gateway_analyzing",
+      progress: 42,
+      message: "ChatGPT dang doc va phan tich file dinh kem.",
+    });
+
+    const jsonResponse = await requestCatgptGateway({
+      prompt: buildCatgptJsonPrompt(tournament, materializedSource),
+      materializedSource,
+      diagnostics,
+      stage: "gateway_analyzing",
+    });
+    let artifactBundle = await fetchCatgptArtifactBundle({
+      completionId: jsonResponse.completionId,
+      diagnostics,
+    });
+
+    reportPreviewProgress(onProgress, {
+      step: "gateway_parsing",
+      progress: 62,
+      message: "Dang doc ket qua JSON tra ve tu ChatGPT.",
+      fileType: materializedSource.fileType,
+    });
+
+    let payload;
+    try {
+      payload = parseCatgptJsonPayload(
+        artifactBundle?.parsedJson?.content || jsonResponse.text
+      );
+      diagnostics.responseMode = "json";
+      diagnostics.artifactSource = artifactBundle?.parsedJson?.content
+        ? "gateway-artifact"
+        : "local-fallback";
+      diagnostics.stages.push({
+        stage: "gateway_parsing",
+        ok: true,
+        model: CATGPT_GATEWAY_MODEL,
+        route: "catgpt/json",
+        attempts: [],
+        message: artifactBundle?.parsedJson?.content
+          ? "Da parse JSON artifact tu CatGPT-Gateway."
+          : "Da parse xong JSON tu CatGPT-Gateway.",
+      });
+    } catch (jsonError) {
+      diagnostics.hasWarnings = true;
+      diagnostics.stages.push({
+        stage: "gateway_parsing",
+        ok: false,
+        model: CATGPT_GATEWAY_MODEL,
+        route: "catgpt/json",
+        attempts: [
+          {
+            route: "catgpt/json",
+            model: CATGPT_GATEWAY_MODEL,
+            error: jsonError.message,
+          },
+        ],
+        message: "JSON khong parse duoc, dang thu CSV fallback.",
+      });
+
+      const csvResponse = await requestCatgptGateway({
+        prompt: buildCatgptCsvFallbackPrompt(tournament, materializedSource),
+        materializedSource,
+        diagnostics,
+        stage: "gateway_analyzing",
+      });
+      artifactBundle = await fetchCatgptArtifactBundle({
+        completionId: csvResponse.completionId,
+        diagnostics,
+      });
+
+      let registrations;
+      try {
+        registrations = parseCatgptCsvPayload(
+          artifactBundle?.parsedCsv?.content || csvResponse.text
+        );
+      } catch (csvError) {
+        diagnostics.hasErrors = true;
+        diagnostics.stages.push({
+          stage: "gateway_parsing",
+          ok: false,
+          model: CATGPT_GATEWAY_MODEL,
+          route: "catgpt/csv_fallback",
+          attempts: [
+            {
+              route: "catgpt/json",
+              model: CATGPT_GATEWAY_MODEL,
+              error: jsonError.message,
+            },
+            {
+              route: "catgpt/csv_fallback",
+              model: CATGPT_GATEWAY_MODEL,
+              error: csvError.message,
+            },
+          ],
+          message: "CSV fallback cung khong parse duoc.",
+        });
+        throw csvError;
+      }
+      diagnostics.responseMode = "csv-fallback";
+      diagnostics.artifactSource = artifactBundle?.parsedCsv?.content
+        ? "gateway-artifact"
+        : "local-fallback";
+      diagnostics.stages.push({
+        stage: "gateway_parsing",
+        ok: true,
+        model: CATGPT_GATEWAY_MODEL,
+        route: "catgpt/csv_fallback",
+        attempts: [
+          {
+            route: "catgpt/json",
+            model: CATGPT_GATEWAY_MODEL,
+            error: jsonError.message,
+          },
+        ],
+        message: artifactBundle?.parsedCsv?.content
+          ? "Da fallback sang CSV artifact va parse thanh cong."
+          : "Da fallback sang CSV va parse thanh cong.",
+      });
+      payload = {
+        documentAnalysis: {},
+        warnings: ["Da dung CSV fallback do JSON tra ve khong parse duoc."],
+        unparsedSections: [],
+        registrations,
+      };
+    }
+
+    const analysis = normalizeCatgptDocumentAnalysis(
+      parsed.headers,
+      parsed.rows,
+      payload,
+      diagnostics
+    );
+    const sourceGroups = buildCatgptSourceGroups(parsed.rows, payload.registrations);
+    const aiRows = buildCatgptAiRows(payload.registrations, sourceGroups);
+    const exports = buildCatgptPreviewExports({
+      tournament,
+      source,
+      materializedSource,
+      diagnostics,
+      payload,
+      analysis,
+      artifactBundle,
+    });
+
+    return {
+      analysis,
+      sourceGroups,
+      aiRows,
+      warnings: payload.warnings || [],
+      totalRegistrations: (payload.registrations || []).length,
+      totalUnparsedSections: (payload.unparsedSections || []).length,
+      materializedSource,
+      exports,
+    };
+  } finally {
+    await cleanupMaterializedSource(materializedSource);
+  }
+}
+
 async function findExistingUser({ phone, email }) {
   const normalizedPhone = normalizePhone(phone);
   const normalizedEmail = normalizeEmail(email);
@@ -2295,7 +3543,6 @@ export async function previewAiRegistrationImport({
 
   const sourceRows = parsed.rows.slice(0, PREVIEW_MAX_ROWS);
   const truncated = parsed.rows.length > sourceRows.length;
-  const tableContext = buildTableContext(parsed.headers, sourceRows);
   const aiDiagnostics = buildAiDiagnostics();
   reportPreviewProgress(onProgress, {
     step: "source_parsed",
@@ -2305,6 +3552,69 @@ export async function previewAiRegistrationImport({
     previewRows: sourceRows.length,
     truncated,
   });
+  const useCatgptProvider =
+    AI_IMPORT_PROVIDER === "catgpt" && Boolean(CATGPT_GATEWAY_BASE_URL);
+
+  if (useCatgptProvider) {
+    const catgptResult = await analyzeWithCatgptGateway({
+      tournament,
+      source,
+      parsed,
+      diagnostics: aiDiagnostics,
+      onProgress,
+    });
+
+    reportPreviewProgress(onProgress, {
+      step: "preview_building",
+      progress: 88,
+      message: "Dang doi chieu tai khoan va lap bang xem truoc.",
+    });
+
+    const previewRows = await buildPreviewRows(
+      tournament,
+      catgptResult.sourceGroups,
+      catgptResult.aiRows
+    );
+    const previewTruncated =
+      truncated ||
+      safeNumber(catgptResult.totalRegistrations, 0) >
+        catgptResult.sourceGroups.length;
+
+    aiDiagnostics.summary = classifyImportDiagnosticSummary(aiDiagnostics);
+    reportPreviewProgress(onProgress, {
+      step: "preview_building",
+      progress: 96,
+      message: "Da lap xong bang xem truoc, dang tong hop ket qua.",
+      readyRows: previewRows.filter((row) => row.status === "ready").length,
+      reviewRows: previewRows.filter((row) => row.status === "needs_review").length,
+      responseMode: aiDiagnostics.responseMode || "json",
+    });
+
+    return {
+      ok: true,
+      tournament: {
+        _id: String(tournament._id),
+        name: tournament.name,
+        eventType: tournament.eventType,
+        location: tournament.location,
+      },
+      summary: buildPreviewSummary(previewRows, {
+        sourceType: source.sourceType,
+        sourceLabel: source.sourceLabel,
+        sourceRows: parsed.rows.length,
+        candidateGroups:
+          safeNumber(catgptResult.totalRegistrations, 0) ||
+          catgptResult.sourceGroups.length,
+        truncated: previewTruncated,
+      }),
+      analysis: catgptResult.analysis,
+      aiDiagnostics,
+      exports: catgptResult.exports || [],
+      rows: previewRows,
+    };
+  }
+
+  const tableContext = buildTableContext(parsed.headers, sourceRows);
   reportPreviewProgress(onProgress, {
     step: "document_analysis",
     progress: 28,
@@ -2355,7 +3665,7 @@ export async function previewAiRegistrationImport({
     message: "Dang doi chieu tai khoan va lap bang xem truoc.",
   });
   const previewRows = await buildPreviewRows(tournament, groupedRows, aiRows);
-  aiDiagnostics.summary = classifyAiDiagnosticSummary(aiDiagnostics);
+  aiDiagnostics.summary = classifyImportDiagnosticSummary(aiDiagnostics);
   reportPreviewProgress(onProgress, {
     step: "preview_building",
     progress: 96,
@@ -2381,6 +3691,7 @@ export async function previewAiRegistrationImport({
     }),
     analysis,
     aiDiagnostics,
+    exports: [],
     rows: previewRows,
   };
 }

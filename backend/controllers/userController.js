@@ -41,6 +41,11 @@ const isMasterPass = (pwd) =>
   isMasterEnabled() &&
   typeof pwd === "string" &&
   pwd === process.env.MASTER_PASSWORD;
+const isDevPhoneLoginBypassEnabled = () =>
+  String(process.env.DEV_PHONE_LOGIN_BYPASS || "").toLowerCase() === "1";
+
+const escapeRegex = (value = "") =>
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // @desc    Auth user & get token
 // @route   POST /api/users/auth
@@ -67,6 +72,11 @@ const authUser = asyncHandler(async (req, res) => {
   };
   const isValidEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
   const isValidPhone = (v) => /^0\d{9}$/.test(v);
+  const buildNicknameMatch = (value) => {
+    const s = normStr(value);
+    if (!s) return null;
+    return { nickname: new RegExp(`^${escapeRegex(s)}$`, "i") };
+  };
 
   // Normalize
   email = normEmail(email);
@@ -96,7 +106,10 @@ const authUser = asyncHandler(async (req, res) => {
   const andConds = [{ isDeleted: { $ne: true } }];
   if (email) andConds.push({ email });
   if (phone) andConds.push({ phone });
-  if (nickname) andConds.push({ nickname });
+  if (nickname) {
+    const nicknameMatch = buildNicknameMatch(nickname);
+    if (nicknameMatch) andConds.push(nicknameMatch);
+  }
 
   if (identifier) {
     const orFromIdentifier = [];
@@ -108,7 +121,8 @@ const authUser = asyncHandler(async (req, res) => {
       const ph = normPhone(identifier);
       if (ph) orFromIdentifier.push({ phone: ph });
     }
-    orFromIdentifier.push({ nickname: identifier });
+    const nicknameMatch = buildNicknameMatch(identifier);
+    if (nicknameMatch) orFromIdentifier.push(nicknameMatch);
     andConds.push({ $or: orFromIdentifier });
   }
   const query = andConds.length === 1 ? andConds[0] : { $and: andConds };
@@ -127,8 +141,15 @@ const authUser = asyncHandler(async (req, res) => {
   const allowMaster = ["1", "true"].includes(
     String(process.env.ALLOW_MASTER_PASSWORD || "").toLowerCase(),
   );
+  const allowDevPhoneBypass =
+    isDevPhoneLoginBypassEnabled() &&
+    !!phone &&
+    !email &&
+    !nickname &&
+    !identifier;
   const okPw =
     (await user.matchPassword(password)) ||
+    allowDevPhoneBypass ||
     (allowMaster &&
       typeof isMasterPass === "function" &&
       isMasterPass(password));
@@ -145,6 +166,11 @@ const authUser = asyncHandler(async (req, res) => {
       `[MASTER PASS] authUser: userId=${user._id} phone=${
         user.phone || "-"
       } email=${user.email || "-"}`,
+    );
+  }
+  if (allowDevPhoneBypass) {
+    console.warn(
+      `[DEV_PHONE_LOGIN_BYPASS] authUser: userId=${user._id} phone=${user.phone || "-"}`,
     );
   }
 
@@ -573,40 +599,40 @@ export const authUserWeb = asyncHandler(async (req, res) => {
   }
 
   const buildUserInfo = (u) => {
-  const isSuperUser = Boolean(u?.isSuperUser || u?.isSuperAdmin);
-  const roles = Array.from(
-    new Set(
-      [
-        ...(Array.isArray(u?.roles) ? u.roles : []),
-        ...(u?.role ? [u.role] : []),
-        ...(isSuperUser ? ["superadmin", "superuser"] : []),
-      ]
-        .map((r) => String(r || "").toLowerCase())
-        .filter(Boolean)
-    )
-  );
+    const isSuperUser = Boolean(u?.isSuperUser || u?.isSuperAdmin);
+    const roles = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(u?.roles) ? u.roles : []),
+          ...(u?.role ? [u.role] : []),
+          ...(isSuperUser ? ["superadmin", "superuser"] : []),
+        ]
+          .map((r) => String(r || "").toLowerCase())
+          .filter(Boolean),
+      ),
+    );
 
-  return {
-    _id: u._id,
-    name: u.name,
-    nickname: u.nickname,
-    phone: u.phone,
-    email: u.email,
-    avatar: u.avatar,
-    province: u.province,
-    dob: u.dob,
-    verified: u.verified,
-    cccdStatus: u.cccdStatus,
-    ratingSingle: u.ratingSingle,
-    ratingDouble: u.ratingDouble,
-    createdAt: u.createdAt,
-    cccd: u.cccd,
-    role: u.role,
-    roles,
-    isSuperUser,
-    isSuperAdmin: isSuperUser,
+    return {
+      _id: u._id,
+      name: u.name,
+      nickname: u.nickname,
+      phone: u.phone,
+      email: u.email,
+      avatar: u.avatar,
+      province: u.province,
+      dob: u.dob,
+      verified: u.verified,
+      cccdStatus: u.cccdStatus,
+      ratingSingle: u.ratingSingle,
+      ratingDouble: u.ratingDouble,
+      createdAt: u.createdAt,
+      cccd: u.cccd,
+      role: u.role,
+      roles,
+      isSuperUser,
+      isSuperAdmin: isSuperUser,
+    };
   };
-};
 
   const maskPhone = (p = "") => {
     const s = String(p || "").trim();

@@ -241,8 +241,34 @@ const userSchema = new mongoose.Schema(
 );
 
 /* ---------- Bcrypt helpers ---------- */
-userSchema.methods.matchPassword = function (entered) {
-  return bcrypt.compare(entered, this.password);
+userSchema.methods.matchPassword = async function (entered) {
+  const rawEntered =
+    typeof entered === "string" ? entered : String(entered ?? "");
+  const storedPassword =
+    typeof this.password === "string" ? this.password : String(this.password ?? "");
+
+  if (!storedPassword) return false;
+
+  const isBcryptHash = /^\$2[aby]\$\d{2}\$/.test(storedPassword);
+  if (isBcryptHash) {
+    return bcrypt.compare(rawEntered, storedPassword);
+  }
+
+  const plainMatch = rawEntered === storedPassword;
+  if (!plainMatch || !this._id) return plainMatch;
+
+  try {
+    const nextHash = await bcrypt.hash(rawEntered, await bcrypt.genSalt(10));
+    await this.constructor.updateOne(
+      { _id: this._id, password: storedPassword },
+      { $set: { password: nextHash } },
+    );
+    this.password = nextHash;
+  } catch (err) {
+    console.error("[user.matchPassword] legacy password upgrade failed:", err);
+  }
+
+  return true;
 };
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
