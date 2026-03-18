@@ -268,7 +268,6 @@ export default function LoginScreen() {
   const ActiveIcon = activeCard.icon;
 
   const shellBackground = isDark ? alpha("#0b1419", 0.94) : "#fbfbfa";
-  const shellBorder = alpha(isDark ? "#b7ebff" : "#07141d", 0.08);
   const formTextPrimary = isDark ? "#f2f8fb" : "#0c1116";
   const formTextSecondary = isDark ? alpha("#d5e4ec", 0.72) : alpha("#24323d", 0.68);
   const fieldBackground = isDark ? alpha("#111b22", 0.96) : "#ffffff";
@@ -280,9 +279,7 @@ export default function LoginScreen() {
         position: "relative",
         minHeight: "100dvh",
         overflow: "hidden",
-        background: isDark
-          ? "linear-gradient(180deg, #061015 0%, #0d1c24 100%)"
-          : "linear-gradient(180deg, #e6f3ef 0%, #dcefeb 100%)",
+        background: isDark ? "#081017" : "#ffffff",
       }}
     >
       <SEOHead title={t("auth.login.seoTitle")} />
@@ -290,31 +287,20 @@ export default function LoginScreen() {
       <Box
         aria-hidden="true"
         sx={{
-          position: "absolute",
-          inset: 0,
-          background: isDark
-            ? `
-              radial-gradient(circle at 12% 12%, ${alpha("#1ad3bb", 0.14)} 0, transparent 26%),
-              radial-gradient(circle at 86% 18%, ${alpha("#7f68ff", 0.16)} 0, transparent 22%),
-              radial-gradient(circle at 58% 82%, ${alpha("#d9ff58", 0.08)} 0, transparent 30%)
-            `
-            : `
-              radial-gradient(circle at 12% 12%, ${alpha("#94efe0", 0.32)} 0, transparent 28%),
-              radial-gradient(circle at 86% 18%, ${alpha("#bfe8e1", 0.42)} 0, transparent 24%),
-              radial-gradient(circle at 58% 82%, ${alpha("#cdece6", 0.34)} 0, transparent 30%)
-            `,
+          display: "none",
         }}
       />
 
       <Container
         component="main"
-        maxWidth="xl"
+        disableGutters
+        maxWidth={false}
         sx={{
           position: "relative",
           height: "100dvh",
           display: "flex",
           alignItems: "stretch",
-          py: { xs: 1, sm: 1.5, md: 2 },
+          py: 0,
         }}
       >
         <Paper
@@ -325,12 +311,10 @@ export default function LoginScreen() {
             display: "grid",
             gridTemplateRows: "auto 1fr",
             overflow: "hidden",
-            borderRadius: { xs: 4, md: 6 },
+            borderRadius: 0,
             background: shellBackground,
-            border: `1px solid ${shellBorder}`,
-            boxShadow: isDark
-              ? "0 28px 90px rgba(0, 0, 0, 0.36)"
-              : "0 28px 90px rgba(15, 31, 38, 0.12)",
+            border: 0,
+            boxShadow: "none",
           }}
         >
           <Box
@@ -724,20 +708,9 @@ export default function LoginScreen() {
                 <Stack spacing={{ xs: 2, md: 2.75 }}>
                   <Box>
                     <Typography
-                      variant="overline"
-                      sx={{
-                        color: alpha(formTextPrimary, 0.64),
-                        fontWeight: 800,
-                        letterSpacing: "0.16em",
-                      }}
-                    >
-                      {t("auth.login.formLabel")}
-                    </Typography>
-                    <Typography
                       component="h1"
                       variant={isMobile ? "h4" : "h3"}
                       sx={{
-                        mt: 1,
                         color: formTextPrimary,
                         fontWeight: 800,
                         lineHeight: 1.08,
