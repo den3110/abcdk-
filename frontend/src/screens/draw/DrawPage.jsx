@@ -235,15 +235,51 @@ const labelBracketType = (b) => {
       return b?.type || "—";
   }
 };
-const nameFromPlayer = (p) => p?.nickName || p?.fullName || p?.name || "N/A";
-const safePairName = (reg, evType = "double") => {
+const pickNameText = (...values) => {
+  for (const value of values) {
+    const text = String(value ?? "").trim();
+    if (text) return text;
+  }
+  return "";
+};
+const nameFromPlayer = (p, displayMode = "nickname") => {
+  const nickname = pickNameText(
+    p?.nickName,
+    p?.nickname,
+    p?.user?.nickName,
+    p?.user?.nickname
+  );
+  const fullName = pickNameText(
+    p?.fullName,
+    p?.name,
+    p?.displayName,
+    p?.user?.fullName,
+    p?.user?.name,
+    p?.user?.displayName
+  );
+  return displayMode === "fullName"
+    ? fullName || nickname || "N/A"
+    : nickname || fullName || "N/A";
+};
+const displayPairName = (reg, evType = "double", displayMode = "nickname") => {
   if (!reg) return "—";
-  const p1 = nameFromPlayer(reg?.player1);
-  if (evType === "single") return p1 || "—";
+  const directNickname = pickNameText(
+    reg?.nickName,
+    reg?.nickname,
+    reg?.shortName,
+    reg?.teamName
+  );
+  const directFullName = pickNameText(reg?.fullName, reg?.name, reg?.displayName);
+  const directName =
+    displayMode === "fullName"
+      ? directFullName || directNickname
+      : directNickname || directFullName;
+  const p1 = nameFromPlayer(reg?.player1, displayMode);
+  if (evType === "single") return p1 || directName || "—";
   const hasP2 = !!reg?.player2;
-  if (!hasP2) return p1 || "—";
-  const p2 = nameFromPlayer(reg?.player2);
-  return p2 && p2 !== "N/A" ? `${p1} & ${p2}` : p1 || "—";
+  if (!hasP2) return p1 || directName || "—";
+  const p2 = nameFromPlayer(reg?.player2, displayMode);
+  return p2 && p2 !== "N/A" ? `${p1} & ${p2}` : p1 || directName || "—";
 };
 const idOf = (x) => String(x?._id ?? x);
 const asId = (x) => {
@@ -353,10 +389,10 @@ const getLabelDep = (prev, t) => {
   return t("draw.winnerOfRound", { round, index });
 };
 
-const getMatchSideName = (match, side, eventType, t) => {
+const getMatchSideName = (match, side, eventType, t, displayMode = "nickname") => {
   const prev = side === "A" ? match?.previousA : match?.previousB;
   const pair = side === "A" ? match?.pairA : match?.pairB;
-  if (pair) return safePairName(pair, eventType);
+  if (pair) return displayPairName(pair, eventType, displayMode);
   if (prev) return getLabelDep(prev, t);
   return t("draw.teamPending");
 };
@@ -367,6 +403,7 @@ const PoolPanel = memo(function PoolPanel({
   regIndex,
   poolIds,
   revealsGroup,
+  displayMode = "nickname",
 }) {
   const { t } = useLanguage();
   const panelTitle = title || t("draw.poolTitle");
@@ -378,7 +415,7 @@ const PoolPanel = memo(function PoolPanel({
           const reg = regIndex?.get(str);
           return {
             id: str,
-            label: safePairName(reg, eventType) || `#${str.slice(-6)}`,
+            label: displayPairName(reg, eventType, displayMode) || `#${str.slice(-6)}`,
           };
         })
         .sort((a, b) =>
@@ -398,13 +435,13 @@ const PoolPanel = memo(function PoolPanel({
     const arr = [];
     regIndex?.forEach((reg, id) => {
       if (!revealed.has(String(id))) {
-        arr.push({ id: String(id), label: safePairName(reg, eventType) });
+        arr.push({ id: String(id), label: displayPairName(reg, eventType, displayMode) });
       }
     });
     return arr.sort((a, b) =>
       a.label.localeCompare(b.label, "vi", { sensitivity: "base" })
     );
-  }, [poolIds, revealsGroup, regIndex, eventType]);
+  }, [poolIds, revealsGroup, regIndex, eventType, displayMode]);
 
   const [items, setItems] = useState(poolItems);
   const disappearingRef = useRef(new Set());
@@ -490,6 +527,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
   regIndex,
   eventType,
   lastHighlight,
+  displayMode = "nickname",
 }) {
   const { t } = useLanguage();
   const seats = useMemo(() => {
@@ -530,10 +568,13 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
         rv?.pairB?.player2;
 
       const nm =
-        (regDoc && safePairName(regDoc, eventType)) ||
+        (regDoc && displayPairName(regDoc, eventType, displayMode)) ||
         (eventType === "single"
-          ? (p1 && nameFromPlayer(p1)) || null
-          : [p1, p2].filter(Boolean).map(nameFromPlayer).join(" & ")) ||
+          ? (p1 && nameFromPlayer(p1, displayMode)) || null
+          : [p1, p2]
+              .filter(Boolean)
+              .map((player) => nameFromPlayer(player, displayMode))
+              .join(" & ")) ||
         rv.nickName ||
         rv.teamName ||
         rv.name ||
@@ -552,7 +593,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
       }
     });
     return Array.from(map.values());
-  }, [groupsMeta, reveals, regIndex, eventType]);
+  }, [groupsMeta, reveals, regIndex, eventType, displayMode]);
   if (board && Array.isArray(board.groups) && board.groups.length > 0) {
     return (
       <Grid container spacing={2}>
@@ -568,7 +609,7 @@ const GroupSeatingBoard = memo(function GroupSeatingBoard({
                 <Stack spacing={0.75}>
                   {slots.map((regId, si) => {
                     const reg = regId ? regIndex?.get(String(regId)) : null;
-                    const name = regId ? safePairName(reg, eventType) : "—";
+                    const name = regId ? displayPairName(reg, eventType, displayMode) : "—";
                     const isHit =
                       lastHighlight &&
                       lastHighlight.type === "group" &&
@@ -712,6 +753,8 @@ const RoundRobinPreview = memo(function RoundRobinPreview({
   groupsMeta,
   regIndex,
   doubleRound = false,
+  eventType = "double",
+  displayMode = "nickname",
 }) {
   const { t } = useLanguage();
   return (
@@ -724,21 +767,11 @@ const RoundRobinPreview = memo(function RoundRobinPreview({
 
           if (reg) {
             if (reg.player2) {
-              const p1 =
-                reg.player1?.nickName ||
-                reg.player1?.fullName ||
-                reg.player1?.name;
-              const p2 =
-                reg.player2?.nickName ||
-                reg.player2?.fullName ||
-                reg.player2?.name;
+              const p1 = nameFromPlayer(reg.player1, displayMode);
+              const p2 = nameFromPlayer(reg.player2, displayMode);
               return `${p1} & ${p2}`;
             }
-            return (
-              reg.player1?.nickName ||
-              reg.player1?.fullName ||
-              reg.player1?.name
-            );
+            return displayPairName(reg, eventType, displayMode);
           }
 
           if (typeof regId === "string") {
@@ -858,10 +891,10 @@ const labelDep = (prev) => {
   const idx = (prev.order ?? 0) + 1;
   return `Winner of R${r} #${idx}`;
 };
-const matchSideName = (m, side, eventType) => {
+const matchSideName = (m, side, eventType, displayMode = "nickname") => {
   const prev = side === "A" ? m?.previousA : m?.previousB;
   const pair = side === "A" ? m?.pairA : m?.pairB;
-  if (pair) return safePairName(pair, eventType);
+  if (pair) return displayPairName(pair, eventType, displayMode);
   if (prev) return labelDep(prev);
   return "Chưa có đội";
 };
@@ -931,13 +964,15 @@ const seedRenderer = (...args) => {
 };
 
 /********************** Live FX overlays (Classic) **********************/
-const useNamesPool = (regIndex, eventType) =>
+const useNamesPool = (regIndex, eventType, displayMode = "nickname") =>
   useMemo(() => {
     const arr = [];
-    regIndex?.forEach((reg) => arr.push(safePairName(reg, eventType)));
+    regIndex?.forEach((reg) =>
+      arr.push(displayPairName(reg, eventType, displayMode))
+    );
     if (!arr.length) return ["—", "—", "—", "—"];
     return arr;
-  }, [regIndex, eventType]);
+  }, [regIndex, eventType, displayMode]);
 
 const Ticker = memo(function Ticker({
   finalText,
@@ -2084,6 +2119,8 @@ const GroupMatchesDialog = memo(function GroupMatchesDialog({
   groupsMeta,
   regIndex,
   selBracketId,
+  eventType,
+  displayMode = "nickname",
 }) {
   const { t } = useLanguage();
   const [tabMode, setTabMode] = useState("auto");
@@ -2140,6 +2177,8 @@ const GroupMatchesDialog = memo(function GroupMatchesDialog({
               groupsMeta={groupsMeta}
               regIndex={regIndex}
               doubleRound={doubleRound}
+              eventType={eventType}
+              displayMode={displayMode}
             />
           ) : (
             <Alert severity="info">
@@ -2177,6 +2216,7 @@ const AssignByesDialog = memo(function AssignByesDialog({
   refetchBracket,
   assignByes,
   eventType,
+  displayMode = "nickname",
 }) {
   const { t } = useLanguage();
   const [mode, setMode] = useState("manual");
@@ -2201,19 +2241,19 @@ const AssignByesDialog = memo(function AssignByesDialog({
   const regOptions = useMemo(() => {
     const arr = [];
     regIndex?.forEach((reg, id) => {
-      arr.push({ id, label: safePairName(reg, eventType) });
+      arr.push({ id, label: displayPairName(reg, eventType, displayMode) });
     });
     return arr.sort((a, b) =>
       a.label.localeCompare(b.label, "vi", { sensitivity: "base" })
     );
-  }, [regIndex, eventType]);
+  }, [regIndex, eventType, displayMode]);
 
   const nameByRegId = useCallback(
     (id) => {
       const reg = regIndex?.get(String(id));
-      return reg ? safePairName(reg, eventType) : `#${String(id).slice(-6)}`;
+      return reg ? displayPairName(reg, eventType, displayMode) : `#${String(id).slice(-6)}`;
     },
-    [regIndex, eventType]
+    [regIndex, eventType, displayMode]
   );
 
   const resetPreview = useCallback(() => setPreview(null), []);
@@ -2447,8 +2487,8 @@ const AssignByesDialog = memo(function AssignByesDialog({
                       <Stack direction="row" spacing={1} alignItems="center">
                         <Chip size="small" label={`#${m.order ?? 0}`} />
                         <Typography variant="body2">
-                          {m.pairA ? safePairName(m.pairA, eventType) : "—"} vs{" "}
-                          {m.pairB ? safePairName(m.pairB, eventType) : "—"}
+                          {m.pairA ? displayPairName(m.pairA, eventType, displayMode) : "—"} vs{" "}
+                          {m.pairB ? displayPairName(m.pairB, eventType, displayMode) : "—"}
                         </Typography>
                       </Stack>
                     }
@@ -2565,6 +2605,7 @@ export default function DrawPage() {
 
   // NEW: UI mode
   const [uiMode, setUiMode] = useState("classic"); // 'classic' | 'cards'
+  const [nameDisplayMode, setNameDisplayMode] = useState("nickname");
   const usingCardMode = uiMode === "cards";
 
   // Card overlay state
@@ -3062,7 +3103,7 @@ export default function DrawPage() {
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     return ms.map((m) => ({
       AName: m.pairA
-        ? safePairName(m.pairA, tournament?.eventType)
+        ? displayPairName(m.pairA, tournament?.eventType, nameDisplayMode)
         : (m.previousA &&
           t("draw.winnerOfRound", {
             round: m.previousA.round ?? "?",
@@ -3070,7 +3111,7 @@ export default function DrawPage() {
           })) ||
         "—",
       BName: m.pairB
-        ? safePairName(m.pairB, tournament?.eventType)
+        ? displayPairName(m.pairB, tournament?.eventType, nameDisplayMode)
         : (m.previousB &&
           t("draw.winnerOfRound", {
             round: m.previousB.round ?? "?",
@@ -3078,7 +3119,7 @@ export default function DrawPage() {
           })) ||
         "—",
     }));
-  }, [koMatchesThisBracket, selectedRoundNumber, tournament?.eventType, t]);
+  }, [koMatchesThisBracket, selectedRoundNumber, tournament?.eventType, nameDisplayMode, t]);
 
   const revealsForKO = useMemo(() => {
     // RUNNING: luôn theo reveals
@@ -3153,6 +3194,7 @@ export default function DrawPage() {
     ({
       roundCode,
       reveals,
+      boardPairs,
       matches,
       eventType,
       selectedRoundNumber,
@@ -3160,6 +3202,7 @@ export default function DrawPage() {
       bracket,
       bracketDetail,
       isPO = false,
+      displayMode = "nickname",
     }) => {
       const startTeams = sizeFromRoundCode(roundCode);
       const totalRoundsFromSize = Math.max(1, Math.log2(startTeams) | 0);
@@ -3224,10 +3267,20 @@ export default function DrawPage() {
         countByRoundReal[r] = (countByRoundReal[r] || 0) + 1;
       });
 
-      const revealsPairs = (reveals || []).map((rv) => ({
-        A: rv?.A?.name || rv?.AName || rv?.A || t("draw.teamPending"),
-        B: rv?.B?.name || rv?.BName || rv?.B || t("draw.teamPending"),
-      }));
+      const revealsPairs =
+        Array.isArray(boardPairs) && boardPairs.length
+          ? boardPairs.map((pair) => ({
+              A: pair?.a
+                ? (() => { const reg = pair?.a ? regIndex?.get(String(pair.a)) : null; return reg ? displayPairName(reg, eventType, displayMode) : t("draw.teamPending"); })()
+                : t("draw.teamPending"),
+              B: pair?.b
+                ? (() => { const reg = pair?.b ? regIndex?.get(String(pair.b)) : null; return reg ? displayPairName(reg, eventType, displayMode) : t("draw.teamPending"); })()
+                : t("draw.teamPending"),
+            }))
+          : (reveals || []).map((rv) => ({
+              A: rv?.A?.name || rv?.AName || rv?.A || t("draw.teamPending"),
+              B: rv?.B?.name || rv?.BName || rv?.B || t("draw.teamPending"),
+            }));
 
       const expectedFirstPairs = Math.max(1, Math.floor(startTeams / 2));
       const firstRoundPairs = Math.max(
@@ -3266,8 +3319,8 @@ export default function DrawPage() {
               id: m._id || `${selBracketId}-${r}-${i}`,
               __match: m,
               teams: [
-                { name: getMatchSideName(m, "A", eventType, t) },
-                { name: getMatchSideName(m, "B", eventType, t) },
+                { name: getMatchSideName(m, "A", eventType, t, displayMode) },
+                { name: getMatchSideName(m, "B", eventType, t, displayMode) },
               ],
             };
           });
@@ -3307,7 +3360,7 @@ export default function DrawPage() {
       }
       return rounds;
     },
-    [drawType, t]
+    [drawType, regIndex, t]
   );
 
   /* ===== Hoàn thành chỉ khi drawNext làm pool về 0 ===== */
@@ -3318,7 +3371,14 @@ export default function DrawPage() {
   const eventType = tournament?.eventType?.toLowerCase()?.includes("single")
     ? "single"
     : "double";
-  const namesPool = useNamesPool(regIndex, eventType);
+  const namesPool = useNamesPool(regIndex, eventType, nameDisplayMode);
+  const getDisplayNameByRegId = useCallback(
+    (regId, fallback = "—") => {
+      const reg = regId ? regIndex?.get(String(regId)) : null;
+      return reg ? displayPairName(reg, eventType, nameDisplayMode) : fallback;
+    },
+    [regIndex, eventType, nameDisplayMode]
+  );
 
   // START DRAW
   const onStart = useCallback(async () => {
@@ -3435,22 +3495,22 @@ export default function DrawPage() {
             setOverlayData({
               groupCode: nx.groupCode,
               slotIndex: nx.slotIndex,
-              teamName: nx.name || "—",
+              teamName: getDisplayNameByRegId(nx.regId, nx.name || "—"),
             });
             setOverlayOpen(true);
           }
         } else if (nx.type === "ko") {
           // Ko chỉ trả về 1 side; overlay hiển thị bên còn lại nếu đã có
           if (fxEnabled && !usingCardMode) {
-            const pair = revealsForKO?.[nx.pairIndex] || {};
+            const pair = doc?.board?.pairs?.[nx.pairIndex] || {};
             const AName =
               nx.side === "A"
-                ? nx.name || "—"
-                : pair.AName || pair.A || t("draw.teamPending");
+                ? getDisplayNameByRegId(nx.regId, nx.name || "—")
+                : getDisplayNameByRegId(pair.a, pair.AName || pair.A || t("draw.teamPending"));
             const BName =
               nx.side === "B"
-                ? nx.name || "—"
-                : pair.BName || pair.B || t("draw.teamPending");
+                ? getDisplayNameByRegId(nx.regId, nx.name || "—")
+                : getDisplayNameByRegId(pair.b, pair.BName || pair.B || t("draw.teamPending"));
             setOverlayMode("ko");
             setOverlayData({ AName, BName });
             setOverlayOpen(true);
@@ -3485,8 +3545,8 @@ export default function DrawPage() {
     fxMuted,
     beep,
     usingCardMode,
-    revealsForKO,
     drawType,
+    getDisplayNameByRegId,
     t,
   ]);
 
@@ -3508,7 +3568,7 @@ export default function DrawPage() {
       if (nx && typeof nx === "object") {
         if (nx.name) {
           out.push({
-            name: nx.name,
+            name: getDisplayNameByRegId(nx.regId, nx.name || "—"),
             meta: {
               type: nx.type,
               groupCode: nx.groupCode,
@@ -3534,7 +3594,7 @@ export default function DrawPage() {
           const rid = asId(last?.regId ?? last?.reg ?? last?.id ?? last?._id);
           const name =
             (rid && regIndex.has(String(rid))
-              ? safePairName(regIndex.get(String(rid)), eventType)
+              ? displayPairName(regIndex.get(String(rid)), eventType, nameDisplayMode)
               : last?.nickName ||
               last?.teamName ||
               last?.name ||
@@ -3590,8 +3650,10 @@ export default function DrawPage() {
     reveals,
     regIndex,
     eventType,
+    nameDisplayMode,
     drawType,
     fxEnabled,
+    getDisplayNameByRegId,
     t,
   ]);
   // trong DrawPage.jsx
@@ -3643,7 +3705,7 @@ export default function DrawPage() {
           const rid = asId(c.regId ?? c.reg ?? c.id ?? c._id);
           const reg = rid && regIndex?.get(String(rid));
           const teamName = reg
-            ? safePairName(reg, eventType)
+            ? displayPairName(reg, eventType, nameDisplayMode)
             : c.nickName ||
             c.teamName ||
             c.name ||
@@ -3681,6 +3743,7 @@ export default function DrawPage() {
     beep,
     regIndex,
     eventType,
+    nameDisplayMode,
   ]);
 
   // Trận BYE còn trống của round hiện tại
@@ -3720,7 +3783,7 @@ export default function DrawPage() {
         .map((id) => {
           const str = String(id);
           const reg = regIndex?.get(str);
-          const label = safePairName(reg, eventType) || `#${str.slice(-6)}`;
+          const label = displayPairName(reg, eventType, nameDisplayMode) || `#${str.slice(-6)}`;
           return { id: str, label };
         })
         .sort((a, b) =>
@@ -3735,7 +3798,7 @@ export default function DrawPage() {
       (revealsForGroup || []).forEach((rv) => {
         const rid = asId(rv.regId ?? rv.reg ?? rv.id ?? rv._id);
         const reg = rid && regIndex?.get(String(rid));
-        if (reg) revealedNames.add(safePairName(reg, eventType));
+        if (reg) revealedNames.add(displayPairName(reg, eventType, nameDisplayMode));
       });
     } else {
       (revealsForKO || []).forEach((rv) => {
@@ -3746,7 +3809,7 @@ export default function DrawPage() {
       });
     }
     regIndex?.forEach((reg, id) => {
-      const label = safePairName(reg, eventType);
+      const label = displayPairName(reg, eventType, nameDisplayMode);
       if (!revealedNames.has(label)) out.push({ id: String(id), label });
     });
     return out.sort((a, b) =>
@@ -3756,6 +3819,7 @@ export default function DrawPage() {
     drawDoc?.pool,
     regIndex,
     eventType,
+    nameDisplayMode,
     revealsForGroup,
     revealsForKO,
     drawType,
@@ -3894,6 +3958,22 @@ export default function DrawPage() {
         >
           <ToggleButton value="classic">{t("draw.styleClassic")}</ToggleButton>
           <ToggleButton value="cards">{t("draw.styleCards")}</ToggleButton>
+        </ToggleButtonGroup>
+        <Typography variant="body2" sx={{ mt: 0.5, opacity: 0.8 }}>
+          {t("draw.displayModeLabel")}
+        </Typography>
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={nameDisplayMode}
+          onChange={(_, v) => v && setNameDisplayMode(v)}
+        >
+          <ToggleButton value="nickname">
+            {t("draw.displayModeNickname")}
+          </ToggleButton>
+          <ToggleButton value="fullName">
+            {t("draw.displayModeFullName")}
+          </ToggleButton>
         </ToggleButtonGroup>
         {state === "running" && uiMode === "cards" && (
           <Button
@@ -4131,6 +4211,7 @@ export default function DrawPage() {
                 regIndex={regIndex}
                 eventType={eventType}
                 lastHighlight={lastHighlight}
+                displayMode={nameDisplayMode}
               />
             ) : (
               <Typography color="text.secondary">
@@ -4147,6 +4228,7 @@ export default function DrawPage() {
                   roundCode: selectRoundValue,
                   // ✅ RUNNING → chỉ lấy từ reveals; ngừng “đọc đè” từ matches
                   reveals: state === "running" ? revealsForKO : [],
+                  boardPairs: state === "running" ? drawDoc?.board?.pairs || [] : [],
                   matches:
                     state === "running" || lMatches ? [] : koMatchesThisBracket,
 
@@ -4156,6 +4238,7 @@ export default function DrawPage() {
                   bracket,
                   bracketDetail,
                   isPO: drawType === "po",
+                  displayMode: nameDisplayMode,
                 })}
                 renderSeedComponent={seedRenderer}
                 renderSeed={seedRenderer}
@@ -4174,6 +4257,7 @@ export default function DrawPage() {
               regIndex={regIndex}
               poolIds={drawDoc?.pool || null}
               revealsGroup={revealsForGroup}
+              displayMode={nameDisplayMode}
             />
           ) : (
             <Paper variant="outlined" sx={{ p: 2 }}>
@@ -4275,6 +4359,8 @@ export default function DrawPage() {
         groupsMeta={groupsMetaForMatches} // ← đổi từ groupsMeta sang groupsMetaForMatches
         regIndex={regIndex}
         selBracketId={selBracketId}
+        eventType={eventType}
+        displayMode={nameDisplayMode}
       />
 
       {/* Dialog: Assign BYEs */}
@@ -4289,6 +4375,7 @@ export default function DrawPage() {
         refetchBracket={refetchBracket}
         assignByes={assignByes}
         eventType={eventType}
+        displayMode={nameDisplayMode}
       />
 
       {/* Classic FX overlays */}

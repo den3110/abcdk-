@@ -1093,6 +1093,9 @@ export default {
     drawStyle: "Kiểu bốc:",
     styleClassic: "Classic",
     styleCards: "Thẻ bài",
+    displayModeLabel: "Hiển thị:",
+    displayModeNickname: "Nickname",
+    displayModeFullName: "Họ và tên",
     openCards: "Mở giao diện thẻ",
     groupDone: "Bốc thăm vòng bảng đã hoàn thành!",
     adminOnlyInfo:

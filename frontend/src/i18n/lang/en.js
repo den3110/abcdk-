@@ -1091,6 +1091,9 @@ export default {
     drawStyle: "Draw style:",
     styleClassic: "Classic",
     styleCards: "Cards",
+    displayModeLabel: "Show as:",
+    displayModeNickname: "Nickname",
+    displayModeFullName: "Full name",
     openCards: "Open card interface",
     groupDone: "Group stage draw completed!",
     adminOnlyInfo:
