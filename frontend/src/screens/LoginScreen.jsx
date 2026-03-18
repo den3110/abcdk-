@@ -311,16 +311,19 @@ export default function LoginScreen() {
         maxWidth="xl"
         sx={{
           position: "relative",
-          minHeight: "100dvh",
+          height: "100dvh",
           display: "flex",
-          alignItems: "center",
-          py: { xs: 2, sm: 3, md: 4 },
+          alignItems: "stretch",
+          py: { xs: 1, sm: 1.5, md: 2 },
         }}
       >
         <Paper
           elevation={0}
           sx={{
             width: "100%",
+            height: "100%",
+            display: "grid",
+            gridTemplateRows: "auto 1fr",
             overflow: "hidden",
             borderRadius: { xs: 4, md: 6 },
             background: shellBackground,
@@ -332,45 +335,14 @@ export default function LoginScreen() {
         >
           <Box
             sx={{
-              height: { xs: 58, md: 68 },
-              px: { xs: 2, sm: 3, md: 4 },
-              display: "grid",
-              gridTemplateColumns: { xs: "auto 1fr auto", md: "auto 1fr auto" },
+              height: { xs: 42, md: 50 },
+              px: { xs: 2, sm: 2.5, md: 3 },
+              display: "flex",
+              justifyContent: "flex-end",
               alignItems: "center",
-              gap: 2,
               borderBottom: `1px solid ${alpha(isDark ? "#d8eef7" : "#101820", 0.08)}`,
             }}
           >
-            <Stack direction="row" spacing={0.8} alignItems="center">
-              {["#ff6d5a", "#ffbd45", "#55d36a"].map((color) => (
-                <Box
-                  key={color}
-                  sx={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: 99,
-                    bgcolor: color,
-                  }}
-                />
-              ))}
-            </Stack>
-
-            <Box sx={{ display: "flex", justifyContent: "center" }}>
-              <Box
-                sx={{
-                  display: { xs: "none", sm: "block" },
-                  width: { sm: 180, md: 320 },
-                  height: 16,
-                  borderRadius: 99,
-                  bgcolor: alpha(isDark ? "#e6f5fb" : "#0b1115", isDark ? 0.06 : 0.04),
-                  border: `1px solid ${alpha(
-                    isDark ? "#d8eef7" : "#101820",
-                    isDark ? 0.08 : 0.06
-                  )}`,
-                }}
-              />
-            </Box>
-
             <Stack direction="row" spacing={0.75} justifyContent="flex-end" alignItems="center">
               <Typography
                 variant="body2"
@@ -401,18 +373,19 @@ export default function LoginScreen() {
             sx={{
               display: "grid",
               gridTemplateColumns: { xs: "1fr", md: "minmax(320px, 0.88fr) minmax(420px, 1.12fr)" },
-              minHeight: { md: 720 },
+              gridTemplateRows: { xs: "minmax(220px, 34vh) minmax(0, 1fr)", md: "1fr" },
+              minHeight: 0,
             }}
           >
             <Box
               sx={{
                 position: "relative",
                 overflow: "hidden",
-                p: { xs: 2.25, sm: 3, md: 4 },
+                p: { xs: 2, sm: 2.5, md: 3.5 },
                 display: "flex",
                 flexDirection: "column",
                 justifyContent: "space-between",
-                minHeight: { xs: 500, sm: 560, md: "100%" },
+                minHeight: 0,
                 background:
                   "linear-gradient(180deg, #062e21 0%, #04271c 48%, #032117 100%)",
                 color: "#f7fffb",
@@ -478,9 +451,9 @@ export default function LoginScreen() {
                     {t("auth.login.brandBadge")}
                   </Typography>
                   <Typography
-                    variant={isMobile ? "h5" : "h4"}
+                    variant={isMobile ? "h6" : "h4"}
                     sx={{
-                      mt: 1.2,
+                      mt: 1,
                       fontWeight: 800,
                       lineHeight: 1.08,
                       letterSpacing: "-0.04em",
@@ -490,7 +463,8 @@ export default function LoginScreen() {
                   </Typography>
                   <Typography
                     sx={{
-                      mt: 1.25,
+                      mt: 1,
+                      display: { xs: "none", sm: "block" },
                       color: alpha("#ffffff", 0.72),
                       lineHeight: 1.7,
                       fontSize: { xs: 14, md: 15 },
@@ -506,8 +480,8 @@ export default function LoginScreen() {
                   position: "relative",
                   zIndex: 1,
                   flex: 1,
-                  minHeight: { xs: 250, sm: 290, md: 360 },
-                  mt: { xs: 2, md: 3 },
+                  minHeight: { xs: 140, sm: 200, md: 320 },
+                  mt: { xs: 1.25, md: 2 },
                 }}
               >
                 <Box
@@ -541,11 +515,11 @@ export default function LoginScreen() {
                   elevation={0}
                   sx={{
                     position: "absolute",
-                    top: { xs: 68, md: 78 },
+                    top: { xs: 42, md: 78 },
                     left: { xs: "16%", md: "13%" },
-                    width: { xs: "68%", md: "60%" },
+                    width: { xs: "72%", md: "60%" },
                     maxWidth: 320,
-                    p: { xs: 1.8, md: 2.2 },
+                    p: { xs: 1.4, md: 2.2 },
                     borderRadius: 4,
                     color: "#ffffff",
                     background: "linear-gradient(180deg, #0b2017 0%, #091a13 100%)",
@@ -595,7 +569,7 @@ export default function LoginScreen() {
                     </Stack>
 
                     <Box>
-                      <Typography sx={{ fontSize: { xs: 18, md: 22 }, fontWeight: 800 }}>
+                      <Typography sx={{ fontSize: { xs: 15, md: 22 }, fontWeight: 800 }}>
                         {activeCard.title}
                       </Typography>
                       <Typography
@@ -632,7 +606,7 @@ export default function LoginScreen() {
                         right: index === 0 ? { xs: 18, md: 18 } : "auto",
                         left: index === 0 ? "auto" : { xs: 10, md: 26 },
                         width: index === 0 ? { xs: "40%", md: 190 } : { xs: "46%", md: 210 },
-                        p: { xs: 1.5, md: 1.8 },
+                        p: { xs: 1.2, md: 1.8 },
                         borderRadius: 4,
                         color: "#ffffff",
                         background: "linear-gradient(180deg, #10261c 0%, #0a1d15 100%)",
@@ -659,7 +633,7 @@ export default function LoginScreen() {
                           <Typography
                             sx={{
                               color: alpha("#ffffff", 0.9),
-                              fontSize: 13,
+                              fontSize: { xs: 11, md: 13 },
                               fontWeight: 700,
                               lineHeight: 1.25,
                             }}
@@ -676,11 +650,12 @@ export default function LoginScreen() {
 
               <Stack
                 spacing={1.5}
-                sx={{ position: "relative", zIndex: 1, mt: { xs: 1.5, md: 2.5 } }}
+                sx={{ position: "relative", zIndex: 1, mt: { xs: 0.75, md: 2 } }}
               >
                 <Paper
                   elevation={0}
                   sx={{
+                    display: { xs: "none", sm: "block" },
                     p: { xs: 2, md: 2.2 },
                     borderRadius: 4,
                     background: alpha("#ffffff", 0.07),
@@ -741,12 +716,12 @@ export default function LoginScreen() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                p: { xs: 2.5, sm: 3.5, md: 5 },
+                p: { xs: 2, sm: 3, md: 4 },
                 background: isDark ? alpha("#0c1419", 0.92) : "#fbfbfa",
               }}
             >
               <Box sx={{ width: "100%", maxWidth: 430 }}>
-                <Stack spacing={{ xs: 2.5, md: 3 }}>
+                <Stack spacing={{ xs: 2, md: 2.75 }}>
                   <Box>
                     <Typography
                       variant="overline"
@@ -773,7 +748,7 @@ export default function LoginScreen() {
                     </Typography>
                     <Typography
                       sx={{
-                        mt: 1.25,
+                        mt: 1,
                         color: formTextSecondary,
                         lineHeight: 1.75,
                         fontSize: { xs: 14, md: 15 },
@@ -802,7 +777,7 @@ export default function LoginScreen() {
                           "& .MuiOutlinedInput-root": {
                             borderRadius: 3.5,
                             backgroundColor: fieldBackground,
-                            minHeight: 58,
+                            minHeight: { xs: 54, md: 58 },
                             "& fieldset": {
                               borderColor: fieldBorder,
                             },
@@ -841,7 +816,7 @@ export default function LoginScreen() {
                           "& .MuiOutlinedInput-root": {
                             borderRadius: 3.5,
                             backgroundColor: fieldBackground,
-                            minHeight: 58,
+                            minHeight: { xs: 54, md: 58 },
                             "& fieldset": {
                               borderColor: fieldBorder,
                             },
@@ -885,7 +860,7 @@ export default function LoginScreen() {
                         endIcon={!isLoading ? <ArrowOutwardRounded /> : null}
                         sx={{
                           mt: "6px !important",
-                          minHeight: 58,
+                          minHeight: { xs: 54, md: 58 },
                           borderRadius: 99,
                           fontSize: "1rem",
                           fontWeight: 800,
