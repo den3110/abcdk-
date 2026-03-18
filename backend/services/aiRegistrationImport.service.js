@@ -1283,7 +1283,51 @@ function resolveGoogleSheetXlsxUrl(url) {
   return resolveGoogleSheetExportUrl(url, "xlsx");
 }
 
-async function resolveSourceText({ sheetUrl, rawText }) {
+function normalizeUploadedFileMeta(uploadedFile) {
+  const originalName = String(uploadedFile?.originalname || "").trim();
+  const mimeType = String(uploadedFile?.mimetype || "").trim();
+  const ext =
+    path.extname(originalName).replace(/^\./, "").toLowerCase() ||
+    (mimeType.includes("spreadsheetml") ? "xlsx" : "");
+
+  return {
+    originalName: originalName || "import-file",
+    mimeType: mimeType || "application/octet-stream",
+    extension: ext || "bin",
+  };
+}
+
+function decodeUploadedFileText(uploadedFile) {
+  const buffer = uploadedFile?.buffer;
+  if (!Buffer.isBuffer(buffer) || !buffer.length) return "";
+
+  const decoded = buffer.toString("utf8").replace(/^\uFEFF/, "");
+  if (!decoded.trim()) return "";
+  if (/^\s*</.test(decoded) && /<html/i.test(decoded)) return "";
+  return decoded;
+}
+
+async function resolveSourceText({ sheetUrl, rawText, uploadedFile }) {
+  if (uploadedFile?.buffer?.length) {
+    const fileMeta = normalizeUploadedFileMeta(uploadedFile);
+    const text = String(rawText || "").trim() || decodeUploadedFileText(uploadedFile);
+    if (!text) {
+      throw new Error(
+        "Không đọc được nội dung từ file tải lên. Hãy thử CSV/TXT/JSON hoặc để Pikora phân tích file khác."
+      );
+    }
+
+    return {
+      sourceType: "file",
+      sourceLabel: `File tải lên: ${fileMeta.originalName}`,
+      originalFilename: fileMeta.originalName,
+      originalMimeType: fileMeta.mimeType,
+      originalExtension: fileMeta.extension,
+      fileBuffer: uploadedFile.buffer,
+      text,
+    };
+  }
+
   if (String(rawText || "").trim()) {
     return {
       sourceType: "paste",
@@ -2205,6 +2249,28 @@ async function materializeSourceFile({ source, parsed }) {
   const dir = path.join(os.tmpdir(), "pickletour-ai-import");
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await fs.mkdir(dir, { recursive: true });
+
+  if (source?.sourceType === "file" && Buffer.isBuffer(source?.fileBuffer)) {
+    const extension = String(source?.originalExtension || "bin")
+      .replace(/[^a-z0-9]/gi, "")
+      .toLowerCase();
+    const filename = `ai-import-${stamp}.${extension || "bin"}`;
+    const filePath = path.join(dir, filename);
+    const buffer = source.fileBuffer;
+
+    await fs.writeFile(filePath, buffer);
+
+    return {
+      filePath,
+      filename,
+      fileType: extension || "bin",
+      mimeType: source?.originalMimeType || "application/octet-stream",
+      content: String(source?.text || ""),
+      base64: buffer.toString("base64"),
+      sourceMode: "uploaded-file",
+      originalUrl: source?.originalFilename || source?.sourceLabel || "",
+    };
+  }
 
   // Google Sheet URL: app vẫn dùng CSV snapshot để parse nội bộ và dựng preview,
   // nhưng file gửi sang CatGPT sẽ ưu tiên giữ nguyên dạng .xlsx.
@@ -3991,6 +4057,7 @@ export async function previewAiRegistrationImport({
   tournamentId,
   sheetUrl,
   rawText,
+  uploadedFile,
   adminPrompt = "",
   onProgress,
   actorMeta,
@@ -4018,7 +4085,7 @@ export async function previewAiRegistrationImport({
     message: "Đang lấy dữ liệu nguồn để đọc trước.",
   });
 
-  const source = await resolveSourceText({ sheetUrl, rawText });
+  const source = await resolveSourceText({ sheetUrl, rawText, uploadedFile });
   const parsed = parseTextToRows(source.text);
   if (!parsed.rows.length) {
     throw new Error("Không đọc được dòng dữ liệu nào từ nguồn import");
@@ -4408,6 +4475,23 @@ function validateCommitRow(
   return compactList(issues);
 }
 
+function normalizeQuickJsonTeamRows(teams) {
+  const list = Array.isArray(teams) ? teams : [];
+  return list.map((item, index) => ({
+    rowId: String(item?.rowId || `quick-json-${index + 1}`),
+    rowNumber: Number(item?.rowNumber) || index + 1,
+    fullName1: String(item?.fullName1 || item?.name1 || item?.player1 || "").trim(),
+    fullName2: String(item?.fullName2 || item?.name2 || item?.player2 || "").trim(),
+    paymentStatus:
+      item?.paid === true ||
+      String(item?.paymentStatus || item?.payment || "")
+        .trim()
+        .toLowerCase() === "paid"
+        ? "Paid"
+        : "Unpaid",
+  }));
+}
+
 export async function commitAiRegistrationImport({
   tournamentId,
   rows,
@@ -4588,5 +4672,202 @@ export async function commitAiRegistrationImport({
       },
     ],
   });
+  return result;
+}
+
+export async function quickImportJsonTeams({
+  tournamentId,
+  teams,
+  actorId,
+  actorMeta,
+}) {
+  const tournament = await Tournament.findById(tournamentId).select(
+    "_id name eventType maxPairs singleCap scoreCap scoreGap allowExceedMaxRating"
+  );
+  if (!tournament) {
+    throw new Error("Tournament không tồn tại");
+  }
+  if (String(tournament.eventType || "double") === "single") {
+    throw new Error("Nhập nhanh JSON này chỉ áp dụng cho giải đôi");
+  }
+
+  const normalizedRows = normalizeQuickJsonTeamRows(teams);
+  if (!normalizedRows.length) {
+    throw new Error("File JSON không có đội nào để nhập");
+  }
+
+  const existingCount = await Registration.countDocuments({
+    tournament: tournament._id,
+  });
+  const emailReserved = new Set();
+  const phoneReserved = new Set();
+  const nicknameReserved = new Set();
+  const results = [];
+  const createdUsers = [];
+  let createdRegistrations = 0;
+
+  for (let index = 0; index < normalizedRows.length; index += 1) {
+    const row = normalizedRows[index];
+    const session = await mongoose.startSession();
+    try {
+      session.startTransaction();
+
+      if (!row.fullName1 || !row.fullName2) {
+        throw new Error("Mỗi đội phải có đủ fullName1 và fullName2");
+      }
+
+      const primary = await materializePlayer({
+        player: {
+          action: "create_temp",
+          fullName: row.fullName1,
+          sourcePhone: "",
+          sourceEmail: "",
+          score: 2.5,
+          tempDraft: await buildTempDraft({
+            name: row.fullName1,
+            rowNumber: row.rowNumber,
+            slot: 1,
+            emailReserved,
+            phoneReserved,
+            nicknameReserved,
+          }),
+        },
+        tournament,
+        session,
+        sourceRowNumber: row.rowNumber,
+      });
+
+      const secondary = await materializePlayer({
+        player: {
+          action: "create_temp",
+          fullName: row.fullName2,
+          sourcePhone: "",
+          sourceEmail: "",
+          score: 2.5,
+          tempDraft: await buildTempDraft({
+            name: row.fullName2,
+            rowNumber: row.rowNumber,
+            slot: 2,
+            emailReserved,
+            phoneReserved,
+            nicknameReserved,
+          }),
+        },
+        tournament,
+        session,
+        sourceRowNumber: row.rowNumber,
+      });
+
+      const rowIssues = validateCommitRow(
+        tournament,
+        primary,
+        secondary,
+        existingCount,
+        createdRegistrations
+      );
+      if (rowIssues.length) {
+        throw new Error(rowIssues.join("; "));
+      }
+
+      const conflict = await registrationConflictExists(
+        tournament._id,
+        primary?.user?._id,
+        secondary?.user?._id,
+        session
+      );
+      if (conflict) {
+        throw new Error("Một trong các VĐV đã đăng ký giải này rồi");
+      }
+
+      const registration = await Registration.create(
+        [
+          {
+            tournament: tournament._id,
+            player1: buildRegistrationPlayer(primary.user, primary.score),
+            player2: buildRegistrationPlayer(secondary.user, secondary.score),
+            payment: {
+              status: row.paymentStatus,
+              paidAt: row.paymentStatus === "Paid" ? new Date() : undefined,
+            },
+            createdBy: actorId || undefined,
+          },
+        ],
+        { session }
+      );
+
+      await session.commitTransaction();
+
+      createdRegistrations += 1;
+      [primary, secondary].forEach((player, playerIndex) => {
+        createdUsers.push({
+          rowId: row.rowId,
+          rowNumber: row.rowNumber,
+          slot: playerIndex + 1,
+          userId: String(player.user._id),
+          name: player.user.name || "",
+          nickname: player.user.nickname || "",
+          phone: player.user.phone || "",
+          email: player.user.email || "",
+          password: player.password,
+        });
+      });
+
+      results.push({
+        rowId: row.rowId,
+        rowNumber: row.rowNumber,
+        status: "created",
+        registrationId: String(registration[0]._id),
+      });
+    } catch (error) {
+      await session.abortTransaction();
+      results.push({
+        rowId: row.rowId,
+        rowNumber: row.rowNumber,
+        status: "failed",
+        error: error.message,
+      });
+    } finally {
+      session.endSession();
+    }
+  }
+
+  const result = {
+    ok: true,
+    createdRegistrations,
+    createdUsers: createdUsers.length,
+    credentials: createdUsers,
+    results,
+  };
+
+  const userBatch = await createAiImportUserBatch({
+    tournament,
+    actorMeta: { ...(actorMeta || {}), actorId },
+    selectedRows: normalizedRows.map((row) => ({
+      rowId: row.rowId,
+      sourceRowNumber: row.rowNumber,
+      sourceRowNumbers: [row.rowNumber],
+      paymentStatusKey: row.paymentStatus === "Paid" ? "paid" : "unpaid",
+    })),
+    paidRowIds: normalizedRows
+      .filter((row) => row.paymentStatus === "Paid")
+      .map((row) => row.rowId),
+    createdRegistrations,
+    createdUsers,
+    results,
+  });
+  result.userBatchId = String(userBatch._id);
+
+  await writeAiImportAudit({
+    tournament,
+    actorMeta: { ...(actorMeta || {}), actorId },
+    note: "AI_IMPORT_QUICK_JSON",
+    changes: [
+      { field: "aiImport.mode", from: null, to: "quick_json" },
+      { field: "aiImport.requestedRows", from: null, to: normalizedRows.length },
+      { field: "aiImport.createdRegistrations", from: null, to: createdRegistrations },
+      { field: "aiImport.createdUsers", from: null, to: createdUsers.length },
+    ],
+  });
+
   return result;
 }

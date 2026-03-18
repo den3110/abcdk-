@@ -4,6 +4,7 @@ import {
   getAiImportUserBatch,
   listAiImportUserBatches,
   previewAiRegistrationImport,
+  quickImportJsonTeams,
 } from "../../services/aiRegistrationImport.service.js";
 
 function writeSse(res, event, data) {
@@ -23,6 +24,7 @@ export const previewRegistrationImport = asyncHandler(async (req, res) => {
     tournamentId: tourId,
     sheetUrl,
     rawText,
+    uploadedFile: req.file || null,
     adminPrompt,
     actorMeta: {
       actorId: req.user?._id || null,
@@ -91,6 +93,7 @@ export const previewRegistrationImportStream = async (req, res) => {
       tournamentId: tourId,
       sheetUrl,
       rawText,
+      uploadedFile: req.file || null,
       adminPrompt,
       actorMeta: {
         actorId: req.user?._id || null,
@@ -129,6 +132,24 @@ export const commitRegistrationImport = asyncHandler(async (req, res) => {
     tournamentId: tourId,
     rows,
     paidRowIds,
+    actorId: req.user?._id,
+    actorMeta: {
+      actorId: req.user?._id || null,
+      ip: req.ip || "",
+      userAgent: req.headers["user-agent"] || "",
+    },
+  });
+
+  res.status(201).json(result);
+});
+
+export const quickImportRegistrationJson = asyncHandler(async (req, res) => {
+  const { tourId } = req.params;
+  const { teams = [] } = req.body || {};
+
+  const result = await quickImportJsonTeams({
+    tournamentId: tourId,
+    teams,
     actorId: req.user?._id,
     actorMeta: {
       actorId: req.user?._id || null,

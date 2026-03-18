@@ -79,6 +79,7 @@ import {
   listImportUserBatches,
   previewRegistrationImport,
   previewRegistrationImportStream,
+  quickImportRegistrationJson,
 } from "../controllers/admin/adminAiImportController.js";
 import {
   getDashboardMetrics,
@@ -149,6 +150,7 @@ import {
   searchPresenceUsers,
 } from "../controllers/admin/adminStatsController.js";
 import { searchUsersForRefereeAssign } from "../controllers/admin/refereeController.js";
+import { uploadSingleAiImportFile } from "../middleware/uploadMiddleware.js";
 import { suggestAndCommit, suggestPlan } from "./planSuggest.js";
 import {
   getConfig,
@@ -527,6 +529,7 @@ router.post(
   "/tournaments/:tourId/registrations/ai-import/preview",
   protect,
   authorize("admin"),
+  uploadSingleAiImportFile,
   previewRegistrationImport
 );
 
@@ -534,6 +537,7 @@ router.post(
   "/tournaments/:tourId/registrations/ai-import/preview-stream",
   protect,
   authorize("admin"),
+  uploadSingleAiImportFile,
   previewRegistrationImportStream
 );
 
@@ -542,6 +546,13 @@ router.post(
   protect,
   authorize("admin"),
   commitRegistrationImport
+);
+
+router.post(
+  "/tournaments/:tourId/registrations/ai-import/quick-json",
+  protect,
+  authorize("admin"),
+  quickImportRegistrationJson
 );
 
 router.get(
