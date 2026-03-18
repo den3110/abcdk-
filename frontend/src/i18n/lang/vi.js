@@ -173,8 +173,33 @@ export default {
   auth: {
     login: {
       seoTitle: "Đăng nhập",
+      formLabel: "Khu vực thành viên",
       welcome: "Chào mừng bạn trở lại PickleTour!",
       subtitle: "Đăng nhập hệ thống",
+      brandBadge: "Nền tảng giải đấu Pickleball",
+      brandTitle: "Đăng nhập để theo dõi giải đấu, bảng xếp hạng và live score trong cùng một nhịp.",
+      brandBody:
+        "Một tài khoản để đăng ký giải, xem bracket, cập nhật trận trực tiếp và kết nối cộng đồng PickleTour.",
+      helper: "Dùng số điện thoại hoặc email bạn đã đăng ký để tiếp tục.",
+      chips: {
+        schedule: "Lịch & bracket",
+        live: "Live score",
+        community: "Cộng đồng",
+      },
+      highlights: {
+        tournaments: {
+          title: "Giải đấu trong tầm tay",
+          body: "Đăng ký, theo dõi lịch và nhánh đấu trên cùng một giao diện.",
+        },
+        ranking: {
+          title: "Xếp hạng cập nhật",
+          body: "Điểm trình và kết quả được đồng bộ nhanh sau mỗi trận.",
+        },
+        live: {
+          title: "Theo dõi trực tiếp",
+          body: "Nắm bắt sân đấu, tỷ số và trạng thái trận theo thời gian thực.",
+        },
+      },
       identifierLabel: "Số điện thoại hoặc Email",
       passwordLabel: "Mật khẩu",
       submit: "Đăng nhập",

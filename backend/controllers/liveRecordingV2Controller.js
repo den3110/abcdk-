@@ -21,6 +21,7 @@ import {
 import { enqueueLiveRecordingExport } from "../services/liveRecordingV2Queue.service.js";
 import { buildLiveRecordingMonitorSnapshot } from "../services/liveRecordingMonitor.service.js";
 import { publishLiveRecordingMonitorUpdate } from "../services/liveRecordingMonitorEvents.service.js";
+import { getLiveRecordingWorkerHealth } from "../services/liveRecordingWorkerHealth.service.js";
 
 function isValidObjectId(value) {
   return mongoose.isValidObjectId(String(value || ""));
@@ -747,6 +748,11 @@ export const getLiveRecordingByMatchV2 = asyncHandler(async (req, res) => {
 export const getLiveRecordingMonitorV2 = asyncHandler(async (_req, res) => {
   const snapshot = await buildLiveRecordingMonitorSnapshot();
   return res.json(snapshot);
+});
+
+export const getLiveRecordingWorkerHealthV2 = asyncHandler(async (_req, res) => {
+  const health = await getLiveRecordingWorkerHealth();
+  return res.json(health);
 });
 
 export const playLiveRecordingV2 = asyncHandler(async (req, res) => {

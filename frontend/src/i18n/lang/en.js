@@ -173,8 +173,34 @@ export default {
   auth: {
     login: {
       seoTitle: "Log in",
+      formLabel: "Member access",
       welcome: "Welcome back to PickleTour!",
       subtitle: "Sign in to your account",
+      brandBadge: "Pickleball tournament platform",
+      brandTitle:
+        "Log in to track tournaments, rankings, and live scores in one place.",
+      brandBody:
+        "One account to register for events, view brackets, follow live matches, and stay connected with the PickleTour community.",
+      helper: "Use the phone number or email you registered with to continue.",
+      chips: {
+        schedule: "Schedule & brackets",
+        live: "Live score",
+        community: "Community",
+      },
+      highlights: {
+        tournaments: {
+          title: "Events at your fingertips",
+          body: "Register, follow schedules, and track brackets from a single interface.",
+        },
+        ranking: {
+          title: "Rankings stay fresh",
+          body: "Ratings and results sync quickly after every match.",
+        },
+        live: {
+          title: "Follow in real time",
+          body: "Stay on top of courts, scores, and match status as they change.",
+        },
+      },
       identifierLabel: "Phone number or Email",
       passwordLabel: "Password",
       submit: "Log in",

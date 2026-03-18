@@ -7,6 +7,7 @@ import {
   completeMultipartLiveRecordingSegmentV2,
   finalizeLiveRecordingV2,
   getLiveRecordingMonitorV2,
+  getLiveRecordingWorkerHealthV2,
   getLiveRecordingByMatchV2,
   playLiveRecordingV2,
   presignMultipartLiveRecordingSegmentPartV2,
@@ -28,6 +29,7 @@ router.post("/segments/multipart/complete", protect, completeMultipartLiveRecord
 router.post("/segments/multipart/abort", protect, abortMultipartLiveRecordingSegmentV2);
 router.post("/finalize", protect, finalizeLiveRecordingV2);
 router.get("/admin/monitor", protect, authorize("admin"), getLiveRecordingMonitorV2);
+router.get("/admin/worker-health", protect, authorize("admin"), getLiveRecordingWorkerHealthV2);
 router.get("/by-match/:matchId", getLiveRecordingByMatchV2);
 router.get("/:id/play", playLiveRecordingV2);
 
