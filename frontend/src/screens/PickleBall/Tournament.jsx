@@ -1,6 +1,6 @@
 /* eslint-disable react/prop-types */
 // src/pages/TournamentDashboard.jsx
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useDeferredValue } from "react";
 import { useSearchParams, Link as RouterLink } from "react-router-dom";
 import {
   Box,
@@ -18,7 +18,6 @@ import {
   InputAdornment,
   IconButton,
   LinearProgress,
-  Fade,
   styled,
   alpha,
   Grid, // MUI v7 Grid
@@ -65,7 +64,7 @@ const GlassCard = styled(Card)(({ theme }) => ({
   display: "flex",
   flexDirection: "column",
   height: "100%",
-  transition: "all 0.3s ease",
+  transition: "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
   "&:hover": {
     transform: "translateY(-4px)",
     boxShadow: theme.shadows[8],
@@ -178,6 +177,9 @@ export default function TournamentDashboard() {
     params.get("from") ? dayjs(params.get("from")) : null,
     params.get("to") ? dayjs(params.get("to")) : null,
   ]);
+  const deferredTab = useDeferredValue(tab);
+  const deferredKeyword = useDeferredValue(debouncedKeyword);
+  const deferredDateRange = useDeferredValue(dateRange);
 
   // --- Sync Logic ---
   useEffect(() => {
@@ -243,13 +245,13 @@ export default function TournamentDashboard() {
   // --- Filtering ---
   const filtered = useMemo(() => {
     if (!tournaments) return [];
-    const [from, to] = dateRange;
+    const [from, to] = deferredDateRange;
 
     return tournaments
-      .filter((t) => t.status === tab)
+      .filter((t) => t.status === deferredTab)
       .filter((t) =>
-        debouncedKeyword
-          ? t.name?.toLowerCase().includes(debouncedKeyword)
+        deferredKeyword
+          ? t.name?.toLowerCase().includes(deferredKeyword)
           : true
       )
       .filter((t) => {
@@ -260,7 +262,8 @@ export default function TournamentDashboard() {
         if (to && tStart.isAfter(to, "day")) return false;
         return true;
       });
-  }, [tournaments, tab, debouncedKeyword, dateRange]);
+  }, [tournaments, deferredTab, deferredKeyword, deferredDateRange]);
+  const deferredFiltered = useDeferredValue(filtered);
 
   const handleChangeTab = (_, v) => {
     setTab(v);
@@ -470,6 +473,8 @@ export default function TournamentDashboard() {
                   t.image || "https://via.placeholder.com/400x200?text=No+Image"
                 }
                 alt={t.name}
+                loading="lazy"
+                decoding="async"
                 className="zoom-image"
                 style={{
                   width: "100%",
@@ -771,7 +776,7 @@ export default function TournamentDashboard() {
             </Grid>
           ) : (
             <ZoomProvider maskOpacity={0.8}>
-              {filtered.length === 0 ? (
+              {deferredFiltered.length === 0 ? (
                 <Stack
                   alignItems="center"
                   justifyContent="center"
@@ -787,13 +792,17 @@ export default function TournamentDashboard() {
                 </Stack>
               ) : (
                 <Grid container spacing={3}>
-                  {filtered.map((t) => (
+                  {deferredFiltered.map((t) => (
                     <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }} key={t._id}>
-                      <Fade in timeout={500}>
-                        <Box height="100%">
-                          <TournamentCard t={t} />
-                        </Box>
-                      </Fade>
+                      <Box
+                        height="100%"
+                        sx={{
+                          contentVisibility: "auto",
+                          containIntrinsicSize: "400px",
+                        }}
+                      >
+                        <TournamentCard t={t} />
+                      </Box>
                     </Grid>
                   ))}
                 </Grid>
