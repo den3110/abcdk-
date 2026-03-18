@@ -11,6 +11,7 @@ import {
   freeCourtAndAssignNext,
   fillIdleCourtsForCluster,
 } from "../../services/courtQueueService.js";
+import { getCourtLivePresenceSummaryMap } from "../../services/courtLivePresence.service.js";
 import { canManageTournament } from "../../utils/tournamentAuth.js";
 const { Types } = mongoose;
 /**
@@ -879,6 +880,22 @@ export async function listCourtsByTournament(req, res) {
         c.currentMatch.code = code;
         c.currentMatch.displayCode = displayCode;
       }
+    }
+
+    try {
+      const presenceSummaryMap = await getCourtLivePresenceSummaryMap(
+        docs.map((court) => String(court._id))
+      );
+      docs = docs.map((court) => ({
+        ...court,
+        liveScreenPresence:
+          presenceSummaryMap.get(String(court._id)) || null,
+      }));
+    } catch (presenceError) {
+      console.warn(
+        "[listCourtsByTournament] presence enrich failed:",
+        presenceError?.message || presenceError
+      );
     }
 
     return res.json(docs);

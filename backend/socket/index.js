@@ -32,6 +32,7 @@ import {
   removeConnection,
   sweepStaleSockets,
 } from "../services/presenceService.js";
+import { canManageTournament } from "../utils/tournamentAuth.js";
 import { ensureAdmin, ensureReferee } from "../utils/socketAuth.js";
 import UserMatch from "../models/userMatchModel.js";
 import { computeStageInfoForMatchDoc } from "../controllers/refereeController.js";
@@ -40,6 +41,8 @@ import {
   registerFbPageMonitorPublisher,
   setFbPageMonitorMeta,
 } from "../services/fbPageMonitorEvents.service.js";
+import { buildTournamentCourtLivePresenceSnapshot } from "../services/courtLivePresence.service.js";
+import { registerCourtLivePresencePublisher } from "../services/courtLivePresenceEvents.service.js";
 
 /* 👇 THÊM BIẾN TOÀN CỤC LƯU IO */
 let ioInstance = null;
@@ -49,10 +52,15 @@ let fbPageMonitorPublishTimer = null;
 let fbPageMonitorPendingReasons = new Set();
 let fbPageMonitorPendingPageIds = new Set();
 let fbPageMonitorPendingHasEvent = false;
+let courtLiveTickerStarted = false;
+const courtLivePendingByTournamentId = new Map();
 
 const FB_PAGE_MONITOR_ROOM = "fb-pages:watchers";
 const FB_PAGE_MONITOR_TICK_MS = 15000;
 const FB_PAGE_MONITOR_DEBOUNCE_MS = 300;
+const COURT_LIVE_ROOM_PREFIX = "court-live:watch:";
+const COURT_LIVE_RECONCILE_TICK_MS = 15000;
+const COURT_LIVE_DEBOUNCE_MS = 300;
 
 async function emitFbPageMonitorSnapshot(io, options = {}) {
   const { socketId = null } =
@@ -130,6 +138,95 @@ function scheduleFbPageMonitorPublish(io, payload = {}) {
   fbPageMonitorPublishTimer = setTimeout(() => {
     void flushNow();
   }, FB_PAGE_MONITOR_DEBOUNCE_MS);
+}
+
+function courtLiveRoom(tournamentId) {
+  return `${COURT_LIVE_ROOM_PREFIX}${String(tournamentId || "").trim()}`;
+}
+
+async function emitCourtLivePresenceSnapshot(io, tournamentId, socketId = null) {
+  const normalizedTournamentId = String(tournamentId || "").trim();
+  if (!normalizedTournamentId) return;
+  try {
+    const snapshot = await buildTournamentCourtLivePresenceSnapshot(
+      normalizedTournamentId
+    );
+    if (socketId) {
+      io.to(socketId).emit("court-live:update", snapshot);
+      return;
+    }
+    io.to(courtLiveRoom(normalizedTournamentId)).emit(
+      "court-live:update",
+      snapshot
+    );
+  } catch (error) {
+    console.error(
+      "[socket] court-live:update error:",
+      error?.message || error
+    );
+  }
+}
+
+function getCourtLivePendingEntry(tournamentId) {
+  const key = String(tournamentId || "").trim();
+  if (!key) return null;
+  const current =
+    courtLivePendingByTournamentId.get(key) || {
+      timer: null,
+      reasons: new Set(),
+      courtIds: new Set(),
+      hasEvent: false,
+    };
+  courtLivePendingByTournamentId.set(key, current);
+  return current;
+}
+
+async function flushCourtLivePresencePublish(io, tournamentId) {
+  const key = String(tournamentId || "").trim();
+  if (!key) return;
+  const entry = courtLivePendingByTournamentId.get(key);
+  if (!entry) return;
+  if (entry.timer) {
+    clearTimeout(entry.timer);
+    entry.timer = null;
+  }
+  courtLivePendingByTournamentId.delete(key);
+  const watchers = io.sockets.adapter.rooms.get(courtLiveRoom(key))?.size || 0;
+  if (!watchers) return;
+  await emitCourtLivePresenceSnapshot(io, key);
+}
+
+function scheduleCourtLivePresencePublish(io, payload = {}) {
+  const tournamentId = String(payload.tournamentId || "").trim();
+  if (!tournamentId) return;
+  const mode = payload.mode === "reconcile" ? "reconcile" : "event";
+  const entry = getCourtLivePendingEntry(tournamentId);
+  if (!entry) return;
+  entry.reasons.add(
+    String(payload.reason || "unknown_event").trim() || "unknown_event"
+  );
+  for (const courtId of Array.isArray(payload.courtIds) ? payload.courtIds : []) {
+    if (courtId) entry.courtIds.add(String(courtId));
+  }
+  if (mode === "event") entry.hasEvent = true;
+
+  const flushNow = async () => {
+    try {
+      await flushCourtLivePresencePublish(io, tournamentId);
+    } catch (error) {
+      console.error("[socket] court-live flush error:", error);
+    }
+  };
+
+  if (mode === "reconcile") {
+    void flushNow();
+    return;
+  }
+
+  if (entry.timer) return;
+  entry.timer = setTimeout(() => {
+    void flushNow();
+  }, COURT_LIVE_DEBOUNCE_MS);
 }
 
 function guessClientType(socket) {
@@ -494,6 +591,9 @@ export function initSocket(
   registerFbPageMonitorPublisher((payload) => {
     scheduleFbPageMonitorPublish(io, payload);
   });
+  registerCourtLivePresencePublisher((payload) => {
+    scheduleCourtLivePresencePublish(io, payload);
+  });
 
   // Optional Redis adapter (clustered scale-out)
   (async () => {
@@ -626,7 +726,7 @@ export function initSocket(
 
     socket.on("fb-pages:watch", async () => {
       try {
-        if (!ensureAdmin(socket)) return;
+        if (!(await ensureAdmin(socket))) return;
         socket.join(FB_PAGE_MONITOR_ROOM);
         await emitFbPageMonitorSnapshot(io, socket.id);
       } catch (e) {
@@ -639,6 +739,32 @@ export function initSocket(
         socket.leave(FB_PAGE_MONITOR_ROOM);
       } catch (e) {
         console.error("[socket] fb-pages:unwatch error:", e);
+      }
+    });
+
+    socket.on("court-live:watch", async ({ tournamentId } = {}) => {
+      try {
+        const tid = String(tournamentId || "").trim();
+        if (!tid) return;
+        const allowed = await canManageTournament(
+          { _id: socket.data.userId, role: socket.data.role },
+          tid
+        );
+        if (!allowed) return;
+        socket.join(courtLiveRoom(tid));
+        await emitCourtLivePresenceSnapshot(io, tid, socket.id);
+      } catch (e) {
+        console.error("[socket] court-live:watch error:", e);
+      }
+    });
+
+    socket.on("court-live:unwatch", ({ tournamentId } = {}) => {
+      try {
+        const tid = String(tournamentId || "").trim();
+        if (!tid) return;
+        socket.leave(courtLiveRoom(tid));
+      } catch (e) {
+        console.error("[socket] court-live:unwatch error:", e);
       }
     });
 
@@ -2528,6 +2654,28 @@ export function initSocket(
         console.error("[socket] fb-pages ticker error:", e);
       }
     }, FB_PAGE_MONITOR_TICK_MS);
+  }
+
+  if (!courtLiveTickerStarted) {
+    courtLiveTickerStarted = true;
+    setInterval(async () => {
+      try {
+        const rooms = Array.from(io.sockets.adapter.rooms.keys()).filter(
+          (room) => room.startsWith(COURT_LIVE_ROOM_PREFIX)
+        );
+        for (const room of rooms) {
+          const tournamentId = room.slice(COURT_LIVE_ROOM_PREFIX.length);
+          if (!tournamentId) continue;
+          scheduleCourtLivePresencePublish(io, {
+            tournamentId,
+            reason: "fallback_reconcile",
+            mode: "reconcile",
+          });
+        }
+      } catch (e) {
+        console.error("[socket] court-live ticker error:", e);
+      }
+    }, COURT_LIVE_RECONCILE_TICK_MS);
   }
 
   return ioInstance;

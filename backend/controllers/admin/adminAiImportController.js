@@ -11,12 +11,13 @@ function writeSse(res, event, data) {
 
 export const previewRegistrationImport = asyncHandler(async (req, res) => {
   const { tourId } = req.params;
-  const { sheetUrl = "", rawText = "" } = req.body || {};
+  const { sheetUrl = "", rawText = "", adminPrompt = "" } = req.body || {};
 
   const result = await previewAiRegistrationImport({
     tournamentId: tourId,
     sheetUrl,
     rawText,
+    adminPrompt,
   });
 
   res.json(result);
@@ -24,7 +25,7 @@ export const previewRegistrationImport = asyncHandler(async (req, res) => {
 
 export const previewRegistrationImportStream = async (req, res) => {
   const { tourId } = req.params;
-  const { sheetUrl = "", rawText = "" } = req.body || {};
+  const { sheetUrl = "", rawText = "", adminPrompt = "" } = req.body || {};
   let closed = false;
 
   req.on("close", () => {
@@ -40,7 +41,7 @@ export const previewRegistrationImportStream = async (req, res) => {
   writeSse(res, "progress", {
     step: "connected",
     progress: 1,
-    message: "Da ket noi, bat dau xu ly xem truoc.",
+    message: "Đã kết nối, bắt đầu xử lý xem trước.",
   });
 
   try {
@@ -48,6 +49,7 @@ export const previewRegistrationImportStream = async (req, res) => {
       tournamentId: tourId,
       sheetUrl,
       rawText,
+      adminPrompt,
       onProgress: (payload) => {
         if (closed) return;
         writeSse(res, "progress", payload);
@@ -62,7 +64,7 @@ export const previewRegistrationImportStream = async (req, res) => {
     console.error("[AI Import] preview stream error:", error.message);
     if (!closed) {
       writeSse(res, "error", {
-        message: error.message || "Khong the xem truoc danh sach nay",
+        message: error.message || "Không thể xem trước danh sách này",
       });
       res.end();
     }

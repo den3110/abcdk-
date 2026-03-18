@@ -40,8 +40,8 @@ const CATGPT_GATEWAY_MODEL =
 const CATGPT_GATEWAY_TIMEOUT_MS = Math.max(
   60_000,
   Math.min(
-    600_000,
-    Number(process.env.CATGPT_GATEWAY_TIMEOUT_MS || 420_000)
+    1_800_000,
+    Number(process.env.CATGPT_GATEWAY_TIMEOUT_MS || 960_000)
   )
 );
 const AI_IMPORT_PROVIDER =
@@ -183,6 +183,56 @@ function formatUserInput(input) {
   return typeof input === "string" ? input : JSON.stringify(input);
 }
 
+function normalizeAdminPrompt(value) {
+  return truncate(
+    String(value || "")
+      .replace(/\r\n/g, "\n")
+      .trim(),
+    2000
+  );
+}
+
+function buildAdminPromptSection(adminPrompt) {
+  const normalized = normalizeAdminPrompt(adminPrompt);
+  if (!normalized) return "";
+  return `
+
+Ghi chú bổ sung từ admin:
+${normalized}
+
+Chỉ áp dụng các ghi chú này khi trong file thực sự có dấu hiệu tương ứng.
+Nếu file không giữ được thông tin màu sắc, định dạng, hoặc ghi chú trực quan thì không được tự suy diễn.
+  `.trim();
+}
+
+function buildTempAccountRulesObject() {
+  return {
+    userModelFields: ["name/fullName", "nickname", "phone", "email", "password"],
+    aiOutputUsesFullNameField: true,
+    backendMapsFullNameToUserName: true,
+    minimumIdentityForAutoCreate: "fullName",
+    missingEmailPhoneNicknamePasswordDoesNotBlockRegistration: true,
+    backendWillCreateTempIdentityFromAvailableData: true,
+    tempIdentityDerivedFrom: ["fullName", "sourceRowNumber", "playerSlot"],
+    tempEmailDomain: TEMP_EMAIL_DOMAIN,
+    aiMustNotInventNicknamePhoneEmailPassword: true,
+  };
+}
+
+function buildTempAccountRulesText() {
+  return `
+Quy tắc tài khoản tạm của hệ thống:
+- User model nội bộ gồm: name/fullName, nickname, phone, email, password.
+- Trong output của AI, hãy dùng trường fullName; backend sẽ map fullName vào field name của user.
+- Nếu file thiếu email, phone, nickname hoặc password thì không được xem đó là lỗi chặn đăng ký.
+- Chỉ cần vẫn nhận ra được fullName thì cứ giữ hồ sơ đăng ký để backend xử lý tiếp.
+- Backend sẽ tự sinh tài khoản tạm từ dữ liệu có thật như fullName, dòng nguồn và slot VĐV.
+- AI không được tự bịa nickname, password, email hoặc phone khi file không có.
+- Email tạm do backend sinh sẽ luôn theo định dạng xxxx@${TEMP_EMAIL_DOMAIN}.
+- Nếu thiếu luôn fullName thì phải đánh needsReview và nêu rõ lý do thiếu tên người chơi.
+  `.trim();
+}
+
 function buildImportClientAttempts() {
   const attempts = [
     { label: "configured", client: openai, model: IMPORT_MODEL },
@@ -307,31 +357,31 @@ function classifyImportDiagnosticSummary(diagnostics) {
       text.includes("timeout") ||
       text.includes("aborterror")
     ) {
-      return `CatGPT-Gateway da nhan request nhung ChatGPT xu ly qua lau. Tang CATGPT_GATEWAY_TIMEOUT_MS hoac rut gon file/prompt. Timeout hien tai: ${Math.round(
+      return `CatGPT-Gateway đã nhận request nhưng ChatGPT xử lý quá lâu. Hãy tăng CATGPT_GATEWAY_TIMEOUT_MS hoặc rút gọn file/prompt. Timeout hiện tại: ${Math.round(
         CATGPT_GATEWAY_TIMEOUT_MS / 1000
       )}s.`;
     }
     if (text.includes("401") || text.includes("unauthorized")) {
-      return "CatGPT-Gateway tu choi xac thuc. Kiem tra CATGPT_GATEWAY_API_TOKEN.";
+      return "CatGPT-Gateway từ chối xác thực. Hãy kiểm tra CATGPT_GATEWAY_API_TOKEN.";
     }
     if (text.includes("403") || text.includes("forbidden")) {
-      return "CatGPT-Gateway dang chan request nay hoac session ChatGPT khong du quyen.";
+      return "CatGPT-Gateway đang chặn request này hoặc session ChatGPT không đủ quyền.";
     }
     if (text.includes("404")) {
-      return "CatGPT-Gateway khong tim thay route /v1/chat/completions. Kiem tra CATGPT_GATEWAY_BASE_URL.";
+      return "CatGPT-Gateway không tìm thấy route `/v1/chat/completions`. Hãy kiểm tra CATGPT_GATEWAY_BASE_URL.";
     }
     if (
       text.includes("503") ||
       text.includes("chatgpt client not initialized") ||
       text.includes("not initialized")
     ) {
-      return "CatGPT-Gateway chua san sang hoac phien ChatGPT chua dang nhap.";
+      return "CatGPT-Gateway chưa sẵn sàng hoặc phiên ChatGPT chưa đăng nhập.";
     }
     if (text.includes("upload") && text.includes("file")) {
-      return "CatGPT-Gateway khong tai duoc file dinh kem len ChatGPT.";
+      return "CatGPT-Gateway không tải được file đính kèm lên ChatGPT.";
     }
     if (text.includes("parse") || text.includes("json") || text.includes("csv")) {
-      return "ChatGPT da phan hoi nhung khong dung dinh dang JSON/CSV mong muon.";
+      return "ChatGPT đã phản hồi nhưng không đúng định dạng JSON/CSV mong muốn.";
     }
     if (
       text.includes("econnrefused") ||
@@ -339,15 +389,15 @@ function classifyImportDiagnosticSummary(diagnostics) {
       text.includes("network") ||
       text.includes("socket")
     ) {
-      return "Khong ket noi duoc toi CatGPT-Gateway. Kiem tra endpoint local hoac container.";
+      return "Không kết nối được tới CatGPT-Gateway. Hãy kiểm tra endpoint local hoặc container.";
     }
     if (diagnostics.hasErrors) {
-      return "CatGPT-Gateway dang loi cau hinh, upload file hoac phien ChatGPT.";
+      return "CatGPT-Gateway đang lỗi cấu hình, upload file, hoặc phiên ChatGPT.";
     }
     if (diagnostics.hasWarnings) {
-      return "CatGPT-Gateway van chay duoc nhung da phai dung duong parse du phong.";
+      return "CatGPT-Gateway vẫn chạy được nhưng đã phải dùng đường parse dự phòng.";
     }
-    return "CatGPT-Gateway dang hoat dong binh thuong.";
+    return "CatGPT-Gateway đang hoạt động bình thường.";
   }
 
   return classifyAiDiagnosticSummary(diagnostics);
@@ -373,14 +423,14 @@ function buildChatMessages(
   forceJsonOnly = false
 ) {
   const jsonTail = forceJsonOnly
-    ? "\n\nTra ve JSON hop le, khong them giai thich ngoai JSON."
+    ? "\n\nTrả về JSON hợp lệ, không thêm giải thích ngoài JSON."
     : "";
 
   if (shouldInlineChatInstructions(attempt)) {
     return [
       {
         role: "user",
-        content: `${instructions}\n\nDu lieu dau vao:\n${userContent}${jsonTail}`,
+        content: `${instructions}\n\nDữ liệu đầu vào:\n${userContent}${jsonTail}`,
       },
     ];
   }
@@ -454,7 +504,7 @@ async function createStructuredJson({
             parsed = parseJsonLoose(extractChatText(response));
             if (parsed === null) {
               throw new Error(
-                "Chat Completions json_schema tra ve du lieu khong parse duoc"
+                "Chat Completions json_schema trả về dữ liệu không parse được"
               );
             }
           }
@@ -470,7 +520,7 @@ async function createStructuredJson({
             parsed = parseJsonLoose(extractChatText(response));
             if (parsed === null) {
               throw new Error(
-                "Chat Completions json_object tra ve du lieu khong parse duoc"
+                "Chat Completions json_object trả về dữ liệu không parse được"
               );
             }
           }
@@ -495,7 +545,7 @@ async function createStructuredJson({
             parsed = parseJsonLoose(extractResponsesText(response));
             if (parsed === null) {
               throw new Error(
-                "Responses API tra ve du lieu khong parse duoc"
+                "Responses API trả về dữ liệu không parse được"
               );
             }
           }
@@ -505,7 +555,7 @@ async function createStructuredJson({
           stageDiagnostics.route = `${attempt.label}/${route}`;
           stageDiagnostics.message =
             stageDiagnostics.attempts.length > 0
-              ? "Da fallback thanh cong o route khac"
+              ? "Đã fallback thành công ở route khác"
               : "OK";
           if (diagnostics) {
             if (stageDiagnostics.attempts.length > 0) {
@@ -1042,17 +1092,25 @@ function buildTableContext(headers, rows) {
   };
 }
 
-function resolveGoogleSheetCsvUrl(url) {
+function resolveGoogleSheetExportUrl(url, format = "csv") {
   const value = String(url || "").trim();
   if (!value) return "";
-  if (/\/export\?format=csv/i.test(value)) return value;
+  if (new RegExp(`/export\\?format=${format}`, "i").test(value)) return value;
 
   const match = value.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   if (!match) return value;
 
   const gidMatch = value.match(/[?&#]gid=(\d+)/);
   const gid = gidMatch ? gidMatch[1] : "0";
-  return `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=csv&gid=${gid}`;
+  return `https://docs.google.com/spreadsheets/d/${match[1]}/export?format=${format}&gid=${gid}`;
+}
+
+function resolveGoogleSheetCsvUrl(url) {
+  return resolveGoogleSheetExportUrl(url, "csv");
+}
+
+function resolveGoogleSheetXlsxUrl(url) {
+  return resolveGoogleSheetExportUrl(url, "xlsx");
 }
 
 async function resolveSourceText({ sheetUrl, rawText }) {
@@ -1092,7 +1150,11 @@ async function resolveSourceText({ sheetUrl, rawText }) {
 
   return {
     sourceType: "sheet",
-    sourceLabel: exportUrl,
+    sourceLabel: String(sheetUrl || "").trim(),
+    originalUrl: String(sheetUrl || "").trim(),
+    parseCsvUrl: exportUrl,
+    exportCsvUrl: exportUrl,
+    exportXlsxUrl: resolveGoogleSheetXlsxUrl(sheetUrl),
     text,
   };
 }
@@ -1158,7 +1220,8 @@ function buildAiPrompt(
   batchRows,
   tableContext,
   allRows,
-  documentAnalysis
+  documentAnalysis,
+  adminPrompt = ""
 ) {
   const isSingles = String(tournament?.eventType || "double") === "single";
   return JSON.stringify({
@@ -1167,10 +1230,13 @@ function buildAiPrompt(
       eventType: isSingles ? "single" : "double",
       location: tournament?.location || "",
     },
+    adminInstructions: normalizeAdminPrompt(adminPrompt),
+    accountProvisioning: buildTempAccountRulesObject(),
     documentAnalysis,
     tableContext,
     instructions: {
       oneItemMeansOneCandidateRegistration: true,
+      honorAdminInstructionsWhenPresent: Boolean(normalizeAdminPrompt(adminPrompt)),
       doNotInventData: true,
       leaveBlankIfMissing: true,
       ratingUnknownValue: -1,
@@ -1180,6 +1246,10 @@ function buildAiPrompt(
       rowMayContainTwoPlayersInOneCell: true,
       rowMayContainTeamOrCompanyNameSeparateFromPlayers: true,
       candidateItemMayContainMultipleSourceRows: true,
+      missingContactFieldsDoNotBlockRegistration: true,
+      fullNameIsEnoughForTempUserCreation: true,
+      missingFullNameMustBeMarkedForReview: true,
+      doNotInventNicknamePasswordOrContactFields: true,
     },
     rows: buildPromptRows(batchRows, allRows),
   });
@@ -1327,7 +1397,7 @@ function buildDocumentAnalysisSchema() {
   };
 }
 
-function buildDocumentAnalysisPrompt(tournament, headers, rows) {
+function buildDocumentAnalysisPrompt(tournament, headers, rows, adminPrompt = "") {
   const isSingles = String(tournament?.eventType || "double") === "single";
   return JSON.stringify({
     tournament: {
@@ -1335,6 +1405,7 @@ function buildDocumentAnalysisPrompt(tournament, headers, rows) {
       eventType: isSingles ? "single" : "double",
       location: tournament?.location || "",
     },
+    adminInstructions: normalizeAdminPrompt(adminPrompt),
     headers,
     rows: sampleContextRows(rows, Math.min(Math.max(AI_CONTEXT_SAMPLE_ROWS, 12), 16)).map(
       (row) => ({
@@ -1412,7 +1483,12 @@ function buildRowGroupingSchema() {
   };
 }
 
-function buildRowGroupingPrompt(tournament, rows, documentAnalysis) {
+function buildRowGroupingPrompt(
+  tournament,
+  rows,
+  documentAnalysis,
+  adminPrompt = ""
+) {
   const isSingles = String(tournament?.eventType || "double") === "single";
   return JSON.stringify({
     tournament: {
@@ -1420,6 +1496,7 @@ function buildRowGroupingPrompt(tournament, rows, documentAnalysis) {
       eventType: isSingles ? "single" : "double",
       location: tournament?.location || "",
     },
+    adminInstructions: normalizeAdminPrompt(adminPrompt),
     documentAnalysis,
     rows: rows.map((row, idx) => ({
       rowIndex: idx,
@@ -1435,7 +1512,8 @@ async function analyzeRowGroupingWithAI(
   tournament,
   rows,
   documentAnalysis,
-  diagnostics
+  diagnostics,
+  adminPrompt = ""
 ) {
   const instructions = `
 Bạn là bộ phân nhóm dữ liệu đăng ký PickleTour.
@@ -1457,7 +1535,12 @@ Trả về JSON đúng schema, không thêm giải thích.
       schemaName: "registration_import_row_grouping",
       schema: buildRowGroupingSchema(),
       instructions,
-      input: buildRowGroupingPrompt(tournament, rows, documentAnalysis),
+      input: buildRowGroupingPrompt(
+        tournament,
+        rows,
+        documentAnalysis,
+        adminPrompt
+      ),
       maxOutputTokens: 3000,
       stage: "row_grouping",
       diagnostics,
@@ -1493,21 +1576,22 @@ async function analyzeRowGroupingCompact(
   tournament,
   rows,
   documentAnalysis,
-  diagnostics
+  diagnostics,
+  adminPrompt = ""
 ) {
   const instructions = `
-Ban la bo phan nhom du lieu dang ky PickleTour.
+Bạn là bộ phân nhóm dữ liệu đăng ký PickleTour.
 
-Muc tieu:
-- Quyet dinh dong nao thuc su la dong dang ky.
-- Neu mot ho so dang ky trai tren nhieu dong lien tiep, hay danh dau mergeWithPrevious = true o cac dong tiep theo.
-- Chi duoc gom cac dong lien ke nhau.
-- Neu gap tieu de, dong ngan cach, ghi chu, ten doi, ten cong ty, so thu tu, tong ket thi dat isRegistrationRow = false.
-- mergeWithPrevious chi true khi dong hien tai thuc su bo sung cho ho so cua dong ngay truoc do.
-- Khong bia du lieu.
-- Neu khong chac, ha confidence va ghi ro reasons.
+Mục tiêu:
+- Quyết định dòng nào thực sự là dòng đăng ký.
+- Nếu một hồ sơ đăng ký trải trên nhiều dòng liên tiếp, hãy đánh dấu \`mergeWithPrevious = true\` ở các dòng tiếp theo.
+- Chỉ được gom các dòng liền kề nhau.
+- Nếu gặp tiêu đề, dòng ngăn cách, ghi chú, tên đội, tên công ty, số thứ tự, dòng tổng kết thì đặt \`isRegistrationRow = false\`.
+- \`mergeWithPrevious\` chỉ được để \`true\` khi dòng hiện tại thực sự bổ sung cho hồ sơ của dòng ngay trước đó.
+- Không bịa dữ liệu.
+- Nếu không chắc, hãy hạ \`confidence\` và ghi rõ \`reasons\`.
 
-Tra ve JSON dung schema, khong them giai thich.
+Trả về JSON đúng schema, không thêm giải thích.
   `.trim();
 
   try {
@@ -1521,7 +1605,12 @@ Tra ve JSON dung schema, khong them giai thich.
         schemaName: "registration_import_row_grouping",
         schema: buildRowGroupingSchema(),
         instructions,
-        input: buildRowGroupingPrompt(tournament, chunkRows, documentAnalysis),
+        input: buildRowGroupingPrompt(
+          tournament,
+          chunkRows,
+          documentAnalysis,
+          adminPrompt
+        ),
         maxOutputTokens: 2200,
         stage: `row_grouping_${chunkRows[0]?.rowNumber || 0}_${
           chunkRows.at(-1)?.rowNumber || 0
@@ -1541,7 +1630,7 @@ Tra ve JSON dung schema, khong them giai thich.
             isRegistrationRow: true,
             mergeWithPrevious: false,
             confidence: 0.4,
-            reasons: ["AI chua phan nhom ro dong nay"],
+            reasons: ["AI chưa phân nhóm rõ dòng này"],
           }
         );
       }
@@ -1556,7 +1645,7 @@ Tra ve JSON dung schema, khong them giai thich.
           isRegistrationRow: true,
           mergeWithPrevious: false,
           confidence: 0.4,
-          reasons: ["AI chua phan nhom ro dong nay"],
+          reasons: ["AI chưa phân nhóm rõ dòng này"],
         }
       );
     });
@@ -1568,7 +1657,7 @@ Tra ve JSON dung schema, khong them giai thich.
       isRegistrationRow: true,
       mergeWithPrevious: false,
       confidence: 0.35,
-      reasons: ["AI chua phan nhom duoc cac dong trong file nay"],
+      reasons: ["AI chưa phân nhóm được các dòng trong file này"],
     }));
   }
 }
@@ -1655,7 +1744,8 @@ async function analyzeDocumentLayoutWithAI(
   tournament,
   headers,
   rows,
-  diagnostics
+  diagnostics,
+  adminPrompt = ""
 ) {
   const instructions = `
 Bạn là bộ phân tích bố cục file đăng ký PickleTour.
@@ -1682,7 +1772,12 @@ Trả về JSON đúng schema, không thêm giải thích ngoài schema.
       schemaName: "registration_import_document_analysis",
       schema: buildDocumentAnalysisSchema(),
       instructions,
-      input: buildDocumentAnalysisPrompt(tournament, headers, rows),
+      input: buildDocumentAnalysisPrompt(
+        tournament,
+        headers,
+        rows,
+        adminPrompt
+      ),
       maxOutputTokens: 2500,
       stage: "document_analysis",
       diagnostics,
@@ -1728,7 +1823,8 @@ async function analyzeBatchWithAI(
   tableContext,
   allRows,
   documentAnalysis,
-  diagnostics
+  diagnostics,
+  adminPrompt = ""
 ) {
   const instructions = `
 Bạn là bộ phân tích dữ liệu đăng ký giải PickleTour cho admin.
@@ -1741,6 +1837,9 @@ Nhiệm vụ:
 - Dữ liệu có thể rất tự do, nhiều thông tin dồn vào một ô, hoặc 2 VĐV nằm chung một ô.
 - Hãy rút ra dữ liệu đăng ký từ chính item đó.
 - KHÔNG được bịa thêm người, số điện thoại, email hay rating.
+
+${buildTempAccountRulesText()}
+
 - Nếu row chỉ là tiêu đề/tổng kết/ghi chú không phải đăng ký, đặt isRegistrationRow = false.
 - Tên đội, tên công ty, tên nhà tài trợ, mã đơn hàng, STT, số thứ tự, tên cột không phải là tên người chơi.
 - Nếu một ô chứa cả cặp đôi, hãy tách ra primary và secondary khi có đủ dấu hiệu hợp lý.
@@ -1772,6 +1871,7 @@ Nhiệm vụ:
   - nếu chỉ thấy 1 người thì để secondary trống và hạ confidence
 - Nếu row có tên người rõ nhưng không có phone/email thì vẫn là row đăng ký hợp lệ.
 - Nếu row có 2 tên người rõ trong cùng row, vẫn có thể cho confidence cao dù thiếu phone/email.
+- Nếu row thiếu luôn fullName của một người chơi thì không được tự đặt tên tạm trong output; hãy để trống và thêm lý do cần xem lại.
 
 Trả về JSON đúng schema, không thêm giải thích.
   `.trim();
@@ -1785,7 +1885,8 @@ Trả về JSON đúng schema, không thêm giải thích.
       batchRows,
       tableContext,
       allRows,
-      documentAnalysis
+      documentAnalysis,
+      adminPrompt
     ),
     maxOutputTokens: 4000,
     stage: `row_extraction_${batchRows[0]?.rowNumber || 0}_${
@@ -1823,7 +1924,8 @@ async function analyzeRows(
   tableContext,
   documentAnalysis,
   diagnostics,
-  onProgress
+  onProgress,
+  adminPrompt = ""
 ) {
   const chunks = [];
   for (let i = 0; i < sourceRows.length; i += AI_BATCH_SIZE) {
@@ -1833,7 +1935,7 @@ async function analyzeRows(
   reportPreviewProgress(onProgress, {
     step: "row_extraction",
     progress: 58,
-    message: `Dang tach ${sourceRows.length} cum ho so de xu ly.`,
+    message: `Đang tách ${sourceRows.length} cụm hồ sơ để xử lý.`,
     totalChunks: chunks.length,
     completedChunks: 0,
     totalGroups: sourceRows.length,
@@ -1851,14 +1953,15 @@ async function analyzeRows(
             tableContext,
             sourceRows,
             documentAnalysis,
-            diagnostics
+            diagnostics,
+            adminPrompt
           );
           completedChunks += 1;
           reportPreviewProgress(onProgress, {
             step: "row_extraction",
             progress:
               58 + Math.round((completedChunks / Math.max(chunks.length, 1)) * 24),
-            message: `Da tach xong ${completedChunks}/${chunks.length} dot du lieu.`,
+            message: `Đã tách xong ${completedChunks}/${chunks.length} đợt dữ liệu.`,
             totalChunks: chunks.length,
             completedChunks,
             currentChunk: chunkIndex + 1,
@@ -1874,7 +1977,7 @@ async function analyzeRows(
             step: "row_extraction",
             progress:
               58 + Math.round((completedChunks / Math.max(chunks.length, 1)) * 24),
-            message: `Mot dot du lieu gap loi, dang tiep tuc ${completedChunks}/${chunks.length}.`,
+            message: `Một đợt dữ liệu gặp lỗi, đang tiếp tục ${completedChunks}/${chunks.length}.`,
             totalChunks: chunks.length,
             completedChunks,
             currentChunk: chunkIndex + 1,
@@ -1929,21 +2032,76 @@ function buildCsvFromParsed(parsed) {
 }
 
 async function materializeSourceFile({ source, parsed }) {
+  const dir = path.join(os.tmpdir(), "pickletour-ai-import");
+  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await fs.mkdir(dir, { recursive: true });
+
+  // Google Sheet URL: app vẫn dùng CSV snapshot để parse nội bộ và dựng preview,
+  // nhưng file gửi sang CatGPT sẽ ưu tiên giữ nguyên dạng .xlsx.
+  if (source?.sourceType === "sheet" && source?.exportXlsxUrl) {
+    try {
+      const response = await fetch(source.exportXlsxUrl, {
+        headers: {
+          "user-agent": "PickleTourAdminImporter/1.0",
+          accept:
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/octet-stream",
+        },
+      });
+      if (response.ok) {
+        const contentType = String(response.headers.get("content-type") || "");
+        const arrayBuffer = await response.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const looksHtml =
+          /text\/html/i.test(contentType) ||
+          /^\s*</.test(buffer.toString("utf8", 0, Math.min(buffer.length, 120)));
+
+        if (buffer.length > 0 && !looksHtml) {
+          const filename = `ai-import-${stamp}.xlsx`;
+          const filePath = path.join(dir, filename);
+          await fs.writeFile(filePath, buffer);
+          return {
+            filePath,
+            filename,
+            fileType: "xlsx",
+            mimeType:
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            content: String(source?.text || ""),
+            base64: buffer.toString("base64"),
+            sourceMode: "google-sheet-xlsx",
+            originalUrl: source?.originalUrl || source?.sourceLabel || "",
+          };
+        }
+      }
+    } catch {
+      // fallback below
+    }
+  }
+
   const hasTabularShape =
     Array.isArray(parsed?.headers) && parsed.headers.length > 0
       ? true
       : (parsed?.rows || []).some((row) => (row?.cells || []).length > 1);
-  const preferCsv = source?.sourceType === "sheet" || hasTabularShape;
-  const csvContent = preferCsv ? buildCsvFromParsed(parsed) : "";
+  const preferTextSnapshot = true;
+  const csvContent = !preferTextSnapshot && hasTabularShape ? buildCsvFromParsed(parsed) : "";
+  const textSnapshot =
+    source?.sourceType === "sheet"
+      ? [
+          `Nguồn gốc: Google Sheet`,
+          source?.originalUrl ? `Google Sheet URL: ${source.originalUrl}` : "",
+          source?.exportCsvUrl ? `CSV export URL: ${source.exportCsvUrl}` : "",
+          "",
+          `Nội dung snapshot:`,
+          String(source?.text || ""),
+        ]
+          .filter(Boolean)
+          .join("\n")
+      : String(source?.text || "");
   const fileType = csvContent.trim() ? "csv" : "txt";
   const mimeType = fileType === "csv" ? "text/csv" : "text/plain";
-  const content = fileType === "csv" ? csvContent : String(source?.text || "");
-  const dir = path.join(os.tmpdir(), "pickletour-ai-import");
-  const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const content = fileType === "csv" ? csvContent : textSnapshot;
   const filename = `ai-import-${stamp}.${fileType}`;
   const filePath = path.join(dir, filename);
 
-  await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(filePath, content, "utf8");
 
   return {
@@ -1953,6 +2111,9 @@ async function materializeSourceFile({ source, parsed }) {
     mimeType,
     content,
     base64: Buffer.from(content, "utf8").toString("base64"),
+    sourceMode:
+      source?.sourceType === "sheet" ? "google-sheet-text-snapshot" : "text-snapshot",
+    originalUrl: source?.originalUrl || source?.sourceLabel || "",
   };
 }
 
@@ -2047,32 +2208,44 @@ function buildGatewaySourcePreview(registration) {
   );
 }
 
-function buildCatgptJsonPrompt(tournament, materializedSource) {
+function buildCatgptJsonPrompt(tournament, materializedSource, adminPrompt = "") {
   const isSingles = String(tournament?.eventType || "double") === "single";
+  const adminSection = buildAdminPromptSection(adminPrompt);
   return `
-Ban la he thong AI ho tro admin PickleTour nhap danh sach dang ky giai.
+Bạn là hệ thống AI hỗ trợ admin PickleTour nhập danh sách đăng ký giải.
 
-Nguon chinh la FILE dinh kem. Hay doc file do va tra ve DUY NHAT 1 JSON object hop le.
+Nguồn chính là FILE đính kèm. Hãy đọc file đó và trả về DUY NHẤT 1 JSON object hợp lệ.
+Ưu tiên hiểu trực quan file đính kèm trước. Nếu file là Excel, Google Sheet snapshot, hoặc bảng dán giữ nguyên bố cục thì hãy tận dụng chính bố cục đó, không cần ép suy luận theo CSV.
 
-Thong tin giai:
+Thông tin giải:
 - tournamentName: ${tournament?.name || ""}
 - eventType: ${isSingles ? "single" : "double"}
 - location: ${tournament?.location || ""}
 - uploadedFileType: ${materializedSource?.fileType || "unknown"}
+- uploadedSourceMode: ${materializedSource?.sourceMode || "unknown"}
+- originalSourceUrl: ${materializedSource?.originalUrl || ""}
 
-Yeu cau bat buoc:
-- Khong bia nguoi choi, so dien thoai, email, rating, thanh toan.
-- Duoc phep tach 2 VDV nam chung 1 o hoac 1 dong.
-- Phai phan biet ten doi, ten cong ty, sponsor, ma don, STT voi ten nguoi choi.
-- sourceLabel phai tham chieu dong goc trong file, vi du: "2", "5-6", "8,10".
-- rating dung so 0..10, neu khong ro thi -1.
-- paymentStatus chi duoc la: "paid", "unpaid", "unknown".
-- needsReview = true neu du lieu mo ho, thieu doi, khong chac bo cuc, hoac de nham team voi ten nguoi.
-- registrations chi gom cac muc trong giong mot ho so dang ky.
-- cac phan khong parse duoc dua vao unparsedSections.
-- Giu notes va warnings ngan gon, de admin de doc.
+Yêu cầu bắt buộc:
+- Không bịa người chơi, số điện thoại, email, rating, hay trạng thái thanh toán.
+- Được phép tách 2 VĐV nằm chung 1 ô hoặc 1 dòng.
+- Phải phân biệt tên đội, tên công ty, sponsor, mã đơn, STT với tên người chơi.
+- \`sourceLabel\` phải tham chiếu dòng gốc trong file, ví dụ: \`"2"\`, \`"5-6"\`, \`"8,10"\`.
+- \`rating\` dùng số \`0..10\`, nếu không rõ thì \`-1\`.
+- \`paymentStatus\` chỉ được là: \`"paid"\`, \`"unpaid"\`, \`"unknown"\`.
+- \`needsReview = true\` nếu dữ liệu mơ hồ, thiếu đội, không chắc bố cục, hoặc dễ nhầm team với tên người.
+- \`registrations\` chỉ gồm các mục trông giống một hồ sơ đăng ký.
+- Các phần không parse được đưa vào \`unparsedSections\`.
+- Giữ \`notes\` và \`warnings\` ngắn gọn để admin dễ đọc.
+- Nếu chỉ có fullName mà thiếu email/phone thì vẫn giữ hồ sơ đăng ký; backend sẽ tự tạo tài khoản tạm.
+- Nếu thiếu luôn fullName thì không được tự đặt tên tạm, phải đánh needsReview và nêu lý do thiếu tên.
+- Không trả ra nickname hoặc password trong output; backend sẽ tự cấp các trường này khi cần.
+- Nếu file không có email/phone thì không được tự bịa; email tạm sẽ do backend sinh với domain \`@${TEMP_EMAIL_DOMAIN}\`.
 
-JSON phai dung shape nay:
+${buildTempAccountRulesText()}
+
+${adminSection ? `${adminSection}\n` : ""}
+
+JSON phải đúng shape này:
 {
   "documentAnalysis": {
     "layoutType": "tabular|sectioned|free_text|mixed|unknown",
@@ -2117,29 +2290,45 @@ JSON phai dung shape nay:
   ]
 }
 
-Chi tra ve JSON object. Khong markdown. Khong giai thich them.
+Chỉ trả về JSON object. Không markdown. Không giải thích thêm.
   `.trim();
 }
 
-function buildCatgptCsvFallbackPrompt(tournament, materializedSource) {
+function buildCatgptCsvFallbackPrompt(
+  tournament,
+  materializedSource,
+  adminPrompt = ""
+) {
   const isSingles = String(tournament?.eventType || "double") === "single";
+  const adminSection = buildAdminPromptSection(adminPrompt);
   return `
-Ban vua nhan 1 FILE dang ky giai PickleTour.
+Bạn vừa nhận 1 FILE đăng ký giải PickleTour.
+Ưu tiên đọc trực quan file đính kèm. Nếu file là Excel, Google Sheet snapshot, hoặc bảng dán giữ nguyên bố cục thì hãy bám theo chính bố cục đó.
 
-Neu khong the tra ve JSON dep, hay tra ve DUY NHAT CSV voi dung header sau:
+Nếu không thể trả về JSON sạch, hãy trả về DUY NHẤT CSV với đúng header sau:
 sourceLabel,confidence,needsReview,paymentStatus,eventGuess,notes,reasons,primaryName,primaryPhone,primaryEmail,primaryRating,secondaryName,secondaryPhone,secondaryEmail,secondaryRating
 
-Yeu cau:
-- eventType cua giai: ${isSingles ? "single" : "double"}
+Yêu cầu:
+- eventType của giải: ${isSingles ? "single" : "double"}
 - fileType: ${materializedSource?.fileType || "unknown"}
-- sourceLabel phai tham chieu dong goc, vi du "2" hoac "5-6"
-- paymentStatus chi duoc la paid/unpaid/unknown
-- needsReview chi duoc la true/false
-- rating la so 0..10, neu khong ro thi -1
-- reasons gom ngan gon, neu nhieu ly do thi ngan cach bang "; "
-- Khong markdown, khong code fence, khong giai thich them
+- sourceMode: ${materializedSource?.sourceMode || "unknown"}
+- originalSourceUrl: ${materializedSource?.originalUrl || ""}
+- \`sourceLabel\` phải tham chiếu dòng gốc, ví dụ \`"2"\` hoặc \`"5-6"\`
+- \`paymentStatus\` chỉ được là \`paid\`, \`unpaid\`, hoặc \`unknown\`
+- \`needsReview\` chỉ được là \`true\` hoặc \`false\`
+- \`rating\` là số \`0..10\`, nếu không rõ thì \`-1\`
+- \`reasons\` phải ngắn gọn; nếu có nhiều lý do thì ngăn cách bằng \`"; "\`
+- Nếu chỉ có fullName mà thiếu email/phone thì vẫn giữ hồ sơ; backend sẽ tự tạo tài khoản tạm.
+- Nếu thiếu luôn fullName thì không được tự đặt tên tạm; hãy để trống tên và nêu lý do cần xem lại.
+- Không được điền nickname hoặc password vào CSV output.
+- Nếu file không có email/phone thì không được tự bịa; email tạm sẽ do backend sinh với domain \`@${TEMP_EMAIL_DOMAIN}\`.
+- Không markdown, không code fence, không giải thích thêm
 
-Chi tra ve CSV.
+${buildTempAccountRulesText()}
+
+${adminSection ? `${adminSection}\n` : ""}
+
+Chỉ trả về CSV.
   `.trim();
 }
 
@@ -2208,7 +2397,7 @@ async function requestCatgptGateway({
     const payload = JSON.parse(rawBody);
     const content = extractChatText(payload);
     if (!String(content || "").trim()) {
-      throw new Error("Gateway tra ve phan hoi rong.");
+      throw new Error("Gateway trả về phản hồi rỗng.");
     }
     diagnostics.completionId = String(payload?.id || "").trim();
 
@@ -2218,7 +2407,7 @@ async function requestCatgptGateway({
       model: CATGPT_GATEWAY_MODEL,
       route: "catgpt/chat_completions",
       attempts: [],
-      message: "Da nhan phan hoi tu CatGPT-Gateway.",
+      message: "Đã nhận phản hồi từ CatGPT-Gateway.",
     });
 
     return {
@@ -2254,8 +2443,8 @@ async function requestCatgptGateway({
       ],
       message:
         normalizedError === error
-          ? "Khong lay duoc phan hoi tu CatGPT-Gateway."
-          : "CatGPT-Gateway dang xu ly qua lau, client da dung cho de tranh treo preview.",
+          ? "Không lấy được phản hồi từ CatGPT-Gateway."
+          : "CatGPT-Gateway đang xử lý quá lâu, client đã dừng chờ để tránh treo preview.",
     });
     throw normalizedError;
   } finally {
@@ -2288,8 +2477,8 @@ async function fetchCatgptModels(diagnostics) {
       route: "catgpt/models",
       attempts: [],
       message: diagnostics.availableModels.length
-        ? `Gateway dang mo ${diagnostics.availableModels.join(", ")}.`
-        : "Gateway tra ve danh sach model rong.",
+        ? `Gateway đang mở ${diagnostics.availableModels.join(", ")}.`
+        : "Gateway trả về danh sách model rỗng.",
     });
   } catch (error) {
     diagnostics.hasWarnings = true;
@@ -2305,7 +2494,7 @@ async function fetchCatgptModels(diagnostics) {
           error: error.message,
         },
       ],
-      message: "Khong doc duoc danh sach model tu CatGPT-Gateway.",
+      message: "Không đọc được danh sách model từ CatGPT-Gateway.",
     });
   }
 }
@@ -2344,7 +2533,8 @@ async function fetchCatgptArtifactBundle({ completionId, diagnostics }) {
             error: "artifact manifest not found",
           },
         ],
-        message: "Gateway chua co artifact manifest cho completion nay, dang dung fallback local.",
+        message:
+          "Gateway chưa có artifact manifest cho completion này, đang dùng fallback local.",
       });
       return null;
     }
@@ -2401,8 +2591,8 @@ async function fetchCatgptArtifactBundle({ completionId, diagnostics }) {
       route: "catgpt/artifacts_manifest",
       attempts: [],
       message: diagnostics.artifactKeys.length
-        ? `Da lay artifact: ${diagnostics.artifactKeys.join(", ")}.`
-        : "Da lay manifest artifact, nhung khong co file text/csv/json phu hop.",
+        ? `Đã lấy artifact: ${diagnostics.artifactKeys.join(", ")}.`
+        : "Đã lấy manifest artifact, nhưng không có file text/csv/json phù hợp.",
     });
 
     return {
@@ -2426,7 +2616,7 @@ async function fetchCatgptArtifactBundle({ completionId, diagnostics }) {
           error: error.message,
         },
       ],
-      message: "Khong lay duoc artifact tu gateway, dang dung local fallback.",
+      message: "Không lấy được artifact từ gateway, đang dùng local fallback.",
     });
     return null;
   }
@@ -2435,7 +2625,7 @@ async function fetchCatgptArtifactBundle({ completionId, diagnostics }) {
 function parseCatgptJsonPayload(text) {
   const parsed = parseJsonLoose(text);
   if (!parsed || typeof parsed !== "object") {
-    throw new Error("ChatGPT khong tra ve JSON object hop le.");
+    throw new Error("ChatGPT không trả về JSON object hợp lệ.");
   }
 
   return {
@@ -2464,7 +2654,7 @@ function parseCatgptCsvPayload(text) {
   const delimiter = detectDelimiter(raw) || ",";
   const matrix = parseDelimited(raw, delimiter).filter((row) => !isBlankRow(row));
   if (matrix.length < 2) {
-    throw new Error("CSV fallback khong co du dong du lieu.");
+    throw new Error("CSV fallback không có đủ dòng dữ liệu.");
   }
 
   const headers = buildHeaders(matrix[0]);
@@ -2528,7 +2718,7 @@ function normalizeCatgptDocumentAnalysis(
       incoming.summary,
       incoming.notes,
       diagnostics?.responseMode === "csv-fallback"
-        ? "Da dung duong CSV du phong de doc file nay."
+        ? "Đã dùng đường CSV dự phòng để đọc file này."
         : "",
       ...(gatewayPayload?.warnings || []),
     ].filter(Boolean)
@@ -2614,8 +2804,8 @@ function buildCatgptAiRows(registrations, sourceGroups) {
     ).join(" | ");
     const reasons = compactList([
       ...(registration?.reasons || []),
-      registration?.needsReview ? "AI danh dau can xem lai." : "",
-      !registration?.sourceLabel ? "AI chua chi ro dong goc cua ho so nay." : "",
+      registration?.needsReview ? "AI đánh dấu cần xem lại." : "",
+      !registration?.sourceLabel ? "AI chưa chỉ rõ dòng gốc của hồ sơ này." : "",
     ]);
 
     return {
@@ -2709,35 +2899,40 @@ function buildCatgptExportText({
   diagnostics,
   payload,
   analysis,
+  adminPrompt = "",
 }) {
   const lines = [
-    `Giai: ${tournament?.name || "-"}`,
-    `Noi dung: ${tournament?.eventType === "single" ? "Don" : "Doi"}`,
-    `Dia diem: ${tournament?.location || "-"}`,
-    `Nguon: ${source?.sourceLabel || source?.sourceType || "-"}`,
+    `Giải: ${tournament?.name || "-"}`,
+    `Nội dung: ${tournament?.eventType === "single" ? "Đơn" : "Đôi"}`,
+    `Địa điểm: ${tournament?.location || "-"}`,
+    `Nguồn: ${source?.sourceLabel || source?.sourceType || "-"}`,
     `Provider: CatGPT-Gateway`,
     `Endpoint: ${diagnostics?.environment?.configuredBaseUrl || "-"}`,
     `Model: ${diagnostics?.environment?.configuredModel || "-"}`,
-    `File gui AI: ${materializedSource?.filename || "-"} (${materializedSource?.fileType || "-"})`,
-    `Kieu ket qua: ${diagnostics?.responseMode || "json"}`,
-    `Bo cuc AI nhan ra: ${analysis?.layoutType || "unknown"}`,
-    `Kieu ghi dang ky: ${analysis?.registrationStyle || "unknown"}`,
-    `Do tin cay bo cuc: ${safeNumber(analysis?.confidence, 0)}`,
-    `Tom tat: ${analysis?.notes || payload?.documentAnalysis?.summary || "-"}`,
-    `Tong ho so: ${(payload?.registrations || []).length}`,
-    `Canh bao: ${compactList(payload?.warnings || []).join(" | ") || "-"}`,
+    `File gửi AI: ${materializedSource?.filename || "-"} (${materializedSource?.fileType || "-"})`,
+    `Kiểu nguồn gửi AI: ${materializedSource?.sourceMode || "-"}`,
+    `Kiểu kết quả: ${diagnostics?.responseMode || "json"}`,
+    `Bố cục AI nhận ra: ${analysis?.layoutType || "unknown"}`,
+    `Kiểu ghi đăng ký: ${analysis?.registrationStyle || "unknown"}`,
+    `Độ tin cậy bố cục: ${safeNumber(analysis?.confidence, 0)}`,
+    `Tóm tắt: ${analysis?.notes || payload?.documentAnalysis?.summary || "-"}`,
+    `Tổng hồ sơ: ${(payload?.registrations || []).length}`,
+    `Cảnh báo: ${compactList(payload?.warnings || []).join(" | ") || "-"}`,
   ];
+  if (normalizeAdminPrompt(adminPrompt)) {
+    lines.push(`Ghi chú admin: ${normalizeAdminPrompt(adminPrompt)}`);
+  }
 
   const unparsedSections = Array.isArray(payload?.unparsedSections)
     ? payload.unparsedSections
     : [];
   if (unparsedSections.length) {
     lines.push("");
-    lines.push("Muc chua parse ro:");
+    lines.push("Mục chưa parse rõ:");
     unparsedSections.slice(0, 50).forEach((section) => {
       lines.push(
         `- ${String(section?.sourceLabel || "?").trim()}: ${String(
-          section?.reason || "Khong ro"
+          section?.reason || "Không rõ"
         ).trim()}`
       );
     });
@@ -2753,6 +2948,7 @@ function buildCatgptPreviewExports({
   diagnostics,
   payload,
   analysis,
+  adminPrompt = "",
   artifactBundle = null,
 }) {
   const baseName = buildExportBaseName(tournament);
@@ -2766,6 +2962,7 @@ function buildCatgptPreviewExports({
     diagnostics,
     payload,
     analysis,
+    adminPrompt,
   });
   const jsonContent =
     String(artifactBundle?.parsedJson?.content || "").trim() ||
@@ -2783,6 +2980,7 @@ function buildCatgptPreviewExports({
           fileType: materializedSource?.fileType || "",
           filename: materializedSource?.filename || "",
         },
+        adminInstructions: normalizeAdminPrompt(adminPrompt),
         diagnostics: {
           provider: diagnostics?.provider || "catgpt",
           responseMode: diagnostics?.responseMode || "json",
@@ -2804,7 +3002,7 @@ function buildCatgptPreviewExports({
     csvContent
       ? {
           key: "analysis_csv",
-          label: "Tai CSV da phan tich",
+          label: "Tải CSV đã phân tích",
           filename: `${baseName}.csv`,
           mimeType: "text/csv;charset=utf-8",
           content: csvContent,
@@ -2816,7 +3014,7 @@ function buildCatgptPreviewExports({
     txtContent
       ? {
           key: "analysis_txt",
-          label: "Tai ghi chu phan tich",
+          label: "Tải ghi chú phân tích",
           filename: `${baseName}.txt`,
           mimeType: "text/plain;charset=utf-8",
           content: txtContent,
@@ -2826,7 +3024,7 @@ function buildCatgptPreviewExports({
     jsonContent
       ? {
           key: "analysis_json",
-          label: "Tai JSON AI",
+          label: "Tải JSON AI",
           filename: `${baseName}.json`,
           mimeType: "application/json;charset=utf-8",
           content: jsonContent,
@@ -2838,7 +3036,7 @@ function buildCatgptPreviewExports({
     artifactBundle?.rawText?.content
       ? {
           key: "gateway_raw_text",
-          label: "Tai phan hoi goc cua ChatGPT",
+          label: "Tải phản hồi gốc của ChatGPT",
           filename: `${baseName}-raw.txt`,
           mimeType:
             artifactBundle.rawText.mime_type || "text/plain;charset=utf-8",
@@ -2855,13 +3053,14 @@ async function analyzeWithCatgptGateway({
   parsed,
   diagnostics,
   onProgress,
+  adminPrompt = "",
 }) {
   const materializedSource = await materializeSourceFile({ source, parsed });
   diagnostics.fileType = materializedSource.fileType;
   reportPreviewProgress(onProgress, {
     step: "source_materialized",
     progress: 20,
-    message: `Da tao file tam ${materializedSource.filename} de gui sang ChatGPT.`,
+    message: `Đã tạo file tạm ${materializedSource.filename} để gửi sang ChatGPT.`,
     fileType: materializedSource.fileType,
   });
 
@@ -2870,16 +3069,20 @@ async function analyzeWithCatgptGateway({
     reportPreviewProgress(onProgress, {
       step: "gateway_uploading",
       progress: 28,
-      message: `Dang gui file ${materializedSource.fileType.toUpperCase()} len CatGPT-Gateway.`,
+      message: `Đang gửi file ${materializedSource.fileType.toUpperCase()} lên CatGPT-Gateway.`,
     });
     reportPreviewProgress(onProgress, {
       step: "gateway_analyzing",
       progress: 42,
-      message: "ChatGPT dang doc va phan tich file dinh kem.",
+      message: "ChatGPT đang đọc và phân tích file đính kèm.",
     });
 
     const jsonResponse = await requestCatgptGateway({
-      prompt: buildCatgptJsonPrompt(tournament, materializedSource),
+      prompt: buildCatgptJsonPrompt(
+        tournament,
+        materializedSource,
+        adminPrompt
+      ),
       materializedSource,
       diagnostics,
       stage: "gateway_analyzing",
@@ -2892,7 +3095,7 @@ async function analyzeWithCatgptGateway({
     reportPreviewProgress(onProgress, {
       step: "gateway_parsing",
       progress: 62,
-      message: "Dang doc ket qua JSON tra ve tu ChatGPT.",
+      message: "Đang đọc kết quả JSON trả về từ ChatGPT.",
       fileType: materializedSource.fileType,
     });
 
@@ -2912,8 +3115,8 @@ async function analyzeWithCatgptGateway({
         route: "catgpt/json",
         attempts: [],
         message: artifactBundle?.parsedJson?.content
-          ? "Da parse JSON artifact tu CatGPT-Gateway."
-          : "Da parse xong JSON tu CatGPT-Gateway.",
+          ? "Đã parse JSON artifact từ CatGPT-Gateway."
+          : "Đã parse xong JSON từ CatGPT-Gateway.",
       });
     } catch (jsonError) {
       diagnostics.hasWarnings = true;
@@ -2929,11 +3132,15 @@ async function analyzeWithCatgptGateway({
             error: jsonError.message,
           },
         ],
-        message: "JSON khong parse duoc, dang thu CSV fallback.",
+        message: "JSON không parse được, đang thử CSV fallback.",
       });
 
       const csvResponse = await requestCatgptGateway({
-        prompt: buildCatgptCsvFallbackPrompt(tournament, materializedSource),
+        prompt: buildCatgptCsvFallbackPrompt(
+          tournament,
+          materializedSource,
+          adminPrompt
+        ),
         materializedSource,
         diagnostics,
         stage: "gateway_analyzing",
@@ -2967,7 +3174,7 @@ async function analyzeWithCatgptGateway({
               error: csvError.message,
             },
           ],
-          message: "CSV fallback cung khong parse duoc.",
+          message: "CSV fallback cũng không parse được.",
         });
         throw csvError;
       }
@@ -2988,12 +3195,12 @@ async function analyzeWithCatgptGateway({
           },
         ],
         message: artifactBundle?.parsedCsv?.content
-          ? "Da fallback sang CSV artifact va parse thanh cong."
-          : "Da fallback sang CSV va parse thanh cong.",
+          ? "Đã fallback sang CSV artifact và parse thành công."
+          : "Đã fallback sang CSV và parse thành công.",
       });
       payload = {
         documentAnalysis: {},
-        warnings: ["Da dung CSV fallback do JSON tra ve khong parse duoc."],
+        warnings: ["Đã dùng CSV fallback do JSON trả về không parse được."],
         unparsedSections: [],
         registrations,
       };
@@ -3014,6 +3221,7 @@ async function analyzeWithCatgptGateway({
       diagnostics,
       payload,
       analysis,
+      adminPrompt,
       artifactBundle,
     });
 
@@ -3511,12 +3719,14 @@ export async function previewAiRegistrationImport({
   tournamentId,
   sheetUrl,
   rawText,
+  adminPrompt = "",
   onProgress,
 }) {
+  const normalizedAdminPrompt = normalizeAdminPrompt(adminPrompt);
   reportPreviewProgress(onProgress, {
     step: "init",
     progress: 4,
-    message: "Dang tai thong tin giai.",
+    message: "Đang tải thông tin giải.",
   });
 
   const tournament = await Tournament.findById(tournamentId)
@@ -3532,7 +3742,7 @@ export async function previewAiRegistrationImport({
   reportPreviewProgress(onProgress, {
     step: "source_loading",
     progress: 10,
-    message: "Dang lay du lieu nguon de doc truoc.",
+    message: "Đang lấy dữ liệu nguồn để đọc trước.",
   });
 
   const source = await resolveSourceText({ sheetUrl, rawText });
@@ -3547,7 +3757,7 @@ export async function previewAiRegistrationImport({
   reportPreviewProgress(onProgress, {
     step: "source_parsed",
     progress: 18,
-    message: `Da doc ${parsed.rows.length} dong tu nguon import.`,
+    message: `Đã đọc ${parsed.rows.length} dòng từ nguồn import.`,
     sourceRows: parsed.rows.length,
     previewRows: sourceRows.length,
     truncated,
@@ -3562,12 +3772,13 @@ export async function previewAiRegistrationImport({
       parsed,
       diagnostics: aiDiagnostics,
       onProgress,
+      adminPrompt: normalizedAdminPrompt,
     });
 
     reportPreviewProgress(onProgress, {
       step: "preview_building",
       progress: 88,
-      message: "Dang doi chieu tai khoan va lap bang xem truoc.",
+      message: "Đang đối chiếu tài khoản và lập bảng xem trước.",
     });
 
     const previewRows = await buildPreviewRows(
@@ -3584,7 +3795,7 @@ export async function previewAiRegistrationImport({
     reportPreviewProgress(onProgress, {
       step: "preview_building",
       progress: 96,
-      message: "Da lap xong bang xem truoc, dang tong hop ket qua.",
+      message: "Đã lập xong bảng xem trước, đang tổng hợp kết quả.",
       readyRows: previewRows.filter((row) => row.status === "ready").length,
       reviewRows: previewRows.filter((row) => row.status === "needs_review").length,
       responseMode: aiDiagnostics.responseMode || "json",
@@ -3618,37 +3829,39 @@ export async function previewAiRegistrationImport({
   reportPreviewProgress(onProgress, {
     step: "document_analysis",
     progress: 28,
-    message: "AI dang phan tich bo cuc tong the cua file.",
+    message: "AI đang phân tích bố cục tổng thể của file.",
   });
   const analysis = await analyzeDocumentLayoutWithAI(
     tournament,
     parsed.headers,
     sourceRows,
-    aiDiagnostics
+    aiDiagnostics,
+    normalizedAdminPrompt
   );
   reportPreviewProgress(onProgress, {
     step: "document_analysis",
     progress: 40,
-    message: "Da xong buoc hieu bo cuc file.",
+    message: "Đã xong bước hiểu bố cục file.",
     layoutType: analysis?.layoutType || "unknown",
     registrationStyle: analysis?.registrationStyle || "unknown",
   });
   reportPreviewProgress(onProgress, {
     step: "row_grouping",
     progress: 46,
-    message: "AI dang xac dinh dong nao la ho so dang ky.",
+    message: "AI đang xác định dòng nào là hồ sơ đăng ký.",
   });
   const groupingRows = await analyzeRowGroupingCompact(
     tournament,
     sourceRows,
     analysis,
-    aiDiagnostics
+    aiDiagnostics,
+    normalizedAdminPrompt
   );
   const groupedRows = buildSourceGroups(sourceRows, groupingRows);
   reportPreviewProgress(onProgress, {
     step: "row_grouping",
     progress: 54,
-    message: `Da gom duoc ${groupedRows.length} cum ho so can xu ly.`,
+    message: `Đã gom được ${groupedRows.length} cụm hồ sơ cần xử lý.`,
     candidateGroups: groupedRows.length,
   });
   const aiRows = await analyzeRows(
@@ -3657,19 +3870,20 @@ export async function previewAiRegistrationImport({
     tableContext,
     analysis,
     aiDiagnostics,
-    onProgress
+    onProgress,
+    normalizedAdminPrompt
   );
   reportPreviewProgress(onProgress, {
     step: "preview_building",
     progress: 88,
-    message: "Dang doi chieu tai khoan va lap bang xem truoc.",
+    message: "Đang đối chiếu tài khoản và lập bảng xem trước.",
   });
   const previewRows = await buildPreviewRows(tournament, groupedRows, aiRows);
   aiDiagnostics.summary = classifyImportDiagnosticSummary(aiDiagnostics);
   reportPreviewProgress(onProgress, {
     step: "preview_building",
     progress: 96,
-    message: "Da lap xong bang xem truoc, dang tong hop ket qua.",
+    message: "Đã lập xong bảng xem trước, đang tổng hợp kết quả.",
     readyRows: previewRows.filter((row) => row.status === "ready").length,
     reviewRows: previewRows.filter((row) => row.status === "needs_review").length,
   });

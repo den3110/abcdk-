@@ -71,6 +71,7 @@ import facebookRoutes from "./routes/facebookRoutes.js";
 import userMatchRoutes from "./routes/userMatchRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
 import { startLiveSessionLeaseCron } from "./services/liveSessionLease.service.js";
+import { startCourtLivePresenceSweep } from "./services/courtLivePresence.service.js";
 import { initNewsCron } from "./jobs/newsCron.js";
 import { initSeoNewsCron } from "./jobs/seoNewsCron.js";
 // Ã°Å¸â€Â¹ GraphQL layer
@@ -328,6 +329,7 @@ const startServer = async () => {
         startFbRefreshCron();
         startFacebookBusyCron();
         startLiveSessionLeaseCron();
+        startCourtLivePresenceSweep();
         initEmail();
         initNewsCron();
         initSeoNewsCron();
