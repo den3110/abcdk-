@@ -326,7 +326,7 @@ export default function LoginScreen() {
               display: "flex",
               justifyContent: "flex-end",
               alignItems: "center",
-              borderBottom: `1px solid ${alpha(isDark ? "#d8eef7" : "#101820", 0.08)}`,
+              borderBottom: { xs: `1px solid ${alpha(isDark ? "#d8eef7" : "#101820", 0.08)}`, md: 0 },
             }}
           >
             <Stack direction="row" spacing={0.75} justifyContent="flex-end" alignItems="center">
@@ -360,7 +360,7 @@ export default function LoginScreen() {
               position: "relative",
               zIndex: 1,
               display: "grid",
-              gridTemplateColumns: { xs: "1fr", md: "minmax(320px, 0.88fr) minmax(420px, 1.12fr)" },
+              gridTemplateColumns: { xs: "1fr", md: "46% 54%" },
               gridTemplateRows: { xs: "minmax(220px, 34vh) minmax(0, 1fr)", md: "1fr" },
               mt: { xs: 0, md: "-50px" },
               height: { xs: "auto", md: "calc(100% + 50px)" },
@@ -477,18 +477,18 @@ export default function LoginScreen() {
                 sx={{
                   position: "relative",
                   zIndex: 1,
-                  minHeight: { xs: 140, sm: 200, md: 300 },
-                  mt: { xs: 0.5, md: 1 },
+                  minHeight: { xs: 150, sm: 220, md: 340 },
+                  mt: { xs: 0.5, md: 1.5 },
                 }}
               >
                 <Box
                   aria-hidden="true"
                   sx={{
                     position: "absolute",
-                    top: { xs: 26, md: 22 },
-                    right: { xs: 28, md: 34 },
-                    width: { xs: 72, md: 94 },
-                    height: { xs: 72, md: 94 },
+                    top: { xs: 18, md: 18 },
+                    right: { xs: 18, md: 34 },
+                    width: { xs: 68, md: 104 },
+                    height: { xs: 68, md: 104 },
                     borderRadius: 4,
                     bgcolor: "#7d64ff",
                     transform: "rotate(10deg)",
@@ -498,10 +498,10 @@ export default function LoginScreen() {
                   aria-hidden="true"
                   sx={{
                     position: "absolute",
-                    bottom: { xs: 28, md: 34 },
-                    right: { xs: 74, md: 82 },
-                    width: { xs: 84, md: 96 },
-                    height: { xs: 84, md: 96 },
+                    bottom: { xs: 18, md: 26 },
+                    right: { xs: 54, md: 74 },
+                    width: { xs: 78, md: 118 },
+                    height: { xs: 78, md: 118 },
                     borderRadius: 4,
                     bgcolor: "#b8d8ff",
                     transform: "rotate(-5deg)",
@@ -512,17 +512,18 @@ export default function LoginScreen() {
                   elevation={0}
                   sx={{
                     position: "absolute",
-                    top: { xs: 42, md: 78 },
-                    left: { xs: "16%", md: "13%" },
-                    width: { xs: "72%", md: "60%" },
-                    maxWidth: 320,
-                    p: { xs: 1.4, md: 2.2 },
+                    zIndex: 2,
+                    top: { xs: 54, md: 74 },
+                    left: { xs: "17%", md: "18%" },
+                    width: { xs: "66%", md: "58%" },
+                    maxWidth: 360,
+                    p: { xs: 1.5, md: 2.3 },
                     borderRadius: 4,
                     color: "#ffffff",
                     background: "linear-gradient(180deg, #0b2017 0%, #091a13 100%)",
                     border: `1px solid ${alpha("#ffffff", 0.08)}`,
                     boxShadow: "0 24px 48px rgba(0, 0, 0, 0.32)",
-                    transform: "rotate(-8deg)",
+                    transform: "rotate(-6deg)",
                     transition: "all 320ms ease",
                   }}
                 >
@@ -598,18 +599,18 @@ export default function LoginScreen() {
                       elevation={0}
                       sx={{
                         position: "absolute",
-                        top: index === 0 ? { xs: 24, md: 38 } : "auto",
-                        bottom: index === 0 ? "auto" : { xs: 18, md: 18 },
-                        right: index === 0 ? { xs: 18, md: 18 } : "auto",
-                        left: index === 0 ? "auto" : { xs: 10, md: 26 },
-                        width: index === 0 ? { xs: "40%", md: 190 } : { xs: "46%", md: 210 },
+                        zIndex: 3,
+                        top: index === 0 ? { xs: 18, md: 28 } : { xs: 108, md: 150 },
+                        right: index === 0 ? { xs: 10, md: 14 } : "auto",
+                        left: index === 0 ? "auto" : { xs: 10, md: 18 },
+                        width: index === 0 ? { xs: "30%", md: 220 } : { xs: "34%", md: 260 },
                         p: { xs: 1.2, md: 1.8 },
                         borderRadius: 4,
                         color: "#ffffff",
                         background: "linear-gradient(180deg, #10261c 0%, #0a1d15 100%)",
                         border: `1px solid ${alpha("#ffffff", 0.08)}`,
                         boxShadow: "0 18px 40px rgba(0, 0, 0, 0.26)",
-                        transform: index === 0 ? "rotate(7deg)" : "rotate(-3deg)",
+                        transform: index === 0 ? "rotate(6deg)" : "rotate(-5deg)",
                       }}
                     >
                       <Stack spacing={1.25}>
