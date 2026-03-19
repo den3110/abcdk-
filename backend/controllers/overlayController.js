@@ -353,20 +353,31 @@ export async function getOverlayMatch(req, res) {
     const regName = (reg) => {
       if (!reg) return "";
       if (evType === "single") {
-        return preferNick(reg.player1) || reg.player1?.fullName || "";
+        return (
+          pick(reg?.player1?.fullName) ||
+          pick(reg?.player1?.name) ||
+          preferNick(reg?.player1) ||
+          ""
+        );
       }
-      const a = preferNick(reg.player1);
-      const b = preferNick(reg.player2);
+      const a =
+        pick(reg?.player1?.fullName) ||
+        pick(reg?.player1?.name) ||
+        preferNick(reg?.player1);
+      const b =
+        pick(reg?.player2?.fullName) ||
+        pick(reg?.player2?.name) ||
+        preferNick(reg?.player2);
       return [a, b].filter(Boolean).join(" & ");
     };
 
     const teamName = (reg) => {
-      const ps = playersFromReg(reg);
-      const nick = ps
-        .map((x) => x.nickname)
-        .filter(Boolean)
-        .join(" & ");
-      return nick || regName(reg);
+      return (
+        pick(reg?.teamName) ||
+        pick(reg?.label) ||
+        pick(reg?.title) ||
+        regName(reg)
+      );
     };
 
     /* ==========================

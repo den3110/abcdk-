@@ -122,6 +122,25 @@ const phaseLabelFromData = (data) => {
   return roundLabel || "";
 };
 
+const preferFull = (p) =>
+  readStr(
+    p?.fullName,
+    p?.name,
+    p?.displayName,
+    p?.user?.fullName,
+    p?.user?.name
+  );
+
+const regDisplayName = (reg, evType) => {
+  if (!reg) return "—";
+  if (evType === "single") {
+    return preferFull(reg?.player1) || preferNick(reg?.player1) || "N/A";
+  }
+  const a = preferFull(reg?.player1) || preferNick(reg?.player1) || "N/A";
+  const b = preferFull(reg?.player2) || preferNick(reg?.player2) || "";
+  return b ? `${a} & ${b}` : a;
+};
+
 const regDisplayNick = (reg, evType) => {
   if (!reg) return "—";
   if (evType === "single") return preferNick(reg?.player1) || "N/A";
@@ -193,12 +212,16 @@ function normalizePayload(p) {
         ? p.teams.B.players
         : [];
 
-    const nameA = playersA.length
-      ? playersA.map(preferNick).filter(Boolean).join(" & ")
-      : readStr(p?.teams?.A?.name);
-    const nameB = playersB.length
-      ? playersB.map(preferNick).filter(Boolean).join(" & ")
-      : readStr(p?.teams?.B?.name);
+    const nameA = readStr(
+      p?.teams?.A?.teamName,
+      p?.teams?.A?.label,
+      p?.teams?.A?.name
+    );
+    const nameB = readStr(
+      p?.teams?.B?.teamName,
+      p?.teams?.B?.label,
+      p?.teams?.B?.name
+    );
 
     teams.A = { name: nameA || "—", players: playersA };
     teams.B = { name: nameB || "—", players: playersB };
@@ -206,26 +229,26 @@ function normalizePayload(p) {
     const a1 = p?.pairA?.player1
       ? {
           nickname: preferNick(p?.pairA?.player1),
-          name: readStr(p?.pairA?.player1?.name, p?.pairA?.player1?.fullName),
+          name: readStr(p?.pairA?.player1?.fullName, p?.pairA?.player1?.name),
         }
       : null;
     const a2 = p?.pairA?.player2
       ? {
           nickname: preferNick(p?.pairA?.player2),
-          name: readStr(p?.pairA?.player2?.name, p?.pairA?.player2?.fullName),
+          name: readStr(p?.pairA?.player2?.fullName, p?.pairA?.player2?.name),
         }
       : null;
 
     const b1 = p?.pairB?.player1
       ? {
           nickname: preferNick(p?.pairB?.player1),
-          name: readStr(p?.pairB?.player1?.name, p?.pairB?.player1?.fullName),
+          name: readStr(p?.pairB?.player1?.fullName, p?.pairB?.player1?.name),
         }
       : null;
     const b2 = p?.pairB?.player2
       ? {
           nickname: preferNick(p?.pairB?.player2),
-          name: readStr(p?.pairB?.player2?.name, p?.pairB?.player2?.fullName),
+          name: readStr(p?.pairB?.player2?.fullName, p?.pairB?.player2?.name),
         }
       : null;
 
@@ -245,6 +268,38 @@ function normalizePayload(p) {
       players: listB,
     };
   }
+
+  const teamAFallbackName =
+    readStr(
+      p?.teams?.A?.teamName,
+      p?.teams?.A?.label,
+      p?.pairA?.teamName,
+      p?.pairA?.label,
+      p?.teams?.A?.name
+    ) || regDisplayName(p?.pairA, eventType);
+  const teamBFallbackName =
+    readStr(
+      p?.teams?.B?.teamName,
+      p?.teams?.B?.label,
+      p?.pairB?.teamName,
+      p?.pairB?.label,
+      p?.teams?.B?.name
+    ) || regDisplayName(p?.pairB, eventType);
+
+  teams = {
+    A: {
+      ...teams.A,
+      name: teamAFallbackName,
+      teamName: readStr(teams.A?.teamName, p?.teams?.A?.teamName, p?.pairA?.teamName),
+      label: readStr(teams.A?.label, p?.teams?.A?.label, p?.pairA?.label),
+    },
+    B: {
+      ...teams.B,
+      name: teamBFallbackName,
+      teamName: readStr(teams.B?.teamName, p?.teams?.B?.teamName, p?.pairB?.teamName),
+      label: readStr(teams.B?.label, p?.teams?.B?.label, p?.pairB?.label),
+    },
+  };
 
   const courtId = p?.court?.id || p?.courtId || null;
   const courtName = p?.court?.name || p?.courtName || "";
@@ -341,10 +396,13 @@ const mergeTournament = (prev = {}, next = {}) => ({
   name: keep(prev?.name, next?.name),
   image: keep(prev?.image, next?.image),
   eventType: keep(prev?.eventType, next?.eventType),
+  nameDisplayMode: keep(prev?.nameDisplayMode, next?.nameDisplayMode),
 });
 
 const mergeTeam = (prev = {}, next = {}) => ({
   name: keep(prev?.name, next?.name),
+  teamName: keep(prev?.teamName, next?.teamName),
+  label: keep(prev?.label, next?.label),
   players: Array.isArray(next?.players) ? next.players : prev?.players,
 });
 

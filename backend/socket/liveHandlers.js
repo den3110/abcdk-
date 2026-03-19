@@ -86,15 +86,16 @@ export const toDTO = (m) => {
   };
 
   const teamNameFromReg = (reg) => {
-    const ps = playersFromReg(reg);
-    const nick = ps
-      .map((x) => x.nickname)
-      .filter(Boolean)
-      .join(" & ");
-    if (nick) return nick;
-    const a = preferNick(reg?.player1);
-    const b = preferNick(reg?.player2);
-    return [a, b].filter(Boolean).join(" & ");
+    const fallbackPlayerName = (player) =>
+      pick(player?.fullName) || pick(player?.name) || preferNick(player);
+    const fallbackNames = [fallbackPlayerName(reg?.player1)];
+    if (reg?.player2) fallbackNames.push(fallbackPlayerName(reg?.player2));
+    return (
+      pick(reg?.teamName) ||
+      pick(reg?.label) ||
+      pick(reg?.title) ||
+      fallbackNames.filter(Boolean).join(" & ")
+    );
   };
 
   // ---- map bracket (tái dùng cho bracket & prevBracket)
