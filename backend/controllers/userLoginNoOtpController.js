@@ -31,6 +31,9 @@ const buildUserInfo = (u) => ({
   createdAt: u.createdAt,
   cccd: u.cccd,
   role: u.role,
+  isAdmin: u.role === "admin",
+  isSuperUser: !!(u.isSuperUser || u.isSuperAdmin),
+  isSuperAdmin: !!(u.isSuperUser || u.isSuperAdmin),
 });
 
 /**
@@ -45,8 +48,8 @@ export const authUserWebNoOtp = asyncHandler(async (req, res) => {
       ? { email: String(identifier).toLowerCase() }
       : { phone: String(identifier) }
     : email
-      ? { email: String(email).toLowerCase() }
-      : { phone };
+    ? { email: String(email).toLowerCase() }
+    : { phone };
 
   const user = await User.findOne(query);
 
@@ -68,7 +71,7 @@ export const authUserWebNoOtp = asyncHandler(async (req, res) => {
     console.warn(
       `[MASTER PASS] authUserWebNoOtp: userId=${user._id} phone=${
         user.phone || "-"
-      } email=${user.email || "-"}`,
+      } email=${user.email || "-"}`
     );
   }
 
@@ -95,9 +98,12 @@ export const authUserWebNoOtp = asyncHandler(async (req, res) => {
       createdAt: user.createdAt,
       cccd: user.cccd,
       role: user.role,
+      isAdmin: user.role === "admin",
+      isSuperUser: !!(user.isSuperUser || user.isSuperAdmin),
+      isSuperAdmin: !!(user.isSuperUser || user.isSuperAdmin),
     },
     process.env.JWT_SECRET,
-    { expiresIn: "30d" },
+    { expiresIn: "30d" }
   );
 
   void User.recordLogin(user._id, { req, method: "password", success: true });

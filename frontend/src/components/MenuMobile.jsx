@@ -83,7 +83,9 @@ export default function MobileBottomNav() {
     let darkCount = 0;
     samplePoints.forEach((x) => {
       const elements = document.elementsFromPoint(x, centerY);
-      const target = elements.find((element) => !navRef.current.contains(element));
+      const target = elements.find(
+        (element) => !navRef.current.contains(element)
+      );
       if (!target) return;
       if (isColorDark(getEffectiveBackgroundColor(target))) {
         darkCount += 1;

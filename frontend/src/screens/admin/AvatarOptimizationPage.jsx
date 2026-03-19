@@ -39,25 +39,19 @@ const normalizeRole = (role) =>
     .trim()
     .toLowerCase();
 
-const isSuperAdminUser = (user) => {
-  const role = normalizeRole(user?.role);
+const isAdminUser = (user) => {
   const roles = new Set(
     Array.isArray(user?.roles) ? user.roles.map(normalizeRole) : []
   );
-  if (role) roles.add(role);
+  if (user?.role) roles.add(normalizeRole(user.role));
   if (user?.isAdmin) roles.add("admin");
-  if (user?.isSuperUser || user?.isSuperAdmin) {
-    roles.add("admin");
-    roles.add("superadmin");
-    roles.add("superuser");
-  }
+  return roles.has("admin");
+};
 
+const isSuperAdminUser = (user) => {
   return (
-    (roles.has("superadmin") || roles.has("superuser")) &&
-    (roles.has("admin") ||
-      isTruthy(user?.isAdmin) ||
-      isTruthy(user?.isSuperUser) ||
-      isTruthy(user?.isSuperAdmin))
+    isAdminUser(user) &&
+    (isTruthy(user?.isSuperUser) || isTruthy(user?.isSuperAdmin))
   );
 };
 
@@ -71,7 +65,9 @@ function formatBytes(bytes = 0) {
     size /= 1024;
     unitIndex += 1;
   }
-  return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+  return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${
+    units[unitIndex]
+  }`;
 }
 
 function formatDuration(ms = 0) {
@@ -90,10 +86,10 @@ function MetricCard({ label, value, caption, tone = "default" }) {
     tone === "warning"
       ? "warning.main"
       : tone === "success"
-        ? "success.main"
-        : tone === "info"
-          ? "info.main"
-          : "text.primary";
+      ? "success.main"
+      : tone === "info"
+      ? "info.main"
+      : "text.primary";
 
   return (
     <Card variant="outlined" sx={{ minHeight: 138 }}>
@@ -179,18 +175,13 @@ export default function AvatarOptimizationPage() {
 
   const isSuperAdmin = useMemo(() => isSuperAdminUser(userInfo), [userInfo]);
 
-  const {
-    data,
-    error,
-    isLoading,
-    isFetching,
-    refetch,
-  } = useGetAvatarOptimizationStatusQuery(undefined, {
-    skip: !isSuperAdmin,
-    pollingInterval: autoRefresh ? 5000 : 0,
-    refetchOnFocus: true,
-    refetchOnReconnect: true,
-  });
+  const { data, error, isLoading, isFetching, refetch } =
+    useGetAvatarOptimizationStatusQuery(undefined, {
+      skip: !isSuperAdmin,
+      pollingInterval: autoRefresh ? 5000 : 0,
+      refetchOnFocus: true,
+      refetchOnReconnect: true,
+    });
 
   const [runSweep, { isLoading: isRunningSweepAction }] =
     useRunAvatarOptimizationSweepMutation();
@@ -306,7 +297,10 @@ export default function AvatarOptimizationPage() {
                 onChange={(event) => setAutoRefresh(event.target.checked)}
               />
             }
-            label={tx("admin.avatarOptimization.actions.autoRefresh", "Tu lam moi 5s")}
+            label={tx(
+              "admin.avatarOptimization.actions.autoRefresh",
+              "Tu lam moi 5s"
+            )}
           />
           <Button
             variant="outlined"
@@ -331,7 +325,10 @@ export default function AvatarOptimizationPage() {
             onClick={handleRunCleanup}
             disabled={isRunningCleanupAction || Boolean(cleanup?.running)}
           >
-            {tx("admin.avatarOptimization.actions.runCleanup", "Don trash ngay")}
+            {tx(
+              "admin.avatarOptimization.actions.runCleanup",
+              "Don trash ngay"
+            )}
           </Button>
         </Stack>
       </Stack>
@@ -376,7 +373,10 @@ export default function AvatarOptimizationPage() {
             }}
           >
             <MetricCard
-              label={tx("admin.avatarOptimization.metrics.totalAvatarUsers", "User co avatar")}
+              label={tx(
+                "admin.avatarOptimization.metrics.totalAvatarUsers",
+                "User co avatar"
+              )}
               value={summary.totalAvatarUsers || 0}
               caption={tx(
                 "admin.avatarOptimization.metrics.totalAvatarUsersHint",
@@ -385,7 +385,10 @@ export default function AvatarOptimizationPage() {
               tone="info"
             />
             <MetricCard
-              label={tx("admin.avatarOptimization.metrics.pendingUsers", "Dang cho xu ly")}
+              label={tx(
+                "admin.avatarOptimization.metrics.pendingUsers",
+                "Dang cho xu ly"
+              )}
               value={summary.pendingUsers || 0}
               caption={tx(
                 "admin.avatarOptimization.metrics.pendingUsersHint",
@@ -394,7 +397,10 @@ export default function AvatarOptimizationPage() {
               tone="warning"
             />
             <MetricCard
-              label={tx("admin.avatarOptimization.metrics.upToDateUsers", "Da dong bo")}
+              label={tx(
+                "admin.avatarOptimization.metrics.upToDateUsers",
+                "Da dong bo"
+              )}
               value={summary.upToDateUsers || 0}
               caption={tx(
                 "admin.avatarOptimization.metrics.upToDateUsersHint",
@@ -415,7 +421,10 @@ export default function AvatarOptimizationPage() {
               tone="info"
             />
             <MetricCard
-              label={tx("admin.avatarOptimization.metrics.trashFiles", "File trong trash")}
+              label={tx(
+                "admin.avatarOptimization.metrics.trashFiles",
+                "File trong trash"
+              )}
               value={trash.files || 0}
               caption={`${formatBytes(trash.totalBytes || 0)} | ${
                 summary.queuedUsers || 0
@@ -429,7 +438,10 @@ export default function AvatarOptimizationPage() {
           <Box
             sx={{
               display: "grid",
-              gridTemplateColumns: { xs: "1fr", lg: "repeat(2, minmax(0, 1fr))" },
+              gridTemplateColumns: {
+                xs: "1fr",
+                lg: "repeat(2, minmax(0, 1fr))",
+              },
               gap: 2,
             }}
           >
@@ -443,12 +455,21 @@ export default function AvatarOptimizationPage() {
                   mb={1.5}
                 >
                   <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                    {tx("admin.avatarOptimization.sections.sweepJob", "Job quet avatar")}
+                    {tx(
+                      "admin.avatarOptimization.sections.sweepJob",
+                      "Job quet avatar"
+                    )}
                   </Typography>
                   <StatusChip
                     running={Boolean(sweep?.running)}
-                    idleLabel={tx("admin.avatarOptimization.states.idle", "Ranh")}
-                    runningLabel={tx("admin.avatarOptimization.states.running", "Dang chay")}
+                    idleLabel={tx(
+                      "admin.avatarOptimization.states.idle",
+                      "Ranh"
+                    )}
+                    runningLabel={tx(
+                      "admin.avatarOptimization.states.running",
+                      "Dang chay"
+                    )}
                   />
                 </Stack>
                 <Stack spacing={1}>
@@ -457,8 +478,11 @@ export default function AvatarOptimizationPage() {
                     {config?.sweep?.cron || t("common.unavailable")}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {tx("admin.avatarOptimization.fields.batchSize", "Batch size")}:{" "}
-                    {config?.sweep?.batchSize || 0}
+                    {tx(
+                      "admin.avatarOptimization.fields.batchSize",
+                      "Batch size"
+                    )}
+                    : {config?.sweep?.batchSize || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
@@ -485,8 +509,7 @@ export default function AvatarOptimizationPage() {
                       "admin.avatarOptimization.fields.lastDuration",
                       "Thoi luong"
                     )}
-                    :{" "}
-                    {formatDuration(sweep?.lastDurationMs)}
+                    : {formatDuration(sweep?.lastDurationMs)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
@@ -495,7 +518,9 @@ export default function AvatarOptimizationPage() {
                     )}
                     :{" "}
                     {sweep?.lastResult
-                      ? `${sweep.lastResult.scanned || 0}/${sweep.lastResult.optimized || 0}/${sweep.lastResult.skipped || 0}`
+                      ? `${sweep.lastResult.scanned || 0}/${
+                          sweep.lastResult.optimized || 0
+                        }/${sweep.lastResult.skipped || 0}`
                       : t("common.unavailable")}
                   </Typography>
                   {sweep?.lastError ? (
@@ -524,8 +549,14 @@ export default function AvatarOptimizationPage() {
                   </Typography>
                   <StatusChip
                     running={Boolean(cleanup?.running)}
-                    idleLabel={tx("admin.avatarOptimization.states.idle", "Ranh")}
-                    runningLabel={tx("admin.avatarOptimization.states.running", "Dang chay")}
+                    idleLabel={tx(
+                      "admin.avatarOptimization.states.idle",
+                      "Ranh"
+                    )}
+                    runningLabel={tx(
+                      "admin.avatarOptimization.states.running",
+                      "Dang chay"
+                    )}
                   />
                 </Stack>
                 <Stack spacing={1}>
@@ -538,8 +569,7 @@ export default function AvatarOptimizationPage() {
                       "admin.avatarOptimization.fields.trashRetentionDays",
                       "Giu trash (ngay)"
                     )}
-                    :{" "}
-                    {config?.cleanup?.avatarTrashMaxAgeDays || 0}
+                    : {config?.cleanup?.avatarTrashMaxAgeDays || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
@@ -566,8 +596,7 @@ export default function AvatarOptimizationPage() {
                       "admin.avatarOptimization.fields.lastDuration",
                       "Thoi luong"
                     )}
-                    :{" "}
-                    {formatDuration(cleanup?.lastDurationMs)}
+                    : {formatDuration(cleanup?.lastDurationMs)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
@@ -680,7 +709,10 @@ export default function AvatarOptimizationPage() {
           <Box
             sx={{
               display: "grid",
-              gridTemplateColumns: { xs: "1fr", lg: "repeat(2, minmax(0, 1fr))" },
+              gridTemplateColumns: {
+                xs: "1fr",
+                lg: "repeat(2, minmax(0, 1fr))",
+              },
               gap: 2,
             }}
           >
@@ -698,29 +730,28 @@ export default function AvatarOptimizationPage() {
                       "admin.avatarOptimization.fields.thresholdBytes",
                       "Nguong dung luong"
                     )}
-                    :{" "}
-                    {formatBytes(config?.sweep?.thresholdBytes || 0)}
+                    : {formatBytes(config?.sweep?.thresholdBytes || 0)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.maxDimension",
                       "Canh toi da"
                     )}
-                    :{" "}
-                    {config?.sweep?.maxDimension || 0}px
+                    : {config?.sweep?.maxDimension || 0}px
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {tx("admin.avatarOptimization.fields.quality", "Chat luong webp")}
-                    :{" "}
-                    {config?.sweep?.quality || 0}
+                    {tx(
+                      "admin.avatarOptimization.fields.quality",
+                      "Chat luong webp"
+                    )}
+                    : {config?.sweep?.quality || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.minSavedBytes",
                       "Nguong tiet kiem toi thieu"
                     )}
-                    :{" "}
-                    {formatBytes(config?.sweep?.minSavedBytes || 0)}
+                    : {formatBytes(config?.sweep?.minSavedBytes || 0)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx("admin.avatarOptimization.fields.timezone", "Mui gio")}:{" "}
@@ -729,7 +760,9 @@ export default function AvatarOptimizationPage() {
                   <Divider sx={{ my: 1 }} />
                   <Chip
                     size="small"
-                    color={config?.sweep?.deleteOriginals ? "warning" : "default"}
+                    color={
+                      config?.sweep?.deleteOriginals ? "warning" : "default"
+                    }
                     label={
                       config?.sweep?.deleteOriginals
                         ? tx(
@@ -750,7 +783,10 @@ export default function AvatarOptimizationPage() {
             <Card variant="outlined">
               <CardContent>
                 <Typography variant="h6" sx={{ fontWeight: 800, mb: 1.5 }}>
-                  {tx("admin.avatarOptimization.sections.trash", "Vung trash avatar")}
+                  {tx(
+                    "admin.avatarOptimization.sections.trash",
+                    "Vung trash avatar"
+                  )}
                 </Typography>
                 <Stack spacing={1}>
                   <Typography variant="body2" color="text.secondary">
@@ -762,8 +798,11 @@ export default function AvatarOptimizationPage() {
                     {trash?.files || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {tx("admin.avatarOptimization.fields.totalBytes", "Dung luong")}:{" "}
-                    {formatBytes(trash?.totalBytes || 0)}
+                    {tx(
+                      "admin.avatarOptimization.fields.totalBytes",
+                      "Dung luong"
+                    )}
+                    : {formatBytes(trash?.totalBytes || 0)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(

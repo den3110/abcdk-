@@ -117,7 +117,9 @@ export default function Header() {
   const isSameHeaderTarget = (path) => {
     if (!path) return false;
     if (path === "/") return location.pathname === "/";
-    return location.pathname === path || location.pathname.startsWith(`${path}/`);
+    return (
+      location.pathname === path || location.pathname.startsWith(`${path}/`)
+    );
   };
 
   const handleHeaderLinkClick = (path, options = {}) => {
@@ -499,7 +501,10 @@ export default function Header() {
                       : t("header.actions.darkMode")
                   }
                 >
-                  <IconButton onClick={toggleTheme} sx={{ color: "text.primary" }}>
+                  <IconButton
+                    onClick={toggleTheme}
+                    sx={{ color: "text.primary" }}
+                  >
                     {isDark ? <LightModeIcon /> : <DarkModeIcon />}
                   </IconButton>
                 </Tooltip>
@@ -597,7 +602,10 @@ export default function Header() {
                       : t("header.actions.darkMode")
                   }
                 >
-                  <IconButton onClick={toggleTheme} sx={{ color: "text.primary" }}>
+                  <IconButton
+                    onClick={toggleTheme}
+                    sx={{ color: "text.primary" }}
+                  >
                     {isDark ? <LightModeIcon /> : <DarkModeIcon />}
                   </IconButton>
                 </Tooltip>

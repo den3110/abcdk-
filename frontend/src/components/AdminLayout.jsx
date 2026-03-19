@@ -54,7 +54,10 @@ function isAdminUser(user) {
 }
 
 function isSuperAdminUser(user) {
-  return isAdminUser(user) && (Boolean(user?.isSuperUser) || Boolean(user?.isSuperAdmin));
+  return (
+    isAdminUser(user) &&
+    (Boolean(user?.isSuperUser) || Boolean(user?.isSuperAdmin))
+  );
 }
 
 export default function AdminLayout({ children }) {

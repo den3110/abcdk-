@@ -24,7 +24,10 @@ function extractToken(req) {
 
   return null;
 }
-const normalizeRole = (role) => String(role || "").trim().toLowerCase();
+const normalizeRole = (role) =>
+  String(role || "")
+    .trim()
+    .toLowerCase();
 const isSuperAdminUser = (user) =>
   Boolean(user?.isSuperUser || user?.isSuperAdmin);
 const isAdminUser = (user) => {
@@ -46,7 +49,6 @@ const getRoleSet = (user) => {
   }
   if (user?.isAdmin === true) roles.add("admin");
   if (isSuperAdminUser(user)) {
-    roles.add("admin");
     roles.add("superadmin");
     roles.add("superuser");
   }
@@ -142,8 +144,9 @@ export const authorize =
 /* Chỉ referee hoặc admin */
 // ✅ Referee/Admin only — luôn fetch user từ DB
 export const refereeOnly = asyncHandler(async (req, res, next) => {
-  // ✅ Bypass nếu là request cho userMatch (hoặc bất kỳ kind nào) 
-  const matchKind = req.header("x-pkt-match-kind") || req.headers["x-pkt-match-kind"];
+  // ✅ Bypass nếu là request cho userMatch (hoặc bất kỳ kind nào)
+  const matchKind =
+    req.header("x-pkt-match-kind") || req.headers["x-pkt-match-kind"];
   if (matchKind) {
     return next();
   }
@@ -231,7 +234,7 @@ export async function optionalAuth(req, res, next) {
           _id: String(u._id),
           roles: Array.from(getRoleSet(u)),
           role: u.role,
-          isAdmin: !!u.isAdmin,
+          isAdmin: isAdminUser(u),
           isSuperUser: isSuperAdminUser(u),
           isSuperAdmin: isSuperAdminUser(u),
         };
@@ -426,9 +429,21 @@ export const requireSuperAdmin = (req, res, next) => {
     res.status(401);
     throw new Error("Not authorized");
   }
-  if (!(isAdminUser(req.user) && isSuperAdminUser(req.user))) {
+  if (!isSuperAdminUser(req.user)) {
     res.status(403);
     throw new Error("Forbidden – super admin required");
+  }
+  return next();
+};
+
+export const requireAdminAndSuperUser = (req, res, next) => {
+  if (!req.user) {
+    res.status(401);
+    throw new Error("Not authorized");
+  }
+  if (!isAdminUser(req.user) || !isSuperAdminUser(req.user)) {
+    res.status(403);
+    throw new Error("Forbidden - admin + super user required");
   }
   return next();
 };

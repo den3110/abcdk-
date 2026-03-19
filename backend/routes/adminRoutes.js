@@ -12,6 +12,7 @@ import {
   protect,
   authorize,
   isManagerTournament,
+  requireAdminAndSuperUser,
   requireSuperAdmin,
 } from "../middleware/authMiddleware.js";
 import { adminLogin } from "../controllers/admin/adminAuthController.js";
@@ -199,7 +200,11 @@ import {
   runSeoNewsSyncNow,
   updateSeoNewsSettings,
 } from "../controllers/seoNewsAdminController.js";
-import { adminSetRankingSearchConfig, aiFillCccdForUser, backfillUsersFromCccd } from "../controllers/userController.js";
+import {
+  adminSetRankingSearchConfig,
+  aiFillCccdForUser,
+  backfillUsersFromCccd,
+} from "../controllers/userController.js";
 import {
   getAvatarOptimizationStatus,
   runAvatarOptimizationCleanupNow,
@@ -209,7 +214,6 @@ import {
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
 const router = express.Router();
-
 
 router.post("/login", adminLogin);
 
@@ -268,22 +272,21 @@ router.put(
   updateTournamentTimeoutPerGame
 );
 
-
 router.use(protect, authorize("admin")); // táº¥t cáº£ dÆ°á»›i Ä‘Ã¢y cáº§n admin
 
 router.get(
   "/avatar-optimization/status",
-  requireSuperAdmin,
+  requireAdminAndSuperUser,
   getAvatarOptimizationStatus
 );
 router.post(
   "/avatar-optimization/run",
-  requireSuperAdmin,
+  requireAdminAndSuperUser,
   runAvatarOptimizationSweepNow
 );
 router.post(
   "/avatar-optimization/cleanup",
-  requireSuperAdmin,
+  requireAdminAndSuperUser,
   runAvatarOptimizationCleanupNow
 );
 
@@ -850,7 +853,10 @@ router.get("/seo-news/articles", getSeoNewsArticles);
 router.post("/seo-news/articles/push", pushSeoNewsDraftsToPublished);
 router.post("/seo-news/articles/create-ready", createSeoNewsReadyArticlesNow);
 router.post("/seo-news/candidates/run", runSeoNewsPendingCandidates);
-router.post("/seo-news/images/cleanup-source", cleanupSeoNewsGatewaySourceImagesNow);
+router.post(
+  "/seo-news/images/cleanup-source",
+  cleanupSeoNewsGatewaySourceImagesNow
+);
 router.post("/seo-news/run", runSeoNewsSyncNow);
 
 router.post(
@@ -874,6 +880,5 @@ router.patch(
   authorize("admin"),
   adminSetRankingSearchConfig
 );
-
 
 export default router;
