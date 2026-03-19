@@ -330,7 +330,12 @@ const TeamDisplay = ({ name, isWinner, align = "left" }) => (
   </Stack>
 );
 
-const LiveMatchCard = ({ m, onOpen }) => {
+const LiveMatchCard = ({
+  m,
+  onOpen,
+  eventType = "double",
+  displayMode = "nickname",
+}) => {
   const { t } = useLanguage();
   const teamFallback = t("tournaments.schedule.match.pendingTeam");
 
@@ -373,10 +378,14 @@ const LiveMatchCard = ({ m, onOpen }) => {
         {m.__displayCode}
       </Typography>
     </Stack>
-    <Stack spacing={1}>
+      <Stack spacing={1}>
       <Box>
-        <TeamDisplay name={teamNameFrom(m, "A", teamFallback)} />
-        <TeamDisplay name={teamNameFrom(m, "B", teamFallback)} />
+        <TeamDisplay
+          name={teamNameFrom(m, "A", eventType, displayMode, teamFallback)}
+        />
+        <TeamDisplay
+          name={teamNameFrom(m, "B", eventType, displayMode, teamFallback)}
+        />
       </Box>
       <Divider sx={{ borderStyle: "dashed", borderColor: "success.300" }} />
       <Typography
@@ -392,7 +401,12 @@ const LiveMatchCard = ({ m, onOpen }) => {
   );
 };
 
-const QueueMatchItem = ({ m, onOpen }) => {
+const QueueMatchItem = ({
+  m,
+  onOpen,
+  eventType = "double",
+  displayMode = "nickname",
+}) => {
   const { t } = useLanguage();
   const teamFallback = t("tournaments.schedule.match.pendingTeam");
 
@@ -427,11 +441,11 @@ const QueueMatchItem = ({ m, onOpen }) => {
     </Box>
     <Box sx={{ flex: 1, overflow: "hidden" }}>
       <Typography variant="caption" display="block" noWrap fontWeight={500}>
-        {teamNameFrom(m, "A", teamFallback)}
+        {teamNameFrom(m, "A", eventType, displayMode, teamFallback)}
       </Typography>
       <Typography variant="caption" display="block" noWrap fontWeight={500}>
         {t("tournaments.schedule.match.versus")}{" "}
-        {teamNameFrom(m, "B", teamFallback)}
+        {teamNameFrom(m, "B", eventType, displayMode, teamFallback)}
       </Typography>
     </Box>
     <Chip
@@ -443,7 +457,12 @@ const QueueMatchItem = ({ m, onOpen }) => {
   );
 };
 
-function CourtPanel({ court, onOpenMatch }) {
+function CourtPanel({
+  court,
+  onOpenMatch,
+  eventType = "double",
+  displayMode = "nickname",
+}) {
   const { t } = useLanguage();
   const hasLive = court.live.length > 0;
   return (
@@ -513,7 +532,13 @@ function CourtPanel({ court, onOpenMatch }) {
       >
         {hasLive ? (
           court.live.map((m) => (
-            <LiveMatchCard key={m._id} m={m} onOpen={onOpenMatch} />
+            <LiveMatchCard
+              key={m._id}
+              m={m}
+              onOpen={onOpenMatch}
+              eventType={eventType}
+              displayMode={displayMode}
+            />
           ))
         ) : (
           <Box
@@ -542,7 +567,13 @@ function CourtPanel({ court, onOpenMatch }) {
               {t("tournaments.schedule.court.next")}
             </Typography>
             {court.queue.slice(0, 3).map((m) => (
-              <QueueMatchItem key={m._id} m={m} onOpen={onOpenMatch} />
+              <QueueMatchItem
+                key={m._id}
+                m={m}
+                onOpen={onOpenMatch}
+                eventType={eventType}
+                displayMode={displayMode}
+              />
             ))}
             {court.queue.length > 3 && (
               <Typography
@@ -563,7 +594,12 @@ function CourtPanel({ court, onOpenMatch }) {
   );
 }
 
-function CourtCarousel({ courts, onOpenMatch }) {
+function CourtCarousel({
+  courts,
+  onOpenMatch,
+  eventType = "double",
+  displayMode = "nickname",
+}) {
   const scrollRef = useRef(null);
   const [showLeft, setShowLeft] = useState(false);
   const [showRight, setShowRight] = useState(true);
@@ -644,7 +680,12 @@ function CourtCarousel({ courts, onOpenMatch }) {
               scrollSnapAlign: "start",
             }}
           >
-            <CourtPanel court={court} onOpenMatch={onOpenMatch} />
+            <CourtPanel
+              court={court}
+              onOpenMatch={onOpenMatch}
+              eventType={eventType}
+              displayMode={displayMode}
+            />
           </Box>
         ))}
       </Box>
@@ -672,7 +713,12 @@ function CourtCarousel({ courts, onOpenMatch }) {
   );
 }
 
-function MatchListItem({ m, onOpenMatch }) {
+function MatchListItem({
+  m,
+  onOpenMatch,
+  eventType = "double",
+  displayMode = "nickname",
+}) {
   const { t } = useLanguage();
   const theme = useTheme();
   const finished = isFinished(m);
@@ -760,7 +806,7 @@ function MatchListItem({ m, onOpenMatch }) {
             }}
           >
             <TeamDisplay
-              name={teamNameFrom(m, "A", teamFallback)}
+              name={teamNameFrom(m, "A", eventType, displayMode, teamFallback)}
               isWinner={m.winner === "A"}
               align={window.innerWidth < 600 ? "center" : "right"}
             />
@@ -836,7 +882,7 @@ function MatchListItem({ m, onOpenMatch }) {
             }}
           >
             <TeamDisplay
-              name={teamNameFrom(m, "B", teamFallback)}
+              name={teamNameFrom(m, "B", eventType, displayMode, teamFallback)}
               isWinner={m.winner === "B"}
               align={window.innerWidth < 600 ? "center" : "left"}
             />
@@ -887,6 +933,15 @@ export default function TournamentSchedule() {
 
   // API
   const { data: tournament, isLoading: tLoading } = useGetTournamentQuery(id);
+  const eventType = useMemo(
+    () =>
+      String(tournament?.eventType || "double")
+        .toLowerCase()
+        .includes("single")
+        ? "single"
+        : "double",
+    [tournament?.eventType]
+  );
   const displayMode = getTournamentNameDisplayMode(tournament);
   const {
     data: matchesResp,
@@ -1172,13 +1227,13 @@ export default function TournamentSchedule() {
         ...m,
         tournament: {
           ...(m?.tournament || {}),
-          eventType: tournament?.eventType || m?.tournament?.eventType,
+          eventType,
           nameDisplayMode: displayMode,
         },
         __displayCode: label,
       };
     });
-  }, [matches, baseRoundStartMap, groupNumberFromMatch, t, tournament?.eventType, displayMode]);
+  }, [matches, baseRoundStartMap, eventType, groupNumberFromMatch, t, displayMode]);
   const allSorted = useMemo(() => {
     return [...matchesWithCode].sort((a, b) => {
       const ak = orderKey(a);
@@ -1201,8 +1256,8 @@ export default function TournamentSchedule() {
       if (!qnorm) return true;
       const hay = [
         m.__displayCode,
-        teamNameFrom(m, "A", pendingTeamLabel),
-        teamNameFrom(m, "B", pendingTeamLabel),
+        teamNameFrom(m, "A", eventType, displayMode, pendingTeamLabel),
+        teamNameFrom(m, "B", eventType, displayMode, pendingTeamLabel),
         m.bracket?.name,
         courtNameOf(m, unassignedCourtLabel),
       ]
@@ -1211,7 +1266,7 @@ export default function TournamentSchedule() {
         .toLowerCase();
       return hay.includes(qnorm);
     });
-  }, [allSorted, pendingTeamLabel, q, status, unassignedCourtLabel]);
+  }, [allSorted, displayMode, eventType, pendingTeamLabel, q, status, unassignedCourtLabel]);
 
   const courts = useMemo(() => {
     const map = new Map();
@@ -1360,7 +1415,12 @@ export default function TournamentSchedule() {
               ))}
             </Box>
           ) : courts.length > 0 ? (
-            <CourtCarousel courts={courts} onOpenMatch={openViewer} />
+            <CourtCarousel
+              courts={courts}
+              onOpenMatch={openViewer}
+              eventType={eventType}
+              displayMode={displayMode}
+            />
           ) : (
             <Typography
               variant="body2"
@@ -1443,7 +1503,13 @@ export default function TournamentSchedule() {
               ))
             ) : filteredAll.length > 0 ? (
               filteredAll.map((m) => (
-                <MatchListItem key={m._id} m={m} onOpenMatch={openViewer} />
+                <MatchListItem
+                  key={m._id}
+                  m={m}
+                  onOpenMatch={openViewer}
+                  eventType={eventType}
+                  displayMode={displayMode}
+                />
               ))
             ) : (
               <Box sx={{ py: 8, textAlign: "center", opacity: 0.6 }}>

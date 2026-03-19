@@ -362,26 +362,29 @@ export default function LoginScreen() {
               borderBottom: { xs: `1px solid ${alpha(isDark ? "#d8eef7" : "#101820", 0.08)}`, md: 0 },
             }}
           >
-            <Box
-              sx={{
-                px: { xs: 2, sm: 2.5, md: 3 },
-                display: "flex",
-                alignItems: "center",
-                minWidth: 0,
-              }}
-            >
-              <LogoAnimationMorph isMobile={isMobile} showBackButton={false} />
-            </Box>
+            <Box sx={{ display: { xs: "none", md: "block" } }} />
 
             <Box
               sx={{
                 px: { xs: 2, sm: 2.5, md: 3 },
                 display: "flex",
-                justifyContent: "flex-end",
+                justifyContent: "space-between",
                 alignItems: "center",
                 minWidth: 0,
               }}
             >
+              <Box
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  minWidth: 0,
+                  transform: { xs: "scale(0.86)", md: "none" },
+                  transformOrigin: "left center",
+                }}
+              >
+                <LogoAnimationMorph isMobile={false} showBackButton={false} />
+              </Box>
+
               <Stack direction="row" spacing={0.75} justifyContent="flex-end" alignItems="center">
                 <Typography
                   variant="body2"
