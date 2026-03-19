@@ -60,22 +60,42 @@ function evaluateGameFinish(aRaw, bRaw, rules) {
 export const toDTO = (m) => {
   // ================= helpers (chỉ dùng nội bộ, không thay đổi field cũ) ================
   const pick = (v) => (v && String(v).trim()) || "";
-  const preferNick = (p) =>
+  const displayMode =
+    m?.tournament?.nameDisplayMode === "fullName" ? "fullName" : "nickname";
+
+  const pickNicknameOnly = (p) =>
     pick(p?.nickname) ||
     pick(p?.nickName) ||
     pick(p?.user?.nickname) ||
-    pick(p?.user?.nickName) ||
-    pick(p?.shortName) ||
-    pick(p?.name) ||
-    pick(p?.fullName);
+    pick(p?.user?.nickName);
+
+  const getPreferredPlayerName = (p) => {
+    if (!p) return "";
+    if (displayMode === "fullName") {
+      return (
+        pick(p?.fullName) ||
+        pick(p?.name) ||
+        pickNicknameOnly(p) ||
+        pick(p?.shortName)
+      );
+    }
+    return (
+      pickNicknameOnly(p) ||
+      pick(p?.shortName) ||
+      pick(p?.name) ||
+      pick(p?.fullName)
+    );
+  };
 
   const normPlayer = (p) => {
     if (!p) return null;
     const _id = p._id || p.id || p;
+    const preferredName = getPreferredPlayerName(p);
     return {
       _id,
-      nickname: preferNick(p),
-      name: p?.fullName || p?.name || "",
+      nickname: preferredName,
+      name: preferredName,
+      fullName: pick(p?.fullName) || pick(p?.name) || preferredName,
       shortName: p?.shortName || undefined,
     };
   };
@@ -86,8 +106,7 @@ export const toDTO = (m) => {
   };
 
   const teamNameFromReg = (reg) => {
-    const fallbackPlayerName = (player) =>
-      pick(player?.fullName) || pick(player?.name) || preferNick(player);
+    const fallbackPlayerName = (player) => getPreferredPlayerName(player);
     const fallbackNames = [fallbackPlayerName(reg?.player1)];
     if (reg?.player2) fallbackNames.push(fallbackPlayerName(reg?.player2));
     return (

@@ -86,14 +86,21 @@ function summarizeSegments(segments = []) {
       toNumber(meta.totalSizeBytes) ||
       toNumber(meta.segmentSizeBytes) ||
       toNumber(segment.sizeBytes);
+    const partSizeBytes = toNumber(meta.partSizeBytes);
     const percent =
       totalSizeBytes > 0
         ? Math.max(0, Math.min(100, Math.round((completedBytes / totalSizeBytes) * 100)))
         : segment.uploadStatus === "uploaded"
         ? 100
         : 0;
+    const totalParts =
+      partSizeBytes > 0 && totalSizeBytes > 0
+        ? Math.max(1, Math.ceil(totalSizeBytes / partSizeBytes))
+        : 0;
     return {
       index: segment.index,
+      objectKey: segment.objectKey || "",
+      etag: segment.etag || "",
       uploadStatus: segment.uploadStatus,
       isFinal: Boolean(segment.isFinal),
       sizeBytes: toNumber(segment.sizeBytes),
@@ -103,11 +110,14 @@ function summarizeSegments(segments = []) {
       completedBytes,
       totalSizeBytes,
       percent,
-      partSizeBytes: toNumber(meta.partSizeBytes),
+      partSizeBytes,
+      totalParts,
       lastPartUploadedAt: meta.lastPartUploadedAt || null,
       startedAt: meta.startedAt || null,
     };
   };
+
+  const detailedSegments = sortedSegments.map(buildSegmentProgress).filter(Boolean);
 
   return {
     totalSegments: sortedSegments.length,
@@ -120,6 +130,7 @@ function summarizeSegments(segments = []) {
       0
     ),
     finalSegmentUploaded: uploadedSegments.some((segment) => segment.isFinal),
+    segments: detailedSegments,
     latestSegment: buildSegmentProgress(latestSegment),
     activeUploadSegment: buildSegmentProgress(activeUploadSegment),
   };

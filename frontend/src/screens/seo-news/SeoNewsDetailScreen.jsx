@@ -266,7 +266,7 @@ export default function SeoNewsDetailScreen() {
                   height: { xs: 250, md: 450 },
                   objectFit: "cover",
                   borderRadius: 2,
-                  border: `1px solid ${alpha(theme.palette.divider, 0.4)}`,
+                  border: "none",
                   boxShadow: isDark 
                     ? "0 10px 30px rgba(0,0,0,0.3)" 
                     : "0 10px 40px rgba(0,0,0,0.05)",
@@ -413,7 +413,7 @@ export default function SeoNewsDetailScreen() {
                       key={`detail-suggest-${item.slug}`}
                       sx={{
                         borderRadius: 2,
-                        border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+                        border: "none",
                         boxShadow: isDark
                           ? "0 4px 12px rgba(0,0,0,0.2)"
                           : "0 4px 20px rgba(0,0,0,0.03)",

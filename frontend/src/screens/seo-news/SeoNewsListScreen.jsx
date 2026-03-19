@@ -166,7 +166,7 @@ export default function SeoNewsListScreen() {
           backdropFilter: "blur(8px)",
           backgroundColor: isAI ? alpha(theme.palette.primary.main, 0.85) : alpha(theme.palette.background.paper, 0.85),
           color: isAI ? "#fff" : theme.palette.text.primary,
-          border: `1px solid ${isAI ? "transparent" : alpha(theme.palette.text.primary, 0.08)}`
+          border: "none"
         }}
       />
     );
@@ -197,7 +197,7 @@ export default function SeoNewsListScreen() {
               py: { xs: 3.25, md: 4 },
               position: "relative",
               overflow: "hidden",
-              border: `1px solid ${alpha(theme.palette.primary.main, isDark ? 0.08 : 0.04)}`,
+              border: "none",
               boxShadow: isDark
                 ? "0 20px 40px rgba(0,0,0,0.3)"
                 : "0 20px 50px rgba(15, 23, 42, 0.06)",
@@ -366,7 +366,7 @@ export default function SeoNewsListScreen() {
                     height: "100%",
                     borderRadius: 2,
                     overflow: "hidden",
-                    border: `1px solid ${alpha(theme.palette.text.primary, 0.04)}`,
+                    border: "none",
                     bgcolor: theme.palette.background.paper,
                     boxShadow: isDark
                       ? "0 8px 30px rgba(0,0,0,0.2)"
@@ -518,7 +518,7 @@ export default function SeoNewsListScreen() {
                   key={`suggest-${item.slug}`}
                   sx={{
                     borderRadius: 2,
-                    border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+                    border: "none",
                     boxShadow: isDark
                       ? "0 4px 12px rgba(0,0,0,0.2)"
                       : "0 4px 20px rgba(0,0,0,0.03)",
@@ -604,7 +604,7 @@ export default function SeoNewsListScreen() {
               sx={{
                 borderRadius: 2,
                 overflow: "hidden",
-                border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+                border: "none",
                 boxShadow: isDark 
                   ? "0 8px 24px rgba(0,0,0,0.3)" 
                   : "0 8px 30px rgba(0,0,0,0.04)",
@@ -747,7 +747,7 @@ export default function SeoNewsListScreen() {
                       display: "flex",
                       flexDirection: "column",
                       borderRadius: 2,
-                      border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
+                      border: "none",
                       boxShadow: isDark 
                         ? "0 4px 12px rgba(0,0,0,0.2)" 
                         : "0 8px 24px rgba(0,0,0,0.03)",
