@@ -34,6 +34,11 @@ import {
 
 const SITE_URL = "https://pickletour.vn";
 
+const handleImageError = (e) => {
+  e.target.onerror = null;
+  e.target.src = "data:image/svg+xml;charset=UTF-8,%3Csvg width='800' height='400' xmlns='http://www.w3.org/2000/svg'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23f1f5f9' /%3E%3Cstop offset='100%25' stop-color='%23cbd5e1' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23g)' /%3E%3C/svg%3E";
+};
+
 function formatDateTime(value, locale = "vi-VN") {
   if (!value) return "";
   const d = new Date(value);
@@ -261,6 +266,7 @@ export default function SeoNewsDetailScreen() {
                 component="img"
                 src={article.heroImageUrl || article.thumbImageUrl}
                 alt={article.title}
+                onError={handleImageError}
                 sx={{
                   width: "100%",
                   height: { xs: 250, md: 450 },
