@@ -213,11 +213,11 @@ export default function AvatarOptimizationPage() {
         result?.started
           ? tx(
               "admin.avatarOptimization.feedback.sweepStarted",
-              "Sweep da duoc kich hoat."
+              "Đã kích hoạt quét ảnh đại diện."
             )
           : tx(
               "admin.avatarOptimization.feedback.sweepAlreadyRunning",
-              "Sweep dang chay tu luong khac."
+              "Tác vụ quét đang chạy ở luồng khác."
             )
       );
       await refetch();
@@ -227,7 +227,7 @@ export default function AvatarOptimizationPage() {
         runError?.data?.message ||
           tx(
             "admin.avatarOptimization.feedback.actionFailed",
-            "Khong thuc hien duoc thao tac nay."
+            "Không thực hiện được thao tác này."
           )
       );
     }
@@ -241,11 +241,11 @@ export default function AvatarOptimizationPage() {
         result?.started
           ? tx(
               "admin.avatarOptimization.feedback.cleanupStarted",
-              "Cleanup da duoc kich hoat."
+              "Đã kích hoạt dọn thùng rác."
             )
           : tx(
               "admin.avatarOptimization.feedback.cleanupAlreadyRunning",
-              "Cleanup dang chay tu luong khac."
+              "Tác vụ dọn đang chạy ở luồng khác."
             )
       );
       await refetch();
@@ -255,7 +255,7 @@ export default function AvatarOptimizationPage() {
         runError?.data?.message ||
           tx(
             "admin.avatarOptimization.feedback.actionFailed",
-            "Khong thuc hien duoc thao tac nay."
+            "Không thực hiện được thao tác này."
           )
       );
     }
@@ -274,13 +274,13 @@ export default function AvatarOptimizationPage() {
           <Typography variant="h4" sx={{ fontWeight: 800 }}>
             {tx(
               "admin.avatarOptimization.title",
-              "Realtime avatar optimization"
+              "Tối ưu Ảnh Đại Diện theo thời gian thực"
             )}
           </Typography>
           <Typography color="text.secondary" sx={{ mt: 0.5 }}>
             {tx(
               "admin.avatarOptimization.subtitle",
-              "Theo doi quet nen, kich chay tay va kiem tra vung trash cua avatar user."
+              "Theo dõi quét nền, chạy thủ công và kiểm tra thùng rác cho ảnh đại diện người dùng."
             )}
           </Typography>
         </Box>
@@ -299,7 +299,7 @@ export default function AvatarOptimizationPage() {
             }
             label={tx(
               "admin.avatarOptimization.actions.autoRefresh",
-              "Tu lam moi 5s"
+              "Tự làm mới mỗi 5 giây"
             )}
           />
           <Button
@@ -316,7 +316,7 @@ export default function AvatarOptimizationPage() {
             onClick={handleRunSweep}
             disabled={isRunningSweepAction || Boolean(sweep?.running)}
           >
-            {tx("admin.avatarOptimization.actions.runSweep", "Chay sweep ngay")}
+            {tx("admin.avatarOptimization.actions.runSweep", "Chạy quét ngay")}
           </Button>
           <Button
             variant="outlined"
@@ -327,7 +327,7 @@ export default function AvatarOptimizationPage() {
           >
             {tx(
               "admin.avatarOptimization.actions.runCleanup",
-              "Don trash ngay"
+              "Dọn thùng rác ngay"
             )}
           </Button>
         </Stack>
@@ -356,7 +356,7 @@ export default function AvatarOptimizationPage() {
           {error?.data?.message ||
             tx(
               "admin.avatarOptimization.feedback.loadFailed",
-              "Khong tai duoc trang thai avatar optimization."
+              "Không tải được trạng thái tối ưu ảnh đại diện."
             )}
         </Alert>
       ) : (
@@ -375,62 +375,62 @@ export default function AvatarOptimizationPage() {
             <MetricCard
               label={tx(
                 "admin.avatarOptimization.metrics.totalAvatarUsers",
-                "User co avatar"
+                "Người dùng có ảnh đại diện"
               )}
               value={summary.totalAvatarUsers || 0}
               caption={tx(
                 "admin.avatarOptimization.metrics.totalAvatarUsersHint",
-                "Tong user dang co gia tri avatar"
+                "Tổng số người dùng đang có ảnh đại diện"
               )}
               tone="info"
             />
             <MetricCard
               label={tx(
                 "admin.avatarOptimization.metrics.pendingUsers",
-                "Dang cho xu ly"
+                "Đang chờ xử lý"
               )}
               value={summary.pendingUsers || 0}
               caption={tx(
                 "admin.avatarOptimization.metrics.pendingUsersHint",
-                "Avatar chua sync xong theo trang thai moi nhat"
+                "Ảnh đại diện chưa đồng bộ xong theo trạng thái mới nhất"
               )}
               tone="warning"
             />
             <MetricCard
               label={tx(
                 "admin.avatarOptimization.metrics.upToDateUsers",
-                "Da dong bo"
+                "Đã đồng bộ"
               )}
               value={summary.upToDateUsers || 0}
               caption={tx(
                 "admin.avatarOptimization.metrics.upToDateUsersHint",
-                "Avatar da duoc danh dau khop voi model hien tai"
+                "Ảnh đại diện đã được đánh dấu khớp với dữ liệu hiện tại"
               )}
               tone="success"
             />
             <MetricCard
               label={tx(
                 "admin.avatarOptimization.metrics.activeOptimizedUsers",
-                "Avatar toi uu dang dung"
+                "Ảnh tối ưu đang dùng"
               )}
               value={summary.activeOptimizedUsers || 0}
               caption={tx(
                 "admin.avatarOptimization.metrics.activeOptimizedUsersHint",
-                "Model user dang tro toi avatar optimized"
+                "Tài khoản người dùng đang trỏ tới ảnh đã tối ưu"
               )}
               tone="info"
             />
             <MetricCard
               label={tx(
                 "admin.avatarOptimization.metrics.trashFiles",
-                "File trong trash"
+                "Tệp trong thùng rác"
               )}
               value={trash.files || 0}
               caption={`${formatBytes(trash.totalBytes || 0)} | ${
                 summary.queuedUsers || 0
               } ${tx(
                 "admin.avatarOptimization.metrics.queuedUsersSuffix",
-                "dang xep hang"
+                "đang xếp hàng"
               )}`}
             />
           </Box>
@@ -457,18 +457,18 @@ export default function AvatarOptimizationPage() {
                   <Typography variant="h6" sx={{ fontWeight: 800 }}>
                     {tx(
                       "admin.avatarOptimization.sections.sweepJob",
-                      "Job quet avatar"
+                      "Tác vụ quét ảnh đại diện"
                     )}
                   </Typography>
                   <StatusChip
                     running={Boolean(sweep?.running)}
                     idleLabel={tx(
                       "admin.avatarOptimization.states.idle",
-                      "Ranh"
+                      "Đang nghỉ"
                     )}
                     runningLabel={tx(
                       "admin.avatarOptimization.states.running",
-                      "Dang chay"
+                      "Đang chạy"
                     )}
                   />
                 </Stack>
@@ -480,14 +480,14 @@ export default function AvatarOptimizationPage() {
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.batchSize",
-                      "Batch size"
+                      "Số lượng mỗi lượt"
                     )}
                     : {config?.sweep?.batchSize || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.lastStartedAt",
-                      "Lan chay bat dau"
+                      "Lần bắt đầu"
                     )}
                     :{" "}
                     {sweep?.lastStartedAt
@@ -497,7 +497,7 @@ export default function AvatarOptimizationPage() {
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.lastFinishedAt",
-                      "Lan chay ket thuc"
+                      "Lần kết thúc"
                     )}
                     :{" "}
                     {sweep?.lastFinishedAt
@@ -507,14 +507,14 @@ export default function AvatarOptimizationPage() {
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.lastDuration",
-                      "Thoi luong"
+                      "Thời lượng"
                     )}
                     : {formatDuration(sweep?.lastDurationMs)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.lastResult",
-                      "Ket qua gan nhat"
+                      "Kết quả"
                     )}
                     :{" "}
                     {sweep?.lastResult
@@ -544,18 +544,18 @@ export default function AvatarOptimizationPage() {
                   <Typography variant="h6" sx={{ fontWeight: 800 }}>
                     {tx(
                       "admin.avatarOptimization.sections.cleanupJob",
-                      "Job don optimized/trash"
+                      "Tác vụ dọn thùng rác"
                     )}
                   </Typography>
                   <StatusChip
                     running={Boolean(cleanup?.running)}
                     idleLabel={tx(
                       "admin.avatarOptimization.states.idle",
-                      "Ranh"
+                      "Đang nghỉ"
                     )}
                     runningLabel={tx(
                       "admin.avatarOptimization.states.running",
-                      "Dang chay"
+                      "Đang chạy"
                     )}
                   />
                 </Stack>
@@ -567,14 +567,14 @@ export default function AvatarOptimizationPage() {
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.trashRetentionDays",
-                      "Giu trash (ngay)"
+                      "Giữ lại thùng rác (ngày)"
                     )}
                     : {config?.cleanup?.avatarTrashMaxAgeDays || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.lastStartedAt",
-                      "Lan chay bat dau"
+                      "Lần bắt đầu"
                     )}
                     :{" "}
                     {cleanup?.lastStartedAt
@@ -584,7 +584,7 @@ export default function AvatarOptimizationPage() {
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.lastFinishedAt",
-                      "Lan chay ket thuc"
+                      "Lần kết thúc"
                     )}
                     :{" "}
                     {cleanup?.lastFinishedAt
@@ -594,20 +594,20 @@ export default function AvatarOptimizationPage() {
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.lastDuration",
-                      "Thoi luong"
+                      "Thời lượng"
                     )}
                     : {formatDuration(cleanup?.lastDurationMs)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.lastResult",
-                      "Ket qua gan nhat"
+                      "Kết quả"
                     )}
                     :{" "}
                     {cleanup?.lastResult
                       ? `${cleanup.lastResult.removed || 0} ${tx(
                           "admin.avatarOptimization.fields.filesRemoved",
-                          "file da don"
+                          "tệp đã dọn"
                         )}`
                       : t("common.unavailable")}
                   </Typography>
@@ -633,7 +633,7 @@ export default function AvatarOptimizationPage() {
                 <Typography variant="h6" sx={{ fontWeight: 800, mb: 1.5 }}>
                   {tx(
                     "admin.avatarOptimization.sections.pendingUsers",
-                    "User cho xu ly"
+                    "Người dùng chờ xử lý"
                   )}
                 </Typography>
                 {samples?.pending?.length ? (
@@ -652,7 +652,7 @@ export default function AvatarOptimizationPage() {
                         key={item._id}
                         title={tx(
                           "admin.avatarOptimization.fields.updatedAt",
-                          "Cap nhat user"
+                          "Cập nhật lúc"
                         )}
                         item={item}
                         locale={locale}
@@ -664,7 +664,7 @@ export default function AvatarOptimizationPage() {
                   <Alert severity="success">
                     {tx(
                       "admin.avatarOptimization.states.noPendingUsers",
-                      "Khong con user nao dang cho toi uu."
+                      "Không còn người dùng nào đang chờ tối ưu."
                     )}
                   </Alert>
                 )}
@@ -676,7 +676,7 @@ export default function AvatarOptimizationPage() {
                 <Typography variant="h6" sx={{ fontWeight: 800, mb: 1.5 }}>
                   {tx(
                     "admin.avatarOptimization.sections.recentOptimized",
-                    "User vua toi uu gan day"
+                    "Người dùng vừa tối ưu"
                   )}
                 </Typography>
                 {samples?.recentOptimized?.length ? (
@@ -686,7 +686,7 @@ export default function AvatarOptimizationPage() {
                         key={item._id}
                         title={tx(
                           "admin.avatarOptimization.fields.optimizedAt",
-                          "Toi uu luc"
+                          "Tối ưu lúc"
                         )}
                         item={item}
                         locale={locale}
@@ -698,7 +698,7 @@ export default function AvatarOptimizationPage() {
                   <Alert severity="info">
                     {tx(
                       "admin.avatarOptimization.states.noRecentOptimized",
-                      "Chua co avatar optimized nao de hien thi."
+                      "Chưa có ảnh tối ưu nào để hiển thị."
                     )}
                   </Alert>
                 )}
@@ -721,40 +721,40 @@ export default function AvatarOptimizationPage() {
                 <Typography variant="h6" sx={{ fontWeight: 800, mb: 1.5 }}>
                   {tx(
                     "admin.avatarOptimization.sections.config",
-                    "Cau hinh chay nen"
+                    "Cấu hình nền"
                   )}
                 </Typography>
                 <Stack spacing={1}>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.thresholdBytes",
-                      "Nguong dung luong"
+                      "Ngưỡng dung lượng"
                     )}
                     : {formatBytes(config?.sweep?.thresholdBytes || 0)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.maxDimension",
-                      "Canh toi da"
+                      "Cạnh tối đa"
                     )}
                     : {config?.sweep?.maxDimension || 0}px
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.quality",
-                      "Chat luong webp"
+                      "Chất lượng WebP"
                     )}
                     : {config?.sweep?.quality || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.minSavedBytes",
-                      "Nguong tiet kiem toi thieu"
+                      "Tiết kiệm tối thiểu"
                     )}
                     : {formatBytes(config?.sweep?.minSavedBytes || 0)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {tx("admin.avatarOptimization.fields.timezone", "Mui gio")}:{" "}
+                    {tx("admin.avatarOptimization.fields.timezone", "Múi giờ")}:{" "}
                     {config?.sweep?.timezone || t("common.unavailable")}
                   </Typography>
                   <Divider sx={{ my: 1 }} />
@@ -767,11 +767,11 @@ export default function AvatarOptimizationPage() {
                       config?.sweep?.deleteOriginals
                         ? tx(
                             "admin.avatarOptimization.notes.archiveOldOriginal",
-                            "Anh goc se duoc dua vao _trash sau khi model doi sang anh moi"
+                            "Ảnh gốc sẽ được đưa vào thùng rác sau khi đổi sang ảnh mới"
                           )
                         : tx(
                             "admin.avatarOptimization.notes.keepOldOriginal",
-                            "Anh goc dang duoc giu nguyen sau optimize"
+                            "Ảnh gốc đang được giữ lại sau khi tối ưu"
                           )
                     }
                     sx={{ alignSelf: "flex-start" }}
@@ -785,29 +785,29 @@ export default function AvatarOptimizationPage() {
                 <Typography variant="h6" sx={{ fontWeight: 800, mb: 1.5 }}>
                   {tx(
                     "admin.avatarOptimization.sections.trash",
-                    "Vung trash avatar"
+                    "Thùng rác ảnh đại diện"
                   )}
                 </Typography>
                 <Stack spacing={1}>
                   <Typography variant="body2" color="text.secondary">
-                    {tx("admin.avatarOptimization.fields.root", "Thu muc")}:{" "}
+                    {tx("admin.avatarOptimization.fields.root", "Thư mục")}:{" "}
                     {trash?.root || t("common.unavailable")}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {tx("admin.avatarOptimization.fields.files", "So file")}:{" "}
+                    {tx("admin.avatarOptimization.fields.files", "Số tệp")}:{" "}
                     {trash?.files || 0}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.totalBytes",
-                      "Dung luong"
+                      "Dung lượng"
                     )}
                     : {formatBytes(trash?.totalBytes || 0)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.oldestFileAt",
-                      "File cu nhat"
+                      "Tệp cũ nhất"
                     )}
                     :{" "}
                     {trash?.oldestFileAt
@@ -817,7 +817,7 @@ export default function AvatarOptimizationPage() {
                   <Typography variant="body2" color="text.secondary">
                     {tx(
                       "admin.avatarOptimization.fields.newestFileAt",
-                      "File moi nhat"
+                      "Tệp mới nhất"
                     )}
                     :{" "}
                     {trash?.newestFileAt

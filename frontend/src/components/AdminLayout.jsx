@@ -94,7 +94,7 @@ export default function AdminLayout({ children }) {
     ...(isSuperAdmin
       ? [
           {
-            label: tx("admin.layout.avatarOptimization", "Avatar optimize"),
+            label: tx("admin.layout.avatarOptimization", "Tối ưu Ảnh Đại Diện"),
             icon: <AutoFixHighIcon />,
             path: "/admin/avatar-optimization",
           },
