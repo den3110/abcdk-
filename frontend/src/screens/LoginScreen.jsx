@@ -319,6 +319,8 @@ export default function LoginScreen() {
         >
           <Box
             sx={{
+              position: "relative",
+              zIndex: 2,
               height: { xs: 42, md: 50 },
               px: { xs: 2, sm: 2.5, md: 3 },
               display: "flex",
@@ -355,9 +357,13 @@ export default function LoginScreen() {
 
           <Box
             sx={{
+              position: "relative",
+              zIndex: 1,
               display: "grid",
               gridTemplateColumns: { xs: "1fr", md: "minmax(320px, 0.88fr) minmax(420px, 1.12fr)" },
               gridTemplateRows: { xs: "minmax(220px, 34vh) minmax(0, 1fr)", md: "1fr" },
+              mt: { xs: 0, md: "-50px" },
+              height: { xs: "auto", md: "calc(100% + 50px)" },
               minHeight: 0,
             }}
           >
@@ -713,7 +719,10 @@ export default function LoginScreen() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                p: { xs: 2, sm: 3, md: 4 },
+                boxSizing: "border-box",
+                px: { xs: 2, sm: 3, md: 4 },
+                pb: { xs: 2, sm: 3, md: 4 },
+                pt: { xs: 2, sm: 3, md: "50px" },
                 background: isDark ? alpha("#0c1419", 0.92) : "#fbfbfa",
               }}
             >
