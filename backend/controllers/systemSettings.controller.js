@@ -32,6 +32,12 @@ const DEFAULTS = {
     iosStoreUrl: "",
     androidStoreUrl: "",
   },
+  recordingDrive: {
+    enabled: true,
+    mode: "serviceAccount",
+    folderId: "",
+    sharedDriveId: "",
+  },
 };
 
 export const getSystemSettings = async (req, res, next) => {

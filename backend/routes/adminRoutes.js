@@ -171,6 +171,11 @@ import {
   ytRevoke,
 } from "../controllers/youtubeSetupController.js";
 import {
+  disconnectRecordingDriveOAuth,
+  getRecordingDriveOAuthStatus,
+  recordingDriveOAuthInit,
+} from "../controllers/recordingDriveSetupController.js";
+import {
   bulkSetCourtLiveConfig,
   getCourtLiveConfig,
   listCourtsByTournamentLive,
@@ -767,6 +772,24 @@ router.get("/versions/by-user", protect, authorize("admin"), getUsersVersion);
 
 router.get("/settings", protect, authorize("admin"), getSystemSettings);
 router.put("/settings", protect, authorize("admin"), updateSystemSettings);
+router.get(
+  "/recording-drive/oauth/init",
+  protect,
+  authorize("admin"),
+  recordingDriveOAuthInit
+);
+router.get(
+  "/recording-drive/status",
+  protect,
+  authorize("admin"),
+  getRecordingDriveOAuthStatus
+);
+router.post(
+  "/recording-drive/disconnect",
+  protect,
+  authorize("admin"),
+  disconnectRecordingDriveOAuth
+);
 
 router.get("/stats/presence", protect, authorize("admin"), getPresenceSummary);
 router.get(

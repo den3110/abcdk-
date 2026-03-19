@@ -57,48 +57,141 @@ function evaluateGameFinish(aRaw, bRaw, rules) {
   return { finished: false, winner: null, capped: false };
 }
 
-export const toDTO = (m) => {
-  // ================= helpers (chỉ dùng nội bộ, không thay đổi field cũ) ================
-  const pick = (v) => (v && String(v).trim()) || "";
-  const displayMode =
-    m?.tournament?.nameDisplayMode === "fullName" ? "fullName" : "nickname";
+const pickTrim = (v) => (v && String(v).trim()) || "";
 
-  const pickNicknameOnly = (p) =>
-    pick(p?.nickname) ||
-    pick(p?.nickName) ||
-    pick(p?.user?.nickname) ||
-    pick(p?.user?.nickName);
+export const resolveMatchDisplayMode = (m) => {
+  const raw =
+    m?.displayNameMode ||
+    m?.nameDisplayMode ||
+    m?.tournament?.displayNameMode ||
+    m?.tournament?.nameDisplayMode;
+  return raw === "fullName" ? "fullName" : "nickname";
+};
 
-  const getPreferredPlayerName = (p) => {
-    if (!p) return "";
-    if (displayMode === "fullName") {
-      return (
-        pick(p?.fullName) ||
-        pick(p?.name) ||
-        pickNicknameOnly(p) ||
-        pick(p?.shortName)
-      );
-    }
-    return (
-      pickNicknameOnly(p) ||
-      pick(p?.shortName) ||
-      pick(p?.name) ||
-      pick(p?.fullName)
-    );
-  };
+export const resolvePlayerNickname = (p) =>
+  pickTrim(p?.nickname) ||
+  pickTrim(p?.nickName) ||
+  pickTrim(p?.user?.nickname) ||
+  pickTrim(p?.user?.nickName) ||
+  "";
 
-  const normPlayer = (p) => {
-    if (!p) return null;
-    const _id = p._id || p.id || p;
-    const preferredName = getPreferredPlayerName(p);
+export const resolvePlayerFullName = (p) =>
+  pickTrim(p?.fullName) ||
+  pickTrim(p?.name) ||
+  pickTrim(p?.user?.fullName) ||
+  pickTrim(p?.user?.name) ||
+  pickTrim(p?.shortName) ||
+  resolvePlayerNickname(p);
+
+export const resolvePlayerDisplayName = (
+  p,
+  displayMode = resolveMatchDisplayMode(p)
+) => {
+  const nickname = resolvePlayerNickname(p);
+  const fullName = resolvePlayerFullName(p);
+  if (displayMode === "fullName") return fullName || nickname || "";
+  return nickname || pickTrim(p?.shortName) || fullName || "";
+};
+
+export const normalizePlayerDisplay = (
+  p,
+  displayMode = resolveMatchDisplayMode(p)
+) => {
+  if (!p) return null;
+  if (typeof p !== "object") {
     return {
-      _id,
-      nickname: preferredName,
-      name: preferredName,
-      fullName: pick(p?.fullName) || pick(p?.name) || preferredName,
-      shortName: p?.shortName || undefined,
+      _id: p,
+      nickname: "",
+      nickName: "",
+      fullName: "",
+      name: "",
+      displayName: "",
+      displayNameMode: displayMode,
     };
+  }
+  const nickname = resolvePlayerNickname(p);
+  const fullName = resolvePlayerFullName(p);
+  const displayName = resolvePlayerDisplayName(p, displayMode);
+  return {
+    ...p,
+    _id: p?._id || p?.id || p,
+    nickname,
+    nickName: nickname || p?.nickName || "",
+    fullName,
+    name: fullName,
+    displayName,
+    displayNameMode: displayMode,
+    shortName: p?.shortName || undefined,
   };
+};
+
+export const resolvePairDisplayName = (
+  pair,
+  displayMode = resolveMatchDisplayMode(pair)
+) => {
+  if (!pair) return "";
+  const player1 = normalizePlayerDisplay(pair?.player1, displayMode);
+  const player2 = normalizePlayerDisplay(pair?.player2, displayMode);
+  const joined = [player1?.displayName, player2?.displayName]
+    .filter(Boolean)
+    .join(" & ");
+  return (
+    pickTrim(pair?.displayName) ||
+    joined ||
+    pickTrim(pair?.teamName) ||
+    pickTrim(pair?.label) ||
+    pickTrim(pair?.title) ||
+    pickTrim(pair?.name)
+  );
+};
+
+export const normalizePairDisplay = (
+  pair,
+  displayMode = resolveMatchDisplayMode(pair)
+) => {
+  if (!pair || typeof pair !== "object") return pair;
+  const player1 = normalizePlayerDisplay(pair?.player1, displayMode);
+  const player2 = normalizePlayerDisplay(pair?.player2, displayMode);
+  return {
+    ...pair,
+    _id: pair?._id || pair?.id || pair,
+    player1,
+    player2,
+    displayName: resolvePairDisplayName(
+      { ...pair, player1, player2 },
+      displayMode
+    ),
+    displayNameMode: displayMode,
+  };
+};
+
+export const normalizeMatchDisplayShape = (matchDoc) => {
+  if (!matchDoc || typeof matchDoc !== "object") return matchDoc;
+  const displayMode = resolveMatchDisplayMode(matchDoc);
+  const tournament =
+    matchDoc?.tournament && typeof matchDoc.tournament === "object"
+      ? {
+          ...matchDoc.tournament,
+          nameDisplayMode: displayMode,
+          displayNameMode: displayMode,
+        }
+      : matchDoc?.tournament;
+  return {
+    ...matchDoc,
+    tournament,
+    pairA: normalizePairDisplay(matchDoc?.pairA, displayMode),
+    pairB: normalizePairDisplay(matchDoc?.pairB, displayMode),
+    displayNameMode: displayMode,
+    liveVersion: matchDoc?.liveVersion ?? matchDoc?.version ?? 0,
+    version: matchDoc?.liveVersion ?? matchDoc?.version ?? 0,
+  };
+};
+
+export const toDTO = (matchDoc) => {
+  const m = normalizeMatchDisplayShape(matchDoc);
+  const pick = pickTrim;
+  const displayMode = resolveMatchDisplayMode(m);
+  const normPlayer = (p) => normalizePlayerDisplay(p, displayMode);
 
   const playersFromReg = (reg) => {
     if (!reg || typeof reg !== "object") return [];
@@ -106,10 +199,12 @@ export const toDTO = (m) => {
   };
 
   const teamNameFromReg = (reg) => {
-    const fallbackPlayerName = (player) => getPreferredPlayerName(player);
+    const fallbackPlayerName = (player) =>
+      resolvePlayerDisplayName(player, displayMode);
     const fallbackNames = [fallbackPlayerName(reg?.player1)];
     if (reg?.player2) fallbackNames.push(fallbackPlayerName(reg?.player2));
     return (
+      pick(reg?.displayName) ||
       pick(reg?.teamName) ||
       pick(reg?.label) ||
       pick(reg?.title) ||
@@ -167,10 +262,8 @@ export const toDTO = (m) => {
         _id: m.tournament._id || m.tournament,
         name: m.tournament.name || "",
         image: m.tournament.image || "",
-        nameDisplayMode:
-          m.tournament.nameDisplayMode === "fullName"
-            ? "fullName"
-            : "nickname",
+        nameDisplayMode: displayMode,
+        displayNameMode: displayMode,
         eventType: (m.tournament.eventType || "").toLowerCase(),
         overlay: m.tournament.overlay || undefined,
       }
@@ -348,7 +441,9 @@ export const toDTO = (m) => {
     startedAt: m.startedAt || null,
     finishedAt: m.finishedAt || null,
 
-    version: m.liveVersion ?? 0,
+    displayNameMode: displayMode,
+    liveVersion: m.liveVersion ?? m.version ?? 0,
+    version: m.liveVersion ?? m.version ?? 0,
 
     serve: m.serve || { side: "A", server: 2 },
 

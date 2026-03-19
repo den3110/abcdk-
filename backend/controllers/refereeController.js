@@ -1037,7 +1037,7 @@ export const patchScore = asyncHandler(async (req, res) => {
     }
 
     await match.save();
-    io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+    await broadcastScoreUpdated(io, id);
     return res.json({
       message: "Game set",
       gameScores: match.gameScores,
@@ -1087,7 +1087,7 @@ export const patchScore = asyncHandler(async (req, res) => {
         // Đã ở ván mới rồi, không cần tạo thêm
         match.currentGame = len - 1; // trỏ về ván 0-0 hiện tại
         await match.save();
-        io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+        await broadcastScoreUpdated(io, id);
         return res.json({
           message: "Đã ở ván mới rồi",
           gameScores: match.gameScores,
@@ -1110,7 +1110,7 @@ export const patchScore = asyncHandler(async (req, res) => {
     if (matchDone) {
       if (autoNext === true) {
         await finalizeMatchIfDone(match, rulesNow);
-        io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+        await broadcastScoreUpdated(io, id);
         return res.json({
           message: "Trận đã đủ số ván thắng, đã kết thúc",
           gameScores: match.gameScores,
@@ -1120,7 +1120,7 @@ export const patchScore = asyncHandler(async (req, res) => {
         });
       } else {
         // không tick → không tự kết thúc trận
-        io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+        await broadcastScoreUpdated(io, id);
         return res.status(409).json({
           message:
             "Trận đã đủ số ván thắng. Hãy bấm 'Kết thúc trận' để kết thúc.",
@@ -1136,7 +1136,7 @@ export const patchScore = asyncHandler(async (req, res) => {
     if (hasTrailingZero) {
       match.currentGame = len - 1;
       await match.save();
-      io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+      await broadcastScoreUpdated(io, id);
       return res.json({
         message: "Đã có ván tiếp theo sẵn",
         gameScores: match.gameScores,
@@ -1164,7 +1164,7 @@ export const patchScore = asyncHandler(async (req, res) => {
     });
 
     await match.save();
-    io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+    await broadcastScoreUpdated(io, id);
     return res.json({
       message: "Đã tạo ván tiếp theo",
       gameScores: match.gameScores,
@@ -1493,10 +1493,10 @@ export const patchWinner = asyncHandler(async (req, res) => {
   const dto = toDTO(decorateServeAndSlots(mFull));
 
   // === EMIT ra room trận (client xem live) ===
-  io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+  io?.to(`match:${id}`).emit("score:updated", dto);
+  io?.to(`match:${id}`).emit("match:update", dto);
   io?.to(`match:${id}`).emit("winner:updated", { matchId: id, winner });
   io?.to(`match:${id}`).emit("match:patched", { matchId: id });
-  // io?.to(`match:${id}`).emit("match:update", dto);
 
   // === EMIT ra room scheduler (trang điều phối sân đang join) ===
   const schedRoom = `scheduler:${String(match.tournament)}:${String(
@@ -1518,15 +1518,6 @@ export const patchWinner = asyncHandler(async (req, res) => {
       bracket: String(match.bracket),
       finishedAt: match.finishedAt,
     });
-  }
-
-  // broadcast tổng hợp (nếu app đang dùng)
-  try {
-    if (typeof broadcastScoreUpdated === "function") {
-      await broadcastScoreUpdated(io, id);
-    }
-  } catch (err) {
-    console.error("[patchWinner] broadcastScoreUpdated error:", err);
   }
 
   // chỉ chạy rating khi đã có winner

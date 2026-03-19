@@ -1,5 +1,6 @@
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import { buildRecordingPlaybackUrl } from "./liveRecordingV2Export.service.js";
+import { getRecordingDriveSettings } from "./driveRecordings.service.js";
 import {
   getLiveRecordingMonitorMeta,
   publishLiveRecordingMonitorUpdate,
@@ -322,6 +323,7 @@ function buildExportPipelineInfo(recording, context = {}) {
     stage,
     label: stageLabels[stage] || exportPipeline.label || "",
     detail,
+    driveAuthMode: exportPipeline.driveAuthMode || null,
     queuePosition: waiting?.position || delayed?.position || null,
     jobId:
       exportPipeline.queueJobId ||
@@ -431,6 +433,8 @@ function buildRow(recording, context = {}) {
   const segmentSummary = summarizeSegments(recording.segments || []);
   const statusMeta = buildStatusMeta(recording.status);
   const exportPipeline = buildExportPipelineInfo(recording, context);
+  const driveAuthMode =
+    exportPipeline.driveAuthMode || context.currentDriveMode || "serviceAccount";
   const competitionLabel = compactLabel([
     tournamentName,
     compactLabel([bracketName, bracketStage]),
@@ -465,6 +469,7 @@ function buildRow(recording, context = {}) {
     driveRawUrl: recording.driveRawUrl || null,
     drivePreviewUrl: recording.drivePreviewUrl || null,
     driveFileId: recording.driveFileId || null,
+    driveAuthMode,
     r2SourceBytes: estimateRecordingR2SourceBytes(recording),
     sourceCleanupStatus: recording?.meta?.sourceCleanup?.status || null,
     exportPipeline,
@@ -491,6 +496,9 @@ function sortRows(rows) {
 
 export async function buildLiveRecordingMonitorSnapshot() {
   const { workerHealth, queueSnapshot } = await reconcileStaleLiveRecordingExports();
+  const currentDriveSettings = await getRecordingDriveSettings().catch(() => ({
+    mode: "serviceAccount",
+  }));
 
   const recordings = await LiveRecordingV2.find({})
     .sort({ updatedAt: -1, createdAt: -1 })
@@ -540,10 +548,11 @@ export async function buildLiveRecordingMonitorSnapshot() {
 
   const rows = sortRows(
     recordings.map((recording) =>
-      buildRow(recording, {
-        workerHealth,
-        queueSnapshot,
-      })
+        buildRow(recording, {
+          workerHealth,
+          queueSnapshot,
+          currentDriveMode: currentDriveSettings.mode,
+        })
     )
   );
   const summary = rows.reduce(
@@ -593,6 +602,7 @@ export async function buildLiveRecordingMonitorSnapshot() {
       ...getLiveRecordingMonitorMeta(),
       workerHealth,
       exportQueue: queueSnapshot,
+      driveSettings: currentDriveSettings,
       generatedAt: new Date(),
     },
   };

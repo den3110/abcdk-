@@ -12,7 +12,7 @@ import {
   putRecordingManifest,
 } from "./liveRecordingV2Storage.service.js";
 import {
-  isRecordingDriveConfigured,
+  getRecordingDriveStatus,
   uploadRecordingToDrive,
 } from "./driveRecordings.service.js";
 import { publishLiveRecordingMonitorUpdate } from "./liveRecordingMonitorEvents.service.js";
@@ -262,13 +262,23 @@ export async function exportLiveRecordingV2(recordingId) {
     );
 
     let driveInfo = null;
-    if (!isRecordingDriveConfigured()) {
-      throw new Error("Google Drive recording destination is not configured");
+    const driveStatus = await getRecordingDriveStatus();
+    if (!driveStatus.enabled) {
+      throw new Error("Google Drive recording output is disabled");
+    }
+    if (!driveStatus.connected) {
+      throw new Error(driveStatus.message || "My Drive OAuth chua ket noi");
+    }
+    if (!driveStatus.configured || !driveStatus.ready) {
+      throw new Error(
+        driveStatus.message || "Google Drive recording destination is not configured"
+      );
     }
 
     await updateExportPipelineState(recording, "uploading_drive", {
       driveUploadStartedAt: new Date(),
       label: "Dang upload len Drive",
+      driveAuthMode: driveStatus.mode || null,
     });
 
     driveInfo = await uploadRecordingToDrive({
@@ -290,6 +300,7 @@ export async function exportLiveRecordingV2(recordingId) {
       {
         driveUploadedAt: new Date(),
         label: "Dang don segment tren R2",
+        driveAuthMode: driveInfo.driveAuthMode || driveStatus.mode || null,
       },
       "recording_drive_uploaded"
     );

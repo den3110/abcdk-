@@ -16,6 +16,7 @@ import {
   releaseFacebookPagePoolAfterEnd,
   startOrRenewLease,
 } from "../services/liveSessionLease.service.js";
+import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
 // controllers/matchController.js
 const getMatchesByTournament = asyncHandler(async (req, res) => {
   const raw = await Match.find({ tournament: req.params.id })
@@ -1230,6 +1231,7 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
   };
 
   const personName = (p) =>
+    pickTrim(p?.displayName) ||
     pickTrim(p?.nickname) ||
     pickTrim(p?.nickName) ||
     pickTrim(p?.user?.nickname) ||
@@ -1434,9 +1436,17 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
   }
   if (!m.streams && m.meta?.streams) m.streams = m.meta.streams;
 
+  const normalizedMatch = normalizeMatchDisplayShape(m);
+  m.pairA = normalizedMatch?.pairA || m.pairA;
+  m.pairB = normalizedMatch?.pairB || m.pairB;
+  m.tournament = normalizedMatch?.tournament || m.tournament;
+  m.displayNameMode = normalizedMatch?.displayNameMode || "nickname";
+  m.liveVersion = normalizedMatch?.liveVersion ?? m.liveVersion ?? 0;
+  m.version = normalizedMatch?.version ?? m.version ?? 0;
+
   m.bracket = normalizeBracketShape(m.bracket);
-  m.pairAName = pairName(m.pairA);
-  m.pairBName = pairName(m.pairB);
+  m.pairAName = m.pairA?.displayName || pairName(m.pairA);
+  m.pairBName = m.pairB?.displayName || pairName(m.pairB);
 
   // ===== codeDisplay + labelKeyDisplay =====
   try {

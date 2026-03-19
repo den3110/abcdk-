@@ -12,6 +12,7 @@ const SECRET_KEYS = new Set([
   "GOOGLE_CLIENT_SECRET",
   "YOUTUBE_API_KEY", // nếu dùng API key
   "YOUTUBE_REFRESH_TOKEN", // refresh token YouTube
+  "GOOGLE_DRIVE_RECORDINGS_REFRESH_TOKEN",
 ]);
 
 // Những key CHỈ được set qua ENV (không cho sửa qua API/DB)

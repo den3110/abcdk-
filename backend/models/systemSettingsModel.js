@@ -52,6 +52,17 @@ const SystemSettingsSchema = new mongoose.Schema(
       androidStoreUrl: { type: String, default: "", trim: true },
     },
 
+    recordingDrive: {
+      enabled: { type: Boolean, default: true },
+      mode: {
+        type: String,
+        enum: ["serviceAccount", "oauthUser"],
+        default: "serviceAccount",
+      },
+      folderId: { type: String, default: "", trim: true },
+      sharedDriveId: { type: String, default: "", trim: true },
+    },
+
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     updatedAt: { type: Date, default: Date.now },
   },

@@ -10,6 +10,7 @@ import { sleep } from "../utils/sleep.js";
 import { es, ES_TOURNAMENT_INDEX } from "../services/esClient.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
 import { ensureTournamentCardImageUrl } from "../utils/tournamentImageVariant.js";
+import { normalizeMatchDisplayShape } from "../socket/liveHandlers.js";
 
 const isId = (id) => mongoose.Types.ObjectId.isValid(id);
 const normalizeTournamentPublicUrls = async (req, tournament) => {
@@ -999,7 +1000,8 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
     };
 
     // ---- flatten + FINAL CODE ----
-    const list = listRaw.map((m) => {
+    const list = listRaw.map((rawMatch) => {
+      const m = normalizeMatchDisplayShape(rawMatch);
       const br = m.bracket || {};
       const bid = String(br?._id || "");
       const groupStage = isGroupish(br?.type);
