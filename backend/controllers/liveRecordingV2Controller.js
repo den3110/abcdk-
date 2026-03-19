@@ -47,6 +47,12 @@ function getSegmentMeta(segment) {
   return meta;
 }
 
+function getRecordingMeta(recording) {
+  return recording?.meta && typeof recording.meta === "object"
+    ? { ...recording.meta }
+    : {};
+}
+
 function findRecordingSegment(recording, segmentIndex) {
   return (recording.segments || []).find((segment) => segment.index === segmentIndex);
 }
@@ -707,14 +713,25 @@ export const finalizeLiveRecordingV2 = asyncHandler(async (req, res) => {
     },
   });
 
+  const queuedAt = new Date();
   recording.r2ManifestKey = manifestKey;
-  recording.finalizedAt = new Date();
+  recording.finalizedAt = queuedAt;
   recording.status = "exporting";
   recording.error = null;
   recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
+
+  const queuedJob = await enqueueLiveRecordingExport(recording._id);
+  const nextMeta = getRecordingMeta(recording);
+  nextMeta.exportPipeline = {
+    stage: "queued",
+    label: "Dang cho worker",
+    queuedAt,
+    queueJobId: queuedJob?.id ? String(queuedJob.id) : null,
+    updatedAt: queuedAt,
+  };
+  recording.meta = nextMeta;
   await recording.save();
 
-  await enqueueLiveRecordingExport(recording._id);
   await publishRecordingMonitor(recording, "recording_export_queued");
 
   return res.json({

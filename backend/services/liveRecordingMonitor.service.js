@@ -1,6 +1,8 @@
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import { buildRecordingPlaybackUrl } from "./liveRecordingV2Export.service.js";
 import { getLiveRecordingMonitorMeta } from "./liveRecordingMonitorEvents.service.js";
+import { getLiveRecordingExportQueueSnapshot } from "./liveRecordingV2Queue.service.js";
+import { getLiveRecordingWorkerHealth } from "./liveRecordingWorkerHealth.service.js";
 
 function pickPersonName(person) {
   return (
@@ -229,7 +231,83 @@ function buildModeLabel(mode) {
   }
 }
 
-function buildRow(recording) {
+function buildExportPipelineInfo(recording, context = {}) {
+  const recordingId = String(recording?._id || "");
+  const exportPipeline =
+    recording?.meta?.exportPipeline &&
+    typeof recording.meta.exportPipeline === "object"
+      ? { ...recording.meta.exportPipeline }
+      : {};
+  const workerHealth = context.workerHealth || {};
+  const queueSnapshot = context.queueSnapshot || {};
+  const waiting = queueSnapshot?.waitingByRecordingId?.[recordingId] || null;
+  const active = queueSnapshot?.activeByRecordingId?.[recordingId] || null;
+  const delayed = queueSnapshot?.delayedByRecordingId?.[recordingId] || null;
+  const currentWorkerRecordingId = String(
+    workerHealth?.worker?.currentRecordingId || ""
+  );
+  const inWorker = Boolean(
+    workerHealth?.alive &&
+      currentWorkerRecordingId &&
+      currentWorkerRecordingId === recordingId
+  );
+
+  let stage = exportPipeline.stage || null;
+  if (recording?.status === "exporting") {
+    if (inWorker && !stage) stage = "downloading";
+    else if (active && !stage) stage = "downloading";
+    else if (waiting && !stage) stage = "queued";
+    else if (delayed && !stage) stage = "queued_retry";
+  }
+
+  const stageLabels = {
+    queued: "Dang cho worker",
+    queued_retry: "Dang doi retry",
+    downloading: "Worker dang tai segment tu R2",
+    merging: "Worker dang ghep video",
+    uploading_drive: "Dang upload len Drive",
+    cleaning_r2: "Dang don segment tren R2",
+    completed: "Hoan tat",
+    failed: "Export that bai",
+  };
+
+  let detail = "";
+  if (stage === "queued" && waiting?.position) {
+    detail = `Queue #${waiting.position}`;
+  } else if (stage === "queued_retry" && delayed?.position) {
+    detail = `Retry queue #${delayed.position}`;
+  } else if (inWorker) {
+    detail = workerHealth?.worker?.currentJobStartedAt
+      ? `Worker bat dau ${new Date(workerHealth.worker.currentJobStartedAt).toISOString()}`
+      : "Worker dang xu ly";
+  } else if (active) {
+    detail = "Worker dang xu ly";
+  }
+
+  return {
+    stage,
+    label: stageLabels[stage] || exportPipeline.label || "",
+    detail,
+    queuePosition: waiting?.position || delayed?.position || null,
+    jobId:
+      exportPipeline.queueJobId ||
+      waiting?.jobId ||
+      active?.jobId ||
+      delayed?.jobId ||
+      null,
+    inWorker,
+    startedAt: exportPipeline.startedAt || null,
+    downloadStartedAt: exportPipeline.downloadStartedAt || null,
+    mergeStartedAt: exportPipeline.mergeStartedAt || null,
+    driveUploadStartedAt: exportPipeline.driveUploadStartedAt || null,
+    driveUploadedAt: exportPipeline.driveUploadedAt || null,
+    completedAt: exportPipeline.completedAt || null,
+    failedAt: exportPipeline.failedAt || null,
+    updatedAt: exportPipeline.updatedAt || null,
+  };
+}
+
+function buildRow(recording, context = {}) {
   const match = recording.match || {};
   const participantsLabel = buildParticipantsLabel(match);
   const tournamentName = match?.tournament?.name || "";
@@ -238,6 +316,7 @@ function buildRow(recording) {
   const courtLabel = buildCourtLabel(match, recording);
   const segmentSummary = summarizeSegments(recording.segments || []);
   const statusMeta = buildStatusMeta(recording.status);
+  const exportPipeline = buildExportPipelineInfo(recording, context);
   const competitionLabel = compactLabel([
     tournamentName,
     compactLabel([bracketName, bracketStage]),
@@ -274,6 +353,7 @@ function buildRow(recording) {
     driveFileId: recording.driveFileId || null,
     r2SourceBytes: estimateRecordingR2SourceBytes(recording),
     sourceCleanupStatus: recording?.meta?.sourceCleanup?.status || null,
+    exportPipeline,
     error: recording.error || "",
     segmentSummary,
   };
@@ -296,53 +376,64 @@ function sortRows(rows) {
 }
 
 export async function buildLiveRecordingMonitorSnapshot() {
-  const recordings = await LiveRecordingV2.find({})
-    .sort({ updatedAt: -1, createdAt: -1 })
-    .populate({
-      path: "match",
-      select: "code courtLabel pairA pairB court bracket tournament status",
-      populate: [
-        {
-          path: "pairA",
-          select: "player1 player2 teamName label",
-          populate: [
-            {
-              path: "player1",
-              select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "name fullName nickname nickName" },
-            },
-            {
-              path: "player2",
-              select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "name fullName nickname nickName" },
-            },
-          ],
-        },
-        {
-          path: "pairB",
-          select: "player1 player2 teamName label",
-          populate: [
-            {
-              path: "player1",
-              select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "name fullName nickname nickName" },
-            },
-            {
-              path: "player2",
-              select: "fullName name shortName nickname nickName user",
-              populate: { path: "user", select: "name fullName nickname nickName" },
-            },
-          ],
-        },
-        { path: "court", select: "name label number" },
-        { path: "bracket", select: "name stage" },
-        { path: "tournament", select: "name" },
-      ],
-    })
-    .populate({ path: "courtId", select: "name label number" })
-    .lean();
+  const [recordings, workerHealth, queueSnapshot] = await Promise.all([
+    LiveRecordingV2.find({})
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .populate({
+        path: "match",
+        select: "code courtLabel pairA pairB court bracket tournament status",
+        populate: [
+          {
+            path: "pairA",
+            select: "player1 player2 teamName label",
+            populate: [
+              {
+                path: "player1",
+                select: "fullName name shortName nickname nickName user",
+                populate: { path: "user", select: "name fullName nickname nickName" },
+              },
+              {
+                path: "player2",
+                select: "fullName name shortName nickname nickName user",
+                populate: { path: "user", select: "name fullName nickname nickName" },
+              },
+            ],
+          },
+          {
+            path: "pairB",
+            select: "player1 player2 teamName label",
+            populate: [
+              {
+                path: "player1",
+                select: "fullName name shortName nickname nickName user",
+                populate: { path: "user", select: "name fullName nickname nickName" },
+              },
+              {
+                path: "player2",
+                select: "fullName name shortName nickname nickName user",
+                populate: { path: "user", select: "name fullName nickname nickName" },
+              },
+            ],
+          },
+          { path: "court", select: "name label number" },
+          { path: "bracket", select: "name stage" },
+          { path: "tournament", select: "name" },
+        ],
+      })
+      .populate({ path: "courtId", select: "name label number" })
+      .lean(),
+    getLiveRecordingWorkerHealth().catch(() => null),
+    getLiveRecordingExportQueueSnapshot().catch(() => null),
+  ]);
 
-  const rows = sortRows(recordings.map(buildRow));
+  const rows = sortRows(
+    recordings.map((recording) =>
+      buildRow(recording, {
+        workerHealth,
+        queueSnapshot,
+      })
+    )
+  );
   const summary = rows.reduce(
     (acc, row) => {
       acc.total += 1;
@@ -388,6 +479,8 @@ export async function buildLiveRecordingMonitorSnapshot() {
     rows,
     meta: {
       ...getLiveRecordingMonitorMeta(),
+      workerHealth,
+      exportQueue: queueSnapshot,
       generatedAt: new Date(),
     },
   };

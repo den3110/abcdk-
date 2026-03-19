@@ -61,6 +61,35 @@ function buildSourceCleanupObjectKeys(recording) {
   return [...objectKeys];
 }
 
+async function updateExportPipelineState(
+  recording,
+  stage,
+  extra = {},
+  publishReason = "recording_export_stage_updated"
+) {
+  const nextMeta = asMutableMeta(recording.meta);
+  const currentPipeline =
+    nextMeta.exportPipeline &&
+    typeof nextMeta.exportPipeline === "object" &&
+    !Array.isArray(nextMeta.exportPipeline)
+      ? { ...nextMeta.exportPipeline }
+      : {};
+
+  nextMeta.exportPipeline = {
+    ...currentPipeline,
+    ...extra,
+    stage,
+    updatedAt: new Date(),
+  };
+
+  recording.meta = nextMeta;
+  await recording.save();
+  await publishLiveRecordingMonitorUpdate({
+    reason: publishReason,
+    recordingIds: [String(recording._id)],
+  });
+}
+
 function buildTempRoot() {
   const raw =
     process.env.RECORDING_EXPORT_WORK_DIR ||
@@ -185,11 +214,16 @@ export async function exportLiveRecordingV2(recordingId) {
   recording.status = "exporting";
   recording.exportAttempts = (recording.exportAttempts || 0) + 1;
   recording.error = null;
-  await recording.save();
-  await publishLiveRecordingMonitorUpdate({
-    reason: "recording_export_started",
-    recordingIds: [String(recording._id)],
-  });
+  await updateExportPipelineState(
+    recording,
+    "downloading",
+    {
+      startedAt: new Date(),
+      downloadStartedAt: new Date(),
+      label: "Worker dang tai segment tu R2",
+    },
+    "recording_export_started"
+  );
 
   const workDir = await ensureDir(
     path.join(buildTempRoot(), String(recording._id), `${Date.now()}`)
@@ -209,6 +243,11 @@ export async function exportLiveRecordingV2(recordingId) {
       segmentPaths.push(localSegmentPath);
     }
 
+    await updateExportPipelineState(recording, "merging", {
+      mergeStartedAt: new Date(),
+      label: "Worker dang ghep video",
+    });
+
     const outputPath = path.join(workDir, "final.mp4");
     await mergeSegmentsToOutput({
       inputPaths: segmentPaths,
@@ -227,25 +266,33 @@ export async function exportLiveRecordingV2(recordingId) {
       throw new Error("Google Drive recording destination is not configured");
     }
 
+    await updateExportPipelineState(recording, "uploading_drive", {
+      driveUploadStartedAt: new Date(),
+      label: "Dang upload len Drive",
+    });
+
     driveInfo = await uploadRecordingToDrive({
       filePath: outputPath,
       fileName: `match_${String(recording.match)}_${Date.now()}.mp4`,
     });
 
-    recording.status = "ready";
+    recording.status = "exporting";
     recording.sizeBytes = outputStat.size;
     recording.durationSeconds = totalDurationSeconds;
     recording.driveFileId = driveInfo.fileId;
     recording.driveRawUrl = driveInfo.rawUrl;
     recording.drivePreviewUrl = driveInfo.previewUrl;
     recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
-    recording.readyAt = new Date();
     recording.error = null;
-    await recording.save();
-    await publishLiveRecordingMonitorUpdate({
-      reason: "recording_ready",
-      recordingIds: [String(recording._id)],
-    });
+    await updateExportPipelineState(
+      recording,
+      "cleaning_r2",
+      {
+        driveUploadedAt: new Date(),
+        label: "Dang don segment tren R2",
+      },
+      "recording_drive_uploaded"
+    );
 
     await Match.findByIdAndUpdate(recording.match, {
       $set: {
@@ -269,6 +316,8 @@ export async function exportLiveRecordingV2(recordingId) {
 
       recording.meta = nextMeta;
       recording.r2ManifestKey = null;
+      recording.status = "ready";
+      recording.readyAt = new Date();
       await recording.save();
       await publishLiveRecordingMonitorUpdate({
         reason: "recording_source_cleanup_completed",
@@ -283,6 +332,8 @@ export async function exportLiveRecordingV2(recordingId) {
       };
 
       recording.meta = nextMeta;
+      recording.status = "ready";
+      recording.readyAt = new Date();
       await recording.save().catch(() => {});
       await publishLiveRecordingMonitorUpdate({
         reason: "recording_source_cleanup_failed",
@@ -294,10 +345,47 @@ export async function exportLiveRecordingV2(recordingId) {
       );
     }
 
+    const completedMeta = asMutableMeta(recording.meta);
+    const completedPipeline =
+      completedMeta.exportPipeline &&
+      typeof completedMeta.exportPipeline === "object" &&
+      !Array.isArray(completedMeta.exportPipeline)
+        ? { ...completedMeta.exportPipeline }
+        : {};
+    completedMeta.exportPipeline = {
+      ...completedPipeline,
+      stage: "completed",
+      label: "Hoan tat",
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    recording.meta = completedMeta;
+    await recording.save();
+    await publishLiveRecordingMonitorUpdate({
+      reason: "recording_ready",
+      recordingIds: [String(recording._id)],
+    });
+
     return recording;
   } catch (error) {
     recording.status = "failed";
     recording.error = error?.message || String(error);
+    const failedMeta = asMutableMeta(recording.meta);
+    const failedPipeline =
+      failedMeta.exportPipeline &&
+      typeof failedMeta.exportPipeline === "object" &&
+      !Array.isArray(failedMeta.exportPipeline)
+        ? { ...failedMeta.exportPipeline }
+        : {};
+    failedMeta.exportPipeline = {
+      ...failedPipeline,
+      stage: "failed",
+      label: "Export that bai",
+      failedAt: new Date(),
+      updatedAt: new Date(),
+      error: recording.error,
+    };
+    recording.meta = failedMeta;
     await recording.save();
     await publishLiveRecordingMonitorUpdate({
       reason: "recording_export_failed",

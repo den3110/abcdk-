@@ -21,6 +21,62 @@ export function getLiveRecordingExportQueueName() {
   return QUEUE_NAME;
 }
 
+function toRecordingKey(value) {
+  const normalized = String(value || "").trim();
+  return normalized || null;
+}
+
+export async function getLiveRecordingExportQueueSnapshot() {
+  const [waitingJobs, activeJobs, delayedJobs] = await Promise.all([
+    liveRecordingExportQueue.getWaiting(0, 1000),
+    liveRecordingExportQueue.getActive(0, 100),
+    liveRecordingExportQueue.getDelayed(0, 1000),
+  ]);
+
+  const waitingByRecordingId = {};
+  const activeByRecordingId = {};
+  const delayedByRecordingId = {};
+
+  waitingJobs.forEach((job, index) => {
+    const recordingId = toRecordingKey(job?.data?.recordingId);
+    if (!recordingId || waitingByRecordingId[recordingId]) return;
+    waitingByRecordingId[recordingId] = {
+      position: index + 1,
+      jobId: job?.id ? String(job.id) : null,
+    };
+  });
+
+  activeJobs.forEach((job, index) => {
+    const recordingId = toRecordingKey(job?.data?.recordingId);
+    if (!recordingId || activeByRecordingId[recordingId]) return;
+    activeByRecordingId[recordingId] = {
+      position: index + 1,
+      jobId: job?.id ? String(job.id) : null,
+    };
+  });
+
+  delayedJobs.forEach((job, index) => {
+    const recordingId = toRecordingKey(job?.data?.recordingId);
+    if (!recordingId || delayedByRecordingId[recordingId]) return;
+    delayedByRecordingId[recordingId] = {
+      position: index + 1,
+      jobId: job?.id ? String(job.id) : null,
+      timestamp: Number(job?.timestamp) || null,
+      delay: Number(job?.opts?.delay) || null,
+    };
+  });
+
+  return {
+    queueName: QUEUE_NAME,
+    waitingCount: waitingJobs.length,
+    activeCount: activeJobs.length,
+    delayedCount: delayedJobs.length,
+    waitingByRecordingId,
+    activeByRecordingId,
+    delayedByRecordingId,
+  };
+}
+
 export async function enqueueLiveRecordingExport(recordingId) {
   return liveRecordingExportQueue.add(
     "export-recording",
