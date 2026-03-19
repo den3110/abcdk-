@@ -1,6 +1,8 @@
 import "dotenv/config";
 import os from "os";
+import mongoose from "mongoose";
 import { QueueEvents, Worker } from "bullmq";
+import connectDB from "../config/db.js";
 import { liveRecordingExportConnection, getLiveRecordingExportQueueName } from "../services/liveRecordingV2Queue.service.js";
 import { exportLiveRecordingV2 } from "../services/liveRecordingV2Export.service.js";
 import {
@@ -55,6 +57,8 @@ queueEvents.on("completed", ({ jobId }) => {
   void heartbeat(currentJobId ? "busy" : "idle");
 });
 
+await connectDB();
+
 const worker = new Worker(
   QUEUE_NAME,
   async (job) => {
@@ -103,6 +107,7 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
       await worker.close();
       await queueEvents.close();
       await liveRecordingExportConnection.quit();
+      await mongoose.connection.close().catch(() => {});
     } finally {
       process.exit(0);
     }
