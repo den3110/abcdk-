@@ -2,12 +2,17 @@ import { google } from "googleapis";
 import { getCfgStr, setCfg } from "../services/config.service.js";
 import { decryptToken, encryptToken } from "../services/secret.service.js";
 import { getRecordingDriveStatus } from "../services/driveRecordings.service.js";
+import dotenv from "dotenv"
+dotenv.config()
 
 const DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"];
 const RECORDING_DRIVE_CALLBACK_PATH = "/api/oauth/google/recording-drive/callback";
 
 async function pickRedirectUriForHostAndPath(req, preferredPath) {
-  const csv = await getCfgStr("GOOGLE_REDIRECT_URI", "");
+  const csv =
+    (await getCfgStr("GOOGLE_REDIRECT_URI", "")) ||
+    process.env.GOOGLE_REDIRECT_URI ||
+    "";
   const list = csv
     .split(",")
     .map((s) => s.trim())
@@ -21,7 +26,7 @@ async function pickRedirectUriForHostAndPath(req, preferredPath) {
       const url = new URL(item);
       if (
         url.host.toLowerCase() === host &&
-        url.pathname.replace(/\/+$/, "") === preferredPath
+        url.pathname.replace(/\/+$/, "").endsWith(preferredPath)
       ) {
         return item;
       }
@@ -31,7 +36,7 @@ async function pickRedirectUriForHostAndPath(req, preferredPath) {
   for (const item of list) {
     try {
       const url = new URL(item);
-      if (url.pathname.replace(/\/+$/, "") === preferredPath) {
+      if (url.pathname.replace(/\/+$/, "").endsWith(preferredPath)) {
         return item;
       }
     } catch (_) {}
@@ -41,10 +46,14 @@ async function pickRedirectUriForHostAndPath(req, preferredPath) {
 }
 
 async function makeRecordingDriveOAuth(req) {
-  const [id, secret] = await Promise.all([
+  const [configId, configSecret] = await Promise.all([
     getCfgStr("GOOGLE_CLIENT_ID", ""),
     getCfgStr("GOOGLE_CLIENT_SECRET", ""),
   ]);
+  const id = String(configId || process.env.GOOGLE_CLIENT_ID || "").trim();
+  const secret = String(
+    configSecret || process.env.GOOGLE_CLIENT_SECRET || ""
+  ).trim();
   const redirect = await pickRedirectUriForHostAndPath(
     req,
     RECORDING_DRIVE_CALLBACK_PATH

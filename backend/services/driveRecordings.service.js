@@ -37,15 +37,29 @@ function getEnvServiceAccountConfig() {
 }
 
 async function getSharedGoogleOAuthConfig() {
-  const [clientId, clientSecret, redirectUrisCsv, refreshToken, connectedEmail, connectedAt] =
-    await Promise.all([
-      getCfgStr("GOOGLE_CLIENT_ID", ""),
-      getCfgStr("GOOGLE_CLIENT_SECRET", ""),
-      getCfgStr("GOOGLE_REDIRECT_URI", ""),
-      getCfgStr("GOOGLE_DRIVE_RECORDINGS_REFRESH_TOKEN", ""),
-      getCfgStr("GOOGLE_DRIVE_RECORDINGS_CONNECTED_EMAIL", ""),
-      getCfgStr("GOOGLE_DRIVE_RECORDINGS_CONNECTED_AT", ""),
-    ]);
+  const [
+    configClientId,
+    configClientSecret,
+    configRedirectUrisCsv,
+    refreshToken,
+    connectedEmail,
+    connectedAt,
+  ] = await Promise.all([
+    getCfgStr("GOOGLE_CLIENT_ID", ""),
+    getCfgStr("GOOGLE_CLIENT_SECRET", ""),
+    getCfgStr("GOOGLE_REDIRECT_URI", ""),
+    getCfgStr("GOOGLE_DRIVE_RECORDINGS_REFRESH_TOKEN", ""),
+    getCfgStr("GOOGLE_DRIVE_RECORDINGS_CONNECTED_EMAIL", ""),
+    getCfgStr("GOOGLE_DRIVE_RECORDINGS_CONNECTED_AT", ""),
+  ]);
+
+  const clientId = asTrimmed(configClientId || process.env.GOOGLE_CLIENT_ID || "");
+  const clientSecret = asTrimmed(
+    configClientSecret || process.env.GOOGLE_CLIENT_SECRET || ""
+  );
+  const redirectUrisCsv = asTrimmed(
+    configRedirectUrisCsv || process.env.GOOGLE_REDIRECT_URI || ""
+  );
 
   const redirectUris = redirectUrisCsv
     .split(",")
