@@ -59,10 +59,23 @@ function buildAuthorizeValidationError(input) {
 }
 
 function buildWebLoginUrl(req) {
-  const returnTo =
-    typeof req.originalUrl === "string" && req.originalUrl.startsWith("/")
-      ? req.originalUrl
-      : "/oauth/authorize";
+  const input = parseAuthorizeInput(req.query || {});
+  const nextParams = new URLSearchParams();
+  nextParams.set("client_id", input.clientId || OAUTH_LIVE_CLIENT_ID);
+  nextParams.set("redirect_uri", input.redirectUri || OAUTH_LIVE_REDIRECT_URI);
+  nextParams.set("response_type", input.responseType || "code");
+  nextParams.set("scope", input.scope || "openid profile");
+  if (input.state) {
+    nextParams.set("state", input.state);
+  }
+  if (input.codeChallenge) {
+    nextParams.set("code_challenge", input.codeChallenge);
+  }
+  if (input.codeChallengeMethod) {
+    nextParams.set("code_challenge_method", input.codeChallengeMethod);
+  }
+
+  const returnTo = `/oauth/authorize?${nextParams.toString()}`;
   return `/login?returnTo=${encodeURIComponent(returnTo)}`;
 }
 

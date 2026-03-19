@@ -1,4 +1,5 @@
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
+import { buildRecordingPlaybackUrl } from "./liveRecordingV2Export.service.js";
 import { getLiveRecordingMonitorMeta } from "./liveRecordingMonitorEvents.service.js";
 
 function pickPersonName(person) {
@@ -197,7 +198,7 @@ function buildRow(recording) {
     durationSeconds: toNumber(recording.durationSeconds),
     sizeBytes: toNumber(recording.sizeBytes),
     exportAttempts: toNumber(recording.exportAttempts),
-    playbackUrl: recording.playbackUrl || null,
+    playbackUrl: buildRecordingPlaybackUrl(recording._id),
     driveRawUrl: recording.driveRawUrl || null,
     drivePreviewUrl: recording.drivePreviewUrl || null,
     driveFileId: recording.driveFileId || null,

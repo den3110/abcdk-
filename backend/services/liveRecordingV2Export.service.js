@@ -23,8 +23,22 @@ function getAppHost() {
   ).replace(/\/+$/, "");
 }
 
+function getPlaybackApiBase() {
+  const explicitBase = String(
+    process.env.LIVE_RECORDING_PLAYBACK_BASE_URL ||
+      process.env.PUBLIC_API_BASE_URL ||
+      process.env.API_URL ||
+      ""
+  ).trim();
+  if (explicitBase) {
+    return explicitBase.replace(/\/+$/, "");
+  }
+
+  return `${getAppHost()}/api`;
+}
+
 export function buildRecordingPlaybackUrl(recordingId) {
-  return `${getAppHost()}/api/live/recordings/v2/${String(recordingId)}/play`;
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/play`;
 }
 
 function buildTempRoot() {

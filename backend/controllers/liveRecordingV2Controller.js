@@ -73,8 +73,7 @@ function serializeRecording(recording) {
     driveFileId: recording.driveFileId || null,
     driveRawUrl: recording.driveRawUrl || null,
     drivePreviewUrl: recording.drivePreviewUrl || null,
-    playbackUrl:
-      recording.playbackUrl || buildRecordingPlaybackUrl(recording._id),
+    playbackUrl: buildRecordingPlaybackUrl(recording._id),
     exportAttempts: recording.exportAttempts || 0,
     error: recording.error || null,
     finalizedAt: recording.finalizedAt || null,

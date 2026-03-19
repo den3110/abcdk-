@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Link as RouterLink, useSearchParams } from "react-router-dom";
 import {
   Alert,
@@ -162,10 +162,11 @@ export default function SeoNewsListScreen() {
           fontWeight: 700,
           fontSize: "0.65rem",
           height: 22,
-          boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
-          backdropFilter: "blur(4px)",
-          backgroundColor: isAI ? alpha(theme.palette.primary.main, 0.9) : alpha(theme.palette.background.paper, 0.9),
+          boxShadow: isAI ? `0 4px 12px ${alpha(theme.palette.primary.main, 0.4)}` : "0 2px 8px rgba(0,0,0,0.05)",
+          backdropFilter: "blur(8px)",
+          backgroundColor: isAI ? alpha(theme.palette.primary.main, 0.85) : alpha(theme.palette.background.paper, 0.85),
           color: isAI ? "#fff" : theme.palette.text.primary,
+          border: `1px solid ${isAI ? "transparent" : alpha(theme.palette.text.primary, 0.08)}`
         }}
       />
     );
@@ -191,18 +192,34 @@ export default function SeoNewsListScreen() {
         <Container maxWidth="lg">
           <Box
             sx={{
-              borderRadius: { xs: 4, md: 5 },
+              borderRadius: { xs: 2, md: 2 },
               px: { xs: 3, md: 4 },
               py: { xs: 3.25, md: 4 },
-              border: `1px solid ${alpha(theme.palette.primary.main, isDark ? 0.16 : 0.1)}`,
+              position: "relative",
+              overflow: "hidden",
+              border: `1px solid ${alpha(theme.palette.primary.main, isDark ? 0.08 : 0.04)}`,
               boxShadow: isDark
-                ? "0 16px 34px rgba(0,0,0,0.26)"
-                : "0 14px 30px rgba(15, 23, 42, 0.08)",
-              backgroundColor: isDark
-                ? alpha(theme.palette.background.paper, 0.92)
-                : "#f8fbff",
+                ? "0 20px 40px rgba(0,0,0,0.3)"
+                : "0 20px 50px rgba(15, 23, 42, 0.06)",
+              background: isDark
+                ? `linear-gradient(145deg, ${alpha(theme.palette.background.paper, 0.95)} 0%, ${alpha(theme.palette.background.default, 0.9)} 100%)`
+                : `linear-gradient(145deg, #ffffff 0%, #f4f7fb 100%)`,
             }}
           >
+            {/* Subtle decorative glow */}
+            <Box
+              sx={{
+                position: "absolute",
+                top: "-20%",
+                right: "-10%",
+                width: "50%",
+                height: "80%",
+                background: `radial-gradient(ellipse at center, ${alpha(theme.palette.primary.main, 0.15)} 0%, transparent 70%)`,
+                filter: "blur(60px)",
+                zIndex: 0,
+                pointerEvents: "none"
+              }}
+            />
             <Box
               sx={{
                 display: "grid",
@@ -347,13 +364,13 @@ export default function SeoNewsListScreen() {
                 <Box
                   sx={{
                     height: "100%",
-                    borderRadius: 4,
+                    borderRadius: 2,
                     overflow: "hidden",
-                    border: `1px solid ${alpha(theme.palette.text.primary, 0.08)}`,
+                    border: `1px solid ${alpha(theme.palette.text.primary, 0.04)}`,
                     bgcolor: theme.palette.background.paper,
                     boxShadow: isDark
-                      ? "0 12px 28px rgba(0,0,0,0.24)"
-                      : "0 12px 28px rgba(15, 23, 42, 0.08)",
+                      ? "0 8px 30px rgba(0,0,0,0.2)"
+                      : "0 8px 30px rgba(15, 23, 42, 0.05)",
                     display: "flex",
                     flexDirection: "column",
                   }}
@@ -500,17 +517,18 @@ export default function SeoNewsListScreen() {
                 <Card
                   key={`suggest-${item.slug}`}
                   sx={{
-                    borderRadius: 3,
-                    border: "none",
+                    borderRadius: 2,
+                    border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
                     boxShadow: isDark
-                      ? "0 6px 16px rgba(0,0,0,0.3)"
-                      : "0 6px 16px rgba(0,0,0,0.06)",
-                    transition: "all 0.25s ease",
+                      ? "0 4px 12px rgba(0,0,0,0.2)"
+                      : "0 4px 20px rgba(0,0,0,0.03)",
+                    transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                     "&:hover": {
-                      transform: "translateY(-3px)",
+                      transform: "translateY(-4px)",
                       boxShadow: isDark
-                        ? "0 12px 24px rgba(0,0,0,0.45)"
-                        : "0 12px 24px rgba(0,0,0,0.1)",
+                        ? "0 12px 28px rgba(0,0,0,0.4)"
+                        : "0 12px 28px rgba(0,0,0,0.08)",
+                      borderColor: alpha(theme.palette.primary.main, 0.2)
                     },
                   }}
                 >
@@ -584,18 +602,19 @@ export default function SeoNewsListScreen() {
             </Typography>
             <Card
               sx={{
-                borderRadius: 4,
+                borderRadius: 2,
                 overflow: "hidden",
-                border: "none",
+                border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
                 boxShadow: isDark 
-                  ? "0 20px 40px rgba(0,0,0,0.5)" 
-                  : "0 20px 40px rgba(0,0,0,0.08)",
-                transition: "transform 0.3s ease, box-shadow 0.3s ease",
+                  ? "0 8px 24px rgba(0,0,0,0.3)" 
+                  : "0 8px 30px rgba(0,0,0,0.04)",
+                transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
                 "&:hover": {
                   transform: "translateY(-4px)",
                   boxShadow: isDark 
-                    ? "0 25px 50px rgba(0,0,0,0.6)" 
-                    : "0 25px 50px rgba(0,0,0,0.12)",
+                    ? "0 16px 40px rgba(0,0,0,0.4)" 
+                    : "0 16px 40px rgba(0,0,0,0.08)",
+                  borderColor: alpha(theme.palette.primary.main, 0.15)
                 }
               }}
             >
@@ -727,19 +746,20 @@ export default function SeoNewsListScreen() {
                       height: "100%",
                       display: "flex",
                       flexDirection: "column",
-                      borderRadius: 3,
-                      border: "none",
+                      borderRadius: 2,
+                      border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
                       boxShadow: isDark 
-                        ? "0 4px 12px rgba(0,0,0,0.3)" 
-                        : "0 4px 12px rgba(0,0,0,0.05)",
-                      transition: "all 0.3s ease",
+                        ? "0 4px 12px rgba(0,0,0,0.2)" 
+                        : "0 8px 24px rgba(0,0,0,0.03)",
+                      transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
                       "&:hover": {
                         transform: "translateY(-4px)",
                         boxShadow: isDark 
-                          ? "0 12px 24px rgba(0,0,0,0.5)" 
-                          : "0 12px 24px rgba(0,0,0,0.1)",
+                          ? "0 16px 32px rgba(0,0,0,0.4)" 
+                          : "0 16px 32px rgba(0,0,0,0.08)",
+                        borderColor: alpha(theme.palette.primary.main, 0.2),
                         "& .img-scalable": {
-                          transform: "scale(1.05)",
+                          transform: "scale(1.03)",
                         }
                       }
                     }}

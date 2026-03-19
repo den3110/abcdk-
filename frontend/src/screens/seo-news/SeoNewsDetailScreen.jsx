@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { Link as RouterLink, useParams } from "react-router-dom";
 import {
   Alert,
@@ -265,10 +265,11 @@ export default function SeoNewsDetailScreen() {
                   width: "100%",
                   height: { xs: 250, md: 450 },
                   objectFit: "cover",
-                  borderRadius: 4,
+                  borderRadius: 2,
+                  border: `1px solid ${alpha(theme.palette.divider, 0.4)}`,
                   boxShadow: isDark 
-                    ? "0 20px 40px rgba(0,0,0,0.5)" 
-                    : "0 20px 40px rgba(0,0,0,0.1)",
+                    ? "0 10px 30px rgba(0,0,0,0.3)" 
+                    : "0 10px 40px rgba(0,0,0,0.05)",
                 }}
                 loading="lazy"
               />
@@ -278,7 +279,7 @@ export default function SeoNewsDetailScreen() {
                 sx={{
                   width: "100%",
                   height: { xs: 250, md: 450 },
-                  borderRadius: 4,
+                  borderRadius: 2,
                   background: `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.75)} 0%, ${alpha(theme.palette.info.main, 0.75)} 100%)`,
                   display: "flex",
                   alignItems: "center",
@@ -302,9 +303,10 @@ export default function SeoNewsDetailScreen() {
                 elevation={0}
                 sx={{
                   p: { xs: 3, md: 4 },
-                  borderRadius: 3,
+                  borderRadius: 2,
                   bgcolor: isDark ? alpha(theme.palette.primary.dark, 0.1) : alpha(theme.palette.primary.light, 0.05),
                   borderLeft: `4px solid ${theme.palette.primary.main}`,
+                  boxShadow: "none"
                 }}
               >
                 <Typography 
@@ -323,11 +325,11 @@ export default function SeoNewsDetailScreen() {
             {/* --- MAIN CONTENT --- */}
             <Box
               sx={{
-                fontSize: "1.1rem",
+                fontSize: "1.15rem",
                 color: "text.primary",
                 "& p": { 
                   mb: 3, 
-                  lineHeight: 1.8 
+                  lineHeight: 1.85 
                 },
                 "& img": {
                   maxWidth: "100%",
@@ -410,11 +412,19 @@ export default function SeoNewsDetailScreen() {
                     <Card
                       key={`detail-suggest-${item.slug}`}
                       sx={{
-                        borderRadius: 2.5,
-                        border: "none",
+                        borderRadius: 2,
+                        border: `1px solid ${alpha(theme.palette.divider, 0.5)}`,
                         boxShadow: isDark
-                          ? "0 6px 16px rgba(0,0,0,0.3)"
-                          : "0 6px 16px rgba(0,0,0,0.06)",
+                          ? "0 4px 12px rgba(0,0,0,0.2)"
+                          : "0 4px 20px rgba(0,0,0,0.03)",
+                        transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                        "&:hover": {
+                          transform: "translateY(-3px)",
+                          boxShadow: isDark
+                            ? "0 10px 24px rgba(0,0,0,0.4)"
+                            : "0 10px 24px rgba(0,0,0,0.08)",
+                          borderColor: alpha(theme.palette.primary.main, 0.2)
+                        },
                       }}
                     >
                       <CardActionArea
