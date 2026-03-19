@@ -44,6 +44,24 @@ const isColorDark = (rgb) => {
   return brightness < 128;
 };
 
+const normalizeRole = (role) =>
+  String(role || "")
+    .trim()
+    .toLowerCase();
+
+const isAdminUser = (user) => {
+  if (!user) return false;
+
+  const roles = new Set(
+    Array.isArray(user?.roles) ? user.roles.map(normalizeRole) : []
+  );
+
+  if (user?.role) roles.add(normalizeRole(user.role));
+  if (user?.isAdmin) roles.add("admin");
+
+  return roles.has("admin");
+};
+
 export default function MobileBottomNav() {
   const theme = useTheme();
   const location = useLocation();
@@ -123,11 +141,7 @@ export default function MobileBottomNav() {
   const user = useSelector(
     (state) => state.auth?.userInfo || state.userLogin?.userInfo || null
   );
-  const isAdmin = Boolean(
-    user?.isAdmin ||
-      user?.role === "admin" ||
-      (Array.isArray(user?.roles) && user.roles.includes("admin"))
-  );
+  const isAdmin = isAdminUser(user);
   const isSmallScreen = useMediaQuery("(max-width:380px)");
 
   const showClubNewBadge = useMemo(() => {

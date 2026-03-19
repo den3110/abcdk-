@@ -27,6 +27,17 @@ function extractToken(req) {
 const normalizeRole = (role) => String(role || "").trim().toLowerCase();
 const isSuperAdminUser = (user) =>
   Boolean(user?.isSuperUser || user?.isSuperAdmin);
+const isAdminUser = (user) => {
+  if (!user) return false;
+  if (user?.isAdmin === true) return true;
+  if (typeof user?.role === "string" && normalizeRole(user.role) === "admin") {
+    return true;
+  }
+  if (Array.isArray(user?.roles)) {
+    return user.roles.map(normalizeRole).includes("admin");
+  }
+  return false;
+};
 const getRoleSet = (user) => {
   const roles = new Set();
   if (typeof user?.role === "string") roles.add(normalizeRole(user.role));
@@ -415,7 +426,7 @@ export const requireSuperAdmin = (req, res, next) => {
     res.status(401);
     throw new Error("Not authorized");
   }
-  if (!isSuperAdminUser(req.user)) {
+  if (!(isAdminUser(req.user) && isSuperAdminUser(req.user))) {
     res.status(403);
     throw new Error("Forbidden – super admin required");
   }

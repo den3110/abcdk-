@@ -43,13 +43,32 @@ const pulseKeyframes = {
   },
 };
 
+function normalizeRole(role) {
+  return String(role || "")
+    .trim()
+    .toLowerCase();
+}
+
+function isAdminUser(user) {
+  if (!user) return false;
+
+  const roles = new Set(
+    Array.isArray(user?.roles) ? user.roles.map(normalizeRole) : []
+  );
+
+  if (user?.role) roles.add(normalizeRole(user.role));
+  if (user?.isAdmin === true) roles.add("admin");
+
+  return roles.has("admin");
+}
+
 export default function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const dispatch = useDispatch();
   const { userInfo } = useSelector((state) => state.auth);
   const hasUserInfo = Boolean(userInfo);
-  const isAdmin = userInfo?.role === "admin" || userInfo?.isAdmin === true;
+  const isAdmin = isAdminUser(userInfo);
 
   const [logoutApiCall] = useLogoutMutation();
 

@@ -44,18 +44,17 @@ function normalizeRole(role) {
     .toLowerCase();
 }
 
-function isSuperAdminUser(user) {
+function isAdminUser(user) {
   const roles = new Set(
     Array.isArray(user?.roles) ? user.roles.map(normalizeRole) : []
   );
   if (user?.role) roles.add(normalizeRole(user.role));
   if (user?.isAdmin === true) roles.add("admin");
-  if (user?.isSuperUser || user?.isSuperAdmin) {
-    roles.add("admin");
-    roles.add("superadmin");
-    roles.add("superuser");
-  }
-  return roles.has("admin") && (roles.has("superadmin") || roles.has("superuser"));
+  return roles.has("admin");
+}
+
+function isSuperAdminUser(user) {
+  return isAdminUser(user) && (Boolean(user?.isSuperUser) || Boolean(user?.isSuperAdmin));
 }
 
 export default function AdminLayout({ children }) {
@@ -75,7 +74,7 @@ export default function AdminLayout({ children }) {
     refetchOnReconnect: true,
   });
 
-  const isAdmin = userInfo?.role === "admin" || userInfo?.isAdmin === true;
+  const isAdmin = isAdminUser(userInfo);
   const isSuperAdmin = isSuperAdminUser(userInfo);
 
   const navItems = [
