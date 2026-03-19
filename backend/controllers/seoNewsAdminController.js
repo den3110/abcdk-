@@ -649,3 +649,165 @@ export const cleanupSeoNewsGatewaySourceImagesNow = async (req, res) => {
     });
   }
 };
+
+export const getSeoNewsImageStats = async (req, res) => {
+  try {
+    const page = cleanPage(req.query.page, 1);
+    const limit = Math.min(cleanPage(req.query.limit, 30), 200);
+    const skip = (page - 1) * limit;
+
+    const imageFilter = String(req.query.imageFilter || "").trim().toLowerCase();
+    const origin = String(req.query.origin || "").trim().toLowerCase();
+    const keyword = String(req.query.keyword || "").trim();
+
+    // --- aggregate counts ---
+    const [
+      totalCount,
+      hasImageCount,
+      pendingImageCount,
+      originBreakdown,
+    ] = await Promise.all([
+      SeoNewsArticle.countDocuments({ status: { $in: ["published", "draft"] } }),
+      SeoNewsArticle.countDocuments({
+        status: { $in: ["published", "draft"] },
+        heroImageUrl: { $exists: true, $ne: null, $ne: "", $not: /^data:image\//i },
+      }),
+      SeoNewsArticle.countDocuments({
+        status: { $in: ["published", "draft"] },
+        $or: [
+          { heroImageUrl: { $exists: false } },
+          { heroImageUrl: null },
+          { heroImageUrl: "" },
+          { heroImageUrl: /^data:image\//i },
+        ],
+      }),
+      SeoNewsArticle.aggregate([
+        { $match: { status: { $in: ["published", "draft"] } } },
+        {
+          $project: {
+            imageOrigin: {
+              $cond: {
+                if: {
+                  $and: [
+                    { $ne: ["$heroImageUrl", null] },
+                    { $ne: ["$heroImageUrl", ""] },
+                    {
+                      $not: {
+                        $regexMatch: {
+                          input: { $ifNull: ["$heroImageUrl", ""] },
+                          regex: /^data:image\//i,
+                        },
+                      },
+                    },
+                  ],
+                },
+                then: {
+                  $cond: {
+                    if: {
+                      $regexMatch: {
+                        input: { $ifNull: ["$heroImageUrl", ""] },
+                        regex: /^\/uploads\/public\/seo-news\//,
+                      },
+                    },
+                    then: "generated-gateway",
+                    else: {
+                      $cond: {
+                        if: {
+                          $regexMatch: {
+                            input: { $ifNull: ["$heroImageUrl", ""] },
+                            regex: /^https?:\/\//i,
+                          },
+                        },
+                        then: "external",
+                        else: "other",
+                      },
+                    },
+                  },
+                },
+                else: "none",
+              },
+            },
+          },
+        },
+        { $group: { _id: "$imageOrigin", count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]),
+    ]);
+
+    // --- build article query with filters ---
+    const query = { status: { $in: ["published", "draft"] } };
+
+    if (["external", "generated"].includes(origin)) {
+      query.origin = origin;
+    }
+
+    if (keyword) {
+      query.$or = [
+        { title: { $regex: keyword, $options: "i" } },
+        { slug: { $regex: keyword, $options: "i" } },
+      ];
+    }
+
+    if (imageFilter === "pending") {
+      const pendingCond = [
+        { heroImageUrl: { $exists: false } },
+        { heroImageUrl: null },
+        { heroImageUrl: "" },
+        { heroImageUrl: /^data:image\//i },
+      ];
+      if (query.$or) {
+        query.$and = [{ $or: query.$or }, { $or: pendingCond }];
+        delete query.$or;
+      } else {
+        query.$or = pendingCond;
+      }
+    } else if (imageFilter === "has-image") {
+      query.heroImageUrl = {
+        $exists: true,
+        $ne: null,
+        $ne: "",
+        $not: /^data:image\//i,
+      };
+    } else if (imageFilter === "ai-generated") {
+      query.heroImageUrl = { $regex: /^\/uploads\/public\/seo-news\//, $ne: null };
+    }
+
+    const [items, filteredTotal] = await Promise.all([
+      SeoNewsArticle.find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select(
+          "_id slug title origin status heroImageUrl thumbImageUrl createdAt tags"
+        )
+        .lean(),
+      SeoNewsArticle.countDocuments(query),
+    ]);
+
+    const originMap = {};
+    for (const bucket of originBreakdown) {
+      originMap[bucket._id || "none"] = bucket.count;
+    }
+
+    return res.json({
+      summary: {
+        total: totalCount,
+        hasImage: hasImageCount,
+        pendingImage: pendingImageCount,
+        byOrigin: originMap,
+      },
+      items,
+      page,
+      limit,
+      total: filteredTotal,
+      pages: Math.max(1, Math.ceil(filteredTotal / limit)),
+    });
+  } catch (error) {
+    console.error("[SeoNewsAdmin] get image stats failed:", error);
+    return res.status(500).json({
+      ok: false,
+      message: "Lay thong ke anh that bai",
+      error: error?.message || "internal_error",
+    });
+  }
+};

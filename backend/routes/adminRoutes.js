@@ -1,4 +1,4 @@
-﻿// routes/adminRoutes.js
+// routes/adminRoutes.js
 import express from "express";
 import {
   getUsers,
@@ -194,6 +194,7 @@ import {
   createSeoNewsReadyArticlesNow,
   getSeoNewsArticles,
   getSeoNewsCandidates,
+  getSeoNewsImageStats,
   getSeoNewsSettings,
   pushSeoNewsDraftsToPublished,
   runSeoNewsPendingCandidates,
@@ -858,6 +859,7 @@ router.post(
   cleanupSeoNewsGatewaySourceImagesNow
 );
 router.post("/seo-news/run", runSeoNewsSyncNow);
+router.get("/seo-news/image-stats", getSeoNewsImageStats);
 
 router.post(
   "/users/cccd-backfill",

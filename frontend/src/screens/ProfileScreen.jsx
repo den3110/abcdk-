@@ -319,16 +319,159 @@ function SummaryRow({ icon, label, value }) {
   );
 }
 
+
+function HeroMetric({ label, value, caption }) {
+  const theme = useTheme();
+
+  return (
+    <Box
+      sx={{
+        p: 2.25,
+        height: "100%",
+        borderRadius: 4,
+        border: "1px solid",
+        borderColor: "divider",
+        bgcolor:
+          theme.palette.mode === "light"
+            ? alpha(theme.palette.primary.main, 0.04)
+            : alpha(theme.palette.primary.main, 0.08),
+      }}
+    >
+      <Typography variant="caption" sx={{ display: "block", color: "text.secondary", mb: 0.75 }}>
+        {label}
+      </Typography>
+      <Typography
+        sx={{
+          color: "text.primary",
+          fontWeight: 800,
+          lineHeight: 1.15,
+          fontSize: { xs: "1.3rem", md: "1.7rem" },
+        }}
+      >
+        {value}
+      </Typography>
+      <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.75 }}>
+        {caption}
+      </Typography>
+    </Box>
+  );
+}
+
+function SectionCard({ icon, title, subtitle, action, tone = "primary", children }) {
+  const theme = useTheme();
+  const palette = theme.palette[tone] || theme.palette.primary;
+
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        borderRadius: 5,
+        border: "1px solid",
+        borderColor: alpha(palette.main, 0.16),
+        boxShadow:
+          theme.palette.mode === "light"
+            ? "0 24px 48px rgba(15, 23, 42, 0.06)"
+            : "0 24px 48px rgba(0, 0, 0, 0.24)",
+        overflow: "hidden",
+      }}
+    >
+      <Box
+        sx={{
+          px: { xs: 2.25, md: 3 },
+          py: { xs: 2, md: 2.5 },
+          borderBottom: "1px solid",
+          borderColor: alpha(palette.main, 0.12),
+          bgcolor:
+            theme.palette.mode === "light"
+              ? alpha(palette.main, 0.05)
+              : alpha(palette.main, 0.1),
+        }}
+      >
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={2}
+          justifyContent="space-between"
+          alignItems={{ xs: "flex-start", sm: "center" }}
+        >
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Box
+              sx={{
+                width: 46,
+                height: 46,
+                borderRadius: 3.5,
+                display: "grid",
+                placeItems: "center",
+                color: palette.main,
+                bgcolor: alpha(palette.main, 0.12),
+              }}
+            >
+              {icon}
+            </Box>
+            <Box>
+              <Typography variant="h6" fontWeight={800}>
+                {title}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                {subtitle}
+              </Typography>
+            </Box>
+          </Stack>
+          {action}
+        </Stack>
+      </Box>
+
+      <Box
+        sx={{
+          px: { xs: 2.25, md: 3 },
+          py: { xs: 2.25, md: 3 },
+          "& .MuiOutlinedInput-root": { borderRadius: 3 },
+        }}
+      >
+        {children}
+      </Box>
+    </Paper>
+  );
+}
+
+function SummaryRow({ icon, label, value }) {
+  return (
+    <Stack direction="row" spacing={1.25} alignItems="center">
+      <Box
+        sx={{
+          width: 40,
+          height: 40,
+          borderRadius: 3,
+          display: "grid",
+          placeItems: "center",
+          bgcolor: "action.hover",
+          color: "primary.main",
+          flexShrink: 0,
+        }}
+      >
+        {icon}
+      </Box>
+      <Box sx={{ minWidth: 0 }}>
+        <Typography variant="caption" color="text.secondary">
+          {label}
+        </Typography>
+        <Typography variant="body2" fontWeight={700} noWrap title={value}>
+          {value}
+        </Typography>
+      </Box>
+    </Stack>
+  );
+}
+
 function ProfileSkeleton({ onLogout }) {
   const theme = useTheme();
   const { t } = useLanguage();
 
   return (
-    <Container maxWidth="xl" sx={{ py: { xs: 3, md: 5 } }}>
+    <Container maxWidth="xl" sx={{ py: { xs: 2, md: 5 }, px: { xs: 1.5, sm: 3, md: 4 } }}>
       <Paper
         elevation={0}
         sx={{
-          p: { xs: 2.5, md: 4 },
+          p: { xs: 1.5, md: 4 },
           mb: 3,
           borderRadius: 6,
           overflow: "hidden",
@@ -942,14 +1085,14 @@ export default function ProfileScreen() {
             backgroundColor: theme.palette.background.default,
           }}
         >
-          <Container maxWidth="xl" sx={{ pt: { xs: 3, md: 5 } }}>
+          <Container maxWidth="xl" sx={{ pt: { xs: 1.5, md: 5 }, px: { xs: 1.5, sm: 3, md: 4 } }}>
             <Box
               sx={{
                 position: "relative",
                 overflow: "hidden",
-                borderRadius: { xs: 5, md: 7 },
-                px: { xs: 2.5, md: 4 },
-                py: { xs: 3, md: 4 },
+                borderRadius: { xs: 4, md: 7 },
+                px: { xs: 1.5, md: 4 },
+                py: { xs: 2.5, md: 4 },
                 mb: 3,
                 bgcolor: "background.paper",
                 border: "1px solid",
@@ -1298,7 +1441,7 @@ export default function ProfileScreen() {
                     <Paper
                       elevation={0}
                       sx={{
-                        p: { xs: 2.25, md: 2.75 },
+                        p: { xs: 1.5, md: 2.75 },
                         borderRadius: 5,
                         border: "1px solid",
                         borderColor: alpha(theme.palette.primary.main, 0.14),
@@ -1477,7 +1620,7 @@ export default function ProfileScreen() {
                         fullWidth
                         startIcon={<LogoutIcon />}
                         onClick={requestLogout}
-                        sx={{ borderRadius: 3, py: 1.3 }}
+                        sx={{ display: { xs: "none", lg: "flex" }, borderRadius: 3, py: 1.3 }}
                       >
                         {t("profile.hero.logout")}
                       </Button>
@@ -1512,6 +1655,23 @@ export default function ProfileScreen() {
                       </Stack>
                     </Paper>
                   </Stack>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    fullWidth
+                    startIcon={<LogoutIcon />}
+                    onClick={requestLogout}
+                    sx={{
+                      display: { xs: "flex", lg: "none" },
+                      mt: 3,
+                      borderRadius: 3,
+                      borderWidth: 2,
+                      py: 1.25,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {t("profile.hero.logout")}
+                  </Button>
                 </Grid>
 
                 <Grid size={{ xs: 12, lg: 8 }}>
@@ -2170,7 +2330,7 @@ export default function ProfileScreen() {
 
           <Snackbar
             open={snack.open}
-            autoHideDuration={3000}
+            autoHideDuration={4000}
             onClose={() => setSnack((prev) => ({ ...prev, open: false }))}
             anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
           >

@@ -41,6 +41,26 @@ export function buildRecordingPlaybackUrl(recordingId) {
   return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/play`;
 }
 
+function asMutableMeta(meta) {
+  return meta && typeof meta === "object" && !Array.isArray(meta) ? { ...meta } : {};
+}
+
+function buildSourceCleanupObjectKeys(recording) {
+  const objectKeys = new Set();
+
+  for (const segment of recording?.segments || []) {
+    if (segment?.objectKey) {
+      objectKeys.add(segment.objectKey);
+    }
+  }
+
+  if (recording?.r2ManifestKey) {
+    objectKeys.add(recording.r2ManifestKey);
+  }
+
+  return [...objectKeys];
+}
+
 function buildTempRoot() {
   const raw =
     process.env.RECORDING_EXPORT_WORK_DIR ||
@@ -233,6 +253,47 @@ export async function exportLiveRecordingV2(recordingId) {
       },
     }).catch(() => {});
 
+    try {
+      const cleanupResult = await deleteExportedRecordingSegments(recording, {
+        includeManifest: true,
+      });
+
+      const nextMeta = asMutableMeta(recording.meta);
+      nextMeta.sourceCleanup = {
+        status: "completed",
+        deletedAt: new Date(),
+        deletedObjectCount: cleanupResult.deletedObjectCount,
+        deletedManifest: cleanupResult.deletedManifest,
+        objectKeys: cleanupResult.objectKeys,
+      };
+
+      recording.meta = nextMeta;
+      recording.r2ManifestKey = null;
+      await recording.save();
+      await publishLiveRecordingMonitorUpdate({
+        reason: "recording_source_cleanup_completed",
+        recordingIds: [String(recording._id)],
+      });
+    } catch (cleanupError) {
+      const nextMeta = asMutableMeta(recording.meta);
+      nextMeta.sourceCleanup = {
+        status: "failed",
+        attemptedAt: new Date(),
+        error: cleanupError?.message || String(cleanupError),
+      };
+
+      recording.meta = nextMeta;
+      await recording.save().catch(() => {});
+      await publishLiveRecordingMonitorUpdate({
+        reason: "recording_source_cleanup_failed",
+        recordingIds: [String(recording._id)],
+      }).catch(() => {});
+      console.error(
+        `[recording-export] source cleanup failed for recording ${String(recording._id)}:`,
+        cleanupError
+      );
+    }
+
     return recording;
   } catch (error) {
     recording.status = "failed";
@@ -248,10 +309,40 @@ export async function exportLiveRecordingV2(recordingId) {
   }
 }
 
-export async function deleteExportedRecordingSegments(recordingId) {
-  const recording = await LiveRecordingV2.findById(recordingId).lean();
-  if (!recording || recording.status !== "ready") return false;
-  const objectKeys = (recording.segments || []).map((segment) => segment.objectKey);
+export async function deleteExportedRecordingSegments(
+  recordingOrId,
+  { includeManifest = true } = {}
+) {
+  const recording =
+    recordingOrId && typeof recordingOrId === "object"
+      ? recordingOrId
+      : await LiveRecordingV2.findById(recordingOrId).lean();
+
+  if (!recording || recording.status !== "ready") {
+    return {
+      deletedObjectCount: 0,
+      deletedManifest: false,
+      objectKeys: [],
+    };
+  }
+
+  const objectKeys = includeManifest
+    ? buildSourceCleanupObjectKeys(recording)
+    : [...new Set((recording.segments || []).map((segment) => segment?.objectKey).filter(Boolean))];
+
+  if (!objectKeys.length) {
+    return {
+      deletedObjectCount: 0,
+      deletedManifest: false,
+      objectKeys: [],
+    };
+  }
+
   await deleteRecordingObjects(objectKeys);
-  return true;
+
+  return {
+    deletedObjectCount: objectKeys.length,
+    deletedManifest: includeManifest && Boolean(recording.r2ManifestKey),
+    objectKeys,
+  };
 }

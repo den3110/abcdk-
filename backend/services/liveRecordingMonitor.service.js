@@ -50,8 +50,21 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
+function getConfiguredRecordingR2StorageTotalBytes() {
+  const configured = Number(
+    process.env.R2_RECORDINGS_STORAGE_TOTAL_BYTES ||
+      process.env.R2_STORAGE_TOTAL_BYTES ||
+      0
+  );
+  return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : null;
+}
+
 function sanitizeSegmentMeta(meta) {
   return meta && typeof meta === "object" ? { ...meta } : {};
+}
+
+function hasCompletedSourceCleanup(recording) {
+  return recording?.meta?.sourceCleanup?.status === "completed";
 }
 
 function summarizeSegments(segments = []) {
@@ -157,6 +170,52 @@ function buildStatusMeta(status) {
   }
 }
 
+function estimateRecordingR2SourceBytes(recording) {
+  if (!recording || hasCompletedSourceCleanup(recording)) return 0;
+
+  return (recording.segments || []).reduce((sum, segment) => {
+    const meta = sanitizeSegmentMeta(segment?.meta);
+    const completedPartBytes = Array.isArray(meta.completedParts)
+      ? meta.completedParts.reduce(
+          (partSum, part) => partSum + toNumber(part?.sizeBytes),
+          0
+        )
+      : 0;
+
+    if (segment?.uploadStatus === "uploaded") {
+      return sum + toNumber(segment?.sizeBytes);
+    }
+
+    return sum + completedPartBytes;
+  }, 0);
+}
+
+function buildR2StorageSummary(recordings = []) {
+  const totalBytes = getConfiguredRecordingR2StorageTotalBytes();
+  const usedBytes = recordings.reduce(
+    (sum, recording) => sum + estimateRecordingR2SourceBytes(recording),
+    0
+  );
+  const remainingBytes =
+    totalBytes != null ? Math.max(0, totalBytes - usedBytes) : null;
+  const percentUsed =
+    totalBytes && totalBytes > 0
+      ? Math.max(0, Math.min(100, Math.round((usedBytes / totalBytes) * 100)))
+      : null;
+  const recordingsWithSourceOnR2 = recordings.filter(
+    (recording) => estimateRecordingR2SourceBytes(recording) > 0
+  ).length;
+
+  return {
+    usedBytes,
+    remainingBytes,
+    totalBytes,
+    percentUsed,
+    configured: totalBytes != null,
+    recordingsWithSourceOnR2,
+  };
+}
+
 function buildModeLabel(mode) {
   switch (String(mode || "").toUpperCase()) {
     case "STREAM_AND_RECORD":
@@ -213,6 +272,8 @@ function buildRow(recording) {
     driveRawUrl: recording.driveRawUrl || null,
     drivePreviewUrl: recording.drivePreviewUrl || null,
     driveFileId: recording.driveFileId || null,
+    r2SourceBytes: estimateRecordingR2SourceBytes(recording),
+    sourceCleanupStatus: recording?.meta?.sourceCleanup?.status || null,
     error: recording.error || "",
     segmentSummary,
   };
@@ -319,6 +380,8 @@ export async function buildLiveRecordingMonitorSnapshot() {
       pendingSegments: 0,
     }
   );
+
+  summary.r2Storage = buildR2StorageSummary(recordings);
 
   return {
     summary,
