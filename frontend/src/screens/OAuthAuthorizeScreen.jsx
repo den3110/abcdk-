@@ -6,7 +6,6 @@ import {
   ArrowForwardRounded,
   CheckCircleRounded,
   ErrorOutlineRounded,
-  LockOpenRounded,
 } from "@mui/icons-material";
 import {
   Box,
@@ -86,6 +85,7 @@ function SurfaceCard({ children }) {
         bgcolor: "#ffffff",
         border: "1px solid rgba(21, 72, 146, 0.08)",
         boxShadow: "0 24px 80px rgba(23, 72, 145, 0.12)",
+        textAlign: "center",
       }}
     >
       {children}
@@ -127,9 +127,10 @@ function StatusCard({ icon, eyebrow, title, description, tone = "info" }) {
         borderRadius: 3,
         bgcolor: palette.bg,
         border: `1px solid ${palette.border}`,
+        width: "100%",
       }}
     >
-      <Stack direction="row" spacing={1.5} alignItems="flex-start">
+      <Stack spacing={1.25} alignItems="center" textAlign="center">
         <Box
           sx={{
             width: 42,
@@ -144,30 +145,33 @@ function StatusCard({ icon, eyebrow, title, description, tone = "info" }) {
         >
           <IconComponent fontSize="small" />
         </Box>
-        <Box>
-          {eyebrow ? (
-            <Typography
-              sx={{
-                color: palette.color,
-                fontSize: 12,
-                fontWeight: 800,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                mb: 0.5,
-              }}
-            >
-              {eyebrow}
-            </Typography>
-          ) : null}
+        {eyebrow ? (
           <Typography
-            sx={{ color: "#10233f", fontWeight: 800, fontSize: { xs: 18, sm: 20 } }}
+            sx={{
+              color: palette.color,
+              fontSize: 12,
+              fontWeight: 800,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+            }}
           >
-            {title}
+            {eyebrow}
           </Typography>
-          <Typography sx={{ color: "rgba(16,35,63,0.72)", mt: 0.75, lineHeight: 1.65 }}>
-            {description}
-          </Typography>
-        </Box>
+        ) : null}
+        <Typography
+          sx={{ color: "#10233f", fontWeight: 800, fontSize: { xs: 18, sm: 20 } }}
+        >
+          {title}
+        </Typography>
+        <Typography
+          sx={{
+            color: "rgba(16,35,63,0.72)",
+            lineHeight: 1.65,
+            maxWidth: 520,
+          }}
+        >
+          {description}
+        </Typography>
       </Stack>
     </Box>
   );
@@ -183,6 +187,7 @@ function MetaTile({ label, value, accent = "#1759cf" }) {
         borderRadius: 3,
         bgcolor: "#f8fbff",
         border: "1px solid rgba(24, 88, 207, 0.08)",
+        textAlign: "center",
       }}
     >
       <Typography
@@ -306,8 +311,8 @@ export default function OAuthAuthorizeScreen() {
       <SEOHead title="Ủy quyền PickleTour Live" />
 
       <SurfaceCard>
-        <Stack spacing={3}>
-          <Box>
+        <Stack spacing={3} alignItems="center">
+          <Box sx={{ maxWidth: 560, mx: "auto" }}>
             <Typography
               sx={{
                 color: "#1b67dd",
@@ -338,7 +343,6 @@ export default function OAuthAuthorizeScreen() {
                 color: "rgba(16,31,55,0.72)",
                 fontSize: { xs: 16, sm: 17 },
                 lineHeight: 1.7,
-                maxWidth: 560,
               }}
             >
               Xác nhận cho phép PickleTour Live dùng phiên đăng nhập PickleTour
@@ -347,21 +351,16 @@ export default function OAuthAuthorizeScreen() {
           </Box>
 
           {isBusy ? (
-            <StatusCard
-              icon={LockOpenRounded}
-              eyebrow={shouldRedirectToLogin ? "Đang chuyển trang" : "Đang xác thực"}
-              title={
-                shouldRedirectToLogin
-                  ? "Đang chuyển bạn tới màn đăng nhập"
-                  : "Đang kiểm tra phiên PickleTour"
-              }
-              description={
-                shouldRedirectToLogin
-                  ? "Nếu bạn chưa đăng nhập, PickleTour sẽ mở màn đăng nhập rồi quay lại bước cấp quyền."
-                  : "Hệ thống đang xác nhận tài khoản và quyền dùng PickleTour Live của bạn."
-              }
-              tone="info"
-            />
+            <Box
+              sx={{
+                minHeight: { xs: 140, sm: 180 },
+                width: "100%",
+                display: "grid",
+                placeItems: "center",
+              }}
+            >
+              <CircularProgress size={42} thickness={4.2} />
+            </Box>
           ) : null}
 
           {invalidMessage ? (
@@ -418,7 +417,6 @@ export default function OAuthAuthorizeScreen() {
                 variant="contained"
                 onClick={() => window.location.reload()}
                 sx={{
-                  alignSelf: "flex-start",
                   py: 1.2,
                   px: 2.2,
                   borderRadius: 99,
@@ -527,6 +525,7 @@ export default function OAuthAuthorizeScreen() {
                           borderRadius: 3,
                           bgcolor: "#f6fbff",
                           border: "1px solid rgba(24,88,207,0.08)",
+                          textAlign: "center",
                         }}
                       >
                         <Typography sx={{ color: "#10223b", fontWeight: 700 }}>
@@ -561,7 +560,9 @@ export default function OAuthAuthorizeScreen() {
               <Stack
                 direction={{ xs: "column-reverse", sm: "row" }}
                 spacing={1.5}
-                justifyContent="space-between"
+                justifyContent="center"
+                alignItems="center"
+                sx={{ width: "100%" }}
               >
                 <Button
                   variant="outlined"
