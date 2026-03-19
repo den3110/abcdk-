@@ -28,7 +28,7 @@ import {
 } from "@mui/icons-material";
 import { useDispatch, useSelector } from "react-redux";
 import { toast } from "react-toastify";
-import LogoAnimation from "../components/LogoAnimation";
+import LogoAnimationMorph from "../components/LogoAnimationMorph.jsx";
 import SEOHead from "../components/SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import { setCredentials } from "../slices/authSlice";
@@ -362,21 +362,26 @@ export default function LoginScreen() {
               borderBottom: { xs: `1px solid ${alpha(isDark ? "#d8eef7" : "#101820", 0.08)}`, md: 0 },
             }}
           >
-            <Box sx={{ display: { xs: "none", md: "block" } }} />
+            <Box
+              sx={{
+                px: { xs: 2, sm: 2.5, md: 3 },
+                display: "flex",
+                alignItems: "center",
+                minWidth: 0,
+              }}
+            >
+              <LogoAnimationMorph isMobile={isMobile} showBackButton={false} />
+            </Box>
 
             <Box
               sx={{
                 px: { xs: 2, sm: 2.5, md: 3 },
                 display: "flex",
-                justifyContent: "space-between",
+                justifyContent: "flex-end",
                 alignItems: "center",
                 minWidth: 0,
               }}
             >
-              <Box sx={{ display: "flex", alignItems: "center", minWidth: 0 }}>
-                <LogoAnimation isMobile={false} showBackButton={false} />
-              </Box>
-
               <Stack direction="row" spacing={0.75} justifyContent="flex-end" alignItems="center">
                 <Typography
                   variant="body2"

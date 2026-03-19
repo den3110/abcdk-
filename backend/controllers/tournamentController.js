@@ -743,7 +743,10 @@ export const listTournamentMatches = asyncHandler(async (req, res, next) => {
     // ---- fetch ----
     const [listRaw, total] = await Promise.all([
       Match.find(filter)
-        .populate({ path: "tournament", select: "name" })
+        .populate({
+          path: "tournament",
+          select: "name image eventType nameDisplayMode",
+        })
         .populate({
           path: "bracket",
           // cần groups để map B từ pool/name/_id

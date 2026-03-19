@@ -1365,13 +1365,13 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
       populate: [
         {
           path: "player1",
-          select: "nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "fullName name nickname nickName" },
         },
         {
           path: "player2",
-          select: "nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "fullName name nickname nickName" },
         },
       ],
     })
@@ -1381,13 +1381,13 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
       populate: [
         {
           path: "player1",
-          select: "nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "fullName name nickname nickName" },
         },
         {
           path: "player2",
-          select: "nickname nickName user",
-          populate: { path: "user", select: "nickname nickName" },
+          select: "fullName name shortName nickname nickName user",
+          populate: { path: "user", select: "fullName name nickname nickName" },
         },
       ],
     })
@@ -1398,6 +1398,10 @@ export const getMatchPublic = asyncHandler(async (req, res) => {
     .populate({ path: "previousA", select: "round order" })
     .populate({ path: "previousB", select: "round order" })
     .populate({ path: "nextMatch", select: "_id" })
+    .populate({
+      path: "tournament",
+      select: "name image eventType overlay nameDisplayMode",
+    })
     // bracket
     .populate({ path: "bracket", select: BRACKET_SELECT })
     .lean();

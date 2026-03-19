@@ -671,6 +671,8 @@ const ActionChipsLocalized = React.memo(function ActionChipsLocalized(props) {
 const MatchDesktopRows = React.memo(function MatchDesktopRows({
   match,
   liveStore,
+  eventType = "double",
+  displayMode = "nickname",
   onRowClick,
   onOpenVideo,
   onDeleteVideo,
@@ -683,10 +685,6 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
   const { t, locale } = useLanguage();
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
-  const eventType = merged?.tournament?.eventType || match?.tournament?.eventType;
-  const displayMode = getTournamentNameDisplayMode(
-    merged?.tournament || match?.tournament
-  );
 
   const MainRow = (
     <TableRow
@@ -783,6 +781,8 @@ const MatchDesktopRows = React.memo(function MatchDesktopRows({
 const MatchCard = React.memo(function MatchCard({
   match,
   liveStore,
+  eventType = "double",
+  displayMode = "nickname",
   onCardClick,
   onOpenVideo,
   onDeleteVideo,
@@ -796,10 +796,6 @@ const MatchCard = React.memo(function MatchCard({
   const live = useLiveMatch(liveStore, match._id);
   const merged = live ? { ...match, ...live } : match;
   const code = matchCode(merged);
-  const eventType = merged?.tournament?.eventType || match?.tournament?.eventType;
-  const displayMode = getTournamentNameDisplayMode(
-    merged?.tournament || match?.tournament
-  );
 
   return (
     <Card
@@ -1174,7 +1170,7 @@ export default function TournamentManagePage() {
       }),
     []
   );
-  const allMatchesBase = matchPage?.list || [];
+  const allMatchesBase = useMemo(() => matchPage?.list || [], [matchPage]);
 
   // Tập hợp danh sách sân
   const courtOptions = useMemo(() => {
@@ -1187,7 +1183,7 @@ export default function TournamentManagePage() {
     }
     const arr = Array.from(s).sort(naturalCompare);
     return hasUnassigned ? [t("tournaments.manage.unassignedCourt"), ...arr] : arr;
-  }, [allMatchesBase, naturalCompare]);
+  }, [allMatchesBase, naturalCompare, t]);
 
   useEffect(() => {
     setCourtFilter((prev) => prev.filter((x) => courtOptions.includes(x)));
@@ -1237,7 +1233,7 @@ export default function TournamentManagePage() {
         );
       }
     },
-    [setLiveUrl, videoDlg.match, closeVideoDlg]
+    [setLiveUrl, videoDlg.match, closeVideoDlg, t]
   );
 
   // Court/Ref manager
@@ -1362,6 +1358,7 @@ export default function TournamentManagePage() {
     batchAssign,
     refetchMatches,
     clearSelection,
+    t,
   ]);
 
   const submitBatchSetVideo = useCallback(
@@ -1382,7 +1379,7 @@ export default function TournamentManagePage() {
         toast.error(e?.data?.message || t("tournaments.manage.assignVideoFailed"));
       }
     },
-    [selectedMatchIds, batchSetLiveUrl, refetchMatches, clearSelection]
+    [selectedMatchIds, batchSetLiveUrl, refetchMatches, clearSelection, t]
   );
 
   /* ====== Live store + realtime ====== */
@@ -1424,7 +1421,7 @@ export default function TournamentManagePage() {
         toast.error(t("tournaments.manage.openRefereeReportFailed"));
       }
     },
-    [tour, liveStore]
+    [displayMode, liveStore, t, tour]
   );
   const [orderVersion, setOrderVersion] = useState(0);
   const [isPending, startTransition] = useTransition();
@@ -1635,15 +1632,17 @@ export default function TournamentManagePage() {
     return byBracket;
   }, [
     allMatchesBase,
+    displayMode,
     qDeferred,
     sortKey,
     sortDir,
     getLiveStatus,
-    orderVersion,
     liveStore,
     courtFilter,
     showBye,
     brackets,
+    t,
+    tour?.eventType,
   ]);
 
   // LIVE Setup — TOÀN GIẢI
@@ -1796,7 +1795,7 @@ export default function TournamentManagePage() {
           scoreSummary(merged),
         ];
       }),
-    [liveStore]
+    [displayMode, liveStore, tour?.eventType]
   );
 
   const buildExportPayload = useCallback(() => {
@@ -2657,6 +2656,8 @@ export default function TournamentManagePage() {
                               key={m._id}
                               match={m}
                               liveStore={liveStore}
+                              eventType={tour?.eventType || "double"}
+                              displayMode={displayMode}
                               onRowClick={(mid) => openMatch(mid)}
                               onOpenVideo={openVideoDlg}
                               onDeleteVideo={deleteVideoDlg}
@@ -2733,6 +2734,8 @@ export default function TournamentManagePage() {
                             <MatchCard
                               match={m}
                               liveStore={liveStore}
+                              eventType={tour?.eventType || "double"}
+                              displayMode={displayMode}
                               onCardClick={(mid) => openMatch(mid)}
                               onOpenVideo={openVideoDlg}
                               onDeleteVideo={deleteVideoDlg}
