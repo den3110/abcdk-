@@ -2,63 +2,17 @@ import { google } from "googleapis";
 import { getCfgStr, setCfg } from "../services/config.service.js";
 import { decryptToken, encryptToken } from "../services/secret.service.js";
 import { getRecordingDriveStatus } from "../services/driveRecordings.service.js";
+import SystemSettings from "../models/systemSettingsModel.js";
 import dotenv from "dotenv";
 dotenv.config();
 
 const DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"];
-const RECORDING_DRIVE_CALLBACK_PATH =
-  "/api/oauth/google/recording-drive/callback";
 
-async function pickRedirectUriForHostAndPath(req, preferredPath) {
-  const csv =
-    (await getCfgStr("GOOGLE_REDIRECT_URI", "")) ||
-    process.env.GOOGLE_REDIRECT_URI ||
-    "";
-  const list = csv
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (!list.length) return "";
-
-  const host = (
-    req.get("x-forwarded-host") ||
-    req.get("host") ||
-    ""
-  ).toLowerCase();
-
-  for (const item of list) {
-    try {
-      const url = new URL(item);
-      if (
-        url.host.toLowerCase() === host &&
-        url.pathname.replace(/\/+$/, "").endsWith(preferredPath)
-      ) {
-        return item;
-      }
-    } catch (_) {}
-  }
-
-  for (const item of list) {
-    try {
-      const url = new URL(item);
-      if (url.pathname.replace(/\/+$/, "").endsWith(preferredPath)) {
-        return item;
-      }
-    } catch (_) {}
-  }
-
-  return "";
-}
 
 async function makeRecordingDriveOAuth(req) {
-  const [configId, configSecret] = await Promise.all([
-    getCfgStr("GOOGLE_CLIENT_ID", ""),
-    getCfgStr("GOOGLE_CLIENT_SECRET", ""),
-  ]);
   const id = String(process.env.GOOGLE_CLIENT_ID || "").trim();
   const secret = String(process.env.GOOGLE_CLIENT_SECRET || "").trim();
   const redirect = (process.env.GOOGLE_REDIRECT_URI || "").trim();
-  console.log(id, secret, redirect);
 
   if (!id || !secret || !redirect) {
     throw new Error(
@@ -139,6 +93,18 @@ export async function recordingDriveOAuthCallback(req, res) {
       value: new Date().toISOString(),
       updatedBy: `oauth:${who}`,
     });
+
+    await SystemSettings.findByIdAndUpdate(
+      "system",
+      {
+        $set: {
+          "recordingDrive.enabled": true,
+          "recordingDrive.mode": "oauthUser",
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    ).catch(() => null);
 
     const html = `
 <!doctype html><meta charset="utf-8" />
