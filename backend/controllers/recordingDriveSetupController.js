@@ -58,6 +58,8 @@ async function makeRecordingDriveOAuth(req) {
     req,
     RECORDING_DRIVE_CALLBACK_PATH
   );
+  console.log(123)
+  console.log(id, secret, redirect)
 
   if (!id || !secret || !redirect) {
     throw new Error(
