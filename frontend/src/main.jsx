@@ -41,9 +41,11 @@ import TournamentOverviewPage from "./screens/PickleBall/TournamentOverviewPage.
 import MyTournamentsPage from "./screens/MyTournaments.jsx";
 import ForgotPasswordScreen from "./screens/ForgotPasswordScreen.jsx";
 import ResetPasswordScreen from "./screens/ResetPasswordScreen.jsx";
+import OAuthAuthorizeScreen from "./screens/OAuthAuthorizeScreen.jsx";
 import AdminLayout from "./components/AdminLayout.jsx";
 import UsersPage from "./screens/admin/UsersPage.jsx";
 import NewsPage from "./screens/admin/NewsPage.jsx";
+import AvatarOptimizationPage from "./screens/admin/AvatarOptimizationPage.jsx";
 // import "../index.css"; // REMOVED: Moved to src/index.css
 import Forbidden403 from "./screens/403.jsx";
 import ServiceUnavailable from "./screens/503.jsx";
@@ -71,6 +73,7 @@ const router = createBrowserRouter(
       <Route path="/" element={<App />}>
         <Route index={true} path="/" element={<HomeScreen />} />
         <Route path="/login" element={<LoginScreen />} />
+        <Route path="/oauth/authorize" element={<OAuthAuthorizeScreen />} />
         {/* OTP tạm tắt */}
         {/* <Route path="/verify-otp" element={<VerifyOtpScreen />} /> */}
         <Route path="/register" element={<RegisterScreen />} />
@@ -143,6 +146,10 @@ const router = createBrowserRouter(
         <Route index element={<Navigate to="/admin/users" replace />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="news" element={<NewsPage />} />
+        <Route
+          path="avatar-optimization"
+          element={<AvatarOptimizationPage />}
+        />
       </Route>
     </>
   )

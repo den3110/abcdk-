@@ -98,6 +98,15 @@ const RefereeScopeSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const AvatarOptimizationSchema = new mongoose.Schema(
+  {
+    done: { type: Boolean, default: false },
+    optimizedFor: { type: String, default: "" },
+    optimizedAt: { type: Date, default: null },
+  },
+  { _id: false },
+);
+
 const userSchema = new mongoose.Schema(
   {
     /* ------- Thông tin cơ bản ------- */
@@ -133,6 +142,10 @@ const userSchema = new mongoose.Schema(
 
     /* ------- Avatar + giới thiệu ------- */
     avatar: { type: String, default: "" },
+    avatarOptimization: {
+      type: AvatarOptimizationSchema,
+      default: () => ({}),
+    },
     cover: { type: String, default: "" }, // 👈 ADD
     bio: { type: String, default: "" },
 

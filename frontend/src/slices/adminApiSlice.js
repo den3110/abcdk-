@@ -122,6 +122,31 @@ export const adminApiSlice = apiSlice.injectEndpoints({
       }),
     }),
 
+    getAvatarOptimizationStatus: builder.query({
+      query: () => ({
+        url: "/api/admin/avatar-optimization/status",
+        method: "GET",
+      }),
+      providesTags: ["AvatarOptimization"],
+      keepUnusedDataFor: 10,
+    }),
+
+    runAvatarOptimizationSweep: builder.mutation({
+      query: () => ({
+        url: "/api/admin/avatar-optimization/run",
+        method: "POST",
+      }),
+      invalidatesTags: ["AvatarOptimization"],
+    }),
+
+    runAvatarOptimizationCleanup: builder.mutation({
+      query: () => ({
+        url: "/api/admin/avatar-optimization/cleanup",
+        method: "POST",
+      }),
+      invalidatesTags: ["AvatarOptimization"],
+    }),
+
     // âœ… ADD trong adminApiSlice.js
     getUserAudit: builder.query({
       query: ({ userId, page = 1, limit = 20, actorId, field }) => {
@@ -246,6 +271,9 @@ export const {
   useDemoteEvaluatorMutation,
   useChangeUserPasswordMutation,
   useUpdateRankingSearchConfigMutation,
+  useGetAvatarOptimizationStatusQuery,
+  useRunAvatarOptimizationSweepMutation,
+  useRunAvatarOptimizationCleanupMutation,
   // seo news admin
   useGetSeoNewsSettingsQuery,
   useUpdateSeoNewsSettingsMutation,

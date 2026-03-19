@@ -200,6 +200,11 @@ import {
   updateSeoNewsSettings,
 } from "../controllers/seoNewsAdminController.js";
 import { adminSetRankingSearchConfig, aiFillCccdForUser, backfillUsersFromCccd } from "../controllers/userController.js";
+import {
+  getAvatarOptimizationStatus,
+  runAvatarOptimizationCleanupNow,
+  runAvatarOptimizationSweepNow,
+} from "../controllers/admin/adminAvatarOptimizationController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -265,6 +270,22 @@ router.put(
 
 
 router.use(protect, authorize("admin")); // táº¥t cáº£ dÆ°á»›i Ä‘Ã¢y cáº§n admin
+
+router.get(
+  "/avatar-optimization/status",
+  requireSuperAdmin,
+  getAvatarOptimizationStatus
+);
+router.post(
+  "/avatar-optimization/run",
+  requireSuperAdmin,
+  runAvatarOptimizationSweepNow
+);
+router.post(
+  "/avatar-optimization/cleanup",
+  requireSuperAdmin,
+  runAvatarOptimizationCleanupNow
+);
 
 // router.get("/users", getUsers);
 router.get("/users", getUsersWithRank);

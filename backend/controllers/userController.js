@@ -31,6 +31,7 @@ import bcrypt from "bcryptjs";
 import { normalize_for_search } from "../utils/vnSearchNormalizer.js";
 import { makeLoginOtpToken } from "./userLoginController.js";
 import { toPublicUrl as toClientPublicUrl } from "../utils/publicUrl.js";
+import { queueUserAvatarOptimizationById } from "../services/userAvatarOptimization.service.js";
 
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
@@ -2061,6 +2062,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
 
   // ✅ ADD: snapshot trước khi sửa
   const before = user.toObject({ depopulate: true });
+  const previousAvatar = user.avatar || "";
 
   // Destructure including avatar + cover
   let {
@@ -2229,6 +2231,13 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (password) user.password = password;
 
   const updatedUser = await user.save();
+  if (
+    Object.prototype.hasOwnProperty.call(req.body, "avatar") &&
+    String(previousAvatar || "") !== String(updatedUser.avatar || "") &&
+    updatedUser.avatar
+  ) {
+    queueUserAvatarOptimizationById(updatedUser._id);
+  }
 
   // ✅ ADD: ghi audit log (không log giá trị password, chỉ đánh dấu "đã đổi")
   try {

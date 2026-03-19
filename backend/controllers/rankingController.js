@@ -15,8 +15,6 @@ import {
   build_vietnamese_regex,
 } from "../utils/vnSearchNormalizer.js";
 import { toPublicUrl } from "../utils/publicUrl.js";
-import { ensureRankingAvatarUrl } from "../utils/rankingAvatarVariant.js";
-import { ensureRankingKycImageUrl } from "../utils/rankingKycVariant.js";
 
 /* GET điểm kèm user (dùng trong danh sách) */ // Admin
 export const getUsersWithRank = asyncHandler(async (req, res) => {
@@ -238,59 +236,6 @@ export const adminUpdateRanking = asyncHandler(async (req, res) => {
   });
 });
 
-const normalizeRankingUserMedia = async (req, doc) => {
-  if (!doc || typeof doc !== "object") return doc;
-  if (!doc.user || typeof doc.user !== "object") return doc;
-  const hasAvatar = Object.prototype.hasOwnProperty.call(doc.user, "avatar");
-  const hasCccdImages =
-    doc.user.cccdImages && typeof doc.user.cccdImages === "object";
-  if (!hasAvatar && !hasCccdImages) return doc;
-
-  return {
-    ...doc,
-    user: {
-      ...doc.user,
-      ...(hasAvatar
-        ? { avatar: await ensureRankingAvatarUrl(req, doc.user.avatar) }
-        : {}),
-      ...(hasCccdImages
-        ? {
-            cccdImages: {
-              ...doc.user.cccdImages,
-              front: await ensureRankingKycImageUrl(
-                req,
-                doc.user.cccdImages?.front
-              ),
-              back: await ensureRankingKycImageUrl(
-                req,
-                doc.user.cccdImages?.back
-              ),
-            },
-          }
-        : {}),
-    },
-  };
-};
-
-const normalizeRankingDocsAvatars = async (req, docs = []) =>
-  Promise.all(
-    (Array.isArray(docs) ? docs : []).map((doc) =>
-      normalizeRankingUserMedia(req, doc)
-    )
-  );
-
-const normalizeRankingLeaderboardItems = async (req, items = []) =>
-  Promise.all(
-    (Array.isArray(items) ? items : []).map(async (item) =>
-      Object.prototype.hasOwnProperty.call(item || {}, "avatar")
-        ? {
-            ...item,
-            avatar: await ensureRankingAvatarUrl(req, item?.avatar),
-          }
-        : item
-    )
-  );
-
 export async function getLeaderboard(req, res) {
   const list = await Ranking.aggregate([
     { $match: { isHiddenFromRankings: { $ne: true } } },
@@ -346,8 +291,7 @@ export async function getLeaderboard(req, res) {
       },
     },
   ]);
-  const normalizedList = await normalizeRankingLeaderboardItems(req, list);
-  res.json(normalizedList);
+  res.json(list);
 }
 
 /* ============================ small helpers ============================ */
@@ -1266,7 +1210,7 @@ export const getRankings = asyncHandler(async (req, res) => {
 
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
-  const docs = await normalizeRankingDocsAvatars(req, first.docs || []);
+  const docs = first.docs || [];
 
   return res.json({
     docs,
@@ -1607,7 +1551,7 @@ export const getRankingsV2 = asyncHandler(async (req, res) => {
 
   const first = agg[0] || { docs: [], total: 0 };
   const totalPages = Math.ceil(first.total / limit);
-  const docs = await normalizeRankingDocsAvatars(req, first.docs || []);
+  const docs = first.docs || [];
 
   res.json({
     docs,
@@ -1891,7 +1835,7 @@ export const getRankingOnlyV2 = asyncHandler(async (req, res) => {
 
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
-  const docs = await normalizeRankingDocsAvatars(req, first.docs || []);
+  const docs = first.docs || [];
 
   return res.json({
     docs,
@@ -2359,7 +2303,7 @@ export const getRankingOnly = asyncHandler(async (req, res) => {
 
   const hasMore = page + 1 < totalPages;
   const nextCursor = hasMore ? encodeCursor({ page: page + 1, limit }) : null;
-  const docs = await normalizeRankingDocsAvatars(req, first.docs || []);
+  const docs = first.docs || [];
 
   return res.json({
     docs,

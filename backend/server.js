@@ -73,6 +73,7 @@ import userMatchRoutes from "./routes/userMatchRoutes.js";
 import { startFacebookBusyCron } from "./services/facebookPagePool.service.js";
 import { startLiveSessionLeaseCron } from "./services/liveSessionLease.service.js";
 import { startCourtLivePresenceSweep } from "./services/courtLivePresence.service.js";
+import { startUserAvatarOptimizationCron } from "./jobs/userAvatarOptimizationCron.js";
 import { initNewsCron } from "./jobs/newsCron.js";
 import { initSeoNewsCron } from "./jobs/seoNewsCron.js";
 import { startOptimizedImageCleanupCron } from "./jobs/optimizedImageCleanupCron.js";
@@ -333,6 +334,7 @@ const startServer = async () => {
         startFacebookBusyCron();
         startLiveSessionLeaseCron();
         startCourtLivePresenceSweep();
+        startUserAvatarOptimizationCron();
         startOptimizedImageCleanupCron();
         initEmail();
         initNewsCron();

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
-import { Link as RouterLink, useNavigate } from "react-router-dom";
+import { Link as RouterLink, useLocation, useNavigate } from "react-router-dom";
 import {
   Box,
   Button,
@@ -226,6 +226,7 @@ export default function LoginScreen() {
 
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const location = useLocation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
   const isCompactMobile = useMediaQuery("(max-width:480px)");
@@ -234,10 +235,15 @@ export default function LoginScreen() {
 
   const [login, { isLoading }] = useLoginMutation();
   const { userInfo } = useSelector((state) => state.auth);
+  const returnTo = useMemo(() => {
+    const qs = new URLSearchParams(location.search || "");
+    const next = String(qs.get("returnTo") || "/").trim();
+    return next.startsWith("/") ? next : "/";
+  }, [location.search]);
 
   useEffect(() => {
-    if (userInfo) navigate("/");
-  }, [userInfo, navigate]);
+    if (userInfo) navigate(returnTo, { replace: true });
+  }, [userInfo, navigate, returnTo]);
 
   const showcaseItems = useMemo(
     () => [
@@ -291,7 +297,7 @@ export default function LoginScreen() {
 
       dispatch(setCredentials({ ...res }));
       dispatch(apiSlice.util.resetApiState());
-      navigate("/");
+      navigate(returnTo, { replace: true });
     } catch (err) {
       toast.error(err?.data?.message || err?.error || t("auth.login.errors.failed"));
     }

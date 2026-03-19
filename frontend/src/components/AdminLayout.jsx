@@ -1,34 +1,31 @@
-// src/layouts/AdminLayout.jsx
 import PropTypes from "prop-types";
-
 import {
+  AppBar,
   Box,
+  Button,
+  CircularProgress,
   Drawer,
+  IconButton,
   List,
   ListItemButton,
   ListItemIcon,
   ListItemText,
-  AppBar,
-  Toolbar,
-  Typography,
-  IconButton,
-  useTheme,
-  useMediaQuery,
-  Button,
-  Tabs,
   Tab,
+  Tabs,
+  Toolbar,
   Tooltip,
-  CircularProgress,
+  Typography,
+  useMediaQuery,
+  useTheme,
 } from "@mui/material";
-import SEOHead from "../components/SEOHead";
-import AppFooter from "../components/AppFooter";
 import PeopleIcon from "@mui/icons-material/People";
 import HomeIcon from "@mui/icons-material/Home";
 import ArticleIcon from "@mui/icons-material/Article";
-import { useLocation, useNavigate, Outlet, Navigate } from "react-router-dom"; // ✅ thêm Navigate
-
-import { useSelector } from "react-redux"; // ✅ lấy userInfo từ redux
-
+import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
+import { Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
+import SEOHead from "../components/SEOHead";
+import AppFooter from "../components/AppFooter";
 import { useGetProfileQuery } from "../slices/usersApiSlice";
 import { useLanguage } from "../context/LanguageContext.jsx";
 
@@ -36,9 +33,29 @@ const drawerWidth = 240;
 
 function indexFromPath(pathname, navItems) {
   const idx = navItems.findIndex(
-    (i) => pathname === i.path || pathname.startsWith(i.path + "/")
+    (item) => pathname === item.path || pathname.startsWith(`${item.path}/`)
   );
   return idx >= 0 ? idx : 0;
+}
+
+function normalizeRole(role) {
+  return String(role || "")
+    .trim()
+    .toLowerCase();
+}
+
+function isSuperAdminUser(user) {
+  const roles = new Set(
+    Array.isArray(user?.roles) ? user.roles.map(normalizeRole) : []
+  );
+  if (user?.role) roles.add(normalizeRole(user.role));
+  if (user?.isAdmin === true) roles.add("admin");
+  if (user?.isSuperUser || user?.isSuperAdmin) {
+    roles.add("admin");
+    roles.add("superadmin");
+    roles.add("superuser");
+  }
+  return roles.has("admin") && (roles.has("superadmin") || roles.has("superuser"));
 }
 
 export default function AdminLayout({ children }) {
@@ -47,6 +64,20 @@ export default function AdminLayout({ children }) {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useLanguage();
+  const tx = (key, fallback) => {
+    const value = t(key);
+    return value === key ? fallback : value;
+  };
+  const { userInfo } = useSelector((state) => state.auth || {});
+  const { isLoading: syncingProfile } = useGetProfileQuery(undefined, {
+    refetchOnMountOrArgChange: true,
+    refetchOnFocus: true,
+    refetchOnReconnect: true,
+  });
+
+  const isAdmin = userInfo?.role === "admin" || userInfo?.isAdmin === true;
+  const isSuperAdmin = isSuperAdminUser(userInfo);
+
   const navItems = [
     {
       label: t("admin.layout.users"),
@@ -58,16 +89,16 @@ export default function AdminLayout({ children }) {
       icon: <ArticleIcon />,
       path: "/admin/news",
     },
+    ...(isSuperAdmin
+      ? [
+          {
+            label: tx("admin.layout.avatarOptimization", "Avatar optimize"),
+            icon: <AutoFixHighIcon />,
+            path: "/admin/avatar-optimization",
+          },
+        ]
+      : []),
   ];
-
-  // ✅ lấy quyền admin từ redux
-  const { userInfo } = useSelector((s) => s.auth || {});
-  const { isLoading: syncingProfile } = useGetProfileQuery(undefined, {
-    refetchOnMountOrArgChange: true,
-    refetchOnFocus: true,
-    refetchOnReconnect: true,
-  });
-  const isAdmin = userInfo?.role === "admin" || userInfo?.isAdmin === true;
 
   if (syncingProfile && !isAdmin) {
     return (
@@ -84,7 +115,6 @@ export default function AdminLayout({ children }) {
     );
   }
 
-  // ✅ nếu không phải admin -> đẩy ra 403
   if (!isAdmin) {
     return <Navigate to="/403" replace state={{ from: location }} />;
   }
@@ -173,9 +203,7 @@ export default function AdminLayout({ children }) {
               flexDirection: "column",
             }}
           >
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              {children ?? <Outlet />}
-            </Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}>{children ?? <Outlet />}</Box>
             <AppFooter />
           </Box>
         </>
@@ -190,8 +218,8 @@ export default function AdminLayout({ children }) {
               <Box sx={{ flex: 1, minWidth: 0 }}>
                 <Tabs
                   value={current}
-                  onChange={(_, v) => {
-                    navigate(navItems[v].path);
+                  onChange={(_, value) => {
+                    navigate(navItems[value].path);
                     window.scrollTo(0, 0);
                   }}
                   variant="scrollable"
@@ -238,9 +266,7 @@ export default function AdminLayout({ children }) {
               flexDirection: "column",
             }}
           >
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              {children ?? <Outlet />}
-            </Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}>{children ?? <Outlet />}</Box>
             <AppFooter />
           </Box>
         </>

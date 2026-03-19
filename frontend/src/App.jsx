@@ -42,6 +42,7 @@ const App = () => {
     "/register",
     "/forgot-password",
     "/reset-password",
+    "/oauth/authorize",
   ].some((path) => location.pathname.startsWith(path));
 
   // ✅ tránh init 2 lần (React 18 StrictMode dev)
