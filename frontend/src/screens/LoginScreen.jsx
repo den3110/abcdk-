@@ -365,11 +365,11 @@ export default function LoginScreen() {
               sx={{
                 position: "relative",
                 overflow: "hidden",
-                p: { xs: 2, sm: 2.5, md: 3.5 },
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "space-between",
+                p: 0,
+                display: "grid",
+                gridTemplateRows: "auto minmax(0, 1fr) auto",
                 minHeight: 0,
+                height: "100%",
                 background:
                   "linear-gradient(180deg, #062e21 0%, #04271c 48%, #032117 100%)",
                 color: "#f7fffb",
@@ -389,7 +389,15 @@ export default function LoginScreen() {
                 }}
               />
 
-              <Stack spacing={{ xs: 2, md: 2.75 }} sx={{ position: "relative", zIndex: 1 }}>
+              <Stack
+                spacing={{ xs: 2, md: 2.75 }}
+                sx={{
+                  position: "relative",
+                  zIndex: 1,
+                  px: { xs: 2.25, sm: 2.75, md: 3.5 },
+                  pt: { xs: 2.25, sm: 2.75, md: 3 },
+                }}
+              >
                 <Stack direction="row" spacing={1.25} alignItems="center">
                   <Box
                     sx={{
@@ -463,9 +471,8 @@ export default function LoginScreen() {
                 sx={{
                   position: "relative",
                   zIndex: 1,
-                  flex: 1,
-                  minHeight: { xs: 140, sm: 200, md: 320 },
-                  mt: { xs: 1.25, md: 2 },
+                  minHeight: { xs: 140, sm: 200, md: 300 },
+                  mt: { xs: 0.5, md: 1 },
                 }}
               >
                 <Box
@@ -634,7 +641,13 @@ export default function LoginScreen() {
 
               <Stack
                 spacing={1.5}
-                sx={{ position: "relative", zIndex: 1, mt: { xs: 0.75, md: 2 } }}
+                sx={{
+                  position: "relative",
+                  zIndex: 1,
+                  px: { xs: 2.25, sm: 2.75, md: 3.5 },
+                  pb: { xs: 1.5, md: 2.25 },
+                  pt: { xs: 0.75, md: 1.5 },
+                }}
               >
                 <Paper
                   elevation={0}
