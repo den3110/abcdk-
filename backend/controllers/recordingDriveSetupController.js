@@ -2,11 +2,12 @@ import { google } from "googleapis";
 import { getCfgStr, setCfg } from "../services/config.service.js";
 import { decryptToken, encryptToken } from "../services/secret.service.js";
 import { getRecordingDriveStatus } from "../services/driveRecordings.service.js";
-import dotenv from "dotenv"
-dotenv.config()
+import dotenv from "dotenv";
+dotenv.config();
 
 const DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"];
-const RECORDING_DRIVE_CALLBACK_PATH = "/api/oauth/google/recording-drive/callback";
+const RECORDING_DRIVE_CALLBACK_PATH =
+  "/api/oauth/google/recording-drive/callback";
 
 async function pickRedirectUriForHostAndPath(req, preferredPath) {
   const csv =
@@ -19,7 +20,11 @@ async function pickRedirectUriForHostAndPath(req, preferredPath) {
     .filter(Boolean);
   if (!list.length) return "";
 
-  const host = (req.get("x-forwarded-host") || req.get("host") || "").toLowerCase();
+  const host = (
+    req.get("x-forwarded-host") ||
+    req.get("host") ||
+    ""
+  ).toLowerCase();
 
   for (const item of list) {
     try {
@@ -52,18 +57,14 @@ async function makeRecordingDriveOAuth(req) {
   ]);
   const id = String(configId || process.env.GOOGLE_CLIENT_ID || "").trim();
   const secret = String(
-    configSecret || process.env.GOOGLE_CLIENT_SECRET || ""
+    configSecret || process.env.GOOGLE_CLIENT_SECRET || "",
   ).trim();
-  const redirect = await pickRedirectUriForHostAndPath(
-    req,
-    RECORDING_DRIVE_CALLBACK_PATH
-  );
-  console.log(123)
-  console.log(id, secret, redirect)
+  const redirect = (process.env.GOOGLE_REDIRECT_URI || "").trim();
+  console.log(id, secret, redirect);
 
   if (!id || !secret || !redirect) {
     throw new Error(
-      "Thieu GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI callback cho recording drive"
+      "Thieu GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI callback cho recording drive",
     );
   }
 
@@ -83,7 +84,9 @@ export async function recordingDriveOAuthInit(req, res) {
     });
     res.json({ authUrl });
   } catch (e) {
-    res.status(400).json({ message: e?.message || "Init Google Drive OAuth failed" });
+    res
+      .status(400)
+      .json({ message: e?.message || "Init Google Drive OAuth failed" });
   }
 }
 
@@ -99,9 +102,11 @@ export async function recordingDriveOAuthCallback(req, res) {
     const { tokens } = await oauth2.getToken(code);
 
     if (!tokens?.refresh_token) {
-      return res.status(400).send(
-        "Google khong tra refresh_token. Hay Remove access roi ket noi lai."
-      );
+      return res
+        .status(400)
+        .send(
+          "Google khong tra refresh_token. Hay Remove access roi ket noi lai.",
+        );
     }
 
     await setCfg({
@@ -155,7 +160,9 @@ export async function recordingDriveOAuthCallback(req, res) {
 </body>`;
     return res.send(html);
   } catch (e) {
-    return res.status(500).send(`<pre style="white-space:pre-wrap">${e?.message || e}</pre>`);
+    return res
+      .status(500)
+      .send(`<pre style="white-space:pre-wrap">${e?.message || e}</pre>`);
   }
 }
 
@@ -200,6 +207,8 @@ export async function disconnectRecordingDriveOAuth(req, res) {
   } catch (e) {
     return res
       .status(500)
-      .json({ message: e?.message || "Disconnect Google Drive recording failed" });
+      .json({
+        message: e?.message || "Disconnect Google Drive recording failed",
+      });
   }
 }
