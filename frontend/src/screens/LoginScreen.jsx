@@ -5,7 +5,6 @@ import {
   Box,
   Button,
   CircularProgress,
-  Container,
   IconButton,
   InputAdornment,
   Link,
@@ -276,8 +275,8 @@ export default function LoginScreen() {
   return (
     <Box
       sx={{
-        position: "relative",
-        minHeight: "100dvh",
+        position: "fixed",
+        inset: 0,
         overflow: "hidden",
         background: isDark ? "#081017" : "#ffffff",
       }}
@@ -291,13 +290,12 @@ export default function LoginScreen() {
         }}
       />
 
-      <Container
+      <Box
         component="main"
-        disableGutters
-        maxWidth={false}
         sx={{
           position: "relative",
-          height: "100dvh",
+          width: "100%",
+          height: "100%",
           display: "flex",
           alignItems: "stretch",
           py: 0,
@@ -360,7 +358,7 @@ export default function LoginScreen() {
               position: "relative",
               zIndex: 1,
               display: "grid",
-              gridTemplateColumns: { xs: "1fr", md: "46% 54%" },
+              gridTemplateColumns: { xs: "1fr", md: "49% 51%" },
               gridTemplateRows: { xs: "minmax(220px, 34vh) minmax(0, 1fr)", md: "1fr" },
               mt: { xs: 0, md: "-50px" },
               height: { xs: "auto", md: "calc(100% + 50px)" },
@@ -513,17 +511,17 @@ export default function LoginScreen() {
                   sx={{
                     position: "absolute",
                     zIndex: 2,
-                    top: { xs: 54, md: 74 },
-                    left: { xs: "17%", md: "18%" },
-                    width: { xs: "66%", md: "58%" },
-                    maxWidth: 360,
-                    p: { xs: 1.5, md: 2.3 },
+                    top: { xs: 54, md: 68 },
+                    left: { xs: "18%", md: "16%" },
+                    width: { xs: "64%", md: "62%" },
+                    maxWidth: 400,
+                    p: { xs: 1.5, md: 2.4 },
                     borderRadius: 4,
                     color: "#ffffff",
                     background: "linear-gradient(180deg, #0b2017 0%, #091a13 100%)",
                     border: `1px solid ${alpha("#ffffff", 0.08)}`,
                     boxShadow: "0 24px 48px rgba(0, 0, 0, 0.32)",
-                    transform: "rotate(-6deg)",
+                    transform: "rotate(-5deg)",
                     transition: "all 320ms ease",
                   }}
                 >
@@ -599,18 +597,18 @@ export default function LoginScreen() {
                       elevation={0}
                       sx={{
                         position: "absolute",
-                        zIndex: 3,
-                        top: index === 0 ? { xs: 18, md: 28 } : { xs: 108, md: 150 },
-                        right: index === 0 ? { xs: 10, md: 14 } : "auto",
-                        left: index === 0 ? "auto" : { xs: 10, md: 18 },
-                        width: index === 0 ? { xs: "30%", md: 220 } : { xs: "34%", md: 260 },
+                        zIndex: index === 0 ? 3 : 1,
+                        top: index === 0 ? { xs: 18, md: 34 } : { xs: 130, md: 210 },
+                        right: index === 0 ? { xs: 10, md: 16 } : "auto",
+                        left: index === 0 ? "auto" : { xs: 10, md: 22 },
+                        width: index === 0 ? { xs: "29%", md: 232 } : { xs: "31%", md: 244 },
                         p: { xs: 1.2, md: 1.8 },
                         borderRadius: 4,
                         color: "#ffffff",
                         background: "linear-gradient(180deg, #10261c 0%, #0a1d15 100%)",
                         border: `1px solid ${alpha("#ffffff", 0.08)}`,
                         boxShadow: "0 18px 40px rgba(0, 0, 0, 0.26)",
-                        transform: index === 0 ? "rotate(6deg)" : "rotate(-5deg)",
+                        transform: index === 0 ? "rotate(5deg)" : "rotate(-4deg)",
                       }}
                     >
                       <Stack spacing={1.25}>
@@ -924,7 +922,7 @@ export default function LoginScreen() {
             </Box>
           </Box>
         </Paper>
-      </Container>
+      </Box>
     </Box>
   );
 }
