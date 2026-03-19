@@ -28,6 +28,7 @@ import {
 } from "@mui/icons-material";
 import { useDispatch, useSelector } from "react-redux";
 import { toast } from "react-toastify";
+import LogoAnimation from "../components/LogoAnimation";
 import SEOHead from "../components/SEOHead";
 import { useLanguage } from "../context/LanguageContext.jsx";
 import { setCredentials } from "../slices/authSlice";
@@ -36,51 +37,75 @@ import { useLoginMutation } from "../slices/usersApiSlice";
 
 const WEB_LOGO_PATH = "/icon-192.png";
 
-function ShowcaseVisual({ kind, accent }) {
+function ShowcaseVisual({ kind, accent, compact = false }) {
   if (kind === "live") {
     return (
-      <Stack spacing={1.1}>
+      <Stack spacing={compact ? 0.8 : 1.1}>
         <Stack direction="row" justifyContent="space-between" alignItems="center">
           <Box
             sx={{
-              px: 1,
-              py: 0.4,
+              px: compact ? 0.7 : 1,
+              py: compact ? 0.28 : 0.4,
               borderRadius: 99,
               bgcolor: alpha(accent, 0.18),
               color: accent,
-              fontSize: 11,
+              fontSize: compact ? 9 : 11,
               fontWeight: 800,
               letterSpacing: "0.08em",
             }}
           >
             LIVE
           </Box>
-          <Typography sx={{ color: alpha("#ffffff", 0.58), fontSize: 12 }}>
+          <Typography sx={{ color: alpha("#ffffff", 0.58), fontSize: compact ? 10 : 12 }}>
             Court A
           </Typography>
         </Stack>
 
         <Stack direction="row" alignItems="baseline" justifyContent="space-between">
           <Box>
-            <Typography sx={{ color: "#ffffff", fontSize: 28, fontWeight: 800, lineHeight: 1 }}>
+            <Typography
+              sx={{
+                color: "#ffffff",
+                fontSize: compact ? 20 : 28,
+                fontWeight: 800,
+                lineHeight: 1,
+              }}
+            >
               11
             </Typography>
-            <Typography sx={{ color: alpha("#ffffff", 0.58), fontSize: 12 }}>Team A</Typography>
+            <Typography sx={{ color: alpha("#ffffff", 0.58), fontSize: compact ? 10 : 12 }}>
+              Team A
+            </Typography>
           </Box>
-          <Typography sx={{ color: alpha("#ffffff", 0.28), fontSize: 20, fontWeight: 700 }}>
+          <Typography
+            sx={{
+              color: alpha("#ffffff", 0.28),
+              fontSize: compact ? 16 : 20,
+              fontWeight: 700,
+            }}
+          >
             :
           </Typography>
           <Box sx={{ textAlign: "right" }}>
-            <Typography sx={{ color: "#ffffff", fontSize: 28, fontWeight: 800, lineHeight: 1 }}>
+            <Typography
+              sx={{
+                color: "#ffffff",
+                fontSize: compact ? 20 : 28,
+                fontWeight: 800,
+                lineHeight: 1,
+              }}
+            >
               08
             </Typography>
-            <Typography sx={{ color: alpha("#ffffff", 0.58), fontSize: 12 }}>Team B</Typography>
+            <Typography sx={{ color: alpha("#ffffff", 0.58), fontSize: compact ? 10 : 12 }}>
+              Team B
+            </Typography>
           </Box>
         </Stack>
 
         <Box
           sx={{
-            height: 6,
+            height: compact ? 5 : 6,
             borderRadius: 99,
             bgcolor: alpha("#ffffff", 0.08),
             overflow: "hidden",
@@ -101,19 +126,19 @@ function ShowcaseVisual({ kind, accent }) {
 
   if (kind === "ranking") {
     return (
-      <Stack spacing={1}>
+      <Stack spacing={compact ? 0.75 : 1}>
         {[1, 2, 3].map((rank, index) => (
-          <Stack key={rank} direction="row" spacing={1.1} alignItems="center">
+          <Stack key={rank} direction="row" spacing={compact ? 0.8 : 1.1} alignItems="center">
             <Box
               sx={{
-                width: 24,
-                height: 24,
+                width: compact ? 18 : 24,
+                height: compact ? 18 : 24,
                 borderRadius: 99,
                 display: "grid",
                 placeItems: "center",
                 bgcolor: index === 0 ? accent : alpha("#ffffff", 0.08),
                 color: index === 0 ? "#04110b" : "#ffffff",
-                fontSize: 11,
+                fontSize: compact ? 9 : 11,
                 fontWeight: 800,
               }}
             >
@@ -122,7 +147,7 @@ function ShowcaseVisual({ kind, accent }) {
             <Box
               sx={{
                 flex: 1,
-                height: 8,
+                height: compact ? 6 : 8,
                 borderRadius: 99,
                 bgcolor: alpha("#ffffff", 0.08),
                 overflow: "hidden",
@@ -147,13 +172,13 @@ function ShowcaseVisual({ kind, accent }) {
   }
 
   return (
-    <Stack spacing={1}>
+    <Stack spacing={compact ? 0.75 : 1}>
       {[0, 1, 2].map((row) => (
-        <Stack key={row} direction="row" spacing={1} alignItems="center">
+        <Stack key={row} direction="row" spacing={compact ? 0.75 : 1} alignItems="center">
           <Box
             sx={{
-              width: 44 - row * 6,
-              height: 8,
+              width: (compact ? 30 : 44) - row * (compact ? 4 : 6),
+              height: compact ? 6 : 8,
               borderRadius: 99,
               bgcolor: row === 0 ? accent : alpha("#ffffff", 0.14),
             }}
@@ -161,8 +186,8 @@ function ShowcaseVisual({ kind, accent }) {
           <Box sx={{ flex: 1, height: 1, bgcolor: alpha("#ffffff", 0.12) }} />
           <Box
             sx={{
-              width: 30 + row * 12,
-              height: 8,
+              width: (compact ? 20 : 30) + row * (compact ? 9 : 12),
+              height: compact ? 6 : 8,
               borderRadius: 99,
               bgcolor: alpha("#ffffff", 0.1),
             }}
@@ -171,8 +196,17 @@ function ShowcaseVisual({ kind, accent }) {
       ))}
 
       <Stack direction="row" spacing={1}>
-        <Box sx={{ flex: 1, height: 8, borderRadius: 99, bgcolor: alpha("#ffffff", 0.08) }} />
-        <Box sx={{ width: 64, height: 8, borderRadius: 99, bgcolor: alpha(accent, 0.82) }} />
+        <Box
+          sx={{ flex: 1, height: compact ? 6 : 8, borderRadius: 99, bgcolor: alpha("#ffffff", 0.08) }}
+        />
+        <Box
+          sx={{
+            width: compact ? 44 : 64,
+            height: compact ? 6 : 8,
+            borderRadius: 99,
+            bgcolor: alpha(accent, 0.82),
+          }}
+        />
       </Stack>
     </Stack>
   );
@@ -181,6 +215,7 @@ function ShowcaseVisual({ kind, accent }) {
 ShowcaseVisual.propTypes = {
   kind: PropTypes.string.isRequired,
   accent: PropTypes.string.isRequired,
+  compact: PropTypes.bool,
 };
 
 export default function LoginScreen() {
@@ -193,6 +228,7 @@ export default function LoginScreen() {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+  const isCompactMobile = useMediaQuery("(max-width:480px)");
   const isDark = theme.palette.mode === "dark";
   const { t } = useLanguage();
 
@@ -319,38 +355,53 @@ export default function LoginScreen() {
             sx={{
               position: "relative",
               zIndex: 2,
-              height: { xs: 42, md: 50 },
-              px: { xs: 2, sm: 2.5, md: 3 },
-              display: "flex",
-              justifyContent: "flex-end",
+              height: { xs: 48, md: 50 },
+              display: "grid",
+              gridTemplateColumns: { xs: "1fr", md: "49% 51%" },
               alignItems: "center",
               borderBottom: { xs: `1px solid ${alpha(isDark ? "#d8eef7" : "#101820", 0.08)}`, md: 0 },
             }}
           >
-            <Stack direction="row" spacing={0.75} justifyContent="flex-end" alignItems="center">
-              <Typography
-                variant="body2"
-                sx={{
-                  display: { xs: "none", md: "block" },
-                  color: formTextSecondary,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {t("auth.login.registerPrompt")}
-              </Typography>
-              <Link
-                component={RouterLink}
-                to="/register"
-                underline="hover"
-                sx={{
-                  color: formTextPrimary,
-                  fontWeight: 700,
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {t("auth.login.register")}
-              </Link>
-            </Stack>
+            <Box sx={{ display: { xs: "none", md: "block" } }} />
+
+            <Box
+              sx={{
+                px: { xs: 2, sm: 2.5, md: 3 },
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                minWidth: 0,
+              }}
+            >
+              <Box sx={{ display: "flex", alignItems: "center", minWidth: 0 }}>
+                <LogoAnimation isMobile={false} showBackButton={false} />
+              </Box>
+
+              <Stack direction="row" spacing={0.75} justifyContent="flex-end" alignItems="center">
+                <Typography
+                  variant="body2"
+                  sx={{
+                    display: { xs: "none", md: "block" },
+                    color: formTextSecondary,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {t("auth.login.registerPrompt")}
+                </Typography>
+                <Link
+                  component={RouterLink}
+                  to="/register"
+                  underline="hover"
+                  sx={{
+                    color: formTextPrimary,
+                    fontWeight: 700,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {t("auth.login.register")}
+                </Link>
+              </Stack>
+            </Box>
           </Box>
 
           <Box
@@ -359,7 +410,7 @@ export default function LoginScreen() {
               zIndex: 1,
               display: "grid",
               gridTemplateColumns: { xs: "1fr", md: "49% 51%" },
-              gridTemplateRows: { xs: "minmax(220px, 34vh) minmax(0, 1fr)", md: "1fr" },
+              gridTemplateRows: { xs: "minmax(230px, 36vh) minmax(0, 1fr)", md: "1fr" },
               mt: { xs: 0, md: "-50px" },
               height: { xs: "auto", md: "calc(100% + 50px)" },
               minHeight: 0,
@@ -398,11 +449,16 @@ export default function LoginScreen() {
                 sx={{
                   position: "relative",
                   zIndex: 1,
-                  px: { xs: 2.25, sm: 2.75, md: 3.5 },
-                  pt: { xs: 2.25, sm: 2.75, md: 3 },
+                  px: { xs: 1.4, sm: 2.75, md: 3.5 },
+                  pt: { xs: 1.2, sm: 2.75, md: 3 },
                 }}
               >
-                <Stack direction="row" spacing={1.25} alignItems="center">
+                <Stack
+                  direction="row"
+                  spacing={1.25}
+                  alignItems="center"
+                  sx={{ display: { xs: "none", sm: "flex" } }}
+                >
                   <Box
                     sx={{
                       width: 42,
@@ -449,10 +505,11 @@ export default function LoginScreen() {
                   <Typography
                     variant={isMobile ? "h6" : "h4"}
                     sx={{
-                      mt: 1,
+                      mt: { xs: 0.3, md: 1 },
                       fontWeight: 800,
                       lineHeight: 1.08,
                       letterSpacing: "-0.04em",
+                      fontSize: { xs: "0.92rem", sm: undefined, md: undefined },
                     }}
                   >
                     {t("auth.login.brandTitle")}
@@ -476,17 +533,17 @@ export default function LoginScreen() {
                   position: "relative",
                   zIndex: 1,
                   minHeight: { xs: 150, sm: 220, md: 340 },
-                  mt: { xs: 0.5, md: 1.5 },
+                  mt: { xs: -0.25, md: 1.5 },
                 }}
               >
                 <Box
                   aria-hidden="true"
                   sx={{
                     position: "absolute",
-                    top: { xs: 18, md: 18 },
+                    top: { xs: 22, md: 18 },
                     right: { xs: 18, md: 34 },
-                    width: { xs: 68, md: 104 },
-                    height: { xs: 68, md: 104 },
+                    width: { xs: 58, md: 104 },
+                    height: { xs: 58, md: 104 },
                     borderRadius: 4,
                     bgcolor: "#7d64ff",
                     transform: "rotate(10deg)",
@@ -496,10 +553,10 @@ export default function LoginScreen() {
                   aria-hidden="true"
                   sx={{
                     position: "absolute",
-                    bottom: { xs: 18, md: 26 },
-                    right: { xs: 54, md: 74 },
-                    width: { xs: 78, md: 118 },
-                    height: { xs: 78, md: 118 },
+                    bottom: { xs: 22, md: 26 },
+                    right: { xs: 50, md: 74 },
+                    width: { xs: 64, md: 118 },
+                    height: { xs: 64, md: 118 },
                     borderRadius: 4,
                     bgcolor: "#b8d8ff",
                     transform: "rotate(-5deg)",
@@ -511,17 +568,17 @@ export default function LoginScreen() {
                   sx={{
                     position: "absolute",
                     zIndex: 2,
-                    top: { xs: 54, md: 68 },
-                    left: { xs: "18%", md: "16%" },
-                    width: { xs: "64%", md: "62%" },
+                    top: { xs: 72, md: 68 },
+                    left: { xs: "21%", md: "16%" },
+                    width: { xs: "58%", md: "62%" },
                     maxWidth: 400,
-                    p: { xs: 1.5, md: 2.4 },
+                    p: { xs: 1.15, md: 2.4 },
                     borderRadius: 4,
                     color: "#ffffff",
                     background: "linear-gradient(180deg, #0b2017 0%, #091a13 100%)",
                     border: `1px solid ${alpha("#ffffff", 0.08)}`,
                     boxShadow: "0 24px 48px rgba(0, 0, 0, 0.32)",
-                    transform: "rotate(-5deg)",
+                    transform: { xs: "rotate(-4deg)", md: "rotate(-5deg)" },
                     transition: "all 320ms ease",
                   }}
                 >
@@ -537,13 +594,14 @@ export default function LoginScreen() {
                             placeItems: "center",
                             bgcolor: activeCard.accent,
                             color: "#061108",
+                            transform: { xs: "scale(0.88)", md: "none" },
                           }}
                         >
                           <ActiveIcon fontSize="small" />
                         </Box>
                         <Typography
                           sx={{
-                            fontSize: 11,
+                            fontSize: { xs: 9, md: 11 },
                             fontWeight: 800,
                             letterSpacing: "0.08em",
                             textTransform: "uppercase",
@@ -565,7 +623,7 @@ export default function LoginScreen() {
                     </Stack>
 
                     <Box>
-                      <Typography sx={{ fontSize: { xs: 15, md: 22 }, fontWeight: 800 }}>
+                      <Typography sx={{ fontSize: { xs: 12, md: 22 }, fontWeight: 800 }}>
                         {activeCard.title}
                       </Typography>
                       <Typography
@@ -584,7 +642,11 @@ export default function LoginScreen() {
                       </Typography>
                     </Box>
 
-                    <ShowcaseVisual kind={activeCard.kind} accent={activeCard.accent} />
+                    <ShowcaseVisual
+                      kind={activeCard.kind}
+                      accent={activeCard.accent}
+                      compact={isMobile}
+                    />
                   </Stack>
                 </Paper>
 
@@ -598,17 +660,17 @@ export default function LoginScreen() {
                       sx={{
                         position: "absolute",
                         zIndex: index === 0 ? 3 : 1,
-                        top: index === 0 ? { xs: 18, md: 34 } : { xs: 130, md: 210 },
+                        top: index === 0 ? { xs: 54, md: 34 } : { xs: 118, md: 210 },
                         right: index === 0 ? { xs: 10, md: 16 } : "auto",
-                        left: index === 0 ? "auto" : { xs: 10, md: 22 },
-                        width: index === 0 ? { xs: "29%", md: 232 } : { xs: "31%", md: 244 },
-                        p: { xs: 1.2, md: 1.8 },
+                        left: index === 0 ? "auto" : { xs: 6, md: 22 },
+                        width: index === 0 ? { xs: "22%", md: 232 } : { xs: "24%", md: 244 },
+                        p: { xs: 0.85, md: 1.8 },
                         borderRadius: 4,
                         color: "#ffffff",
                         background: "linear-gradient(180deg, #10261c 0%, #0a1d15 100%)",
                         border: `1px solid ${alpha("#ffffff", 0.08)}`,
                         boxShadow: "0 18px 40px rgba(0, 0, 0, 0.26)",
-                        transform: index === 0 ? "rotate(5deg)" : "rotate(-4deg)",
+                        transform: index === 0 ? { xs: "rotate(4deg)", md: "rotate(5deg)" } : { xs: "rotate(-3deg)", md: "rotate(-4deg)" },
                       }}
                     >
                       <Stack spacing={1.25}>
@@ -622,6 +684,7 @@ export default function LoginScreen() {
                               placeItems: "center",
                               bgcolor: alpha(card.accent, 0.18),
                               color: card.accent,
+                              transform: { xs: "scale(0.82)", md: "none" },
                             }}
                           >
                             <CardIcon sx={{ fontSize: 18 }} />
@@ -629,7 +692,7 @@ export default function LoginScreen() {
                           <Typography
                             sx={{
                               color: alpha("#ffffff", 0.9),
-                              fontSize: { xs: 11, md: 13 },
+                              fontSize: { xs: 8.5, md: 13 },
                               fontWeight: 700,
                               lineHeight: 1.25,
                             }}
@@ -637,7 +700,11 @@ export default function LoginScreen() {
                             {card.title}
                           </Typography>
                         </Stack>
-                        <ShowcaseVisual kind={card.kind} accent={card.accent} />
+                        <ShowcaseVisual
+                          kind={card.kind}
+                          accent={card.accent}
+                          compact={isCompactMobile}
+                        />
                       </Stack>
                     </Paper>
                   );
