@@ -11,7 +11,7 @@ import {
 import { evaluateSeoNewsRelevance } from "../services/seoNewsRelevanceService.js";
 
 const SITE_URL = process.env.PUBLIC_SITE_URL || "https://pickletour.vn";
-const IMAGE_PROXY_PATH = "/api/seo-news/image-proxy";
+const IMAGE_PROXY_PATH = "/api/api/seo-news/image-proxy";
 const IMAGE_PROXY_TIMEOUT_MS = Math.max(
   4000,
   Number(process.env.SEO_NEWS_IMAGE_PROXY_TIMEOUT_MS) || 12000

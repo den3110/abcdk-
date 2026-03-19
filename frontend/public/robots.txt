@@ -3,5 +3,5 @@ Allow: /
 
 Sitemap: https://pickletour.vn/sitemap.xml
 
-Sitemap: https://pickletour.vn/api/seo-news/sitemap.xml
+Sitemap: https://pickletour.vn/api/api/seo-news/sitemap.xml
 

@@ -251,6 +251,13 @@ function buildExportPipelineInfo(recording, context = {}) {
       currentWorkerRecordingId &&
       currentWorkerRecordingId === recordingId
   );
+  const updatedAtMs = recording?.updatedAt
+    ? new Date(recording.updatedAt).getTime()
+    : 0;
+  const recentlyUpdated =
+    Number.isFinite(updatedAtMs) && updatedAtMs > 0
+      ? Date.now() - updatedAtMs < 60 * 1000
+      : false;
 
   let stage = exportPipeline.stage || null;
   if (recording?.status === "exporting") {
@@ -258,17 +265,27 @@ function buildExportPipelineInfo(recording, context = {}) {
     else if (active && !stage) stage = "downloading";
     else if (waiting && !stage) stage = "queued";
     else if (delayed && !stage) stage = "queued_retry";
+    else if (!stage) {
+      stage = workerHealth?.alive
+        ? recentlyUpdated
+          ? "awaiting_queue_sync"
+          : "stale_no_job"
+        : "worker_offline";
+    }
   }
 
   const stageLabels = {
     queued: "Dang cho worker",
     queued_retry: "Dang doi retry",
+    awaiting_queue_sync: "Dang dong bo trang thai queue",
     downloading: "Worker dang tai segment tu R2",
     merging: "Worker dang ghep video",
     uploading_drive: "Dang upload len Drive",
     cleaning_r2: "Dang don segment tren R2",
     completed: "Hoan tat",
     failed: "Export that bai",
+    stale_no_job: "Export treo - khong co job trong queue",
+    worker_offline: "Worker dang offline",
   };
 
   let detail = "";
@@ -276,12 +293,18 @@ function buildExportPipelineInfo(recording, context = {}) {
     detail = `Queue #${waiting.position}`;
   } else if (stage === "queued_retry" && delayed?.position) {
     detail = `Retry queue #${delayed.position}`;
+  } else if (stage === "awaiting_queue_sync") {
+    detail = "Ban ghi vua vao exporting, dang cho queue/worker dong bo.";
   } else if (inWorker) {
     detail = workerHealth?.worker?.currentJobStartedAt
       ? `Worker bat dau ${new Date(workerHealth.worker.currentJobStartedAt).toISOString()}`
       : "Worker dang xu ly";
   } else if (active) {
     detail = "Worker dang xu ly";
+  } else if (stage === "stale_no_job") {
+    detail = "Khong tim thay job nao trong queue cho recording nay. Can kiem tra va retry export.";
+  } else if (stage === "worker_offline") {
+    detail = "Worker khong co heartbeat nen chua the xu ly export nay.";
   }
 
   return {
