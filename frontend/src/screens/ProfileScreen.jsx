@@ -194,7 +194,10 @@ function HeroMetric({ label, value, caption }) {
             : alpha(theme.palette.primary.main, 0.08),
       }}
     >
-      <Typography variant="caption" sx={{ display: "block", color: "text.secondary", mb: 0.75 }}>
+      <Typography
+        variant="caption"
+        sx={{ display: "block", color: "text.secondary", mb: 0.75 }}
+      >
         {label}
       </Typography>
       <Typography
@@ -214,7 +217,14 @@ function HeroMetric({ label, value, caption }) {
   );
 }
 
-function SectionCard({ icon, title, subtitle, action, tone = "primary", children }) {
+function SectionCard({
+  icon,
+  title,
+  subtitle,
+  action,
+  tone = "primary",
+  children,
+}) {
   const theme = useTheme();
   const palette = theme.palette[tone] || theme.palette.primary;
 
@@ -319,7 +329,6 @@ function SummaryRow({ icon, label, value }) {
   );
 }
 
-
 function HeroMetric({ label, value, caption }) {
   const theme = useTheme();
 
@@ -337,7 +346,10 @@ function HeroMetric({ label, value, caption }) {
             : alpha(theme.palette.primary.main, 0.08),
       }}
     >
-      <Typography variant="caption" sx={{ display: "block", color: "text.secondary", mb: 0.75 }}>
+      <Typography
+        variant="caption"
+        sx={{ display: "block", color: "text.secondary", mb: 0.75 }}
+      >
         {label}
       </Typography>
       <Typography
@@ -357,7 +369,14 @@ function HeroMetric({ label, value, caption }) {
   );
 }
 
-function SectionCard({ icon, title, subtitle, action, tone = "primary", children }) {
+function SectionCard({
+  icon,
+  title,
+  subtitle,
+  action,
+  tone = "primary",
+  children,
+}) {
   const theme = useTheme();
   const palette = theme.palette[tone] || theme.palette.primary;
 
@@ -467,7 +486,10 @@ function ProfileSkeleton({ onLogout }) {
   const { t } = useLanguage();
 
   return (
-    <Container maxWidth="xl" sx={{ py: { xs: 2, md: 5 }, px: { xs: 1.5, sm: 3, md: 4 } }}>
+    <Container
+      maxWidth="xl"
+      sx={{ py: { xs: 2, md: 5 }, px: { xs: 1.5, sm: 3, md: 4 } }}
+    >
       <Paper
         elevation={0}
         sx={{
@@ -486,19 +508,36 @@ function ProfileSkeleton({ onLogout }) {
               variant="rounded"
               width={180}
               height={34}
-              sx={{ bgcolor: theme.palette.mode === "light" ? alpha(theme.palette.primary.main, 0.12) : alpha(theme.palette.common.white, 0.14), mb: 2 }}
+              sx={{
+                bgcolor:
+                  theme.palette.mode === "light"
+                    ? alpha(theme.palette.primary.main, 0.12)
+                    : alpha(theme.palette.common.white, 0.14),
+                mb: 2,
+              }}
             />
             <Skeleton
               variant="text"
               width="76%"
               height={64}
-              sx={{ bgcolor: theme.palette.mode === "light" ? alpha(theme.palette.primary.main, 0.08) : alpha(theme.palette.common.white, 0.1) }}
+              sx={{
+                bgcolor:
+                  theme.palette.mode === "light"
+                    ? alpha(theme.palette.primary.main, 0.08)
+                    : alpha(theme.palette.common.white, 0.1),
+              }}
             />
             <Skeleton
               variant="text"
               width="88%"
               height={28}
-              sx={{ bgcolor: theme.palette.mode === "light" ? alpha(theme.palette.primary.main, 0.08) : alpha(theme.palette.common.white, 0.1), mb: 2 }}
+              sx={{
+                bgcolor:
+                  theme.palette.mode === "light"
+                    ? alpha(theme.palette.primary.main, 0.08)
+                    : alpha(theme.palette.common.white, 0.1),
+                mb: 2,
+              }}
             />
 
             <Grid container spacing={2}>
@@ -507,7 +546,13 @@ function ProfileSkeleton({ onLogout }) {
                   <Skeleton
                     variant="rounded"
                     height={110}
-                    sx={{ bgcolor: theme.palette.mode === "light" ? alpha(theme.palette.primary.main, 0.08) : alpha(theme.palette.common.white, 0.1), borderRadius: 4 }}
+                    sx={{
+                      bgcolor:
+                        theme.palette.mode === "light"
+                          ? alpha(theme.palette.primary.main, 0.08)
+                          : alpha(theme.palette.common.white, 0.1),
+                      borderRadius: 4,
+                    }}
                   />
                 </Grid>
               ))}
@@ -518,7 +563,13 @@ function ProfileSkeleton({ onLogout }) {
             <Skeleton
               variant="rounded"
               height={260}
-              sx={{ bgcolor: theme.palette.mode === "light" ? alpha(theme.palette.primary.main, 0.08) : alpha(theme.palette.common.white, 0.1), borderRadius: 5 }}
+              sx={{
+                bgcolor:
+                  theme.palette.mode === "light"
+                    ? alpha(theme.palette.primary.main, 0.08)
+                    : alpha(theme.palette.common.white, 0.1),
+                borderRadius: 5,
+              }}
             />
           </Grid>
         </Grid>
@@ -538,11 +589,20 @@ function ProfileSkeleton({ onLogout }) {
           >
             <Skeleton variant="text" width={180} height={40} />
             <Skeleton variant="text" width="72%" height={24} sx={{ mb: 2 }} />
-            <Skeleton variant="rounded" height={8} sx={{ borderRadius: 99, mb: 3 }} />
+            <Skeleton
+              variant="rounded"
+              height={8}
+              sx={{ borderRadius: 99, mb: 3 }}
+            />
 
             <Stack spacing={1.5}>
               {Array.from({ length: 4 }).map((_, index) => (
-                <Skeleton key={index} variant="rounded" height={56} sx={{ borderRadius: 3 }} />
+                <Skeleton
+                  key={index}
+                  variant="rounded"
+                  height={56}
+                  sx={{ borderRadius: 3 }}
+                />
               ))}
             </Stack>
 
@@ -575,13 +635,24 @@ function ProfileSkeleton({ onLogout }) {
                 }}
               >
                 <Skeleton variant="text" width={220} height={36} />
-                <Skeleton variant="text" width="64%" height={22} sx={{ mb: 3 }} />
+                <Skeleton
+                  variant="text"
+                  width="64%"
+                  height={22}
+                  sx={{ mb: 3 }}
+                />
                 <Grid container spacing={2}>
-                  {Array.from({ length: index === 2 ? 2 : 4 }).map((__, fieldIndex) => (
-                    <Grid key={fieldIndex} size={{ xs: 12, sm: 6 }}>
-                      <Skeleton variant="rounded" height={58} sx={{ borderRadius: 3 }} />
-                    </Grid>
-                  ))}
+                  {Array.from({ length: index === 2 ? 2 : 4 }).map(
+                    (__, fieldIndex) => (
+                      <Grid key={fieldIndex} size={{ xs: 12, sm: 6 }}>
+                        <Skeleton
+                          variant="rounded"
+                          height={58}
+                          sx={{ borderRadius: 3 }}
+                        />
+                      </Grid>
+                    ),
+                  )}
                 </Grid>
               </Paper>
             ))}
@@ -608,7 +679,8 @@ export default function ProfileScreen() {
 
   const scrollToEl = useCallback((el) => {
     if (!el || typeof window === "undefined") return;
-    const top = el.getBoundingClientRect().top + window.pageYOffset - HEADER_OFFSET;
+    const top =
+      el.getBoundingClientRect().top + window.pageYOffset - HEADER_OFFSET;
     window.scrollTo({ top, behavior: "smooth" });
     el.style.outline = "2px solid #0284c7";
     el.style.borderRadius = "18px";
@@ -621,7 +693,8 @@ export default function ProfileScreen() {
   const [updateProfile, { isLoading }] = useUpdateUserMutation();
   const [logoutApiCall, { isLoading: isLoggingOut }] = useLogoutMutation();
   const [uploadCccd, { isLoading: upLoad }] = useUploadCccdMutation();
-  const [uploadAvatar, { isLoading: uploadingAvatar }] = useUploadRealAvatarMutation();
+  const [uploadAvatar, { isLoading: uploadingAvatar }] =
+    useUploadRealAvatarMutation();
 
   const [form, setForm] = useState(EMPTY);
   const [touched, setTouched] = useState({});
@@ -639,7 +712,7 @@ export default function ProfileScreen() {
 
   const avatarSrc = useMemo(
     () => avatarPreview || form.avatar || PLACEHOLDER_AVATAR,
-    [avatarPreview, form.avatar]
+    [avatarPreview, form.avatar],
   );
 
   const [cccdZoomOpen, setCccdZoomOpen] = useState(false);
@@ -720,9 +793,11 @@ export default function ProfileScreen() {
     const nextErrors = {};
 
     if (!data.name.trim()) nextErrors.name = t("profile.validation.empty");
-    else if (data.name.trim().length < 2) nextErrors.name = t("profile.validation.min2");
+    else if (data.name.trim().length < 2)
+      nextErrors.name = t("profile.validation.min2");
 
-    if (!data.nickname.trim()) nextErrors.nickname = t("profile.validation.empty");
+    if (!data.nickname.trim())
+      nextErrors.nickname = t("profile.validation.empty");
     else if (data.nickname.trim().length < 2) {
       nextErrors.nickname = t("profile.validation.min2");
     }
@@ -737,27 +812,33 @@ export default function ProfileScreen() {
 
     if (data.dob) {
       const day = new Date(data.dob);
-      if (Number.isNaN(day)) nextErrors.dob = t("profile.validation.invalidDob");
-      else if (day > new Date()) nextErrors.dob = t("profile.validation.futureDob");
+      if (Number.isNaN(day))
+        nextErrors.dob = t("profile.validation.invalidDob");
+      else if (day > new Date())
+        nextErrors.dob = t("profile.validation.futureDob");
       else if (new Date(data.dob) < new Date("1940-01-01")) {
         nextErrors.dob = t("profile.validation.minDob");
       }
     }
 
-    if (!data.province) nextErrors.province = t("profile.validation.provinceRequired");
+    if (!data.province)
+      nextErrors.province = t("profile.validation.provinceRequired");
 
     if (data.cccd && !/^\d{12}$/.test(data.cccd.trim())) {
       nextErrors.cccd = t("profile.validation.invalidCccd");
     }
 
     if (changePassword) {
-      if (!data.password) nextErrors.password = t("profile.validation.passwordRequired");
+      if (!data.password)
+        nextErrors.password = t("profile.validation.passwordRequired");
       else if (data.password.length < 6) {
         nextErrors.password = t("profile.validation.passwordMin");
       }
 
       if (!data.confirmPassword) {
-        nextErrors.confirmPassword = t("profile.validation.confirmPasswordRequired");
+        nextErrors.confirmPassword = t(
+          "profile.validation.confirmPasswordRequired",
+        );
       } else if (data.password !== data.confirmPassword) {
         nextErrors.confirmPassword = t("profile.validation.passwordMismatch");
       }
@@ -774,7 +855,8 @@ export default function ProfileScreen() {
 
   const isDirty = useMemo(() => {
     const changed = Object.keys(form).some(
-      (key) => key !== "confirmPassword" && form[key] !== initialRef.current[key]
+      (key) =>
+        key !== "confirmPassword" && form[key] !== initialRef.current[key],
     );
     return changed || !!avatarFile;
   }, [form, avatarFile]);
@@ -783,7 +865,7 @@ export default function ProfileScreen() {
 
   const isCccdValid = useMemo(
     () => /^\d{12}$/.test((form.cccd || "").trim()),
-    [form.cccd]
+    [form.cccd],
   );
 
   const showErr = (field) => touched[field] && !!errors[field];
@@ -864,7 +946,10 @@ export default function ProfileScreen() {
       setSnack({
         open: true,
         type: "error",
-        msg: err?.data?.message || err?.error || t("profile.feedback.updateFailed"),
+        msg:
+          err?.data?.message ||
+          err?.error ||
+          t("profile.feedback.updateFailed"),
       });
     }
   };
@@ -949,7 +1034,12 @@ export default function ProfileScreen() {
   };
 
   const logoutConfirmDialog = (
-    <Dialog open={logoutConfirmOpen} onClose={closeLogoutConfirm} maxWidth="xs" fullWidth>
+    <Dialog
+      open={logoutConfirmOpen}
+      onClose={closeLogoutConfirm}
+      maxWidth="xs"
+      fullWidth
+    >
       <Box sx={{ p: 2.5 }}>
         <Stack
           direction="row"
@@ -970,7 +1060,11 @@ export default function ProfileScreen() {
         </Typography>
 
         <Stack direction="row" spacing={1.2} justifyContent="flex-end">
-          <Button variant="outlined" onClick={closeLogoutConfirm} disabled={isLoggingOut}>
+          <Button
+            variant="outlined"
+            onClick={closeLogoutConfirm}
+            disabled={isLoggingOut}
+          >
             {t("common.actions.cancel")}
           </Button>
           <Button
@@ -986,7 +1080,9 @@ export default function ProfileScreen() {
               )
             }
           >
-            {isLoggingOut ? t("profile.logout.pending") : t("profile.hero.logout")}
+            {isLoggingOut
+              ? t("profile.logout.pending")
+              : t("profile.hero.logout")}
           </Button>
         </Stack>
       </Box>
@@ -1012,22 +1108,24 @@ export default function ProfileScreen() {
     status === "verified"
       ? t("profile.kyc.summary.verified")
       : status === "pending"
-      ? t("profile.kyc.summary.pending")
-      : pendingUploads > 0
-      ? t("profile.kyc.summary.selectedImages", { count: pendingUploads })
-      : storedCccdImages > 0
-      ? t("profile.kyc.summary.storedImages", { count: storedCccdImages })
-      : isCccdValid
-      ? t("profile.kyc.summary.validNumber")
-      : cccdTrim
-      ? t("profile.kyc.summary.invalidNumber")
-      : t("profile.kyc.summary.empty");
-  const profileCode = user?._id ? String(user._id).slice(-6).toUpperCase() : "------";
+        ? t("profile.kyc.summary.pending")
+        : pendingUploads > 0
+          ? t("profile.kyc.summary.selectedImages", { count: pendingUploads })
+          : storedCccdImages > 0
+            ? t("profile.kyc.summary.storedImages", { count: storedCccdImages })
+            : isCccdValid
+              ? t("profile.kyc.summary.validNumber")
+              : cccdTrim
+                ? t("profile.kyc.summary.invalidNumber")
+                : t("profile.kyc.summary.empty");
+  const profileCode = user?._id
+    ? String(user._id).slice(-6).toUpperCase()
+    : "------";
   const memberSince =
     formatDisplayDate(
       user?.createdAt || user?.joinedAt,
       language,
-      t("common.states.notUpdated")
+      t("common.states.notUpdated"),
     ) || t("common.states.notUpdated");
   const genderLabel = getGenderLabel(t, form.gender);
   const hasFullCccdImages =
@@ -1037,13 +1135,31 @@ export default function ProfileScreen() {
     status === "verified";
   const hasSubmittedKyc = status === "pending" || status === "verified";
   const completionItems = [
-    { label: t("profile.completionItems.name"), done: Boolean(form.name.trim()) },
-    { label: t("profile.completionItems.nickname"), done: Boolean(form.nickname.trim()) },
-    { label: t("profile.completionItems.phone"), done: /^0\d{9}$/.test(form.phone.trim()) },
-    { label: t("profile.completionItems.email"), done: Boolean(form.email.trim()) },
+    {
+      label: t("profile.completionItems.name"),
+      done: Boolean(form.name.trim()),
+    },
+    {
+      label: t("profile.completionItems.nickname"),
+      done: Boolean(form.nickname.trim()),
+    },
+    {
+      label: t("profile.completionItems.phone"),
+      done: /^0\d{9}$/.test(form.phone.trim()),
+    },
+    {
+      label: t("profile.completionItems.email"),
+      done: Boolean(form.email.trim()),
+    },
     { label: t("profile.completionItems.dob"), done: Boolean(form.dob) },
-    { label: t("profile.completionItems.province"), done: Boolean(form.province) },
-    { label: t("profile.completionItems.gender"), done: form.gender !== "unspecified" },
+    {
+      label: t("profile.completionItems.province"),
+      done: Boolean(form.province),
+    },
+    {
+      label: t("profile.completionItems.gender"),
+      done: form.gender !== "unspecified",
+    },
     { label: t("profile.completionItems.avatar"), done: hasAvatar },
     { label: t("profile.completionItems.cccd"), done: isCccdValid },
     { label: t("profile.completionItems.cccdImages"), done: hasFullCccdImages },
@@ -1051,7 +1167,7 @@ export default function ProfileScreen() {
   ];
   const completionCount = completionItems.filter((item) => item.done).length;
   const profileCompletion = Math.round(
-    (completionCount / completionItems.length) * 100
+    (completionCount / completionItems.length) * 100,
   );
 
   const kycAlert = {
@@ -1085,7 +1201,10 @@ export default function ProfileScreen() {
             backgroundColor: theme.palette.background.default,
           }}
         >
-          <Container maxWidth="xl" sx={{ pt: { xs: 1.5, md: 5 }, px: { xs: 1.5, sm: 3, md: 4 } }}>
+          <Container
+            maxWidth="xl"
+            sx={{ pt: { xs: 1.5, md: 5 }, px: { xs: 1.5, sm: 3, md: 4 } }}
+          >
             <Box
               sx={{
                 position: "relative",
@@ -1103,7 +1222,6 @@ export default function ProfileScreen() {
                     : "0 18px 40px rgba(0, 0, 0, 0.28)",
               }}
             >
-
               <Grid
                 container
                 spacing={3}
@@ -1179,7 +1297,6 @@ export default function ProfileScreen() {
                           borderColor: alpha(theme.palette.primary.main, 0.14),
                         }}
                       />
-
                     </Stack>
 
                     <Grid container spacing={2}>
@@ -1200,7 +1317,11 @@ export default function ProfileScreen() {
                       <Grid size={{ xs: 12, sm: 4 }}>
                         <HeroMetric
                           label={t("profile.summary.pendingChanges")}
-                          value={isDirty ? t("common.states.on") : t("common.states.off")}
+                          value={
+                            isDirty
+                              ? t("common.states.on")
+                              : t("common.states.off")
+                          }
                           caption={
                             isDirty
                               ? t("profile.savePanel.ready")
@@ -1233,10 +1354,17 @@ export default function ProfileScreen() {
                       alignItems="flex-start"
                       spacing={2}
                     >
-                      <Stack direction="row" spacing={2} sx={{ minWidth: 0, flex: 1 }}>
+                      <Stack
+                        direction="row"
+                        spacing={2}
+                        sx={{ minWidth: 0, flex: 1 }}
+                      >
                         <Badge
                           overlap="circular"
-                          anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+                          anchorOrigin={{
+                            vertical: "bottom",
+                            horizontal: "right",
+                          }}
                           badgeContent={
                             <IconButton
                               component="label"
@@ -1273,8 +1401,14 @@ export default function ProfileScreen() {
                               height: { xs: 92, md: 108 },
                               cursor: "zoom-in",
                               border: "4px solid",
-                              borderColor: alpha(theme.palette.primary.main, 0.16),
-                              boxShadow: theme.palette.mode === "light" ? "0 8px 18px rgba(15, 23, 42, 0.12)" : "0 8px 18px rgba(0,0,0,0.22)",
+                              borderColor: alpha(
+                                theme.palette.primary.main,
+                                0.16,
+                              ),
+                              boxShadow:
+                                theme.palette.mode === "light"
+                                  ? "0 8px 18px rgba(15, 23, 42, 0.12)"
+                                  : "0 8px 18px rgba(0,0,0,0.22)",
                             }}
                             onClick={() => setAvatarZoomOpen(true)}
                           />
@@ -1317,7 +1451,11 @@ export default function ProfileScreen() {
                           "&:hover": { bgcolor: "action.hover" },
                         }}
                       >
-                        {isDark ? <LightModeRoundedIcon /> : <DarkModeRoundedIcon />}
+                        {isDark ? (
+                          <LightModeRoundedIcon />
+                        ) : (
+                          <DarkModeRoundedIcon />
+                        )}
                       </IconButton>
                     </Stack>
 
@@ -1354,8 +1492,18 @@ export default function ProfileScreen() {
                               bgcolor: "action.hover",
                             }}
                           >
-                            <Stack direction="row" spacing={1.25} alignItems="center">
-                              <Box sx={{ color: "primary.main", display: "grid", placeItems: "center" }}>
+                            <Stack
+                              direction="row"
+                              spacing={1.25}
+                              alignItems="center"
+                            >
+                              <Box
+                                sx={{
+                                  color: "primary.main",
+                                  display: "grid",
+                                  placeItems: "center",
+                                }}
+                              >
                                 {item.icon}
                               </Box>
                               <Box sx={{ minWidth: 0 }}>
@@ -1454,7 +1602,11 @@ export default function ProfileScreen() {
                       <Typography variant="h6" fontWeight={800}>
                         {t("publicProfile.labels.accountStatus")}
                       </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                      <Typography
+                        variant="body2"
+                        color="text.secondary"
+                        sx={{ mt: 0.75 }}
+                      >
                         {t("profile.hero.subtitle")}
                       </Typography>
 
@@ -1490,9 +1642,15 @@ export default function ProfileScreen() {
                           color="text.secondary"
                           sx={{ display: "block", mt: 1 }}
                         >
-                          {completionCount}/{completionItems.length} {t("profile.summary.completion").toLowerCase()}
+                          {completionCount}/{completionItems.length}{" "}
+                          {t("profile.summary.completion").toLowerCase()}
                         </Typography>
-                        <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mt: 1.5 }}>
+                        <Stack
+                          direction="row"
+                          flexWrap="wrap"
+                          gap={1}
+                          sx={{ mt: 1.5 }}
+                        >
                           {completionItems.map((item) => (
                             <Chip
                               key={item.label}
@@ -1507,7 +1665,9 @@ export default function ProfileScreen() {
                                 bgcolor: item.done
                                   ? alpha(theme.palette.success.main, 0.08)
                                   : "transparent",
-                                color: item.done ? "success.main" : "text.secondary",
+                                color: item.done
+                                  ? "success.main"
+                                  : "text.secondary",
                                 "& .MuiChip-label": { fontWeight: 700 },
                               }}
                             />
@@ -1519,7 +1679,9 @@ export default function ProfileScreen() {
                         {[
                           {
                             label: t("profile.completionItems.avatar"),
-                            value: hasAvatar ? t("common.states.on") : t("common.states.off"),
+                            value: hasAvatar
+                              ? t("common.states.on")
+                              : t("common.states.off"),
                           },
                           {
                             label: t("profile.sections.securityTitle"),
@@ -1547,7 +1709,10 @@ export default function ProfileScreen() {
                                 minHeight: 90,
                               }}
                             >
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
                                 {item.label}
                               </Typography>
                               <Typography
@@ -1587,7 +1752,12 @@ export default function ProfileScreen() {
 
                       <Divider sx={{ my: 3 }} />
 
-                      <Stack direction="row" flexWrap="wrap" gap={1} sx={{ mb: 2.25 }}>
+                      <Stack
+                        direction="row"
+                        flexWrap="wrap"
+                        gap={1}
+                        sx={{ mb: 2.25 }}
+                      >
                         <Chip
                           size="small"
                           icon={<KycStatusIcon fontSize="small" />}
@@ -1620,7 +1790,11 @@ export default function ProfileScreen() {
                         fullWidth
                         startIcon={<LogoutIcon />}
                         onClick={requestLogout}
-                        sx={{ display: { xs: "none", lg: "flex" }, borderRadius: 3, py: 1.3 }}
+                        sx={{
+                          display: { xs: "none", lg: "flex" },
+                          borderRadius: 3,
+                          py: 1.3,
+                        }}
                       >
                         {t("profile.hero.logout")}
                       </Button>
@@ -1684,7 +1858,11 @@ export default function ProfileScreen() {
                       action={
                         <Chip
                           size="small"
-                          label={isDirty ? t("profile.summary.unsaved") : t("profile.summary.synced")}
+                          label={
+                            isDirty
+                              ? t("profile.summary.unsaved")
+                              : t("profile.summary.synced")
+                          }
                           color={isDirty ? "warning" : "success"}
                           variant="outlined"
                         />
@@ -1715,7 +1893,9 @@ export default function ProfileScreen() {
                             required
                             fullWidth
                             error={showErr("nickname")}
-                            helperText={showErr("nickname") ? errors.nickname : ""}
+                            helperText={
+                              showErr("nickname") ? errors.nickname : ""
+                            }
                           />
                         </Grid>
 
@@ -1755,7 +1935,9 @@ export default function ProfileScreen() {
 
                         <Grid size={{ xs: 12, sm: 6 }}>
                           <FormControl fullWidth error={showErr("gender")}>
-                            <InputLabel id="gender-lbl">{t("profile.fields.gender")}</InputLabel>
+                            <InputLabel id="gender-lbl">
+                              {t("profile.fields.gender")}
+                            </InputLabel>
                             <Select
                               labelId="gender-lbl"
                               label={t("profile.fields.gender")}
@@ -1765,7 +1947,10 @@ export default function ProfileScreen() {
                               onBlur={onBlur}
                             >
                               {genderOptions.map((option) => (
-                                <MenuItem key={option.value} value={option.value}>
+                                <MenuItem
+                                  key={option.value}
+                                  value={option.value}
+                                >
                                   {option.label}
                                 </MenuItem>
                               ))}
@@ -1794,7 +1979,10 @@ export default function ProfileScreen() {
                               textField: {
                                 fullWidth: true,
                                 onBlur: () =>
-                                  setTouched((prev) => ({ ...prev, dob: true })),
+                                  setTouched((prev) => ({
+                                    ...prev,
+                                    dob: true,
+                                  })),
                                 error: showErr("dob"),
                                 helperText: showErr("dob") ? errors.dob : "",
                               },
@@ -1803,8 +1991,14 @@ export default function ProfileScreen() {
                         </Grid>
 
                         <Grid size={{ xs: 12 }}>
-                          <FormControl fullWidth required error={showErr("province")}>
-                            <InputLabel id="province-lbl">{t("profile.fields.province")}</InputLabel>
+                          <FormControl
+                            fullWidth
+                            required
+                            error={showErr("province")}
+                          >
+                            <InputLabel id="province-lbl">
+                              {t("profile.fields.province")}
+                            </InputLabel>
                             <Select
                               labelId="province-lbl"
                               label={t("profile.fields.province")}
@@ -1861,17 +2055,28 @@ export default function ProfileScreen() {
                                 borderColor: "divider",
                               }}
                             >
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
                                 {item.label}
                               </Typography>
-                              <Typography variant="body2" fontWeight={800} sx={{ mt: 0.5 }}>
+                              <Typography
+                                variant="body2"
+                                fontWeight={800}
+                                sx={{ mt: 0.5 }}
+                              >
                                 {item.value}
                               </Typography>
                             </Box>
                           </Grid>
                         ))}
                       </Grid>
-                      <Stack direction="row" justifyContent="flex-end" sx={{ mt: 2.5 }}>
+                      <Stack
+                        direction="row"
+                        justifyContent="flex-end"
+                        sx={{ mt: 2.5 }}
+                      >
                         <Button
                           type="submit"
                           variant="contained"
@@ -1941,8 +2146,13 @@ export default function ProfileScreen() {
                           }
                           label={
                             <Box>
-                              <Typography fontWeight={700}>{t("profile.actions.enablePassword")}</Typography>
-                              <Typography variant="body2" color="text.secondary">
+                              <Typography fontWeight={700}>
+                                {t("profile.actions.enablePassword")}
+                              </Typography>
+                              <Typography
+                                variant="body2"
+                                color="text.secondary"
+                              >
                                 {changePassword
                                   ? t("profile.password.enabledHint")
                                   : t("profile.password.disabledHint")}
@@ -1963,7 +2173,9 @@ export default function ProfileScreen() {
                                 onBlur={onBlur}
                                 fullWidth
                                 error={showErr("password")}
-                                helperText={showErr("password") ? errors.password : ""}
+                                helperText={
+                                  showErr("password") ? errors.password : ""
+                                }
                               />
                             </Grid>
 
@@ -1988,7 +2200,11 @@ export default function ProfileScreen() {
                         )}
                       </Box>
                       {changePassword && (
-                        <Stack direction="row" justifyContent="flex-end" sx={{ mt: 2.5 }}>
+                        <Stack
+                          direction="row"
+                          justifyContent="flex-end"
+                          sx={{ mt: 2.5 }}
+                        >
                           <Button
                             type="submit"
                             variant="contained"
@@ -2036,7 +2252,10 @@ export default function ProfileScreen() {
                         id="cccd"
                         sx={{ scrollMarginTop: `${HEADER_OFFSET + 16}px` }}
                       >
-                        <Alert severity={kycAlert.severity} sx={{ mb: 2.5, borderRadius: 3.5 }}>
+                        <Alert
+                          severity={kycAlert.severity}
+                          sx={{ mb: 2.5, borderRadius: 3.5 }}
+                        >
                           {kycAlert.message}
                         </Alert>
 
@@ -2049,17 +2268,20 @@ export default function ProfileScreen() {
                               onChange={onChange}
                               onBlur={onBlur}
                               fullWidth
-                              inputProps={{ inputMode: "numeric", maxLength: 12 }}
+                              inputProps={{
+                                inputMode: "numeric",
+                                maxLength: 12,
+                              }}
                               disabled={isKycLocked}
                               error={showErr("cccd")}
                               helperText={
                                 isKycLocked
                                   ? t("profile.kyc.helpers.locked")
                                   : showErr("cccd")
-                                  ? errors.cccd
-                                  : isCccdEmpty
-                                  ? t("profile.kyc.helpers.activateUpload")
-                                  : t("profile.kyc.helpers.processOnly")
+                                    ? errors.cccd
+                                    : isCccdEmpty
+                                      ? t("profile.kyc.helpers.activateUpload")
+                                      : t("profile.kyc.helpers.processOnly")
                               }
                             />
                           </Grid>
@@ -2080,13 +2302,24 @@ export default function ProfileScreen() {
                                 justifyContent: "center",
                               }}
                             >
-                              <Typography variant="caption" color="text.secondary">
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
                                 {t("profile.fields.currentState")}
                               </Typography>
-                              <Typography variant="body1" fontWeight={800} sx={{ mt: 0.5 }}>
+                              <Typography
+                                variant="body1"
+                                fontWeight={800}
+                                sx={{ mt: 0.5 }}
+                              >
                                 {kycMeta.label}
                               </Typography>
-                              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                              <Typography
+                                variant="body2"
+                                color="text.secondary"
+                                sx={{ mt: 0.5 }}
+                              >
                                 {kycMeta.description}
                               </Typography>
                             </Box>
@@ -2104,7 +2337,10 @@ export default function ProfileScreen() {
                             }}
                           >
                             {isCccdEmpty && (
-                              <Alert severity="info" sx={{ mb: 2, borderRadius: 3 }}>
+                              <Alert
+                                severity="info"
+                                sx={{ mb: 2, borderRadius: 3 }}
+                              >
                                 {t("profile.kyc.helpers.enterBeforeUpload")}
                               </Alert>
                             )}
@@ -2158,16 +2394,29 @@ export default function ProfileScreen() {
 
                               <Button
                                 variant="contained"
-                                disabled={!frontImg || !backImg || upLoad || !isCccdValid}
+                                disabled={
+                                  !frontImg ||
+                                  !backImg ||
+                                  upLoad ||
+                                  !isCccdValid
+                                }
                                 startIcon={
                                   upLoad ? (
-                                    <CircularProgress size={18} color="inherit" />
+                                    <CircularProgress
+                                      size={18}
+                                      color="inherit"
+                                    />
                                   ) : (
                                     <FingerprintRoundedIcon />
                                   )
                                 }
                                 onClick={sendCccd}
-                                sx={{ borderRadius: 99, px: 3, py: 1.2, fontWeight: 700 }}
+                                sx={{
+                                  borderRadius: 99,
+                                  px: 3,
+                                  py: 1.2,
+                                  fontWeight: 700,
+                                }}
                               >
                                 {upLoad
                                   ? t("profile.actions.submittingKyc")
@@ -2185,7 +2434,8 @@ export default function ProfileScreen() {
                                   borderRadius: 4,
                                   cursor: "zoom-in",
                                   bgcolor: "action.hover",
-                                  transition: "transform 0.2s ease, border-color 0.2s ease",
+                                  transition:
+                                    "transform 0.2s ease, border-color 0.2s ease",
                                   "&:hover": {
                                     transform: "translateY(-2px)",
                                     borderColor: "primary.main",
@@ -2223,7 +2473,8 @@ export default function ProfileScreen() {
                                   borderRadius: 4,
                                   cursor: "zoom-in",
                                   bgcolor: "action.hover",
-                                  transition: "transform 0.2s ease, border-color 0.2s ease",
+                                  transition:
+                                    "transform 0.2s ease, border-color 0.2s ease",
                                   "&:hover": {
                                     transform: "translateY(-2px)",
                                     borderColor: "primary.main",
@@ -2282,7 +2533,11 @@ export default function ProfileScreen() {
                           <Typography variant="h6" fontWeight={800}>
                             {t("profile.sections.saveTitle")}
                           </Typography>
-                          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75 }}>
+                          <Typography
+                            variant="body2"
+                            color="text.secondary"
+                            sx={{ mt: 0.75 }}
+                          >
                             {saveDisabled
                               ? isDirty
                                 ? t("profile.savePanel.invalid")
@@ -2344,7 +2599,11 @@ export default function ProfileScreen() {
             </Alert>
           </Snackbar>
 
-          <Dialog open={avatarZoomOpen} onClose={() => setAvatarZoomOpen(false)} maxWidth="md">
+          <Dialog
+            open={avatarZoomOpen}
+            onClose={() => setAvatarZoomOpen(false)}
+            maxWidth="md"
+          >
             <Box position="relative" p={1} bgcolor="black">
               <IconButton
                 onClick={() => setAvatarZoomOpen(false)}
@@ -2372,7 +2631,11 @@ export default function ProfileScreen() {
             </Box>
           </Dialog>
 
-          <Dialog open={cccdZoomOpen} onClose={() => setCccdZoomOpen(false)} maxWidth="md">
+          <Dialog
+            open={cccdZoomOpen}
+            onClose={() => setCccdZoomOpen(false)}
+            maxWidth="md"
+          >
             <Box position="relative" p={1} bgcolor="black">
               <IconButton
                 onClick={() => setCccdZoomOpen(false)}
