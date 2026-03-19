@@ -55,10 +55,8 @@ async function makeRecordingDriveOAuth(req) {
     getCfgStr("GOOGLE_CLIENT_ID", ""),
     getCfgStr("GOOGLE_CLIENT_SECRET", ""),
   ]);
-  const id = String(configId || process.env.GOOGLE_CLIENT_ID || "").trim();
-  const secret = String(
-    configSecret || process.env.GOOGLE_CLIENT_SECRET || "",
-  ).trim();
+  const id = String(process.env.GOOGLE_CLIENT_ID || "").trim();
+  const secret = String(process.env.GOOGLE_CLIENT_SECRET || "").trim();
   const redirect = (process.env.GOOGLE_REDIRECT_URI || "").trim();
   console.log(id, secret, redirect);
 
@@ -205,10 +203,8 @@ export async function disconnectRecordingDriveOAuth(req, res) {
       message: "Da ngat ket noi Google Drive recording",
     });
   } catch (e) {
-    return res
-      .status(500)
-      .json({
-        message: e?.message || "Disconnect Google Drive recording failed",
-      });
+    return res.status(500).json({
+      message: e?.message || "Disconnect Google Drive recording failed",
+    });
   }
 }
