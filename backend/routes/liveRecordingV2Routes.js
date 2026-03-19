@@ -13,6 +13,7 @@ import {
   presignMultipartLiveRecordingSegmentPartV2,
   presignLiveRecordingSegmentV2,
   reportMultipartLiveRecordingSegmentProgressV2,
+  retryLiveRecordingExportV2,
   startMultipartLiveRecordingSegmentV2,
   startLiveRecordingV2,
 } from "../controllers/liveRecordingV2Controller.js";
@@ -30,6 +31,7 @@ router.post("/segments/multipart/abort", protect, abortMultipartLiveRecordingSeg
 router.post("/finalize", protect, finalizeLiveRecordingV2);
 router.get("/admin/monitor", protect, authorize("admin"), getLiveRecordingMonitorV2);
 router.get("/admin/worker-health", protect, authorize("admin"), getLiveRecordingWorkerHealthV2);
+router.post("/admin/:id/retry-export", protect, authorize("admin"), retryLiveRecordingExportV2);
 router.get("/by-match/:matchId", getLiveRecordingByMatchV2);
 router.get("/:id/play", playLiveRecordingV2);
 

@@ -77,6 +77,7 @@ import { startUserAvatarOptimizationCron } from "./jobs/userAvatarOptimizationCr
 import { initNewsCron } from "./jobs/newsCron.js";
 import { initSeoNewsCron } from "./jobs/seoNewsCron.js";
 import { startOptimizedImageCleanupCron } from "./jobs/optimizedImageCleanupCron.js";
+import { startSeoNewsImageRegenerationWorker } from "./services/seoNewsImageQueue.service.js";
 // Ã°Å¸â€Â¹ GraphQL layer
 import { setupGraphQL } from "./graphql/index.js";
 import { timezoneMiddleware } from "./middleware/timezoneMiddleware.js";
@@ -337,6 +338,7 @@ const startServer = async () => {
         startCourtLivePresenceSweep();
         startUserAvatarOptimizationCron();
         startOptimizedImageCleanupCron();
+        startSeoNewsImageRegenerationWorker();
         initEmail();
         initNewsCron();
         initSeoNewsCron();

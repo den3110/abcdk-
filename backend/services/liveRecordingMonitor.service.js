@@ -1,6 +1,9 @@
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import { buildRecordingPlaybackUrl } from "./liveRecordingV2Export.service.js";
-import { getLiveRecordingMonitorMeta } from "./liveRecordingMonitorEvents.service.js";
+import {
+  getLiveRecordingMonitorMeta,
+  publishLiveRecordingMonitorUpdate,
+} from "./liveRecordingMonitorEvents.service.js";
 import { getLiveRecordingExportQueueSnapshot } from "./liveRecordingV2Queue.service.js";
 import { getLiveRecordingWorkerHealth } from "./liveRecordingWorkerHealth.service.js";
 
@@ -59,6 +62,14 @@ function getConfiguredRecordingR2StorageTotalBytes() {
       0
   );
   return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : null;
+}
+
+function getExportStaleThresholdMs() {
+  const configured = Number(process.env.LIVE_RECORDING_EXPORT_STALE_MS || 0);
+  if (Number.isFinite(configured) && configured >= 60_000) {
+    return Math.floor(configured);
+  }
+  return 5 * 60 * 1000;
 }
 
 function sanitizeSegmentMeta(meta) {
@@ -330,6 +341,86 @@ function buildExportPipelineInfo(recording, context = {}) {
   };
 }
 
+function shouldMarkExportAsStale(recording, exportPipeline = {}) {
+  if (recording?.status !== "exporting") return false;
+  if (!["stale_no_job", "worker_offline"].includes(exportPipeline.stage)) return false;
+
+  const updatedAtMs = recording?.updatedAt
+    ? new Date(recording.updatedAt).getTime()
+    : 0;
+  if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return false;
+
+  return Date.now() - updatedAtMs >= getExportStaleThresholdMs();
+}
+
+export async function reconcileStaleLiveRecordingExports({
+  workerHealth: providedWorkerHealth = null,
+  queueSnapshot: providedQueueSnapshot = null,
+} = {}) {
+  const workerHealth =
+    providedWorkerHealth || (await getLiveRecordingWorkerHealth().catch(() => null));
+  const queueSnapshot =
+    providedQueueSnapshot || (await getLiveRecordingExportQueueSnapshot().catch(() => null));
+
+  const exportingRecordings = await LiveRecordingV2.find({ status: "exporting" });
+  const updatedRecordingIds = [];
+
+  for (const recording of exportingRecordings) {
+    const exportPipeline = buildExportPipelineInfo(recording, {
+      workerHealth,
+      queueSnapshot,
+    });
+
+    if (!shouldMarkExportAsStale(recording, exportPipeline)) {
+      continue;
+    }
+
+    const nextMeta =
+      recording.meta && typeof recording.meta === "object" && !Array.isArray(recording.meta)
+        ? { ...recording.meta }
+        : {};
+    const currentPipeline =
+      nextMeta.exportPipeline &&
+      typeof nextMeta.exportPipeline === "object" &&
+      !Array.isArray(nextMeta.exportPipeline)
+        ? { ...nextMeta.exportPipeline }
+        : {};
+    const errorMessage =
+      exportPipeline.stage === "worker_offline"
+        ? "Export worker is offline. Recording export needs retry."
+        : "Export job was lost from queue before completion. Retry export is required.";
+
+    nextMeta.exportPipeline = {
+      ...currentPipeline,
+      stage: "failed",
+      label: "Export that bai",
+      reconciledAt: new Date(),
+      staleReason: exportPipeline.stage,
+      updatedAt: new Date(),
+      error: errorMessage,
+    };
+
+    recording.meta = nextMeta;
+    recording.status = "failed";
+    recording.error = errorMessage;
+    await recording.save();
+    updatedRecordingIds.push(String(recording._id));
+  }
+
+  if (updatedRecordingIds.length) {
+    await publishLiveRecordingMonitorUpdate({
+      reason: "recording_export_reconciled_failed",
+      recordingIds: updatedRecordingIds,
+    }).catch(() => {});
+  }
+
+  return {
+    updatedRecordingIds,
+    workerHealth,
+    queueSnapshot,
+  };
+}
+
 function buildRow(recording, context = {}) {
   const match = recording.match || {};
   const participantsLabel = buildParticipantsLabel(match);
@@ -399,55 +490,53 @@ function sortRows(rows) {
 }
 
 export async function buildLiveRecordingMonitorSnapshot() {
-  const [recordings, workerHealth, queueSnapshot] = await Promise.all([
-    LiveRecordingV2.find({})
-      .sort({ updatedAt: -1, createdAt: -1 })
-      .populate({
-        path: "match",
-        select: "code courtLabel pairA pairB court bracket tournament status",
-        populate: [
-          {
-            path: "pairA",
-            select: "player1 player2 teamName label",
-            populate: [
-              {
-                path: "player1",
-                select: "fullName name shortName nickname nickName user",
-                populate: { path: "user", select: "name fullName nickname nickName" },
-              },
-              {
-                path: "player2",
-                select: "fullName name shortName nickname nickName user",
-                populate: { path: "user", select: "name fullName nickname nickName" },
-              },
-            ],
-          },
-          {
-            path: "pairB",
-            select: "player1 player2 teamName label",
-            populate: [
-              {
-                path: "player1",
-                select: "fullName name shortName nickname nickName user",
-                populate: { path: "user", select: "name fullName nickname nickName" },
-              },
-              {
-                path: "player2",
-                select: "fullName name shortName nickname nickName user",
-                populate: { path: "user", select: "name fullName nickname nickName" },
-              },
-            ],
-          },
-          { path: "court", select: "name label number" },
-          { path: "bracket", select: "name stage" },
-          { path: "tournament", select: "name" },
-        ],
-      })
-      .populate({ path: "courtId", select: "name label number" })
-      .lean(),
-    getLiveRecordingWorkerHealth().catch(() => null),
-    getLiveRecordingExportQueueSnapshot().catch(() => null),
-  ]);
+  const { workerHealth, queueSnapshot } = await reconcileStaleLiveRecordingExports();
+
+  const recordings = await LiveRecordingV2.find({})
+    .sort({ updatedAt: -1, createdAt: -1 })
+    .populate({
+      path: "match",
+      select: "code courtLabel pairA pairB court bracket tournament status",
+      populate: [
+        {
+          path: "pairA",
+          select: "player1 player2 teamName label",
+          populate: [
+            {
+              path: "player1",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "name fullName nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "name fullName nickname nickName" },
+            },
+          ],
+        },
+        {
+          path: "pairB",
+          select: "player1 player2 teamName label",
+          populate: [
+            {
+              path: "player1",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "name fullName nickname nickName" },
+            },
+            {
+              path: "player2",
+              select: "fullName name shortName nickname nickName user",
+              populate: { path: "user", select: "name fullName nickname nickName" },
+            },
+          ],
+        },
+        { path: "court", select: "name label number" },
+        { path: "bracket", select: "name stage" },
+        { path: "tournament", select: "name" },
+      ],
+    })
+    .populate({ path: "courtId", select: "name label number" })
+    .lean();
 
   const rows = sortRows(
     recordings.map((recording) =>

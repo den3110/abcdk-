@@ -197,6 +197,7 @@ import {
   getSeoNewsImageStats,
   getSeoNewsSettings,
   pushSeoNewsDraftsToPublished,
+  queueSeoNewsImageRegenerationNow,
   runSeoNewsPendingCandidates,
   runSeoNewsSyncNow,
   updateSeoNewsSettings,
@@ -858,6 +859,7 @@ router.post(
   "/seo-news/images/cleanup-source",
   cleanupSeoNewsGatewaySourceImagesNow
 );
+router.post("/seo-news/images/regeneration-jobs", queueSeoNewsImageRegenerationNow);
 router.post("/seo-news/run", runSeoNewsSyncNow);
 router.get("/seo-news/image-stats", getSeoNewsImageStats);
 

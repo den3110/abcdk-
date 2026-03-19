@@ -441,6 +441,95 @@ function getPrimaryGatewayClient() {
   return openai;
 }
 
+export async function checkSeoNewsImageGenerationHealth() {
+  const startedAt = Date.now();
+  const baseUrl = getPrimaryGatewayBaseUrl();
+  const apiKey = getPrimaryGatewayApiKey();
+  const resolvedBaseUrl = baseUrl || "https://api.openai.com/v1";
+
+  if (!apiKey) {
+    return {
+      status: "misconfigured",
+      reachable: false,
+      checkedAt: new Date().toISOString(),
+      latencyMs: 0,
+      baseUrl: resolvedBaseUrl,
+      model: GATEWAY_IMAGE_MODEL,
+      message: "Missing AI image gateway API key",
+    };
+  }
+
+  try {
+    if (baseUrl) {
+      const endpoint = new URL("models", `${baseUrl.replace(/\/+$/, "")}/`).toString();
+      const response = await axios.get(endpoint, {
+        timeout: Math.min(15_000, GATEWAY_IMAGE_TIMEOUT_MS),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+        validateStatus: (status) => status >= 200 && status < 500,
+      });
+
+      const latencyMs = Date.now() - startedAt;
+      if (response.status >= 200 && response.status < 300) {
+        return {
+          status: "online",
+          reachable: true,
+          checkedAt: new Date().toISOString(),
+          latencyMs,
+          baseUrl: resolvedBaseUrl,
+          model: GATEWAY_IMAGE_MODEL,
+          message: "AI image gateway reachable",
+        };
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        return {
+          status: "auth_error",
+          reachable: false,
+          checkedAt: new Date().toISOString(),
+          latencyMs,
+          baseUrl: resolvedBaseUrl,
+          model: GATEWAY_IMAGE_MODEL,
+          message: `AI image gateway rejected credentials (${response.status})`,
+        };
+      }
+
+      return {
+        status: "degraded",
+        reachable: false,
+        checkedAt: new Date().toISOString(),
+        latencyMs,
+        baseUrl: resolvedBaseUrl,
+        model: GATEWAY_IMAGE_MODEL,
+        message: `AI image gateway responded with HTTP ${response.status}`,
+      };
+    }
+
+    await openai.models.list();
+
+    return {
+      status: "online",
+      reachable: true,
+      checkedAt: new Date().toISOString(),
+      latencyMs: Date.now() - startedAt,
+      baseUrl: resolvedBaseUrl,
+      model: GATEWAY_IMAGE_MODEL,
+      message: "OpenAI image endpoint reachable",
+    };
+  } catch (error) {
+    return {
+      status: "offline",
+      reachable: false,
+      checkedAt: new Date().toISOString(),
+      latencyMs: Date.now() - startedAt,
+      baseUrl: resolvedBaseUrl,
+      model: GATEWAY_IMAGE_MODEL,
+      message: error?.message || "AI image gateway unavailable",
+    };
+  }
+}
+
 function buildGatewayCleanupEndpoint(baseUrl) {
   const raw = String(baseUrl || "").trim();
   if (!isHttpUrl(raw)) return null;
@@ -905,6 +994,57 @@ export async function backfillSeoNewsArticleImages({
   }
 
   return stats;
+}
+
+export async function regenerateSeoNewsArticleImage({
+  articleId,
+  settings,
+} = {}) {
+  const targetId = String(articleId || "").trim();
+  if (!targetId) {
+    throw new Error("articleId is required");
+  }
+
+  const article = await SeoNewsArticle.findById(targetId);
+  if (!article) {
+    throw new Error("Seo news article not found");
+  }
+
+  if (String(article.origin || "") !== "generated") {
+    throw new Error("Only generated SEO news articles support AI image regeneration");
+  }
+
+  const activeSettings =
+    settings ||
+    (await SeoNewsSettings.findOne({ key: "default" })) ||
+    (await SeoNewsSettings.create({ key: "default" }));
+
+  const generatedImage = await generateGatewaySeoNewsImage({
+    title: article.title,
+    summary: article.summary,
+    tags: article.tags,
+    origin: article.origin,
+    articleKey: article.slug || String(article._id),
+    settings: activeSettings,
+  });
+
+  if (!generatedImage?.heroImageUrl || isDataImageUrl(generatedImage.heroImageUrl)) {
+    throw new Error("AI image generation returned no usable image");
+  }
+
+  article.heroImageUrl = generatedImage.heroImageUrl;
+  article.thumbImageUrl =
+    generatedImage.thumbImageUrl || generatedImage.heroImageUrl;
+  await article.save();
+
+  return {
+    articleId: String(article._id),
+    slug: article.slug,
+    title: article.title,
+    heroImageUrl: article.heroImageUrl,
+    thumbImageUrl: article.thumbImageUrl,
+    imageOrigin: generatedImage.imageOrigin || "generated-gateway",
+  };
 }
 
 export async function cleanupSeoNewsGatewaySourceImages({

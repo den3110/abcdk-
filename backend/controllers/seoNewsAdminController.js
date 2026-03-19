@@ -6,6 +6,10 @@ import { runSeoNewsCrawl } from "../services/seoNewsCrawlService.js";
 import { cleanupSeoNewsGatewaySourceImages } from "../services/seoNewsImageService.js";
 import { generateSeoNewsEvergreenArticles } from "../services/seoNewsEvergreenService.js";
 import {
+  enqueueSeoNewsImageRegenerationJob,
+  getSeoNewsImageRegenerationMonitor,
+} from "../services/seoNewsImageQueue.service.js";
+import {
   checkSeoNewsCompetitorPolicy,
   evaluateSeoNewsRelevance,
 } from "../services/seoNewsRelevanceService.js";
@@ -666,6 +670,7 @@ export const getSeoNewsImageStats = async (req, res) => {
       hasImageCount,
       pendingImageCount,
       originBreakdown,
+      regenerationMonitor,
     ] = await Promise.all([
       SeoNewsArticle.countDocuments({ status: { $in: ["published", "draft"] } }),
       SeoNewsArticle.countDocuments({
@@ -732,6 +737,7 @@ export const getSeoNewsImageStats = async (req, res) => {
         { $group: { _id: "$imageOrigin", count: { $sum: 1 } } },
         { $sort: { count: -1 } },
       ]),
+      getSeoNewsImageRegenerationMonitor(),
     ]);
 
     // --- build article query with filters ---
@@ -796,6 +802,7 @@ export const getSeoNewsImageStats = async (req, res) => {
         pendingImage: pendingImageCount,
         byOrigin: originMap,
       },
+      regeneration: regenerationMonitor,
       items,
       page,
       limit,
@@ -807,6 +814,38 @@ export const getSeoNewsImageStats = async (req, res) => {
     return res.status(500).json({
       ok: false,
       message: "Lay thong ke anh that bai",
+      error: error?.message || "internal_error",
+    });
+  }
+};
+
+export const queueSeoNewsImageRegenerationNow = async (req, res) => {
+  try {
+    const result = await enqueueSeoNewsImageRegenerationJob({
+      filters: {
+        imageFilter: req.body?.imageFilter,
+        origin: req.body?.origin,
+        keyword: req.body?.keyword,
+        limit: req.body?.limit,
+      },
+      requestedBy: {
+        userId: req.user?._id || null,
+        name: req.user?.name || req.user?.fullName || req.user?.email || "admin",
+        email: req.user?.email || "",
+      },
+    });
+
+    return res.status(201).json({
+      ok: true,
+      message: "Da tao job gen lai anh AI",
+      ...result,
+    });
+  } catch (error) {
+    const statusCode = Number(error?.statusCode) || 500;
+    console.error("[SeoNewsAdmin] queue image regeneration failed:", error);
+    return res.status(statusCode).json({
+      ok: false,
+      message: error?.message || "Tao hang cho gen lai anh that bai",
       error: error?.message || "internal_error",
     });
   }

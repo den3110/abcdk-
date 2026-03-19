@@ -19,7 +19,10 @@ import {
   putRecordingManifest,
 } from "../services/liveRecordingV2Storage.service.js";
 import { enqueueLiveRecordingExport } from "../services/liveRecordingV2Queue.service.js";
-import { buildLiveRecordingMonitorSnapshot } from "../services/liveRecordingMonitor.service.js";
+import {
+  buildLiveRecordingMonitorSnapshot,
+  reconcileStaleLiveRecordingExports,
+} from "../services/liveRecordingMonitor.service.js";
 import { publishLiveRecordingMonitorUpdate } from "../services/liveRecordingMonitorEvents.service.js";
 import { getLiveRecordingWorkerHealth } from "../services/liveRecordingWorkerHealth.service.js";
 
@@ -767,8 +770,86 @@ export const getLiveRecordingMonitorV2 = asyncHandler(async (_req, res) => {
 });
 
 export const getLiveRecordingWorkerHealthV2 = asyncHandler(async (_req, res) => {
+  await reconcileStaleLiveRecordingExports().catch(() => {});
   const health = await getLiveRecordingWorkerHealth();
   return res.json(health);
+});
+
+export const retryLiveRecordingExportV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id || req.body?.recordingId);
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "Recording id is invalid" });
+  }
+
+  await reconcileStaleLiveRecordingExports().catch(() => {});
+
+  const recording = await LiveRecordingV2.findById(recordingId);
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  const health = await getLiveRecordingWorkerHealth().catch(() => null);
+  const currentWorkerRecordingId = String(health?.worker?.currentRecordingId || "");
+  if (currentWorkerRecordingId && currentWorkerRecordingId === String(recording._id)) {
+    return res.status(409).json({ message: "Recording is already being exported by worker" });
+  }
+
+  const nextMeta = getRecordingMeta(recording);
+  const currentPipeline =
+    nextMeta.exportPipeline &&
+    typeof nextMeta.exportPipeline === "object" &&
+    !Array.isArray(nextMeta.exportPipeline)
+      ? { ...nextMeta.exportPipeline }
+      : {};
+
+  const allowedRetry =
+    recording.status === "failed" ||
+    currentPipeline.stage === "stale_no_job" ||
+    currentPipeline.staleReason === "stale_no_job" ||
+    currentPipeline.staleReason === "worker_offline";
+
+  if (!allowedRetry) {
+    return res.status(409).json({
+      message: "Only failed or stale exporting recordings can be retried",
+    });
+  }
+
+  const uploadedSegments = [...(recording.segments || [])].filter(
+    (segment) => segment.uploadStatus === "uploaded"
+  );
+  if (!uploadedSegments.length) {
+    return res.status(400).json({
+      message: "Cannot retry export because recording has no uploaded segments",
+    });
+  }
+
+  const queuedAt = new Date();
+  const queuedJob = await enqueueLiveRecordingExport(recording._id, {
+    replaceTerminalJob: true,
+  });
+
+  nextMeta.exportPipeline = {
+    ...currentPipeline,
+    stage: "queued",
+    label: "Dang cho worker",
+    queuedAt,
+    queueJobId: queuedJob?.id ? String(queuedJob.id) : null,
+    retriedAt: queuedAt,
+    updatedAt: queuedAt,
+    error: null,
+  };
+
+  recording.status = "exporting";
+  recording.error = null;
+  recording.meta = nextMeta;
+  await recording.save();
+  await publishRecordingMonitor(recording, "recording_export_retried");
+
+  return res.json({
+    ok: true,
+    queued: true,
+    recording: serializeRecording(recording),
+  });
 });
 
 export const playLiveRecordingV2 = asyncHandler(async (req, res) => {

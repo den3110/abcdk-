@@ -21,6 +21,10 @@ export function getLiveRecordingExportQueueName() {
   return QUEUE_NAME;
 }
 
+function buildExportJobId(recordingId) {
+  return `live-recording-export:${String(recordingId)}`;
+}
+
 function toRecordingKey(value) {
   const normalized = String(value || "").trim();
   return normalized || null;
@@ -77,12 +81,31 @@ export async function getLiveRecordingExportQueueSnapshot() {
   };
 }
 
-export async function enqueueLiveRecordingExport(recordingId) {
+export async function getLiveRecordingExportJob(recordingId) {
+  return liveRecordingExportQueue.getJob(buildExportJobId(recordingId));
+}
+
+export async function enqueueLiveRecordingExport(
+  recordingId,
+  { replaceTerminalJob = false } = {}
+) {
+  const jobId = buildExportJobId(recordingId);
+
+  if (replaceTerminalJob) {
+    const existingJob = await liveRecordingExportQueue.getJob(jobId);
+    if (existingJob) {
+      const state = await existingJob.getState().catch(() => null);
+      if (["completed", "failed"].includes(state)) {
+        await existingJob.remove().catch(() => {});
+      }
+    }
+  }
+
   return liveRecordingExportQueue.add(
     "export-recording",
     { recordingId: String(recordingId) },
     {
-      jobId: `live-recording-export:${String(recordingId)}`,
+      jobId,
       attempts: 5,
       backoff: {
         type: "exponential",
