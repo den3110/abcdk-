@@ -126,6 +126,10 @@ app.use(
   }),
 );
 
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(cookieParser());
+
 app.use(
   "/api/admin/system",
   protect,
@@ -156,13 +160,10 @@ app.use("/api/live/recordings", liveRecordingRoutes);
 app.use("/api/live/recordings/v2", liveRecordingV2Routes);
 
 // body limit rÃ¡Â»â„¢ng hÃ†Â¡n cho HTML/JSON dÃƒÂ i
-app.use(express.json({ limit: "50mb" }));
 app.use(timezoneMiddleware);
 app.use(normalizeRequestDates);
 app.use(convertResponseDates);
 
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
-app.use(cookieParser());
 app.set("trust proxy", 1);
 app.use("/admin/agendash", Agendash(agenda, { middleware: "express" }));
 
