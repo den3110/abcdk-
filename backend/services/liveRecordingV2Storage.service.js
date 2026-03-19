@@ -31,6 +31,7 @@ const r2Client =
     ? new S3Client({
         region: "auto",
         endpoint: RECORDINGS_ENDPOINT,
+        forcePathStyle: true,
         credentials: {
           accessKeyId: RECORDINGS_ACCESS_KEY_ID,
           secretAccessKey: RECORDINGS_SECRET_ACCESS_KEY,
