@@ -22,7 +22,7 @@ export function getLiveRecordingExportQueueName() {
 }
 
 function buildExportJobId(recordingId) {
-  return `live-recording-export:${String(recordingId)}`;
+  return `live-recording-export-${String(recordingId)}`;
 }
 
 function toRecordingKey(value) {
