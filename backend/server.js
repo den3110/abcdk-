@@ -75,6 +75,7 @@ import { startLiveSessionLeaseCron } from "./services/liveSessionLease.service.j
 import { startCourtLivePresenceSweep } from "./services/courtLivePresence.service.js";
 import { initNewsCron } from "./jobs/newsCron.js";
 import { initSeoNewsCron } from "./jobs/seoNewsCron.js";
+import { startOptimizedImageCleanupCron } from "./jobs/optimizedImageCleanupCron.js";
 // Ã°Å¸â€Â¹ GraphQL layer
 import { setupGraphQL } from "./graphql/index.js";
 import { timezoneMiddleware } from "./middleware/timezoneMiddleware.js";
@@ -332,6 +333,7 @@ const startServer = async () => {
         startFacebookBusyCron();
         startLiveSessionLeaseCron();
         startCourtLivePresenceSweep();
+        startOptimizedImageCleanupCron();
         initEmail();
         initNewsCron();
         initSeoNewsCron();
