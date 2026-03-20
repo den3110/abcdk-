@@ -130,6 +130,59 @@ async function runFfmpeg(args) {
   });
 }
 
+async function concatSegmentsWithCopy({ concatPath, outputPath }) {
+  await runFfmpeg([
+    "-y",
+    "-f",
+    "concat",
+    "-safe",
+    "0",
+    "-i",
+    concatPath,
+    "-c",
+    "copy",
+    outputPath,
+  ]);
+}
+
+async function remuxMp4ForStreaming({ inputPath, outputPath }) {
+  await runFfmpeg([
+    "-y",
+    "-i",
+    inputPath,
+    "-map",
+    "0",
+    "-c",
+    "copy",
+    "-movflags",
+    "+faststart",
+    outputPath,
+  ]);
+}
+
+async function reencodeConcatToMp4({ concatPath, outputPath }) {
+  await runFfmpeg([
+    "-y",
+    "-f",
+    "concat",
+    "-safe",
+    "0",
+    "-i",
+    concatPath,
+    "-c:v",
+    "libx264",
+    "-preset",
+    "veryfast",
+    "-pix_fmt",
+    "yuv420p",
+    "-c:a",
+    "aac",
+    "-movflags",
+    "+faststart",
+    outputPath,
+  ]);
+}
+
 async function mergeSegmentsToOutput({ inputPaths, outputPath, workDir }) {
   const concatPath = path.join(workDir, "concat.txt");
   const concatBody = inputPaths
@@ -138,37 +191,28 @@ async function mergeSegmentsToOutput({ inputPaths, outputPath, workDir }) {
   await fs.writeFile(concatPath, concatBody, "utf8");
 
   try {
-    await runFfmpeg([
-      "-y",
-      "-f",
-      "concat",
-      "-safe",
-      "0",
-      "-i",
+    const concatCopyPath = path.join(workDir, "merged_copy.mp4");
+    await concatSegmentsWithCopy({
       concatPath,
-      "-c",
-      "copy",
-      outputPath,
-    ]);
+      outputPath: concatCopyPath,
+    });
+
+    try {
+      await remuxMp4ForStreaming({
+        inputPath: concatCopyPath,
+        outputPath,
+      });
+    } catch (remuxError) {
+      await reencodeConcatToMp4({
+        concatPath,
+        outputPath,
+      });
+    }
   } catch (copyError) {
-    await runFfmpeg([
-      "-y",
-      "-f",
-      "concat",
-      "-safe",
-      "0",
-      "-i",
+    await reencodeConcatToMp4({
       concatPath,
-      "-c:v",
-      "libx264",
-      "-preset",
-      "veryfast",
-      "-c:a",
-      "aac",
-      "-movflags",
-      "+faststart",
       outputPath,
-    ]);
+    });
   }
 }
 
