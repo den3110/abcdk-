@@ -1,5 +1,9 @@
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
-import { buildRecordingPlaybackUrl } from "./liveRecordingV2Export.service.js";
+import {
+  buildRecordingPlaybackUrl,
+  buildRecordingRawStatusUrl,
+  buildRecordingRawStreamUrl,
+} from "./liveRecordingV2Export.service.js";
 import { getRecordingDriveSettings } from "./driveRecordings.service.js";
 import {
   getLiveRecordingMonitorMeta,
@@ -466,6 +470,9 @@ function buildRow(recording, context = {}) {
     sizeBytes: toNumber(recording.sizeBytes),
     exportAttempts: toNumber(recording.exportAttempts),
     playbackUrl: buildRecordingPlaybackUrl(recording._id),
+    rawStreamUrl: buildRecordingRawStreamUrl(recording._id),
+    rawStatusUrl: buildRecordingRawStatusUrl(recording._id),
+    rawStreamAvailable: Boolean(recording.driveFileId || recording.driveRawUrl),
     driveRawUrl: recording.driveRawUrl || null,
     drivePreviewUrl: recording.drivePreviewUrl || null,
     driveFileId: recording.driveFileId || null,

@@ -10,12 +10,14 @@ import {
   getLiveRecordingWorkerHealthV2,
   getLiveRecordingByMatchV2,
   playLiveRecordingV2,
+  getLiveRecordingRawStatusV2,
   presignMultipartLiveRecordingSegmentPartV2,
   presignLiveRecordingSegmentV2,
   reportMultipartLiveRecordingSegmentProgressV2,
   retryLiveRecordingExportV2,
   startMultipartLiveRecordingSegmentV2,
   startLiveRecordingV2,
+  streamLiveRecordingRawV2,
 } from "../controllers/liveRecordingV2Controller.js";
 
 const router = express.Router();
@@ -34,5 +36,7 @@ router.get("/admin/worker-health", protect, authorize("admin"), getLiveRecording
 router.post("/admin/:id/retry-export", protect, authorize("admin"), retryLiveRecordingExportV2);
 router.get("/by-match/:matchId", getLiveRecordingByMatchV2);
 router.get("/:id/play", playLiveRecordingV2);
+router.get("/:id/raw", streamLiveRecordingRawV2);
+router.get("/:id/raw/status", getLiveRecordingRawStatusV2);
 
 export default router;

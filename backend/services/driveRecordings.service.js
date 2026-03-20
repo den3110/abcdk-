@@ -191,7 +191,10 @@ function buildOAuthClient(runtimeConfig) {
   );
 }
 
-async function buildDriveClient(runtimeConfig) {
+async function buildDriveClient(
+  runtimeConfig,
+  { requireFolderId = true, requireSharedDriveId = true } = {}
+) {
   if (!runtimeConfig.enabled) {
     throw new Error("Google Drive recording output is disabled");
   }
@@ -203,12 +206,12 @@ async function buildDriveClient(runtimeConfig) {
       );
     }
     if (!runtimeConfig.refreshToken) {
-      throw new Error("My Drive OAuth chua ket noi");
+      throw new Error("My Drive OAuth chưa kết nối");
     }
     if (!runtimeConfig.redirectUris?.length) {
       throw new Error("Thieu GOOGLE_REDIRECT_DRIVE_URI trong System Config");
     }
-    if (!runtimeConfig.folderId) {
+    if (requireFolderId && !runtimeConfig.folderId) {
       throw new Error("Google Drive recording folder is not configured");
     }
 
@@ -224,10 +227,10 @@ async function buildDriveClient(runtimeConfig) {
   if (!runtimeConfig.serviceAccountEmail || !runtimeConfig.privateKey) {
     throw new Error("Google Drive service account is not configured");
   }
-  if (!runtimeConfig.folderId) {
+  if (requireFolderId && !runtimeConfig.folderId) {
     throw new Error("Google Drive recording folder is not configured");
   }
-  if (!runtimeConfig.sharedDriveId) {
+  if (requireSharedDriveId && !runtimeConfig.sharedDriveId) {
     throw new Error("Mode service account yeu cau Shared Drive");
   }
 
@@ -253,7 +256,7 @@ function normalizeDriveError(error, runtimeConfig) {
 
   if (/Service Accounts do not have storage quota/i.test(message)) {
     return new Error(
-      "Service account khong the upload vao My Drive. Hay dung Shared Drive hoac chuyen sang My Drive OAuth."
+      "Service account không thể upload vào My Drive. Hãy dùng Shared Drive hoặc chuyển sang My Drive OAuth."
     );
   }
   if (/File not found/i.test(message)) {
@@ -265,13 +268,13 @@ function normalizeDriveError(error, runtimeConfig) {
         "Refresh token Recording Drive luu sai dinh dang. Hay ket noi lai."
       );
     }
-    return new Error("My Drive OAuth het han hoac da bi revoke. Hay ket noi lai.");
+    return new Error("My Drive OAuth hết hạn hoặc đã bị revoke. Hãy kết nối lại.");
   }
   if (
     runtimeConfig?.mode === "oauthUser" &&
     /Login Required|auth/i.test(message)
   ) {
-    return new Error("My Drive OAuth chua ket noi hop le.");
+    return new Error("My Drive OAuth chưa kết nối hợp lệ.");
   }
 
   return new Error(message);
@@ -347,7 +350,7 @@ export async function getRecordingDriveStatus() {
         ...base,
         connected: false,
         configured,
-        message: "My Drive OAuth chua ket noi",
+        message: "My Drive OAuth chưa kết nối",
       };
     }
 
@@ -369,7 +372,7 @@ export async function getRecordingDriveStatus() {
           "",
         folderAccessible: folderCheck.ok,
         folderName: folderCheck.folder?.name || "",
-        message: folderCheck.ok ? "My Drive OAuth da san sang" : folderCheck.message,
+        message: folderCheck.ok ? "My Drive OAuth đã sẵn sàng" : folderCheck.message,
       };
     } catch (error) {
       return {
@@ -433,6 +436,67 @@ export async function getRecordingDriveStatus() {
 export async function isRecordingDriveConfigured() {
   const status = await getRecordingDriveStatus();
   return Boolean(status.enabled && status.configured && status.ready);
+}
+
+async function requestRecordingDriveMedia(fileId, { rangeHeader = "" } = {}) {
+  const runtimeConfig = await getRecordingDriveRuntimeConfig();
+  const { drive, usingSharedDrive, driveAuthMode } = await buildDriveClient(runtimeConfig, {
+    requireFolderId: false,
+    requireSharedDriveId: false,
+  });
+
+  const headers = {};
+  if (rangeHeader) {
+    headers.Range = rangeHeader;
+  }
+
+  try {
+    const response = await drive.files.get(
+      {
+        fileId,
+        alt: "media",
+        supportsAllDrives: usingSharedDrive,
+        acknowledgeAbuse: true,
+      },
+      {
+        responseType: "stream",
+        headers,
+      }
+    );
+
+    return {
+      response,
+      driveAuthMode,
+    };
+  } catch (error) {
+    throw normalizeDriveError(error, runtimeConfig);
+  }
+}
+
+export async function streamRecordingDriveFile({ fileId, rangeHeader = "" }) {
+  return requestRecordingDriveMedia(fileId, { rangeHeader });
+}
+
+export async function probeRecordingDriveFile(fileId) {
+  const { response, driveAuthMode } = await requestRecordingDriveMedia(fileId, {
+    rangeHeader: "bytes=0-0",
+  });
+  const headers = response?.headers || {};
+
+  try {
+    response?.data?.destroy?.();
+  } catch (_) {}
+
+  return {
+    ready: true,
+    driveAuthMode,
+    statusCode: Number(response?.status) || 200,
+    contentType: String(headers["content-type"] || "video/mp4"),
+    contentLength: headers["content-length"] || null,
+    contentRange: headers["content-range"] || null,
+    acceptRanges: headers["accept-ranges"] || "bytes",
+    checkedAt: new Date().toISOString(),
+  };
 }
 
 export async function uploadRecordingToDrive({

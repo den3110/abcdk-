@@ -339,7 +339,14 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
   const StatusChip = (
     <Chip
       size="small"
-      sx={{ ml: 1 }}
+      sx={{
+        ml: 1,
+        ...(status === "live" && {
+          bgcolor: "#f97316", // Explicit orange
+          color: "#ffffff",
+          fontWeight: 600,
+        }),
+      }}
       label={
         status === "live"
           ? "Đang diễn ra"
@@ -348,11 +355,11 @@ function ResponsiveMatchViewer({ open, matchId, onClose }) {
           : "Dự kiến"
       }
       color={
-        status === "live"
-          ? "warning"
-          : status === "finished"
+        status === "finished"
           ? "success"
-          : "default"
+          : status !== "live"
+          ? "default"
+          : "warning"
       }
     />
   );

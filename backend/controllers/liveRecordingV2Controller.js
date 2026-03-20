@@ -4,7 +4,13 @@ import Match from "../models/matchModel.js";
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import {
   buildRecordingPlaybackUrl,
+  buildRecordingRawStatusUrl,
+  buildRecordingRawStreamUrl,
 } from "../services/liveRecordingV2Export.service.js";
+import {
+  probeRecordingDriveFile,
+  streamRecordingDriveFile,
+} from "../services/driveRecordings.service.js";
 import {
   abortRecordingMultipartUpload,
   buildRecordingManifestObjectKey,
@@ -83,6 +89,9 @@ function serializeRecording(recording) {
     driveRawUrl: recording.driveRawUrl || null,
     drivePreviewUrl: recording.drivePreviewUrl || null,
     playbackUrl: buildRecordingPlaybackUrl(recording._id),
+    rawStreamUrl: buildRecordingRawStreamUrl(recording._id),
+    rawStatusUrl: buildRecordingRawStatusUrl(recording._id),
+    rawStreamAvailable: Boolean(recording.driveFileId || recording.driveRawUrl),
     driveAuthMode: recording?.meta?.exportPipeline?.driveAuthMode || null,
     exportAttempts: recording.exportAttempts || 0,
     error: recording.error || null,
@@ -864,10 +873,13 @@ export const playLiveRecordingV2 = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Recording not found" });
   }
 
+  if (recording.driveFileId) {
+    return res.redirect(buildRecordingRawStreamUrl(recording._id));
+  }
+  if (recording.driveRawUrl) {
+    return res.redirect(recording.driveRawUrl);
+  }
   if (recording.status === "ready") {
-    if (recording.driveRawUrl) {
-      return res.redirect(recording.driveRawUrl);
-    }
     if (recording.drivePreviewUrl) {
       return res.redirect(recording.drivePreviewUrl);
     }
@@ -879,4 +891,154 @@ export const playLiveRecordingV2 = asyncHandler(async (req, res) => {
     message: "Recording is not ready yet",
     recording: serializeRecording(recording),
   });
+});
+
+function applyRawVideoHeaders(res, headers = {}, recordingId) {
+  const headerEntries = [
+    ["content-type", "Content-Type"],
+    ["content-length", "Content-Length"],
+    ["content-range", "Content-Range"],
+    ["accept-ranges", "Accept-Ranges"],
+    ["etag", "ETag"],
+    ["last-modified", "Last-Modified"],
+  ];
+
+  headerEntries.forEach(([sourceKey, targetKey]) => {
+    const value = headers[sourceKey];
+    if (value != null && value !== "") {
+      res.setHeader(targetKey, value);
+    }
+  });
+
+  if (!res.getHeader("Content-Type")) {
+    res.setHeader("Content-Type", "video/mp4");
+  }
+  if (!res.getHeader("Accept-Ranges")) {
+    res.setHeader("Accept-Ranges", "bytes");
+  }
+
+  res.setHeader(
+    "Content-Disposition",
+    `inline; filename="recording-${String(recordingId)}.mp4"`
+  );
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Range");
+  res.setHeader(
+    "Access-Control-Expose-Headers",
+    "Accept-Ranges, Content-Length, Content-Range, Content-Type"
+  );
+  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+  res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=60");
+}
+
+export const streamLiveRecordingRawV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id);
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "Recording id is invalid" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId).lean();
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  if (!recording.driveFileId && recording.driveRawUrl) {
+    return res.redirect(recording.driveRawUrl);
+  }
+
+  if (!recording.driveFileId) {
+    return res.status(409).json({
+      ok: false,
+      ready: false,
+      status: recording.status,
+      message: "Recording raw stream is not ready yet",
+      recording: serializeRecording(recording),
+    });
+  }
+
+  const rangeHeader = asTrimmed(req.headers?.range);
+  const { response, driveAuthMode } = await streamRecordingDriveFile({
+    fileId: recording.driveFileId,
+    rangeHeader,
+  });
+
+  applyRawVideoHeaders(res, response?.headers || {}, recording._id);
+  res.setHeader("X-Recording-Drive-Auth-Mode", driveAuthMode || "unknown");
+
+  const statusCode = Number(response?.status) || (rangeHeader ? 206 : 200);
+  res.status(statusCode);
+  if (!response?.data?.pipe) {
+    return res.status(502).json({
+      ok: false,
+      message: "Raw stream response is invalid",
+      recording: serializeRecording(recording),
+    });
+  }
+
+  response.data.on("error", () => {
+    if (!res.headersSent) {
+      res.status(502).end();
+      return;
+    }
+    res.destroy();
+  });
+  req.on("close", () => {
+    response?.data?.destroy?.();
+  });
+  response.data.pipe(res);
+});
+
+export const getLiveRecordingRawStatusV2 = asyncHandler(async (req, res) => {
+  const recordingId = asTrimmed(req.params?.id);
+  if (!isValidObjectId(recordingId)) {
+    return res.status(400).json({ message: "Recording id is invalid" });
+  }
+
+  const recording = await LiveRecordingV2.findById(recordingId).lean();
+  if (!recording) {
+    return res.status(404).json({ message: "Recording not found" });
+  }
+
+  const payload = {
+    ok: true,
+    ready: false,
+    status: recording.status,
+    rawStreamUrl: buildRecordingRawStreamUrl(recording._id),
+    rawStatusUrl: buildRecordingRawStatusUrl(recording._id),
+    playbackUrl: buildRecordingPlaybackUrl(recording._id),
+    recording: serializeRecording(recording),
+  };
+
+  if (!recording.driveFileId && recording.driveRawUrl) {
+    return res.json({
+      ...payload,
+      ready: true,
+      message: "Raw video is available via stored Drive raw URL",
+    });
+  }
+
+  if (!recording.driveFileId) {
+    return res.json({
+      ...payload,
+      message: "Drive file has not been uploaded yet",
+    });
+  }
+
+  try {
+    const probe = await probeRecordingDriveFile(recording.driveFileId);
+    return res.json({
+      ...payload,
+      ok: true,
+      ready: true,
+      message: "Raw video is ready to stream",
+      probe,
+    });
+  } catch (error) {
+    return res.status(502).json({
+      ...payload,
+      ok: false,
+      ready: false,
+      message: error?.message || "Raw video is not accessible yet",
+    });
+  }
 });

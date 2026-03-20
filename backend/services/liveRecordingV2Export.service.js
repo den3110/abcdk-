@@ -41,6 +41,14 @@ export function buildRecordingPlaybackUrl(recordingId) {
   return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/play`;
 }
 
+export function buildRecordingRawStreamUrl(recordingId) {
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/raw`;
+}
+
+export function buildRecordingRawStatusUrl(recordingId) {
+  return `${getPlaybackApiBase()}/api/live/recordings/v2/${String(recordingId)}/raw/status`;
+}
+
 function asMutableMeta(meta) {
   return meta && typeof meta === "object" && !Array.isArray(meta) ? { ...meta } : {};
 }
