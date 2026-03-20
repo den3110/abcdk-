@@ -9,6 +9,7 @@ const DEFAULTS = {
   security: { enforce2FAForAdmins: false, sessionTTLHours: 72 },
   uploads: { maxAvatarSizeMB: 5 },
   notifications: { telegramEnabled: false, telegramComplaintChatId: "" },
+  liveRecording: { autoExportNoSegmentMinutes: 15 },
 };
 
 let cache = { doc: null, ts: 0 };

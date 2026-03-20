@@ -38,14 +38,89 @@ const DEFAULTS = {
     folderId: "",
     sharedDriveId: "",
   },
+  liveRecording: {
+    autoExportNoSegmentMinutes: 15,
+  },
 };
+
+function normalizeSystemSettings(doc = {}) {
+  const source =
+    doc && typeof doc.toObject === "function" ? doc.toObject() : { ...doc };
+
+  return {
+    ...DEFAULTS,
+    ...source,
+    maintenance: {
+      ...DEFAULTS.maintenance,
+      ...(source.maintenance || {}),
+    },
+    registration: {
+      ...DEFAULTS.registration,
+      ...(source.registration || {}),
+    },
+    kyc: {
+      ...DEFAULTS.kyc,
+      ...(source.kyc || {}),
+    },
+    security: {
+      ...DEFAULTS.security,
+      ...(source.security || {}),
+    },
+    uploads: {
+      ...DEFAULTS.uploads,
+      ...(source.uploads || {}),
+    },
+    notifications: {
+      ...DEFAULTS.notifications,
+      ...(source.notifications || {}),
+    },
+    links: {
+      ...DEFAULTS.links,
+      ...(source.links || {}),
+    },
+    ota: {
+      ...DEFAULTS.ota,
+      ...(source.ota || {}),
+    },
+    recordingDrive: {
+      ...DEFAULTS.recordingDrive,
+      ...(source.recordingDrive || {}),
+    },
+    liveRecording: {
+      ...DEFAULTS.liveRecording,
+      ...(source.liveRecording || {}),
+    },
+  };
+}
+
+function sanitizeSettingsPatch(patch = {}) {
+  const next = { ...patch };
+
+  if (next.liveRecording && typeof next.liveRecording === "object") {
+    const rawMinutes = Number(next.liveRecording.autoExportNoSegmentMinutes);
+    if (Number.isFinite(rawMinutes)) {
+      next.liveRecording.autoExportNoSegmentMinutes = Math.max(
+        1,
+        Math.min(1440, Math.round(rawMinutes))
+      );
+    } else {
+      delete next.liveRecording.autoExportNoSegmentMinutes;
+    }
+
+    if (!Object.keys(next.liveRecording).length) {
+      delete next.liveRecording;
+    }
+  }
+
+  return next;
+}
 
 export const getSystemSettings = async (req, res, next) => {
   try {
     const doc =
       (await SystemSettings.findById("system")) ||
       (await SystemSettings.create(DEFAULTS));
-    res.json(doc);
+    res.json(normalizeSystemSettings(doc));
   } catch (err) {
     next(err);
   }
@@ -78,7 +153,7 @@ export const updateSystemSettings = async (req, res, next) => {
       await SystemSettings.create(DEFAULTS);
     }
 
-    const patch = pick(req.body || {}, DEFAULTS);
+    const patch = sanitizeSettingsPatch(pick(req.body || {}, DEFAULTS));
 
     // meta
     patch.updatedAt = new Date();
@@ -87,11 +162,16 @@ export const updateSystemSettings = async (req, res, next) => {
     const updated = await SystemSettings.findByIdAndUpdate(
       "system",
       { $set: patch },
-      { new: true }
+      {
+        new: true,
+        upsert: true,
+        runValidators: true,
+        setDefaultsOnInsert: true,
+      }
     );
 
     invalidateSettingsCache();
-    return res.json(updated);
+    return res.json(normalizeSystemSettings(updated));
   } catch (err) {
     next(err);
   }

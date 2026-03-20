@@ -3,7 +3,6 @@ import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import {
-  buildRecordingPlaybackUrl,
   buildRecordingRawStatusUrl,
   buildRecordingRawStreamUrl,
 } from "../services/liveRecordingV2Export.service.js";
@@ -13,7 +12,6 @@ import {
 } from "../services/driveRecordings.service.js";
 import {
   abortRecordingMultipartUpload,
-  buildRecordingManifestObjectKey,
   buildRecordingPrefix,
   buildRecordingSegmentObjectKey,
   completeRecordingMultipartUpload,
@@ -22,15 +20,19 @@ import {
   createRecordingSegmentUploadUrl,
   getRecordingMultipartPartSizeBytes,
   isRecordingR2Configured,
-  putRecordingManifest,
 } from "../services/liveRecordingV2Storage.service.js";
-import { enqueueLiveRecordingExport } from "../services/liveRecordingV2Queue.service.js";
 import {
   buildLiveRecordingMonitorSnapshot,
   reconcileStaleLiveRecordingExports,
 } from "../services/liveRecordingMonitor.service.js";
-import { publishLiveRecordingMonitorUpdate } from "../services/liveRecordingMonitorEvents.service.js";
 import { getLiveRecordingWorkerHealth } from "../services/liveRecordingWorkerHealth.service.js";
+import {
+  getPendingRecordingSegments,
+  getRecordingMeta,
+  getUploadedRecordingSegments,
+  publishRecordingMonitor,
+  queueLiveRecordingExport,
+} from "../services/liveRecordingV2Transition.service.js";
 
 function isValidObjectId(value) {
   return mongoose.isValidObjectId(String(value || ""));
@@ -56,105 +58,12 @@ function getSegmentMeta(segment) {
   return meta;
 }
 
-function getRecordingMeta(recording) {
-  return recording?.meta && typeof recording.meta === "object"
-    ? { ...recording.meta }
-    : {};
-}
-
 function findRecordingSegment(recording, segmentIndex) {
   return (recording.segments || []).find((segment) => segment.index === segmentIndex);
 }
 
-async function publishRecordingMonitor(recording, reason) {
-  await publishLiveRecordingMonitorUpdate({
-    reason,
-    recordingIds: recording?._id ? [String(recording._id)] : [],
-  });
-}
-
-function getUploadedRecordingSegments(recording) {
-  return [...(recording?.segments || [])]
-    .filter((segment) => segment.uploadStatus === "uploaded")
-    .sort((a, b) => a.index - b.index);
-}
-
-function getPendingRecordingSegments(recording) {
-  return [...(recording?.segments || [])].filter(
-    (segment) => segment.uploadStatus !== "uploaded"
-  );
-}
-
-async function queueRecordingExport(recording, options = {}) {
-  const {
-    publishReason = "recording_export_queued",
-    replaceTerminalJob = false,
-    currentPipeline = null,
-    forceFromUploading = false,
-  } = options;
-  const uploadedSegments = getUploadedRecordingSegments(recording);
-  const manifestKey = buildRecordingManifestObjectKey({
-    recordingId: recording._id,
-    matchId: recording.match,
-  });
-
-  await putRecordingManifest({
-    objectKey: manifestKey,
-    manifest: {
-      recordingId: String(recording._id),
-      matchId: String(recording.match),
-      courtId: recording.courtId ? String(recording.courtId) : null,
-      mode: recording.mode,
-      quality: recording.quality,
-      finalizedAt: new Date().toISOString(),
-      segments: uploadedSegments.map((segment) => ({
-        index: segment.index,
-        objectKey: segment.objectKey,
-        sizeBytes: segment.sizeBytes,
-        durationSeconds: segment.durationSeconds,
-        isFinal: segment.isFinal,
-      })),
-    },
-  });
-
-  const queuedAt = new Date();
-  recording.r2ManifestKey = manifestKey;
-  recording.finalizedAt = queuedAt;
-  recording.status = "exporting";
-  recording.error = null;
-  recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
-
-  const queuedJob = await enqueueLiveRecordingExport(recording._id, {
-    replaceTerminalJob,
-  });
-  const nextMeta = getRecordingMeta(recording);
-  const existingPipeline =
-    currentPipeline && typeof currentPipeline === "object" && !Array.isArray(currentPipeline)
-      ? { ...currentPipeline }
-      : {};
-
-  nextMeta.exportPipeline = {
-    ...existingPipeline,
-    stage: "queued",
-    label: "Dang cho worker",
-    queuedAt,
-    queueJobId: queuedJob?.id ? String(queuedJob.id) : null,
-    updatedAt: queuedAt,
-    error: null,
-  };
-  if (replaceTerminalJob) {
-    nextMeta.exportPipeline.retriedAt = queuedAt;
-  }
-  if (forceFromUploading) {
-    nextMeta.exportPipeline.manualTransitionAt = queuedAt;
-    nextMeta.exportPipeline.manualTransitionSource = "uploading";
-  }
-
-  recording.meta = nextMeta;
-  await recording.save();
-  await publishRecordingMonitor(recording, publishReason);
-
-  return recording;
+function shouldPreserveExportState(recording) {
+  return ["exporting", "ready", "failed"].includes(String(recording?.status || ""));
 }
 
 function serializeRecording(recording) {
@@ -525,8 +434,10 @@ export const reportMultipartLiveRecordingSegmentProgressV2 = asyncHandler(
           : Number(segmentMeta.totalSizeBytes) || Number(segment.sizeBytes) || 0,
       lastPartUploadedAt: new Date().toISOString(),
     };
-    recording.status = "uploading";
-    recording.error = null;
+    if (!shouldPreserveExportState(recording)) {
+      recording.status = "uploading";
+      recording.error = null;
+    }
     await recording.save();
     await publishRecordingMonitor(recording, "multipart_part_progress");
 
@@ -623,7 +534,10 @@ export const completeMultipartLiveRecordingSegmentV2 = asyncHandler(
       completedAt: new Date().toISOString(),
     };
 
-    recording.status = "uploading";
+    if (!shouldPreserveExportState(recording)) {
+      recording.status = "uploading";
+      recording.error = null;
+    }
     recording.sizeBytes = (recording.segments || []).reduce(
       (sum, item) => sum + (Number(item.sizeBytes) || 0),
       0
@@ -632,7 +546,6 @@ export const completeMultipartLiveRecordingSegmentV2 = asyncHandler(
       (sum, item) => sum + (Number(item.durationSeconds) || 0),
       0
     );
-    recording.error = null;
     await recording.save();
     await publishRecordingMonitor(recording, "multipart_segment_uploaded");
 
@@ -746,7 +659,10 @@ export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
     });
   }
 
-  recording.status = "uploading";
+  if (!shouldPreserveExportState(recording)) {
+    recording.status = "uploading";
+    recording.error = null;
+  }
   recording.sizeBytes = (recording.segments || []).reduce(
     (sum, segment) => sum + (Number(segment.sizeBytes) || 0),
     0
@@ -755,7 +671,6 @@ export const completeLiveRecordingSegmentV2 = asyncHandler(async (req, res) => {
     (sum, segment) => sum + (Number(segment.durationSeconds) || 0),
     0
   );
-  recording.error = null;
   await recording.save();
   await publishRecordingMonitor(recording, "segment_uploaded_legacy");
 
@@ -791,7 +706,7 @@ export const finalizeLiveRecordingV2 = asyncHandler(async (req, res) => {
     });
   }
 
-  await queueRecordingExport(recording, {
+  await queueLiveRecordingExport(recording, {
     publishReason: "recording_export_queued",
   });
 
@@ -878,7 +793,7 @@ export const retryLiveRecordingExportV2 = asyncHandler(async (req, res) => {
       message: "Cannot retry export because recording has no uploaded segments",
     });
   }
-  await queueRecordingExport(recording, {
+  await queueLiveRecordingExport(recording, {
     publishReason: "recording_export_retried",
     replaceTerminalJob: true,
     currentPipeline,
@@ -923,7 +838,7 @@ export const forceUploadingRecordingToExportV2 = asyncHandler(async (req, res) =
     });
   }
 
-  await queueRecordingExport(recording, {
+  await queueLiveRecordingExport(recording, {
     publishReason: "recording_export_forced_from_uploading",
     forceFromUploading: true,
   });

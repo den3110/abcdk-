@@ -1,4 +1,5 @@
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
+import SystemSettings from "../models/systemSettingsModel.js";
 import {
   buildRecordingPlaybackUrl,
   buildRecordingRawStatusUrl,
@@ -11,6 +12,18 @@ import {
 } from "./liveRecordingMonitorEvents.service.js";
 import { getLiveRecordingExportQueueSnapshot } from "./liveRecordingV2Queue.service.js";
 import { getLiveRecordingWorkerHealth } from "./liveRecordingWorkerHealth.service.js";
+import {
+  getUploadedRecordingSegments,
+  queueLiveRecordingExport,
+} from "./liveRecordingV2Transition.service.js";
+
+const DEFAULT_AUTO_EXPORT_NO_SEGMENT_MINUTES = 15;
+const AUTO_EXPORT_SWEEP_INTERVAL_MS = Math.max(
+  30_000,
+  Number(process.env.LIVE_RECORDING_AUTO_EXPORT_SWEEP_MS) || 60_000
+);
+let liveRecordingAutoExportSweepTimer = null;
+let liveRecordingAutoExportSweepRunning = false;
 
 function pickPersonName(person) {
   return (
@@ -75,6 +88,41 @@ function getExportStaleThresholdMs() {
     return Math.floor(configured);
   }
   return 5 * 60 * 1000;
+}
+
+async function getAutoExportNoSegmentMinutes() {
+  try {
+    const doc = await SystemSettings.findById("system")
+      .select("liveRecording.autoExportNoSegmentMinutes")
+      .lean();
+    const configured = Number(doc?.liveRecording?.autoExportNoSegmentMinutes);
+    if (Number.isFinite(configured) && configured >= 1) {
+      return Math.floor(configured);
+    }
+  } catch (_) {}
+  return DEFAULT_AUTO_EXPORT_NO_SEGMENT_MINUTES;
+}
+
+function toActivityMs(value) {
+  if (!value) return 0;
+  const ts = new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function getLatestSegmentActivityDate(recording) {
+  let latestMs = 0;
+
+  for (const segment of recording?.segments || []) {
+    const meta = sanitizeSegmentMeta(segment?.meta);
+    latestMs = Math.max(
+      latestMs,
+      toActivityMs(segment?.uploadedAt),
+      toActivityMs(meta.lastPartUploadedAt),
+      toActivityMs(meta.completedAt)
+    );
+  }
+
+  return latestMs > 0 ? new Date(latestMs) : null;
 }
 
 function sanitizeSegmentMeta(meta) {
@@ -457,6 +505,95 @@ export async function reconcileStaleLiveRecordingExports({
   };
 }
 
+export async function autoExportInactiveLiveRecordings() {
+  const timeoutMinutes = await getAutoExportNoSegmentMinutes();
+  const timeoutMs = timeoutMinutes * 60 * 1000;
+  const nowMs = Date.now();
+
+  const candidates = await LiveRecordingV2.find({
+    status: { $in: ["recording", "uploading"] },
+  });
+
+  const queuedRecordingIds = [];
+  const skippedRecordingIds = [];
+
+  for (const recording of candidates) {
+    const latestSegmentActivityAt = getLatestSegmentActivityDate(recording);
+    const uploadedSegments = getUploadedRecordingSegments(recording);
+
+    if (!uploadedSegments.length || !latestSegmentActivityAt) {
+      skippedRecordingIds.push(String(recording._id));
+      continue;
+    }
+
+    const idleMs = nowMs - latestSegmentActivityAt.getTime();
+    if (!Number.isFinite(idleMs) || idleMs < timeoutMs) {
+      continue;
+    }
+
+    try {
+      await queueLiveRecordingExport(recording, {
+        publishReason: "recording_export_auto_queued_no_segment",
+        forceFromUploading: recording.status === "uploading",
+        forceReason: "segment_timeout",
+        latestSegmentActivityAt,
+        segmentTimeoutMinutes: timeoutMinutes,
+      });
+      queuedRecordingIds.push(String(recording._id));
+    } catch (error) {
+      console.warn(
+        `[live-recording-monitor] auto export sweep failed for recording ${String(
+          recording._id
+        )}:`,
+        error?.message || error
+      );
+    }
+  }
+
+  return {
+    timeoutMinutes,
+    queuedRecordingIds,
+    skippedRecordingIds,
+  };
+}
+
+async function runLiveRecordingAutoExportSweep() {
+  if (liveRecordingAutoExportSweepRunning) return;
+  liveRecordingAutoExportSweepRunning = true;
+  try {
+    await autoExportInactiveLiveRecordings();
+  } catch (error) {
+    console.warn(
+      "[live-recording-monitor] auto export sweep crashed:",
+      error?.message || error
+    );
+  } finally {
+    liveRecordingAutoExportSweepRunning = false;
+  }
+}
+
+export function startLiveRecordingAutoExportSweep() {
+  if (liveRecordingAutoExportSweepTimer) {
+    return liveRecordingAutoExportSweepTimer;
+  }
+
+  console.log(
+    `[live-recording-monitor] auto export sweep interval=${AUTO_EXPORT_SWEEP_INTERVAL_MS}ms`
+  );
+
+  liveRecordingAutoExportSweepTimer = setInterval(() => {
+    void runLiveRecordingAutoExportSweep();
+  }, AUTO_EXPORT_SWEEP_INTERVAL_MS);
+  liveRecordingAutoExportSweepTimer.unref?.();
+
+  const bootTimer = setTimeout(() => {
+    void runLiveRecordingAutoExportSweep();
+  }, 15_000);
+  bootTimer.unref?.();
+
+  return liveRecordingAutoExportSweepTimer;
+}
+
 function buildRow(recording, context = {}) {
   const match = recording.match || {};
   const participantsLabel = buildParticipantsLabel(match);
@@ -488,6 +625,7 @@ function buildRow(recording, context = {}) {
     matchCode: buildMatchVBTCode(match) || match?.code || "",
     participantsLabel: participantsLabel || "Unknown match",
     tournamentName: tournamentName || "",
+    tournamentStatus: match?.tournament?.status || "",
     bracketName: bracketName || "",
     bracketStage: bracketStage || "",
     courtLabel: courtLabel || "",
@@ -577,7 +715,7 @@ export async function buildLiveRecordingMonitorSnapshot() {
         },
         { path: "court", select: "name label number" },
         { path: "bracket", select: "name stage type" },
-        { path: "tournament", select: "name" },
+        { path: "tournament", select: "name status" },
       ],
     })
     .populate({ path: "courtId", select: "name label number" })

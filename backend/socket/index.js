@@ -1013,7 +1013,11 @@ export function initSocket(
         if (!matchId) return;
 
         // vẫn join room match:... cho cả 2 loại
-        socket.join(`match:${matchId}`);
+        await socket.join(`match:${matchId}`);
+        socket.emit("match:joined", {
+          matchId: String(matchId),
+          joinedAt: new Date().toISOString(),
+        });
 
         let m = null;
         let isUserMatch = false;

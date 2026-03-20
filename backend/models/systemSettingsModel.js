@@ -63,6 +63,15 @@ const SystemSettingsSchema = new mongoose.Schema(
       sharedDriveId: { type: String, default: "", trim: true },
     },
 
+    liveRecording: {
+      autoExportNoSegmentMinutes: {
+        type: Number,
+        default: 15,
+        min: 1,
+        max: 1440,
+      },
+    },
+
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
     updatedAt: { type: Date, default: Date.now },
   },
