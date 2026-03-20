@@ -102,6 +102,11 @@ export default {
     supportLabel: "Legal and operations support:",
     quickLinks: "Quick links",
     policies: "Policies",
+    liveApps: {
+      title: "PickleTour Live Apps",
+      ios: "Live app for iOS",
+      apk: "Live app APK",
+    },
     links: {
       news: "News",
       clubs: "Clubs",
@@ -142,8 +147,7 @@ export default {
         latestDate: "Latest: {date}",
         readLatest: "Read latest story",
         viewHighlights: "Browse highlights",
-        note:
-          "AI is only part of the workflow. Stories are still filtered by topic relevance, reviewed, and prioritized for usefulness before they appear here.",
+        note: "AI is only part of the workflow. Stories are still filtered by topic relevance, reviewed, and prioritized for usefulness before they appear here.",
         previewFallbackTitle: "Curated pickleball stories, every day",
         previewFallbackSummary:
           "Follow community news, strategy, event communication, and filtered AI explainers in one place.",
@@ -284,8 +288,7 @@ export default {
       emailLabel: "Email",
       submit: "Send instructions",
       backToLogin: "Back to login",
-      successToast:
-        "Password reset instructions have been sent to your email",
+      successToast: "Password reset instructions have been sent to your email",
       sentNoticePrefix: "Request sent to:",
       sentNoticeSuffix: "Please check your inbox or spam folder.",
       errors: {
@@ -305,10 +308,10 @@ export default {
       backToLogin: "Back to login",
       success: "Password changed successfully. Please log in again.",
       errors: {
-        missingToken: "Missing token. Open the link from your email to continue.",
+        missingToken:
+          "Missing token. Open the link from your email to continue.",
         mismatch: "Passwords do not match",
-        failed:
-          "Unable to reset your password. The token may have expired.",
+        failed: "Unable to reset your password. The token may have expired.",
       },
     },
   },
@@ -575,12 +578,10 @@ export default {
   home: {
     seoDescription:
       "Pickletour.vn - A platform for sports communities, tournament operations, rating tracking, and pickleball rankings in Vietnam.",
-    seoKeywords:
-      "pickleball, tournaments, rankings, rating, sports, community",
+    seoKeywords: "pickleball, tournaments, rankings, rating, sports, community",
     heroFallback: {
       title: "Connect the community and manage sports tournaments",
-      lead:
-        "PickleTour helps you register, organize, track ratings, and keep standings up to date for every sport right from your phone.",
+      lead: "PickleTour helps you register, organize, track ratings, and keep standings up to date for every sport right from your phone.",
       imageAlt: "PickleTour - Community and tournament management platform",
     },
     hero: {
@@ -611,33 +612,27 @@ export default {
       items: [
         {
           title: "DUPR-style rating system",
-          desc:
-            "Track player ratings with an international-style standard that updates after every official match.",
+          desc: "Track player ratings with an international-style standard that updates after every official match.",
         },
         {
           title: "Tournament operations",
-          desc:
-            "Create and run tournaments with automated groups, brackets, and live result updates.",
+          desc: "Create and run tournaments with automated groups, brackets, and live result updates.",
         },
         {
           title: "Profiles and analytics",
-          desc:
-            "Review match history, form, win rate, and long-term progress in one place.",
+          desc: "Review match history, form, win rate, and long-term progress in one place.",
         },
         {
           title: "Active community",
-          desc:
-            "Connect with thousands of players and find opponents near your skill level.",
+          desc: "Connect with thousands of players and find opponents near your skill level.",
         },
         {
           title: "Mobile experience",
-          desc:
-            "Enjoy a smooth experience across iOS and Android with updates wherever you are.",
+          desc: "Enjoy a smooth experience across iOS and Android with updates wherever you are.",
         },
         {
           title: "Smart notifications",
-          desc:
-            "Get reminders for upcoming tournaments, match results, and rating updates.",
+          desc: "Get reminders for upcoming tournaments, match results, and rating updates.",
         },
       ],
     },
@@ -787,10 +782,8 @@ export default {
         enabled: "Enabled admin rating for all provinces",
         disabled: "Disabled admin rating",
         superAdminTitle: "Super admin",
-        superAdminSelf:
-          "Cannot remove your own super admin role.",
-        superAdminBody:
-          "Full admin area access, including group/PO structure.",
+        superAdminSelf: "Cannot remove your own super admin role.",
+        superAdminBody: "Full admin area access, including group/PO structure.",
         promoted: "Promoted to super admin",
         demoted: "Removed super admin",
       },
@@ -892,8 +885,7 @@ export default {
   facebookLive: {
     seoTitle: "Facebook Live settings",
     title: "Facebook Live",
-    subtitle:
-      "Connect Facebook to stream live matches directly to your page.",
+    subtitle: "Connect Facebook to stream live matches directly to your page.",
     connect: "Connect Facebook",
     connecting: "Opening Facebook...",
     infoAlert:
@@ -903,16 +895,14 @@ export default {
       "Choose one page as the default destination for match livestreams.",
     loadingPages: "Loading page list...",
     loadError: "Unable to load the page list. Please try again later.",
-    empty:
-      "No page is connected yet. Click “Connect Facebook” to get started.",
+    empty: "No page is connected yet. Click “Connect Facebook” to get started.",
     defaultPageTooltip: "This is the default page",
     setDefaultTooltip: "Set as default page",
     deleteTooltip: "Remove this page connection",
     defaultBadge: "Default",
     connectError:
       "Unable to get the Facebook connection link. Please try again.",
-    setDefaultError:
-      "Unable to set the default page. Please try again.",
+    setDefaultError: "Unable to set the default page. Please try again.",
     deleteConfirm:
       "Are you sure you want to remove this fanpage connection from your account?",
     deleteError: "Unable to remove the connection. Please try again.",
@@ -943,7 +933,8 @@ export default {
       presetUltraDescription: "Full HD, very strong network",
       disconnected: "Not connected",
       autoFillFromUrl: "✅ Auto-filled destinations from URL",
-      webCodecsUnsupported: "⚠️ WebCodecs is not supported. Use Chrome/Edge 94+",
+      webCodecsUnsupported:
+        "⚠️ WebCodecs is not supported. Use Chrome/Edge 94+",
       webCodecsReady: "✅ WebCodecs ready - ADAPTIVE",
       cameraReady: "Camera ready - {label}",
       cameraAccessError: "Error: Cannot access camera - {message}",
@@ -962,7 +953,8 @@ export default {
       matchUnknown: "N/A",
       streamHealth: "Stream Health",
       droppedShort: "Drop: {count}",
-      adaptiveQualityHint: "⚡ Adaptive Quality: Automatically adjusts to your network!",
+      adaptiveQualityHint:
+        "⚡ Adaptive Quality: Automatically adjusts to your network!",
       qualitySettings: "Quality Settings",
       streamSettings: "Stream Settings",
       destinations: "Destinations",
@@ -991,9 +983,11 @@ export default {
       stopStream: "Stop Stream",
       startStreaming: "Start Streaming",
       featuresTitle: "🚀 Features:",
-      featureMultiPlatform: "✅ Multi-platform outputs (Facebook / YouTube / TikTok)",
+      featureMultiPlatform:
+        "✅ Multi-platform outputs (Facebook / YouTube / TikTok)",
       featureAutoQuality: "✅ Auto quality from network speed",
-      featureAutoFill: "✅ Auto-fill from URL/d64 (key, yt_server/yt, tt_server/tt)",
+      featureAutoFill:
+        "✅ Auto-fill from URL/d64 (key, yt_server/yt, tt_server/tt)",
       featureManualQuality: "✅ Manual quality override",
       featureHealth: "✅ Real-time health monitoring",
       featurePresets: "✅ 4 quality presets (360p-1080p)",
@@ -1050,8 +1044,7 @@ export default {
       seoTitle: "Clubs",
       seoDescription:
         "Join pickleball clubs, connect with the community, create groups, and play friendly events.",
-      seoKeywords:
-        "pickleball clubs, club community, join club, create club",
+      seoKeywords: "pickleball clubs, club community, join club, create club",
       heroTitle: "Community & Clubs",
       heroSubtitle: "Connect, meet players, and join exciting tournaments",
       createClub: "Create new club",
@@ -1080,10 +1073,8 @@ export default {
     detail: {
       memberGuardAdmins:
         "The member list is only visible to club administrators.",
-      memberGuardMembers:
-        "The member list is only visible to club members.",
-      memberGuardUnavailable:
-        "The member list is currently unavailable.",
+      memberGuardMembers: "The member list is only visible to club members.",
+      memberGuardUnavailable: "The member list is currently unavailable.",
       actionsTitle: "Actions",
       manageTitle: "Club management",
       editClub: "Edit club",
@@ -1288,7 +1279,7 @@ export default {
       searchPlaceholder: "Enter phone number or player name...",
       searchButton: "SEARCH",
       searchHint: "Enter a phone number or nickname to search",
-      searchEmpty: "No results found for \"{query}\"",
+      searchEmpty: 'No results found for "{query}"',
       searchError: "An error occurred while searching.",
       checkinSuccess: "Check-in successful",
       checkinFailed: "Check-in failed",
@@ -1719,7 +1710,8 @@ export default {
         scorePrefix: "Score:",
         noPhone: "No phone number",
         noteLabel: "Message to the organizer",
-        notePlaceholder: "Example: Please pair me up, please schedule me later...",
+        notePlaceholder:
+          "Example: Please pair me up, please schedule me later...",
         submitting: "Processing...",
         submit: "Submit registration now",
         agreement: "By registering, you agree to the tournament rules.",
@@ -1745,7 +1737,8 @@ export default {
         complaintSending: "Sending...",
         complaintSubmit: "Send complaint",
         paymentTitle: "Fee payment",
-        paymentIntro: "Scan the code below to pay for registration code: {code}",
+        paymentIntro:
+          "Scan the code below to pay for registration code: {code}",
         paymentNoBank: "The organizer has not configured a bank account yet.",
         paymentNote:
           "The transfer description was generated automatically. Please do not modify it so the system can auto-update the payment status.",
@@ -1765,8 +1758,7 @@ export default {
     matchingCount: "{count} matching tournaments",
     loadError: "Unable to load data. Please try again.",
     emptyTitle: "No tournaments yet",
-    emptyBody:
-      "Join a tournament to track your schedule and results here.",
+    emptyBody: "Join a tournament to track your schedule and results here.",
     refresh: "Refresh",
     refreshing: "Refreshing...",
     noScheduledMatches: "No match has been scheduled yet.",
@@ -1813,8 +1805,7 @@ export default {
         "Your avatar should stay under 10MB so it uploads faster and looks sharper.",
       email:
         "Email is shown here for reference and cannot be edited directly on this screen.",
-      kyc:
-        "Once KYC is approved, the citizen ID number will be locked to avoid inconsistent data.",
+      kyc: "Once KYC is approved, the citizen ID number will be locked to avoid inconsistent data.",
     },
     validation: {
       empty: "This field cannot be empty",
@@ -1863,7 +1854,8 @@ export default {
     },
     sections: {
       basicTitle: "Basic information",
-      basicSubtitle: "Update your main identity fields used across the platform.",
+      basicSubtitle:
+        "Update your main identity fields used across the platform.",
       securityTitle: "Account security",
       securitySubtitle:
         "Only enable password change when you really want to update your login credentials.",
@@ -1897,7 +1889,8 @@ export default {
     },
     password: {
       enabledHint: "The new password will apply after you save the profile.",
-      disabledHint: "Enable this option when you need to change the current password.",
+      disabledHint:
+        "Enable this option when you need to change the current password.",
     },
     kyc: {
       statuses: {

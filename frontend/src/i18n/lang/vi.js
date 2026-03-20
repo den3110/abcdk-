@@ -102,6 +102,11 @@ export default {
     supportLabel: "Hỗ trợ pháp lý và vận hành:",
     quickLinks: "Điều hướng nhanh",
     policies: "Chính sách",
+    liveApps: {
+      title: "Ứng dụng PickleTour Live",
+      ios: "iOS app live",
+      apk: "APK app live",
+    },
     links: {
       news: "Tin tức",
       clubs: "Câu lạc bộ",
@@ -142,8 +147,7 @@ export default {
         latestDate: "Mới nhất: {date}",
         readLatest: "Đọc bài mới nhất",
         viewHighlights: "Xem nội dung nổi bật",
-        note:
-          "Nội dung AI chỉ là một phần. Các bài viết vẫn được lọc chủ đề, review và ưu tiên tính thực dụng trước khi hiển thị trên trang.",
+        note: "Nội dung AI chỉ là một phần. Các bài viết vẫn được lọc chủ đề, review và ưu tiên tính thực dụng trước khi hiển thị trên trang.",
         previewFallbackTitle: "Tin tức Pickleball được tuyển chọn mỗi ngày",
         previewFallbackSummary:
           "Theo dõi tin cộng đồng, chiến thuật, truyền thông sự kiện và các bài phân tích AI đã được lọc.",
@@ -175,9 +179,11 @@ export default {
       seoTitle: "Đăng nhập",
       formLabel: "Khu vực thành viên",
       welcome: "Chào mừng bạn trở lại PickleTour!",
-      subtitle: "Đăng nhập để tiếp tục theo dõi giải đấu và lịch thi đấu của bạn.",
+      subtitle:
+        "Đăng nhập để tiếp tục theo dõi giải đấu và lịch thi đấu của bạn.",
       brandBadge: "Tournament workflow",
-      brandTitle: "Một nơi để vận hành giải, theo dõi live score và bảng xếp hạng.",
+      brandTitle:
+        "Một nơi để vận hành giải, theo dõi live score và bảng xếp hạng.",
       brandBody:
         "Brackets, lịch thi đấu, check-in và cộng đồng được gom về cùng một trải nghiệm gọn và rõ.",
       helper: "Dùng số điện thoại hoặc email bạn đã đăng ký để tiếp tục.",
@@ -283,8 +289,7 @@ export default {
       emailLabel: "Email",
       submit: "Gửi hướng dẫn",
       backToLogin: "Quay lại đăng nhập",
-      successToast:
-        "Đã gửi yêu cầu hướng dẫn đặt lại mật khẩu qua email",
+      successToast: "Đã gửi yêu cầu hướng dẫn đặt lại mật khẩu qua email",
       sentNoticePrefix: "Đã gửi yêu cầu đến:",
       sentNoticeSuffix: "Hãy kiểm tra hộp thư (hoặc spam).",
       errors: {
@@ -302,13 +307,11 @@ export default {
       mismatchShort: "Không khớp",
       submit: "Đổi mật khẩu",
       backToLogin: "Quay lại đăng nhập",
-      success:
-        "Đổi mật khẩu thành công. Vui lòng đăng nhập lại.",
+      success: "Đổi mật khẩu thành công. Vui lòng đăng nhập lại.",
       errors: {
         missingToken: "Thiếu token. Mở từ email để tiếp tục.",
         mismatch: "Mật khẩu nhập lại không khớp",
-        failed:
-          "Không thể đặt lại mật khẩu. Token có thể đã hết hạn.",
+        failed: "Không thể đặt lại mật khẩu. Token có thể đã hết hạn.",
       },
     },
   },
@@ -579,8 +582,7 @@ export default {
       "pickleball, giải đấu, bảng xếp hạng, điểm trình, thể thao, cộng đồng",
     heroFallback: {
       title: "Kết nối cộng đồng & quản lý giải đấu thể thao",
-      lead:
-        "PickleTour giúp bạn đăng ký, tổ chức, theo dõi điểm trình và cập nhật bảng xếp hạng cho mọi môn thể thao ngay trên điện thoại.",
+      lead: "PickleTour giúp bạn đăng ký, tổ chức, theo dõi điểm trình và cập nhật bảng xếp hạng cho mọi môn thể thao ngay trên điện thoại.",
       imageAlt: "PickleTour - Kết nối cộng đồng & quản lý giải đấu",
     },
     hero: {
@@ -611,33 +613,27 @@ export default {
       items: [
         {
           title: "Hệ thống điểm DUPR",
-          desc:
-            "Tính điểm trình chuyên nghiệp theo chuẩn quốc tế, cập nhật sau mỗi trận đấu thi đấu.",
+          desc: "Tính điểm trình chuyên nghiệp theo chuẩn quốc tế, cập nhật sau mỗi trận đấu thi đấu.",
         },
         {
           title: "Tổ chức giải đấu",
-          desc:
-            "Tạo và quản lý giải đấu dễ dàng với bảng đấu tự động, bracket và kết quả real-time.",
+          desc: "Tạo và quản lý giải đấu dễ dàng với bảng đấu tự động, bracket và kết quả real-time.",
         },
         {
           title: "Hồ sơ & Thống kê",
-          desc:
-            "Theo dõi lịch sử thi đấu, phong độ, win-rate và tiến trình phát triển cá nhân.",
+          desc: "Theo dõi lịch sử thi đấu, phong độ, win-rate và tiến trình phát triển cá nhân.",
         },
         {
           title: "Cộng đồng năng động",
-          desc:
-            "Kết nối với hàng nghìn người chơi, tìm đối thủ phù hợp trình độ gần bạn.",
+          desc: "Kết nối với hàng nghìn người chơi, tìm đối thủ phù hợp trình độ gần bạn.",
         },
         {
           title: "Ứng dụng di động",
-          desc:
-            "Trải nghiệm mượt mà trên cả iOS và Android, luôn cập nhật mọi lúc mọi nơi.",
+          desc: "Trải nghiệm mượt mà trên cả iOS và Android, luôn cập nhật mọi lúc mọi nơi.",
         },
         {
           title: "Thông báo thông minh",
-          desc:
-            "Nhận nhắc nhở về giải đấu sắp diễn ra, kết quả trận đấu và cập nhật điểm.",
+          desc: "Nhận nhắc nhở về giải đấu sắp diễn ra, kết quả trận đấu và cập nhật điểm.",
         },
       ],
     },
@@ -731,8 +727,7 @@ export default {
     errors: {
       generic: "Có lỗi xảy ra",
       genericRetry: "Có lỗi xảy ra, bạn thử lại nhé!",
-      rateLimit:
-        "Bạn đã hết lượt hỏi cho phiên này. Vui lòng thử lại sau nhé!",
+      rateLimit: "Bạn đã hết lượt hỏi cho phiên này. Vui lòng thử lại sau nhé!",
     },
   },
   admin: {
@@ -786,10 +781,8 @@ export default {
         enabled: "Đã bật Admin chấm trình (FULL tỉnh)",
         disabled: "Đã tắt Admin chấm trình",
         superAdminTitle: "Super admin",
-        superAdminSelf:
-          "Cannot remove your own super admin role.",
-        superAdminBody:
-          "Full admin area access, including group/PO structure.",
+        superAdminSelf: "Cannot remove your own super admin role.",
+        superAdminBody: "Full admin area access, including group/PO structure.",
         promoted: "Promoted to super admin",
         demoted: "Removed super admin",
       },
@@ -898,22 +891,17 @@ export default {
     infoAlert:
       "Sau khi bấm “Kết nối Facebook”, hệ thống sẽ mở cửa sổ Facebook để bạn cấp quyền. Khi chấp nhận xong, quay lại trang này và danh sách fanpage sẽ được cập nhật tự động.",
     connectedPagesTitle: "Fanpage đã kết nối",
-    connectedPagesSubtitle:
-      "Chọn 1 fanpage làm mặc định để livestream match.",
+    connectedPagesSubtitle: "Chọn 1 fanpage làm mặc định để livestream match.",
     loadingPages: "Đang tải danh sách fanpage...",
     loadError: "Không tải được danh sách fanpage. Vui lòng thử lại sau.",
-    empty:
-      "Bạn chưa kết nối fanpage nào. Bấm “Kết nối Facebook” để bắt đầu.",
+    empty: "Bạn chưa kết nối fanpage nào. Bấm “Kết nối Facebook” để bắt đầu.",
     defaultPageTooltip: "Đây là fanpage mặc định",
     setDefaultTooltip: "Đặt làm fanpage mặc định",
     deleteTooltip: "Xoá kết nối fanpage này",
     defaultBadge: "Mặc định",
-    connectError:
-      "Không lấy được link kết nối Facebook, vui lòng thử lại.",
-    setDefaultError:
-      "Không đặt được page mặc định, vui lòng thử lại.",
-    deleteConfirm:
-      "Bạn có chắc muốn xoá kết nối fanpage này khỏi tài khoản?",
+    connectError: "Không lấy được link kết nối Facebook, vui lòng thử lại.",
+    setDefaultError: "Không đặt được page mặc định, vui lòng thử lại.",
+    deleteConfirm: "Bạn có chắc muốn xoá kết nối fanpage này khỏi tài khoản?",
     deleteError: "Không xoá được kết nối, vui lòng thử lại.",
     matchUsage:
       "Khi tạo live cho match, backend sẽ ưu tiên dùng fanpage mặc định của bạn. Nếu không có, hệ thống sẽ tự dùng page pool chung như hiện tại.",
@@ -990,9 +978,11 @@ export default {
       stopStream: "Dừng Stream",
       startStreaming: "Start Streaming",
       featuresTitle: "🚀 Features:",
-      featureMultiPlatform: "✅ Multi-platform outputs (Facebook / YouTube / TikTok)",
+      featureMultiPlatform:
+        "✅ Multi-platform outputs (Facebook / YouTube / TikTok)",
       featureAutoQuality: "✅ Auto quality từ network speed",
-      featureAutoFill: "✅ Auto-fill từ URL/d64 (key, yt_server/yt, tt_server/tt)",
+      featureAutoFill:
+        "✅ Auto-fill từ URL/d64 (key, yt_server/yt, tt_server/tt)",
       featureManualQuality: "✅ Manual quality override",
       featureHealth: "✅ Real-time health monitoring",
       featurePresets: "✅ 4 quality presets (360p-1080p)",
@@ -1021,13 +1011,11 @@ export default {
       windowChip: "Cửa sổ: {value}h",
       finishedChip: "Đang loại finished",
       autoChip: "Auto: {value}",
-      streamCountUpdated:
-        "{count} luồng trực tiếp • cập nhật {seconds}s trước",
+      streamCountUpdated: "{count} luồng trực tiếp • cập nhật {seconds}s trước",
       timeRangeLabel: "Khoảng thời gian: {value}",
       today: "hôm nay",
       emptyTitle: "Không có trận phù hợp bộ lọc",
-      emptyBody:
-        "Thử “Bộ lọc” → chọn “LIVE” hoặc tăng cửa sổ thời gian.",
+      emptyBody: "Thử “Bộ lọc” → chọn “LIVE” hoặc tăng cửa sổ thời gian.",
     },
     streamingPage: {
       missingCourtIdTitle: "Thiếu Court ID",
@@ -1069,8 +1057,7 @@ export default {
         "Hãy bắt đầu bằng việc tạo CLB riêng của bạn hoặc khám phá các CLB đang hoạt động.",
       createNow: "Tạo CLB ngay",
       noSearchTitle: "Không tìm thấy kết quả",
-      noSearchBody:
-        "Không có CLB nào khớp với từ khóa hoặc bộ lọc hiện tại.",
+      noSearchBody: "Không có CLB nào khớp với từ khóa hoặc bộ lọc hiện tại.",
       clearFilters: "Xóa bộ lọc tìm kiếm",
       emptyTitle: "Chưa có CLB nào",
       emptyBody: "Hệ thống hiện tại chưa có CLB nào được tạo.",
@@ -1083,8 +1070,7 @@ export default {
         "Danh sách thành viên chỉ hiển thị với quản trị viên CLB.",
       memberGuardMembers:
         "Danh sách thành viên chỉ hiển thị với thành viên CLB.",
-      memberGuardUnavailable:
-        "Danh sách thành viên hiện không thể hiển thị.",
+      memberGuardUnavailable: "Danh sách thành viên hiện không thể hiển thị.",
       actionsTitle: "Tác vụ",
       manageTitle: "Quản trị CLB",
       editClub: "Chỉnh sửa CLB",
@@ -1289,7 +1275,7 @@ export default {
       searchPlaceholder: "Nhập số điện thoại hoặc tên VĐV...",
       searchButton: "TÌM KIẾM",
       searchHint: "Nhập SĐT hoặc nickname để tìm",
-      searchEmpty: "Không tìm thấy dữ liệu cho \"{query}\"",
+      searchEmpty: 'Không tìm thấy dữ liệu cho "{query}"',
       searchError: "Đã có lỗi xảy ra khi tìm kiếm.",
       checkinSuccess: "Check-in thành công",
       checkinFailed: "Check-in thất bại",
@@ -1661,15 +1647,13 @@ export default {
         checkin: "Check-in",
       },
       toasts: {
-        registrationClosed:
-          "Đã hết hạn đăng ký cho VĐV. Vui lòng liên hệ BTC.",
+        registrationClosed: "Đã hết hạn đăng ký cho VĐV. Vui lòng liên hệ BTC.",
         loginRequired: "Vui lòng đăng nhập",
         selectPlayer1: "Chọn VĐV 1",
         ownInfoError: "Lỗi thông tin của bạn",
         doublesNeedTwo: "Giải đôi cần 2 VĐV",
         registrationSuccess: "Đăng ký thành công!",
-        kycRequired:
-          "VĐV chưa xác thực KYC (CCCD). Vui lòng cập nhật hồ sơ.",
+        kycRequired: "VĐV chưa xác thực KYC (CCCD). Vui lòng cập nhật hồ sơ.",
         registrationError: "Lỗi đăng ký",
         paidContactOrganizer: "Đã đóng phí, vui lòng liên hệ BTC để huỷ",
         cancelConfirm: "Bạn chắc chắn muốn huỷ đăng ký này?",
@@ -1765,8 +1749,7 @@ export default {
     matchingCount: "{count} giải phù hợp",
     loadError: "Có lỗi khi tải dữ liệu. Vui lòng thử lại.",
     emptyTitle: "Chưa có giải nào",
-    emptyBody:
-      "Tham gia giải để theo dõi lịch đấu và kết quả của bạn tại đây.",
+    emptyBody: "Tham gia giải để theo dõi lịch đấu và kết quả của bạn tại đây.",
     refresh: "Làm mới",
     refreshing: "Đang làm mới...",
     noScheduledMatches: "Chưa có trận đấu nào được lên lịch.",
@@ -1810,7 +1793,8 @@ export default {
     notes: {
       title: "Lưu ý nhanh",
       avatar: "Ảnh đại diện nên nhẹ hơn 10MB để tải lên nhanh và sắc nét hơn.",
-      email: "Email hiện chỉ hiển thị để tham chiếu và chưa chỉnh trực tiếp ở màn này.",
+      email:
+        "Email hiện chỉ hiển thị để tham chiếu và chưa chỉnh trực tiếp ở màn này.",
       kyc: "Sau khi KYC được duyệt, số CCCD sẽ bị khóa để tránh sai lệch dữ liệu.",
     },
     validation: {
@@ -1860,7 +1844,8 @@ export default {
     },
     sections: {
       basicTitle: "Thông tin cơ bản",
-      basicSubtitle: "Cập nhật những trường nhận diện chính của bạn trên hệ thống.",
+      basicSubtitle:
+        "Cập nhật những trường nhận diện chính của bạn trên hệ thống.",
       securityTitle: "Bảo mật tài khoản",
       securitySubtitle:
         "Chỉ bật đổi mật khẩu khi bạn thực sự muốn cập nhật thông tin đăng nhập.",
@@ -1964,11 +1949,9 @@ export default {
       kycSubmitted: "Đã gửi hồ sơ KYC",
     },
     savePanel: {
-      invalid:
-        "Một vài trường vẫn chưa hợp lệ. Kiểm tra lại trước khi lưu.",
+      invalid: "Một vài trường vẫn chưa hợp lệ. Kiểm tra lại trước khi lưu.",
       unchanged: "Bạn chưa có thay đổi nào cần lưu.",
-      ready:
-        "Mọi cập nhật sẽ được áp dụng ngay vào hồ sơ cá nhân của bạn.",
+      ready: "Mọi cập nhật sẽ được áp dụng ngay vào hồ sơ cá nhân của bạn.",
     },
   },
   publicProfile: {

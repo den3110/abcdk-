@@ -11,6 +11,7 @@ import { Link as RouterLink, useLocation } from "react-router-dom";
 import LaunchRoundedIcon from "@mui/icons-material/LaunchRounded";
 
 import { useLanguage } from "../context/LanguageContext.jsx";
+import { useGetContactContentQuery } from "../slices/cmsApiSlice.js";
 
 const CURRENT_YEAR = new Date().getFullYear();
 
@@ -18,6 +19,7 @@ export default function AppFooter() {
   const theme = useTheme();
   const location = useLocation();
   const { t } = useLanguage();
+  const { data: contactContent } = useGetContactContentQuery();
 
   const quickLinks = [
     { label: t("footer.links.news"), to: "/news" },
@@ -30,6 +32,18 @@ export default function AppFooter() {
     { label: t("footer.links.privacy"), to: "/privacy" },
     { label: t("footer.links.terms"), to: "/terms" },
   ];
+  const liveAppLinks = [
+    {
+      key: "ios",
+      label: t("footer.liveApps.ios"),
+      href: contactContent?.apps?.liveAppIos || "",
+    },
+    {
+      key: "apk",
+      label: t("footer.liveApps.apk"),
+      href: contactContent?.apps?.liveAppApk || "",
+    },
+  ].filter((item) => item.href);
 
   const scrollToTop = () => {
     if (typeof window === "undefined") return;
@@ -38,7 +52,9 @@ export default function AppFooter() {
 
   const isActiveRoute = (path) => {
     if (path === "/") return location.pathname === "/";
-    return location.pathname === path || location.pathname.startsWith(`${path}/`);
+    return (
+      location.pathname === path || location.pathname.startsWith(`${path}/`)
+    );
   };
 
   const linkSx = (path) => ({
@@ -152,6 +168,61 @@ export default function AppFooter() {
         </Grid>
 
         <Divider sx={{ my: { xs: 2, md: 2.5 } }} />
+
+        {liveAppLinks.length ? (
+          <>
+            <Stack spacing={1.25} sx={{ mb: { xs: 2, md: 2.5 } }}>
+              <Typography
+                variant="overline"
+                color="text.secondary"
+                sx={{ letterSpacing: 1.1 }}
+              >
+                {t("footer.liveApps.title")}
+              </Typography>
+
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={1}
+                useFlexGap
+                flexWrap="wrap"
+              >
+                {liveAppLinks.map((item) => (
+                  <MuiLink
+                    key={item.key}
+                    href={item.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    underline="none"
+                    sx={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 0.75,
+                      px: 1.5,
+                      py: 0.9,
+                      borderRadius: 999,
+                      border: "1px solid",
+                      borderColor: "divider",
+                      color: "text.primary",
+                      fontWeight: 700,
+                      bgcolor: "background.default",
+                      transition: "all 0.2s ease",
+                      "&:hover": {
+                        color: "primary.main",
+                        borderColor: "primary.main",
+                        bgcolor: "primary.lighter",
+                      },
+                    }}
+                  >
+                    {item.label}
+                    <LaunchRoundedIcon sx={{ fontSize: 16 }} />
+                  </MuiLink>
+                ))}
+              </Stack>
+            </Stack>
+
+            <Divider sx={{ mb: { xs: 2, md: 2.5 } }} />
+          </>
+        ) : null}
 
         <Stack
           direction={{ xs: "column", sm: "row" }}
