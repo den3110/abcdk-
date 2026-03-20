@@ -10,6 +10,7 @@ const SECRET_KEYS = new Set([
   "FB_APP_SECRET",
   "FB_BOOT_LONG_USER_TOKEN", // hỗ trợ nhiều token: CSV
   "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_CLIENT_DRIVE_SECRET",
   "YOUTUBE_API_KEY", // nếu dùng API key
   "YOUTUBE_REFRESH_TOKEN", // refresh token YouTube
   "GOOGLE_DRIVE_RECORDINGS_REFRESH_TOKEN",

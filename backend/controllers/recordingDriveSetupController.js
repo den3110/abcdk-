@@ -2,20 +2,20 @@ import { google } from "googleapis";
 import { getCfgStr, setCfg } from "../services/config.service.js";
 import { getRecordingDriveStatus } from "../services/driveRecordings.service.js";
 import SystemSettings from "../models/systemSettingsModel.js";
-import dotenv from "dotenv";
-dotenv.config();
 
 const DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"];
 
 
 async function makeRecordingDriveOAuth(req) {
-  const id = String(process.env.GOOGLE_CLIENT_ID || "").trim();
-  const secret = String(process.env.GOOGLE_CLIENT_SECRET || "").trim();
-  const redirect = (process.env.GOOGLE_REDIRECT_URI || "").trim();
+  const [id, secret, redirect] = await Promise.all([
+    getCfgStr("GOOGLE_CLIENT_DRIVE_ID", ""),
+    getCfgStr("GOOGLE_CLIENT_DRIVE_SECRET", ""),
+    getCfgStr("GOOGLE_REDIRECT_DRIVE_URI", ""),
+  ]);
 
   if (!id || !secret || !redirect) {
     throw new Error(
-      "Thieu GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI callback cho recording drive",
+      "Thieu GOOGLE_CLIENT_DRIVE_ID / GOOGLE_CLIENT_DRIVE_SECRET / GOOGLE_REDIRECT_DRIVE_URI trong System Config cho recording drive",
     );
   }
 

@@ -94,26 +94,22 @@ async function getSharedGoogleOAuthConfig() {
   const [
     configClientId,
     configClientSecret,
-    configRedirectUrisCsv,
+    configRedirectUri,
     refreshTokenState,
     connectedEmail,
     connectedAt,
   ] = await Promise.all([
-    getCfgStr("GOOGLE_CLIENT_ID", ""),
-    getCfgStr("GOOGLE_CLIENT_SECRET", ""),
-    getCfgStr("GOOGLE_REDIRECT_URI", ""),
+    getCfgStr("GOOGLE_CLIENT_DRIVE_ID", ""),
+    getCfgStr("GOOGLE_CLIENT_DRIVE_SECRET", ""),
+    getCfgStr("GOOGLE_REDIRECT_DRIVE_URI", ""),
     getRecordingDriveRefreshTokenState(),
     getCfgStr("GOOGLE_DRIVE_RECORDINGS_CONNECTED_EMAIL", ""),
     getCfgStr("GOOGLE_DRIVE_RECORDINGS_CONNECTED_AT", ""),
   ]);
 
-  const clientId = asTrimmed(configClientId || process.env.GOOGLE_CLIENT_ID || "");
-  const clientSecret = asTrimmed(
-    configClientSecret || process.env.GOOGLE_CLIENT_SECRET || ""
-  );
-  const redirectUrisCsv = asTrimmed(
-    configRedirectUrisCsv || process.env.GOOGLE_REDIRECT_URI || ""
-  );
+  const clientId = asTrimmed(configClientId);
+  const clientSecret = asTrimmed(configClientSecret);
+  const redirectUrisCsv = asTrimmed(configRedirectUri);
 
   const redirectUris = redirectUrisCsv
     .split(",")
@@ -202,10 +198,15 @@ async function buildDriveClient(runtimeConfig) {
 
   if (runtimeConfig.mode === "oauthUser") {
     if (!runtimeConfig.clientId || !runtimeConfig.clientSecret) {
-      throw new Error("Google OAuth client is not configured");
+      throw new Error(
+        "Thieu GOOGLE_CLIENT_DRIVE_ID / GOOGLE_CLIENT_DRIVE_SECRET trong System Config"
+      );
     }
     if (!runtimeConfig.refreshToken) {
       throw new Error("My Drive OAuth chua ket noi");
+    }
+    if (!runtimeConfig.redirectUris?.length) {
+      throw new Error("Thieu GOOGLE_REDIRECT_DRIVE_URI trong System Config");
     }
     if (!runtimeConfig.folderId) {
       throw new Error("Google Drive recording folder is not configured");
