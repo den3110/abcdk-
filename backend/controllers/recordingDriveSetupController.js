@@ -1,6 +1,5 @@
 import { google } from "googleapis";
 import { getCfgStr, setCfg } from "../services/config.service.js";
-import { decryptToken, encryptToken } from "../services/secret.service.js";
 import { getRecordingDriveStatus } from "../services/driveRecordings.service.js";
 import SystemSettings from "../models/systemSettingsModel.js";
 import dotenv from "dotenv";
@@ -63,7 +62,7 @@ export async function recordingDriveOAuthCallback(req, res) {
 
     await setCfg({
       key: "GOOGLE_DRIVE_RECORDINGS_REFRESH_TOKEN",
-      value: encryptToken(tokens.refresh_token),
+      value: tokens.refresh_token,
       isSecret: true,
       updatedBy: `oauth:${who}`,
     });
@@ -147,9 +146,8 @@ export async function disconnectRecordingDriveOAuth(req, res) {
 
     if (enc) {
       try {
-        const refreshToken = decryptToken(enc);
         const oauth2 = await makeRecordingDriveOAuth(req);
-        await oauth2.revokeToken(refreshToken).catch(() => {});
+        await oauth2.revokeToken(enc).catch(() => {});
       } catch (_) {}
     }
 

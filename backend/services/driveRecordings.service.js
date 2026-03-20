@@ -1,7 +1,8 @@
 import fs from "fs";
 import { google } from "googleapis";
 import SystemSettings from "../models/systemSettingsModel.js";
-import { getCfgStr } from "./config.service.js";
+import { getCfgStr, setCfg } from "./config.service.js";
+import { decryptToken } from "./secret.service.js";
 
 const RECORDING_DRIVE_DEFAULTS = {
   enabled: true,
@@ -36,19 +37,72 @@ function getEnvServiceAccountConfig() {
   };
 }
 
+async function getRecordingDriveRefreshTokenState() {
+  const fromCfg = asTrimmed(
+    await getCfgStr("GOOGLE_DRIVE_RECORDINGS_REFRESH_TOKEN", "")
+  );
+
+  if (!fromCfg) {
+    return {
+      refreshToken: "",
+      normalized: false,
+      malformed: false,
+    };
+  }
+
+  let extraDecrypted = "";
+  try {
+    const maybePlain = decryptToken(fromCfg);
+    if (maybePlain && maybePlain !== fromCfg) {
+      extraDecrypted = asTrimmed(maybePlain);
+    }
+  } catch (_) {}
+
+  if (!extraDecrypted) {
+    return {
+      refreshToken: fromCfg,
+      normalized: false,
+      malformed: false,
+    };
+  }
+
+  try {
+    await setCfg({
+      key: "GOOGLE_DRIVE_RECORDINGS_REFRESH_TOKEN",
+      value: extraDecrypted,
+      isSecret: true,
+      updatedBy: "autofix",
+    });
+    console.info(
+      "[RecordingDrive][token] normalized stored refresh token to plaintext contract."
+    );
+  } catch (error) {
+    console.warn(
+      "[RecordingDrive][token] normalize writeback failed (non-fatal):",
+      error?.message || error
+    );
+  }
+
+  return {
+    refreshToken: extraDecrypted,
+    normalized: true,
+    malformed: false,
+  };
+}
+
 async function getSharedGoogleOAuthConfig() {
   const [
     configClientId,
     configClientSecret,
     configRedirectUrisCsv,
-    refreshToken,
+    refreshTokenState,
     connectedEmail,
     connectedAt,
   ] = await Promise.all([
     getCfgStr("GOOGLE_CLIENT_ID", ""),
     getCfgStr("GOOGLE_CLIENT_SECRET", ""),
     getCfgStr("GOOGLE_REDIRECT_URI", ""),
-    getCfgStr("GOOGLE_DRIVE_RECORDINGS_REFRESH_TOKEN", ""),
+    getRecordingDriveRefreshTokenState(),
     getCfgStr("GOOGLE_DRIVE_RECORDINGS_CONNECTED_EMAIL", ""),
     getCfgStr("GOOGLE_DRIVE_RECORDINGS_CONNECTED_AT", ""),
   ]);
@@ -70,7 +124,9 @@ async function getSharedGoogleOAuthConfig() {
     clientId,
     clientSecret,
     redirectUris,
-    refreshToken,
+    refreshToken: refreshTokenState.refreshToken,
+    refreshTokenNormalized: !!refreshTokenState.normalized,
+    refreshTokenMalformed: !!refreshTokenState.malformed,
     connectedEmail,
     connectedAt,
   };
@@ -114,6 +170,8 @@ export async function getRecordingDriveRuntimeConfig() {
       clientSecret: asTrimmed(oauthUser.clientSecret),
       redirectUris: oauthUser.redirectUris,
       refreshToken: asTrimmed(oauthUser.refreshToken),
+      refreshTokenNormalized: !!oauthUser.refreshTokenNormalized,
+      refreshTokenMalformed: !!oauthUser.refreshTokenMalformed,
       connectedEmail: asTrimmed(oauthUser.connectedEmail),
       connectedAt: asTrimmed(oauthUser.connectedAt),
     };
@@ -201,6 +259,11 @@ function normalizeDriveError(error, runtimeConfig) {
     return new Error("Folder dich khong truy cap duoc hoac khong ton tai.");
   }
   if (/invalid_grant/i.test(message)) {
+    if (runtimeConfig?.refreshTokenMalformed) {
+      return new Error(
+        "Refresh token Recording Drive luu sai dinh dang. Hay ket noi lai."
+      );
+    }
     return new Error("My Drive OAuth het han hoac da bi revoke. Hay ket noi lai.");
   }
   if (

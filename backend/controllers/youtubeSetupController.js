@@ -1,7 +1,7 @@
 // controllers/youtubeSetupController.js
 import { google } from "googleapis";
 import { getCfgStr, setCfg } from "../services/config.service.js";
-import { encryptToken, decryptToken } from "../services/secret.service.js";
+import { decryptToken } from "../services/secret.service.js";
 
 /** Chọn redirect_uri phù hợp theo host hiện tại từ GOOGLE_REDIRECT_URI (CSV) */
 async function pickRedirectUriForHost(req) {
@@ -105,7 +105,7 @@ export async function ytCallback(req, res) {
 
     await setCfg({
       key: "YOUTUBE_REFRESH_TOKEN",
-      value: encryptToken(tokens.refresh_token),
+      value: tokens.refresh_token,
       isSecret: true,
       updatedBy: `oauth:${who}`,
     });
@@ -174,7 +174,7 @@ export async function ytGetOrCreateStreamKey(req, res) {
       });
     }
 
-    const refresh_token = decryptToken(enc);
+    const refresh_token = enc;
     const oauth2 = await makeOAuth(req);
     oauth2.setCredentials({ refresh_token });
 
@@ -281,7 +281,7 @@ export async function ytRevoke(req, res) {
     // Thử revoke với Google (best-effort, không bắt buộc)
     if (enc) {
       try {
-        const refresh_token = decryptToken(enc);
+        const refresh_token = enc;
         // Tránh rủi ro lib nội bộ gọi .get ở chỗ nào đó → gói try/catch riêng
         const oauth2 = await makeOAuth();
         // Hầu hết bản googleapis hỗ trợ chuỗi trực tiếp; nếu lỗi vẫn bỏ qua
