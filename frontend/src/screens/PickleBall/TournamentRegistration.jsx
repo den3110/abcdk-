@@ -755,6 +755,7 @@ const ActionButtonsInner = ({
 const PlayerInfo = memo(
   ({
     player,
+    avatarSrc,
     canManage,
     onOpenAvatarEdit,
     onReplacePlayer,
@@ -770,10 +771,10 @@ const PlayerInfo = memo(
         <Box
           sx={{ position: "relative", cursor: "zoom-in" }}
           onClick={() =>
-            onOpenPreview(player?.avatar, displayName(player, displayMode))
+            onOpenPreview(avatarSrc || player?.avatar, displayName(player, displayMode))
           }
         >
-          <LazyAvatar src={player?.avatar} size={40} />
+          <LazyAvatar src={avatarSrc || player?.avatar} size={40} />
           {canEditAvatar && (
             <Tooltip title={t("tournaments.registration.actions.editAvatar")}>
               <Box
@@ -933,6 +934,7 @@ const RegCard = memo(
             <Box>
               <PlayerInfo
                 player={r.player1}
+                avatarSrc={props.getPlayerAvatar(r.player1)}
                 canManage={props.canManage}
                 onOpenAvatarEdit={() => props.onOpenAvatarEdit(r, "p1", r.player1)}
                 onReplacePlayer={() => props.onOpenReplace(r, "p1")}
@@ -944,6 +946,7 @@ const RegCard = memo(
                 <Box mt={1.5}>
                   <PlayerInfo
                     player={r.player2}
+                    avatarSrc={props.getPlayerAvatar(r.player2)}
                     canManage={props.canManage}
                     onOpenAvatarEdit={() =>
                       props.onOpenAvatarEdit(r, "p2", r.player2)
@@ -1140,6 +1143,7 @@ export default function TournamentRegistration() {
   const [avatarFile, setAvatarFile] = useState(null);
   const [avatarPreviewUrl, setAvatarPreviewUrl] = useState("");
   const [avatarSaving, setAvatarSaving] = useState(false);
+  const [avatarOverrides, setAvatarOverrides] = useState({});
 
   /* Countdown */
   /* Countdown / Registration deadline */
@@ -1228,6 +1232,14 @@ export default function TournamentRegistration() {
         .slice(-5)
         .toUpperCase(),
     []
+  );
+
+  const getPlayerAvatar = useCallback(
+    (player) => {
+      const userId = getUserId(player);
+      return (userId && avatarOverrides[userId]) || player?.avatar || "";
+    },
+    [avatarOverrides]
   );
 
   const qrImgUrlFor = useCallback(
@@ -1467,9 +1479,14 @@ export default function TournamentRegistration() {
       if (!canManage || !getUserId(player)) return;
       clearAvatarSelection();
       setAvatarSaving(false);
-      setAvatarDlg({ open: true, reg, slot, player });
+      setAvatarDlg({
+        open: true,
+        reg,
+        slot,
+        player: { ...player, avatar: getPlayerAvatar(player) },
+      });
     },
-    [canManage, clearAvatarSelection]
+    [canManage, clearAvatarSelection, getPlayerAvatar]
   );
 
   const handleCloseAvatarEdit = useCallback(() => {
@@ -1531,6 +1548,12 @@ export default function TournamentRegistration() {
         slot: avatarDlg.slot,
         avatar: avatarUrl,
       }).unwrap();
+
+      const targetUserId = getUserId(avatarDlg.player);
+      if (targetUserId) {
+        const cacheBustedUrl = `${avatarUrl}${avatarUrl.includes("?") ? "&" : "?"}v=${Date.now()}`;
+        setAvatarOverrides((prev) => ({ ...prev, [targetUserId]: cacheBustedUrl }));
+      }
 
       toast.success(t("tournaments.registration.toasts.avatarUpdateSuccess"));
       clearAvatarSelection();
@@ -2215,6 +2238,7 @@ export default function TournamentRegistration() {
                             onOpenProfile={handleOpenProfile}
                             onOpenPayment={handleOpenPayment}
                             onOpenComplaint={handleOpenComplaint}
+                            getPlayerAvatar={getPlayerAvatar}
                             displayMode={displayMode}
                             regCodeOf={regCodeOf}
                             busy={busy}
