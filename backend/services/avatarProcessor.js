@@ -45,6 +45,158 @@ function extFromFormat(fmt) {
   return "jpg";
 }
 
+function getMaxOutputDimension() {
+  const value = Number(cfg.MAX_OUTPUT_DIMENSION || 0);
+  return Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+}
+
+function getResolvedLogoPath() {
+  const raw = String(cfg.LOGO_PATH || "").trim();
+  if (!raw) return "";
+  return path.isAbsolute(raw) ? raw : path.join(process.cwd(), raw);
+}
+
+const MAX_LOGO_VARIANTS = 32;
+const logoSourceCache = {
+  resolvedPath: "",
+  mtimeMs: 0,
+  buffer: null,
+  width: 0,
+  height: 0,
+};
+const logoVariantCache = new Map();
+
+function clearLogoVariantCache() {
+  logoVariantCache.clear();
+}
+
+function setLogoVariantCache(key, value) {
+  if (logoVariantCache.has(key)) {
+    logoVariantCache.delete(key);
+  }
+  logoVariantCache.set(key, value);
+
+  while (logoVariantCache.size > MAX_LOGO_VARIANTS) {
+    const firstKey = logoVariantCache.keys().next().value;
+    if (!firstKey) break;
+    logoVariantCache.delete(firstKey);
+  }
+}
+
+async function loadLogoSource() {
+  const resolvedPath = getResolvedLogoPath();
+  if (!resolvedPath) {
+    logWarn("LOGO_PATH not configured, skip logo");
+    return null;
+  }
+
+  let stat = null;
+  try {
+    stat = await fs.stat(resolvedPath);
+  } catch {
+    logWarn("Logo file not found at LOGO_PATH, skip logo:", resolvedPath);
+    return null;
+  }
+
+  if (
+    logoSourceCache.buffer &&
+    logoSourceCache.resolvedPath === resolvedPath &&
+    logoSourceCache.mtimeMs === stat.mtimeMs
+  ) {
+    return logoSourceCache;
+  }
+
+  try {
+    const fileBuffer = await fs.readFile(resolvedPath);
+    const meta = await sharp(fileBuffer, { failOnError: true }).metadata();
+
+    if (!meta.width || !meta.height) {
+      logWarn("Logo file invalid dimensions");
+      return null;
+    }
+
+    logoSourceCache.resolvedPath = resolvedPath;
+    logoSourceCache.mtimeMs = stat.mtimeMs;
+    logoSourceCache.buffer = fileBuffer;
+    logoSourceCache.width = meta.width;
+    logoSourceCache.height = meta.height;
+    clearLogoVariantCache();
+
+    return logoSourceCache;
+  } catch (err) {
+    logError("loadLogoSource error:", err?.message || err);
+    return null;
+  }
+}
+
+async function getRoundedLogoVariant(logoTarget) {
+  const source = await loadLogoSource();
+  if (!source?.buffer) return null;
+
+  const ratio =
+    typeof cfg.LOGO_CORNER_RADIUS_RATIO === "number"
+      ? Math.max(0, Math.min(0.5, cfg.LOGO_CORNER_RADIUS_RATIO))
+      : 0.25;
+
+  const cacheKey = [
+    source.resolvedPath,
+    source.mtimeMs,
+    logoTarget,
+    ratio,
+  ].join(":");
+  const cached = logoVariantCache.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const { data: resizedBuffer, info: resizedInfo } = await sharp(source.buffer, {
+      failOnError: true,
+    })
+      .resize({ width: logoTarget })
+      .png()
+      .toBuffer({ resolveWithObject: true });
+
+    if (!resizedInfo.width || !resizedInfo.height) {
+      logWarn("Resized logo invalid");
+      return null;
+    }
+
+    const radius = Math.round(
+      Math.min(resizedInfo.width, resizedInfo.height) * ratio
+    );
+    const svg = `
+      <svg width="${resizedInfo.width}" height="${resizedInfo.height}" xmlns="http://www.w3.org/2000/svg">
+        <rect x="0" y="0" width="${resizedInfo.width}" height="${resizedInfo.height}" rx="${radius}" ry="${radius}" fill="white" />
+      </svg>
+    `;
+
+    const { data: roundedBuffer, info: roundedInfo } = await sharp(resizedBuffer)
+      .composite([
+        {
+          input: Buffer.from(svg),
+          blend: "dest-in",
+        },
+      ])
+      .png()
+      .toBuffer({ resolveWithObject: true });
+
+    if (!roundedInfo.width || !roundedInfo.height) {
+      logWarn("Rounded logo invalid");
+      return null;
+    }
+
+    const variant = {
+      buffer: roundedBuffer,
+      width: roundedInfo.width,
+      height: roundedInfo.height,
+    };
+    setLogoVariantCache(cacheKey, variant);
+    return variant;
+  } catch (err) {
+    logError("getRoundedLogoVariant error:", err?.message || err);
+    return null;
+  }
+}
+
 // ============ Bước 1: đọc base image an toàn ============
 
 async function tryLoadBaseImage(tmpPath) {
@@ -65,6 +217,16 @@ async function tryLoadBaseImage(tmpPath) {
       cfg.MAX_INPUT_PIXELS
     ) {
       instance = instance.limitInputPixels(cfg.MAX_INPUT_PIXELS);
+    }
+
+    const maxOutputDimension = getMaxOutputDimension();
+    if (maxOutputDimension > 0) {
+      instance = instance.resize({
+        width: maxOutputDimension,
+        height: maxOutputDimension,
+        fit: "inside",
+        withoutEnlargement: true,
+      });
     }
 
     const { data, info } = await instance.toBuffer({ resolveWithObject: true });
@@ -101,46 +263,23 @@ async function tryBuildLogoForImage(imgW, imgH) {
   );
 
   try {
-    if (!cfg.LOGO_PATH) {
-      logWarn("LOGO_PATH not configured, skip logo");
-      return null;
-    }
+    const roundedLogo = await getRoundedLogoVariant(logoTarget);
+    if (!roundedLogo?.width || !roundedLogo?.height) return null;
+    return {
+      buffer: roundedLogo.buffer,
+      width: roundedLogo.width,
+      height: roundedLogo.height,
+      padding,
+    };
+    /*
 
     // check tồn tại logo gốc
-    try {
-      await fs.access(cfg.LOGO_PATH);
-    } catch {
-      logWarn("Logo file not found at LOGO_PATH, skip logo:", cfg.LOGO_PATH);
-      return null;
-    }
 
-    const logoBase = await sharp(cfg.LOGO_PATH, {
-      failOnError: true,
-    }).toBuffer();
-    const meta = await sharp(logoBase).metadata();
-
-    if (!meta.width || !meta.height) {
-      logWarn("Logo file invalid dimensions");
-      return null;
-    }
 
     // 1) Resize logo THEO WIDTH, giữ tỉ lệ
-    const resized = await sharp(logoBase)
-      .resize({ width: logoTarget })
-      .png()
-      .toBuffer();
-
-    const resizedMeta = await sharp(resized).metadata();
-    const w = resizedMeta.width;
-    const h = resizedMeta.height;
-
-    if (!w || !h) {
-      logWarn("Resized logo invalid");
-      return null;
-    }
 
     // 2) Tạo mask bo góc
-    const ratio =
+    return {
       typeof cfg.LOGO_CORNER_RADIUS_RATIO === "number"
         ? Math.max(0, Math.min(0.5, cfg.LOGO_CORNER_RADIUS_RATIO))
         : 0.25; // mặc định bo 25% cạnh ngắn
@@ -175,6 +314,7 @@ async function tryBuildLogoForImage(imgW, imgH) {
       height: roundedMeta.height,
       padding,
     };
+    */
   } catch (err) {
     logError("tryBuildLogoForImage error:", err?.message || err);
     return null;

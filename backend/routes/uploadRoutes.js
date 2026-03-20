@@ -45,17 +45,43 @@ function getExt(file) {
   return MIME_EXT[file.mimetype] || "jpg";
 }
 
+const AVATAR_LOGO_SETTINGS_TTL_MS = Math.max(
+  1000,
+  Number.parseInt(process.env.AVATAR_LOGO_SETTINGS_TTL_MS || "10000", 10) ||
+    10000
+);
+let avatarLogoEnabledCache = {
+  value: null,
+  expiresAt: 0,
+};
+
 // helper đọc flag từ SystemSettings (fail-safe: nếu lỗi thì coi như bật logo)
 async function isAvatarLogoEnabled() {
+  const now = Date.now();
+  if (
+    typeof avatarLogoEnabledCache.value === "boolean" &&
+    avatarLogoEnabledCache.expiresAt > now
+  ) {
+    return avatarLogoEnabledCache.value;
+  }
   try {
     const doc = await SystemSettings.findById("system").lean();
     // default: true nếu chưa set
-    return doc?.uploads?.avatarLogoEnabled !== false;
+    const enabled = doc?.uploads?.avatarLogoEnabled !== false;
+    avatarLogoEnabledCache = {
+      value: enabled,
+      expiresAt: now + AVATAR_LOGO_SETTINGS_TTL_MS,
+    };
+    return enabled;
   } catch (err) {
     console.error(
       "[upload/avatar] Failed to read system settings, defaulting avatarLogoEnabled = true:",
       err?.message || err
     );
+    avatarLogoEnabledCache = {
+      value: true,
+      expiresAt: now + Math.min(AVATAR_LOGO_SETTINGS_TTL_MS, 3000),
+    };
     return true;
   }
 }

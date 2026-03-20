@@ -15,6 +15,7 @@ export const avatarConfig = {
 
   // Output format ưu tiên
   OUTPUT_FORMAT: "jpeg", // "jpeg" | "png" | "webp"
+  MAX_OUTPUT_DIMENSION: 1600, // 0 = keep original dimensions
 
   JPEG_QUALITY: 90,
   WEBP_QUALITY: 90,
