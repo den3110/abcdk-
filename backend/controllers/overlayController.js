@@ -304,6 +304,11 @@ export async function getOverlayMatch(req, res) {
       ).toLowerCase() === "single"
         ? "single"
         : "double";
+    const displayMode =
+      tournamentDoc?.nameDisplayMode === "fullName" ||
+      m?.tournament?.nameDisplayMode === "fullName"
+        ? "fullName"
+        : "nickname";
 
     const rules = {
       bestOf: Number(m?.rules?.bestOf ?? 3),
@@ -340,12 +345,29 @@ export async function getOverlayMatch(req, res) {
     const gamesToWin = (bestOf = 1) => Math.floor(Number(bestOf) / 2) + 1;
     const { a: setsA, b: setsB } = setWins(m?.gameScores || [], rules);
 
+    const fullNameOf = (p) =>
+      pick(p?.fullName) ||
+      pick(p?.name) ||
+      pick(p?.shortName) ||
+      preferNick(p) ||
+      "";
+
+    const displayNameOf = (p) => {
+      const nickname = preferNick(p);
+      const fullName = fullNameOf(p);
+      if (displayMode === "fullName") return fullName || nickname || "";
+      return nickname || pick(p?.shortName) || fullName || "";
+    };
+
     const playersFromReg = (reg) => {
       if (!reg) return [];
       return [reg.player1, reg.player2].filter(Boolean).map((p) => ({
         id: String(p?._id || p?.user || ""),
         nickname: preferNick(p),
-        name: p?.fullName || p?.name || "",
+        fullName: fullNameOf(p),
+        name: fullNameOf(p),
+        displayName: displayNameOf(p),
+        displayNameMode: displayMode,
         shortName: p?.shortName || undefined,
       }));
     };
@@ -353,21 +375,10 @@ export async function getOverlayMatch(req, res) {
     const regName = (reg) => {
       if (!reg) return "";
       if (evType === "single") {
-        return (
-          pick(reg?.player1?.fullName) ||
-          pick(reg?.player1?.name) ||
-          preferNick(reg?.player1) ||
-          ""
-        );
+        return displayNameOf(reg?.player1);
       }
-      const a =
-        pick(reg?.player1?.fullName) ||
-        pick(reg?.player1?.name) ||
-        preferNick(reg?.player1);
-      const b =
-        pick(reg?.player2?.fullName) ||
-        pick(reg?.player2?.name) ||
-        preferNick(reg?.player2);
+      const a = displayNameOf(reg?.player1);
+      const b = displayNameOf(reg?.player2);
       return [a, b].filter(Boolean).join(" & ");
     };
 
@@ -689,6 +700,7 @@ export async function getOverlayMatch(req, res) {
             name: m?.title || "",
             image: "",
             nameDisplayMode: "nickname",
+            displayNameMode: "nickname",
             eventType: evType,
             overlay: undefined,
             webLogoUrl,
@@ -704,6 +716,7 @@ export async function getOverlayMatch(req, res) {
               m?.tournament?.nameDisplayMode === "fullName"
                 ? "fullName"
                 : "nickname",
+            displayNameMode: displayMode,
             eventType: evType,
             overlay:
               tournamentDoc?.overlay || m?.tournament?.overlay || undefined,
@@ -778,6 +791,8 @@ export async function getOverlayMatch(req, res) {
       teams: {
         A: {
           name: teamName(m.pairA),
+          displayName: teamName(m.pairA),
+          displayNameMode: displayMode,
           players: playersFromReg(m.pairA),
           seed: m?.pairA?.seed ?? undefined,
           label: m?.pairA?.label ?? undefined,
@@ -785,6 +800,8 @@ export async function getOverlayMatch(req, res) {
         },
         B: {
           name: teamName(m.pairB),
+          displayName: teamName(m.pairB),
+          displayNameMode: displayMode,
           players: playersFromReg(m.pairB),
           seed: m?.pairB?.seed ?? undefined,
           label: m?.pairB?.label ?? undefined,
@@ -798,6 +815,8 @@ export async function getOverlayMatch(req, res) {
             seed: m.pairA.seed ?? undefined,
             label: m.pairA.label ?? undefined,
             teamName: m.pairA.teamName ?? undefined,
+            displayName: teamName(m.pairA),
+            displayNameMode: displayMode,
           }
         : null,
 
@@ -807,6 +826,8 @@ export async function getOverlayMatch(req, res) {
             seed: m.pairB.seed ?? undefined,
             label: m.pairB.label ?? undefined,
             teamName: m.pairB.teamName ?? undefined,
+            displayName: teamName(m.pairB),
+            displayNameMode: displayMode,
           }
         : null,
 

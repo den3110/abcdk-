@@ -6,6 +6,7 @@ import {
   completeLiveRecordingSegmentV2,
   completeMultipartLiveRecordingSegmentV2,
   finalizeLiveRecordingV2,
+  forceUploadingRecordingToExportV2,
   getLiveRecordingMonitorV2,
   getLiveRecordingWorkerHealthV2,
   getLiveRecordingByMatchV2,
@@ -34,6 +35,12 @@ router.post("/finalize", protect, finalizeLiveRecordingV2);
 router.get("/admin/monitor", protect, authorize("admin"), getLiveRecordingMonitorV2);
 router.get("/admin/worker-health", protect, authorize("admin"), getLiveRecordingWorkerHealthV2);
 router.post("/admin/:id/retry-export", protect, authorize("admin"), retryLiveRecordingExportV2);
+router.post(
+  "/admin/:id/force-export",
+  protect,
+  authorize("admin"),
+  forceUploadingRecordingToExportV2
+);
 router.get("/by-match/:matchId", getLiveRecordingByMatchV2);
 router.get("/:id/play", playLiveRecordingV2);
 router.get("/:id/raw", streamLiveRecordingRawV2);
