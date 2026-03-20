@@ -304,7 +304,10 @@ export default function MobileBottomNav() {
           return (
             <Box
               key={item.path}
-              onClick={() => navigate(item.path)}
+              onClick={() => {
+                window.scrollTo({ top: 0, behavior: "smooth" });
+                if (!active) navigate(item.path);
+              }}
               sx={{
                 display: "flex",
                 flexDirection: "column",
