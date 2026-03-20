@@ -958,6 +958,72 @@ function applyRawVideoHeaders(res, headers = {}, recordingId) {
   res.setHeader("Cache-Control", "public, max-age=300, stale-while-revalidate=60");
 }
 
+function parseByteRangeHeader(rangeHeader, totalSize) {
+  const total = Number(totalSize);
+  if (!Number.isFinite(total) || total <= 0) return null;
+
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(String(rangeHeader || "").trim());
+  if (!match) return null;
+
+  const startRaw = match[1];
+  const endRaw = match[2];
+
+  if (!startRaw && !endRaw) return null;
+
+  if (!startRaw) {
+    const suffixLength = Number(endRaw);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return null;
+    const start = Math.max(0, total - suffixLength);
+    const end = total - 1;
+    return {
+      start,
+      end,
+      length: end - start + 1,
+      total,
+    };
+  }
+
+  const start = Number(startRaw);
+  if (!Number.isFinite(start) || start < 0 || start >= total) return null;
+
+  let end = endRaw ? Number(endRaw) : total - 1;
+  if (!Number.isFinite(end) || end < start) return null;
+  end = Math.min(end, total - 1);
+
+  return {
+    start,
+    end,
+    length: end - start + 1,
+    total,
+  };
+}
+
+function applyRawVideoFallbackRangeHeaders(res, { rangeHeader, totalSize }) {
+  const parsedRange = parseByteRangeHeader(rangeHeader, totalSize);
+
+  if (parsedRange) {
+    if (!res.getHeader("Content-Range")) {
+      res.setHeader(
+        "Content-Range",
+        `bytes ${parsedRange.start}-${parsedRange.end}/${parsedRange.total}`
+      );
+    }
+    if (!res.getHeader("Content-Length")) {
+      res.setHeader("Content-Length", String(parsedRange.length));
+    }
+    return;
+  }
+
+  const normalizedTotal = Number(totalSize);
+  if (
+    Number.isFinite(normalizedTotal) &&
+    normalizedTotal > 0 &&
+    !res.getHeader("Content-Length")
+  ) {
+    res.setHeader("Content-Length", String(normalizedTotal));
+  }
+}
+
 export const streamLiveRecordingRawV2 = asyncHandler(async (req, res) => {
   const recordingId = asTrimmed(req.params?.id);
   if (!isValidObjectId(recordingId)) {
@@ -1000,6 +1066,10 @@ export const streamLiveRecordingRawV2 = asyncHandler(async (req, res) => {
   const { response, driveAuthMode } = streamResult;
 
   applyRawVideoHeaders(res, response?.headers || {}, recording._id);
+  applyRawVideoFallbackRangeHeaders(res, {
+    rangeHeader,
+    totalSize: recording.sizeBytes,
+  });
   res.setHeader("X-Recording-Drive-Auth-Mode", driveAuthMode || "unknown");
 
   const statusCode = Number(response?.status) || (rangeHeader ? 206 : 200);
