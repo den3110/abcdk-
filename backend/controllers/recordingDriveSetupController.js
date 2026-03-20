@@ -109,16 +109,44 @@ export async function recordingDriveOAuthCallback(req, res) {
 <!doctype html><meta charset="utf-8" />
 <body style="font-family:system-ui;padding:24px">
   <h3>Ket noi Google Drive recording thanh cong</h3>
-  <p>Ban co the dong cua so nay.</p>
+  <p>Popup se tu dong dong trong giay lat.</p>
+  <button
+    id="close-btn"
+    type="button"
+    style="display:none;margin-top:16px;padding:10px 16px;border:0;border-radius:8px;background:#1976d2;color:#fff;cursor:pointer"
+  >
+    Dong cua so
+  </button>
   <script>
-    try {
-      if (window.opener) {
-        window.opener.postMessage({ type: "recording-drive-auth-done", ok: true }, location.origin);
+    (function () {
+      function closeSelf() {
+        try { window.open("", "_self"); } catch (_) {}
+        try { window.close(); } catch (_) {}
       }
-      setTimeout(() => window.close(), 600);
-    } catch (e) {
-      setTimeout(() => window.close(), 800);
-    }
+
+      try {
+        if (window.opener) {
+          window.opener.postMessage({ type: "recording-drive-auth-done", ok: true }, "*");
+        }
+      } catch (_) {}
+
+      var attempts = 0;
+      var timer = setInterval(function () {
+        attempts += 1;
+        closeSelf();
+        if (window.closed || attempts >= 8) {
+          clearInterval(timer);
+        }
+      }, 300);
+
+      setTimeout(function () {
+        var btn = document.getElementById("close-btn");
+        if (btn) {
+          btn.style.display = "inline-block";
+          btn.addEventListener("click", closeSelf);
+        }
+      }, 1800);
+    })();
   </script>
 </body>`;
     return res.send(html);
