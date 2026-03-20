@@ -595,6 +595,20 @@ function isAdminUser(user) {
   );
 }
 
+function toMs(value) {
+  if (!value) return null;
+  const ts = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : null;
+}
+
+function isTournamentFinished(tour) {
+  if (!tour) return false;
+  if (tour.finishedAt) return true;
+  if (String(tour.status || "").toLowerCase() === "finished") return true;
+  const endTs = toMs(tour.endAt || tour.endDate);
+  return endTs !== null && endTs < Date.now();
+}
+
 /* Check quyền: owner → legacy managers (nếu có) → TournamentManager */
 async function isTourManager(userId, tour) {
   if (!tour || !userId) return false;
@@ -642,7 +656,7 @@ export const managerUpdateRegPlayerAvatar = expressAsyncHandler(
     }
 
     const tour = await Tournament.findById(reg.tournament).select(
-      "eventType createdBy managers"
+      "eventType createdBy managers status finishedAt endDate endAt"
     );
     if (!tour) {
       res.status(404);
@@ -655,9 +669,18 @@ export const managerUpdateRegPlayerAvatar = expressAsyncHandler(
       throw new Error("Chưa đăng nhập");
     }
 
-    if (!(isAdminUser(req.user) || (await isTourManager(authedUserId, tour)))) {
+    const isAdmin = isAdminUser(req.user);
+    const isManager = await isTourManager(authedUserId, tour);
+
+    if (!(isAdmin || isManager)) {
       res.status(403);
       throw new Error("Bạn không có quyền sửa avatar cho đăng ký này");
+    }
+    if (!isAdmin && isTournamentFinished(tour)) {
+      res.status(403);
+      throw new Error(
+        "Quan ly chi duoc sua avatar o giai sap dien ra hoac dang dien ra"
+      );
     }
 
     const evType = String(tour.eventType || "").toLowerCase();
@@ -828,7 +851,7 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
   }
 
   const tour = await Tournament.findById(reg.tournament).select(
-    "eventType createdBy managers",
+    "eventType createdBy managers status finishedAt endDate endAt",
   );
   if (!tour) {
     res.status(404);
@@ -842,12 +865,22 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
     throw new Error("Chưa đăng nhập");
   }
 
-  if (!(isAdminUser(req.user) || (await isTourManager(authedUserId, tour)))) {
+  const isAdmin = isAdminUser(req.user);
+  const isManager = await isTourManager(authedUserId, tour);
+
+  if (!(isAdmin || isManager)) {
     res.status(403);
     throw new Error("Bạn không có quyền thay VĐV cho đăng ký này");
   }
 
   // Validate theo loại giải
+  if (!isAdmin && isTournamentFinished(tour)) {
+    res.status(403);
+    throw new Error(
+      "Quan ly chi duoc thay VDV o giai sap dien ra hoac dang dien ra"
+    );
+  }
+
   const evType = String(tour.eventType || "").toLowerCase();
   const isSingles = evType === "single" || evType === "singles";
   if (isSingles && slot === "p2") {

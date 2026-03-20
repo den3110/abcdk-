@@ -174,6 +174,20 @@ const getMaxDelta = (tour) =>
       0
   );
 
+const toTimestamp = (value) => {
+  if (!value) return null;
+  const ts = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isFinite(ts) ? ts : null;
+};
+
+const isTournamentFinished = (tour) => {
+  if (!tour) return false;
+  if (tour?.finishedAt) return true;
+  if (String(tour?.status || "").toLowerCase() === "finished") return true;
+  const endTs = toTimestamp(tour?.endAt || tour?.endDate);
+  return endTs !== null && endTs < Date.now();
+};
+
 /* Logic HTTPS forcing */
 const shouldForceHttps = (() => {
   if (typeof window === "undefined") return false;
@@ -756,7 +770,8 @@ const PlayerInfo = memo(
   ({
     player,
     avatarSrc,
-    canManage,
+    canEditAvatar,
+    canReplacePlayer,
     onOpenAvatarEdit,
     onReplacePlayer,
     onOpenPreview,
@@ -764,7 +779,7 @@ const PlayerInfo = memo(
     displayMode,
   }) => {
     const { t } = useLanguage();
-    const canEditAvatar = canManage && !!getUserId(player);
+    const canEditPlayerAvatar = canEditAvatar && !!getUserId(player);
 
     return (
       <Stack direction="row" spacing={1.5} alignItems="center">
@@ -775,7 +790,7 @@ const PlayerInfo = memo(
           }
         >
           <LazyAvatar src={avatarSrc || player?.avatar} size={40} />
-          {canEditAvatar && (
+          {canEditPlayerAvatar && (
             <Tooltip title={t("tournaments.registration.actions.editAvatar")}>
               <Box
                 sx={{
@@ -840,10 +855,10 @@ const PlayerInfo = memo(
                 sx={{ height: 16, fontSize: "0.65rem", borderRadius: 1 }}
               />
             </Stack>
-          {canManage && (
-            <Button
-              size="small"
-              variant="outlined"
+            {canReplacePlayer && (
+              <Button
+                size="small"
+                variant="outlined"
               startIcon={<PersonAdd fontSize="small" />}
               onClick={onReplacePlayer}
               sx={{
@@ -935,7 +950,8 @@ const RegCard = memo(
               <PlayerInfo
                 player={r.player1}
                 avatarSrc={props.getPlayerAvatar(r.player1)}
-                canManage={props.canManage}
+                canEditAvatar={props.canEditAvatar}
+                canReplacePlayer={props.canReplacePlayer}
                 onOpenAvatarEdit={() => props.onOpenAvatarEdit(r, "p1", r.player1)}
                 onReplacePlayer={() => props.onOpenReplace(r, "p1")}
                 onOpenPreview={props.onOpenPreview}
@@ -947,7 +963,8 @@ const RegCard = memo(
                   <PlayerInfo
                     player={r.player2}
                     avatarSrc={props.getPlayerAvatar(r.player2)}
-                    canManage={props.canManage}
+                    canEditAvatar={props.canEditAvatar}
+                    canReplacePlayer={props.canReplacePlayer}
                     onOpenAvatarEdit={() =>
                       props.onOpenAvatarEdit(r, "p2", r.player2)
                     }
@@ -958,7 +975,7 @@ const RegCard = memo(
                   />
                 </Box>
               )}
-              {!isSingles && !r.player2 && props.canManage && (
+              {!isSingles && !r.player2 && props.canReplacePlayer && (
                 <Button
                   size="small"
                   startIcon={<PersonAdd />}
@@ -1096,6 +1113,8 @@ export default function TournamentRegistration() {
     (Array.isArray(me?.roles) && me.roles.includes("admin"))
   );
   const canManage = isLoggedIn && (isManager || isAdmin);
+  const canEditAvatar = isLoggedIn && (isAdmin || (isManager && !isTournamentFinished(tour)));
+  const canReplacePlayer = isLoggedIn && (isAdmin || (isManager && !isTournamentFinished(tour)));
 
   /* API Actions */
   const [createInvite, { isLoading: saving }] = useCreateRegInviteMutation();
@@ -1385,6 +1404,7 @@ export default function TournamentRegistration() {
   );
 
   const submitReplace = useCallback(async () => {
+    if (!canReplacePlayer) return;
     if (!newPlayer?._id || !replaceDlg.reg) return;
     try {
       await replacePlayer({
@@ -1406,6 +1426,7 @@ export default function TournamentRegistration() {
     newPlayer,
     replaceDlg,
     replacePlayer,
+    canReplacePlayer,
     refetchRegs,
     debouncedQ,
     refetchSearch,
@@ -1436,10 +1457,14 @@ export default function TournamentRegistration() {
     setImgPreview({ open: false, src: "", name: "" });
   }, []);
 
-  const handleOpenReplace = useCallback((reg, slot) => {
-    setReplaceDlg({ open: true, reg, slot });
-    setNewPlayer(null);
-  }, []);
+  const handleOpenReplace = useCallback(
+    (reg, slot) => {
+      if (!canReplacePlayer) return;
+      setReplaceDlg({ open: true, reg, slot });
+      setNewPlayer(null);
+    },
+    [canReplacePlayer]
+  );
 
   const handleCloseReplace = useCallback(() => {
     setReplaceDlg({ open: false, reg: null, slot: "p1" });
@@ -1476,7 +1501,7 @@ export default function TournamentRegistration() {
 
   const handleOpenAvatarEdit = useCallback(
     (reg, slot, player) => {
-      if (!canManage || !getUserId(player)) return;
+      if (!canEditAvatar || !getUserId(player)) return;
       clearAvatarSelection();
       setAvatarSaving(false);
       setAvatarDlg({
@@ -1486,7 +1511,7 @@ export default function TournamentRegistration() {
         player: { ...player, avatar: getPlayerAvatar(player) },
       });
     },
-    [canManage, clearAvatarSelection, getPlayerAvatar]
+    [canEditAvatar, clearAvatarSelection, getPlayerAvatar]
   );
 
   const handleCloseAvatarEdit = useCallback(() => {
@@ -2229,6 +2254,8 @@ export default function TournamentRegistration() {
                             cap={cap}
                             delta={delta}
                             canManage={canManage}
+                            canEditAvatar={canEditAvatar}
+                            canReplacePlayer={canReplacePlayer}
                             isOwner={String(r.createdBy) === String(me?._id)}
                             onCancel={handleCancel}
                             onTogglePayment={togglePayment}
@@ -2314,7 +2341,7 @@ export default function TournamentRegistration() {
           <Button
             variant="contained"
             onClick={submitReplace}
-            disabled={!newPlayer}
+            disabled={!newPlayer || !canReplacePlayer}
           >
             {t("tournaments.registration.dialogs.saveChanges")}
           </Button>

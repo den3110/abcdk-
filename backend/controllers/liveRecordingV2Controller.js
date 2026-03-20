@@ -984,10 +984,20 @@ export const streamLiveRecordingRawV2 = asyncHandler(async (req, res) => {
   }
 
   const rangeHeader = asTrimmed(req.headers?.range);
-  const { response, driveAuthMode } = await streamRecordingDriveFile({
-    fileId: recording.driveFileId,
-    rangeHeader,
-  });
+  let streamResult;
+  try {
+    streamResult = await streamRecordingDriveFile({
+      fileId: recording.driveFileId,
+      rangeHeader,
+    });
+  } catch (error) {
+    if (recording.driveRawUrl) {
+      return res.redirect(recording.driveRawUrl);
+    }
+    throw error;
+  }
+
+  const { response, driveAuthMode } = streamResult;
 
   applyRawVideoHeaders(res, response?.headers || {}, recording._id);
   res.setHeader("X-Recording-Drive-Auth-Mode", driveAuthMode || "unknown");
@@ -1062,6 +1072,18 @@ export const getLiveRecordingRawStatusV2 = asyncHandler(async (req, res) => {
       probe,
     });
   } catch (error) {
+    if (recording.driveRawUrl) {
+      return res.json({
+        ...payload,
+        ok: true,
+        ready: true,
+        message: "Raw video fallback to stored Drive raw URL",
+        probe: null,
+        fallbackUrl: recording.driveRawUrl,
+        warning: error?.message || "Primary Drive probe failed",
+      });
+    }
+
     return res.status(502).json({
       ...payload,
       ok: false,
