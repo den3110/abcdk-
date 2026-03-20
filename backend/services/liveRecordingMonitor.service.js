@@ -247,6 +247,36 @@ function buildModeLabel(mode) {
   }
 }
 
+function isGroupBracketType(type) {
+  const t = String(type || "").toLowerCase();
+  return ["group", "round_robin", "gsl", "groups", "rr"].includes(t);
+}
+
+function resolvePoolIndex(match) {
+  const poolName = String(match?.pool?.name || "").trim().toUpperCase();
+  if (poolName.length === 1 && poolName >= "A" && poolName <= "Z") {
+    return poolName.charCodeAt(0) - 64; // A=1, B=2, ...
+  }
+  const numMatch = poolName.match(/(\d+)/);
+  if (numMatch) return Number(numMatch[1]);
+  return null;
+}
+
+function buildMatchVBTCode(match) {
+  if (!match) return "";
+  const bracket = match.bracket && typeof match.bracket === "object" ? match.bracket : null;
+  const bracketType = String(bracket?.type || match?.format || "").toLowerCase();
+  const round = Number(match.rrRound || match.round || 1);
+  const orderOneBased = Number.isFinite(Number(match.order)) ? Number(match.order) + 1 : 1;
+
+  if (isGroupBracketType(bracketType)) {
+    const poolIdx = resolvePoolIndex(match);
+    if (poolIdx) return `V${1}-B${poolIdx}-T${orderOneBased}`;
+  }
+
+  return `V${round}-T${orderOneBased}`;
+}
+
 function buildExportPipelineInfo(recording, context = {}) {
   const recordingId = String(recording?._id || "");
   const exportPipeline =
@@ -291,17 +321,17 @@ function buildExportPipelineInfo(recording, context = {}) {
   }
 
   const stageLabels = {
-    queued: "Dang cho worker",
-    queued_retry: "Dang doi retry",
-    awaiting_queue_sync: "Dang dong bo trang thai queue",
-    downloading: "Worker dang tai segment tu R2",
-    merging: "Worker dang ghep video",
-    uploading_drive: "Dang upload len Drive",
-    cleaning_r2: "Dang don segment tren R2",
-    completed: "Hoan tat",
-    failed: "Export that bai",
-    stale_no_job: "Export treo - khong co job trong queue",
-    worker_offline: "Worker dang offline",
+    queued: "Đang chờ worker",
+    queued_retry: "Đang đợi retry",
+    awaiting_queue_sync: "Đang đồng bộ trạng thái queue",
+    downloading: "Worker đang tải segment từ R2",
+    merging: "Worker đang ghép video",
+    uploading_drive: "Đang upload lên Drive",
+    cleaning_r2: "Đang dọn segment trên R2",
+    completed: "Hoàn tất",
+    failed: "Export thất bại",
+    stale_no_job: "Export treo — không có job trong queue",
+    worker_offline: "Worker đang offline",
   };
 
   let detail = "";
@@ -310,17 +340,17 @@ function buildExportPipelineInfo(recording, context = {}) {
   } else if (stage === "queued_retry" && delayed?.position) {
     detail = `Retry queue #${delayed.position}`;
   } else if (stage === "awaiting_queue_sync") {
-    detail = "Ban ghi vua vao exporting, dang cho queue/worker dong bo.";
+    detail = "Bản ghi vừa vào exporting, đang chờ queue/worker đồng bộ.";
   } else if (inWorker) {
     detail = workerHealth?.worker?.currentJobStartedAt
-      ? `Worker bat dau ${new Date(workerHealth.worker.currentJobStartedAt).toISOString()}`
-      : "Worker dang xu ly";
+      ? `Worker bắt đầu ${new Date(workerHealth.worker.currentJobStartedAt).toISOString()}`
+      : "Worker đang xử lý";
   } else if (active) {
-    detail = "Worker dang xu ly";
+    detail = "Worker đang xử lý";
   } else if (stage === "stale_no_job") {
-    detail = "Khong tim thay job nao trong queue cho recording nay. Can kiem tra va retry export.";
+    detail = "Không tìm thấy job nào trong queue cho recording này. Cần kiểm tra và retry export.";
   } else if (stage === "worker_offline") {
-    detail = "Worker khong co heartbeat nen chua the xu ly export nay.";
+    detail = "Worker không có heartbeat nên chưa thể xử lý export này.";
   }
 
   return {
@@ -399,7 +429,7 @@ export async function reconcileStaleLiveRecordingExports({
     nextMeta.exportPipeline = {
       ...currentPipeline,
       stage: "failed",
-      label: "Export that bai",
+      label: "Export thất bại",
       reconciledAt: new Date(),
       staleReason: exportPipeline.stage,
       updatedAt: new Date(),
@@ -455,7 +485,7 @@ function buildRow(recording, context = {}) {
     modeLabel: buildModeLabel(recording.mode),
     quality: recording.quality || "",
     matchId: match?._id ? String(match._id) : String(recording.match || ""),
-    matchCode: match?.code || "",
+    matchCode: buildMatchVBTCode(match) || match?.code || "",
     participantsLabel: participantsLabel || "Unknown match",
     tournamentName: tournamentName || "",
     bracketName: bracketName || "",
@@ -511,7 +541,7 @@ export async function buildLiveRecordingMonitorSnapshot() {
     .sort({ updatedAt: -1, createdAt: -1 })
     .populate({
       path: "match",
-      select: "code courtLabel pairA pairB court bracket tournament status",
+      select: "code courtLabel pairA pairB court bracket tournament status round order format pool rrRound",
       populate: [
         {
           path: "pairA",
@@ -546,7 +576,7 @@ export async function buildLiveRecordingMonitorSnapshot() {
           ],
         },
         { path: "court", select: "name label number" },
-        { path: "bracket", select: "name stage" },
+        { path: "bracket", select: "name stage type" },
         { path: "tournament", select: "name" },
       ],
     })

@@ -668,6 +668,70 @@ const postprocessSnapshotLikeJoin = async (m) => {
   return m;
 };
 
+const buildMatchSnapshotDto = async (matchId, userMatch) => {
+  const normalizedMatchId = String(matchId || "").trim();
+  if (!normalizedMatchId) return null;
+
+  const tryLoad = async (preferredUserMatch) => {
+    try {
+      return await loadMatchForSnapshot(normalizedMatchId, preferredUserMatch);
+    } catch (error) {
+      console.error(
+        "[socket snapshot] load error:",
+        error?.message || error
+      );
+      return null;
+    }
+  };
+
+  let m = null;
+  const explicitUserMatch =
+    typeof userMatch === "boolean"
+      ? userMatch
+      : typeof userMatch === "string"
+      ? userMatch === "true"
+      : null;
+
+  if (explicitUserMatch === true) {
+    m = await tryLoad(true);
+  } else if (explicitUserMatch === false) {
+    m = await tryLoad(false);
+  } else {
+    m = await tryLoad(true);
+    if (!m) m = await tryLoad(false);
+  }
+
+  if (!m) return null;
+
+  await postprocessSnapshotLikeJoin(m);
+
+  if (!m.video) {
+    m.video =
+      m.videoUrl ||
+      m?.meta?.video ||
+      m?.facebookLive?.permalinkUrl ||
+      m?.facebookLive?.liveUrl ||
+      m?.facebookLive?.hls ||
+      m?.facebookLive?.m3u8 ||
+      null;
+  }
+
+  if (!m.isUserMatch && typeof computeStageInfoForMatchDoc === "function") {
+    try {
+      const s = computeStageInfoForMatchDoc(m) || {};
+      if (s.stageType != null) m.stageType = s.stageType;
+      if (s.stageName != null) m.stageName = s.stageName;
+    } catch (error) {
+      console.error(
+        "[socket snapshot] computeStageInfo error:",
+        error?.message || error
+      );
+    }
+  }
+
+  return toDTO(decorateServeAndSlots(m));
+};
+
 /**
  * Khởi tạo Socket.IO server
  * @param {import('http').Server} httpServer
@@ -1311,6 +1375,21 @@ export function initSocket(
         socket.emit("match:snapshot", toDTO(decorateServeAndSlots(m)));
       } catch (e) {
         console.error("[socket match:join] fatal error:", e?.message || e);
+      }
+    });
+
+    socket.on("match:snapshot:request", async ({ matchId, userMatch } = {}) => {
+      try {
+        if (!matchId) return;
+        const dto = await buildMatchSnapshotDto(matchId, userMatch);
+        if (dto) {
+          socket.emit("match:snapshot", dto);
+        }
+      } catch (e) {
+        console.error(
+          "[socket match:snapshot:request] fatal error:",
+          e?.message || e
+        );
       }
     });
 
