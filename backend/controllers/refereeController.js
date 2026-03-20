@@ -498,6 +498,39 @@ async function broadcastScoreUpdated(io, matchId) {
   io?.to(`match:${matchId}`)?.emit("score:updated", payload);
 }
 
+async function broadcastUserMatchScoreUpdated(io, matchId) {
+  const snap = await UserMatch.findById(matchId).lean();
+  if (!snap) return null;
+
+  const gameScores = Array.isArray(snap.gameScores) ? snap.gameScores : [];
+  const currentGame = Number.isInteger(snap.currentGame)
+    ? snap.currentGame
+    : gameScores.length - 1;
+  const activeScore =
+    gameScores[currentGame] ||
+    gameScores[gameScores.length - 1] || { a: 0, b: 0 };
+
+  const payload = {
+    ...snap,
+    _id: String(snap._id),
+    matchId: String(snap._id),
+    type: "userMatch",
+    stageType: "userMatch",
+    stageName: snap.stageName || "Trận đấu PickleTour",
+    scoreA: Number(activeScore?.a || 0),
+    scoreB: Number(activeScore?.b || 0),
+    liveVersion:
+      Number.isFinite(snap.liveVersion) && snap.liveVersion > 0
+        ? snap.liveVersion
+        : snap.updatedAt
+        ? new Date(snap.updatedAt).getTime()
+        : Date.now(),
+  };
+
+  io?.to(`match:${String(snap._id)}`)?.emit("score:updated", payload);
+  return payload;
+}
+
 export const patchScore = asyncHandler(async (req, res) => {
   // ================== Helpers (CAP-aware) ==================
   const isFinitePos = (n) => Number.isFinite(n) && n > 0;
@@ -710,10 +743,7 @@ export const patchScore = asyncHandler(async (req, res) => {
       }
 
       const fresh = await UserMatch.findById(id).lean();
-      io?.to(`match:${id}`).emit("score:updated", {
-        matchId: id,
-        type: "userMatch",
-      });
+      await broadcastUserMatchScoreUpdated(io, id);
 
       return res.json({
         message: "Score updated",
@@ -757,10 +787,7 @@ export const patchScore = asyncHandler(async (req, res) => {
       }
 
       await match.save();
-      io?.to(`match:${id}`).emit("score:updated", {
-        matchId: id,
-        type: "userMatch",
-      });
+      await broadcastUserMatchScoreUpdated(io, id);
 
       return res.json({
         message: "Game set",
@@ -807,10 +834,7 @@ export const patchScore = asyncHandler(async (req, res) => {
         ) {
           match.currentGame = len - 1;
           await match.save();
-          io?.to(`match:${id}`).emit("score:updated", {
-            matchId: id,
-            type: "userMatch",
-          });
+          await broadcastUserMatchScoreUpdated(io, id);
           return res.json({
             message: "Đã ở ván mới rồi",
             gameScores: match.gameScores,
@@ -832,10 +856,7 @@ export const patchScore = asyncHandler(async (req, res) => {
       if (matchDone) {
         if (autoNext === true) {
           await finalizeMatchIfDone(match, rulesNow);
-          io?.to(`match:${id}`).emit("score:updated", {
-            matchId: id,
-            type: "userMatch",
-          });
+          await broadcastUserMatchScoreUpdated(io, id);
           return res.json({
             message: "Trận đã đủ số ván thắng, đã kết thúc",
             gameScores: match.gameScores,
@@ -844,10 +865,7 @@ export const patchScore = asyncHandler(async (req, res) => {
             winner: match.winner,
           });
         } else {
-          io?.to(`match:${id}`).emit("score:updated", {
-            matchId: id,
-            type: "userMatch",
-          });
+          await broadcastUserMatchScoreUpdated(io, id);
           return res.status(409).json({
             message:
               "Trận đã đủ số ván thắng. Hãy bấm 'Kết thúc trận' để kết thúc.",
@@ -862,10 +880,7 @@ export const patchScore = asyncHandler(async (req, res) => {
       if (hasTrailingZero) {
         match.currentGame = len - 1;
         await match.save();
-        io?.to(`match:${id}`).emit("score:updated", {
-          matchId: id,
-          type: "userMatch",
-        });
+        await broadcastUserMatchScoreUpdated(io, id);
         return res.json({
           message: "Đã có ván tiếp theo sẵn",
           gameScores: match.gameScores,
@@ -892,10 +907,7 @@ export const patchScore = asyncHandler(async (req, res) => {
       });
 
       await match.save();
-      io?.to(`match:${id}`).emit("score:updated", {
-        matchId: id,
-        type: "userMatch",
-      });
+      await broadcastUserMatchScoreUpdated(io, id);
       return res.json({
         message: "Đã tạo ván tiếp theo",
         gameScores: match.gameScores,
@@ -1458,8 +1470,8 @@ export const patchWinner = asyncHandler(async (req, res) => {
 
     await match.save();
 
-    // 🔔 Bắn event giống match thường để FE không cần tách
-    io?.to(`match:${id}`).emit("score:updated", { matchId: id });
+    // 🔔 Bắn payload đầy đủ để client live không phải đoán score/serve/name
+    await broadcastUserMatchScoreUpdated(io, id);
     io?.to(`match:${id}`).emit("winner:updated", { matchId: id, winner });
     io?.to(`match:${id}`).emit("match:patched", { matchId: id });
 

@@ -1813,7 +1813,8 @@ export default function TournamentManagePage() {
       setExporting(true);
       const { default: pdfMake } = await import("pdfmake/build/pdfmake");
       const pdfFonts = await import("pdfmake/build/vfs_fonts");
-      pdfMake.vfs = pdfFonts.pdfMake.vfs;
+      // pdfmake v0.2.x exports font files directly, v0.1.x uses pdfMake.vfs
+      pdfMake.vfs = pdfFonts.pdfMake?.vfs || pdfFonts.default || pdfFonts;
 
       const data = buildExportPayload();
       const title = t("tournaments.manage.exportTitle", {
