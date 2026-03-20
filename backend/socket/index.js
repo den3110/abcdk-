@@ -2885,7 +2885,11 @@ export function initSocket(
   const SWEEP_EVERY_MS = +(process.env.PRESENCE_SWEEP_MS || 30000);
   setInterval(async () => {
     try {
-      await sweepStaleSockets({ batch: 500 });
+      const cleaned = await sweepStaleSockets({ batch: 500 });
+      if (cleaned > 0) {
+        console.log(`[socket] sweep cleaned ${cleaned} stale socket(s)`);
+        await emitSummary(io);
+      }
     } catch (e) {
       console.error("[socket] sweepStaleSockets timer error:", e);
     }

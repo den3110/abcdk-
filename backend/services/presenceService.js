@@ -196,8 +196,9 @@ export async function cleanupExpiredSocket(socketId) {
  * Cần cân nhắc tần suất gọi (ví dụ 30–60s).
  */
 export async function sweepStaleSockets({ batch = 500 } = {}) {
+  let cleaned = 0;
   try {
-    let cursor = "0";
+    let cursor = 0; // node-redis v4+/v5 trả cursor dạng Number
     do {
       const res = await r.scan(cursor, {
         MATCH: "presence:socket2user:*",
@@ -215,16 +216,18 @@ export async function sweepStaleSockets({ batch = 500 } = {}) {
             if (ttl === -2 || ttl === -1) {
               // -2: không tồn tại, -1: tồn tại nhưng không có TTL (coi như lỗi) -> cleanup
               await cleanupExpiredSocket(sid);
+              cleaned++;
             }
           } catch (e) {
             console.error("[presence] sweep ttl error:", e, { sid });
           }
         }
       }
-    } while (cursor !== "0");
+    } while (cursor !== 0);
   } catch (e) {
     console.error("[presence] sweepStaleSockets error:", e);
   }
+  return cleaned;
 }
 
 export async function getSummary() {
