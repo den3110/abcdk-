@@ -217,6 +217,7 @@ import {
   runAvatarOptimizationCleanupNow,
   runAvatarOptimizationSweepNow,
 } from "../controllers/admin/adminAvatarOptimizationController.js";
+import { getAdminTournamentImageProxy } from "../controllers/admin/adminAssetProxyController.js";
 // import { assignNextController, buildBracketQueueController, toggleAutoAssignController, upsertCourtsForBracket } from "../controllers/admin/adminCourtController.js";
 // import { assignNextToCourtCtrl, buildGroupsQueue, freeCourtCtrl, upsertCourts } from "../controllers/admin/adminCourtController.js";
 
@@ -280,6 +281,8 @@ router.put(
 );
 
 router.use(protect, authorize("admin")); // táº¥t cáº£ dÆ°á»›i Ä‘Ã¢y cáº§n admin
+
+router.get("/assets/tournament-image", getAdminTournamentImageProxy);
 
 router.get(
   "/avatar-optimization/status",

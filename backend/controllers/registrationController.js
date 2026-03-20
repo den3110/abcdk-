@@ -211,6 +211,7 @@ export const createRegistration = asyncHandler(async (req, res) => {
   const player1 = {
     user: u1._id,
     fullName: u1.name || u1.nickname, // fallback tránh rỗng
+    nickName: u1.nickname || "",
     phone: u1.phone,
     avatar: u1.avatar,
     province: u1.province,
@@ -220,6 +221,7 @@ export const createRegistration = asyncHandler(async (req, res) => {
     ? {
         user: u2._id,
         fullName: u2.name || u2.nickname,
+        nickName: u2.nickname || "",
         phone: u2.phone,
         avatar: u2.avatar,
         province: u2.province,

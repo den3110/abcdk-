@@ -7,6 +7,7 @@ import {
   publishNotification,
 } from "../../services/notifications/notificationHub.js";
 import mongoose from "mongoose";
+import { syncRegistrationProfileSnapshot } from "../../services/registrationProfileSync.service.js";
 
 const isSuperAdminActor = (req) =>
   Boolean(req.user?.isSuperUser || req.user?.isSuperAdmin);
@@ -199,7 +200,8 @@ export const updateUserInfo = asyncHandler(async (req, res) => {
     }
   }
 
-  await user.save();
+  const updatedUser = await user.save();
+  await syncRegistrationProfileSnapshot(updatedUser);
 
   if (rankingUpdateNeeded) {
     try {
@@ -213,7 +215,7 @@ export const updateUserInfo = asyncHandler(async (req, res) => {
     }
   }
 
-  res.json({ message: "User updated", user });
+  res.json({ message: "User updated", user: updatedUser });
 });
 /* ✨ Duyệt / Từ chối KYC */
 export const reviewUserKyc = asyncHandler(async (req, res) => {

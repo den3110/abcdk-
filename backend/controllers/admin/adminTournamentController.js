@@ -26,6 +26,10 @@ import {
   publishNotification,
 } from "../../services/notifications/notificationHub.js";
 import { geocodeTournamentLocation } from "../../services/openaiGeocode.js";
+import {
+  buildAdminTournamentImageProxyUrl,
+  unwrapAdminTournamentImageProxySource,
+} from "../../utils/adminTournamentImageProxy.js";
 
 dotenv.config();
 
@@ -651,7 +655,10 @@ export const getTournaments = expressAsyncHandler(async (req, res) => {
   ];
 
   const agg = await Tournament.aggregate(pipeline);
-  const list = agg?.[0]?.data || [];
+  const list = (agg?.[0]?.data || []).map((item) => ({
+    ...item,
+    image: buildAdminTournamentImageProxyUrl(req, item.image),
+  }));
   const total = agg?.[0]?.total?.[0]?.count || 0;
 
   res.json({ total, page, limit, list, tz: TZ });
@@ -683,6 +690,10 @@ const autoGenerateTournamentCode = (name) => {
 
 export const adminCreateTournament = expressAsyncHandler(async (req, res) => {
   const incoming = { ...(req.body || {}) };
+
+  if (Object.prototype.hasOwnProperty.call(incoming, "image")) {
+    incoming.image = unwrapAdminTournamentImageProxySource(incoming.image);
+  }
 
   if (incoming.scoringScope) {
     const type =
@@ -933,6 +944,10 @@ export const adminUpdateTournament = expressAsyncHandler(async (req, res) => {
   }
 
   const incoming = { ...(req.body || {}) };
+
+  if (Object.prototype.hasOwnProperty.call(incoming, "image")) {
+    incoming.image = unwrapAdminTournamentImageProxySource(incoming.image);
+  }
 
   if (incoming.scoringScope) {
     const type =
@@ -1247,7 +1262,9 @@ export const getTournamentById = expressAsyncHandler(async (req, res) => {
     res.status(404);
     throw new Error("Tournament not found");
   }
-  res.json(t);
+  const payload = t.toObject();
+  payload.image = buildAdminTournamentImageProxyUrl(req, payload.image);
+  res.json(payload);
 });
 
 export const deleteTournament = expressAsyncHandler(async (req, res) => {

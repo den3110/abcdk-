@@ -266,6 +266,8 @@ async function finalizeIfReady(invite) {
     player1: {
       user: u1?._id || null,
       fullName: invite.player1.fullName || u1?.name || "",
+      nickName:
+        invite.player1.nickname || invite.player1.nickName || u1?.nickname || "",
       phone: invite.player1.phone || u1?.phone || "",
       avatar: invite.player1.avatar || u1?.avatar || "",
       score: num(p1Score),
@@ -275,6 +277,11 @@ async function finalizeIfReady(invite) {
       : {
           user: u2?._id || null,
           fullName: invite.player2?.fullName || u2?.name || "",
+          nickName:
+            invite.player2?.nickname ||
+            invite.player2?.nickName ||
+            u2?.nickname ||
+            "",
           phone: invite.player2?.phone || u2?.phone || "",
           avatar: invite.player2?.avatar || u2?.avatar || "",
           score: num(p2Score),

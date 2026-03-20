@@ -32,6 +32,7 @@ import { normalize_for_search } from "../utils/vnSearchNormalizer.js";
 import { makeLoginOtpToken } from "./userLoginController.js";
 import { toPublicUrl as toClientPublicUrl } from "../utils/publicUrl.js";
 import { queueUserAvatarOptimizationById } from "../services/userAvatarOptimization.service.js";
+import { syncRegistrationProfileSnapshot } from "../services/registrationProfileSync.service.js";
 
 // helpers (có thể đặt trên cùng file)
 const isMasterEnabled = () =>
@@ -2236,6 +2237,7 @@ const updateUserProfile = asyncHandler(async (req, res) => {
   if (password) user.password = password;
 
   const updatedUser = await user.save();
+  await syncRegistrationProfileSnapshot(updatedUser);
   if (
     Object.prototype.hasOwnProperty.call(req.body, "avatar") &&
     String(previousAvatar || "") !== String(updatedUser.avatar || "") &&
