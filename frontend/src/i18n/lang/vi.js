@@ -1638,6 +1638,8 @@ export default {
         contactTitle: "Liên hệ BTC",
       },
       actions: {
+        editAvatar: "Sửa avatar",
+        replacePlayer: "Thay VĐV",
         complaint: "Khiếu nại",
         cancelRegistration: "Huỷ đăng ký",
         pay: "Thanh toán",
@@ -1647,6 +1649,10 @@ export default {
         checkin: "Check-in",
       },
       toasts: {
+        avatarTooLarge: "Ảnh không được vượt quá 10 MB",
+        avatarUploadFailed: "Upload avatar thất bại",
+        avatarUpdateSuccess: "Đã cập nhật avatar",
+        avatarUpdateError: "Lỗi cập nhật avatar",
         registrationClosed: "Đã hết hạn đăng ký cho VĐV. Vui lòng liên hệ BTC.",
         loginRequired: "Vui lòng đăng nhập",
         selectPlayer1: "Chọn VĐV 1",
@@ -1718,6 +1724,12 @@ export default {
       },
       dialogs: {
         imageFallback: "Ảnh VĐV",
+        avatarTitle: "Sửa avatar cho {name}",
+        avatarInfo: "Tải ảnh mới để cập nhật avatar toàn hệ thống cho VĐV này.",
+        avatarCurrent: "Đang hiển thị avatar hiện tại",
+        avatarChooseFile: "Chọn ảnh mới",
+        avatarSave: "Lưu avatar",
+        avatarSaving: "Đang lưu...",
         replaceTitlePlayer2: "Thay đổi / Thêm VĐV 2",
         replaceTitlePlayer1: "Thay đổi VĐV 1",
         replaceInfo: "Chọn VĐV mới để thay thế vào vị trí này.",

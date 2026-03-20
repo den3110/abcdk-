@@ -1642,6 +1642,8 @@ export default {
         contactTitle: "Organizer contact",
       },
       actions: {
+        editAvatar: "Edit avatar",
+        replacePlayer: "Replace player",
         complaint: "Complaint",
         cancelRegistration: "Cancel registration",
         pay: "Payment",
@@ -1651,6 +1653,10 @@ export default {
         checkin: "Check-in",
       },
       toasts: {
+        avatarTooLarge: "Avatar image must not exceed 10 MB",
+        avatarUploadFailed: "Avatar upload failed",
+        avatarUpdateSuccess: "Avatar updated",
+        avatarUpdateError: "Failed to update avatar",
         registrationClosed:
           "Registration has closed for players. Please contact the organizer.",
         loginRequired: "Please log in",
@@ -1726,6 +1732,13 @@ export default {
       },
       dialogs: {
         imageFallback: "Player image",
+        avatarTitle: "Edit avatar for {name}",
+        avatarInfo:
+          "Upload a new image to update this player's avatar across the system.",
+        avatarCurrent: "Currently showing the existing avatar",
+        avatarChooseFile: "Choose new image",
+        avatarSave: "Save avatar",
+        avatarSaving: "Saving...",
         replaceTitlePlayer2: "Change / add player 2",
         replaceTitlePlayer1: "Change player 1",
         replaceInfo: "Choose a new player to replace this slot.",

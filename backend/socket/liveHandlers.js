@@ -488,6 +488,16 @@ function onLostRallyNextServe(prev) {
   return { side: prev.side === "A" ? "B" : "A", server: 1 };
 }
 
+function emitMatchRealtimeUpdate(io, matchId, type, doc) {
+  if (!io || !matchId || !doc) return;
+  const dto = toDTO(decorateServeAndSlots(doc));
+  io.to(`match:${matchId}`).emit("score:updated", dto);
+  io.to(`match:${matchId}`).emit("match:update", {
+    type,
+    data: dto,
+  });
+}
+
 export async function startMatch(matchId, refereeId, io) {
   const m = await Match.findById(matchId);
   if (!m || m.status === "finished") return;
@@ -511,10 +521,7 @@ export async function startMatch(matchId, refereeId, io) {
 
   const doc = await loadMatchWithNickForEmit(m._id);
   if (!doc) return;
-  io.to(`match:${matchId}`).emit("match:update", {
-    type: "start",
-    data: toDTO(decorateServeAndSlots(doc)),
-  });
+  emitMatchRealtimeUpdate(io, matchId, "start", doc);
 }
 
 // chua dung
@@ -818,10 +825,7 @@ export async function addPoint(matchId, team, step = 1, by, io, opts = {}) {
       select: "name number code label zone area venue building floor",
     })
     .lean();
-  io?.to(`match:${matchId}`)?.emit("match:update", {
-    type: "point",
-    data: toDTO(decorateServeAndSlots(doc)),
-  });
+  emitMatchRealtimeUpdate(io, matchId, "point", doc);
 }
 
 export async function undoLast(matchId, by, io) {
@@ -862,10 +866,7 @@ export async function undoLast(matchId, by, io) {
 
       const doc = await loadMatchWithNickForEmit(m._id);
       if (!doc) return;
-      io.to(`match:${matchId}`).emit("match:update", {
-        type: "undo",
-        data: toDTO(decorateServeAndSlots(doc)),
-      });
+      emitMatchRealtimeUpdate(io, matchId, "undo", doc);
       return;
     }
   }
@@ -1018,10 +1019,7 @@ export async function setServe(matchId, side, server, serverId, by, io) {
   // phát update
   const doc = await loadMatchWithNickForEmit(m._id);
   if (!doc) return;
-  io?.to(`match:${matchId}`)?.emit("match:update", {
-    type: "serve",
-    data: toDTO(decorateServeAndSlots(doc)),
-  });
+  emitMatchRealtimeUpdate(io, matchId, "serve", doc);
 }
 
 export async function finishMatch(matchId, winner, reason, by, io) {
@@ -1061,10 +1059,7 @@ export async function finishMatch(matchId, winner, reason, by, io) {
   // (tuỳ chọn) nếu bạn có meta.streams muốn đính kèm
   if (!doc.streams && doc.meta?.streams) doc.streams = doc.meta.streams;
 
-  io?.to(`match:${matchId}`)?.emit("match:update", {
-    type: "finish",
-    data: toDTO(decorateServeAndSlots(doc)),
-  });
+  emitMatchRealtimeUpdate(io, matchId, "finish", doc);
 }
 
 export async function forfeitMatch(matchId, winner, reason, by, io) {

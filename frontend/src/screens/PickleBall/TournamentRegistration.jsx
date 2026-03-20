@@ -401,7 +401,7 @@ const StatCard = memo(({ icon, label, value, subValue }) => (
         <Box sx={{ "& svg": { fontSize: { xs: 18, sm: 22 } } }}>{icon}</Box>
       </Box>
 
-      <Box sx={{ minWidth: 0, flex: 1 }}>
+        <Box sx={{ minWidth: 0, flex: 1 }}>
         <Typography
           variant="caption"
           sx={{
@@ -767,37 +767,41 @@ const PlayerInfo = memo(
 
     return (
       <Stack direction="row" spacing={1.5} alignItems="center">
-      <Box
-        sx={{ position: "relative", cursor: "zoom-in" }}
-        onClick={() => onOpenPreview(player?.avatar, displayName(player, displayMode))}
-      >
-        <LazyAvatar src={player?.avatar} size={40} />
-        {canEdit && (
-          <Box
-            sx={{
-              position: "absolute",
-              bottom: -6,
-              right: -6,
-              bgcolor: "background.paper",
-              borderRadius: "50%",
-              boxShadow: 2,
-              cursor: "pointer",
-              width: 22,
-              height: 22,
-              display: "grid",
-              placeItems: "center",
-              zIndex: 1,
-              border: "1px solid #eee",
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit();
-            }}
-          >
-            <EditOutlined sx={{ fontSize: 12, color: "primary.main" }} />
-          </Box>
-        )}
-      </Box>
+        <Box
+          sx={{ position: "relative", cursor: "zoom-in" }}
+          onClick={() =>
+            onOpenPreview(player?.avatar, displayName(player, displayMode))
+          }
+        >
+          <LazyAvatar src={player?.avatar} size={40} />
+          {canEditAvatar && (
+            <Tooltip title={t("tournaments.registration.actions.editAvatar")}>
+              <Box
+                sx={{
+                  position: "absolute",
+                  bottom: -6,
+                  right: -6,
+                  bgcolor: "background.paper",
+                  borderRadius: "50%",
+                  boxShadow: 2,
+                  cursor: "pointer",
+                  width: 22,
+                  height: 22,
+                  display: "grid",
+                  placeItems: "center",
+                  zIndex: 1,
+                  border: "1px solid #eee",
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenAvatarEdit();
+                }}
+              >
+                <EditOutlined sx={{ fontSize: 12, color: "primary.main" }} />
+              </Box>
+            </Tooltip>
+          )}
+        </Box>
       <Box sx={{ minWidth: 0, flex: 1 }}>
         <Typography
           variant="body2"
@@ -811,26 +815,53 @@ const PlayerInfo = memo(
             alignItems: "center",
           }}
         >
-          {displayName(player, displayMode)} <VerifyBadge status={kycOf(player)} />
+            {displayName(player, displayMode)}{" "}
+            <VerifyBadge status={kycOf(player)} />
         </Typography>
-        <Stack direction="row" spacing={1} alignItems="center">
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ fontFamily: "monospace" }}
-          >
-            {player?.phone || "—"}
+        <Stack
+          direction={{ xs: "column", sm: "row" }}
+          spacing={1}
+          alignItems={{ xs: "flex-start", sm: "center" }}
+          sx={{ mt: 0.4 }}
+        >
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ fontFamily: "monospace" }}
+              >
+                {player?.phone || "—"}
           </Typography>
-          <Chip
-            label={fmt3(player?.score)}
-            size="small"
-            variant="outlined"
-            sx={{ height: 16, fontSize: "0.65rem", borderRadius: 1 }}
-          />
+              <Chip
+                label={fmt3(player?.score)}
+                size="small"
+                variant="outlined"
+                sx={{ height: 16, fontSize: "0.65rem", borderRadius: 1 }}
+              />
+            </Stack>
+          {canManage && (
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<PersonAdd fontSize="small" />}
+              onClick={onReplacePlayer}
+              sx={{
+                minWidth: "auto",
+                px: 1,
+                py: 0.25,
+                borderRadius: 2,
+                textTransform: "none",
+                ml: { sm: "auto" },
+              }}
+            >
+              {t("tournaments.registration.actions.replacePlayer")}
+            </Button>
+          )}
         </Stack>
       </Box>
     </Stack>
-  )
+    );
+  }
 );
 
 /* Card dùng chung cho cả mobile + desktop */
@@ -902,8 +933,9 @@ const RegCard = memo(
             <Box>
               <PlayerInfo
                 player={r.player1}
-                onEdit={() => props.onOpenReplace(r, "p1")}
-                canEdit={props.canManage}
+                canManage={props.canManage}
+                onOpenAvatarEdit={() => props.onOpenAvatarEdit(r, "p1", r.player1)}
+                onReplacePlayer={() => props.onOpenReplace(r, "p1")}
                 displayMode={props.displayMode}
                 {...props}
               />
@@ -911,8 +943,11 @@ const RegCard = memo(
                 <Box mt={1.5}>
                   <PlayerInfo
                     player={r.player2}
-                    onEdit={() => props.onOpenReplace(r, "p2")}
-                    canEdit={props.canManage}
+                    canManage={props.canManage}
+                    onOpenAvatarEdit={() =>
+                      props.onOpenAvatarEdit(r, "p2", r.player2)
+                    }
+                    onReplacePlayer={() => props.onOpenReplace(r, "p2")}
                     displayMode={props.displayMode}
                     {...props}
                   />
@@ -1050,7 +1085,11 @@ export default function TournamentRegistration() {
       );
     return !!tour.isManager;
   }, [isLoggedIn, me, tour]);
-  const isAdmin = !!(me?.isAdmin || me?.role === "admin");
+  const isAdmin = !!(
+    me?.isAdmin ||
+    me?.role === "admin" ||
+    (Array.isArray(me?.roles) && me.roles.includes("admin"))
+  );
   const canManage = isLoggedIn && (isManager || isAdmin);
 
   /* API Actions */
@@ -1062,6 +1101,8 @@ export default function TournamentRegistration() {
   const [replacePlayer] = useManagerReplaceRegPlayerMutation();
   const [createComplaint, { isLoading: sendingComplaint }] =
     useCreateComplaintMutation();
+  const [updateRegPlayerAvatar] = useManagerUpdateRegPlayerAvatarMutation();
+  const [uploadAvatar] = useUploadRealAvatarMutation();
 
   /* Form States */
   const [p1, setP1] = useState(null);
@@ -1088,6 +1129,15 @@ export default function TournamentRegistration() {
   });
   const [paymentDlg, setPaymentDlg] = useState({ open: false, reg: null });
   const [profileDlg, setProfileDlg] = useState({ open: false, userId: null });
+  const [avatarDlg, setAvatarDlg] = useState({
+    open: false,
+    reg: null,
+    slot: "p1",
+    player: null,
+  });
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState("");
+  const [avatarSaving, setAvatarSaving] = useState(false);
 
   /* Countdown */
   /* Countdown / Registration deadline */
@@ -1399,6 +1449,112 @@ export default function TournamentRegistration() {
   const handleClosePayment = useCallback(() => {
     setPaymentDlg({ open: false, reg: null });
   }, []);
+
+  const clearAvatarSelection = useCallback(() => {
+    setAvatarPreviewUrl((prev) => {
+      if (typeof prev === "string" && prev.startsWith("blob:")) {
+        URL.revokeObjectURL(prev);
+      }
+      return "";
+    });
+    setAvatarFile(null);
+  }, []);
+
+  const handleOpenAvatarEdit = useCallback(
+    (reg, slot, player) => {
+      if (!canManage || !getUserId(player)) return;
+      clearAvatarSelection();
+      setAvatarSaving(false);
+      setAvatarDlg({ open: true, reg, slot, player });
+    },
+    [canManage, clearAvatarSelection]
+  );
+
+  const handleCloseAvatarEdit = useCallback(() => {
+    if (avatarSaving) return;
+    clearAvatarSelection();
+    setAvatarDlg({ open: false, reg: null, slot: "p1", player: null });
+  }, [avatarSaving, clearAvatarSelection]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof avatarPreviewUrl === "string" && avatarPreviewUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(avatarPreviewUrl);
+      }
+    };
+  }, [avatarPreviewUrl]);
+
+  const handleAvatarFileChange = useCallback(
+    (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      if (file.size > MAX_AVATAR_FILE_SIZE) {
+        toast.error(t("tournaments.registration.toasts.avatarTooLarge"));
+        e.target.value = "";
+        return;
+      }
+
+      setAvatarPreviewUrl((prev) => {
+        if (typeof prev === "string" && prev.startsWith("blob:")) {
+          URL.revokeObjectURL(prev);
+        }
+        return URL.createObjectURL(file);
+      });
+      setAvatarFile(file);
+      e.target.value = "";
+    },
+    [t]
+  );
+
+  const submitAvatarUpdate = useCallback(async () => {
+    if (!avatarDlg.reg?._id || !avatarDlg.slot || !avatarFile) return;
+
+    setAvatarSaving(true);
+    try {
+      let avatarUrl = "";
+      try {
+        const uploaded = await uploadAvatar(avatarFile).unwrap();
+        avatarUrl = String(uploaded?.url || "").trim();
+      } catch (e) {
+        throw new Error(
+          e?.data?.message || t("tournaments.registration.toasts.avatarUploadFailed")
+        );
+      }
+      if (!avatarUrl) {
+        throw new Error(t("tournaments.registration.toasts.avatarUploadFailed"));
+      }
+
+      await updateRegPlayerAvatar({
+        regId: avatarDlg.reg._id,
+        slot: avatarDlg.slot,
+        avatar: avatarUrl,
+      }).unwrap();
+
+      toast.success(t("tournaments.registration.toasts.avatarUpdateSuccess"));
+      clearAvatarSelection();
+      setAvatarDlg({ open: false, reg: null, slot: "p1", player: null });
+      refetchRegs();
+      if (debouncedQ) refetchSearch();
+    } catch (e) {
+      toast.error(
+        e?.data?.message ||
+          e?.message ||
+          t("tournaments.registration.toasts.avatarUpdateError")
+      );
+    } finally {
+      setAvatarSaving(false);
+    }
+  }, [
+    avatarDlg,
+    avatarFile,
+    uploadAvatar,
+    updateRegPlayerAvatar,
+    t,
+    clearAvatarSelection,
+    refetchRegs,
+    debouncedQ,
+    refetchSearch,
+  ]);
 
   const handleOpenComplaint = useCallback((reg) => {
     setComplaintDlg({ open: true, reg, text: "" });
@@ -2052,6 +2208,7 @@ export default function TournamentRegistration() {
                             onCancel={handleCancel}
                             onTogglePayment={togglePayment}
                             onOpenReplace={handleOpenReplace}
+                            onOpenAvatarEdit={handleOpenAvatarEdit}
                             onOpenPreview={handleOpenPreview}
                             onOpenProfile={handleOpenProfile}
                             onOpenPayment={handleOpenPayment}
@@ -2138,6 +2295,63 @@ export default function TournamentRegistration() {
         </DialogActions>
       </Dialog>
 
+      <Dialog
+        open={avatarDlg.open}
+        onClose={handleCloseAvatarEdit}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>
+          {t("tournaments.registration.dialogs.avatarTitle", {
+            name: displayName(avatarDlg.player, displayMode),
+          })}
+        </DialogTitle>
+        <DialogContent dividers>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            {t("tournaments.registration.dialogs.avatarInfo")}
+          </Alert>
+          <Stack spacing={2} alignItems="center">
+            <Avatar
+              src={safeSrc(avatarPreviewUrl || avatarDlg.player?.avatar || PLACE)}
+              alt={displayName(avatarDlg.player, displayMode)}
+              sx={{ width: 112, height: 112, boxShadow: 3 }}
+              imgProps={{
+                onError: (e) => {
+                  e.currentTarget.src = PLACE;
+                },
+              }}
+            />
+            <Typography variant="body2" color="text.secondary" align="center">
+              {avatarFile?.name ||
+                t("tournaments.registration.dialogs.avatarCurrent")}
+            </Typography>
+            <Button component="label" variant="outlined" disabled={avatarSaving}>
+              {t("tournaments.registration.dialogs.avatarChooseFile")}
+              <input
+                hidden
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarFileChange}
+              />
+            </Button>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseAvatarEdit} disabled={avatarSaving}>
+            {t("common.actions.cancel")}
+          </Button>
+          <Button
+            variant="contained"
+            onClick={submitAvatarUpdate}
+            disabled={!avatarFile || avatarSaving}
+          >
+            {avatarSaving
+              ? t("tournaments.registration.dialogs.avatarSaving")
+              : t("tournaments.registration.dialogs.avatarSave")}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* 3. Complaint */}
       <Dialog
         open={complaintDlg.open}
@@ -2149,7 +2363,7 @@ export default function TournamentRegistration() {
         <DialogContent dividers>
           <Typography variant="body2" gutterBottom color="text.secondary">
             {t("tournaments.registration.dialogs.complaintInfo")}
-          </Typography>
+              </Typography>
           <TextField
             fullWidth
             multiline
