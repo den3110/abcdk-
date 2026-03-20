@@ -371,10 +371,11 @@ async function touchTargetLeaseState({
 
 export function pickFacebookMeta(doc) {
   const liveVideoId =
-    doc?.facebookLive?.videoId ||
+    doc?.facebookLive?.id ||
     doc?.facebookLive?.liveVideoId ||
-    doc?.live?.platforms?.facebook?.liveVideoId ||
     doc?.live?.platforms?.facebook?.id ||
+    doc?.live?.platforms?.facebook?.liveVideoId ||
+    doc?.facebookLive?.videoId ||
     null;
 
   const pageAccessToken =

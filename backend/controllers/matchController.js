@@ -2427,10 +2427,11 @@ const legacyNotifyStreamStarted = asyncHandler(async (req, res) => {
 
 function legacyPickFacebookMeta(doc) {
   const liveVideoId =
-    doc?.facebookLive?.videoId ||
+    doc?.facebookLive?.id ||
     doc?.facebookLive?.liveVideoId ||
-    doc?.live?.platforms?.facebook?.liveVideoId ||
     doc?.live?.platforms?.facebook?.id ||
+    doc?.live?.platforms?.facebook?.liveVideoId ||
+    doc?.facebookLive?.videoId ||
     null;
 
   // ✅ token lấy trực tiếp từ facebookLive trong doc

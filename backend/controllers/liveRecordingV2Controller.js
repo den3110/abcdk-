@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import Match from "../models/matchModel.js";
 import LiveRecordingV2 from "../models/liveRecordingV2Model.js";
 import {
+  buildRecordingPlaybackUrl,
   buildRecordingRawStatusUrl,
   buildRecordingRawStreamUrl,
 } from "../services/liveRecordingV2Export.service.js";
@@ -66,8 +67,46 @@ function shouldPreserveExportState(recording) {
   return ["exporting", "ready", "failed"].includes(String(recording?.status || ""));
 }
 
+function buildRecordingLinks(recordingId) {
+  const id = String(recordingId || "").trim();
+  if (!id) {
+    return {
+      playbackUrl: null,
+      rawStreamUrl: null,
+      rawStatusUrl: null,
+    };
+  }
+
+  const safeBuild = (builder, label) => {
+    try {
+      return builder(id);
+    } catch (error) {
+      console.error(`Failed to build ${label} for recording ${id}:`, error);
+      return null;
+    }
+  };
+
+  return {
+    playbackUrl: safeBuild(buildRecordingPlaybackUrl, "playbackUrl"),
+    rawStreamUrl: safeBuild(buildRecordingRawStreamUrl, "rawStreamUrl"),
+    rawStatusUrl: safeBuild(buildRecordingRawStatusUrl, "rawStatusUrl"),
+  };
+}
+
+function ensureRecordingPlaybackUrl(recording) {
+  if (!recording) return null;
+  const links = buildRecordingLinks(recording._id);
+  const playbackUrl = links.playbackUrl || recording.playbackUrl || null;
+  recording.playbackUrl = playbackUrl;
+  return {
+    ...links,
+    playbackUrl,
+  };
+}
+
 function serializeRecording(recording) {
   if (!recording) return null;
+  const links = ensureRecordingPlaybackUrl(recording);
   return {
     id: String(recording._id),
     matchId: String(recording.match),
@@ -81,9 +120,9 @@ function serializeRecording(recording) {
     driveFileId: recording.driveFileId || null,
     driveRawUrl: recording.driveRawUrl || null,
     drivePreviewUrl: recording.drivePreviewUrl || null,
-    playbackUrl: buildRecordingPlaybackUrl(recording._id),
-    rawStreamUrl: buildRecordingRawStreamUrl(recording._id),
-    rawStatusUrl: buildRecordingRawStatusUrl(recording._id),
+    playbackUrl: links.playbackUrl,
+    rawStreamUrl: links.rawStreamUrl,
+    rawStatusUrl: links.rawStatusUrl,
     rawStreamAvailable: Boolean(recording.driveFileId || recording.driveRawUrl),
     driveAuthMode: recording?.meta?.exportPipeline?.driveAuthMode || null,
     exportAttempts: recording.exportAttempts || 0,
@@ -151,7 +190,7 @@ export const startLiveRecordingV2 = asyncHandler(async (req, res) => {
       recordingId: recording._id,
       matchId,
     });
-    recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
+    ensureRecordingPlaybackUrl(recording);
     await recording.save();
   } else {
     recording.mode = mode;
@@ -159,7 +198,7 @@ export const startLiveRecordingV2 = asyncHandler(async (req, res) => {
     recording.status =
       recording.status === "ready" ? "recording" : recording.status || "recording";
     if (!recording.playbackUrl) {
-      recording.playbackUrl = buildRecordingPlaybackUrl(recording._id);
+      ensureRecordingPlaybackUrl(recording);
     }
     await recording.save();
   }
@@ -987,13 +1026,14 @@ export const getLiveRecordingRawStatusV2 = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: "Recording not found" });
   }
 
+  const links = ensureRecordingPlaybackUrl(recording);
   const payload = {
     ok: true,
     ready: false,
     status: recording.status,
-    rawStreamUrl: buildRecordingRawStreamUrl(recording._id),
-    rawStatusUrl: buildRecordingRawStatusUrl(recording._id),
-    playbackUrl: buildRecordingPlaybackUrl(recording._id),
+    rawStreamUrl: links.rawStreamUrl,
+    rawStatusUrl: links.rawStatusUrl,
+    playbackUrl: links.playbackUrl,
     recording: serializeRecording(recording),
   };
 
