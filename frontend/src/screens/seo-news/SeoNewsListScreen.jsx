@@ -191,15 +191,15 @@ export default function SeoNewsListScreen() {
       <Box
         sx={{
           py: { xs: 2, md: 3 },
-          px: 2,
+          px: { xs: 1, md: 2 },
         }}
       >
         <Container maxWidth="lg">
           <Box
             sx={{
               borderRadius: { xs: 2, md: 2 },
-              px: { xs: 3, md: 4 },
-              py: { xs: 3.25, md: 4 },
+              px: { xs: 2, md: 4 },
+              py: { xs: 2.5, md: 4 },
               position: "relative",
               overflow: "hidden",
               border: "none",

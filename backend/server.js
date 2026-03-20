@@ -115,11 +115,11 @@ const WHITELIST = [
 const app = express();
 
 // Security headers - chÃ¡ÂºÂ·n Clickjacking, XSS, MIME sniffing, etc.
-// app.use(
-//   helmet({
-//     crossOriginResourcePolicy: false, // táº¯t máº·c Ä‘á»‹nh same-origin
-//   })
-// );
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false, // táº¯t máº·c Ä‘á»‹nh same-origin
+  })
+);
 
 app.use(
   cors({
