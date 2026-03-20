@@ -936,8 +936,9 @@ const RegCard = memo(
                 canManage={props.canManage}
                 onOpenAvatarEdit={() => props.onOpenAvatarEdit(r, "p1", r.player1)}
                 onReplacePlayer={() => props.onOpenReplace(r, "p1")}
+                onOpenPreview={props.onOpenPreview}
+                onOpenProfile={props.onOpenProfile}
                 displayMode={props.displayMode}
-                {...props}
               />
               {!isSingles && r.player2 && (
                 <Box mt={1.5}>
@@ -948,8 +949,9 @@ const RegCard = memo(
                       props.onOpenAvatarEdit(r, "p2", r.player2)
                     }
                     onReplacePlayer={() => props.onOpenReplace(r, "p2")}
+                    onOpenPreview={props.onOpenPreview}
+                    onOpenProfile={props.onOpenProfile}
                     displayMode={props.displayMode}
-                    {...props}
                   />
                 </Box>
               )}
