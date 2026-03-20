@@ -5,6 +5,7 @@ import {
   cancelRegistration,
   updateRegistrationPayment,
   deleteRegistration,
+  managerUpdateRegPlayerAvatar,
   managerReplacePlayer,
   searchRegistrations,
 } from "../controllers/registrationController.js";
@@ -19,6 +20,7 @@ router.post("/:regId/cancel", protect, cancelRegistration);
 
 router.patch("/:id/payment", protect, updateRegistrationPayment); // update payment
 router.delete("/:id/admin", protect, deleteRegistration);
+router.patch("/:regId/manager/player-avatar", protect, managerUpdateRegPlayerAvatar);
 router.patch("/:regId/manager/replace-player", protect, managerReplacePlayer);
 router.get(
   "/:id/registrations/search",

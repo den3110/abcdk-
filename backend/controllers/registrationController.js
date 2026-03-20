@@ -14,6 +14,8 @@ import {
   EVENTS,
   publishNotification,
 } from "../services/notifications/notificationHub.js";
+import { writeAuditLog } from "../services/audit.service.js";
+import { queueUserAvatarOptimizationById } from "../services/userAvatarOptimization.service.js";
 /* Tạo đăng ký */
 // POST /api/tournaments/:id/registrations
 export const createRegistration = asyncHandler(async (req, res) => {
@@ -580,6 +582,17 @@ export const deleteRegistration = asyncHandler(async (req, res) => {
   res.json({ message: "Registration deleted" });
 });
 
+function isAdminUser(user) {
+  return (
+    user?.isAdmin === true ||
+    user?.role === "admin" ||
+    (Array.isArray(user?.roles) &&
+      (user.roles.includes("admin") ||
+        user.roles.includes("superadmin") ||
+        user.roles.includes("superuser")))
+  );
+}
+
 /* Check quyền: owner → legacy managers (nếu có) → TournamentManager */
 async function isTourManager(userId, tour) {
   if (!tour || !userId) return false;
@@ -604,6 +617,122 @@ async function isTourManager(userId, tour) {
   });
   return !!exists;
 }
+
+export const managerUpdateRegPlayerAvatar = expressAsyncHandler(
+  async (req, res) => {
+    const { regId } = req.params;
+    const { slot, avatar } = req.body || {};
+    const avatarUrl = typeof avatar === "string" ? avatar.trim() : "";
+
+    if (!["p1", "p2"].includes(slot)) {
+      res.status(400);
+      throw new Error("slot phải là 'p1' hoặc 'p2'");
+    }
+    if (!avatarUrl) {
+      res.status(400);
+      throw new Error("Thiếu avatar");
+    }
+
+    const reg = await Registration.findById(regId);
+    if (!reg) {
+      res.status(404);
+      throw new Error("Không tìm thấy đăng ký");
+    }
+
+    const tour = await Tournament.findById(reg.tournament).select(
+      "eventType createdBy managers"
+    );
+    if (!tour) {
+      res.status(404);
+      throw new Error("Không tìm thấy giải đấu");
+    }
+
+    const authedUserId = req.user?._id || req.user?.id;
+    if (!authedUserId) {
+      res.status(401);
+      throw new Error("Chưa đăng nhập");
+    }
+
+    if (!(isAdminUser(req.user) || (await isTourManager(authedUserId, tour)))) {
+      res.status(403);
+      throw new Error("Bạn không có quyền sửa avatar cho đăng ký này");
+    }
+
+    const evType = String(tour.eventType || "").toLowerCase();
+    const isSingles = evType === "single" || evType === "singles";
+    if (isSingles && slot === "p2") {
+      res.status(400);
+      throw new Error("Giải đơn chỉ có VĐV 1 (p1)");
+    }
+
+    const targetUserId =
+      slot === "p1" ? reg.player1?.user?.toString?.() : reg.player2?.user?.toString?.();
+    if (!targetUserId) {
+      res.status(404);
+      throw new Error("Không tìm thấy VĐV ở vị trí này");
+    }
+
+    const user = await User.findById(targetUserId);
+    if (!user) {
+      res.status(404);
+      throw new Error("Không tìm thấy User");
+    }
+
+    const before = user.toObject({ depopulate: true });
+    const previousAvatar = user.avatar || "";
+
+    user.avatar = avatarUrl;
+    const updatedUser = await user.save();
+
+    if (
+      String(previousAvatar || "") !== String(updatedUser.avatar || "") &&
+      updatedUser.avatar
+    ) {
+      queueUserAvatarOptimizationById(updatedUser._id);
+    }
+
+    try {
+      const after = updatedUser.toObject({ depopulate: true });
+      await writeAuditLog({
+        entityType: "User",
+        entityId: updatedUser._id,
+        action: "UPDATE",
+        actorId: authedUserId,
+        actorKind: "user",
+        ip: req.ip,
+        userAgent: req.get("user-agent") || "",
+        before,
+        after,
+        note: "managerUpdateRegPlayerAvatar",
+        ignoreFields: [
+          "_id",
+          "__v",
+          "password",
+          "updatedAt",
+          "createdAt",
+          "resetPasswordToken",
+          "resetPasswordExpire",
+          "refreshToken",
+          "accessToken",
+          "tokens",
+        ],
+      });
+    } catch (err) {
+      console.error(
+        "AUDIT_LOG_ERROR(managerUpdateRegPlayerAvatar):",
+        err?.message || err
+      );
+    }
+
+    res.json({
+      ok: true,
+      regId,
+      slot,
+      userId: updatedUser._id,
+      avatar: updatedUser.avatar || "",
+    });
+  }
+);
 
 /* Snapshot user → subdoc player */
 function toPlayerSubdoc(u) {
@@ -711,14 +840,7 @@ export const managerReplacePlayer = expressAsyncHandler(async (req, res) => {
     throw new Error("Chưa đăng nhập");
   }
 
-  const isAdmin =
-    req.user?.isAdmin === true ||
-    req.user?.role === "admin" ||
-    (Array.isArray(req.user?.roles) &&
-      (req.user.roles.includes("admin") ||
-        req.user.roles.includes("superadmin")));
-
-  if (!(isAdmin || (await isTourManager(authedUserId, tour)))) {
+  if (!(isAdminUser(req.user) || (await isTourManager(authedUserId, tour)))) {
     res.status(403);
     throw new Error("Bạn không có quyền thay VĐV cho đăng ký này");
   }

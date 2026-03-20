@@ -364,6 +364,17 @@ export const tournamentsApiSlice = apiSlice.injectEndpoints({
         { type: "Registrations", id: "LIST" },
       ],
     }),
+    managerUpdateRegPlayerAvatar: builder.mutation({
+      query: ({ regId, slot, avatar }) => ({
+        url: `/api/registrations/${regId}/manager/player-avatar`,
+        method: "PATCH",
+        body: { slot, avatar },
+      }),
+      invalidatesTags: (r, e, { regId }) => [
+        { type: "Registration", id: regId },
+        { type: "Registrations", id: "LIST" },
+      ],
+    }),
     listPublicMatchesByTournament: builder.query({
       query: ({ tid, params }) => {
         // backend nên trả danh sách đã tối ưu cho hiển thị (simple fields)
@@ -653,6 +664,7 @@ export const {
   useGetBracketQuery,
   useGenerateGroupMatchesMutation,
   useManagerReplaceRegPlayerMutation,
+  useManagerUpdateRegPlayerAvatarMutation,
   useListPublicMatchesByTournamentQuery,
   useAdminGetBracketsQuery,
   useAdminListMatchesByTournamentQuery,

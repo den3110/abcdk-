@@ -275,6 +275,8 @@ export default function Hero() {
   const hasPlayStore = !!contactInfo?.apps?.playStore;
   const hasApkPickleTour = !!contactInfo?.apps?.apkPickleTour;
   const hasApkReferee = !!contactInfo?.apps?.apkReferee;
+  const hasLiveAppIos = !!contactInfo?.apps?.liveAppIos;
+  const hasLiveAppApk = !!contactInfo?.apps?.liveAppApk;
   const glassCardStyle = {
     background: isDark ? "rgba(30, 30, 30, 0.8)" : "rgba(255, 255, 255, 0.9)",
     backdropFilter: "blur(10px)",
@@ -1407,7 +1409,7 @@ export default function Hero() {
                 </Card>
 
                 {/* App Downloads */}
-                {(hasAppStore || hasPlayStore || hasApkPickleTour) && (
+                {(hasAppStore || hasPlayStore || hasApkPickleTour || hasLiveAppIos || hasLiveAppApk) && (
                   <Card
                     className="flex-grow-1 border-0"
                     style={{ ...glassCardStyle }}
@@ -1469,7 +1471,39 @@ export default function Hero() {
                                 className={`btn btn-sm rounded-pill ${isDark ? "btn-outline-secondary" : "btn-outline-dark"}`}
                                 download
                               >
-                                <IDownload size={14} /> {contactCards.refereeApp}
+                                 <IDownload size={14} /> {contactCards.refereeApp}
+                               </a>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {(hasLiveAppIos || hasLiveAppApk) && (
+                        <div className={`mt-3 pt-3 border-top ${isDark ? "border-secondary" : "border-2"}`}>
+                          <div
+                            className={`small mb-2 ${isDark ? "text-secondary" : "text-muted"}`}
+                            style={{ textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700, fontSize: "0.7rem" }}
+                          >
+                            {t("footer.liveApps.title")}
+                          </div>
+                          <div className="d-flex flex-wrap gap-2">
+                            {hasLiveAppIos && (
+                              <a
+                                href={contactInfo.apps.liveAppIos}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`btn btn-sm rounded-pill ${isDark ? "btn-outline-light" : "btn-outline-secondary"}`}
+                              >
+                                <IDownload size={14} /> {t("footer.liveApps.ios")}
+                              </a>
+                            )}
+                            {hasLiveAppApk && (
+                              <a
+                                href={contactInfo.apps.liveAppApk}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`btn btn-sm rounded-pill ${isDark ? "btn-outline-light" : "btn-outline-secondary"}`}
+                              >
+                                <IDownload size={14} /> {t("footer.liveApps.apk")}
                               </a>
                             )}
                           </div>

@@ -59,11 +59,13 @@ import {
   useManagerSetRegPaymentStatusMutation,
   useManagerDeleteRegistrationMutation,
   useManagerReplaceRegPlayerMutation,
+  useManagerUpdateRegPlayerAvatarMutation,
   useCreateComplaintMutation,
   useSearchRegistrationsQuery,
   useCancelRegistrationMutation,
 } from "../../slices/tournamentsApiSlice";
 import { useGetMeScoreQuery } from "../../slices/usersApiSlice";
+import { useUploadRealAvatarMutation } from "../../slices/uploadApiSlice";
 import PlayerSelector from "../../components/PlayerSelector";
 import PublicProfileDialog from "../../components/PublicProfileDialog";
 import { useLanguage } from "../../context/LanguageContext";
@@ -80,6 +82,7 @@ import {
 const PLACE = "https://dummyimage.com/800x600/cccccc/ffffff&text=?";
 const BRAND_COLOR = "#1976d2";
 const CARD_RADIUS = 3;
+const MAX_AVATAR_FILE_SIZE = 10 * 1024 * 1024;
 
 const totalChipStyle = (total, cap, delta, t) => {
   const hasCap = Number.isFinite(cap) && cap > 0;
@@ -750,8 +753,20 @@ const ActionButtonsInner = ({
 };
 
 const PlayerInfo = memo(
-  ({ player, onEdit, canEdit, onOpenPreview, onOpenProfile, displayMode }) => (
-    <Stack direction="row" spacing={1.5} alignItems="center">
+  ({
+    player,
+    canManage,
+    onOpenAvatarEdit,
+    onReplacePlayer,
+    onOpenPreview,
+    onOpenProfile,
+    displayMode,
+  }) => {
+    const { t } = useLanguage();
+    const canEditAvatar = canManage && !!getUserId(player);
+
+    return (
+      <Stack direction="row" spacing={1.5} alignItems="center">
       <Box
         sx={{ position: "relative", cursor: "zoom-in" }}
         onClick={() => onOpenPreview(player?.avatar, displayName(player, displayMode))}
